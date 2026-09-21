@@ -330,7 +330,9 @@ export type AppInfo = {
   extensions: string[];
 };
 
-export type ExportPrefs = { resolution: number | null; fps: number | null; quality: string | null; folder: string | null };
+export type ExportFormat = 'mp4' | 'mov' | 'mov-alpha' | 'avi' | 'mp3';
+
+export type ExportPrefs = { resolution: number | null; fps: number | null; quality: string | null; folder: string | null; format?: ExportFormat | null; channel?: 'rgb' | 'rgba' | null };
 
 /** How a script should be read aloud, and by whom. */
 export type VoiceMode = 'auto' | 'hinglish' | 'hindi-roman' | 'en' | 'hi';
@@ -415,6 +417,8 @@ export type ExportOptions = {
   fps: number | null;
   quality: 'draft' | 'standard' | 'high';
   inToOut: boolean;
+  /** Container + codec set; mov-alpha is ProRes 4444 with an alpha channel. */
+  format: ExportFormat;
 };
 
 /** Timeline selection: clip ids in the active comp. */

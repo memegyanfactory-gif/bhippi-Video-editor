@@ -3420,6 +3420,27 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .resource-heading, .resource-row { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .resource-task { border-bottom: 1px solid #444; padding: 8px 0; }
 .resource-row { margin-top: 8px; }
+/* ── meters as progress bars: CPU + RAM at a glance, details on demand ────── */
+.resource-bars { display: inline-flex; align-items: center; gap: 7px; }
+.meter { display: inline-block; width: 52px; height: 5px; border-radius: 999px; background: var(--panel-4, #3a3a3a); overflow: hidden; vertical-align: middle; }
+.meter > span { display: block; height: 100%; background: var(--blue); transition: width 400ms ease; }
+.meter.ram > span { background: var(--mango, #e8a33d); }
+.meter.wide { width: 130px; }
+.resource-meter-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.resource-meter-row > span:first-child { width: 30px; color: #aaa; }
+.resource-meter-row > span:last-child { min-width: 118px; text-align: right; color: #ccc; font-variant-numeric: tabular-nums; }
+/* ── render queue: every export, live ──────────────────────────────────────── */
+.queue-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 12px; color: var(--text-dim); text-align: center; }
+.queue-row { display: flex; align-items: flex-start; gap: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel-2); }
+.queue-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.queue-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; overflow-wrap: anywhere; }
+.queue-sub { font-size: 11.5px; overflow-wrap: anywhere; }
+.queue-bar { width: 100%; height: 6px; }
+.queue-actions { display: flex; align-items: center; gap: 6px; flex: none; font-variant-numeric: tabular-nums; }
+.queue-row.status-rendering .queue-title svg { color: var(--blue); }
+.queue-row.status-queued .queue-title svg { color: var(--mango, #e8a33d); }
+.queue-row.status-done .queue-title svg { color: var(--green, #6cc26c); }
+.queue-row.status-failed .queue-title svg { color: var(--red, #e05c5c); }
 .provider-auto-update { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; color: #aaa; }
 .provider-update-status { font-size: 11px; overflow-wrap: anywhere; max-height: 76px; overflow: auto; color: #aaa; margin: 6px 0 0; }
 .provider-actions { flex-wrap: wrap; }

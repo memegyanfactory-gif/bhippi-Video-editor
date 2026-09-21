@@ -40,7 +40,7 @@ fn library(assets: Vec<Asset>) -> HashMap<String, Asset> {
 }
 
 fn options(comp_id: &str) -> ExportOptions {
-    ExportOptions { output: "out.mp4".to_owned(), comp_id: comp_id.to_owned(), resolution: None, fps: None, quality: "standard".to_owned(), in_to_out: false }
+    ExportOptions { output: "out.mp4".to_owned(), comp_id: comp_id.to_owned(), resolution: None, fps: None, quality: "standard".to_owned(), in_to_out: false, format: "mp4".to_owned() }
 }
 
 fn build(project: &Project, assets: &HashMap<String, Asset>, options: &ExportOptions, output: Output, start: f64) -> Result<RenderPlan, String> {
@@ -300,8 +300,7 @@ fn frame_rates_become_exact_rationals() {
 }
 
 #[test]
-fn a_long_edit_puts_its_graph_in_a_file_and_keeps_one_overlay_per_track() {
-    let assets = library(vec![asset("m", AssetKind::Video, 600.0)]);
+fn a_long_edit_puts_its_graph_in_a_file_and_keeps_one_overlay_per_track() {    let assets = library(vec![asset("m", AssetKind::Video, 600.0)]);
     let clips: Vec<Clip> = (0..120)
         .map(|index| {
             let mut piece = clip(&format!("c{index}"), "v1", f64::from(index) * 0.5, 0.5, media("m"));
@@ -316,4 +315,30 @@ fn a_long_edit_puts_its_graph_in_a_file_and_keeps_one_overlay_per_track() {
     assert_eq!(text.matches("overlay=").count(), 1, "one overlay for the whole track");
     assert_eq!(text.matches("concat=n=120").count(), 1);
     assert_eq!(plan.args.iter().filter(|arg| *arg == "-ss").count(), 120);
+}
+
+#[test]
+fn every_export_format_maps_to_its_container_codecs_and_extension() {
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let project = project(vec![comp("c", vec![clip("a", "v1", 0.0, 2.0, media("m"))])]);
+    let formatted = |format: &str, output: &str| ExportOptions { format: format.to_owned(), output: output.to_owned(), ..options("c") };
+
+    let mov = build(&project, &assets, &formatted("mov", "out.mov"), Output::Video, 0.0).expect("mov");
+    assert!(mov.args.contains(&"libx264".to_owned()) && mov.args.contains(&"+faststart".to_owned()), "{:?}", mov.args);
+
+    let alpha = build(&project, &assets, &formatted("mov-alpha", "out.mov"), Output::Video, 0.0).expect("alpha");
+    assert!(alpha.args.contains(&"prores_ks".to_owned()), "{:?}", alpha.args);
+    assert!(alpha.args.contains(&"4444".to_owned()) && alpha.args.contains(&"yuva444p10le".to_owned()), "{:?}", alpha.args);
+    assert!(!alpha.args.contains(&"libx264".to_owned()), "no H.264 on the alpha path: {alpha:?}");
+    assert!(graph(&alpha).contains("black@0"), "alpha renders over transparency: {}", graph(&alpha));
+
+    let avi = build(&project, &assets, &formatted("avi", "out.avi"), Output::Video, 0.0).expect("avi");
+    assert!(avi.args.contains(&"mpeg4".to_owned()) && avi.args.contains(&"pcm_s16le".to_owned()), "{:?}", avi.args);
+
+    let mp3 = build(&project, &assets, &formatted("mp3", "out.mp3"), Output::Audio, 0.0).expect("mp3");
+    assert!(mp3.args.contains(&"libmp3lame".to_owned()) && mp3.args.contains(&"192k".to_owned()), "{:?}", mp3.args);
+    assert!(mp3.args.iter().all(|arg| arg != "[vout]"), "audio-only maps no picture: {mp3:?}");
+
+    assert!(build(&project, &assets, &formatted("mp4", "out.mov"), Output::Video, 0.0).expect_err("extension").contains(".mp4"));
+    assert!(build(&project, &assets, &formatted("webm", "out.webm"), Output::Video, 0.0).expect_err("format").contains("webm"));
 }

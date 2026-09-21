@@ -43,6 +43,7 @@ type HeaderProps = {
   onEdit: () => void;
   onExport: () => void;
   exportDisabled: boolean;
+  onQueue: () => void;
   title: string;
   saved: boolean;
   chatOpen: boolean;
@@ -65,6 +66,7 @@ export function HeaderBar(props: HeaderProps) {
         <button type="button" onClick={props.onImport}>Import</button>
         <button type="button" className={props.mode === 'edit' ? 'active' : ''} onClick={props.onEdit}>Edit</button>
         <button type="button" onClick={props.onExport} disabled={props.exportDisabled}>Export</button>
+        <button type="button" onClick={props.onQueue} title="Render queue — every export with live progress">Queue</button>
         {/* The chat's dock toggle, where ChatGPT's sits: a panel outline, filled on the side the
             panel is on, so the icon says which way it will go. */}
         <button

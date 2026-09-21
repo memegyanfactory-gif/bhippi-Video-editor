@@ -1578,19 +1578,27 @@ fn chat_log_save(state: State<'_, Arc<AppState>>, messages: serde_json::Value) -
 
 #[tauri::command]
 async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: Project, options: ExportOptions) -> CommandResult<String> {
+    /// How many ffmpeg exports burn at once; further renders queue behind them.
+    const MAX_CONCURRENT_EXPORTS: usize = 2;
     let tools = state.tools();
     let ffmpeg = tools.ffmpeg()?.to_path_buf();
     let output = PathBuf::from(&options.output);
-    if output.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case("mp4")) {
-        return Err("the export must be an .mp4 file".to_owned());
+    let expected = render::expected_extension(&options.format)?;
+    if output.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case(expected)) {
+        return Err(format!("a {} export must end in .{expected}", options.format));
     }
     if let Some(parent) = output.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     }
     let sfx_dir = state.paths.sfx.clone();
-    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Video, 0.0)?;
-    let job = state.jobs.start("export", format!("Exporting {}", output.file_name().map_or_else(|| "video".into(), |name| name.to_string_lossy())), true);
+    let kind = if options.format == "mp3" { render::Output::Audio } else { render::Output::Video };
+    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, kind, 0.0)?;
+    let comp_name = project.comp(&options.comp_id).map_or_else(|| "video".to_owned(), |comp| comp.name.clone());
+    let file_name = output.file_name().map_or_else(|| "video".into(), |name| name.to_string_lossy().into_owned());
+    let job = state.jobs.start("export", format!("Exporting {comp_name} · {file_name} ({})", options.format), true);
     let job_id = job.id().to_owned();
+    let queue_id = job_id.clone();
+    let jobs = state.jobs.clone();
     let work = state.paths.work.join(job.id());
     std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
     for (name, contents) in &plan.files {
@@ -1600,6 +1608,18 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
     let output_text = output.display().to_string();
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
+        // The render queue: at most two ffmpeg exports burn at once; the rest
+        // wait with an honest message instead of melting the machine. Waiting
+        // renders stay cancellable.
+        while jobs.list().iter().filter(|other| other.kind == "export" && other.status == crate::jobs::JobStatus::Running && other.id != queue_id).count() >= MAX_CONCURRENT_EXPORTS {
+            if *job.cancel.borrow() {
+                job.fail("Cancelled while queued");
+                let _ignored = app_handle.emit(LIBRARY_EVENT, ());
+                return;
+            }
+            job.progress(0.0, "Queued — waiting for a render slot");
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
         job.progress(0.0, format!("Rendering {}×{}", plan.width, plan.height));
         let cancel = job.cancel.clone();
         let result = tools::run_ffmpeg_with_progress(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |fraction| {
@@ -1631,7 +1651,7 @@ async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id
     if !output.to_ascii_lowercase().ends_with(".png") {
         return Err("frames are saved as .png".to_owned());
     }
-    let options = ExportOptions { output: output.clone(), comp_id, resolution: None, fps: None, quality: "high".to_owned(), in_to_out: false };
+    let options = ExportOptions { output: output.clone(), comp_id, resolution: None, fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned() };
     let sfx_dir = state.paths.sfx.clone();
     let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, time)?;
     let work = state.paths.work.join(format!("frame-{}", store::new_id()));

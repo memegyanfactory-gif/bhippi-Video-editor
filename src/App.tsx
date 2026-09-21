@@ -4,7 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { CircleCheck, Film, LoaderCircle, Mic, TriangleAlert, Upload, X } from 'lucide-react';
+import { CircleCheck, Film, LoaderCircle, Mic, TriangleAlert, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { EditWorkflow } from './lib/editWorkflow';
 import { automaticRotoEngine } from './lib/rotoEngine';
@@ -56,6 +56,8 @@ import {
   ShortcutsDialog, SpeedDialog, SynchronizeDialog, type CompDraft, type ItemDraft, type ProjectSettingsResult,
 } from './settings/Dialogs';
 import { ExportDialog } from './settings/ExportDialog';
+import { RenderQueueDialog } from './settings/RenderQueueDialog';
+import { channelForFormat } from './lib/exportPresets';
 import { HomeScreen } from './settings/HomeScreen';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
 import { SHORTCUTS } from './lib/shortcuts';
@@ -194,6 +196,7 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [inspectorTab, setInspectorTab] = useState<'properties' | 'effects'>('properties');
   const [exportOpen, setExportOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [fxConsoleOpen, setFxConsoleOpen] = useState(false);
   const [fxConsoleAnchor, setFxConsoleAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -987,7 +990,7 @@ export default function App() {
   // ── export ─────────────────────────────────────────────────────────────
   const startExport = useCallback(async (options: ExportOptions, folder: string) => {
     setExportOpen(false);
-    saveSettings({ export: { resolution: options.resolution, fps: options.fps, quality: options.quality, folder } });
+    saveSettings({ export: { resolution: options.resolution, fps: options.fps, quality: options.quality, folder, format: options.format, channel: channelForFormat(options.format) ?? 'rgb' } });
     try {
       await api.exportStart(history.current(), options);
       toast({ tone: 'info', title: 'Export started', body: 'Progress is in the status bar.', timeout: 2500 });
@@ -1346,7 +1349,7 @@ export default function App() {
     const rendered = placeClips(single, [{ ...clip, id: uid(), start: 0, trackId: tracksOf(single, tracksOf(comp, 'video').some((track) => track.id === clip.trackId) ? 'video' : 'audio')[0].id, linkId: null }], 'overwrite');
     const staging: Project = { ...history.current(), comps: [...history.current().comps, rendered] };
     try {
-      await api.exportStart(staging, { output: path, compId: rendered.id, resolution: null, fps: null, quality: 'high', inToOut: false });
+      await api.exportStart(staging, { output: path, compId: rendered.id, resolution: null, fps: null, quality: 'high', inToOut: false, format: 'mp4' });
       toast({ tone: 'info', title: 'Rendering…', body: 'The clip is replaced when the render finishes.' });
       const done = (job: Job) => job.kind === 'export' && job.status === 'done' && job.result?.path === path;
       const unlisten = await events.job(async (job) => {
@@ -2185,8 +2188,8 @@ export default function App() {
       {learningOpen && <LearningWorkspace project={project} assets={assetMap} history={history} jobs={Object.values(jobs)} onClose={() => setLearningOpen(false)} />}
       <HeaderBar
         resourceMonitor={<ResourceMonitor jobs={Object.values(jobs)} runs={Object.values(toolRuns).flat()} />}
-        mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }}
-        exportDisabled={!hasClips || !!exportJob} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
+        mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }} onQueue={() => setQueueOpen(true)}
+        exportDisabled={!hasClips} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}
         onSettings={() => setSettingsTab('providers')} providerBadge={<ProviderLogo id={providerId} size={24} />}
       />
@@ -2247,12 +2250,12 @@ export default function App() {
         {mediaJobs.length > 0 && <span className="status-item"><LoaderCircle size={12} className="spin" /> Preparing {mediaJobs.length} media…</span>}
         {installJobs.map((job) => <span key={job.id} className="status-item"><LoaderCircle size={12} className="spin" /> {job.label}…</span>)}
         {exportJob && (
-          <span className="status-item export-progress">
+          <button type="button" className="status-item export-progress" onClick={() => setQueueOpen(true)} title="Open the render queue">
             <LoaderCircle size={12} className="spin" />
             {exportJob.message}
+            {runningJobs.filter((job) => job.kind === 'export').length > 1 && <span className="muted">+{runningJobs.filter((job) => job.kind === 'export').length - 1} more</span>}
             <span className="progress"><span style={{ width: `${Math.round(exportJob.progress * 100)}%` }} /></span>
-            <button type="button" className="icon-btn small" onClick={() => void api.jobCancel(exportJob.id)} title="Cancel export"><X size={12} /></button>
-          </span>
+          </button>
         )}
         <div className="toolbar-spacer" />
         <span className="status-item muted">{TOOL_LABEL[tool] ?? 'Selection'}</span>
@@ -2271,6 +2274,7 @@ export default function App() {
       {dialog}
       {settingsTab && <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={Object.values(jobs)} />}
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder) => void startExport(options, folder)} />}
+      {queueOpen && <RenderQueueDialog jobs={Object.values(jobs)} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}
       {shortcutsOpen && <ShortcutsDialog shortcuts={SHORTCUTS} onClose={() => setShortcutsOpen(false)} />}
       <FXConsoleModal
         open={fxConsoleOpen}

@@ -53,17 +53,44 @@ pub struct ExportOptions {
     /// Only the comp's In→Out range, when set.
     #[serde(default)]
     pub in_to_out: bool,
+    /// `mp4` · `mov` · `mov-alpha` (ProRes 4444 + alpha) · `avi` · `mp3` (audio only).
+    #[serde(default = "default_format")]
+    pub format: String,
 }
 
 fn default_quality() -> String {
     "standard".to_owned()
 }
 
+fn default_format() -> String {
+    "mp4".to_owned()
+}
+
+/// The container/codec sets Helios writes, Premiere-style: one video master
+/// each for sharing (MP4), editing (MOV) and transparency (MOV ProRes 4444
+/// with alpha), plus AVI and audio-only MP3.
+pub fn is_supported_format(format: &str) -> bool {
+    matches!(format, "mp4" | "mov" | "mov-alpha" | "avi" | "mp3")
+}
+
+/// The file extension a format must carry, so `movie.mov` never holds MP4 bytes.
+pub fn expected_extension(format: &str) -> Result<&'static str, String> {
+    match format {
+        "mp4" => Ok("mp4"),
+        "mov" | "mov-alpha" => Ok("mov"),
+        "avi" => Ok("avi"),
+        "mp3" => Ok("mp3"),
+        other => Err(format!("\"{other}\" is not an export format — mp4, mov, mov-alpha, avi or mp3")),
+    }
+}
+
 /// What the graph produces.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Output {
-    /// An H.264/AAC MP4.
+    /// A video file in the options' format (MP4, MOV, ProRes-alpha MOV, AVI).
     Video,
+    /// Audio only (MP3): no picture graph is built at all.
+    Audio,
     /// One frame as a PNG.
     Still,
 }
@@ -125,6 +152,15 @@ pub fn plan(
             return Err(format!("{short}p is not an export resolution"));
         }
     }
+    let expected = expected_extension(&options.format)?;
+    // Stills are always PNG regardless of the video format; only moving and
+    // audio outputs must match their container.
+    if !matches!(output, Output::Still) {
+        let actual = Path::new(&options.output).extension().and_then(|ext| ext.to_str()).unwrap_or_default();
+        if !actual.eq_ignore_ascii_case(expected) {
+            return Err(format!("a {} export must end in .{expected} — not .{actual}", options.format));
+        }
+    }
     if let Some(fps) = options.fps {
         if !fps.is_finite() || !(1.0..=120.0).contains(&fps) {
             return Err("the frame rate must be between 1 and 120".to_owned());
@@ -136,6 +172,12 @@ pub fn plan(
         "high" => ("slow", 16, 2),
         other => return Err(format!("\"{other}\" is not an export quality")),
     };
+    // MP3 bitrate follows the same quality ladder as picture CRF.
+    let audio_bitrate = match options.quality.as_str() {
+        "draft" => "128k",
+        "standard" => "192k",
+        _ => "320k",
+    };
     let rate = Rate::from_fps(options.fps.unwrap_or(comp.fps));
     let (width, height) = output_size(comp, options.resolution, output);
     let (t0, duration, frames) = match output {
@@ -145,7 +187,7 @@ pub fn plan(
             }
             (start, 1.0 / rate.fps(), 1)
         }
-        Output::Video => {
+        Output::Video | Output::Audio => {
             let (t0, duration) = range(comp, options.in_to_out)?;
             (t0, duration, ((duration * rate.fps() - 1e-6).ceil() as u64).max(1))
         }
@@ -153,32 +195,67 @@ pub fn plan(
 
     let mut graph = Graph::new(project, assets, &sfx_path, rate);
     let frame = Frame { w: width, h: height, ratio: f64::from(height) / f64::from(comp.height) };
-    let picture = graph.comp_video(comp, frame, Span { t0, frames }, false, 0)?;
+    // ProRes-alpha renders the comp over transparency (nested comps already
+    // are); every other video format flattens onto black as before.
+    let alpha = options.format == "mov-alpha";
     let mut args: Vec<String> = Vec::new();
+    // The soundtrack is identical for picture and audio-only exports. Stills
+    // build no audio at all: an unmapped filter output fails the render.
+    let samples = (duration * f64::from(SAMPLE_RATE)).round().max(1.0) as u64;
     match output {
         Output::Video => {
-            graph.chain_to(&[picture], "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p", "vout");
-            let samples = (duration * f64::from(SAMPLE_RATE)).round().max(1.0) as u64;
+            let picture = graph.comp_video(comp, frame, Span { t0, frames }, alpha, 0)?;
             let mix = match graph.comp_audio(comp, t0, samples, 0)? {
                 Some(mix) => graph.chain(&[mix], "alimiter=limit=0.944:attack=5:release=80:level=0:latency=1"),
                 None => graph.chain(&[], "anullsrc=r=48000:cl=stereo"),
             };
             graph.chain_to(&[mix], &format!("aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad=whole_len={samples},atrim=end_sample={samples}"), "aout");
-            let video_codec: Vec<String> = if x264 {
-                vec!["-c:v".into(), "libx264".into(), "-preset".into(), preset.into(), "-crf".into(), crf.to_string()]
+            if alpha {
+                graph.chain_to(&[picture], "format=yuva444p10le", "vout");
             } else {
-                vec!["-c:v".into(), "mpeg4".into(), "-q:v".into(), q.to_string()]
+                graph.chain_to(&[picture], "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p", "vout");
+            }
+            // Codec per container. ProRes 4444 is fixed broadcast quality, so
+            // the draft/standard/high ladder only steers H.264, MPEG-4 and MP3.
+            let video_codec: Vec<String> = match options.format.as_str() {
+                "mov-alpha" => vec!["-c:v".into(), "prores_ks".into(), "-profile:v".into(), "4444".into()],
+                "avi" => vec!["-c:v".into(), "mpeg4".into(), "-q:v".into(), q.to_string()],
+                _ => {
+                    if x264 {
+                        vec!["-c:v".into(), "libx264".into(), "-preset".into(), preset.into(), "-crf".into(), crf.to_string()]
+                    } else {
+                        vec!["-c:v".into(), "mpeg4".into(), "-q:v".into(), q.to_string()]
+                    }
+                }
             };
             args.extend(graph.finish());
             args.extend(["-map", "[vout]", "-map", "[aout]"].map(str::to_owned));
             args.extend(video_codec);
-            args.extend(
-                ["-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "-t"]
-                    .map(str::to_owned),
-            );
+            if alpha {
+                args.extend(["-pix_fmt", "yuva444p10le", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t"].map(str::to_owned));
+            } else if options.format == "avi" {
+                // PCM audio: always present in an AVI mux, unlike MP3/AAC encoders.
+                args.extend(["-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", "-t"].map(str::to_owned));
+            } else {
+                args.extend(
+                    ["-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "-t"]
+                        .map(str::to_owned),
+                );
+            }
+            args.push(num(duration));
+        }
+        Output::Audio => {
+            let mix = match graph.comp_audio(comp, t0, samples, 0)? {
+                Some(mix) => graph.chain(&[mix], "alimiter=limit=0.944:attack=5:release=80:level=0:latency=1"),
+                None => graph.chain(&[], "anullsrc=r=48000:cl=stereo"),
+            };
+            graph.chain_to(&[mix], &format!("aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad=whole_len={samples},atrim=end_sample={samples}"), "aout");
+            args.extend(graph.finish());
+            args.extend(["-map", "[aout]", "-c:a", "libmp3lame", "-b:a", audio_bitrate, "-ar", "48000", "-t"].map(str::to_owned));
             args.push(num(duration));
         }
         Output::Still => {
+            let picture = graph.comp_video(comp, frame, Span { t0, frames }, false, 0)?;
             graph.chain_to(&[picture], "format=rgb24", "vout");
             args.extend(graph.finish());
             args.extend(["-map", "[vout]", "-frames:v", "1", "-update", "1"].map(str::to_owned));
