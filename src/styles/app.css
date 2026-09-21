@@ -2878,6 +2878,13 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .msg-user:hover .msg-copy { opacity: 1; }
 .msg-copy:hover { color: #fff; background: rgba(0, 0, 0, 0.42); }
 .msg-copy.copied { color: var(--green, #6cc26c); opacity: 1; }
+/* ── copy on an answer: inline in the meta row, always visible on hover ────── */
+.msg-meta .msg-copy.meta { position: static; width: 20px; height: 20px; margin-left: auto; background: transparent; color: var(--text-dim); opacity: 0; }
+.msg-assistant:hover .msg-meta .msg-copy.meta, .msg-meta .msg-copy.meta:focus-visible { opacity: 1; }
+.msg-meta .msg-copy.meta:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.msg-meta .msg-copy.meta.copied { color: var(--green, #6cc26c); opacity: 1; }
+/* ── chat text is always selectable: the app shell disables selection ──────── */
+.msg-user, .msg-assistant .markdown, .msg-assistant .thinking-body, .msg-assistant .notes, .ask-question, .ask-context { user-select: text; -webkit-user-select: text; }
 
 /* == the awesome look ======================================================
    Surface only: not one of these rules changes what the assistant does. Everything is scoped to

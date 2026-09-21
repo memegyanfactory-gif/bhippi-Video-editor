@@ -16,6 +16,7 @@ import { Activity, type Step, type ToolRun } from './Activity';
 import { CommandPanel, panelOrder } from './CommandPanel';
 import { COMMANDS, matchCommands, type CommandContext } from './commands';
 import { handoffFor, historyFor } from './handoff';
+import { copyText } from '../lib/clipboard';
 import { uid } from '../lib/editor';
 import { api, errorText, events, type ReferenceFilm } from '../lib/ipc';
 import type { TurnOutcome } from '../lib/ideagraph';
@@ -827,7 +828,11 @@ export function ChatPanel(props: Props) {
                 title="Copy this message"
                 onClick={(event) => {
                   const button = event.currentTarget;
-                  void navigator.clipboard?.writeText(message.content).then(() => {
+                  void copyText(message.content).then((done) => {
+                    if (!done) {
+                      toast({ tone: 'error', title: 'Copy failed', body: 'Select the text and press Ctrl+C instead.' });
+                      return;
+                    }
                     button.classList.add('copied');
                     window.setTimeout(() => button.classList.remove('copied'), 1100);
                   });
@@ -1102,8 +1107,21 @@ export function ChatPanel(props: Props) {
 
 function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRemedy }: { message: Assistant; workflow: { mode: string; structurallyVerified: boolean } | null; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void }) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const toast = useToast();
   const visible = message.content;
   const seconds = message.elapsedMs !== null ? `${(message.elapsedMs / 1000).toFixed(1)}s` : null;
+  const copyAnswer = () => {
+    if (!visible.trim()) return;
+    void copyText(visible).then((done) => {
+      if (!done) {
+        toast({ tone: 'error', title: 'Copy failed', body: 'Select the text and press Ctrl+C instead.' });
+        return;
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1100);
+    });
+  };
   return (
     <div className={`msg msg-assistant status-${message.status}`}>
       <div className="msg-meta">
@@ -1112,6 +1130,11 @@ function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRem
         {message.model && <span className="muted">· {message.model}</span>}
         {seconds && <span className="muted">· {seconds}</span>}
         {message.status === 'stopped' && <span className="muted">· stopped</span>}
+        {visible.trim() ? (
+          <button type="button" className={`msg-copy meta${copied ? ' copied' : ''}`} title="Copy this answer" onClick={copyAnswer}>
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+          </button>
+        ) : null}
       </div>
       {message.thinking && (
         <button type="button" className="thinking" onClick={() => setThinkingOpen((value) => !value)} aria-expanded={thinkingOpen}>

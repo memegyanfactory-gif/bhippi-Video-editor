@@ -2,6 +2,7 @@
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { memo, useMemo } from 'react';
+import { copyText } from '../lib/clipboard';
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -19,9 +20,9 @@ marked.use({
 function copy(button: HTMLElement) {
   const text = button.closest('.md-code')?.querySelector('pre')?.textContent ?? '';
   if (!text) return;
-  void navigator.clipboard?.writeText(text).then(() => {
-    button.textContent = 'Copied';
-    window.setTimeout(() => (button.textContent = 'Copy'), 1200);
+  void copyText(text).then((done) => {
+    button.textContent = done ? 'Copied' : 'Select + Ctrl+C';
+    window.setTimeout(() => (button.textContent = 'Copy'), 1400);
   });
 }
 
