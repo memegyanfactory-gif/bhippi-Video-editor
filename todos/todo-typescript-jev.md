@@ -1,0 +1,16 @@
+# Todo: Create a 1-minute video on TypeScript Jev
+- [ ] Read workflow status
+- [ ] Query Frame Atlas for cinematic styling and palette
+- [ ] Create project guideline for TypeSafe tech direction
+- [ ] Check local media capabilities
+- [ ] Synthesize 60-second voiceover narration on track A1
+- [ ] Create dark slate background plate on track V1
+- [ ] Save scene-by-scene storyboard for 58s comp
+- [ ] Add kinetic hook title motion graphic (0-8s)
+- [ ] Add problem breakdown motion graphic (8-18s)
+- [ ] Add TypeSafe Jev product reveal motion graphic (18-30s)
+- [ ] Add TypeScript code syntax callout card (30-42s)
+- [ ] Add benchmark stat callout card for <15ms latency (42-50s)
+- [ ] Add closing CTA motion graphic (50-58s)
+- [ ] Layer sound design with riser, impacts, and transition whooshes
+- [ ] Verify timeline completion with verify_edit_workflow
