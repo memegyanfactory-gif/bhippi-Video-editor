@@ -2868,6 +2868,85 @@
         ],
         "additionalProperties": false
       }
+    },
+    {
+      "name": "create_motion_graphic",
+      "description": "Creates an HTML/CSS/GSAP Motion Graphic Template (MOGRT) or overlay graphic (HyperFrames-style programmatic motion graphics) and places it on the timeline as a nested comp or overlay clip. Ideal for glassmorphism lower-thirds, kinetic typography titles, animated stat/metric callouts, feature badges, social banners, countdown timers, or custom HTML/CSS/GSAP code. Automatically positions the graphic over video footage (Track V2 or higher) or in the middle of a clip.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string",
+            "enum": [
+              "lower-third",
+              "kinetic-title",
+              "stat-callout",
+              "feature-badge",
+              "social-callout",
+              "countdown",
+              "breaking-news",
+              "custom"
+            ],
+            "description": "The template to use: 'lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout', 'countdown', 'breaking-news', or 'custom'."
+          },
+          "title": {
+            "type": "string",
+            "description": "Primary text or headline (e.g. person name, metric title, or headline)."
+          },
+          "subtitle": {
+            "type": "string",
+            "description": "Secondary text or title/role (e.g. 'CEO & Founder', 'Q3 Performance Report')."
+          },
+          "accentColor": {
+            "type": "string",
+            "description": "Hex accent color for glows, borders, and gradient highlights (e.g. '#38bdf8', '#ec4899', '#10b981')."
+          },
+          "metric": {
+            "type": "string",
+            "description": "Big numeric stat for 'stat-callout' (e.g. '+340%', '$1.2M', '99.9%')."
+          },
+          "badge": {
+            "type": "string",
+            "description": "Kicker tag or category badge (e.g. 'FEATURED', 'PRO', 'BREAKING')."
+          },
+          "html": {
+            "type": "string",
+            "description": "Custom HTML markup when using template 'custom' or overriding markup."
+          },
+          "css": {
+            "type": "string",
+            "description": "Custom CSS styling with animations, flexbox/grid, and glassmorphic styles."
+          },
+          "js": {
+            "type": "string",
+            "description": "Optional GSAP animation timeline script. Receives (container, gsap, timeline, time, duration, progress)."
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start position in seconds. Omit to automatically place in the middle of footage or at the playhead."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Duration in seconds (default 4.0)."
+          },
+          "track": {
+            "type": "string",
+            "description": "Track ID to place on (e.g. 'v2', 'v3'). Defaults to the track above primary video."
+          },
+          "asNestedComp": {
+            "type": "boolean",
+            "description": "Whether to package the graphic inside a dedicated nested comp and overlay that comp (default true). Set false to insert directly onto the track."
+          },
+          "compId": {
+            "type": "string",
+            "description": "Target comp id (defaults to active comp)."
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      }
     }
   ]
 }

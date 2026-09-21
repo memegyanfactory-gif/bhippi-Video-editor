@@ -16,6 +16,7 @@ import { audible, clipEnd, sourceInfo, sourceTimeAt, tracksOf, transitionWindow,
 import type { Asset, Clip, Comp, Mask, Project, ProjectItem, Transition } from '../lib/types';
 import { TextLayer } from './Overlay';
 import { RotoPreview } from './RotoPreview';
+import { HtmlMotionLayer } from './HtmlMotionLayer';
 
 /** What the webview should load for an asset: its preview proxy when one exists. */
 export const mediaSrc = (asset: Asset | undefined) => (asset ? fileSrc(asset.proxy ?? asset.path) : '');
@@ -368,6 +369,21 @@ function Layer(props: LayerProps) {
       const height = clip.source.height * k * (transform.scale / 100);
       const box: CSSProperties = { left: stageW / 2 + transform.x * stageW - width / 2, top: stageH / 2 + transform.y * stageH - height / 2, width, height, transform: `rotate(${transform.rotation}deg)${appliedTransform}` };
       return wrapper(<ShapePicture clip={clip} />, box, width, height);
+    }
+    case 'html': {
+      return (
+        <div className="layer html-motion-layer" data-clip-id={depth === 0 ? clip.id : undefined}
+          style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden }}>
+          <HtmlMotionLayer
+            source={clip.source}
+            time={Math.min(time, clipEnd(clip) - 1e-3)}
+            clipStart={clip.start}
+            clipDuration={clip.duration}
+            stageW={stageW}
+            stageH={stageH}
+          />
+        </div>
+      );
     }
     case 'sfx':
       return null;

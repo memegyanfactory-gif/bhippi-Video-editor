@@ -49,7 +49,13 @@ Helios runs state-of-the-art computer vision and generative models directly on y
 - **Whisper Transcription**: Fast on-device speech-to-text engine generating word-level kinetic captions and subtitle tracks.
 - **Stable Audio FX**: Local neural synthesis of custom sound effects, foley, and ambient soundscapes.
 
-### 🤖 3. Autonomous AI Co-Pilot & Developer Tool Engine
+### 🎨 3. Programmatic Motion Graphics & MOGRTs (HTML/CSS/GSAP)
+- **Code-as-Video MOGRT Overlays**: Professional motion graphics written in standard HTML5, modern CSS (glassmorphism, CSS variables, keyframes), and seekable GSAP timelines.
+- **Nested Comp Packaging**: Autonomous agents can generate custom motion designs and automatically place them into dedicated compositions nested on Track V2 or V3 above primary video clips.
+- **Frame-Accurate Scrubbing**: GSAP timelines and CSS variables (`--elapsed`, `--progress`, `--time`) sync with the playhead for zero-lag scrubbing and 60 FPS preview.
+- **Pre-Built Designer Templates**: Glassmorphism lower-thirds, kinetic typography titles, animated stat/metric callouts, feature badges, social banners, and countdown timers — or custom web code synthesized on demand.
+
+### 🤖 4. Autonomous AI Co-Pilot & Developer Tool Engine
 Helios exposes a unified system and developer tool architecture accessible to both its built-in editor agent and external coding CLI/MCP agents (Claude Code, OpenAI Codex, OpenCode, Gemini):
 - **Automated Research & Asset Scraper**: Agents can explore subjects online, scrape relevant high-resolution imagery and video references, and automatically structure them into dedicated project asset bins.
 - **YouTube Media Ingestion**: Direct video ingestion tool supporting format resolution, clip cropping, frame trimming, and audio channel isolation (with or without sound).
@@ -189,7 +195,7 @@ Helios/
 - [x] **On-Device AI Engine**: Wan 2.1 video generation, SDXL image gen, SAM2 rotoscoping, Depth Anything v2/v3.
 - [x] **Agent Developer Tools**: YouTube auto-ingestion (with crop/trim/mute), web scraper, project bin organizer.
 - [x] **Comprehensive Provider Bridge**: Support for Claude Code, Codex, Gemini, Ollama, and OpenCode.
-- [ ] **MOGRT HTML/GSAP Templates**: Support for declarative web motion graphics as compositable timeline clips.
+- [x] **MOGRT HTML/GSAP Templates**: Declarative web motion graphics with real-time seeking and nested comp overlays.
 - [ ] **Multi-Camera Editing**: Synchronized multi-angle switching and timeline audio phase alignment.
 - [ ] **Hardware H.265 / AV1 Export**: Direct NVENC / QuickSync GPU accelerated export pipelines.
 

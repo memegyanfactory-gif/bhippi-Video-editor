@@ -106,6 +106,7 @@ impl<'a> Graph<'a> {
         match &clip.source {
             ClipSource::Sfx { .. } => Role::Nothing,
             ClipSource::Text { .. } if !clip.adjustment => Role::Text,
+            ClipSource::Html { .. } if !clip.adjustment => Role::Text,
             ClipSource::Media { asset_id } if self.assets.get(asset_id).is_some_and(|asset| asset.kind == AssetKind::Audio) => Role::Nothing,
             ClipSource::Item { item_id } => match self.project.item(item_id).map(|item| item.kind) {
                 Some(ItemKind::AdjustmentLayer) => Role::Adjust,
@@ -251,7 +252,7 @@ impl<'a> Graph<'a> {
                 Ok(self.item(clip, item, frame, tau, frames))
             }
             ClipSource::Shape { .. } => Ok(self.shape(clip, frame, frames)),
-            ClipSource::Text { .. } | ClipSource::Sfx { .. } => Ok(None),
+            ClipSource::Text { .. } | ClipSource::Sfx { .. } | ClipSource::Html { .. } => Ok(None),
         }
     }
 

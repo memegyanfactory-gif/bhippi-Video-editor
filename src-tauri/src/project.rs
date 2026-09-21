@@ -356,6 +356,16 @@ pub enum ClipSource {
         #[serde(default)]
         corner_radius: f64,
     },
+    /// An HTML/CSS/GSAP motion graphic template (MOGRT) or overlay.
+    Html {
+        html: String,
+        #[serde(default)]
+        css: Option<String>,
+        #[serde(default)]
+        js: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -973,7 +983,7 @@ impl Project {
                             pending.push(child);
                         }
                     }
-                    ClipSource::Item { .. } | ClipSource::Text { .. } | ClipSource::Sfx { .. } | ClipSource::Shape { .. } => {}
+                    ClipSource::Item { .. } | ClipSource::Text { .. } | ClipSource::Sfx { .. } | ClipSource::Shape { .. } | ClipSource::Html { .. } => {}
                 }
             }
         }
@@ -1082,6 +1092,9 @@ fn validate_comp(comp: &Comp, comp_ids: &HashSet<&str>, item_ids: &HashSet<&str>
                 if !colors_ok || sizes.iter().any(|value| !value.is_finite() || *value < 0.0) || *width > 65_536.0 || *height > 65_536.0 || !(3..=64).contains(sides) {
                     return Err(format!("a shape in \"{name}\" has invalid settings"));
                 }
+            }
+            ClipSource::Html { .. } => {
+                video_only()?;
             }
         }
     }

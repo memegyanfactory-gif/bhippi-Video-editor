@@ -11,6 +11,7 @@ import { applyPodcastCut, planShots, speakerTurns, type CastEntry, type PersonTr
 import { summarizePersonTracks, trackPeopleAsset } from './personTracks';import { normalizeEffectClip } from './effectState';
 import { adaptRhythmProgram } from './learning';
 import { storyboardContentError, type StoryboardSceneInput } from './editWorkflow';
+import { createMotionGraphicComp } from './motionGraphics';
 // Runs Helios AI's tool calls against the live project. Every tool is one undo step labelled
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
@@ -113,6 +114,7 @@ function clipSummary(project: Project, assets: AssetMap, comp: Comp, clip: Clip)
   if (source.type === 'text') Object.assign(summary, { text: source.text, subtitle: source.subtitle || undefined, preset: source.preset, color: source.color, captionStyle: source.style ?? undefined, vertical: source.vertical || undefined });
   if (source.type === 'sfx') summary.sfx = source.kind;
   if (source.type === 'shape') Object.assign(summary, { shape: source.shape, fill: source.fill, size: `${Math.round(source.width)}x${Math.round(source.height)}` });
+  if (source.type === 'html') Object.assign(summary, { html: true, title: source.title, hasGsap: !!source.js });
   if (clip.linkId) summary.linkedTo = comp.clips.find((item) => item.linkId === clip.linkId && item.id !== clip.id)?.id;
   if (clip.groupId) summary.groupId = clip.groupId;
   if (clip.speed !== 1) summary.speed = clip.speed;
@@ -1950,6 +1952,68 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
         results.push(`${clipName(project, assets, found.clip)} ${round(gainToDb(gain))} dB`);
       }
       return results.length ? done(`Normalized to ${peakDb} dB: ${results.join(', ')}`) : fail('no clips with sound to normalize');
+    }
+
+    case 'create_motion_graphic': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('No composition found.');
+      const template = str(args, 'template') || 'lower-third';
+      const title = str(args, 'title') || 'HELIOS MOTION';
+      const subtitle = str(args, 'subtitle') || '';
+      const accentColor = str(args, 'accentColor') || '#38bdf8';
+      const metric = str(args, 'metric') || '+340%';
+      const badge = str(args, 'badge') || '';
+      const html = str(args, 'html') || undefined;
+      const css = str(args, 'css') || undefined;
+      const js = str(args, 'js') || undefined;
+      const duration = num(args, 'duration') ?? 4.0;
+      const start = num(args, 'start');
+      const track = str(args, 'track');
+      const asNestedComp = bool(args, 'asNestedComp') ?? true;
+
+      try {
+        const result = createMotionGraphicComp(project, {
+          template,
+          title,
+          subtitle,
+          accentColor,
+          metric,
+          badge,
+          html,
+          css,
+          js,
+          duration,
+          start,
+          track,
+          asNestedComp,
+          targetCompId: comp.id,
+        });
+
+        host.history.commit(() => result.project, label);
+        host.setSelection([result.newClipId]);
+
+        const targetCompUpdated = result.project.comps.find((c) => c.id === result.targetCompId);
+        const trackName = targetCompUpdated ? trackLabel(targetCompUpdated, result.trackId) : result.trackId;
+
+        return done(
+          `Created ${result.bundle.template} motion graphic "${title}" on ${trackName} at ${result.start}s (${result.duration}s)${asNestedComp ? ` inside comp "${result.mogrtComp?.name}"` : ''}.`,
+          {
+            clipId: result.newClipId,
+            compId: result.mogrtComp?.id,
+            targetCompId: result.targetCompId,
+            track: result.trackId,
+            start: result.start,
+            duration: result.duration,
+            template: result.bundle.template,
+            title: result.bundle.title,
+            html: result.bundle.html,
+            css: result.bundle.css,
+            js: result.bundle.js,
+          }
+        );
+      } catch (error) {
+        return fail(errorText(error));
+      }
     }
 
     default:

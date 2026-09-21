@@ -1,6 +1,6 @@
 // Properties (Premiere's Effect Controls): what the selected clip, transition or comp is, with
 // keyframable Motion and Opacity, Crop, Mask, Effects, Speed, Audio and Text.
-import { ChevronDown, ChevronRight, Circle, Clapperboard, Clock, Diamond, FolderOpen, Music2, RotateCcw, Square, Timer, Type, Video, Volume2, VolumeX, Wand2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Circle, Clapperboard, Clock, Diamond, FolderOpen, Music2, RotateCcw, Sparkles, Square, Timer, Type, Video, Volume2, VolumeX, Wand2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { ColorSwatches } from '../components/ui';
 import { ScrubNumber } from '../components/workspace';
@@ -165,7 +165,7 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
   return (
     <div className="props">
       <div className="props-head">
-        {source.type === 'text' ? <Type size={14} /> : source.type === 'comp' ? <Clapperboard size={14} /> : source.type === 'shape' ? <Square size={14} /> : isAudio ? <Music2 size={14} /> : <Video size={14} />}
+        {source.type === 'text' ? <Type size={14} /> : source.type === 'comp' ? <Clapperboard size={14} /> : source.type === 'shape' ? <Square size={14} /> : source.type === 'html' ? <Sparkles size={14} /> : isAudio ? <Music2 size={14} /> : <Video size={14} />}
         <span className="props-name" title={asset?.path}>{clipName(project, assets, clip)}</span>
         {asset && <button type="button" className="icon-btn small" onClick={() => void api.revealPath(asset.path)} title="Reveal in Explorer"><FolderOpen size={13} /></button>}
       </div>
@@ -303,6 +303,13 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
             </Row>
           ) : null}
           <Row label="Frame"><span className="prop-readout">{item.width}×{item.height}</span></Row>
+        </Section>
+      )}
+
+      {source.type === 'html' && (
+        <Section title="Motion Graphic" icon={<Sparkles size={12} />}>
+          <Row label="Template"><span className="prop-readout">{source.title || 'HTML/GSAP'}</span></Row>
+          <Row label="Engine"><span className="prop-readout">{source.js ? 'HTML + CSS + GSAP' : 'HTML + CSS'}</span></Row>
         </Section>
       )}
 

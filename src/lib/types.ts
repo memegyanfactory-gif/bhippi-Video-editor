@@ -68,7 +68,8 @@ export type ClipSource =
   | { type: 'item'; itemId: string }
   | { type: 'text'; text: string; subtitle: string; preset: Preset; color: string; style: string | null; vertical: boolean }
   | { type: 'sfx'; kind: SfxKind }
-  | { type: 'shape'; shape: ShapeKind; sides: number; fill: string | null; stroke: string | null; strokeWidth: number; width: number; height: number; cornerRadius: number };
+  | { type: 'shape'; shape: ShapeKind; sides: number; fill: string | null; stroke: string | null; strokeWidth: number; width: number; height: number; cornerRadius: number }
+  | { type: 'html'; html: string; css?: string; js?: string; title?: string };
 
 export type Clip = {
   id: string;

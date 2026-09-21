@@ -889,6 +889,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_system_prompt_leads_with_the_todo_rule() {
+        // The todo-first workflow is a standing order, not a suggestion: the first
+        // section names the file, the checkbox syntax and the check-off discipline,
+        // and it sits before every other instruction so no provider misses it.
+        assert!(super::PROMPT.contains("## Todo list first — always"), "the todo rule exists");
+        assert!(super::PROMPT.contains("todos/todo-"), "the todo file path convention exists");
+        assert!(super::PROMPT.contains("- [ ]") && super::PROMPT.contains("- [x]"), "the checkbox discipline exists");
+        let todo_at = super::PROMPT.find("## Todo list first").expect("rule");
+        let workflow_at = super::PROMPT.find("## How Helios works").expect("workflow");
+        assert!(todo_at < workflow_at, "the todo rule comes first");
+    }
+
     /// A real CLI agent turn, end to end through the MCP bridge:
     ///
     /// ```text

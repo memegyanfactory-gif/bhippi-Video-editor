@@ -322,6 +322,8 @@ export function sourceInfo(project: Project, assets: AssetMap, source: ClipSourc
       return { name: source.text, hasVideo: true, hasAudio: false, length: Infinity, width: 1920, height: 1080 };
     case 'shape':
       return { name: source.shape === 'rectangle' ? 'Rectangle' : source.shape === 'ellipse' ? 'Ellipse' : 'Polygon', hasVideo: true, hasAudio: false, length: Infinity, width: source.width, height: source.height };
+    case 'html':
+      return { name: source.title || 'Motion Graphic', hasVideo: true, hasAudio: false, length: Infinity, width: 1920, height: 1080 };
     case 'sfx':
       return { name: source.kind[0].toUpperCase() + source.kind.slice(1), hasVideo: false, hasAudio: true, length: SFX_LENGTH[source.kind], width: 0, height: 0 };
   }
