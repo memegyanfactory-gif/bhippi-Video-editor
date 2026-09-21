@@ -262,7 +262,7 @@ const findClipIn = (project: Project, clipId: string) => {
  * scatter across the project root. Idempotent: returns the existing one when
  * the user (or an earlier turn) already made it.
  */
-function generatedFolderId(project: Project, commit: (change: (current: Project) => Project) => void): string {
+export function generatedFolderId(project: Project, commit: (change: (current: Project) => Project) => void): string {
   const existing = project.folders.find((folder) => folder.name === 'Generated' && !folder.parentId);
   if (existing) return existing.id;
   const id = uid();
@@ -716,8 +716,14 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       const name = str(args, 'name') || `Voiceover: ${script.slice(0, 30).trim()}`;
 
       try {
+        const currentSettings = typeof api.settingsGet === 'function' ? await api.settingsGet().catch(() => null) : null;
+        const settingsVoice = currentSettings?.speech?.voice;
+        const settingsMode = currentSettings?.speech?.voiceMode || 'auto';
+        const requestedMode = str(args, 'mode');
+        const mode = (requestedMode && requestedMode !== 'auto') ? requestedMode : (settingsMode !== 'auto' ? settingsMode : 'natural');
+
         const status = await api.speechStatus();
-        let voice = requestedVoice;
+        let voice = requestedVoice || settingsVoice;
 
         if (!status?.piper?.found) {
           try {
@@ -734,18 +740,24 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
             voice = firstVoice.id;
           } else {
             try {
-              await api.modelDownload('piper-en-hfc-female');
-              voice = 'piper:piper-en-hfc-female';
+              await api.modelDownload('piper-en-ryan');
+              voice = 'piper:piper-en-ryan';
             } catch {
-              voice = 'piper:piper-en-hfc-female';
+              voice = 'piper:piper-en-ryan';
             }
           }
         }
 
-        const asset = await api.speechGenerate(script, voice, 'natural', name);
+        const asset = await api.speechGenerate(script, voice, mode, name);
         if (!asset || !asset.id) {
           return fail('Speech synthesis produced no audio asset.');
         }
+
+        // Always register the generated voiceover into project.media inside the "Generated" folder
+        const targetFolder = generatedFolderId(project, commit);
+        commit(p => (p.media.some(ref => ref.assetId === asset.id)
+          ? p
+          : { ...p, media: [...p.media, { assetId: asset.id, folderId: targetFolder, offline: false }] }));
 
         let placedClipId: string | undefined;
         if (autoPlace) {

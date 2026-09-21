@@ -25,7 +25,7 @@ import { ProgramMonitor, type ProgramApi } from './editor/ProgramMonitor';
 import { SourceMonitor, type SourceApi, type SourceRange } from './editor/SourceMonitor';
 import { DEFAULT_DISPLAY, dropClips, LABELS, Timeline, type DisplaySettings, type IncomingDrag, type TimelineApi } from './editor/Timeline';
 import { AudioMeters, DEFAULT_METERS, ToolsPanel, TOOL_LABEL } from './editor/ToolsAndMeters';
-import { aiContext, runTool, TOOL_SPECS } from './lib/aiTools';
+import { aiContext, generatedFolderId, runTool, TOOL_SPECS } from './lib/aiTools';
 import { recordTurnOutcome, type TurnOutcome } from './lib/ideagraph';
 import { applyTheme, resolveTheme } from './lib/theme';
 import { allowTool, DEFAULT_EFFORT, DEFAULT_PERMISSION, type Effort, type PermissionMode } from './lib/permissions';
@@ -83,7 +83,7 @@ const EMPTY_SETTINGS: Settings = {
   disabledProviders: [], providerId: null, model: null, effort: null, permission: null, awesomeLook: false, ffmpegPath: null, chatOpen: true, timelineHeight: null, timelineZoom: null,
   export: { resolution: null, fps: null, quality: null, folder: null }, layout: null, recentProjects: [], projectPath: null, theme: null,
   ideagraphBin: null, ideagraphBrain: null, ideagraphRecord: null,
-  speech: { transcribeEngine: null, transcribeModel: null, whisperPath: null, piperPath: null, voice: null, hindiVoice: null, voiceMode: null, speed: null },
+  speech: { transcribeEngine: null, transcribeModel: 'whisper-large-v3', whisperPath: null, piperPath: null, voice: 'piper:piper-en-ryan', hindiVoice: null, voiceMode: 'auto', speed: null },
 };
 
 /** When the saved choice is unusable, prefer agents the user is signed in to, then local, then cloud. */
@@ -309,6 +309,12 @@ export default function App() {
           toast({ tone: 'success', title: 'Export complete', body: path.split(/[\\/]/).pop(), actions: [{ label: 'Open', run: () => void api.openPath(path) }, { label: 'Show in folder', run: () => void api.revealPath(path) }] });
         } else if (job.kind === 'export' && job.status === 'error') {
           toast({ tone: 'error', title: 'Export failed', body: job.message.slice(0, 400) });
+        } else if (job.kind === 'generation' && job.status === 'done' && (job.result as { path?: string })?.path) {
+          const path = (job.result as { path?: string }).path!;
+          const filename = path.split(/[\\/]/).pop();
+          toast({ tone: 'success', title: 'Generation complete', body: filename || job.label, actions: [{ label: 'Show in folder', run: () => void api.revealPath(path) }] });
+        } else if (job.kind === 'generation' && (job.status === 'error' || job.status === 'cancelled')) {
+          toast({ tone: 'error', title: 'Generation failed', body: job.message.slice(0, 400) });
         } else if (job.kind === 'install' && job.status !== 'running') {
           toast({ tone: job.status === 'done' ? 'success' : 'error', title: job.status === 'done' ? job.label.replace('Installing', 'Installed') : `${job.label} failed`, body: job.message.slice(0, 300) });
         }
@@ -348,12 +354,17 @@ export default function App() {
       return all;
     },
     speak: async (text: string, voice: string | null, mode: string, name?: string) => {
-      const asset = await api.speechGenerate(text, voice, mode, name);
+      const currentSettings = await api.settingsGet().catch(() => settings);
+      const chosenVoice = voice || currentSettings.speech.voice || 'piper:piper-en-ryan';
+      const chosenMode = (mode && mode !== 'auto') ? mode : (currentSettings.speech.voiceMode || 'auto');
+      const asset = await api.speechGenerate(text, chosenVoice, chosenMode, name);
       await refreshAssets();
+      const currentProject = history.current();
+      const targetFolder = generatedFolderId(currentProject, (fn) => history.commit(fn, 'Generated Folder'));
       history.commit(
         (current) => (current.media.some((ref) => ref.assetId === asset.id)
           ? current
-          : { ...current, media: [...current.media, { assetId: asset.id, folderId: null, offline: false }] }),
+          : { ...current, media: [...current.media, { assetId: asset.id, folderId: targetFolder, offline: false }] }),
         'Voice-over',
       );
       return asset;
@@ -2226,6 +2237,8 @@ export default function App() {
   const exportJob = runningJobs.find((job) => job.kind === 'export');
   const mediaJobs = runningJobs.filter((job) => job.kind === 'media');
   const installJobs = runningJobs.filter((job) => job.kind === 'install');
+  const generationJobs = runningJobs.filter((job) => job.kind === 'generation');
+  const activeGenerationJob = generationJobs[0];
   const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null };
   const maximizedPanel = maximized && maximizedContent[maximized] ? maximized : null;
 
@@ -2310,6 +2323,18 @@ export default function App() {
             {runningJobs.filter((job) => job.kind === 'export').length > 1 && <span className="muted">+{runningJobs.filter((job) => job.kind === 'export').length - 1} more</span>}
             <span className="progress"><span style={{ width: `${Math.round(exportJob.progress * 100)}%` }} /></span>
           </button>
+        )}
+        {activeGenerationJob && (
+          <span className="status-item generation-progress" title={`${activeGenerationJob.label}: ${activeGenerationJob.message}`}>
+            <LoaderCircle size={12} className="spin" style={{ color: 'var(--blue, #3b82f6)' }} />
+            <span style={{ fontWeight: 600, color: 'var(--text)' }}>{activeGenerationJob.label || 'Generating'}:</span>
+            <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeGenerationJob.message}</span>
+            <span className="progress" style={{ width: 140, height: 6, margin: '0 4px', background: 'rgba(255,255,255,0.15)', borderRadius: 3, display: 'inline-block', overflow: 'hidden', verticalAlign: 'middle' }}>
+              <span style={{ display: 'block', height: '100%', width: `${Math.round(activeGenerationJob.progress * 100)}%`, background: 'var(--blue, #3b82f6)', transition: 'width 0.2s ease', borderRadius: 3 }} />
+            </span>
+            <span style={{ fontWeight: 600, color: 'var(--text)' }}>{Math.round(activeGenerationJob.progress * 100)}%</span>
+            {generationJobs.length > 1 && <span className="muted">+{generationJobs.length - 1} more</span>}
+          </span>
         )}
         <button
           type="button"

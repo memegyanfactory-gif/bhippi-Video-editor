@@ -9,6 +9,7 @@ vi.mock('../src/lib/ipc', () => ({
     refsSaveGuideline: vi.fn(),
     localMediaGenerate: vi.fn(),
     jobsList: vi.fn(),
+    settingsGet: vi.fn().mockResolvedValue({ speech: { voice: null, voiceMode: 'natural' } }),
   },
   errorText: (e: unknown) => String(e),
 }));

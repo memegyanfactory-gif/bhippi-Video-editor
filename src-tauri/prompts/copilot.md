@@ -90,7 +90,7 @@ When the user asks to "make this video" from scratch (or there is an empty timel
 2. **Step 2: Generate Timed Script**:
    - Write a structured, timed script matching the requested duration (scene by scene, with narration text, target durations, and visual direction).
 3. **Step 3: Synthesize Local Voice-Over Audio**:
-   - Call `synthesize_speech_voiceover {"script": "...", "voice": "piper:piper-en-hfc-female", "speed": 1.0, "autoPlace": true}`:
+   - Call `synthesize_speech_voiceover {"script": "...", "speed": 1.0, "autoPlace": true}` (automatically respects user's selected settings voice such as `piper:piper-en-ryan` and places into the "Generated" folder).
    - Uses local offline Piper neural speech models. If Piper runtime or voice is not installed, it automatically initiates download and imports the take directly onto the timeline audio track.
 4. **Step 4: Gather Visual Sources**:
    - Scrape online b-roll videos and images via `scrape_videos {"url": "...", "download": true}` and `download_online_media`.

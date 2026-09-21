@@ -209,10 +209,10 @@ const CATALOG: &[Entry] = &[
         "whisper-large-v3-turbo-q5",
         "ggml-large-v3-turbo-q5_0.bin",
         "Whisper large v3 turbo (q5)",
-        "The one to pick. Large-v3 accuracy several times faster, and it keeps up with Hindi, English and code-switched Hinglish.",
+        "Large-v3 accuracy several times faster, and it keeps up with Hindi, English and code-switched Hinglish.",
         574,
         &["en", "hi", "hinglish"],
-        true
+        false
     ),
     whisper_model!(
         "whisper-large-v3-q5",
@@ -227,10 +227,10 @@ const CATALOG: &[Entry] = &[
         "whisper-large-v3",
         "ggml-large-v3.bin",
         "Whisper large v3 (full)",
-        "Full precision — the best Hindi and Hinglish there is offline, but it is 3 GB and wants a strong machine.",
+        "Full precision 3 GB model — the highest accuracy offline transcription for English, Hindi and Hinglish.",
         3100,
         &["en", "hi", "hinglish"],
-        false
+        true
     ),
     Entry {
         id: "piper-runtime",

@@ -36,7 +36,15 @@ pub async fn run(python: &Path, worker: &Path, request: &Path, job: &JobHandle) 
     let errors = tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         let mut tail = std::collections::VecDeque::new();
-        while let Ok(Some(line)) = lines.next_line().await { tail.push_back(line); if tail.len() > 12 { tail.pop_front(); } }
+        while let Ok(Some(line)) = lines.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            if (trimmed.contains("%|") && trimmed.contains("it/s")) || trimmed.contains("Loading pipeline components") {
+                continue;
+            }
+            tail.push_back(line);
+            if tail.len() > 40 { tail.pop_front(); }
+        }
         tail.into_iter().collect::<Vec<_>>().join("\n")
     });
     let mut lines = BufReader::new(stdout).lines();

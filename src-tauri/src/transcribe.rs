@@ -66,9 +66,15 @@ const ENGINES: &[Engine] = &[
 fn local_model(root: &Path, prefs: &SpeechPrefs) -> Option<(&'static str, PathBuf)> {
     let installed = models::installed(root, models::Kind::SttModel);
     if let Some(chosen) = prefs.transcribe_model.as_deref() {
-        if let Some(hit) = installed.iter().find(|(id, _)| *id == chosen) {
-            return Some(hit.clone());
+        if !chosen.is_empty() {
+            if let Some(hit) = installed.iter().find(|(id, _)| *id == chosen) {
+                return Some(hit.clone());
+            }
         }
+    }
+    // Prioritize full precision whisper-large-v3 (~3GB) if installed on disk
+    if let Some(hit) = installed.iter().find(|(id, _)| *id == "whisper-large-v3") {
+        return Some(hit.clone());
     }
     // The catalogue lists the small models first, so the last one installed is the best one.
     installed.last().cloned()

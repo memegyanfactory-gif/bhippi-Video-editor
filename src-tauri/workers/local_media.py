@@ -26,6 +26,20 @@ def optimal_sdxl_dimensions(w: int, h: int) -> tuple[int, int]:
     return best
 
 
+def optimal_wan_dimensions(w: int, h: int) -> tuple[int, int]:
+    # Multiples of 16 supported by Wan 2.1 (between 256 and 832)
+    buckets = [
+        (832, 480),  # 16:9 widescreen landscape
+        (480, 832),  # 9:16 vertical (Shorts/Reels)
+        (624, 624),  # 1:1 square
+        (512, 512),  # 1:1 compact square
+        (704, 544),  # 4:3 standard
+        (544, 704),  # 3:4 portrait
+    ]
+    target_ratio = w / max(1, h)
+    return min(buckets, key=lambda b: abs((b[0] / b[1]) - target_ratio))
+
+
 def auth_help(task, repo, error):
     """What to do when a gated model (Stable Audio Open) refuses the download."""
     detail = str(error).split('\n')[0][:220]
@@ -116,19 +130,50 @@ def execute(request):
     classes = {"image": StableDiffusionXLPipeline, "image-edit": StableDiffusionXLImg2ImgPipeline, "image-inpaint": StableDiffusionXLInpaintPipeline, "video": WanPipeline, "audio": StableAudioPipeline}
     if task not in classes:
         raise ValueError("Unsupported task; use image, video or audio.")
-    # Only local safetensors. Never execute code bundled in a downloaded repository.
+    # Ensure safetensors compatibility across diffusers and transformers
+    try:
+        import os
+        for dirpath, _, filenames in os.walk(str(checkpoint)):
+            for f in filenames:
+                if f.endswith('.fp16.safetensors'):
+                    full = os.path.join(dirpath, f)
+                    target = os.path.join(dirpath, f.replace('.fp16.safetensors', '.safetensors'))
+                    if not os.path.exists(target):
+                        try:
+                            os.link(full, target)
+                        except Exception:
+                            pass
+                elif f.endswith('.safetensors') and not f.endswith('.fp16.safetensors'):
+                    full = os.path.join(dirpath, f)
+                    target = os.path.join(dirpath, f.replace('.safetensors', '.fp16.safetensors'))
+                    if not os.path.exists(target):
+                        try:
+                            os.link(full, target)
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+
     extra = {'variant': 'fp16'} if task.startswith('image') and (checkpoint / 'unet' / 'diffusion_pytorch_model.fp16.safetensors').is_file() else {}
-    pipe = classes[task].from_pretrained(str(checkpoint), torch_dtype=dtype, use_safetensors=True, local_files_only=True, **extra)
-    pipe.enable_model_cpu_offload()
-    if hasattr(pipe, "enable_vae_tiling"):
-        pipe.enable_vae_tiling()
+    try:
+        pipe = classes[task].from_pretrained(str(checkpoint), torch_dtype=dtype, use_safetensors=True, local_files_only=True, **extra)
+    except Exception as load_err:
+        if extra:
+            pipe = classes[task].from_pretrained(str(checkpoint), torch_dtype=dtype, use_safetensors=True, local_files_only=True)
+        else:
+            raise load_err
 
     # Float32 VAE precision avoids color clipping, washed-out tones, and black screens in SDXL and Wan
+    # Set VAE precision BEFORE attaching accelerate offload hooks
     if hasattr(pipe, "vae") and pipe.vae is not None:
         try:
             pipe.vae.to(dtype=torch.float32)
         except Exception:
             pass
+
+    pipe.enable_model_cpu_offload()
+    if hasattr(pipe, "enable_vae_tiling"):
+        pipe.enable_vae_tiling()
 
     # Configure DPM++ 2M SDE Karras solver for SDXL image tasks for maximum detail and sharpness
     if task.startswith("image") and hasattr(pipe, "scheduler"):
@@ -191,14 +236,15 @@ def execute(request):
     if negative_prompt and task in ("image", "image-edit", "image-inpaint", "video"):
         kwargs["negative_prompt"] = negative_prompt
     def step_end(pipeline, index, timestep, values):
-        emit(0.15 + 0.8 * (index + 1) / steps, f'Inference step {index + 1}/{steps}')
+        pct = 0.20 + 0.70 * (index + 1) / steps
+        emit(round(pct, 2), f"Inference step {index + 1}/{steps} ({int(pct * 100)}%)")
         return values
     if task == 'audio':
-        kwargs['callback'] = lambda index, timestep, latents: emit(0.15 + 0.8 * (index + 1) / steps, f'Inference step {index + 1}/{steps}')
+        kwargs['callback'] = lambda index, timestep, latents: emit(0.20 + 0.70 * (index + 1) / steps, f"Inference step {index + 1}/{steps} ({int((0.20 + 0.70 * (index + 1) / steps) * 100)}%)")
         kwargs['callback_steps'] = 1
     else:
         kwargs['callback_on_step_end'] = step_end
-    emit(0.15, "Generating; first run may take several minutes")
+    emit(0.18, "Starting model inference; GPU compute active...")
     if task.startswith("image"):
         req_w = int(request.get("width", 1024))
         req_h = int(request.get("height", 1024))
@@ -214,23 +260,25 @@ def execute(request):
             if task == 'image-inpaint':
                 mask = ImageOps.exif_transpose(Image.open(request['maskPath'])).convert('L').resize((width, height), Image.Resampling.NEAREST)
                 kwargs['mask_image'] = mask
+        emit(0.20, f"Generating SDXL image: {width}x{height}, {steps} steps...")
         result = pipe(**kwargs, width=width, height=height).images[0]
         if task == 'image-inpaint':
             # White marks the replacement. Preserve untouched source pixels exactly at output size.
             result = Image.composite(result, source, mask)
+        emit(0.95, "Saving image artifact...")
         result.save(output)
     elif task == "video":
         from diffusers.utils import export_to_video
-        width, height = int(request.get("width", 832)), int(request.get("height", 480))
+        req_w = int(request.get("width", 832))
+        req_h = int(request.get("height", 480))
+        width, height = optimal_wan_dimensions(req_w, req_h)
         requested_frames = int(request.get("frames", 81))
         # Strictly enforce maximum 5.0 seconds duration (81 frames at 16 fps = 5.06s)
         clamped_frames = min(max(5, requested_frames), 81)
         frames = ((clamped_frames - 1) // 4) * 4 + 1
-        if any(n < 256 or n > 832 or n % 16 for n in (width, height)):
-            raise ValueError("Wan dimensions must be multiples of 16, between 256 and 832.")
-        # Wan's autoencoder is kept in float32 for stability.
-        pipe.vae.to(dtype=torch.float32)
+        emit(0.20, f"Generating Wan 2.1 video: {width}x{height}, {frames} frames at 16 fps ({steps} steps)...")
         result = pipe(**kwargs, width=width, height=height, num_frames=frames).frames[0]
+        emit(0.92, "Encoding video frames to MP4...")
         export_to_video(result, str(output), fps=16)
     else:
         import soundfile
