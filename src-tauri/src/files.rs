@@ -167,6 +167,80 @@ pub async fn audio_peak(tools: &Tools, path: &Path, start: f64, end: f64) -> Res
     }
 }
 
+/// EBU R128 loudness of a media range.
+#[derive(Serialize, Clone, Copy, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Loudness {
+    /// Integrated (programme) loudness in LUFS; −70 for silence.
+    pub integrated_lufs: f64,
+    /// Loudness range in LU (0 for anything shorter than the 3 s short-term window).
+    pub range_lu: f64,
+    /// The highest true (inter-sample) peak in dBTP; −70 for silence.
+    pub true_peak_db: f64,
+    /// How much audio was actually measured, in seconds (less than asked if the media ends first).
+    pub duration: f64,
+}
+
+/// The floor FFmpeg's `ebur128` uses for "no signal", and where non-finite readings land.
+const LOUDNESS_FLOOR: f64 = -70.0;
+
+/// EBU R128 loudness of a media range: integrated LUFS, loudness range LU, true peak dBTP.
+///
+/// `ebur128` carries its running values as frame metadata every 100 ms; the last frame's are
+/// the whole range's, and reading them from stdout is more robust than parsing the summary the
+/// filter logs to stderr. The true peak comes back linear and is converted to dBTP here.
+pub async fn audio_loudness(tools: &Tools, path: &Path, start: f64, end: f64) -> Result<Loudness, String> {
+    let span = (end - start).max(0.0);
+    if span <= 0.0 {
+        return Err("that clip has no length to measure".to_owned());
+    }
+    let args = [
+        "-ss".to_owned(),
+        format!("{:.4}", start.max(0.0)),
+        "-t".to_owned(),
+        format!("{span:.4}"),
+        "-i".to_owned(),
+        path.display().to_string(),
+        "-vn".to_owned(),
+        "-af".to_owned(),
+        "ebur128=peak=true:metadata=1,ametadata=print:file=-".to_owned(),
+        "-f".to_owned(),
+        "null".to_owned(),
+        "-".to_owned(),
+    ];
+    let printed = ffmpeg_stdout(tools, &args).await?;
+    let mut integrated = None;
+    let mut range = None;
+    let mut true_peak = None;
+    let mut last_frame = None;
+    for line in printed.lines() {
+        if let Some(rest) = line.split("pts_time:").nth(1) {
+            last_frame = rest.split_whitespace().next().and_then(|time| time.parse::<f64>().ok()).or(last_frame);
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let value = value.trim().parse::<f64>().ok();
+        match key.trim() {
+            "lavfi.r128.I" => integrated = value,
+            "lavfi.r128.LRA" => range = value,
+            "lavfi.r128.true_peak" => true_peak = value,
+            _ => {}
+        }
+    }
+    let Some(last_frame) = last_frame else {
+        return Err("that clip has no measurable sound".to_owned());
+    };
+    // Frames arrive every 100 ms, so the last one's start plus a frame is how much was measured.
+    let duration = (last_frame + 0.1).min(span);
+    let floor = |value: Option<f64>| value.filter(|value| value.is_finite()).unwrap_or(LOUDNESS_FLOOR).max(LOUDNESS_FLOOR);
+    let true_peak_db = match true_peak {
+        Some(linear) if linear > 0.0 => (20.0 * linear.log10()).max(LOUDNESS_FLOOR),
+        _ => LOUDNESS_FLOOR,
+    };
+    let range_lu = if duration < 3.0 { 0.0 } else { range.filter(|value| value.is_finite()).unwrap_or(0.0).max(0.0) };
+    Ok(Loudness { integrated_lufs: floor(integrated), range_lu, true_peak_db, duration })
+}
+
 /// Saves a voice-over recording from the browser and converts it to a WAV the editor can read.
 pub async fn save_recording(tools: &Tools, dir: &Path, bytes: &[u8], extension: &str) -> Result<PathBuf, String> {
     if bytes.is_empty() {
@@ -265,6 +339,49 @@ mod tests {
         // FFmpeg's `sine` source peaks at 1/8 of full scale (−18 dB), so −6 dB of gain lands on −24.
         let peak = super::audio_peak(&tools, &tone, 0.0, 2.0).await.expect("peak");
         assert!((peak + 24.1).abs() < 1.0, "peak {peak} should be about −24 dB");
+        let _ignored = std::fs::remove_dir_all(dir);
+    }
+
+    /// R128 loudness against the real FFmpeg: a steady tone, then silence.
+    #[tokio::test]
+    async fn loudness_comes_back_from_ffmpeg() {
+        let tools = crate::tools::resolve(None).await;
+        let Ok(ffmpeg) = tools.ffmpeg() else {
+            eprintln!("FFmpeg not installed; skipping");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("helios-loudness-{}", crate::store::new_id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let tone = dir.join("tone.wav");
+        let status = std::process::Command::new(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=5"])
+            .arg(tone.to_str().expect("utf8"))
+            .status()
+            .expect("ffmpeg runs");
+        assert!(status.success());
+        // `sine` peaks at 1/8 of full scale: −18.06 dBTP, and a mono 440 Hz tone at that level
+        // K-weights to about −21.8 LUFS. A steady tone has no loudness range.
+        let loudness = super::audio_loudness(&tools, &tone, 0.0, 5.0).await.expect("loudness");
+        assert!((loudness.true_peak_db + 18.06).abs() < 0.3, "{loudness:?}");
+        assert!((loudness.integrated_lufs + 21.8).abs() < 1.0, "{loudness:?}");
+        assert!(loudness.range_lu < 0.5, "{loudness:?}");
+        assert!((loudness.duration - 5.0).abs() < 0.2, "{loudness:?}");
+        // Asking past the end measures what is there.
+        let partial = super::audio_loudness(&tools, &tone, 3.0, 10.0).await.expect("loudness");
+        assert!((partial.duration - 2.0).abs() < 0.2, "{partial:?}");
+
+        let silence = dir.join("silence.wav");
+        let status = std::process::Command::new(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=4"])
+            .arg(silence.to_str().expect("utf8"))
+            .status()
+            .expect("ffmpeg runs");
+        assert!(status.success());
+        let quiet = super::audio_loudness(&tools, &silence, 0.0, 4.0).await.expect("loudness");
+        assert_eq!(quiet.integrated_lufs, super::LOUDNESS_FLOOR, "{quiet:?}");
+        assert_eq!(quiet.true_peak_db, super::LOUDNESS_FLOOR, "{quiet:?}");
+        assert_eq!(quiet.range_lu, 0.0, "{quiet:?}");
+        assert!(super::audio_loudness(&tools, &tone, 2.0, 2.0).await.is_err());
         let _ignored = std::fs::remove_dir_all(dir);
     }
 }

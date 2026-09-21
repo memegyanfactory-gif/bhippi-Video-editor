@@ -454,11 +454,7 @@ fn keyframe_value(keys: &[Keyframe], tau: f64) -> Option<f64> {
         let (key, next) = (pair[0], pair[1]);
         let span = next.time - key.time;
         let progress = if span <= 1e-9 { if tau >= next.time { 1.0 } else { 0.0 } } else { ((tau - key.time) / span).clamp(0.0, 1.0) };
-        let shaped = match key.easing {
-            Easing::Linear => progress,
-            Easing::Hold => if tau >= next.time { 1.0 } else { 0.0 },
-            Easing::Ease => progress * progress * (3.0 - 2.0 * progress),
-        };
+        let shaped = if matches!(key.easing, Easing::Hold) { if tau >= next.time { 1.0 } else { 0.0 } } else { key.easing.shape(progress) };
         value += (next.value - key.value) * shaped;
     }
     Some(value)
@@ -485,12 +481,7 @@ fn keyframe_expr(keys: &[Keyframe], tau: &str) -> Option<String> {
         let span = next.time - key.time;
         let step = format!("gte({tau},{})", num(next.time));
         let progress = format!("clip(({tau}-{})/{},0,1)", num(key.time), num(span));
-        let shaped = match key.easing {
-            _ if span <= 1e-9 => step,
-            Easing::Hold => step,
-            Easing::Linear => progress,
-            Easing::Ease => format!("{progress}*{progress}*(3-2*{progress})"),
-        };
+        let shaped = if span <= 1e-9 || matches!(key.easing, Easing::Hold) { step } else { key.easing.expr(&progress) };
         terms.push(format!("({})*{shaped}", num(delta)));
     }
     Some(sum_expr(terms))

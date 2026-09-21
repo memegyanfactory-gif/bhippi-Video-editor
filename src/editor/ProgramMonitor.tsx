@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { MenuList } from '../components/workspace';
 import { clamp, parseTimecode, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
-import { setKey } from '../lib/keyframes';
+import { setKey, shape } from '../lib/keyframes';
 import { playhead, usePlayhead, usePlaying, useRate } from '../lib/playhead';
 import { compDuration, freeTrack, newClip, placeClips, textSource, updateComp, type AssetMap } from '../lib/timeline';
 import type { Clip, Comp, KeyframedProperty, Mask, Project, Tool, RotoCorrection } from '../lib/types';
@@ -294,7 +294,7 @@ export function ProgramMonitor(props: Props) {
       const next = sorted[index + 1];
       if (next && local >= sorted[index].time && local < next.time && sorted[index].easing !== 'hold') {
         const t = (local - sorted[index].time) / (next.time - sorted[index].time);
-        const eased = sorted[index].easing === 'ease' ? t * t * (3 - 2 * t) : t;
+        const eased = shape(sorted[index].easing, t);
         value = sorted[index].value + (next.value - sorted[index].value) * eased;
       }
     }

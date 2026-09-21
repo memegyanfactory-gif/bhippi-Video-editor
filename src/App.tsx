@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { actionLogger } from './lib/actionLogger';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { EditWorkflow } from './lib/editWorkflow';
+import { advance as advanceProduction, userAdvance } from './lib/production';
+import { ProductionBar } from './chat/ProductionBar';
 import { automaticRotoEngine } from './lib/rotoEngine';
 import { flushSync } from 'react-dom';
 import { RENDERED_EFFECTS } from './lib/effectSupport';
@@ -17,6 +19,7 @@ import { ChatPanel, type ChatApi, type ToolRun } from './chat/ChatPanel';
 import { StoryboardViewer } from './chat/StoryboardViewer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ResourceMonitor } from './components/ResourceMonitor';
+import { renderMotionGraphicsForExport } from './lib/htmlFrames';
 import { ProviderLogo } from './components/ProviderLogo';
 import { useToast } from './components/ui';
 import { MenuList, Panel, Splitter, type MenuItem } from './components/workspace';
@@ -47,7 +50,7 @@ import {
   sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, tracksOf, transitionsOnSelection, trimEdge, updateComp, updateTrack, withLinked, wouldCycle,
   type AssetMap,
 } from './lib/timeline';
-import type { AppInfo, Asset, Clip, Comp, ExportOptions, HeliosDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, WorkspaceLayout } from './lib/types';
+import type { AppInfo, Asset, Clip, Comp, ExportOptions, HeliosDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, WorkspaceLayout, ProductionPhase } from './lib/types';
 import { ProjectPanel, type DragPayload, type EffectPreset, type ProjectTab } from './panels/ProjectPanel';
 import { PropertiesPanel } from './panels/PropertiesPanel';
 import { EffectControlsPanel } from './panels/EffectControlsPanel';
@@ -516,7 +519,13 @@ export default function App() {
           const project = hostRef.current.history.current();
           const blocked = workflow.before(call.name, args, project) || (call.name === 'save_storyboard' ? workflow.validateStoryboard(args, project) : null);
           if (blocked) result = { ok: false as const, error: blocked };
-          else if (call.name === 'editing_workflow_status') result = { ok: true as const, summary: 'Actual workflow receipts; pending steps must be completed before editing.', workflow: workflow.status(project) };
+          else if (call.name === 'editing_workflow_status') {
+            const st = workflow.status(project);
+            const summary = st.timelineRead
+              ? 'Actual workflow receipts; pending steps must be completed before editing.'
+              : 'Workflow initialized. Call get_comp next to inspect the comp timeline before planning or editing.';
+            result = { ok: true as const, summary, workflow: st };
+          }
           else if (call.name === 'verify_edit_workflow') result = workflow.verify(project);
           else {
             const host = hostRef.current;
@@ -527,6 +536,17 @@ export default function App() {
             } };
             result = await runTool(synchronousHost, call.name, call.args, controller.signal, call.turnId);
             workflow.record(call.name, args, result, hostRef.current.history.current());
+            // A saved plan carries this turn's analysis receipts forward, so the gathering and
+            // editing turns start from the transcripts and frame scans already done.
+            if (result.ok && (call.name === 'save_storyboard' || call.name === 'save_video_blueprint')) {
+              const receipts = workflow.receipts(hostRef.current.history.current());
+              const compId = workflow.status(hostRef.current.history.current()).compId;
+              if (receipts && compId) flushSync(() => hostRef.current.history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: { ...c.production, receipts } } : c)), 'AI: plan receipts'));
+            }
+          }
+          if (call.name === 'verify_edit_workflow' && result.ok) {
+            const compId = workflow.status(hostRef.current.history.current()).compId;
+            if (compId) flushSync(() => hostRef.current.history.commit((current) => updateComp(current, compId, (c) => (c.production && c.production.phase !== 'done' ? { ...c, production: advanceProduction(c.production, 'done') } : c)), 'AI: production verified'));
           }
         } catch (error) {
           result = { ok: false as const, error: errorText(error) };
@@ -559,6 +579,19 @@ export default function App() {
     history.commit(snapshot, 'Revert AI edits');
     turnSnapshots.current.delete(turnId);
     return true;
+  };
+
+  /**
+   * The user pressed Start generating or Start editing. The phase moves in the project first —
+   * deterministically, so the guard opens the right tools whatever the model does — and then the
+   * model is told what the phase asks of it.
+   */
+  const advanceProductionPhase = (compId: string, phase: 'gathering' | 'editing' | ProductionPhase) => {
+    history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: advanceProduction(c.production, phase) } : c)), phase === 'gathering' ? 'Start generating' : 'Start editing');
+    const message = phase === 'gathering'
+      ? 'Start generating. The plan is approved: begin the GATHER phase now. Call editing_workflow_status, then gather every planned shot one call at a time with its sceneIndex — text-to-video shots 5–7 s from their own script and prompt (generate_local_media task video, wait true), images, downloads and scrapes into their research folders, the voice-over (synthesize_speech_voiceover) and the music bed. Retry a failed generation once with a simpler prompt. When everything has a real asset, call finish_gathering and end your turn with a short list of what was gathered. Do not touch the timeline.'
+      : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, layout_clip + create_motion_graphic per beat with the Crimson templates, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
+    window.setTimeout(() => chatApi.current?.send(message), 50);
   };
 
   // ── persistence ────────────────────────────────────────────────────────
@@ -1064,7 +1097,12 @@ export default function App() {
     setExportOpen(false);
     saveSettings({ export: { resolution: options.resolution, fps: options.fps, quality: options.quality, folder, format: options.format, channel: channelForFormat(options.format) ?? 'rgb' } });
     try {
-      await api.exportStart(history.current(), options);
+      // Motion graphics are live DOM in the preview; the export gets them as rendered frames
+      // with alpha, so cards, charts and panels animate in the MP4 exactly as they do here.
+      const prepared = await renderMotionGraphicsForExport(history.current(), options.compId, {
+        onProgress: (message) => toast({ tone: 'info', title: 'Preparing motion graphics', body: message, timeout: 1200 }),
+      });
+      await api.exportStart(prepared, options);
       toast({ tone: 'info', title: 'Export started', body: 'Progress is in the status bar.', timeout: 2500 });
     } catch (error) {
       toast({ tone: 'error', title: 'Export could not start', body: errorText(error) });
@@ -2090,8 +2128,8 @@ export default function App() {
     window.addEventListener('mousemove', trackMouse, { capture: true, passive: true });
     window.addEventListener('pointermove', trackMouse, { capture: true, passive: true });
     return () => {
-      window.removeEventListener('mousemove', trackMouse, { capture: true } as any);
-      window.removeEventListener('pointermove', trackMouse, { capture: true } as any);
+      window.removeEventListener('mousemove', trackMouse, { capture: true });
+      window.removeEventListener('pointermove', trackMouse, { capture: true });
     };
   }, []);
 
@@ -2113,9 +2151,9 @@ export default function App() {
   const chatPanel = panel('chat', [{ id: 'chat', label: 'Helios AI' }, { id: 'providers', label: 'Providers' }], chatTab, (
     <>
       <div className="chat-host" style={{ display: chatTab === 'chat' ? undefined : 'none' }}>
-        {!!comp?.storyboard?.length && (
+        {(!!comp?.storyboard?.length || !!comp?.videoBlueprint?.scenes?.length) && (
           <StoryboardViewer
-            scenes={comp.storyboard}
+            scenes={comp.storyboard ?? []}
             fps={comp.fps}
             compName={comp.name}
             onSeek={(t) => playhead.seek(t)}
@@ -2123,13 +2161,38 @@ export default function App() {
               history.commit(
                 (current) => ({
                   ...current,
-                  comps: current.comps.map((c) => (c.id === comp.id ? { ...c, storyboard: nextScenes } : c)),
+                  comps: current.comps.map((c) => {
+                    if (c.id !== comp.id) return c;
+                    if (c.videoBlueprint?.scenes?.length) {
+                      return {
+                        ...c,
+                        videoBlueprint: {
+                          ...c.videoBlueprint,
+                          scenes: c.videoBlueprint.scenes.map((s, i) => (
+                            nextScenes[i]?.thumbnail ? { ...s, thumbnail: nextScenes[i].thumbnail } : s
+                          )),
+                        },
+                      };
+                    }
+                    return { ...c, storyboard: nextScenes };
+                  }),
                 }),
                 'Update Storyboard Frames',
               );
             }}
+            blueprint={comp.videoBlueprint ?? null}
+            actionLabel={userAdvance(comp.production?.phase) === 'gathering' ? 'Start generating' : userAdvance(comp.production?.phase) === 'editing' ? 'Start editing' : null}
+            onExecuteBlueprint={userAdvance(comp.production?.phase) ? () => advanceProductionPhase(comp.id, userAdvance(comp.production?.phase)!) : undefined}
+            executing={Object.values(toolRuns).flat().some((run) => run.status === 'running')}
             onPlayToggle={() => playhead.setPlaying(!playhead.isPlaying())}
             isPlaying={isPlaying}
+          />
+        )}
+        {comp?.production && (
+          <ProductionBar
+            comp={comp}
+            busy={Object.values(toolRuns).flat().some((run) => run.status === 'running')}
+            onAdvance={(phase) => advanceProductionPhase(comp.id, phase)}
           />
         )}
         <ChatPanel apiRef={chatApi} providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}

@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react';
 import gsap from 'gsap';
+import { templateSpec } from '../lib/motionGuide';
 
 export type HtmlMotionSource = {
   html: string;
   css?: string;
   js?: string;
   title?: string;
+  template?: string;
 };
 
 export function HtmlMotionLayer({
@@ -28,7 +30,13 @@ export function HtmlMotionLayer({
 
   const elapsed = Math.max(0, Math.min(clipDuration, time - clipStart));
   const progress = clipDuration > 0 ? elapsed / clipDuration : 0;
-  const scale = stageW / 1920;
+  // A Crimson template's canvas follows the comp's aspect (1920 wide landscape, 1080 wide
+  // portrait) so a graphic built for a Reel fills the tall frame; the older templates were
+  // designed on a fixed 1920×1080 canvas and keep it.
+  const crimson = !!source.template && !!templateSpec(source.template);
+  const canvasW = crimson && stageW < stageH ? 1080 : 1920;
+  const canvasH = crimson ? Math.max(1, Math.round((canvasW * stageH) / Math.max(1, stageW))) : 1080;
+  const scale = stageW / canvasW;
 
   // The markup object must be stable: a fresh { __html } literal every render
   // makes React reset innerHTML on every playhead tick, wiping GSAP's inline
@@ -91,8 +99,9 @@ export function HtmlMotionLayer({
       ['--duration' as string]: `${clipDuration}s`,
       ['--stage-w' as string]: `${stageW}px`,
       ['--stage-h' as string]: `${stageH}px`,
+      ['--u' as string]: `${(canvasW / 1920).toFixed(4)}`,
     }),
-    [elapsed, progress, clipDuration, stageW, stageH]
+    [elapsed, progress, clipDuration, stageW, stageH, canvasW]
   );
 
   return (
@@ -101,8 +110,8 @@ export function HtmlMotionLayer({
       <div
         className="mgt-canvas"
         style={{
-          width: 1920,
-          height: 1080,
+          width: canvasW,
+          height: canvasH,
           position: 'absolute',
           top: 0,
           left: 0,

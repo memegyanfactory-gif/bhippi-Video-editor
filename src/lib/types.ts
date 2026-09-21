@@ -52,7 +52,13 @@ export type Mask = {
   inverted: boolean;
 };
 
-export type Easing = 'linear' | 'hold' | 'ease';
+/**
+ * How a keyframe shapes the segment that starts at it. `ease` is the classic smoothstep;
+ * `ease-out` is the weighted arrival the Crimson motion rules ask for (fast start, long settle),
+ * `ease-in` the mirror, `ease-in-out` a smoother S-curve, and `overshoot` lands past the target
+ * and settles back (anticipation and follow-through in one curve). Mirrored in render.rs.
+ */
+export type Easing = 'linear' | 'hold' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'overshoot';
 export type Keyframe = { time: number; value: number; easing: Easing };
 export type KeyframedProperty = 'x' | 'y' | 'scale' | 'rotation' | 'opacity' | 'volume';
 export type Keyframes = Record<KeyframedProperty, Keyframe[]>;
@@ -69,7 +75,7 @@ export type ClipSource =
   | { type: 'text'; text: string; subtitle: string; preset: Preset; color: string; style: string | null; vertical: boolean }
   | { type: 'sfx'; kind: SfxKind }
   | { type: 'shape'; shape: ShapeKind; sides: number; fill: string | null; stroke: string | null; strokeWidth: number; width: number; height: number; cornerRadius: number }
-  | { type: 'html'; html: string; css?: string; js?: string; title?: string };
+  | { type: 'html'; html: string; css?: string; js?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number } };
 
 export type Clip = {
   id: string;
@@ -171,8 +177,149 @@ export type Transition = {
   alignment: 'center' | 'start' | 'end';
 };
 
+export type VideoBlueprintMediaSource = 'generate' | 'download' | 'existing';
+export type VideoBlueprintAssetStatus = 'pending' | 'generating' | 'ready';
+export type VideoBlueprintStatus = 'draft' | 'ready' | 'executing' | 'done';
+
+/**
+ * One thing a scene needs gathered before editing starts: a generated shot, a download, a
+ * scrape, an existing asset, the voice-over or the music. Every shot ends up with a real
+ * `assetId` and `status: 'ready'` before the gathering phase can close.
+ */
+export type ProductionShotKind = 'video' | 'image' | 'download' | 'scrape' | 'existing' | 'voiceover' | 'music' | 'sfx';
+export type ProductionShot = {
+  kind: ProductionShotKind;
+  /** What happens in this shot, in plain words (the 5–7 s beat the generated clip must show). */
+  script?: string;
+  /** The exact generation prompt (video/image/music); the URL or search for downloads/scrapes. */
+  prompt?: string;
+  negativePrompt?: string;
+  /** Length to generate, seconds. Text-to-video shots are 5–7 s. */
+  seconds?: number;
+  url?: string;
+  query?: string;
+  folderName?: string;
+  assetId?: string;
+  status?: 'pending' | 'generating' | 'ready' | 'failed';
+  note?: string;
+};
+
+/** The motion graphic planned for a beat, in the Crimson template vocabulary (see motionGuide.ts). */
+export type ProductionMogrt = {
+  template: string;
+  /** Where it sits relative to the footage. */
+  layout?: 'fullscreen' | 'side-panel-right' | 'side-panel-left' | 'lower-third' | 'behind-subject' | 'pip-footage' | 'top-right' | 'top-left' | 'centre-card';
+  headline?: string;
+  kicker?: string;
+  rows?: string[];
+  metric?: string;
+  accent?: string;
+  /** One motivated camera move inside the comp ('push-in 4%', 'travel-right', 'none'). */
+  cameraMove?: string;
+  durationSeconds?: number;
+};
+
+/** Per-beat production detail shared by blueprint scenes and storyboard scenes. */
+export type ProductionBeat = {
+  /** Two-to-five-word scene title shown in the plan. */
+  title?: string;
+  shots?: ProductionShot[];
+  mogrt?: ProductionMogrt | null;
+  /** The cut into this scene: kind from the transition vocabulary or 'cut'; onBeat snaps it to music. */
+  transition?: { kind: string; duration?: number; onBeat?: boolean } | null;
+  /** Sound events for this beat ('whoosh 0.3s before the cut', 'tick per row'). */
+  sfx?: string[];
+  /** Framing of the footage in this beat ('presenter left 55%', 'full frame', 'pip bottom-right'). */
+  framing?: string;
+};
+
+export type VideoBlueprintScene = ProductionBeat & {
+  start: number;
+  end: number;
+  narration: string;
+  visual: string;
+  mediaSource: VideoBlueprintMediaSource;
+  /** Deep generation prompt when mediaSource is 'generate'. */
+  visualPrompt?: string;
+  /** URL to fetch when mediaSource is 'download'. */
+  mediaUrl?: string;
+  /** Already-imported asset id when mediaSource is 'existing'. */
+  assetId?: string;
+  audio: string;
+  status?: VideoBlueprintAssetStatus;
+  /** Optional preview frame path (storyboard thumbnails). */
+  thumbnail?: string;
+};
+
+export type StoryboardScene = ProductionBeat & {
+  start: number;
+  end: number;
+  intent: string;
+  visual: string;
+  audio: string;
+  evidence: string;
+  refs?: string[];
+  thumbnail?: string;
+};
+
+/**
+ * Where a production stands. The user moves it forward with buttons in the chat:
+ * plan-ready → (Start generating) → gathering → gathered → (Start editing) → editing →
+ * polishing → done. The workflow guard refuses tools that belong to a later phase.
+ */
+export type ProductionPhase = 'planning' | 'plan-ready' | 'gathering' | 'gathered' | 'editing' | 'polishing' | 'done';
+
+export type Production = {
+  phase: ProductionPhase;
+  /** 'scratch' plans a video from nothing (blueprint); 'footage' plans an edit of what is on the timeline (storyboard). */
+  mode: 'scratch' | 'footage';
+  brief?: { goal?: string; audience?: string; platform?: string; aspect?: string; targetSeconds?: number };
+  /** What was learned before writing: the sources to credit and the facts the script relies on. */
+  research?: { query?: string; sources: { title: string; url: string; note?: string }[]; facts: string[]; folderName?: string };
+  script?: string;
+  music?: { source: 'generate' | 'download' | 'existing' | 'none'; prompt?: string; url?: string; assetId?: string; bpm?: number; beats?: number[]; status?: ProductionShot['status'] };
+  /** The active style guideline's name (Crimson by default). */
+  guideline?: string;
+  todoPath?: string;
+  gates: { planReadyAt?: number; generateApprovedAt?: number; gatheredAt?: number; editApprovedAt?: number; editedAt?: number; qaAt?: number; doneAt?: number };
+  /** The last frame-QA pass: how many overlaps it found and whether a later pass cleared them. */
+  qa?: { at: number; sampled: number; issues: number; clear: boolean };
+  /**
+   * Workflow receipts stamped when the plan was saved, so the gathering and editing turns start
+   * from the analysis already done instead of transcribing and scanning the footage again. Only
+   * honoured while `fingerprint` still matches the timeline.
+   */
+  receipts?: { fingerprint: string; transcribed: string[]; framesSeen: Record<string, number[]>; capabilities: boolean; planned: boolean };
+  updatedAt: number;
+};
+
+export type VideoBlueprintAsset = {
+  kind: 'voiceover' | 'image' | 'video' | 'audio' | 'download';
+  description: string;
+  prompt?: string;
+  url?: string;
+  sceneIndex?: number;
+  status?: VideoBlueprintAssetStatus;
+  assetId?: string;
+};
+
+export type VideoBlueprint = {
+  title?: string;
+  script: string;
+  narrator?: { voice?: string; speed?: number; mode?: string };
+  scenes: VideoBlueprintScene[];
+  assets: VideoBlueprintAsset[];
+  style?: { palette?: string[]; typography?: string; lighting?: string };
+  status: VideoBlueprintStatus;
+  updatedAt?: number;
+};
+
 export type Comp = {
-  storyboard?: { start: number; end: number; intent: string; visual: string; audio: string; evidence: string; refs?: string[] }[];
+  storyboard?: StoryboardScene[];
+  /** Blueprint-first production plan for from-scratch video creation (gather everything, then assemble). */
+  videoBlueprint?: VideoBlueprint | null;
+  /** Phase, gates and research of the production this comp is; null until a plan is saved. */
+  production?: Production | null;
   id: string;
   name: string;
   width: number;
@@ -359,6 +506,7 @@ export type Settings = {
   autoUpdateProviders?: string[];
   localMediaPython?: string | null;
   localRotoEngine?: string | null;
+  localVideoModel?: 'ltx' | 'wan' | 'ltx23' | 'custom' | null;
   localMediaModels?: Record<string, string>;
   disabledProviders: string[];
   providerId: string | null;

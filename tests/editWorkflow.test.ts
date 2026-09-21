@@ -39,11 +39,16 @@ describe('enforced editorial pipeline', () => {
     f.caps(); expect(f.flow.before('add_text', {}, f.project)).toContain('storyboard');
     f.plan(); expect(f.flow.before('add_text', {}, f.project)).toBeNull();
   });
-  it('allows media generation and import directly without blocking on timeline speech or storyboard receipts', () => {
+  it('refuses media generation before a plan exists in full mode, and allows it in quick mode', () => {
     const f = fixture();
-    // Before reading comp or transcribing speech, direct media generation is permitted
-    expect(f.flow.before('generate_local_media', { task: 'video', prompt: 'test' }, f.project)).toBeNull();
-    expect(f.flow.before('import_generated_media', { jobId: 'job-1' }, f.project)).toBeNull();
+    // The complaint this fixes: media was generated during planning. Full mode now waits for the
+    // plan and the user's Start generating; a one-off generation belongs to Quick edit.
+    expect(f.flow.before('generate_local_media', { task: 'video', prompt: 'test' }, f.project)).toContain('Planning comes first');
+    expect(f.flow.before('online_research', { query: 'x', gatherMedia: true }, f.project)).toContain('Planning comes first');
+    expect(f.flow.before('online_research', { query: 'x', gatherMedia: false }, f.project)).toBeNull();
+    const quick = new EditWorkflow(f.project, new Map([['source', { id: 'source', kind: 'video', hasAudio: true } as Asset]]), 'quick');
+    expect(quick.before('generate_local_media', { task: 'video', prompt: 'test' }, f.project)).toBeNull();
+    expect(quick.before('import_generated_media', { jobId: 'job-1' }, f.project)).toBeNull();
   });
   it('tells the model the exact scan call without a JSON blob', () => {
     const f = fixture(); f.read(); f.speech();

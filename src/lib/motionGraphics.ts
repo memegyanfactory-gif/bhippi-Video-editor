@@ -1,4 +1,5 @@
 import type { Clip, Comp, Project, Track } from './types';
+import { buildCrimsonTemplate, templateSpec, type MogrtLayout } from './motionGuide';
 
 export type MotionGraphicTemplateId =
   | 'lower-third'
@@ -14,6 +15,20 @@ export type MotionGraphicParams = {
   template?: MotionGraphicTemplateId | string;
   title?: string;
   subtitle?: string;
+  /** Small uppercase label above the heading ('PILLAR ONE', '02 / METHOD'). */
+  kicker?: string;
+  /** List rows for cards, panels, maps, lanes, charts and timelines ('Heading — explanation'). */
+  rows?: string[];
+  /** Bar values for stat-chart, one per row. */
+  values?: number[];
+  /** The one word set in serif italic accent (editorial-quote, caption-phrase). */
+  accentWord?: string;
+  /** Which row / lane / bar is the current one. */
+  activeIndex?: number;
+  /** Where the graphic sits relative to the footage. */
+  layout?: MogrtLayout;
+  /** One motivated camera move inside the graphic. */
+  cameraMove?: 'none' | 'push-in' | 'travel';
   accentColor?: string;
   metric?: string;
   badge?: string;
@@ -21,6 +36,8 @@ export type MotionGraphicParams = {
   css?: string;
   js?: string;
   duration?: number;
+  /** Canvas the markup is designed for (follows the comp's aspect). */
+  canvas?: { width: number; height: number };
   params?: Record<string, string | number | boolean>;
 };
 
@@ -30,7 +47,18 @@ export type MotionGraphicBundle = {
   html: string;
   css: string;
   js: string;
+  /** Where it draws, fractions of the frame, for frame QA. */
+  box?: { x: number; y: number; width: number; height: number };
+  /** The template's own length, seconds, when the caller gave none. */
+  seconds?: number;
+  layout?: MogrtLayout;
 };
+
+/** The canvas a comp's motion graphics are designed on: 1920 wide for landscape, 1080 for portrait. */
+export function mogrtCanvas(comp: { width: number; height: number }): { width: number; height: number } {
+  const width = comp.height > comp.width ? 1080 : 1920;
+  return { width, height: Math.round((width * comp.height) / Math.max(1, comp.width)) };
+}
 
 const uid = () => `c_${Math.random().toString(36).slice(2, 9)}`;
 
@@ -53,7 +81,21 @@ export function buildMotionGraphic(params: MotionGraphicParams): MotionGraphicBu
       html: params.html,
       css: params.css || '',
       js: params.js || '',
+      box: { x: 0, y: 0, width: 1, height: 1 },
     };
+  }
+
+  // The Crimson system: every template the reference guides describe, choreographed with
+  // paused CSS animations scrubbed by --elapsed, so the frame renderer exports them exactly.
+  if (templateSpec(template)) {
+    const built = buildCrimsonTemplate({
+      template, title: params.title, subtitle: params.subtitle, kicker: params.kicker, rows: params.rows, values: params.values,
+      metric: params.metric, badge: params.badge, accent: params.accentColor, accentWord: params.accentWord, activeIndex: params.activeIndex,
+      layout: params.layout, duration: params.duration, cameraMove: params.cameraMove, canvas: params.canvas,
+    });
+    if (built) {
+      return { template, title: params.title || templateSpec(template)?.label || template, html: built.html, css: built.css, js: '', box: built.box, seconds: built.seconds, layout: params.layout };
+    }
   }
 
   switch (template) {
@@ -567,8 +609,11 @@ export function createMotionGraphicComp(
   duration: number;
   bundle: MotionGraphicBundle;
 } {
-  const duration = opts.duration && opts.duration > 0 ? opts.duration : 4.0;
-  const bundle = buildMotionGraphic({ ...opts, duration });
+  const targetForCanvas = project.comps.find((c) => c.id === (opts.targetCompId || project.activeCompId || project.comps[0]?.id));
+  const canvas = opts.canvas ?? (targetForCanvas ? mogrtCanvas(targetForCanvas) : { width: 1920, height: 1080 });
+  const preview = buildMotionGraphic({ ...opts, canvas });
+  const duration = opts.duration && opts.duration > 0 ? opts.duration : preview.seconds ?? 4.0;
+  const bundle = opts.duration && opts.duration > 0 ? preview : buildMotionGraphic({ ...opts, canvas, duration });
   const asNestedComp = opts.asNestedComp ?? true;
 
   // Find target comp (active comp or first comp)
@@ -647,6 +692,8 @@ export function createMotionGraphicComp(
         css: bundle.css,
         js: bundle.js,
         title: bundle.title,
+        template: bundle.template,
+        ...(bundle.box ? { box: bundle.box } : {}),
       },
       linkId: null,
       enabled: true,
@@ -754,6 +801,8 @@ export function createMotionGraphicComp(
         css: bundle.css,
         js: bundle.js,
         title: bundle.title,
+        template: bundle.template,
+        ...(bundle.box ? { box: bundle.box } : {}),
       },
       linkId: null,
       enabled: true,

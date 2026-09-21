@@ -1,11 +1,30 @@
 // Keyframe evaluation shared by the preview, the timeline rubber bands and the properties panel.
 // Mirrors src-tauri/src/render.rs: a keyframe's easing shapes the segment that starts at it, and
 // the value holds before the first and after the last keyframe.
-import type { Clip, Keyframe, KeyframedProperty, Keyframes } from './types';
+import type { Clip, Easing, Keyframe, KeyframedProperty, Keyframes } from './types';
 
 export const EMPTY_KEYFRAMES: Keyframes = { x: [], y: [], scale: [], rotation: [], opacity: [], volume: [] };
 
 export const KEYFRAMED: KeyframedProperty[] = ['x', 'y', 'scale', 'rotation', 'opacity', 'volume'];
+
+/** Every easing a keyframe may carry, in the order the properties panel offers them. */
+export const EASINGS: Easing[] = ['linear', 'hold', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'overshoot'];
+
+/**
+ * A keyframe's curve as a function of progress 0..1 — the same polynomials `Easing::shape` in
+ * src-tauri/src/project.rs turns into FFmpeg expressions, so the preview and the export agree.
+ */
+export function shape(easing: Easing, p: number): number {
+  switch (easing) {
+    case 'hold': return p >= 1 ? 1 : 0;
+    case 'ease': return p * p * (3 - 2 * p);
+    case 'ease-in': return p * p * p;
+    case 'ease-out': return 1 - (1 - p) ** 3;
+    case 'ease-in-out': return p * p * p * (p * (p * 6 - 15) + 10);
+    case 'overshoot': { const q = p - 1; return 1 + q * q * (2.70158 * q + 1.70158); }
+    default: return p;
+  }
+}
 
 /** The value of a keyframed track at `local` seconds from the clip start, or null without keys. */
 export function valueAt(keys: Keyframe[], local: number): number | null {
@@ -19,8 +38,7 @@ export function valueAt(keys: Keyframe[], local: number): number | null {
     const b = sorted[index + 1];
     if (local < b.time) {
       if (a.easing === 'hold') return a.value;
-      let t = (local - a.time) / Math.max(1e-9, b.time - a.time);
-      if (a.easing === 'ease') t = t * t * (3 - 2 * t);
+      const t = shape(a.easing, (local - a.time) / Math.max(1e-9, b.time - a.time));
       return a.value + (b.value - a.value) * t;
     }
   }

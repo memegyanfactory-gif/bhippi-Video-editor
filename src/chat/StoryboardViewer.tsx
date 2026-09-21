@@ -33,6 +33,34 @@ export interface StoryboardScene {
   prompt?: string;
   thumbnail?: string;
   refs?: string[];
+  /** Blueprint asset state for this scene (blueprint mode only). */
+  status?: 'pending' | 'generating' | 'ready';
+  /** Where this scene's visual comes from (blueprint mode only). */
+  mediaSource?: 'generate' | 'download' | 'existing';
+}
+
+export type BlueprintAssetStatus = 'pending' | 'generating' | 'ready';
+
+export interface BlueprintSceneView {
+  start: number;
+  end: number;
+  narration: string;
+  visual: string;
+  mediaSource: 'generate' | 'download' | 'existing';
+  audio: string;
+  status?: BlueprintAssetStatus;
+  thumbnail?: string;
+  refs?: string[];
+}
+
+export interface BlueprintView {
+  title?: string;
+  script: string;
+  narrator?: { voice?: string; speed?: number; mode?: string };
+  scenes: BlueprintSceneView[];
+  assets?: { kind: string; description: string; status?: BlueprintAssetStatus; assetId?: string }[];
+  style?: { palette?: string[]; typography?: string; lighting?: string };
+  status?: string;
 }
 
 export interface StoryboardViewerProps {
@@ -44,13 +72,21 @@ export interface StoryboardViewerProps {
   onPlayToggle?: () => void;
   isPlaying?: boolean;
   className?: string;
+  /** Blueprint-first production plan (from-scratch creation). When present, the viewer shows script + asset status + a Generate Video button. */
+  blueprint?: BlueprintView | null;
+  /** Fires the "Generate Video" approval — the host sends an execute prompt to the AI. */
+  onExecuteBlueprint?: () => void;
+  /** True while the blueprint execution turn is running. */
+  executing?: boolean;
+  /** The phase button's label ('Start generating', 'Start editing'); null hides the button. */
+  actionLabel?: string | null;
 }
 
 type ViewMode = 'small' | 'chat-expanded' | 'fullscreen';
 type FullscreenTab = 'storyboard' | 'timeline' | 'list';
 
 export function StoryboardViewer({
-  scenes,
+  scenes: scenesProp,
   fps = 30,
   compName = 'Main Composition',
   onSeek,
@@ -58,6 +94,10 @@ export function StoryboardViewer({
   onPlayToggle,
   isPlaying = false,
   className = '',
+  blueprint = null,
+  onExecuteBlueprint,
+  executing = false,
+  actionLabel = 'Generate Video',
 }: StoryboardViewerProps) {
   const [mode, setMode] = useState<ViewMode>('small');
   const [activeTab, setActiveTab] = useState<FullscreenTab>('storyboard');
@@ -67,6 +107,40 @@ export function StoryboardViewer({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const cardRefs = useRef<(HTMLElement | null)[]>([]);
+
+  // Blueprint mode: scenes come from the production plan, with the narration
+  // as the intent and per-scene asset status attached for progress display.
+  const isBlueprint = !!blueprint && blueprint.scenes.length > 0;
+  const displayScenes: StoryboardScene[] = isBlueprint && blueprint
+    ? blueprint.scenes.map((s) => ({
+        start: s.start,
+        end: s.end,
+        intent: s.narration,
+        description: s.narration,
+        visual: s.visual,
+        audio: s.audio,
+        evidence: s.mediaSource === 'generate' ? 'To generate' : s.mediaSource === 'download' ? 'To download' : 'Existing asset',
+        thumbnail: s.thumbnail,
+        refs: s.refs,
+        status: s.status ?? 'pending',
+        mediaSource: s.mediaSource,
+      }))
+    : scenesProp;
+  const readyCount = isBlueprint && blueprint
+    ? (blueprint.assets?.length
+        ? blueprint.assets.filter((a) => a.status === 'ready').length
+        : blueprint.scenes.filter((s) => s.status === 'ready').length)
+    : 0;
+  const totalAssets = isBlueprint && blueprint
+    ? (blueprint.assets?.length ?? blueprint.scenes.length)
+    : 0;
+  const progressLabel = isBlueprint ? `${readyCount}/${totalAssets} assets ready` : null;
+  const narratorLabel = blueprint?.narrator?.voice
+    ? `Voice: ${blueprint.narrator.voice}${blueprint.narrator.speed ? ` · ${blueprint.narrator.speed}x` : ''}`
+    : null;
+  // The single array every view below renders. In blueprint mode it is derived
+  // from the production plan; otherwise it is the saved storyboard as before.
+  const scenes: StoryboardScene[] = displayScenes;
 
   // Escape collapses from either chat-expanded or fullscreen to small
   useEffect(() => {
@@ -86,7 +160,7 @@ export function StoryboardViewer({
 
   const totalDuration = scenes[scenes.length - 1]?.end ?? 0;
   const firstIntent = scenes[0]?.title || scenes[0]?.intent
-    ? `“${(scenes[0]?.title || scenes[0]?.intent).slice(0, 36)}${(scenes[0]?.title || scenes[0]?.intent).length > 36 ? '…' : ''}”`
+    ? `“${(scenes[0]?.title || scenes[0]?.intent || '').slice(0, 36)}${(scenes[0]?.title || scenes[0]?.intent || '').length > 36 ? '…' : ''}”`
     : '';
 
   // Trigger inside text-to-image model for a specific scene
@@ -213,9 +287,10 @@ export function StoryboardViewer({
           <span className="storyboard-badge-icon" aria-hidden="true">
             <Clapperboard size={13} />
           </span>
-          <strong className="storyboard-title">Storyboard</strong>
+          <strong className="storyboard-title">{isBlueprint ? 'Blueprint' : 'Storyboard'}</strong>
           <span className="storyboard-count-pill">{`${scenes.length} scene${scenes.length === 1 ? '' : 's'}`}</span>
           <span className="storyboard-time-range">{`${timecode(0, fps)} – ${timecode(totalDuration, fps)}`}</span>
+          {isBlueprint && progressLabel && <span className="storyboard-count-pill">{progressLabel}</span>}
           {firstIntent && <span className="storyboard-preview-snippet">{firstIntent}</span>}
         </div>
         <div className="storyboard-small-right">
@@ -261,6 +336,7 @@ export function StoryboardViewer({
             <strong className="storyboard-title">Storyboard</strong>
             <span className="storyboard-count-pill">{`${scenes.length} planned scene${scenes.length === 1 ? '' : 's'}`}</span>
             <span className="storyboard-time-range">{`${timecode(0, fps)} – ${timecode(totalDuration, fps)}`}</span>
+            {isBlueprint && progressLabel && <span className="storyboard-count-pill">{progressLabel}</span>}
           </div>
           <div className="storyboard-header-actions">
             <button
@@ -287,6 +363,34 @@ export function StoryboardViewer({
         </div>
 
         <div className="storyboard-scenes-scroll" tabIndex={0} role="feed" aria-label="Planned scenes list">
+          {isBlueprint && blueprint && (
+            <div className="storyboard-blueprint-panel" role="region" aria-label="Video blueprint">
+              <div className="storyboard-blueprint-title-row">
+                <strong>{blueprint.title || 'Video Blueprint'}</strong>
+                {blueprint.status && <span className="storyboard-count-pill">{blueprint.status}</span>}
+              </div>
+              <p className="storyboard-blueprint-script">{blueprint.script}</p>
+              <div className="storyboard-blueprint-meta">
+                {narratorLabel && <span>{narratorLabel}</span>}
+                {progressLabel && <span>{progressLabel}</span>}
+                {blueprint.style?.palette && blueprint.style.palette.length > 0 && (
+                  <span>Palette: {blueprint.style.palette.join(', ')}</span>
+                )}
+              </div>
+              {onExecuteBlueprint && actionLabel && (
+                <button
+                  type="button"
+                  className="storyboard-action-btn highlight"
+                  onClick={onExecuteBlueprint}
+                  disabled={executing}
+                  title={actionLabel}
+                >
+                  <Play size={12} fill="currentColor" />
+                  <span>{executing ? 'Working…' : actionLabel}</span>
+                </button>
+              )}
+            </div>
+          )}
           {scenes.map((scene, index) => {
             const durationSec = Math.max(0, scene.end - scene.start);
             const isGenerating = generatingIndices.has(index);
@@ -296,6 +400,12 @@ export function StoryboardViewer({
               <article key={`${index}-${scene.start}`} className="storyboard-scene-card">
                 <div className="storyboard-scene-top">
                   <span className="storyboard-scene-num">Scene {index + 1}</span>
+                  {isBlueprint && scene.status && (
+                    <span className="storyboard-count-pill" title="Asset status">{scene.status}</span>
+                  )}
+                  {isBlueprint && scene.mediaSource && (
+                    <span className="storyboard-count-pill" title="Media source">{scene.mediaSource}</span>
+                  )}
                   <button
                     type="button"
                     className="storyboard-timecode-btn"
@@ -387,6 +497,7 @@ export function StoryboardViewer({
                 <span className="storyboard-count-pill">{`${scenes.length} scenes`}</span>
                 <span className="storyboard-time-range">{timecode(totalDuration, fps)}</span>
                 <span className="fullscreen-saved-tag">☁ Saved just now</span>
+                {isBlueprint && progressLabel && <span className="storyboard-count-pill">{progressLabel}</span>}
                 {statusMessage && <span className="fullscreen-status-live">{statusMessage}</span>}
               </div>
             </div>
@@ -437,6 +548,19 @@ export function StoryboardViewer({
               {isPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}
               <span>{isPlaying ? 'Pause' : 'Preview'}</span>
             </button>
+
+            {onExecuteBlueprint && actionLabel && (
+              <button
+                type="button"
+                className="storyboard-action-btn highlight"
+                onClick={onExecuteBlueprint}
+                disabled={executing}
+                title={actionLabel}
+              >
+                <Play size={13} fill="currentColor" />
+                <span>{executing ? 'Working…' : actionLabel}</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -495,6 +619,12 @@ export function StoryboardViewer({
                         <h4 className="fs-scene-title" title={scene.title || scene.intent}>
                           {scene.title || scene.intent}
                         </h4>
+                        {isBlueprint && scene.status && (
+                          <span className="storyboard-count-pill" title="Asset status">{scene.status}</span>
+                        )}
+                        {isBlueprint && scene.mediaSource && (
+                          <span className="storyboard-count-pill" title="Media source">{scene.mediaSource}</span>
+                        )}
                       </div>
                       <div className="fs-card-time-group">
                         <button

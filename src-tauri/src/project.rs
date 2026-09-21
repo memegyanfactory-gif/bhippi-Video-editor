@@ -229,8 +229,52 @@ pub enum Easing {
     Linear,
     /// Holds the value until the next keyframe.
     Hold,
-    /// Smooth in and out (cubic).
+    /// Smooth in and out (cubic smoothstep).
     Ease,
+    /// Slow start, fast finish (cubic).
+    #[serde(rename = "ease-in")]
+    EaseIn,
+    /// Fast start, long settle — the weighted arrival motion design asks for (cubic).
+    #[serde(rename = "ease-out")]
+    EaseOut,
+    /// A smoother S-curve than `Ease` (quintic smootherstep).
+    #[serde(rename = "ease-in-out")]
+    EaseInOut,
+    /// Lands past the target and settles back (back-out, overshoot ≈ 10 %).
+    Overshoot,
+}
+
+impl Easing {
+    /// The curve as a function of progress 0..1.
+    #[must_use]
+    pub fn shape(self, p: f64) -> f64 {
+        match self {
+            Self::Linear => p,
+            Self::Hold => if p >= 1.0 { 1.0 } else { 0.0 },
+            Self::Ease => p * p * (3.0 - 2.0 * p),
+            Self::EaseIn => p * p * p,
+            Self::EaseOut => 1.0 - (1.0 - p).powi(3),
+            Self::EaseInOut => p * p * p * (p * (p * 6.0 - 15.0) + 10.0),
+            Self::Overshoot => {
+                let q = p - 1.0;
+                1.0 + q * q * (2.70158 * q + 1.70158)
+            }
+        }
+    }
+
+    /// The same curve as an FFmpeg expression of `p` (an expression already clamped to 0..1).
+    #[must_use]
+    pub fn expr(self, p: &str) -> String {
+        match self {
+            Self::Linear => p.to_owned(),
+            Self::Hold => format!("gte({p},1)"),
+            Self::Ease => format!("{p}*{p}*(3-2*{p})"),
+            Self::EaseIn => format!("{p}*{p}*{p}"),
+            Self::EaseOut => format!("(1-pow(1-{p},3))"),
+            Self::EaseInOut => format!("{p}*{p}*{p}*({p}*({p}*6-15)+10)"),
+            Self::Overshoot => format!("(1+({p}-1)*({p}-1)*(2.70158*({p}-1)+1.70158))"),
+        }
+    }
 }
 
 /// One keyframe: `time` is seconds from the clip's first frame.
@@ -365,6 +409,16 @@ pub enum ClipSource {
         js: Option<String>,
         #[serde(default)]
         title: Option<String>,
+        /// The template id it was built from (frontend vocabulary).
+        #[serde(default)]
+        template: Option<String>,
+        /// Where the graphic draws, fractions of the frame; kept for the frontend's frame QA.
+        #[serde(default, rename = "box")]
+        layout_box: Option<serde_json::Value>,
+        /// A PNG sequence the frontend rendered for export (`dir`, `fps`, `frames`); absent in
+        /// the preview. When present the export overlays the frames instead of a static title.
+        #[serde(default)]
+        frames: Option<HtmlFrames>,
     },
 }
 
@@ -378,6 +432,18 @@ pub struct RotoCorrection {
     pub y: f64,
     pub radius: f64,
     pub softness: f64,
+}
+
+/// Pre-rendered frames of an HTML motion graphic: `dir/%05d.png` with alpha, `frames` of them at
+/// `fps`, starting at the clip's first frame.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HtmlFrames {
+    pub dir: String,
+    pub fps: f64,
+    pub frames: u64,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -617,6 +683,14 @@ impl Transition {
 pub struct Comp {
     #[serde(default)]
     pub storyboard: Vec<serde_json::Value>,
+    /// Blueprint-first production plan for from-scratch video creation.
+    /// Optional so older projects without it keep loading.
+    #[serde(default)]
+    pub video_blueprint: Option<serde_json::Value>,
+    /// Production phase, gates and research (see src/lib/types.ts `Production`). Opaque here:
+    /// the frontend owns its shape; Rust only has to keep it across save and load.
+    #[serde(default)]
+    pub production: Option<serde_json::Value>,
     pub id: String,
     pub name: String,
     pub width: u32,
@@ -872,9 +946,62 @@ impl Graphic {
                 color: color.clone(),
                 style: style.clone(),
             }),
+            // HTML motion graphics are GSAP/CSS in the preview, which ffmpeg
+            // cannot rasterise — but dropping them silently loses the card's
+            // message entirely. Export their visible text as a static title so
+            // the words always survive; the animation itself is preview-only.
+            ClipSource::Html { frames: Some(_), .. } => None,
+            ClipSource::Html { html, title, .. } => {
+                let mut text = visible_html_text(html);
+                if text.is_empty() {
+                    text = title.clone().unwrap_or_default().trim().to_owned();
+                }
+                if text.is_empty() {
+                    return None;
+                }
+                Some(Self {
+                    id: clip.id.clone(),
+                    text,
+                    subtitle: String::new(),
+                    start: clip.start,
+                    duration: clip.duration,
+                    preset: Preset::Title,
+                    color: "#FFFFFF".to_owned(),
+                    style: None,
+                })
+            }
             _ => None,
         }
     }
+}
+
+/// The words a motion-graphic's markup actually shows: tags stripped, entities
+/// decoded, whitespace collapsed, capped so one card cannot flood the script.
+fn visible_html_text(html: &str) -> String {
+    let mut out = String::with_capacity(html.len().min(512));
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            // A tag boundary is a word boundary too (</h1><p>), so keep one
+            // space; the later collapse removes the extras.
+            '>' => {
+                in_tag = false;
+                out.push(' ');
+            }
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    let text = out
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ");
+    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.chars().take(200).collect::<String>().trim().to_owned()
 }
 
 impl Project {
@@ -1191,6 +1318,8 @@ pub mod fixtures {
     pub fn comp(id: &str, clips: Vec<Clip>) -> Comp {
         Comp {
             storyboard: Vec::new(),
+            video_blueprint: None,
+            production: None,
             id: id.to_owned(),
             name: id.to_owned(),
             width: 1920,
@@ -1341,5 +1470,35 @@ mod tests {
         assert!(Graphic::from_clip(&fast).is_none());
         let comp = comp("c", vec![fast, text]);
         assert!((comp.duration() - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn html_motion_graphics_export_their_visible_text() {
+        let card = clip("g", "v2", 2.0, 3.0, ClipSource::Html {
+            html: "<div class=\"mgt-card\"><h1>DAILY</h1><p>AI streams &amp; news</p></div>".into(),
+            css: None,
+            js: Some("timeline.to('.mgt-card', {x: 100})".into()),
+            title: Some("Daily card".into()),
+            template: None,
+            layout_box: None,
+            frames: None,
+        });
+        let graphic = Graphic::from_clip(&card).expect("html graphic");
+        assert_eq!(graphic.text, "DAILY AI streams & news");
+        assert_eq!((graphic.start, graphic.duration), (2.0, 3.0));
+        // Title alone carries the message when the markup has no text nodes.
+        let bare = clip("b", "v2", 0.0, 1.0, ClipSource::Html {
+            html: "<div></div>".into(),
+            css: None,
+            js: None,
+            title: Some("Lower third".into()),
+            template: None,
+            layout_box: None,
+            frames: None,
+        });
+        assert_eq!(Graphic::from_clip(&bare).expect("title fallback").text, "Lower third");
+        // Nothing to say means nothing to draw — still skipped, not blank.
+        let empty = clip("e", "v2", 0.0, 1.0, ClipSource::Html { html: "<br/>".into(), css: None, js: None, title: None, template: None, layout_box: None, frames: None });
+        assert!(Graphic::from_clip(&empty).is_none());
     }
 }

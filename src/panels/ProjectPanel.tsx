@@ -279,8 +279,9 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
                     <EntryThumb entry={entry} poster={entry.type === 'comp' ? posters[entry.id] : undefined} onPoster={entry.type === 'comp' ? () => refreshPoster(entry.id) : undefined} />
                     {used > 0 && <span className="tile-used" title={`Used ${used}×`}>{used}×</span>}
                     {entry.type === 'media' && entry.asset?.preview === 'pending' && !entry.offline && <span className="tile-status"><LoaderCircle size={13} className="spin" /> Preparing</span>}
-                    {entry.type === 'media' && entry.asset?.preview === 'failed' && !entry.offline && (
-                      <button type="button" className="tile-status warn" onPointerDown={(event) => event.stopPropagation()} onClick={() => entry.asset && void api.libraryRetry(entry.asset.id)}><RotateCw size={12} /> Retry preview</button>
+                    {entry.type === 'media' && (entry.asset?.preview === 'failed' || thumbMissing(entry)) && !entry.offline && (
+                      <button type="button" className="tile-status warn" title="Render the thumbnail and preview again"
+                        onPointerDown={(event) => event.stopPropagation()} onClick={() => entry.asset && void api.libraryRetry(entry.asset.id)}><RotateCw size={12} /> Retry preview</button>
                     )}
                     {entry.type === 'media' && entry.offline && <span className="tile-status error"><TriangleAlert size={12} /> Offline</span>}
                   </div>
@@ -419,7 +420,20 @@ function EntryIcon({ entry }: { entry: BinEntry }) {
   return <Icon size={12} />;
 }
 
-function EntryThumb({ entry, poster, onPoster }: { entry: BinEntry; poster?: string; onPoster?: () => void }) {
+/**
+ * A video or still with no usable thumbnail outside an active derive run.
+ * Native files derive silently in the background, so without this the tile
+ * would sit on the empty placeholder forever when that run failed — with no
+ * way to retry. (While a derive is still running the button may show briefly;
+ * re-running it is idempotent.)
+ */
+function thumbMissing(entry: BinEntry): boolean {
+  if (entry.type !== 'media' || entry.offline || !entry.asset) return false;
+  if (entry.asset.preview === 'pending') return false;
+  return (entry.asset.kind === 'video' || entry.asset.kind === 'image') && !entry.asset.thumbnail;
+}
+
+export function EntryThumb({ entry, poster, onPoster }: { entry: BinEntry; poster?: string; onPoster?: () => void }) {
   if (entry.type === 'folder') return <Folder size={26} className="tile-placeholder" />;
   if (entry.type === 'comp') {
     return (
@@ -451,9 +465,22 @@ function EntryThumb({ entry, poster, onPoster }: { entry: BinEntry; poster?: str
     return <SlidersHorizontal size={22} className="tile-placeholder" />;
   }
   const asset = entry.asset;
-  if (asset?.thumbnail) return <img src={fileSrc(asset.thumbnail)} alt="" draggable={false} />;
-  if (asset?.kind === 'audio' && asset.waveform) return <img src={fileSrc(asset.waveform)} alt="" className="wave" draggable={false} />;
+  return <MediaThumb asset={asset} />;
+}
+
+/**
+ * A library thumbnail that never shows the browser's broken-image glyph: when
+ * the recorded file cannot be served (stale path, interrupted derive), the
+ * kind icon renders instead — the same empty state as a pending thumbnail.
+ */
+export function MediaThumb({ asset }: { asset: Asset | undefined }) {
+  const src = asset?.thumbnail ?? (asset?.kind === 'audio' ? asset.waveform : undefined);
+  const [dead, setDead] = useState(false);
+  useEffect(() => setDead(false), [src]);
   const Icon = asset?.kind === 'audio' ? AudioLines : asset?.kind === 'image' ? ImageIcon : Video;
+  if (src && !dead) {
+    return <img src={fileSrc(src)} alt="" draggable={false} className={asset?.thumbnail ? undefined : 'wave'} onError={() => setDead(true)} />;
+  }
   return <Icon size={22} className="tile-placeholder" />;
 }
 

@@ -1,8 +1,9 @@
-import type { Asset, Comp, Project, ToolResult } from './types';
+import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } from './types';
 import { compDuration } from './timeline';
 
 type Args = Record<string, unknown>;
 export type StoryboardSceneInput = { start: number; end: number; intent?: unknown; visual?: unknown; audio?: unknown; evidence?: unknown; refs?: unknown };
+export type VideoBlueprintSceneInput = { start: number; end: number; narration?: unknown; visual?: unknown; mediaSource?: unknown; visualPrompt?: unknown; mediaUrl?: unknown; assetId?: unknown; audio?: unknown };
 
 /**
  * Shared storyboard gate: structure (coverage, 5–12s batches) plus pro content
@@ -48,6 +49,50 @@ export function storyboardContentError(scenes: StoryboardSceneInput[], fps: numb
   const shown = problems.slice(0, 5).join(' ');
   return problems.length > 5 ? `${shown} Plus ${problems.length - 5} more scene(s) with the same kind of detail missing — fix all scenes in one re-save.` : shown;
 }
+
+/**
+ * Blueprint gate for from-scratch video creation ("make this video").
+ * Unlike the storyboard (which plans edits on existing footage), the blueprint
+ * DEFINES its own timeline, so coverage is checked against contiguity from 0 —
+ * not against the current comp duration (which is usually empty).
+ *
+ * Every failing scene is reported in ONE message so the model fixes them all
+ * in a single retry.
+ */
+export function videoBlueprintContentError(scenes: VideoBlueprintSceneInput[], knownIds?: Set<string>): string | null {
+  if (!Array.isArray(scenes) || !scenes.length) return 'Supply a nonempty blueprint: script plus timed scenes.';
+  if (scenes.length > 100) return 'Supply up to 100 concise timed blueprint scenes.';
+  if (scenes.some(s => !s || !Number.isFinite(s.start) || !Number.isFinite(s.end) || s.end <= s.start)) return 'Blueprint scenes need valid increasing time ranges.';
+  const ordered = [...scenes].sort((a, b) => a.start - b.start);
+  for (const scene of ordered) {
+    if (scene.end - scene.start > 12.5) return `Split ${(scene.start).toFixed(1)}–${(scene.end).toFixed(1)}s into 5–12s batches: one scene per narrative beat.`;
+  }
+  let end = 0;
+  for (const scene of ordered) {
+    if (Math.abs(scene.start - end) > 0.01) return 'Blueprint scenes must start at 0 and run contiguously without gaps or overlaps. Include intentional pauses as scenes.';
+    end = scene.end;
+  }
+  const problems: string[] = [];
+  ordered.forEach((scene, i) => {
+    const n = i + 1;
+    const text = (key: string) => (typeof scene[key as keyof VideoBlueprintSceneInput] === 'string' ? (scene[key as keyof VideoBlueprintSceneInput] as string) : '');
+    const source = text('mediaSource').trim();
+    if (text('narration').trim().length < 10) problems.push(`Scene ${n}: narration needs the spoken text for this beat (≥10 chars).`);
+    else if (text('visual').trim().length < 40) problems.push(`Scene ${n}: visual needs ≥40 chars of visual direction for this beat. Currently ${text('visual').trim().length} chars.`);
+    else if (!['generate', 'download', 'existing'].includes(source)) problems.push(`Scene ${n}: mediaSource must be "generate", "download", or "existing".`);
+    else if (text('audio').trim().length < 20) problems.push(`Scene ${n}: audio needs ≥20 chars of sound design for this beat. Currently ${text('audio').trim().length} chars.`);
+    else if (source === 'generate' && text('visualPrompt').trim().length < 20) problems.push(`Scene ${n}: visualPrompt needs a ≥20-char generation prompt when mediaSource is "generate".`);
+    else if (source === 'download' && !text('mediaUrl').trim()) problems.push(`Scene ${n}: mediaUrl is required when mediaSource is "download".`);
+    else if (source === 'existing') {
+      const id = text('assetId').trim();
+      if (!id) problems.push(`Scene ${n}: assetId is required when mediaSource is "existing".`);
+      else if (knownIds && !knownIds.has(id)) problems.push(`Scene ${n}: asset "${id}" is not imported. Import it first, then reference its real asset ID.`);
+    }
+  });
+  if (!problems.length) return null;
+  const shown = problems.slice(0, 5).join(' ');
+  return problems.length > 5 ? `${shown} Plus ${problems.length - 5} more scene(s) with missing detail — fix all scenes in one re-save.` : shown;
+}
 const preparation = new Set([
   'online_research',
   'scrape_web_page',
@@ -78,6 +123,11 @@ const preparation = new Set([
   'generate_local_media',
   'generation_job',
   'import_generated_media',
+  'save_video_blueprint',
+  'execute_blueprint',
+  'synthesize_speech_voiceover',
+  'query_frame_atlas',
+  'scrape_videos',
   'list_effects',
   'list_recipes',
   'list_learned_skills',
@@ -88,8 +138,90 @@ const preparation = new Set([
   'detect_scenes',
   'ask_user',
   'set_playhead',
+  // Production bookkeeping and analysis: they change the plan, never the timeline.
+  'run_frame_qa',
+  'attach_production_asset',
+  'finish_gathering',
+  'analyze_music_beats',
 ]);
 const timing = (comp: Comp) => JSON.stringify([comp.fps, comp.clips.map(c => [c.id, c.trackId, c.source, c.start, c.in, c.duration, c.speed, c.reverse, c.hold, c.enabled])]);
+
+/**
+ * Tools that fetch or make media. They belong to the GATHER phase: refused while the plan is
+ * being written, allowed once the user has pressed Start generating, and allowed again during
+ * the edit for fixes.
+ */
+const GATHER_TOOLS = new Set([
+  'generate_local_media',
+  'generation_job',
+  'import_generated_media',
+  'download_online_media',
+  'scrape_videos',
+  'synthesize_speech_voiceover',
+  'erase_subject_clip',
+  'attach_production_asset',
+  'finish_gathering',
+]);
+
+/** Reads and bookkeeping that are fine in any phase, including after a phase has just closed. */
+const ALWAYS_TOOLS = new Set([
+  'editing_workflow_status',
+  'verify_edit_workflow',
+  'get_project',
+  'get_comp',
+  'open_comp',
+  'read_file',
+  'write_file',
+  'edit_file',
+  'replace_file_content',
+  'list_directory',
+  'glob_search',
+  'grep_search',
+  'list_effects',
+  'list_recipes',
+  'list_learned_skills',
+  'list_custom_tools',
+  'list_subagents',
+  'wait_subagent',
+  'local_media_capabilities',
+  'ask_user',
+  'set_playhead',
+  'analyze_music_beats',
+]);
+
+const isPlanTool = (name: string) => name === 'save_storyboard' || name === 'save_video_blueprint';
+
+/** What the chat should offer the user next for a production in this phase. */
+export const nextUserAction = (phase: ProductionPhase | null | undefined): 'start-generating' | 'start-editing' | null =>
+  phase === 'plan-ready' ? 'start-generating' : phase === 'gathered' ? 'start-editing' : null;
+
+/** Receipts worth carrying from the planning turn into the gathering and editing turns. */
+export type WorkflowReceipts = NonNullable<Production['receipts']>;
+
+/** Every planned shot that must be gathered, flattened with a readable label. */
+export function gatherShots(comp: Comp): { sceneIndex: number; shotIndex: number; label: string; status: string; kind: string }[] {
+  const production = comp.production;
+  if (!production) return [];
+  const scenes: { shots?: { kind: string; status?: string; script?: string; prompt?: string; url?: string; assetId?: string }[]; mediaSource?: string; assetId?: string; status?: string }[] =
+    production.mode === 'scratch' ? (comp.videoBlueprint?.scenes ?? []) : (comp.storyboard ?? []);
+  const out: { sceneIndex: number; shotIndex: number; label: string; status: string; kind: string }[] = [];
+  scenes.forEach((scene, sceneIndex) => {
+    const shots = scene.shots ?? [];
+    if (!shots.length && scene.mediaSource && scene.mediaSource !== 'existing') {
+      out.push({ sceneIndex, shotIndex: 0, label: `Scene ${sceneIndex + 1}: ${scene.mediaSource}`, status: scene.assetId ? 'ready' : (scene.status ?? 'pending'), kind: scene.mediaSource });
+      return;
+    }
+    shots.forEach((shot, shotIndex) => {
+      if (shot.kind === 'existing' || shot.kind === 'sfx') return;
+      const text = (shot.script ?? shot.prompt ?? shot.url ?? '').slice(0, 48);
+      out.push({ sceneIndex, shotIndex, label: `Scene ${sceneIndex + 1} shot ${shotIndex + 1} (${shot.kind}): ${text}`, status: shot.assetId ? 'ready' : (shot.status ?? 'pending'), kind: shot.kind });
+    });
+  });
+  if (production.music && production.music.source !== 'none' && production.music.source !== 'existing') {
+    out.push({ sceneIndex: -1, shotIndex: 0, label: `Music: ${production.music.prompt ?? production.music.url ?? production.music.source}`, status: production.music.assetId ? 'ready' : (production.music.status ?? 'pending'), kind: 'music' });
+  }
+  return out;
+}
 
 /** Per-turn receipts come only from successful tools, never from assistant prose. */
 export class EditWorkflow {
@@ -107,9 +239,15 @@ export class EditWorkflow {
   private proVisual = false;
   private soundPass = false;
   private storyboardRefs = false;
+  private blueprintSaved = false;
+  private blueprintExecuted = false;
   private finished = false;
   private reviewedActions = 0;
   private verifiedSnapshot = '';
+  /** A phase closed in this turn (plan saved, gathering finished): only reads may follow, the user presses the next button. */
+  private closedPhase: 'plan' | 'gather' | null = null;
+  /** How many timeline actions had run when the last frame-QA pass was taken; -1 = never. */
+  private qaAtAction = -1;
   constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full') {
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
@@ -118,6 +256,27 @@ export class EditWorkflow {
       const asset = assets.get(c.source.assetId);
       return asset ? [{ clipId: c.id, assetId: asset.id, speech: asset.hasAudio || asset.kind === 'audio', frames: asset.kind === 'video' && comp.tracks.find(t => t.id === c.trackId)?.kind !== 'audio' ? Math.ceil(c.duration * comp.fps) : 0, seen: new Set<number>() }] : [];
     });
+    // A production carries the planning turn's receipts forward. They only count while the
+    // timeline is exactly what was analysed; any cut since then means a fresh look.
+    const receipts = comp?.production?.receipts;
+    if (comp && receipts && receipts.fingerprint === timing(comp)) {
+      for (const id of receipts.transcribed) this.transcripts.add(id);
+      for (const source of this.sources) for (const frame of receipts.framesSeen[source.clipId] ?? []) source.seen.add(frame);
+      this.capabilities = receipts.capabilities;
+      if (receipts.planned) this.planned = timing(comp);
+      this.inspected = timing(comp);
+    }
+  }
+  /** The receipts worth stamping on the production when a plan is saved. */
+  receipts(project: Project): WorkflowReceipts | null {
+    const comp = this.comp(project);
+    if (!comp) return null;
+    const framesSeen: Record<string, number[]> = {};
+    for (const source of this.sources) framesSeen[source.clipId] = [...source.seen].sort((a, b) => a - b);
+    return { fingerprint: timing(comp), transcribed: [...this.transcripts], framesSeen, capabilities: this.capabilities, planned: !!this.planned && this.planned === timing(comp) };
+  }
+  private phase(project: Project): ProductionPhase | null {
+    return this.comp(project)?.production?.phase ?? null;
   }
   private comp(project: Project) { return project.comps.find(c => c.id === this.compId); }
   status(project: Project) {
@@ -132,9 +291,20 @@ export class EditWorkflow {
       return { clipId: s.clipId, reviewed: s.seen.size, total: Math.min(s.frames, 6), clipTotalFrames: s.frames, nextFrame: next, strideFrames: stride };
     });
     const fingerprint = comp ? timing(comp) : '';
+    const production = comp?.production ?? null;
+    const shots = comp && production ? gatherShots(comp) : [];
     return { mode: this.mode, compId: this.compId, transcriptPending: pendingSpeech, frameReviewPending: pendingFrames,
+      phase: production?.phase ?? null, productionMode: production?.mode ?? null, nextUserAction: nextUserAction(production?.phase),
+      gather: { ready: shots.filter(s => s.status === 'ready').length, total: shots.length, pending: shots.filter(s => s.status !== 'ready').map(s => s.label) },
+      qaCurrent: this.qaAtAction === this.actions.length && this.qaAtAction >= 0, phaseClosedThisTurn: this.closedPhase,
       timelineRead: !!fingerprint && fingerprint === this.inspected, storyboardCurrent: !!fingerprint && fingerprint === this.planned,
       capabilitiesChecked: this.capabilities, proVisualPass: this.proVisual, soundPass: this.soundPass, storyboardRefs: this.storyboardRefs,
+      blueprintSaved: this.blueprintSaved, blueprintExecuted: this.blueprintExecuted,
+      // Pre-execution: blueprint saved (status draft/ready, or legacy without status)
+      // blocks timeline edits until execute_blueprint runs (status becomes executing).
+      blueprintActive: !!comp?.videoBlueprint && (comp.videoBlueprint.status === 'draft' || comp.videoBlueprint.status === 'ready' || (!comp.videoBlueprint.status && !this.blueprintExecuted)),
+      // Post-execution plan: an executed blueprint counts as the plan, like a storyboard.
+      blueprintPlan: !!comp?.videoBlueprint && (comp.videoBlueprint.status === 'executing' || comp.videoBlueprint.status === 'done' || this.blueprintExecuted),
       pendingJobs: [...this.jobs], pendingPlacement: [...this.unplaced], successfulActions: [...this.actions],
       finalTimelineRead: this.reviewedActions === this.actions.length,
       structurallyVerified: this.finished && this.verifiedSnapshot === JSON.stringify(comp), visualQualityVerified: false };
@@ -145,6 +315,8 @@ export class EditWorkflow {
     const comp = this.comp(project);
     if (!comp) return 'The workflow composition no longer exists. Start a new turn for another composition.';
     if (typeof args.compId === 'string' && ![this.compId, comp.name].includes(args.compId)) return 'This full-edit workflow is bound to its initial composition. Start another turn to edit another composition.';
+    const gate = this.phaseGate(name, args, comp);
+    if (gate) return gate;
     if (preparation.has(name)) return null;
     if (project.activeCompId !== this.compId) return 'Return to the workflow composition before editing. This turn cannot silently edit a different active timeline.';
     const clipIds = [args.clipId, ...(Array.isArray(args.clipIds) ? args.clipIds : [])].filter((id): id is string => typeof id === 'string');
@@ -164,10 +336,63 @@ export class EditWorkflow {
     // Local-model discovery must happen before planning, so the storyboard's visual
     // thinking names real installed adapters (image/video/audio/depth) instead of wishes.
     if (!state.capabilitiesChecked) return 'Call local_media_capabilities before saving the storyboard or editing, so the visual plan uses the actual installed image/video/audio/depth models.';
-    if (name === 'save_storyboard') return null;
-    if (!state.storyboardCurrent) return 'Save or update a concise timed storyboard for the CURRENT timeline before further edits. Call save_storyboard; planned ranges must cover the composition without overlaps.';
+    if (name === 'save_storyboard' || name === 'save_video_blueprint') return null;
+    // Blueprint-first pipeline: once a blueprint exists and execution has started
+    // (or the blueprint was saved this turn), timeline edits are blocked until
+    // execute_blueprint runs and all assets are gathered. Asset gathering tools
+    // (generate/download/voice-over) are in `preparation` and already passed.
+    if (state.blueprintActive) return 'Blueprint saved — gather everything first, build later. Finish asset pre-production (voice-over, generated visuals, downloads — all imported into Generated), then call execute_blueprint before any timeline edit. Do not place, cut, or style clips yet.';
+    if (!state.storyboardCurrent && !state.blueprintExecuted && !state.blueprintPlan) return 'Save or update a concise timed storyboard for the CURRENT timeline before further edits. Call save_storyboard; planned ranges must cover the composition without overlaps.';
     if (!this.capabilities && ['rotoscope_clip', 'depth_occlusion_clip'].includes(name)) return 'Call local_media_capabilities before choosing a local model. Unsupported tasks must be reported as unavailable.';
     if (name.startsWith('mcp__')) return 'External tools cannot bypass this workflow. Use the native editing tools, or select Quick edit for a separate explicitly scoped task.';
+    return null;
+  }
+  /**
+   * The production phases. The model plans, the user presses Start generating, the model
+   * gathers, the user presses Start editing, the model edits and polishes. Tools from a later
+   * phase are refused with the reason, and once a phase closes in a turn only reads may follow.
+   */
+  private phaseGate(name: string, args: Args, comp: Comp): string | null {
+    if (ALWAYS_TOOLS.has(name)) return null;
+    if (this.closedPhase === 'plan') return 'The plan is saved and this phase is closed. Do not call more tools: end your turn with a short summary of the plan (script, shots, graphics, music). The user reviews it and presses Start generating.';
+    if (this.closedPhase === 'gather') return 'Gathering is finished and this phase is closed. Do not call more tools: end your turn with a short summary of what was gathered. The user presses Start editing.';
+    const phase = comp.production?.phase ?? null;
+    const gatherMedia = name === 'online_research' && args.gatherMedia === true;
+    const scrapeMedia = name === 'scrape_web_page' && args.downloadVideos === true;
+    if (name === 'run_command' || name === 'bash') return null;
+    if (phase === null) {
+      // No plan saved yet: media gathering waits for one; timeline tools fall through to the
+      // step-by-step prerequisites below (read, transcribe, scan, capabilities, storyboard).
+      if (GATHER_TOOLS.has(name) || gatherMedia || scrapeMedia) {
+        const planTool = comp.clips.some(c => c.enabled && c.source.type === 'media') ? 'save_storyboard' : 'save_video_blueprint';
+        return 'Planning comes first: research the subject (online_research with gatherMedia false, scrape_web_page for facts and links), write the script, break it into 5-7 s shots with a script and prompt each, choose the motion graphic, transition, SFX and music per beat, then ' + planTool + ' and end your turn. Media is generated only after the user presses Start generating. (For a one-off generation the user can switch the composer to Quick edit.)';
+      }
+      return null;
+    }
+    if (phase === 'planning' || phase === 'plan-ready') {
+      if (isPlanTool(name)) return null;
+      if (GATHER_TOOLS.has(name) || gatherMedia || scrapeMedia) {
+        const planTool = comp.clips.some(c => c.enabled && c.source.type === 'media') ? 'save_storyboard' : 'save_video_blueprint';
+        return phase === 'plan-ready'
+          ? 'The plan is waiting for the user to press Start generating. Do not generate or download media yet; end your turn.'
+          : 'Planning comes first: research the subject (online_research with gatherMedia false, scrape_web_page for facts and links), write the script, break it into 5-7 s shots with a script and prompt each, choose the motion graphic, transition, SFX and music per beat, then ' + planTool + ' and end your turn. Media is generated only after the user presses Start generating. (For a one-off generation the user can switch the composer to Quick edit.)';
+      }
+      if (!preparation.has(name)) {
+        return phase === 'plan-ready'
+          ? 'The plan is waiting for the user to press Start generating; there is nothing to edit yet. End your turn.'
+          : 'No timeline edits before the plan is saved. Finish planning first (research, script, shots, graphics, save the plan), then end your turn.';
+      }
+      return null;
+    }
+    if (phase === 'gathering') {
+      if (GATHER_TOOLS.has(name) || preparation.has(name) || gatherMedia || scrapeMedia) return null;
+      return 'Gathering phase: no timeline edits until the user presses Start editing. Generate or download every planned shot (one text-to-video shot per call, 5-7 s, with sceneIndex so it attaches to the plan), the voice-over and the music, then call finish_gathering and end your turn.';
+    }
+    if (phase === 'gathered') {
+      if (name === 'attach_production_asset') return null;
+      if (GATHER_TOOLS.has(name) || !preparation.has(name)) return 'Everything is gathered and the plan is waiting for the user to press Start editing. End your turn.';
+      return null;
+    }
     return null;
   }
   validateStoryboard(args: Args, project: Project): string | null {
@@ -213,10 +438,21 @@ export class EditWorkflow {
       }
     }
     if (name === 'local_media_capabilities') this.capabilities = true;
+    if ((name === 'save_storyboard' || name === 'save_video_blueprint') && comp.production?.phase === 'plan-ready') this.closedPhase = 'plan';
+    if (name === 'finish_gathering' && comp.production?.phase === 'gathered') this.closedPhase = 'gather';
+    if (name === 'run_frame_qa') this.qaAtAction = this.actions.length;
     if (name === 'save_storyboard') {
       this.planned = timing(comp);
       const scenes = Array.isArray(args.scenes) ? (args.scenes as StoryboardSceneInput[]) : [];
       this.storyboardRefs = scenes.some(s => s && Array.isArray(s.refs) && s.refs.length > 0);
+    }
+    // Blueprint-first receipts: saving opens the gate, executing lifts it.
+    if (name === 'save_video_blueprint') {
+      this.blueprintSaved = true;
+      this.blueprintExecuted = false;
+    }
+    if (name === 'execute_blueprint') {
+      this.blueprintExecuted = true;
     }
     if (name === 'generate_local_media') {
       if (typeof result.jobId === 'string') {
@@ -279,13 +515,18 @@ export class EditWorkflow {
   }
   verify(project: Project): ToolResult {
     const status = this.status(project), comp = this.comp(project);
-    if (this.mode === 'full' && (!status.timelineRead || !status.finalTimelineRead || !status.storyboardCurrent || status.transcriptPending.length || status.frameReviewPending.length || status.pendingJobs.length || status.pendingPlacement.length)) return { ok: false, error: `Workflow incomplete: ${JSON.stringify(status)}. Finish or explicitly report blocked work; do not claim completion.` };
+    const phase = this.phase(project);
+    if (phase === 'plan-ready' || phase === 'gathering' || phase === 'gathered') return { ok: false, error: `Nothing to verify yet: the production is in the ${phase} phase. verify_edit_workflow belongs to the end of the editing phase, after the user has pressed Start editing and the timeline is assembled.` };
+    if (this.mode === 'full' && (phase === 'editing' || phase === 'polishing') && !status.qaCurrent) return { ok: false, error: `Polish pass missing: call run_frame_qa after your last edit (it reports every graphic or caption overlapping the subject or another graphic, with contact sheets), fix what it finds, run it again until it is clear, then verify. ${JSON.stringify({ phase, actions: status.successfulActions.length })}` };
+    if (status.blueprintActive) return { ok: false, error: `Workflow incomplete: blueprint saved but not executed. Gather all assets, call execute_blueprint, then assemble. ${JSON.stringify(status)}` };
+    const planOk = status.storyboardCurrent || status.blueprintExecuted || status.blueprintPlan;
+    if (this.mode === 'full' && (!status.timelineRead || !status.finalTimelineRead || !planOk || status.transcriptPending.length || status.frameReviewPending.length || status.pendingJobs.length || status.pendingPlacement.length)) return { ok: false, error: `Workflow incomplete: ${JSON.stringify(status)}. Finish or explicitly report blocked work; do not claim completion.` };
     const needsPro = this.mode === 'full' && !!comp?.clips.some(c => c.enabled && c.source.type === 'media');
     if (needsPro) {
       if (!status.capabilitiesChecked) return { ok: false, error: `Pro pass missing: local image/video/audio/depth models were never checked. Call local_media_capabilities, then run the planned roto/depth/generation work or report the blocker. ${JSON.stringify(status)}` };
       if (!status.proVisualPass) return { ok: false, error: `Pro visual pass missing: no motion graphics, roto/depth matte, or generated media placed. Add kinetic/title/lower-third motion graphics, isolate a subject (rotoscope_clip/depth_occlusion_clip) and layer text behind it, or generate+import+place a storyboard asset — or report the blocker. ${JSON.stringify(status)}` };
       if (!status.soundPass) return { ok: false, error: `Sound pass missing: no shaped music/SFX. Lay the music bed, shape it with score_audio_clip (duck under dialogue, swell on beats), add whoosh/impact/riser accents — or report the blocker. ${JSON.stringify(status)}` };
-      if (!status.storyboardRefs) return { ok: false, error: `Storyboard has no visual references: generate 1+ reference stills (local image model), import them, and attach their asset IDs as refs on the relevant scenes — or report the blocker. ${JSON.stringify(status)}` };
+      if (!status.storyboardRefs && !status.blueprintExecuted && !status.blueprintPlan) return { ok: false, error: `Storyboard has no visual references: generate 1+ reference stills (local image model), import them, and attach their asset IDs as refs on the relevant scenes — or report the blocker. ${JSON.stringify(status)}` };
     }
     if (!comp || comp.clips.some(c => !comp.tracks.some(t => t.id === c.trackId) || !Number.isFinite(c.start) || !Number.isFinite(c.duration) || c.start < 0 || c.duration <= 0)) return { ok: false, error: 'Timeline contains invalid clip timing or missing tracks.' };
     this.finished = true;

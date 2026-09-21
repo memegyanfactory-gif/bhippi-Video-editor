@@ -60,7 +60,7 @@ export type ChatMessage =
 
 type Assistant = Extract<ChatMessage, { role: 'assistant' }>;
 
-export type ChatApi = { clear: () => void; focus: () => void };
+export type ChatApi = { clear: () => void; focus: () => void; send: (text: string) => void };
 
 type Props = {
   apiRef: RefObject<ChatApi | null>;
@@ -227,6 +227,9 @@ export function ChatPanel(props: Props) {
     },
     focus: () => {
       inputRef.current?.focus();
+    },
+    send: (text: string) => {
+      sendRef.current(text);
     },
   }), []);
   /** Whether the transcript is following the newest words, set by the reader's own scrolling. */
@@ -585,7 +588,7 @@ export function ChatPanel(props: Props) {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
-      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), editingWorkflow: workflowMode, workflowInstruction: 'Call editing_workflow_status first. In full mode analysis and storyboard are enforced by tool receipts. Call verify_edit_workflow before claiming completion.' } });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), editingWorkflow: workflowMode, workflowInstruction: 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.' } });
       setImages([]);
     } catch (error) {
       actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
@@ -677,7 +680,7 @@ export function ChatPanel(props: Props) {
     props.onChooseModel(nextProvider, nextModel);
   };
 
-  props.apiRef.current = { clear, focus: () => inputRef.current?.focus() };
+  props.apiRef.current = { clear, focus: () => inputRef.current?.focus(), send: (text: string) => sendRef.current(text) };
   sendRef.current = (text: string) => void send(text);
 
   // A message typed mid-turn waits here, then goes by itself.
@@ -885,6 +888,7 @@ export function ChatPanel(props: Props) {
                 else toast({ tone: 'info', title: 'Use Undo instead', body: 'The project changed after these edits, so press Ctrl+Z to step back.' });
               }}
               onRemedy={(action) => remedy(message, action)}
+              onContinue={() => void send('Continue the current phase of the production now. Call editing_workflow_status, work the saved todo list for this phase only (PLAN: finish research, script, shots, graphics and save the plan; GATHER: generate or download every planned shot with sceneIndex, then finish_gathering; EDIT/POLISH: cuts, levels, beats, transitions, roto/erase, motion graphics, sound, run_frame_qa until clear, then get_comp + verify_edit_workflow). Do not stop until the phase is closed or verify passes.')}
             />
           ),
         )}
@@ -1137,7 +1141,7 @@ export function ChatPanel(props: Props) {
   );
 }
 
-function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRemedy }: { message: Assistant; workflow: { mode: string; structurallyVerified: boolean } | null; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void }) {
+function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRemedy, onContinue }: { message: Assistant; workflow: { mode: string; structurallyVerified: boolean; phase?: string | null; nextUserAction?: string | null; phaseClosedThisTurn?: string | null } | null; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void }) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const toast = useToast();
@@ -1179,7 +1183,29 @@ function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRem
       {visible.trim() ? <Markdown text={visible} /> : message.status === 'streaming' && !message.thinking && (
         <div className="typing"><span /><span /><span /></div>
       )}
-      {workflow?.mode === 'full' && message.status !== 'streaming' && <div className="notes" role="status">{workflow.structurallyVerified ? 'Workflow steps and timeline structure verified. Render, matte and audio quality still need review.' : 'Full workflow incomplete or not verified. The assistant’s completion text is not proof that all steps ran.'}</div>}
+      {workflow?.mode === 'full' && message.status !== 'streaming' && (
+        <div className="notes" role="status" style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+          <div>{workflow.structurallyVerified
+            ? 'Workflow steps and timeline structure verified. Render, matte and audio quality still need review.'
+            : workflow.nextUserAction === 'start-generating'
+              ? 'Plan saved. Review it above, then press Start generating.'
+              : workflow.nextUserAction === 'start-editing'
+                ? 'Everything is gathered. Press Start editing when you are ready.'
+                : workflow.phase === 'gathering'
+                  ? 'Gathering in progress. The assistant closes this phase with finish_gathering.'
+                  : 'Full workflow incomplete or not verified. The assistant’s completion text is not proof that all steps ran.'}</div>
+          {!workflow.structurallyVerified && !workflow.nextUserAction && onContinue && (
+            <button
+              type="button"
+              className="btn btn-small"
+              style={{ padding: '4px 10px', fontSize: '0.85em', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              onClick={onContinue}
+            >
+              ▶ Continue Workflow
+            </button>
+          )}
+        </div>
+      )}
       {tools.some((run) => run.status === 'done' && run.changedProject) && message.status !== 'streaming' && (
         <div className="edits-card">
           <div className="edits-head">

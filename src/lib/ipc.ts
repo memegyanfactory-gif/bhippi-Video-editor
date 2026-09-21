@@ -257,6 +257,13 @@ export const api = {
   /** Tracks every person across a shot; returns the job id, result on `helios://job` / jobs_list. */
   personTrackStart: (id: string, from: number, seconds: number, fps: number) =>
     invoke<string>('person_track_start', { id, from, seconds, fps }),
+  /**
+   * Magic eraser: builds a clean background plate behind the subject a Roto run matted and renders
+   * `start`..`end` (source seconds) with the subject gone. Returns the `generation` job id; its
+   * result carries `path` (erased.mp4) and `cleanPlate` (PNG), and `import_generated_media` imports it.
+   */
+  eraseStart: (args: { assetId: string; runId: string; start: number; end: number; dilate?: number; mode?: 'clean-plate' | 'per-frame'; refine?: boolean }) =>
+    invoke<string>('erase_start', args),
   /** Whether a TypeSafe key is present, so a judgment can be offered at all. */
   typesafeReady: () => invoke<boolean>('typesafe_ready'),
   /** Files the TypeSafe key; an empty string removes it. Returns whether judgments are ready. */
@@ -378,8 +385,15 @@ export const api = {
   detectScenes: (assetId: string, start: number, end: number, sensitivity: number) => invoke<number[]>('detect_scenes', { assetId, start, end, sensitivity }),
   /** The loudest peak of a media range, in dBFS. */
   audioPeak: (assetId: string, start: number, end: number) => invoke<number>('audio_peak', { assetId, start, end }),
+  /** EBU R128 loudness of a media range: integrated LUFS, loudness range LU, true peak dBTP. */
+  audioLoudness: (assetId: string, start: number, end: number) =>
+    invoke<{ integratedLufs: number; rangeLu: number; truePeakDb: number; duration: number }>('audio_loudness', { assetId, start, end }),
   /** Saves a voice-over recording and imports it. */
   saveRecording: (bytes: number[], extension: string) => invoke<Asset>('save_recording', { bytes, extension }),
+  /** A fresh folder under the work dir for one motion graphic's rendered export frames. */
+  mogrtFramesBegin: (clipId: string) => invoke<string>('mogrt_frames_begin', { clipId }),
+  /** One PNG frame, sent as raw bytes so a 1080p sequence never goes through JSON. */
+  mogrtFrameWrite: (dir: string, index: number, png: Uint8Array) => invoke<void>('mogrt_frame_write', png, { headers: { 'x-mogrt-dir': dir, 'x-mogrt-index': String(index) } }),
 
   providersList: () => invoke<ProviderInfo[]>('providers_list'),
   providersRefresh: () => invoke<ProviderInfo[]>('providers_refresh'),

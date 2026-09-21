@@ -17,7 +17,7 @@
 use super::text::Placement;
 use super::{hex, keyframe_expr, keyframe_value, num, raster, text, Frame, Graph, Span, MAX_DEPTH};
 use crate::library::{Asset, AssetKind};
-use crate::project::{Clip, ClipSource, Comp, Effects, FitMode, Graphic, Interpolation, ItemKind, Keyframe, Mask, MaskShape, Preset, ProjectItem, TrackKind, TransitionKind};
+use crate::project::{HtmlFrames, Clip, ClipSource, Comp, Effects, FitMode, Graphic, Interpolation, ItemKind, Keyframe, Mask, MaskShape, Preset, ProjectItem, TrackKind, TransitionKind};
 
 /// What a clip on a video track contributes to the picture.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -106,6 +106,7 @@ impl<'a> Graph<'a> {
         match &clip.source {
             ClipSource::Sfx { .. } => Role::Nothing,
             ClipSource::Text { .. } if !clip.adjustment => Role::Text,
+            ClipSource::Html { frames: Some(_), .. } if !clip.adjustment => Role::Picture,
             ClipSource::Html { .. } if !clip.adjustment => Role::Text,
             ClipSource::Media { asset_id } if self.assets.get(asset_id).is_some_and(|asset| asset.kind == AssetKind::Audio) => Role::Nothing,
             ClipSource::Item { item_id } => match self.project.item(item_id).map(|item| item.kind) {
@@ -252,6 +253,7 @@ impl<'a> Graph<'a> {
                 Ok(self.item(clip, item, frame, tau, frames))
             }
             ClipSource::Shape { .. } => Ok(self.shape(clip, frame, frames)),
+            ClipSource::Html { frames: Some(rendered), .. } => Ok(Some(self.html_frames(rendered, tau, frames))),
             ClipSource::Text { .. } | ClipSource::Sfx { .. } | ClipSource::Html { .. } => Ok(None),
         }
     }
@@ -340,6 +342,19 @@ impl<'a> Graph<'a> {
         } else {
             self.chain(&parts, &format!("concat=n={}:v=1:a=0", parts.len()))
         }
+    }
+
+    /// A motion graphic the frontend rendered to a PNG sequence with alpha. Frame `k` of the
+    /// sequence is the graphic `k / fps` seconds after the clip's first frame; the export reads
+    /// from the frame nearest `tau` and holds the last frame if the sequence runs out.
+    fn html_frames(&mut self, rendered: &HtmlFrames, tau: f64, frames: u64) -> Source {
+        let rate = rendered.fps.max(1.0);
+        let first = ((tau * rate).round() as u64).min(rendered.frames.saturating_sub(1));
+        let dir = rendered.dir.trim_end_matches(|c| c == '/' || c == '\\');
+        let pattern = format!("{dir}/%05d.png");
+        let index = self.input(vec!["-framerate".into(), num(rate), "-start_number".into(), first.to_string(), "-i".into(), pattern]);
+        let label = self.chain(&[format!("{index}:v:0")], &format!("format=rgba,setpts=PTS-STARTPTS,fps={},{}", self.rate.text(), self.conform(0, frames)));
+        Source { label, w: f64::from(rendered.width.max(1)), h: f64::from(rendered.height.max(1)), natural: None }
     }
 
     fn still(&mut self, asset: &Asset, frames: u64) -> Source {

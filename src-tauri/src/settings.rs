@@ -44,6 +44,7 @@ pub struct Settings {
     pub auto_update_providers: Vec<String>,
     pub local_media_python: Option<String>,
     pub local_roto_engine: Option<String>,
+    pub local_video_model: Option<String>,
     pub local_media_models: std::collections::HashMap<String, String>,
     /// Providers the user switched off. Everything else that is usable is offered.
     pub disabled_providers: Vec<String>,

@@ -1,0 +1,17 @@
+# Todo: Create pro-level masterpiece edit with Crimson style and transcript pacing
+- [x] Initialize workflow status and inspect comp
+- [x] Transcribe dialogue audio on source clip
+- [x] Perform fast text-only frame inspection
+- [x] Check local media capabilities
+- [x] Save scene-by-scene storyboard (5-12s batches)
+- [x] Cut footage into narrative beats and tighten pauses
+- [x] Apply punch-ins for talking-head visual dynamic
+- [x] Generate Wan video cutaway b-roll
+- [x] Generate chroma green motion graphic overlay
+- [x] Rotoscope speaker clip and add text behind subject
+- [x] Add kinetic hook title and lower-third identifier
+- [x] Create Crimson glassmorphism motion graphic cards
+- [x] Add transitions at scene cuts
+- [x] Place music bed and duck audio under speech
+- [x] Layer SFX whooshes and impacts
+- [x] Verify workflow receipts and comp structure

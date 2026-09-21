@@ -1,0 +1,304 @@
+// Beat detection from the waveform peaks Helios already keeps per asset (see peaks.ts): an onset
+// envelope from the per-bucket levels, tempo by autocorrelation with a log-Gaussian prior around
+// 120 BPM, then a beat grid phase-locked to the strongest transients. Everything is plain,
+// deterministic arithmetic — no audio decoding, no dependencies — so it runs instantly in the
+// webview on a 10-minute song (60 000 buckets × at most a few hundred lags).
+import { BUCKETS_PER_SECOND, type Peaks } from './peaks';
+
+export type TempoEstimate = { bpm: number; confidence: number; lag: number };
+export type BeatGrid = { beats: number[]; phase: number; score: number };
+export type BeatAnalysis = { bpm: number; confidence: number; beats: number[]; downbeats: number[]; duration: number };
+export type BeatSnap = { time: number; snapped: number | null; delta: number };
+export type BeatOptions = { minBpm?: number; maxBpm?: number; start?: number; end?: number };
+
+/** Gain before log compression: levels below ~1/k of full scale are treated as quiet. */
+const LOG_GAIN = 20;
+/** The local-mean window subtracted from the onset strength, in seconds. */
+const LOCAL_MEAN_WINDOW = 0.5;
+/** How far a grid beat may move to sit on a real transient. */
+const BEAT_REFINE_WINDOW = 0.035;
+/** Centre and width (in octaves) of the tempo prior, as in librosa's tempo estimator. */
+const PRIOR_BPM = 120;
+const PRIOR_OCTAVES = 1;
+
+const clamp01 = (value: number) => (value < 0 ? 0 : value > 1 ? 1 : value);
+
+const compress = (byte: number) => Math.log1p((byte / 255) * LOG_GAIN) / Math.log1p(LOG_GAIN);
+
+/**
+ * Per-bucket onset strength, ≥ 0: how much louder each bucket is than the one before it, with
+ * the slow level of the surrounding half second removed so sustained notes do not count and a
+ * quiet passage's hits count as much as a loud one's. Both bytes contribute — rms for weight,
+ * peak so that short sharp transients (a rimshot inside a pad) still register.
+ */
+export const onsetEnvelope = (peaks: Peaks): Float32Array => {
+  const n = peaks.buckets;
+  const raw = new Float32Array(n);
+  let previousPeak = 0;
+  let previousRms = 0;
+  for (let index = 0; index < n; index++) {
+    const peak = compress(peaks.data[index * 2]);
+    const rms = compress(peaks.data[index * 2 + 1]);
+    const risePeak = peak - previousPeak;
+    const riseRms = rms - previousRms;
+    raw[index] = Math.max(0, risePeak, riseRms);
+    previousPeak = peak;
+    previousRms = rms;
+  }
+  // Light 3-tap smoothing keeps a transient that straddles two buckets from reading as two.
+  const smooth = new Float32Array(n);
+  for (let index = 0; index < n; index++) {
+    const before = index > 0 ? raw[index - 1] : raw[index];
+    const after = index + 1 < n ? raw[index + 1] : raw[index];
+    smooth[index] = 0.25 * before + 0.5 * raw[index] + 0.25 * after;
+  }
+  const half = Math.max(1, Math.round((LOCAL_MEAN_WINDOW * BUCKETS_PER_SECOND) / 2));
+  const prefix = new Float64Array(n + 1);
+  for (let index = 0; index < n; index++) prefix[index + 1] = prefix[index] + smooth[index];
+  const envelope = new Float32Array(n);
+  for (let index = 0; index < n; index++) {
+    const from = Math.max(0, index - half);
+    const to = Math.min(n, index + half + 1);
+    const mean = (prefix[to] - prefix[from]) / (to - from);
+    envelope[index] = Math.max(0, smooth[index] - mean);
+  }
+  return envelope;
+};
+
+/** Normalised autocorrelation (a correlation coefficient, −1..1) of `x` at every lag in [from, to]. */
+const autocorrelate = (x: Float32Array, from: number, to: number): Float32Array => {
+  const n = x.length;
+  const acf = new Float32Array(to + 1);
+  let variance = 0;
+  for (let index = 0; index < n; index++) variance += x[index] * x[index];
+  variance /= n;
+  if (variance <= 0) return acf;
+  for (let lag = from; lag <= to; lag++) {
+    let sum = 0;
+    for (let index = lag; index < n; index++) sum += x[index] * x[index - lag];
+    acf[lag] = sum / (n - lag) / variance;
+  }
+  return acf;
+};
+
+const priorWeight = (bpm: number) => {
+  const octaves = Math.log2(bpm / PRIOR_BPM) / PRIOR_OCTAVES;
+  return Math.exp(-0.5 * octaves * octaves);
+};
+
+/** `acf` read at a fractional lag (linear), or 0 outside [from, to]. */
+const acfAt = (acf: Float32Array, lag: number, from: number, to: number): number => {
+  if (lag < from || lag > to) return 0;
+  const low = Math.floor(lag);
+  const high = Math.min(to, low + 1);
+  const t = lag - low;
+  return Math.max(0, acf[low] * (1 - t) + acf[high] * t);
+};
+
+/**
+ * The tempo of an onset envelope sampled at `hz`, by autocorrelation over the lags that fall in
+ * the BPM range. A log-Gaussian prior centred on 120 BPM breaks the usual half/double-time tie
+ * the way a listener would, and a candidate whose octave partner is also strong is preferred
+ * over a lone spike. The winning lag is refined by parabolic interpolation, so tempos whose
+ * period is not a whole number of buckets come back accurately.
+ */
+export const estimateTempo = (envelope: Float32Array, hz: number, range = { min: 60, max: 190 }): TempoEstimate => {
+  const n = envelope.length;
+  const minBpm = Math.max(1, Math.min(range.min, range.max));
+  const maxBpm = Math.max(range.min, range.max);
+  const minLag = Math.max(1, Math.floor((hz * 60) / maxBpm));
+  const maxLag = Math.max(minLag, Math.ceil((hz * 60) / minBpm));
+  if (n < maxLag * 2 || maxLag < 2) return { bpm: 0, confidence: 0, lag: 0 };
+
+  let mean = 0;
+  for (let index = 0; index < n; index++) mean += envelope[index];
+  mean /= n;
+  const centred = new Float32Array(n);
+  for (let index = 0; index < n; index++) centred[index] = envelope[index] - mean;
+  const acf = autocorrelate(centred, minLag, maxLag);
+
+  let bestLag = 0;
+  let bestScore = -Infinity;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    const strength = Math.max(0, acf[lag]) * priorWeight((hz * 60) / lag);
+    // Octave support: the same pulse read at half or double speed, when that speed is in range.
+    const support = Math.max(acfAt(acf, lag * 2, minLag, maxLag), acfAt(acf, lag / 2, minLag, maxLag));
+    const score = strength * (1 + 0.5 * support);
+    if (score > bestScore) {
+      bestScore = score;
+      bestLag = lag;
+    }
+  }
+  if (bestLag === 0 || !(bestScore > 0)) return { bpm: 0, confidence: 0, lag: 0 };
+
+  let lag = bestLag;
+  if (bestLag > minLag && bestLag < maxLag) {
+    const a = acf[bestLag - 1];
+    const b = acf[bestLag];
+    const c = acf[bestLag + 1];
+    const denominator = a - 2 * b + c;
+    if (denominator < 0) lag = bestLag + Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / denominator));
+  }
+  let bandMean = 0;
+  for (let index = minLag; index <= maxLag; index++) bandMean += acf[index];
+  bandMean /= maxLag - minLag + 1;
+  // The winning lag's correlation, less what the rest of the band shares: a lone spike over a
+  // flat autocorrelation is a confident tempo, a broad hump is not.
+  const confidence = clamp01(acf[bestLag] - Math.max(0, bandMean));
+  return { bpm: (hz * 60) / lag, confidence, lag };
+};
+
+/**
+ * A beat grid at `bpm` phase-locked to the envelope: the offset (in buckets, 0..period) whose
+ * grid points collect the most onset strength, each beat then nudged onto the nearest local
+ * maximum within ±35 ms so it sits on the transient rather than beside it. Beat times are in
+ * seconds from the start of the envelope.
+ */
+export const beatGrid = (envelope: Float32Array, hz: number, bpm: number): BeatGrid => {
+  const n = envelope.length;
+  if (!(bpm > 0) || n === 0) return { beats: [], phase: 0, score: 0 };
+  const period = (hz * 60) / bpm;
+  const steps = Math.max(1, Math.ceil(period));
+  // ±1 bucket of tolerance, with the exact bucket worth more so a dead-on phase beats a near miss.
+  const nearby = (index: number) => {
+    let best = envelope[index];
+    if (index > 0 && 0.75 * envelope[index - 1] > best) best = 0.75 * envelope[index - 1];
+    if (index + 1 < n && 0.75 * envelope[index + 1] > best) best = 0.75 * envelope[index + 1];
+    return best;
+  };
+  let phase = 0;
+  let bestSum = -1;
+  for (let candidate = 0; candidate < steps; candidate++) {
+    let sum = 0;
+    for (let at = candidate; at < n; at += period) sum += nearby(Math.round(at));
+    if (sum > bestSum) {
+      bestSum = sum;
+      phase = candidate;
+    }
+  }
+  let top = 0;
+  for (let index = 0; index < n; index++) if (envelope[index] > top) top = envelope[index];
+  const reach = Math.round(BEAT_REFINE_WINDOW * hz);
+  const count = Math.max(1, Math.ceil((n - phase) / period));
+  // A beat only moves onto a maximum worth moving to; where the grid meets nothing (a break, the
+  // tail of the clip) it stays put rather than chasing noise.
+  const worthwhile = 0.2 * (bestSum / count);
+  const beats: number[] = [];
+  for (let at = phase; at < n; at += period) {
+    const grid = Math.round(at);
+    let bucket = grid;
+    for (let probe = Math.max(0, grid - reach); probe <= Math.min(n - 1, grid + reach); probe++) {
+      if (envelope[probe] < worthwhile) continue;
+      if (envelope[probe] > envelope[bucket] || (envelope[probe] === envelope[bucket] && Math.abs(probe - grid) < Math.abs(bucket - grid))) bucket = probe;
+    }
+    if (beats.length === 0 || bucket / hz > beats[beats.length - 1]) beats.push(bucket / hz);
+  }
+  const score = top > 0 ? clamp01(bestSum / count / top) : 0;
+  return { beats, phase, score };
+};
+
+/**
+ * Re-estimates the beat period from where the beats actually landed: a weighted least-squares
+ * line through (index, time), weighted by onset strength so beats that fell on nothing do not
+ * pull it. Corrects the coarse lag resolution (a tenth of a bucket per beat adds up over a song).
+ */
+const fitPeriod = (beats: number[], envelope: Float32Array, hz: number): number | null => {
+  if (beats.length < 4) return null;
+  let sw = 0;
+  let sx = 0;
+  let sy = 0;
+  let sxx = 0;
+  let sxy = 0;
+  for (let index = 0; index < beats.length; index++) {
+    const bucket = Math.min(envelope.length - 1, Math.round(beats[index] * hz));
+    const w = envelope[bucket] + 1e-6;
+    sw += w;
+    sx += w * index;
+    sy += w * beats[index];
+    sxx += w * index * index;
+    sxy += w * index * beats[index];
+  }
+  const denominator = sw * sxx - sx * sx;
+  if (!(denominator > 0)) return null;
+  const slope = (sw * sxy - sx * sy) / denominator;
+  return slope > 0 ? slope : null;
+};
+
+const sliceOf = (peaks: Peaks, start: number, end: number): Peaks => {
+  const first = Math.max(0, Math.min(peaks.buckets, Math.floor(start * BUCKETS_PER_SECOND)));
+  const last = Math.max(first, Math.min(peaks.buckets, Math.ceil(end * BUCKETS_PER_SECOND)));
+  return { data: peaks.data.subarray(first * 2, last * 2), buckets: last - first };
+};
+
+/**
+ * Tempo, beats and downbeats of `peaks` (or of the [start, end] seconds of it). Beat times are in
+ * source seconds. Downbeats are every fourth beat, counted from the strongest of the first four.
+ */
+export const detectBeats = (peaks: Peaks, options: BeatOptions = {}): BeatAnalysis => {
+  const hz = BUCKETS_PER_SECOND;
+  const start = Math.max(0, options.start ?? 0);
+  const end = Math.min(peaks.buckets / hz, options.end ?? peaks.buckets / hz);
+  const slice = sliceOf(peaks, start, end);
+  const offset = Math.floor(start * hz) / hz;
+  const duration = slice.buckets / hz;
+  const range = { min: options.minBpm ?? 60, max: options.maxBpm ?? 190 };
+  const empty = { bpm: 0, confidence: 0, beats: [], downbeats: [], duration };
+  if (slice.buckets === 0) return empty;
+
+  const envelope = onsetEnvelope(slice);
+  const tempo = estimateTempo(envelope, hz, range);
+  if (!(tempo.bpm > 0)) return empty;
+
+  let bpm = tempo.bpm;
+  let grid = beatGrid(envelope, hz, bpm);
+  const fitted = fitPeriod(grid.beats, envelope, hz);
+  if (fitted !== null) {
+    const refined = 60 / fitted;
+    // Only trust the fit when it is a small correction to the autocorrelation tempo.
+    if (Math.abs(refined - bpm) / bpm < 0.08 && refined >= range.min && refined <= range.max) {
+      bpm = refined;
+      grid = beatGrid(envelope, hz, bpm);
+    }
+  }
+  const strengthAt = (time: number) => envelope[Math.min(envelope.length - 1, Math.round(time * hz))];
+  let first = 0;
+  for (let index = 1; index < Math.min(4, grid.beats.length); index++) {
+    if (strengthAt(grid.beats[index]) > strengthAt(grid.beats[first])) first = index;
+  }
+  const beats = grid.beats.map((time) => time + offset);
+  const downbeats = beats.filter((_, index) => index >= first && (index - first) % 4 === 0);
+  return { bpm, confidence: tempo.confidence, beats, downbeats, duration };
+};
+
+/** The index of the first beat at or after `t` (or `beats.length`). */
+const lowerBound = (beats: number[], t: number): number => {
+  let low = 0;
+  let high = beats.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (beats[mid] < t) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+};
+
+/**
+ * Each time moved to the nearest beat within `tolerance` seconds, or left alone (`snapped` null).
+ * `delta` is the signed distance to that nearest beat either way (0 when there are no beats).
+ */
+export const snapTimesToBeats = (times: number[], beats: number[], tolerance: number): BeatSnap[] =>
+  times.map((time) => {
+    if (beats.length === 0) return { time, snapped: null, delta: 0 };
+    const after = lowerBound(beats, time);
+    const candidates = [beats[after - 1], beats[after]].filter((beat): beat is number => beat !== undefined);
+    let nearest = candidates[0];
+    for (const beat of candidates) if (Math.abs(beat - time) < Math.abs(nearest - time)) nearest = beat;
+    const delta = nearest - time;
+    return { time, snapped: Math.abs(delta) <= tolerance ? nearest : null, delta };
+  });
+
+/** The first beat at least `minGap` seconds after `t`, or null when none is left. */
+export const nearestBeatAfter = (beats: number[], t: number, minGap = 0): number | null => {
+  const index = lowerBound(beats, t + Math.max(0, minGap));
+  return index < beats.length ? beats[index] : null;
+};

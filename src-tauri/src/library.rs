@@ -257,6 +257,23 @@ fn dunce_path(path: &Path) -> String {
     text.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(text)
 }
 
+/// A recorded derived file only counts when it is really on disk and non-empty.
+/// An interrupted FFmpeg run can leave a zero-byte file behind; trusting the
+/// stored path alone is what used to show a broken thumbnail tile forever.
+pub fn derived_ok(path: &Option<String>) -> bool {
+    path.as_ref().is_some_and(|file| {
+        std::fs::metadata(file).is_ok_and(|meta| meta.is_file() && meta.len() > 0)
+    })
+}
+
+/// Whether an asset still needs its background derivation work: either it is
+/// waiting on a preview proxy, or a video/still has no usable thumbnail file
+/// (never generated, or the recorded file went missing since).
+/// Pure so the startup backfill and the tests share one rule.
+pub fn needs_derive(asset: &Asset) -> bool {
+    asset.preview == "pending" || (asset.kind != AssetKind::Audio && !derived_ok(&asset.thumbnail))
+}
+
 /// Produces thumbnail, filmstrip, waveform and (when needed) a preview proxy for `asset`.
 /// Each step is best-effort: a failed filmstrip never blocks editing.
 pub async fn derive(
@@ -284,7 +301,7 @@ pub async fn derive(
             args.extend(["-ss", seek.as_str()]);
         }
         args.extend(["-i", source, "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4", thumb_text.as_str()]);
-        if crate::tools::run(ffmpeg, &args, None).await.is_ok() && thumb.is_file() {
+        if crate::tools::run(ffmpeg, &args, None).await.is_ok() && derived_ok(&Some(thumb_text.clone())) {
             out.thumbnail = Some(thumb_text);
         }
     }
@@ -297,10 +314,10 @@ pub async fn derive(
         let filter = format!("fps={:.6},scale=-2:90,tile=12x1", frames / asset.duration.max(0.1));
         // Keyframes only: decoding every frame of an hour-long file to pick twelve is slow.
         let fast = ["-hide_banner", "-loglevel", "error", "-y", "-skip_frame", "nokey", "-i", source, "-vf", filter.as_str(), "-frames:v", "1", "-an", strip_text.as_str()];
-        let ok = crate::tools::run(ffmpeg, &fast, None).await.is_ok() && strip.is_file();
+        let ok = crate::tools::run(ffmpeg, &fast, None).await.is_ok() && derived_ok(&Some(strip_text.clone()));
         let ok = ok || {
             let full = ["-hide_banner", "-loglevel", "error", "-y", "-i", source, "-vf", filter.as_str(), "-frames:v", "1", "-an", strip_text.as_str()];
-            crate::tools::run(ffmpeg, &full, None).await.is_ok() && strip.is_file()
+            crate::tools::run(ffmpeg, &full, None).await.is_ok() && derived_ok(&Some(strip_text.clone()))
         };
         if ok {
             out.filmstrip = Some(strip_text);
@@ -312,7 +329,7 @@ pub async fn derive(
         let wave = thumbnails.join(format!("{id}-wave.png"));
         let wave_text = wave.display().to_string();
         let args = ["-hide_banner", "-loglevel", "error", "-y", "-i", source, "-filter_complex", "aformat=channel_layouts=mono,compand=gain=4,showwavespic=s=1800x140:colors=0x7fd7ff", "-frames:v", "1", wave_text.as_str()];
-        if crate::tools::run(ffmpeg, &args, None).await.is_ok() && wave.is_file() {
+        if crate::tools::run(ffmpeg, &args, None).await.is_ok() && derived_ok(&Some(wave_text.clone())) {
             out.waveform = Some(wave_text);
         }
     }
@@ -348,7 +365,7 @@ pub async fn derive(
         let mut full: Vec<&str> = vec!["-hide_banner", "-loglevel", "error", "-y", "-i", source];
         full.extend(args.iter().map(String::as_str));
         match crate::tools::run(ffmpeg, &full, None).await {
-            Ok(_) if Path::new(&file).is_file() => {
+            Ok(_) if derived_ok(&Some(file.clone())) => {
                 out.proxy = Some(file);
                 out.preview = "ready".to_owned();
             }
@@ -492,12 +509,67 @@ async fn audio_peaks(ffmpeg: &Path, source: &str, duration: f64) -> Option<Vec<u
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_probe, plays_natively, AssetKind};
+    use super::{derived_ok, needs_derive, parse_probe, plays_natively, Asset, AssetKind};
 
     const H264_MP4: &str = r#"{"streams":[
         {"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"pix_fmt":"yuv420p","avg_frame_rate":"30000/1001"},
         {"codec_type":"audio","codec_name":"aac"}],
         "format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","duration":"12.500000"}}"#;
+
+    #[test]
+    fn derived_files_count_only_when_present_and_nonempty() {
+        assert!(!derived_ok(&None));
+        assert!(!derived_ok(&Some("/definitely/not/here.jpg".to_owned())));
+        let dir = std::env::temp_dir().join(format!("helios-derived-{}", crate::store::new_id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let empty = dir.join("empty.jpg");
+        std::fs::write(&empty, []).expect("empty");
+        assert!(!derived_ok(&Some(empty.display().to_string())));
+        let full = dir.join("full.jpg");
+        std::fs::write(&full, [0xff, 0xd8, 0xff]).expect("full");
+        assert!(derived_ok(&Some(full.display().to_string())));
+        let _ignored = std::fs::remove_dir_all(dir);
+    }
+
+    fn blank_asset(kind: AssetKind) -> Asset {
+        Asset {
+            id: "a".to_owned(),
+            name: "clip.mp4".to_owned(),
+            path: "C:/vid/clip.mp4".to_owned(),
+            kind,
+            duration: 10.0,
+            width: 1920,
+            height: 1080,
+            fps: Some(30.0),
+            has_audio: true,
+            video_codec: Some("h264".to_owned()),
+            audio_codec: Some("aac".to_owned()),
+            size: 100,
+            imported_at: chrono::Utc::now(),
+            thumbnail: None,
+            filmstrip: None,
+            waveform: None,
+            peaks: None,
+            proxy: None,
+            preview: "native".to_owned(),
+            missing: false,
+        }
+    }
+
+    #[test]
+    fn derivation_is_needed_without_a_usable_thumbnail_or_with_a_pending_proxy() {
+        // A fresh video import still needs its background work.
+        assert!(needs_derive(&blank_asset(AssetKind::Video)));
+        // A stale recorded path (file cleaned since) needs it again.
+        let mut stale = blank_asset(AssetKind::Video);
+        stale.thumbnail = Some("/definitely/not/here.jpg".to_owned());
+        assert!(needs_derive(&stale));
+        // Audio never needs a thumbnail; only a pending proxy pulls it back in.
+        assert!(!needs_derive(&blank_asset(AssetKind::Audio)));
+        let mut pending = blank_asset(AssetKind::Audio);
+        pending.preview = "pending".to_owned();
+        assert!(needs_derive(&pending));
+    }
 
     #[test]
     fn an_h264_mp4_is_video_and_plays_natively() {

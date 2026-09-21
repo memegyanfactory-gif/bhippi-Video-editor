@@ -14,7 +14,10 @@ const inflight = new Map<string, Promise<Peaks | null>>();
 // Bumped whenever a load finishes, so every waveform on screen re-renders once its data lands.
 const listeners = new Set<() => void>();
 
-const load = (path: string): Promise<Peaks | null> => {
+/** Loads (and caches) the peaks for `path`; `null` when there are none or the fetch fails. */
+export const loadPeaks = (path: string): Promise<Peaks | null> => {
+  const cached = cache.get(path);
+  if (cached) return Promise.resolve(cached);
   const existing = inflight.get(path);
   if (existing) return existing;
   const job = fetch(fileSrc(path))
@@ -39,7 +42,7 @@ export const usePeaks = (path: string | null | undefined): Peaks | null => {
     if (!path || cache.has(path)) return;
     const listener = () => bump((value) => value + 1);
     listeners.add(listener);
-    void load(path);
+    void loadPeaks(path);
     return () => {
       listeners.delete(listener);
     };

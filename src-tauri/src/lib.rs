@@ -738,26 +738,157 @@ async fn fs_run_command(
 
 // ───────────────────────────── roto ─────────────────────────────
 
+fn is_diffusers_model_ready(folder: &Path) -> bool {
+    if folder.is_file() && folder.extension().is_some_and(|e| e == "safetensors") {
+        return true;
+    }
+    if !folder.join("model_index.json").is_file() {
+        return false;
+    }
+    let has_transformer = folder.join("transformer").is_dir() && {
+        if let Ok(entries) = std::fs::read_dir(folder.join("transformer")) {
+            entries.filter_map(|e| e.ok()).any(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.ends_with(".safetensors") || name.ends_with(".bin")
+            })
+        } else {
+            false
+        }
+    };
+    let has_unet = folder.join("unet").is_dir() && {
+        if let Ok(entries) = std::fs::read_dir(folder.join("unet")) {
+            entries.filter_map(|e| e.ok()).any(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.ends_with(".safetensors") || name.ends_with(".bin")
+            })
+        } else {
+            false
+        }
+    };
+    let has_root = folder.join("model.safetensors").is_file();
+    has_transformer || has_unet || has_root
+}
+
 #[tauri::command]
 fn local_media_status(state: State<'_, Arc<AppState>>) -> serde_json::Value {
     let prefs = state.settings();
     let python = prefs.local_media_python.as_deref().is_some_and(|p| Path::new(p).is_file());
     let jobs = state.jobs.list();
-    let tasks: Vec<_> = [("image", "SDXL text to image"), ("image-edit", "SDXL image to image"), ("image-inpaint", "SDXL masked image replacement"), ("video", "Wan 2.1 text to video"), ("audio", "Stable Audio Open"), ("sam2", "SAM 2.1 subject tracking"), ("vitmatte", "ViTMatte edge refinement"), ("depth", "Depth Anything 3 Small · video occlusion"), ("person-track", "RF-DETR Nano · people tracking")].iter().map(|(task, label)| {
+    let tasks: Vec<_> = [
+        ("image", "SDXL text to image"),
+        ("image-edit", "SDXL image to image"),
+        ("image-inpaint", "SDXL masked image replacement"),
+        ("video-ltx23", "LTX-Video 2.3 22B (ComfyUI DiT + Audio) · Ultra-high quality"),
+        ("video-ltx", "LTX-Video 2B (Lightricks) · Fast, cinematic, 10 GB VRAM"),
+        ("video-wan", "Wan 2.1 1.3B · Lightweight"),
+        ("video", "Active text-to-video model"),
+        ("audio", "Stable Audio Open"),
+        ("sam2", "SAM 2.1 subject tracking"),
+        ("vitmatte", "ViTMatte edge refinement"),
+        ("depth", "Depth Anything 3 Small · video occlusion"),
+        ("person-track", "RF-DETR Nano · people tracking"),
+        ("erase", "Magic eraser · LaMa clean plate")
+    ].iter().map(|(task, label)| {
         let model_key = if task.starts_with("image") { "image" } else { *task };
         let checkpoint = media_checkpoint(&prefs, &state.paths, model_key);
-        let index = if ["sam2", "vitmatte", "depth"].contains(task) { "config.json" } else if *task == "person-track" { "helios-install.json" } else { "model_index.json" };
-        let installed = checkpoint.as_ref().is_some_and(|p| Path::new(p).join(index).is_file());
+        let index = if ["sam2", "vitmatte", "depth"].contains(task) { "config.json" } else if ["person-track", "erase"].contains(task) { "helios-install.json" } else { "model_index.json" };
+        let installed = checkpoint.as_ref().is_some_and(|p| {
+            let path = Path::new(p);
+            if path.is_file() {
+                return true;
+            }
+            if ["image", "image-edit", "image-inpaint", "video", "video-ltx", "video-ltx23", "video-wan", "audio"].contains(task) {
+                is_diffusers_model_ready(path)
+            } else {
+                path.join(index).is_file()
+            }
+        });
         let receipt = std::fs::read(state.paths.models.join("verification").join(format!("{task}.json"))).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
         let verified = python && installed && receipt.as_ref().is_some_and(|r| r["checkpoint"].as_str() == checkpoint.as_deref() && r["python"].as_str() == prefs.local_media_python.as_deref() && r["output"].as_str().is_some_and(|p| Path::new(p).is_file()));
-        let running = jobs.iter().find(|j| j.kind == "model" && j.label == format!("Installing local {model_key} model") && j.status == jobs::JobStatus::Running);
+        let running = jobs.iter().find(|j| j.kind == "model" && (j.label == format!("Installing local {model_key} model") || (*task == "video" && j.label.contains("video"))) && j.status == jobs::JobStatus::Running);
         let download = running.map(|j| serde_json::json!({ "jobId": j.id, "status": j.status, "progress": j.progress, "message": j.message, "external": false })).or_else(|| external_media_download(&state.paths, model_key));
-        serde_json::json!({ "task": task, "modelKey": model_key, "modelPath": checkpoint, "label": label, "configured": python && installed, "verified": verified, "download": download })
+        serde_json::json!({ "task": task, "modelKey": model_key, "modelPath": checkpoint, "label": label, "configured": installed, "verified": verified, "download": download })
     }).collect();
     serde_json::json!({ "pythonConfigured": python, "tasks": tasks })
 }
 
 fn media_checkpoint(prefs: &Settings, paths: &Paths, task: &str) -> Option<String> {
+    if task == "video" {
+        let video_kind = prefs.local_video_model.as_deref().unwrap_or("wan");
+        if video_kind == "ltx23" {
+            if let Some(p) = prefs.local_media_models.get("video-ltx23") {
+                if Path::new(p).is_file() { return Some(p.clone()); }
+            }
+            let default_comfy = Path::new(r"C:\Users\aayus\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\checkpoints\ltx-2.3-22b-dev-fp8.safetensors");
+            if default_comfy.is_file() {
+                return Some(default_comfy.display().to_string());
+            }
+        }
+        if video_kind == "custom" {
+            let custom_opt = prefs.local_media_models.get("video-custom").or_else(|| prefs.local_media_models.get("video")).cloned();
+            if custom_opt.as_ref().is_some_and(|p| is_diffusers_model_ready(Path::new(p))) {
+                return custom_opt;
+            }
+        }
+        if video_kind == "wan" {
+            if let Some(p) = prefs.local_media_models.get("video-wan") {
+                if is_diffusers_model_ready(Path::new(p)) { return Some(p.clone()); }
+            }
+            let folder_wan = paths.models.join("generation").join("video-wan");
+            if is_diffusers_model_ready(&folder_wan) { return Some(folder_wan.display().to_string()); }
+            let old = paths.models.join("generation").join("video");
+            if is_diffusers_model_ready(&old) { return Some(old.display().to_string()); }
+        }
+        // If "ltx" was selected, try LTX first IF ready
+        if video_kind == "ltx" {
+            if let Some(p) = prefs.local_media_models.get("video-ltx") {
+                if is_diffusers_model_ready(Path::new(p)) { return Some(p.clone()); }
+            }
+            let folder_ltx = paths.models.join("generation").join("video-ltx");
+            if is_diffusers_model_ready(&folder_ltx) { return Some(folder_ltx.display().to_string()); }
+        }
+        // Check LTX23 file
+        let default_comfy = Path::new(r"C:\Users\aayus\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\checkpoints\ltx-2.3-22b-dev-fp8.safetensors");
+        if default_comfy.is_file() {
+            return Some(default_comfy.display().to_string());
+        }
+        // Automatic fallback: check any fully installed video model
+        let folder_wan = paths.models.join("generation").join("video-wan");
+        if is_diffusers_model_ready(&folder_wan) { return Some(folder_wan.display().to_string()); }
+        let old = paths.models.join("generation").join("video");
+        if is_diffusers_model_ready(&old) { return Some(old.display().to_string()); }
+        let folder_ltx = paths.models.join("generation").join("video-ltx");
+        if is_diffusers_model_ready(&folder_ltx) { return Some(folder_ltx.display().to_string()); }
+        return None;
+    }
+    if task == "video-ltx23" {
+        if let Some(p) = prefs.local_media_models.get("video-ltx23") {
+            if Path::new(p).is_file() { return Some(p.clone()); }
+        }
+        let default_comfy = Path::new(r"C:\Users\aayus\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\checkpoints\ltx-2.3-22b-dev-fp8.safetensors");
+        if default_comfy.is_file() {
+            return Some(default_comfy.display().to_string());
+        }
+        return None;
+    }
+    if task == "video-ltx" {
+        if let Some(p) = prefs.local_media_models.get("video-ltx") {
+            if is_diffusers_model_ready(Path::new(p)) { return Some(p.clone()); }
+        }
+        let folder = paths.models.join("generation").join("video-ltx");
+        return is_diffusers_model_ready(&folder).then(|| folder.display().to_string());
+    }
+    if task == "video-wan" {
+        if let Some(p) = prefs.local_media_models.get("video-wan") {
+            if is_diffusers_model_ready(Path::new(p)) { return Some(p.clone()); }
+        }
+        let folder = paths.models.join("generation").join("video-wan");
+        if is_diffusers_model_ready(&folder) {
+            return Some(folder.display().to_string());
+        }
+        let old = paths.models.join("generation").join("video");
+        return is_diffusers_model_ready(&old).then(|| old.display().to_string());
+    }
     prefs.local_media_models.get(task).cloned().or_else(|| {
         let folder = paths.models.join("generation").join(task);
         (folder.join("model_index.json").is_file() || folder.join("config.json").is_file() || folder.join("helios-install.json").is_file()).then(|| folder.display().to_string())
@@ -832,10 +963,17 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
     let prompt = request["prompt"].as_str().ok_or("Supply a prompt")?;
     if prompt.trim().is_empty() || prompt.len() > 12000 { return Err("Invalid generation prompt".into()); }
     let prefs = state.settings();
-    let python = PathBuf::from(prefs.local_media_python.clone().ok_or("Configure the Python runtime in Local Media settings")?);
+    let mut python = PathBuf::from(prefs.local_media_python.clone().ok_or("Configure the Python runtime in Local Media settings")?);
     let model_key = if task.starts_with("image") { "image" } else { &task };
     let checkpoint = media_checkpoint(&prefs, &state.paths, model_key).ok_or("Choose an installed model in Local Media settings")?;
-    if !python.is_file() || !Path::new(&checkpoint).join("model_index.json").is_file() { return Err("Local runtime or checkpoint is missing".into()); }
+    let is_ltx23 = checkpoint.ends_with(".safetensors") || checkpoint.contains("ltx-2.3");
+    let comfy_python = PathBuf::from(r"C:\Users\aayus\AppData\Local\Comfy-Desktop\ComfyUI-Installs\COMFY\ComfyUI\.venv\Scripts\python.exe");
+    if is_ltx23 && comfy_python.is_file() {
+        python = comfy_python;
+    }
+    if !python.is_file() || (!Path::new(&checkpoint).is_file() && !Path::new(&checkpoint).join("model_index.json").is_file()) {
+        return Err("Local runtime or checkpoint is missing".into());
+    }
     // Accept generation fields only. A tool request cannot choose a worker action or filesystem output.
     let mut clean = serde_json::Map::new();
     for key in ["task", "prompt", "negative_prompt", "guidance_scale", "seed", "steps", "width", "height", "frames", "seconds", "strength"] {
@@ -858,7 +996,12 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
     let folder = state.paths.root.join("generated").join(&id);
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let worker = folder.join("worker.py");
-    std::fs::write(&worker, include_str!("../workers/local_media.py")).map_err(|e| e.to_string())?;
+    let worker_source = if is_ltx23 {
+        include_str!("../workers/ltx23_worker.py")
+    } else {
+        include_str!("../workers/local_media.py")
+    };
+    std::fs::write(&worker, worker_source).map_err(|e| e.to_string())?;
     let output = folder.join(format!("generated.{extension}"));
     request["checkpoint"] = serde_json::json!(checkpoint);
     request["output"] = serde_json::json!(output);
@@ -882,7 +1025,7 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
 
 #[tauri::command]
 fn local_media_install(state: State<'_, Arc<AppState>>, task: String, hf_token: Option<String>) -> CommandResult<String> {
-    if !["image", "video", "audio", "sam2", "vitmatte", "depth", "person-track"].contains(&task.as_str()) { return Err("Unknown model adapter".into()); }
+    if !["image", "video", "video-ltx", "video-wan", "audio", "sam2", "vitmatte", "depth", "person-track", "erase"].contains(&task.as_str()) { return Err("Unknown model adapter".into()); }
     if external_media_download(&state.paths, &task).is_some_and(|v| v["status"] == "running") { return Err("This model is already downloading. Follow its progress in Local Media settings.".into()); }
     let prefs = state.settings();
     let python = PathBuf::from(prefs.local_media_python.ok_or("Choose the local media Python environment first")?);
@@ -906,6 +1049,11 @@ fn local_media_install(state: State<'_, Arc<AppState>>, task: String, hf_token: 
                 let saved = (|| -> Result<(), String> {
                     let mut prefs = shared.settings.lock().map_err(lock_error)?;
                     prefs.local_media_models.insert(task.clone(), output.display().to_string());
+                    if task == "video-ltx" || task == "video" {
+                        prefs.local_video_model = Some("ltx".into());
+                    } else if task == "video-wan" {
+                        prefs.local_video_model = Some("wan".into());
+                    }
                     store::write_json(&shared.paths.settings_file(), &*prefs)
                 })();
                 match saved {
@@ -1153,6 +1301,102 @@ async fn roto_finish(
     let _ignored = std::fs::remove_dir_all(folder.join("frames"));
     let _ignored = app.emit("helios://roto", &id);
     Ok(result)
+}
+
+/// Builds a clean background plate behind a rotoscoped subject and renders the range with the
+/// subject erased, at the source resolution, so a title or a graphic can sit truly behind the
+/// person once the original clip is layered back on top through its Roto matte.
+///
+/// The matte is the one a Roto run left at `roto/<run_id>/matte.mkv`, and the range has to lie
+/// inside what that run covered. The plate is the temporal median of every pixel over the frames
+/// where the subject was elsewhere; LaMa — the `erase` model in Local Media settings — paints
+/// whatever the subject never uncovered. It finishes as a `generation` job whose result carries
+/// `path`, so `import_generated_media` brings the clip in like any other generated media.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn erase_start(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    asset_id: String,
+    run_id: String,
+    start: f64,
+    end: f64,
+    dilate: Option<u32>,
+    mode: Option<String>,
+    refine: Option<bool>,
+) -> CommandResult<String> {
+    if !roto::valid_run_id(&run_id) || !start.is_finite() || !end.is_finite() || start < 0.0 || end <= start || end - start > 600.0 {
+        return Err("Erase a range of up to 600 seconds inside a finished Roto run".into());
+    }
+    let dilate = dilate.unwrap_or(12);
+    if dilate > 64 { return Err("Dilate the matte by 0 to 64 pixels".into()); }
+    let mode = mode.unwrap_or_else(|| "clean-plate".to_owned());
+    if !["clean-plate", "per-frame"].contains(&mode.as_str()) { return Err("mode must be clean-plate or per-frame".into()); }
+    let refine = refine.unwrap_or(false);
+    let roto = roto::read(&state.paths.root, &run_id).ok_or("That Roto run does not exist")?;
+    if roto.asset_id != asset_id { return Err("That Roto run belongs to a different piece of media".into()); }
+    let matte = roto.matte.clone().filter(|path| Path::new(path).is_file()).ok_or("That Roto run has no matte yet; finish Roto first")?;
+    let asset = state.assets_by_id().remove(&asset_id).ok_or("Media not found")?;
+    if asset.kind != library::AssetKind::Video || !Path::new(&asset.path).is_file() { return Err("The Magic eraser needs an available video clip".into()); }
+    let fps = asset.fps.filter(|rate| rate.is_finite() && *rate > 0.0).unwrap_or(roto.fps);
+    if !(1.0..=120.0).contains(&fps) { return Err("Unsupported frame rate".into()); }
+    // The matte starts at the first analysed frame and runs for as many frames as Roto made.
+    let origin = roto.subjects.first().map_or(0.0, |subject| subject.at);
+    let covered_until = origin + roto.frames as f64 / roto.fps.max(1.0);
+    let slack = 1.0 / fps;
+    if start < origin - slack || end > covered_until + slack {
+        return Err(format!("The Roto matte covers {origin:.2}–{covered_until:.2} s; erase inside that range or run Roto over the new one"));
+    }
+    let prefs = state.settings();
+    let python = PathBuf::from(prefs.local_media_python.clone().ok_or("Configure the local GPU runtime in Settings › Local media first")?);
+    if !python.is_file() { return Err("The configured Python executable is missing".into()); }
+    let lama = media_checkpoint(&prefs, &state.paths, "erase")
+        .map(PathBuf::from)
+        .filter(|dir| dir.join("helios-install.json").is_file() && dir.join("big-lama.pt").is_file())
+        .ok_or("Install the Magic eraser model in Settings › Local media first")?;
+    let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
+    let lease = local_media::acquire()?;
+    let job = state.jobs.start("generation", format!("Erasing subject · {}", asset.name), true);
+    let id = job.id().to_owned();
+    let work = state.paths.work.join(&id);
+    let folder = state.paths.root.join("generated").join(&id);
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let _ignored = app.asset_protocol_scope().allow_directory(&folder, false);
+    let worker = work.join("magic_erase.py");
+    std::fs::write(&worker, include_str!("../workers/magic_erase.py")).map_err(|e| e.to_string())?;
+    let input = work.join("request.json");
+    let model = lama.join("big-lama.pt");
+    store::write_json(&input, &serde_json::json!({
+        "source": asset.path, "matte": matte, "matteOrigin": origin,
+        "start": start, "end": end, "fps": fps,
+        "dilate": dilate, "mode": mode, "refine": refine,
+        "output": folder, "lamaModel": model, "ffmpeg": ffmpeg, "maxWidth": 1280,
+    }))?;
+    let output = folder.join("erased.mp4");
+    let plate = folder.join("clean_plate.png");
+    let receipts = state.paths.models.join("verification");
+    let checkpoint = lama.display().to_string();
+    tauri::async_runtime::spawn(async move {
+        let _lease = lease;
+        match local_media::run(&python, &worker, &input, &job).await {
+            Ok(()) if output.is_file() => {
+                let _ignored = store::write_json(&folder.join("erased.mp4.json"), &serde_json::json!({
+                    "task": "erase", "sourceAssetId": asset_id, "runId": run_id, "start": start, "end": end,
+                    "cleanPlate": plate, "mode": mode, "refine": refine, "dilate": dilate,
+                }));
+                let _ignored = std::fs::create_dir_all(&receipts);
+                let _ignored = store::write_json(&receipts.join("erase.json"), &serde_json::json!({ "checkpoint": checkpoint, "python": python, "output": output }));
+                job.done("Clean plate ready to import", Some(serde_json::json!({
+                    "path": output, "task": "erase", "cleanPlate": plate,
+                    "sourceAssetId": asset_id, "runId": run_id, "start": start, "end": end,
+                })));
+            }
+            Ok(()) => job.fail("The eraser returned no clip"),
+            Err(error) => { let _ignored = std::fs::remove_file(&output); job.fail(error); }
+        }
+    });
+    Ok(id)
 }
 
 /// The colours one piece of media is made of, for building a brand guideline on the footage
@@ -1526,6 +1770,13 @@ async fn audio_peak(state: State<'_, Arc<AppState>>, asset_id: String, start: f6
     files::audio_peak(&state.tools(), Path::new(&asset.path), start, end).await
 }
 
+/// EBU R128 loudness of a media range: integrated LUFS, loudness range LU, true peak dBTP.
+#[tauri::command]
+async fn audio_loudness(state: State<'_, Arc<AppState>>, asset_id: String, start: f64, end: f64) -> CommandResult<files::Loudness> {
+    let asset = state.assets_by_id().remove(&asset_id).ok_or("that media is no longer in the project")?;
+    files::audio_loudness(&state.tools(), Path::new(&asset.path), start, end).await
+}
+
 /// Saves a voice-over recording into the project's media folder and imports it.
 #[tauri::command]
 async fn save_recording(app: AppHandle, state: State<'_, Arc<AppState>>, bytes: Vec<u8>, extension: String) -> CommandResult<Asset> {
@@ -1542,6 +1793,49 @@ async fn save_recording(app: AppHandle, state: State<'_, Arc<AppState>>, bytes: 
     prepare_media(app.clone(), state.inner().clone(), asset.clone());
     let _ignored = app.emit(LIBRARY_EVENT, ());
     Ok(asset)
+}
+
+/// Where the frontend renders a motion graphic's frames for one export: a fresh folder under
+/// work/mogrt, with folders from earlier exports (older than a day) swept away first.
+#[tauri::command]
+async fn mogrt_frames_begin(state: State<'_, Arc<AppState>>, clip_id: String) -> CommandResult<String> {
+    let safe: String = clip_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(48).collect();
+    if safe.is_empty() {
+        return Err("a motion graphic needs a clip id to render under".to_owned());
+    }
+    let root = state.paths.work.join("mogrt");
+    std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        let day = std::time::Duration::from_secs(24 * 3600);
+        for entry in entries.flatten() {
+            let old = entry.metadata().and_then(|meta| meta.modified()).ok().and_then(|when| when.elapsed().ok()).is_some_and(|age| age > day);
+            if old {
+                let _ignored = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+    let dir = root.join(format!("{safe}-{}", store::new_id()));
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir.display().to_string())
+}
+
+/// One rendered frame, sent as the raw request body (a PNG) with the folder and frame index in
+/// the headers, so a 1080p sequence does not travel through JSON number arrays.
+#[tauri::command]
+fn mogrt_frame_write(state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> CommandResult<()> {
+    let header = |name: &str| request.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned).ok_or_else(|| format!("missing {name} header"));
+    let dir = PathBuf::from(header("x-mogrt-dir")?);
+    let index: u64 = header("x-mogrt-index")?.parse().map_err(|_| "bad frame index".to_owned())?;
+    let root = state.paths.work.join("mogrt");
+    let inside = dir.canonicalize().ok().zip(root.canonicalize().ok()).is_some_and(|(dir, root)| dir.starts_with(root));
+    if !inside {
+        return Err("frames may only be written under the work folder".to_owned());
+    }
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("a frame must be sent as raw bytes".to_owned()) };
+    if bytes.len() < 8 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
+        return Err("a frame must be a PNG".to_owned());
+    }
+    std::fs::write(dir.join(format!("{index:05}.png")), bytes).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -2132,10 +2426,16 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let candidate = Path::new(env!("CARGO_MANIFEST_DIR")).parent().map(|root| root.join(".media-venv/Scripts/python.exe"));
         if let Some(path) = candidate.filter(|p| p.is_file()) { settings.local_media_python = Some(path.display().to_string()); }
     }
-    for task in ["image", "video", "audio", "sam2", "vitmatte"] {
+    for task in ["image", "video", "video-ltx", "video-wan", "audio", "sam2", "vitmatte"] {
         let folder = paths.models.join("generation").join(task);
-        if !settings.local_media_models.contains_key(task) && folder.join("helios-install.json").is_file() {
+        if !settings.local_media_models.contains_key(task) && (folder.join("helios-install.json").is_file() || folder.join("model_index.json").is_file()) {
             settings.local_media_models.insert(task.into(), folder.display().to_string());
+        }
+    }
+    if !settings.local_media_models.contains_key("video-wan") {
+        let old_wan = paths.models.join("generation").join("video");
+        if old_wan.join("model_index.json").is_file() {
+            settings.local_media_models.insert("video-wan".into(), old_wan.display().to_string());
         }
     }
     let library: Vec<Asset> = store::read_json(&paths.library_file());
@@ -2188,11 +2488,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             *slot = tools;
         }
         let _ignored = handle.emit("helios://tools", background.tools().status);
-        // Media imported while FFmpeg was missing gets its previews now.
+        // Media imported while FFmpeg was missing gets its previews now — as does
+        // anything whose recorded thumbnail file went missing since (stale path
+        // in the saved library). Runs once per launch, so a file FFmpeg cannot
+        // read costs one background job, not a loop.
         let pending: Vec<Asset> = background
             .library
             .lock()
-            .map(|items| items.iter().filter(|asset| asset.thumbnail.is_none() && asset.kind != library::AssetKind::Audio || asset.preview == "pending").cloned().collect())
+            .map(|items| items.iter().filter(|asset| library::needs_derive(asset)).cloned().collect())
             .unwrap_or_default();
         for asset in pending.into_iter().filter(|asset| Path::new(&asset.path).is_file()) {
             prepare_media(handle.clone(), background.clone(), asset);
@@ -2313,6 +2616,7 @@ pub fn run() {
             roto_frames,
             roto_matte_frame,
             roto_finish,
+            erase_start,
             transcribe_engines,
             transcribe_asset,
             speech_status,
@@ -2331,7 +2635,10 @@ pub fn run() {
             startup_file,
             detect_scenes,
             audio_peak,
+            audio_loudness,
             save_recording,
+            mogrt_frames_begin,
+            mogrt_frame_write,
             hardware_info,
             resource_usage,
             learning_load,

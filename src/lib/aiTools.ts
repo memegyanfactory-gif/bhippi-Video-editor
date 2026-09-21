@@ -10,8 +10,13 @@ import { createAppliedEffect, getEffectSchema } from './effectFilters';
 import { applyPodcastCut, planShots, speakerTurns, type CastEntry, type PersonTrack } from './reframe';
 import { summarizePersonTracks, trackPeopleAsset } from './personTracks';import { normalizeEffectClip } from './effectState';
 import { adaptRhythmProgram } from './learning';
-import { storyboardContentError, type StoryboardSceneInput } from './editWorkflow';
-import { createMotionGraphicComp } from './motionGraphics';
+import { storyboardContentError, videoBlueprintContentError, type StoryboardSceneInput, type VideoBlueprintSceneInput } from './editWorkflow';
+import { createMotionGraphicComp, mogrtCanvas } from './motionGraphics';
+import { CRIMSON_GUIDELINE_NOTES, CRIMSON_PALETTE, templateCatalogue, templateSpec, type MogrtLayout } from './motionGuide';
+import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, textBox, type QaIssue, type QaLayer } from './production';
+import { detectBeats, snapTimesToBeats } from './beats';
+import { loadPeaks } from './peaks';
+import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
 import { evaluateTypedDecision, type TypedQuestion } from './typedDecisions';
 // Runs Helios AI's tool calls against the live project. Every tool is one undo step labelled
@@ -28,14 +33,14 @@ import {
   substituteTemplate, customToolToRecipe, recordToolUsage,
   type CustomTool, type CustomToolParam
 } from './customTools';
-import { EMPTY_KEYFRAMES } from './keyframes';
+import { EASINGS, EMPTY_KEYFRAMES } from './keyframes';
 import { playhead } from './playhead';
 import {
   addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, deleteBinEntries, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
   newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
-import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Project, ProjectItem, Track, TrackKind, Transform, TransitionKind, ToolResult } from './types';
+import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
 
 export type ToolSpec = { name: string; description: string; input_schema: unknown };
 export const TOOL_SPECS: ToolSpec[] = catalog.tools as ToolSpec[];
@@ -170,6 +175,7 @@ export function compDetail(project: Project, assets: AssetMap, comp: Comp) {
     }),
     markers: comp.markers.map((marker) => ({ id: marker.id, time: round(marker.time), name: marker.name || undefined })),
     storyboard: comp.storyboard ?? [],
+    blueprint: comp.videoBlueprint ?? null,
   };
 }
 
@@ -278,7 +284,155 @@ const ITEM_KINDS: Record<string, ItemKind> = {
 
 // ───────────────────────────── the executor ─────────────────────────────
 
+const SHOT_KINDS = new Set(['video', 'image', 'download', 'scrape', 'existing', 'voiceover', 'music', 'sfx']);
+const MOGRT_LAYOUTS = new Set(['fullscreen', 'side-panel-right', 'side-panel-left', 'lower-third', 'behind-subject', 'pip-footage', 'top-right', 'top-left', 'centre-card']);
+
+/** The per-beat production fields of a scene row, validated; problems are collected, not thrown. */
+function parseBeat(row: Args, n: number, knownIds: Set<string>, problems: string[]): ProductionBeat {
+  const beat: ProductionBeat = {};
+  if (typeof row.title === 'string' && row.title.trim()) beat.title = row.title.trim().slice(0, 60);
+  if (Array.isArray(row.shots)) {
+    beat.shots = (row.shots as unknown[]).slice(0, 8).map((raw, j): ProductionShot => {
+      const shot = (raw && typeof raw === 'object' ? raw : {}) as Args;
+      const kind = SHOT_KINDS.has(String(shot.kind)) ? (String(shot.kind) as ProductionShot['kind']) : 'video';
+      const out: ProductionShot = { kind, status: 'pending' };
+      for (const key of ['script', 'prompt', 'negativePrompt', 'url', 'query', 'folderName', 'note'] as const) {
+        if (typeof shot[key] === 'string' && (shot[key] as string).trim()) out[key] = (shot[key] as string).trim().slice(0, 2000);
+      }
+      if (typeof shot.seconds === 'number' && Number.isFinite(shot.seconds)) out.seconds = clamp(shot.seconds, 1, 12);
+      if (typeof shot.assetId === 'string' && shot.assetId.trim()) {
+        if (!knownIds.has(shot.assetId.trim())) problems.push(`Scene ${n} shot ${j + 1}: assetId "${shot.assetId}" is not imported; never invent ids.`);
+        else { out.assetId = shot.assetId.trim(); out.status = 'ready'; }
+      }
+      if (kind === 'video') {
+        if ((out.script ?? '').length < 12) problems.push(`Scene ${n} shot ${j + 1}: a text-to-video shot needs a script (≥12 chars: what happens in these 5–7 s).`);
+        if ((out.prompt ?? '').length < 20) problems.push(`Scene ${n} shot ${j + 1}: a text-to-video shot needs a generation prompt (≥20 chars: subject, action, setting, lens, light).`);
+        if (out.seconds === undefined) out.seconds = 6;
+        else if (out.seconds < 3 || out.seconds > 8) problems.push(`Scene ${n} shot ${j + 1}: text-to-video shots are 5–7 s (got ${out.seconds}); split longer beats into several shots.`);
+      }
+      if (kind === 'image' && (out.prompt ?? '').length < 20) problems.push(`Scene ${n} shot ${j + 1}: an image shot needs a generation prompt (≥20 chars).`);
+      if ((kind === 'download' || kind === 'scrape') && !out.url && !out.query) problems.push(`Scene ${n} shot ${j + 1}: a ${kind} shot needs a url or a query.`);
+      if (kind === 'existing' && !out.assetId) problems.push(`Scene ${n} shot ${j + 1}: an existing shot needs the imported assetId.`);
+      return out;
+    });
+  }
+  const mogrt = row.mogrt && typeof row.mogrt === 'object' ? (row.mogrt as Args) : null;
+  if (mogrt === null && row.mogrt === null) beat.mogrt = null;
+  else if (mogrt) {
+    const template = typeof mogrt.template === 'string' ? mogrt.template.trim() : '';
+    if (!templateSpec(template) && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout', 'custom'].includes(template)) problems.push(`Scene ${n}: mogrt.template "${template}" is not a template; choose from ${templateCatalogue().split('\n').map((line) => line.slice(2).split(' ')[0]).join(', ')}.`);
+    beat.mogrt = {
+      template,
+      layout: MOGRT_LAYOUTS.has(String(mogrt.layout)) ? (String(mogrt.layout) as MogrtLayout) : undefined,
+      headline: typeof mogrt.headline === 'string' ? mogrt.headline.slice(0, 120) : undefined,
+      kicker: typeof mogrt.kicker === 'string' ? mogrt.kicker.slice(0, 60) : undefined,
+      rows: Array.isArray(mogrt.rows) ? (mogrt.rows as unknown[]).filter((r): r is string => typeof r === 'string').slice(0, 6) : undefined,
+      metric: typeof mogrt.metric === 'string' ? mogrt.metric.slice(0, 24) : undefined,
+      accent: typeof mogrt.accent === 'string' && isHexColor(mogrt.accent) ? mogrt.accent : undefined,
+      cameraMove: typeof mogrt.cameraMove === 'string' ? mogrt.cameraMove.slice(0, 40) : undefined,
+      durationSeconds: typeof mogrt.durationSeconds === 'number' ? clamp(mogrt.durationSeconds, 1, 30) : undefined,
+    };
+  }
+  const transition = row.transition && typeof row.transition === 'object' ? (row.transition as Args) : null;
+  if (transition && typeof transition.kind === 'string') beat.transition = { kind: transition.kind.slice(0, 40), duration: typeof transition.duration === 'number' ? clamp(transition.duration, 0.05, 3) : undefined, onBeat: transition.onBeat === true };
+  if (Array.isArray(row.sfx)) beat.sfx = (row.sfx as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 6);
+  if (typeof row.framing === 'string' && row.framing.trim()) beat.framing = row.framing.trim().slice(0, 120);
+  return beat;
+}
+
+/** The plan-level production record from a save call, keeping the phase of an existing one. */
+function parseProduction(args: Args, mode: Production['mode'], existing: Production | null | undefined, problems: string[]): Production {
+  const fields: Partial<Production> = {};
+  const research = record(args, 'research');
+  if (research) {
+    const sources = Array.isArray(research.sources) ? (research.sources as unknown[]).slice(0, 20).flatMap((raw) => {
+      const item = (raw && typeof raw === 'object' ? raw : {}) as Args;
+      return typeof item.url === 'string' && item.url.trim() ? [{ title: typeof item.title === 'string' ? item.title.slice(0, 160) : item.url.slice(0, 160), url: item.url.trim(), note: typeof item.note === 'string' ? item.note.slice(0, 300) : undefined }] : [];
+    }) : [];
+    const facts = Array.isArray(research.facts) ? (research.facts as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 30) : [];
+    fields.research = { query: typeof research.query === 'string' ? research.query.slice(0, 200) : undefined, sources, facts, folderName: typeof research.folderName === 'string' ? research.folderName.slice(0, 80) : undefined };
+  }
+  const brief = record(args, 'brief');
+  if (brief) fields.brief = { goal: typeof brief.goal === 'string' ? brief.goal.slice(0, 300) : undefined, audience: typeof brief.audience === 'string' ? brief.audience.slice(0, 120) : undefined, platform: typeof brief.platform === 'string' ? brief.platform.slice(0, 40) : undefined, aspect: typeof brief.aspect === 'string' ? brief.aspect.slice(0, 10) : undefined, targetSeconds: typeof brief.targetSeconds === 'number' ? clamp(brief.targetSeconds, 5, 3600) : undefined };
+  if (typeof args.script === 'string' && args.script.trim()) fields.script = args.script.trim().slice(0, 20000);
+  const music = record(args, 'music');
+  if (music) {
+    const source = ['generate', 'download', 'existing', 'none'].includes(String(music.source)) ? (String(music.source) as NonNullable<Production['music']>['source']) : 'generate';
+    fields.music = { source, prompt: typeof music.prompt === 'string' ? music.prompt.slice(0, 600) : undefined, url: typeof music.url === 'string' ? music.url.slice(0, 600) : undefined, assetId: typeof music.assetId === 'string' ? music.assetId : undefined, status: typeof music.assetId === 'string' ? 'ready' : 'pending' };
+    if (source === 'generate' && !fields.music.prompt) problems.push('music.prompt is required when music.source is "generate" (mood, instrumentation, tempo range, no vocals).');
+    if (source === 'download' && !fields.music.url) problems.push('music.url is required when music.source is "download".');
+  } else if (!existing?.music) {
+    fields.music = { source: 'generate', prompt: 'Restrained electronic ambient bed, warm low-mid body, simple minor-key pulse, soft percussive detail, no vocals, 88–108 BPM', status: 'pending' };
+  }
+  if (typeof args.guideline === 'string' && args.guideline.trim()) fields.guideline = args.guideline.trim().slice(0, 80);
+  if (typeof args.todoPath === 'string' && args.todoPath.trim()) fields.todoPath = args.todoPath.trim().slice(0, 200);
+  if (existing && existing.phase !== 'planning') {
+    return { ...existing, ...fields, mode, music: fields.music ?? existing.music, updatedAt: Date.now() };
+  }
+  return newProduction(mode, fields);
+}
+
+/** Tools that produce media; with a `sceneIndex` their result attaches to the plan by itself. */
+const MEDIA_TOOLS = new Set(['generate_local_media', 'import_generated_media', 'download_online_media', 'scrape_videos', 'synthesize_speech_voiceover', 'erase_subject_clip']);
+
+const resultAssetId = (result: ToolResult): string | null => {
+  const r = result as Record<string, unknown>;
+  if (typeof r.assetId === 'string') return r.assetId;
+  for (const key of ['assets', 'imported', 'downloaded']) {
+    const list = r[key];
+    if (Array.isArray(list) && list.length && list[0] && typeof (list[0] as { id?: unknown }).id === 'string') return (list[0] as { id: string }).id;
+  }
+  const asset = r.asset as { id?: unknown } | undefined;
+  if (asset && typeof asset.id === 'string') return asset.id;
+  return null;
+};
+
+/** Records a gathered asset on the production plan when the call named its scene (or is the voice-over). */
+function attachGathered(host: ToolHost, name: string, args: Args, result: ToolResult): string | null {
+  const assetId = resultAssetId(result);
+  if (!assetId) return null;
+  const project = host.history.current();
+  const comp = pickComp(project, args);
+  if (!comp?.production) return null;
+  const sceneIndex = Number.isInteger(args.sceneIndex) ? (args.sceneIndex as number) : null;
+  const shotIndex = Number.isInteger(args.shotIndex) ? (args.shotIndex as number) : null;
+  const kind = name === 'synthesize_speech_voiceover' ? 'voiceover' : name === 'erase_subject_clip' ? 'video' : typeof args.kind === 'string' ? args.kind : args.task === 'audio' ? 'music' : args.task === 'image' ? 'image' : args.task === 'video' ? 'video' : name === 'download_online_media' || name === 'scrape_videos' ? 'download' : null;
+  let target: { sceneIndex: number; shotIndex?: number | null; kind?: string | null } | null = null;
+  if (sceneIndex !== null) target = { sceneIndex, shotIndex, kind };
+  else if (kind === 'voiceover' || kind === 'music') {
+    const scenes = planScenes(comp);
+    const index = kind === 'voiceover' ? scenes.findIndex((scene) => (scene.shots ?? []).some((shot) => shot.kind === 'voiceover' && !shot.assetId)) : -1;
+    target = index >= 0 ? { sceneIndex: index, kind } : kind === 'music' ? { sceneIndex: -1, kind: 'music' } : null;
+  }
+  if (!target) return null;
+  const attached = attachAsset(comp, target, assetId);
+  if (!attached) return null;
+  let next = attached.comp;
+  // The blueprint's own manifest mirrors the shot so the viewer's badge moves too.
+  if (next.videoBlueprint && (kind === 'voiceover' || sceneIndex !== null)) {
+    next = { ...next, videoBlueprint: { ...next.videoBlueprint, assets: next.videoBlueprint.assets.map((entry) => (
+      (kind === 'voiceover' && entry.kind === 'voiceover' && !entry.assetId) || (sceneIndex !== null && entry.sceneIndex === sceneIndex && !entry.assetId)
+        ? { ...entry, assetId, status: 'ready' as const } : entry)) } };
+  }
+  host.history.commit((current) => updateComp(current, comp.id, () => next), 'AI: attach asset to plan');
+  return attached.attached;
+}
+
 export async function runTool(host: ToolHost, name: string, rawArgs: unknown, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
+  const result = await runToolInner(host, name, rawArgs, signal, turnId);
+  if (result.ok && MEDIA_TOOLS.has(name)) {
+    const args: Args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? (rawArgs as Args) : {};
+    try {
+      const attached = attachGathered(host, name, args, result);
+      if (attached) return { ...result, summary: `${result.summary ?? 'done'} Attached to the plan: ${attached}.`, attachedTo: attached };
+    } catch (error) {
+      return { ...result, summary: `${result.summary ?? 'done'} (not attached to the plan: ${errorText(error)})` };
+    }
+  }
+  return result;
+}
+
+async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
   const args: Args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? (rawArgs as Args) : {};
   const project = host.history.current();
   const assets = host.assets();
@@ -487,13 +641,128 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       const knownIds = new Set<string>([...assets.keys(), ...project.items.map(i => i.id), ...project.comps.map(c => c.id)]);
       const problem = storyboardContentError(Array.isArray(args.scenes) ? (args.scenes as StoryboardSceneInput[]) : [], comp.fps, compDuration(comp), knownIds);
       if (problem) return fail(problem);
-      const scenes: NonNullable<Comp['storyboard']> = (args.scenes as Record<string, unknown>[]).map(raw => {
+      const beatProblems: string[] = [];
+      const scenes: NonNullable<Comp['storyboard']> = (args.scenes as Record<string, unknown>[]).map((raw, i) => {
         const row = raw as Args;
         const refs = Array.isArray(row.refs) ? (row.refs as unknown[]).filter((r): r is string => typeof r === 'string') : undefined;
-        return { start: row.start as number, end: row.end as number, intent: row.intent as string, visual: row.visual as string, audio: row.audio as string, evidence: row.evidence as string, ...(refs?.length ? { refs } : {}) };
+        return { ...parseBeat(row, i + 1, knownIds, beatProblems), start: row.start as number, end: row.end as number, intent: row.intent as string, visual: row.visual as string, audio: row.audio as string, evidence: row.evidence as string, ...(refs?.length ? { refs } : {}) };
       });
-      editComp(comp, current => ({ ...current, storyboard: scenes.sort((a, b) => a.start - b.start) }));
-      return done('Clean minimalist pro storyboard saved (5–12s batches, visual improvement thinking + sound design per beat). Generate reference stills for key beats, import them, and re-save with their asset IDs in refs. Execute beat by beat: finish one batch fully before starting the next.', { scenes });
+      const production = parseProduction(args, 'footage', comp.production, beatProblems);
+      if (beatProblems.length) return fail(beatProblems.slice(0, 8).join(' ') + (beatProblems.length > 8 ? ` Plus ${beatProblems.length - 8} more.` : ''));
+      editComp(comp, current => ({ ...current, storyboard: scenes.sort((a, b) => a.start - b.start), production }));
+      const report = gatherReport({ ...comp, storyboard: scenes, production });
+      return done(production.phase === 'plan-ready'
+        ? `Plan saved: ${scenes.length} scenes, ${report.total} shot(s) to gather, music ${production.music?.source ?? 'none'}. The plan is now waiting for the user — END YOUR TURN with a short summary (script spine, shots, graphics, music). Do not generate media or edit the timeline; the user presses Start generating.`
+        : `Plan updated (${production.phase} phase): ${scenes.length} scenes, ${report.ready}/${report.total} shots ready.`, { scenes, production });
+    }
+    case 'save_video_blueprint': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const script = str(args, 'script');
+      if (!script || script.trim().length < 20) return fail('Supply the full narration script (20+ chars).');
+      const rawScenes = Array.isArray(args.scenes) ? (args.scenes as VideoBlueprintSceneInput[]) : [];
+      const knownIds = new Set<string>([...assets.keys(), ...project.items.map(i => i.id), ...project.comps.map(c => c.id)]);
+      const problem = videoBlueprintContentError(rawScenes, knownIds);
+      if (problem) return fail(problem);
+      const beatProblems: string[] = [];
+      const scenes: VideoBlueprintScene[] = [...rawScenes]
+        .sort((a, b) => a.start - b.start)
+        .map((raw, i) => {
+          const row = raw as Args;
+          const scene: VideoBlueprintScene = {
+            ...parseBeat(row, i + 1, knownIds, beatProblems),
+            start: row.start as number,
+            end: row.end as number,
+            narration: ((row.narration as string) ?? '').trim(),
+            visual: ((row.visual as string) ?? '').trim(),
+            mediaSource: row.mediaSource as VideoBlueprintScene['mediaSource'],
+            audio: ((row.audio as string) ?? '').trim(),
+            status: 'pending',
+          };
+          if (typeof row.visualPrompt === 'string' && row.visualPrompt.trim()) scene.visualPrompt = row.visualPrompt.trim();
+          if (typeof row.mediaUrl === 'string' && row.mediaUrl.trim()) scene.mediaUrl = row.mediaUrl.trim();
+          if (typeof row.assetId === 'string' && row.assetId.trim()) scene.assetId = row.assetId.trim();
+          return scene;
+        });
+      const narratorRaw = record(args, 'narrator');
+      const narrator: NonNullable<VideoBlueprint['narrator']> = {};
+      if (narratorRaw) {
+        const voice = str(narratorRaw, 'voice');
+        const mode = str(narratorRaw, 'mode');
+        const speed = num(narratorRaw, 'speed');
+        if (voice) narrator.voice = voice;
+        if (mode) narrator.mode = mode;
+        if (speed !== undefined) narrator.speed = Math.min(2, Math.max(0.5, speed));
+      }
+      const rawAssets = Array.isArray(args.assets) ? (args.assets as Args[]) : [];
+      const assets_: VideoBlueprintAsset[] = rawAssets.slice(0, 60).map((raw, i) => {
+        const kind = ['voiceover', 'image', 'video', 'audio', 'download'].includes(String(raw.kind)) ? String(raw.kind) as VideoBlueprintAsset['kind'] : 'image';
+        const entry: VideoBlueprintAsset = {
+          kind,
+          description: String(raw.description ?? `Asset ${i + 1}`).slice(0, 500),
+          status: 'pending',
+        };
+        if (typeof raw.prompt === 'string' && raw.prompt.trim()) entry.prompt = raw.prompt.trim().slice(0, 2000);
+        if (typeof raw.url === 'string' && raw.url.trim()) entry.url = raw.url.trim();
+        if (Number.isInteger(raw.sceneIndex) && (raw.sceneIndex as number) >= 0 && (raw.sceneIndex as number) < scenes.length) entry.sceneIndex = raw.sceneIndex as number;
+        return entry;
+      });
+      // The voice-over is always asset zero so execution starts with narration.
+      if (!assets_.some(a => a.kind === 'voiceover')) {
+        assets_.unshift({ kind: 'voiceover', description: 'Full-script voice-over narration', prompt: script.trim(), status: 'pending' });
+      }
+      const styleRaw = record(args, 'style');
+      const style: NonNullable<VideoBlueprint['style']> = {};
+      if (styleRaw) {
+        if (Array.isArray(styleRaw.palette)) {
+          const palette = (styleRaw.palette as unknown[]).filter((c): c is string => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)).slice(0, 8);
+          if (palette.length) style.palette = palette;
+        }
+        if (typeof styleRaw.typography === 'string' && styleRaw.typography.trim()) style.typography = styleRaw.typography.trim().slice(0, 300);
+        if (typeof styleRaw.lighting === 'string' && styleRaw.lighting.trim()) style.lighting = styleRaw.lighting.trim().slice(0, 300);
+      }
+      const blueprint: VideoBlueprint = {
+        title: str(args, 'title') ?? comp.name,
+        script: script.trim(),
+        narrator,
+        scenes,
+        assets: assets_,
+        style,
+        status: 'ready',
+        updatedAt: Date.now(),
+      };
+      const production = parseProduction(args, 'scratch', comp.production, beatProblems);
+      if (beatProblems.length) return fail(beatProblems.slice(0, 8).join(' ') + (beatProblems.length > 8 ? ` Plus ${beatProblems.length - 8} more.` : ''));
+      editComp(comp, current => ({ ...current, videoBlueprint: blueprint, production }));
+      const total = scenes.reduce((sum, s) => sum + ((s.end as number) - (s.start as number)), 0);
+      const report = gatherReport({ ...comp, videoBlueprint: blueprint, production });
+      return done(production.phase === 'plan-ready'
+        ? `Blueprint saved: ${scenes.length} scenes, ${round(total)}s total, ${report.total} shot(s) to gather, music ${production.music?.source ?? 'none'}. The plan is now waiting for the user — END YOUR TURN with a short summary (script, shots, graphics, music). Do not generate media or edit the timeline; the user presses Start generating.`
+        : `Blueprint updated (${production.phase} phase): ${scenes.length} scenes, ${report.ready}/${report.total} shots ready.`, { blueprint, production });
+    }
+    case 'execute_blueprint': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const blueprint: VideoBlueprint | null | undefined = comp.videoBlueprint;
+      if (!blueprint || !Array.isArray(blueprint.scenes) || !blueprint.scenes.length) return fail('No video blueprint saved on this comp. Call save_video_blueprint first.');
+      const scenes = blueprint.scenes;
+      const manifest = blueprint.assets ?? [];
+      const importedIds = new Set<string>([...assets.keys()]);
+      const missing = scenes.filter(s => {
+        const id = typeof s.assetId === 'string' ? s.assetId : null;
+        if (s.mediaSource === 'existing') return !id || !importedIds.has(id);
+        return false;
+      });
+      if (missing.length) return fail(`${missing.length} scene(s) reference existing assets that are not imported. Import them (or switch those scenes to generate/download) before executing.`);
+      const script = blueprint.script;
+      const checklist = [
+        `1. Voice-over: synthesize_speech_voiceover with the full blueprint script (${script.length} chars)${blueprint.narrator?.voice ? ` using voice ${blueprint.narrator.voice}` : ''}, autoPlace into the Generated folder.`,
+        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
+        `${scenes.length + 2}. Wait for ALL ${manifest.length} manifest assets to be imported into the Generated folder.`,
+        `${scenes.length + 3}. Assembly: place voice-over on A1, visual clips scene-by-scene on V1/V2, add motion graphics + transitions + music bed with ducking, then verify_edit_workflow.`,
+      ];
+      editComp(comp, current => ({ ...current, videoBlueprint: current.videoBlueprint ? { ...current.videoBlueprint, status: 'executing' } : current.videoBlueprint }));
+      return done(`Executing blueprint "${blueprint.title ?? comp.name}": ${scenes.length} scenes, ${manifest.length} manifest assets. Follow the checklist in order — voice-over first, then ALL visuals/downloads, and only then assemble the timeline.`, { checklist, scenes, manifest, script });
     }
     case 'add_media_behind_subject': {
       const found = findClipIn(project, str(args, 'clipId') ?? '');
@@ -538,7 +807,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
           return done(`No search results found for "${query}". Try different keywords.`, { query, results: [] });
         }
 
-        let gatheredAssets: Asset[] = [];
+        const gatheredAssets: Asset[] = [];
         let targetFolderId: string | null = null;
 
         if (gatherMedia) {
@@ -1155,10 +1424,15 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
 
       if (pack === 'crimson' || name.toLowerCase().includes('crimson') || name.toLowerCase().includes('motion design')) {
         if (!palette || !palette.length) {
-          palette = ['#14080B', '#2A080F', '#8B0021', '#FBF7F5'];
+          palette = [...CRIMSON_PALETTE];
         }
-        if (!notes.includes('1 idea per frame')) {
-          notes = `${notes}\n\nCrimson Motion Direction Rules:\n1. One idea per frame. Motion follows meaning. Always leave a hold (at least 1.5–2s).\n2. 5–7s visual beats (Build -> Transform -> Explain -> Hold).\n3. Layer stack: Background plate -> rear title (behind subject) -> subject cutout (roto) -> front frosted glass card -> captions.\n4. Sound: Voice leads; music bed 18–24 dB below speech; tactile clicks and sweeps.`;
+        if (!notes.includes('CRIMSON MOTION DIRECTION')) {
+          notes = `${notes}
+
+${CRIMSON_GUIDELINE_NOTES}
+
+Templates:
+${templateCatalogue()}`;
         }
       }
 
@@ -2246,7 +2520,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
           const time = num(key, 'time');
           const value = num(key, 'value');
           if (time === undefined || value === undefined) return null;
-          const easing = (['linear', 'hold', 'ease'] as const).find((item) => item === str(key, 'easing')) ?? 'linear';
+          const easing = EASINGS.find((item) => item === str(key, 'easing')) ?? 'linear';
           return { time: Math.max(0, time), value, easing: easing as Easing };
         })
         .filter((key): key is Keyframe => !!key)
@@ -2350,6 +2624,369 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       return results.length ? done(`Normalized to ${peakDb} dB: ${results.join(', ')}`) : fail('no clips with sound to normalize');
     }
 
+
+    case 'attach_production_asset': {
+      const comp = pickComp(project, args);
+      if (!comp?.production) return fail('No production plan on this comp. Save the plan first.');
+      const assetId = str(args, 'assetId') ?? '';
+      if (!assets.has(assetId)) return fail('assetId is not an imported asset; use the id a generation, download or import returned.');
+      const sceneIndex = num(args, 'sceneIndex');
+      const kind = str(args, 'kind') ?? null;
+      const target = kind === 'music' ? { sceneIndex: -1, kind } : sceneIndex === undefined ? null : { sceneIndex: Math.floor(sceneIndex), shotIndex: num(args, 'shotIndex') ?? null, kind };
+      if (!target) return fail('Give sceneIndex (0-based) or kind "music".');
+      const attached = attachAsset(comp, target, assetId);
+      if (!attached) return fail('That scene or shot is not in the plan.');
+      editComp(comp, () => attached.comp);
+      const report = gatherReport(attached.comp);
+      return done(`Attached ${assets.get(assetId)?.name ?? assetId} to ${attached.attached}. Gathered ${report.ready}/${report.total}.${report.missing.length ? ` Still missing: ${report.missing.slice(0, 6).join('; ')}.` : ' Everything is gathered — call finish_gathering.'}`, { ready: report.ready, total: report.total, missing: report.missing });
+    }
+
+    case 'finish_gathering': {
+      const comp = pickComp(project, args);
+      if (!comp?.production) return fail('No production plan on this comp.');
+      if (comp.production.phase !== 'gathering') return fail(`The production is in the ${comp.production.phase} phase; finish_gathering only closes the gathering phase.`);
+      const report = gatherReport(comp);
+      const force = bool(args, 'acceptMissing') === true;
+      if (report.missing.length && !force) return fail(`${report.missing.length} planned shot(s) still have no asset: ${report.missing.slice(0, 8).join('; ')}. Generate or download them (pass sceneIndex so they attach), retry a failed one with a simpler prompt, or — only if the user agrees — call again with acceptMissing: true and say what was dropped.`);
+      const jobs = await api.jobsList();
+      const running = jobs.filter((job) => job.status === 'running' && (job.kind === 'generation' || job.kind === 'media' || job.kind === 'speech'));
+      if (running.length) return fail(`${running.length} generation job(s) are still running (${running.map((job) => job.label).join(', ')}). Wait for them (generation_job / import_generated_media), then finish.`);
+      editComp(comp, current => ({ ...current, production: current.production ? { ...advance(current.production, 'gathered'), updatedAt: Date.now() } : current.production }));
+      return done(`Gathering finished: ${report.ready}/${report.total} shots ready${report.missing.length ? `, ${report.missing.length} dropped` : ''}. END YOUR TURN now with a short list of what was gathered (asset names per scene, voice-over, music). The user presses Start editing.`, { ready: report.ready, total: report.total, dropped: report.missing });
+    }
+
+    case 'run_frame_qa': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const duration = compDuration(comp);
+      if (duration <= 0) return fail('The timeline is empty; nothing to check.');
+      const step = clamp(num(args, 'step') ?? 1.5, 0.25, 10);
+      const times = Array.isArray(args.times) ? (args.times as unknown[]).filter((t): t is number => typeof t === 'number' && t >= 0 && t < duration).slice(0, 60) : qaTimes(comp, duration, step);
+      const layers: QaLayer[] = [];
+      const videoTracks = new Set(comp.tracks.filter((t) => t.kind === 'video' && !t.hidden).map((t) => t.id));
+      const frameAspect = comp.width / Math.max(1, comp.height);
+      for (const clip of comp.clips) {
+        if (!clip.enabled || !videoTracks.has(clip.trackId)) continue;
+        const from = clip.start;
+        const to = clip.start + clip.duration;
+        const name = clip.name ?? clip.id;
+        if (clip.source.type === 'html') {
+          layers.push({ clipId: clip.id, name, kind: 'graphic', box: clip.source.box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
+        } else if (clip.source.type === 'comp') {
+          const child = project.comps.find((c) => c.id === (clip.source as { compId: string }).compId);
+          const inner = child?.clips.find((c) => c.source.type === 'html');
+          const box = inner && inner.source.type === 'html' ? inner.source.box : null;
+          if (child && (inner || child.name.startsWith('[MOGRT]'))) layers.push({ clipId: clip.id, name, kind: 'graphic', box: box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
+        } else if (clip.source.type === 'text') {
+          const box = textBox(clip, comp);
+          if (box) layers.push({ clipId: clip.id, name: `${presetLabel(clip.source.preset)} "${clip.source.text.slice(0, 24)}"`, kind: clip.source.preset === 'caption' ? 'caption' : 'text', box, from, to });
+        } else if (clip.source.type === 'media' && clip.rotoMatte && !(clip.name ?? '').toLowerCase().includes('background')) {
+          const runId = clip.rotoMatte.replace(/[\\/]+matte\.[a-z0-9]+$/i, '').split(/[\\/]/).pop() ?? '';
+          const cache = runId ? await api.rotoRead(runId).catch(() => null) : null;
+          const asset = assets.get(clip.source.assetId);
+          if (cache && cache.subjects.length && asset) {
+            const srcAspect = asset.width / Math.max(1, asset.height);
+            for (const t of times) {
+              if (t < from || t >= to) continue;
+              const source = clip.in + (t - clip.start) * clip.speed;
+              let best = cache.subjects[0];
+              for (const s of cache.subjects) if (Math.abs(s.at - source) < Math.abs(best.at - source)) best = s;
+              if (best.cover < 0.01) continue;
+              const scale = animated(clip, 'scale', t, clip.transform.scale) / 100;
+              const tx = animated(clip, 'x', t, clip.transform.x);
+              const ty = animated(clip, 'y', t, clip.transform.y);
+              const picW = scale * Math.min(1, srcAspect / frameAspect);
+              const picH = scale * Math.min(1, frameAspect / srcAspect);
+              layers.push({ clipId: clip.id, name: `subject (${asset.name})`, kind: 'subject', box: { x: 0.5 + tx - picW / 2 + best.x * picW, y: 0.5 + ty - picH / 2 + best.y * picH, width: best.width * picW, height: best.height * picH }, from: t, to: t + 1e-3 });
+            }
+          }
+        }
+      }
+      const issues: QaIssue[] = frameQa(comp, layers, times);
+      const hasSubject = layers.some((l) => l.kind === 'subject');
+      // Contact frames for the model's own eyes: the worst moments first, then an even spread.
+      const wanted = [...new Set([...issues.slice(0, 4).map((i) => i.at), ...times.filter((_, i) => i % Math.max(1, Math.ceil(times.length / 4)) === 0)])].slice(0, 6);
+      let images: string[] = [];
+      let frameTimes: number[] = [];
+      if (bool(args, 'images') !== false && wanted.length) {
+        try {
+          const dir = await api.mogrtFramesBegin('qa');
+          const paths: string[] = [];
+          for (const [i, t] of wanted.entries()) paths.push(await api.exportFrame(project, comp.id, t, `${dir}/qa-${String(i).padStart(2, '0')}.png`));
+          images = await api.chatReadImages(paths);
+          frameTimes = wanted;
+        } catch (error) {
+          images = [];
+          frameTimes = [];
+          void error;
+        }
+      }
+      if (comp.production) editComp(comp, current => ({ ...current, production: current.production ? { ...(current.production.phase === 'editing' ? advance(current.production, 'polishing') : current.production), qa: { at: Date.now(), sampled: times.length, issues: issues.length, clear: issues.length === 0 }, updatedAt: Date.now() } : current.production }));
+      const worst = issues.slice(0, 12).map((i) => `${timecode(i.at, fps(comp))} ${i.kind}: "${i.a}" vs "${i.b}" (${Math.round(i.overlap * 100)}%). ${i.suggestion}`);
+      return done(issues.length
+        ? `Frame QA sampled ${times.length} frames and found ${issues.length} issue(s). Fix them, then run again until clear. ${hasSubject ? '' : 'No subject track was available (rotoscope_clip gives one), so only graphic-vs-graphic and safe-area checks ran. '}${worst.join(' ')}`
+        : `Frame QA sampled ${times.length} frames: no overlaps, every graphic inside the safe area.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'} Look at the contact frames for anything geometry cannot see (contrast, reading time), then verify_edit_workflow.`,
+        { issues, sampled: times.length, times: frameTimes, images, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
+    }
+
+    case 'layout_clip': {
+      const found = findClipIn(project, str(args, 'clipId') ?? '');
+      if (!found) return fail('Supply the clipId of the footage to reframe.');
+      const { clip, comp } = found;
+      const portrait = comp.height > comp.width;
+      const slot = str(args, 'slot') ?? 'left-55';
+      const SLOTS: Record<string, { scale: number; x: number; y: number }> = portrait
+        ? { 'left-55': { scale: 62, x: 0, y: -0.19 }, 'right-55': { scale: 62, x: 0, y: 0.19 }, 'top-55': { scale: 62, x: 0, y: -0.19 }, 'bottom-55': { scale: 62, x: 0, y: 0.19 }, 'pip-bottom-right': { scale: 36, x: 0.28, y: 0.26 }, 'pip-bottom-left': { scale: 36, x: -0.28, y: 0.26 }, 'pip-top-right': { scale: 36, x: 0.28, y: -0.26 }, 'pip-top-left': { scale: 36, x: -0.28, y: -0.26 }, 'centre-small': { scale: 72, x: 0, y: 0 }, full: { scale: 100, x: 0, y: 0 } }
+        : { 'left-55': { scale: 56, x: -0.2, y: 0 }, 'right-55': { scale: 56, x: 0.2, y: 0 }, 'top-55': { scale: 56, x: -0.2, y: 0 }, 'bottom-55': { scale: 56, x: 0.2, y: 0 }, 'pip-bottom-right': { scale: 34, x: 0.3, y: 0.28 }, 'pip-bottom-left': { scale: 34, x: -0.3, y: 0.28 }, 'pip-top-right': { scale: 34, x: 0.3, y: -0.28 }, 'pip-top-left': { scale: 34, x: -0.3, y: -0.28 }, 'centre-small': { scale: 72, x: 0, y: 0 }, full: { scale: 100, x: 0, y: 0 } };
+      const target = SLOTS[slot];
+      if (!target) return fail(`slot must be one of ${Object.keys(SLOTS).join(', ')}.`);
+      const animate = bool(args, 'animate') !== false;
+      const at = clamp((num(args, 'at') ?? clip.start) - clip.start, 0, Math.max(0, clip.duration - 0.05));
+      const moveSeconds = clamp(num(args, 'duration') ?? 0.66, 0.1, 3);
+      const until = num(args, 'until');
+      const back = until !== undefined ? clamp(until - clip.start, at + moveSeconds, clip.duration) : null;
+      const fromScale = animated(clip, 'scale', clip.start + at, clip.transform.scale);
+      const fromX = animated(clip, 'x', clip.start + at, clip.transform.x);
+      const fromY = animated(clip, 'y', clip.start + at, clip.transform.y);
+      const keys = (from: number, to: number): Keyframe[] => {
+        if (!animate) return [];
+        const list: Keyframe[] = [{ time: at, value: from, easing: 'ease-out' }, { time: at + moveSeconds, value: to, easing: 'hold' }];
+        if (back !== null) list.push({ time: back, value: to, easing: 'ease-out' }, { time: Math.min(clip.duration, back + moveSeconds), value: from, easing: 'linear' });
+        return list;
+      };
+      editComp(comp, current => ({ ...current, clips: current.clips.map((c) => (c.id !== clip.id ? c : {
+        ...c,
+        transform: animate ? c.transform : { ...c.transform, scale: target.scale, x: target.x, y: target.y },
+        keyframes: animate ? { ...c.keyframes, scale: keys(fromScale, target.scale), x: keys(fromX, target.x), y: keys(fromY, target.y) } : c.keyframes,
+      })) }));
+      const free = slot.startsWith('left') || slot.endsWith('left') ? 'right' : slot.startsWith('right') || slot.endsWith('right') ? 'left' : 'centre';
+      return done(`${clip.name ?? clip.id} reframed to ${slot} (scale ${target.scale}%)${animate ? ` with a ${moveSeconds}s ease-out move at ${timecode(clip.start + at, fps(comp))}${back !== null ? ` returning at ${timecode(clip.start + back, fps(comp))}` : ''}` : ''}. The ${free} side is free for a side-panel / teaching-card (layout side-panel-${free === 'centre' ? 'right' : free}).`, { clipId: clip.id, slot, transform: target, freeSide: free });
+    }
+
+    case 'seamless_transition': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const time = num(args, 'time');
+      if (time === undefined) return fail('time (timeline seconds of the cut) is required.');
+      const style = str(args, 'style') ?? 'push';
+      const track = trackFor(comp, str(args, 'track') ?? 'V1', 'video');
+      if (!track) return fail('track must be a video track like V1.');
+      const seconds = clamp(num(args, 'duration') ?? (style === 'zoom-punch' ? 0.35 : style === 'occluder' ? 0.7 : 0.4), 0.1, 2);
+      const tolerance = 0.5 / fps(comp) + 0.02;
+      const on = comp.clips.filter((c) => c.trackId === track.track.id && c.enabled);
+      const outgoing = on.find((c) => Math.abs(c.start + c.duration - time) <= tolerance) ?? null;
+      const incoming = on.find((c) => Math.abs(c.start - time) <= tolerance) ?? null;
+      if (!outgoing && !incoming) return fail(`No cut on ${trackLabel(comp, track.track.id)} at ${timecode(time, fps(comp))}. Give the exact time where one clip ends and the next begins.`);
+      let next = comp;
+      const scaleKeys = (clip: Clip, from: number, to: number, atLocal: number, ease: Easing): Keyframe[] => {
+        const kept = clip.keyframes.scale.filter((k) => k.time < atLocal - 1e-6 || k.time > atLocal + seconds + 1e-6);
+        const added: Keyframe[] = [{ time: atLocal, value: from, easing: ease }, { time: atLocal + seconds, value: to, easing: 'hold' }];
+        return [...kept, ...added].sort((a, b) => a.time - b.time);
+      };
+      const punch = style === 'zoom-punch' ? 12 : 6;
+      const withScale = (id: string, keys: (clip: Clip) => Keyframe[]) => { next = { ...next, clips: next.clips.map((c) => (c.id === id ? { ...c, keyframes: { ...c.keyframes, scale: keys(c) } } : c)) }; };
+      if (style === 'push' || style === 'zoom-punch' || style === 'blur-push') {
+        if (outgoing) withScale(outgoing.id, (c) => scaleKeys(c, c.transform.scale, c.transform.scale + punch, Math.max(0, c.duration - seconds), 'ease-in'));
+        if (incoming) withScale(incoming.id, (c) => scaleKeys(c, c.transform.scale + punch, c.transform.scale, 0, 'ease-out'));
+        if (outgoing && incoming) next = addTransition(next, track.track.id, time, style === 'push' ? 'push-left' : 'cross-zoom', seconds, tolerance);
+      } else if (style === 'occluder') {
+        // A red glass card sweeps across the cut: the plate changes while it covers the frame.
+        const built = createMotionGraphicComp({ ...project, comps: project.comps.map((c) => (c.id === next.id ? next : c)) }, { template: 'ribbon-title', title: str(args, 'title') ?? '', kicker: str(args, 'kicker') ?? '', duration: seconds * 2, start: Math.max(0, time - seconds), targetCompId: comp.id, asNestedComp: true, canvas: mogrtCanvas(comp) });
+        next = built.project.comps.find((c) => c.id === comp.id) ?? next;
+        commit(() => built.project);
+      } else if (style === 'cut') {
+        // Nothing but the sound below.
+      } else return fail('style must be push, zoom-punch, blur-push, occluder or cut.');
+      if (style !== 'occluder') editComp(comp, () => next);
+      let sfxId: string | null = null;
+      if (bool(args, 'whoosh') !== false) {
+        const source: ClipSource = { type: 'sfx', kind: style === 'occluder' ? 'riser' : 'whoosh' };
+        const length = sourceInfo(project, assets, source).length;
+        const start = Math.max(0, time - 0.25);
+        const latest = host.history.current().comps.find((c) => c.id === comp.id) ?? next;
+        const free = freeTrack(latest, 'audio', start, start + length, 0);
+        const sfx = newClip({ trackId: free.track.id, start, duration: length, source, volume: 0.55 });
+        editComp(latest, () => placeClips(free.comp, [sfx], 'overwrite'));
+        sfxId = sfx.id;
+      }
+      return done(`${style} transition at ${timecode(time, fps(comp))} on ${trackLabel(comp, track.track.id)}: ${outgoing ? `outgoing ${outgoing.name ?? outgoing.id} pushes ${punch}%` : ''}${incoming ? `, incoming ${incoming.name ?? incoming.id} settles from ${punch}%` : ''}${sfxId ? ', whoosh 0.25 s before the cut' : ''}. Keyframes use ease-in/ease-out so the move is weighted; it exports.`, { outgoingId: outgoing?.id ?? null, incomingId: incoming?.id ?? null, sfxClipId: sfxId, seconds });
+    }
+
+    case 'analyze_music_beats': {
+      const comp = pickComp(project, args);
+      let asset: Asset | undefined;
+      const clipRef = str(args, 'clipId');
+      if (clipRef) {
+        const found = findClipIn(project, clipRef);
+        if (found?.clip.source.type === 'media') asset = assets.get(found.clip.source.assetId);
+      }
+      if (!asset && str(args, 'assetId')) asset = assets.get(str(args, 'assetId') ?? '');
+      if (!asset && comp?.production?.music?.assetId) asset = assets.get(comp.production.music.assetId);
+      if (!asset) return fail('Give the music assetId or clipId (or attach the music to the plan first).');
+      if (!asset.peaks) return fail(`${asset.name} has no waveform analysis yet; wait for its import to finish, then retry.`);
+      const peaks = await loadPeaks(asset.peaks);
+      if (!peaks) return fail('The waveform data could not be read.');
+      const analysis = detectBeats(peaks, { start: num(args, 'start'), end: num(args, 'end'), minBpm: num(args, 'minBpm'), maxBpm: num(args, 'maxBpm') });
+      if (comp?.production && (!comp.production.music?.assetId || comp.production.music.assetId === asset.id)) {
+        editComp(comp, current => ({ ...current, production: current.production ? { ...current.production, music: { ...(current.production.music ?? { source: 'existing' as const }), assetId: asset!.id, status: 'ready', bpm: analysis.bpm, beats: analysis.beats.slice(0, 4000) }, updatedAt: Date.now() } : current.production }));
+      }
+      return done(`${asset.name}: ${analysis.bpm.toFixed(1)} BPM (confidence ${(analysis.confidence * 100).toFixed(0)}%), ${analysis.beats.length} beats over ${analysis.duration.toFixed(1)} s, downbeats every 4. Beat times are source seconds; snap_cuts_to_beats maps them to the timeline through the music clip.`, { assetId: asset.id, bpm: analysis.bpm, confidence: analysis.confidence, beats: analysis.beats.slice(0, 64), beatCount: analysis.beats.length, downbeats: analysis.downbeats.slice(0, 32) });
+    }
+
+    case 'snap_cuts_to_beats': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const tolerance = clamp(num(args, 'tolerance') ?? 0.12, 0.02, 0.5);
+      let beats: number[] = Array.isArray(args.beats) ? (args.beats as unknown[]).filter((b): b is number => typeof b === 'number') : [];
+      if (!beats.length) {
+        const music = comp.production?.music;
+        const musicClip = music?.assetId ? comp.clips.find((c) => c.enabled && c.source.type === 'media' && c.source.assetId === music.assetId) : undefined;
+        if (!music?.beats?.length || !musicClip) return fail('No beats known: run analyze_music_beats on the music (placed on the timeline) first, or pass beats as timeline seconds.');
+        beats = music.beats.map((b) => musicClip.start + (b - musicClip.in) / musicClip.speed).filter((t) => t >= 0);
+      }
+      const videoTracks = comp.tracks.filter((t) => t.kind === 'video' && !t.locked);
+      const only = Array.isArray(args.clipIds) ? new Set((args.clipIds as unknown[]).filter((id): id is string => typeof id === 'string')) : null;
+      const minFrame = 1 / fps(comp);
+      const changes: { clipId: string; name: string; edge: 'start' | 'end'; from: number; to: number }[] = [];
+      let next = comp;
+      for (const track of videoTracks) {
+        const clips = next.clips.filter((c) => c.trackId === track.id && c.enabled).sort((a, b) => a.start - b.start);
+        clips.forEach((clip, i) => {
+          if (only && !only.has(clip.id)) return;
+          const overlay = clip.source.type !== 'media';
+          const prev = clips[i - 1];
+          const after = clips[i + 1];
+          const startSnap = snapTimesToBeats([clip.start], beats, tolerance)[0];
+          if (startSnap.snapped !== null && Math.abs(startSnap.delta) > minFrame && clip.start > 1e-6) {
+            const delta = startSnap.snapped - clip.start;
+            const prevEnd = prev ? prev.start + prev.duration : 0;
+            if (startSnap.snapped >= prevEnd - 1e-6 && clip.duration - delta > 0.2) {
+              const moved = overlay ? { ...clip, start: startSnap.snapped } : { ...clip, start: startSnap.snapped, in: Math.max(0, clip.in + delta * clip.speed), duration: clip.duration - delta };
+              next = { ...next, clips: next.clips.map((c) => (c.id === clip.id ? moved : c)) };
+              changes.push({ clipId: clip.id, name: clip.name ?? clip.id, edge: 'start', from: clip.start, to: startSnap.snapped });
+              clip = moved;
+            }
+          }
+          if (!overlay) {
+            const end = clip.start + clip.duration;
+            const endSnap = snapTimesToBeats([end], beats, tolerance)[0];
+            if (endSnap.snapped !== null && Math.abs(endSnap.delta) > minFrame) {
+              const nextStart = after ? after.start : Infinity;
+              const newDuration = endSnap.snapped - clip.start;
+              if (endSnap.snapped <= nextStart + 1e-6 && newDuration > 0.2) {
+                next = { ...next, clips: next.clips.map((c) => (c.id === clip.id ? { ...c, duration: newDuration } : c)) };
+                changes.push({ clipId: clip.id, name: clip.name ?? clip.id, edge: 'end', from: end, to: endSnap.snapped });
+              }
+            }
+          }
+        });
+      }
+      if (!changes.length) return done(`Every cut is already within ${Math.round(tolerance * 1000)} ms of a beat (${beats.length} beats).`, { changes: [], beats: beats.length });
+      editComp(comp, () => next);
+      return done(`${changes.length} edge(s) moved onto beats (±${Math.round(tolerance * 1000)} ms): ${changes.slice(0, 8).map((c) => `${c.name} ${c.edge} ${timecode(c.from, fps(comp))}→${timecode(c.to, fps(comp))}`).join('; ')}. Media clips were trimmed, overlays moved; gaps may have opened — check get_comp.`, { changes, beats: beats.length });
+    }
+
+    case 'level_audio': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const target = clamp(num(args, 'targetLufs') ?? -16, -30, -8);
+      const bedDb = clamp(num(args, 'musicBedDb') ?? -20, -40, 0);
+      const only = Array.isArray(args.clipIds) ? new Set((args.clipIds as unknown[]).filter((id): id is string => typeof id === 'string')) : null;
+      const audioTracks = new Set(comp.tracks.filter((t) => t.kind === 'audio').map((t) => t.id));
+      const musicAsset = comp.production?.music?.assetId ?? null;
+      const rows: { clipId: string; name: string; role: 'voice' | 'music' | 'sfx'; measured: number; targetLufs: number; gainDb: number; truePeakDb: number }[] = [];
+      let next = comp;
+      for (const clip of comp.clips) {
+        if (!clip.enabled || !audioTracks.has(clip.trackId) || clip.source.type !== 'media') continue;
+        if (only && !only.has(clip.id)) continue;
+        const asset = assets.get(clip.source.assetId);
+        if (!asset || !(asset.hasAudio || asset.kind === 'audio')) continue;
+        const name = (clip.name ?? asset.name).toLowerCase();
+        const role: 'voice' | 'music' | 'sfx' = clip.audioType === 'sfx' ? 'sfx' : clip.audioType === 'music' || asset.id === musicAsset || /music|bed|score|soundtrack/.test(name) ? 'music' : 'voice';
+        if (role === 'sfx') continue;
+        const from = Math.max(0, clip.in);
+        const to = Math.min(asset.duration || from + clip.duration * clip.speed, from + Math.min(120, clip.duration * clip.speed));
+        let measured: { integratedLufs: number; truePeakDb: number };
+        try { measured = await api.audioLoudness(asset.id, from, to); } catch (error) { return fail(`Loudness of ${asset.name} could not be measured: ${errorText(error)}`); }
+        if (measured.integratedLufs <= -69) continue;
+        const wanted = role === 'music' ? target + bedDb : target;
+        const gainDb = clamp(wanted - measured.integratedLufs, -30, 24);
+        const volume = clamp(10 ** (gainDb / 20), 0, 8);
+        next = { ...next, clips: next.clips.map((c) => (c.id === clip.id ? { ...c, volume, audioType: c.audioType ?? (role === 'music' ? 'music' : 'dialogue') } : c)) };
+        rows.push({ clipId: clip.id, name: clip.name ?? asset.name, role, measured: Math.round(measured.integratedLufs * 10) / 10, targetLufs: wanted, gainDb: Math.round(gainDb * 10) / 10, truePeakDb: Math.round(measured.truePeakDb * 10) / 10 });
+      }
+      if (!rows.length) return fail('No dialogue or music clips with audio on the audio tracks to level.');
+      editComp(comp, () => next);
+      const hot = rows.filter((r) => r.truePeakDb + r.gainDb > -1);
+      return done(`Levelled ${rows.length} clip(s): dialogue to ${target} LUFS, music bed ${bedDb} dB under it. ${rows.map((r) => `${r.name} (${r.role}) ${r.measured}→${r.targetLufs} LUFS, ${r.gainDb >= 0 ? '+' : ''}${r.gainDb} dB`).join('; ')}.${hot.length ? ` ${hot.length} clip(s) may now peak above −1 dBTP; keep them or lower gain slightly.` : ''} Next: score_audio_clip on the music with the speech ranges to duck it a further 3–5 dB under dense phrases.`, { rows });
+    }
+
+    case 'erase_subject_clip': {
+      const found = findClipIn(project, str(args, 'clipId') ?? '');
+      if (!found || found.clip.source.type !== 'media') return fail('Supply the clipId of a rotoscoped video clip.');
+      const { clip, comp } = found;
+      if (!clip.rotoMatte) return fail('That clip has no subject matte yet: run rotoscope_clip on it first, then erase.');
+      if (clip.source.type !== 'media') return fail('The clip is not a video.');
+      const asset = assets.get(clip.source.assetId);
+      if (!asset || asset.kind !== 'video') return fail('The clip is not a video.');
+      const runId = clip.rotoMatte.replace(/[\\/]+matte\.[a-z0-9]+$/i, '').split(/[\\/]/).pop() ?? '';
+      if (!runId) return fail('The matte path is not a Helios roto run.');
+      const start = Math.max(0, clip.in);
+      const end = start + clip.duration * clip.speed;
+      const mode = str(args, 'mode') === 'per-frame' ? 'per-frame' : 'clean-plate';
+      let jobId: string;
+      try {
+        jobId = await api.eraseStart({ assetId: asset.id, runId, start, end, dilate: num(args, 'dilate'), mode, refine: bool(args, 'refine') });
+      } catch (error) {
+        return fail(errorText(error));
+      }
+      const deadline = Date.now() + 30 * 60 * 1000;
+      let path: string | null = null;
+      let cleanPlate: string | null = null;
+      while (Date.now() < deadline) {
+        if (signal?.aborted) return fail('The turn ended while the eraser was running; the job continues in the background — import it with import_generated_media.');
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const job = (await api.jobsList()).find((j) => j.id === jobId);
+        if (!job) continue;
+        if (job.status === 'done') { const res = job.result as { path?: string; cleanPlate?: string } | null; path = res?.path ?? null; cleanPlate = res?.cleanPlate ?? null; break; }
+        if (job.status === 'error' || job.status === 'cancelled') return fail(`Eraser failed: ${job.message || job.status}`);
+      }
+      if (!path) return fail('The eraser is still running after 30 minutes; import its result later with import_generated_media.');
+      const imported = await host.importMedia([path], generatedFolderId(project, commit));
+      const erased = imported[0];
+      if (!erased) return fail('The erased plate was rendered but could not be imported.');
+      let replaced: string | null = null;
+      if (bool(args, 'replaceBackground') !== false && clip.groupId) {
+        const live = host.history.current().comps.find((c) => c.id === comp.id);
+        const background = live?.clips.find((c) => c.groupId === clip.groupId && c.id !== clip.id && (c.name ?? '').toLowerCase().includes('background') && c.source.type === 'media');
+        if (background && live) {
+          editComp(live, current => ({ ...current, clips: current.clips.map((c) => (c.id === background.id ? { ...c, source: { type: 'media', assetId: erased.id }, in: Math.max(0, c.in - start), name: 'Clean plate background', rotoMatte: null, rotoCorrections: [] } : c)) }));
+          replaced = background.id;
+        }
+      }
+      return done(`Subject erased from ${asset.name} (${mode}): clean plate ${erased.name} imported into Generated${replaced ? ' and swapped in as the "Original background" layer, so anything between the layers now sits truly behind the person' : '. Use add_media_behind_subject / add_text_behind_subject on the roto clip, then replace the "Original background" layer with this asset (update_clip source)'}. Check hair edges and shadows at 100%.`, { assetId: erased.id, assets: imported, path, cleanPlate, replacedBackgroundClipId: replaced, runId });
+    }
+
+    case 'reveal_subject': {
+      const found = findClipIn(project, str(args, 'clipId') ?? '');
+      if (!found) return fail('Supply the clipId of the subject (rotoscoped) clip.');
+      const { clip, comp } = found;
+      const style = str(args, 'style') === 'wipe' ? 'wipe' : 'cubes';
+      const seconds = clamp(num(args, 'duration') ?? 1.2, 0.4, 3);
+      const at = clamp((num(args, 'at') ?? clip.start) - clip.start, 0, Math.max(0, clip.duration - seconds));
+      const opacity: Keyframe[] = [{ time: at, value: 0, easing: 'ease-out' }, { time: at + seconds * 0.6, value: clip.transform.opacity || 100, easing: 'hold' }];
+      const scale: Keyframe[] = [{ time: at, value: clip.transform.scale * 1.04, easing: 'ease-out' }, { time: at + seconds, value: clip.transform.scale, easing: 'hold' }];
+      editComp(comp, current => ({ ...current, clips: current.clips.map((c) => (c.id === clip.id ? { ...c, keyframes: { ...c.keyframes, opacity, scale: c.keyframes.scale.length ? c.keyframes.scale : scale } } : c)) }));
+      let overlayId: string | null = null;
+      if (style === 'cubes') {
+        const live = host.history.current();
+        const built = createMotionGraphicComp(live, { template: 'cubes-reveal', title: 'Reveal', duration: seconds + 0.2, start: clip.start + at, targetCompId: comp.id, asNestedComp: true, canvas: mogrtCanvas(comp) });
+        commit(() => built.project);
+        overlayId = built.newClipId;
+      }
+      return done(`${style} reveal on ${clip.name ?? clip.id} at ${timecode(clip.start + at, fps(comp))}: the subject fades and settles in over ${seconds}s${overlayId ? ' while a grid of tiles falls away top to bottom above it' : ''}. Both parts export (opacity/scale keyframes + rendered tiles).`, { clipId: clip.id, overlayClipId: overlayId, seconds });
+    }
+
     case 'create_motion_graphic': {
       const comp = pickComp(project, args);
       if (!comp) return fail('No composition found.');
@@ -2362,16 +2999,31 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       const html = str(args, 'html') || undefined;
       const css = str(args, 'css') || undefined;
       const js = str(args, 'js') || undefined;
-      const duration = num(args, 'duration') ?? 4.0;
+      const duration = num(args, 'duration');
       const start = num(args, 'start');
       const track = str(args, 'track');
       const asNestedComp = bool(args, 'asNestedComp') ?? true;
+      const kicker = str(args, 'kicker') || undefined;
+      const rows = Array.isArray(args.rows) ? (args.rows as unknown[]).filter((r): r is string => typeof r === 'string').slice(0, 6) : undefined;
+      const values = Array.isArray(args.values) ? (args.values as unknown[]).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)).slice(0, 6) : undefined;
+      const accentWord = str(args, 'accentWord') || undefined;
+      const activeIndex = num(args, 'activeIndex');
+      const layout = MOGRT_LAYOUTS.has(String(args.layout)) ? (String(args.layout) as MogrtLayout) : undefined;
+      const cameraMove = (['none', 'push-in', 'travel'] as const).find((item) => item === str(args, 'cameraMove'));
+      if (template !== 'custom' && !templateSpec(template) && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout'].includes(template)) return fail(`Unknown template "${template}". Crimson templates:\n${templateCatalogue()}`);
 
       try {
         const result = createMotionGraphicComp(project, {
           template,
           title,
           subtitle,
+          kicker,
+          rows,
+          values,
+          accentWord,
+          activeIndex,
+          layout,
+          cameraMove,
           accentColor,
           metric,
           badge,
@@ -2383,6 +3035,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
           track,
           asNestedComp,
           targetCompId: comp.id,
+          canvas: mogrtCanvas(comp),
         });
 
         host.history.commit(() => result.project, label);
@@ -2391,8 +3044,10 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
         const targetCompUpdated = result.project.comps.find((c) => c.id === result.targetCompId);
         const trackName = targetCompUpdated ? trackLabel(targetCompUpdated, result.trackId) : result.trackId;
 
+        const spec = templateSpec(result.bundle.template);
+        const hint = spec?.wantsSplit ? ` Reframe the footage beside it: layout_clip {"clipId": <footage>, "slot": "${(layout ?? 'side-panel-right') === 'side-panel-left' ? 'right-55' : 'left-55'}", "at": ${result.start}}.` : '';
         return done(
-          `Created ${result.bundle.template} motion graphic "${title}" on ${trackName} at ${result.start}s (${result.duration}s)${asNestedComp ? ` inside comp "${result.mogrtComp?.name}"` : ''}.`,
+          `Created ${result.bundle.template} motion graphic "${title}" on ${trackName} at ${result.start}s (${result.duration}s)${asNestedComp ? ` inside comp "${result.mogrtComp?.name}"` : ''}. It animates in the preview and exports as rendered frames.${hint}`,
           {
             clipId: result.newClipId,
             compId: result.mogrtComp?.id,
@@ -2402,9 +3057,8 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
             duration: result.duration,
             template: result.bundle.template,
             title: result.bundle.title,
-            html: result.bundle.html,
-            css: result.bundle.css,
-            js: result.bundle.js,
+            layout: result.bundle.layout ?? layout ?? null,
+            box: result.bundle.box ?? null,
           }
         );
       } catch (error) {

@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "editing_workflow_status",
-      "description": "Read editing workflow status and pending cursors. Call first each turn. Full workflow: get_comp, analyze_clip_speech per spoken clip, fast inspect_clip_frames with textOnly:true one clip at a time (images only for the active 5\u201312s batch), then save_storyboard in 5\u201312s batches before edits. Work beat by beat; finish one batch fully before the next. Timing changes require rereading and updating storyboard.",
+      "description": "Call first each turn. Returns the production phase (plan-ready → gathering → gathered → editing → polishing → done), what the user must press next, gather progress, and pending analysis. PLAN: get_comp, analyze_clip_speech per spoken clip, inspect_clip_frames textOnly, local_media_capabilities, research, then save_storyboard (footage) or save_video_blueprint (scratch) and END the turn. GATHER (after Start generating): generate/download every planned shot with sceneIndex, voice-over, music, then finish_gathering and END the turn. EDIT (after Start editing): execute_blueprint or work the storyboard, cuts, level_audio, beats, transitions, roto/erase, motion graphics, SFX; POLISH: run_frame_qa until clear; then verify_edit_workflow.",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -12,7 +12,7 @@
     },
     {
       "name": "verify_edit_workflow",
-      "description": "Check workflow receipts and final timeline structure before reporting completion. Requires a current timeline read and storyboard with no pending frame, transcript or generated-asset imports. Returns actual successful tool actions; does not certify render/matte/music quality. If blocked, complete the pending steps or report the blocker honestly.",
+      "description": "Final check of the editing phase: requires a current timeline read, a plan, no pending jobs or unplaced generations, a pro visual pass, a sound pass, and a clear run_frame_qa after the last edit. Marks the production done. Does not certify render, matte or music quality — say what still needs eyes.",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -109,7 +109,7 @@
     },
     {
       "name": "scrape_videos",
-      "description": "Scrape and extract video sources and media embeds from any webpage or social media URL (YouTube, Instagram Reels, TikTok, Twitter/X, Reddit, Vimeo, Facebook, Pinterest, blogs, portfolios). Automatically extracts HTML5 video sources, OpenGraph video streams, Twitter video cards, iframe embeds, and JSON-LD video metadata. Optionally downloads and imports them directly into a project folder so they are immediately available on the timeline.",
+      "description": "Scrape and extract video sources and media embeds from any webpage or social media URL (YouTube, Instagram Reels, TikTok, Twitter/X, Reddit, Vimeo, Facebook, Pinterest, blogs, portfolios). Automatically extracts HTML5 video sources, OpenGraph video streams, Twitter video cards, iframe embeds, and JSON-LD video metadata. Optionally downloads and imports them directly into a project folder so they are immediately available on the timeline. GATHER phase only (after Start generating); pass sceneIndex so the asset attaches to the plan.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -144,6 +144,14 @@
           "noAudio": {
             "type": "boolean",
             "description": "Download video-only without sound (ideal for B-roll)."
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "description": "GATHER phase: the 0-based plan scene this asset belongs to; the result attaches to that scene's pending shot automatically and the chat shows progress."
+          },
+          "shotIndex": {
+            "type": "integer",
+            "description": "Optional 0-based shot within the scene."
           }
         },
         "required": [
@@ -251,7 +259,7 @@
     },
     {
       "name": "synthesize_speech_voiceover",
-      "description": "Generate voice-over speech audio from a narration script using local offline neural TTS models (Piper) or configured cloud voices. If the local Piper model or voice is not installed, it automatically initiates download and uses it. Automatically imports the generated audio take and optionally places it directly onto the timeline audio track.",
+      "description": "Generate voice-over speech audio from a narration script using local offline neural TTS models (Piper) or configured cloud voices. If the local Piper model or voice is not installed, it automatically initiates download and uses it. Automatically imports the generated audio take and optionally places it directly onto the timeline audio track. GATHER phase only (after Start generating); pass sceneIndex so the asset attaches to the plan.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -285,6 +293,14 @@
           "name": {
             "type": "string",
             "description": "Descriptive title for the voice-over take (e.g. 'Scene 1 Voiceover')."
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "description": "GATHER phase: the 0-based plan scene this asset belongs to; the result attaches to that scene's pending shot automatically and the chat shows progress."
+          },
+          "shotIndex": {
+            "type": "integer",
+            "description": "Optional 0-based shot within the scene."
           }
         },
         "required": [
@@ -295,7 +311,7 @@
     },
     {
       "name": "download_online_media",
-      "description": "Download online media (videos, audio, images) from YouTube, video platforms, or direct media URLs, saving them directly to disk and importing them into Helios as ready-to-use project assets. Supports YouTube URLs (videos/shorts), video platforms via yt-dlp, and direct HTTP media links (.mp4, .png, .jpg, .mp3, .wav). Supports trimming time ranges (startTime, endTime), audio control (noAudio / without sound), spatial cropping (9:16, 1:1, 16:9, etc.), and organizing into dedicated project folders.",
+      "description": "Download online media (videos, audio, images) from YouTube, video platforms, or direct media URLs, saving them directly to disk and importing them into Helios as ready-to-use project assets. Supports YouTube URLs (videos/shorts), video platforms via yt-dlp, and direct HTTP media links (.mp4, .png, .jpg, .mp3, .wav). Supports trimming time ranges (startTime, endTime), audio control (noAudio / without sound), spatial cropping (9:16, 1:1, 16:9, etc.), and organizing into dedicated project folders. GATHER phase only (after Start generating); pass sceneIndex so the asset attaches to the plan.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -348,6 +364,14 @@
           "targetFolderId": {
             "type": "string",
             "description": "Existing project folder ID to place the downloaded asset into."
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "description": "GATHER phase: the 0-based plan scene this asset belongs to; the result attaches to that scene's pending shot automatically and the chat shows progress."
+          },
+          "shotIndex": {
+            "type": "integer",
+            "description": "Optional 0-based shot within the scene."
           }
         },
         "required": [
@@ -504,7 +528,7 @@
     },
     {
       "name": "inspect_clip_frames",
-      "description": "Fast batched frame scan: up to six keyframes mapped to timeline frame numbers. ALWAYS start with textOnly:true (instant, no image blocks) one clip at a time. Request images only for the one active 5\u201312s batch that needs roto points or precise behind-subject placement.",
+      "description": "Fast batched frame scan: up to six keyframes mapped to timeline frame numbers. ALWAYS start with textOnly:true (instant, no image blocks) one clip at a time. Request images only for the one active 5–12s batch that needs roto points or precise behind-subject placement.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -532,7 +556,7 @@
     },
     {
       "name": "inspect_source_frames",
-      "description": "Inspect 1\u20136 source timestamps in seconds. Start with textOnly:true for an instant scan; request images only for the active 5\u201312s batch.",
+      "description": "Inspect 1–6 source timestamps in seconds. Start with textOnly:true for an instant scan; request images only for the active 5–12s batch.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -562,7 +586,7 @@
     },
     {
       "name": "save_storyboard",
-      "description": "Save a clean minimalist pro editing plan in 5\u201312s batches before substantial edits. One scene per narrative beat (split anything over 12s). Each scene needs: intent (beat purpose, 20+ chars), visual (120+ chars of improvement thinking \u2014 what changes vs raw footage, which images/PNGs/green-screen graphics go where with layout/position/scale and technique), audio (40+ chars of sound design \u2014 music duck/swell/crescendo, SFX, crossfades), evidence (transcript quote or frame observation), refs (optional asset IDs of generated reference stills guiding this beat). All scene problems are returned in one message so you can fix them in a single re-save. Planned actions are not completed edits. Execute beat by beat. Times are timeline seconds.",
+      "description": "PLAN phase (existing footage). Saves the production plan for the footage on the timeline in 5–12 s beats, then the turn ENDS and the user presses Start generating. Each scene needs intent (≥20 chars), visual (≥120 chars of improvement thinking: what changes vs raw footage, which graphic/roto/layout, where), audio (≥40 chars of sound design), evidence (transcript quote or frame observation), plus the production fields: title, shots (every text-to-video/image/download shot this beat needs — 5–7 s each with its own script and prompt), mogrt (the Crimson template + layout for the beat), transition, sfx, framing. Plan-level: script (the narration/spine), research (sources + facts), music, brief. All scene problems come back in one message. Times are timeline seconds.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -592,6 +616,150 @@
                 },
                 "evidence": {
                   "type": "string"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "2–5 word scene title."
+                },
+                "shots": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "description": "One thing to gather for this beat before editing. kind video = a 5–7 s text-to-video shot (script + prompt required), image = a generated still, download = a URL fetch (url), scrape = a site search (query/url), existing = an imported asset (assetId), voiceover, music.",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "video",
+                          "image",
+                          "download",
+                          "scrape",
+                          "existing",
+                          "voiceover",
+                          "music",
+                          "sfx"
+                        ]
+                      },
+                      "script": {
+                        "type": "string",
+                        "description": "What happens in these 5–7 s, in plain words (the shot's own mini-script)."
+                      },
+                      "prompt": {
+                        "type": "string",
+                        "description": "The exact generation prompt: subject, action, setting, lens, light, grade (≤60 words for images)."
+                      },
+                      "negativePrompt": {
+                        "type": "string"
+                      },
+                      "seconds": {
+                        "type": "number",
+                        "description": "Length to generate; text-to-video shots are 5–7 s."
+                      },
+                      "url": {
+                        "type": "string"
+                      },
+                      "query": {
+                        "type": "string"
+                      },
+                      "folderName": {
+                        "type": "string",
+                        "description": "Project folder to gather into (e.g. 'Research: Topic')."
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "description": "Only for kind existing: an imported asset id."
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "description": "Everything to gather for this beat (generated shots, downloads, scrapes)."
+                },
+                "mogrt": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "description": "The Crimson motion graphic for this beat, or null for none. Templates: hook-promise, ribbon-title, teaching-card, side-panel, connected-map, numbered-lanes, editorial-quote, comparison, stat-chart, timeline-roadmap, cursor-demo, chapter-marker, caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news.",
+                  "properties": {
+                    "template": {
+                      "type": "string"
+                    },
+                    "layout": {
+                      "type": "string",
+                      "enum": [
+                        "fullscreen",
+                        "side-panel-right",
+                        "side-panel-left",
+                        "lower-third",
+                        "behind-subject",
+                        "pip-footage",
+                        "top-right",
+                        "top-left",
+                        "centre-card"
+                      ]
+                    },
+                    "headline": {
+                      "type": "string"
+                    },
+                    "kicker": {
+                      "type": "string"
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Up to 6 rows, 'Heading — explanation'."
+                    },
+                    "metric": {
+                      "type": "string"
+                    },
+                    "accent": {
+                      "type": "string",
+                      "description": "Hex accent colour; default Crimson."
+                    },
+                    "cameraMove": {
+                      "type": "string",
+                      "description": "'none', 'push-in' or 'travel' — one per graphic."
+                    },
+                    "durationSeconds": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "transition": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "cut, push, zoom-punch, blur-push, occluder, cross-dissolve…"
+                    },
+                    "duration": {
+                      "type": "number"
+                    },
+                    "onBeat": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "sfx": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Sound events for the beat ('whoosh 0.3 s before the cut', 'tick per row')."
+                },
+                "framing": {
+                  "type": "string",
+                  "description": "How the footage sits in this beat ('presenter left 55%', 'full frame', 'pip bottom-right')."
                 }
               },
               "required": [
@@ -604,11 +772,493 @@
               ],
               "additionalProperties": false
             }
+          },
+          "script": {
+            "type": "string",
+            "description": "The spine of the edit: the narration or the transcript beats in order, as the viewer will hear them."
+          },
+          "brief": {
+            "type": "object",
+            "properties": {
+              "goal": {
+                "type": "string"
+              },
+              "audience": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "aspect": {
+                "type": "string"
+              },
+              "targetSeconds": {
+                "type": "number"
+              }
+            }
+          },
+          "research": {
+            "type": "object",
+            "description": "What was learned before writing: sources to credit and the facts the script relies on.",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              },
+              "facts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "folderName": {
+                "type": "string"
+              }
+            }
+          },
+          "music": {
+            "type": "object",
+            "description": "The music bed plan.",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "generate",
+                  "download",
+                  "existing",
+                  "none"
+                ]
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "assetId": {
+                "type": "string"
+              }
+            }
+          },
+          "guideline": {
+            "type": "string",
+            "description": "Name of the active style guideline (default Crimson)."
+          },
+          "todoPath": {
+            "type": "string"
           }
         },
         "required": [
           "scenes"
         ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "save_video_blueprint",
+      "description": "PLAN phase (from scratch). Saves the complete production plan WITHOUT generating or editing: the full narration script, timed 5–12 s scenes with narration + visual direction + audio design, and for every scene the shots to gather (each text-to-video shot 5–7 s with its own script and prompt; downloads/scrapes with url or query), the Crimson motion graphic (template + layout + copy), transition, sfx and framing; plus research (sources + facts), music, narrator voice and style. Then the turn ENDS and the user presses Start generating. All scene problems come back in one message.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "script": {
+            "type": "string"
+          },
+          "narrator": {
+            "type": "object",
+            "properties": {
+              "voice": {
+                "type": "string"
+              },
+              "speed": {
+                "type": "number"
+              },
+              "mode": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "scenes": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "number"
+                },
+                "end": {
+                  "type": "number"
+                },
+                "narration": {
+                  "type": "string"
+                },
+                "visual": {
+                  "type": "string"
+                },
+                "mediaSource": {
+                  "type": "string",
+                  "enum": [
+                    "generate",
+                    "download",
+                    "existing"
+                  ]
+                },
+                "visualPrompt": {
+                  "type": "string"
+                },
+                "mediaUrl": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "audio": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "2–5 word scene title."
+                },
+                "shots": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "description": "One thing to gather for this beat before editing. kind video = a 5–7 s text-to-video shot (script + prompt required), image = a generated still, download = a URL fetch (url), scrape = a site search (query/url), existing = an imported asset (assetId), voiceover, music.",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "video",
+                          "image",
+                          "download",
+                          "scrape",
+                          "existing",
+                          "voiceover",
+                          "music",
+                          "sfx"
+                        ]
+                      },
+                      "script": {
+                        "type": "string",
+                        "description": "What happens in these 5–7 s, in plain words (the shot's own mini-script)."
+                      },
+                      "prompt": {
+                        "type": "string",
+                        "description": "The exact generation prompt: subject, action, setting, lens, light, grade (≤60 words for images)."
+                      },
+                      "negativePrompt": {
+                        "type": "string"
+                      },
+                      "seconds": {
+                        "type": "number",
+                        "description": "Length to generate; text-to-video shots are 5–7 s."
+                      },
+                      "url": {
+                        "type": "string"
+                      },
+                      "query": {
+                        "type": "string"
+                      },
+                      "folderName": {
+                        "type": "string",
+                        "description": "Project folder to gather into (e.g. 'Research: Topic')."
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "description": "Only for kind existing: an imported asset id."
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "description": "Everything to gather for this beat (generated shots, downloads, scrapes)."
+                },
+                "mogrt": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "description": "The Crimson motion graphic for this beat, or null for none. Templates: hook-promise, ribbon-title, teaching-card, side-panel, connected-map, numbered-lanes, editorial-quote, comparison, stat-chart, timeline-roadmap, cursor-demo, chapter-marker, caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news.",
+                  "properties": {
+                    "template": {
+                      "type": "string"
+                    },
+                    "layout": {
+                      "type": "string",
+                      "enum": [
+                        "fullscreen",
+                        "side-panel-right",
+                        "side-panel-left",
+                        "lower-third",
+                        "behind-subject",
+                        "pip-footage",
+                        "top-right",
+                        "top-left",
+                        "centre-card"
+                      ]
+                    },
+                    "headline": {
+                      "type": "string"
+                    },
+                    "kicker": {
+                      "type": "string"
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Up to 6 rows, 'Heading — explanation'."
+                    },
+                    "metric": {
+                      "type": "string"
+                    },
+                    "accent": {
+                      "type": "string",
+                      "description": "Hex accent colour; default Crimson."
+                    },
+                    "cameraMove": {
+                      "type": "string",
+                      "description": "'none', 'push-in' or 'travel' — one per graphic."
+                    },
+                    "durationSeconds": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "transition": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "cut, push, zoom-punch, blur-push, occluder, cross-dissolve…"
+                    },
+                    "duration": {
+                      "type": "number"
+                    },
+                    "onBeat": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "sfx": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Sound events for the beat ('whoosh 0.3 s before the cut', 'tick per row')."
+                },
+                "framing": {
+                  "type": "string",
+                  "description": "How the footage sits in this beat ('presenter left 55%', 'full frame', 'pip bottom-right')."
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "narration",
+                "visual",
+                "mediaSource",
+                "audio"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "assets": {
+            "type": "array",
+            "maxItems": 60,
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "voiceover",
+                    "image",
+                    "video",
+                    "audio",
+                    "download"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sceneIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "kind",
+                "description"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "style": {
+            "type": "object",
+            "properties": {
+              "palette": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "typography": {
+                "type": "string"
+              },
+              "lighting": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "brief": {
+            "type": "object",
+            "properties": {
+              "goal": {
+                "type": "string"
+              },
+              "audience": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "aspect": {
+                "type": "string"
+              },
+              "targetSeconds": {
+                "type": "number"
+              }
+            }
+          },
+          "research": {
+            "type": "object",
+            "description": "What was learned before writing: sources to credit and the facts the script relies on.",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              },
+              "facts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "folderName": {
+                "type": "string"
+              }
+            }
+          },
+          "music": {
+            "type": "object",
+            "description": "The music bed plan.",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "generate",
+                  "download",
+                  "existing",
+                  "none"
+                ]
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "assetId": {
+                "type": "string"
+              }
+            }
+          },
+          "guideline": {
+            "type": "string",
+            "description": "Name of the active style guideline (default Crimson)."
+          },
+          "todoPath": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "script",
+          "scenes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "execute_blueprint",
+      "description": "EDIT phase (from scratch), after the user pressed Start editing: returns the ordered assembly checklist for the saved blueprint (voice-over on A1, each scene's gathered asset on V1/V2, motion graphics, transitions, music + ducking) and marks it executing. Every asset must already be gathered.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          }
+        },
         "additionalProperties": false
       }
     },
@@ -669,7 +1319,7 @@
     },
     {
       "name": "generate_local_media",
-      "description": "Generate media directly with local models. Can be called at any time without requiring prior transcription or storyboard. For video: Wan 2.1 (task 'video', default 832x480, 49 frames ~3s, guidance_scale ~5.0). For image: SDXL (task 'image', 'image-edit', 'image-inpaint') with DPM++ 2M SDE Karras solver, photorealistic prompt enhancement, and native 1MP aspect ratio bucketing (1344x768 widescreen, 768x1344 vertical, 1024x1024 square). By default wait=true awaits the job and automatically imports the generated asset into the project library, returning assetId.",
+      "description": "Generate media directly with local models. Can be called at any time without requiring prior transcription or storyboard. Keep image prompts under ~60 words: the CLIP text window is 77 tokens and longer prompts are compacted before inference. For video: Wan 2.1 (task 'video', default 832x480, 49 frames ~3s, guidance_scale ~5.0). For image: SDXL (task 'image', 'image-edit', 'image-inpaint') with DPM++ 2M SDE Karras solver, photorealistic prompt enhancement, and native 1MP aspect ratio bucketing (1344x768 widescreen, 768x1344 vertical, 1024x1024 square). By default wait=true awaits the job and automatically imports the generated asset into the project library, returning assetId. GATHER phase only (after Start generating); pass sceneIndex so the asset attaches to the plan.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -737,6 +1387,14 @@
           "timeout": {
             "type": "number",
             "description": "Max milliseconds to wait when wait=true (default 90000ms for images, 360000ms for video)."
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "description": "GATHER phase: the 0-based plan scene this asset belongs to; the result attaches to that scene's pending shot automatically and the chat shows progress."
+          },
+          "shotIndex": {
+            "type": "integer",
+            "description": "Optional 0-based shot within the scene."
           }
         },
         "required": [
@@ -764,12 +1422,20 @@
     },
     {
       "name": "import_generated_media",
-      "description": "Import a successful local generation output into the project, returning the real asset ID. Then place it at the storyboard's chosen timeline range. Never invent an asset ID or assume generation already inserted it.",
+      "description": "Import a successful local generation output into the project, returning the real asset ID. Then place it at the storyboard's chosen timeline range. Never invent an asset ID or assume generation already inserted it. GATHER phase only (after Start generating); pass sceneIndex so the asset attaches to the plan.",
       "input_schema": {
         "type": "object",
         "properties": {
           "jobId": {
             "type": "string"
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "description": "GATHER phase: the 0-based plan scene this asset belongs to; the result attaches to that scene's pending shot automatically and the chat shows progress."
+          },
+          "shotIndex": {
+            "type": "integer",
+            "description": "Optional 0-based shot within the scene."
           }
         },
         "required": [
@@ -859,7 +1525,7 @@
     },
     {
       "name": "podcast_cut",
-      "description": "Speaker-aware podcast cut: cuts and reframes one video clip so whoever speaks is shown. People come from track_people (machine tracking, needs the person tracker installed) or pass them by hand after inspect_clip_frames (images on): each visible person as {id?, label?, speaker?, boxes:[{at, x, y, width, height}]} with at in source seconds and boxes in 0..1 frame units (~2 samples/sec). Speech comes from analyze_clip_speech; with a Deepgram key the words carry speaker ids and turns cut by identity, without it cuts follow speech activity and overlapping voices stay wide. Mode cut razors video into wide/single/two-shot segments with punch-in transforms (audio bed never cut); mode move keeps one clip and drifts it on smoothed keyframes (best for a single speaker). Speakers with no face stay wide and are reported \u2014 fix with cast:[{person, speaker}]. One undo step; review singles at 2x because a wrong box punches the wrong face.",
+      "description": "Speaker-aware podcast cut: cuts and reframes one video clip so whoever speaks is shown. People come from track_people (machine tracking, needs the person tracker installed) or pass them by hand after inspect_clip_frames (images on): each visible person as {id?, label?, speaker?, boxes:[{at, x, y, width, height}]} with at in source seconds and boxes in 0..1 frame units (~2 samples/sec). Speech comes from analyze_clip_speech; with a Deepgram key the words carry speaker ids and turns cut by identity, without it cuts follow speech activity and overlapping voices stay wide. Mode cut razors video into wide/single/two-shot segments with punch-in transforms (audio bed never cut); mode move keeps one clip and drifts it on smoothed keyframes (best for a single speaker). Speakers with no face stay wide and are reported — fix with cast:[{person, speaker}]. One undo step; review singles at 2x because a wrong box punches the wrong face.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -934,11 +1600,11 @@
           },
           "minShot": {
             "type": "number",
-            "description": "Shortest surviving shot in seconds, 0.5\u20134 (default 1)."
+            "description": "Shortest surviving shot in seconds, 0.5–4 (default 1)."
           },
           "maxZoom": {
             "type": "number",
-            "description": "Zoom cap for punch-ins, 1\u20134 (default 2.2)."
+            "description": "Zoom cap for punch-ins, 1–4 (default 2.2)."
           },
           "cutaways": {
             "type": "boolean",
@@ -1012,7 +1678,7 @@
     },
     {
       "name": "apply_edit",
-      "description": "Applies a whole edit at once, as one undo step. This is the way to edit: write every operation of the edit in one call, in order, and Helios runs them against a copy of the comp, checks the result, and commits only if the whole thing is sound \u2014 otherwise nothing changes and you get the reason and which operation failed. It is deterministic, so the same program on the same comp always gives the same timeline. Set `preview` to true to get the diff and any warnings without touching the timeline, which is how to check a plan before doing it. Prefer this over calling place_clip/split_clips/update_clip one at a time; those remain for single small changes.",
+      "description": "Applies a whole edit at once, as one undo step. This is the way to edit: write every operation of the edit in one call, in order, and Helios runs them against a copy of the comp, checks the result, and commits only if the whole thing is sound — otherwise nothing changes and you get the reason and which operation failed. It is deterministic, so the same program on the same comp always gives the same timeline. Set `preview` to true to get the diff and any warnings without touching the timeline, which is how to check a plan before doing it. Prefer this over calling place_clip/split_clips/update_clip one at a time; those remain for single small changes.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1030,7 +1696,7 @@
           },
           "ops": {
             "type": "array",
-            "description": "The operations, in order. Each is one of: {op:'place', media|item|comp, at, in?, duration?, track?, mode?} \u00b7 {op:'text', preset:'title'|'kinetic'|'lower-third'|'caption', text, subtitle?, style?, at, duration, track?} \u00b7 {op:'captions', cues:[{start,end,text}], style?, track?} \u00b7 {op:'razor', at, tracks?} \u00b7 {op:'remove', from, to, mode:'lift'|'extract', tracks?} \u00b7 {op:'trim', clip, edge:'in'|'out', to, ripple?} \u00b7 {op:'move', clips, by, tracks?} \u00b7 {op:'speed', clips, speed, maintainPitch?, ripple?} \u00b7 {op:'delete', clips, ripple?} \u00b7 {op:'closeGap', track, at} \u00b7 {op:'transition', at, kind?, duration?, tracks?} \u00b7 {op:'volume', clips, db} \u00b7 {op:'transform', clips, scale?, x?, y?, rotation?, opacity?} \u00b7 {op:'marker', at, name?, color?}",
+            "description": "The operations, in order. Each is one of: {op:'place', media|item|comp, at, in?, duration?, track?, mode?} · {op:'text', preset:'title'|'kinetic'|'lower-third'|'caption', text, subtitle?, style?, at, duration, track?} · {op:'captions', cues:[{start,end,text}], style?, track?} · {op:'razor', at, tracks?} · {op:'remove', from, to, mode:'lift'|'extract', tracks?} · {op:'trim', clip, edge:'in'|'out', to, ripple?} · {op:'move', clips, by, tracks?} · {op:'speed', clips, speed, maintainPitch?, ripple?} · {op:'delete', clips, ripple?} · {op:'closeGap', track, at} · {op:'transition', at, kind?, duration?, tracks?} · {op:'volume', clips, db} · {op:'transform', clips, scale?, x?, y?, rotation?, opacity?} · {op:'marker', at, name?, color?}",
             "items": {
               "type": "object"
             }
@@ -1044,7 +1710,7 @@
     },
     {
       "name": "list_recipes",
-      "description": "The edit recipes Helios ships: named, tested edits that know how they are done \u2014 tightening a razored timeline, punch-ins on a talking head, a music bed, filling a vertical frame, a hook, captions from cues. Each says what it does and what it needs. Read this before building an edit by hand: if a recipe covers what the user asked for, apply_recipe will do it better than improvised operations, because the pacing and the numbers are already right.",
+      "description": "The edit recipes Helios ships: named, tested edits that know how they are done — tightening a razored timeline, punch-ins on a talking head, a music bed, filling a vertical frame, a hook, captions from cues. Each says what it does and what it needs. Read this before building an edit by hand: if a recipe covers what the user asked for, apply_recipe will do it better than improvised operations, because the pacing and the numbers are already right.",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -1081,7 +1747,7 @@
     },
     {
       "name": "ask_user",
-      "description": "Asks the editor a question and waits for the answer. Use it when a request is ambiguous in a way that changes the edit \u2014 which clip, which comp, how long, which style \u2014 instead of guessing and making the wrong edit. Offer options when there is a small set of sensible answers; the editor can always type something else or skip. Ask one thing at a time, and only when the answer would change what you do.",
+      "description": "Asks the editor a question and waits for the answer. Use it when a request is ambiguous in a way that changes the edit — which clip, which comp, how long, which style — instead of guessing and making the wrong edit. Offer options when there is a small set of sensible answers; the editor can always type something else or skip. Ask one thing at a time, and only when the answer would change what you do.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1669,7 +2335,7 @@
     },
     {
       "name": "add_voiceover",
-      "description": "Reads a script aloud in a synthetic voice and places the take on an audio track. Offline when a Piper voice is downloaded, otherwise an ElevenLabs or OpenAI voice if a key is saved. Use `language: \"hinglish\"` for a mixed Hindi-English script \u2014 each word goes to whichever of the two voices fits it, so English words are not read with a Hindi accent and vice versa. Without a track it uses the first audio track free at that time, creating one if needed.",
+      "description": "Reads a script aloud in a synthetic voice and places the take on an audio track. Offline when a Piper voice is downloaded, otherwise an ElevenLabs or OpenAI voice if a key is saved. Use `language: \"hinglish\"` for a mixed Hindi-English script — each word goes to whichever of the two voices fits it, so English words are not read with a Hindi accent and vice versa. Without a track it uses the first audio track free at that time, creating one if needed.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1693,7 +2359,7 @@
           },
           "voice": {
             "type": "string",
-            "description": "A voice id from Settings; omit for the user\u2019s chosen voice."
+            "description": "A voice id from Settings; omit for the user’s chosen voice."
           },
           "start": {
             "type": "number",
@@ -1719,7 +2385,7 @@
     },
     {
       "name": "update_clip",
-      "description": "Changes one clip: move it (start, track \u2014 the destination is overwritten; its linked partner moves with it unless moveLinked is false), trim (in, duration), speed (the source range stays the same length unless duration is also given), volume, enabled, name, transform (position, scale, rotation, opacity, crop, fit/fill), effects (brightness, contrast, saturation, blur \u2014 on an adjustment layer they affect everything below) or text.",
+      "description": "Changes one clip: move it (start, track — the destination is overwritten; its linked partner moves with it unless moveLinked is false), trim (in, duration), speed (the source range stays the same length unless duration is also given), volume, enabled, name, transform (position, scale, rotation, opacity, crop, fit/fill), effects (brightness, contrast, saturation, blur — on an adjustment layer they affect everything below) or text.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1744,7 +2410,7 @@
           },
           "volume": {
             "type": "number",
-            "description": "Linear gain: 0 mutes, 1 = 0 dB, 2 \u2248 +6 dB."
+            "description": "Linear gain: 0 mutes, 1 = 0 dB, 2 ≈ +6 dB."
           },
           "enabled": {
             "type": "boolean"
@@ -1875,7 +2541,7 @@
               "string",
               "null"
             ],
-            "description": "Premiere label colour: violet, iris, caribbean, lavender, cerulean, forest, rose, mango, purple, blue, teal, magenta, tan, green, brown, yellow \u2014 or null."
+            "description": "Premiere label colour: violet, iris, caribbean, lavender, cerulean, forest, rose, mango, purple, blue, teal, magenta, tan, green, brown, yellow — or null."
           },
           "reverse": {
             "type": "boolean",
@@ -2242,7 +2908,7 @@
     },
     {
       "name": "set_keyframes",
-      "description": "Replaces a clip's keyframes for one property (x, y, scale, rotation, opacity, or volume as linear gain). Times are seconds from the clip's first frame; easing is linear, hold or ease. An empty list removes the animation so the static value applies again.",
+      "description": "Replaces a clip's keyframes for one property (x, y, scale, rotation, opacity, or volume as linear gain). Times are seconds from the clip's first frame; easing is linear, hold, ease (smoothstep), ease-in, ease-out (weighted arrival — the default for motion design), ease-in-out or overshoot (lands past, settles back). Keyframes on media and nested-comp clips export; use them on the MOGRT overlay clip, not on text clips.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2276,7 +2942,11 @@
                   "enum": [
                     "linear",
                     "hold",
-                    "ease"
+                    "ease",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out",
+                    "overshoot"
                   ]
                 }
               },
@@ -2298,7 +2968,7 @@
     },
     {
       "name": "set_mask",
-      "description": "Sets or clears an opacity mask on a clip's picture. rectangle and ellipse use x, y (top-left) with width and height as fractions of the source picture; polygon uses points [[x,y],\u2026]. feather softens the edge (pixels at 1080p) and inverted shows the outside instead.",
+      "description": "Sets or clears an opacity mask on a clip's picture. rectangle and ellipse use x, y (top-left) with width and height as fractions of the source picture; polygon uses points [[x,y],…]. feather softens the edge (pixels at 1080p) and inverted shows the outside instead.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2511,7 +3181,7 @@
     },
     {
       "name": "normalize_audio",
-      "description": "Audio Gain \u203a Normalize Max Peak: sets each clip's gain so its loudest peak lands on peakDb (default -1 dB).",
+      "description": "Audio Gain › Normalize Max Peak: sets each clip's gain so its loudest peak lands on peakDb (default -1 dB).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -3057,23 +3727,38 @@
     },
     {
       "name": "create_motion_graphic",
-      "description": "Creates an HTML/CSS/GSAP Motion Graphic Template (MOGRT) or overlay graphic (HyperFrames-style programmatic motion graphics) and places it on the timeline as a nested comp or overlay clip. Ideal for glassmorphism lower-thirds, kinetic typography titles, animated stat/metric callouts, feature badges, social banners, countdown timers, or custom HTML/CSS/GSAP code. Automatically positions the graphic over video footage (Track V2 or higher) or in the middle of a clip.",
+      "description": "Creates a Crimson motion graphic (HTML/CSS choreography) as a nested MOGRT comp on the track above the footage. It animates in the preview AND exports as rendered frames with alpha. Templates — hook-promise (opening promise), ribbon-title (chapter), teaching-card (kicker + heading + rows), side-panel (rules beside a reframed presenter; then layout_clip the footage to the other side), connected-map (hub + nodes), numbered-lanes (roadmap with giant numerals), editorial-quote (one accent word), comparison (A/B), stat-chart (animated bars + counting numbers, pass values), timeline-roadmap, cursor-demo (node → interface → click → card), chapter-marker (corner label), caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news; legacy lower-third/kinetic-title/stat-callout/feature-badge/social-callout; custom (your own html/css/js). Rows are 'Heading — explanation'. One idea per graphic; give it a reading hold (durations default to the template's).",
       "input_schema": {
         "type": "object",
         "properties": {
           "template": {
             "type": "string",
             "enum": [
+              "hook-promise",
+              "ribbon-title",
+              "teaching-card",
+              "side-panel",
+              "connected-map",
+              "numbered-lanes",
+              "editorial-quote",
+              "comparison",
+              "stat-chart",
+              "timeline-roadmap",
+              "cursor-demo",
+              "chapter-marker",
+              "caption-phrase",
+              "crimson-lower-third",
+              "cubes-reveal",
+              "countdown",
+              "breaking-news",
               "lower-third",
               "kinetic-title",
               "stat-callout",
               "feature-badge",
               "social-callout",
-              "countdown",
-              "breaking-news",
               "custom"
             ],
-            "description": "The template to use: 'lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout', 'countdown', 'breaking-news', or 'custom'."
+            "description": "The template id (Crimson set first)."
           },
           "title": {
             "type": "string",
@@ -3113,7 +3798,7 @@
           },
           "duration": {
             "type": "number",
-            "description": "Duration in seconds (default 4.0)."
+            "description": "Seconds; omit to use the template's own length (includes the reading hold)."
           },
           "track": {
             "type": "string",
@@ -3126,6 +3811,56 @@
           "compId": {
             "type": "string",
             "description": "Target comp id (defaults to active comp)."
+          },
+          "kicker": {
+            "type": "string",
+            "description": "Small uppercase label above the heading ('PILLAR ONE', '02 / METHOD')."
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 6 rows for cards, panels, maps, lanes, charts, timelines: 'Heading — explanation' (timeline: 'Date — label')."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "stat-chart bar values, one per row (real, verified numbers only)."
+          },
+          "accentWord": {
+            "type": "string",
+            "description": "The one word set in serif italic accent (editorial-quote, caption-phrase)."
+          },
+          "activeIndex": {
+            "type": "integer",
+            "description": "The current row / lane / bar (0-based)."
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "fullscreen",
+              "side-panel-right",
+              "side-panel-left",
+              "lower-third",
+              "behind-subject",
+              "pip-footage",
+              "top-right",
+              "top-left",
+              "centre-card"
+            ],
+            "description": "Where the graphic sits relative to the footage."
+          },
+          "cameraMove": {
+            "type": "string",
+            "enum": [
+              "none",
+              "push-in",
+              "travel"
+            ],
+            "description": "One motivated camera move inside the graphic; never while the viewer reads."
           }
         },
         "required": [
@@ -3157,7 +3892,10 @@
             "description": "Maximum tool call rounds (default 30). Lower = faster/cheaper, higher = more thorough."
           }
         },
-        "required": ["task", "label"]
+        "required": [
+          "task",
+          "label"
+        ]
       }
     },
     {
@@ -3179,6 +3917,323 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      }
+    },
+    {
+      "name": "attach_production_asset",
+      "description": "GATHER phase: records that a planned shot now has its media (when a generation or download ran without sceneIndex). Give sceneIndex (0-based) and optionally shotIndex, or kind 'music' for the music bed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "sceneIndex": {
+            "type": "integer"
+          },
+          "shotIndex": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "video",
+              "image",
+              "download",
+              "scrape",
+              "voiceover",
+              "music"
+            ]
+          }
+        },
+        "required": [
+          "assetId"
+        ]
+      }
+    },
+    {
+      "name": "finish_gathering",
+      "description": "GATHER phase: closes gathering once every planned shot, the voice-over and the music have real asset ids and no generation job is running. Fails with the missing list otherwise. After it succeeds, END YOUR TURN; the user presses Start editing.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "acceptMissing": {
+            "type": "boolean",
+            "description": "Only with the user's agreement: close with some shots dropped."
+          }
+        }
+      }
+    },
+    {
+      "name": "run_frame_qa",
+      "description": "POLISH phase: samples the timeline (every scene start plus every `step` seconds), computes where every motion graphic, title and caption draws and where the rotoscoped subject is, and reports overlaps (graphic covering the face/hands, graphic-on-graphic, caption collisions, outside safe margins) with a fix per issue, plus contact frames for you to look at. verify_edit_workflow requires a clear pass after your last edit.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "step": {
+            "type": "number",
+            "description": "Seconds between samples (default 1.5)."
+          },
+          "times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Explicit timeline times instead of the automatic sample."
+          },
+          "images": {
+            "type": "boolean",
+            "description": "Return contact frames (default true)."
+          }
+        }
+      }
+    },
+    {
+      "name": "layout_clip",
+      "description": "Reframes footage with a weighted, exporting move: presenter to the left/right 55% (slot left-55 / right-55) so a side-panel or teaching-card can take the other side, picture-in-picture corners (pip-bottom-right …), centre-small, or back to full. Animates scale/x/y with ease-out over `duration` seconds starting at `at`, and optionally returns at `until`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string",
+            "enum": [
+              "left-55",
+              "right-55",
+              "top-55",
+              "bottom-55",
+              "pip-bottom-right",
+              "pip-bottom-left",
+              "pip-top-right",
+              "pip-top-left",
+              "centre-small",
+              "full"
+            ]
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline seconds the move starts (default clip start)."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Move length, seconds (default 0.66)."
+          },
+          "until": {
+            "type": "number",
+            "description": "Timeline seconds to move back to the previous framing."
+          },
+          "animate": {
+            "type": "boolean",
+            "description": "false sets the framing statically."
+          }
+        },
+        "required": [
+          "clipId",
+          "slot"
+        ]
+      }
+    },
+    {
+      "name": "seamless_transition",
+      "description": "A dynamic cut that does not read as a transition: push (outgoing pushes 6% while the incoming settles from 6%, with a push-left blend), zoom-punch (12% + cross-zoom), blur-push, occluder (a Crimson ribbon card sweeps over the cut), or cut (sound only). Adds a whoosh 0.25 s before the cut unless whoosh:false. Put it on a beat (snap_cuts_to_beats first).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "track": {
+            "type": "string",
+            "description": "e.g. V1"
+          },
+          "time": {
+            "type": "number",
+            "description": "Timeline seconds of the cut."
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "push",
+              "zoom-punch",
+              "blur-push",
+              "occluder",
+              "cut"
+            ]
+          },
+          "duration": {
+            "type": "number"
+          },
+          "whoosh": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string",
+            "description": "occluder only: chapter title on the card."
+          },
+          "kicker": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "time"
+        ]
+      }
+    },
+    {
+      "name": "analyze_music_beats",
+      "description": "Detects tempo and beat times of a music asset from its waveform (onset envelope → autocorrelation tempo → beat grid). Stores bpm and beats on the production's music. Beat times are source seconds.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "clipId": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          },
+          "minBpm": {
+            "type": "number"
+          },
+          "maxBpm": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "snap_cuts_to_beats",
+      "description": "Moves every video cut and overlay entrance within `tolerance` seconds onto the nearest music beat (media clips are trimmed, overlays moved; nothing overlaps). Uses the plan's analysed music placed on the timeline, or explicit beats in timeline seconds.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "tolerance": {
+            "type": "number",
+            "description": "Seconds (default 0.12)."
+          },
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "clipIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "level_audio",
+      "description": "Measures every dialogue and music clip with EBU R128 and sets clip gain so dialogue sits at targetLufs (default −16) and the music bed musicBedDb under it (default −20 dB, i.e. −36 LUFS). Reports measured → target per clip and true-peak warnings. Follow with score_audio_clip for ducking under dense phrases.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "targetLufs": {
+            "type": "number"
+          },
+          "musicBedDb": {
+            "type": "number"
+          },
+          "clipIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "erase_subject_clip",
+      "description": "Magic eraser: removes the rotoscoped subject from a clip and returns a clean background plate (temporal median of uncovered pixels + LaMa inpainting of what was always covered, composited per frame). Requires rotoscope_clip first and the Magic eraser model installed (install_local_model task 'erase'). With replaceBackground (default true) it swaps the 'Original background' layer of a behind-subject sandwich for the plate, so text and graphics sit truly behind the person with no ghost. Waits for the job.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "clean-plate",
+              "per-frame"
+            ],
+            "description": "clean-plate for a static camera (fast, stable); per-frame for a moving camera (slow)."
+          },
+          "dilate": {
+            "type": "integer",
+            "description": "Mask growth in px (default 12)."
+          },
+          "refine": {
+            "type": "boolean",
+            "description": "LaMa on the seam band each frame."
+          },
+          "replaceBackground": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clipId"
+        ]
+      }
+    },
+    {
+      "name": "reveal_subject",
+      "description": "A reveal moment on the rotoscoped subject layer: it fades and settles in over `duration` seconds (opacity + 4% scale, ease-out) while, for style cubes, a Crimson grid of tiles falls away top to bottom above it. Both parts export.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "cubes",
+              "wipe"
+            ]
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline seconds (default clip start)."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Seconds (default 1.2)."
+          }
+        },
+        "required": [
+          "clipId"
+        ]
       }
     }
   ]
