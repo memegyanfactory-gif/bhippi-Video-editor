@@ -5,6 +5,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { healProject } from './timeline';
 import type { Project } from './types';
+import { actionLogger } from './actionLogger';
 
 const LIMIT = 300;
 
@@ -33,6 +34,11 @@ export function useHistory(initial: Project) {
    * edit stops every autosave from then on. A gesture in flight is left alone: `preview` can
    * overlap freely, and `settle` is where it has to be true again. */
   const commit = useCallback((next: Project | ((current: Project) => Project), label = 'Edit') => {
+    actionLogger.log(
+      label.startsWith('AI: ') ? 'ai' : 'user',
+      'info',
+      label.startsWith('AI: ') ? label : `User Edit: ${label}`
+    );
     setState((current) => {
       const value = healProject(typeof next === 'function' ? next(current.present) : next);
       if (value === current.present) return current.pending ? { ...current, pending: null } : current;

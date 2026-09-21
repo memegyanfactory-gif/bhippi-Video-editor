@@ -4,8 +4,10 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { CircleCheck, Film, LoaderCircle, Mic, TriangleAlert, Upload } from 'lucide-react';
+import { CircleCheck, Film, LoaderCircle, Mic, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { actionLogger } from './lib/actionLogger';
+import { TerminalPanel } from './panels/TerminalPanel';
 import { EditWorkflow } from './lib/editWorkflow';
 import { automaticRotoEngine } from './lib/rotoEngine';
 import { flushSync } from 'react-dom';
@@ -125,6 +127,17 @@ export default function App() {
   const effort = (settings.effort as Effort | null) ?? DEFAULT_EFFORT;
   // Purely a look: remembered with the other chat choices so it survives a restart.
   const awesome = settings.awesomeLook ?? false;
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(280);
+  const [terminalErrorCount, setTerminalErrorCount] = useState(0);
+
+  useEffect(() => {
+    return actionLogger.subscribe((logs) => {
+      const errs = logs.filter((l) => l.category === 'error' || l.level === 'error').length;
+      setTerminalErrorCount(errs);
+    });
+  }, []);
+
   const isPlaying = usePlaying();
   // The tool-call listener is registered once, so it reads the current mode through a ref.
   // What the chat can reach. Helios' own tools are always there; MCP servers join as they connect.
@@ -275,11 +288,21 @@ export default function App() {
 
   useEffect(() => {
     const subscriptions = [
-      events.library(() => void refreshAssets()),
+      events.library(() => {
+        actionLogger.system('Library refreshed');
+        void refreshAssets();
+      }),
       events.providers(setProviders),
-      events.tools((ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))),
-      events.openFile((path) => void openProjectFile(path)),
+      events.tools((ffmpeg) => {
+        actionLogger.system('FFmpeg tool status', ffmpeg);
+        setInfo((current) => (current ? { ...current, ffmpeg } : current));
+      }),
+      events.openFile((path) => {
+        actionLogger.user(`Open File: ${path}`, { path });
+        void openProjectFile(path);
+      }),
       events.job((job) => {
+        actionLogger.system(`Job [${job.kind}]: ${job.label} (${job.status})`, job);
         setJobs((current) => ({ ...current, [job.id]: job }));
         if (job.kind === 'export' && job.status === 'done' && job.result?.path) {
           const path = job.result.path;
@@ -418,8 +441,10 @@ export default function App() {
   useEffect(() => {
     const pending = events.chat(event => {
       if (event.event === 'done') {
+        actionLogger.ai(`AI Turn Completed [${event.turnId}]`);
         for (const entry of toolAborts.current.values()) if (entry.turnId === event.turnId) entry.controller.abort();
       } else if (event.event === 'subagent_update') {
+        actionLogger.ai(`Subagent [${event.subagentId}]: ${event.label} (${event.state})`, event);
         setAgents((current) => {
           const idx = current.findIndex((a) => a.id === event.subagentId);
           const entry: AgentRun = {
@@ -453,6 +478,7 @@ export default function App() {
       // taking its time is visibly taking its time rather than simply absent.
       const shown = call.name !== 'get_project' && call.name !== 'get_comp';
       const started = Date.now();
+      actionLogger.ai(`AI Tool: ${call.name}`, { turnId: call.turnId, callId: call.callId, args: call.args });
       if (shown) {
         setToolRuns((current) => ({
           ...current,
@@ -498,9 +524,14 @@ export default function App() {
       const summary = result.ok ? (result.summary ?? 'done') : result.error;
       const changedProject = result.ok && hostRef.current.history.current() !== projectBeforeTool;
       toolAborts.current.delete(call.callId);
+      const ms = Date.now() - started;
+      if (result.ok) {
+        actionLogger.ai(`Tool Finished: ${call.name} (${ms}ms) - ${summary}`, { result });
+      } else {
+        actionLogger.error(`Tool Failed: ${call.name} - ${summary}`, { error: result.error, callId: call.callId, args: call.args });
+      }
       if (shown) {
         const status = result.ok ? ('done' as const) : permitted.ok ? ('failed' as const) : ('denied' as const);
-        const ms = Date.now() - started;
         setToolRuns((current) => ({
           ...current,
           [call.turnId]: (current[call.turnId] ?? []).map((run) => (run.callId === call.callId ? { ...run, summary, status, ms, changedProject } : run)),
@@ -2256,6 +2287,13 @@ export default function App() {
         )}
       </main>
 
+      <TerminalPanel
+        open={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
+        height={terminalHeight}
+        onHeightChange={setTerminalHeight}
+      />
+
       <footer className="statusbar">
         <button type="button" className={`status-item${info && !info.ffmpeg.found ? ' warn' : ''}`} onClick={() => setSettingsTab('media')} title={info?.ffmpeg.path ?? 'FFmpeg'}>
           {!info ? <LoaderCircle size={12} className="spin" /> : info.ffmpeg.found ? <CircleCheck size={12} /> : <TriangleAlert size={12} />}
@@ -2273,6 +2311,18 @@ export default function App() {
             <span className="progress"><span style={{ width: `${Math.round(exportJob.progress * 100)}%` }} /></span>
           </button>
         )}
+        <button
+          type="button"
+          className={`status-item terminal-toggle-btn ${terminalOpen ? 'active' : ''} ${terminalErrorCount > 0 ? 'has-errors' : ''}`}
+          onClick={() => setTerminalOpen((prev) => !prev)}
+          title="Toggle Terminal and live logs"
+        >
+          <TerminalIcon size={12} />
+          <span>Terminal</span>
+          {terminalErrorCount > 0 && (
+            <span className="terminal-badge error">{terminalErrorCount}</span>
+          )}
+        </button>
         <div className="toolbar-spacer" />
         <span className="status-item muted">{TOOL_LABEL[tool] ?? 'Selection'}</span>
         <button type="button" className="status-item" onClick={() => setSettingsTab('providers')} title="AI providers">

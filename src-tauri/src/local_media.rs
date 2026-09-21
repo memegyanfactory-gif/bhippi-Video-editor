@@ -33,7 +33,7 @@ pub async fn run(python: &Path, worker: &Path, request: &Path, job: &JobHandle) 
     let mut child = command.spawn().map_err(|e| format!("Cannot start local media runtime: {e}"))?;
     let stdout = child.stdout.take().ok_or("Missing worker output")?;
     let stderr = child.stderr.take().ok_or("Missing worker diagnostics")?;
-    let errors = tokio::spawn(async move {
+    let errors = tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         let mut tail = std::collections::VecDeque::new();
         while let Ok(Some(line)) = lines.next_line().await { tail.push_back(line); if tail.len() > 12 { tail.pop_front(); } }

@@ -145,7 +145,7 @@ impl Supervisor {
             &ChatEvent::SubagentUpdate(initial_status),
         );
 
-        let handle = tokio::spawn(async move {
+        let handle = tauri::async_runtime::handle().inner().spawn(async move {
             let sub_id_inner = sub_id.clone();
             let parent_id_inner = parent_id.clone();
             let label_inner = label.clone();

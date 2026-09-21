@@ -2030,7 +2030,7 @@ fn chat_stop(state: State<'_, Arc<AppState>>, turn_id: String) -> bool {
 }
 
 #[tauri::command]
-fn chat_spawn_subagent(
+async fn chat_spawn_subagent(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
     spec: subagent::SubagentSpec,
@@ -2049,11 +2049,9 @@ fn chat_spawn_subagent(
         let provider_id = spec.model.as_deref().and_then(|_| None);
         chat::resolve_row(&rows, provider_id).unwrap_or_else(|_| builtin_row())
     };
-    let keys = tauri::async_runtime::block_on(async {
-        tauri::async_runtime::spawn_blocking(keychain_keys)
-            .await
-            .unwrap_or_default()
-    });
+    let keys = tauri::async_runtime::spawn_blocking(keychain_keys)
+        .await
+        .unwrap_or_default();
     let tool_app = app.clone();
     let executor = EventExecutor::new(
         spec.parent_turn_id.clone(),

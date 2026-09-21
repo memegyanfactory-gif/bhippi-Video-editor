@@ -339,7 +339,7 @@ pub async fn run_ffmpeg_with_progress(
         .map_err(|error| format!("could not start FFmpeg: {error}"))?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let stderr_task = tokio::spawn(async move {
+    let stderr_task = tauri::async_runtime::spawn(async move {
         let mut buffer = Vec::new();
         if let Some(stderr) = stderr {
             let mut lines = BufReader::new(stderr).lines();

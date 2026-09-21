@@ -4,6 +4,7 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/ui';
 import './styles/app.css';
+import './styles/terminal.css';
 
 // A desktop app has no use for the browser's own context menu (Back, Reload, Inspect).
 window.addEventListener('contextmenu', (event) => {

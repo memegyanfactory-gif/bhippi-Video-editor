@@ -19,6 +19,7 @@ import { handoffFor, historyFor } from './handoff';
 import { copyText } from '../lib/clipboard';
 import { uid } from '../lib/editor';
 import { api, errorText, events, type ReferenceFilm } from '../lib/ipc';
+import { actionLogger } from '../lib/actionLogger';
 import type { TurnOutcome } from '../lib/ideagraph';
 import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 
@@ -409,6 +410,7 @@ export function ChatPanel(props: Props) {
   useEffect(() => {
     const pending = events.chat((event) => {
       if (event.event === 'start') {
+        actionLogger.ai(`Chat Turn Started: ${event.providerLabel} (${event.model ?? 'default'})`, { turnId: event.turnId });
         patch(event.turnId, (message) => ({ ...message, providerId: event.providerId, providerLabel: event.providerLabel, model: event.model }));
         const meta = turnMeta.current.get(event.turnId);
         turnMeta.current.set(event.turnId, { provider: event.providerLabel, model: event.model, prompt: meta?.prompt ?? '' });
@@ -453,6 +455,13 @@ export function ChatPanel(props: Props) {
       } else if (event.event === 'subagent_update') {
         // Subagent progress is displayed in the status bar agents chip and map.
       } else if (event.event === 'done') {
+        if (event.fault) {
+          actionLogger.error(`Chat Turn Error [${event.turnId}]: ${event.fault.title} — ${event.fault.summary}`, event.fault);
+        } else if (event.stopped) {
+          actionLogger.ai(`Chat Turn Stopped [${event.turnId}]`);
+        } else {
+          actionLogger.ai(`Chat Turn Completed [${event.turnId}] in ${event.elapsedMs ?? 0}ms`, { usage: event.usage });
+        }
         // A turn refused for a limit is the clearest signal there is: that provider is out until
         // whatever time it named. The meter goes red on it rather than waiting for the next turn.
         if (event.fault?.kind.startsWith('rate_limited')) {
@@ -571,6 +580,7 @@ export function ChatPanel(props: Props) {
     pinned.current = true;
     setMessages((items) => [...items, { id: uid(), role: 'user', content: message, at: Date.now(), images: sentImages }, assistant]);
     setDraft('');
+    actionLogger.user(`Chat Prompt: "${message.length > 80 ? message.slice(0, 77) + '...' : message}"`, { turnId, provider: provider?.label ?? 'Helios', model, images: sentImages.length });
     try {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
@@ -578,6 +588,7 @@ export function ChatPanel(props: Props) {
       await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), editingWorkflow: workflowMode, workflowInstruction: 'Call editing_workflow_status first. In full mode analysis and storyboard are enforced by tool receipts. Call verify_edit_workflow before claiming completion.' } });
       setImages([]);
     } catch (error) {
+      actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
       patch(turnId, (item) => ({
         ...item,
         status: 'error',
