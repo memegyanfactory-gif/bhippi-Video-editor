@@ -1,5 +1,6 @@
 """Helios specialist worker. One JSON request, one artifact; no shell or remote code."""
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -8,8 +9,7 @@ def emit(progress, message):
     print(json.dumps({"progress": progress, "message": message}), flush=True)
 
 
-def optimal_sdxl_dimensions(w: int, h: int) -> tuple[int, int]:
-    # Native SDXL training buckets (~1 megapixel) for maximum sharpness and detail
+def optimal_sdxl_dimensions(w: int, h: int) -> tuple[int, int]:    # Native SDXL training buckets (~1 megapixel) for maximum sharpness and detail
     buckets = [
         (1024, 1024),  # 1:1 square
         (1152, 896),   # 9:7 landscape (~5:4)
@@ -24,6 +24,33 @@ def optimal_sdxl_dimensions(w: int, h: int) -> tuple[int, int]:
     target_ratio = w / max(1, h)
     best = min(buckets, key=lambda b: abs((b[0] / b[1]) - target_ratio))
     return best
+
+
+def fit_sdxl_prompt(prompt: str, budget_words: int = 44) -> str:
+    """Compress prose to CLIP-friendly comma phrases that fit 77 tokens.
+
+    SDXL's text encoders read at most 77 tokens each; anything past that is
+    silently truncated, so a long scene paragraph loses its ending (usually the
+    light, lens and mood — the parts that make the image good). CLIP also
+    weighs early tokens most, so order is kept: subject first, details after.
+    ~44 words stay under the limit with headroom for the quality tail added
+    later (words run ~1.3 tokens each). Single-phrase prompts are cut to the
+    budget, never padded.
+    """
+    phrases = [piece.strip(" ,;:.") for piece in re.split(r"[,;]", prompt) if piece.strip(" ,;:.")]
+    if len(phrases) <= 1:
+        return " ".join(prompt.split()[:budget_words])
+    kept: list[str] = []
+    used = 0
+    for phrase in phrases:
+        words = phrase.split()
+        if not words:
+            continue
+        if kept and used + len(words) > budget_words:
+            break
+        kept.append(phrase)
+        used += len(words)
+    return ", ".join(kept) if kept else " ".join(prompt.split()[:budget_words])
 
 
 def execute(request):
@@ -80,6 +107,7 @@ def execute(request):
     prompt = request["prompt"].strip()
     if not prompt or len(prompt) > 12000:
         raise ValueError("Supply a prompt between 1 and 12000 characters.")
+    original_prompt = prompt
     emit(0.05, "Loading local model")
     dtype = torch.float16
     classes = {"image": StableDiffusionXLPipeline, "image-edit": StableDiffusionXLImg2ImgPipeline, "image-inpaint": StableDiffusionXLInpaintPipeline, "video": WanPipeline, "audio": StableAudioPipeline}
@@ -133,10 +161,14 @@ def execute(request):
         )
         negative_prompt = f"{user_neg}, {sdxl_master_negative}" if user_neg else sdxl_master_negative
 
-        # Smart prompt enrichment
+        # Smart prompt enrichment. The scene prompt is fit to CLIP first: without
+        # this, prose plus the tail overflow 77 tokens and the model never sees
+        # the ending. The tail itself stays short for the same reason.
         lower_p = prompt.lower()
         is_chroma = any(k in lower_p for k in ("green screen", "greenscreen", "chroma key", "chroma", "solid green"))
         is_stylized = any(k in lower_p for k in ("illustration", "drawing", "sketch", "anime", "cartoon", "painting", "vector", "pixel art", "render", "3d"))
+        prompt = fit_sdxl_prompt(prompt, 32 if is_chroma else 44)
+        lower_p = prompt.lower()
         if is_chroma:
             if "isolated" not in lower_p:
                 prompt = f"{prompt}, isolated on pure solid chroma green background (#00FF00), seamless studio green screen backdrop, flat studio lighting, centered, sharp distinct silhouette edges, no shadows"
@@ -144,7 +176,8 @@ def execute(request):
         elif not is_stylized:
             quality_markers = ("cinematic", "photorealistic", "8k", "sharp focus", "35mm", "dslr", "photograph", "masterpiece", "hyperdetailed", "raw photo")
             if not any(k in lower_p for k in quality_markers):
-                prompt = f"{prompt}, professional photography, 35mm photograph, f/1.8, cinematic lighting, sharp focus, natural skin texture, 8k uhd, masterpiece, hyperdetailed"
+                prompt = f"{prompt}, cinematic photo, 35mm f/1.8, sharp focus, natural skin texture, 8k"
+        emit(0.1, f"Prompt fit to {len(prompt.split())} words for CLIP (was {len(original_prompt.split())})")
     elif task == "video":
         video_master_negative = "blurry, distorted, low quality, bad anatomy, artifacts, watermark, jittery, static frame, deformed, ugly, flickering, stuttering"
         negative_prompt = f"{user_neg}, {video_master_negative}" if user_neg else video_master_negative
@@ -207,7 +240,7 @@ def execute(request):
         soundfile.write(output, result, pipe.vae.sampling_rate, subtype="PCM_24")
     if not output.is_file() or output.stat().st_size == 0:
         raise RuntimeError("Inference produced no artifact.")
-    output.with_suffix(output.suffix + ".json").write_text(json.dumps({"task": task, "checkpoint": str(checkpoint), "prompt": prompt, "negative_prompt": negative_prompt, "guidance_scale": guidance_scale if task.startswith("image") else None, "seed": request.get("seed", 0), "steps": steps, "sourceAssetId": request.get('sourceAssetId'), "maskAssetId": request.get('maskAssetId'), "strength": request.get('strength')}, indent=2), encoding="utf-8")
+    output.with_suffix(output.suffix + ".json").write_text(json.dumps({"task": task, "checkpoint": str(checkpoint), "prompt": prompt, "prompt_original": original_prompt if task.startswith("image") else prompt, "negative_prompt": negative_prompt, "guidance_scale": guidance_scale if task.startswith("image") else None, "seed": request.get("seed", 0), "steps": steps, "sourceAssetId": request.get('sourceAssetId'), "maskAssetId": request.get('maskAssetId'), "strength": request.get('strength')}, indent=2), encoding="utf-8")
     emit(1, "Generated artifact saved")
 
 

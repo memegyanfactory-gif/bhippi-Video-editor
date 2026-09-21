@@ -103,7 +103,10 @@ export function StoryboardViewer({
         prompt,
         width: 1024,
         height: 576, // 16:9 compatible with SDXL (multiple of 64, >= 512)
-        steps: 20,
+        steps: 26,
+        // A fresh seed every run: the worker defaults to 0, which would return
+        // the identical frame on every regenerate.
+        seed: Math.floor(Math.random() * 2147483647),
       });
 
       const poll = setInterval(async () => {
