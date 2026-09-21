@@ -153,6 +153,69 @@
       }
     },
     {
+      "name": "typed_decision",
+      "description": "Evaluate an accurate, fast, and calibrated typed decision using the Laya System One decision architecture (choice, score, or noul). Eliminates LLM prompt-and-parse hallucinations for action routing, b-roll candidate ranking, quality verification, and editorial choices.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "description": "Application state, scene description, transcript, or context object to evaluate."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "choice",
+              "score",
+              "noul"
+            ],
+            "description": "Decision primitive: 'choice' (picks best among options), 'score' (rubric scoring), or 'noul' (probability of proposition)."
+          },
+          "instructions": {
+            "type": "string",
+            "description": "Question instructions or decision objective."
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Named options for 'choice' questions."
+          },
+          "proposition": {
+            "type": "string",
+            "description": "Condition or proposition string for 'noul' questions."
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "level": {
+                  "type": "number"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "level",
+                "label"
+              ]
+            },
+            "description": "Ordered rubric levels for 'score' questions."
+          }
+        },
+        "required": [
+          "state",
+          "type"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "query_frame_atlas",
       "description": "Query the Frame Atlas Collection Kit reference library and cinematic visual taxonomy. Use this to determine how to style frames, choose camera movement, lighting patterns, framing/composition, color palettes, and overall visual tone for the video project.",
       "input_schema": {

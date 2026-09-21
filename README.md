@@ -43,6 +43,7 @@ Traditional NLEs (Premiere Pro, DaVinci Resolve, Final Cut) were architected dec
 | **Multi-Source Video Scraper & yt-dlp** | **✅ Direct URL/embed/OG scraper** | ❌ Manual download needed | ❌ Manual download needed | ❌ None | ❌ None | ❌ None |
 | **Frame Atlas Cinematic Taxonomy** | **✅ Built-in visual ontology & refs** | ❌ None | ❌ None | ❌ None | ❌ None | ❌ None |
 | **Declarative HTML/CSS/GSAP MOGRTs** | **✅ Live-seekable web code overlays** | 🟡 After Effects comps | 🟡 Fusion macro nodes | ❌ Pre-baked templates | ❌ None | ✅ Web components |
+| **Deterministic AI Decisions (Laya MLX)** | **✅ Calibrated choice, score, noul** | ❌ None | ❌ None | ❌ None | ❌ None | ❌ None |
 | **Render Queue & Export Presets** | **✅ 4K, 9:16 Reels, ProRes, Twitter** | ✅ Adobe Media Encoder | ✅ Deliver Page | 🟡 Basic exports | 🟡 Cloud rendering | 🟡 Headless CLI |
 
 ---
@@ -159,6 +160,26 @@ Never leave the editor to search for b-roll or download reference clips:
   - Apple ProRes 422 Master
   - Instagram Square (1:1 1080×1080)
 - **Non-Blocking Background Render Queue**: Queue multiple exports without freezing the editor interface.
+
+---
+
+### 🎯 9. Laya MLX Typed Decision Engine
+- **Calibrated Forward-Pass Reasoning**: Integrated typed decision engine inspired by [`laya-mlx`](https://github.com/mizorewww/laya-mlx) and TypeSafe System One architecture.
+- **Eliminates LLM Hallucinations**: Constrains decisions to deterministic primitives without token-by-token decoding or fragile prompt-and-parse pipelines:
+  - **`choice`**: Normalized softmax probabilities over discrete editorial actions (e.g. cut, transition, b-roll overlay).
+  - **`score`**: Expected value and probability distribution over ordered rubric levels (e.g. visual alignment 1–5).
+  - **`noul`**: Calibrated $P(\text{true})$ verification for editorial propositions (e.g. speech pauses $\ge 0.7\text{s}$ warranting jump-cut removal).
+- **Domain Helpers**: Includes specialized helpers (`decideEditAction`, `rankBrollCandidates`, `decideRhythmCut`) and exposes the `typed_decision` tool directly to autonomous co-pilots.
+
+---
+
+### 🗂️ 10. Premiere Pro Bin View Slider & Organization
+- **Continuous View Slider**: Pinned bottom toolbar slider faithfully modeled after Adobe Premiere Pro:
+  - **List View** ($\le 60$): Dense tabular display showing Name, Kind, Duration, Resolution/Codec, Audio channels, and usage count.
+  - **Small Icons** ($61 \dots 95$): Compact tile grid with simplified iconography for browsing large asset bins.
+  - **Medium Thumbnails** ($96 \dots 160$): Standard 16:9 previews with live hover-scrubbing.
+  - **Large Thumbnails** ($161 \dots 240$): Immersive high-definition visual cards for hero assets.
+- **Collapsible Notes & Todos Accordion**: Integrated inside the scrollable bin body so todo notes never displace media tiles or push bottom view controls off-screen.
 
 ---
 

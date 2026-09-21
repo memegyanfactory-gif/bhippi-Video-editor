@@ -1,7 +1,7 @@
 // The Project panel: comps, folders, generated items and imported media, with Premiere's icon and
 // list views — plus the Effects, Graphics and Audio tabs you drag onto the timeline.
 import {
-  AudioLines, Captions, ChevronRight, Clapperboard, Folder, FolderOpen, Grid2x2, Image as ImageIcon, LayoutTemplate, List, LoaderCircle, Play, Plus, RotateCw, Search, SlidersHorizontal, Trash2,
+  AudioLines, Captions, ChevronDown, ChevronRight, Clapperboard, Folder, FolderOpen, Grid2x2, Image as ImageIcon, LayoutTemplate, List, LoaderCircle, Play, Plus, RotateCw, Search, SlidersHorizontal, Trash2,
   TriangleAlert, Type, Upload, Video,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
@@ -114,6 +114,7 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
   const [renaming, setRenaming] = useState<string | null>(null);
   const [posters, setPosters] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<{ name: string; path: string; size: number; modified: number }[] | null>(null);
+  const [notesOpen, setNotesOpen] = useState(false);
   const posterDone = useRef<Set<string>>(new Set());
   const counts = useMemo(() => usage(project), [project]);
   const assetMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
@@ -258,7 +259,7 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
             <span>Drop video, audio or images here — or click to browse. Files stay where they are.</span>
           </button>
         ) : view === 'icon' ? (
-          <div className="bin-grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${size}px, 1fr))` }}>
+          <div className={`bin-grid${size < 95 ? ' compact' : ''}`} style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${size}px, 1fr))` }}>
             {entries.map((entry) => {
               const payload = payloadFor(entry);
               const used = counts.get(entry.id) ?? 0;
@@ -321,42 +322,83 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
             </tbody>
           </table>
         )}
-      </div>
-      {(notes === null || notes.length > 0) && (
-        <div className="bin-notes">
-          <div className="bin-notes-head">
-            <span>Notes & todos</span>
-            <span className="muted">{notes === null ? 'reading…' : `${notes.length} files`}</span>
-            <button type="button" className="icon-btn small" title="Refresh notes" onClick={refreshNotes}><RotateCw size={12} /></button>
-          </div>
-          {(notes ?? []).map((note) => (
-            <div key={note.path} className={`bin-note${selection.includes(`note:${note.path}`) ? ' picked' : ''}`}
-              onPointerDown={(event) => {
-                const id = `note:${note.path}`;
-                if (event.shiftKey || event.ctrlKey) onSelect(selection.includes(id) ? selection.filter((entry) => entry !== id) : [...selection, id]);
-                else if (!selection.includes(id)) onSelect([id]);
-              }}
-              onDoubleClick={() => void api.openPath(note.path)}
-              title={`${note.name}\n${note.path}`}>
-              <span className="bin-note-name">{note.name}</span>
-              <span className="muted">{(note.size / 1024).toFixed(1)} KB</span>
-              <button type="button" className="icon-btn small danger" title="Delete note"
-                onPointerDown={(event) => event.stopPropagation()}
+        {(notes === null || notes.length > 0) && (
+          <div className="bin-notes">
+            <button
+              type="button"
+              className="bin-notes-toggle"
+              onClick={() => setNotesOpen((prev) => !prev)}
+              title={notesOpen ? 'Collapse notes' : 'Expand notes'}
+            >
+              {notesOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              <span className="bin-notes-title">Notes & todos</span>
+              <span className="muted">{notes === null ? 'reading…' : `${notes.length} files`}</span>
+              <span className="bin-notes-spacer" />
+              <button
+                type="button"
+                className="icon-btn small"
+                title="Refresh notes"
                 onClick={(event) => {
                   event.stopPropagation();
-                  void api.workspaceNoteDelete(note.name).then(refreshNotes).catch(() => undefined);
-                }}>
-                <Trash2 size={12} />
+                  refreshNotes();
+                }}
+              >
+                <RotateCw size={11} />
               </button>
-            </div>
-          ))}
-          {notes !== null && notes.length === 0 && <p className="muted">No notes yet — the assistant files its todo lists here as it works.</p>}
-        </div>
-      )}
+            </button>
+            {notesOpen && (
+              <div className="bin-notes-list">
+                {(notes ?? []).map((note) => (
+                  <div key={note.path} className={`bin-note${selection.includes(`note:${note.path}`) ? ' picked' : ''}`}
+                    onPointerDown={(event) => {
+                      const id = `note:${note.path}`;
+                      if (event.shiftKey || event.ctrlKey) onSelect(selection.includes(id) ? selection.filter((entry) => entry !== id) : [...selection, id]);
+                      else if (!selection.includes(id)) onSelect([id]);
+                    }}
+                    onDoubleClick={() => void api.openPath(note.path)}
+                    title={`${note.name}\n${note.path}`}>
+                    <span className="bin-note-name">{note.name}</span>
+                    <span className="muted">{(note.size / 1024).toFixed(1)} KB</span>
+                    <button type="button" className="icon-btn small danger" title="Delete note"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void api.workspaceNoteDelete(note.name).then(refreshNotes).catch(() => undefined);
+                      }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+                {notes !== null && notes.length === 0 && <p className="muted">No notes yet — the assistant files its todo lists here as it works.</p>}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       <div className="bin-foot">
         <button type="button" className={`icon-btn small${view === 'list' ? ' active' : ''}`} onClick={() => setView('list')} title="List View"><List size={14} /></button>
-        <button type="button" className={`icon-btn small${view === 'icon' ? ' active' : ''}`} onClick={() => setView('icon')} title="Icon View"><Grid2x2 size={14} /></button>
-        <input type="range" min={96} max={240} value={size} onChange={(event) => setSize(Number(event.target.value))} disabled={view !== 'icon'} aria-label="Thumbnail size" className="bin-zoom" />
+        <button type="button" className={`icon-btn small${view === 'icon' ? ' active' : ''}`} onClick={() => { setView('icon'); setSize((prev) => Math.max(prev, 96)); }} title="Icon View"><Grid2x2 size={14} /></button>
+        <div className="bin-slider-wrap" title="Adjust view & thumbnail size (Premiere Pro)">
+          <ImageIcon size={11} className="bin-slider-icon small" />
+          <input
+            type="range"
+            min={50}
+            max={240}
+            value={view === 'list' ? 50 : Math.max(70, size)}
+            onChange={(event) => {
+              const val = Number(event.target.value);
+              if (val <= 60) {
+                setView('list');
+              } else {
+                setView('icon');
+                setSize(val);
+              }
+            }}
+            aria-label="Thumbnail size & view mode"
+            className="bin-zoom"
+          />
+          <ImageIcon size={16} className="bin-slider-icon large" />
+        </div>
         <div className="toolbar-spacer" />
         <button type="button" className="icon-btn small" onClick={onNewFolder} title="New Folder (Ctrl+/)"><Folder size={14} /></button>
         <button type="button" className="icon-btn small" onClick={() => { const media = project.media.find((ref) => ref.assetId === selection[0]); const asset = media && assetMap.get(media.assetId); if (asset) void api.revealPath(asset.path); }} disabled={!selection.length} title="Reveal in Explorer"><FolderOpen size={13} /></button>

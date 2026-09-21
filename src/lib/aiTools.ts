@@ -13,6 +13,7 @@ import { adaptRhythmProgram } from './learning';
 import { storyboardContentError, type StoryboardSceneInput } from './editWorkflow';
 import { createMotionGraphicComp } from './motionGraphics';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
+import { evaluateTypedDecision, type TypedQuestion } from './typedDecisions';
 // Runs Helios AI's tool calls against the live project. Every tool is one undo step labelled
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
@@ -585,6 +586,71 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
           results,
           insights: results.map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`).join('\n\n'),
         });
+      } catch (error) {
+        return fail(errorText(error));
+      }
+    }
+    case 'typed_decision': {
+      try {
+        const state = (args.state as Record<string, unknown> | string) ?? str(args, 'premise') ?? '';
+        const dType = str(args, 'type') || str(args, 'mode');
+        if (!['choice', 'score', 'noul'].includes(dType || '')) {
+          return fail("Supply type: 'choice', 'score', or 'noul'.");
+        }
+
+        let question: TypedQuestion;
+        if (dType === 'choice') {
+          const rawCriteria = Array.isArray(args.criteria) ? args.criteria : Array.isArray(args.choices) ? args.choices : Array.isArray(args.options) ? args.options : [];
+          const criteria = rawCriteria.map(String);
+          if (!criteria.length) return fail('Choice question requires criteria or choices array.');
+          question = {
+            type: 'choice',
+            instructions: str(args, 'instructions') || str(args, 'premise') || 'Choose the best option',
+            criteria,
+            temperature: num(args, 'temperature'),
+          };
+        } else if (dType === 'score') {
+          const rawLevels = Array.isArray(args.levels) ? args.levels : Array.isArray(args.rubric) ? args.rubric : [];
+          if (!rawLevels.length) return fail('Score question requires levels or rubric array.');
+          const levels = rawLevels.map((l: unknown, idx: number) => {
+            if (typeof l === 'string') {
+              return { level: idx + 1, label: l };
+            }
+            const row = l as { level?: number; label?: string; description?: string };
+            return {
+              level: Number(row.level ?? idx + 1),
+              label: String(row.label ?? ''),
+              description: row.description ? String(row.description) : undefined,
+            };
+          });
+          question = {
+            type: 'score',
+            instructions: str(args, 'instructions') || str(args, 'premise') || 'Score relevance',
+            levels,
+            minScore: num(args, 'minScore'),
+            maxScore: num(args, 'maxScore'),
+          };
+        } else {
+          const prop = str(args, 'proposition') || str(args, 'condition');
+          if (!prop) return fail('Noul question requires a proposition or condition string.');
+          question = {
+            type: 'noul',
+            proposition: prop,
+            threshold: num(args, 'threshold'),
+          };
+        }
+
+        const decision = evaluateTypedDecision(state, question);
+        let summary = '';
+        if (decision.type === 'choice') {
+          summary = `Decided: "${decision.choice}" (Confidence: ${(decision.confidence * 100).toFixed(1)}%).`;
+        } else if (decision.type === 'score') {
+          summary = `Score: ${decision.score} (best level: ${decision.bestLevel} - "${decision.bestLabel}").`;
+        } else {
+          summary = `Condition: ${decision.conditionMet ? 'Met' : 'Unmet'} (P(true): ${(decision.probability * 100).toFixed(1)}%).`;
+        }
+
+        return done(summary, { decision });
       } catch (error) {
         return fail(errorText(error));
       }
