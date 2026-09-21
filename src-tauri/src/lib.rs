@@ -35,6 +35,7 @@ mod typesafe;
 mod web_media;
 mod system_tools;
 mod subagent;
+mod safe_asset;
 
 use crate::ai_tools::{EventExecutor, PendingCalls, ToolCallEvent, TOOL_CALL_EVENT};
 use crate::chat::{ChatEvent, ChatRequest, McpLink, TurnContext, CHAT_EVENT};
@@ -2226,6 +2227,24 @@ pub fn run() {
         .try_init();
 
     let result = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol("asset", |_ctx, request, responder| {
+            tauri::async_runtime::spawn_blocking(move || {
+                let response = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    safe_asset::handle_safe_asset_request(&request)
+                })) {
+                    Ok(resp) => resp,
+                    Err(err) => {
+                        tracing::error!("caught panic in asset protocol: {err:?}");
+                        tauri::http::Response::builder()
+                            .status(tauri::http::StatusCode::INTERNAL_SERVER_ERROR)
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(Vec::new())
+                            .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
+                    }
+                };
+                responder.respond(response);
+            });
+        })
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ignored = window.unminimize();
