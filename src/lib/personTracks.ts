@@ -21,7 +21,7 @@ const finiteBox = (box: { at: number; x: number; y: number; width: number; heigh
 
 /** Worker JSON in, engine tracks out. Anything malformed is refused, not guessed. */
 export function toPersonTracks(result: PersonTrackResult): PersonTrack[] {
-  if (!result || !Array.isArray(result.tracks)) throw new Error('Person tracking returned no tracks.');
+  if (!result || !Array.isArray(result.tracks) || !result.tracks.length) throw new Error('Person tracking returned no tracks.');
   return result.tracks.map((track, index) => {
     if (typeof track.id !== 'string' || !Array.isArray(track.boxes)) throw new Error(`Person track ${index} is malformed.`);
     const boxes = track.boxes.filter(finiteBox).map((box) => ({ at: box.at, box: { x: box.x, y: box.y, width: box.width, height: box.height } }));
