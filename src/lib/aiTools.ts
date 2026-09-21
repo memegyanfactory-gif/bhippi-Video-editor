@@ -29,7 +29,7 @@ import {
 import { EMPTY_KEYFRAMES } from './keyframes';
 import { playhead } from './playhead';
 import {
-  addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
+  addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, deleteBinEntries, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
   newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
@@ -253,6 +253,21 @@ const findClipIn = (project: Project, clipId: string) => {
   }
   return null;
 };
+
+/**
+ * The root "Generated" folder AI-made media files into, so generations never
+ * scatter across the project root. Idempotent: returns the existing one when
+ * the user (or an earlier turn) already made it.
+ */
+function generatedFolderId(project: Project, commit: (change: (current: Project) => Project) => void): string {
+  const existing = project.folders.find((folder) => folder.name === 'Generated' && !folder.parentId);
+  if (existing) return existing.id;
+  const id = uid();
+  commit((current) => (current.folders.some((folder) => folder.id === id || (folder.name === 'Generated' && !folder.parentId))
+    ? current
+    : { ...current, folders: [...current.folders, { id, name: 'Generated', parentId: null }] }));
+  return project.folders.find((folder) => folder.name === 'Generated' && !folder.parentId)?.id ?? id;
+}
 
 const ITEM_KINDS: Record<string, ItemKind> = {
   color_matte: 'color-matte', black_video: 'black-video', transparent_video: 'transparent-video', bars_and_tone: 'bars-and-tone', adjustment_layer: 'adjustment-layer', countdown: 'countdown',
@@ -826,7 +841,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
               if (job.status === 'done') {
                 const res = job.result as { path?: string } | null;
                 if (res?.path) {
-                  const imported = await host.importMedia([res.path]);
+                  const imported = await host.importMedia([res.path], generatedFolderId(project, commit));
                   if (imported.length > 0) {
                     const asset = imported[0];
                     return done(`Generated and imported local media "${asset.name}" (asset ID: ${asset.id}). Ready to place on timeline or attach to storyboard scene refs.`, {
@@ -856,7 +871,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       if (!job || job.kind !== 'generation' || job.status !== 'done') return fail('Wait for a successful generation job before importing.');
       const result = job.result as { path?: string } | null;
       if (!result?.path) return fail('The completed job has no output.');
-      const imported = await host.importMedia([result.path]);
+      const imported = await host.importMedia([result.path], generatedFolderId(project, commit));
       if (!imported.length) return fail('The generated artifact was not imported. Resolve the import failure before claiming it is available on the timeline.');
       return done('Generated artifact imported. Use place_clip with this asset ID and the storyboard range.', { assets: imported });
     }
@@ -1356,20 +1371,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       const counts = usage(project);
       const used = [...ids].filter((id) => (counts.get(id) ?? 0) > 0);
       if (used.length && !force) return fail(`${used.length} of these are used on a timeline — pass force: true to delete them and their clips`);
-      commit((current) => {
-        const comps = current.comps
-          .filter((comp) => !ids.has(comp.id))
-          .map((comp) => ({ ...comp, clips: comp.clips.filter((clip) => !((clip.source.type === 'media' && ids.has(clip.source.assetId)) || (clip.source.type === 'comp' && ids.has(clip.source.compId)) || (clip.source.type === 'item' && ids.has(clip.source.itemId)))) }));
-        return {
-          ...current,
-          comps: comps.length ? comps : [newComp({ name: 'Comp 1' })],
-          items: current.items.filter((item) => !ids.has(item.id)),
-          media: current.media.filter((ref) => !ids.has(ref.assetId)),
-          folders: current.folders.filter((folder) => !ids.has(folder.id)),
-          activeCompId: comps.some((comp) => comp.id === current.activeCompId) ? current.activeCompId : (comps[0]?.id ?? null),
-          openCompIds: current.openCompIds.filter((id) => comps.some((comp) => comp.id === id)),
-        };
-      });
+      commit((current) => deleteBinEntries(current, [...ids]));
       return done(`Removed ${ids.size} item${ids.size === 1 ? '' : 's'} from the project`);
     }
 

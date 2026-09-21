@@ -362,6 +362,11 @@ export const api = {
 
   exportStart: (project: Project, options: ExportOptions) => invoke<string>('export_start', { project: prepareEffectExport(project,options.compId), options }),
   exportFrame: (project: Project, compId: string, time: number, output: string) => invoke<string>('export_frame', { project: prepareEffectExport(project,compId), compId, time, output }),
+  /** A comp's poster frame: middle of the comp, small, cached by comp id. */
+  compPoster: (project: Project, compId: string) => invoke<string>('comp_poster', { project, compId }),
+  /** AI-written notes and todo lists living beside the project. */
+  workspaceNotes: () => invoke<{ name: string; path: string; size: number; modified: number }[]>('workspace_notes'),
+  workspaceNoteDelete: (name: string) => invoke<void>('workspace_note_delete', { name }),
   jobsList: () => invoke<Job[]>('jobs_list'),
   localMediaStatus: () => invoke<{ pythonConfigured: boolean; tasks: { task: string; modelKey: string; modelPath: string | null; label: string; configured: boolean; verified: boolean; download: { jobId?: string; status: string; progress: number; message: string; external: boolean; downloadedBytes?: number; totalBytes?: number } | null }[] }>('local_media_status'),
   analysisFrames: (id: string, times: number[]) => invoke<{ times: number[]; images: string[]; assetId: string }>('analysis_frames', { id, times }),

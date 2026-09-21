@@ -30,6 +30,12 @@ export function HtmlMotionLayer({
   const progress = clipDuration > 0 ? elapsed / clipDuration : 0;
   const scale = stageW / 1920;
 
+  // The markup object must be stable: a fresh { __html } literal every render
+  // makes React reset innerHTML on every playhead tick, wiping GSAP's inline
+  // styles and re-parsing the whole graphic per frame — that is the preview
+  // lag on motion-graphic sections. Only new markup rebuilds the DOM.
+  const markup = useMemo(() => ({ __html: source.html }), [source.html]);
+
   // Initialize or update GSAP timeline when code changes
   useEffect(() => {
     if (!containerRef.current) return;
@@ -104,7 +110,7 @@ export function HtmlMotionLayer({
           transformOrigin: 'top left',
           pointerEvents: 'none',
         }}
-        dangerouslySetInnerHTML={{ __html: source.html }}
+        dangerouslySetInnerHTML={markup}
       />
     </div>
   );

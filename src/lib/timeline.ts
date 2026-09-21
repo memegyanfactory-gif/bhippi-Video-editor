@@ -57,6 +57,35 @@ export function newProject(name = 'Untitled project'): Project {
   return { version: 3, name, comps: [comp], items: [], media: [], folders: [], activeCompId: comp.id, openCompIds: [comp.id], captionStyle: null };
 }
 
+/**
+ * Deletes project-panel entries by id: comps (any of them, including the last
+ * one — the timeline, monitors and export all tolerate zero comps), items,
+ * media refs and folders. Timeline clips reading deleted sources go with
+ * them; children of a deleted folder move to the root instead of vanishing.
+ * Disk files are never touched.
+ */
+export function deleteBinEntries(project: Project, ids: Iterable<string>): Project {
+  const gone = new Set(ids);
+  const refersTo = (clip: Clip) =>
+    (clip.source.type === 'media' && gone.has(clip.source.assetId))
+    || (clip.source.type === 'comp' && gone.has(clip.source.compId))
+    || (clip.source.type === 'item' && gone.has(clip.source.itemId));
+  const unfoldered = (folderId: string | null) => (gone.has(folderId ?? '') ? null : folderId);
+  const comps = project.comps
+    .filter((item) => !gone.has(item.id))
+    .map((item) => ({ ...item, folderId: unfoldered(item.folderId), clips: item.clips.filter((clip) => !refersTo(clip)) }));
+  const folders = project.folders.filter((folder) => !gone.has(folder.id));
+  return {
+    ...project,
+    comps,
+    items: project.items.filter((item) => !gone.has(item.id)).map((item) => ({ ...item, folderId: unfoldered(item.folderId) })),
+    media: project.media.filter((ref) => !gone.has(ref.assetId)).map((ref) => ({ ...ref, folderId: unfoldered(ref.folderId) })),
+    folders,
+    activeCompId: comps.some((item) => item.id === project.activeCompId) ? project.activeCompId : (comps[0]?.id ?? null),
+    openCompIds: project.openCompIds.filter((id) => comps.some((item) => item.id === id)),
+  };
+}
+
 export function newItem(kind: ItemKind, comp: Pick<Comp, 'width' | 'height'>, options: { name?: string; color?: string; duration?: number } = {}): ProjectItem {
   return {
     id: uid(),

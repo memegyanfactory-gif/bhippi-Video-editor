@@ -1646,6 +1646,97 @@ async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id
     result.map(|()| output)
 }
 
+/// A comp id flattened for a thumbnail file name: no separators, no escapes.
+fn poster_filename(comp_id: &str) -> String {
+    comp_id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect()
+}
+
+/// A note name is a bare `.md` file name: no paths, no hidden files, no escapes.
+fn valid_note_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.to_ascii_lowercase().ends_with(".md")
+        && !name.contains(['/', '\\', ':'])
+        && !name.starts_with('.')
+}
+
+/// A comp's poster frame: the middle of the comp rendered small, cached under
+/// a deterministic name so the Project panel can show what is inside a comp
+/// without touching the project schema.
+#[tauri::command]
+async fn comp_poster(state: State<'_, Arc<AppState>>, project: Project, comp_id: String) -> CommandResult<String> {
+    let tools = state.tools();
+    let ffmpeg = tools.ffmpeg()?.to_path_buf();
+    let comp = project.comp(&comp_id).ok_or("that comp is not in the project")?;
+    let total = comp.duration();
+    if total <= 0.0 {
+        return Err("that comp is empty — add clips before rendering its poster".to_owned());
+    }
+    let safe = poster_filename(&comp_id);
+    let output = state.paths.thumbnails.join(format!("comp-{safe}.png"));
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let options = ExportOptions { output: output.display().to_string(), comp_id, resolution: Some(360), fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned() };
+    let sfx_dir = state.paths.sfx.clone();
+    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, total / 2.0)?;
+    let work = state.paths.work.join(format!("poster-{}", store::new_id()));
+    std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
+    for (name, contents) in &plan.files {
+        std::fs::write(work.join(name), contents).map_err(|error| error.to_string())?;
+    }
+    let env = tools::FfmpegEnv { fontconfig_file: state.fontconfig.clone() };
+    let (_keep, cancel) = tokio::sync::watch::channel(false);
+    let result = tools::run_ffmpeg_with_progress(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |_| ()).await;
+    let _ignored = std::fs::remove_dir_all(&work);
+    result.map(|()| output.display().to_string())
+}
+
+/// AI-written notes and todo lists, so the Project panel shows every file the
+/// assistant creates. The agent's relative paths resolve against the process
+/// working directory, so that is where the notes live too.
+fn notes_dir() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("todos")
+}
+
+#[tauri::command]
+fn workspace_notes() -> CommandResult<Vec<serde_json::Value>> {
+    let dir = notes_dir();
+    let mut notes = Vec::new();
+    let entries = std::fs::read_dir(&dir).map_err(|_| "no notes yet — the assistant writes its todo lists here as it works".to_owned())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case("md")) || !path.is_file() {
+            continue;
+        }
+        let meta = std::fs::metadata(&path).ok();
+        let modified = meta.as_ref().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+        notes.push(serde_json::json!({
+            "name": path.file_name().map_or_else(|| "?".into(), |name| name.to_string_lossy().into_owned()),
+            "path": path.display().to_string(),
+            "size": meta.as_ref().map(|m| m.len()).unwrap_or(0),
+            "modified": modified,
+        }));
+    }
+    notes.sort_by_key(|note| std::cmp::Reverse(note["modified"].as_u64().unwrap_or(0)));
+    Ok(notes)
+}
+
+/// Deletes one note by file name only — never a path, never outside todos/.
+#[tauri::command]
+fn workspace_note_delete(name: String) -> CommandResult<()> {
+    if !valid_note_name(&name) {
+        return Err("that is not a note name".to_owned());
+    }
+    let target = notes_dir().join(&name);
+    let canonical = target.canonicalize().map_err(|_| "that note is not there".to_owned())?;
+    let root = notes_dir().canonicalize().unwrap_or_else(|_| notes_dir());
+    if !canonical.starts_with(&root) {
+        return Err("that is not a note name".to_owned());
+    }
+    std::fs::remove_file(&canonical).map_err(|_| "that note is not there".to_owned())
+}
+
 #[tauri::command]
 fn caption_styles() -> &'static str {
     include_str!("../../src/lib/caption-styles.json")
@@ -2100,6 +2191,9 @@ pub fn run() {
             chat_log_save,
             export_start,
             export_frame,
+            comp_poster,
+            workspace_notes,
+            workspace_note_delete,
             caption_styles,
             jobs_list,
             job_cancel,
@@ -2119,5 +2213,23 @@ pub fn run() {
     if let Err(error) = result {
         eprintln!("Helios could not start: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::{poster_filename, valid_note_name};
+
+    #[test]
+    fn poster_names_cannot_escape_and_note_names_cannot_either() {
+        assert_eq!(poster_filename("abc-123"), "abc-123");
+        assert_eq!(poster_filename("../../etc/passwd"), "______etc_passwd");
+        assert_eq!(poster_filename("comp:mogr t!"), "comp_mogr_t_");
+        assert!(valid_note_name("todo-full-edit.md"));
+        assert!(!valid_note_name("../todo.md"));
+        assert!(!valid_note_name("C:\\notes\\x.md"));
+        assert!(!valid_note_name(".hidden.md"));
+        assert!(!valid_note_name("notes.txt"));
+        assert!(!valid_note_name(""));
     }
 }

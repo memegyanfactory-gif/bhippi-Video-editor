@@ -40,7 +40,7 @@ import { StickFigureDialog } from './components/StickFigureDialog';
 import { generateSelectionSound } from './lib/generateSound';
 import { registerSfx } from './lib/sfx';
 import {
-  addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, compDuration, deleteTracks, editPoints, emptyTracks, freeTrack, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
+  addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
   newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, placeClips, razor, removeAttributes, removeClips, removeRange, replaceSource, setGrouped, setLinked, setSpeed, sourceInfo,
   sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, tracksOf, transitionsOnSelection, trimEdge, updateComp, updateTrack, withLinked, wouldCycle,
   type AssetMap,
@@ -1487,22 +1487,7 @@ export default function App() {
     if (!ids.length) return;
     const inUse = ids.filter((id) => project.comps.some((item) => item.clips.some((clip) => (clip.source.type === 'media' && clip.source.assetId === id) || (clip.source.type === 'comp' && clip.source.compId === id) || (clip.source.type === 'item' && clip.source.itemId === id))));
     const remove = () => {
-      history.commit((current) => {
-        const comps = current.comps.filter((item) => !ids.includes(item.id)).map((item) => ({
-          ...item,
-          clips: item.clips.filter((clip) => !((clip.source.type === 'media' && ids.includes(clip.source.assetId)) || (clip.source.type === 'comp' && ids.includes(clip.source.compId)) || (clip.source.type === 'item' && ids.includes(clip.source.itemId)))),
-        }));
-        const kept = comps.length ? comps : [newComp({ name: 'Comp 1' })];
-        return {
-          ...current,
-          comps: kept,
-          items: current.items.filter((item) => !ids.includes(item.id)),
-          media: current.media.filter((ref) => !ids.includes(ref.assetId)),
-          folders: current.folders.filter((folder) => !ids.includes(folder.id)),
-          activeCompId: kept.some((item) => item.id === current.activeCompId) ? current.activeCompId : kept[0].id,
-          openCompIds: current.openCompIds.filter((id) => kept.some((item) => item.id === id)),
-        };
-      }, 'Delete');
+      history.commit((current) => deleteBinEntries(current, ids), 'Delete');
       setBinSelection([]);
     };
     if (!inUse.length) return remove();

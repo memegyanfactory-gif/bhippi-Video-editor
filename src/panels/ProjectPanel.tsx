@@ -4,7 +4,7 @@ import {
   AudioLines, Captions, ChevronRight, Clapperboard, Folder, FolderOpen, Grid2x2, Image as ImageIcon, LayoutTemplate, List, LoaderCircle, Play, Plus, RotateCw, Search, SlidersHorizontal, Trash2,
   TriangleAlert, Type, Upload, Video,
 } from 'lucide-react';
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useToast } from '../components/ui';
 import { StyledCaptionText } from '../editor/StyledCaption';
 import { CAPTION_STYLES, STYLE_CATEGORIES, type CaptionStyle } from '../lib/captionStyles';
@@ -107,11 +107,14 @@ const ITEM_ICON: Record<ItemKind, typeof Video> = {
   'color-matte': LayoutTemplate, 'black-video': LayoutTemplate, 'transparent-video': LayoutTemplate, 'bars-and-tone': LayoutTemplate, 'adjustment-layer': SlidersHorizontal, countdown: Clapperboard,
 };
 
-function BinTab({ project, assets, folder, onFolder, selection, onSelect, onDragStart, onOpenComp, onOpenInSource, onEntryMenu, onPanelMenu, onImport, onNewComp, onNewFolder, onDelete, onRename }: Props) {
+function BinTab({ project, history, assets, folder, onFolder, selection, onSelect, onDragStart, onOpenComp, onOpenInSource, onEntryMenu, onPanelMenu, onImport, onNewComp, onNewFolder, onDelete, onRename }: Props) {
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'icon' | 'list'>('icon');
   const [size, setSize] = useState(132);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [posters, setPosters] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<{ name: string; path: string; size: number; modified: number }[] | null>(null);
+  const posterDone = useRef<Set<string>>(new Set());
   const counts = useMemo(() => usage(project), [project]);
   const assetMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
@@ -163,6 +166,58 @@ function BinTab({ project, assets, folder, onFolder, selection, onSelect, onDrag
     else if (entry.type === 'media' && !entry.offline) onOpenInSource(entry.id);
   };
 
+  // Comp posters: what is inside each comp, rendered once per session plus on
+  // demand. Rendering every comp on every edit would stall the panel, so a
+  // stale poster stays until its refresh button is pressed.
+  const refreshPoster = (compId: string) => {
+    posterDone.current.add(compId);
+    void api.compPoster(history.current(), compId)
+      .then((path) => setPosters((current) => ({ ...current, [compId]: path })))
+      .catch(() => undefined);
+  };
+
+  // AI-written notes and todo lists live beside the project, not in it — list
+  // them here so nothing the assistant creates is invisible.
+  const refreshNotes = () => {
+    void api.workspaceNotes()
+      .then((found) => setNotes(found))
+      .catch(() => setNotes([]));
+  };
+
+  useEffect(() => {
+    refreshNotes();
+    for (const item of project.comps) {
+      if (!posterDone.current.has(item.id) && compDuration(item) > 0) refreshPoster(item.id);
+    }
+    // Posters follow comp identity, notes follow the folder: both refresh when
+    // the project (and only then) is swapped or rebuilt.
+  }, [project.comps.length, project.name]);
+
+  // Delete and Ctrl+A work on the visible bin entries when the panel has
+  // focus. Handled here (with propagation stopped) so Delete never also hits
+  // timeline clips and Ctrl+A never also selects them.
+  const deleteSelection = () => {
+    if (!selection.length) return;
+    const noteNames = selection.filter((id) => id.startsWith('note:')).map((id) => id.slice(5).split(/[/\\]/).pop() ?? '');
+    const rest = selection.filter((id) => !id.startsWith('note:'));
+    if (noteNames.length) void Promise.all(noteNames.map((name) => api.workspaceNoteDelete(name).catch(() => undefined))).then(refreshNotes);
+    if (rest.length) onDelete(rest);
+    else onSelect([]);
+  };
+  const onBinKeyDown = (event: React.KeyboardEvent) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if ((event.key === 'Delete' || event.key === 'Backspace') && selection.length) {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteSelection();
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      event.stopPropagation();
+      onSelect(entries.map((entry) => entry.id));
+    }
+  };
+
   const detail = (entry: BinEntry) => {
     if (entry.type === 'folder') return 'Folder';
     if (entry.type === 'comp') return `${entry.comp.width}×${entry.comp.height} · ${timecode(compDuration(entry.comp), entry.comp.fps)}`;
@@ -172,7 +227,12 @@ function BinTab({ project, assets, folder, onFolder, selection, onSelect, onDrag
   };
 
   return (
-    <div className="bin" onContextMenu={(event) => { if (!(event.target as HTMLElement).closest('.tile, .bin-row')) { event.preventDefault(); onPanelMenu(event); } }}>
+    <div className="bin" tabIndex={0} onKeyDown={onBinKeyDown}
+      onPointerDown={(event) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest('input, textarea, select, [contenteditable="true"]')) event.currentTarget.focus({ preventScroll: true });
+      }}
+      onContextMenu={(event) => { if (!(event.target as HTMLElement).closest('.tile, .bin-row')) { event.preventDefault(); onPanelMenu(event); } }}>
       <div className="bin-head">
         {path.map((step, index) => (
           <span key={step.id ?? 'root'} className="bin-crumb">
@@ -215,7 +275,7 @@ function BinTab({ project, assets, folder, onFolder, selection, onSelect, onDrag
                   title={entry.type === 'media' && entry.asset ? `${entry.name}\n${entry.asset.path}` : entry.name}
                 >
                   <div className="tile-thumb">
-                    <EntryThumb entry={entry} />
+                    <EntryThumb entry={entry} poster={entry.type === 'comp' ? posters[entry.id] : undefined} onPoster={entry.type === 'comp' ? () => refreshPoster(entry.id) : undefined} />
                     {used > 0 && <span className="tile-used" title={`Used ${used}×`}>{used}×</span>}
                     {entry.type === 'media' && entry.asset?.preview === 'pending' && !entry.offline && <span className="tile-status"><LoaderCircle size={13} className="spin" /> Preparing</span>}
                     {entry.type === 'media' && entry.asset?.preview === 'failed' && !entry.offline && (
@@ -262,6 +322,37 @@ function BinTab({ project, assets, folder, onFolder, selection, onSelect, onDrag
           </table>
         )}
       </div>
+      {(notes === null || notes.length > 0) && (
+        <div className="bin-notes">
+          <div className="bin-notes-head">
+            <span>Notes & todos</span>
+            <span className="muted">{notes === null ? 'reading…' : `${notes.length} files`}</span>
+            <button type="button" className="icon-btn small" title="Refresh notes" onClick={refreshNotes}><RotateCw size={12} /></button>
+          </div>
+          {(notes ?? []).map((note) => (
+            <div key={note.path} className={`bin-note${selection.includes(`note:${note.path}`) ? ' picked' : ''}`}
+              onPointerDown={(event) => {
+                const id = `note:${note.path}`;
+                if (event.shiftKey || event.ctrlKey) onSelect(selection.includes(id) ? selection.filter((entry) => entry !== id) : [...selection, id]);
+                else if (!selection.includes(id)) onSelect([id]);
+              }}
+              onDoubleClick={() => void api.openPath(note.path)}
+              title={`${note.name}\n${note.path}`}>
+              <span className="bin-note-name">{note.name}</span>
+              <span className="muted">{(note.size / 1024).toFixed(1)} KB</span>
+              <button type="button" className="icon-btn small danger" title="Delete note"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void api.workspaceNoteDelete(note.name).then(refreshNotes).catch(() => undefined);
+                }}>
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+          {notes !== null && notes.length === 0 && <p className="muted">No notes yet — the assistant files its todo lists here as it works.</p>}
+        </div>
+      )}
       <div className="bin-foot">
         <button type="button" className={`icon-btn small${view === 'list' ? ' active' : ''}`} onClick={() => setView('list')} title="List View"><List size={14} /></button>
         <button type="button" className={`icon-btn small${view === 'icon' ? ' active' : ''}`} onClick={() => setView('icon')} title="Icon View"><Grid2x2 size={14} /></button>
@@ -269,7 +360,7 @@ function BinTab({ project, assets, folder, onFolder, selection, onSelect, onDrag
         <div className="toolbar-spacer" />
         <button type="button" className="icon-btn small" onClick={onNewFolder} title="New Folder (Ctrl+/)"><Folder size={14} /></button>
         <button type="button" className="icon-btn small" onClick={() => { const media = project.media.find((ref) => ref.assetId === selection[0]); const asset = media && assetMap.get(media.assetId); if (asset) void api.revealPath(asset.path); }} disabled={!selection.length} title="Reveal in Explorer"><FolderOpen size={13} /></button>
-        <button type="button" className="icon-btn small danger" onClick={() => onDelete(selection)} disabled={!selection.length} title="Delete (files are never deleted)"><Trash2 size={13} /></button>
+        <button type="button" className="icon-btn small danger" onClick={deleteSelection} disabled={!selection.length} title="Delete (files are never deleted)"><Trash2 size={13} /></button>
       </div>
     </div>
   );
@@ -286,13 +377,25 @@ function EntryIcon({ entry }: { entry: BinEntry }) {
   return <Icon size={12} />;
 }
 
-function EntryThumb({ entry }: { entry: BinEntry }) {
+function EntryThumb({ entry, poster, onPoster }: { entry: BinEntry; poster?: string; onPoster?: () => void }) {
   if (entry.type === 'folder') return <Folder size={26} className="tile-placeholder" />;
   if (entry.type === 'comp') {
     return (
       <div className="tile-comp">
-        <Clapperboard size={20} />
-        <span>{tracksOf(entry.comp, 'video').length}V · {tracksOf(entry.comp, 'audio').length}A · {entry.comp.clips.length} clips</span>
+        {poster ? (
+          <img src={fileSrc(poster)} alt="" draggable={false} className="tile-poster" />
+        ) : (
+          <>
+            <Clapperboard size={20} />
+            <span>{tracksOf(entry.comp, 'video').length}V · {tracksOf(entry.comp, 'audio').length}A · {entry.comp.clips.length} clips</span>
+          </>
+        )}
+        {onPoster && (
+          <button type="button" className="tile-status poster-refresh" title={poster ? 'Refresh poster frame' : 'Render poster frame'}
+            onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onPoster(); }}>
+            <RotateCw size={12} /> {poster ? '' : 'Poster'}
+          </button>
+        )}
       </div>
     );
   }
