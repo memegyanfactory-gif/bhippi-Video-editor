@@ -581,7 +581,7 @@ export function createMotionGraphicComp(
   // Determine track above existing video (e.g. 'v2', 'v3')
   const videoTracks = targetComp.tracks.filter((t) => t.kind === 'video');
   let targetTrack = opts.track ? targetComp.tracks.find((t) => t.id === opts.track) : null;
-  let newTracks = [...targetComp.tracks];
+  const newTracks = [...targetComp.tracks];
 
   if (!targetTrack) {
     if (videoTracks.length >= 2) {
