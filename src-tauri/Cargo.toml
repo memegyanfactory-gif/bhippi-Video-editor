@@ -1,0 +1,58 @@
+[package]
+name = "helios"
+description = "Helios — local-first video & motion studio with an AI editing copilot."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+default-run = "helios"
+
+[lib]
+name = "helios_lib"
+crate-type = ["lib"]
+
+[[bin]]
+name = "helios"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = "0.22"
+chrono = { workspace = true }
+futures-util = { workspace = true }
+helios-providers = { path = "../crates/helios-providers" }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.18", features = ["fmt", "env-filter"] }
+ulid = { workspace = true }
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["crypto-rust", "sync-secret-service"] }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+# `tauri build` enables this; plain `cargo build` (F5) embeds ../dist because no devUrl is set.
+custom-protocol = ["tauri/custom-protocol"]

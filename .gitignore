@@ -1,0 +1,20 @@
+node_modules/
+dist/
+target/
+src-tauri/gen/
+*.tsbuildinfo
+test-results/
+# Legacy Python prototype data
+.helios/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+work/
+*.exe
+*.pdb
+*.d
+*.log
+*.err
+scratch/

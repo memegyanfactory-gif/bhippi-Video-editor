@@ -1,0 +1,124 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "helios: stop app",
+      "type": "shell",
+      "command": "npm run stop",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "detail": "Closes a running Helios so the build can replace the binary."
+    },
+    {
+      "label": "helios: build ui",
+      "type": "shell",
+      "command": "npm run build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true,
+        "showReuseMessage": false
+      },
+      "detail": "Typecheck, then bundle the UI into dist/, which the desktop binary embeds."
+    },
+    {
+      "label": "helios: build app",
+      "type": "shell",
+      "command": "node scripts/run-app.mjs --build-only",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "detail": "UI first, then the Rust desktop binary. Closes a running Helios and waits for the binary to be free, so the link step cannot collide with it."
+    },
+    {
+      "label": "helios: run app",
+      "type": "shell",
+      "command": "npm run app",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      },
+      "detail": "Build and launch the desktop app."
+    },
+    {
+      "label": "helios: dev (hot reload)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      },
+      "detail": "Desktop window with UI hot reload (tauri dev)."
+    },
+    {
+      "label": "helios: test everything",
+      "type": "shell",
+      "command": "npm test",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "detail": "Vitest for the UI, cargo test for the workspace."
+    },
+    {
+      "label": "helios: installer",
+      "type": "shell",
+      "command": "npm run bundle",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      },
+      "detail": "Release build plus Windows installers (NSIS + MSI) under target/release/bundle."
+    }
+  ]
+}

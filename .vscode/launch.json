@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Default F5: Closes running instance, builds the UI, compiles, and opens the Helios desktop window.
+      // Works natively in Cursor and VS Code without needing MSVC cpptools or proprietary debuggers.
+      "name": "Helios",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/run-app.mjs",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // Desktop window with UI hot reload (tauri dev)
+      "name": "Helios (Hot Reload)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // Native debugger (when using standard Visual Studio Code with C/C++ extension)
+      "name": "Helios (Native Debugger)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "preLaunchTask": "helios: build app",
+      "program": "${workspaceFolder}\\target\\debug\\helios.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "environment": [{ "name": "RUST_BACKTRACE", "value": "1" }]
+    }
+  ]
+}

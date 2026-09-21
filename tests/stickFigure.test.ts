@@ -1,0 +1,6 @@
+import{describe,it,expect}from'vitest';import{twoBone,figurePose,makeStickFigure}from'../src/lib/stickFigure';
+describe('native figure motion',()=>{
+it('keeps limb lengths and clamps unreachable targets',()=>{for(const target of [{x:80,y:100},{x:0,y:0},{x:1000,y:0}]){const root={x:0,y:0},ik=twoBone(root,target,100,95);expect(Math.hypot(ik.joint.x,ik.joint.y)).toBeCloseTo(100);expect(Math.hypot(ik.end.x-ik.joint.x,ik.end.y-ik.joint.y)).toBeCloseTo(95);}});
+it('plants the walk foot during stance',()=>{const a=figurePose(.1,'walk',5),b=figurePose(.3,'walk',5);expect(a.leftFoot.x).toBeCloseTo(b.leftFoot.x);expect(a.leftFoot.y).toBeCloseTo(760);});
+it('creates separate editable grouped shape layers with finite bounded keys',()=>{const comp=makeStickFigure(1920,1080,24,'wave',3);expect(comp.clips).toHaveLength(11);expect(new Set(comp.clips.map(c=>c.trackId)).size).toBe(11);for(const clip of comp.clips){expect(clip.source.type).toBe('shape');expect(clip.groupId).toBeTruthy();for(const keys of Object.values(clip.keyframes))for(const key of keys){expect(Number.isFinite(key.value)).toBe(true);expect(key.time).toBeLessThanOrEqual(3);}}});
+});

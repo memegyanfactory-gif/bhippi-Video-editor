@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ideagraph-live"
+version = "0.5.4"
+description = "Self-growing idea graph: Ingest → Embed → Suggest → Visualize. A generic engine for a persistent knowledge graph backed by your own private git repo (the 'brain')."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "SaltKing0" }]
+keywords = ["knowledge-graph", "memory", "agent", "embeddings", "rag", "zettelkasten"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Environment :: Web Environment",
+]
+# Core stays light (HashEmbedder works out of the box, zero heavy deps).
+# The real ST embedder is opt-in via [st] — it pulls PyTorch (~2 GB).
+dependencies = [
+  "fastapi==0.141.1",
+  "uvicorn[standard]==0.35.0",
+  "httpx==0.28.1",
+  # numpy is the only compiled dependency: 2.3.1 ships wheels for cp311-cp313
+  # only, so newer Pythons (3.14+) get a newer numpy instead of a source build.
+  "numpy==2.3.1; python_version < '3.14'",
+  "numpy>=2.3.2; python_version >= '3.14'",
+]
+
+[project.optional-dependencies]
+st = ["sentence-transformers==5.0.0"]
+mcp = ["mcp>=1.28,<2", "sse-starlette>=1.6.1,<3"]
+dev = ["pytest==8.4.0"]
+
+[project.scripts]
+ig = "ideagraph.__main__:main"
+ig-mcp = "ideagraph.mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/SaltKing0/ideagraph-live"
+Repository = "https://github.com/SaltKing0/ideagraph-live"
+Issues = "https://github.com/SaltKing0/ideagraph-live/issues"
+Changelog = "https://github.com/SaltKing0/ideagraph-live/blob/main/CHANGELOG.md"
+PyPI = "https://pypi.org/project/ideagraph-live/"
+
+[tool.setuptools]
+packages = ["ideagraph", "ideagraph.web", "ideagraph.mcp"]
+
+[tool.setuptools.package-data]
+"ideagraph.web" = ["*.html", "*.js"]
+"ideagraph.mcp" = ["agent/*.md"]

@@ -1,0 +1,9 @@
+# On Windows, Tauri's dialog runtime imports comctl32 v6's TaskDialogIndirect. tauri-build adds
+# the manifest that requests v6 to the app binary, but `cargo test` harnesses get none and die at
+# load with STATUS_ENTRYPOINT_NOT_FOUND. Declaring the dependency for every MSVC link fixes tests;
+# for the app it duplicates what tauri-build already requests, which link.exe merges.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = [
+  "-C",
+  "link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'",
+]

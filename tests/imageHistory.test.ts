@@ -1,0 +1,3 @@
+import{it,expect}from'vitest';import{historyFor}from'../src/chat/handoff';
+it('keeps recent image context within budget without modifying the transcript',()=>{const image='x'.repeat(3*1024*1024);const messages=Array.from({length:6},()=>({role:'user' as const,content:'Reference',images:[image]}));const history=historyFor(messages,'opencode','vision');expect(history.flatMap(m=>m.images||[])).toHaveLength(2);expect(history[0].content).toContain('omitted');expect(messages[0].images).toHaveLength(1);});
+it('can hand a conversation to a text-only integration',()=>{const history=historyFor([{role:'user',content:'Reference',images:['data:image/png;base64,aA==']}],'gemini','gemini-3');expect(history[0].images).toEqual([]);expect(history[0].content).toContain('omitted');});
