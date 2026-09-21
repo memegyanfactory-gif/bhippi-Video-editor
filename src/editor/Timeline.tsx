@@ -105,6 +105,7 @@ type Gesture =
   | { kind: 'slide'; clipId: string; base: Comp; startX: number }
   | { kind: 'marquee'; x0: number; y0: number; x1: number; y1: number; additive: boolean; before: string[] }
   | { kind: 'keyframe'; clipId: string; property: 'opacity' | 'volume'; base: Comp; index: number | null; startY: number; startValue: number }
+  | { kind: 'marker'; id: string; startX: number; moved: boolean }
   | { kind: 'transition'; id: string; edge: 'in' | 'out'; base: Comp; startX: number }
   | { kind: 'resize'; trackId: string; startY: number; height: number }
   | { kind: 'playhead' };
@@ -578,8 +579,19 @@ export function Timeline(props: Props) {
         redraw((value) => value + 1);
         return;
       }
-      case 'keyframe': {
-        const clip = active.base.clips.find((item) => item.id === active.clipId);
+      case 'marker': {
+        if (!active.moved && Math.abs(event.clientX - active.startX) < 4) return;
+        active.moved = true;
+        const time = Math.max(0, toFrame(at, fps));
+        previewComp({
+          ...comp,
+          markers: comp.markers
+            .map((item) => (item.id === active.id ? { ...item, time } : item))
+            .sort((a, b) => a.time - b.time),
+        });
+        return;
+      }
+      case 'keyframe': {        const clip = active.base.clips.find((item) => item.id === active.clipId);
         const clipRow = allRows.find((item) => item.track.id === clip?.trackId);
         if (!clip || !clipRow) return;
         const deltaFraction = (event.clientY - active.startY) / Math.max(1, clipRow.height - 20);
@@ -680,6 +692,10 @@ export function Timeline(props: Props) {
     } else if (active.kind === 'trim') history.settle(active.mode === 'stretch' ? 'Rate Stretch' : active.mode === 'ripple' ? 'Ripple Trim' : active.mode === 'rolling' ? 'Rolling Edit' : 'Trim');
     else if (active.kind === 'slip') history.settle('Slip');
     else if (active.kind === 'slide') history.settle('Slide');
+    else if (active.kind === 'marker') {
+      if (active.moved) history.settle('Move Marker');
+      else playhead.seek(timeAt(event.clientX));
+    }
     else if (active.kind === 'keyframe' || active.kind === 'transition') history.settle(active.kind === 'keyframe' ? 'Keyframe' : 'Transition Duration');
     redraw((value) => value + 1);
   };
@@ -1009,11 +1025,12 @@ export function Timeline(props: Props) {
             {outX !== null && <div className="ruler-out" style={{ left: outX }} />}
             {inX !== null && outX !== null && outX > inX && <div className="ruler-range" style={{ left: inX, width: outX - inX }} />}
             {comp.markers.map((marker) => (
-              <button key={marker.id} type="button" className="ruler-marker" style={{ left: HEAD + marker.time * zoom, background: marker.color }} title={`${marker.name || 'Marker'} · ${timecode(marker.time, fps)} — click to jump, double-click to edit, Alt+click to delete`}
+              <button key={marker.id} type="button" className="ruler-marker" style={{ left: HEAD + marker.time * zoom, background: marker.color }} title={`${marker.name || 'Marker'} · ${timecode(marker.time, fps)} — click to jump, drag to move, double-click to edit, Alt+click to delete`}
                 onPointerDown={(event) => {
                   event.stopPropagation();
+                  if (event.button !== 0) return;
                   if (event.altKey) setComp((current) => ({ ...current, markers: current.markers.filter((item) => item.id !== marker.id) }), 'Delete Marker');
-                  else playhead.seek(marker.time);
+                  else capture(event, { kind: 'marker', id: marker.id, startX: event.clientX, moved: false });
                 }}
                 onDoubleClick={() => props.onMarkerEdit(marker.id)} />
             ))}

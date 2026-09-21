@@ -141,6 +141,7 @@ function clipSummary(project: Project, assets: AssetMap, comp: Comp, clip: Clip)
 
 /** One comp in full: what `get_comp` answers with. */
 export function compDetail(project: Project, assets: AssetMap, comp: Comp) {
+  const ranged = comp.inPoint !== null && comp.outPoint !== null && comp.outPoint > comp.inPoint;
   return {
     id: comp.id,
     name: comp.name,
@@ -149,6 +150,11 @@ export function compDetail(project: Project, assets: AssetMap, comp: Comp) {
     duration: round(compDuration(comp)),
     inPoint: comp.inPoint,
     outPoint: comp.outPoint,
+    // When the user marked In/Out, that span IS the job: every time-based op
+    // (cuts, trims, placements, ranges) defaults inside it unless told otherwise.
+    workingRange: ranged
+      ? `WORKING RANGE ${round(comp.inPoint ?? 0)}–${round(comp.outPoint ?? 0)}s (In→Out marked): do the requested work inside this span only`
+      : null,
     tracks: comp.tracks.map((track) => ({
       track: trackLabel(comp, track.id),
       id: track.id,

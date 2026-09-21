@@ -2184,7 +2184,7 @@ export default function App() {
       <MenuBar menus={menus} />
       {learningOpen && <LearningWorkspace project={project} assets={assetMap} history={history} jobs={Object.values(jobs)} onClose={() => setLearningOpen(false)} />}
       <HeaderBar
-        resourceMonitor={<ResourceMonitor jobs={Object.values(jobs)} runs={Object.values(toolRuns).flat()} />}
+        resourceMonitor={<ResourceMonitor jobs={Object.values(jobs)} runs={Object.values(toolRuns).flat()} onCancelJob={(id) => void api.jobCancel(id)} />}
         mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }}
         exportDisabled={!hasClips || !!exportJob} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}

@@ -3420,6 +3420,36 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .resource-heading, .resource-row { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .resource-task { border-bottom: 1px solid #444; padding: 8px 0; }
 .resource-row { margin-top: 8px; }
+/* ── live monitor: top mini-bars, four cards, tables, guarded cancels ──────── */
+.mon-top { display: inline-flex; align-items: center; gap: 7px; }
+.mon-bar { display: inline-block; width: 52px; height: 5px; border-radius: 999px; background: var(--panel-4, #3a3a3a); overflow: hidden; vertical-align: middle; }
+.mon-bar > span { display: block; height: 100%; background: var(--blue); transition: width 400ms ease; }
+.mon-bar.ram > span { background: var(--mango, #e8a33d); }
+.mon-bar.gpu > span { background: var(--violet, #9d7bff); }
+.mon-bar.vram > span { background: var(--teal, #3fc1a7); }
+.mon-bar.disk > span { background: var(--green, #6cc26c); }
+.mon-bar.proc { width: 64px; height: 4px; margin-right: 6px; }
+.mon-bar.proc > span { background: var(--mango, #e8a33d); }
+.mon-bar.wide { width: 100%; height: 6px; }
+.resource-details.mon { width: min(560px, 90vw); }
+.mon-live { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--green, #6cc26c); }
+.mon-live::before { content: ''; width: 7px; height: 7px; border-radius: 999px; background: currentColor; }
+.mon-live.stale { color: var(--amber); }
+.mon-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 10px 0 4px; }
+.mon-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; }
+.mon-card-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+.mon-card-head strong { margin-left: auto; color: var(--text); font-variant-numeric: tabular-nums; }
+.mon-card small { line-height: 1.35; }
+.mon-spark { width: 100%; height: 16px; }
+.mon-spark polyline { stroke: var(--blue); }
+.mon-spark.ram polyline { stroke: var(--mango, #e8a33d); }
+.mon-spark.gpu polyline { stroke: var(--violet, #9d7bff); }
+.mon-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+.mon-table th { text-align: left; color: var(--text-faint); font-weight: 500; padding: 3px 6px 3px 0; }
+.mon-table td { padding: 3px 6px 3px 0; border-top: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.mon-job-top { display: flex; align-items: center; gap: 8px; }
+.mon-job-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mon-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--amber); }
 .provider-auto-update { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; color: #aaa; }
 .provider-update-status { font-size: 11px; overflow-wrap: anywhere; max-height: 76px; overflow: auto; color: #aaa; margin: 6px 0 0; }
 .provider-actions { flex-wrap: wrap; }

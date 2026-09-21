@@ -155,6 +155,19 @@ pub fn plan(
     let frame = Frame { w: width, h: height, ratio: f64::from(height) / f64::from(comp.height) };
     let picture = graph.comp_video(comp, frame, Span { t0, frames }, false, 0)?;
     let mut args: Vec<String> = Vec::new();
+    // Provenance stamped into the file itself: any player or editor opening
+    // the export reads what made it, from what, and where its chapters are.
+    let clean = |text: &str| text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>().trim().to_owned();
+    let chapters = comp.markers.iter().map(|marker| format!("{}@{:.1}s", if marker.name.trim().is_empty() { "Marker" } else { marker.name.trim() }, marker.time)).collect::<Vec<_>>().join("; ");
+    let mut comment = format!("Made with Helios {} · {} · {}x{}@{} · {} clips", env!("CARGO_PKG_VERSION"), comp.name, width, height, rate.text(), comp.clips.len());
+    if !chapters.is_empty() {
+        comment.push_str(&format!(" · chapters: {chapters}"));
+    }
+    let file_metadata: Vec<String> = vec![
+        "-metadata".into(), format!("title={}", clean(&comp.name)),
+        "-metadata".into(), format!("comment={}", clean(&comment.chars().take(500).collect::<String>())),
+        "-metadata".into(), format!("encoder=Helios {}", env!("CARGO_PKG_VERSION")),
+    ];
     match output {
         Output::Video => {
             graph.chain_to(&[picture], "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p", "vout");
@@ -172,6 +185,7 @@ pub fn plan(
             args.extend(graph.finish());
             args.extend(["-map", "[vout]", "-map", "[aout]"].map(str::to_owned));
             args.extend(video_codec);
+            args.extend(file_metadata);
             args.extend(
                 ["-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "-t"]
                     .map(str::to_owned),
