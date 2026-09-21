@@ -525,7 +525,7 @@ export function ChatPanel(props: Props) {
     return () => window.clearTimeout(handle);
   }, [launch]);
 
-  const send = async (text: string) => {
+  const send = async (text: string, hiddenExtra?: string) => {
     const sentImages=[...imagesRef.current];
     const message = text.trim() || (sentImages.length ? 'Please inspect the attached images.' : '');
     if (!message) return;
@@ -558,7 +558,7 @@ export function ChatPanel(props: Props) {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
-      await api.chatSend({ turnId, providerId, model, effort: level, message, images: sentImages, history, handoff, context: { ...(getContext() as object), editingWorkflow: workflowMode, workflowInstruction: 'Call editing_workflow_status first. In full mode analysis and storyboard are enforced by tool receipts. Call verify_edit_workflow before claiming completion.' } });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), editingWorkflow: workflowMode, workflowInstruction: 'Call editing_workflow_status first. In full mode analysis and storyboard are enforced by tool receipts. Call verify_edit_workflow before claiming completion.' } });
       setImages([]);
     } catch (error) {
       patch(turnId, (item) => ({
@@ -581,7 +581,12 @@ export function ChatPanel(props: Props) {
   const remedy = (message: Assistant, action: TurnFault['remedy']) => {
     if (action === 'retry') {
       const text = lastUserMessage(message.id);
-      if (text) void send(text);
+      // Continue, don't restart: the transcript already holds every completed
+      // edit, so resending the bare prompt redoes the whole pipeline and stalls
+      // in the same place. The hidden suffix points at the first unfinished step.
+      if (text) {
+        void send(text, '[Continuing after an interruption — do not redo completed edits. First read the current timeline with get_comp, identify the first unfinished step of the request, continue from there in 5–12s batches, and finish with verify_edit_workflow.]');
+      }
     } else if (action === 'switch_provider') {
       setPickerOpen(true);
     } else if (action === 'compact') {

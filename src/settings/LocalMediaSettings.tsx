@@ -7,8 +7,9 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.localMediaStatus>> | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [hfToken, setHfToken] = useState('');
   const install = async (task: string) => {
-    try { const id = await api.localMediaInstall(task); setMessage(`Download started. Follow progress or cancel in Jobs (${id}).`); }
+    try { const id = await api.localMediaInstall(task, task === 'audio' && hfToken.trim() ? hfToken.trim() : undefined); setMessage(`Download started. Follow progress or cancel in Jobs (${id}).`); }
     catch (e) { setError(errorText(e)); }
   };
   useEffect(() => {
@@ -39,6 +40,11 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
       <p>{row.modelPath || settings.localMediaModels?.[row.modelKey] || 'No model directory selected'}</p>
       <button className="btn" onClick={() => void choose(row.modelKey)}>Choose model folder</button>
       <button className="btn" disabled={!status.pythonConfigured || row.download?.status === 'running' || row.configured} onClick={() => void install(row.modelKey)}>{row.download?.status === 'running' ? 'Downloading…' : row.configured ? 'Installed' : 'Download official model'}</button>
+      {row.task === 'audio' && !row.configured && (
+        <label style={{ display: 'block', marginTop: 8 }}>Hugging Face read token (gated model — accept its terms on huggingface.co first; used once, never stored)
+          <input type="password" value={hfToken} onChange={(event) => setHfToken(event.target.value)} placeholder="hf_…" autoComplete="off" style={{ display: 'block', width: '100%', marginTop: 4 }} />
+        </label>
+      )}
       {row.download && <div role="status">
         {row.download.status === 'running' && <progress aria-label={`${row.label} download progress`} max={1} value={row.download.progress} style={{ width: '100%', marginTop: 8 }} />}
         <p>{row.download.message}{row.download.totalBytes ? ` · ${((row.download.downloadedBytes ?? 0) / 1e9).toFixed(2)} / ${(row.download.totalBytes / 1e9).toFixed(2)} GB` : ''}</p>

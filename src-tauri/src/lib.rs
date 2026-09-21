@@ -771,21 +771,39 @@ fn external_media_download(paths: &Paths, task: &str) -> Option<serde_json::Valu
     Some(value)
 }
 
+/// One ffmpeg invocation extracting every requested frame: each timestamp gets
+/// its own input seek (`-ss` before `-i`) and output, so a single process pays
+/// startup once instead of once per frame. Outputs stay in timestamp order.
+fn frame_batch_args(times: &[f64], source: &str, outs: &[PathBuf]) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-hide_banner".to_owned(), "-loglevel".to_owned(), "error".to_owned(), "-y".to_owned(), "-nostdin".to_owned()];
+    for (index, time) in times.iter().enumerate() {
+        args.extend(["-ss".to_owned(), time.to_string(), "-i".to_owned(), source.to_owned(), "-frames:v".to_owned(), "1".to_owned(), "-vf".to_owned(), "scale=640:-2".to_owned(), "-q:v".to_owned(), "3".to_owned(), outs[index].display().to_string()]);
+    }
+    args
+}
+
 #[tauri::command]
-async fn analysis_frames(state: State<'_, Arc<AppState>>, id: String, times: Vec<f64>) -> CommandResult<serde_json::Value> {
-    use base64::Engine;
+async fn analysis_frames(state: State<'_, Arc<AppState>>, id: String, times: Vec<f64>) -> CommandResult<serde_json::Value> {    use base64::Engine;
     let asset = state.assets_by_id().remove(&id).ok_or("Media not found")?;
     if times.is_empty() || times.len() > 6 || times.iter().any(|t| !t.is_finite() || *t < 0.0 || *t >= asset.duration) { return Err("Request 1–6 source timestamps within the media duration".into()); }
     let tools = state.tools();
     let folder = state.paths.work.join(store::new_id());
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let result = async {
+        // One ffmpeg for every frame: six separate processes each pay startup
+        // plus a seek, one process with repeated inputs pays it once. Any
+        // output that comes out missing or empty falls back to the old
+        // per-frame path individually below.
+        let outs: Vec<PathBuf> = (0..times.len()).map(|index| folder.join(format!("{index}.jpg"))).collect();
+        let batch = frame_batch_args(&times, &asset.path, &outs);
+        let refs: Vec<&str> = batch.iter().map(String::as_str).collect();
+        let _ignored = tools::run(tools.ffmpeg()?, &refs, None).await;
         let mut images = Vec::new();
         let mut preceding_frame_fallbacks = Vec::new();
         for (index, time) in times.iter().enumerate() {
-            let path = folder.join(format!("{index}.jpg"));
-            let direct = tools::run(tools.ffmpeg()?, &["-hide_banner", "-loglevel", "error", "-y", "-nostdin", "-ss", &time.to_string(), "-i", &asset.path, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", &path.display().to_string()], None).await;
-            if direct.is_err() || std::fs::metadata(&path).map_or(true, |m| m.len() == 0) {
+            let path = outs[index].clone();
+            let direct = std::fs::metadata(&path).map(|meta| meta.len() > 0).unwrap_or(false);
+            if !direct {
             preceding_frame_fallbacks.push(index);
             // Container duration can extend past the final video timestamp (audio tails/VFR).
             // Select the latest decoded frame at or before the requested time, including EOF.
@@ -860,7 +878,7 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
 }
 
 #[tauri::command]
-fn local_media_install(state: State<'_, Arc<AppState>>, task: String) -> CommandResult<String> {
+fn local_media_install(state: State<'_, Arc<AppState>>, task: String, hf_token: Option<String>) -> CommandResult<String> {
     if !["image", "video", "audio", "sam2", "vitmatte", "depth", "person-track"].contains(&task.as_str()) { return Err("Unknown model adapter".into()); }
     if external_media_download(&state.paths, &task).is_some_and(|v| v["status"] == "running") { return Err("This model is already downloading. Follow its progress in Local Media settings.".into()); }
     let prefs = state.settings();
@@ -875,7 +893,7 @@ fn local_media_install(state: State<'_, Arc<AppState>>, task: String) -> Command
     let worker = work.join("worker.py");
     std::fs::write(&worker, include_str!("../workers/local_media.py")).map_err(|e| e.to_string())?;
     let input = work.join("request.json");
-    store::write_json(&input, &serde_json::json!({ "action": "install", "task": task, "output": output }))?;
+    store::write_json(&input, &serde_json::json!({ "action": "install", "task": task, "output": output, "hf_token": hf_token }))?;
     let shared = state.inner().clone();
     tauri::async_runtime::spawn(async move {
         let _lease = lease;
@@ -2114,10 +2132,40 @@ pub fn run() {
             chat_tool_result,
             chat_stop,
             chat_active_turns,
+            chat_spawn_subagent,
+            chat_subagent_status,
+            chat_list_subagents,
+            chat_wait_subagent,
         ])
         .run(tauri::generate_context!());
     if let Err(error) = result {
         eprintln!("Helios could not start: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::frame_batch_args;
+    use std::path::PathBuf;
+
+    #[test]
+    fn one_ffmpeg_run_extracts_every_frame_in_order() {
+        let outs: Vec<PathBuf> = (0..3).map(|index| PathBuf::from(format!("/tmp/{index}.jpg"))).collect();
+        let args = frame_batch_args(&[1.0, 2.5, 9.75], "clip.mp4", &outs);
+        // Each timestamp gets its own input seek before its input: three
+        // inputs, three outputs, one process.
+        assert_eq!(args.iter().filter(|arg| *arg == "-i").count(), 3);
+        assert_eq!(args.iter().filter(|arg| *arg == "-ss").count(), 3);
+        let positions: Vec<usize> = ["1", "2.5", "9.75"]
+            .iter()
+            .map(|stamp| args.iter().position(|arg| arg == stamp).expect("timestamp in args"))
+            .collect();
+        assert!(positions[0] < positions[1] && positions[1] < positions[2], "timestamps stay in order");
+        for (index, stamp) in ["1", "2.5", "9.75"].iter().enumerate() {
+            let at = args.iter().position(|arg| arg == stamp).expect("timestamp");
+            assert_eq!(args[at + 1], "-i", "a seek opens its own input");
+            assert!(args[at..].iter().any(|arg| arg.ends_with(&format!("{index}.jpg"))), "each input feeds its own output");
+        }
     }
 }

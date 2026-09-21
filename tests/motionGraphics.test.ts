@@ -235,3 +235,22 @@ describe('AI Tool create_motion_graphic', () => {
     expect(overlay?.source.type).toBe('comp');
   });
 });
+
+describe('motion graphic visibility', () => {
+  it('creates clips at full opacity so nested comps are not empty/invisible', () => {
+    const nested = createMotionGraphicComp(createDummyProject(), { template: 'lower-third', title: 'Name', asNestedComp: true });
+    expect(nested.mogrtComp).toBeDefined();
+    const inner = nested.mogrtComp!.clips;
+    expect(inner).toHaveLength(1);
+    expect(inner[0].source.type).toBe('html');
+    // Opacity is a 0–100 percent scale (see DEFAULT_TRANSFORM): 1 renders at
+    // 1% and reads as an empty nested comp with a lagging preview.
+    for (const clip of [...inner, ...nested.project.comps.flatMap((comp) => comp.clips.filter((entry) => entry.id === nested.newClipId))]) {
+      expect(clip.transform.opacity).toBe(100);
+      expect(clip.transform.scale).toBe(100);
+    }
+    const direct = createMotionGraphicComp(createDummyProject(), { template: 'lower-third', title: 'Name', asNestedComp: false });
+    const placed = direct.project.comps[0].clips.find((clip) => clip.id === direct.newClipId);
+    expect(placed?.transform.opacity).toBe(100);
+  });
+});

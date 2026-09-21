@@ -366,7 +366,7 @@ export const api = {
   localMediaStatus: () => invoke<{ pythonConfigured: boolean; tasks: { task: string; modelKey: string; modelPath: string | null; label: string; configured: boolean; verified: boolean; download: { jobId?: string; status: string; progress: number; message: string; external: boolean; downloadedBytes?: number; totalBytes?: number } | null }[] }>('local_media_status'),
   analysisFrames: (id: string, times: number[]) => invoke<{ times: number[]; images: string[]; assetId: string }>('analysis_frames', { id, times }),
   localMediaGenerate: (request: Record<string, unknown>) => invoke<string>('local_media_generate', { request }),
-  localMediaInstall: (task: string) => invoke<string>('local_media_install', { task }),
+  localMediaInstall: (task: string, hfToken?: string) => invoke<string>('local_media_install', hfToken ? { task, hf_token: hfToken } : { task }),
   jobCancel: (id: string) => invoke<boolean>('job_cancel', { id }),
 
   /** Scene Edit Detection: the cut times inside a piece of media. */
