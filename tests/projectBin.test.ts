@@ -62,3 +62,22 @@ describe('deleteBinEntries', () => {
     expect(next.comps).toHaveLength(2);
   });
 });
+
+describe('newProject', () => {
+  it('initializes a completely clean and empty project', () => {
+    const fresh = newProject('Brand New');
+    expect(fresh.name).toBe('Brand New');
+    expect(fresh.media).toEqual([]);
+    expect(fresh.items).toEqual([]);
+    expect(fresh.folders).toEqual([]);
+    expect(fresh.comps).toHaveLength(1);
+    expect(fresh.comps[0].name).toBe('Comp 1');
+    expect(fresh.comps[0].clips).toEqual([]);
+    expect(fresh.comps[0].markers).toEqual([]);
+    expect(fresh.comps[0].transitions).toEqual([]);
+    expect(fresh.activeCompId).toBe(fresh.comps[0].id);
+    expect(fresh.openCompIds).toEqual([fresh.comps[0].id]);
+    expect(fresh.captionStyle).toBeNull();
+  });
+});
+

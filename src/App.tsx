@@ -648,12 +648,21 @@ export default function App() {
   const newProjectNow = () =>
     guardUnsaved(() => {
       const fresh = newProject();
-      history.reset({ ...fresh, media: project.media, captionStyle: project.captionStyle });
+      history.reset(fresh);
       setSavedProject(null);
       saveSettings({ projectPath: null });
       setSelection([]);
+      setBinFolder(null);
+      setSourceId(null);
+      setToolRuns({});
+      setPendingAsks([]);
       playhead.seek(0);
+      chatApi.current?.clear();
+      turnSnapshots.current.clear();
+      editWorkflows.current.clear();
+      renderOriginals.current.clear();
       setMode('edit');
+      toast({ tone: 'info', title: 'New project', body: 'Started a fresh, clean, empty project.', timeout: 2000 });
     }, 'New project');
 
   // Closing the window asks about unsaved work.
@@ -1588,6 +1597,7 @@ export default function App() {
   const menus: MenuGroup[] = [
     { label: 'File', items: [
       { label: 'New Project', shortcut: 'Ctrl+Alt+N', onSelect: newProjectNow },
+      { label: 'New File', onSelect: newProjectNow },
       { label: 'New Comp…', shortcut: 'Ctrl+N', onSelect: newCompDialog },
       { label: 'New Item', submenu: newItemMenu.slice(2) },
       { separator: true },

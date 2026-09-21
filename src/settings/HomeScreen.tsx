@@ -55,7 +55,7 @@ export function HomeScreen(props: Props) {
           <button type="button" className="home-card" onClick={props.onNewProject}>
             <FilePlus2 size={22} />
             <strong>New project</strong>
-            <span>Start fresh (your media stays in the Project panel)</span>
+            <span>Start a fresh, clean, empty project</span>
           </button>
           <button type="button" className="home-card" onClick={props.onProviders}>
             <Sparkles size={22} />

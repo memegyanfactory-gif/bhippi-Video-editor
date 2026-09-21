@@ -1,7 +1,7 @@
 import { modelVariants, variantModel } from '../lib/modelVariants';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Paperclip, RotateCcw, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { Markdown } from '../components/Markdown';
 import { ModelPicker } from '../components/ModelPicker';
@@ -214,6 +214,20 @@ export function ChatPanel(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(props.apiRef, () => ({
+    clear: () => {
+      setMessages([]);
+      setDraft('');
+      setImages([]);
+      setQueued(null);
+      setAttached(null);
+      void api.chatLogSave([]).catch(() => undefined);
+    },
+    focus: () => {
+      inputRef.current?.focus();
+    },
+  }), []);
   /** Whether the transcript is following the newest words, set by the reader's own scrolling. */
   const pinned = useRef(true);
   const propsRef = useRef(props);
