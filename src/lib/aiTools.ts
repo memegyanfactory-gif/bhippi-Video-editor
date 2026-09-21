@@ -12,6 +12,7 @@ import { summarizePersonTracks, trackPeopleAsset } from './personTracks';import 
 import { adaptRhythmProgram } from './learning';
 import { storyboardContentError, type StoryboardSceneInput } from './editWorkflow';
 import { createMotionGraphicComp } from './motionGraphics';
+import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
 // Runs Helios AI's tool calls against the live project. Every tool is one undo step labelled
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
@@ -29,7 +30,7 @@ import {
 import { EMPTY_KEYFRAMES } from './keyframes';
 import { playhead } from './playhead';
 import {
-  addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
+  addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, deleteBinEntries, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
   newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
@@ -50,6 +51,7 @@ export type ToolHost = {
   ask: (question: { question: string; options: string[]; context: string | null }) => Promise<string>;
   /** Sets the active project reference guideline. */
   setReference?: (id: string | null) => void;
+  turnId?: string;
 };
 
 function findOrCreateFolder(
@@ -254,13 +256,28 @@ const findClipIn = (project: Project, clipId: string) => {
   return null;
 };
 
+/**
+ * The root "Generated" folder AI-made media files into, so generations never
+ * scatter across the project root. Idempotent: returns the existing one when
+ * the user (or an earlier turn) already made it.
+ */
+function generatedFolderId(project: Project, commit: (change: (current: Project) => Project) => void): string {
+  const existing = project.folders.find((folder) => folder.name === 'Generated' && !folder.parentId);
+  if (existing) return existing.id;
+  const id = uid();
+  commit((current) => (current.folders.some((folder) => folder.id === id || (folder.name === 'Generated' && !folder.parentId))
+    ? current
+    : { ...current, folders: [...current.folders, { id, name: 'Generated', parentId: null }] }));
+  return project.folders.find((folder) => folder.name === 'Generated' && !folder.parentId)?.id ?? id;
+}
+
 const ITEM_KINDS: Record<string, ItemKind> = {
   color_matte: 'color-matte', black_video: 'black-video', transparent_video: 'transparent-video', bars_and_tone: 'bars-and-tone', adjustment_layer: 'adjustment-layer', countdown: 'countdown',
 };
 
 // ───────────────────────────── the executor ─────────────────────────────
 
-export async function runTool(host: ToolHost, name: string, rawArgs: unknown, signal?: AbortSignal): Promise<ToolResult> {
+export async function runTool(host: ToolHost, name: string, rawArgs: unknown, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
   const args: Args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? (rawArgs as Args) : {};
   const project = host.history.current();
   const assets = host.assets();
@@ -284,6 +301,43 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
   }
 
   switch (name) {
+    case 'spawn_subagent': {
+      const task = str(args, 'task');
+      const labelText = str(args, 'label') || 'Subagent';
+      if (!task) return fail('task is required');
+      const parentTurnId = turnId ?? host.turnId ?? '';
+      try {
+        const result = await api.chatSpawnSubagent({
+          parentTurnId,
+          task,
+          label: labelText,
+          model: str(args, 'model') ?? undefined,
+          maxRounds: num(args, 'maxRounds') ?? undefined,
+        });
+        return done(`Spawned subagent "${labelText}"`, { subagentId: result.subagentId, label: labelText });
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    }
+    case 'wait_subagent': {
+      const subagentId = str(args, 'subagentId') ?? undefined;
+      const parentTurnId = !subagentId ? (turnId ?? host.turnId ?? '') : undefined;
+      try {
+        const res = await api.chatWaitSubagent(subagentId, parentTurnId);
+        return done(res.result ?? 'Subagent finished', res);
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    }
+    case 'list_subagents': {
+      const parentTurnId = turnId ?? host.turnId ?? '';
+      try {
+        const subagents = await api.chatListSubagents(parentTurnId);
+        return done(`Active subagents: ${subagents.length}`, { subagents });
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    }
     case 'add_text_behind_subject': {
       const found = findClipIn(project, str(args, 'clipId') ?? '');
       if (!found) return fail('Choose a Roto clip.');
@@ -535,10 +589,261 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
         return fail(errorText(error));
       }
     }
+    case 'query_frame_atlas': {
+      try {
+        const mood = str(args, 'mood');
+        const shotSize = str(args, 'shotSize');
+        const lighting = str(args, 'lighting');
+        const tone = str(args, 'tone');
+        const search = str(args, 'search');
+        const applyAsGuideline = bool(args, 'applyAsGuideline') ?? false;
+
+        const result = queryFrameAtlas({ mood, shotSize, lighting, tone, search });
+
+        let guidelineId: string | undefined;
+        if (applyAsGuideline && result.matches[0]) {
+          const top = result.matches[0];
+          const guidelineNotes = [
+            `FRAME ATLAS STYLING: ${top.title} (${top.shot.toUpperCase()})`,
+            `LIGHTING: ${result.stylingDirectives.lighting}`,
+            `COMPOSITION: ${result.stylingDirectives.composition}`,
+            `CAMERA MOVEMENT: ${result.stylingDirectives.cameraMovement}`,
+            `COLOR TONE: ${result.stylingDirectives.colorTone}`,
+            `TAGS: ${top.tags.join(', ')}`,
+            top.notes ? `ANALYSIS NOTES: ${top.notes}` : '',
+          ].filter(Boolean).join('\n');
+
+          const guide = await api.refsSaveGuideline(
+            `Frame Atlas: ${top.title}`,
+            guidelineNotes,
+            result.recommendedPalette,
+            'frame-atlas'
+          );
+          guidelineId = guide.id;
+          host.setReference?.(guide.id);
+        }
+
+        const summary = `Queried Frame Atlas library. Found ${result.matches.length} matching cinematic frame references (top: "${result.matches[0]?.title || 'Standard'}"). Recommended palette: ${result.recommendedPalette.join(', ')}.${guidelineId ? ' Applied and activated as project guideline.' : ''}`;
+
+        return done(summary, {
+          matches: result.matches,
+          recommendedPalette: result.recommendedPalette,
+          stylingDirectives: result.stylingDirectives,
+          guidelineId,
+          taxonomySample: {
+            shotSizes: FRAME_ATLAS_TAXONOMY.shotSize,
+            lightingPatterns: FRAME_ATLAS_TAXONOMY.lightPatterns,
+            cameraMovements: FRAME_ATLAS_TAXONOMY.movementEvidence,
+          },
+        });
+      } catch (error) {
+        return fail(errorText(error));
+      }
+    }
+    case 'synthesize_speech_voiceover': {
+      const script = str(args, 'script');
+      if (!script) return fail('Supply narration script text for voiceover synthesis.');
+      const requestedVoice = str(args, 'voice');
+      const autoPlace = bool(args, 'autoPlace') !== false;
+      const startTime = Math.max(0, num(args, 'startTime') ?? 0);
+      const customTrackId = str(args, 'trackId');
+      const name = str(args, 'name') || `Voiceover: ${script.slice(0, 30).trim()}`;
+
+      try {
+        const status = await api.speechStatus();
+        let voice = requestedVoice;
+
+        if (!status?.piper?.found) {
+          try {
+            await api.modelDownload('piper-runtime');
+          } catch (dlErr) {
+            console.warn('Could not auto-download piper-runtime:', dlErr);
+          }
+        }
+
+        if (!voice) {
+          const installedVoices = await api.speechVoices().catch(() => []);
+          const firstVoice = installedVoices[0];
+          if (firstVoice) {
+            voice = firstVoice.id;
+          } else {
+            try {
+              await api.modelDownload('piper-en-hfc-female');
+              voice = 'piper:piper-en-hfc-female';
+            } catch {
+              voice = 'piper:piper-en-hfc-female';
+            }
+          }
+        }
+
+        const asset = await api.speechGenerate(script, voice, 'natural', name);
+        if (!asset || !asset.id) {
+          return fail('Speech synthesis produced no audio asset.');
+        }
+
+        let placedClipId: string | undefined;
+        if (autoPlace) {
+          const comp = project.comps[0];
+          if (comp) {
+            const audioTracks = tracksOf(comp, 'audio');
+            let targetTrack = customTrackId ? audioTracks.find(t => t.id === customTrackId) : audioTracks[0];
+            if (!targetTrack) {
+              const newTrk: Track = {
+                id: uid(),
+                kind: 'audio',
+                name: 'Voiceover',
+                locked: false,
+                hidden: false,
+                muted: false,
+                solo: false,
+                targeted: true,
+                syncLock: true,
+                height: 48,
+              };
+              commit(p => updateComp(p, comp.id, c => ({ ...c, tracks: [...c.tracks, newTrk] })));
+              targetTrack = newTrk;
+            }
+
+            const clipDuration = asset.duration || 5;
+            const clip = newClip({
+              trackId: targetTrack.id,
+              start: startTime,
+              in: 0,
+              duration: clipDuration,
+              source: { type: 'media', assetId: asset.id },
+            });
+
+            commit(p => updateComp(p, comp.id, c => ({
+              ...c,
+              clips: [...c.clips, clip],
+            })));
+            placedClipId = clip.id;
+          }
+        }
+
+        const summary = `Synthesized speech voiceover "${asset.name}" (${asset.duration?.toFixed(1) || '?'}s).${placedClipId ? ` Placed on audio track at ${startTime.toFixed(1)}s.` : ' Ready in project library.'}`;
+
+        return done(summary, {
+          assetId: asset.id,
+          assetName: asset.name,
+          duration: asset.duration,
+          placedOnTimeline: Boolean(placedClipId),
+          clipId: placedClipId,
+          startTime,
+        });
+      } catch (error) {
+        return fail(errorText(error));
+      }
+    }
+    case 'scrape_videos': {
+      const url = str(args, 'url');
+      if (!url) return fail('Supply a webpage or social media URL to scrape videos from.');
+      const shouldDownload = bool(args, 'download') !== false;
+      const maxVideos = Math.min(Math.max(1, num(args, 'maxVideos') ?? 5), 20);
+      const folderName = str(args, 'folderName') || `Scraped Videos: ${url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 30)}`;
+      const crop = str(args, 'crop');
+      const noAudio = bool(args, 'noAudio') ?? false;
+
+      try {
+        const scraped = await api.webScrape(url, 4000);
+        let candidateVideos = scraped.videos || [];
+
+        const lowerUrl = url.toLowerCase();
+        const isPlatformSelf = lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')
+          || lowerUrl.includes('instagram.com') || lowerUrl.includes('tiktok.com')
+          || lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')
+          || lowerUrl.includes('vimeo.com') || lowerUrl.includes('reddit.com')
+          || lowerUrl.includes('fb.watch') || lowerUrl.includes('facebook.com')
+          || lowerUrl.includes('pinterest.com') || lowerUrl.includes('pin.it')
+          || lowerUrl.includes('streamable.com');
+
+        if (isPlatformSelf && !candidateVideos.includes(url)) {
+          candidateVideos = [url, ...candidateVideos];
+        }
+
+        if (!candidateVideos.length) {
+          return done(`Scraped "${scraped.title || url}", but found no video sources or embeds.`, {
+            url,
+            title: scraped.title,
+            videosFound: 0,
+            videos: [],
+            importedAssets: [],
+          });
+        }
+
+        const selectedVideos = candidateVideos.slice(0, maxVideos);
+
+        if (!shouldDownload) {
+          return done(
+            `Scraped ${candidateVideos.length} video link(s) from "${scraped.title || url}" (showing first ${selectedVideos.length}).`,
+            {
+              url,
+              title: scraped.title,
+              videosFound: candidateVideos.length,
+              videos: selectedVideos,
+              importedAssets: [],
+            }
+          );
+        }
+
+        const targetFolderId = findOrCreateFolder(project, commit, folderName);
+        const importedAssets: Asset[] = [];
+        const failedDownloads: { url: string; error: string }[] = [];
+
+        for (const vUrl of selectedVideos) {
+          try {
+            const dl = await api.mediaDownload(
+              vUrl,
+              'video',
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              noAudio,
+              crop
+            );
+            const imported = await host.importMedia([dl.path], targetFolderId);
+            if (imported[0]) {
+              importedAssets.push(imported[0]);
+            }
+          } catch (dlErr) {
+            failedDownloads.push({ url: vUrl, error: errorText(dlErr) });
+          }
+        }
+
+        const successCount = importedAssets.length;
+        const failCount = failedDownloads.length;
+        const failNote = failCount > 0 ? ` (${failCount} failed to download)` : '';
+        const summary = `Scraped and imported ${successCount} video(s) from "${scraped.title || url}" into project folder "${folderName}"${failNote}. Ready to place on timeline or attach to storyboard scene refs.`;
+
+        return done(summary, {
+          url,
+          title: scraped.title,
+          folderName,
+          folderId: targetFolderId,
+          videosFound: candidateVideos.length,
+          downloadedCount: successCount,
+          importedAssets: importedAssets.map((a) => ({
+            id: a.id,
+            name: a.name,
+            kind: a.kind,
+            duration: a.duration,
+            path: a.path,
+          })),
+          failedDownloads: failedDownloads.length ? failedDownloads : undefined,
+        });
+      } catch (error) {
+        return fail(errorText(error));
+      }
+    }
     case 'scrape_web_page': {
       const url = str(args, 'url');
       if (!url) return fail('Supply a web page URL.');
       const maxChars = num(args, 'maxChars') ?? 4000;
+      const downloadVideos = bool(args, 'downloadVideos') ?? false;
+      if (downloadVideos) {
+        return runTool(host, 'scrape_videos', args, signal, turnId);
+      }
       try {
         const result = await api.webScrape(url, maxChars);
         const mediaNote = result.images.length || result.videos.length
@@ -812,6 +1117,32 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       catch (error) { return fail(errorText(error)); }
     case 'generate_local_media':
       try {
+        if (args.task === 'video') {
+          // Strictly enforce maximum 5.0 seconds duration (at 16 fps, max 81 frames)
+          const rawFrames = typeof args.frames === 'number' ? args.frames : 81;
+          const clamped = Math.min(Math.max(5, rawFrames), 81);
+          args.frames = Math.floor((clamped - 1) / 4) * 4 + 1;
+          args.seconds = Math.min(typeof args.seconds === 'number' ? args.seconds : 5, 5);
+
+          // If structured prompt parts are provided, format them into a deep cinematic prompt
+          if (args.subject) {
+            const wanSpec = buildWanCinematicPrompt({
+              subject: String(args.subject),
+              background: args.background ? String(args.background) : undefined,
+              foreground: args.foreground ? String(args.foreground) : undefined,
+              cameraMovement: args.cameraMovement ? String(args.cameraMovement) : undefined,
+              lighting: args.lighting ? String(args.lighting) : undefined,
+              colorTone: args.colorTone ? String(args.colorTone) : undefined,
+              shotSize: args.shotSize ? String(args.shotSize) : undefined,
+              mood: args.mood ? String(args.mood) : undefined,
+              extraPrompt: args.prompt ? String(args.prompt) : undefined,
+            });
+            args.prompt = wanSpec.prompt;
+            args.negative_prompt = args.negative_prompt
+              ? `${String(args.negative_prompt)}, ${wanSpec.negativePrompt}`
+              : wanSpec.negativePrompt;
+          }
+        }
         const jobId = await api.localMediaGenerate(args);
         // Unless wait is explicitly false, wait up to 360s for video generation, 90s for images/audio, and auto-import
         if (bool(args, 'wait') !== false) {
@@ -826,7 +1157,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
               if (job.status === 'done') {
                 const res = job.result as { path?: string } | null;
                 if (res?.path) {
-                  const imported = await host.importMedia([res.path]);
+                  const imported = await host.importMedia([res.path], generatedFolderId(project, commit));
                   if (imported.length > 0) {
                     const asset = imported[0];
                     return done(`Generated and imported local media "${asset.name}" (asset ID: ${asset.id}). Ready to place on timeline or attach to storyboard scene refs.`, {
@@ -856,7 +1187,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       if (!job || job.kind !== 'generation' || job.status !== 'done') return fail('Wait for a successful generation job before importing.');
       const result = job.result as { path?: string } | null;
       if (!result?.path) return fail('The completed job has no output.');
-      const imported = await host.importMedia([result.path]);
+      const imported = await host.importMedia([result.path], generatedFolderId(project, commit));
       if (!imported.length) return fail('The generated artifact was not imported. Resolve the import failure before claiming it is available on the timeline.');
       return done('Generated artifact imported. Use place_clip with this asset ID and the storyboard range.', { assets: imported });
     }
@@ -1356,20 +1687,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown, si
       const counts = usage(project);
       const used = [...ids].filter((id) => (counts.get(id) ?? 0) > 0);
       if (used.length && !force) return fail(`${used.length} of these are used on a timeline — pass force: true to delete them and their clips`);
-      commit((current) => {
-        const comps = current.comps
-          .filter((comp) => !ids.has(comp.id))
-          .map((comp) => ({ ...comp, clips: comp.clips.filter((clip) => !((clip.source.type === 'media' && ids.has(clip.source.assetId)) || (clip.source.type === 'comp' && ids.has(clip.source.compId)) || (clip.source.type === 'item' && ids.has(clip.source.itemId)))) }));
-        return {
-          ...current,
-          comps: comps.length ? comps : [newComp({ name: 'Comp 1' })],
-          items: current.items.filter((item) => !ids.has(item.id)),
-          media: current.media.filter((ref) => !ids.has(ref.assetId)),
-          folders: current.folders.filter((folder) => !ids.has(folder.id)),
-          activeCompId: comps.some((comp) => comp.id === current.activeCompId) ? current.activeCompId : (comps[0]?.id ?? null),
-          openCompIds: current.openCompIds.filter((id) => comps.some((comp) => comp.id === id)),
-        };
-      });
+      commit((current) => deleteBinEntries(current, [...ids]));
       return done(`Removed ${ids.size} item${ids.size === 1 ? '' : 's'} from the project`);
     }
 

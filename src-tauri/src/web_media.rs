@@ -243,41 +243,8 @@ pub async fn scrape_page(url: &str, max_chars: usize, extract_media: bool) -> Re
     let mut videos = Vec::new();
 
     if extract_media {
-        let mut cursor = 0;
-        while let Some(pos) = body[cursor..].find("<img ") {
-            let tag_start = cursor + pos;
-            if let Some(tag_len) = body[tag_start..].find('>') {
-                let tag = &body[tag_start..tag_start + tag_len];
-                if let Some(src) = extract_attribute(tag, "src") {
-                    if let Some(resolved) = resolve_relative_url(&final_url, &src) {
-                        if !images.contains(&resolved) && is_likely_media_image(&resolved) && images.len() < 20 {
-                            images.push(resolved);
-                        }
-                    }
-                }
-                cursor = tag_start + tag_len;
-            } else {
-                break;
-            }
-        }
-
-        let mut v_cursor = 0;
-        while let Some(pos) = body[v_cursor..].find("<video ") {
-            let tag_start = v_cursor + pos;
-            if let Some(tag_len) = body[tag_start..].find('>') {
-                let tag = &body[tag_start..tag_start + tag_len];
-                if let Some(src) = extract_attribute(tag, "src") {
-                    if let Some(resolved) = resolve_relative_url(&final_url, &src) {
-                        if !videos.contains(&resolved) && videos.len() < 10 {
-                            videos.push(resolved);
-                        }
-                    }
-                }
-                v_cursor = tag_start + tag_len;
-            } else {
-                break;
-            }
-        }
+        images = extract_image_urls(&body, &final_url);
+        videos = extract_video_urls(&body, &final_url);
     }
 
     let text = extract_clean_text(&body, max_chars);
@@ -292,21 +259,375 @@ pub async fn scrape_page(url: &str, max_chars: usize, extract_media: bool) -> Re
 }
 
 fn extract_attribute(tag: &str, attr: &str) -> Option<String> {
-    let key = format!("{attr}=\"");
-    if let Some(idx) = tag.find(&key) {
-        let rest = &tag[idx + key.len()..];
+    let attr_lower = attr.to_lowercase();
+    let tag_lower = tag.to_lowercase();
+
+    let d_key = format!("{attr_lower}=\"");
+    if let Some(idx) = tag_lower.find(&d_key) {
+        let rest = &tag[idx + d_key.len()..];
         if let Some(end) = rest.find('\"') {
             return Some(rest[..end].trim().to_owned());
         }
     }
-    let key_single = format!("{attr}='");
-    if let Some(idx) = tag.find(&key_single) {
-        let rest = &tag[idx + key_single.len()..];
+    let s_key = format!("{attr_lower}='");
+    if let Some(idx) = tag_lower.find(&s_key) {
+        let rest = &tag[idx + s_key.len()..];
         if let Some(end) = rest.find('\'') {
             return Some(rest[..end].trim().to_owned());
         }
     }
     None
+}
+
+/// Extract clean image URLs from an HTML document.
+pub fn extract_image_urls(body: &str, final_url: &str) -> Vec<String> {
+    let mut images = Vec::new();
+
+    // 1. OpenGraph and Twitter image meta tags
+    let mut meta_cursor = 0;
+    while let Some(pos) = body[meta_cursor..].find("<meta ") {
+        let tag_start = meta_cursor + pos;
+        if let Some(tag_len) = body[tag_start..].find('>') {
+            let tag = &body[tag_start..tag_start + tag_len];
+            let tag_lower = tag.to_lowercase();
+            if tag_lower.contains("og:image") || tag_lower.contains("twitter:image") {
+                if let Some(content) = extract_attribute(tag, "content") {
+                    if let Some(resolved) = resolve_relative_url(final_url, &content) {
+                        if !images.contains(&resolved) && is_likely_media_image(&resolved) {
+                            images.push(resolved);
+                        }
+                    }
+                }
+            }
+            meta_cursor = tag_start + tag_len;
+        } else {
+            break;
+        }
+    }
+
+    // 2. <img> tags (checking src, data-src, data-original, srcset)
+    let mut cursor = 0;
+    while let Some(pos) = body[cursor..].find("<img") {
+        let tag_start = cursor + pos;
+        if let Some(tag_len) = body[tag_start..].find('>') {
+            let tag = &body[tag_start..tag_start + tag_len];
+            let candidate = extract_attribute(tag, "src")
+                .or_else(|| extract_attribute(tag, "data-src"))
+                .or_else(|| extract_attribute(tag, "data-original"));
+            if let Some(src) = candidate {
+                if let Some(resolved) = resolve_relative_url(final_url, &src) {
+                    if !images.contains(&resolved) && is_likely_media_image(&resolved) && images.len() < 25 {
+                        images.push(resolved);
+                    }
+                }
+            }
+            cursor = tag_start + tag_len;
+        } else {
+            break;
+        }
+    }
+
+    images.truncate(25);
+    images
+}
+
+/// Extract video URLs from HTML via HTML5 video, sources, OpenGraph, Twitter cards, iframes, JSON-LD, and links.
+pub fn extract_video_urls(body: &str, final_url: &str) -> Vec<String> {
+    let mut videos = Vec::new();
+
+    // 0. If the URL itself is a video platform or direct video URL, include it first
+    if is_platform_video_url(final_url) || is_video_extension(final_url) {
+        videos.push(final_url.to_owned());
+    }
+
+    // 1. OpenGraph & Twitter video meta tags
+    let mut meta_cursor = 0;
+    while let Some(pos) = body[meta_cursor..].find("<meta ") {
+        let tag_start = meta_cursor + pos;
+        if let Some(tag_len) = body[tag_start..].find('>') {
+            let tag = &body[tag_start..tag_start + tag_len];
+            let tag_lower = tag.to_lowercase();
+            let is_video_meta = tag_lower.contains("og:video")
+                || tag_lower.contains("twitter:player:stream")
+                || tag_lower.contains("twitter:player");
+            if is_video_meta {
+                if let Some(content) = extract_attribute(tag, "content") {
+                    if let Some(resolved) = resolve_relative_url(final_url, &content) {
+                        if is_valid_video_candidate(&resolved) && !videos.contains(&resolved) {
+                            videos.push(resolved);
+                        }
+                    }
+                }
+            }
+            meta_cursor = tag_start + tag_len;
+        } else {
+            break;
+        }
+    }
+
+    // 2. <video> tags (src, data-src, data-video-url, data-mp4)
+    let mut v_cursor = 0;
+    while let Some(pos) = body[v_cursor..].find("<video") {
+        let tag_start = v_cursor + pos;
+        if let Some(tag_len) = body[tag_start..].find('>') {
+            let tag = &body[tag_start..tag_start + tag_len];
+            for attr in &["src", "data-src", "data-video-url", "data-url", "data-mp4"] {
+                if let Some(src) = extract_attribute(tag, attr) {
+                    if let Some(resolved) = resolve_relative_url(final_url, &src) {
+                        if is_valid_video_candidate(&resolved) && !videos.contains(&resolved) {
+                            videos.push(resolved);
+                        }
+                    }
+                }
+            }
+            v_cursor = tag_start + tag_len;
+        } else {
+            break;
+        }
+    }
+
+    // 3. <source> tags inside or outside <video> tags
+    let mut s_cursor = 0;
+    while let Some(pos) = body[s_cursor..].find("<source") {
+        let tag_start = s_cursor + pos;
+        if let Some(tag_len) = body[tag_start..].find('>') {
+            let tag = &body[tag_start..tag_start + tag_len];
+            let tag_lower = tag.to_lowercase();
+            let is_video_type = tag_lower.contains("video/")
+                || tag_lower.contains(".mp4")
+                || tag_lower.contains(".webm")
+                || tag_lower.contains(".mov");
+            for attr in &["src", "data-src", "data-url"] {
+                if let Some(src) = extract_attribute(tag, attr) {
+                    if let Some(resolved) = resolve_relative_url(final_url, &src) {
+                        if (is_video_type || is_video_extension(&resolved))
+                            && is_valid_video_candidate(&resolved)
+                            && !videos.contains(&resolved)
+                        {
+                            videos.push(resolved);
+                        }
+                    }
+                }
+            }
+            s_cursor = tag_start + tag_len;
+        } else {
+            break;
+        }
+    }
+
+    // 4. <iframe> video embeds (YouTube, Vimeo, TikTok, Streamable, Dailymotion, Loom)
+    let mut if_cursor = 0;
+    while let Some(pos) = body[if_cursor..].find("<iframe") {
+        let tag_start = if_cursor + pos;
+        if let Some(tag_len) = body[tag_start..].find('>') {
+            let tag = &body[tag_start..tag_start + tag_len];
+            let candidate = extract_attribute(tag, "src").or_else(|| extract_attribute(tag, "data-src"));
+            if let Some(src) = candidate {
+                if let Some(normalized) = normalize_iframe_video_embed(&src) {
+                    if !videos.contains(&normalized) {
+                        videos.push(normalized);
+                    }
+                }
+            }
+            if_cursor = tag_start + tag_len;
+        } else {
+            break;
+        }
+    }
+
+    // 5. Schema.org JSON-LD VideoObjects
+    extract_json_ld_videos(body, final_url, &mut videos);
+
+    // 6. Direct video file links and social video post links (<a href="...">)
+    let mut a_cursor = 0;
+    while let Some(pos) = body[a_cursor..].find("<a ") {
+        let tag_start = a_cursor + pos;
+        if let Some(tag_len) = body[tag_start..].find('>') {
+            let tag = &body[tag_start..tag_start + tag_len];
+            if let Some(href) = extract_attribute(tag, "href") {
+                if let Some(resolved) = resolve_relative_url(final_url, &href) {
+                    if is_video_extension(&resolved) && !videos.contains(&resolved) && videos.len() < 25 {
+                        videos.push(resolved);
+                    } else if is_platform_video_url(&resolved) && !videos.contains(&resolved) && videos.len() < 25 {
+                        videos.push(resolved);
+                    }
+                }
+            }
+            a_cursor = tag_start + tag_len;
+        } else {
+            break;
+        }
+    }
+
+    videos.truncate(25);
+    videos
+}
+
+/// Normalize iframe embed URLs into canonical watchable platform URLs.
+pub fn normalize_iframe_video_embed(src: &str) -> Option<String> {
+    let lower = src.to_lowercase();
+    // YouTube embeds: youtube.com/embed/VIDEO_ID or youtube-nocookie.com/embed/VIDEO_ID
+    if lower.contains("youtube.com/embed/") || lower.contains("youtube-nocookie.com/embed/") {
+        if let Some(idx) = lower.find("/embed/") {
+            let after = &src[idx + 7..];
+            let id = after.split(&['?', '&', '/', '"', '\'', '#'][..]).next().unwrap_or("");
+            if !id.is_empty() {
+                return Some(format!("https://www.youtube.com/watch?v={id}"));
+            }
+        }
+    }
+    // Vimeo embeds: player.vimeo.com/video/VIDEO_ID
+    if lower.contains("player.vimeo.com/video/") {
+        if let Some(idx) = lower.find("/video/") {
+            let after = &src[idx + 7..];
+            let id = after.split(&['?', '&', '/', '"', '\'', '#'][..]).next().unwrap_or("");
+            if !id.is_empty() {
+                return Some(format!("https://vimeo.com/{id}"));
+            }
+        }
+    }
+    // TikTok embeds: tiktok.com/embed/v2/VIDEO_ID or tiktok.com/embed/VIDEO_ID
+    if lower.contains("tiktok.com/embed/") {
+        if let Some(idx) = lower.find("/embed/") {
+            let after = &src[idx + 7..];
+            let clean_after = after.strip_prefix("v2/").unwrap_or(after);
+            let id = clean_after.split(&['?', '&', '/', '"', '\'', '#'][..]).next().unwrap_or("");
+            if !id.is_empty() {
+                return Some(format!("https://www.tiktok.com/video/{id}"));
+            }
+        }
+    }
+    // Streamable embeds: streamable.com/e/VIDEO_ID
+    if lower.contains("streamable.com/e/") {
+        if let Some(idx) = lower.find("/e/") {
+            let after = &src[idx + 3..];
+            let id = after.split(&['?', '&', '/', '"', '\'', '#'][..]).next().unwrap_or("");
+            if !id.is_empty() {
+                return Some(format!("https://streamable.com/{id}"));
+            }
+        }
+    }
+    // Dailymotion embeds: dailymotion.com/embed/video/VIDEO_ID
+    if lower.contains("dailymotion.com/embed/video/") {
+        if let Some(idx) = lower.find("/embed/video/") {
+            let after = &src[idx + 13..];
+            let id = after.split(&['?', '&', '/', '"', '\'', '#'][..]).next().unwrap_or("");
+            if !id.is_empty() {
+                return Some(format!("https://www.dailymotion.com/video/{id}"));
+            }
+        }
+    }
+    // Loom embeds: loom.com/embed/VIDEO_ID
+    if lower.contains("loom.com/embed/") {
+        if let Some(idx) = lower.find("/embed/") {
+            let after = &src[idx + 7..];
+            let id = after.split(&['?', '&', '/', '"', '\'', '#'][..]).next().unwrap_or("");
+            if !id.is_empty() {
+                return Some(format!("https://www.loom.com/share/{id}"));
+            }
+        }
+    }
+    None
+}
+
+/// Checks if a URL ends with a standard video file extension.
+pub fn is_video_extension(url: &str) -> bool {
+    let lower = url.split(&['?', '#'][..]).next().unwrap_or(url).to_lowercase();
+    lower.ends_with(".mp4")
+        || lower.ends_with(".webm")
+        || lower.ends_with(".mov")
+        || lower.ends_with(".mkv")
+        || lower.ends_with(".m4v")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".m3u8")
+}
+
+/// Checks if a URL matches known social or streaming video platforms.
+pub fn is_platform_video_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    (lower.contains("youtube.com") && (lower.contains("/watch") || lower.contains("/shorts/") || lower.contains("/embed/")))
+        || lower.contains("youtu.be/")
+        || (lower.contains("instagram.com") && (lower.contains("/reel/") || lower.contains("/p/") || lower.contains("/reels/")))
+        || (lower.contains("tiktok.com") && (lower.contains("/video/") || lower.contains("/v/")))
+        || ((lower.contains("twitter.com") || lower.contains("x.com")) && lower.contains("/status/"))
+        || (lower.contains("reddit.com") && lower.contains("/comments/"))
+        || lower.contains("v.redd.it/")
+        || lower.contains("vimeo.com/")
+        || lower.contains("fb.watch/")
+        || (lower.contains("facebook.com") && (lower.contains("/videos/") || lower.contains("/watch/")))
+        || lower.contains("pin.it/")
+        || (lower.contains("pinterest.com") && lower.contains("/pin/"))
+        || (lower.contains("twitch.tv") && (lower.contains("/videos/") || lower.contains("/clip/")))
+        || lower.contains("streamable.com/")
+        || lower.contains("dailymotion.com/video/")
+        || lower.contains("bilibili.com/video/")
+        || lower.contains("rumble.com/")
+        || lower.contains("loom.com/share/")
+}
+
+fn is_valid_video_candidate(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    !lower.contains("avatar")
+        && !lower.contains("favicon")
+        && !lower.contains("pixel")
+        && !lower.contains("tracking")
+        && !lower.contains("analytics")
+        && !lower.contains("1x1")
+        && !lower.ends_with(".png")
+        && !lower.ends_with(".jpg")
+        && !lower.ends_with(".jpeg")
+        && !lower.ends_with(".webp")
+        && !lower.ends_with(".gif")
+}
+
+fn extract_json_ld_videos(body: &str, final_url: &str, videos: &mut Vec<String>) {
+    let mut cursor = 0;
+    while let Some(pos) = body[cursor..].find("<script") {
+        let tag_start = cursor + pos;
+        if let Some(tag_end) = body[tag_start..].find('>') {
+            let tag = &body[tag_start..tag_start + tag_end];
+            if tag.contains("application/ld+json") {
+                let content_start = tag_start + tag_end + 1;
+                if let Some(content_end) = body[content_start..].find("</script>") {
+                    let json_str = &body[content_start..content_start + content_end];
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
+                        scan_json_for_video_urls(&value, final_url, videos);
+                    }
+                    cursor = content_start + content_end + 9;
+                    continue;
+                }
+            }
+            cursor = tag_start + tag_end;
+        } else {
+            break;
+        }
+    }
+}
+
+fn scan_json_for_video_urls(val: &serde_json::Value, base_url: &str, videos: &mut Vec<String>) {
+    match val {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                if k == "contentUrl" || k == "embedUrl" || k == "videoUrl" {
+                    if let Some(s) = v.as_str() {
+                        if let Some(resolved) = resolve_relative_url(base_url, s) {
+                            if !videos.contains(&resolved) {
+                                videos.push(resolved);
+                            }
+                        }
+                    }
+                } else {
+                    scan_json_for_video_urls(v, base_url, videos);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                scan_json_for_video_urls(item, base_url, videos);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn resolve_relative_url(base: &str, relative: &str) -> Option<String> {
@@ -430,14 +751,31 @@ pub async fn download_media(
     let resolved_ffmpeg = ffmpeg.or(ff_found.as_deref());
 
     let url_lower = url.to_lowercase();
-    let is_platform = url_lower.contains("youtube.com")
+    let is_platform = is_platform_video_url(url)
+        || url_lower.contains("youtube.com")
         || url_lower.contains("youtu.be")
         || url_lower.contains("vimeo.com")
         || url_lower.contains("tiktok.com")
         || url_lower.contains("twitter.com")
         || url_lower.contains("x.com")
         || url_lower.contains("instagram.com")
-        || url_lower.contains("reddit.com");
+        || url_lower.contains("reddit.com")
+        || url_lower.contains("facebook.com")
+        || url_lower.contains("fb.watch")
+        || url_lower.contains("fb.com")
+        || url_lower.contains("threads.net")
+        || url_lower.contains("bsky.app")
+        || url_lower.contains("pinterest.com")
+        || url_lower.contains("pin.it")
+        || url_lower.contains("twitch.tv")
+        || url_lower.contains("dailymotion.com")
+        || url_lower.contains("dai.ly")
+        || url_lower.contains("streamable.com")
+        || url_lower.contains("bilibili.com")
+        || url_lower.contains("rumble.com")
+        || url_lower.contains("loom.com")
+        || url_lower.contains("linkedin.com")
+        || url_lower.contains("soundcloud.com");
 
     let is_direct_image = url_lower.ends_with(".png")
         || url_lower.ends_with(".jpg")
@@ -805,6 +1143,30 @@ async fn download_direct_http(
         return Err(format!("Download failed with status: {}", resp.status()));
     }
 
+    // If the server returns text/html instead of media bytes, this is likely a web video player page.
+    // Recover by dispatching to yt-dlp to extract and download the actual video stream.
+    if let Some(ct) = resp.headers().get(reqwest::header::CONTENT_TYPE).and_then(|h| h.to_str().ok()) {
+        if ct.contains("text/html") && media_type != Some("text") {
+            if let Some(ytdlp) = crate::tools::find_tool("yt-dlp", None) {
+                if let Ok(res) = download_with_ytdlp(
+                    &ytdlp,
+                    downloads_dir,
+                    url,
+                    media_type,
+                    custom_filename,
+                    None,
+                    ffmpeg,
+                    start_time,
+                    end_time,
+                    no_audio,
+                    crop,
+                ).await {
+                    return Ok(res);
+                }
+            }
+        }
+    }
+
     let ext = determine_extension(url, resp.headers().get(reqwest::header::CONTENT_TYPE));
     let base_name = custom_filename
         .map(sanitize_filename)
@@ -968,6 +1330,69 @@ mod tests {
         assert_eq!(found, file_b);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn extracts_nested_video_sources_and_og_metadata() {
+        let html = r#"
+            <html>
+                <head>
+                    <meta property="og:video" content="https://cdn.example.com/og_stream.mp4" />
+                    <meta name="twitter:player:stream" content="https://cdn.example.com/tw_stream.mp4" />
+                </head>
+                <body>
+                    <video controls poster="/thumb.jpg">
+                        <source src="/media/video_h264.mp4" type="video/mp4" />
+                        <source src="/media/video_vp9.webm" type="video/webm" />
+                    </video>
+                    <a href="https://example.com/downloads/raw_footage.mov">Download MOV</a>
+                </body>
+            </html>
+        "#;
+        let vids = extract_video_urls(html, "https://example.com/page");
+        assert!(vids.contains(&"https://cdn.example.com/og_stream.mp4".to_owned()));
+        assert!(vids.contains(&"https://cdn.example.com/tw_stream.mp4".to_owned()));
+        assert!(vids.contains(&"https://example.com/media/video_h264.mp4".to_owned()));
+        assert!(vids.contains(&"https://example.com/media/video_vp9.webm".to_owned()));
+        assert!(vids.contains(&"https://example.com/downloads/raw_footage.mov".to_owned()));
+    }
+
+    #[test]
+    fn normalizes_iframe_video_embeds() {
+        let html = r#"
+            <div>
+                <iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1"></iframe>
+                <iframe src="https://player.vimeo.com/video/987654321"></iframe>
+                <iframe src="https://streamable.com/e/abc1234"></iframe>
+            </div>
+        "#;
+        let vids = extract_video_urls(html, "https://myblog.com/post");
+        assert!(vids.contains(&"https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_owned()));
+        assert!(vids.contains(&"https://vimeo.com/987654321".to_owned()));
+        assert!(vids.contains(&"https://streamable.com/abc1234".to_owned()));
+    }
+
+    #[test]
+    fn extracts_json_ld_video_objects() {
+        let html = r#"
+            <html>
+                <head>
+                    <script type="application/ld+json">
+                    {
+                        "@context": "https://schema.org",
+                        "@type": "VideoObject",
+                        "name": "B-roll Reel",
+                        "contentUrl": "https://cdn.site.com/reel_master.mp4",
+                        "embedUrl": "https://site.com/embed/123"
+                    }
+                    </script>
+                </head>
+                <body>Content</body>
+            </html>
+        "#;
+        let vids = extract_video_urls(html, "https://site.com/article");
+        assert!(vids.contains(&"https://cdn.site.com/reel_master.mp4".to_owned()));
+        assert!(vids.contains(&"https://site.com/embed/123".to_owned()));
     }
 }
 

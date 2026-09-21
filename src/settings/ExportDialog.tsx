@@ -1,23 +1,13 @@
-// Export: the comp, the range, the format, and where the file goes.
+// Export: any comp, in any container, at a recommended size — Premiere-style.
 import { save } from '@tauri-apps/plugin-dialog';
 import { videoDir } from '@tauri-apps/api/path';
 import { Film, FolderOpen } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Modal } from '../components/ui';
 import { safeFileName, timecode } from '../lib/editor';
+import { channelForFormat, describeExport, findFormat, formatForChannel, outputSize, recommendResolution, withExtension, EXPORT_FORMATS, RESOLUTION_PRESETS } from '../lib/exportPresets';
 import { compDuration } from '../lib/timeline';
-import type { Comp, ExportOptions, ExportPrefs, Project } from '../lib/types';
-
-const RESOLUTIONS = [
-  { value: null, label: 'Comp size' },
-  { value: 2160, label: '2160p · 4K' },
-  { value: 1440, label: '1440p' },
-  { value: 1080, label: '1080p' },
-  { value: 720, label: '720p' },
-  { value: 540, label: '540p' },
-  { value: 480, label: '480p' },
-  { value: 360, label: '360p' },
-];
+import type { Comp, ExportFormat, ExportOptions, ExportPrefs, Project } from '../lib/types';
 
 const RATES = [null, 24, 25, 30, 50, 60];
 
@@ -35,35 +25,57 @@ type Props = {
   onExport: (options: ExportOptions, folder: string) => void;
 };
 
-export function ExportDialog({ project, comp, prefs, onClose, onExport }: Props) {
-  const [name, setName] = useState(`${safeFileName(comp.name || project.name)}.mp4`);
+export function ExportDialog({ project, comp: initial, prefs, onClose, onExport }: Props) {
+  const [compId, setCompId] = useState(initial.id);
+  const comp = project.comps.find((entry) => entry.id === compId) ?? initial;
+  const [format, setFormat] = useState<ExportFormat>((prefs.format as ExportFormat) ?? 'mp4');
+  const [channel, setChannel] = useState<'rgb' | 'rgba'>(prefs.channel ?? channelForFormat((prefs.format as ExportFormat) ?? 'mp4') ?? 'rgb');
+  const [name, setName] = useState(`${safeFileName(comp.name || project.name)}.${findFormat((prefs.format as ExportFormat) ?? 'mp4').ext}`);
   const [folder, setFolder] = useState(prefs.folder ?? '');
-  const [resolution, setResolution] = useState<number | null>(prefs.resolution ?? null);
+  const [resolution, setResolution] = useState<number | null>(prefs.resolution ?? recommendResolution(comp).short);
   const [fps, setFps] = useState<number | null>(prefs.fps ?? null);
   const [quality, setQuality] = useState<ExportOptions['quality']>((prefs.quality as ExportOptions['quality']) ?? 'standard');
   const [inToOut, setInToOut] = useState(false);
   const ranged = comp.inPoint !== null && comp.outPoint !== null && comp.outPoint > comp.inPoint;
   const total = compDuration(comp);
   const length = inToOut && ranged ? (comp.outPoint ?? 0) - (comp.inPoint ?? 0) : total;
+  const def = findFormat(format);
+  const recommendation = recommendResolution(comp);
+  const [width, height] = outputSize(comp.width, comp.height, resolution);
 
   useEffect(() => {
     if (folder) return;
     void videoDir().then(setFolder).catch(() => undefined);
   }, [folder]);
 
-  const height = resolution ?? Math.min(comp.width, comp.height);
-  const scale = height / Math.min(comp.width, comp.height);
-  const outWidth = Math.round((comp.width * scale) / 2) * 2;
-  const outHeight = Math.round((comp.height * scale) / 2) * 2;
+  const pickFormat = (id: ExportFormat) => {
+    setFormat(id);
+    const next = channelForFormat(id);
+    if (next) setChannel(next);
+    setName((current) => withExtension(current.replace(/\.[a-z0-9]+$/i, ''), findFormat(id).ext));
+  };
+
+  const pickChannel = (next: 'rgb' | 'rgba') => {
+    setChannel(next);
+    pickFormat(formatForChannel(next));
+  };
+
+  const pickComp = (id: string) => {
+    const next = project.comps.find((entry) => entry.id === id);
+    if (!next) return;
+    setCompId(id);
+    setResolution(recommendResolution(next).short);
+    setName(`${safeFileName(next.name || project.name)}.${def.ext}`);
+  };
 
   const submit = () => {
-    const file = name.trim().toLowerCase().endsWith('.mp4') ? name.trim() : `${name.trim() || 'export'}.mp4`;
+    const file = withExtension(name, def.ext);
     const separator = folder.includes('/') && !folder.includes('\\') ? '/' : '\\';
-    onExport({ output: folder ? `${folder.replace(/[\\/]+$/, '')}${separator}${file}` : file, compId: comp.id, resolution, fps, quality, inToOut: inToOut && ranged }, folder);
+    onExport({ output: folder ? `${folder.replace(/[\\/]+$/, '')}${separator}${file}` : file, compId: comp.id, resolution, fps, quality, inToOut: inToOut && ranged, format }, folder);
   };
 
   const pickFolder = async () => {
-    const picked = await save({ title: 'Export video', defaultPath: folder ? `${folder}\\${name}` : name, filters: [{ name: 'MP4 video', extensions: ['mp4'] }] });
+    const picked = await save({ title: 'Export media', defaultPath: folder ? `${folder}\\${name}` : name, filters: [{ name: `${def.label} (${def.ext})`, extensions: [def.ext] }] });
     if (!picked) return;
     const cut = Math.max(picked.lastIndexOf('\\'), picked.lastIndexOf('/'));
     setFolder(picked.slice(0, cut));
@@ -71,19 +83,21 @@ export function ExportDialog({ project, comp, prefs, onClose, onExport }: Props)
   };
 
   return (
-    <Modal title="Export Media" onClose={onClose} width={560} footer={
+    <Modal title="Export Media" onClose={onClose} width={600} footer={
       <>
-        <span className="muted">{timecode(length, comp.fps)} · {outWidth}×{outHeight} · {fps ?? comp.fps} fps</span>
+        <span className="muted">{timecode(length, comp.fps)} · {describeExport(comp, format, resolution, fps)}</span>
         <div className="toolbar-spacer" />
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
         <button type="button" className="btn btn-primary" onClick={submit} disabled={!name.trim() || total <= 0}><Film size={14} /> Export</button>
       </>
     }>
       <div className="export-form">
-        <div className="field">
-          <span>Comp</span>
-          <div className="export-summary"><Film size={13} /> {comp.name} · {comp.width}×{comp.height} · {comp.fps} fps · {timecode(total, comp.fps)}</div>
-        </div>
+        <label className="field">
+          <span>Comp to render</span>
+          <select value={compId} onChange={(event) => pickComp(event.target.value)}>
+            {project.comps.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · {entry.width}×{entry.height} · {entry.fps} fps</option>)}
+          </select>
+        </label>
         <label className="field">
           <span>File name</span>
           <input value={name} onChange={(event) => setName(event.target.value)} />
@@ -95,15 +109,28 @@ export function ExportDialog({ project, comp, prefs, onClose, onExport }: Props)
             <button type="button" className="btn btn-small" onClick={() => void pickFolder()}><FolderOpen size={13} /> Browse…</button>
           </div>
         </div>
+        <div className="field">
+          <span>Format</span>
+          <select value={format} onChange={(event) => pickFormat(event.target.value as ExportFormat)}>
+            {EXPORT_FORMATS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+          <small className="muted">{def.blurb} — {def.recommends}</small>
+        </div>
+        {(format === 'mov' || format === 'mov-alpha') && (
+          <div className="field">
+            <span>Channel</span>
+            <div className="segmented">
+              <button type="button" className={channel === 'rgb' ? 'active' : ''} onClick={() => pickChannel('rgb')}>RGB</button>
+              <button type="button" className={channel === 'rgba' ? 'active' : ''} onClick={() => pickChannel('rgba')} title="ProRes 4444 — transparency in the comp survives the export">RGB + Alpha</button>
+            </div>
+            {channel === 'rgba' && <small className="muted">ProRes 4444 keeps transparency. Plain footage has none — build the comp over empty space (or a transparent item) for see-through MOVs.</small>}
+          </div>
+        )}
         <div className="field-row">
-          <label className="field">
-            <span>Format</span>
-            <select value="h264" disabled><option value="h264">H.264 · MP4 (AAC audio)</option></select>
-          </label>
           <label className="field">
             <span>Resolution</span>
             <select value={resolution ?? ''} onChange={(event) => setResolution(event.target.value ? Number(event.target.value) : null)}>
-              {RESOLUTIONS.map((item) => <option key={item.label} value={item.value ?? ''}>{item.label}</option>)}
+              {RESOLUTION_PRESETS.map((item) => <option key={item.label} value={item.short ?? ''}>{item.short === null ? `Match source (${width}×${height})` : item.label}</option>)}
             </select>
           </label>
           <label className="field">
@@ -113,13 +140,15 @@ export function ExportDialog({ project, comp, prefs, onClose, onExport }: Props)
             </select>
           </label>
         </div>
+        <small className="muted">{recommendation.note} Output: {width}×{height}.</small>
+        {!def.video && <small className="muted">Audio-only: no picture is rendered; length follows the comp.</small>}
         <div className="field">
           <span>Quality</span>
           <div className="quality-options">
             {QUALITIES.map((item) => (
               <button key={item.id} type="button" className={`quality${quality === item.id ? ' active' : ''}`} onClick={() => setQuality(item.id)}>
                 <strong>{item.label}</strong>
-                <span>{item.hint}</span>
+                <span>{format === 'mp3' ? `MP3 ${item.id === 'draft' ? '128' : item.id === 'standard' ? '192' : '320'} kbps` : item.hint}</span>
               </button>
             ))}
           </div>

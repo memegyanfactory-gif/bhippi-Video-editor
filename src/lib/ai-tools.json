@@ -108,6 +108,129 @@
       }
     },
     {
+      "name": "scrape_videos",
+      "description": "Scrape and extract video sources and media embeds from any webpage or social media URL (YouTube, Instagram Reels, TikTok, Twitter/X, Reddit, Vimeo, Facebook, Pinterest, blogs, portfolios). Automatically extracts HTML5 video sources, OpenGraph video streams, Twitter video cards, iframe embeds, and JSON-LD video metadata. Optionally downloads and imports them directly into a project folder so they are immediately available on the timeline.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The webpage or social media URL to scrape videos from."
+          },
+          "download": {
+            "type": "boolean",
+            "description": "Whether to automatically download and import the scraped videos into the Helios project (default true)."
+          },
+          "folderName": {
+            "type": "string",
+            "description": "Project folder name to organize the downloaded videos into (e.g. \"Scraped: Tech Reels\" or \"B-Roll\")."
+          },
+          "maxVideos": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Maximum number of videos to scrape/download (default 5, max 20)."
+          },
+          "crop": {
+            "type": "string",
+            "enum": [
+              "9:16",
+              "1:1",
+              "16:9",
+              "4:5"
+            ],
+            "description": "Optional aspect ratio crop to apply to downloaded videos."
+          },
+          "noAudio": {
+            "type": "boolean",
+            "description": "Download video-only without sound (ideal for B-roll)."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "query_frame_atlas",
+      "description": "Query the Frame Atlas Collection Kit reference library and cinematic visual taxonomy. Use this to determine how to style frames, choose camera movement, lighting patterns, framing/composition, color palettes, and overall visual tone for the video project.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mood": {
+            "type": "string",
+            "description": "Target emotional mood (e.g. 'awe', 'intimate', 'isolated', 'tense', 'calm', 'joyful', 'ominous', 'nostalgic')."
+          },
+          "shotSize": {
+            "type": "string",
+            "description": "Desired shot scale (e.g. 'extreme_wide', 'wide', 'medium_wide', 'medium', 'close_up', 'extreme_close_up')."
+          },
+          "lighting": {
+            "type": "string",
+            "description": "Lighting pattern (e.g. 'silhouette', 'rim_light', 'volumetric_beams', 'low_key', 'high_key', 'practical_in_frame', 'soft daylight')."
+          },
+          "tone": {
+            "type": "string",
+            "description": "Apparent color tone (e.g. 'warm', 'cool', 'mixed', 'neutral', 'monochrome', 'golden', 'teal')."
+          },
+          "search": {
+            "type": "string",
+            "description": "Free-text search query across titles, tags, and cinematography notes (e.g. 'dystopian city', 'cyberpunk glow', 'landscape journey')."
+          },
+          "applyAsGuideline": {
+            "type": "boolean",
+            "description": "Whether to automatically create and activate a project reference guideline based on the top Frame Atlas match (default false)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "synthesize_speech_voiceover",
+      "description": "Generate voice-over speech audio from a narration script using local offline neural TTS models (Piper) or configured cloud voices. If the local Piper model or voice is not installed, it automatically initiates download and uses it. Automatically imports the generated audio take and optionally places it directly onto the timeline audio track.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "The narration script text to read aloud."
+          },
+          "voice": {
+            "type": "string",
+            "description": "Optional voice identifier (e.g. 'piper:piper-en-hfc-female', 'piper:piper-en-ryan', 'piper:piper-hi-priyamvada'). Defaults to default English offline voice."
+          },
+          "speed": {
+            "type": "number",
+            "minimum": 0.5,
+            "maximum": 2.0,
+            "description": "Speaking speed multiplier (default 1.0, range 0.5-2.0)."
+          },
+          "autoPlace": {
+            "type": "boolean",
+            "description": "Whether to automatically place the generated audio clip onto the timeline audio track (default true)."
+          },
+          "startTime": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Timeline position in seconds where the clip should start (default 0)."
+          },
+          "trackId": {
+            "type": "string",
+            "description": "Specific audio track ID to place the clip on."
+          },
+          "name": {
+            "type": "string",
+            "description": "Descriptive title for the voice-over take (e.g. 'Scene 1 Voiceover')."
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "download_online_media",
       "description": "Download online media (videos, audio, images) from YouTube, video platforms, or direct media URLs, saving them directly to disk and importing them into Helios as ready-to-use project assets. Supports YouTube URLs (videos/shorts), video platforms via yt-dlp, and direct HTTP media links (.mp4, .png, .jpg, .mp3, .wav). Supports trimming time ranges (startTime, endTime), audio control (noAudio / without sound), spatial cropping (9:16, 1:1, 16:9, etc.), and organizing into dedicated project folders.",
       "input_schema": {
@@ -2946,6 +3069,53 @@
           "title"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "spawn_subagent",
+      "description": "Spawn an autonomous AI sub-worker that runs in parallel. The subagent has access to all Helios tools and works independently on the given task. Use for independent work that doesn't block the main conversation: research, media generation, audio processing, motion graphic creation. Returns immediately with a subagent ID; the subagent's progress and results appear in the chat's agent map. Max 6 concurrent subagents per turn.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Clear, actionable task description for the subagent. Be specific about what to do and what success looks like."
+          },
+          "label": {
+            "type": "string",
+            "description": "Short label for the agent map UI (e.g. 'Research B-roll', 'Generate lower-third', 'Process audio')."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional model override for this subagent. Defaults to the parent turn's model."
+          },
+          "maxRounds": {
+            "type": "integer",
+            "description": "Maximum tool call rounds (default 30). Lower = faster/cheaper, higher = more thorough."
+          }
+        },
+        "required": ["task", "label"]
+      }
+    },
+    {
+      "name": "wait_subagent",
+      "description": "Block until a specific subagent finishes (or all if no ID given). Returns the subagent's final status and summary. Use when you need a subagent's output before continuing.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subagentId": {
+            "type": "string",
+            "description": "The subagent ID to wait for. Omit to wait for all subagents of this turn."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_subagents",
+      "description": "List all subagents spawned by this turn with their current status (running, done, failed), elapsed time, and tool call count.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
       }
     }
   ]

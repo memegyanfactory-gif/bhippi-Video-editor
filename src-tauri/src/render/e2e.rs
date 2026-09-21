@@ -37,7 +37,7 @@ async fn roto_master_and_frame_local_corrections_export_real_pixels() {
     let project = Project { version: VERSION, name:"roto".into(), comps:vec![comp("c",128,128,tracks(1,0),vec![layer],vec![])], items:vec![red], active_comp_id:Some("c".into()), ..Project::default() };
     for (time, expected_red) in [(0.2,true),(0.5,false),(0.6,true)] {
         let output = dir.join(format!("{time}.png"));
-        let options = ExportOptions { output:output.display().to_string(), comp_id:"c".into(), resolution:None, fps:None, quality:"high".into(), in_to_out:false };
+        let options = ExportOptions { output:output.display().to_string(), comp_id:"c".into(), resolution:None, fps:None, quality:"high".into(), in_to_out:false, format:"mp4".into() };
         let render = plan(&project,&HashMap::new(),&options, |_| String::new(),tools.status.x264,Output::Still,time).unwrap();
         for (file,data) in &render.files { std::fs::write(dir.join(file),data).unwrap(); }
         let (_hold,cancel)=tokio::sync::watch::channel(false);
@@ -270,7 +270,7 @@ async fn a_comp_of_everything_exports_through_the_real_ffmpeg() {
     let project = build(&take, &card);
 
     let output = dir.join("export.mp4");
-    let options = ExportOptions { output: output.display().to_string(), comp_id: "main".to_owned(), resolution: None, fps: None, quality: "draft".to_owned(), in_to_out: false };
+    let options = ExportOptions { output: output.display().to_string(), comp_id: "main".to_owned(), resolution: None, fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned() };
     let sfx_dir = dir.clone();
     let render = plan(&project, &assets, &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, Output::Video, 0.0).expect("a plan");
     assert_eq!((render.width, render.height), (WIDTH, HEIGHT));
@@ -450,7 +450,7 @@ async fn every_remaining_option_renders_without_upsetting_ffmpeg() {
     let project = build_odds_and_ends(&take);
 
     let output = dir.join("odds.mp4");
-    let options = ExportOptions { output: output.display().to_string(), comp_id: "quick".to_owned(), resolution: Some(360), fps: Some(29.97), quality: "draft".to_owned(), in_to_out: true };
+    let options = ExportOptions { output: output.display().to_string(), comp_id: "quick".to_owned(), resolution: Some(360), fps: Some(29.97), quality: "draft".to_owned(), in_to_out: true, format: "mp4".to_owned() };
     let render = plan(&project, &assets, &options, |kind| sfx::path_for(&dir, kind).display().to_string(), tools.status.x264, Output::Video, 0.0).expect("a plan");
     assert_eq!((render.width, render.height), (360, 450), "the short side becomes 360");
     assert!((render.duration - 1.0).abs() < 1e-9, "only the In→Out range");
@@ -527,7 +527,7 @@ async fn a_long_edit_of_one_recording_renders_from_a_graph_file() {
         ..Project::default()
     };
     let output = dir.join("cuts.mp4");
-    let options = ExportOptions { output: output.display().to_string(), comp_id: "cuts".to_owned(), resolution: None, fps: None, quality: "draft".to_owned(), in_to_out: false };
+    let options = ExportOptions { output: output.display().to_string(), comp_id: "cuts".to_owned(), resolution: None, fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned() };
     let render = plan(&project, &assets, &options, |kind| sfx::path_for(&dir, kind).display().to_string(), tools.status.x264, Output::Video, 0.0).expect("a plan");
     assert!(render.args.contains(&"-/filter_complex".to_owned()), "a graph this long belongs in a file");
     assert_eq!(render.args.iter().filter(|arg| *arg == "-ss").count(), 100, "one seek per cut");
@@ -570,7 +570,7 @@ async fn applied_color_effects_change_pixels_and_bypass_restores_them() {
         let mut matte=item("matte",ItemKind::ColorMatte,"#804020",1.0);matte.width=128;matte.height=128;
         let project=Project{version:VERSION,name:name.to_owned(),comps:vec![comp("c",128,128,tracks(1,0),vec![layer],vec![])],items:vec![matte],active_comp_id:Some("c".to_owned()),..Project::default()};
         let output=dir.join(format!("{name}.png"));
-        let options=ExportOptions{output:output.display().to_string(),comp_id:"c".to_owned(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false};
+        let options=ExportOptions{output:output.display().to_string(),comp_id:"c".to_owned(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false,format:"mp4".to_owned()};
         let render=plan(&project,&HashMap::new(),&options,|kind|sfx::path_for(&dir,kind).display().to_string(),tools.status.x264,Output::Still,0.0).expect("effect render plan");
         for (file,data) in &render.files {std::fs::write(dir.join(file),data).unwrap();}
         let (_hold,cancel)=tokio::sync::watch::channel(false);
@@ -592,7 +592,7 @@ async fn render_generated_native_demonstration() {
     let env=tools::FfmpegEnv{fontconfig_file:write_fontconfig(&work)};
     let started=std::time::Instant::now();
     for(still,name)in[(false,"Helios-demo.mp4"),(true,"Helios-demo.png")] {
-        let output=dir.join(name);let options=ExportOptions{output:output.display().to_string(),comp_id:project.active_comp_id.clone().unwrap(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false};
+        let output=dir.join(name);let options=ExportOptions{output:output.display().to_string(),comp_id:project.active_comp_id.clone().unwrap(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false,format:"mp4".to_owned()};
         let plan=plan(&project,&HashMap::new(),&options,|kind|sfx::path_for(&work,kind).display().to_string(),tools.status.x264,if still{Output::Still}else{Output::Video},1.0).expect("native render plan");
         std::fs::write(work.join("demo-args.json"),serde_json::to_string(&plan.args).unwrap()).unwrap();
         for(file,data)in &plan.files{std::fs::write(work.join(file),data).unwrap();}

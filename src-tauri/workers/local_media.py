@@ -26,6 +26,17 @@ def optimal_sdxl_dimensions(w: int, h: int) -> tuple[int, int]:
     return best
 
 
+def auth_help(task, repo, error):
+    """What to do when a gated model (Stable Audio Open) refuses the download."""
+    detail = str(error).split('\n')[0][:220]
+    return (
+        f"Could not download the {task} model from {repo}: {detail}. "
+        "This model is gated: open its Hugging Face page while logged in, accept the access terms, "
+        "create a read token, and retry the download passing that token (install_local_model hf_token). "
+        "Without the token only public models download."
+    )
+
+
 def execute(request):
     if request.get('action') == 'depth-occlusion':
         from depth_media import execute_depth
@@ -44,17 +55,37 @@ def execute(request):
         install_tracker(request, emit)
         return
     if request.get('action') == 'install':
-        from huggingface_hub import model_info, snapshot_download
+        from huggingface_hub import hf_hub_download, model_info
+        from huggingface_hub.errors import GatedRepoError
+        from huggingface_hub.utils import HfHubHTTPError
         repos = {'image': 'stabilityai/stable-diffusion-xl-base-1.0', 'video': 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers', 'audio': 'stabilityai/stable-audio-open-1.0', 'sam2': 'facebook/sam2.1-hiera-tiny', 'vitmatte': 'hustvl/vitmatte-small-composition-1k', 'depth': 'depth-anything/DA3-SMALL'}
         repo = repos[request['task']]
-        info = model_info(repo)
+        token = request.get('hf_token') or None
+        # File by file instead of one snapshot_download: same layout, but each
+        # finished file moves the progress bar, so a multi-gigabyte download no
+        # longer looks stuck at 5%.
+        try:
+            info = model_info(repo, token=token)
+        except (GatedRepoError, HfHubHTTPError) as error:
+            raise RuntimeError(auth_help(request['task'], repo, error)) from error
         revision = info.sha
         if not revision:
             raise RuntimeError('The model repository returned no immutable revision.')
-        emit(0.05, 'Downloading model; progress depends on network speed')
         weights = '*.fp16.safetensors' if request['task'] == 'image' else '*.safetensors'
-        folder = snapshot_download(repo_id=repo, revision=revision, local_dir=request['output'], allow_patterns=['*.json', '*.txt', '*.model', weights, 'LICENSE*', '*.md'], ignore_patterns=['*.bin', '*.onnx', '*.msgpack', '*.ckpt'])
-        root = Path(folder)
+        import fnmatch as _fnmatch
+        wanted = [s.rfilename for s in (info.siblings or [])
+                  if any(_fnmatch.fnmatch(s.rfilename, p) for p in ['*.json', '*.txt', '*.model', weights, 'LICENSE*', '*.md'])
+                  and not any(_fnmatch.fnmatch(s.rfilename, p) for p in ['*.bin', '*.onnx', '*.msgpack', '*.ckpt'])]
+        if not wanted:
+            raise RuntimeError('The model repository lists no downloadable weights.')
+        emit(0.05, f'Downloading {request["task"]} model ({len(wanted)} files); progress depends on network speed')
+        for index, filename in enumerate(sorted(wanted)):
+            try:
+                hf_hub_download(repo_id=repo, filename=filename, revision=revision, local_dir=request['output'], token=token)
+            except (GatedRepoError, HfHubHTTPError) as error:
+                raise RuntimeError(auth_help(request['task'], repo, error)) from error
+            emit(0.05 + 0.9 * (index + 1) / len(wanted), f'Downloaded {index + 1}/{len(wanted)}: {filename}')
+        root = Path(request['output'])
         if not (root / ('config.json' if request['task'] in ('sam2', 'vitmatte', 'depth') else 'model_index.json')).is_file():
             raise RuntimeError('Incomplete model snapshot')
         (root / 'helios-install.json').write_text(json.dumps({'repo': repo, 'revision': revision, 'license': getattr(info, 'card_data', {}).get('license') if getattr(info, 'card_data', None) else None}, indent=2), encoding='utf-8')
@@ -191,9 +222,12 @@ def execute(request):
     elif task == "video":
         from diffusers.utils import export_to_video
         width, height = int(request.get("width", 832)), int(request.get("height", 480))
-        frames = int(request.get("frames", 49))
-        if any(n < 256 or n > 832 or n % 16 for n in (width, height)) or not 5 <= frames <= 81 or (frames - 1) % 4:
-            raise ValueError("Wan dimensions: multiples of 16, 256–832; frames: 4n+1, 5–81.")
+        requested_frames = int(request.get("frames", 81))
+        # Strictly enforce maximum 5.0 seconds duration (81 frames at 16 fps = 5.06s)
+        clamped_frames = min(max(5, requested_frames), 81)
+        frames = ((clamped_frames - 1) // 4) * 4 + 1
+        if any(n < 256 or n > 832 or n % 16 for n in (width, height)):
+            raise ValueError("Wan dimensions must be multiples of 16, between 256 and 832.")
         # Wan's autoencoder is kept in float32 for stability.
         pipe.vae.to(dtype=torch.float32)
         result = pipe(**kwargs, width=width, height=height, num_frames=frames).frames[0]

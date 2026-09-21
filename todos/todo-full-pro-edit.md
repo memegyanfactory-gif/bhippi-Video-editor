@@ -1,0 +1,13 @@
+# Todo: Fix the Helios models workflow and complete the full professional edit
+- [x] Read the workflow status and current comp
+- [x] Transcribe every spoken clip
+- [x] Inspect footage in fast text-only frame chunks
+- [x] Confirm local model capabilities
+- [x] Save a clean 5–12s scene storyboard
+- [x] Apply transcript-driven cuts and gap removal
+- [x] Add visual assets and place them by scene (procedural MOGRTs and animated text placed; generated media unavailable)
+- [x] Resolve local SDXL/Wan generation dtype failure or document the blocked adapter (documented: SDXL ends with Half/Float bias mismatch; Wan timed out)
+- [ ] Add a music bed (blocked: Stable Audio adapter is not configured)
+- [x] Add roto/depth/behind-subject compositing where needed
+- [x] Add titles, captions, motion graphics, transitions, and SFX (music bed blocked by unavailable Stable Audio adapter)
+- [ ] Verify the completed comp and workflow result with get_comp plus checking the result reads right (blocked: Helios requires a generated local reference still attached to storyboard refs; both local image generations failed before import)

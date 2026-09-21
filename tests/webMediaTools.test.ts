@@ -75,6 +75,162 @@ describe('online research and web scraping tools', () => {
     expect(result.images).toEqual(['https://example.com/img1.png']);
     expect(result.videos).toEqual(['https://example.com/clip.mp4']);
   });
+
+  it('scrape_web_page downloads videos when downloadVideos is true', async () => {
+    const { host, importMedia } = fixture();
+    vi.mocked(api.webScrape).mockResolvedValue({
+      url: 'https://example.com/article',
+      title: 'Article With Video',
+      text: 'Sample text',
+      images: [],
+      videos: ['https://example.com/video1.mp4'],
+    });
+
+    vi.mocked(api.mediaDownload).mockResolvedValue({
+      path: '/downloads/video1.mp4',
+      title: 'Video 1',
+      mediaType: 'video',
+      sourceUrl: 'https://example.com/video1.mp4',
+      bytes: 2048000,
+    });
+
+    const mockAsset: Asset = {
+      id: 'asset_vid_1',
+      name: 'video1.mp4',
+      path: '/downloads/video1.mp4',
+      kind: 'video',
+      duration: 12,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      hasAudio: true,
+      size: 2048000,
+      importedAt: new Date().toISOString(),
+      preview: 'ready',
+    } as Asset;
+
+    importMedia.mockResolvedValue([mockAsset]);
+
+    const result = await runTool(host, 'scrape_web_page', {
+      url: 'https://example.com/article',
+      downloadVideos: true,
+      folderName: 'Web Scraped',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(api.mediaDownload).toHaveBeenCalledWith(
+      'https://example.com/video1.mp4',
+      'video',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+    );
+    expect(importMedia).toHaveBeenCalledWith(['/downloads/video1.mp4'], expect.any(String));
+    if (!result.ok) throw new Error(result.error);
+    expect(result.summary).toContain('Article With Video');
+    expect(result.downloadedCount).toBe(1);
+  });
+
+  it('scrape_videos discovers videos without downloading when download is false', async () => {
+    const { host } = fixture();
+    vi.mocked(api.webScrape).mockResolvedValue({
+      url: 'https://example.com/reel-gallery',
+      title: 'Trending Short Clips',
+      text: 'Collection of motion shorts',
+      images: [],
+      videos: [
+        'https://example.com/clip1.mp4',
+        'https://www.youtube.com/watch?v=abc',
+      ],
+    });
+
+    const result = await runTool(host, 'scrape_videos', {
+      url: 'https://example.com/reel-gallery',
+      download: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(api.webScrape).toHaveBeenCalledWith('https://example.com/reel-gallery', 4000);
+    expect(api.mediaDownload).not.toHaveBeenCalled();
+    if (!result.ok) throw new Error(result.error);
+    expect(result.videosFound).toBe(2);
+    expect(result.videos).toEqual([
+      'https://example.com/clip1.mp4',
+      'https://www.youtube.com/watch?v=abc',
+    ]);
+    expect(result.summary).toContain('Scraped 2 video link(s)');
+  });
+
+  it('scrape_videos scrapes and downloads videos into project library folder', async () => {
+    const { host, importMedia } = fixture();
+    vi.mocked(api.webScrape).mockResolvedValue({
+      url: 'https://example.com/videos',
+      title: 'Video Archive',
+      text: 'Archive of clips',
+      images: [],
+      videos: [
+        'https://example.com/clipA.mp4',
+        'https://example.com/clipB.mp4',
+      ],
+    });
+
+    vi.mocked(api.mediaDownload)
+      .mockResolvedValueOnce({
+        path: '/downloads/clipA.mp4',
+        title: 'Clip A',
+        mediaType: 'video',
+        sourceUrl: 'https://example.com/clipA.mp4',
+        bytes: 1000000,
+      })
+      .mockResolvedValueOnce({
+        path: '/downloads/clipB.mp4',
+        title: 'Clip B',
+        mediaType: 'video',
+        sourceUrl: 'https://example.com/clipB.mp4',
+        bytes: 2000000,
+      });
+
+    const assetA: Asset = {
+      id: 'asset_a',
+      name: 'clipA.mp4',
+      path: '/downloads/clipA.mp4',
+      kind: 'video',
+      duration: 5,
+    } as Asset;
+    const assetB: Asset = {
+      id: 'asset_b',
+      name: 'clipB.mp4',
+      path: '/downloads/clipB.mp4',
+      kind: 'video',
+      duration: 10,
+    } as Asset;
+
+    importMedia
+      .mockResolvedValueOnce([assetA])
+      .mockResolvedValueOnce([assetB]);
+
+    const result = await runTool(host, 'scrape_videos', {
+      url: 'https://example.com/videos',
+      download: true,
+      folderName: 'Scraped Clips',
+      maxVideos: 2,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(api.mediaDownload).toHaveBeenCalledTimes(2);
+    expect(importMedia).toHaveBeenCalledTimes(2);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.downloadedCount).toBe(2);
+    expect(result.importedAssets).toEqual([
+      { id: 'asset_a', name: 'clipA.mp4', path: '/downloads/clipA.mp4', kind: 'video', duration: 5 },
+      { id: 'asset_b', name: 'clipB.mp4', path: '/downloads/clipB.mp4', kind: 'video', duration: 10 },
+    ]);
+    expect(result.summary).toContain('Scraped and imported 2 video(s)');
+    expect(result.summary).toContain('folder "Scraped Clips"');
+  });
 });
 
 describe('media download and guideline tools', () => {

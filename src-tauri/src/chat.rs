@@ -134,6 +134,7 @@ pub enum ChatEvent {
         stopped: bool,
         elapsed_ms: u64,
     },
+    SubagentUpdate(crate::subagent::SubagentStatus),
 }
 
 /// Where CLI agents find Helios' MCP server: the running hub, and the binary that bridges to it.

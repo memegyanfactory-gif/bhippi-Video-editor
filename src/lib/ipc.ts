@@ -362,11 +362,16 @@ export const api = {
 
   exportStart: (project: Project, options: ExportOptions) => invoke<string>('export_start', { project: prepareEffectExport(project,options.compId), options }),
   exportFrame: (project: Project, compId: string, time: number, output: string) => invoke<string>('export_frame', { project: prepareEffectExport(project,compId), compId, time, output }),
+  /** A comp's poster frame: middle of the comp, small, cached by comp id. */
+  compPoster: (project: Project, compId: string) => invoke<string>('comp_poster', { project, compId }),
+  /** AI-written notes and todo lists living beside the project. */
+  workspaceNotes: () => invoke<{ name: string; path: string; size: number; modified: number }[]>('workspace_notes'),
+  workspaceNoteDelete: (name: string) => invoke<void>('workspace_note_delete', { name }),
   jobsList: () => invoke<Job[]>('jobs_list'),
   localMediaStatus: () => invoke<{ pythonConfigured: boolean; tasks: { task: string; modelKey: string; modelPath: string | null; label: string; configured: boolean; verified: boolean; download: { jobId?: string; status: string; progress: number; message: string; external: boolean; downloadedBytes?: number; totalBytes?: number } | null }[] }>('local_media_status'),
   analysisFrames: (id: string, times: number[]) => invoke<{ times: number[]; images: string[]; assetId: string }>('analysis_frames', { id, times }),
   localMediaGenerate: (request: Record<string, unknown>) => invoke<string>('local_media_generate', { request }),
-  localMediaInstall: (task: string) => invoke<string>('local_media_install', { task }),
+  localMediaInstall: (task: string, hfToken?: string) => invoke<string>('local_media_install', hfToken ? { task, hf_token: hfToken } : { task }),
   jobCancel: (id: string) => invoke<boolean>('job_cancel', { id }),
 
   /** Scene Edit Detection: the cut times inside a piece of media. */
@@ -390,6 +395,16 @@ export const api = {
   chatActiveTurns: () => invoke<string[]>('chat_active_turns'),
   /** Hands one tool call's result back to the running turn. */
   chatToolResult: (turnId: string, callId: string, result: ToolResult) => invoke<void>('chat_tool_result', { turnId, callId, result }),
+  /** Spawns a parallel subagent worker. */
+  chatSpawnSubagent: (spec: { parentTurnId: string; task: string; label: string; model?: string; maxRounds?: number }) =>
+    invoke<{ ok: boolean; subagentId: string }>('chat_spawn_subagent', { spec }),
+  /** Queries a subagent's current state. */
+  chatSubagentStatus: (subagentId: string) => invoke<unknown>('chat_subagent_status', { subagentId }),
+  /** Lists all subagents for a parent turn. */
+  chatListSubagents: (parentTurnId: string) => invoke<unknown[]>('chat_list_subagents', { parentTurnId }),
+  /** Blocks until a subagent or all subagents finish. */
+  chatWaitSubagent: (subagentId?: string, parentTurnId?: string) =>
+    invoke<{ ok: boolean; result?: string; statuses?: unknown[] }>('chat_wait_subagent', { subagentId, parentTurnId }),
 };
 
 const on = <T>(name: string) => (handler: (payload: T) => void): Promise<UnlistenFn> =>

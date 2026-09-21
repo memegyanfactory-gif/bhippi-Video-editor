@@ -314,7 +314,8 @@ export type Usage = { inputTokens: number; outputTokens: number };
 export type ChatEvent =
   | { event: 'start'; turnId: string; providerId: string; providerLabel: string; model: string | null }
   | { event: 'delta'; turnId: string; delta: Delta }
-  | { event: 'done'; turnId: string; reply: string; notes: string[]; usage: Usage | null; fault: TurnFault | null; stopped: boolean; elapsedMs: number };
+  | { event: 'done'; turnId: string; reply: string; notes: string[]; usage: Usage | null; fault: TurnFault | null; stopped: boolean; elapsedMs: number }
+  | { event: 'subagent_update'; subagentId: string; parentTurnId: string; label: string; state: 'running' | 'done' | 'failed'; summary: string | null; elapsedMs: number; toolCalls: number };
 
 /** One AI tool call the backend asks the editor to run. */
 export type ToolCall = { turnId: string; callId: string; name: string; args: Record<string, unknown> };
@@ -330,7 +331,9 @@ export type AppInfo = {
   extensions: string[];
 };
 
-export type ExportPrefs = { resolution: number | null; fps: number | null; quality: string | null; folder: string | null };
+export type ExportFormat = 'mp4' | 'mov' | 'mov-alpha' | 'avi' | 'mp3';
+
+export type ExportPrefs = { resolution: number | null; fps: number | null; quality: string | null; folder: string | null; format?: ExportFormat | null; channel?: 'rgb' | 'rgba' | null };
 
 /** How a script should be read aloud, and by whom. */
 export type VoiceMode = 'auto' | 'hinglish' | 'hindi-roman' | 'en' | 'hi';
@@ -415,6 +418,8 @@ export type ExportOptions = {
   fps: number | null;
   quality: 'draft' | 'standard' | 'high';
   inToOut: boolean;
+  /** Container + codec set; mov-alpha is ProRes 4444 with an alpha channel. */
+  format: ExportFormat;
 };
 
 /** Timeline selection: clip ids in the active comp. */

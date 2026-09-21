@@ -34,6 +34,7 @@ mod transcribe;
 mod typesafe;
 mod web_media;
 mod system_tools;
+mod subagent;
 
 use crate::ai_tools::{EventExecutor, PendingCalls, ToolCallEvent, TOOL_CALL_EVENT};
 use crate::chat::{ChatEvent, ChatRequest, McpLink, TurnContext, CHAT_EVENT};
@@ -74,6 +75,7 @@ pub struct AppState {
     mcp_out: Arc<mcp_client::Hub>,
     jobs: Jobs,
     fontconfig: Option<PathBuf>,
+    subagents: Arc<subagent::Supervisor>,
 }
 
 type CommandResult<T> = Result<T, String>;
@@ -771,21 +773,39 @@ fn external_media_download(paths: &Paths, task: &str) -> Option<serde_json::Valu
     Some(value)
 }
 
+/// One ffmpeg invocation extracting every requested frame: each timestamp gets
+/// its own input seek (`-ss` before `-i`) and output, so a single process pays
+/// startup once instead of once per frame. Outputs stay in timestamp order.
+fn frame_batch_args(times: &[f64], source: &str, outs: &[PathBuf]) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-hide_banner".to_owned(), "-loglevel".to_owned(), "error".to_owned(), "-y".to_owned(), "-nostdin".to_owned()];
+    for (index, time) in times.iter().enumerate() {
+        args.extend(["-ss".to_owned(), time.to_string(), "-i".to_owned(), source.to_owned(), "-frames:v".to_owned(), "1".to_owned(), "-vf".to_owned(), "scale=640:-2".to_owned(), "-q:v".to_owned(), "3".to_owned(), outs[index].display().to_string()]);
+    }
+    args
+}
+
 #[tauri::command]
-async fn analysis_frames(state: State<'_, Arc<AppState>>, id: String, times: Vec<f64>) -> CommandResult<serde_json::Value> {
-    use base64::Engine;
+async fn analysis_frames(state: State<'_, Arc<AppState>>, id: String, times: Vec<f64>) -> CommandResult<serde_json::Value> {    use base64::Engine;
     let asset = state.assets_by_id().remove(&id).ok_or("Media not found")?;
     if times.is_empty() || times.len() > 6 || times.iter().any(|t| !t.is_finite() || *t < 0.0 || *t >= asset.duration) { return Err("Request 1–6 source timestamps within the media duration".into()); }
     let tools = state.tools();
     let folder = state.paths.work.join(store::new_id());
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let result = async {
+        // One ffmpeg for every frame: six separate processes each pay startup
+        // plus a seek, one process with repeated inputs pays it once. Any
+        // output that comes out missing or empty falls back to the old
+        // per-frame path individually below.
+        let outs: Vec<PathBuf> = (0..times.len()).map(|index| folder.join(format!("{index}.jpg"))).collect();
+        let batch = frame_batch_args(&times, &asset.path, &outs);
+        let refs: Vec<&str> = batch.iter().map(String::as_str).collect();
+        let _ignored = tools::run(tools.ffmpeg()?, &refs, None).await;
         let mut images = Vec::new();
         let mut preceding_frame_fallbacks = Vec::new();
         for (index, time) in times.iter().enumerate() {
-            let path = folder.join(format!("{index}.jpg"));
-            let direct = tools::run(tools.ffmpeg()?, &["-hide_banner", "-loglevel", "error", "-y", "-nostdin", "-ss", &time.to_string(), "-i", &asset.path, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", &path.display().to_string()], None).await;
-            if direct.is_err() || std::fs::metadata(&path).map_or(true, |m| m.len() == 0) {
+            let path = outs[index].clone();
+            let direct = std::fs::metadata(&path).map(|meta| meta.len() > 0).unwrap_or(false);
+            if !direct {
             preceding_frame_fallbacks.push(index);
             // Container duration can extend past the final video timestamp (audio tails/VFR).
             // Select the latest decoded frame at or before the requested time, including EOF.
@@ -860,7 +880,7 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
 }
 
 #[tauri::command]
-fn local_media_install(state: State<'_, Arc<AppState>>, task: String) -> CommandResult<String> {
+fn local_media_install(state: State<'_, Arc<AppState>>, task: String, hf_token: Option<String>) -> CommandResult<String> {
     if !["image", "video", "audio", "sam2", "vitmatte", "depth", "person-track"].contains(&task.as_str()) { return Err("Unknown model adapter".into()); }
     if external_media_download(&state.paths, &task).is_some_and(|v| v["status"] == "running") { return Err("This model is already downloading. Follow its progress in Local Media settings.".into()); }
     let prefs = state.settings();
@@ -875,7 +895,7 @@ fn local_media_install(state: State<'_, Arc<AppState>>, task: String) -> Command
     let worker = work.join("worker.py");
     std::fs::write(&worker, include_str!("../workers/local_media.py")).map_err(|e| e.to_string())?;
     let input = work.join("request.json");
-    store::write_json(&input, &serde_json::json!({ "action": "install", "task": task, "output": output }))?;
+    store::write_json(&input, &serde_json::json!({ "action": "install", "task": task, "output": output, "hf_token": hf_token }))?;
     let shared = state.inner().clone();
     tauri::async_runtime::spawn(async move {
         let _lease = lease;
@@ -1578,19 +1598,27 @@ fn chat_log_save(state: State<'_, Arc<AppState>>, messages: serde_json::Value) -
 
 #[tauri::command]
 async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: Project, options: ExportOptions) -> CommandResult<String> {
+    /// How many ffmpeg exports burn at once; further renders queue behind them.
+    const MAX_CONCURRENT_EXPORTS: usize = 2;
     let tools = state.tools();
     let ffmpeg = tools.ffmpeg()?.to_path_buf();
     let output = PathBuf::from(&options.output);
-    if output.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case("mp4")) {
-        return Err("the export must be an .mp4 file".to_owned());
+    let expected = render::expected_extension(&options.format)?;
+    if output.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case(expected)) {
+        return Err(format!("a {} export must end in .{expected}", options.format));
     }
     if let Some(parent) = output.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     }
     let sfx_dir = state.paths.sfx.clone();
-    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Video, 0.0)?;
-    let job = state.jobs.start("export", format!("Exporting {}", output.file_name().map_or_else(|| "video".into(), |name| name.to_string_lossy())), true);
+    let kind = if options.format == "mp3" { render::Output::Audio } else { render::Output::Video };
+    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, kind, 0.0)?;
+    let comp_name = project.comp(&options.comp_id).map_or_else(|| "video".to_owned(), |comp| comp.name.clone());
+    let file_name = output.file_name().map_or_else(|| "video".into(), |name| name.to_string_lossy().into_owned());
+    let job = state.jobs.start("export", format!("Exporting {comp_name} · {file_name} ({})", options.format), true);
     let job_id = job.id().to_owned();
+    let queue_id = job_id.clone();
+    let jobs = state.jobs.clone();
     let work = state.paths.work.join(job.id());
     std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
     for (name, contents) in &plan.files {
@@ -1600,6 +1628,18 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
     let output_text = output.display().to_string();
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
+        // The render queue: at most two ffmpeg exports burn at once; the rest
+        // wait with an honest message instead of melting the machine. Waiting
+        // renders stay cancellable.
+        while jobs.list().iter().filter(|other| other.kind == "export" && other.status == crate::jobs::JobStatus::Running && other.id != queue_id).count() >= MAX_CONCURRENT_EXPORTS {
+            if *job.cancel.borrow() {
+                job.fail("Cancelled while queued");
+                let _ignored = app_handle.emit(LIBRARY_EVENT, ());
+                return;
+            }
+            job.progress(0.0, "Queued — waiting for a render slot");
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
         job.progress(0.0, format!("Rendering {}×{}", plan.width, plan.height));
         let cancel = job.cancel.clone();
         let result = tools::run_ffmpeg_with_progress(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |fraction| {
@@ -1631,7 +1671,7 @@ async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id
     if !output.to_ascii_lowercase().ends_with(".png") {
         return Err("frames are saved as .png".to_owned());
     }
-    let options = ExportOptions { output: output.clone(), comp_id, resolution: None, fps: None, quality: "high".to_owned(), in_to_out: false };
+    let options = ExportOptions { output: output.clone(), comp_id, resolution: None, fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned() };
     let sfx_dir = state.paths.sfx.clone();
     let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, time)?;
     let work = state.paths.work.join(format!("frame-{}", store::new_id()));
@@ -1644,6 +1684,97 @@ async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id
     let result = tools::run_ffmpeg_with_progress(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |_| ()).await;
     let _ignored = std::fs::remove_dir_all(&work);
     result.map(|()| output)
+}
+
+/// A comp id flattened for a thumbnail file name: no separators, no escapes.
+fn poster_filename(comp_id: &str) -> String {
+    comp_id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect()
+}
+
+/// A note name is a bare `.md` file name: no paths, no hidden files, no escapes.
+fn valid_note_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.to_ascii_lowercase().ends_with(".md")
+        && !name.contains(['/', '\\', ':'])
+        && !name.starts_with('.')
+}
+
+/// A comp's poster frame: the middle of the comp rendered small, cached under
+/// a deterministic name so the Project panel can show what is inside a comp
+/// without touching the project schema.
+#[tauri::command]
+async fn comp_poster(state: State<'_, Arc<AppState>>, project: Project, comp_id: String) -> CommandResult<String> {
+    let tools = state.tools();
+    let ffmpeg = tools.ffmpeg()?.to_path_buf();
+    let comp = project.comp(&comp_id).ok_or("that comp is not in the project")?;
+    let total = comp.duration();
+    if total <= 0.0 {
+        return Err("that comp is empty — add clips before rendering its poster".to_owned());
+    }
+    let safe = poster_filename(&comp_id);
+    let output = state.paths.thumbnails.join(format!("comp-{safe}.png"));
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let options = ExportOptions { output: output.display().to_string(), comp_id, resolution: Some(360), fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned() };
+    let sfx_dir = state.paths.sfx.clone();
+    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, total / 2.0)?;
+    let work = state.paths.work.join(format!("poster-{}", store::new_id()));
+    std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
+    for (name, contents) in &plan.files {
+        std::fs::write(work.join(name), contents).map_err(|error| error.to_string())?;
+    }
+    let env = tools::FfmpegEnv { fontconfig_file: state.fontconfig.clone() };
+    let (_keep, cancel) = tokio::sync::watch::channel(false);
+    let result = tools::run_ffmpeg_with_progress(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |_| ()).await;
+    let _ignored = std::fs::remove_dir_all(&work);
+    result.map(|()| output.display().to_string())
+}
+
+/// AI-written notes and todo lists, so the Project panel shows every file the
+/// assistant creates. The agent's relative paths resolve against the process
+/// working directory, so that is where the notes live too.
+fn notes_dir() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("todos")
+}
+
+#[tauri::command]
+fn workspace_notes() -> CommandResult<Vec<serde_json::Value>> {
+    let dir = notes_dir();
+    let mut notes = Vec::new();
+    let entries = std::fs::read_dir(&dir).map_err(|_| "no notes yet — the assistant writes its todo lists here as it works".to_owned())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case("md")) || !path.is_file() {
+            continue;
+        }
+        let meta = std::fs::metadata(&path).ok();
+        let modified = meta.as_ref().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+        notes.push(serde_json::json!({
+            "name": path.file_name().map_or_else(|| "?".into(), |name| name.to_string_lossy().into_owned()),
+            "path": path.display().to_string(),
+            "size": meta.as_ref().map(|m| m.len()).unwrap_or(0),
+            "modified": modified,
+        }));
+    }
+    notes.sort_by_key(|note| std::cmp::Reverse(note["modified"].as_u64().unwrap_or(0)));
+    Ok(notes)
+}
+
+/// Deletes one note by file name only — never a path, never outside todos/.
+#[tauri::command]
+fn workspace_note_delete(name: String) -> CommandResult<()> {
+    if !valid_note_name(&name) {
+        return Err("that is not a note name".to_owned());
+    }
+    let target = notes_dir().join(&name);
+    let canonical = target.canonicalize().map_err(|_| "that note is not there".to_owned())?;
+    let root = notes_dir().canonicalize().unwrap_or_else(|_| notes_dir());
+    if !canonical.starts_with(&root) {
+        return Err("that is not a note name".to_owned());
+    }
+    std::fs::remove_file(&canonical).map_err(|_| "that note is not there".to_owned())
 }
 
 #[tauri::command]
@@ -1885,6 +2016,10 @@ fn chat_active_turns(state: State<'_, Arc<AppState>>) -> Vec<String> {
 
 #[tauri::command]
 fn chat_stop(state: State<'_, Arc<AppState>>, turn_id: String) -> bool {
+    // Also try stopping a subagent by this id.
+    if state.subagents.stop(&turn_id) {
+        return true;
+    }
     state
         .turns
         .lock()
@@ -1893,7 +2028,96 @@ fn chat_stop(state: State<'_, Arc<AppState>>, turn_id: String) -> bool {
         .unwrap_or(false)
 }
 
+#[tauri::command]
+fn chat_spawn_subagent(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    spec: subagent::SubagentSpec,
+) -> CommandResult<serde_json::Value> {
+    if spec.task.trim().is_empty() {
+        return Err("a subagent needs a task".to_owned());
+    }
+    if spec.label.trim().is_empty() {
+        return Err("a subagent needs a label".to_owned());
+    }
+    // Resolve the provider for the subagent (same as the parent turn's).
+    let rows = state.providers.read().map_err(lock_error)?.clone();
+    let row = if rows.is_empty() {
+        builtin_row()
+    } else {
+        let provider_id = spec.model.as_deref().and_then(|_| None);
+        chat::resolve_row(&rows, provider_id).unwrap_or_else(|_| builtin_row())
+    };
+    let keys = tauri::async_runtime::block_on(async {
+        tauri::async_runtime::spawn_blocking(keychain_keys)
+            .await
+            .unwrap_or_default()
+    });
+    let tool_app = app.clone();
+    let executor = EventExecutor::new(
+        spec.parent_turn_id.clone(),
+        state.tool_calls.clone(),
+        move |event: ToolCallEvent| {
+            let _ignored = tool_app.emit(TOOL_CALL_EVENT, &event);
+        },
+        tokio::sync::watch::channel(false).1,
+        ai_tools::CALL_TIMEOUT,
+    );
+    let mcp = state.mcp.clone().and_then(|hub| {
+        let bridge = std::env::current_exe().ok()?;
+        Some(McpLink { hub, bridge })
+    });
+    let context = TurnContext {
+        row,
+        keys,
+        executor: Arc::new(executor),
+        mcp,
+    };
+    let subagent_id = state.subagents.spawn(spec, context, app)?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "subagentId": subagent_id,
+    }))
+}
+
+#[tauri::command]
+fn chat_subagent_status(
+    state: State<'_, Arc<AppState>>,
+    subagent_id: String,
+) -> CommandResult<serde_json::Value> {
+    match state.subagents.status(&subagent_id) {
+        Some(status) => Ok(serde_json::to_value(&status).unwrap_or_default()),
+        None => Err(format!("{subagent_id} is not a known subagent")),
+    }
+}
+
+#[tauri::command]
+fn chat_list_subagents(
+    state: State<'_, Arc<AppState>>,
+    parent_turn_id: String,
+) -> Vec<subagent::SubagentStatus> {
+    state.subagents.statuses(&parent_turn_id)
+}
+
+#[tauri::command]
+async fn chat_wait_subagent(
+    state: State<'_, Arc<AppState>>,
+    subagent_id: Option<String>,
+    parent_turn_id: Option<String>,
+) -> CommandResult<serde_json::Value> {
+    if let Some(id) = subagent_id {
+        let result = state.subagents.wait(&id).await?;
+        Ok(serde_json::json!({ "ok": true, "result": result }))
+    } else if let Some(parent) = parent_turn_id {
+        let statuses = state.subagents.wait_all(&parent).await?;
+        Ok(serde_json::json!({ "ok": true, "statuses": statuses }))
+    } else {
+        Err("provide either subagentId or parentTurnId".to_owned())
+    }
+}
+
 // ───────────────────────────── startup ─────────────────────────────
+
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let root = app.path().app_data_dir()?;
@@ -1953,6 +2177,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         fontconfig,
         settings: Mutex::new(settings.clone()),
         paths,
+        subagents: Arc::new(subagent::Supervisor::new()),
     });
     app.manage(state.clone());
 
@@ -2100,6 +2325,9 @@ pub fn run() {
             chat_log_save,
             export_start,
             export_frame,
+            comp_poster,
+            workspace_notes,
+            workspace_note_delete,
             caption_styles,
             jobs_list,
             job_cancel,
@@ -2114,10 +2342,53 @@ pub fn run() {
             chat_tool_result,
             chat_stop,
             chat_active_turns,
+            chat_spawn_subagent,
+            chat_subagent_status,
+            chat_list_subagents,
+            chat_wait_subagent,
         ])
         .run(tauri::generate_context!());
     if let Err(error) = result {
         eprintln!("Helios could not start: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::{frame_batch_args, poster_filename, valid_note_name};
+    use std::path::PathBuf;
+
+    #[test]
+    fn one_ffmpeg_run_extracts_every_frame_in_order() {
+        let outs: Vec<PathBuf> = (0..3).map(|index| PathBuf::from(format!("/tmp/{index}.jpg"))).collect();
+        let args = frame_batch_args(&[1.0, 2.5, 9.75], "clip.mp4", &outs);
+        // Each timestamp gets its own input seek before its input: three
+        // inputs, three outputs, one process.
+        assert_eq!(args.iter().filter(|arg| *arg == "-i").count(), 3);
+        assert_eq!(args.iter().filter(|arg| *arg == "-ss").count(), 3);
+        let positions: Vec<usize> = ["1", "2.5", "9.75"]
+            .iter()
+            .map(|stamp| args.iter().position(|arg| arg == stamp).expect("timestamp in args"))
+            .collect();
+        assert!(positions[0] < positions[1] && positions[1] < positions[2], "timestamps stay in order");
+        for (index, stamp) in ["1", "2.5", "9.75"].iter().enumerate() {
+            let at = args.iter().position(|arg| arg == stamp).expect("timestamp");
+            assert_eq!(args[at + 1], "-i", "a seek opens its own input");
+            assert!(args[at..].iter().any(|arg| arg.ends_with(&format!("{index}.jpg"))), "each input feeds its own output");
+        }
+    }
+
+    #[test]
+    fn poster_names_cannot_escape_and_note_names_cannot_either() {
+        assert_eq!(poster_filename("abc-123"), "abc-123");
+        assert_eq!(poster_filename("../../etc/passwd"), "______etc_passwd");
+        assert_eq!(poster_filename("comp:mogr t!"), "comp_mogr_t_");
+        assert!(valid_note_name("todo-full-edit.md"));
+        assert!(!valid_note_name("../todo.md"));
+        assert!(!valid_note_name("C:\\notes\\x.md"));
+        assert!(!valid_note_name(".hidden.md"));
+        assert!(!valid_note_name("notes.txt"));
+        assert!(!valid_note_name(""));
     }
 }
