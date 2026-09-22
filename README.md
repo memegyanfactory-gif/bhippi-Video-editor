@@ -16,6 +16,24 @@ Built with Tauri v2 + Rust, React 19 + TypeScript, FFmpeg. MIT licensed.
 - **Bring media in.** Import anything FFmpeg reads; download from YouTube, Instagram, TikTok, X and direct links with trimming and cropping; scrape article and page media for research.
 - **Export.** Presets for YouTube 4K/1080p, Reels/Shorts 9:16, square, ProRes; a background render queue.
 
+## How it compares
+
+| | Helios | Premiere Pro | DaVinci Resolve | CapCut | Runway | Remotion |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| Price | Free, open source | Subscription | Free / Studio one-time | Free + Pro subscription | Credits | Free / company licence |
+| Footage stays on your machine | ✅ | Partly (cloud AI features) | ✅ | ❌ | ❌ | ✅ (renders local) |
+| Professional multi-track NLE | ✅ | ✅ | ✅ | Basic | ❌ | ❌ (code only) |
+| AI that edits the timeline with tools | ✅ | Assistive features | Assistive features | Assistive features | ❌ | LLM writes code |
+| Plan → gather → edit → polish pipeline | ✅ | ❌ | ❌ | Templates | Prompt to clip | ❌ |
+| Local text-to-video and image | ✅ | Cloud (Firefly) | ❌ | Cloud | Cloud | ❌ |
+| Local rotoscoping | ✅ | Roto Brush | Magic Mask (Studio) | Cloud cutout | Cloud | ❌ |
+| Local voice-over and transcription | ✅ | Cloud | Transcription (Studio) | Cloud | Cloud | ❌ |
+| Motion graphics as code, with a library | ✅ 500+ pieces | After Effects | Fusion | Templates | ❌ | ✅ |
+| Brand kit the AI follows | ✅ | Libraries | ❌ | Pro brand kit | ❌ | ❌ |
+| Download from YouTube, Instagram, TikTok, X | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+Other tools' columns describe their public feature sets at the time of writing; check their sites for current plans.
+
 ## How the AI works
 
 The co-pilot is any model you connect: Claude, OpenAI-compatible APIs, local servers, or coding-agent CLIs (Claude Code, Codex, Gemini). It edits only through Helios tools (about 115 of them), so every change is a real, undoable timeline operation. A workflow guard keeps the phases honest: no media generation while planning, no timeline edits before the plan is saved.
