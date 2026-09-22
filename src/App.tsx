@@ -2262,7 +2262,7 @@ export default function App() {
             setPendingAsks(rest);
           }}
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, brandKit: kit ? brandKitContext(kit) : null }; }} tools={toolRuns}
+          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })) }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
             // The brain learns every turn's tool outcomes; recording never disturbs the chat.
             if (!settingsRef.current.ideagraphRecord || !outcome.tools.length) return;

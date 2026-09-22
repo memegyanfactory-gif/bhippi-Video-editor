@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ARCHETYPES, DAISY_THEMES, HOUSE_ARCHETYPE, REFERENCE_KITS, STYLE_ARCHETYPES,
   brandBoard, brandKitContext, brandKitCrimson, brandKitPrompt, brandKitTheme, brandKitVars, brandedPrompt, daisyThemeToBrandColors, exportBrandKit, findArchetype, findDaisyTheme,
-  importBrandKit, kitFromArchetype, mergeBrandKit, newBrandKit, resolveActiveKit, retintGraphicHtml, validateBrandKit,
+  importBrandKit, kitFromArchetype, mergeBrandKit, newBrandKit, pickBrandKit, resolveActiveKit, retintGraphicHtml, scoreBrandKit, validateBrandKit,
   type BrandKit, type BrandKitDoc,
 } from '../src/lib/brandKit';
 import { buildMotionGraphic } from '../src/lib/motionGraphics';
@@ -159,15 +159,30 @@ describe('brand kit building', () => {
     expect(importBrandKit('[1,2]')).toHaveProperty('error');
   });
 
-  it('resolves the active kit: the project pointer wins, then the user default', () => {
+  it('resolves the active kit: the project pointer wins, then the user default, then the only kit', () => {
     const a = newBrandKit({ brandName: 'A' });
     const b = newBrandKit({ brandName: 'B' });
     const doc: BrandKitDoc = { kits: [a, b], activeId: a.id };
     expect(resolveActiveKit(doc, { activeBrandKitId: null })?.id).toBe(a.id);
     expect(resolveActiveKit(doc, { activeBrandKitId: b.id })?.id).toBe(b.id);
     expect(resolveActiveKit(doc, { activeBrandKitId: 'gone' })?.id).toBe(a.id);
+    expect(resolveActiveKit({ kits: [a, b], activeId: null }, { activeBrandKitId: null })).toBeNull();
+    expect(resolveActiveKit({ kits: [a], activeId: null }, { activeBrandKitId: null })?.id).toBe(a.id);
     expect(resolveActiveKit({ kits: [], activeId: null }, { activeBrandKitId: null })).toBeNull();
     expect(resolveActiveKit(null, { activeBrandKitId: null })).toBeNull();
+  });
+
+  it('picks a kit by itself: the only one, the best text match, the default, the newest', () => {
+    const pay = newBrandKit({ style: 'fintech-navy', brandName: 'Payfast', industry: 'payments', tagline: 'Money without the maze' });
+    const arcade = newBrandKit({ style: 'neon-cyber', brandName: 'Arcade Club', industry: 'gaming' });
+    const cafe = { ...newBrandKit({ style: 'warm-craft', brandName: 'Bean & Leaf', industry: 'coffee' }), updatedAt: '2099-01-01T00:00:00.000Z' };
+    expect(pickBrandKit({ kits: [pay], activeId: null }, 'anything')?.reason).toBe('the only kit');
+    expect(scoreBrandKit(pay, 'payfast')).toBeGreaterThan(scoreBrandKit(arcade, 'payfast'));
+    expect(pickBrandKit({ kits: [pay, arcade, cafe], activeId: null }, 'a gaming channel intro')?.kit.id).toBe(arcade.id);
+    expect(pickBrandKit({ kits: [pay, arcade, cafe], activeId: null }, 'espresso coffee promo')?.kit.id).toBe(cafe.id);
+    expect(pickBrandKit({ kits: [pay, arcade, cafe], activeId: pay.id }, 'zzz unrelated')?.reason).toBe('the user default');
+    expect(pickBrandKit({ kits: [pay, arcade, cafe], activeId: null }, null)?.kit.id).toBe(cafe.id);
+    expect(pickBrandKit({ kits: [], activeId: null }, 'x')).toBeNull();
   });
 });
 
@@ -236,6 +251,19 @@ describe('brand kit tools', () => {
     expect(activate.ok).toBe(true);
     expect(f.settings().brandKits?.activeId).not.toBe(kit.id);
     expect(f.project().activeBrandKitId).not.toBe(kit.id);
+    await runTool(f.host, 'set_active_brand_kit', { id: 'Payfast', scope: 'project' });
+    expect(f.project().activeBrandKitId).toBe(kit.id);
+    // The AI can choose without an id: by words, or automatically.
+    const byQuery = await runTool(f.host, 'set_active_brand_kit', { query: 'neon arcade gaming stream' });
+    expect(byQuery.ok, JSON.stringify(byQuery)).toBe(true);
+    expect(byQuery.summary).toContain('Arcade');
+    expect(byQuery.summary).toContain('best match');
+    expect(f.project().activeBrandKitId).not.toBe(kit.id);
+    const auto = await runTool(f.host, 'set_active_brand_kit', { auto: true });
+    expect(auto.ok).toBe(true);
+    expect((auto as unknown as { chosenAs: string; alternatives: unknown[] }).alternatives.length).toBe(1);
+    const viaQueryRead = await runTool(f.host, 'get_brand_kit', { query: 'payments money', section: 'identity' });
+    expect((viaQueryRead as unknown as { name: string }).name).toBe('Payfast');
     await runTool(f.host, 'set_active_brand_kit', { id: 'Payfast', scope: 'project' });
     expect(f.project().activeBrandKitId).toBe(kit.id);
 

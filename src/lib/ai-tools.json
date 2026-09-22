@@ -4036,6 +4036,10 @@
               "notes"
             ],
             "description": "One section of the kit."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
           }
         },
         "additionalProperties": false
@@ -4224,6 +4228,10 @@
             "type": "object",
             "description": "Fields to merge (objects merge deeply, arrays replace).",
             "additionalProperties": true
+          },
+          "query": {
+            "type": "string",
+            "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
           }
         },
         "additionalProperties": false,
@@ -4252,7 +4260,7 @@
     },
     {
       "name": "set_active_brand_kit",
-      "description": "Points this project (and/or the user default) at a brand kit, or clears it with id null.",
+      "description": "Points this project (and/or the user default) at a brand kit. Give an id or name; or `query` (brand/product/industry words) to pick the best match; or `auto: true` to choose without being told (the only kit, else the best match for the project name, else the user default, else the most recent). Use it whenever the context shows brandKit null but brandKits lists kits, before making graphics, and tell the user which kit you chose. id null (without auto/query) clears the pointer.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -4271,6 +4279,14 @@
               "both"
             ],
             "description": "Default project."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
+          },
+          "auto": {
+            "type": "boolean",
+            "description": "Choose a kit automatically (see description)."
           }
         },
         "additionalProperties": false
@@ -4293,6 +4309,10 @@
           "compId": {
             "type": "string",
             "description": "Target comp (default active)."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
           }
         },
         "additionalProperties": false
@@ -4323,6 +4343,10 @@
           "negative_prompt": {
             "type": "string",
             "description": "An existing negative prompt to extend."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
           }
         },
         "additionalProperties": false
@@ -4353,6 +4377,10 @@
           "compId": {
             "type": "string",
             "description": "Target comp."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
           }
         },
         "additionalProperties": false
@@ -4401,6 +4429,10 @@
           "minSize": {
             "type": "number",
             "description": "Minimum height in px at 1080p (default 64)."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
           }
         },
         "additionalProperties": false,
@@ -4418,6 +4450,10 @@
           "id": {
             "type": "string",
             "description": "Kit id or name; the active kit when omitted."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
           }
         },
         "additionalProperties": false

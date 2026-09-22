@@ -510,11 +510,46 @@ export function importBrandKit(text: string): BrandKit | { error: string } {
   }
 }
 
-/** The kit a project is edited to: its own pointer first, then the user's default. */
+/** The kit a project is edited to: its own pointer first, then the user's default, then the only kit there is. */
 export function resolveActiveKit(doc: BrandKitDoc | null | undefined, project?: Pick<Project, 'activeBrandKitId'> | null): BrandKit | null {
   if (!doc?.kits?.length) return null;
   const id = project?.activeBrandKitId ?? doc.activeId;
-  return doc.kits.find((k) => k.id === id) ?? (project?.activeBrandKitId ? doc.kits.find((k) => k.id === doc.activeId) ?? null : null);
+  const found = doc.kits.find((k) => k.id === id) ?? (project?.activeBrandKitId ? doc.kits.find((k) => k.id === doc.activeId) : undefined);
+  if (found) return found;
+  return doc.kits.length === 1 ? doc.kits[0] : null;
+}
+
+/** How well a kit matches free text (a brand name, a product, an industry, a style word). */
+export function scoreBrandKit(kit: BrandKit, query: string): number {
+  const q = query.toLowerCase().trim();
+  if (!q) return 0;
+  const name = kit.name.toLowerCase();
+  let score = 0;
+  if (name === q) score += 100;
+  else if (name.includes(q) || q.includes(name)) score += 60;
+  const haystack = [kit.tagline, kit.style, kit.industry, kit.audience, kit.description, ...kit.values, ...kit.voiceGuide.tone, ...kit.imagery.keywords].join(' ').toLowerCase();
+  for (const term of q.split(/[\s,./]+/).filter((t) => t.length > 2)) {
+    if (name.includes(term)) score += 20;
+    if (haystack.includes(term)) score += 6;
+  }
+  return score;
+}
+
+/**
+ * Picks a kit without being told which: the only kit, else the best text match when the match is
+ * unambiguous, else the user default, else the most recently edited kit.
+ */
+export function pickBrandKit(doc: BrandKitDoc | null | undefined, query?: string | null): { kit: BrandKit; reason: string } | null {
+  if (!doc?.kits?.length) return null;
+  if (doc.kits.length === 1) return { kit: doc.kits[0], reason: 'the only kit' };
+  if (query?.trim()) {
+    const ranked = doc.kits.map((kit) => ({ kit, score: scoreBrandKit(kit, query) })).sort((a, b) => b.score - a.score);
+    if (ranked[0].score > 0 && ranked[0].score > (ranked[1]?.score ?? 0)) return { kit: ranked[0].kit, reason: `the best match for "${query.trim()}"` };
+  }
+  const fallback = doc.kits.find((k) => k.id === doc.activeId);
+  if (fallback) return { kit: fallback, reason: 'the user default' };
+  const newest = [...doc.kits].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  return { kit: newest, reason: 'the most recently edited kit' };
 }
 
 export function findKit(doc: BrandKitDoc | null | undefined, query: string | null | undefined): BrandKit | undefined {

@@ -37,6 +37,12 @@ negative prompt) · Layout (safe margin, logo bug, lower third, captions, radius
 `brand_kit_prompt {kind, prompt?}`, `render_brand_board`, `import_brand_logo {path, role}`,
 `export_brand_kit`, `import_brand_kit {json}`. Reads are allowed in every production phase.
 
+Choosing a kit: the project pointer wins, then the user default, then the only kit there is. When
+none is active the prompt context still lists every kit (`brandKits`), and the AI picks one before
+making graphics with `set_active_brand_kit {"auto": true}` (only / best match for the project / default
+/ most recent) or `{"query": "<brand or industry words>"}`; every brand tool also accepts `query`
+instead of an id.
+
 Automatic use: `create_motion_graphic` themes React Bits pieces with the kit and gives Crimson templates
 the kit's accent and type (`useBrand:false` or another `theme` opts out); `add_text` defaults to the
 kit's text colour; `generate_local_media` prefixes prompts with the imagery rules and negatives;

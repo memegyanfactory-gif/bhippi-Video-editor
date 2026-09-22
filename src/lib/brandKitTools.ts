@@ -8,7 +8,7 @@ import type { ToolHost } from './aiTools';
 import {
   ARCHETYPES, BRAND_KIT_SECTIONS, DAISY_THEMES, HOUSE_ARCHETYPE, assetDataUrl, assetText, brandBoard, brandKitContext, brandKitPrompt, brandKitSummary, brandKitTheme,
   brandedPrompt, daisyThemeSummary, daisyThemeToBrandColors, emptyBrandKitDoc, exportBrandKit, findArchetype, findDaisyTheme, findKit, importBrandKit, kitFromArchetype,
-  mergeBrandKit, resolveActiveKit, retintGraphicHtml, validateBrandKit,
+  mergeBrandKit, pickBrandKit, resolveActiveKit, retintGraphicHtml, validateBrandKit,
   type BrandKit, type BrandKitDoc, type BrandKitSection, type BrandLogo, type Corner, type LogoRole,
 } from './brandKit';
 import type { NewBrandKitInput } from './brandKit/build';
@@ -55,12 +55,16 @@ async function saveDoc(host: ToolHost, doc: BrandKitDoc): Promise<string | null>
   }
 }
 
+/** The kit a tool call means: by id/name, by a free-text `query`, else the project's active kit. */
 const kitOf = (host: ToolHost, project: Project, args: Args): BrandKit | undefined => {
   const id = str(args, 'id');
+  const query = str(args, 'query');
   const doc = brandKitDoc(host);
-  return id ? findKit(doc, id) : resolveActiveKit(doc, project) ?? undefined;
+  if (id) return findKit(doc, id);
+  if (query) return pickBrandKit(doc, query)?.kit;
+  return resolveActiveKit(doc, project) ?? undefined;
 };
-const noKit = (id?: string): ToolResult => fail(id ? `No brand kit called "${id}". list_brand_kits shows them.` : 'No brand kit is active for this project. list_brand_kits and set_active_brand_kit to pick one, or create_brand_kit to make one.');
+const noKit = (id?: string): ToolResult => fail(id ? `No brand kit called "${id}". list_brand_kits shows them.` : 'No brand kit is active for this project. set_active_brand_kit {"auto": true} picks one (or {"query": "<brand words>"}), list_brand_kits shows them, create_brand_kit makes one.');
 
 /** The kit without embedded logo bytes — what tool results carry. */
 const publicKit = (kit: BrandKit) => ({ ...kit, logos: kit.logos.map((l) => ({ ...l, dataUrl: l.dataUrl ? '[embedded]' : null })) });
@@ -191,16 +195,24 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
 
     case 'set_active_brand_kit': {
       const scope = str(args, 'scope') ?? 'project';
-      if (args.id === null) {
+      const auto = bool(args, 'auto') === true;
+      const query = str(args, 'query');
+      if (args.id === null && !auto && !query) {
         if (scope !== 'default') ctx.commit((current) => ({ ...current, activeBrandKitId: null }), 'Brand kit');
         if (scope !== 'project') { const error = await saveDoc(host, { ...doc, activeId: null }); if (error) return fail(error); }
         return done(`Cleared the brand kit for ${scope === 'both' ? 'this project and the default' : scope === 'default' ? 'the user default' : 'this project'}.`);
       }
-      const kit = findKit(doc, str(args, 'id'));
+      if (!doc.kits.length) return fail('There are no brand kits yet. create_brand_kit makes one (list_brand_archetypes for the styles).');
+      let kit = str(args, 'id') ? findKit(doc, str(args, 'id')) : undefined;
+      let reason = '';
+      if (!kit && (auto || query || !str(args, 'id'))) {
+        const picked = pickBrandKit(doc, query ?? [project.name, ctx.comp?.name].filter(Boolean).join(' '));
+        if (picked) { kit = picked.kit; reason = picked.reason; }
+      }
       if (!kit) return noKit(str(args, 'id'));
       if (scope !== 'default') ctx.commit((current) => ({ ...current, activeBrandKitId: kit.id }), 'Brand kit');
       if (scope !== 'project') { const error = await saveDoc(host, { ...doc, activeId: kit.id }); if (error) return fail(error); }
-      return done(`"${kit.name}" is now the brand kit for ${scope === 'both' ? 'this project and new projects' : scope === 'default' ? 'new projects' : 'this project'}.`, { id: kit.id, context: brandKitContext(kit) });
+      return done(`"${kit.name}" is now the brand kit for ${scope === 'both' ? 'this project and new projects' : scope === 'default' ? 'new projects' : 'this project'}${reason ? ` — chosen as ${reason}` : ''}. Tell the user which kit you are using.`, { id: kit.id, chosenAs: reason || 'named', alternatives: doc.kits.filter((k) => k.id !== kit.id).map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry })), context: brandKitContext(kit) });
     }
 
     case 'apply_brand_kit': {

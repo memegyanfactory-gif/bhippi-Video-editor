@@ -10,8 +10,8 @@ import { HtmlMotionLayer } from '../editor/HtmlMotionLayer';
 import { useToast } from '../components/ui';
 import {
   ARCHETYPES, DAISY_THEMES, SYSTEM_FONTS, assetDataUrl, assetText, brandBoard, brandKitSummary, brandKitTheme, contrastRatio, daisyThemeToBrandColors, emptyBrandKitDoc, exportBrandKit,
-  findArchetype, findDaisyTheme, importBrandKit, isDark, logoMarkup, mergeBrandKit, newBrandKit, resolveActiveKit, validateBrandKit,
-  type BrandKit, type BrandKitDoc, type BrandKitSection, type BrandLogo, type ColorRole,
+  findArchetype, findDaisyTheme, fontStack, importBrandKit, isDark, logoMarkup, mergeBrandKit, newBrandKit, resolveActiveKit, validateBrandKit,
+  type BrandArchetype, type BrandKit, type BrandKitDoc, type BrandKitSection, type BrandLogo, type ColorRole,
 } from '../lib/brandKit';
 import { api, errorText } from '../lib/ipc';
 import type { Asset, Settings } from '../lib/types';
@@ -49,6 +49,36 @@ export const applyDaisyTheme = (kit: BrandKit, themeId: string): BrandKit => {
   const theme = findDaisyTheme(themeId);
   return theme ? mergeBrandKit(kit, 'colors', { colors: daisyThemeToBrandColors(theme) }) : kit;
 };
+
+/** Design-pixel calcs from the logo markup, sized for the settings panel (no --u there). */
+const flattenLogo = (html: string) => html.replace(/calc\(([\d.]+)px \* var\(--u\)\)/g, '$1px');
+
+/** A small static picture of a kit: field, logo or monogram, name in the display face, swatches. */
+export function KitThumb({ kit }: { kit: BrandKit }) {
+  const theme = brandKitTheme(kit);
+  const primary = kit.colors.tokens.find((t) => t.role === 'primary')?.hex ?? theme.accent;
+  const display = kit.typography.display;
+  return (
+    <div className="bk-thumb" style={{ background: `linear-gradient(160deg, ${theme.bg}, ${theme.card})`, color: theme.fg, ['--bk-primary' as string]: primary, ['--accent' as string]: theme.accent, ['--bk-display' as string]: fontStack(display) }}>
+      <div className="bk-thumb-top">
+        <span className="bk-thumb-logo" dangerouslySetInnerHTML={{ __html: flattenLogo(logoMarkup(kit, 'any', 22)) }} />
+        <span className="bk-thumb-name" style={{ fontFamily: fontStack(display), fontWeight: display.weight, letterSpacing: display.letterSpacing, textTransform: display.transform }}>{kit.name}</span>
+      </div>
+      <div className="bk-thumb-swatches">{kit.colors.tokens.slice(0, 7).map((t, i) => <i key={`${t.name}-${i}`} style={{ background: t.hex }} title={`${t.name} ${t.hex}`} />)}</div>
+    </div>
+  );
+}
+
+/** The colours and type of a starting style, beside the picker. */
+function ArchetypeThumb({ arch }: { arch: BrandArchetype }) {
+  const c = arch.colors;
+  return (
+    <div className="bk-arch-thumb" title={arch.character}>
+      <div className="bk-arch-strip" style={{ background: c.bg }}>{[c.bg, c.surface, c.primary, c.accent, c.accent2, c.text].map((hex, i) => <i key={i} style={{ background: hex }} />)}</div>
+      <span className="bk-arch-name" style={{ fontFamily: `"${arch.typography.display.family}", sans-serif`, fontWeight: arch.typography.display.weight, color: c.text, background: c.bg }}>{arch.name.replace(' (reference)', '')}</span>
+    </div>
+  );
+}
 
 const ROLES: ColorRole[] = ['primary', 'secondary', 'accent', 'background', 'surface', 'text', 'muted', 'success', 'warning', 'error', 'info', 'neutral', 'custom'];
 const SECTION_LABELS: Record<BrandKitSection, string> = { identity: 'Identity', logos: 'Logos', colors: 'Colours', typography: 'Typography', voice: 'Voice', motion: 'Motion', imagery: 'Imagery', layout: 'Layout', audio: 'Audio', social: 'Social', assets: 'Assets', notes: 'Notes' };
@@ -175,8 +205,9 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
       <div className="bk-list">
         {doc.kits.map((kit) => (
           <button key={kit.id} type="button" className={`bk-list-item ${selected?.id === kit.id ? 'active' : ''}`} onClick={() => setSelectedId(kit.id)}>
+            <KitThumb kit={kit} />
             <strong>{kit.name}</strong>
-            <span>{kit.style}</span>
+            <span>{kit.style}{kit.industry ? ` · ${kit.industry}` : ''}</span>
             <div className="bk-badges">
               {doc.activeId === kit.id && <span className="bk-badge">default</span>}
               {props.projectBrandKitId === kit.id && <span className="bk-badge on">this project</span>}
@@ -207,8 +238,10 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
 }
 
 function NewKitRow({ compact, newStyle, setNewStyle, newDaisy, setNewDaisy, onCreate, onImport }: { compact?: boolean; newStyle: string; setNewStyle: (v: string) => void; newDaisy: string; setNewDaisy: (v: string) => void; onCreate: () => void; onImport: () => void }) {
+  const arch = findArchetype(newStyle) ?? ARCHETYPES[0];
   return (
     <div className="bk-new" style={compact ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}>
+      <ArchetypeThumb arch={arch} />
       <select value={newStyle} onChange={(e) => setNewStyle(e.target.value)} title="Start from a style archetype">
         <optgroup label="House">{ARCHETYPES.filter((a) => a.group === 'house').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>
         <optgroup label="Style archetypes">{ARCHETYPES.filter((a) => a.group === 'archetype').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>
