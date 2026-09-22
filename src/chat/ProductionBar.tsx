@@ -3,9 +3,11 @@
 // PLAN ──[Start generating]──▶ GATHER ──[Start editing]──▶ EDIT ──▶ POLISH ──▶ DONE
 //
 // The model cannot press these; the workflow guard refuses gathering tools until the user has,
-// and refuses timeline tools until they have again. Between the buttons the bar shows what the
-// phase is producing: shots gathered, the QA verdict, what is still missing.
-import { Check, ChevronRight, Clapperboard, LoaderCircle, Play, Search, Sparkles, Wand2 } from 'lucide-react';
+// and refuses timeline tools until they have again. Rendered as a compact glass dock docked
+// right above the composer: icons carry the state, hover/focus (title + aria-label) carries the
+// sentence — the phase names and progress detail used to sit in the panel as running text and
+// crowded whatever the model had just written above them.
+import { Check, Clapperboard, LoaderCircle, Play, Search, Sparkles, Wand2 } from 'lucide-react';
 import type { Comp, ProductionPhase } from '../lib/types';
 import { PHASE_LABEL, gatherReport, userAdvance } from '../lib/production';
 
@@ -31,7 +33,7 @@ export function ProductionBar({ comp, busy, onAdvance }: {
   const rank = ORDER.indexOf(phase);
   const next = userAdvance(phase);
   const report = gatherReport(comp);
-  const pending = production.phase === 'gathering' || production.phase === 'gathered';
+  const pending = phase === 'gathering' || phase === 'gathered';
   const detail = phase === 'plan-ready'
     ? `${report.total} shot${report.total === 1 ? '' : 's'} to gather · music ${production.music?.source ?? 'none'}${production.research?.sources.length ? ` · ${production.research.sources.length} sources` : ''}`
     : pending
@@ -48,36 +50,39 @@ export function ProductionBar({ comp, busy, onAdvance }: {
       : null;
 
   return (
-    <div className={`production-bar phase-${phase}`} role="group" aria-label="Production phase">
-      <ol className="production-steps">
-        {STEPS.map((step, index) => {
+    <div className={`production-dock phase-${phase}`} role="group" aria-label="Production phase" title={`${PHASE_LABEL[phase]} — ${detail}`}>
+      <span className="production-glint tl" aria-hidden="true" />
+      <span className="production-glint br" aria-hidden="true" />
+      <span className="production-sheen" aria-hidden="true" />
+      <ol className="production-orbits">
+        {STEPS.map((step) => {
           const first = ORDER.indexOf(step.phases[0]);
           const last = ORDER.indexOf(step.phases[step.phases.length - 1]);
           const state = rank > last || phase === 'done' ? 'done' : rank >= first ? 'current' : 'todo';
           const Icon = step.icon;
+          const showRing = state === 'current' && step.key === 'gather' && pending && report.total > 0;
+          const tip = state === 'current' ? `${step.label} — ${detail}` : step.label;
           return (
-            <li key={step.key} className={`production-step ${state}`}>
-              <span className="production-step-icon">{state === 'done' ? <Check size={11} /> : state === 'current' && busy ? <LoaderCircle size={11} className="spin" /> : <Icon size={11} />}</span>
-              <span className="production-step-label">{step.label}</span>
-              {index < STEPS.length - 1 && <ChevronRight size={11} className="production-step-arrow" />}
+            <li key={step.key} className={`production-orbit ${state}`} title={tip} aria-label={tip}>
+              <span className="orbit-icon">
+                {state === 'done' ? <Check size={13} /> : state === 'current' && busy ? <LoaderCircle size={13} className="spin" /> : <Icon size={13} />}
+              </span>
+              {showRing && <span className="orbit-badge">{report.ready}/{report.total}</span>}
             </li>
           );
         })}
       </ol>
-      <div className="production-status">
-        <strong>{PHASE_LABEL[phase]}</strong>
-        <span>{detail}</span>
-      </div>
       {button && (
-        <button type="button" className="production-go" disabled={busy} title={button.hint} onClick={() => next && onAdvance(next)}>
-          <Play size={12} fill="currentColor" />
-          <span>{busy ? 'Waiting for the assistant…' : button.label}</span>
+        <button
+          type="button"
+          className={`production-go${busy ? ' busy' : ''}`}
+          disabled={busy}
+          title={busy ? 'Waiting for the assistant…' : `${button.label} — ${button.hint}`}
+          aria-label={busy ? 'Waiting for the assistant' : button.label}
+          onClick={() => next && onAdvance(next)}
+        >
+          {busy ? <LoaderCircle size={14} className="spin" /> : <Play size={14} fill="currentColor" />}
         </button>
-      )}
-      {pending && report.total > 0 && (
-        <div className="production-progress" aria-label={`${report.ready} of ${report.total} shots gathered`}>
-          <span style={{ width: `${Math.round((report.ready / Math.max(1, report.total)) * 100)}%` }} />
-        </div>
       )}
     </div>
   );

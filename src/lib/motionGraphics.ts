@@ -1,5 +1,11 @@
 import type { Clip, Comp, Project, Track } from './types';
 import { buildCrimsonTemplate, templateSpec, type MogrtLayout } from './motionGuide';
+import { REACT_BITS_TEMPLATE, buildReactBitsGraphic, isReactBitsTemplate, type ReactBitsLayer } from './rbx';
+import { brandKitCrimson, brandKitTheme, retintGraphicHtml } from './brandKit/build';
+import type { BrandKit } from './brandKit/types';
+
+/** Templates designed on the comp's own canvas (1920 wide landscape / 1080 wide portrait): Crimson and React Bits. */
+export const usesCompCanvas = (template: string | undefined | null): boolean => !!template && (!!templateSpec(template) || template === REACT_BITS_TEMPLATE);
 
 export type MotionGraphicTemplateId =
   | 'lower-third'
@@ -39,6 +45,18 @@ export type MotionGraphicParams = {
   /** Canvas the markup is designed for (follows the comp's aspect). */
   canvas?: { width: number; height: number };
   params?: Record<string, string | number | boolean>;
+  /** React Bits: the piece to place (template "react-bits"). */
+  bit?: string;
+  /** React Bits: props for the piece. */
+  props?: Record<string, unknown>;
+  /** React Bits: a background piece under the graphic. */
+  background?: string | ReactBitsLayer;
+  /** React Bits: several pieces composed in one graphic. */
+  layers?: ReactBitsLayer[];
+  /** React Bits: colour theme (crimson default). */
+  theme?: string;
+  /** The active brand kit: React Bits take its theme unless another theme is named; Crimson templates take its accent and type. */
+  brand?: BrandKit | null;
 };
 
 export type MotionGraphicBundle = {
@@ -85,16 +103,32 @@ export function buildMotionGraphic(params: MotionGraphicParams): MotionGraphicBu
     };
   }
 
+  // React Bits: one piece, or a background plus layered pieces, from the 205-piece library.
+  const brand = params.brand ?? null;
+  if (isReactBitsTemplate(template) && !templateSpec(template)) {
+    const useBrandTheme = !!brand && (!params.theme || params.theme === 'brand');
+    const built = buildReactBitsGraphic({
+      bit: params.bit ?? (template !== REACT_BITS_TEMPLATE ? template : undefined),
+      props: params.props, background: params.background, layers: params.layers, theme: params.theme === 'brand' ? undefined : params.theme, accentColor: params.accentColor,
+      themeTokens: useBrandTheme ? brandKitTheme(brand) : undefined,
+      title: params.title, subtitle: params.subtitle, rows: params.rows, values: params.values, layout: params.layout, duration: params.duration, canvas: params.canvas,
+    });
+    if ('error' in built) throw new Error(built.error);
+    return { template: REACT_BITS_TEMPLATE, title: params.title || built.title, html: built.html, css: built.css, js: built.js, box: built.box, seconds: built.seconds, layout: params.layout };
+  }
+
   // The Crimson system: every template the reference guides describe, choreographed with
   // paused CSS animations scrubbed by --elapsed, so the frame renderer exports them exactly.
+  // With a brand kit active the accent and the type stack come from the kit unless an accent is given.
   if (templateSpec(template)) {
     const built = buildCrimsonTemplate({
       template, title: params.title, subtitle: params.subtitle, kicker: params.kicker, rows: params.rows, values: params.values,
-      metric: params.metric, badge: params.badge, accent: params.accentColor, accentWord: params.accentWord, activeIndex: params.activeIndex,
+      metric: params.metric, badge: params.badge, accent: params.accentColor ?? (brand ? brandKitCrimson(brand).accent : undefined), accentWord: params.accentWord, activeIndex: params.activeIndex,
       layout: params.layout, duration: params.duration, cameraMove: params.cameraMove, canvas: params.canvas,
     });
     if (built) {
-      return { template, title: params.title || templateSpec(template)?.label || template, html: built.html, css: built.css, js: '', box: built.box, seconds: built.seconds, layout: params.layout };
+      const html = brand ? retintGraphicHtml(built.html, brand) : built.html;
+      return { template, title: params.title || templateSpec(template)?.label || template, html, css: built.css, js: '', box: built.box, seconds: built.seconds, layout: params.layout };
     }
   }
 

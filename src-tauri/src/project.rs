@@ -876,6 +876,9 @@ pub struct Project {
     /// The caption style new captions start with.
     #[serde(default)]
     pub caption_style: Option<String>,
+    /// The Settings brand kit this project is edited to (see src/lib/brandKit); the user default when unset.
+    #[serde(default)]
+    pub active_brand_kit_id: Option<String>,
 }
 
 pub const VERSION: u32 = 3;
@@ -911,6 +914,7 @@ impl Default for Project {
             active_comp_id: None,
             open_comp_ids: Vec::new(),
             caption_style: None,
+            active_brand_kit_id: None,
         }
     }
 }

@@ -34,6 +34,11 @@ type Frame = {
   offline: Set<string>;
   playing: boolean;
   rate: number;
+  /** Preview render scale, 0 < quality <= 1 (ProgramMonitor's resolution control). The roto
+   * matte compositor is a manual canvas draw sized off the matte PNG's own resolution rather
+   * than `stageW`/`stageH`, so it needs this explicitly to shrink with everything else instead
+   * of silently staying full-cost regardless of the chosen preview resolution. */
+  quality: number;
 };
 
 type TransitionState = { transition: Transition; progress: number; role: 'out' | 'in' };
@@ -210,12 +215,17 @@ function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', sr
   return holder;
 }
 
-function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, clip, at = 0, fps = 30 }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; clip?: Clip; at?: number; fps?: number }) {
+function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, clip, at = 0, fps = 30, quality = 1 }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; clip?: Clip; at?: number; fps?: number; quality?: number }) {
   const holder = useMediaElement<HTMLVideoElement>('video', src, sourceTime, (video) => {
     if (playing && rate > 0 && !frozen) {
       const playbackRate = Math.min(16, Math.max(0.0625, rate * speed));
       if (Math.abs(video.playbackRate - playbackRate) > 1e-3) video.playbackRate = playbackRate;
-      if (!video.seeking && Math.abs(video.currentTime - sourceTime) > 0.08) video.currentTime = sourceTime;
+      // Resync only on real drift. Seeking a *playing* element flushes its decoder and re-decodes
+      // from the last keyframe — a stall of its own — so at 80 ms any hiccup seeked the video,
+      // the seek stalled it further, and the next tick seeked again: the lag fed itself. The
+      // audio elements were already at 340 ms for the same reason; 200 ms (~6 frames) is tight
+      // enough to keep picture and sound together and loose enough not to chase every hitch.
+      if (!video.seeking && Math.abs(video.currentTime - sourceTime) > 0.2) video.currentTime = sourceTime;
       if (video.paused) void video.play().catch(() => undefined);
     } else {
       if (!video.paused) video.pause();
@@ -232,7 +242,7 @@ function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, cl
       }
     }
   });
-  return <><div ref={holder} className="layer-media" style={matte ? { visibility: 'hidden' } : undefined} />{matte && <RotoPreview matte={matte} sourceTime={sourceTime} video={holder} corrections={clip?.rotoCorrections ?? []} at={at} fps={fps} />}</>;
+  return <><div ref={holder} className="layer-media" style={matte ? { visibility: 'hidden' } : undefined} />{matte && <RotoPreview matte={matte} sourceTime={sourceTime} video={holder} corrections={clip?.rotoCorrections ?? []} at={at} fps={fps} quality={quality} />}</>;
 }
 
 const BARS = ['#BFBFBF', '#BFBF00', '#00BFBF', '#00BF00', '#BF00BF', '#BF0000', '#0000BF'];
@@ -398,7 +408,7 @@ function Layer(props: LayerProps) {
         if (!asset || asset.missing || props.offline.has(clip.source.assetId)) picture = <div className="layer-fill offline"><span>Media Offline</span></div>;
         else if (!canPreview(asset)) picture = <div className="layer-fill preparing"><span>{asset.preview === 'failed' ? 'No preview for this format' : 'Preparing preview…'}</span></div>;
         else if (asset.kind === 'image') picture = <img className="layer-media" src={fileSrc(asset.path)} alt="" draggable={false} />;
-        else picture = <VideoElement src={mediaSrc(asset)} sourceTime={clampedSource} playing={playing && visible} rate={rate} speed={clip.speed} frozen={clip.hold !== null || clip.reverse} matte={clip.name?.toLowerCase().includes('background') ? null : clip.rotoMatte} clip={clip} at={time - clip.start} fps={asset.fps ?? comp.fps} />;
+        else picture = <VideoElement src={mediaSrc(asset)} sourceTime={clampedSource} playing={playing && visible} rate={rate} speed={clip.speed} frozen={clip.hold !== null || clip.reverse} matte={clip.name?.toLowerCase().includes('background') ? null : clip.rotoMatte} clip={clip} at={time - clip.start} fps={asset.fps ?? comp.fps} quality={props.quality} />;
       } else if (clip.source.type === 'item') {
         const item = project.items.find((entry) => entry.id === (clip.source as { itemId: string }).itemId);
         picture = item ? <ItemPicture item={item} sourceTime={clampedSource} /> : null;

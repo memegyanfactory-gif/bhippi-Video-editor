@@ -117,6 +117,15 @@ impl Jobs {
             .unwrap_or(false)
     }
 
+    pub fn delete(&self, id: &str) -> bool {
+        let _ = self.cancel(id);
+        self.items
+            .lock()
+            .ok()
+            .and_then(|mut items| items.remove(id))
+            .is_some()
+    }
+
     fn update(&self, id: &str, change: impl FnOnce(&mut Job)) {
         let snapshot = self.items.lock().ok().and_then(|mut items| {
             items.get_mut(id).map(|entry| {

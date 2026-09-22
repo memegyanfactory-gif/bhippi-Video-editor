@@ -19,6 +19,7 @@ import { ChatPanel, type ChatApi, type ToolRun } from './chat/ChatPanel';
 import { StoryboardViewer } from './chat/StoryboardViewer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ResourceMonitor } from './components/ResourceMonitor';
+import { GenerationJobsMenu } from './components/GenerationJobsMenu';
 import { renderMotionGraphicsForExport } from './lib/htmlFrames';
 import { ProviderLogo } from './components/ProviderLogo';
 import { useToast } from './components/ui';
@@ -29,6 +30,7 @@ import { SourceMonitor, type SourceApi, type SourceRange } from './editor/Source
 import { DEFAULT_DISPLAY, dropClips, LABELS, Timeline, type DisplaySettings, type IncomingDrag, type TimelineApi } from './editor/Timeline';
 import { AudioMeters, DEFAULT_METERS, ToolsPanel, TOOL_LABEL } from './editor/ToolsAndMeters';
 import { aiContext, generatedFolderId, runTool, TOOL_SPECS } from './lib/aiTools';
+import { brandKitContext, resolveActiveKit } from './lib/brandKit';
 import { recordTurnOutcome, type TurnOutcome } from './lib/ideagraph';
 import { applyTheme, resolveTheme } from './lib/theme';
 import { allowTool, DEFAULT_EFFORT, DEFAULT_PERMISSION, type Effort, type PermissionMode } from './lib/permissions';
@@ -84,6 +86,7 @@ const PANEL_MIN = { chat: 436, source: 260, properties: 260, project: 260, top: 
 const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, hidden: [], meters: DEFAULT_METERS };
 const EMPTY_SETTINGS: Settings = {
   disabledProviders: [], providerId: null, model: null, effort: null, permission: null, awesomeLook: false, ffmpegPath: null, chatOpen: true, timelineHeight: null, timelineZoom: null,
+  disableLocalGeneration: true,
   export: { resolution: null, fps: null, quality: null, folder: null }, layout: null, recentProjects: [], projectPath: null, theme: null,
   ideagraphBin: null, ideagraphBrain: null, ideagraphRecord: null,
   speech: { transcribeEngine: null, transcribeModel: 'whisper-large-v3', whisperPath: null, piperPath: null, voice: 'piper:piper-en-ryan', hindiVoice: null, voiceMode: 'auto', speed: null },
@@ -315,7 +318,31 @@ export default function App() {
         } else if (job.kind === 'generation' && job.status === 'done' && (job.result as { path?: string })?.path) {
           const path = (job.result as { path?: string }).path!;
           const filename = path.split(/[\\/]/).pop();
-          toast({ tone: 'success', title: 'Generation complete', body: filename || job.label, actions: [{ label: 'Show in folder', run: () => void api.revealPath(path) }] });
+          void (async () => {
+            try {
+              const res = await api.libraryImport([path]);
+              await refreshAssets();
+              const all = [...res.imported, ...res.existing];
+              if (all.length > 0) {
+                const currentProject = history.current();
+                const targetFolder = generatedFolderId(currentProject, (fn) => history.commit(fn, 'Generated Folder'));
+                history.commit((current) => ({
+                  ...current,
+                  media: [
+                    ...current.media.map((ref) =>
+                      all.some((a) => a.id === ref.assetId) ? { ...ref, folderId: targetFolder } : ref,
+                    ),
+                    ...all
+                      .filter((asset) => !current.media.some((ref) => ref.assetId === asset.id))
+                      .map((asset) => ({ assetId: asset.id, folderId: targetFolder, offline: false })),
+                  ],
+                }), 'Import Generated Media');
+              }
+            } catch (err) {
+              console.error('Failed to auto-import generated media', err);
+            }
+          })();
+          toast({ tone: 'success', title: 'Generation complete', body: `${filename || job.label} added to Generated folder`, actions: [{ label: 'Show in folder', run: () => void api.revealPath(path) }] });
         } else if (job.kind === 'generation' && (job.status === 'error' || job.status === 'cancelled')) {
           toast({ tone: 'error', title: 'Generation failed', body: job.message.slice(0, 400) });
         } else if (job.kind === 'install' && job.status !== 'running') {
@@ -324,7 +351,7 @@ export default function App() {
       }),
     ];
     return () => subscriptions.forEach((pending) => void pending.then((unlisten) => unlisten()));
-  }, [refreshAssets, toast]);
+  }, [refreshAssets, toast, history]);
 
   // ── AI tool calls ──────────────────────────────────────────────────────
   const toolHost = useMemo(() => ({
@@ -373,6 +400,13 @@ export default function App() {
       return asset;
     },
     setReference: (id: string | null) => setReferenceId(id),
+    // Brand kits live in Settings; tools read the current document and persist changes through the same path the panel uses.
+    settings: () => settingsRef.current,
+    saveSettings: async (next: Settings) => {
+      const saved = await api.settingsSave(next);
+      setSettings(saved);
+      return saved;
+    },
   }), [history, assetMap, selection, refreshAssets]);
   /**
    * Separates the subject of the selected clip from its background, and remembers it against the
@@ -508,7 +542,7 @@ export default function App() {
       const permitted = allowTool(permissionRef.current, call.name);
       let workflow = editWorkflows.current.get(call.turnId);
       if (!workflow) {
-        workflow = new EditWorkflow(hostRef.current.history.current(), hostRef.current.assets());
+        workflow = new EditWorkflow(hostRef.current.history.current(), hostRef.current.assets(), 'full', settingsRef.current.disableLocalGeneration ?? true);
         editWorkflows.current.set(call.turnId, workflow);
       }
       if (!permitted.ok) {
@@ -518,7 +552,12 @@ export default function App() {
           const args = (call.args && typeof call.args === 'object' ? call.args : {}) as Record<string, unknown>;
           const project = hostRef.current.history.current();
           const blocked = workflow.before(call.name, args, project) || (call.name === 'save_storyboard' ? workflow.validateStoryboard(args, project) : null);
-          if (blocked) result = { ok: false as const, error: blocked };
+          // Flagged separately from an ordinary tool failure: every other call from the same
+          // blind batch is refused for the identical reason (wrong phase, unread timeline,
+          // missing prerequisite), so a CLI-protocol turn can stop burning through the rest of
+          // that batch the moment it sees this, instead of repeating the same refusal dozens of
+          // times before the model gets a chance to react (see chat.rs's text() loop).
+          if (blocked) result = { ok: false as const, error: blocked, guardBlocked: true };
           else if (call.name === 'editing_workflow_status') {
             const st = workflow.status(project);
             const summary = st.timelineRead
@@ -586,6 +625,13 @@ export default function App() {
    * deterministically, so the guard opens the right tools whatever the model does — and then the
    * model is told what the phase asks of it.
    */
+  /** A new conversation ends the current production: the dock goes, and the workflow guard starts clean. Undoable like any edit. */
+  const endConversation = () => {
+    const active = history.current();
+    const target = active.comps.find((c) => c.id === active.activeCompId) ?? active.comps[0];
+    if (target?.production) history.commit((current) => updateComp(current, target.id, (c) => ({ ...c, production: null })), 'New conversation');
+    editWorkflows.current.clear();
+  };
   const advanceProductionPhase = (compId: string, phase: 'gathering' | 'editing' | ProductionPhase) => {
     history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: advanceProduction(c.production, phase) } : c)), phase === 'gathering' ? 'Start generating' : 'Start editing');
     const message = phase === 'gathering'
@@ -1917,8 +1963,13 @@ export default function App() {
     if (ctrl && alt && key === 'v') return run(() => selectedClips[0] && clipMenu({ clientX: 200, clientY: 200 }, selectedClips[0].id, playhead.get()));
     if (ctrl && shift && key === 'v') return run(() => paste(true));
     if (ctrl && key === 'v') return run(() => paste(false));
-    if (ctrl && key === 'c') return run(() => copySelection(false));
-    if (ctrl && key === 'x') return run(() => copySelection(true));
+    // Selected prose (chat, settings, anywhere else text is selectable) wants a plain clipboard
+    // copy, not the timeline's clip-copy — this used to preventDefault and hijack Ctrl+C/X even
+    // when nothing in the timeline was selected, so copying chat text silently did nothing.
+    const selectedText = window.getSelection();
+    const hasTextSelection = !!selectedText && !selectedText.isCollapsed && selectedText.toString().length > 0;
+    if (ctrl && key === 'c') { if (hasTextSelection) return; return run(() => copySelection(false)); }
+    if (ctrl && key === 'x') { if (hasTextSelection) return; return run(() => copySelection(true)); }
     if (ctrl && shift && key === 'a') return run(() => { setSelection([]); setTransitionSelection(null); });
     if (ctrl && key === 'a') return run(() => comp && setSelection(comp.clips.map((clip) => clip.id)));
     if (ctrl && key === 'e') return run(() => {
@@ -2188,17 +2239,21 @@ export default function App() {
             isPlaying={isPlaying}
           />
         )}
-        {comp?.production && (
-          <ProductionBar
-            comp={comp}
-            busy={Object.values(toolRuns).flat().some((run) => run.status === 'running')}
-            onAdvance={(phase) => advanceProductionPhase(comp.id, phase)}
-          />
-        )}
+        {/* Once verified there's nothing left to press and nothing left to track — the dock
+            vanishes rather than sitting there as a permanent row of green checks. Saving a
+            plan for the next task starts a fresh production (see parseProduction), which
+            brings the dock back. */}
         <ChatPanel apiRef={chatApi} providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
+          productionBar={comp?.production && comp.production.phase !== 'done' && (
+            <ProductionBar
+              comp={comp}
+              busy={Object.values(toolRuns).flat().some((run) => run.status === 'running')}
+              onAdvance={(phase) => advanceProductionPhase(comp.id, phase)}
+            />
+          )}
           effort={effort} onEffort={(value) => saveSettings({ effort: value })}
           permission={permission} onPermission={(value) => saveSettings({ permission: value })}
-          awesome={awesome} onAwesome={(value) => saveSettings({ awesomeLook: value })} onUndo={history.undo}
+          awesome={awesome} onAwesome={(value) => saveSettings({ awesomeLook: value })} onUndo={history.undo} onClear={endConversation}
           onReference={setReferenceId}
           ask={pendingAsks[0] ?? null} askCount={pendingAsks.length}
           onAnswer={(value) => {
@@ -2207,19 +2262,19 @@ export default function App() {
             setPendingAsks(rest);
           }}
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => ({ ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief })} tools={toolRuns}
+          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, brandKit: kit ? brandKitContext(kit) : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
             // The brain learns every turn's tool outcomes; recording never disturbs the chat.
             if (!settingsRef.current.ideagraphRecord || !outcome.tools.length) return;
             void recordTurnOutcome(outcome).catch(() => undefined);
           }}
-          onStartWorkflow={(turnId, mode) => editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode))}
+          onStartWorkflow={(turnId, mode) => editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true))}
           workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
           onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)} />
       </div>
       {chatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void api.providerSetEnabled(row.id, enabled).then(setProviders)} />}
     </>
-  ), { onTab: (id) => setChatTab(id as 'chat' | 'providers'), menu: [{ label: 'New Conversation', onSelect: () => chatApi.current?.clear() }, { label: 'Manage AI Providers…', onSelect: () => setSettingsTab('providers') }], className: 'panel-chat' });
+  ), { onTab: (id) => setChatTab(id as 'chat' | 'providers'), menu: [{ label: 'New Conversation', onSelect: () => { chatApi.current?.clear(); endConversation(); } }, { label: 'Manage AI Providers…', onSelect: () => setSettingsTab('providers') }], className: 'panel-chat' });
 
   const sourcePanel = panel('source', [{ id: 'source', label: `Source: ${sourceAsset?.name ?? '(no clips)'}` }], 'source', (
     <SourceMonitor asset={sourceAsset} range={sourceAsset ? sourceRanges[sourceAsset.id] : undefined} onRange={(range) => sourceAsset && setSourceRanges((current) => ({ ...current, [sourceAsset.id]: range }))}
@@ -2301,7 +2356,36 @@ export default function App() {
   const mediaJobs = runningJobs.filter((job) => job.kind === 'media');
   const installJobs = runningJobs.filter((job) => job.kind === 'install');
   const generationJobs = runningJobs.filter((job) => job.kind === 'generation');
-  const activeGenerationJob = generationJobs[0];
+
+  const cancelJob = useCallback(async (id: string) => {
+    try {
+      await api.jobCancel(id);
+      setJobs((current) => {
+        const target = current[id];
+        if (!target) return current;
+        return { ...current, [id]: { ...target, status: 'cancelled', message: 'Cancelled by user' } };
+      });
+      toast({ tone: 'info', title: 'Task stopped', body: 'The video generation or background task was cancelled.' });
+    } catch (e) {
+      toast({ tone: 'error', title: 'Could not stop task', body: errorText(e) });
+    }
+  }, [toast]);
+
+  const deleteJob = useCallback(async (id: string) => {
+    try {
+      await api.jobCancel(id).catch(() => undefined);
+      await api.jobDelete(id).catch(() => undefined);
+      setJobs((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      toast({ tone: 'info', title: 'Task deleted', body: 'The task was removed.' });
+    } catch (e) {
+      toast({ tone: 'error', title: 'Could not delete task', body: errorText(e) });
+    }
+  }, [toast]);
+
   const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null };
   const maximizedPanel = maximized && maximizedContent[maximized] ? maximized : null;
 
@@ -2310,7 +2394,7 @@ export default function App() {
       <MenuBar menus={menus} />
       {learningOpen && <LearningWorkspace project={project} assets={assetMap} history={history} jobs={Object.values(jobs)} onClose={() => setLearningOpen(false)} />}
       <HeaderBar
-        resourceMonitor={<ResourceMonitor jobs={Object.values(jobs)} runs={Object.values(toolRuns).flat()} />}
+        resourceMonitor={<ResourceMonitor jobs={Object.values(jobs)} runs={Object.values(toolRuns).flat()} onCancelJob={cancelJob} onDeleteJob={deleteJob} />}
         mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }} onQueue={() => setQueueOpen(true)}
         exportDisabled={!hasClips} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}
@@ -2387,18 +2471,7 @@ export default function App() {
             <span className="progress"><span style={{ width: `${Math.round(exportJob.progress * 100)}%` }} /></span>
           </button>
         )}
-        {activeGenerationJob && (
-          <span className="status-item generation-progress" title={`${activeGenerationJob.label}: ${activeGenerationJob.message}`}>
-            <LoaderCircle size={12} className="spin" style={{ color: 'var(--blue, #3b82f6)' }} />
-            <span style={{ fontWeight: 600, color: 'var(--text)' }}>{activeGenerationJob.label || 'Generating'}:</span>
-            <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeGenerationJob.message}</span>
-            <span className="progress" style={{ width: 140, height: 6, margin: '0 4px', background: 'rgba(255,255,255,0.15)', borderRadius: 3, display: 'inline-block', overflow: 'hidden', verticalAlign: 'middle' }}>
-              <span style={{ display: 'block', height: '100%', width: `${Math.round(activeGenerationJob.progress * 100)}%`, background: 'var(--blue, #3b82f6)', transition: 'width 0.2s ease', borderRadius: 3 }} />
-            </span>
-            <span style={{ fontWeight: 600, color: 'var(--text)' }}>{Math.round(activeGenerationJob.progress * 100)}%</span>
-            {generationJobs.length > 1 && <span className="muted">+{generationJobs.length - 1} more</span>}
-          </span>
-        )}
+        {generationJobs.length > 0 && <GenerationJobsMenu jobs={generationJobs} onCancel={cancelJob} />}
         <button
           type="button"
           className={`status-item terminal-toggle-btn ${terminalOpen ? 'active' : ''} ${terminalErrorCount > 0 ? 'has-errors' : ''}`}
@@ -2426,7 +2499,7 @@ export default function App() {
       )}
       {menu && <MenuList items={menu.items} anchor={menu.anchor} onClose={() => setMenu(null)} />}
       {dialog}
-      {settingsTab && <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={Object.values(jobs)} />}
+      {settingsTab && <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={Object.values(jobs)} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder) => void startExport(options, folder)} />}
       {queueOpen && <RenderQueueDialog jobs={Object.values(jobs)} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}
       {shortcutsOpen && <ShortcutsDialog shortcuts={SHORTCUTS} onClose={() => setShortcutsOpen(false)} />}
@@ -2447,7 +2520,7 @@ export default function App() {
         onReimportSnapshot={(snap) => void reimportSnapshot(snap)}
       />
       {/* The program's sound keeps playing while a panel is maximized or Home is open. */}
-      {mode === 'home' && comp && <div hidden><CompAudio project={project} assets={assetMap} offline={offline} playing={false} rate={1} comp={comp} time={playhead.get()} /></div>}
+      {mode === 'home' && comp && <div hidden><CompAudio project={project} assets={assetMap} offline={offline} playing={false} rate={1} comp={comp} time={playhead.get()} quality={1} /></div>}
     </div>
   );
 }

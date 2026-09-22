@@ -1,0 +1,738 @@
+[
+  {
+    "id": "minimal-mono",
+    "name": "Minimal Mono",
+    "character": "White space, one black, one grey; the type is the design.",
+    "industries": ["architecture", "design tools", "premium consumer hardware"],
+    "colors": {
+      "bg": "#FFFFFF",
+      "surface": "#F4F4F5",
+      "text": "#111111",
+      "muted": "#7A7A7F",
+      "primary": "#111111",
+      "accent": "#3B3B3F",
+      "accent2": "#C8C8CC"
+    },
+    "gradient": { "angle": 135, "stops": ["#FFFFFF", "#ECECEE"] },
+    "typography": {
+      "display": { "family": "Helvetica", "weight": 500, "letterSpacing": "-0.03em", "transform": "none" },
+      "heading": { "family": "Inter", "weight": 500 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 500 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.4, 0, 0.2, 1)",
+      "enter": 0.7,
+      "exit": 0.35,
+      "hold": 2.4,
+      "stagger": 0.12,
+      "intensity": "calm",
+      "transitions": ["cut", "fade"]
+    },
+    "imagery": {
+      "style": "Monochrome or near-monochrome photography with generous negative space; hairline icons (1.5px at 24px); no gradients or effects.",
+      "grade": { "saturation": -40, "contrast": 5, "warmth": 0 },
+      "iconography": "1.5px outline, square terminals, 24px grid, single colour",
+      "promptPrefix": "minimalist monochrome editorial photograph, soft even light, lots of empty space, neutral grey tones, clean composition, ",
+      "negativePrompt": "saturated colours, clutter, gradients, lens flare, text, watermark, busy background"
+    },
+    "voice": {
+      "tone": ["precise", "quiet", "confident"],
+      "use": ["simply", "exactly", "specific numbers", "short declarative sentences"],
+      "avoid": ["exclamation marks", "superlatives", "buzzwords", "emoji"],
+      "samples": ["Less, but better.", "One tool. Every cut.", "Made to disappear into your work."]
+    },
+    "layout": { "safeMargin": 0.06, "logoBug": "bottom-right", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "minimal piano and ambient textures", "tempo": [60, 80], "sfx": ["soft click", "paper", "room tone"] }
+  },
+  {
+    "id": "bold-startup",
+    "name": "Bold Startup",
+    "character": "Black field, electric blue and one shock of lime; big type that lands on the beat.",
+    "industries": ["SaaS", "developer tools", "fintech challengers"],
+    "colors": {
+      "bg": "#0B0B0F",
+      "surface": "#15151C",
+      "text": "#FFFFFF",
+      "muted": "#9A9AA8",
+      "primary": "#3B5BFF",
+      "accent": "#C6FF3D",
+      "accent2": "#FF4D6D"
+    },
+    "gradient": { "angle": 135, "stops": ["#3B5BFF", "#7C4DFF"] },
+    "typography": {
+      "display": { "family": "Inter", "weight": 800, "letterSpacing": "-0.04em", "transform": "none" },
+      "heading": { "family": "Inter", "weight": 700 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 700 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.16, 1, 0.3, 1)",
+      "enter": 0.4,
+      "exit": 0.2,
+      "hold": 1.4,
+      "stagger": 0.06,
+      "intensity": "energetic",
+      "transitions": ["push", "whip", "cut"]
+    },
+    "imagery": {
+      "style": "High-contrast portraits holding the product, 3D inflated logo marks, halftone dot fields, dark UI screens.",
+      "grade": { "saturation": 10, "contrast": 15, "warmth": -5 },
+      "iconography": "2px stroke, rounded joins, filled accent states, 24px grid",
+      "promptPrefix": "bold startup brand photograph, dramatic studio lighting, dark background, electric blue accent light, sharp focus, confident subject, ",
+      "negativePrompt": "pastel, washed out, vintage, clutter, text, watermark, low contrast"
+    },
+    "voice": {
+      "tone": ["direct", "punchy", "cocky"],
+      "use": ["we", "faster", "two-line problem then solution", "verbs first"],
+      "avoid": ["jargon", "hedging", "long sentences", "passive voice"],
+      "samples": ["Bugs run fast. We run faster.", "Same effort. Bigger results.", "Ship it before lunch."]
+    },
+    "layout": { "safeMargin": 0.05, "logoBug": "top-right", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "electronic and trap-pop with hard drops", "tempo": [120, 140], "sfx": ["whoosh", "glitch tick", "bass hit"] }
+  },
+  {
+    "id": "playful-pastel",
+    "name": "Playful Pastel",
+    "character": "Candy colours on cream, rounded shapes, everything bounces.",
+    "industries": ["consumer apps", "food and snacks", "lifestyle DTC"],
+    "colors": {
+      "bg": "#FFF8F0",
+      "surface": "#FFFFFF",
+      "text": "#2B2438",
+      "muted": "#8E86A0",
+      "primary": "#FF8FAB",
+      "accent": "#8ED6C2",
+      "accent2": "#FFD166"
+    },
+    "gradient": { "angle": 135, "stops": ["#FFD1DC", "#C9E9F6"] },
+    "typography": {
+      "display": { "family": "Trebuchet MS", "weight": 700, "letterSpacing": "-0.01em", "transform": "none" },
+      "heading": { "family": "Verdana", "weight": 700 },
+      "body": { "family": "Verdana", "weight": 400 },
+      "caption": { "family": "Trebuchet MS", "weight": 700 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+      "enter": 0.5,
+      "exit": 0.25,
+      "hold": 1.8,
+      "stagger": 0.08,
+      "intensity": "energetic",
+      "transitions": ["bounce-pop", "wipe", "cut"]
+    },
+    "imagery": {
+      "style": "Flat illustration with 3px rounded strokes and soft studio photos on pastel seamless backgrounds; blob shapes and stickers.",
+      "grade": { "saturation": 15, "contrast": -5, "warmth": 10 },
+      "iconography": "3px rounded stroke, filled pastel shapes, 24px grid, round terminals",
+      "promptPrefix": "cheerful pastel product photograph, soft studio light, pink mint and yellow seamless background, playful props, ",
+      "negativePrompt": "dark, moody, grunge, harsh shadows, realistic gore, text, watermark"
+    },
+    "voice": {
+      "tone": ["warm", "cheeky", "encouraging"],
+      "use": ["hey", "yay", "little wins", "friendly nouns"],
+      "avoid": ["sarcasm", "corporate nouns", "guilt", "urgency"],
+      "samples": ["Little wins, every day.", "Made you smile? Good.", "Tap, snack, done."]
+    },
+    "layout": { "safeMargin": 0.05, "logoBug": "top-left", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "ukulele pop and indie synth", "tempo": [100, 125], "sfx": ["pop", "boing", "chime"] }
+  },
+  {
+    "id": "luxury-serif",
+    "name": "Luxury Serif",
+    "character": "Black, gold and bordeaux; slow, generous, serif-led.",
+    "industries": ["fashion and jewellery", "hospitality", "private banking"],
+    "colors": {
+      "bg": "#0E0D0B",
+      "surface": "#1A1814",
+      "text": "#F3EDE2",
+      "muted": "#9C917F",
+      "primary": "#C9A961",
+      "accent": "#F3EDE2",
+      "accent2": "#6B1F2A"
+    },
+    "gradient": { "angle": 135, "stops": ["#C9A961", "#7A6032"] },
+    "typography": {
+      "display": { "family": "Garamond", "weight": 400, "letterSpacing": "0.12em", "transform": "uppercase" },
+      "heading": { "family": "Palatino", "weight": 400 },
+      "body": { "family": "Georgia", "weight": 400 },
+      "caption": { "family": "Georgia", "weight": 500 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.4, 0, 0, 1)",
+      "enter": 1.0,
+      "exit": 0.5,
+      "hold": 3.0,
+      "stagger": 0.16,
+      "intensity": "calm",
+      "transitions": ["dissolve", "slow-push", "fade-to-black"]
+    },
+    "imagery": {
+      "style": "Low-key editorial fashion photography with film grain, velvet and marble textures, gold foil details, duotone portraits.",
+      "grade": { "saturation": -15, "contrast": 20, "warmth": 10 },
+      "iconography": "hairline 1px serif-compatible line icons, gold on black, sparse",
+      "promptPrefix": "luxury editorial photograph, low-key lighting, deep shadows, gold and burgundy accents, film grain, elegant composition, ",
+      "negativePrompt": "bright flat lighting, neon, cartoon, clutter, cheap plastic, text, watermark"
+    },
+    "voice": {
+      "tone": ["refined", "assured", "spare"],
+      "use": ["crafted", "since", "considered", "reserved"],
+      "avoid": ["slang", "discounts", "exclamation marks", "urgency"],
+      "samples": ["Made slowly. Worn for decades.", "The quiet mark of good taste.", "Reserved for the few."]
+    },
+    "layout": { "safeMargin": 0.07, "logoBug": "bottom-center", "lowerThird": "bottom-center", "captions": "bottom-center" },
+    "audio": { "music": "solo cello and neo-classical piano", "tempo": [60, 76], "sfx": ["silk", "glass", "low swell"] }
+  },
+  {
+    "id": "tech-gradient",
+    "name": "Tech Gradient",
+    "character": "Deep navy with violet-to-cyan gradients, glass and glow.",
+    "industries": ["AI products", "cloud and data platforms", "crypto and fintech"],
+    "colors": {
+      "bg": "#0A0E1A",
+      "surface": "#121A2E",
+      "text": "#FFFFFF",
+      "muted": "#8A93B0",
+      "primary": "#6C5CE7",
+      "accent": "#22D3EE",
+      "accent2": "#FF7DB3"
+    },
+    "gradient": { "angle": 135, "stops": ["#6C5CE7", "#22D3EE"] },
+    "typography": {
+      "display": { "family": "Inter", "weight": 700, "letterSpacing": "-0.03em", "transform": "none" },
+      "heading": { "family": "Inter", "weight": 600 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 600 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.2, 0, 0, 1)",
+      "enter": 0.6,
+      "exit": 0.3,
+      "hold": 2.0,
+      "stagger": 0.1,
+      "intensity": "balanced",
+      "transitions": ["push", "glow-morph", "cross-dissolve"]
+    },
+    "imagery": {
+      "style": "3D glass renders of the mark, gradient mesh backgrounds, dark UI screens, duotone portraits with cyan rim light.",
+      "grade": { "saturation": 10, "contrast": 10, "warmth": -10 },
+      "iconography": "2px stroke with gradient fills, rounded corners, 24px grid",
+      "promptPrefix": "futuristic tech render, dark navy background, violet to cyan gradient lighting, glass and glow, clean 3D, ",
+      "negativePrompt": "vintage, paper texture, warm sepia, clutter, text, watermark, low resolution"
+    },
+    "voice": {
+      "tone": ["smart", "optimistic", "clear"],
+      "use": ["intelligent", "seamless", "in seconds", "your data"],
+      "avoid": ["revolutionary", "disrupt", "game-changing", "magic"],
+      "samples": ["Fear less. Grow more.", "No borders. No barriers. No stress.", "Your data, finally fluent."]
+    },
+    "layout": { "safeMargin": 0.05, "logoBug": "top-right", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "synthwave and future bass with soft pads", "tempo": [100, 124], "sfx": ["shimmer", "data tick", "soft riser"] }
+  },
+  {
+    "id": "editorial-magazine",
+    "name": "Editorial Magazine",
+    "character": "Newsprint cream, black serif headlines, one red rule; grids you can feel.",
+    "industries": ["news and media", "publishing", "think tanks"],
+    "colors": {
+      "bg": "#FAF8F4",
+      "surface": "#FFFFFF",
+      "text": "#141414",
+      "muted": "#6E6A62",
+      "primary": "#141414",
+      "accent": "#D62828",
+      "accent2": "#1D3557"
+    },
+    "gradient": { "angle": 180, "stops": ["#FAF8F4", "#EFEBE3"] },
+    "typography": {
+      "display": { "family": "Times New Roman", "weight": 700, "letterSpacing": "-0.02em", "transform": "none" },
+      "heading": { "family": "Georgia", "weight": 700 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 600 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.2, 0, 0.38, 0.9)",
+      "enter": 0.5,
+      "exit": 0.3,
+      "hold": 2.2,
+      "stagger": 0.1,
+      "intensity": "balanced",
+      "transitions": ["cut", "slide", "rule-wipe"]
+    },
+    "imagery": {
+      "style": "Reportage photography, black-and-white with a single colour accent, pull quotes and oversized numerals, strict column grid.",
+      "grade": { "saturation": -20, "contrast": 15, "warmth": 0 },
+      "iconography": "1.5px stroke, square terminals, black only, 24px grid",
+      "promptPrefix": "documentary reportage photograph, natural light, candid moment, black and white with a single red accent, journalistic framing, ",
+      "negativePrompt": "stock photo smile, neon, heavy filter, cartoon, text, watermark, HDR"
+    },
+    "voice": {
+      "tone": ["informed", "witty", "opinionated"],
+      "use": ["active verbs", "specific nouns", "headline plus deck", "numbers"],
+      "avoid": ["hype", "passive voice", "vague claims", "exclamation marks"],
+      "samples": ["The long read, cut short.", "Everything they didn't tell you about the deal.", "Chapter two: the numbers."]
+    },
+    "layout": { "safeMargin": 0.06, "logoBug": "top-left", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "jazz trio and spoken-word beds", "tempo": [80, 100], "sfx": ["typewriter", "page turn", "vinyl crackle"] }
+  },
+  {
+    "id": "retro-print",
+    "name": "Retro Print",
+    "character": "1970s poster: cream stock, burnt orange, teal and mustard, chunky condensed caps.",
+    "industries": ["coffee and craft beverage", "record labels", "vintage retail"],
+    "colors": {
+      "bg": "#F3E9D2",
+      "surface": "#EAD9B6",
+      "text": "#2C2418",
+      "muted": "#7D6E58",
+      "primary": "#D9642B",
+      "accent": "#2F6F73",
+      "accent2": "#E4B33C"
+    },
+    "gradient": { "angle": 135, "stops": ["#D9642B", "#E4B33C"] },
+    "typography": {
+      "display": { "family": "Impact", "weight": 400, "letterSpacing": "0.02em", "transform": "uppercase" },
+      "heading": { "family": "Trebuchet MS", "weight": 700 },
+      "body": { "family": "Georgia", "weight": 400 },
+      "caption": { "family": "Trebuchet MS", "weight": 700 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.7, 0, 0.3, 1)",
+      "enter": 0.45,
+      "exit": 0.25,
+      "hold": 2.0,
+      "stagger": 0.09,
+      "intensity": "balanced",
+      "transitions": ["wipe", "iris", "cut"]
+    },
+    "imagery": {
+      "style": "Risograph and halftone textures, slight misregistration, film grain, flat two-colour illustration, stepped 12fps graphic motion.",
+      "grade": { "saturation": -10, "contrast": 10, "warmth": 20 },
+      "iconography": "chunky 3px stroke, flat fills in orange teal mustard, slight grain overlay",
+      "promptPrefix": "1970s retro poster illustration, risograph print texture, cream paper, burnt orange teal and mustard palette, halftone, ",
+      "negativePrompt": "glossy 3D, neon, photoreal, gradients, modern UI, text, watermark"
+    },
+    "voice": {
+      "tone": ["nostalgic", "hearty", "plain"],
+      "use": ["good old", "handmade", "since 19xx", "folks"],
+      "avoid": ["tech jargon", "minimalism words", "AI", "seamless"],
+      "samples": ["Slow-brewed since your dad's first car.", "Real ink. Real paper. Real slow.", "Good things, printed loud."]
+    },
+    "layout": { "safeMargin": 0.06, "logoBug": "bottom-left", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "funk, soul and surf rock", "tempo": [96, 118], "sfx": ["film projector", "rubber stamp", "tape stop"] }
+  },
+  {
+    "id": "organic-earth",
+    "name": "Organic Earth",
+    "character": "Moss, clay and sage on linen; nothing shiny.",
+    "industries": ["organic food", "skincare", "sustainability and outdoor"],
+    "colors": {
+      "bg": "#F5F1E8",
+      "surface": "#E8E1D3",
+      "text": "#2E2A23",
+      "muted": "#7C7566",
+      "primary": "#5B6B4A",
+      "accent": "#B8743A",
+      "accent2": "#8FA88C"
+    },
+    "gradient": { "angle": 135, "stops": ["#5B6B4A", "#8FA88C"] },
+    "typography": {
+      "display": { "family": "Palatino", "weight": 400, "letterSpacing": "0em", "transform": "none" },
+      "heading": { "family": "Georgia", "weight": 400 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 500 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.4, 0, 0.2, 1)",
+      "enter": 0.9,
+      "exit": 0.45,
+      "hold": 2.6,
+      "stagger": 0.14,
+      "intensity": "calm",
+      "transitions": ["cross-dissolve", "soft-push", "fade"]
+    },
+    "imagery": {
+      "style": "Natural daylight, hands and soil, textiles and ceramics, botanical line drawings, matte finishes.",
+      "grade": { "saturation": -10, "contrast": -5, "warmth": 15 },
+      "iconography": "1.5px hand-drawn feel line icons, botanical motifs, moss green",
+      "promptPrefix": "natural light lifestyle photograph, earthy tones, linen and clay textures, hands working with plants, soft shadows, ",
+      "negativePrompt": "neon, plastic, studio flash, saturated colours, glossy, text, watermark"
+    },
+    "voice": {
+      "tone": ["honest", "grounded", "gentle"],
+      "use": ["grown", "small-batch", "traceable", "season"],
+      "avoid": ["premium", "luxury", "urgency", "miracle"],
+      "samples": ["From the soil, not the lab.", "Slow food for fast lives.", "Every batch has a farmer's name on it."]
+    },
+    "layout": { "safeMargin": 0.06, "logoBug": "bottom-right", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "acoustic folk and fingerpicked guitar", "tempo": [70, 95], "sfx": ["wind", "leaves", "wood"] }
+  },
+  {
+    "id": "corporate-trust",
+    "name": "Corporate Trust",
+    "character": "White and navy with a clear blue; measured, orderly, unglamorous.",
+    "industries": ["banking and insurance", "healthcare systems", "professional services"],
+    "colors": {
+      "bg": "#FFFFFF",
+      "surface": "#F2F5F9",
+      "text": "#0F1F3D",
+      "muted": "#5B6B82",
+      "primary": "#0B3D91",
+      "accent": "#1E88E5",
+      "accent2": "#00A98F"
+    },
+    "gradient": { "angle": 135, "stops": ["#0B3D91", "#1E88E5"] },
+    "typography": {
+      "display": { "family": "Segoe UI", "weight": 600, "letterSpacing": "-0.01em", "transform": "none" },
+      "heading": { "family": "Segoe UI", "weight": 600 },
+      "body": { "family": "Arial", "weight": 400 },
+      "caption": { "family": "Arial", "weight": 700 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.2, 0, 0.38, 0.9)",
+      "enter": 0.6,
+      "exit": 0.3,
+      "hold": 2.4,
+      "stagger": 0.1,
+      "intensity": "balanced",
+      "transitions": ["push", "slide", "fade"]
+    },
+    "imagery": {
+      "style": "Bright office and people photography, clean infographics, plenty of white, 2px line icons in navy.",
+      "grade": { "saturation": 0, "contrast": 5, "warmth": 0 },
+      "iconography": "2px stroke, rounded corners, navy with blue accent, 24px grid",
+      "promptPrefix": "professional corporate photograph, bright modern office, natural daylight, diverse team, clean composition, blue accents, ",
+      "negativePrompt": "dark, grunge, neon, cluttered desk, dramatic shadows, text, watermark"
+    },
+    "voice": {
+      "tone": ["clear", "credible", "respectful"],
+      "use": ["trusted", "secure", "since", "concrete figures"],
+      "avoid": ["slang", "exaggeration", "jokes", "fear"],
+      "samples": ["Built for the long term.", "Clarity you can bank on.", "Fifty years. One promise."]
+    },
+    "layout": { "safeMargin": 0.05, "logoBug": "top-right", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "uplifting corporate piano and strings", "tempo": [90, 115], "sfx": ["soft whoosh", "chime", "click"] }
+  },
+  {
+    "id": "cinematic-dark",
+    "name": "Cinematic Dark",
+    "character": "Near-black, blood red and amber; letterboxed, slow, wide-tracked caps.",
+    "industries": ["film and streaming", "gaming trailers", "luxury automotive"],
+    "colors": {
+      "bg": "#050507",
+      "surface": "#101014",
+      "text": "#EDEDED",
+      "muted": "#7E7E86",
+      "primary": "#C1121F",
+      "accent": "#E5C07B",
+      "accent2": "#4A6FA5"
+    },
+    "gradient": { "angle": 180, "stops": ["#050507", "#1A0A0E"] },
+    "typography": {
+      "display": { "family": "Inter", "weight": 300, "letterSpacing": "0.25em", "transform": "uppercase" },
+      "heading": { "family": "Georgia", "weight": 400 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 500 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.4, 0, 0, 1)",
+      "enter": 1.2,
+      "exit": 0.6,
+      "hold": 3.2,
+      "stagger": 0.18,
+      "intensity": "calm",
+      "transitions": ["dissolve", "fade-to-black", "slow-push"]
+    },
+    "imagery": {
+      "style": "Teal-and-orange or desaturated film grade, shallow focus, anamorphic flares, 2.39:1 letterbox, silhouettes against light.",
+      "grade": { "saturation": -20, "contrast": 25, "warmth": -5 },
+      "iconography": "thin 1px line, wide tracking labels, minimal, amber on black",
+      "promptPrefix": "cinematic film still, anamorphic lens, shallow depth of field, moody low-key lighting, teal and orange grade, 2.39:1, ",
+      "negativePrompt": "flat lighting, bright pastel, cartoon, oversharpened, text, watermark, stock photo"
+    },
+    "voice": {
+      "tone": ["dramatic", "sparse", "declarative"],
+      "use": ["short fragments", "every", "one", "this is"],
+      "avoid": ["jokes", "exclamation marks", "explanations", "hashtags"],
+      "samples": ["Every story has a price.", "One night. No way back.", "This is where it begins."]
+    },
+    "layout": { "safeMargin": 0.08, "logoBug": "bottom-right", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "hybrid orchestral and drones", "tempo": [60, 90], "sfx": ["sub boom", "braam", "riser", "heartbeat"] }
+  },
+  {
+    "id": "neon-cyber",
+    "name": "Neon Cyber",
+    "character": "Black-violet with magenta, cyan and acid; mono type, scanlines, glitch.",
+    "industries": ["gaming and esports", "nightlife and events", "streetwear tech"],
+    "colors": {
+      "bg": "#05010D",
+      "surface": "#12082A",
+      "text": "#F5F0FF",
+      "muted": "#8C7FB3",
+      "primary": "#FF2BD6",
+      "accent": "#00F0FF",
+      "accent2": "#B6FF00"
+    },
+    "gradient": { "angle": 135, "stops": ["#FF2BD6", "#00F0FF"] },
+    "typography": {
+      "display": { "family": "Consolas", "weight": 700, "letterSpacing": "0.06em", "transform": "uppercase" },
+      "heading": { "family": "Inter", "weight": 700 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Courier New", "weight": 700 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.9, 0, 0.1, 1)",
+      "enter": 0.3,
+      "exit": 0.15,
+      "hold": 1.2,
+      "stagger": 0.05,
+      "intensity": "energetic",
+      "transitions": ["glitch-cut", "flash", "rgb-split-slide"]
+    },
+    "imagery": {
+      "style": "Neon-lit night scenes, chromatic aberration, wireframe grids, HUD frames and scanlines, high saturation.",
+      "grade": { "saturation": 30, "contrast": 20, "warmth": -20 },
+      "iconography": "2px pixel-aligned stroke, square terminals, glowing cyan or magenta",
+      "promptPrefix": "cyberpunk neon night photograph, magenta and cyan lights, rain-wet street reflections, chromatic aberration, high contrast, ",
+      "negativePrompt": "daylight, pastel, rustic, paper texture, soft focus, text, watermark"
+    },
+    "voice": {
+      "tone": ["terse", "system-like", "playful-dangerous"],
+      "use": ["ACCESS", "LEVEL", "brackets", "version numbers"],
+      "avoid": ["corporate softness", "long sentences", "please", "sincerely"],
+      "samples": ["SYSTEM ONLINE.", "Press start. Break the loop.", "v2.0 // faster than you."]
+    },
+    "layout": { "safeMargin": 0.05, "logoBug": "top-left", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "synthwave, drum and bass and phonk", "tempo": [128, 160], "sfx": ["glitch", "laser", "static", "UI beep"] }
+  },
+  {
+    "id": "warm-craft",
+    "name": "Warm Craft",
+    "character": "Terracotta and honey on oat; hand-touched, generous, human.",
+    "industries": ["bakeries and cafes", "home goods", "community services"],
+    "colors": {
+      "bg": "#FBF6EE",
+      "surface": "#F1E6D6",
+      "text": "#3A2E25",
+      "muted": "#8A7B6E",
+      "primary": "#B5583A",
+      "accent": "#E0A458",
+      "accent2": "#5A7D6A"
+    },
+    "gradient": { "angle": 135, "stops": ["#B5583A", "#E0A458"] },
+    "typography": {
+      "display": { "family": "Georgia", "weight": 700, "letterSpacing": "-0.01em", "transform": "none" },
+      "heading": { "family": "Palatino", "weight": 400 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 600 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "enter": 0.6,
+      "exit": 0.3,
+      "hold": 2.2,
+      "stagger": 0.1,
+      "intensity": "balanced",
+      "transitions": ["slide", "dissolve", "paper-wipe"]
+    },
+    "imagery": {
+      "style": "Warm daylight, hands at work, kraft paper and ceramic textures, hand-drawn icons, honest product shots.",
+      "grade": { "saturation": 5, "contrast": 0, "warmth": 20 },
+      "iconography": "2px hand-drawn feel, rounded terminals, terracotta on oat",
+      "promptPrefix": "warm artisan lifestyle photograph, golden hour window light, terracotta and honey tones, hands crafting, cozy texture, ",
+      "negativePrompt": "cold blue light, neon, corporate office, glossy plastic, clutter, text, watermark"
+    },
+    "voice": {
+      "tone": ["friendly", "proud", "plain-spoken"],
+      "use": ["we make", "by hand", "first names", "come in"],
+      "avoid": ["tech buzzwords", "cold precision", "luxury", "disrupt"],
+      "samples": ["Made by people who'd rather show you than tell you.", "Talk happens fast. We keep it warm.", "Come in. Stay a while."]
+    },
+    "layout": { "safeMargin": 0.05, "logoBug": "bottom-left", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "acoustic pop with handclaps and warm keys", "tempo": [85, 110], "sfx": ["ceramic clink", "paper", "kettle"] }
+  },
+  {
+    "id": "fintech-navy",
+    "name": "Fintech Navy",
+    "character": "Deep navy with royal blue and a cyan-mint data accent; precise counters and cards.",
+    "industries": ["payments and neobanks", "wealth apps", "analytics SaaS"],
+    "colors": {
+      "bg": "#0A1128",
+      "surface": "#111B3D",
+      "text": "#FFFFFF",
+      "muted": "#8FA0C7",
+      "primary": "#2F6BFF",
+      "accent": "#00E0C6",
+      "accent2": "#FFC857"
+    },
+    "gradient": { "angle": 135, "stops": ["#0A1128", "#2F6BFF"] },
+    "typography": {
+      "display": { "family": "Inter", "weight": 700, "letterSpacing": "-0.03em", "transform": "none" },
+      "heading": { "family": "Inter", "weight": 600 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 600 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.2, 0, 0, 1)",
+      "enter": 0.5,
+      "exit": 0.25,
+      "hold": 2.0,
+      "stagger": 0.08,
+      "intensity": "balanced",
+      "transitions": ["push", "slide-up", "counter-roll"]
+    },
+    "imagery": {
+      "style": "Dark UI screens, cards and watches, portraits on blue gradient fields, 3D glass marks, tabular numerals.",
+      "grade": { "saturation": 5, "contrast": 10, "warmth": -10 },
+      "iconography": "2px stroke, rounded corners, white with cyan accent, 24px grid",
+      "promptPrefix": "modern fintech product photograph, dark navy environment, royal blue gradient light, smartphone and card, clean and precise, ",
+      "negativePrompt": "warm rustic, paper, neon pink, clutter, cash piles, text, watermark"
+    },
+    "voice": {
+      "tone": ["calm", "exact", "reassuring"],
+      "use": ["instant", "zero fees", "protected", "figures with units"],
+      "avoid": ["get rich", "vague promises", "hype", "guaranteed"],
+      "samples": ["Fast payments. Zero drama.", "Money has a path. We help you find it.", "9.6K accounts. One clear view."]
+    },
+    "layout": { "safeMargin": 0.05, "logoBug": "top-right", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "minimal tech house and soft synth pulse", "tempo": [100, 120], "sfx": ["coin tick", "soft confirm", "whoosh"] }
+  },
+  {
+    "id": "sport-energy",
+    "name": "Sport Energy",
+    "character": "Black, blaze orange and volt; italic caps, speed ramps, smash cuts.",
+    "industries": ["sportswear and fitness", "energy drinks", "esports and events"],
+    "colors": {
+      "bg": "#0D0D0D",
+      "surface": "#1A1A1A",
+      "text": "#FFFFFF",
+      "muted": "#9C9C9C",
+      "primary": "#FF3B00",
+      "accent": "#C8FF00",
+      "accent2": "#00C2FF"
+    },
+    "gradient": { "angle": 120, "stops": ["#FF3B00", "#FFB800"] },
+    "typography": {
+      "display": { "family": "Impact", "weight": 400, "letterSpacing": "0.01em", "transform": "uppercase" },
+      "heading": { "family": "Arial", "weight": 900 },
+      "body": { "family": "Arial", "weight": 400 },
+      "caption": { "family": "Arial", "weight": 700 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.16, 1, 0.3, 1)",
+      "enter": 0.3,
+      "exit": 0.15,
+      "hold": 1.2,
+      "stagger": 0.05,
+      "intensity": "energetic",
+      "transitions": ["whip-pan", "zoom-punch", "smash-cut", "speed-ramp"]
+    },
+    "imagery": {
+      "style": "High-shutter action with motion blur, sweat and hard rim light, stadium grain, diagonal compositions.",
+      "grade": { "saturation": 20, "contrast": 25, "warmth": 5 },
+      "iconography": "3px bold stroke, angular, italic slant, volt on black",
+      "promptPrefix": "dynamic sports action photograph, athlete mid-motion, hard rim lighting, black background, blaze orange and volt accents, high contrast, ",
+      "negativePrompt": "static pose, pastel, soft focus, office, calm, text, watermark"
+    },
+    "voice": {
+      "tone": ["commanding", "motivating", "short"],
+      "use": ["imperatives", "faster", "harder", "numbers"],
+      "avoid": ["softness", "qualifiers", "maybe", "long sentences"],
+      "samples": ["TEAM THINKS FAST. WE MOVE FASTER.", "No days off. No excuses.", "Power what moves you."]
+    },
+    "layout": { "safeMargin": 0.05, "logoBug": "top-left", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "big-beat EDM and stadium rock", "tempo": [128, 150], "sfx": ["impact hit", "whoosh", "crowd swell", "whistle"] }
+  },
+  {
+    "id": "wellness-calm",
+    "name": "Wellness Calm",
+    "character": "Eucalyptus, sand and mist; breathing-room motion, light serif.",
+    "industries": ["meditation and sleep apps", "spas and skincare", "healthcare and therapy"],
+    "colors": {
+      "bg": "#F6F7F4",
+      "surface": "#E9EEE8",
+      "text": "#2F3A34",
+      "muted": "#7E8A82",
+      "primary": "#5F8F7A",
+      "accent": "#C9B79C",
+      "accent2": "#A7C4D6"
+    },
+    "gradient": { "angle": 160, "stops": ["#E9EEE8", "#DCE8E1"] },
+    "typography": {
+      "display": { "family": "Georgia", "weight": 400, "letterSpacing": "0.01em", "transform": "none" },
+      "heading": { "family": "Cambria", "weight": 400 },
+      "body": { "family": "Inter", "weight": 400 },
+      "caption": { "family": "Inter", "weight": 500 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.4, 0, 0.2, 1)",
+      "enter": 1.0,
+      "exit": 0.5,
+      "hold": 3.0,
+      "stagger": 0.15,
+      "intensity": "calm",
+      "transitions": ["long-dissolve", "soft-push", "breathe"]
+    },
+    "imagery": {
+      "style": "Soft daylight, skin and linen, water and stone, wide negative space, thin-line botanical icons.",
+      "grade": { "saturation": -15, "contrast": -10, "warmth": 8 },
+      "iconography": "1.5px thin line, round terminals, sage green, airy spacing",
+      "promptPrefix": "serene wellness photograph, soft diffused daylight, eucalyptus and sand tones, linen texture, calm minimal composition, ",
+      "negativePrompt": "harsh light, neon, clutter, busy patterns, dramatic shadows, text, watermark"
+    },
+    "voice": {
+      "tone": ["soothing", "kind", "unhurried"],
+      "use": ["breathe", "gently", "you", "notice"],
+      "avoid": ["urgency", "medical claims", "exclamation marks", "should"],
+      "samples": ["Start where you are.", "Ten minutes that give the day back.", "Rest is not a reward. It's the work."]
+    },
+    "layout": { "safeMargin": 0.07, "logoBug": "bottom-right", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "ambient pads, soft piano and nature beds", "tempo": [55, 75], "sfx": ["breath", "water", "singing bowl"] }
+  },
+  {
+    "id": "kids-bright",
+    "name": "Kids Bright",
+    "character": "Primary-bright coral, sunshine and sky on white; fat rounded type, bouncy everything.",
+    "industries": ["education and edtech", "toys and family entertainment", "children's food"],
+    "colors": {
+      "bg": "#FFFFFF",
+      "surface": "#FFF3C4",
+      "text": "#1F2A44",
+      "muted": "#6B7A99",
+      "primary": "#FF5A5F",
+      "accent": "#FFC600",
+      "accent2": "#2BB3FF"
+    },
+    "gradient": { "angle": 135, "stops": ["#FF5A5F", "#FFC600"] },
+    "typography": {
+      "display": { "family": "Verdana", "weight": 700, "letterSpacing": "-0.01em", "transform": "none" },
+      "heading": { "family": "Trebuchet MS", "weight": 700 },
+      "body": { "family": "Verdana", "weight": 400 },
+      "caption": { "family": "Verdana", "weight": 700 }
+    },
+    "motion": {
+      "easing": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+      "enter": 0.45,
+      "exit": 0.25,
+      "hold": 2.0,
+      "stagger": 0.07,
+      "intensity": "energetic",
+      "transitions": ["pop", "bounce-wipe", "star-iris"]
+    },
+    "imagery": {
+      "style": "Flat bold illustration with 4px rounded outlines, confetti shapes, real kids in bright rooms, big simple compositions.",
+      "grade": { "saturation": 20, "contrast": 5, "warmth": 10 },
+      "iconography": "4px rounded stroke, filled primary colours, chunky simple shapes",
+      "promptPrefix": "bright cheerful children's illustration style, bold rounded shapes, coral yellow and sky blue, white background, friendly and simple, ",
+      "negativePrompt": "dark, scary, realistic violence, muted tones, complex detail, text, watermark"
+    },
+    "voice": {
+      "tone": ["enthusiastic", "simple", "safe"],
+      "use": ["let's", "wow", "one idea per sentence", "you did it"],
+      "avoid": ["irony", "fear", "hard sells", "big words"],
+      "samples": ["Let's build something silly!", "Wow, you did it!", "Snack time, story time, you time."]
+    },
+    "layout": { "safeMargin": 0.06, "logoBug": "top-left", "lowerThird": "bottom-left", "captions": "bottom-center" },
+    "audio": { "music": "bright ukulele and toy-piano pop", "tempo": [110, 135], "sfx": ["boing", "sparkle", "giggle", "pop"] }
+  }
+]

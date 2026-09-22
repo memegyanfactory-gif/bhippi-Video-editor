@@ -130,6 +130,12 @@ const preparation = new Set([
   'scrape_videos',
   'list_effects',
   'list_recipes',
+  'react_bits',
+  'list_brand_kits',
+  'get_brand_kit',
+  'list_brand_archetypes',
+  'brand_kit_prompt',
+  'export_brand_kit',
   'list_learned_skills',
   'list_custom_tools',
   'create_custom_tool',
@@ -163,6 +169,18 @@ const GATHER_TOOLS = new Set([
   'finish_gathering',
 ]);
 
+/** `generate_local_media` tasks the "disable local generation" setting turns off — image and
+ * video only; local voice/music (`task: "audio"`) and the erase model are unaffected. */
+const LOCAL_GENERATION_TASKS = new Set(['image', 'image-edit', 'image-inpaint', 'video']);
+
+const LOCAL_GENERATION_OFF =
+  'Local image/video generation is turned off (Settings → Local Media). Source real footage instead: ' +
+  '`online_research` (`gatherMedia: true`) to find and download footage for the subject, or `download_online_media` / ' +
+  '`scrape_videos` for a specific URL. For a shot with no real footage to find — an abstract or technical concept, e.g. ' +
+  '"how a git repository works" — research it first with `online_research`, then build an animated explainer instead of a ' +
+  'video: `create_motion_graphic` (the `teaching-card` layout, or custom html/css/js) using the facts you found. The user ' +
+  'can turn local generation back on in Settings → Local Media if they want it for this project.';
+
 /** Reads and bookkeeping that are fine in any phase, including after a phase has just closed. */
 const ALWAYS_TOOLS = new Set([
   'editing_workflow_status',
@@ -179,6 +197,12 @@ const ALWAYS_TOOLS = new Set([
   'grep_search',
   'list_effects',
   'list_recipes',
+  'react_bits',
+  'list_brand_kits',
+  'get_brand_kit',
+  'list_brand_archetypes',
+  'brand_kit_prompt',
+  'export_brand_kit',
   'list_learned_skills',
   'list_custom_tools',
   'list_subagents',
@@ -248,13 +272,18 @@ export class EditWorkflow {
   private closedPhase: 'plan' | 'gather' | null = null;
   /** How many timeline actions had run when the last frame-QA pass was taken; -1 = never. */
   private qaAtAction = -1;
-  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full') {
+  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false) {
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
+    const musicAssetId = comp?.production?.music?.assetId ?? null;
     this.sources = (comp?.clips ?? []).filter(c => c.enabled && c.source.type === 'media' && !comp.tracks.find(t => t.id === c.trackId)?.hidden && !comp.tracks.find(t => t.id === c.trackId)?.muted).flatMap(c => {
       if (c.source.type !== 'media') return [];
       const asset = assets.get(c.source.assetId);
-      return asset ? [{ clipId: c.id, assetId: asset.id, speech: asset.hasAudio || asset.kind === 'audio', frames: asset.kind === 'video' && comp.tracks.find(t => t.id === c.trackId)?.kind !== 'audio' ? Math.ceil(c.duration * comp.fps) : 0, seen: new Set<number>() }] : [];
+      // The production's own chosen music bed is never dialogue — forcing it through
+      // analyze_clip_speech blocked editing outright on a machine with no transcription engine
+      // configured, for a Kevin MacLeod instrumental track that has nothing to transcribe.
+      const isMusicBed = asset?.id === musicAssetId;
+      return asset ? [{ clipId: c.id, assetId: asset.id, speech: !isMusicBed && (asset.hasAudio || asset.kind === 'audio'), frames: asset.kind === 'video' && comp.tracks.find(t => t.id === c.trackId)?.kind !== 'audio' ? Math.ceil(c.duration * comp.fps) : 0, seen: new Set<number>() }] : [];
     });
     // A production carries the planning turn's receipts forward. They only count while the
     // timeline is exactly what was analysed; any cut since then means a fresh look.
@@ -310,6 +339,9 @@ export class EditWorkflow {
       structurallyVerified: this.finished && this.verifiedSnapshot === JSON.stringify(comp), visualQualityVerified: false };
   }
   before(name: string, args: Args, project: Project): string | null {
+    // A hard switch, not a phase gate: checked before the quick-mode bypass so a one-off Quick
+    // edit turn cannot route around the setting either.
+    if (this.disableLocalGeneration && name === 'generate_local_media' && LOCAL_GENERATION_TASKS.has(String(args.task))) return LOCAL_GENERATION_OFF;
     if (this.mode === 'quick') return null;
     if (name === 'editing_workflow_status' || name === 'verify_edit_workflow') return null;
     const comp = this.comp(project);

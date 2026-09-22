@@ -1,15 +1,16 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Boxes, Brain, Check, Cloud, Code2, Cpu, Download, ExternalLink, Film, FolderOpen, KeyRound, LoaderCircle, Mic, Palette, RefreshCw, Scissors, ShieldCheck, Sparkles, Terminal, TriangleAlert } from 'lucide-react';
+import { Boxes, Brain, Check, Cloud, Code2, Cpu, Download, ExternalLink, Film, FolderOpen, Gem, KeyRound, LoaderCircle, Mic, Palette, RefreshCw, Scissors, ShieldCheck, Sparkles, Terminal, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { ProviderLogo } from '../components/ProviderLogo';
 import { Modal, Toggle, useToast } from '../components/ui';
 import { SpeechSettings } from './SpeechSettings';
 import { BrainSettings } from './BrainSettings';
+import { BrandKitSettings } from './BrandKitSettings';
 import { LocalMediaSettings } from './LocalMediaSettings';
 import { api, errorText } from '../lib/ipc';
-import type { AppInfo, Job, ProviderInfo, ProviderKind, Settings, ToolStatus } from '../lib/types';
+import type { AppInfo, Asset, Job, ProviderInfo, ProviderKind, Settings, ToolStatus } from '../lib/types';
 
-export type SettingsTab = 'providers' | 'speech' | 'local-media' | 'media' | 'appearance' | 'brain' | 'about';
+export type SettingsTab = 'providers' | 'speech' | 'local-media' | 'media' | 'appearance' | 'brain' | 'brand' | 'about';
 
 type Props = {
   tab: SettingsTab;
@@ -22,6 +23,11 @@ type Props = {
   settings: Settings;
   onSettings: (settings: Settings) => void;
   jobs: Job[];
+  /** The open project's brand kit pointer and how to change it (Brand kit tab). */
+  projectBrandKitId?: string | null;
+  onProjectBrandKit?: (id: string | null) => void;
+  /** Imports files into the project library (logos land in a "Brand" folder). */
+  importMedia?: (paths: string[], folderId?: string | null) => Promise<Asset[]>;
 };
 
 const GROUPS: { kind: ProviderKind; title: string; icon: typeof Terminal; blurb: string }[] = [
@@ -114,9 +120,11 @@ export function SettingsModal(props: Props) {
           <button type="button" className={props.tab === 'media' ? 'active' : ''} onClick={() => props.onTab('media')}><FolderOpen size={14} /> Media &amp; FFmpeg</button>
           <button type="button" className={props.tab === 'appearance' ? 'active' : ''} onClick={() => props.onTab('appearance')}><Palette size={14} /> Appearance</button>
           <button type="button" className={props.tab === 'brain' ? 'active' : ''} onClick={() => props.onTab('brain')}><Brain size={14} /> Brain</button>
+          <button type="button" className={props.tab === 'brand' ? 'active' : ''} onClick={() => props.onTab('brand')}><Gem size={14} /> Brand kit</button>
           <button type="button" className={props.tab === 'about' ? 'active' : ''} onClick={() => props.onTab('about')}><Cpu size={14} /> About</button>
         </nav>
         <div className="settings-body">
+          {props.tab === 'brand' && <BrandKitSettings settings={props.settings} onSettings={props.onSettings} projectBrandKitId={props.projectBrandKitId ?? null} onProjectBrandKit={props.onProjectBrandKit ?? (() => undefined)} importMedia={props.importMedia} />}
           {props.tab === 'local-media' && <LocalMediaSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'providers' && (
             <>

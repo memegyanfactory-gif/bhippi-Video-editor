@@ -13,8 +13,7 @@
 // do not survive, which is why the Crimson templates avoid both.
 import gsap from 'gsap';
 import { api } from './ipc';
-import { mogrtCanvas } from './motionGraphics';
-import { templateSpec } from './motionGuide';
+import { mogrtCanvas, usesCompCanvas } from './motionGraphics';
 import type { Clip, Comp, Project } from './types';
 
 type HtmlSource = Extract<Clip['source'], { type: 'html' }>;
@@ -31,6 +30,12 @@ const COPIED = [
   'opacity', 'transform', 'transform-origin', 'filter', 'mix-blend-mode', 'clip-path', 'mask-image', '-webkit-mask-image', 'visibility',
   'color', 'font', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'text-align', 'text-shadow', 'white-space', 'font-variant-numeric', 'vertical-align', 'text-rendering', '-webkit-font-smoothing',
   'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-linejoin', 'pointer-events',
+  // React Bits pieces lean on these: gradient-clipped type, outlines, 3D stacks, masks and grids.
+  'background-clip', '-webkit-background-clip', '-webkit-text-fill-color', '-webkit-text-stroke', 'background-size', 'background-position', 'background-repeat', 'background-blend-mode',
+  'perspective', 'perspective-origin', 'transform-style', 'backface-visibility', 'isolation', 'image-rendering', 'writing-mode', 'text-decoration', 'text-overflow', 'word-break',
+  'flex-grow', 'flex-shrink', 'flex-basis', 'grid-column', 'grid-row', 'grid-area', 'align-self', 'justify-self', 'order', 'aspect-ratio',
+  'mask', 'mask-size', 'mask-position', 'mask-repeat', 'mask-composite', '-webkit-mask', '-webkit-mask-size', '-webkit-mask-position', '-webkit-mask-repeat', '-webkit-mask-composite',
+  'stroke-opacity', 'fill-opacity', 'stroke-miterlimit', 'text-anchor', 'dominant-baseline', 'paint-order', 'font-stretch', 'text-indent',
 ];
 
 /** Copies the computed style of `live` (and its ::before/::after) onto `clone`. */
@@ -94,7 +99,7 @@ const toPng = (canvas: HTMLCanvasElement) => new Promise<Uint8Array>((resolve, r
  * size of the comp's design canvas. Returns what the export needs to overlay it.
  */
 export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {}): Promise<RenderedFrames> {
-  const canvas = source.template && templateSpec(source.template) ? mogrtCanvas(comp) : { width: 1920, height: 1080 };
+  const canvas = usesCompCanvas(source.template) ? mogrtCanvas(comp) : { width: 1920, height: 1080 };
   const fps = Math.min(options.fps ?? comp.fps, 30);
   const frames = Math.max(1, Math.round(clip.duration * fps));
   const dir = await api.mogrtFramesBegin(clip.id);

@@ -8,8 +8,10 @@ This chat cannot call tools directly. To make changes, end your reply with exact
 ]
 ```
 
-- Helios hides the block from the user and runs the calls after your reply, so write your sentence as if the edits are done. Omit the block when nothing should change.
-- You will not see the results before you answer, so you cannot look ids up first: use only ids that appear in the project summary. If an edit needs an id you do not have, ask the user or suggest the next step instead of guessing.
+- Helios hides the block from the user and runs the calls, in order, right after your reply.
+- You then get their real results back as a new message, and get to reply again — write the next `helios-tools` block once you have seen them, and repeat for as many rounds as the task needs. Do not guess an id you do not have yet (a generated asset's id, a job's id): end this reply's block before that point, wait for the result, and use the real value in your next block. If a call needed for the next step is still running as a background job, do not resend it — move on to other independent work this round, or simply stop and check again with `generation_job` / `import_generated_media` once it should be done.
+- Only your very last reply, the one with no `helios-tools` block at all, is treated as the finished answer — every block before that keeps the task going.
+- If a call fails, the ones after it in the same block may not run (a workflow guard's refusal means every later call in that block would fail the same way) — read what actually happened before writing your next block instead of resending the same one.
 - `args` follow each tool's parameters; `*` marks required ones. Nested objects are written as JSON objects.
 
 Tools:

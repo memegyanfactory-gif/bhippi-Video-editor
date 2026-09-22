@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('../src/lib/ipc', () => ({ api: { analysisFrames: vi.fn(), jobsList: vi.fn(), settingsGet: vi.fn(), matteModel: vi.fn() }, errorText: (e: unknown) => String(e) }));
+vi.mock('../src/lib/ipc', () => ({ api: { analysisFrames: vi.fn(), jobsList: vi.fn(), settingsGet: vi.fn(), matteModel: vi.fn(), localMediaStatus: vi.fn() }, errorText: (e: unknown) => String(e) }));
 vi.mock('../src/lib/roto', () => ({ rotoscope: vi.fn() }));
 vi.mock('../src/lib/depth', () => ({ depthOcclusion: vi.fn() }));
 import { depthOcclusion } from '../src/lib/depth';
@@ -137,5 +137,19 @@ describe('media tool contracts', () => {
     const rotoRes = await runTool(host, 'rotoscope_clip', { clipId: clip.id });
     expect(rotoRes.ok).toBe(true);
     expect(vi.mocked(rotoscope).mock.calls[0][1].fps).toBe(23.976);
+  });
+  it('tells the model up front when local generation is off, so planning routes shots online instead', async () => {
+    const { host } = fixture();
+    vi.mocked(api.localMediaStatus).mockResolvedValue({ tasks: [] } as any);
+    vi.mocked(api.settingsGet).mockResolvedValue({ disableLocalGeneration: true } as any);
+    const off = await runTool(host, 'local_media_capabilities', {});
+    if (!off.ok) throw new Error(off.error);
+    expect(off.summary).toContain('turned OFF');
+    expect(off.disableLocalGeneration).toBe(true);
+    vi.mocked(api.settingsGet).mockResolvedValue({ disableLocalGeneration: false } as any);
+    const on = await runTool(host, 'local_media_capabilities', {});
+    if (!on.ok) throw new Error(on.error);
+    expect(on.summary).not.toContain('turned OFF');
+    expect(on.disableLocalGeneration).toBe(false);
   });
 });

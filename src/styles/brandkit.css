@@ -1,0 +1,44 @@
+/* Brand kit settings (Settings → Brand kit). Classes are prefixed bk-. */
+.bk-root { display: grid; grid-template-columns: 220px 1fr; gap: 14px; min-height: 420px; }
+.bk-list { display: flex; flex-direction: column; gap: 6px; border-right: 1px solid var(--line); padding-right: 12px; }
+.bk-list-item { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--radius); border: 1px solid transparent; background: var(--panel-3); text-align: left; cursor: pointer; }
+.bk-list-item:hover { border-color: var(--line-strong); }
+.bk-list-item.active { border-color: var(--blue); }
+.bk-list-item strong { font-size: 12px; }
+.bk-list-item span { font-size: 10.5px; color: var(--text-dim); }
+.bk-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.bk-badge { font-size: 9.5px; padding: 1px 6px; border-radius: 999px; background: var(--panel-4); color: var(--text-dim); }
+.bk-badge.on { background: var(--blue); color: #fff; }
+.bk-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.bk-editor { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bk-preview { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--radius); overflow: hidden; background: #000; border: 1px solid var(--line); }
+.bk-preview-bar { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+.bk-preview-bar input[type="range"] { flex: 1; }
+.bk-section { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
+.bk-section > summary { cursor: pointer; padding: 8px 10px; font-weight: 600; font-size: 12px; list-style: none; display: flex; justify-content: space-between; }
+.bk-section > summary::-webkit-details-marker { display: none; }
+.bk-section > summary small { color: var(--text-dim); font-weight: 400; }
+.bk-section-body { padding: 4px 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.bk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.bk-grid .field input, .bk-grid .field select, .bk-editor textarea, .bk-editor .field input, .bk-editor .field select { width: 100%; height: 26px; padding: 0 8px; background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); font: inherit; font-size: 12px; }
+.bk-editor textarea { height: auto; min-height: 56px; padding: 6px 8px; resize: vertical; line-height: 1.35; }
+.bk-token { display: grid; grid-template-columns: 26px 1fr 110px 90px 1fr 24px; gap: 6px; align-items: center; }
+.bk-swatch { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--line-strong); }
+.bk-token input[type="color"] { width: 26px; height: 26px; padding: 0; border: 0; background: none; }
+.bk-contrast { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; padding: 2px 6px; border-radius: 999px; background: var(--panel-4); }
+.bk-contrast.good { color: #3fb950; }
+.bk-contrast.ok { color: var(--amber); }
+.bk-contrast.bad { color: var(--red); }
+.bk-specimen { padding: 6px 8px; border-radius: var(--radius); background: var(--panel-3); border: 1px solid var(--line); font-size: 22px; line-height: 1.1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.bk-logo-row { display: grid; grid-template-columns: 96px 1fr auto; gap: 10px; align-items: center; }
+.bk-logo-box { width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius); border: 1px solid var(--line-strong); background: repeating-conic-gradient(#2a2a2a 0 25%, #1c1c1c 0 50%) 0 0 / 16px 16px; overflow: hidden; }
+.bk-logo-box svg, .bk-logo-box img { max-width: 88px; max-height: 56px; }
+.bk-errors { color: var(--red); font-size: 11px; display: flex; flex-direction: column; gap: 2px; }
+.bk-empty { display: flex; flex-direction: column; gap: 10px; color: var(--text-dim); font-size: 12px; }
+.bk-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bk-inline label { font-size: 11.5px; color: var(--text-dim); }
+.bk-summary { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
+.bk-new { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.bk-new select { height: 26px; background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); font-size: 12px; max-width: 220px; }
+.bk-motion-sample { width: 40px; height: 40px; border-radius: 8px; background: var(--blue); }
+@media (max-width: 720px) { .bk-root { grid-template-columns: 1fr; } .bk-list { border-right: 0; padding-right: 0; } }

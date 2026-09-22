@@ -37,6 +37,13 @@ const ZOOMS: { label: string; value: number }[] = [
   { label: 'Fit', value: 0 }, { label: '10%', value: 0.1 }, { label: '25%', value: 0.25 }, { label: '50%', value: 0.5 }, { label: '75%', value: 0.75 }, { label: '100%', value: 1 }, { label: '150%', value: 1.5 }, { label: '200%', value: 2 }, { label: '400%', value: 4 },
 ];
 
+/** Preview render resolution, After Effects-style: fewer pixels to composite while playing, at
+ * the cost of a softer picture. Export always renders full quality — see render.rs, which builds
+ * its own ffmpeg filter graph from the project and never reads this or the live DOM at all. */
+const QUALITIES: { label: string; value: number }[] = [
+  { label: 'Full', value: 1 }, { label: '1/2', value: 0.5 }, { label: '1/4', value: 0.25 }, { label: '1/8', value: 0.125 },
+];
+
 type Box = { left: number; top: number; width: number; height: number };
 type Drag =
   | { kind: 'move'; clipId: string; startX: number; startY: number; origin: { x: number; y: number } }
@@ -53,6 +60,8 @@ export function ProgramMonitor(props: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [space, setSpace] = useState({ width: 640, height: 360 });
   const [zoom, setZoom] = useState(0);
+  const [quality, setQuality] = useState(1);
+  const [customQuality, setCustomQuality] = useState(false);
   const [loop, setLoop] = useState(false);
   const [safe, setSafe] = useState(false);
   const [grid, setGrid] = useState(false);
@@ -88,6 +97,26 @@ export function ProgramMonitor(props: Props) {
   const scale = zoom === 0 ? Math.max(0.01, fitScale) : zoom;
   const stageW = Math.max(1, Math.floor(frameW * scale));
   const stageH = Math.max(1, Math.floor(frameH * scale));
+  // Preview resolution (After Effects-style): while playing, the picture is laid out and
+  // composited at a fraction of stageW/stageH, then CSS-scaled back up to fill the same box —
+  // cheaper filters/masks/decoding because there are fewer pixels to touch, not because
+  // anything is skipped. Gated to `playing` (not applied while paused/scrubbing) because the
+  // direct-manipulation tools (drag/scale/rotate handles, roto paint, the pen tool) read a
+  // clip layer's real `offsetWidth/offsetHeight`, which a CSS transform does not change — at
+  // any resolution below Full those would be measuring the wrong box the instant an edit tool
+  // is live. None of those tools are reachable while playing, so this never runs concurrently
+  // with them.
+  const renderW = Math.max(1, Math.round(stageW * quality));
+  const renderH = Math.max(1, Math.round(stageH * quality));
+  const previewDownscaled = playing && quality < 1;
+  // Whatever the plan's palette settled on (save_video_blueprint's style.palette) shows behind
+  // the picture instead of flat black — so reframing, a punch-out, or a vertical comp with
+  // horizontal footage reveals the project's own theme at the edges rather than a black bar.
+  // Skipped under the transparency grid, which is deliberately showing what is actually empty.
+  const bgPalette = comp?.videoBlueprint?.style?.palette;
+  const stageBg = !grid && bgPalette && bgPalette.length
+    ? (bgPalette.length === 1 ? bgPalette[0] : `linear-gradient(135deg, ${bgPalette.join(', ')})`)
+    : undefined;
 
   // Playback: a wall clock drives the playhead; media elements follow it.
   useEffect(() => {
@@ -449,7 +478,7 @@ export function ProgramMonitor(props: Props) {
           <div
             ref={stageRef}
             className={`stage${grid ? ' transparency-grid' : ''}`}
-            style={{ width: stageW, height: stageH, cursor }}
+            style={{ width: stageW, height: stageH, cursor, ...(stageBg ? { background: stageBg } : {}) }}
             onPointerDown={onStageDown}
             onPointerMove={onMove}
             onPointerUp={onUp}
@@ -457,8 +486,14 @@ export function ProgramMonitor(props: Props) {
             onLostPointerCapture={onUp}
             onDoubleClick={() => pen && finishPen(pen)}
           >
-            {comp && <CompLayers project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} stageW={stageW} stageH={stageH} depth={0} />}
-            {comp && <CompAudio project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} />}
+            {comp && (previewDownscaled ? (
+              <div className="stage-render" style={{ width: renderW, height: renderH, transform: `scale(${stageW / renderW}, ${stageH / renderH})`, transformOrigin: 'top left' }}>
+                <CompLayers project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} stageW={renderW} stageH={renderH} depth={0} quality={quality} />
+              </div>
+            ) : (
+              <CompLayers project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} stageW={stageW} stageH={stageH} depth={0} quality={1} />
+            ))}
+            {comp && <CompAudio project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} quality={1} />}
             {empty && (
               <div className="stage-empty">
                 <Film size={30} />
@@ -532,6 +567,31 @@ export function ProgramMonitor(props: Props) {
         <select className="monitor-select" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} aria-label="Zoom level">
           {ZOOMS.map((item) => <option key={item.label} value={item.value}>{item.label}</option>)}
         </select>
+        <select
+          className="monitor-select"
+          value={customQuality ? 'custom' : String(quality)}
+          onChange={(event) => {
+            if (event.target.value === 'custom') { setCustomQuality(true); return; }
+            setCustomQuality(false);
+            setQuality(Number(event.target.value));
+          }}
+          title="Preview resolution — plays smoother at less than Full; export always renders Full"
+          aria-label="Preview resolution"
+        >
+          {QUALITIES.map((item) => <option key={item.label} value={item.value}>{item.label}</option>)}
+          <option value="custom">Custom…</option>
+        </select>
+        {customQuality && (
+          <input
+            className="timecode-input"
+            style={{ width: 44 }}
+            type="number" min={1} max={100} step={1}
+            value={Math.round(quality * 100)}
+            onChange={(event) => setQuality(clamp(Number(event.target.value) || 1, 1, 100) / 100)}
+            aria-label="Custom preview resolution, percent"
+            title="Preview resolution, percent of full"
+          />
+        )}
         <div className="toolbar-spacer" />
         {maskHint && <span className="monitor-hint warn">{maskHint}</span>}
         {pen && <span className="monitor-hint">Click to add points · click the first point, double-click or Enter to close · Esc cancels</span>}

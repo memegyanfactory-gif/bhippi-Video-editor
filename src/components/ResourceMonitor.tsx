@@ -8,11 +8,12 @@
 //
 // The activity lists come from props, not the poll, so a job's progress moves the moment the
 // event lands rather than on the next tick.
-import { ChevronDown, ChevronRight, Cpu, Gauge, HardDrive, LoaderCircle, MemoryStick, Wrench, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Cpu, Gauge, HardDrive, LoaderCircle, MemoryStick, Square, Trash2, Video, Wrench, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Job } from '../lib/types';
 import type { ToolRun } from '../chat/Activity';
+import { api } from '../lib/ipc';
 
 type Gpu = { name: string | null; utilPercent: number | null; vramUsedMb: number | null; vramTotalMb: number | null; tempC: number | null };
 type Drive = { letter: string; freeGb: number; totalGb: number; role: 'models' | 'project' | null };
@@ -96,7 +97,19 @@ function groupProcesses(processes: Process[]) {
   return [...groups.values()].sort((a, b) => b.ramGb - a.ramGb);
 }
 
-export function ResourceMonitor({ jobs, runs, defaultOpen = false }: { jobs: Job[]; runs: ToolRun[]; defaultOpen?: boolean }) {
+export function ResourceMonitor({
+  jobs,
+  runs,
+  defaultOpen = false,
+  onCancelJob,
+  onDeleteJob,
+}: {
+  jobs: Job[];
+  runs: ToolRun[];
+  defaultOpen?: boolean;
+  onCancelJob?: (id: string) => Promise<void> | void;
+  onDeleteJob?: (id: string) => Promise<void> | void;
+}) {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [stale, setStale] = useState(false);
   const [readAt, setReadAt] = useState<number | null>(null);
@@ -104,7 +117,47 @@ export function ResourceMonitor({ jobs, runs, defaultOpen = false }: { jobs: Job
   const [showProcesses, setShowProcesses] = useState(false);
   const [allProcesses, setAllProcesses] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [busyJobs, setBusyJobs] = useState<Record<string, 'cancelling' | 'deleting'>>({});
   const chip = useRef<HTMLButtonElement>(null);
+
+  const handleCancel = async (id: string) => {
+    setBusyJobs((prev) => ({ ...prev, [id]: 'cancelling' }));
+    try {
+      if (onCancelJob) {
+        await onCancelJob(id);
+      } else {
+        await api.jobCancel(id);
+      }
+    } catch (e) {
+      console.error('Failed to cancel job', e);
+    } finally {
+      setBusyJobs((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setBusyJobs((prev) => ({ ...prev, [id]: 'deleting' }));
+    try {
+      if (onDeleteJob) {
+        await onDeleteJob(id);
+      } else {
+        await api.jobCancel(id).catch(() => undefined);
+        await api.jobDelete(id).catch(() => undefined);
+      }
+    } catch (e) {
+      console.error('Failed to delete job', e);
+    } finally {
+      setBusyJobs((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+  };
 
   // Poll while the window is visible. A hidden window stops the loop entirely and the
   // visibility change restarts it, so a minimised app does not keep spawning PowerShell.
@@ -167,6 +220,22 @@ export function ResourceMonitor({ jobs, runs, defaultOpen = false }: { jobs: Job
   const activeRuns = runs.filter((run) => run.status === 'running');
   const activeCount = activeJobs.length + activeRuns.length;
 
+  const isVideoJob = (job: Job) => {
+    const label = job.label.toLowerCase();
+    const kind = job.kind.toLowerCase();
+    return (
+      (kind === 'generation' && label.includes('video')) ||
+      label.includes('wan') ||
+      label.includes('ltx') ||
+      label.includes('t2v') ||
+      label.includes('i2v') ||
+      (job.result as { task?: string } | undefined)?.task === 'video'
+    );
+  };
+
+  const isHeavyJob = (job: Job) => isVideoJob(job) || job.kind === 'generation';
+  const activeVideoJob = activeJobs.find(isVideoJob) ?? activeJobs.find(isHeavyJob);
+
   const ramPercent = usage ? percentOf(usage.ramUsedGb, usage.ramTotalGb) : null;
   const cpuPercent = usage ? clampPercent(usage.cpuPercent) : null;
   const gpu = usage?.gpu ?? null;
@@ -191,13 +260,16 @@ export function ResourceMonitor({ jobs, runs, defaultOpen = false }: { jobs: Job
     : 'System usage and Helios activity';
   const agoSeconds = readAt ? Math.max(0, Math.round((now - readAt) / 1000)) : null;
 
-  const gpuValue = gpu
-    ? [
-        gpuPercent == null ? null : `${Math.round(gpuPercent)} %`,
-        gpu.vramUsedMb != null && gpu.vramTotalMb != null ? `${formatGb(gpu.vramUsedMb / 1024, false)} / ${formatGb(gpu.vramTotalMb / 1024)} VRAM` : null,
-        gpu.tempC == null ? null : `${Math.round(gpu.tempC)} °C`,
-      ].filter(Boolean).join(' · ') || '—'
-    : '—';
+  const vramPercent = gpu && gpu.vramUsedMb != null && gpu.vramTotalMb != null ? percentOf(gpu.vramUsedMb, gpu.vramTotalMb) : null;
+  const vramValue = gpu && gpu.vramUsedMb != null && gpu.vramTotalMb != null
+    ? `${formatGb(gpu.vramUsedMb / 1024, false)} / ${formatGb(gpu.vramTotalMb / 1024)}`
+    : null;
+  // Name and temperature share the sub line (like the GPU name did on its own before); the VRAM
+  // row's own value slot is only 60px, so keeping it to "used / total" is what keeps that row's
+  // text from clipping the way the old three-part "13 % · 0.9 / 10 GB VRAM · 40 °C" string did.
+  const gpuSub = gpu
+    ? [gpu.name, gpu.tempC == null ? null : `${Math.round(gpu.tempC)}°C`].filter(Boolean).join(' · ') || (usage ? 'No GPU reading' : 'Reading…')
+    : (usage ? 'No GPU reading' : 'Reading…');
 
   return (
     <div className="rm-anchor">
@@ -254,9 +326,17 @@ export function ResourceMonitor({ jobs, runs, defaultOpen = false }: { jobs: Job
 
               <div className="rm-card">
                 <div className="rm-card-head"><Gauge size={13} /><span className="rm-card-label">GPU</span></div>
-                <div className="rm-card-value">{gpuValue}</div>
+                <div className="rm-card-value">{gpuPercent == null ? '—' : `${Math.round(gpuPercent)}%`}</div>
                 <Bar percent={gpuPercent} />
-                <div className="rm-card-sub" title={gpu?.name ?? undefined}>{gpu?.name ?? (usage ? 'No GPU reading' : 'Reading…')}</div>
+                <div className="rm-card-sub" title={gpu?.name ?? undefined}>{gpuSub}</div>
+                {vramValue && (
+                  <div className="rm-card-line">
+                    <MemoryStick size={11} />
+                    <span>VRAM</span>
+                    <Bar percent={vramPercent} />
+                    <span className="rm-card-line-value">{vramValue}</span>
+                  </div>
+                )}
               </div>
 
               <div className="rm-card">
@@ -274,6 +354,52 @@ export function ResourceMonitor({ jobs, runs, defaultOpen = false }: { jobs: Job
               </div>
             </div>
 
+            {activeVideoJob && (
+              <div className="rm-urgent-card">
+                <div className="rm-urgent-head">
+                  <div className="rm-urgent-title">
+                    <Video size={13} className="rm-urgent-icon" />
+                    <span>{activeVideoJob.label}</span>
+                  </div>
+                  <span className="rm-urgent-percent">{Math.round(Math.min(1, Math.max(0, activeVideoJob.progress)) * 100)}%</span>
+                </div>
+                <div className="rm-urgent-desc">
+                  Heavy video generation running. If your PC is hanging or frozen, cancel or stop it immediately here.
+                </div>
+                <Bar percent={Math.round(Math.min(1, Math.max(0, activeVideoJob.progress)) * 100)} tone="high" />
+                <div className="rm-urgent-actions">
+                  <button
+                    type="button"
+                    className="rm-urgent-stop"
+                    onClick={() => void handleCancel(activeVideoJob.id)}
+                    disabled={busyJobs[activeVideoJob.id] === 'cancelling' || busyJobs[activeVideoJob.id] === 'deleting'}
+                    title="Stop video generation process immediately"
+                  >
+                    {busyJobs[activeVideoJob.id] === 'cancelling' ? (
+                      <LoaderCircle size={11} className="rm-spin" />
+                    ) : (
+                      <Square size={10} fill="currentColor" />
+                    )}
+                    <span>{busyJobs[activeVideoJob.id] === 'cancelling' ? 'Stopping…' : 'Stop Video Generation'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="rm-urgent-delete"
+                    onClick={() => void handleDelete(activeVideoJob.id)}
+                    disabled={busyJobs[activeVideoJob.id] === 'cancelling' || busyJobs[activeVideoJob.id] === 'deleting'}
+                    title="Delete task and cancel process"
+                  >
+                    {busyJobs[activeVideoJob.id] === 'deleting' ? (
+                      <LoaderCircle size={11} className="rm-spin" />
+                    ) : (
+                      <Trash2 size={11} />
+                    )}
+                    <span>{busyJobs[activeVideoJob.id] === 'deleting' ? 'Deleting…' : 'Delete Task'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="rm-section">
               <div className="rm-section-title"><Wrench size={11} />Running tools{activeRuns.length > 0 && <span className="rm-count">{activeRuns.length}</span>}</div>
               {activeRuns.length === 0 && <div className="rm-empty">Nothing running</div>}
@@ -288,17 +414,56 @@ export function ResourceMonitor({ jobs, runs, defaultOpen = false }: { jobs: Job
             </div>
 
             <div className="rm-section">
-              <div className="rm-section-title"><LoaderCircle size={11} className={activeJobs.length ? 'rm-spin' : undefined} />Background jobs{activeJobs.length > 0 && <span className="rm-count">{activeJobs.length}</span>}</div>
+              <div className="rm-section-title">
+                <LoaderCircle size={11} className={activeJobs.length ? 'rm-spin' : undefined} />
+                Background jobs{activeJobs.length > 0 && <span className="rm-count">{activeJobs.length}</span>}
+              </div>
               {activeJobs.length === 0 && <div className="rm-empty">Nothing running</div>}
               {activeJobs.map((job) => {
                 const percent = Math.round(Math.min(1, Math.max(0, job.progress)) * 100);
+                const isVideo = isVideoJob(job);
+                const isBusy = !!busyJobs[job.id];
                 return (
-                  <div className="rm-job" key={job.id}>
+                  <div className={`rm-job${isVideo ? ' rm-job-video' : ''}`} key={job.id}>
                     <div className="rm-job-head">
-                      <span className="rm-job-label">{job.label}</span>
-                      <span className="rm-job-percent">{percent}%</span>
+                      <div className="rm-job-title-group">
+                        {isVideo && <span title="Video generation task" style={{ display: 'inline-flex', alignItems: 'center' }}><Video size={12} className="rm-job-video-icon" /></span>}
+                        <span className="rm-job-label">{job.label}</span>
+                      </div>
+                      <div className="rm-job-actions">
+                        <span className="rm-job-percent">{percent}%</span>
+                        <button
+                          type="button"
+                          className="rm-btn-stop"
+                          onClick={() => void handleCancel(job.id)}
+                          disabled={isBusy}
+                          title="Stop this task"
+                          aria-label={`Stop ${job.label}`}
+                        >
+                          {busyJobs[job.id] === 'cancelling' ? (
+                            <LoaderCircle size={10} className="rm-spin" />
+                          ) : (
+                            <Square size={9} fill="currentColor" />
+                          )}
+                          <span>{busyJobs[job.id] === 'cancelling' ? 'Stopping…' : 'Stop'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="rm-btn-delete"
+                          onClick={() => void handleDelete(job.id)}
+                          disabled={isBusy}
+                          title="Delete / cancel task"
+                          aria-label={`Delete ${job.label}`}
+                        >
+                          {busyJobs[job.id] === 'deleting' ? (
+                            <LoaderCircle size={11} className="rm-spin" />
+                          ) : (
+                            <Trash2 size={11} />
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <Bar percent={percent} tone="accent" />
+                    <Bar percent={percent} tone={isVideo ? 'high' : 'accent'} />
                     {job.message && <div className="rm-job-message" title={job.message}>{job.message}</div>}
                   </div>
                 );

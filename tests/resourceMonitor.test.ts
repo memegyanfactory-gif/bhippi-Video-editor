@@ -57,6 +57,17 @@ describe('ResourceMonitor', () => {
     const html = renderToString(React.createElement(ResourceMonitor, { jobs: [], runs: [], defaultOpen: true }));
     expect(html.match(/Nothing running/g)).toHaveLength(2);
   });
+
+  it('renders Stop and Delete buttons and the emergency video generation banner when video generation is active', () => {
+    const jobs = [job({ id: 'vid1', label: 'Generating video', progress: 0.55, message: 'Step 11/20' })];
+    const html = renderToString(React.createElement(ResourceMonitor, { jobs, runs: [], defaultOpen: true }));
+    expect(html).toContain('rm-urgent-card');
+    expect(html).toContain('Stop Video Generation');
+    expect(html).toContain('Delete Task');
+    expect(html).toContain('rm-btn-stop');
+    expect(html).toContain('rm-btn-delete');
+    expect(html).toContain('Stop');
+  });
 });
 
 describe('usageTone', () => {

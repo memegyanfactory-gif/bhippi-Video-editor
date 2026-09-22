@@ -1,7 +1,7 @@
 import { modelVariants, variantModel } from '../lib/modelVariants';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Paperclip, RotateCcw, X } from 'lucide-react';
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { Markdown } from '../components/Markdown';
 import { ModelPicker } from '../components/ModelPicker';
@@ -76,6 +76,8 @@ type Props = {
   onAwesome: (on: boolean) => void;
   /** Undo the last edit, for `/undo`. */
   onUndo: () => void;
+  /** The user started a new conversation (/clear, New Conversation): the host drops per-conversation project state such as the production pipeline. Not fired for a compaction, which continues the same work. */
+  onClear?: () => void;
   /** The reference edits should follow from here on, or null to stop following one. */
   onReference: (id: string | null) => void;
   /** A question the assistant is waiting on, and the answer going back to it. */
@@ -95,7 +97,10 @@ type Props = {
   /** The project summary sent with each turn (src/lib/aiTools.ts `aiContext`). */
   getContext: () => unknown;
   onStartWorkflow: (turnId: string, mode: 'full' | 'quick') => void;
-  workflowStatus: (turnId: string) => { mode: string; structurallyVerified: boolean } | null;
+  workflowStatus: (turnId: string) => {
+    mode: string; structurallyVerified: boolean; phase?: string | null;
+    gather?: { ready: number; total: number; pending: string[] } | null;
+  } | null;
   /** Tool calls the editor ran, by turn. */
   tools: Record<string, ToolRun[]>;
   /** Fires once per finished turn so the host can record the outcome (IdeaGraph brain). */
@@ -103,6 +108,8 @@ type Props = {
   /** Puts the project back to where it was before a turn's edits; false when it has moved on. */
   onRevert: (turnId: string) => boolean;
   canRevert: (turnId: string) => boolean;
+  /** The production phase dock, docked low right above the composer rather than the transcript. */
+  productionBar?: ReactNode;
 };
 
 
@@ -621,7 +628,8 @@ export function ChatPanel(props: Props) {
     } else if (action === 'switch_provider') {
       setPickerOpen(true);
     } else if (action === 'compact') {
-      clear();
+      // Compacting continues the same work in a shorter transcript; the pipeline stays.
+      clear({ keepProduction: true });
     } else if (action === 'update') {
       api.providerInstall(message.providerId)
         .then(() => toast({ tone: 'info', title: `Updating ${message.providerLabel}…`, body: 'Watch progress in the status bar.' }))
@@ -654,13 +662,16 @@ export function ChatPanel(props: Props) {
     );
   };
 
-  const clear = () => {
+  const clear = (options?: { keepProduction?: boolean }) => {
     if (streaming) stop();
     setMessages([]);
     // Nothing is being carried over, so the next turn is a first turn: no handover note, and the
     // queued message from the old conversation does not arrive in the new one.
     setQueued(null);
     missing.current.clear();
+    // A fresh conversation is a fresh task: the production dock from the old one used to stay
+    // docked above the composer because it lives on the comp, not in the transcript.
+    if (!options?.keepProduction) props.onClear?.();
   };
 
   /**
@@ -888,7 +899,7 @@ export function ChatPanel(props: Props) {
                 else toast({ tone: 'info', title: 'Use Undo instead', body: 'The project changed after these edits, so press Ctrl+Z to step back.' });
               }}
               onRemedy={(action) => remedy(message, action)}
-              onContinue={() => void send('Continue the current phase of the production now. Call editing_workflow_status, work the saved todo list for this phase only (PLAN: finish research, script, shots, graphics and save the plan; GATHER: generate or download every planned shot with sceneIndex, then finish_gathering; EDIT/POLISH: cuts, levels, beats, transitions, roto/erase, motion graphics, sound, run_frame_qa until clear, then get_comp + verify_edit_workflow). Do not stop until the phase is closed or verify passes.')}
+              onContinue={() => void send(continuePrompt(props.workflowStatus(message.turnId)))}
             />
           ),
         )}
@@ -973,6 +984,8 @@ export function ChatPanel(props: Props) {
           </div>
         </div>
       )}
+
+      {props.productionBar}
 
       <form
         ref={formRef}
@@ -1139,6 +1152,30 @@ export function ChatPanel(props: Props) {
       />
     </div>
   );
+}
+
+/**
+ * What "Continue Workflow" tells the model to do next. One generic paragraph covering every
+ * phase used to be sent no matter what — so a model still mid-GATHER would read the EDIT/POLISH
+ * half of the same paragraph, jump ahead, and re-emit the same batch of timeline edits that just
+ * got refused, over and over, with the button visibly doing nothing. Naming the actual phase and
+ * the actual pending shots (from live production state, not the model's own stale plan) points it
+ * at the one thing left to do.
+ */
+function continuePrompt(status: { phase?: string | null; gather?: { ready: number; total: number; pending: string[] } | null } | null): string {
+  const phase = status?.phase ?? null;
+  const shared = 'Call editing_workflow_status first and trust what it reports over anything you planned earlier — the project may already be further along than your last reply assumed.';
+  if (phase === 'gathering') {
+    const pending = status?.gather?.pending ?? [];
+    const named = pending.length
+      ? ` Still pending: ${pending.slice(0, 6).join('; ')}${pending.length > 6 ? ` (+${pending.length - 6} more)` : ''}.`
+      : '';
+    return `Continue the GATHER phase only.${named} ${shared} Generate or download ONLY the shots still pending (one call per shot, with sceneIndex so it attaches to the plan), attach_production_asset each real result, and do not touch the timeline or plan edit-phase work yet. Once every shot has a real attached asset, call finish_gathering and end your turn.`;
+  }
+  if (phase === 'plan-ready' || phase === null || phase === 'planning') {
+    return `Continue the PLAN phase only. ${shared} Finish research, script, shots (with sceneIndex, script/prompt, graphics, transition, SFX, music per beat) and save it with save_storyboard or save_video_blueprint, then end your turn — do not generate media yet.`;
+  }
+  return `Continue the EDIT/POLISH phase only. ${shared} Work just the next unfinished 5–12s batch — cuts, levels, beats, transitions, roto/erase, motion graphics, sound — run run_frame_qa until it is clear, then get_comp + verify_edit_workflow. Do not redo batches already on the timeline.`;
 }
 
 function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRemedy, onContinue }: { message: Assistant; workflow: { mode: string; structurallyVerified: boolean; phase?: string | null; nextUserAction?: string | null; phaseClosedThisTurn?: string | null } | null; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void }) {

@@ -1,6 +1,8 @@
 // Shapes shared with the Rust side (src-tauri/src). Field names match serde's camelCase output.
 // The project model mirrors src-tauri/src/project.rs — read its module doc for the conventions.
 
+import type { BrandKitDoc } from './brandKit/types';
+
 export type Preset = 'title' | 'kinetic' | 'lower-third' | 'caption';
 export type SfxKind = 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser';
 
@@ -75,7 +77,8 @@ export type ClipSource =
   | { type: 'text'; text: string; subtitle: string; preset: Preset; color: string; style: string | null; vertical: boolean }
   | { type: 'sfx'; kind: SfxKind }
   | { type: 'shape'; shape: ShapeKind; sides: number; fill: string | null; stroke: string | null; strokeWidth: number; width: number; height: number; cornerRadius: number }
-  | { type: 'html'; html: string; css?: string; js?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number } };
+  | { type: 'html'; html: string; css?: string; js?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number } }
+  | { type: 'scene3d'; scene: any; title?: string };
 
 export type Clip = {
   id: string;
@@ -365,6 +368,8 @@ export type Project = {
   activeCompId: string | null;
   openCompIds: string[];
   captionStyle: string | null;
+  /** The brand kit this project is edited to (a Settings brand kit id); the user default when null. */
+  activeBrandKitId?: string | null;
 };
 
 /** Text timing in the shape the caption renderers take. */
@@ -466,7 +471,7 @@ export type ChatEvent =
 
 /** One AI tool call the backend asks the editor to run. */
 export type ToolCall = { turnId: string; callId: string; name: string; args: Record<string, unknown> };
-export type ToolResult = { ok: true; summary?: string; [key: string]: unknown } | { ok: false; error: string };
+export type ToolResult = { ok: true; summary?: string; [key: string]: unknown } | { ok: false; error: string; [key: string]: unknown };
 
 export type ToolStatus = { found: boolean; path: string | null; version: string | null; x264: boolean };
 
@@ -508,6 +513,10 @@ export type Settings = {
   localRotoEngine?: string | null;
   localVideoModel?: 'ltx' | 'wan' | 'ltx23' | 'custom' | null;
   localMediaModels?: Record<string, string>;
+  /** Off by default: the AI sources real footage online (or builds an animated explainer for
+   * topics with none to find) instead of generating images/video with local models. Local
+   * generation stays reachable — this only turns off the AI calling it automatically. */
+  disableLocalGeneration?: boolean | null;
   disabledProviders: string[];
   providerId: string | null;
   model: string | null;
@@ -525,6 +534,8 @@ export type Settings = {
   speech: SpeechPrefs;
   /** Panel sizes, visibility and meter options, owned by the UI. */
   layout: WorkspaceLayout | null;
+  /** The user's brand kits and the default one; see src/lib/brandKit. */
+  brandKits?: BrandKitDoc | null;
   /** Most recent first. */
   recentProjects: string[];
   /** Color theme: 'minimal' selects the flat minimalist theme, anything else is default. */

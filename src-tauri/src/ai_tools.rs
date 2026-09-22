@@ -69,6 +69,16 @@ pub fn error_of(result: &Value) -> String {
         .to_owned()
 }
 
+/// Whether a failure came from the production workflow guard (wrong phase, an unread timeline,
+/// a missing prerequisite) rather than the tool itself failing to do its work. The UI's tool-call
+/// handler stamps `guardBlocked: true` on these (see `App.tsx`'s `workflow.before(...)` check).
+/// Every other call planned in the same blind batch is refused for the identical reason, so a
+/// caller running several calls from one reply can stop the moment it sees this instead of
+/// grinding through the rest for the same repeated answer.
+pub fn is_guard_blocked(result: &Value) -> bool {
+    result.get("guardBlocked").and_then(Value::as_bool).unwrap_or(false)
+}
+
 /// Runs a call a model made, refusing what cannot be a Helios call before it reaches the UI.
 pub async fn run_call(executor: &dyn ToolExecutor, name: &str, args: Value) -> Value {
     if !is_known(name) {

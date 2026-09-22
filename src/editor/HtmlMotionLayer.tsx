@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react';
 import gsap from 'gsap';
-import { templateSpec } from '../lib/motionGuide';
+import { usesCompCanvas } from '../lib/motionGraphics';
 
 export type HtmlMotionSource = {
   html: string;
@@ -30,10 +30,10 @@ export function HtmlMotionLayer({
 
   const elapsed = Math.max(0, Math.min(clipDuration, time - clipStart));
   const progress = clipDuration > 0 ? elapsed / clipDuration : 0;
-  // A Crimson template's canvas follows the comp's aspect (1920 wide landscape, 1080 wide
-  // portrait) so a graphic built for a Reel fills the tall frame; the older templates were
-  // designed on a fixed 1920×1080 canvas and keep it.
-  const crimson = !!source.template && !!templateSpec(source.template);
+  // A Crimson or React Bits graphic's canvas follows the comp's aspect (1920 wide landscape,
+  // 1080 wide portrait) so a graphic built for a Reel fills the tall frame; the older templates
+  // were designed on a fixed 1920×1080 canvas and keep it.
+  const crimson = usesCompCanvas(source.template);
   const canvasW = crimson && stageW < stageH ? 1080 : 1920;
   const canvasH = crimson ? Math.max(1, Math.round((canvasW * stageH) / Math.max(1, stageW))) : 1080;
   const scale = stageW / canvasW;

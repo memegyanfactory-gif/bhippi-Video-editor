@@ -1,0 +1,11 @@
+# Todo: Finish the unfinished batch — intro 0–7.2 s (big layered WELCOME, cube reveal, zoom-out on red), then QA + verify
+- [x] Check workflow status (phase: polishing; all 10 beats on the timeline; intro rework is the unfinished batch)
+- [ ] Clear the edit gate: transcript pending on the music clip
+- [ ] Check local models (eraser / roto / depth)
+- [ ] Review intro frames (0–7.2 s)
+- [ ] Big WELCOME behind subject + "TO MY CHANNEL" in front
+- [ ] Cube reveal of the subject
+- [ ] Zoom-out with crimson background
+- [ ] Sound for the intro
+- [ ] run_frame_qa until clear
+- [ ] get_comp + verify_edit_workflow

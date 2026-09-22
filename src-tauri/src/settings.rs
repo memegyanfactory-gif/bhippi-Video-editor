@@ -69,6 +69,8 @@ pub struct Settings {
     pub export: ExportPrefs,
     /// Panel sizes and visibility; the UI owns the shape.
     pub layout: Option<serde_json::Value>,
+    /// The user's brand kits and the default one (see src/lib/brandKit); the UI owns the shape.
+    pub brand_kits: Option<serde_json::Value>,
     /// Recently opened `.helios` files, newest first.
     pub recent_projects: Vec<String>,
     /// The file the session project belongs to, when it has been saved.

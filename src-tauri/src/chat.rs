@@ -8,9 +8,13 @@
 //!
 //! Every backend edits through the same tools, reached three ways. HTTP APIs call them
 //! natively, round after round, until the model answers without calling one. CLI agents that
-//! can load an MCP server get Helios' bridge and run their own loop. Everything else — and a
-//! local model that turns tools down — writes a `helios-tools` block that Helios runs after
-//! the reply. The builtin offline parser calls the same tools directly.
+//! can load an MCP server get Helios' bridge and run their own loop. Everything else — a CLI
+//! with no MCP wiring (Antigravity, Grok) and a local model that turns tools down — writes a
+//! `helios-tools` block instead; Helios runs that block's calls, then feeds their real results
+//! back as the next round's prompt and asks again, round after round just like the native path,
+//! so a CLI stuck on this protocol still gets to see what a generation job or a phase guard
+//! actually answered before deciding what to do next, instead of committing to an entire plan
+//! blind in one shot. The builtin offline parser calls the same tools directly.
 
 use crate::ai_tools::{self, FenceFilter, ToolExecutor};
 use crate::mcp::{McpHub, BRIDGE_FLAG, SERVER_NAME};
@@ -23,7 +27,8 @@ use helios_providers::{
     OpenAiCompatProvider, Provider, ProviderInfo, ProviderKind, ToolCall,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -289,7 +294,16 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     if mode == ToolMode::Native {
         request.tools = ai_tools::specs().to_vec();
     }
-    request.timeout = if row.kind == ProviderKind::Cli { Duration::from_secs(600) } else { Duration::from_secs(600) };
+    // For a CLI, this is a *silence* budget (see `CliProvider`'s doc comment): the vendor is only
+    // judged hung if it produces no output line at all for this long, not if the whole round runs
+    // longer. It used to be the same 600s for every backend, which meant a CLI that thinks quietly
+    // for more than 10 minutes before its first line — plausible for a model composing a large
+    // storyboard or tool-call batch — got killed by Helios itself well inside the CLI's own
+    // 20-minute allowance (`HARD_TIMEOUT`, and e.g. Antigravity's own `--print-timeout 20m`),
+    // which showed up as the turn just stopping partway through for no visible reason. A CLI now
+    // gets the same 20 minutes to stay silent that it is already allowed to run for; other
+    // backends, where this is a real HTTP request timeout, keep the original 600s.
+    request.timeout = if row.kind == ProviderKind::Cli { Duration::from_secs(20 * 60) } else { Duration::from_secs(600) };
     request
 }
 
@@ -518,36 +532,106 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
         self.progress.tool_calls += calls.load(Ordering::Relaxed);
     }
 
-    /// The text protocol: stream with the block hidden, then run the block's calls in order.
-    async fn text(&mut self, provider: &dyn Provider, request: CompletionRequest, executor: &dyn ToolExecutor) {
-        let mut filter = FenceFilter::default();
-        let raw = match self.round(provider, request, Some(&mut filter)).await {
-            Ok((raw, _)) => raw,
-            Err(interrupt) => return self.interrupted(interrupt),
-        };
-        let (_, calls, notes) = ai_tools::extract_calls(&raw);
-        self.progress.notes.extend(notes);
-        let mut failed = Vec::new();
-        for call in &calls {
+    /// The text protocol: stream with the block hidden, run the block's calls in order, then —
+    /// unlike a one-shot fire-and-forget — feed their real results back as the next round's
+    /// prompt and ask again, round after round (capped at `MAX_ROUNDS`, same as `native`).
+    ///
+    /// A CLI stuck on this protocol used to get exactly one blind guess at an entire plan, with
+    /// the fallback prompt itself warning it away from anything needing a real id: "you will not
+    /// see the results before you answer". That made multi-step, gated work (generate a shot,
+    /// learn its real asset id, attach it, generate the next one, eventually call
+    /// finish_gathering) impossible to do correctly in one pass — the model had to guess ids and
+    /// guess whether earlier calls in the same batch even succeeded. Looping here so it sees each
+    /// round's outcomes before choosing the next one is what makes that gated, multi-round
+    /// workflow actually reachable from this protocol.
+    async fn text(&mut self, provider: &dyn Provider, req_request: CompletionRequest, executor: &dyn ToolExecutor) {
+        let mut request = req_request;
+        for _round in 0..MAX_ROUNDS {
+            let mut filter = FenceFilter::default();
+            let raw = match self.round(provider, request.clone(), Some(&mut filter)).await {
+                Ok((raw, _)) => raw,
+                Err(interrupt) => return self.interrupted(interrupt),
+            };
+            let (_, calls, notes) = ai_tools::extract_calls(&raw);
+            self.progress.notes.extend(notes);
+            if calls.is_empty() {
+                // A reply with no more calls is the model's own signal that it is done (or that
+                // it is deliberately stopping to report a blocker) — nothing left to feed back.
+                return;
+            }
+            let mut failed = Vec::new();
+            let mut results: Vec<(String, Value)> = Vec::new();
+            let mut blocked = false;
+            for call in &calls {
+                if self.stopped() {
+                    self.progress.stopped = true;
+                    return;
+                }
+                if blocked {
+                    // Every call from here on in this same reply was planned before the model
+                    // could see the refusal above, so it would fail for the identical reason —
+                    // running it only burns time and turns one clear refusal into a wall of
+                    // repeats. Stop the batch and let the model react to what it already knows.
+                    break;
+                }
+                self.progress.tool_calls += 1;
+                let result = ai_tools::run_call(executor, &call.name, call.args.clone()).await;
+                if !ai_tools::is_ok(&result) {
+                    failed.push(format!("{}: {}", call.name, ai_tools::error_of(&result)));
+                    if ai_tools::is_guard_blocked(&result) {
+                        blocked = true;
+                    }
+                }
+                results.push((call.name.clone(), result));
+            }
+            if !failed.is_empty() {
+                let skipped = calls.len() - results.len();
+                let mut note = format!("{} of {} edits did not apply — {}", failed.len(), calls.len(), failed.join("; "));
+                if skipped > 0 {
+                    let _ = write!(
+                        note,
+                        "; {skipped} more call(s) from the same reply were skipped — they would have failed for the same reason. Read the result below and send a different next step instead of repeating this batch."
+                    );
+                }
+                self.progress.notes.push(note);
+            }
             if self.stopped() {
                 self.progress.stopped = true;
-                break;
+                return;
             }
-            self.progress.tool_calls += 1;
-            let result = ai_tools::run_call(executor, &call.name, call.args.clone()).await;
-            if !ai_tools::is_ok(&result) {
-                failed.push(format!("{}: {}", call.name, ai_tools::error_of(&result)));
-            }
+            request.messages.push(Message::assistant(raw));
+            request.messages.push(Message::user(text_round_feedback(&results)));
         }
-        if !failed.is_empty() {
-            self.progress.notes.push(format!(
-                "{} of {} edits did not apply — {}",
-                failed.len(),
-                calls.len(),
-                failed.join("; ")
-            ));
-        }
+        self.progress.notes.push(format!("Helios AI paused after {MAX_ROUNDS} rounds. Your timeline and storyboard are saved — ask to continue from the next unfinished 5–12s batch and finish with get_comp + verify_edit_workflow."));
     }
+}
+
+/// What a CLI on the text protocol reads back after one round's calls run: its own reply (so it
+/// remembers exactly what it asked for), then each call's real result, with any `images` payload
+/// swapped for a note — this protocol has no inline-vision wiring mid-turn, so forwarding raw
+/// base64 would only bloat the next prompt for a picture the model can never actually see.
+fn text_round_feedback(results: &[(String, Value)]) -> String {
+    let mut out = String::new();
+    out.push_str("\n## What your last reply's calls actually returned\n");
+    out.push_str("Use the ids and values below instead of ones you guessed — do not assume a call succeeded, or that its id/asset matches what you expected, until you see it here.\n");
+    for (name, result) in results {
+        let mut shown = result.clone();
+        if let Some(map) = shown.as_object_mut() {
+            if map.remove("images").is_some() {
+                map.insert("images".to_owned(), json!("omitted — this backend has no inline image viewing mid-turn; use textOnly frame scans instead"));
+            }
+        }
+        let _ = writeln!(out, "- `{name}` → {shown}");
+    }
+    out.push_str(
+        "\nIf a job is still running in the background, do not repeat the same call — move on to \
+         other independent work now and check it again later with generation_job or \
+         import_generated_media once it has had time to finish; it also auto-imports into the \
+         Generated folder on its own. Now continue: if the task is fully done, answer with no \
+         `helios-tools` block. Otherwise reply with only the next `helios-tools` block that makes \
+         sense given the real results above.\n",
+    );
+    out
 }
 
 /// Runs one turn to completion, emitting events through `emit`. `stop` flips to true when the
@@ -777,6 +861,9 @@ mod tests {
                 text("-tools\n[{\"tool\": \"add_sound_effect\", \"args\": {\"kind\": \"whoosh\", \"start\": 2}},"),
                 text(" {\"tool\": \"split_clips\", \"args\": {\"time\": 3}}]\n```"),
             ]),
+            // The text protocol now loops: having seen split_clips actually fail, the model
+            // answers with no more calls, which is what ends the turn.
+            Ok(vec![text("Done — the whoosh landed but there was nothing to cut.")]),
         ]);
         let executor = FakeExecutor::new(|name, _| match name {
             "split_clips" => json!({"ok": false, "error": "nothing under the playhead"}),
@@ -792,13 +879,53 @@ mod tests {
         let events = recorded.lock().expect("events").clone();
 
         assert_eq!(executor.names(), vec!["add_sound_effect", "split_clips"]);
-        assert_eq!(progress.reply.trim(), "Adding a whoosh.");
+        assert_eq!(progress.reply.trim(), "Adding a whoosh.\n\n\n\nDone — the whoosh landed but there was nothing to cut.");
         assert!(!streamed(&events).contains("helios-tools"), "{}", streamed(&events));
         assert!(progress.fault.is_none());
         assert_eq!(progress.notes, vec!["1 of 2 edits did not apply — split_clips: nothing under the playhead"]);
         let seen = provider.seen();
+        assert_eq!(seen.len(), 3, "refusal, first block, then a round that sees the real results");
         assert!(seen[1].tools.is_empty());
         assert!(seen[1].system.contains("```helios-tools"), "the fallback prompt is appended");
+        // The third round is where the fix lives: the model reads back what actually happened —
+        // real results, not a guess — before deciding there is nothing left to do.
+        let third = &seen[2].messages;
+        assert!(third.iter().any(|m| m.content.contains("Adding a whoosh")), "its own last reply comes back too");
+        assert!(third.iter().any(|m| m.content.contains("add_sound_effect") && m.content.contains(r#""ok":true"#)), "{third:?}");
+        assert!(third.iter().any(|m| m.content.contains("split_clips") && m.content.contains("nothing under the playhead")), "{third:?}");
+    }
+
+    /// A workflow-guard refusal (`guardBlocked`) dooms every later call in the same reply to the
+    /// identical answer, so the text-protocol loop stops that batch immediately instead of
+    /// running all of them — this is what used to show up as dozens of repeated failure lines
+    /// from one reply that jumped ahead of a gated production phase.
+    #[tokio::test]
+    async fn a_guard_refusal_stops_the_rest_of_that_replys_batch() {
+        let provider = Scripted::new(vec![
+            Ok(vec![text(
+                "```helios-tools\n[{\"tool\": \"add_tracks\", \"args\": {}}, {\"tool\": \"layout_clip\", \"args\": {}}, {\"tool\": \"place_clip\", \"args\": {}}]\n```",
+            )]),
+            Ok(vec![text("Understood, gathering first.")]),
+        ]);
+        let executor = FakeExecutor::new(|name, _| match name {
+            "add_tracks" => json!({"ok": false, "error": "Gathering phase: no timeline edits until the user presses Start editing.", "guardBlocked": true}),
+            other => panic!("{other} should never run once the guard refused the first call"),
+        });
+        let row = row_of("antigravity", ProviderKind::Cli, true);
+        let req = request("assemble the edit");
+        let (emit, _recorded) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default() };
+        let request0 = build_request(&req, &row, ToolMode::Text);
+        turn.text(&provider, request0, &executor).await;
+        let progress = turn.progress;
+
+        assert_eq!(executor.names(), vec!["add_tracks"], "layout_clip and place_clip never ran");
+        assert_eq!(progress.tool_calls, 1);
+        assert_eq!(
+            progress.notes,
+            vec!["1 of 3 edits did not apply — add_tracks: Gathering phase: no timeline edits until the user presses Start editing.; 2 more call(s) from the same reply were skipped — they would have failed for the same reason. Read the result below and send a different next step instead of repeating this batch."],
+        );
     }
 
     #[tokio::test]

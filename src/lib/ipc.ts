@@ -380,6 +380,7 @@ export const api = {
   localMediaGenerate: (request: Record<string, unknown>) => invoke<string>('local_media_generate', { request }),
   localMediaInstall: (task: string, hfToken?: string) => invoke<string>('local_media_install', hfToken ? { task, hf_token: hfToken } : { task }),
   jobCancel: (id: string) => invoke<boolean>('job_cancel', { id }),
+  jobDelete: (id: string) => invoke<boolean>('job_delete', { id }),
 
   /** Scene Edit Detection: the cut times inside a piece of media. */
   detectScenes: (assetId: string, start: number, end: number, sensitivity: number) => invoke<number[]>('detect_scenes', { assetId, start, end, sensitivity }),

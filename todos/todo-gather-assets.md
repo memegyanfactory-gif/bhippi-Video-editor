@@ -1,0 +1,11 @@
+# Todo: Gather production assets for Crimson community intro
+- [x] Verify production workflow status
+- [x] Check local media capabilities
+- [x] Generate B-roll video for Scene 1: Crimson ON AIR light
+- [x] Generate motion element for Scene 3: Rising light graph on chroma green
+- [x] Generate B-roll video for Scene 6: Creators collaborating at laptops
+- [x] Generate motion element for Scene 7: Connected node network on chroma green
+- [x] Generate 3D cutout image for Scene 8: Crimson repo folder
+- [x] Generate 3D cutout image for Scene 9: Crimson notification bell
+- [x] Generate comp background music bed
+- [x] Close gathering phase with finish_gathering

@@ -50,6 +50,34 @@ describe('enforced editorial pipeline', () => {
     expect(quick.before('generate_local_media', { task: 'video', prompt: 'test' }, f.project)).toBeNull();
     expect(quick.before('import_generated_media', { jobId: 'job-1' }, f.project)).toBeNull();
   });
+  it('does not demand a transcript for the production music bed, only for actual dialogue clips', () => {
+    const project = newProject(), comp = project.comps[0]; comp.fps = 3;
+    const dialogueClip = newClip({ trackId: tracksOf(comp, 'video')[0].id, start: 0, duration: 2, source: { type: 'media', assetId: 'dialogue' } });
+    const musicClip = newClip({ trackId: tracksOf(comp, 'audio')[0].id, start: 0, duration: 2, source: { type: 'media', assetId: 'music' } });
+    comp.clips = [dialogueClip, musicClip];
+    comp.production = { phase: 'editing', mode: 'scratch', gates: {}, updatedAt: Date.now(), music: { source: 'download', assetId: 'music', status: 'ready' } };
+    const assets = new Map([
+      ['dialogue', { id: 'dialogue', kind: 'video', hasAudio: true } as Asset],
+      ['music', { id: 'music', kind: 'audio', hasAudio: true } as Asset],
+    ]);
+    const flow = new EditWorkflow(project, assets);
+    const pending = flow.status(project).transcriptPending;
+    expect(pending).toContain(dialogueClip.id);
+    expect(pending).not.toContain(musicClip.id);
+  });
+  it('refuses local image/video generation when the setting is off, in both full and quick mode, but leaves audio alone', () => {
+    const f = fixture();
+    const assets = new Map([['source', { id: 'source', kind: 'video', hasAudio: true } as Asset]]);
+    const disabled = new EditWorkflow(f.project, assets, 'full', true);
+    const disabledQuick = new EditWorkflow(f.project, assets, 'quick', true);
+    for (const task of ['image', 'image-edit', 'image-inpaint', 'video']) {
+      expect(disabled.before('generate_local_media', { task, prompt: 'test' }, f.project)).toContain('turned off');
+      expect(disabledQuick.before('generate_local_media', { task, prompt: 'test' }, f.project)).toContain('turned off');
+    }
+    expect(disabledQuick.before('generate_local_media', { task: 'audio', prompt: 'music' }, f.project)).toBeNull();
+    const enabledQuick = new EditWorkflow(f.project, assets, 'quick', false);
+    expect(enabledQuick.before('generate_local_media', { task: 'video', prompt: 'test' }, f.project)).toBeNull();
+  });
   it('tells the model the exact scan call without a JSON blob', () => {
     const f = fixture(); f.read(); f.speech();
     const blocked = f.flow.before('save_storyboard', {}, f.project);

@@ -3727,7 +3727,7 @@
     },
     {
       "name": "create_motion_graphic",
-      "description": "Creates a Crimson motion graphic (HTML/CSS choreography) as a nested MOGRT comp on the track above the footage. It animates in the preview AND exports as rendered frames with alpha. Templates — hook-promise (opening promise), ribbon-title (chapter), teaching-card (kicker + heading + rows), side-panel (rules beside a reframed presenter; then layout_clip the footage to the other side), connected-map (hub + nodes), numbered-lanes (roadmap with giant numerals), editorial-quote (one accent word), comparison (A/B), stat-chart (animated bars + counting numbers, pass values), timeline-roadmap, cursor-demo (node → interface → click → card), chapter-marker (corner label), caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news; legacy lower-third/kinetic-title/stat-callout/feature-badge/social-callout; custom (your own html/css/js). Rows are 'Heading — explanation'. One idea per graphic; give it a reading hold (durations default to the template's).",
+      "description": "Creates a motion graphic as a nested MOGRT comp on the track above the footage. It animates in the preview AND exports as rendered frames with alpha. Two systems: (1) CRIMSON templates (information design, the house style) — hook-promise (opening promise), ribbon-title (chapter), teaching-card (kicker + heading + rows), side-panel (rules beside a reframed presenter; then layout_clip the footage to the other side), connected-map (hub + nodes), numbered-lanes (roadmap with giant numerals), editorial-quote (one accent word), comparison (A/B), stat-chart (animated bars + counting numbers, pass values), timeline-roadmap, cursor-demo (node → interface → click → card), chapter-marker (corner label), caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news. (2) REACT BITS — template \"react-bits\" with `bit` = one of 205 pieces (32 text animations, 38 animations, 45 components, 33 micro-interactions, 57 backgrounds; browse with react_bits list/describe) and `props`; or compose with `background` (a background bit) + `layers` [{bit, props, layout, at, until}]. Pieces default to the Crimson theme; `theme` (crimson | dark | light | mono | ember) and accentColor retint. Legacy: lower-third/kinetic-title/stat-callout/feature-badge/social-callout; custom (your own html/css/js). Rows are 'Heading — explanation'. One idea per graphic; give it a reading hold (durations default to the template's or the bit's).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -3751,6 +3751,7 @@
               "cubes-reveal",
               "countdown",
               "breaking-news",
+              "react-bits",
               "lower-third",
               "kinetic-title",
               "stat-callout",
@@ -3758,7 +3759,7 @@
               "social-callout",
               "custom"
             ],
-            "description": "The template id (Crimson set first)."
+            "description": "The template id: a Crimson template, \"react-bits\" (then set `bit` or `layers`), a legacy id, or \"custom\"."
           },
           "title": {
             "type": "string",
@@ -3770,7 +3771,7 @@
           },
           "accentColor": {
             "type": "string",
-            "description": "Hex accent color for glows, borders, and gradient highlights (e.g. '#38bdf8', '#ec4899', '#10b981')."
+            "description": "Hex accent colour. Retints Crimson and React Bits pieces; defaults to the theme accent (Crimson red)."
           },
           "metric": {
             "type": "string",
@@ -3861,12 +3862,586 @@
               "travel"
             ],
             "description": "One motivated camera move inside the graphic; never while the viewer reads."
+          },
+          "bit": {
+            "type": "string",
+            "description": "React Bits piece id when template is \"react-bits\" (e.g. split-text, decrypted-text, count-up, magic-bento, dock, squish-switch, aurora). react_bits {\"action\":\"describe\",\"id\":…} shows its props."
+          },
+          "props": {
+            "type": "object",
+            "description": "Props for the React Bits piece (text, rows, size, align, accent, speed, value, …) as react_bits describe lists them.",
+            "additionalProperties": true
+          },
+          "background": {
+            "type": "string",
+            "description": "A React Bits background id layered under the graphic (aurora, plasma, dot-grid, hyperspeed, …). Backgrounds animate in preview and export."
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "bit": {
+                  "type": "string"
+                },
+                "props": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "layout": {
+                  "type": "string",
+                  "enum": [
+                    "fullscreen",
+                    "side-panel-right",
+                    "side-panel-left",
+                    "lower-third",
+                    "behind-subject",
+                    "pip-footage",
+                    "top-right",
+                    "top-left",
+                    "centre-card"
+                  ]
+                },
+                "at": {
+                  "type": "number",
+                  "description": "Seconds into the clip when this layer enters."
+                },
+                "until": {
+                  "type": "number",
+                  "description": "Seconds into the clip when this layer exits (default: clip end)."
+                }
+              },
+              "required": [
+                "bit"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Compose several React Bits pieces in one graphic, each with its own slot and timing."
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "brand",
+              "crimson",
+              "dark",
+              "light",
+              "mono",
+              "ember"
+            ],
+            "description": "Colour theme for React Bits pieces. Default: the active brand kit's theme when one is set, else crimson (the house style)."
+          },
+          "useBrand": {
+            "type": "boolean",
+            "description": "Apply the active brand kit's colours and type (default true when a kit is active). false keeps the template's own look."
           }
         },
         "required": [
           "title"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "react_bits",
+      "description": "Browse the animated UI library rebuilt for video: React Bits (reactbits.dev, 205 pieces - text animations, animations, components, micro-interactions, backgrounds) plus Animate.css (97 entrance/exit/attention animations, ids ac-*), Open Props (23 animations + 30 gradient backgrounds + a shadow demo, ids op-*), Magic UI (ids mu-*), Aceternity UI (ids ace-*) and Uiverse elements (ids uv-*) - every piece deterministic and exportable. action \"list\" (filter by category text|animation|component|micro|background, level basic|intermediate|advanced, source react-bits|animate-css|open-props|magic-ui|aceternity|uiverse, or query words) returns id, level and when to use; \"describe\" with id returns props with defaults, how it renders for video, and a ready-to-copy create_motion_graphic call; \"search\" is list with a query. Read-only, allowed in every phase. Place a piece with create_motion_graphic {\"template\":\"react-bits\",\"bit\":id,\"props\":{...}} or compose background + layers; the active brand kit themes them automatically.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "describe",
+              "search"
+            ],
+            "description": "What to do (default list; describe when id is given)."
+          },
+          "id": {
+            "type": "string",
+            "description": "Piece id for describe (split-text, magic-bento, aurora, …); rb-* shortcut ids and display names also resolve."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "text",
+              "animation",
+              "component",
+              "micro",
+              "background"
+            ],
+            "description": "Filter for list."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "basic",
+              "intermediate",
+              "advanced"
+            ],
+            "description": "Filter for list."
+          },
+          "query": {
+            "type": "string",
+            "description": "Words to match against names, descriptions, uses and tags (e.g. \"cursor button\", \"stat number\", \"retro\")."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "react-bits",
+              "animate-css",
+              "open-props",
+              "magic-ui",
+              "aceternity",
+              "uiverse"
+            ],
+            "description": "Filter by the web library the piece was rebuilt from."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_brand_kits",
+      "description": "Lists the user's brand kits (Settings -> Brand kit): id, name, style, whether it is the user default and whether this project points at it, with a one-line summary each. Read-only, any phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_brand_kit",
+      "description": "Returns a brand kit - the project's active kit when no id is given - as a whole or one section (identity, logos, colors, typography, voice, motion, imagery, layout, audio, social, assets, notes). Read this before designing when a kit is active. Read-only, any phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "identity",
+              "logos",
+              "colors",
+              "typography",
+              "voice",
+              "motion",
+              "imagery",
+              "layout",
+              "audio",
+              "social",
+              "assets",
+              "notes"
+            ],
+            "description": "One section of the kit."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_brand_archetypes",
+      "description": "The starting styles a kit can be built from: the house look (crimson-house), 16 style archetypes (minimal-mono, bold-startup, playful-pastel, luxury-serif, tech-gradient, editorial-magazine, retro-print, organic-earth, corporate-trust, cinematic-dark, neon-cyber, warm-craft, fintech-navy, sport-energy, wellness-calm, kids-bright), 16 reference kits rebuilt from public brand boards (ref-luban, ref-capway, ref-unlok, ref-hurst, ref-realest, ref-bridze, ref-fisgo, ref-senda, ref-fastep, ref-tracko, ref-regrow, ref-lunchlane, ref-fewtech, ref-kozymart, ref-wodex, ref-sherly-moore) and the 35 DaisyUI colour themes (light, dark, cupcake, synthwave, retro, cyberpunk, luxury, dracula, nord, sunset, ...). Read-only, any phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "enum": [
+              "house",
+              "archetype",
+              "reference",
+              "daisy"
+            ],
+            "description": "Filter by group."
+          },
+          "query": {
+            "type": "string",
+            "description": "Words to match against names, character and industries."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_brand_kit",
+      "description": "Creates a complete brand kit from an archetype (and optionally a DaisyUI colour theme) plus the details given, saves it to Settings and by default makes it this project's kit. Give everything you know: brand name, tagline, description, industry, audience, values, real colours (primary/accent/background), display and body font (system-safe families only: Inter, Segoe UI, Arial, Helvetica, Arial Black, Impact, Trebuchet MS, Verdana, Georgia, Cambria, Palatino Linotype, Garamond, Times New Roman, Consolas), logo SVG markup, and voice/motion/imagery/layout/audio/social sections as objects. Unset fields come from the archetype.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "style": {
+            "type": "string",
+            "description": "Archetype id/name/word (see list_brand_archetypes). Default: the house look."
+          },
+          "daisyTheme": {
+            "type": "string",
+            "description": "A DaisyUI theme id whose semantic colours replace the archetype's (light, dark, cupcake, synthwave, luxury, nord, ...)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Kit name (defaults to the brand name)."
+          },
+          "brandName": {
+            "type": "string",
+            "description": "The brand's name."
+          },
+          "tagline": {
+            "type": "string",
+            "description": "Tagline."
+          },
+          "description": {
+            "type": "string",
+            "description": "One paragraph on the brand."
+          },
+          "industry": {
+            "type": "string",
+            "description": "Industry."
+          },
+          "audience": {
+            "type": "string",
+            "description": "Who it speaks to."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Brand values."
+          },
+          "primary": {
+            "type": "string",
+            "description": "#RRGGBB"
+          },
+          "accent": {
+            "type": "string",
+            "description": "#RRGGBB"
+          },
+          "accent2": {
+            "type": "string",
+            "description": "#RRGGBB"
+          },
+          "background": {
+            "type": "string",
+            "description": "#RRGGBB"
+          },
+          "surface": {
+            "type": "string",
+            "description": "#RRGGBB"
+          },
+          "text": {
+            "type": "string",
+            "description": "#RRGGBB"
+          },
+          "displayFont": {
+            "type": "string",
+            "description": "Display family (system-safe)."
+          },
+          "bodyFont": {
+            "type": "string",
+            "description": "Body family (system-safe)."
+          },
+          "logoSvg": {
+            "type": "string",
+            "description": "Inline <svg>...</svg> markup for the primary logo."
+          },
+          "voice": {
+            "type": "object",
+            "description": "Voice fields: tone[], personality[], use[], avoid[], samples[], language, captionRules[].",
+            "additionalProperties": true
+          },
+          "motion": {
+            "type": "object",
+            "description": "Motion fields: easing, enter, exit, hold, stagger, intensity (calm|balanced|energetic), transitions[], principles[], preferredBits[], preferredTemplates[].",
+            "additionalProperties": true
+          },
+          "imagery": {
+            "type": "object",
+            "description": "Imagery fields: style, photography[], illustration, iconography, grade{saturation,contrast,warmth}, promptPrefix, promptSuffix, negativePrompt, keywords[], avoid[].",
+            "additionalProperties": true
+          },
+          "layout": {
+            "type": "object",
+            "description": "Layout fields: safeMargin, grid, logoBug, lowerThird, captions, radius, aspects[], rules[].",
+            "additionalProperties": true
+          },
+          "audio": {
+            "type": "object",
+            "description": "Audio fields: music, tempo[2], sfx[], voice (TTS voice id), voiceMode, rules[].",
+            "additionalProperties": true
+          },
+          "social": {
+            "type": "object",
+            "description": "Social fields: platforms[], intro, outro, endCard[], hashtags[], rules[].",
+            "additionalProperties": true
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free notes."
+          },
+          "activate": {
+            "type": "boolean",
+            "description": "Make it this project's kit (default true)."
+          },
+          "asDefault": {
+            "type": "boolean",
+            "description": "Also make it the user default for new projects (default false)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_brand_kit",
+      "description": "Merges a patch into one section of a brand kit (or 'all') and saves it. Colour token changes keep the quick palette in step; typography changes keep the fonts in step. Returns the updated section.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "identity",
+              "logos",
+              "colors",
+              "typography",
+              "voice",
+              "motion",
+              "imagery",
+              "layout",
+              "audio",
+              "social",
+              "assets",
+              "notes",
+              "all"
+            ]
+          },
+          "patch": {
+            "type": "object",
+            "description": "Fields to merge (objects merge deeply, arrays replace).",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "section",
+          "patch"
+        ]
+      }
+    },
+    {
+      "name": "delete_brand_kit",
+      "description": "Deletes a brand kit from Settings; projects pointing at it fall back to the user default.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "set_active_brand_kit",
+      "description": "Points this project (and/or the user default) at a brand kit, or clears it with id null.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Kit id or name; null clears."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "project",
+              "default",
+              "both"
+            ],
+            "description": "Default project."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "apply_brand_kit",
+      "description": "Makes a kit the project's look now: sets the project pointer and, with restyle, retints every existing motion graphic (Crimson and React Bits roots) to the kit's colours and type and recolours text clips to the kit's text colour. EDIT/POLISH phase (it changes clips).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          },
+          "restyle": {
+            "type": "boolean",
+            "description": "Retint existing graphics and text clips (default true)."
+          },
+          "compId": {
+            "type": "string",
+            "description": "Target comp (default active)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "brand_kit_prompt",
+      "description": "The active (or named) kit's imagery rules for generation: prompt prefix, suffix, negative prompt and grade; with a prompt given, returns the branded prompt ready for generate_local_media. Read-only, any phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video"
+            ],
+            "description": "Default image."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "A prompt to brand."
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "An existing negative prompt to extend."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "render_brand_board",
+      "description": "Places the kit's brand board - logo, name, palette swatches with hex, type specimens, gradient, lower-third mock, voice sample and motion sample - as a motion graphic on the timeline (exports as rendered frames). Use it to show a kit you just made. EDIT phase or Quick edit.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds (default playhead)."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Seconds (default 6)."
+          },
+          "track": {
+            "type": "string",
+            "description": "Track id (default the track above footage)."
+          },
+          "compId": {
+            "type": "string",
+            "description": "Target comp."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "import_brand_logo",
+      "description": "Imports a logo file into the project library's Brand folder, embeds it for export (SVG stays vector; raster logos become data URLs) and attaches it to the kit with its role, clear space and placement.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute path to the logo file (svg, png, webp, jpg)."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "mark",
+              "wordmark",
+              "monochrome",
+              "inverse",
+              "icon"
+            ],
+            "description": "Default primary."
+          },
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          },
+          "placement": {
+            "type": "string",
+            "enum": [
+              "top-left",
+              "top-right",
+              "bottom-left",
+              "bottom-right",
+              "center"
+            ]
+          },
+          "clearSpace": {
+            "type": "number",
+            "description": "Multiples of the mark height kept clear (default 1)."
+          },
+          "minSize": {
+            "type": "number",
+            "description": "Minimum height in px at 1080p (default 64)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "export_brand_kit",
+      "description": "Returns a kit as JSON text (for the user to save or move to another machine) - write it to a file with write_file if asked. Read-only, any phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "import_brand_kit",
+      "description": "Creates a kit from exported JSON text (validated; unknown fields ignored) and saves it.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "json": {
+            "type": "string",
+            "description": "The exported kit JSON."
+          },
+          "activate": {
+            "type": "boolean",
+            "description": "Point this project at it (default true)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "json"
+        ]
       }
     },
     {

@@ -2087,6 +2087,15 @@ fn job_cancel(state: State<'_, Arc<AppState>>, id: String) -> bool {
     state.jobs.cancel(&id)
 }
 
+#[tauri::command]
+fn job_delete(state: State<'_, Arc<AppState>>, id: String) -> bool {
+    let folder = state.paths.root.join("generated").join(&id);
+    if folder.is_dir() {
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+    state.jobs.delete(&id)
+}
+
 // ───────────────────────────── providers ─────────────────────────────
 
 fn keychain_keys() -> ApiKeys {
@@ -2655,6 +2664,7 @@ pub fn run() {
             caption_styles,
             jobs_list,
             job_cancel,
+            job_delete,
             providers_list,
             providers_refresh,
             provider_set_enabled,

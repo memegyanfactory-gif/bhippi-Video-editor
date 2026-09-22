@@ -266,7 +266,7 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
               return (
                 <div
                   key={entry.id}
-                  className={`tile${selection.includes(entry.id) ? ' picked' : ''}${entry.type === 'media' && entry.offline ? ' missing' : ''}`}
+                  className={`tile${entry.type === 'folder' ? ' folder' : ''}${selection.includes(entry.id) ? ' picked' : ''}${entry.type === 'media' && entry.offline ? ' missing' : ''}`}
                   onPointerDown={(event) => {
                     pick(entry, event);
                     if (event.button === 0 && payload) onDragStart(payload, event);
@@ -433,8 +433,25 @@ function thumbMissing(entry: BinEntry): boolean {
   return (entry.asset.kind === 'video' || entry.asset.kind === 'image') && !entry.asset.thumbnail;
 }
 
+/**
+ * A folder tile with actual depth: a back shell with its tab, two papers tucked inside, and a
+ * front pocket that covers them at rest. `.tile:hover`/`.tile.picked` (app.css) tip the front
+ * pocket open and let the papers slide up past it — CSS transforms only, so it costs nothing
+ * extra to keep dozens of these on screen in a busy bin.
+ */
+function Folder3D() {
+  return (
+    <div className="folder3d" aria-hidden="true">
+      <span className="folder3d-back" />
+      <span className="folder3d-paper p2" />
+      <span className="folder3d-paper p1" />
+      <span className="folder3d-front" />
+    </div>
+  );
+}
+
 export function EntryThumb({ entry, poster, onPoster }: { entry: BinEntry; poster?: string; onPoster?: () => void }) {
-  if (entry.type === 'folder') return <Folder size={26} className="tile-placeholder" />;
+  if (entry.type === 'folder') return <Folder3D />;
   if (entry.type === 'comp') {
     return (
       <div className="tile-comp">

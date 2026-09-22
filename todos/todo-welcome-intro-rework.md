@@ -1,0 +1,12 @@
+# Todo: Rework the 0–7.2 s intro — big layered WELCOME, clean-plate start, cube reveal, zoom-out onto red
+- [x] Check phase, read timeline and the local models (eraser)
+- [x] Look at the intro frames (framing, where the face sits)
+- [ ] BLOCKED: edit guard demands a transcript of the music clip; transcription is not set up on this machine
+- [ ] Clean plate: erase the presenter from the background layer (install eraser if missing)
+- [ ] Cube reveal: presenter cut-out appears through a crimson cube grid
+- [ ] Big WELCOME behind the presenter (hero size, fully visible), plus a front text line
+- [ ] Animate the text layers (weighted ease-out, overshoot, holds)
+- [ ] Zoom-out move with a crimson/red background filling behind the shrinking frame
+- [ ] Sound: whoosh/impact on the reveal and zoom
+- [ ] run_frame_qa on 0–7.2 s until clear, look at the frames
+- [ ] get_comp + verify_edit_workflow

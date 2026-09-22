@@ -1,0 +1,11 @@
+# Todo: Plan a pro rebuild of the "what I do" channel intro in 5–12 s batches (PLAN phase)
+- [x] Read workflow status + local model capabilities (generation is OFF in settings — flag it)
+- [x] get_comp: read the current timeline
+- [x] Transcript: analyze_clip_speech on the source (word timestamps)
+- [x] See the video fast: one ffmpeg contact sheet of the whole source (replaces slow per-frame image scans)
+- [x] Text-only frame scans for every clip (clears the frame gate, parallel)
+- [x] Understand the talk: hook / claims / turns / payoff, gaps and weak takes to cut or reorder
+- [x] Write the batch plan (10 batches, 5–12 s each): cut, framing, roto/depth, behind-subject text/PNG, green-screen shots, graphic + copy, transition, sfx, music
+- [ ] save_storyboard with the batch plan — BLOCKED: gate wants the music bed transcribed; no transcriber configured
+- [ ] Re-run save_storyboard once transcription is set up (plan text is ready)
+- [ ] End turn with the plan summary; user enables local generation and presses Start generating

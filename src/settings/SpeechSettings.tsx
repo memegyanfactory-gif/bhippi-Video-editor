@@ -6,6 +6,7 @@
 // wherever the user already keeps it.
 import { HardwareSummary } from './HardwareSummary';
 import { LocalMediaSettings } from './LocalMediaSettings';
+import { DownloadProgress } from './DownloadProgress';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
   Check, CloudOff, Download, FolderOpen, Languages, LoaderCircle, Mic, Play, Trash2, TriangleAlert, Volume2,
@@ -177,6 +178,12 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
   const sttReady = (status?.whisper.found ?? false) && sttModels.some((model) => model.installed);
   const hindiVoices = voices.filter((voice) => voice.languages.includes('hi'));
 
+  // Every model/runtime row below draws its own download progress. A running job whose label
+  // matches none of them — stale, or from a model this build no longer lists — would otherwise
+  // vanish silently instead of showing the user their download is still going.
+  const knownLabels = new Set([...models.map((model) => model.label), whisperRuntime?.label, piperRuntime?.label].filter((label): label is string => !!label));
+  const otherJobs = jobs.filter((job) => job.kind === 'model' && job.status === 'running' && !knownLabels.has(job.label.replace(/^Downloading /, '')));
+
   return (
     <div className="speech-settings">
       <div className="settings-intro">
@@ -195,7 +202,22 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
         )}
       </div>
 
-      {jobs.filter(job=>job.kind==='model'&&job.status==='running').map(job=><div key={job.id}><span>{job.label} · {Math.round(job.progress*100)}%</span><button className="btn" onClick={()=>void api.jobCancel(job.id)}>Cancel download</button></div>)}
+      {otherJobs.length > 0 && (
+        <section className="provider-group">
+          {otherJobs.map((job) => (
+            <div key={job.id} className="provider-row model-row">
+              <div className="model-icon"><Download size={16} /></div>
+              <div className="provider-main">
+                <div className="provider-title"><strong>{job.label}</strong></div>
+                <DownloadProgress job={job} />
+              </div>
+              <div className="provider-actions">
+                <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.jobCancel(job.id)}>Cancel</button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       <HardwareSummary />
       <section className="provider-group"><h4>Matting and roto</h4><p className="group-blurb">Robust Video Matting remains the working fallback. Segmentation masks are never treated as production alpha automatically: candidates require trimap refinement, edge review, color-management checks and a benchmark on your footage.</p>{models.filter(model=>model.kind==='matte').map(model=><ModelRow key={model.id} model={model} job={downloading[model.label]} busy={busy===model.id} onDownload={()=>void download(model)} onRemove={()=>void remove(model)}/>)}</section>
       <LocalMediaSettings settings={settings} onSettings={onSettings} rotoOnly />
@@ -441,7 +463,7 @@ function RuntimeCard(props: {
       <div>
         <strong>{props.found ? `${props.model.label} ready` : `${props.model.label} not installed`}</strong>
         <span>{props.found ? `${props.path} — ${where}` : props.model.detail}</span>
-        {props.job && <Progress job={props.job} />}
+        {props.job && <DownloadProgress job={props.job} />}
         {!props.found && !props.model.downloadable && (
           <span className="warn">There is no prebuilt build for this platform. Install it yourself, then press Locate.</span>
         )}
@@ -485,7 +507,7 @@ function ModelRow(props: {
           {model.languages.map((language) => <span key={language} className="lang-tag">{LANGUAGE_LABEL[language] ?? language}</span>)}
           <span>{model.license}</span>
         </div>
-        {props.job && <Progress job={props.job} />}
+        {props.job && <DownloadProgress job={props.job} />}
       </div>
       <div className="provider-actions">
         {model.installed ? (
@@ -498,15 +520,6 @@ function ModelRow(props: {
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-function Progress({ job }: { job: { progress: number; message: string } }) {
-  return (
-    <div className="model-progress">
-      <div className="model-bar"><i style={{ width: `${Math.round(job.progress * 100)}%` }} /></div>
-      <span className="muted small">{job.message}</span>
     </div>
   );
 }

@@ -13,6 +13,9 @@ import { adaptRhythmProgram } from './learning';
 import { storyboardContentError, videoBlueprintContentError, type StoryboardSceneInput, type VideoBlueprintSceneInput } from './editWorkflow';
 import { createMotionGraphicComp, mogrtCanvas } from './motionGraphics';
 import { CRIMSON_GUIDELINE_NOTES, CRIMSON_PALETTE, templateCatalogue, templateSpec, type MogrtLayout } from './motionGuide';
+import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, type ReactBitsLayer } from './rbx';
+import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
+import { brandKitTheme, brandedPrompt } from './brandKit';
 import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, textBox, type QaIssue, type QaLayer } from './production';
 import { detectBeats, snapTimesToBeats } from './beats';
 import { loadPeaks } from './peaks';
@@ -40,7 +43,7 @@ import {
   newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
-import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
+import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
 
 export type ToolSpec = { name: string; description: string; input_schema: unknown };
 export const TOOL_SPECS: ToolSpec[] = catalog.tools as ToolSpec[];
@@ -57,6 +60,9 @@ export type ToolHost = {
   ask: (question: { question: string; options: string[]; context: string | null }) => Promise<string>;
   /** Sets the active project reference guideline. */
   setReference?: (id: string | null) => void;
+  /** The current app settings (brand kits live there) and how to persist a change to them. */
+  settings?: () => Settings;
+  saveSettings?: (next: Settings) => Promise<Settings>;
   turnId?: string;
 };
 
@@ -366,7 +372,10 @@ function parseProduction(args: Args, mode: Production['mode'], existing: Product
   }
   if (typeof args.guideline === 'string' && args.guideline.trim()) fields.guideline = args.guideline.trim().slice(0, 80);
   if (typeof args.todoPath === 'string' && args.todoPath.trim()) fields.todoPath = args.todoPath.trim().slice(0, 200);
-  if (existing && existing.phase !== 'planning') {
+  // A `done` production is a finished pipeline, not one still being planned — merging onto it
+  // would keep it stuck showing the old run's gates forever. Saving a plan after that means a
+  // new task, so it starts a fresh production instead of reopening the old one.
+  if (existing && existing.phase !== 'planning' && existing.phase !== 'done') {
     return { ...existing, ...fields, mode, music: fields.music ?? existing.music, updatedAt: Date.now() };
   }
   return newProduction(mode, fields);
@@ -453,6 +462,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  // Brand kits: read in any phase, written through the host's settings callbacks.
+  if (BRAND_KIT_TOOLS.has(name)) {
+    return runBrandKitTool(host, name, args, { project, comp: pickComp(project, args) ?? null, commit, folderFor: (folder) => findOrCreateFolder(project, commit, folder) });
   }
 
   switch (name) {
@@ -992,7 +1006,8 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
         const mode = (requestedMode && requestedMode !== 'auto') ? requestedMode : (settingsMode !== 'auto' ? settingsMode : 'natural');
 
         const status = await api.speechStatus();
-        let voice = requestedVoice || settingsVoice;
+        // Precedence: the tool argument, then the active brand kit's voice, then Settings, then the first installed voice.
+        let voice = requestedVoice || activeBrandKit(host, project)?.audio.voice || settingsVoice;
 
         if (!status?.piper?.found) {
           try {
@@ -1462,12 +1477,29 @@ ${templateCatalogue()}`;
         return fail(errorText(error));
       }
     }
-    case 'local_media_capabilities':
-      return done('Configured direct model adapters; configured does not mean verified.', { capabilities: await api.localMediaStatus() });
+    case 'local_media_capabilities': {
+      const capabilities = await api.localMediaStatus();
+      const disableLocalGeneration = await api.settingsGet().then((s) => s.disableLocalGeneration ?? true).catch(() => true);
+      return done(
+        disableLocalGeneration
+          ? 'Configured direct model adapters; configured does not mean verified. Local image/video generation is turned OFF in Settings (Local Media) — plan every shot as either real footage to find online (online_research / download_online_media / scrape_videos) or, for a topic with nothing real to find, an animated explainer built with create_motion_graphic. Local audio generation (music) is unaffected.'
+          : 'Configured direct model adapters; configured does not mean verified.',
+        { capabilities, disableLocalGeneration },
+      );
+    }
     case 'install_local_model':
       try { return done('Model download started. It continues as a background job; generation requires successful installation.', { jobId: await api.localMediaInstall(str(args, 'task') ?? '') }); }
       catch (error) { return fail(errorText(error)); }
     case 'generate_local_media':
+      {
+        // The active brand kit's imagery rules frame every generation prompt (image, edit, inpaint, video).
+        const brandForGen = activeBrandKit(host, project);
+        if (brandForGen && typeof args.prompt === 'string' && args.prompt.trim()) {
+          const branded = brandedPrompt(brandForGen, args.prompt, typeof args.negative_prompt === 'string' ? args.negative_prompt : undefined, args.task === 'video' ? 'video' : 'image');
+          args.prompt = branded.prompt;
+          args.negative_prompt = branded.negative;
+        }
+      }
       try {
         if (args.task === 'video') {
           // Strictly enforce maximum 5.0 seconds duration (at 16 fps, max 81 frames)
@@ -1496,10 +1528,10 @@ ${templateCatalogue()}`;
           }
         }
         const jobId = await api.localMediaGenerate(args);
-        // Unless wait is explicitly false, wait up to 360s for video generation, 90s for images/audio, and auto-import
+        // Unless wait is explicitly false, wait up to 1800s (30m) for video generation, 300s for images/audio, and auto-import
         if (bool(args, 'wait') !== false) {
-          const defaultTimeout = args.task === 'video' ? 360000 : 90000;
-          const timeout = typeof args.timeout === 'number' ? Math.min(args.timeout, 600000) : defaultTimeout;
+          const defaultTimeout = args.task === 'video' ? 1800000 : 300000;
+          const timeout = typeof args.timeout === 'number' ? Math.max(args.timeout, defaultTimeout) : defaultTimeout;
           const start = Date.now();
           while (Date.now() - start < timeout) {
             await new Promise(resolve => setTimeout(resolve, 800));
@@ -1512,7 +1544,7 @@ ${templateCatalogue()}`;
                   const imported = await host.importMedia([res.path], generatedFolderId(project, commit));
                   if (imported.length > 0) {
                     const asset = imported[0];
-                    return done(`Generated and imported local media "${asset.name}" (asset ID: ${asset.id}). Ready to place on timeline or attach to storyboard scene refs.`, {
+                    return done(`Generated and imported local media "${asset.name}" (asset ID: ${asset.id}) into the Generated folder. Ready to place on timeline or attach to storyboard scene refs.`, {
                       jobId,
                       assetId: asset.id,
                       assets: imported,
@@ -1527,7 +1559,7 @@ ${templateCatalogue()}`;
             }
           }
         }
-        return done('Generation started. Poll generation_job; import only after it finishes.', { jobId });
+        return done(`Generation in progress as background job ${jobId}. It will be automatically imported into the "Generated" folder in the project area as soon as it finishes.`, { jobId });
       } catch (error) { return fail(errorText(error)); }
     case 'generation_job': {
       const job = (await api.jobsList()).find(entry => entry.id === str(args, 'jobId'));
@@ -2168,7 +2200,8 @@ ${templateCatalogue()}`;
       const preset = (['title', 'kinetic', 'lower-third', 'caption'] as const).find((item) => item === str(args, 'preset')) ?? 'title';
       const start = Math.max(0, num(args, 'start') ?? playhead.get());
       const duration = clamp(num(args, 'duration') ?? (preset === 'caption' ? 2.5 : 3), 0.1, 3600);
-      const source = textSource(preset, { text, subtitle: str(args, 'subtitle'), color: str(args, 'color'), style: str(args, 'style') ?? project.captionStyle, vertical: bool(args, 'vertical') });
+      const brandForText = activeBrandKit(host, project);
+      const source = textSource(preset, { text, subtitle: str(args, 'subtitle'), color: str(args, 'color') ?? (brandForText ? brandKitTheme(brandForText).fg : undefined), style: str(args, 'style') ?? project.captionStyle, vertical: bool(args, 'vertical') });
       const target = trackFor(comp, str(args, 'track'), 'video') ?? aboveTrack(comp, start, start + duration);
       const clip = newClip({ trackId: target.track.id, start, duration, source });
       const x = num(args, 'x');
@@ -2987,13 +3020,50 @@ ${templateCatalogue()}`;
       return done(`${style} reveal on ${clip.name ?? clip.id} at ${timecode(clip.start + at, fps(comp))}: the subject fades and settles in over ${seconds}s${overlayId ? ' while a grid of tiles falls away top to bottom above it' : ''}. Both parts export (opacity/scale keyframes + rendered tiles).`, { clipId: clip.id, overlayClipId: overlayId, seconds });
     }
 
+    case 'react_bits': {
+      const id = str(args, 'id');
+      const action = str(args, 'action') || (id ? 'describe' : 'list');
+      if (action === 'describe') {
+        const bit = findBit(id);
+        if (!bit) return fail(`No React Bits piece called "${id ?? ''}". Browse with react_bits {"action":"list","category":"text"} or {"action":"search","query":"…"}.`);
+        return done(`${bit.name} — ${bit.category}, ${bit.level}. ${bit.use}`, describeBit(bit));
+      }
+      const category = str(args, 'category');
+      const level = str(args, 'level');
+      const query = str(args, 'query');
+      const source = str(args, 'source');
+      const bits = listBits({ category, level, query, source });
+      const counts = libraryCounts();
+      return done(
+        `${bits.length} piece${bits.length === 1 ? '' : 's'}${source ? ` from ${source}` : ''}${category ? ` in ${category}` : ''}${level ? ` (${level})` : ''}${query ? ` matching "${query}"` : ''}. Library: ${Object.entries(counts).map(([name, count]) => `${name} ${count}`).join(', ')}.`,
+        { bits, usage: 'react_bits {"action":"describe","id":"<id>"} for props and a ready-to-copy call; place with create_motion_graphic {"template":"react-bits","bit":"<id>","title":"…","props":{…}} or compose {"template":"react-bits","background":"aurora","layers":[{"bit":"split-text","props":{"text":"…"},"at":0.3}]}.' },
+      );
+    }
+
     case 'create_motion_graphic': {
       const comp = pickComp(project, args);
       if (!comp) return fail('No composition found.');
       const template = str(args, 'template') || 'lower-third';
       const title = str(args, 'title') || 'HELIOS MOTION';
       const subtitle = str(args, 'subtitle') || '';
-      const accentColor = str(args, 'accentColor') || '#38bdf8';
+      // Crimson and React Bits keep their own accent when none is given; the legacy set falls back to sky in the builder.
+      const accentColor = str(args, 'accentColor') || undefined;
+      const bit = str(args, 'bit') || undefined;
+      const props = record(args, 'props') ?? undefined;
+      const theme = str(args, 'theme') || undefined;
+      // The active brand kit colours React Bits pieces and Crimson templates unless the caller opts out.
+      const brand = bool(args, 'useBrand') === false ? null : activeBrandKit(host, project);
+      const backgroundArg = args.background;
+      const background = typeof backgroundArg === 'string' && backgroundArg.trim() ? backgroundArg : backgroundArg && typeof backgroundArg === 'object' && !Array.isArray(backgroundArg) && typeof (backgroundArg as Args).bit === 'string' ? ({ bit: (backgroundArg as Args).bit as string, props: record(backgroundArg as Args, 'props') } as ReactBitsLayer) : undefined;
+      const layers = Array.isArray(args.layers)
+        ? (args.layers as unknown[]).filter((item): item is Args => !!item && typeof item === 'object' && !Array.isArray(item) && typeof (item as Args).bit === 'string').map((item): ReactBitsLayer => ({
+          bit: item.bit as string,
+          props: record(item, 'props'),
+          layout: MOGRT_LAYOUTS.has(String(item.layout)) ? (String(item.layout) as MogrtLayout) : undefined,
+          at: num(item, 'at'),
+          until: num(item, 'until'),
+        }))
+        : undefined;
       const metric = str(args, 'metric') || '+340%';
       const badge = str(args, 'badge') || '';
       const html = str(args, 'html') || undefined;
@@ -3010,7 +3080,8 @@ ${templateCatalogue()}`;
       const activeIndex = num(args, 'activeIndex');
       const layout = MOGRT_LAYOUTS.has(String(args.layout)) ? (String(args.layout) as MogrtLayout) : undefined;
       const cameraMove = (['none', 'push-in', 'travel'] as const).find((item) => item === str(args, 'cameraMove'));
-      if (template !== 'custom' && !templateSpec(template) && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout'].includes(template)) return fail(`Unknown template "${template}". Crimson templates:\n${templateCatalogue()}`);
+      const reactBits = isReactBitsTemplate(template) && !templateSpec(template);
+      if (template !== 'custom' && !templateSpec(template) && !reactBits && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout'].includes(template)) return fail(`Unknown template "${template}". Crimson templates:\n${templateCatalogue()}\nReact Bits: template "react-bits" with bit/props or layers — browse with react_bits {"action":"list"}.`);
 
       try {
         const result = createMotionGraphicComp(project, {
@@ -3034,6 +3105,12 @@ ${templateCatalogue()}`;
           start,
           track,
           asNestedComp,
+          bit,
+          props,
+          background,
+          layers,
+          theme,
+          brand,
           targetCompId: comp.id,
           canvas: mogrtCanvas(comp),
         });
@@ -3046,8 +3123,9 @@ ${templateCatalogue()}`;
 
         const spec = templateSpec(result.bundle.template);
         const hint = spec?.wantsSplit ? ` Reframe the footage beside it: layout_clip {"clipId": <footage>, "slot": "${(layout ?? 'side-panel-right') === 'side-panel-left' ? 'right-55' : 'left-55'}", "at": ${result.start}}.` : '';
+        const what = reactBits ? `React Bits (${[background && (typeof background === 'string' ? background : background.bit), ...(layers?.map((l) => l.bit) ?? (bit ? [bit] : template !== 'react-bits' ? [template] : []))].filter(Boolean).join(' + ')})` : result.bundle.template;
         return done(
-          `Created ${result.bundle.template} motion graphic "${title}" on ${trackName} at ${result.start}s (${result.duration}s)${asNestedComp ? ` inside comp "${result.mogrtComp?.name}"` : ''}. It animates in the preview and exports as rendered frames.${hint}`,
+          `Created ${what} motion graphic "${title}" on ${trackName} at ${result.start}s (${result.duration}s)${asNestedComp ? ` inside comp "${result.mogrtComp?.name}"` : ''}. It animates in the preview and exports as rendered frames.${hint}`,
           {
             clipId: result.newClipId,
             compId: result.mogrtComp?.id,

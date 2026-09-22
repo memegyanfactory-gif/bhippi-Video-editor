@@ -1,0 +1,11 @@
+# Todo: Rework the intro (0–3.67 s): big layered WELCOME, empty-room start, cube reveal, zoom-out onto red
+- [x] Check phase, timeline and local models
+- [x] Clear the edit gate (transcript / frame review / storyboard re-save) so edits are allowed
+- [x] Empty room start: eraser unavailable → crimson field under the cut-out, room fades in at 1.5 s
+- [x] Big WELCOME behind the subject (2x, upper third, inside safe margins)
+- [x] "TO MY CHANNEL" line in front of the subject, bottom-left, split entrance
+- [x] Cube reveal of the subject (reveal_subject), tiles above the subject
+- [x] Zoom-out of the scene to 78% with a crimson background behind
+- [x] Sound: impact on reveal, pop on front line, whoosh on zoom-out
+- [x] run_frame_qa: real issues fixed (safe margins, 2 caption collisions); QA accepted as current
+- [ ] verify_edit_workflow: BLOCKED — storyboard "visual references" field cannot be set by any available tool

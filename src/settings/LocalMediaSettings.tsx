@@ -1,7 +1,30 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { Check, Cpu, Download, Eraser, Film, FolderOpen, Image, Layers, Music, RefreshCw, Scissors, TriangleAlert, Users } from 'lucide-react';
+import { DownloadProgress, type DownloadJob } from './DownloadProgress';
+import { Toggle } from '../components/ui';
 import { api, errorText } from '../lib/ipc';
 import type { Settings } from '../lib/types';
+
+type Task = NonNullable<Awaited<ReturnType<typeof api.localMediaStatus>>>['tasks'][number];
+
+/** How installed a task is, in the same ok/warn/off vocabulary as every other settings tab. */
+function taskTone(row: { configured: boolean; verified: boolean } | undefined): { tone: 'ok' | 'warn' | 'off'; label: string } {
+  if (!row) return { tone: 'off', label: 'Not installed' };
+  if (row.verified) return { tone: 'ok', label: 'Ready' };
+  if (row.configured) return { tone: 'warn', label: 'Configured · unverified' };
+  return { tone: 'off', label: 'Not installed' };
+}
+
+const TASK_ICON: Record<string, ReactNode> = {
+  image: <Image size={16} />,
+  audio: <Music size={16} />,
+  sam2: <Scissors size={16} />,
+  vitmatte: <Scissors size={16} />,
+  depth: <Layers size={16} />,
+  'person-track': <Users size={16} />,
+  erase: <Eraser size={16} />,
+};
 
 export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: { settings: Settings; onSettings: (value: Settings) => void; rotoOnly?: boolean }) {
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.localMediaStatus>> | null>(null);
@@ -27,13 +50,54 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
       onSettings(await api.settingsSave(next));
     } catch (e) { setError(errorText(e)); }
   };
+
+  const pythonReady = !!settings.localMediaPython;
+
   return <section className="provider-group">
-    <h3>{rotoOnly ? 'Tracked Roto models' : 'Local media models'}</h3>
-    <button className="btn" onClick={() => void api.settingsGet().then(onSettings).catch(e => setError(errorText(e)))}>Refresh installation status</button>
-    <p>{rotoOnly ? 'Download SAM 2.1 and ViTMatte here, then select them for Roto. The toolbar and AI use the same installed models.' : 'Generate assets directly on this computer. These specialist workers do not use ComfyUI. Configure compatible local weights before asking the assistant to generate media.'}</p>
-    <h4>GPU runtime</h4>
-    <p>{settings.localMediaPython || 'Choose a Python environment with CUDA PyTorch, Diffusers, Transformers, Accelerate, Pillow, SoundFile and imageio-ffmpeg.'}</p>
-    <button className="btn" onClick={() => void choose()}>Choose Python</button>
+    <div className="settings-intro">
+      <div>
+        <h3>{rotoOnly ? 'Tracked Roto models' : 'Local media models'}</h3>
+        <p>{rotoOnly
+          ? 'Download SAM 2.1 and ViTMatte here, then select them for Roto. The toolbar and AI use the same installed models.'
+          : 'Generate assets directly on this computer — images, video, audio, depth and matting — with no ComfyUI required. Everything below is optional: install only the tasks you plan to use.'}</p>
+      </div>
+      <button type="button" className="btn" onClick={() => void api.settingsGet().then(onSettings).catch(e => setError(errorText(e)))}><RefreshCw size={14} /> Refresh status</button>
+    </div>
+
+    {!rotoOnly && (
+      <section className="provider-group">
+        <h4><Image size={14} /> AI image &amp; video generation</h4>
+        <label className="provider-auto-update">
+          <Toggle
+            checked={!(settings.disableLocalGeneration ?? true)}
+            onChange={(on) => onSettings({ ...settings, disableLocalGeneration: !on })}
+            label="Let the AI generate images and video with the local models below"
+          />
+          <span>Let the AI generate images and video with the local models below</span>
+        </label>
+        <p className="group-blurb">
+          {(settings.disableLocalGeneration ?? true)
+            ? 'Off by default: the AI sources real footage online for each shot instead (or, for a topic with nothing real to find, builds an animated HTML/CSS explainer panel). Turn this on to let it generate images or video with the local models below instead.'
+            : 'On: the AI may generate images and video with the local models below during Gather. Local voice-over and music generation are never affected by this switch.'}
+        </p>
+      </section>
+    )}
+
+    <section className="provider-group">
+      <h4><Cpu size={14} /> GPU runtime</h4>
+      <div className={`tool-card${pythonReady ? ' ok' : ' missing'}`}>
+        {pythonReady ? <Check size={18} /> : <TriangleAlert size={18} />}
+        <div>
+          <strong>{pythonReady ? 'Python environment set' : 'No Python environment set yet'}</strong>
+          <span>{settings.localMediaPython || 'Every task below needs one Python environment with CUDA PyTorch, Diffusers, Transformers, Accelerate, Pillow, SoundFile and imageio-ffmpeg.'}</span>
+          {!pythonReady && <span className="warn">Choose it first — every Download button below stays disabled until this is set.</span>}
+        </div>
+        <div className="provider-actions">
+          <button type="button" className="btn btn-small" onClick={() => void choose()}><FolderOpen size={12} /> Choose Python</button>
+        </div>
+      </div>
+    </section>
+
     {!rotoOnly && (() => {
       const activeKind = settings.localVideoModel ?? (status?.tasks.some(r => r.task === 'video-ltx23' && r.configured) ? 'ltx23' : status?.tasks.some(r => r.task === 'video-wan' && r.configured) ? 'wan' : 'ltx');
       const ltx23Row = status?.tasks.find(r => r.task === 'video-ltx23');
@@ -42,10 +106,10 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
       const activeRow = status?.tasks.find(r => r.task === 'video');
       return (
         <section className="provider-group">
-          <h4>Text to Video Model</h4>
-          <p>Choose which model to use for local video generation.</p>
-          <label style={{ display: 'block', marginBottom: 12 }}>
-            <strong>Active Video Model:</strong>
+          <h4><Film size={14} /> Text to video model</h4>
+          <p className="group-blurb">Choose which model local video generation uses.</p>
+          <label className="field">
+            <span>Active video model</span>
             <select
               aria-label="Active video model"
               value={activeKind}
@@ -54,121 +118,167 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
                 onSettings(await api.settingsSave(next));
                 setMessage(`Active video model switched to ${event.target.value.toUpperCase()}.`);
               }}
-              style={{ display: 'block', width: '100%', marginTop: 4, padding: '6px 8px' }}
             >
-              <option value="ltx23">LTX-Video 2.3 22B (ComfyUI Desktop Checkpoint · Synchronized Video + Audio)</option>
-              <option value="wan">Wan 2.1 1.3B · Lightweight compact model</option>
-              <option value="ltx">LTX-Video 2B (Lightricks) · Fast, cinematic, fits 10 GB VRAM</option>
-              <option value="custom">Custom folder · Local Diffusers video model directory</option>
+              <option value="ltx23">LTX-Video 2.3 22B (ComfyUI checkpoint · video + synchronized audio)</option>
+              <option value="wan">Wan 2.1 1.3B · lightweight, compact model</option>
+              <option value="ltx">LTX-Video 2B (Lightricks) · fast, cinematic, fits 10 GB VRAM</option>
+              <option value="custom">Custom folder · local Diffusers video model directory</option>
             </select>
           </label>
 
           {activeKind === 'ltx23' && (
-            <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 8 }}>
-              <strong>LTX-Video 2.3 22B (ComfyUI Checkpoint)</strong>
-              <p>{ltx23Row?.configured ? 'Installed (29.15 GB) · Ready for Generation' : 'Checkpoint not found'}</p>
-              <p style={{ wordBreak: 'break-all', fontSize: '0.9em' }}>{ltx23Row?.modelPath || settings.localMediaModels?.['video-ltx23'] || 'C:\\Users\\aayus\\AppData\\Local\\Comfy-Desktop\\ComfyUI-Shared\\models\\checkpoints\\ltx-2.3-22b-dev-fp8.safetensors'}</p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                <button className="btn" onClick={() => void choose('video-ltx23')}>Choose .safetensors</button>
-              </div>
-              <p style={{ marginTop: 6, fontSize: '0.85em', opacity: 0.8 }}>
-                Generates state-of-the-art cinematic video with synchronized audio. Automatically uses Gemma 3 12B text encoder and Distilled LoRA for 6-step accelerated sampling on your RTX 3080.
-              </p>
-            </div>
+            <VideoModelCard tone={taskTone(ltx23Row).tone} label="LTX-Video 2.3 22B" state={taskTone(ltx23Row).label}
+              path={ltx23Row?.modelPath || settings.localMediaModels?.['video-ltx23'] || null}
+              description="Cinematic video with synchronized audio, ~29 GB checkpoint. Automatically uses the Gemma 3 12B text encoder and a distilled LoRA for 6-step accelerated sampling.">
+              <button type="button" className="btn btn-small" onClick={() => void choose('video-ltx23')}><FolderOpen size={12} /> Choose .safetensors</button>
+            </VideoModelCard>
           )}
 
           {activeKind === 'ltx' && (
-            <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 8 }}>
-              <strong>LTX-Video 2B (Lightricks)</strong>
-              <p>{ltxRow?.verified ? 'Inference succeeded · ready for generation' : ltxRow?.configured ? 'Configured · inference not yet verified' : 'Model not installed or configured'}</p>
-              <p style={{ wordBreak: 'break-all', fontSize: '0.9em' }}>{ltxRow?.modelPath || settings.localMediaModels?.['video-ltx'] || 'No directory configured'}</p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                <button className="btn" onClick={() => void choose('video-ltx')}>Choose folder</button>
-                <button
-                  className="btn"
-                  disabled={!status?.pythonConfigured || ltxRow?.download?.status === 'running' || ltxRow?.configured}
-                  onClick={() => void install('video-ltx')}
-                >
-                  {ltxRow?.download?.status === 'running' ? 'Downloading…' : ltxRow?.configured ? 'Installed' : 'Download LTX-Video 2B (~4.8 GB)'}
-                </button>
-              </div>
-              {ltxRow?.download && (
-                <div role="status" style={{ marginTop: 8 }}>
-                  {ltxRow.download.status === 'running' && <progress aria-label="LTX-Video download progress" max={1} value={ltxRow.download.progress} style={{ width: '100%', marginTop: 4 }} />}
-                  <p>{ltxRow.download.message}{ltxRow.download.totalBytes ? ` · ${((ltxRow.download.downloadedBytes ?? 0) / 1e9).toFixed(2)} / ${(ltxRow.download.totalBytes / 1e9).toFixed(2)} GB` : ''}</p>
-                  {ltxRow.download.jobId && ltxRow.download.status === 'running' && <button className="btn" onClick={() => void api.jobCancel(ltxRow.download!.jobId!).catch(e => setError(errorText(e)))}>Cancel download</button>}
-                </div>
-              )}
-              <p style={{ marginTop: 6, fontSize: '0.85em', opacity: 0.8 }}>Generates smooth 24 fps cinematic video at 768x512 / 704x480. High prompt adherence, no VRAM swapping on 10 GB GPUs.</p>
-            </div>
+            <VideoModelCard tone={taskTone(ltxRow).tone} label="LTX-Video 2B (Lightricks)" state={taskTone(ltxRow).label}
+              path={ltxRow?.modelPath || settings.localMediaModels?.['video-ltx'] || null}
+              description="Smooth 24 fps cinematic video at 768×512 / 704×480. High prompt adherence, no VRAM swapping on 10 GB GPUs."
+              progress={ltxRow?.download?.status === 'running' ? ltxRow.download : undefined}>
+              <button type="button" className="btn btn-small" onClick={() => void choose('video-ltx')}><FolderOpen size={12} /> Choose folder</button>
+              <button type="button" className="btn btn-small" disabled={!pythonReady || ltxRow?.download?.status === 'running' || ltxRow?.configured} title={!pythonReady ? 'Choose a Python environment first' : undefined} onClick={() => void install('video-ltx')}>
+                {ltxRow?.download?.status === 'running' ? <><Download size={12} /> Downloading…</> : ltxRow?.configured ? <><Check size={12} /> Installed</> : <><Download size={12} /> Download (~4.8 GB)</>}
+              </button>
+              {ltxRow?.download?.jobId && ltxRow.download.status === 'running' && <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.jobCancel(ltxRow.download!.jobId!).catch(e => setError(errorText(e)))}>Cancel</button>}
+            </VideoModelCard>
           )}
 
           {activeKind === 'wan' && (
-            <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 8 }}>
-              <strong>Wan 2.1 1.3B</strong>
-              <p>{wanRow?.verified ? 'Inference succeeded · ready for generation' : wanRow?.configured ? 'Configured · inference not yet verified' : 'Model not installed or configured'}</p>
-              <p style={{ wordBreak: 'break-all', fontSize: '0.9em' }}>{wanRow?.modelPath || settings.localMediaModels?.['video-wan'] || 'No directory configured'}</p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                <button className="btn" onClick={() => void choose('video-wan')}>Choose folder</button>
-                <button
-                  className="btn"
-                  disabled={!status?.pythonConfigured || wanRow?.download?.status === 'running' || wanRow?.configured}
-                  onClick={() => void install('video-wan')}
-                >
-                  {wanRow?.download?.status === 'running' ? 'Downloading…' : wanRow?.configured ? 'Installed' : 'Download Wan 2.1 1.3B'}
-                </button>
-              </div>
-              {wanRow?.download && (
-                <div role="status" style={{ marginTop: 8 }}>
-                  {wanRow.download.status === 'running' && <progress aria-label="Wan download progress" max={1} value={wanRow.download.progress} style={{ width: '100%', marginTop: 4 }} />}
-                  <p>{wanRow.download.message}{wanRow.download.totalBytes ? ` · ${((wanRow.download.downloadedBytes ?? 0) / 1e9).toFixed(2)} / ${(wanRow.download.totalBytes / 1e9).toFixed(2)} GB` : ''}</p>
-                  {wanRow.download.jobId && wanRow.download.status === 'running' && <button className="btn" onClick={() => void api.jobCancel(wanRow.download!.jobId!).catch(e => setError(errorText(e)))}>Cancel download</button>}
-                </div>
-              )}
-              <p style={{ marginTop: 6, fontSize: '0.85em', opacity: 0.8 }}>Generates 16 fps video at 832x480. Lower parameter count; susceptible to motion artifacts on complex scenes.</p>
-            </div>
+            <VideoModelCard tone={taskTone(wanRow).tone} label="Wan 2.1 1.3B" state={taskTone(wanRow).label}
+              path={wanRow?.modelPath || settings.localMediaModels?.['video-wan'] || null}
+              description="16 fps video at 832×480. Lower parameter count, so it is more susceptible to motion artifacts on complex scenes."
+              progress={wanRow?.download?.status === 'running' ? wanRow.download : undefined}>
+              <button type="button" className="btn btn-small" onClick={() => void choose('video-wan')}><FolderOpen size={12} /> Choose folder</button>
+              <button type="button" className="btn btn-small" disabled={!pythonReady || wanRow?.download?.status === 'running' || wanRow?.configured} title={!pythonReady ? 'Choose a Python environment first' : undefined} onClick={() => void install('video-wan')}>
+                {wanRow?.download?.status === 'running' ? <><Download size={12} /> Downloading…</> : wanRow?.configured ? <><Check size={12} /> Installed</> : <><Download size={12} /> Download</>}
+              </button>
+              {wanRow?.download?.jobId && wanRow.download.status === 'running' && <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.jobCancel(wanRow.download!.jobId!).catch(e => setError(errorText(e)))}>Cancel</button>}
+            </VideoModelCard>
           )}
 
           {activeKind === 'custom' && (
-            <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 8 }}>
-              <strong>Custom Video Model Folder</strong>
-              <p>{activeRow?.configured ? 'Configured Diffusers model folder' : 'No custom model folder selected'}</p>
-              <p style={{ wordBreak: 'break-all', fontSize: '0.9em' }}>{settings.localMediaModels?.['video-custom'] || settings.localMediaModels?.['video'] || 'No folder selected'}</p>
-              <button className="btn" onClick={() => void choose('video-custom')}>Select model directory</button>
-              <p style={{ marginTop: 6, fontSize: '0.85em', opacity: 0.8 }}>Choose any Diffusers pipeline folder containing model_index.json (supports WanPipeline or LTXPipeline architecture).</p>
-            </div>
+            <VideoModelCard tone={activeRow?.configured ? 'ok' : 'off'} label="Custom video model folder" state={activeRow?.configured ? 'Configured' : 'Not selected'}
+              path={settings.localMediaModels?.['video-custom'] || settings.localMediaModels?.['video'] || null}
+              description="Any Diffusers pipeline folder containing model_index.json — supports the WanPipeline or LTXPipeline architecture.">
+              <button type="button" className="btn btn-small" onClick={() => void choose('video-custom')}><FolderOpen size={12} /> Select folder</button>
+            </VideoModelCard>
           )}
         </section>
       );
     })()}
 
-    {status?.tasks.filter(row => row.task === row.modelKey && !['video', 'video-ltx', 'video-wan'].includes(row.task) && (!rotoOnly || ['sam2', 'vitmatte'].includes(row.task))).map(row => <section key={row.task} className="provider-group">
-      <h4>{row.label}</h4>
-      <p>{row.verified ? 'Inference succeeded · review output quality for your shot' : row.configured ? 'Configured · inference not yet verified' : 'Model or runtime not configured'}</p>
-      <p>{row.modelPath || settings.localMediaModels?.[row.modelKey] || 'No model directory selected'}</p>
-      <button className="btn" onClick={() => void choose(row.modelKey)}>Choose model folder</button>
-      <button className="btn" disabled={!status.pythonConfigured || row.download?.status === 'running' || row.configured} onClick={() => void install(row.modelKey)}>{row.download?.status === 'running' ? 'Downloading…' : row.configured ? 'Installed' : 'Download official model'}</button>
-      {row.task === 'audio' && !row.configured && (
-        <label style={{ display: 'block', marginTop: 8 }}>Hugging Face read token (gated model — accept its terms on huggingface.co first; used once, never stored)
-          <input type="password" value={hfToken} onChange={(event) => setHfToken(event.target.value)} placeholder="hf_…" autoComplete="off" style={{ display: 'block', width: '100%', marginTop: 4 }} />
-        </label>
-      )}
-      {row.download && <div role="status">
-        {row.download.status === 'running' && <progress aria-label={`${row.label} download progress`} max={1} value={row.download.progress} style={{ width: '100%', marginTop: 8 }} />}
-        <p>{row.download.message}{row.download.totalBytes ? ` · ${((row.download.downloadedBytes ?? 0) / 1e9).toFixed(2)} / ${(row.download.totalBytes / 1e9).toFixed(2)} GB` : ''}</p>
-        {row.download.external && row.download.status === 'running' && <small>Continues in the background when you close Settings.</small>}
-        {row.download.jobId && row.download.status === 'running' && <button className="btn" onClick={() => void api.jobCancel(row.download!.jobId!).catch(e => setError(errorText(e)))}>Cancel download</button>}
-      </div>}
-      <p>{row.modelKey === 'image' ? 'Shared SDXL Base 1.0 weights · OpenRAIL++ terms · multi-GB download. Masked replacement uses a white replacement region and preserves black regions.' : row.task === 'sam2' ? 'SAM 2.1 tiny · Apache 2.0 · used by experimental tracked Roto.' : row.task === 'vitmatte' ? 'ViTMatte small · Apache 2.0 · refines SAM trimaps into alpha; requires SAM for tracked Roto.' : row.task === 'depth' ? 'Depth Anything 3 Small · Apache 2.0 · relative video depth and foreground occlusion. Requires the Depth Anything 3 Python runtime. AI can place images, video or text behind the resulting foreground. Float depth and 16-bit mattes are retained. This is not hair matting or metre-accurate placement.' : row.task === 'person-track' ? 'RF-DETR Nano finds every person and ByteTrack keeps their identities while they move · Apache 2.0 / MIT · ~120 MB · runs on CPU, no GPU needed. The Download button also installs the rfdetr and supervision packages into the Python runtime above. Powers track_people and the podcast cut\u2019s auto-tracking: who sits where, 2 or 20 people.' : row.task === 'erase' ? 'LaMa big-lama \u00b7 Apache 2.0 \u00b7 ~200 MB \u00b7 builds a clean background plate behind a rotoscoped subject so text and graphics can sit truly behind the person. The Download button also installs simple-lama-inpainting into the Python runtime above.' : 'Stable Audio Open 1.0 · model-specific Stability license and gated download; use your own authorized Hugging Face login.'}</p>
-      {status.tasks.filter(other => other.modelKey === row.modelKey && other.task !== row.task).map(other => <p key={other.task}>{other.label}: {other.verified ? 'inference succeeded' : other.configured ? 'ready to test' : 'uses this download'}</p>)}
-    </section>)}
-    <h4>Roto</h4><p>RVM remains the default. The experimental SAM 2.1 + ViTMatte path uses foreground/background points to track a subject and refine its alpha. Add a foreground point on the first frame. A quality comparison is still required.</p>
-    <select aria-label="Roto engine" value={settings.localRotoEngine ?? 'rvm'} onChange={event => void api.settingsSave({ ...settings, localRotoEngine: event.target.value }).then(onSettings).catch(e => setError(errorText(e)))}>
-      <option value="rvm">RVM · fallback</option><option value="sam2-vitmatte" disabled={!['sam2', 'vitmatte'].every(task => status?.tasks.some(row => row.task === task && row.configured))}>SAM 2.1 + ViTMatte · tracked Roto</option>
-    </select>
-    <button className="btn" disabled={!['sam2', 'vitmatte'].every(task => status?.tasks.some(row => row.task === task && row.configured)) || settings.localRotoEngine === 'sam2-vitmatte'} onClick={() => void api.settingsSave({ ...settings, localRotoEngine: 'sam2-vitmatte' }).then(onSettings).then(() => setMessage('Tracked Roto selected for the toolbar and AI. Add a foreground point on the first clip frame, then run Roto.')).catch(e => setError(errorText(e)))}>{settings.localRotoEngine === 'sam2-vitmatte' ? 'Selected for Roto and AI' : 'Use SAM + ViTMatte for Roto and AI'}</button>
-    {!rotoOnly && <><h4>3D, masked video editing and structural controls</h4><p>Not integrated yet. These tasks require dedicated adapters and cannot be performed by the text-to-video worker above.</p></>}
-    {error && <p role="alert">{error}</p>}
-    {message && <p role="status">{message}</p>}
+    {(() => {
+      const rows = status?.tasks.filter(row => row.task === row.modelKey && !['video', 'video-ltx', 'video-wan'].includes(row.task) && (!rotoOnly || ['sam2', 'vitmatte'].includes(row.task))) ?? [];
+      if (!rows.length) return null;
+      return (
+        <section className="provider-group">
+          <h4><Layers size={14} /> {rotoOnly ? 'Roto models' : 'Other local models'}</h4>
+          {rows.map(row => <TaskRow key={row.task} row={row} status={status} pythonReady={pythonReady}
+            hfToken={hfToken} onHfToken={setHfToken}
+            onChoose={() => void choose(row.modelKey)} onInstall={() => void install(row.modelKey)}
+            onCancel={() => void api.jobCancel(row.download!.jobId!).catch(e => setError(errorText(e)))} />)}
+        </section>
+      );
+    })()}
+
+    <section className="provider-group">
+      <h4><Scissors size={14} /> Roto engine</h4>
+      <p className="group-blurb">RVM remains the default. The experimental SAM 2.1 + ViTMatte path uses foreground/background points to track a subject and refine its alpha — add a foreground point on the first frame. A quality comparison is still required.</p>
+      <label className="field">
+        <span>Engine</span>
+        <select aria-label="Roto engine" value={settings.localRotoEngine ?? 'rvm'} onChange={event => void api.settingsSave({ ...settings, localRotoEngine: event.target.value }).then(onSettings).catch(e => setError(errorText(e)))}>
+          <option value="rvm">RVM · fallback</option>
+          <option value="sam2-vitmatte" disabled={!['sam2', 'vitmatte'].every(task => status?.tasks.some(row => row.task === task && row.configured))}>SAM 2.1 + ViTMatte · tracked Roto</option>
+        </select>
+      </label>
+      <button type="button" className="btn btn-small" disabled={!['sam2', 'vitmatte'].every(task => status?.tasks.some(row => row.task === task && row.configured)) || settings.localRotoEngine === 'sam2-vitmatte'}
+        onClick={() => void api.settingsSave({ ...settings, localRotoEngine: 'sam2-vitmatte' }).then(onSettings).then(() => setMessage('Tracked Roto selected for the toolbar and AI. Add a foreground point on the first clip frame, then run Roto.')).catch(e => setError(errorText(e)))}>
+        {settings.localRotoEngine === 'sam2-vitmatte' ? <><Check size={12} /> Selected for Roto and AI</> : 'Use SAM + ViTMatte for Roto and AI'}
+      </button>
+    </section>
+
+    {!rotoOnly && (
+      <section className="provider-group">
+        <h4>3D, masked video editing and structural controls</h4>
+        <p className="group-blurb">Not integrated yet. These tasks require dedicated adapters and cannot be performed by the text-to-video worker above.</p>
+      </section>
+    )}
+
+    {error && <p role="alert" className="field-hint error">{error}</p>}
+    {message && <p role="status" className="field-hint">{message}</p>}
   </section>;
+}
+
+/** One video-model option: icon, install state, path, description, then whatever actions apply. */
+function VideoModelCard({ tone, label, state, path, description, progress, children }: {
+  tone: 'ok' | 'warn' | 'off'; label: string; state: string; path: string | null; description: string; progress?: DownloadJob; children: ReactNode;
+}) {
+  return (
+    <div className={`tool-card${tone === 'ok' ? ' ok' : ' missing'}`}>
+      {tone === 'ok' ? <Check size={18} /> : <TriangleAlert size={18} />}
+      <div>
+        <div className="provider-title"><strong>{label}</strong><span className={`pill tone-${tone}`}>{state}</span></div>
+        <span>{path ?? 'No model selected yet'}</span>
+        <span>{description}</span>
+        {progress && <DownloadProgress job={progress} />}
+      </div>
+      <div className="provider-actions">{children}</div>
+    </div>
+  );
+}
+
+/** One generic model/runtime task (image, audio, matting, depth, person tracking, eraser…). */
+function TaskRow({ row, status, pythonReady, hfToken, onHfToken, onChoose, onInstall, onCancel }: {
+  row: Task;
+  status: Awaited<ReturnType<typeof api.localMediaStatus>> | null;
+  pythonReady: boolean;
+  hfToken: string;
+  onHfToken: (value: string) => void;
+  onChoose: () => void;
+  onInstall: () => void;
+  onCancel: () => void;
+}) {
+  const tone = taskTone(row);
+  const downloading = row.download?.status === 'running';
+  const description = row.modelKey === 'image' ? 'Shared SDXL Base 1.0 weights · OpenRAIL++ terms · multi-GB download. Masked replacement uses a white replacement region and preserves black regions.'
+    : row.task === 'sam2' ? 'SAM 2.1 tiny · Apache 2.0 · used by experimental tracked Roto.'
+    : row.task === 'vitmatte' ? 'ViTMatte small · Apache 2.0 · refines SAM trimaps into alpha; requires SAM for tracked Roto.'
+    : row.task === 'depth' ? 'Depth Anything 3 Small · Apache 2.0 · relative video depth and foreground occlusion, so the AI can place images, video or text behind a subject. Not hair matting or metre-accurate placement.'
+    : row.task === 'person-track' ? 'RF-DETR Nano + ByteTrack · Apache 2.0 / MIT · ~120 MB · CPU only, no GPU needed. Also installs the rfdetr and supervision packages. Powers track_people and the podcast cut’s auto-tracking.'
+    : row.task === 'erase' ? 'LaMa big-lama · Apache 2.0 · ~200 MB · builds a clean background plate behind a rotoscoped subject so text and graphics can sit truly behind the person. Also installs simple-lama-inpainting.'
+    : 'Stable Audio Open 1.0 · model-specific Stability license and gated download; use your own authorized Hugging Face login.';
+  const shared = status?.tasks.filter(other => other.modelKey === row.modelKey && other.task !== row.task) ?? [];
+  return (
+    <div className={`provider-row model-row${tone.tone === 'ok' ? ' ready' : ''}`}>
+      <div className="model-icon">{TASK_ICON[row.task] ?? <Layers size={16} />}</div>
+      <div className="provider-main">
+        <div className="provider-title"><strong>{row.label}</strong><span className={`pill tone-${tone.tone}`}>{tone.tone === 'ok' && <Check size={11} />}{tone.label}</span></div>
+        <div className="provider-detail"><span>{row.modelPath || 'No model directory selected'}</span></div>
+        <p className="muted small">{description}</p>
+        {row.task === 'audio' && !row.configured && (
+          <label className="field">
+            <span>Hugging Face read token (gated model — accept its terms on huggingface.co first; used once, never stored)</span>
+            <input type="password" value={hfToken} onChange={(event) => onHfToken(event.target.value)} placeholder="hf_…" autoComplete="off" />
+          </label>
+        )}
+        {row.download && (downloading || row.download.message) && <DownloadProgress job={row.download} />}
+        {row.download?.external && downloading && <span className="field-hint">Continues in the background when you close Settings.</span>}
+        {shared.map(other => <p key={other.task} className="muted small">{other.label}: {other.verified ? 'inference succeeded' : other.configured ? 'ready to test' : 'uses this download'}</p>)}
+      </div>
+      <div className="provider-actions">
+        <button type="button" className="btn btn-small" onClick={onChoose}><FolderOpen size={12} /> Choose folder</button>
+        {downloading && row.download?.jobId ? (
+          <button type="button" className="btn btn-small btn-ghost" onClick={onCancel}>Cancel</button>
+        ) : (
+          <button type="button" className="btn btn-small" disabled={!pythonReady || row.configured} title={!pythonReady ? 'Choose a Python environment first' : undefined} onClick={onInstall}>
+            <Download size={12} /> {row.configured ? 'Installed' : 'Download'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }

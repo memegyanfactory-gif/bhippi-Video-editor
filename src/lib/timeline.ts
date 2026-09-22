@@ -54,7 +54,7 @@ export function newComp({ name, width = 1920, height = 1080, fps = FPS }: { name
 
 export function newProject(name = 'Untitled project'): Project {
   const comp = newComp({ name: 'Comp 1' });
-  return { version: 3, name, comps: [comp], items: [], media: [], folders: [], activeCompId: comp.id, openCompIds: [comp.id], captionStyle: null };
+  return { version: 3, name, comps: [comp], items: [], media: [], folders: [], activeCompId: comp.id, openCompIds: [comp.id], captionStyle: null, activeBrandKitId: null };
 }
 
 /**
@@ -355,6 +355,8 @@ export function sourceInfo(project: Project, assets: AssetMap, source: ClipSourc
       return { name: source.title || 'Motion Graphic', hasVideo: true, hasAudio: false, length: Infinity, width: 1920, height: 1080 };
     case 'sfx':
       return { name: source.kind[0].toUpperCase() + source.kind.slice(1), hasVideo: false, hasAudio: true, length: SFX_LENGTH[source.kind], width: 0, height: 0 };
+    case 'scene3d':
+      return { name: source.title || source.scene?.name || '3D Scene', hasVideo: true, hasAudio: false, length: source.scene?.duration ?? Infinity, width: 1920, height: 1080 };
   }
 }
 
@@ -1334,6 +1336,7 @@ function sanitize(value: Project): Project {
     activeCompId,
     openCompIds: openCompIds.includes(activeCompId) ? openCompIds : [...openCompIds, activeCompId],
     captionStyle: value.captionStyle ?? null,
+    activeBrandKitId: typeof value.activeBrandKitId === 'string' ? value.activeBrandKitId : null,
   };
 }
 
