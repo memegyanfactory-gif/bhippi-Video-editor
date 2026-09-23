@@ -20,6 +20,7 @@ mod mcp_client;
 mod models;
 mod offline;
 mod person;
+mod point_track;
 mod project;mod ref_guides;
 mod refs;
 mod render;
@@ -1199,6 +1200,50 @@ async fn person_track_start(state: State<'_, Arc<AppState>>, id: String, from: f
     Ok(job_id)
 }
 
+/// Point / planar tracking for motion graphics (OpenCV Lucas–Kanade on the media Python, CPU).
+/// `points` are frame fractions at `from`; `region` [x, y, w, h] fractions asks for a planar
+/// (similarity) track. Runs as a job; the result is the validated `PointTracks`.
+#[tauri::command]
+async fn point_track_start(state: State<'_, Arc<AppState>>, id: String, from: f64, seconds: f64, fps: f64, points: Vec<[f64; 2]>, region: Option<[f64; 4]>) -> CommandResult<String> {
+    if id.trim().is_empty() || !from.is_finite() || from < 0.0 || !seconds.is_finite() || !(0.1..=120.0).contains(&seconds) || !fps.is_finite() || !(1.0..=60.0).contains(&fps) {
+        return Err("Track up to 120 seconds at 1–60 frames per second".into());
+    }
+    if points.len() > 16 || points.iter().flatten().any(|v| !v.is_finite()) || region.is_some_and(|r| r.iter().any(|v| !v.is_finite()) || r[2] <= 0.0 || r[3] <= 0.0) {
+        return Err("Give up to 16 points and an optional region, all as frame fractions".into());
+    }
+    if points.is_empty() && region.is_none() { return Err("Give at least one point or a region to track".into()); }
+    let prefs = state.settings();
+    let python = PathBuf::from(prefs.local_media_python.clone().ok_or("Set up the media Python in Local Media settings first")?);
+    if !python.is_file() { return Err("The configured Python executable is missing".into()); }
+    let asset = state.assets_by_id().get(&id).cloned().ok_or("Media not found")?;
+    if asset.kind != library::AssetKind::Video { return Err("Tracking needs video".into()); }
+    let folder = point_track::dir(&state.paths.root, &id);
+    let job = state.jobs.start("model", "Motion tracking · Lucas–Kanade", true);
+    let job_id = job.id().to_owned();
+    let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
+    let source = asset.path.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = async {
+            std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+            let count = point_track::extract_frames(&ffmpeg, &source, &folder, from, seconds, fps).await?;
+            if count > 3600 { return Err("Too many frames for one pass; track a shorter range".to_owned()); }
+            let worker = folder.join("point_track.py");
+            std::fs::write(&worker, include_str!("../workers/point_track.py")).map_err(|e| e.to_string())?;
+            let input = folder.join("point-track-request.json");
+            store::write_json(&input, &serde_json::json!({ "folder": folder, "from": from, "fps": fps, "points": points, "region": region }))?;
+            local_media::run(&python, &worker, &input, &job).await?;
+            if *job.cancel.borrow() { return Err("Cancelled".to_owned()); }
+            let raw: point_track::PointTracks = serde_json::from_str(&std::fs::read_to_string(folder.join("point-tracks.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            point_track::validate(raw)
+        }.await;
+        match result {
+            Ok(tracks) => job.done(format!("Tracked {} point{}{}", tracks.points.len(), if tracks.points.len() == 1 { "" } else { "s" }, if tracks.planar.is_some() { " and a plane" } else { "" }), Some(serde_json::json!({ "tracks": tracks }))),
+            Err(error) => job.fail(error),
+        }
+    });
+    Ok(job_id)
+}
+
 /// The matting model on this machine, if one has been downloaded. The frontend runs it.
 #[tauri::command]
 fn matte_model(app: AppHandle, state: State<'_, Arc<AppState>>) -> Option<serde_json::Value> {
@@ -1506,6 +1551,13 @@ fn effort_levels(provider_id: String, model: Option<String>) -> Vec<String> {
 fn transcribe_engines(state: State<'_, Arc<AppState>>) -> Vec<String> {
     let prefs = state.settings().speech;
     transcribe::available(&state.paths.models, &prefs)
+}
+
+/// The transcripts already made for these assets, without transcribing anything: what the
+/// Transcription panel lists. Assets with none are left out.
+#[tauri::command]
+fn transcripts_cached(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Vec<transcribe::Transcript> {
+    ids.iter().filter_map(|id| transcribe::cached(&state.paths.thumbnails, id)).collect()
 }
 
 /// The words spoken in one asset, transcribed once and cached beside its other derived files.
@@ -1960,13 +2012,14 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
 
 /// Renders the frame of `comp_id` at `time` — every track, text and effect — to a PNG.
 #[tauri::command]
-async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id: String, time: f64, output: String) -> CommandResult<String> {
+async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id: String, time: f64, output: String, short_side: Option<u32>) -> CommandResult<String> {
     let tools = state.tools();
     let ffmpeg = tools.ffmpeg()?.to_path_buf();
     if !output.to_ascii_lowercase().ends_with(".png") {
         return Err("frames are saved as .png".to_owned());
     }
-    let options = ExportOptions { output: output.clone(), comp_id, resolution: None, fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned() };
+    // `short_side` renders a smaller still (storyboard cards need 540p, not the full frame).
+    let options = ExportOptions { output: output.clone(), comp_id, resolution: short_side.map(|side| side.clamp(144, 4320)), fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned() };
     let sfx_dir = state.paths.sfx.clone();
     let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, time)?;
     let work = state.paths.work.join(format!("frame-{}", store::new_id()));
@@ -2580,6 +2633,7 @@ pub fn run() {
             local_media_install,
             roto_track_start,
             person_track_start,
+            point_track_start,
             app_info,
             settings_get,
             settings_save,
@@ -2628,6 +2682,7 @@ pub fn run() {
             erase_start,
             transcribe_engines,
             transcribe_asset,
+            transcripts_cached,
             speech_status,
             speech_locate,
             speech_voices,

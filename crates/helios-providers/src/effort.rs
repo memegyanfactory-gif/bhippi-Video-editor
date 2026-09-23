@@ -159,6 +159,8 @@ mod tests {
 
         // Anthropic: thinking on the current families, nothing on the old ones.
         assert_eq!(levels("anthropic", Some("claude-sonnet-5")).len(), 4);
+        // Opus 5.5 runs adaptive thinking always on, steered by effort.
+        assert_eq!(levels("anthropic", Some("claude-opus-5-5")).len(), 4);
         assert!(levels("anthropic", Some("claude-3-5-sonnet-20241022")).is_empty());
 
         // OpenAI: the reasoning line only.

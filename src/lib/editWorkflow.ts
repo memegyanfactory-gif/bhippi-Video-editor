@@ -1,3 +1,4 @@
+import { describeUncovered, uncoveredSpans } from './coverage';
 import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } from './types';
 import { compDuration } from './timeline';
 
@@ -116,6 +117,11 @@ const preparation = new Set([
   'editing_workflow_status',
   'verify_edit_workflow',
   'analyze_clip_speech',
+  // Motion engine planning: templates are read and a reference's style is learned before editing.
+  'list_motion_templates',
+  'get_motion_scene',
+  'analyze_reference_video',
+  'save_style_profile',
   'inspect_clip_frames',
   'inspect_source_frames',
   'local_media_capabilities',
@@ -131,11 +137,21 @@ const preparation = new Set([
   'list_effects',
   'list_recipes',
   'react_bits',
+  'remotion_kit',
   'list_brand_kits',
   'get_brand_kit',
   'list_brand_archetypes',
   'brand_kit_prompt',
   'export_brand_kit',
+  // Making and choosing a kit writes settings and the project's kit pointer, never the timeline:
+  // the brand is planned before anything is gathered. (apply_brand_kit and render_brand_board do
+  // edit the timeline, and stay behind the editing gate.)
+  'create_brand_kit',
+  'update_brand_kit',
+  'delete_brand_kit',
+  'set_active_brand_kit',
+  'import_brand_logo',
+  'import_brand_kit',
   'list_learned_skills',
   'list_custom_tools',
   'create_custom_tool',
@@ -183,6 +199,8 @@ const LOCAL_GENERATION_OFF =
 
 /** Reads and bookkeeping that are fine in any phase, including after a phase has just closed. */
 const ALWAYS_TOOLS = new Set([
+  'list_motion_templates',
+  'get_motion_scene',
   'editing_workflow_status',
   'verify_edit_workflow',
   'get_project',
@@ -198,6 +216,7 @@ const ALWAYS_TOOLS = new Set([
   'list_effects',
   'list_recipes',
   'react_bits',
+  'remotion_kit',
   'list_brand_kits',
   'get_brand_kit',
   'list_brand_archetypes',
@@ -247,6 +266,8 @@ export function gatherShots(comp: Comp): { sceneIndex: number; shotIndex: number
   return out;
 }
 
+const MUSIC_NAME = /music|\bbed\b|bed[-_ ]|score|instrumental|bgm|soundtrack/i;
+
 /** Per-turn receipts come only from successful tools, never from assistant prose. */
 export class EditWorkflow {
   private compId: string;
@@ -282,7 +303,9 @@ export class EditWorkflow {
       // The production's own chosen music bed is never dialogue — forcing it through
       // analyze_clip_speech blocked editing outright on a machine with no transcription engine
       // configured, for a Kevin MacLeod instrumental track that has nothing to transcribe.
-      const isMusicBed = asset?.id === musicAssetId;
+      // Before a production exists there is no music.assetId yet, so an audio-only asset named
+      // like a bed (music-bed-*.mp3, score, bgm, instrumental) counts as music too.
+      const isMusicBed = asset?.id === musicAssetId || (asset?.kind === 'audio' && MUSIC_NAME.test(asset.name));
       return asset ? [{ clipId: c.id, assetId: asset.id, speech: !isMusicBed && (asset.hasAudio || asset.kind === 'audio'), frames: asset.kind === 'video' && comp.tracks.find(t => t.id === c.trackId)?.kind !== 'audio' ? Math.ceil(c.duration * comp.fps) : 0, seen: new Set<number>() }] : [];
     });
     // A production carries the planning turn's receipts forward. They only count while the
@@ -439,6 +462,12 @@ export class EditWorkflow {
     return storyboardContentError(Array.isArray(args.scenes) ? (args.scenes as StoryboardSceneInput[]) : [], comp.fps, compDuration(comp), knownIds);
   }
   record(name: string, args: Args, result: ToolResult, project: Project) {
+    // An audio-only clip this machine cannot transcribe must not hold every later tool hostage:
+    // once the attempt has failed for lack of an engine, stop demanding it.
+    if (!result.ok && name === 'analyze_clip_speech' && /Nothing on this machine can transcribe/.test(String(result.error ?? ''))) {
+      const source = this.sources.find(s => s.clipId === args.clipId && s.frames === 0);
+      if (source) this.transcripts.add(source.assetId);
+    }
     if (!result.ok) return;
     const comp = this.comp(project);
     if (!comp) return;
@@ -545,7 +574,7 @@ export class EditWorkflow {
       if (this.planned) this.planned = timing(comp);
     }
   }
-  verify(project: Project): ToolResult {
+  verify(project: Project, assets?: Map<string, Asset>): ToolResult {
     const status = this.status(project), comp = this.comp(project);
     const phase = this.phase(project);
     if (phase === 'plan-ready' || phase === 'gathering' || phase === 'gathered') return { ok: false, error: `Nothing to verify yet: the production is in the ${phase} phase. verify_edit_workflow belongs to the end of the editing phase, after the user has pressed Start editing and the timeline is assembled.` };
@@ -561,6 +590,9 @@ export class EditWorkflow {
       if (!status.storyboardRefs && !status.blueprintExecuted && !status.blueprintPlan) return { ok: false, error: `Storyboard has no visual references: generate 1+ reference stills (local image model), import them, and attach their asset IDs as refs on the relevant scenes — or report the blocker. ${JSON.stringify(status)}` };
     }
     if (!comp || comp.clips.some(c => !comp.tracks.some(t => t.id === c.trackId) || !Number.isFinite(c.start) || !Number.isFinite(c.duration) || c.start < 0 || c.duration <= 0)) return { ok: false, error: 'Timeline contains invalid clip timing or missing tracks.' };
+    // Picture scaled down, moved or cropped with nothing behind it renders black at the edges.
+    const uncovered = assets ? uncoveredSpans(project, assets, comp) : [];
+    if (uncovered.length) return { ok: false, error: `Black frame edges: ${describeUncovered(uncovered, comp, project, assets)} Fix them, then verify again.` };
     this.finished = true;
     this.verifiedSnapshot = JSON.stringify(comp);
     return { ok: true, summary: 'Workflow receipts and timeline structure checked. This does not verify rendered frames, matte quality, music quality or unsupported model features.', workflow: this.status(project) };

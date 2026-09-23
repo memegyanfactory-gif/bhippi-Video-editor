@@ -1,0 +1,94 @@
+// Dev-only harness (motion-lab.html): renders motion scenes in a plain browser so the engine can
+// be checked frame by frame with Playwright, outside the desktop app. Media comes from a local
+// CORS file server given by ?media=http://127.0.0.1:8765.
+import { MotionRenderer } from '../gl/renderer';
+import type { MediaHost } from '../sources';
+import type { MotionScene } from '../types';
+import { LAB_SCENES } from './scenes';
+
+const params = new URLSearchParams(location.search);
+const media = params.get('media') ?? 'http://127.0.0.1:8765';
+
+const host: MediaHost = {
+  resolve(source) {
+    const path = source.path ?? source.asset ?? '';
+    if (!path) return null;
+    const url = /^https?:/.test(path) ? path : `${media}/${path}`;
+    return { url, kind: source.kind ?? (/\.(png|jpe?g|webp)$/i.test(path) ? 'image' : 'video') };
+  },
+  async matte(path) {
+    // Lab mattes are folders of numbered PNGs: "<folder>@<fps>@<frames>".
+    const [folder, fps, frames] = path.split('@');
+    return { fps: Number(fps), frames: Number(frames), first: 0, frameUrl: (i: number) => `${media}/${folder}/${String(i + 1).padStart(5, '0')}.png` };
+  },
+};
+
+const canvas = document.getElementById('stage') as HTMLCanvasElement;
+const renderer = new MotionRenderer(canvas, host);
+
+async function frame(scene: MotionScene, t: number, scale: number) {
+  await renderer.bank.prepareExact(scene, t);
+  renderer.draw(scene, t, { scale, fps: 30 });
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
+
+/** Renders `times` of a scene into one contact sheet (cols × rows), returns a JPEG data URL. */
+async function sheet(name: string, times: number[], scale = 0.25, cols = 4) {
+  const scene = LAB_SCENES[name]();
+  const w = Math.round(scene.width * scale);
+  const h = Math.round(scene.height * scale);
+  const rows = Math.ceil(times.length / cols);
+  const out = document.createElement('canvas');
+  out.width = w * cols;
+  out.height = h * rows;
+  const ctx = out.getContext('2d')!;
+  ctx.fillStyle = '#222';
+  ctx.fillRect(0, 0, out.width, out.height);
+  const started = performance.now();
+  for (const [i, t] of times.entries()) {
+    await renderer.bank.prepareExact(scene, t);
+    renderer.draw(scene, t, { scale, fps: 30 });
+    ctx.drawImage(canvas, (i % cols) * w, Math.floor(i / cols) * h, w, h);
+    ctx.fillStyle = '#ff0';
+    ctx.font = '12px monospace';
+    ctx.fillText(t.toFixed(2), (i % cols) * w + 4, Math.floor(i / cols) * h + 14);
+  }
+  return { url: out.toDataURL('image/jpeg', 0.88), ms: Math.round(performance.now() - started) };
+}
+
+async function timing(name: string, t: number, scale = 1, n = 10) {
+  const scene = LAB_SCENES[name]();
+  await renderer.bank.prepareExact(scene, t);
+  renderer.draw(scene, t, { scale });
+  const gl = renderer.gl.gl;
+  const px = new Uint8Array(4);
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) { renderer.draw(scene, t + i / 300, { scale }); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
+  return (performance.now() - t0) / n;
+}
+
+/**
+ * The export path, minus Tauri: frame-exact render → straight-alpha pixels → PNG, uploaded to the
+ * media server under upload/<name>/%05d.png (the same bytes exportFrames.ts hands the exporter).
+ */
+async function exportTest(name: string, fps = 30, seconds?: number) {
+  const scene = LAB_SCENES[name]();
+  const frames = Math.round((seconds ?? scene.duration) * fps);
+  const offscreen = new OffscreenCanvas(16, 16);
+  const exporter = new MotionRenderer(offscreen, host);
+  const started = performance.now();
+  for (let i = 0; i < frames; i++) {
+    const t = i / fps;
+    await exporter.bank.prepareExact(scene, t);
+    const px = exporter.pixels(scene, t, { scale: 1, fps, motionBlur: true });
+    const c = new OffscreenCanvas(px.width, px.height);
+    c.getContext('2d')!.putImageData(new ImageData(px.data, px.width, px.height), 0, 0);
+    const blob = await c.convertToBlob({ type: 'image/png' });
+    await fetch(`${media}/upload/${name}/${String(i + 1).padStart(5, '0')}.png`, { method: 'PUT', body: blob });
+  }
+  exporter.dispose();
+  return { frames, ms: Math.round(performance.now() - started) };
+}
+
+Object.assign(window, { lab: { exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
+document.title = 'Motion Lab ready';

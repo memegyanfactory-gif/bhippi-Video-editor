@@ -102,6 +102,11 @@ async fn cli_row(entry: &ProviderSpec, enabled: bool) -> ProviderInfo {
     if !listed.is_empty() {
         row.models = listed;
     }
+    for id in crate::catalog::pinned_for_version(entry.pinned_models, version.as_deref()) {
+        if !row.models.iter().any(|model| model == id) {
+            row.models.push(id.to_owned());
+        }
+    }
     row.version = version;
     row.installed = true;
     row.health = Health::Healthy { latency_ms: 0 };

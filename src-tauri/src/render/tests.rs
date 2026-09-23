@@ -342,3 +342,19 @@ fn every_export_format_maps_to_its_container_codecs_and_extension() {
     assert!(build(&project, &assets, &formatted("mp4", "out.mov"), Output::Video, 0.0).expect_err("extension").contains(".mp4"));
     assert!(build(&project, &assets, &formatted("webm", "out.webm"), Output::Video, 0.0).expect_err("format").contains("webm"));
 }
+
+#[test]
+fn motion_scenes_export_their_rendered_frames_and_nothing_without_them() {
+    use crate::project::HtmlFrames;
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let scene = serde_json::json!({ "version": 1, "width": 1920, "height": 1080, "duration": 2.0, "layers": [] });
+    let rendered = clip("g", "v2", 1.0, 2.0, ClipSource::Motion { scene: scene.clone(), title: Some("Reveal".into()), frames: Some(HtmlFrames { dir: "C:/frames/g".into(), fps: 30.0, frames: 60, width: 1920, height: 1080 }) });
+    let project_with = project(vec![comp("c", vec![clip("a", "v1", 0.0, 4.0, media("m")), rendered])]);
+    let plan = build(&project_with, &assets, &options("c"), Output::Video, 0.0).expect("plan");
+    assert!(plan.args.iter().any(|arg| arg.contains("C:/frames/g/%05d.png")), "the frames are an input: {:?}", plan.args);
+
+    let bare = clip("g", "v2", 1.0, 2.0, ClipSource::Motion { scene, title: None, frames: None });
+    let project_without = project(vec![comp("c", vec![clip("a", "v1", 0.0, 4.0, media("m")), bare])]);
+    let plan = build(&project_without, &assets, &options("c"), Output::Video, 0.0).expect("plan without frames");
+    assert!(!plan.args.iter().any(|arg| arg.contains("%05d.png")));
+}

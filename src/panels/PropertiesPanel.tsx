@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Circle, Clapperboard, Clock, Diamond, Folder
 import { useState, type ReactNode } from 'react';
 import { ColorSwatches } from '../components/ui';
 import { ScrubNumber } from '../components/workspace';
+import { MotionInspector } from './MotionInspector';
 import { CAPTION_STYLES, styleLabel } from '../lib/captionStyles';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, parseTimecode, presetLabel, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
@@ -305,6 +306,8 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
           <Row label="Frame"><span className="prop-readout">{item.width}×{item.height}</span></Row>
         </Section>
       )}
+
+      {source.type === 'motion' && <MotionInspector clip={clip} comp={comp} history={history} disabled={disabled} Section={Section} Row={Row} />}
 
       {source.type === 'html' && (
         <Section title="Motion Graphic" icon={<Sparkles size={12} />}>

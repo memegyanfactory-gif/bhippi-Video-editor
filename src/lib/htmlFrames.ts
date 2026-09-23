@@ -94,16 +94,12 @@ const toPng = (canvas: HTMLCanvasElement) => new Promise<Uint8Array>((resolve, r
   }, 'image/png');
 });
 
-/**
- * Renders one HTML clip to `dir/%05d.png` at `fps`, `duration` seconds long, on a canvas the
- * size of the comp's design canvas. Returns what the export needs to overlay it.
- */
-export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {}): Promise<RenderedFrames> {
-  const canvas = usesCompCanvas(source.template) ? mogrtCanvas(comp) : { width: 1920, height: 1080 };
-  const fps = Math.min(options.fps ?? comp.fps, 30);
-  const frames = Math.max(1, Math.round(clip.duration * fps));
-  const dir = await api.mogrtFramesBegin(clip.id);
+/** A motion graphic mounted off-screen, ready to be drawn at any moment of its clip. */
+type Mounted = { draw: (elapsed: number) => Promise<HTMLCanvasElement>; canvas: { width: number; height: number }; unmount: () => void };
 
+/** Mounts `source` off-screen on its design canvas, with its GSAP timeline built but paused. */
+function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'width' | 'height' | 'fps'>): Mounted {
+  const canvas = usesCompCanvas(source.template) ? mogrtCanvas(comp) : { width: 1920, height: 1080 };
   const host = document.createElement('div');
   host.className = 'mgt-layer';
   host.style.cssText = `position:fixed;left:-20000px;top:0;width:${canvas.width}px;height:${canvas.height}px;overflow:hidden;pointer-events:none;contain:strict`;
@@ -120,7 +116,7 @@ export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: strin
     try {
       const tl = gsap.timeline({ paused: true });
       const runner = new Function('container', 'gsap', 'timeline', 'time', 'duration', 'progress', source.js);
-      runner(stage, gsap, tl, 0, clip.duration, 0);
+      runner(stage, gsap, tl, 0, duration, 0);
       if (tl.getChildren().length > 0) timeline = tl;
     } catch (error) {
       console.warn('Helios motion graphic script failed while rendering frames:', error);
@@ -133,33 +129,94 @@ export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: strin
   const context = sheet.getContext('2d');
   if (!context) throw new Error('no 2D canvas for frame rendering');
 
+  const draw = async (elapsed: number) => {
+    host.style.setProperty('--time', `${elapsed}s`);
+    host.style.setProperty('--elapsed', `${elapsed}`);
+    host.style.setProperty('--progress', `${duration > 0 ? elapsed / duration : 0}`);
+    host.style.setProperty('--duration', `${duration}s`);
+    host.style.setProperty('--stage-w', `${canvas.width}px`);
+    host.style.setProperty('--stage-h', `${canvas.height}px`);
+    host.style.setProperty('--u', (canvas.width / 1920).toFixed(4));
+    timeline?.seek(elapsed, false);
+    await nextPaint();
+    const image = await decode(snapshot(stage, canvas.width, canvas.height));
+    context.clearRect(0, 0, sheet.width, sheet.height);
+    context.drawImage(image, 0, 0);
+    return sheet;
+  };
+  return { draw, canvas, unmount: () => { timeline?.kill(); host.remove(); } };
+}
+
+/**
+ * Renders one HTML clip to `dir/%05d.png` at `fps`, `duration` seconds long, on a canvas the
+ * size of the comp's design canvas. Returns what the export needs to overlay it.
+ */
+export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {}): Promise<RenderedFrames> {
+  const fps = Math.min(options.fps ?? comp.fps, 30);
+  const frames = Math.max(1, Math.round(clip.duration * fps));
+  const dir = await api.mogrtFramesBegin(clip.id);
+  const mounted = mountGraphic(source, clip.duration, comp);
   try {
     for (let index = 0; index < frames; index++) {
       if (options.signal?.aborted) throw new Error('export cancelled');
-      const elapsed = index / fps;
-      host.style.setProperty('--time', `${elapsed}s`);
-      host.style.setProperty('--elapsed', `${elapsed}`);
-      host.style.setProperty('--progress', `${clip.duration > 0 ? elapsed / clip.duration : 0}`);
-      host.style.setProperty('--duration', `${clip.duration}s`);
-      host.style.setProperty('--stage-w', `${canvas.width}px`);
-      host.style.setProperty('--stage-h', `${canvas.height}px`);
-      host.style.setProperty('--u', (canvas.width / 1920).toFixed(4));
-      timeline?.seek(elapsed, false);
-      await nextPaint();
-      const image = await decode(snapshot(stage, canvas.width, canvas.height));
-      context.clearRect(0, 0, sheet.width, sheet.height);
-      context.drawImage(image, 0, 0);
+      const sheet = await mounted.draw(index / fps);
       await api.mogrtFrameWrite(dir, index, await toPng(sheet));
       options.onProgress?.(index + 1, frames);
     }
   } finally {
-    timeline?.kill();
-    host.remove();
+    mounted.unmount();
   }
-  return { dir, fps, frames, width: canvas.width, height: canvas.height };
+  return { dir, fps, frames, width: mounted.canvas.width, height: mounted.canvas.height };
 }
 
-/** Every enabled HTML clip reachable from `compId`, with the comp it lives in. */
+/** How much is drawn: summed brightness steps between neighbouring pixels (text and edges score, flat fields do not). */
+function visibleDetail(context: CanvasRenderingContext2D, width: number, height: number): number {
+  const { data } = context.getImageData(0, 0, width, height);
+  let sum = 0;
+  for (let y = 0; y < height; y += 2) {
+    for (let x = 2; x < width; x += 2) {
+      const i = (y * width + x) * 4;
+      const j = i - 8;
+      sum += Math.abs(data[i] + data[i + 1] + data[i + 2] - data[j] - data[j + 1] - data[j + 2]);
+    }
+  }
+  return sum;
+}
+
+/**
+ * A still of an HTML-only comp (a motion graphic), for its Project-bin poster. The FFmpeg poster
+ * render has no frames for HTML graphics and came back black; this draws the same DOM the preview
+ * and the export use, over a dark card, `width` pixels wide, as a JPEG data URL — at whichever of a
+ * few moments shows the most. Null when the comp
+ * has no HTML clip.
+ */
+export async function renderHtmlCompStill(comp: Comp, width = 480): Promise<string | null> {
+  const clip = comp.clips.find((entry) => entry.enabled && entry.source.type === 'html');
+  if (!clip || clip.source.type !== 'html') return null;
+  const mounted = mountGraphic(clip.source, clip.duration, comp);
+  try {
+    const out = document.createElement('canvas');
+    out.width = width;
+    out.height = Math.round((width * mounted.canvas.height) / mounted.canvas.width);
+    const context = out.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+    // Cards bring their words in at different moments (a one-second chapter card shows its title
+    // only in the last fifth), so a few moments are tried and the one showing the most is kept.
+    let best: { url: string; detail: number } | null = null;
+    for (const fraction of [0.5, 0.75, 0.92]) {
+      const sheet = await mounted.draw(clip.duration * fraction);
+      context.fillStyle = '#16171a';
+      context.fillRect(0, 0, out.width, out.height);
+      context.drawImage(sheet, 0, 0, out.width, out.height);
+      const detail = visibleDetail(context, out.width, out.height);
+      if (!best || detail > best.detail) best = { url: out.toDataURL('image/jpeg', 0.82), detail };
+    }
+    return best?.url ?? null;
+  } finally {
+    mounted.unmount();
+  }
+}
+
 export function htmlClipsForExport(project: Project, compId: string): { comp: Comp; clip: Clip; source: HtmlSource }[] {
   const seen = new Set<string>();
   const out: { comp: Comp; clip: Clip; source: HtmlSource }[] = [];

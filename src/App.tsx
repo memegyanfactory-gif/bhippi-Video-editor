@@ -9,6 +9,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { actionLogger } from './lib/actionLogger';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { EditWorkflow } from './lib/editWorkflow';
+import { TranscriptPanel } from './panels/TranscriptPanel';
+import { jobsStore, LiveJobs } from './lib/jobsStore';
+import { fillMissingCardFrames, requestCardFrames, type FrameHost } from './lib/storyboardFrames';
+import { describeMoved, organizeBin } from './lib/binOrganize';
 import { advance as advanceProduction, userAdvance } from './lib/production';
 import { ProductionBar } from './chat/ProductionBar';
 import { automaticRotoEngine } from './lib/rotoEngine';
@@ -21,6 +25,7 @@ import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppC
 import { ResourceMonitor } from './components/ResourceMonitor';
 import { GenerationJobsMenu } from './components/GenerationJobsMenu';
 import { renderMotionGraphicsForExport } from './lib/htmlFrames';
+import { renderMotionScenesForExport } from './motion/exportFrames';
 import { ProviderLogo } from './components/ProviderLogo';
 import { useToast } from './components/ui';
 import { MenuList, Panel, Splitter, type MenuItem } from './components/workspace';
@@ -29,7 +34,8 @@ import { ProgramMonitor, type ProgramApi } from './editor/ProgramMonitor';
 import { SourceMonitor, type SourceApi, type SourceRange } from './editor/SourceMonitor';
 import { DEFAULT_DISPLAY, dropClips, LABELS, Timeline, type DisplaySettings, type IncomingDrag, type TimelineApi } from './editor/Timeline';
 import { AudioMeters, DEFAULT_METERS, ToolsPanel, TOOL_LABEL } from './editor/ToolsAndMeters';
-import { aiContext, generatedFolderId, runTool, TOOL_SPECS } from './lib/aiTools';
+import { aiContext, generatedFolderId, runTool, TOOL_SPECS, warmCustomTools } from './lib/aiTools';
+import { customToolsBrief } from './lib/customTools';
 import { brandKitContext, resolveActiveKit } from './lib/brandKit';
 import { recordTurnOutcome, type TurnOutcome } from './lib/ideagraph';
 import { applyTheme, resolveTheme } from './lib/theme';
@@ -52,7 +58,7 @@ import {
   sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, tracksOf, transitionsOnSelection, trimEdge, updateComp, updateTrack, withLinked, wouldCycle,
   type AssetMap,
 } from './lib/timeline';
-import type { AppInfo, Asset, Clip, Comp, ExportOptions, HeliosDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, WorkspaceLayout, ProductionPhase } from './lib/types';
+import type { AppInfo, Asset, Clip, Comp, ExportOptions, HeliosDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase } from './lib/types';
 import { ProjectPanel, type DragPayload, type EffectPreset, type ProjectTab } from './panels/ProjectPanel';
 import { PropertiesPanel } from './panels/PropertiesPanel';
 import { EffectControlsPanel } from './panels/EffectControlsPanel';
@@ -81,9 +87,9 @@ import type { FxSnapshot } from './lib/types';
  * contents spill over the panel beside it. The chat's floor is set by its composer row — model,
  * thinking, permission and send, side by side without wrapping.
  */
-const PANEL_MIN = { chat: 436, source: 260, properties: 260, project: 260, top: 220 } as const;
+const PANEL_MIN = { chat: 436, transcript: 240, source: 260, properties: 260, project: 260, top: 220 } as const;
 
-const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, hidden: [], meters: DEFAULT_METERS };
+const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, transcriptWidth: 320, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, hidden: [], meters: DEFAULT_METERS };
 const EMPTY_SETTINGS: Settings = {
   disabledProviders: [], providerId: null, model: null, effort: null, permission: null, awesomeLook: false, ffmpegPath: null, chatOpen: true, timelineHeight: null, timelineZoom: null,
   disableLocalGeneration: true,
@@ -191,7 +197,11 @@ export default function App() {
   const permissionRef = useRef<PermissionMode>(permission);
   permissionRef.current = permission;
   const [assets, setAssets] = useState<Asset[]>([]);
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  // Jobs as of their last status change. Live progress is in jobsStore, read by <LiveJobs> where it
+  // is drawn, so a progress tick never re-renders the editor (see lib/jobsStore.ts).
   const [jobs, setJobs] = useState<Record<string, Job>>({});
   const [selection, setSelection] = useState<string[]>([]);
   const [transitionSelection, setTransitionSelection] = useState<string | null>(null);
@@ -210,6 +220,7 @@ export default function App() {
   const [layout, setLayout] = useState<WorkspaceLayout>(DEFAULT_LAYOUT);
   const [projectTab, setProjectTab] = useState<ProjectTab>('project');
   const [chatTab, setChatTab] = useState<'chat' | 'providers'>('chat');
+  const [sideTab, setSideTab] = useState<'storyboard' | 'transcript'>('storyboard');
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceRanges, setSourceRanges] = useState<Record<string, SourceRange>>({});
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
@@ -233,6 +244,8 @@ export default function App() {
   const sourceApi = useRef<SourceApi | null>(null);
   const chatApi = useRef<ChatApi | null>(null);
   const settingsRef = useRef(settings);
+  // The storyboard frame queue's view of the app, refreshed every render (see frameHost below).
+  const frameHostRef = useRef<FrameHost | null>(null);
   settingsRef.current = settings;
   const layoutStart = useRef(layout);
   const turnSnapshots = useRef(new Map<string, Project>());
@@ -260,6 +273,7 @@ export default function App() {
       if (cancelled) return;
       setInfo(appInfo);
       registerSfx(appInfo.sfx);
+      void warmCustomTools({ dataDir: appInfo.dataDir, ffmpeg: appInfo.ffmpeg.path });
       setSettings({ ...EMPTY_SETTINGS, ...stored, export: { ...EMPTY_SETTINGS.export, ...stored.export } });
       // A layout saved before these floors existed is raised to them rather than left overlapping.
       if (stored.layout) {
@@ -267,6 +281,7 @@ export default function App() {
         setLayout({
           ...saved,
           chatWidth: Math.max(PANEL_MIN.chat, saved.chatWidth),
+          transcriptWidth: Math.max(PANEL_MIN.transcript, saved.transcriptWidth),
           sourceWidth: Math.max(PANEL_MIN.source, saved.sourceWidth),
           propertiesWidth: Math.max(PANEL_MIN.properties, saved.propertiesWidth),
           projectWidth: Math.max(PANEL_MIN.project, saved.projectWidth),
@@ -279,6 +294,7 @@ export default function App() {
       const opened = loadProject(loadedProject, map);
       history.reset(opened);
       setSavedProject(opened);
+      jobsStore.reset(jobList);
       setJobs(Object.fromEntries(jobList.map((job) => [job.id, job])));
       setLoaded(true);
       api.providersList().then(setProviders).catch(() => undefined);
@@ -308,6 +324,8 @@ export default function App() {
         void openProjectFile(path);
       }),
       events.job((job) => {
+        // A progress tick updates the store (and the progress bars reading it) and nothing else.
+        if (!jobsStore.put(job)) return;
         actionLogger.system(`Job [${job.kind}]: ${job.label} (${job.status})`, job);
         setJobs((current) => ({ ...current, [job.id]: job }));
         if (job.kind === 'export' && job.status === 'done' && job.result?.path) {
@@ -368,6 +386,11 @@ export default function App() {
       const result = await api.libraryImport(paths);
       await refreshAssets();
       const all = [...result.imported, ...result.existing];
+      // Say why, rather than hand the AI an empty list: a 691-byte "video" that was really an
+      // error page came back as "could not be imported" and nothing more.
+      if (!all.length && result.failed.length) {
+        throw new Error(result.failed.map((failure) => `${failure.path.split(/[\\/]/).pop()}: ${failure.reason}`).join('; '));
+      }
       if (all.length) {
         history.commit((current) => ({
           ...current,
@@ -565,14 +588,23 @@ export default function App() {
               : 'Workflow initialized. Call get_comp next to inspect the comp timeline before planning or editing.';
             result = { ok: true as const, summary, workflow: st };
           }
-          else if (call.name === 'verify_edit_workflow') result = workflow.verify(project);
+          else if (call.name === 'verify_edit_workflow') result = workflow.verify(project, hostRef.current.assets());
           else {
             const host = hostRef.current;
+            const turnWorkflow = workflow;
             const synchronousHost = { ...host, history: { ...host.history,
               commit: (...args: Parameters<typeof host.history.commit>) => flushSync(() => host.history.commit(...args)),
               view: (...args: Parameters<typeof host.history.view>) => flushSync(() => host.history.view(...args)),
               undo: () => flushSync(() => host.history.undo()),
-            } };
+            },
+            // The same checks as above, for each call a custom tool makes on the model's behalf.
+            guard: (name: string, stepArgs: Record<string, unknown>) => {
+              const allowed = allowTool(permissionRef.current, name);
+              if (!allowed.ok) return allowed.reason;
+              return turnWorkflow.before(name, stepArgs, hostRef.current.history.current());
+            },
+            record: (name: string, stepArgs: Record<string, unknown>, stepResult: ToolResult) => turnWorkflow.record(name, stepArgs, stepResult, hostRef.current.history.current()),
+            };
             result = await runTool(synchronousHost, call.name, call.args, controller.signal, call.turnId);
             workflow.record(call.name, args, result, hostRef.current.history.current());
             // A saved plan carries this turn's analysis receipts forward, so the gathering and
@@ -581,6 +613,10 @@ export default function App() {
               const receipts = workflow.receipts(hostRef.current.history.current());
               const compId = workflow.status(hostRef.current.history.current()).compId;
               if (receipts && compId) flushSync(() => hostRef.current.history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: { ...c.production, receipts } } : c)), 'AI: plan receipts'));
+              // Every card gets a picture as the plan lands: frames of the edit always; generated
+              // concepts only when local generation is on (they occupy the GPU for minutes).
+              const planned = compId ?? hostRef.current.history.current().activeCompId;
+              if (planned && frameHostRef.current) fillMissingCardFrames(frameHostRef.current, planned, !(settingsRef.current.disableLocalGeneration ?? true));
             }
           }
           if (call.name === 'verify_edit_workflow' && result.ok) {
@@ -1145,8 +1181,12 @@ export default function App() {
     try {
       // Motion graphics are live DOM in the preview; the export gets them as rendered frames
       // with alpha, so cards, charts and panels animate in the MP4 exactly as they do here.
-      const prepared = await renderMotionGraphicsForExport(history.current(), options.compId, {
+      const graphics = await renderMotionGraphicsForExport(history.current(), options.compId, {
         onProgress: (message) => toast({ tone: 'info', title: 'Preparing motion graphics', body: message, timeout: 1200 }),
+      });
+      // Motion scenes (the GPU engine) render frame-exact off-screen with the preview's own code.
+      const prepared = await renderMotionScenesForExport(graphics, options.compId, assetsRef.current, {
+        onProgress: (message) => toast({ tone: 'info', title: 'Rendering motion scenes', body: message, timeout: 1200 }),
       });
       await api.exportStart(prepared, options);
       toast({ tone: 'info', title: 'Export started', body: 'Progress is in the status bar.', timeout: 2500 });
@@ -1882,7 +1922,7 @@ export default function App() {
     ] },
     { label: 'Learning', items: [{label:'Reference learning workspace…',onSelect:()=>setLearningOpen(true)}] },
     { label: 'Window', items: [
-      ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['chat', 'Helios AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
+      ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['transcript', 'Storyboard & Transcription', 'Shift+8'], ['chat', 'Helios AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
         label, shortcut, checked: !hidden(id), onSelect: () => setPanelVisible(id, hidden(id)),
       })),
       { separator: true },
@@ -2011,8 +2051,8 @@ export default function App() {
     if (alt && key === '-') return run(() => trackHeights('audio', -16));
     if (shift && (key === '=' || key === '+')) return run(() => trackHeights('all', 40));
     if (shift && key === '_') return run(() => trackHeights('all', -40));
-    if (shift && ['1', '2', '3', '4', '5', '6', '7'].includes(event.key)) {
-      const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools'];
+    if (shift && ['1', '2', '3', '4', '5', '6', '7', '8'].includes(event.key)) {
+      const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools', 'transcript'];
       return run(() => showPanel(panels[Number(event.key) - 1]));
     }
     if (ctrl) return;
@@ -2193,6 +2233,20 @@ export default function App() {
   const model = providerId === settings.providerId ? settings.model : null;
 
   // ── panels ─────────────────────────────────────────────────────────────
+  const frameHost: FrameHost = {
+    project: () => history.current(),
+    commit: (change, label) => history.commit(change, label),
+    framePath: (name) => {
+      if (!info) throw new Error('Helios is still starting up');
+      const sep = info.dataDir.includes('\\') ? '\\' : '/';
+      return `${info.dataDir}${sep}thumbnails${sep}${name}`;
+    },
+    kit: () => resolveActiveKit(settingsRef.current.brandKits, history.current()),
+  };
+  frameHostRef.current = frameHost;
+  const requestFrames = (kind: 'auto' | 'edit' | 'concept', indices?: number[]) => { if (comp) requestCardFrames(frameHost, comp.id, kind, indices); };
+  const hasStoryboard = !!comp?.storyboard?.length || !!comp?.videoBlueprint?.scenes?.length;
+
   const panel = (id: PanelId, tabs: { id: string; label: ReactNode }[], active: string, children: ReactNode, extras: Partial<Parameters<typeof Panel>[0]> = {}) => (
     <Panel id={id} tabs={tabs} active={active} maximized={maximized === id} onMaximize={() => toggleMax(id)} onClose={id === 'timeline' || id === 'program' ? undefined : () => setPanelVisible(id, false)} focused={focused === id} onFocus={() => setFocused(id)} {...extras}>
       {children}
@@ -2208,29 +2262,9 @@ export default function App() {
             fps={comp.fps}
             compName={comp.name}
             onSeek={(t) => playhead.seek(t)}
-            onUpdateScenes={(nextScenes) => {
-              history.commit(
-                (current) => ({
-                  ...current,
-                  comps: current.comps.map((c) => {
-                    if (c.id !== comp.id) return c;
-                    if (c.videoBlueprint?.scenes?.length) {
-                      return {
-                        ...c,
-                        videoBlueprint: {
-                          ...c.videoBlueprint,
-                          scenes: c.videoBlueprint.scenes.map((s, i) => (
-                            nextScenes[i]?.thumbnail ? { ...s, thumbnail: nextScenes[i].thumbnail } : s
-                          )),
-                        },
-                      };
-                    }
-                    return { ...c, storyboard: nextScenes };
-                  }),
-                }),
-                'Update Storyboard Frames',
-              );
-            }}
+            compId={comp.id}
+            aspect={comp.width / Math.max(1, comp.height)}
+            onRequestFrames={requestFrames}
             blueprint={comp.videoBlueprint ?? null}
             actionLabel={userAdvance(comp.production?.phase) === 'gathering' ? 'Start generating' : userAdvance(comp.production?.phase) === 'editing' ? 'Start editing' : null}
             onExecuteBlueprint={userAdvance(comp.production?.phase) ? () => advanceProductionPhase(comp.id, userAdvance(comp.production?.phase)!) : undefined}
@@ -2262,7 +2296,7 @@ export default function App() {
             setPendingAsks(rest);
           }}
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })) }; }} tools={toolRuns}
+          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief() }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
             // The brain learns every turn's tool outcomes; recording never disturbs the chat.
             if (!settingsRef.current.ideagraphRecord || !outcome.tools.length) return;
@@ -2281,6 +2315,35 @@ export default function App() {
       onInsert={(asset, range, mode) => sourceEdit(asset, range, mode)} onDragOut={(item, event) => startPanelDrag({ kind: 'source', source: item.source, label: item.label, in: item.in, duration: item.duration }, event)}
       patch={{ video: comp?.sourceVideo ?? null, audio: comp?.sourceAudio ?? null }} apiRef={sourceApi} />
   ), { menu: [{ label: 'Close Clip', onSelect: () => setSourceId(null), disabled: !sourceAsset }] });
+
+  // Reloads the Transcription panel whenever any transcription finishes (the AI's included).
+  const transcriptRefresh = Object.values(jobs).filter((job) => job.kind === 'transcribe' && job.status === 'done').map((job) => job.id).join(',');
+  const transcriptPanel = panel('transcript', [{ id: 'storyboard', label: 'Storyboard' }, { id: 'transcript', label: 'Transcription' }], sideTab, (
+    sideTab === 'storyboard' ? (
+      hasStoryboard && comp ? (
+        <StoryboardViewer
+          variant="panel"
+          scenes={comp.storyboard ?? []}
+          fps={comp.fps}
+          compName={comp.name}
+          onSeek={(t) => playhead.seek(t)}
+          blueprint={comp.videoBlueprint ?? null}
+          compId={comp.id}
+          aspect={comp.width / Math.max(1, comp.height)}
+          onRequestFrames={requestFrames}
+          actionLabel={userAdvance(comp.production?.phase) === 'gathering' ? 'Start generating' : userAdvance(comp.production?.phase) === 'editing' ? 'Start editing' : null}
+          onExecuteBlueprint={userAdvance(comp.production?.phase) ? () => advanceProductionPhase(comp.id, userAdvance(comp.production?.phase)!) : undefined}
+          executing={Object.values(toolRuns).flat().some((run) => run.status === 'running')}
+          onPlayToggle={() => playhead.setPlaying(!playhead.isPlaying())}
+          isPlaying={isPlaying}
+        />
+      ) : (
+        <div className="transcript-empty"><span>No storyboard for this comp yet. Ask Helios AI to plan the video — each scene then shows here with its frame.</span></div>
+      )
+    ) : (
+      <TranscriptPanel project={project} comp={comp} assets={assetMap} refreshKey={transcriptRefresh} />
+    )
+  ), { onTab: (id) => setSideTab(id as 'storyboard' | 'transcript') });
 
   const programPanel = panel('program', [{ id: 'program', label: `Program: ${comp?.name ?? '—'}` }], 'program', (
     <ProgramMonitor project={project} comp={comp} assets={assetMap} offline={offline} history={history} selection={selection} onSelect={setSelection} tool={tool} onTool={setTool}
@@ -2323,6 +2386,14 @@ export default function App() {
     { onTab: (id) => setInspectorTab(id as 'properties' | 'effects') }
   );
 
+  // Files every loose bin entry into its category folder (Footage, B-roll, Motion Graphics…).
+  const organizeBinNow = () => {
+    const { project: organized, moved } = organizeBin(history.current(), assetMap);
+    if (!moved.length) return toast({ tone: 'info', title: 'Bin already organised', body: 'Nothing loose to file.', timeout: 2500 });
+    history.commit(() => organized, 'Organize Bin');
+    toast({ tone: 'success', title: `Filed ${moved.length} item${moved.length === 1 ? '' : 's'}`, body: describeMoved(moved), timeout: 4000 });
+  };
+
   const projectPanel = panel('project', [{ id: 'project', label: `Project: ${project.name}` }, { id: 'effects', label: 'Effects' }, { id: 'subtitles', label: 'Subtitles' }, { id: 'graphics', label: 'Graphics' }, { id: 'audio', label: 'Audio' }], projectTab, (
     <ProjectPanel tab={projectTab} project={project} assets={assets} history={history} folder={binFolder} onFolder={setBinFolder} selection={binSelection} onSelect={setBinSelection}
       clipSelection={selection} onDragStart={startPanelDrag} onOpenComp={openComp} onOpenInSource={(id) => openInSource(id)} onEntryMenu={binEntryMenu} onPanelMenu={binPanelMenu}
@@ -2341,7 +2412,7 @@ export default function App() {
       }}
       onReimportSnapshot={(snap) => void reimportSnapshot(snap)}
       onSeek={(seconds) => playhead.set(seconds)} />
-  ), { onTab: (id) => setProjectTab(id as ProjectTab), menu: [{ label: 'New Comp…', onSelect: newCompDialog }, { label: 'New Item', submenu: newItemMenu.slice(2) }, { label: 'Import…', onSelect: () => void pickFiles() }] });
+  ), { onTab: (id) => setProjectTab(id as ProjectTab), menu: [{ label: 'New Comp…', onSelect: newCompDialog }, { label: 'New Item', submenu: newItemMenu.slice(2) }, { label: 'Import…', onSelect: () => void pickFiles() }, { separator: true }, { label: 'Organize Bin into Folders', onSelect: organizeBinNow }] });
 
   const timelinePanel = panel('timeline', [{ id: 'timeline', label: comp?.name ?? 'Timeline' }], 'timeline', (
     <Timeline project={project} assets={assetMap} comp={comp} history={history} selection={selection} onSelect={setSelection} transition={transitionSelection} onSelectTransition={setTransitionSelection}
@@ -2351,15 +2422,12 @@ export default function App() {
       onMarkerEdit={markerDialog} onAddMarker={addMarker} onVoiceOver={(trackId) => void voiceOver(trackId)} recordingTrack={recordingTrack} incoming={incoming} apiRef={timelineApi} />
   ), { menu: [{ label: 'Comp Settings…', onSelect: compSettings }, { label: 'Zoom to Sequence', onSelect: () => timelineApi.current?.fit() }, { label: 'Add Marker', onSelect: addMarker }] });
 
-  const runningJobs = Object.values(jobs).filter((job) => job.status === 'running');
-  const exportJob = runningJobs.find((job) => job.kind === 'export');
-  const mediaJobs = runningJobs.filter((job) => job.kind === 'media');
-  const installJobs = runningJobs.filter((job) => job.kind === 'install');
-  const generationJobs = runningJobs.filter((job) => job.kind === 'generation');
 
   const cancelJob = useCallback(async (id: string) => {
     try {
       await api.jobCancel(id);
+      const live = jobsStore.get(id);
+      if (live) jobsStore.put({ ...live, status: 'cancelled', message: 'Cancelled by user' });
       setJobs((current) => {
         const target = current[id];
         if (!target) return current;
@@ -2375,6 +2443,7 @@ export default function App() {
     try {
       await api.jobCancel(id).catch(() => undefined);
       await api.jobDelete(id).catch(() => undefined);
+      jobsStore.remove(id);
       setJobs((current) => {
         const next = { ...current };
         delete next[id];
@@ -2386,15 +2455,15 @@ export default function App() {
     }
   }, [toast]);
 
-  const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null };
+  const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, transcript: transcriptPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null };
   const maximizedPanel = maximized && maximizedContent[maximized] ? maximized : null;
 
   return (
     <div className="app">
       <MenuBar menus={menus} />
-      {learningOpen && <LearningWorkspace project={project} assets={assetMap} history={history} jobs={Object.values(jobs)} onClose={() => setLearningOpen(false)} />}
+      {learningOpen && <LiveJobs>{(live) => <LearningWorkspace project={project} assets={assetMap} history={history} jobs={live} onClose={() => setLearningOpen(false)} />}</LiveJobs>}
       <HeaderBar
-        resourceMonitor={<ResourceMonitor jobs={Object.values(jobs)} runs={Object.values(toolRuns).flat()} onCancelJob={cancelJob} onDeleteJob={deleteJob} />}
+        resourceMonitor={<LiveJobs>{(live) => <ResourceMonitor jobs={live} runs={Object.values(toolRuns).flat()} onCancelJob={cancelJob} onDeleteJob={deleteJob} />}</LiveJobs>}
         mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }} onQueue={() => setQueueOpen(true)}
         exportDisabled={!hasClips} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}
@@ -2402,9 +2471,11 @@ export default function App() {
       />
 
       {mode === 'home' && (
-        <HomeScreen project={project} info={info} jobs={Object.values(jobs)} providers={providers} assetCount={project.media.length} onEdit={() => setMode('edit')} onNewProject={newProjectNow}
+        <LiveJobs>{(live) => (
+        <HomeScreen project={project} info={info} jobs={live} providers={providers} assetCount={project.media.length} onEdit={() => setMode('edit')} onNewProject={newProjectNow}
           onImport={() => { setMode('edit'); void pickFiles(); }} onProviders={() => setSettingsTab('providers')} onShortcuts={() => setShortcutsOpen(true)} onOpen={() => void openProject()}
           recents={settings.recentProjects} onOpenRecent={(path) => guardUnsaved(() => void openProjectFile(path), 'Open another project')} />
+        )}</LiveJobs>
       )}
       {/* One tree for every view: the chat keeps its place, so a running turn keeps streaming through Home, hide, and maximize. */}
       <main className={`workspace${maximizedPanel ? ' maximized' : ''}`} style={{ display: mode === 'home' ? 'none' : undefined }}>
@@ -2414,6 +2485,12 @@ export default function App() {
         ) : (
           <>
             {!hidden('chat') && <Splitter direction="vertical" onDrag={resize('chatWidth', PANEL_MIN.chat, 720)} onStart={beginResize} />}
+            {!hidden('transcript') && (
+              <>
+                <div className="ws-side" style={{ width: layout.transcriptWidth }}>{transcriptPanel}</div>
+                <Splitter direction="vertical" onDrag={resize('transcriptWidth', PANEL_MIN.transcript, 900)} onStart={beginResize} />
+              </>
+            )}
             <div className="ws-main">
               <div className="ws-top" style={{ height: layout.topHeight }}>
                 {!hidden('source') && (
@@ -2461,17 +2538,28 @@ export default function App() {
         </button>
         <span className="status-item muted">{comp ? `${comp.width}×${comp.height} · ${comp.fps} fps · ${comp.clips.length} clips · ${timecode(compDuration(comp), fps)}` : 'no comp'}</span>
         {recordingTrack && <span className="status-item warn"><Mic size={12} /> Recording…</span>}
-        {mediaJobs.length > 0 && <span className="status-item"><LoaderCircle size={12} className="spin" /> Preparing {mediaJobs.length} media…</span>}
-        {installJobs.map((job) => <span key={job.id} className="status-item"><LoaderCircle size={12} className="spin" /> {job.label}…</span>)}
-        {exportJob && (
-          <button type="button" className="status-item export-progress" onClick={() => setQueueOpen(true)} title="Open the render queue">
-            <LoaderCircle size={12} className="spin" />
-            {exportJob.message}
-            {runningJobs.filter((job) => job.kind === 'export').length > 1 && <span className="muted">+{runningJobs.filter((job) => job.kind === 'export').length - 1} more</span>}
-            <span className="progress"><span style={{ width: `${Math.round(exportJob.progress * 100)}%` }} /></span>
-          </button>
-        )}
-        {generationJobs.length > 0 && <GenerationJobsMenu jobs={generationJobs} onCancel={cancelJob} />}
+        <LiveJobs>{(live) => {
+          const runningJobs = live.filter((job) => job.status === 'running');
+          const exportJob = runningJobs.find((job) => job.kind === 'export');
+          const exports = runningJobs.filter((job) => job.kind === 'export').length;
+          const mediaJobs = runningJobs.filter((job) => job.kind === 'media');
+          const generationJobs = runningJobs.filter((job) => job.kind === 'generation');
+          return (
+            <>
+              {mediaJobs.length > 0 && <span className="status-item"><LoaderCircle size={12} className="spin" /> Preparing {mediaJobs.length} media…</span>}
+              {runningJobs.filter((job) => job.kind === 'install').map((job) => <span key={job.id} className="status-item"><LoaderCircle size={12} className="spin" /> {job.label}…</span>)}
+              {exportJob && (
+                <button type="button" className="status-item export-progress" onClick={() => setQueueOpen(true)} title="Open the render queue">
+                  <LoaderCircle size={12} className="spin" />
+                  {exportJob.message}
+                  {exports > 1 && <span className="muted">+{exports - 1} more</span>}
+                  <span className="progress"><span style={{ width: `${Math.round(exportJob.progress * 100)}%` }} /></span>
+                </button>
+              )}
+              {generationJobs.length > 0 && <GenerationJobsMenu jobs={generationJobs} onCancel={cancelJob} />}
+            </>
+          );
+        }}</LiveJobs>
         <button
           type="button"
           className={`status-item terminal-toggle-btn ${terminalOpen ? 'active' : ''} ${terminalErrorCount > 0 ? 'has-errors' : ''}`}
@@ -2499,9 +2587,9 @@ export default function App() {
       )}
       {menu && <MenuList items={menu.items} anchor={menu.anchor} onClose={() => setMenu(null)} />}
       {dialog}
-      {settingsTab && <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={Object.values(jobs)} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}
+      {settingsTab && <LiveJobs>{(live) => <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder) => void startExport(options, folder)} />}
-      {queueOpen && <RenderQueueDialog jobs={Object.values(jobs)} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}
+      {queueOpen && <LiveJobs>{(live) => <RenderQueueDialog jobs={live} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}</LiveJobs>}
       {shortcutsOpen && <ShortcutsDialog shortcuts={SHORTCUTS} onClose={() => setShortcutsOpen(false)} />}
       <FXConsoleModal
         open={fxConsoleOpen}

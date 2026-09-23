@@ -281,6 +281,8 @@ export const api = {
   transcribeEngines: () => invoke<string[]>('transcribe_engines'),
   /** The words spoken in one asset, in source time. Transcribed once, then cached. */
   transcribeAsset: (id: string, language: string) => invoke<Transcript>('transcribe_asset', { id, language }),
+  /** Transcripts already made for these assets; transcribes nothing. */
+  transcriptsCached: (ids: string[]) => invoke<Transcript[]>('transcripts_cached', { ids }),
 
   /** The offline speech catalogue, what is downloaded, and whether the runtimes were found. */
   speechStatus: () => invoke<SpeechStatus>('speech_status'),
@@ -368,7 +370,7 @@ export const api = {
   chatLogSave: (messages: unknown[]) => invoke<void>('chat_log_save', { messages }),
 
   exportStart: (project: Project, options: ExportOptions) => invoke<string>('export_start', { project: prepareEffectExport(project,options.compId), options }),
-  exportFrame: (project: Project, compId: string, time: number, output: string) => invoke<string>('export_frame', { project: prepareEffectExport(project,compId), compId, time, output }),
+  exportFrame: (project: Project, compId: string, time: number, output: string, shortSide?: number) => invoke<string>('export_frame', { project: prepareEffectExport(project,compId), compId, time, output, shortSide: shortSide ?? null }),
   /** A comp's poster frame: middle of the comp, small, cached by comp id. */
   compPoster: (project: Project, compId: string) => invoke<string>('comp_poster', { project, compId }),
   /** AI-written notes and todo lists living beside the project. */
@@ -376,6 +378,9 @@ export const api = {
   workspaceNoteDelete: (name: string) => invoke<void>('workspace_note_delete', { name }),
   jobsList: () => invoke<Job[]>('jobs_list'),
   localMediaStatus: () => invoke<{ pythonConfigured: boolean; tasks: { task: string; modelKey: string; modelPath: string | null; label: string; configured: boolean; verified: boolean; download: { jobId?: string; status: string; progress: number; message: string; external: boolean; downloadedBytes?: number; totalBytes?: number } | null }[] }>('local_media_status'),
+  /** Point / planar motion tracking (OpenCV LK); resolves to a job id whose result is { tracks }. */
+  pointTrackStart: (id: string, from: number, seconds: number, fps: number, points: [number, number][], region: [number, number, number, number] | null) =>
+    invoke<string>('point_track_start', { id, from, seconds, fps, points, region }),
   analysisFrames: (id: string, times: number[]) => invoke<{ times: number[]; images: string[]; assetId: string }>('analysis_frames', { id, times }),
   localMediaGenerate: (request: Record<string, unknown>) => invoke<string>('local_media_generate', { request }),
   localMediaInstall: (task: string, hfToken?: string) => invoke<string>('local_media_install', hfToken ? { task, hf_token: hfToken } : { task }),

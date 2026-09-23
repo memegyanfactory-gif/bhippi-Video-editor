@@ -92,6 +92,53 @@ pub struct ProviderSpec {
     pub mcp: Option<McpWiring>,
     /// Model names this backend is known to accept, used when it cannot be asked.
     pub models: &'static [&'static str],
+    /// Exact model ids offered after `models`, each only when the installed CLI is new enough.
+    pub pinned_models: &'static [PinnedModel],
+}
+
+/// One exact model id and the oldest CLI release that accepts it.
+///
+/// A CLI checks `--model` against the catalogue it was built with and refuses an id it does not
+/// know, so offering one to an older install puts a choice in the picker that can only fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PinnedModel {
+    pub id: &'static str,
+    /// `major.minor.patch`; `None` means every release Helios supports accepts it.
+    pub since: Option<&'static str>,
+}
+
+const fn pin(id: &'static str) -> PinnedModel {
+    PinnedModel { id, since: None }
+}
+
+const fn pin_since(id: &'static str, since: &'static str) -> PinnedModel {
+    PinnedModel { id, since: Some(since) }
+}
+
+/// Every pinned model the detected CLI can run, in catalogue order. An unreadable version offers
+/// only the ungated ones: guessing wrong there is the same broken choice the gate exists to avoid.
+#[must_use]
+pub fn pinned_for_version(pins: &[PinnedModel], version: Option<&str>) -> Vec<&'static str> {
+    let installed = version.and_then(parse_version);
+    pins.iter()
+        .filter(|pin| match (pin.since.and_then(parse_version), installed) {
+            (None, _) => true,
+            (Some(needed), Some(have)) => have >= needed,
+            (Some(_), None) => false,
+        })
+        .map(|pin| pin.id)
+        .collect()
+}
+
+/// The first `a.b.c` in a version line such as "2.1.280 (Claude Code)".
+fn parse_version(text: &str) -> Option<(u32, u32, u32)> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.')).find_map(|word| {
+        let mut parts = word.split('.').map(str::parse::<u32>);
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some(Ok(a)), Some(Ok(b)), Some(Ok(c))) => Some((a, b, c)),
+            _ => None,
+        }
+    })
 }
 
 impl ProviderSpec {
@@ -134,6 +181,7 @@ const fn cli(
         transcript: Transcript::JsonLines,
         mcp: None,
         models: &[],
+        pinned_models: &[],
     }
 }
 
@@ -164,6 +212,7 @@ const fn local(
         transcript: Transcript::Plain,
         mcp: None,
         models: &[],
+        pinned_models: &[],
     }
 }
 
@@ -194,6 +243,7 @@ const fn cloud(
         transcript: Transcript::Plain,
         mcp: None,
         models: &[],
+        pinned_models: &[],
     }
 }
 
@@ -217,7 +267,23 @@ pub const CATALOG: &[ProviderSpec] = &[
         ]),
         prompt_via_stdin: true,
         model_args: Some(&["--model", "{model}"]),
+        // Family aliases first: the CLI maps `opus` to whichever Opus it ships with, so these work
+        // on every release. The exact ids follow, newest first, each gated on the release that
+        // added it — Claude Code 2.1.278 refuses `claude-opus-5-5` with "2.1.280 or newer is
+        // required".
         models: &["opus", "sonnet", "haiku", "fable"],
+        pinned_models: &[
+            pin_since("claude-opus-5-5", "2.1.280"),
+            pin("claude-fable-5-1"),
+            pin("claude-fable-5"),
+            pin("claude-opus-5"),
+            pin("claude-opus-4-8"),
+            pin("claude-opus-4-7"),
+            pin("claude-opus-4-6"),
+            pin("claude-sonnet-5"),
+            pin("claude-sonnet-4-6"),
+            pin("claude-haiku-4-5"),
+        ],
         mcp: Some(McpWiring::ClaudeConfigFile),
         ..cli(
             "claude",
@@ -467,7 +533,7 @@ pub fn spec(id: &str) -> Option<&'static ProviderSpec> {
 
 #[cfg(test)]
 mod tests {
-    use super::{spec, Api, BUILTIN_ID, CATALOG, PROMPT_FILE};
+    use super::{parse_version, pin, pin_since, pinned_for_version, spec, Api, BUILTIN_ID, CATALOG, PROMPT_FILE};
     use crate::model::ProviderKind;
     use crate::transcript::Transcript;
 
@@ -573,9 +639,31 @@ mod tests {
     }
 
     #[test]
+    fn pinned_models_wait_for_the_cli_release_that_knows_them() {
+        let pins = [pin("claude-opus-5"), pin_since("claude-opus-5-5", "2.1.280")];
+        assert_eq!(pinned_for_version(&pins, Some("2.1.278 (Claude Code)")), ["claude-opus-5"]);
+        assert_eq!(pinned_for_version(&pins, Some("2.1.280 (Claude Code)")), ["claude-opus-5", "claude-opus-5-5"]);
+        assert_eq!(pinned_for_version(&pins, Some("2.2.0")), ["claude-opus-5", "claude-opus-5-5"]);
+        // 2.1.1000 is newer than 2.1.280 even though it sorts lower as text.
+        assert_eq!(pinned_for_version(&pins, Some("2.1.1000")).len(), 2);
+        assert_eq!(pinned_for_version(&pins, None), ["claude-opus-5"]);
+        assert_eq!(pinned_for_version(&pins, Some("unknown")), ["claude-opus-5"]);
+    }
+
+    #[test]
+    fn every_pinned_model_is_new_to_its_list() {
+        for entry in CATALOG {
+            for pin in entry.pinned_models {
+                assert!(!entry.models.contains(&pin.id), "{} lists {} twice", entry.id, pin.id);
+                assert!(pin.since.is_none_or(|since| parse_version(since).is_some()), "{} has a bad version", pin.id);
+            }
+        }
+    }
+
+    #[test]
     fn every_listable_backend_can_pin_what_it_lists() {
         for entry in CATALOG {
-            if entry.list_models_args.is_some() || !entry.models.is_empty() {
+            if entry.list_models_args.is_some() || !entry.models.is_empty() || !entry.pinned_models.is_empty() {
                 assert!(entry.model_args.is_some(), "{} offers models it cannot pin", entry.id);
             }
         }

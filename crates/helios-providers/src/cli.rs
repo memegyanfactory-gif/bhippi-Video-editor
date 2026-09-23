@@ -281,7 +281,11 @@ fn codex_value(level: crate::effort::Level) -> &'static str {
     }
 }
 
-/// The picker shows labels ("Claude Opus 5"); Claude Code wants an alias or a `claude-*` id.
+/// The picker shows labels ("Claude Opus 5.5"); Claude Code wants an alias or a `claude-*` id.
+///
+/// A label that names a version keeps it — "Claude Opus 5.5" becomes `claude-opus-5-5`, so the CLI
+/// pins that model rather than whichever one the bare `opus` alias currently points at. A label with
+/// no version still collapses to the family alias.
 fn normalize_claude_model(model: &str) -> String {
     let trimmed = model.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -289,9 +293,19 @@ fn normalize_claude_model(model: &str) -> String {
         return trimmed.to_owned();
     }
     for family in ["fable", "opus", "sonnet", "haiku"] {
-        if lower.contains(family) {
+        let Some(rest) = lower.split_once(family).map(|(_, rest)| rest) else {
+            continue;
+        };
+        let version: String = rest
+            .trim_start()
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
+        let version = version.trim_end_matches('.');
+        if version.is_empty() {
             return family.to_owned();
         }
+        return format!("claude-{family}-{}", version.replace('.', "-"));
     }
     trimmed.to_owned()
 }
@@ -969,7 +983,15 @@ mod tests {
 
     #[test]
     fn labels_become_ids_the_cli_accepts() {
-        assert_eq!(normalize_claude_model("Claude Opus 5"), "opus");
+        // A bare family name stays an alias, so it follows whichever model the CLI calls current.
+        assert_eq!(normalize_claude_model("Opus"), "opus");
+        assert_eq!(normalize_claude_model("Claude Haiku"), "haiku");
+        // A label that names a version pins that model instead.
+        assert_eq!(normalize_claude_model("Claude Opus 5"), "claude-opus-5");
+        assert_eq!(normalize_claude_model("Claude Opus 5.5"), "claude-opus-5-5");
+        assert_eq!(normalize_claude_model("Claude Fable 5.1"), "claude-fable-5-1");
+        // Anything already spelled as an id passes through untouched.
+        assert_eq!(normalize_claude_model("claude-opus-5-5"), "claude-opus-5-5");
         assert_eq!(normalize_claude_model("claude-sonnet-5"), "claude-sonnet-5");
         assert_eq!(normalize_opencode_model("Big Pickle"), "opencode/big-pickle");
         assert_eq!(normalize_opencode_model("zai/glm-4.6"), "zai/glm-4.6");

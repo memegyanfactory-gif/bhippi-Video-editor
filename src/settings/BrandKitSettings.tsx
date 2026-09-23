@@ -11,7 +11,7 @@ import { useToast } from '../components/ui';
 import {
   ARCHETYPES, DAISY_THEMES, SYSTEM_FONTS, assetDataUrl, assetText, brandBoard, brandKitSummary, brandKitTheme, contrastRatio, daisyThemeToBrandColors, emptyBrandKitDoc, exportBrandKit,
   findArchetype, findDaisyTheme, fontStack, importBrandKit, isDark, logoMarkup, mergeBrandKit, newBrandKit, resolveActiveKit, validateBrandKit,
-  type BrandArchetype, type BrandKit, type BrandKitDoc, type BrandKitSection, type BrandLogo, type ColorRole,
+  type BrandArchetype, type BrandKit, type DaisyTheme, type BrandKitDoc, type BrandKitSection, type BrandLogo, type ColorRole,
 } from '../lib/brandKit';
 import { api, errorText } from '../lib/ipc';
 import type { Asset, Settings } from '../lib/types';
@@ -69,13 +69,83 @@ export function KitThumb({ kit }: { kit: BrandKit }) {
   );
 }
 
-/** The colours and type of a starting style, beside the picker. */
-function ArchetypeThumb({ arch }: { arch: BrandArchetype }) {
+/** Strip the group suffix the archetype names carry, for the card face. */
+export const archetypeLabel = (name: string): string => name.replace(/\s*\((reference|house)\)$/, '');
+/** The card's own motion, from the archetype's motion spec — hover plays it. */
+export const cardMotion = (motion: BrandArchetype['motion']): Record<string, string> => ({
+  '--bk-ease': motion.easing,
+  '--bk-enter': `${Math.max(0.24, Math.min(1.1, motion.enter))}s`,
+  '--bk-stagger': `${Math.max(0.04, Math.min(0.2, motion.stagger))}s`,
+  '--bk-lift': motion.intensity === 'energetic' ? '-5px' : motion.intensity === 'calm' ? '-2px' : '-3px',
+});
+
+/** One starting style as a miniature brand board: field, display type, swatches, motion on hover. */
+function ArchetypeCard({ arch, selected, onPick }: { arch: BrandArchetype; selected: boolean; onPick: () => void }) {
   const c = arch.colors;
+  const display = arch.typography.display;
   return (
-    <div className="bk-arch-thumb" title={arch.character}>
-      <div className="bk-arch-strip" style={{ background: c.bg }}>{[c.bg, c.surface, c.primary, c.accent, c.accent2, c.text].map((hex, i) => <i key={i} style={{ background: hex }} />)}</div>
-      <span className="bk-arch-name" style={{ fontFamily: `"${arch.typography.display.family}", sans-serif`, fontWeight: arch.typography.display.weight, color: c.text, background: c.bg }}>{arch.name.replace(' (reference)', '')}</span>
+    <button
+      type="button"
+      className={`bk-card ${selected ? 'active' : ''}`}
+      onClick={onPick}
+      title={`${arch.name} — ${arch.character}`}
+      aria-pressed={selected}
+      style={{ ...cardMotion(arch.motion), background: c.bg, color: c.text }}
+    >
+      <span className="bk-card-field" style={{ background: `linear-gradient(${arch.gradient.angle}deg, ${arch.gradient.stops.join(', ')})` }} />
+      <span className="bk-card-body">
+        <span className="bk-card-title" style={{ fontFamily: `"${display.family}", system-ui, sans-serif`, fontWeight: display.weight, letterSpacing: display.letterSpacing, textTransform: display.transform }}>
+          {archetypeLabel(arch.name)}
+        </span>
+        <span className="bk-card-sub" style={{ color: c.muted }}>{arch.industries[0] ?? arch.group}</span>
+      </span>
+      <span className="bk-card-swatches">{[c.primary, c.accent, c.accent2, c.surface, c.text].map((hex, i) => <i key={i} style={{ background: hex, transitionDelay: `calc(var(--bk-stagger) * ${i})` }} />)}</span>
+      {selected && <span className="bk-card-check" style={{ background: c.primary, color: c.bg }}>✓</span>}
+    </button>
+  );
+}
+
+/** One DaisyUI theme as a card: base field, primary/secondary/accent chips, a mock control row. */
+function DaisyCard({ theme, selected, onPick }: { theme: DaisyTheme; selected: boolean; onPick: () => void }) {
+  const c = theme.colors;
+  return (
+    <button
+      type="button"
+      className={`bk-card bk-card-daisy ${selected ? 'active' : ''}`}
+      onClick={onPick}
+      title={`DaisyUI · ${theme.name} — ${theme.character}`}
+      aria-pressed={selected}
+      style={{ background: c.base100, color: c.baseContent, ['--bk-radius' as string]: theme.radius.box }}
+    >
+      <span className="bk-card-chips">
+        <i style={{ background: c.primary, color: c.primaryContent, transitionDelay: '0s' }}>A</i>
+        <i style={{ background: c.secondary, color: c.secondaryContent, transitionDelay: '.05s' }}>A</i>
+        <i style={{ background: c.accent, color: c.accentContent, transitionDelay: '.1s' }}>A</i>
+        <i style={{ background: c.neutral, color: c.neutralContent, transitionDelay: '.15s' }}>A</i>
+      </span>
+      <span className="bk-card-body">
+        <span className="bk-card-title">{theme.name}</span>
+        <span className="bk-card-sub" style={{ color: c.baseContent, opacity: 0.65 }}>{theme.scheme}</span>
+      </span>
+      <span className="bk-card-bars">
+        <i style={{ background: c.base200 }} />
+        <i style={{ background: c.base300 }} />
+        <i style={{ background: c.info }} />
+        <i style={{ background: c.success }} />
+        <i style={{ background: c.warning }} />
+        <i style={{ background: c.error }} />
+      </span>
+      {selected && <span className="bk-card-check" style={{ background: c.primary, color: c.primaryContent }}>✓</span>}
+    </button>
+  );
+}
+
+/** A horizontally scrolling shelf of cards, grouped by heading. */
+function CardShelf({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="bk-shelf">
+      <div className="bk-shelf-head"><strong>{label}</strong>{hint && <small>{hint}</small>}</div>
+      <div className="bk-shelf-scroll">{children}</div>
     </div>
   );
 }
@@ -237,22 +307,44 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
   );
 }
 
+const ARCHETYPE_GROUPS: { group: BrandArchetype['group']; label: string; hint: string }[] = [
+  { group: 'house', label: 'House', hint: 'The Helios look' },
+  { group: 'archetype', label: 'Style archetypes', hint: 'Hover to see the motion' },
+  { group: 'reference', label: 'Reference kits', hint: 'Rebuilt from public brand boards' },
+];
+
 function NewKitRow({ compact, newStyle, setNewStyle, newDaisy, setNewDaisy, onCreate, onImport }: { compact?: boolean; newStyle: string; setNewStyle: (v: string) => void; newDaisy: string; setNewDaisy: (v: string) => void; onCreate: () => void; onImport: () => void }) {
   const arch = findArchetype(newStyle) ?? ARCHETYPES[0];
+  const daisy = newDaisy ? findDaisyTheme(newDaisy) : null;
   return (
-    <div className="bk-new" style={compact ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}>
-      <ArchetypeThumb arch={arch} />
-      <select value={newStyle} onChange={(e) => setNewStyle(e.target.value)} title="Start from a style archetype">
-        <optgroup label="House">{ARCHETYPES.filter((a) => a.group === 'house').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>
-        <optgroup label="Style archetypes">{ARCHETYPES.filter((a) => a.group === 'archetype').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>
-        <optgroup label="Reference kits">{ARCHETYPES.filter((a) => a.group === 'reference').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>
-      </select>
-      <select value={newDaisy} onChange={(e) => setNewDaisy(e.target.value)} title="Optionally take the colours from a DaisyUI theme">
-        <option value="">Archetype colours</option>
-        {DAISY_THEMES.map((t) => <option key={t.id} value={t.id}>DaisyUI · {t.name}</option>)}
-      </select>
-      <button type="button" className="btn btn-primary btn-small" onClick={onCreate}>New kit</button>
-      <button type="button" className="btn btn-small" onClick={onImport}>Import JSON</button>
+    <div className={`bk-new ${compact ? 'compact' : ''}`}>
+      {ARCHETYPE_GROUPS.map(({ group, label, hint }) => (
+        <CardShelf key={group} label={label} hint={hint}>
+          {ARCHETYPES.filter((a) => a.group === group).map((a) => (
+            <ArchetypeCard key={a.id} arch={a} selected={a.id === arch.id} onPick={() => setNewStyle(a.id)} />
+          ))}
+        </CardShelf>
+      ))}
+      <CardShelf label="Colours" hint="Keep the archetype's palette, or take a DaisyUI theme's">
+        <button
+          type="button"
+          className={`bk-card bk-card-none ${newDaisy ? '' : 'active'}`}
+          onClick={() => setNewDaisy('')}
+          aria-pressed={!newDaisy}
+          title={`Keep ${archetypeLabel(arch.name)}'s own colours`}
+          style={{ ...cardMotion(arch.motion), background: arch.colors.bg, color: arch.colors.text }}
+        >
+          <span className="bk-card-swatches tall">{[arch.colors.primary, arch.colors.accent, arch.colors.accent2, arch.colors.surface].map((hex, i) => <i key={i} style={{ background: hex, transitionDelay: `calc(var(--bk-stagger) * ${i})` }} />)}</span>
+          <span className="bk-card-body"><span className="bk-card-title">Archetype colours</span><span className="bk-card-sub" style={{ color: arch.colors.muted }}>{archetypeLabel(arch.name)}</span></span>
+          {!newDaisy && <span className="bk-card-check" style={{ background: arch.colors.primary, color: arch.colors.bg }}>✓</span>}
+        </button>
+        {DAISY_THEMES.map((t) => <DaisyCard key={t.id} theme={t} selected={t.id === newDaisy} onPick={() => setNewDaisy(t.id)} />)}
+      </CardShelf>
+      <div className="bk-new-actions">
+        <span className="bk-new-pick">{archetypeLabel(arch.name)}{daisy ? ` · DaisyUI ${daisy.name}` : ''}</span>
+        <button type="button" className="btn btn-primary btn-small" onClick={onCreate}>New kit</button>
+        <button type="button" className="btn btn-small" onClick={onImport}>Import JSON</button>
+      </div>
     </div>
   );
 }

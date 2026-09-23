@@ -30,6 +30,12 @@ function getBus(): Bus | null {
     const left = ctx.createAnalyser();
     const right = ctx.createAnalyser();
     left.fftSize = right.fftSize = 2048;
+    // Always two channels: a mono source (a voice recording, a tone) is spread to both before the
+    // L/R split, as the speakers play it. Left to follow its input, a mono mix stayed one channel
+    // and the right meter read −∞ while the right speaker played it.
+    master.channelCount = 2;
+    master.channelCountMode = 'explicit';
+    master.channelInterpretation = 'speakers';
     program.connect(master);
     source.connect(master);
     master.connect(ctx.destination);
@@ -37,6 +43,15 @@ function getBus(): Bus | null {
     splitter.connect(left, 0);
     splitter.connect(right, 1);
     bus = { ctx, program, source, master, left, right };
+    // Created before the user has clicked anything (the mute state is applied at startup), the
+    // context starts suspended and every clip routed through it is silent while its element
+    // "plays". Any click or key is a gesture that may start it; Windows also suspends it on an
+    // audio-device change or sleep, which the same listeners recover from.
+    const wake = () => {
+      if (ctx.state !== 'running') void ctx.resume().catch(() => undefined);
+    };
+    window.addEventListener('pointerdown', wake, true);
+    window.addEventListener('keydown', wake, true);
     return bus;
   } catch {
     return null;
@@ -45,7 +60,8 @@ function getBus(): Bus | null {
 
 export function resumeAudio() {
   const target = getBus();
-  if (target && target.ctx.state === 'suspended') void target.ctx.resume().catch(() => undefined);
+  // 'interrupted' (Safari/WebKit) is the same condition as 'suspended' for our purposes.
+  if (target && target.ctx.state !== 'running' && target.ctx.state !== 'closed') void target.ctx.resume().catch(() => undefined);
 }
 
 export type MuteState = { all: boolean; program: boolean; source: boolean };

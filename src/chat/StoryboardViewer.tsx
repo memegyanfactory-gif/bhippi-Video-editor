@@ -17,9 +17,13 @@ import {
   Clock,
   RotateCw,
   Image as ImageIcon,
+  Film,
+  TriangleAlert,
+  LoaderCircle,
 } from 'lucide-react';
 import { timecode } from '../lib/editor';
-import { api, errorText, fileSrc } from '../lib/ipc';
+import { fileSrc } from '../lib/ipc';
+import { useCardStates, type CardState } from '../lib/storyboardFrames';
 
 export interface StoryboardScene {
   start: number;
@@ -68,7 +72,6 @@ export interface StoryboardViewerProps {
   fps?: number;
   compName?: string;
   onSeek?: (seconds: number) => void;
-  onUpdateScenes?: (updatedScenes: StoryboardScene[]) => void;
   onPlayToggle?: () => void;
   isPlaying?: boolean;
   className?: string;
@@ -80,6 +83,65 @@ export interface StoryboardViewerProps {
   executing?: boolean;
   /** The phase button's label ('Start generating', 'Start editing'); null hides the button. */
   actionLabel?: string | null;
+  /** The comp these scenes belong to: card pictures are queued and tracked per comp. */
+  compId?: string;
+  /** width / height of the comp, so card pictures keep its shape. */
+  aspect?: number;
+  /**
+   * Asks the app for card pictures: 'edit' renders the timeline at the scene, 'concept' generates
+   * one with the local image model, 'auto' picks by whether the scene has footage yet. No indices
+   * means every card without a picture.
+   */
+  onRequestFrames?: (kind: 'auto' | 'edit' | 'concept', indices?: number[]) => void;
+  /** 'panel' lays the cards out inline (the Storyboard panel); 'chat' is the strip above the chat. */
+  variant?: 'chat' | 'panel';
+}
+
+/** A card's picture: the frame, its progress, its error, or the buttons that make one. */
+function CardThumb({ scene, index, state, aspect, onRequest, onSeek, compact = false }: {
+  scene: StoryboardScene;
+  index: number;
+  state: CardState | undefined;
+  aspect: number;
+  onRequest?: (kind: 'auto' | 'edit' | 'concept', indices?: number[]) => void;
+  onSeek?: (seconds: number) => void;
+  compact?: boolean;
+}) {
+  const busy = state && state.status !== 'error';
+  const label = busy
+    ? state.status === 'queued' ? 'Queued' : state.kind === 'edit' ? 'Rendering from the edit…' : `Generating concept… ${Math.round(state.progress * 100)}%`
+    : null;
+  const ask = (kind: 'auto' | 'edit' | 'concept') => (event: React.MouseEvent) => { event.stopPropagation(); onRequest?.(kind, [index]); };
+  return (
+    <div className={`sb-thumb${compact ? ' compact' : ''}`} style={{ aspectRatio: String(aspect) }}>
+      {scene.thumbnail && <img src={fileSrc(scene.thumbnail)} alt={scene.title || `Scene ${index + 1}`} draggable={false} onClick={() => onSeek?.(scene.start)} />}
+      {busy ? (
+        <div className="sb-thumb-state working"><LoaderCircle size={compact ? 13 : 18} className="spin" /><span>{label}</span></div>
+      ) : state?.status === 'error' ? (
+        <div className="sb-thumb-state error" title={state.error}>
+          <TriangleAlert size={compact ? 13 : 16} />
+          <span>{state.kind === 'edit' ? 'Could not render this frame' : 'Could not generate a concept'}</span>
+          {!compact && <small>{state.error.slice(0, 140)}</small>}
+          <button type="button" className="sb-thumb-btn" onClick={ask(state.kind)}><RotateCw size={11} /> Retry</button>
+        </div>
+      ) : scene.thumbnail ? (
+        <div className="sb-thumb-actions">
+          <button type="button" className="sb-thumb-btn" onClick={(event) => { event.stopPropagation(); onSeek?.(scene.start); }} title="Move the playhead to this scene"><Play size={11} fill="currentColor" /> Seek</button>
+          <button type="button" className="sb-thumb-btn" onClick={ask('edit')} title="Show this moment of the edit"><Film size={11} /> From edit</button>
+          <button type="button" className="sb-thumb-btn" onClick={ask('concept')} title="Generate a concept frame with the local image model"><Sparkles size={11} /> Concept</button>
+        </div>
+      ) : (
+        <div className="sb-thumb-empty">
+          {!compact && <ImageIcon size={18} />}
+          {!compact && <p>{scene.visual || scene.intent}</p>}
+          <div className="sb-thumb-row">
+            <button type="button" className="sb-thumb-btn primary" onClick={ask('auto')} title="From the edit where the scene has footage, otherwise a generated concept"><Sparkles size={11} /> Make frame</button>
+            {!compact && <button type="button" className="sb-thumb-btn" onClick={ask('concept')} title="Generate a concept frame with the local image model"><ImageIcon size={11} /> Concept</button>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 type ViewMode = 'small' | 'chat-expanded' | 'fullscreen';
@@ -90,7 +152,6 @@ export function StoryboardViewer({
   fps = 30,
   compName = 'Main Composition',
   onSeek,
-  onUpdateScenes,
   onPlayToggle,
   isPlaying = false,
   className = '',
@@ -98,13 +159,15 @@ export function StoryboardViewer({
   onExecuteBlueprint,
   executing = false,
   actionLabel = 'Generate Video',
+  compId,
+  aspect = 16 / 9,
+  onRequestFrames,
+  variant = 'chat',
 }: StoryboardViewerProps) {
   const [mode, setMode] = useState<ViewMode>('small');
   const [activeTab, setActiveTab] = useState<FullscreenTab>('storyboard');
   const [selectedSceneIndex, setSelectedSceneIndex] = useState<number>(0);
-  const [generatingIndices, setGeneratingIndices] = useState<Set<number>>(new Set());
-  const [progressMap, setProgressMap] = useState<Map<number, number>>(new Map());
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const cardState = useCardStates(compId);
 
   const cardRefs = useRef<(HTMLElement | null)[]>([]);
 
@@ -163,86 +226,14 @@ export function StoryboardViewer({
     ? `“${(scenes[0]?.title || scenes[0]?.intent || '').slice(0, 36)}${(scenes[0]?.title || scenes[0]?.intent || '').length > 36 ? '…' : ''}”`
     : '';
 
-  // Trigger inside text-to-image model for a specific scene
-  const generateFrameForScene = async (index: number) => {
-    const scene = scenes[index];
-    if (!scene) return;
-    const prompt = scene.prompt || `16:9 video frame concept, cinematic lighting: ${scene.visual || scene.intent}`;
-    setGeneratingIndices((prev) => new Set(prev).add(index));
-    setStatusMessage(`Generating Scene ${index + 1} with inside model…`);
-
-    try {
-      const jobId = await api.localMediaGenerate({
-        task: 'image',
-        prompt,
-        width: 1024,
-        height: 576, // 16:9 compatible with SDXL (multiple of 64, >= 512)
-        steps: 20,
-      });
-
-      const poll = setInterval(async () => {
-        try {
-          const jobs = await api.jobsList();
-          const job = jobs.find((j) => j.id === jobId);
-          if (job) {
-            if (job.progress > 0) {
-              setProgressMap((prev) => new Map(prev).set(index, Math.round(job.progress * 100)));
-            }
-            if (job.status === 'done') {
-              clearInterval(poll);
-              const path = (job.result as { path?: string })?.path;
-              if (path) {
-                const next = scenes.map((s, i) => (i === index ? { ...s, thumbnail: path } : s));
-                onUpdateScenes?.(next);
-              }
-              setGeneratingIndices((prev) => {
-                const updated = new Set(prev);
-                updated.delete(index);
-                return updated;
-              });
-              setProgressMap((prev) => {
-                const updated = new Map(prev);
-                updated.delete(index);
-                return updated;
-              });
-              setStatusMessage(null);
-            } else if (job.status === 'error' || job.status === 'cancelled') {
-              clearInterval(poll);
-              setGeneratingIndices((prev) => {
-                const updated = new Set(prev);
-                updated.delete(index);
-                return updated;
-              });
-              setStatusMessage(`Scene ${index + 1} generation error: ${job.message || 'error'}`);
-            }
-          }
-        } catch {
-          clearInterval(poll);
-          setGeneratingIndices((prev) => {
-            const updated = new Set(prev);
-            updated.delete(index);
-            return updated;
-          });
-        }
-      }, 1500);
-    } catch (error) {
-      setGeneratingIndices((prev) => {
-        const updated = new Set(prev);
-        updated.delete(index);
-        return updated;
-      });
-      setStatusMessage(errorText(error));
-    }
-  };
-
-  // Generate missing frames for all scenes sequentially
-  const generateAllFrames = async () => {
-    for (let i = 0; i < scenes.length; i++) {
-      if (!scenes[i].thumbnail && !generatingIndices.has(i)) {
-        await generateFrameForScene(i);
-      }
-    }
-  };
+  // Card pictures come from the app's frame queue (lib/storyboardFrames): one at a time, written
+  // into the current project per scene, with progress and errors per card.
+  const missing = scenes.map((scene, index) => (scene.thumbnail ? -1 : index)).filter((index) => index >= 0);
+  const generateAllFrames = () => onRequestFrames?.('auto', missing);
+  const states = scenes.map((_, index) => cardState(index));
+  const working = states.filter((state) => state && state.status !== 'error').length;
+  const failed = states.filter((state) => state?.status === 'error').length;
+  const statusMessage = working ? `Making ${working} frame${working === 1 ? '' : 's'}…` : failed ? `${failed} frame${failed === 1 ? '' : 's'} failed — see the cards` : null;
 
   // Export storyboard as JSON
   const handleExport = () => {
@@ -265,6 +256,49 @@ export function StoryboardViewer({
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   };
+
+  // 0. PANEL VIEW (the Storyboard panel beside the chat): every card inline, resizable with the panel.
+  if (variant === 'panel' && mode !== 'fullscreen') {
+    return (
+      <div className={`sb-panel ${className}`}>
+        <div className="sb-panel-bar">
+          <strong>{isBlueprint ? 'Blueprint' : 'Storyboard'}</strong>
+          <span className="storyboard-count-pill">{`${scenes.length} scene${scenes.length === 1 ? '' : 's'}`}</span>
+          <span className="storyboard-time-range">{timecode(totalDuration, fps)}</span>
+          {isBlueprint && progressLabel && <span className="storyboard-count-pill">{progressLabel}</span>}
+          <div className="toolbar-spacer" />
+          {statusMessage && <span className="sb-panel-status">{statusMessage}</span>}
+          <button type="button" className="storyboard-action-btn inside-ai" onClick={generateAllFrames} disabled={!missing.length} title="Frames from the edit where scenes have footage, generated concepts where they do not">
+            <Sparkles size={12} />
+            <span>{missing.length ? `Make ${missing.length} frame${missing.length === 1 ? '' : 's'}` : 'All frames made'}</span>
+          </button>
+          <button type="button" className="storyboard-action-btn" onClick={() => setMode('fullscreen')} title="Full screen"><Maximize2 size={12} /></button>
+        </div>
+        {isBlueprint && onExecuteBlueprint && actionLabel && (
+          <div className="sb-panel-action">
+            <button type="button" className="storyboard-action-btn highlight" onClick={onExecuteBlueprint} disabled={executing}>
+              <Play size={12} fill="currentColor" /><span>{executing ? 'Working…' : actionLabel}</span>
+            </button>
+          </div>
+        )}
+        <div className="sb-panel-grid">
+          {scenes.map((scene, index) => (
+            <article key={`panel-${index}`} className={`sb-panel-card${selectedSceneIndex === index ? ' selected' : ''}`} onClick={() => { setSelectedSceneIndex(index); onSeek?.(scene.start); }}>
+              <div className="sb-panel-card-top">
+                <span className="fs-scene-num-badge">{index + 1}</span>
+                <h4 title={scene.title || scene.intent}>{scene.title || scene.intent}</h4>
+                <span className="sb-panel-time">{timecode(scene.start, fps)} · {Math.max(0, scene.end - scene.start).toFixed(1)}s</span>
+              </div>
+              <CardThumb scene={scene} index={index} state={cardState(index)} aspect={aspect} onRequest={onRequestFrames} onSeek={onSeek} />
+              <p className="sb-panel-intent">{scene.description || scene.intent}</p>
+              {scene.visual && <p className="sb-panel-detail"><Eye size={11} /> {scene.visual}</p>}
+              {scene.audio && <p className="sb-panel-detail"><Volume2 size={11} /> {scene.audio}</p>}
+            </article>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   // 1. SMALL VIEW (Compact widget in chat)
   if (mode === 'small') {
@@ -393,8 +427,6 @@ export function StoryboardViewer({
           )}
           {scenes.map((scene, index) => {
             const durationSec = Math.max(0, scene.end - scene.start);
-            const isGenerating = generatingIndices.has(index);
-            const genProgress = progressMap.get(index) ?? 0;
 
             return (
               <article key={`${index}-${scene.start}`} className="storyboard-scene-card">
@@ -420,31 +452,7 @@ export function StoryboardViewer({
 
                 {scene.title && <h5 className="storyboard-card-title">{scene.title}</h5>}
 
-                {/* Thumbnail Preview in Chat-Expanded View */}
-                <div className="storyboard-chat-thumb-container">
-                  {scene.thumbnail ? (
-                    <img
-                      src={fileSrc(scene.thumbnail)}
-                      alt={scene.title || `Scene ${index + 1}`}
-                      className="storyboard-chat-thumb"
-                      onClick={() => onSeek?.(scene.start)}
-                    />
-                  ) : isGenerating ? (
-                    <div className="storyboard-thumb-generating">
-                      <Sparkles size={14} className="spin-icon" />
-                      <span>Inside AI: {genProgress}%</span>
-                    </div>
-                  ) : (
-                    <div
-                      className="storyboard-thumb-placeholder chat"
-                      onClick={() => generateFrameForScene(index)}
-                      title="Generate frame with inside text-to-image model"
-                    >
-                      <Sparkles size={13} />
-                      <span>Generate frame (inside model)</span>
-                    </div>
-                  )}
-                </div>
+                <CardThumb scene={scene} index={index} state={cardState(index)} aspect={aspect} onRequest={onRequestFrames} onSeek={onSeek} compact />
 
                 <p className="storyboard-intent">{scene.description || scene.intent}</p>
                 <div className="storyboard-details-grid">
@@ -566,10 +574,11 @@ export function StoryboardViewer({
               type="button"
               className="storyboard-action-btn inside-ai"
               onClick={generateAllFrames}
-              title="Generate missing frames using the inside text-to-image model"
+              disabled={!missing.length}
+              title="Frames from the edit where scenes have footage, generated concepts where they do not"
             >
               <Sparkles size={13} />
-              <span>Generate Frames</span>
+              <span>{missing.length ? `Make ${missing.length} frame${missing.length === 1 ? '' : 's'}` : 'All frames made'}</span>
             </button>
 
             <button
@@ -601,8 +610,6 @@ export function StoryboardViewer({
             <div className="storyboard-fullscreen-grid">
               {scenes.map((scene, index) => {
                 const durationSec = Math.max(0, scene.end - scene.start);
-                const isGenerating = generatingIndices.has(index);
-                const genProgress = progressMap.get(index) ?? 0;
                 const isSelected = selectedSceneIndex === index;
 
                 return (
@@ -643,75 +650,7 @@ export function StoryboardViewer({
                       </div>
                     </div>
 
-                    {/* 16:9 Thumbnail Frame Area */}
-                    <div className="fs-card-thumbnail-container">
-                      {scene.thumbnail ? (
-                        <div className="fs-thumb-img-wrapper">
-                          <img
-                            src={fileSrc(scene.thumbnail)}
-                            alt={scene.title || `Scene ${index + 1}`}
-                            className="fs-card-img"
-                            onClick={() => onSeek?.(scene.start)}
-                          />
-                          <div className="fs-thumb-hover-overlay">
-                            <button
-                              type="button"
-                              className="fs-thumb-action-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onSeek?.(scene.start);
-                              }}
-                              title="Seek playhead to this scene"
-                            >
-                              <Play size={12} fill="currentColor" />
-                              <span>Seek</span>
-                            </button>
-                            <button
-                              type="button"
-                              className="fs-thumb-action-btn regen"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                generateFrameForScene(index);
-                              }}
-                              title="Regenerate frame with inside text-to-image model"
-                            >
-                              <RotateCw size={11} />
-                              <span>Inside AI</span>
-                            </button>
-                          </div>
-                        </div>
-                      ) : isGenerating ? (
-                        <div className="fs-thumb-generating">
-                          <div className="fs-gen-spinner">
-                            <Sparkles size={20} className="spin-icon" />
-                          </div>
-                          <span className="fs-gen-text">Inside model generating…</span>
-                          {genProgress > 0 && <span className="fs-gen-sub">{genProgress}% complete</span>}
-                        </div>
-                      ) : (
-                        <div
-                          className="fs-thumb-placeholder"
-                          onClick={() => generateFrameForScene(index)}
-                          title="Generate frame concept with inside text-to-image model"
-                        >
-                          <div className="fs-placeholder-icon">
-                            <ImageIcon size={22} />
-                          </div>
-                          <p className="fs-placeholder-intent">{scene.visual || scene.intent}</p>
-                          <button
-                            type="button"
-                            className="fs-generate-frame-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              generateFrameForScene(index);
-                            }}
-                          >
-                            <Sparkles size={12} />
-                            <span>Generate with inside model</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <CardThumb scene={scene} index={index} state={cardState(index)} aspect={aspect} onRequest={onRequestFrames} onSeek={onSeek} />
 
                     {/* Narrative Description */}
                     <p className="fs-card-description">

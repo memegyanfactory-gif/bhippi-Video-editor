@@ -1,0 +1,103 @@
+// Checks a MotionScene the AI (or a user) wrote before it reaches the timeline: shapes, ids,
+// references, expressions and sizes. Returns human-readable problems; empty means valid.
+import { isAnimated, isExpression } from './anim';
+import { checkExpression } from './expr';
+import type { EffectType, Layer, MotionScene } from './types';
+
+const LAYER_TYPES = new Set(['footage', 'solid', 'procedural', 'shape', 'text', 'null', 'camera', 'precomp']);
+export const EFFECT_TYPES: EffectType[] = [
+  'glow', 'gaussian-blur', 'directional-blur', 'zoom-blur', 'lens-blur', 'chromatic-aberration', 'vignette', 'grain', 'tint', 'duotone', 'black-white',
+  'brightness-contrast', 'hue-saturation', 'levels', 'exposure', 'invert', 'fill', 'drop-shadow', 'stroke', 'halation', 'mosaic', 'pixel-sort',
+  'displacement', 'turbulent-displace', 'wave-warp', 'rgb-split', 'lens-distortion', 'light-leak', 'liquid-glass', 'radial-gradient-overlay', 'matte-choke',
+  'subject-reveal', 'matte-fill', 'matte-edge-glow',
+];
+const EFFECTS = new Set<string>(EFFECT_TYPES);
+const PROCEDURALS = new Set(['crimson-stage', 'radial-glow', 'linear-gradient', 'hex-field', 'grid', 'light-rails', 'noise', 'light-leak', 'dots', 'aurora']);
+const BLENDS = new Set(['normal', 'add', 'screen', 'multiply', 'overlay', 'soft-light', 'hard-light', 'color-dodge', 'color-burn', 'lighten', 'darken', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity']);
+
+/** Visits every animatable value (anything shaped like a Prop) under `value`. */
+function walkProps(value: unknown, path: string, visit: (prop: unknown, path: string) => void) {
+  if (value === null || value === undefined) return;
+  if (isAnimated(value as never) || isExpression(value as never)) { visit(value, path); return; }
+  if (Array.isArray(value)) { value.forEach((item, i) => { if (item && typeof item === 'object') walkProps(item, `${path}[${i}]`, visit); }); return; }
+  if (typeof value === 'object') for (const [key, inner] of Object.entries(value as Record<string, unknown>)) walkProps(inner, path ? `${path}.${key}` : key, visit);
+}
+
+export function validateScene(scene: unknown, depth = 0): string[] {
+  const problems: string[] = [];
+  if (!scene || typeof scene !== 'object') return ['The scene must be an object.'];
+  const s = scene as MotionScene;
+  const where = depth ? `precomp (depth ${depth})` : 'scene';
+  if (s.version !== 1) problems.push(`${where}: version must be 1.`);
+  if (!(s.width > 0 && s.width <= 8192 && s.height > 0 && s.height <= 8192)) problems.push(`${where}: width/height must be 1–8192 px.`);
+  if (!(s.duration > 0 && s.duration <= 600)) problems.push(`${where}: duration must be 0–600 s.`);
+  if (!Array.isArray(s.layers)) return [...problems, `${where}: layers must be an array.`];
+  if (depth > 6) return [...problems, 'precomps nest deeper than 6.'];
+  const ids = new Set<string>();
+  for (const layer of s.layers as Layer[]) {
+    const name = `${where} layer "${(layer as { id?: string })?.id ?? '?'}"`;
+    if (!layer || typeof layer !== 'object') { problems.push(`${where}: a layer is not an object.`); continue; }
+    if (typeof layer.id !== 'string' || !layer.id) problems.push(`${where}: every layer needs a string id.`);
+    else if (ids.has(layer.id)) problems.push(`${name}: duplicate id.`);
+    else ids.add(layer.id);
+    if (!LAYER_TYPES.has(layer.type)) { problems.push(`${name}: unknown type "${String(layer.type)}".`); continue; }
+    if (layer.blend && !BLENDS.has(layer.blend)) problems.push(`${name}: unknown blend "${layer.blend}".`);
+    for (const effect of layer.effects ?? []) if (!EFFECTS.has(effect?.type)) problems.push(`${name}: unknown effect "${String(effect?.type)}" (known: ${EFFECT_TYPES.join(', ')}).`);
+    if (layer.type === 'procedural' && !PROCEDURALS.has(layer.kind)) problems.push(`${name}: unknown procedural kind "${layer.kind}".`);
+    if (layer.type === 'footage' && !layer.source?.asset && !layer.source?.path) problems.push(`${name}: footage needs source.asset (a project asset id) or source.path.`);
+    if (layer.type === 'text' && !layer.text?.text && !layer.text?.spans?.length && !layer.text?.counter) problems.push(`${name}: text needs text, spans or counter.`);
+    if (layer.type === 'shape' && !layer.shape?.shape) problems.push(`${name}: shape needs shape.shape.`);
+    if (layer.type === 'precomp') problems.push(...validateScene(layer.scene, depth + 1));
+    walkProps(layer, '', (prop, path) => {
+      if (isExpression(prop as never)) {
+        const error = checkExpression((prop as { expr: string }).expr);
+        if (error) problems.push(`${name}: expression at ${path}: ${error}`);
+      } else if (isAnimated(prop as never)) {
+        const keys = (prop as { k: { t: unknown }[] }).k;
+        if (!keys.every((key) => typeof key?.t === 'number' && Number.isFinite(key.t))) problems.push(`${name}: keyframes at ${path} need numeric t.`);
+      }
+    });
+  }
+  for (const layer of s.layers as Layer[]) {
+    if (layer?.parent && !ids.has(layer.parent)) problems.push(`${where} layer "${layer.id}": parent "${layer.parent}" does not exist.`);
+    if (layer?.matte && !ids.has(layer.matte.layer)) problems.push(`${where} layer "${layer.id}": matte layer "${layer.matte.layer}" does not exist.`);
+  }
+  return problems;
+}
+
+/** Footage asset ids a scene uses (for bin usage and export checks). */
+export function sceneAssets(scene: MotionScene, out = new Set<string>()): Set<string> {
+  for (const layer of scene.layers) {
+    if (layer.type === 'footage' && layer.source.asset) out.add(layer.source.asset);
+    if (layer.type === 'precomp') sceneAssets(layer.scene, out);
+  }
+  return out;
+}
+
+/**
+ * Where an overlay scene draws, as fractions of its canvas (frame QA): the union of its text and
+ * shape layers at 80% of its length. Null for scenes that carry their own footage or a full
+ * stage (they are the picture, not something laid over it).
+ */
+export function overlayBox(scene: MotionScene, evaluate: (scene: MotionScene, t: number) => { layers: { layer: Layer; active: boolean; size: [number, number]; matrix: Float64Array }[] }): { x: number; y: number; width: number; height: number } | null {
+  if (scene.layers.some((layer) => layer.type === 'footage' || layer.type === 'procedural' || (layer.type === 'solid' && !layer.size) || layer.type === 'precomp')) return null;
+  const frame = evaluate(scene, scene.duration * 0.8);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const entry of frame.layers) {
+    if (!entry.active || (entry.layer.type !== 'text' && entry.layer.type !== 'shape' && entry.layer.type !== 'solid')) continue;
+    const [w, h] = entry.size;
+    for (const [px, py] of [[0, 0], [w, 0], [w, h], [0, h]]) {
+      const m = entry.matrix;
+      const X = m[0] * px + m[4] * py + m[12];
+      const Y = m[1] * px + m[5] * py + m[13];
+      const W = m[3] * px + m[7] * py + m[15];
+      if (W <= 1e-6) continue;
+      x0 = Math.min(x0, X / W); y0 = Math.min(y0, Y / W); x1 = Math.max(x1, X / W); y1 = Math.max(y1, Y / W);
+    }
+  }
+  if (!Number.isFinite(x0)) return null;
+  const cx = (v: number, max: number) => Math.min(1, Math.max(0, v / max));
+  const bx = cx(x0, scene.width);
+  const by = cx(y0, scene.height);
+  return { x: bx, y: by, width: cx(x1, scene.width) - bx, height: cx(y1, scene.height) - by };
+}

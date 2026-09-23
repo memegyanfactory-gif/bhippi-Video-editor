@@ -2,6 +2,7 @@
 // The project model mirrors src-tauri/src/project.rs — read its module doc for the conventions.
 
 import type { BrandKitDoc } from './brandKit/types';
+import type { MotionScene } from '../motion/types';
 
 export type Preset = 'title' | 'kinetic' | 'lower-third' | 'caption';
 export type SfxKind = 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser';
@@ -78,7 +79,9 @@ export type ClipSource =
   | { type: 'sfx'; kind: SfxKind }
   | { type: 'shape'; shape: ShapeKind; sides: number; fill: string | null; stroke: string | null; strokeWidth: number; width: number; height: number; cornerRadius: number }
   | { type: 'html'; html: string; css?: string; js?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number } }
-  | { type: 'scene3d'; scene: any; title?: string };
+  | { type: 'scene3d'; scene: any; title?: string }
+  /** A GPU motion scene (src/motion): AE-style layers, camera, mattes, effects. Export overlays `frames`. */
+  | { type: 'motion'; scene: MotionScene; title?: string; frames?: { dir: string; fps: number; frames: number; width: number; height: number } };
 
 export type Clip = {
   id: string;
@@ -550,7 +553,7 @@ export type Settings = {
   projectPath: string | null;
 };
 
-export type PanelId = 'chat' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools';
+export type PanelId = 'chat' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools';
 
 export type MeterPrefs = {
   range: 120 | 96 | 72 | 60 | 48 | 24;
@@ -561,6 +564,8 @@ export type MeterPrefs = {
 
 export type WorkspaceLayout = {
   chatWidth: number;
+  /** The Transcription panel beside the chat. */
+  transcriptWidth: number;
   topHeight: number;
   sourceWidth: number;
   propertiesWidth: number;

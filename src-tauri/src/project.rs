@@ -420,6 +420,16 @@ pub enum ClipSource {
         #[serde(default)]
         frames: Option<HtmlFrames>,
     },
+    /// A GPU motion scene (src/motion in the frontend): After Effects-style layers, cameras,
+    /// mattes and effects. Only the frontend can draw it; the export overlays the PNG sequence
+    /// the frontend rendered into `frames` and draws nothing without one.
+    Motion {
+        scene: serde_json::Value,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        frames: Option<HtmlFrames>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1114,7 +1124,7 @@ impl Project {
                             pending.push(child);
                         }
                     }
-                    ClipSource::Item { .. } | ClipSource::Text { .. } | ClipSource::Sfx { .. } | ClipSource::Shape { .. } | ClipSource::Html { .. } => {}
+                    ClipSource::Item { .. } | ClipSource::Text { .. } | ClipSource::Sfx { .. } | ClipSource::Shape { .. } | ClipSource::Html { .. } | ClipSource::Motion { .. } => {}
                 }
             }
         }
@@ -1224,7 +1234,7 @@ fn validate_comp(comp: &Comp, comp_ids: &HashSet<&str>, item_ids: &HashSet<&str>
                     return Err(format!("a shape in \"{name}\" has invalid settings"));
                 }
             }
-            ClipSource::Html { .. } => {
+            ClipSource::Html { .. } | ClipSource::Motion { .. } => {
                 video_only()?;
             }
         }

@@ -5,6 +5,7 @@
 // step with the playhead.
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import { beep, ClipChain, startTone } from '../lib/audio';
+import { registerClock } from '../lib/masterClock';
 import { acquireMedia, releaseMedia } from '../lib/mediaPool';
 import { cssFilter, placement } from '../lib/editor';
 import { computeAppliedEffects } from '../lib/effectFilters';
@@ -17,6 +18,7 @@ import type { Asset, Clip, Comp, Mask, Project, ProjectItem, Transition } from '
 import { TextLayer } from './Overlay';
 import { RotoPreview } from './RotoPreview';
 import { HtmlMotionLayer } from './HtmlMotionLayer';
+import { MotionLayer } from './MotionLayer';
 
 /** What the webview should load for an asset: its preview proxy when one exists. */
 export const mediaSrc = (asset: Asset | undefined) => (asset ? fileSrc(asset.proxy ?? asset.path) : '');
@@ -26,6 +28,25 @@ export const canPreview = (asset: Asset | undefined) =>
 
 /** Clips this far ahead get their media element early so cuts land on the right frame. */
 const PRELOAD = 1.5;
+/** Picture within this of the playhead (about one frame) is left alone. */
+const VIDEO_IN_SYNC = 0.03;
+/** The most a drifting picture runs fast or slow to catch up: 12%, invisible at normal speed. */
+const VIDEO_NUDGE = 0.12;
+/** Picture further out than this is seeked instead: nudging would take too long. */
+const VIDEO_RESEEK = 0.5;
+/**
+ * How long before its cut an upcoming clip's picture starts running, hidden. A video element takes
+ * a few hundred milliseconds to get going after play() (measured ~330 ms on a 1080p H.264 talking
+ * head decoded three times over); started at the cut it showed up that far behind its own sound.
+ */
+const RUN_UP = 1;
+/** While hidden in its run-up the picture may correct hard: nobody sees it run fast. */
+const HIDDEN_NUDGE = 0.5;
+const HIDDEN_RESEEK = 0.25;
+/** Sound within this of the playhead is left alone. */
+const AUDIO_IN_SYNC = 0.02;
+/** The most sound runs fast or slow to catch up, pitch preserved: 4% is not heard as a change. */
+const AUDIO_NUDGE = 0.04;
 const MAX_DEPTH = 6;
 
 type Frame = {
@@ -75,6 +96,34 @@ function continuesPrevious(comp: Comp, clip: Clip): boolean {
     && Math.abs(previous.speed - clip.speed) < 1e-6
     && Math.abs(previous.in + previous.duration * previous.speed - clip.in) < 0.05;
 }
+
+/**
+ * When a clip first appears: its start, or earlier when a transition in borrows handles from before
+ * it. Preroll, run-up and parking all count from here — counting from the start left a clip that
+ * appears early through a dissolve to be picked up cold, mid-transition, a third of a second behind
+ * its sound.
+ */
+function appearsAt(comp: Comp, clip: Clip): number {
+  let at = clip.start;
+  for (const transition of comp.transitions) {
+    if (transition.toClip !== clip.id) continue;
+    const window = transitionWindow(comp, transition);
+    if (window) at = Math.min(at, window.start);
+  }
+  return at;
+}
+
+/** Whether a transition joins this clip to the one before it (each then needs its own element). */
+const joinedByTransition = (comp: Comp, clip: Clip) => comp.transitions.some((transition) => transition.toClip === clip.id && !!transition.fromClip);
+
+/** Whether `clip` should have its media element ready (and parked) because it appears soon. */
+function upcomingAt(comp: Comp, clip: Clip, time: number): boolean {
+  const appears = appearsAt(comp, clip);
+  return appears > time && appears - time < PRELOAD && (!continuesPrevious(comp, clip) || joinedByTransition(comp, clip));
+}
+
+/** The source time a clip is at the moment it appears. */
+const sourceWhenAppearing = (comp: Comp, clip: Clip) => Math.max(0, sourceTimeAt(clip, clip.start) + (appearsAt(comp, clip) - clip.start) * clip.speed);
 
 function activeAt(comp: Comp, clip: Clip, time: number): boolean {
   if (time >= clip.start && time < clipEnd(clip)) return true;
@@ -153,17 +202,26 @@ function maskStyle(mask: Mask | null, boxW: number, boxH: number, stageH: number
 }
 
 /**
+ * How an element reports to the master clock (lib/masterClock.ts): `time` is the timeline time
+ * this render put it at, `speed` the clip's speed (source seconds per timeline second), and `live`
+ * whether it is on the top-level timeline and meant to be playing right now. Audio outranks picture.
+ */
+type ClockRole = { priority: number; time: number; speed: number; live: boolean };
+
+/**
  * A media element held at `sourceTime`: it plays along while the program plays and seeks while it
  * does not. The element comes from the pool, so the clip after a cut inherits the one already
  * running — see lib/mediaPool.ts for why that matters.
  */
-function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', src: string, sourceTime: number, sync: (element: T) => void) {
+function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', src: string, sourceTime: number, sync: (element: T) => void, clock?: ClockRole) {
   const holder = useRef<HTMLDivElement>(null);
   const element = useRef<T | null>(null);
   const target = useRef(sourceTime);
   const latest = useRef(sync);
+  const role = useRef(clock);
   target.current = sourceTime;
   latest.current = sync;
+  role.current = clock;
 
   useLayoutEffect(() => {
     const media = acquireMedia(kind, src) as T;
@@ -183,23 +241,45 @@ function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', sr
       }
     };
 
+    // A parked element lands on its frame. A playing one — handed straight over at a plain cut —
+    // is seeked only when it is well out: a few frames are taken up by the drift correction in the
+    // sync callback, and seeking it would stall the very element the pool kept running.
     const lineUp = () => {
-      if (media.readyState >= 1 && !media.seeking && Math.abs(media.currentTime - target.current) > 0.04) {
+      if (media.readyState >= 1 && !media.seeking && Math.abs(media.currentTime - target.current) > (media.paused ? 0.04 : VIDEO_RESEEK)) {
         performSeek(target.current);
       }
       latest.current(media);
     };
 
+    // Lands a parked element exactly on its frame after a seek that came up short. Only while
+    // parked: a playing element's target moves on during the seek itself (60–140 ms), so it always
+    // "came up short", re-seeked, came up short again — a seek every ~100 ms that never ended, and
+    // every one of them flushed the decoder. Jump cuts started it; pausing was the only way out.
+    // While playing, the drift checks in the sync callbacks keep the element in step instead.
     const onSeeked = () => {
+      if (!media.paused) return;
       if (media.readyState >= 1 && Math.abs(media.currentTime - target.current) > 0.04) {
         performSeek(target.current);
       }
     };
 
+    // The timeline time this element's position stands for, measured from where the last render
+    // put it: the playhead follows it, so it can never run ahead of the media.
+    const unregister = registerClock(() => {
+      const current = role.current;
+      if (!current?.live || media.ended) return null;
+      if (Number.isFinite(media.duration) && target.current >= media.duration - 0.05) return null;
+      if (media.paused || media.seeking || media.readyState < 3) return { priority: current.priority, starting: true };
+      // By the clip's speed, not the element's playbackRate: that also carries the small drift
+      // correction below, which is not the timeline moving.
+      return { priority: current.priority, time: current.time + (media.currentTime - target.current) / Math.max(1e-6, current.speed) };
+    });
+
     if (media.readyState >= 1) lineUp();
     media.addEventListener('loadedmetadata', lineUp);
     media.addEventListener('seeked', onSeeked);
     return () => {
+      unregister();
       media.removeEventListener('loadedmetadata', lineUp);
       media.removeEventListener('seeked', onSeeked);
       element.current = null;
@@ -215,17 +295,22 @@ function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', sr
   return holder;
 }
 
-function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, clip, at = 0, fps = 30, quality = 1 }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; clip?: Clip; at?: number; fps?: number; quality?: number }) {
+function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, clip, at = 0, fps = 30, quality = 1, clock, hidden = false }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; clip?: Clip; at?: number; fps?: number; quality?: number; clock?: ClockRole; hidden?: boolean }) {
   const holder = useMediaElement<HTMLVideoElement>('video', src, sourceTime, (video) => {
     if (playing && rate > 0 && !frozen) {
-      const playbackRate = Math.min(16, Math.max(0.0625, rate * speed));
+      // Small drift is taken up by running slightly fast or slow; only a large one is seeked, since
+      // a seek on a playing element flushes its decoder and stalls it — which is drift of its own.
+      const drift = sourceTime - video.currentTime;
+      const nudge = hidden ? HIDDEN_NUDGE : VIDEO_NUDGE;
+      const catchUp = Math.abs(drift) < VIDEO_IN_SYNC ? 0 : Math.max(-nudge, Math.min(nudge, drift * (hidden ? 2 : 0.5)));
+      const playbackRate = Math.min(16, Math.max(0.0625, rate * speed * (1 + catchUp)));
       if (Math.abs(video.playbackRate - playbackRate) > 1e-3) video.playbackRate = playbackRate;
       // Resync only on real drift. Seeking a *playing* element flushes its decoder and re-decodes
       // from the last keyframe — a stall of its own — so at 80 ms any hiccup seeked the video,
       // the seek stalled it further, and the next tick seeked again: the lag fed itself. The
       // audio elements were already at 340 ms for the same reason; 200 ms (~6 frames) is tight
       // enough to keep picture and sound together and loose enough not to chase every hitch.
-      if (!video.seeking && Math.abs(video.currentTime - sourceTime) > 0.2) video.currentTime = sourceTime;
+      if (!video.seeking && Math.abs(drift) > (hidden ? HIDDEN_RESEEK : VIDEO_RESEEK)) video.currentTime = sourceTime;
       if (video.paused) void video.play().catch(() => undefined);
     } else {
       if (!video.paused) video.pause();
@@ -241,7 +326,7 @@ function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, cl
         }
       }
     }
-  });
+  }, clock);
   return <><div ref={holder} className="layer-media" style={matte ? { visibility: 'hidden' } : undefined} />{matte && <RotoPreview matte={matte} sourceTime={sourceTime} video={holder} corrections={clip?.rotoCorrections ?? []} at={at} fps={fps} quality={quality} />}</>;
 }
 
@@ -300,7 +385,20 @@ type LayerProps = Frame & { comp: Comp; clip: Clip; time: number; stageW: number
 
 function Layer(props: LayerProps) {
   const { project, assets, comp, clip, time, stageW, stageH, depth, state, visible, playing, rate, zIndex } = props;
-  const sourceTime = sourceTimeAt(clip, time) + (time < clip.start ? (time - clip.start) * clip.speed : time > clipEnd(clip) ? (time - clipEnd(clip)) * clip.speed : 0);
+  // A clip that is only being prerolled waits on its first frame, so it starts playing from where
+  // it already is. Tracking where it "would be" meant a paused seek every tick while it waited and,
+  // at the cut, an element half a second short that had to be seeked while playing — a stall at
+  // every jump cut. Transition handles are the exception: there the clip is on screen early.
+  // In the last RUN_UP seconds before its cut the picture runs, hidden, from just before its in
+  // point, so it is already moving and in phase when it appears (see RUN_UP). It needs that much
+  // source before the in point; a clip starting near the top of its file stays parked.
+  const appears = appearsAt(comp, clip);
+  const firstFrame = sourceWhenAppearing(comp, clip);
+  const runUp = !visible && playing && rate > 0 && clip.source.type === 'media' && clip.hold === null && !clip.reverse
+    && time < appears && time >= appears - RUN_UP && firstFrame >= RUN_UP * clip.speed;
+  const sourceTime = visible || runUp
+    ? sourceTimeAt(clip, time) + (time < clip.start ? (time - clip.start) * clip.speed : time > clipEnd(clip) ? (time - clipEnd(clip)) * clip.speed : 0)
+    : firstFrame;
   const clampedSource = Math.max(0, sourceTime);
   const t = clip.transform;
   // Text is drawn by libass on export, which cannot follow our curves, so its keyframed
@@ -395,6 +493,16 @@ function Layer(props: LayerProps) {
         </div>
       );
     }
+    case 'motion': {
+      // Scene time: clip-local seconds through the clip's in point and speed, held on its last frame.
+      const sceneTime = Math.max(0, Math.min(clip.source.scene.duration - 1e-3, sourceTimeAt(clip, Math.min(time, clipEnd(clip) - 1e-3))));
+      return (
+        <div className="layer motion-layer" data-clip-id={depth === 0 ? clip.id : undefined}
+          style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden }}>
+          {visible && <MotionLayer scene={clip.source.scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} />}
+        </div>
+      );
+    }
     case 'sfx':
       return null;
     default: {
@@ -408,7 +516,7 @@ function Layer(props: LayerProps) {
         if (!asset || asset.missing || props.offline.has(clip.source.assetId)) picture = <div className="layer-fill offline"><span>Media Offline</span></div>;
         else if (!canPreview(asset)) picture = <div className="layer-fill preparing"><span>{asset.preview === 'failed' ? 'No preview for this format' : 'Preparing preview…'}</span></div>;
         else if (asset.kind === 'image') picture = <img className="layer-media" src={fileSrc(asset.path)} alt="" draggable={false} />;
-        else picture = <VideoElement src={mediaSrc(asset)} sourceTime={clampedSource} playing={playing && visible} rate={rate} speed={clip.speed} frozen={clip.hold !== null || clip.reverse} matte={clip.name?.toLowerCase().includes('background') ? null : clip.rotoMatte} clip={clip} at={time - clip.start} fps={asset.fps ?? comp.fps} quality={props.quality} />;
+        else picture = <VideoElement src={mediaSrc(asset)} sourceTime={clampedSource} playing={playing && (visible || runUp)} hidden={runUp} rate={rate} speed={clip.speed} frozen={clip.hold !== null || clip.reverse} matte={clip.name?.toLowerCase().includes('background') ? null : clip.rotoMatte} clip={clip} at={time - clip.start} fps={asset.fps ?? comp.fps} quality={props.quality} clock={{ priority: 1, time, speed: clip.speed, live: depth === 0 && playing && visible && rate > 0 && clip.hold === null && !clip.reverse }} />;
       } else if (clip.source.type === 'item') {
         const item = project.items.find((entry) => entry.id === (clip.source as { itemId: string }).itemId);
         picture = item ? <ItemPicture item={item} sourceTime={clampedSource} /> : null;
@@ -460,7 +568,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
     for (let clipIdx = 0; clipIdx < trackClips.length; clipIdx++) {
       const clip = trackClips[clipIdx];
       const active = activeAt(comp, clip, time);
-      const upcoming = !active && props.playing && clip.source.type === 'media' && clip.start > time && clip.start - time < PRELOAD && !continuesPrevious(comp, clip);
+      const upcoming = !active && props.playing && clip.source.type === 'media' && upcomingAt(comp, clip, time);
       if (!active && !upcoming) continue;
 
       const clipState = states.get(clip.id);
@@ -530,7 +638,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
 
 // ───────────────────────────── sound ─────────────────────────────
 
-type Voice = { key: string; clip: Clip; comp: Comp; sourceTime: number; gain: number; active: boolean };
+type Voice = { key: string; clip: Clip; comp: Comp; sourceTime: number; gain: number; active: boolean; depth: number };
 
 /** Every audio clip that sounds (or is about to) at `time`, nested comps flattened. */
 function collectVoices(project: Project, comp: Comp, time: number, gain: number, playing: boolean, path: string, depth: number, out: Voice[]) {
@@ -541,7 +649,7 @@ function collectVoices(project: Project, comp: Comp, time: number, gain: number,
     for (const clip of comp.clips) {
       if (clip.trackId !== track.id || !clip.enabled || clip.hold !== null) continue;
       const active = activeAt(comp, clip, time);
-      const upcoming = playing && clip.start > time && clip.start - time < PRELOAD && !continuesPrevious(comp, clip);
+      const upcoming = !active && playing && upcomingAt(comp, clip, time);
       if (!active && !upcoming) continue;
       const state = states.get(clip.id);
       let fade = 1;
@@ -549,20 +657,21 @@ function collectVoices(project: Project, comp: Comp, time: number, gain: number,
         const toward = state.role === 'in' ? state.progress : 1 - state.progress;
         fade = state.transition.kind === 'constant-gain' ? toward : state.transition.kind === 'exponential-fade' ? toward * toward : Math.sin((toward * Math.PI) / 2);
       }
+      // Prerolled sound waits on its first frame, like the picture (see Layer).
       const offset = time < clip.start ? (time - clip.start) * clip.speed : time > clipEnd(clip) ? (time - clipEnd(clip)) * clip.speed : 0;
-      const sourceTime = Math.max(0, sourceTimeAt(clip, time) + offset);
+      const sourceTime = active ? Math.max(0, sourceTimeAt(clip, time) + offset) : sourceWhenAppearing(comp, clip);
       const level = gain * fade * animated(clip, 'volume', time, clip.volume);
       if (clip.source.type === 'comp') {
         const child = project.comps.find((entry) => entry.id === (clip.source as { compId: string }).compId);
         if (child && active) collectVoices(project, child, sourceTime, level, playing, `${path}/${clip.id}`, depth + 1, out);
         continue;
       }
-      out.push({ key: `${path}/${clip.id}`, clip, comp, sourceTime, gain: level, active });
+      out.push({ key: `${path}/${clip.id}`, clip, comp, sourceTime, gain: level, active, depth });
     }
   }
 }
 
-function MediaVoice({ src, voice, playing, rate }: { src: string; voice: Voice; playing: boolean; rate: number }) {
+function MediaVoice({ src, voice, playing, rate, time }: { src: string; voice: Voice; playing: boolean; rate: number; time: number }) {
   const { clip } = voice;
   // Pooled like the picture: the audio graph node an element owns is kept with it, so a cut no
   // longer rebuilds the chain — that rebuild was an audible gap at every edit point.
@@ -570,16 +679,22 @@ function MediaVoice({ src, voice, playing, rate }: { src: string; voice: Voice; 
     const chain = ClipChain.for(element);
     chain?.configure({ channels: clip.channels, enhance: clip.enhanceSpeech, gain: voice.active ? voice.gain : 0 });
     if (playing && rate > 0 && voice.active && !clip.reverse) {
-      const playbackRate = Math.min(16, Math.max(0.0625, rate * clip.speed));
-      element.preservesPitch = clip.maintainPitch;
+      // Drift is taken up the way the picture's is (see VideoElement), more gently: every track
+      // converges on the playhead, so a talking head's picture and its own sound stay together.
+      const drift = voice.sourceTime - element.currentTime;
+      const catchUp = Math.abs(drift) < AUDIO_IN_SYNC ? 0 : Math.max(-AUDIO_NUDGE, Math.min(AUDIO_NUDGE, drift * 0.5));
+      const playbackRate = Math.min(16, Math.max(0.0625, rate * clip.speed * (1 + catchUp)));
+      // At normal speed pitch is always kept, so a correction never bends it; off speed it follows
+      // the clip's Maintain Audio Pitch setting.
+      element.preservesPitch = clip.speed === 1 ? true : clip.maintainPitch;
       if (Math.abs(element.playbackRate - playbackRate) > 1e-3) element.playbackRate = playbackRate;
-      if (!element.seeking && Math.abs(element.currentTime - voice.sourceTime) > 0.34) element.currentTime = voice.sourceTime;
+      if (!element.seeking && Math.abs(drift) > 0.34) element.currentTime = voice.sourceTime;
       if (element.paused) void element.play().catch(() => undefined);
     } else {
       if (!element.paused) element.pause();
       if (!element.seeking && Math.abs(element.currentTime - voice.sourceTime) > 0.05) element.currentTime = voice.sourceTime;
     }
-  });
+  }, { priority: 2, time, speed: clip.speed, live: voice.depth === 0 && playing && rate > 0 && voice.active && !clip.reverse });
   return <div ref={holder} className="layer-voice" />;
 }
 
@@ -618,9 +733,9 @@ export function CompAudio({ project, assets, comp, time, playing, rate, offline 
         if (source.type === 'media') {
           const asset = assets.get(source.assetId);
           if (!asset || asset.missing || offline.has(source.assetId) || !canPreview(asset)) return null;
-          return <MediaVoice key={voice.key} src={mediaSrc(asset)} voice={voice} playing={playing} rate={rate} />;
+          return <MediaVoice key={voice.key} src={mediaSrc(asset)} voice={voice} playing={playing} rate={rate} time={time} />;
         }
-        if (source.type === 'sfx') return <MediaVoice key={voice.key} src={sfxSrc(source.kind)} voice={voice} playing={playing} rate={rate} />;
+        if (source.type === 'sfx') return <MediaVoice key={voice.key} src={sfxSrc(source.kind)} voice={voice} playing={playing} rate={rate} time={time} />;
         if (source.type === 'item') {
           const item = project.items.find((entry) => entry.id === source.itemId);
           if (item?.kind === 'bars-and-tone') return <ToneVoice key={voice.key} voice={voice} playing={playing} />;

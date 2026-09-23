@@ -20,7 +20,8 @@ import {
 import type { Asset, Clip, ClipSource, Comp, Project, Tool, Track, Transition } from '../lib/types';
 import { ClipWave } from './ClipWave';
 
-export const HEAD = 196;
+/** Width of the track-head column. The CSS reads it as --tl-head (set on the scroll area). */
+export const HEAD = 150;
 // The backend tiles twelve frames into each filmstrip (library.rs, `tile=12x1`).
 const FILMSTRIP_FRAMES = 12;
 const RULER = 34;
@@ -992,7 +993,7 @@ export function Timeline(props: Props) {
       <div
         className="tl-scroll"
         ref={scrollRef}
-        style={{ cursor }}
+        style={{ cursor, ['--tl-head' as string]: `${HEAD}px` }}
         onScroll={(event) => {
           const { scrollLeft, scrollTop } = event.currentTarget;
           setView((current) => (current.left === scrollLeft && current.top === scrollTop ? current : { ...current, left: scrollLeft, top: scrollTop }));
@@ -1049,7 +1050,9 @@ export function Timeline(props: Props) {
             onCapture={(event) => capture(event, { kind: 'playhead' })}
           />
 
-          <div className="tl-heads" style={{ height: Math.max(rows.height, view.height), transform: `translateX(${view.left}px)` }}>
+          {/* Pinned by CSS (position: sticky), not by a transform from scroll state: that one ran a
+              frame behind every scroll, so zooming with + / - showed the heads jump and snap back. */}
+          <div className="tl-heads" style={{ height: Math.max(rows.height, view.height) }}>
             {rows.video.map(header)}
             <div className="tl-head-divider" style={{ top: rows.divider }} />
             {rows.audio.map(header)}

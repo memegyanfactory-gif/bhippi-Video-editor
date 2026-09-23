@@ -1,5 +1,6 @@
 // The Project panel: comps, folders, generated items and imported media, with Premiere's icon and
 // list views — plus the Effects, Graphics and Audio tabs you drag onto the timeline.
+import { renderHtmlCompStill } from '../lib/htmlFrames';
 import {
   AudioLines, Captions, ChevronDown, ChevronRight, Clapperboard, Folder, FolderOpen, Grid2x2, Image as ImageIcon, LayoutTemplate, List, LoaderCircle, Play, Plus, RotateCw, Search, SlidersHorizontal, Trash2,
   TriangleAlert, Type, Upload, Video,
@@ -17,6 +18,7 @@ import type { Asset, ClipSource, Comp, FxSnapshot, ItemKind, Preset, Project, Pr
 import { AVAILABLE_EFFECTS as ALL_EFFECTS, type EffectDefinition } from '../lib/effectsCatalog';
 import { FXConsolePanel } from './FXConsolePanel';
 import { SubtitleTab } from './SubtitleTab';
+import { MotionTemplates } from './MotionTemplates';
 
 export type EffectPreset = EffectDefinition;
 
@@ -172,6 +174,15 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
   // stale poster stays until its refresh button is pressed.
   const refreshPoster = (compId: string) => {
     posterDone.current.add(compId);
+    const comp = history.current().comps.find((entry) => entry.id === compId);
+    // A motion-graphic comp (HTML only) is drawn here, as the preview draws it: the FFmpeg poster
+    // has no frames for HTML and rendered those cards black.
+    if (comp && comp.clips.some((clip) => clip.source.type === 'html') && !comp.clips.some((clip) => clip.source.type === 'media')) {
+      void renderHtmlCompStill(comp)
+        .then((still) => { if (still) setPosters((current) => ({ ...current, [compId]: still })); })
+        .catch(() => undefined);
+      return;
+    }
     void api.compPoster(history.current(), compId)
       .then((path) => setPosters((current) => ({ ...current, [compId]: path })))
       .catch(() => undefined);
@@ -456,7 +467,7 @@ export function EntryThumb({ entry, poster, onPoster }: { entry: BinEntry; poste
     return (
       <div className="tile-comp">
         {poster ? (
-          <img src={fileSrc(poster)} alt="" draggable={false} className="tile-poster" />
+          <img src={poster.startsWith('data:') ? poster : fileSrc(poster)} alt="" draggable={false} className="tile-poster" />
         ) : (
           <>
             <Clapperboard size={20} />
@@ -515,7 +526,7 @@ const PRESETS: { preset: Preset; hint: string }[] = [
   { preset: 'caption', hint: 'Subtitle line in the caption style' },
 ];
 
-function GraphicsTab({ project, clipSelection, onAddText, onCaptionStyle, onImportCaptions }: Props) {
+function GraphicsTab({ project, assets, history, clipSelection, onAddText, onCaptionStyle, onImportCaptions }: Props) {
   const toast = useToast();
   const [category, setCategory] = useState('All');
   const [query, setQuery] = useState('');
@@ -547,6 +558,7 @@ function GraphicsTab({ project, clipSelection, onAddText, onCaptionStyle, onImpo
           ))}
         </div>
       </div>
+      <MotionTemplates history={history} assets={assets} clipSelection={clipSelection} />
       <div className="effects-section grow">
         <div className="effects-title">
           Caption styles <span className="muted">· from WatchFIWN</span>

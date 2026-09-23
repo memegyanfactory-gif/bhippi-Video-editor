@@ -6,6 +6,8 @@ import { MenuList } from '../components/workspace';
 import { clamp, parseTimecode, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
 import { setKey, shape } from '../lib/keyframes';
+import { resumeAudio } from '../lib/audio';
+import { readClocks, stepPlayhead } from '../lib/masterClock';
 import { playhead, usePlayhead, usePlaying, useRate } from '../lib/playhead';
 import { compDuration, freeTrack, newClip, placeClips, textSource, updateComp, type AssetMap } from '../lib/timeline';
 import type { Clip, Comp, KeyframedProperty, Mask, Project, Tool, RotoCorrection } from '../lib/types';
@@ -118,12 +120,17 @@ export function ProgramMonitor(props: Props) {
     ? (bgPalette.length === 1 ? bgPalette[0] : `linear-gradient(135deg, ${bgPalette.join(', ')})`)
     : undefined;
 
-  // Playback: a wall clock drives the playhead; media elements follow it.
+  // Playback: the media drives the playhead (lib/masterClock.ts); a wall clock only fills in where
+  // there is no media playing, and media elements that are not the clock follow the playhead.
   useEffect(() => {
     if (!playing) return;
+    // Every way into playback lands here, and it follows a click or key, so the audio context may
+    // start now even if it was created (suspended) before the user did anything.
+    resumeAudio();
     let frame = 0;
     let last = performance.now();
     let carry = 0;
+    let held = 0;
     // Video elements are their own high precision clock. Updating the React playhead at
     // 30 fps is enough for overlays and the timeline while avoiding a full compositor
     // reconciliation on every display refresh (which caused playback to collapse to ~2 fps
@@ -145,7 +152,9 @@ export function ProgramMonitor(props: Props) {
       const loopEnd = current.outPoint !== null && current.outPoint > loopStart ? current.outPoint : end;
       const elapsed = carry;
       carry = 0;
-      let next = playhead.get() + elapsed * speed;
+      const step = stepPlayhead(playhead.get(), elapsed, speed, held, readClocks());
+      held = step.held;
+      let next = step.next;
       if (speed > 0 && next >= (loopRef.current ? loopEnd : end)) {
         if (loopRef.current && loopEnd > loopStart) next = loopStart;
         else {

@@ -3354,7 +3354,7 @@
     },
     {
       "name": "create_custom_tool",
-      "description": "Create and persistently save a new custom AI editing tool or macro recipe. When you encounter a specific issue, repetitive task, or novel composite edit, invent a reusable tool with parameter definitions and an opsTemplate. The tool is saved to disk and can be called immediately or in future sessions by any AI model.",
+      "description": "Create and permanently save a new tool when Helios has none for the job — never give up or fake a result because a tool is missing. Two kinds: opsTemplate (timeline edit operations, applied as one undo step) or steps (calls to any Helios tools, including run_command for FFmpeg or a script — this builds capabilities Helios does not have). The tool is saved to disk, listed to every AI model on every turn (context.customTools), and runs with call_custom_tool. Test it right away: call_custom_tool with preview: true, then for real; fix it with update_custom_tool if a step fails.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -3408,7 +3408,7 @@
           },
           "opsTemplate": {
             "type": "array",
-            "description": "Array of edit operations (Ops) with $param or ${param} variable substitutions",
+            "description": "Timeline tool: array of edit operations (the apply_edit Ops) with $param or ${param} substitutions. Give this or steps, not both.",
             "items": {
               "type": "object"
             }
@@ -3416,12 +3416,43 @@
           "promptGuide": {
             "type": "string",
             "description": "Usage guidance for other AI models"
+          },
+          "steps": {
+            "type": "array",
+            "description": "Use instead of opsTemplate when the job needs more than timeline edits — i.e. when Helios has no tool for it. An ordered list of calls to any Helios tool, e.g. run_command (FFmpeg, a Python or PowerShell script), import_media, place_clip, add_captions, apply_edit, call_custom_tool. Each step is { \"tool\": name, \"args\": {…}, \"as\"?: name, \"continueOnError\"?: bool, \"about\"?: text }. Args are templated: $param or ${param} (the tool's params), ${q:param} (shell-quoted, for run_command), $prev.<path> / $steps.<as>.<path> (an earlier step's result, e.g. $prev.stdout, $steps.imported.assets.0.id), $workDir (a folder Helios lets tools write to), $ffmpeg (Helios's FFmpeg), $runId (unique per run, for file names), $compId, $compDuration, $fps. Steps run in order and stop at the first failure.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string",
+                  "description": "Name of the Helios tool this step calls"
+                },
+                "args": {
+                  "type": "object",
+                  "description": "Arguments for that tool, templated as described above"
+                },
+                "as": {
+                  "type": "string",
+                  "description": "Name for this step's result, for later steps"
+                },
+                "continueOnError": {
+                  "type": "boolean",
+                  "description": "Keep going if this step fails"
+                },
+                "about": {
+                  "type": "string",
+                  "description": "What this step is for"
+                }
+              },
+              "required": [
+                "tool"
+              ]
+            }
           }
         },
         "required": [
           "name",
-          "description",
-          "opsTemplate"
+          "description"
         ],
         "additionalProperties": false
       }
@@ -3442,7 +3473,7 @@
     },
     {
       "name": "call_custom_tool",
-      "description": "Execute a saved custom AI editing tool by name with arguments. Applies the tool's operations to the timeline in one clean undo step.",
+      "description": "Run a saved custom tool by name. A timeline tool applies its edits as one undo step; a steps tool makes its calls in order and reports each one. preview: true shows the edit diff (timeline tool) or the calls it would make (steps tool) without running anything.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -3456,7 +3487,7 @@
           },
           "preview": {
             "type": "boolean",
-            "description": "Set to true to preview timeline diff without applying"
+            "description": "Show what the tool would do without doing it"
           },
           "compId": {
             "type": "string",
@@ -3496,6 +3527,38 @@
           },
           "promptGuide": {
             "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "description": "Replacement steps (turns the tool into a steps tool). Same format as in create_custom_tool.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string",
+                  "description": "Name of the Helios tool this step calls"
+                },
+                "args": {
+                  "type": "object",
+                  "description": "Arguments for that tool, templated as described above"
+                },
+                "as": {
+                  "type": "string",
+                  "description": "Name for this step's result, for later steps"
+                },
+                "continueOnError": {
+                  "type": "boolean",
+                  "description": "Keep going if this step fails"
+                },
+                "about": {
+                  "type": "string",
+                  "description": "What this step is for"
+                }
+              },
+              "required": [
+                "tool"
+              ]
+            }
           }
         },
         "required": [
@@ -3995,6 +4058,62 @@
               "uiverse"
             ],
             "description": "Filter by the web library the piece was rebuilt from."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "remotion_kit",
+      "description": "Browse the Remotion Kit marketplace (remotion-kit.com/marketplace), 290 ready-made motion presets scraped into Helios as design briefs: intros, titles, lower thirds, charts, maps, CTAs, social callouts, outros, transitions and full scenes. Each preset has its look (tags), placeholder copy, palette, fonts, timing, format (16:9 or vertical) and preview links. Their Remotion source is not public, so describe returns a rebuild plan: the Helios template that recreates it plus a ready-to-adapt create_motion_graphic call. Use it when you want a proven idea for a graphic (\"a cinematic map zoom\", \"kinetic intro\", \"bar chart race\") before building one. action \"list\" (filter by category, orientation, query words) returns id, name, format and what it is; \"search\" is list with a query; \"describe\" with id returns the full brief and rebuild plan. Read-only, allowed in every phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "describe",
+              "search"
+            ],
+            "description": "What to do (default list; describe when id is given)."
+          },
+          "id": {
+            "type": "string",
+            "description": "Preset id or name for describe (e.g. kinetic-typography, number-counter)."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "intro",
+              "title",
+              "lower-third",
+              "chart",
+              "map",
+              "cta",
+              "social",
+              "outro",
+              "transition",
+              "full"
+            ],
+            "description": "Filter for list."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "landscape",
+              "vertical",
+              "square"
+            ],
+            "description": "Filter for list by the preset's format."
+          },
+          "query": {
+            "type": "string",
+            "description": "Words matched against names, tags and descriptions (e.g. \"glitch\", \"map zoom\", \"bar chart\", \"documentary title\")."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results for list/search (default 40)."
           }
         },
         "additionalProperties": false
@@ -4609,6 +4728,45 @@
       }
     },
     {
+      "name": "organize_bin",
+      "description": "File every loose Project-bin entry into its category folder: Footage, B-roll, Motion Graphics ([MOGRT] and graphics-only comps), Generated, Backgrounds, Images, Music, SFX, Voice-over, Audio, Graphics. Reuses existing folders with matching names. Entries already in a folder are left alone. Anything you import, download, generate or build is filed automatically; use this to tidy a bin that was filled before.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "fill_background",
+      "description": "Put a background behind picture that no longer fills the frame — a shot scaled down (\"zoom out\"), moved aside, cropped, rotated, or a vertical clip in a wide comp — which otherwise renders black at the edges. Finds every such span itself (or only those in start–end) and places the background on a track under the shot, adding one below it if needed. source 'auto' (default): a background from the project library (an image or video whose name or bin says bg, background, backdrop, plate, texture or wallpaper), otherwise a blurred, darkened, full-frame copy of the same shot, otherwise a colour matte in the plan palette. Edit results warn when a change leaves black edges; call this then.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string",
+            "description": "Comp to fix (defaults to the active comp)"
+          },
+          "start": {
+            "type": "number",
+            "description": "Only fill from this time (seconds)"
+          },
+          "end": {
+            "type": "number",
+            "description": "Only fill up to this time (seconds)"
+          },
+          "source": {
+            "type": "string",
+            "description": "'auto' (library, then blurred shot, then colour), 'blur', 'color', or an asset id from the library"
+          },
+          "color": {
+            "type": "string",
+            "description": "Hex colour for source 'color' (defaults to the plan palette)"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "layout_clip",
       "description": "Reframes footage with a weighted, exporting move: presenter to the left/right 55% (slot left-55 / right-55) so a side-panel or teaching-card can take the other side, picture-in-picture corners (pip-bottom-right …), centre-small, or back to full. Animates scale/x/y with ease-out over `duration` seconds starting at `at`, and optionally returns at `until`.",
       "input_schema": {
@@ -4819,7 +4977,7 @@
     },
     {
       "name": "reveal_subject",
-      "description": "A reveal moment on the rotoscoped subject layer: it fades and settles in over `duration` seconds (opacity + 4% scale, ease-out) while, for style cubes, a Crimson grid of tiles falls away top to bottom above it. Both parts export.",
+      "description": "A reveal moment on the rotoscoped subject. Default style `cells` (the reference opening): the subject appears out of the clean plate through hot accent-coloured cells cut from their own roto matte, seeded at the face and cascading down the body, cooling to the real footage — a GPU motion scene placed above the clip (optional `title` words sit behind the subject, `phrase` lands under the face). Legacy styles: `cubes` (a tile grid falls over the frame while the subject fades in) and `wipe`. For the full hook with frame-to-card use create_motion_scene template subject-reveal.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -4829,6 +4987,7 @@
           "style": {
             "type": "string",
             "enum": [
+              "cells",
               "cubes",
               "wipe"
             ]
@@ -4839,12 +4998,278 @@
           },
           "duration": {
             "type": "number",
-            "description": "Seconds (default 1.2)."
+            "description": "Seconds (cells default 2.4; cubes/wipe default 1.2)."
+          },
+          "title": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "cells: up to two words either side of the face, behind the subject."
+          },
+          "phrase": {
+            "type": "string",
+            "description": "cells: a short phrase that lands word by word under the face."
           }
         },
         "required": [
           "clipId"
         ]
+      }
+    },
+    {
+      "name": "list_motion_templates",
+      "description": "Lists the motion-engine templates (After Effects-grade scenes rendered on the GPU, identical in preview and export): id, what it is for, its params and technique ids from the motion master plan (T1…T27). Filter with query. Use before create_motion_scene.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_motion_scene",
+      "description": "Places a GPU motion scene on its own track above the footage: After Effects-style layers with keyframes (bezier eases, expressions), 3D layers and camera, parenting, masks, track mattes, blend modes, motion blur, glow/blur/glass/halation/duotone/pixel-sort/zoom-blur effects, text animators that land word by word, and matte effects cut from a roto matte (subject-reveal, matte-fill). Give a `template` (list_motion_templates) with `params`, or a raw `scene` {version:1,width,height,duration,layers:[…]}. Footage params take {\"clipId\"} of a timeline clip — its asset, source time and roto matte are filled in. subject-reveal/big-number-behind need rotoscope_clip first and use the clean plate from erase_subject_clip when one exists. The scene's sound cues are laid on audio tracks unless sfx is false.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Template params (see list_motion_templates). Footage params: {\"clipId\"} or {\"assetId\"}."
+          },
+          "scene": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "A raw MotionScene instead of a template (src/motion/types.ts vocabulary)."
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds."
+          },
+          "duration": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string"
+          },
+          "accent": {
+            "type": "string",
+            "description": "Accent colour override (hex)."
+          },
+          "sfx": {
+            "type": "boolean",
+            "description": "Lay the scene's sound cues (default true)."
+          },
+          "compId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_motion_scene",
+      "description": "Reads a motion scene clip: layers (id, type, text, effects, animated properties with key times), cues and the template params it was built from. full: true returns the whole scene JSON for precise edits.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "full": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clipId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_motion_scene",
+      "description": "Edits a motion scene clip. params: new template params (the scene is rebuilt from its template, e.g. new words, times, colours). patches: [{layer, path, value}] set any layer property by dotted path — e.g. {layer:\"title-left\",path:\"transform.position\",value:{k:[{t:0,v:[400,300],ease:\"expo-out\"},{t:0.6,v:[480,300]}]}}, {layer:\"subject\",path:\"effects.0.speed\",value:0.8}, value null deletes. addLayers: [layer | {layer, above|below: id}]. removeLayers: [ids]. retime: factor (>1 slower). scene: replace fields of the scene.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "patches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "layer": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "value": {}
+              },
+              "required": [
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "addLayers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "removeLayers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "retime": {
+            "type": "number"
+          },
+          "scene": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "clipId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "analyze_reference_video",
+      "description": "Learns a style from a reference film (\"make my edits like this\"): measures cuts, shot-length histogram, hook density and palette, keeps contact sheets (opening at 4 fps + whole film), and returns the sheets as images for you to study. Then call save_style_profile with what you saw (cadence, look, type, motion grammar, and which motion template each moment maps to). Local path or imported assetId; download URLs first.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "save_style_profile",
+      "description": "Saves a style profile as the project's active guideline (loaded into the AI context for every later turn). profile: prose covering CADENCE (hook density, shot lengths, graphic every N s, chapter device), LOOK (palette, grade, depth), TYPE, MOTION GRAMMAR (eases, exits, motion blur, sound on every event) and a TEMPLATE MAP (moment → motion template). builtin: \"motion-designer-explainer\" loads the measured profile of the reference motion-design explainer (crimson stage, subject reveal hook, hex chapter roadmap, glass teaching cards, word-by-word type).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "builtin": {
+            "type": "string",
+            "enum": [
+              "motion-designer-explainer"
+            ]
+          },
+          "palette": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "track_motion",
+      "description": "Motion-tracks a video clip (OpenCV Lucas-Kanade with forward-backward checks, CPU): `points` [[x, y], ...] as frame fractions at `start`, and/or a `region` [x, y, w, h] for a planar track (position + scale + rotation of a surface such as a face, hand or phone screen). Returns samples in timeline seconds with confidence. With `apply` {motionClipId, layer, point? | planar: true, offset?: [dx, dy] px}, the samples become keyframes on that motion-scene layer so a callout, label or card follows the motion (parent other layers to it for groups).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "region": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds (default clip start)."
+          },
+          "end": {
+            "type": "number"
+          },
+          "fps": {
+            "type": "number",
+            "description": "Tracking rate (default the clip's, max 30)."
+          },
+          "apply": {
+            "type": "object",
+            "properties": {
+              "motionClipId": {
+                "type": "string"
+              },
+              "layer": {
+                "type": "string"
+              },
+              "point": {
+                "type": "number"
+              },
+              "planar": {
+                "type": "boolean"
+              },
+              "offset": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            },
+            "required": [
+              "motionClipId",
+              "layer"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "clipId"
+        ],
+        "additionalProperties": false
       }
     }
   ]

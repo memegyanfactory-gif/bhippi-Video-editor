@@ -1,4 +1,7 @@
 import { makeStickFigure } from './stickFigure';
+import { describeUncovered, newlyUncovered, uncoveredSpans } from './coverage';
+import { fillBackground } from './fillBackground';
+import { binIds, describeMoved, organizeBin } from './binOrganize';
 import { textBehindSubject, mediaBehindSubject } from './behindSubject';
 import { depthOcclusion } from './depth';
 import { scoreEnvelope, type AudioEnvelope } from './audioEnvelope';
@@ -26,6 +29,10 @@ import { evaluateTypedDecision, type TypedQuestion } from './typedDecisions';
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
 import catalog from './ai-tools.json';
+import { MOTION_TOOLS, runMotionTool } from './motionTools';
+import { overlayBox } from '../motion/validate';
+import { defaultSize, evaluateScene } from '../motion/evaluate';
+import { layoutText } from '../motion/text';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
 import type { History } from './history';
 import { api, errorText } from './ipc';
@@ -33,8 +40,8 @@ import { describe as describeDiff, runProgram, type Op, type Program } from './e
 import { buildRecipe, findRecipe, recipeCatalogue, registerCustomRecipe, setCustomRecipes } from './recipes';
 import {
   loadCustomTools, saveCustomTools, createCustomTool, updateCustomTool,
-  substituteTemplate, customToolToRecipe, recordToolUsage,
-  type CustomTool, type CustomToolParam
+  substituteTemplate, customToolToRecipe, recordToolUsage, customToolKind, substituteStepArgs, setCustomToolEnv,
+  type CustomTool, type CustomToolParam, type ToolStep,
 } from './customTools';
 import { EASINGS, EMPTY_KEYFRAMES } from './keyframes';
 import { playhead } from './playhead';
@@ -64,6 +71,14 @@ export type ToolHost = {
   settings?: () => Settings;
   saveSettings?: (next: Settings) => Promise<Settings>;
   turnId?: string;
+  /**
+   * The checks a direct call from the model goes through before it runs — the user's permission
+   * mode and the edit workflow's phase gate — returning why a call is refused, or null. A steps
+   * tool runs each step through this, so saving calls in a tool never gets around them.
+   */
+  guard?: (name: string, args: Record<string, unknown>) => string | null;
+  /** Tells the edit workflow a call ran, as it is told about direct calls. */
+  record?: (name: string, args: Record<string, unknown>, result: ToolResult) => void;
 };
 
 function findOrCreateFolder(
@@ -427,8 +442,113 @@ function attachGathered(host: ToolHost, name: string, args: Args, result: ToolRe
   return attached.attached;
 }
 
+// ── custom tools ───────────────────────────────────────────────────────────
+
+/** Every tool name Helios executes: what a steps tool may call. */
+export const KNOWN_TOOLS: ReadonlySet<string> = new Set((catalog as unknown as { tools: { name: string }[] }).tools.map((tool) => tool.name));
+
+/** Only ops tools become recipes; a steps tool has no edit program to build. */
+const asRecipes = (tools: CustomTool[]) => tools.filter((tool) => customToolKind(tool) === 'ops').map(customToolToRecipe);
+
+/**
+ * Loads the saved tools at startup: ops tools become recipes, and the list is cached so every
+ * turn's context can name them (customToolsBrief). Before this they were only found by a model
+ * that happened to call list_custom_tools — a tool made in one session was invisible in the next.
+ */
+export async function warmCustomTools(env: { dataDir: string; ffmpeg?: string | null }) {
+  const sep = env.dataDir.includes('\\') ? '\\' : '/';
+  setCustomToolEnv({ workDir: `${env.dataDir}${sep}agent-workspace`, ffmpeg: env.ffmpeg, windows: sep === '\\' });
+  const tools = await loadCustomTools();
+  setCustomRecipes(asRecipes(tools));
+  return tools;
+}
+
+/** How deep custom tools may call custom tools, so two that call each other cannot loop forever. */
+const MAX_TOOL_NESTING = 4;
+let toolNesting = 0;
+
+/** A step's result, trimmed for the summary the model reads back. */
+const stepLine = (index: number, step: ToolStep, result: ToolResult) =>
+  `${index + 1}. ${step.tool}${step.about ? ` (${step.about})` : ''}: ${result.ok ? (result.summary ?? 'done').split('\n')[0].slice(0, 220) : `FAILED — ${result.error}`}`;
+
+/**
+ * Runs a steps tool: each call in order through runTool, so every step gets the same checks,
+ * phase rules and plan bookkeeping as a direct call. Stops at the first failure unless the step
+ * says continueOnError.
+ */
+async function runStepsTool(host: ToolHost, tool: CustomTool, params: Record<string, unknown>, comp: Comp | null, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
+  if (toolNesting >= MAX_TOOL_NESTING) return fail(`Custom tools are nested ${MAX_TOOL_NESTING} deep; “${tool.name}” was not run. Check for tools that call each other.`);
+  const steps = tool.steps ?? [];
+  const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const results = { byName: {} as Record<string, unknown>, prev: null as unknown };
+  const lines: string[] = [];
+  toolNesting++;
+  try {
+    for (const [index, step] of steps.entries()) {
+      if (signal?.aborted) return fail(`“${tool.name}” stopped before step ${index + 1}: the AI turn ended.\n${lines.join('\n')}`);
+      const stepArgs = substituteStepArgs(step.args, params, host.history.current().comps.find((c) => c.id === comp?.id) ?? comp, results, runId);
+      const refused = host.guard?.(step.tool, stepArgs) ?? null;
+      const result: ToolResult = refused ? { ok: false, error: `refused — ${refused}` } : await runTool(host, step.tool, stepArgs, signal, turnId);
+      if (!refused) host.record?.(step.tool, stepArgs, result);
+      results.byName[String(index)] = result;
+      if (step.as) results.byName[step.as] = result;
+      results.prev = result;
+      lines.push(stepLine(index, step, result));
+      if (!result.ok && !step.continueOnError) {
+        const summary = `stopped at step ${index + 1} (${step.tool}): ${result.error}`;
+        await recordToolUsage(tool.name, false, summary);
+        return { ok: false, error: `Tool “${tool.name}” ${summary}\nSteps run:\n${lines.join('\n')}\nFix the tool with update_custom_tool, or finish the job with direct calls.`, steps: lines };
+      }
+    }
+  } finally {
+    toolNesting--;
+  }
+  const summary = `${tool.name} ran ${steps.length} step${steps.length === 1 ? '' : 's'}:\n${lines.join('\n')}`;
+  await recordToolUsage(tool.name, true, summary.slice(0, 300));
+  return done(summary, { steps: lines, results: results.byName });
+}
+
+/**
+ * Frames an edit left without a full picture, as a note for the model — "zoom out" on a shot with
+ * nothing behind it renders black at the edges, and nothing else would tell it so.
+ */
+function coverageNote(host: ToolHost, name: string, args: Args, before: Project): string | null {
+  if (name === 'fill_background') return null;
+  const after = host.history.current();
+  if (after === before) return null;
+  const comp = pickComp(after, args);
+  const previous = comp && before.comps.find((entry) => entry.id === comp.id);
+  if (!comp || !previous) return null;
+  try {
+    const assets = host.assets();
+    const fresh = newlyUncovered(uncoveredSpans(before, assets, previous), uncoveredSpans(after, assets, comp));
+    return fresh.length ? describeUncovered(fresh, comp, after, assets) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Files what an AI call just added to the bin (imports, downloads, generations, motion-graphic
+ * comps) into its category folder, so the bin never fills up with loose cards and clips. Only new
+ * top-level entries move; an entry the call put in a folder, or one the user filed, stays put.
+ */
+function fileNewEntries(host: ToolHost, before: Project) {
+  const after = host.history.current();
+  if (after === before) return;
+  const known = binIds(before);
+  const fresh = new Set([...binIds(after)].filter((id) => !known.has(id)));
+  if (!fresh.size) return;
+  const { project, moved } = organizeBin(after, host.assets(), fresh);
+  if (moved.length) host.history.commit(() => project, 'AI: file into folders');
+}
+
 export async function runTool(host: ToolHost, name: string, rawArgs: unknown, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
-  const result = await runToolInner(host, name, rawArgs, signal, turnId);
+  const before = host.history.current();
+  const inner = await runToolInner(host, name, rawArgs, signal, turnId);
+  if (inner.ok) fileNewEntries(host, before);
+  const note = inner.ok ? coverageNote(host, name, rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? (rawArgs as Args) : {}, before) : null;
+  const result: ToolResult = note && inner.ok ? { ...inner, summary: `${inner.summary ?? 'done'}\n⚠ ${note}`, uncoveredFrames: true } : inner;
   if (result.ok && MEDIA_TOOLS.has(name)) {
     const args: Args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? (rawArgs as Args) : {};
     try {
@@ -462,6 +582,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  // The motion engine: AE-grade scenes from templates or layer JSON, and reference style profiles.
+  if (MOTION_TOOLS.has(name)) {
+    return runMotionTool(name, args, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference });
   }
 
   // Brand kits: read in any phase, written through the host's settings callbacks.
@@ -1387,7 +1512,12 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
           noAudio,
           crop,
         );
-        const imported = await host.importMedia([downloaded.path], targetFolderId);
+        let imported: Asset[];
+        try {
+          imported = await host.importMedia([downloaded.path], targetFolderId);
+        } catch (importError) {
+          return fail(`Downloaded to ${downloaded.path}, but Helios could not import it: ${errorText(importError)}. The source probably served a page or a stub instead of the media — try another URL or source.`);
+        }
         const asset = imported[0];
         if (!asset) {
           return fail(`Media was downloaded to ${downloaded.path} but could not be imported into Helios.`);
@@ -1825,24 +1955,25 @@ ${templateCatalogue()}`;
       const description = str(args, 'description');
       if (!name || !description) return fail('create_custom_tool requires a name and description');
       const ops = Array.isArray(args.opsTemplate) ? (args.opsTemplate as Op[]) : [];
-      if (!ops.length) return fail('create_custom_tool requires a nonempty opsTemplate array of operations');
+      const steps = Array.isArray(args.steps) ? (args.steps as ToolStep[]) : [];
       const params = (Array.isArray(args.params) ? args.params : []) as CustomToolParam[];
       const promptGuide = str(args, 'promptGuide');
       const existing = await loadCustomTools();
-      const created = createCustomTool({ name, description, params, opsTemplate: ops, promptGuide, author: 'ai' }, existing);
+      const created = createCustomTool({ name, description, params, opsTemplate: ops, steps, promptGuide, author: 'ai' }, existing, KNOWN_TOOLS);
       if (created.error || !created.tool) return fail(created.error || 'Failed to create tool');
-      const updated = [...existing.filter(t => t.name.toLowerCase() !== created.tool!.name.toLowerCase()), created.tool];
-      await saveCustomTools(updated);
-      registerCustomRecipe(customToolToRecipe(created.tool));
-      return done(`Created custom tool “${created.tool.name}”. Saved persistently; available to any AI model via call_custom_tool or apply_recipe.`, { tool: created.tool });
+      const tool = created.tool;
+      await saveCustomTools([...existing, tool]);
+      if (customToolKind(tool) === 'ops') registerCustomRecipe(customToolToRecipe(tool));
+      const how = customToolKind(tool) === 'steps' ? `${tool.steps!.length}-step tool` : 'timeline tool';
+      return done(`Created ${how} “${tool.name}” and saved it; it is listed to every AI model on every turn. Run it now with call_custom_tool (preview: true first to see the calls it will make).`, { tool });
     }
 
     case 'list_custom_tools': {
       const query = (str(args, 'query') || '').toLowerCase();
       const tools = await loadCustomTools();
-      setCustomRecipes(tools.map(customToolToRecipe));
+      setCustomRecipes(asRecipes(tools));
       const filtered = tools.filter(t => !query || (t.name + ' ' + t.description + ' ' + (t.promptGuide || '')).toLowerCase().includes(query));
-      return done(`Found ${filtered.length} custom tools`, { tools: filtered });
+      return done(`Found ${filtered.length} custom tools`, { tools: filtered.map((tool) => ({ ...tool, kind: customToolKind(tool) })) });
     }
 
     case 'call_custom_tool': {
@@ -1860,6 +1991,16 @@ ${templateCatalogue()}`;
         if (p.default !== undefined) merged[p.name] = p.default;
       }
       Object.assign(merged, inputArgs);
+      const missing = tool.params.filter((p) => p.required && (merged[p.name] === undefined || merged[p.name] === '')).map((p) => p.name);
+      if (missing.length) return fail(`Tool “${tool.name}” needs ${missing.join(', ')}`);
+      if (customToolKind(tool) === 'steps') {
+        if (bool(args, 'preview')) {
+          // What each step would be called with; results of earlier steps are only known when it runs.
+          const planned = (tool.steps ?? []).map((step, index) => ({ step: index + 1, tool: step.tool, args: substituteStepArgs(step.args, merged, comp, { byName: {}, prev: null }, 'preview') }));
+          return done(`preview — ${tool.name} would make ${planned.length} call(s); nothing was run`, { preview: true, planned });
+        }
+        return runStepsTool(host, tool, merged, comp, signal, turnId);
+      }
       const substituted = substituteTemplate(tool.opsTemplate, merged, comp, assets);
       if (substituted.error) return fail(substituted.error);
       const program: Program = { compId: comp.id, label: tool.name, ops: substituted.ops };
@@ -1886,12 +2027,13 @@ ${templateCatalogue()}`;
       if (args.description !== undefined) patch.description = str(args, 'description');
       if (args.params !== undefined && Array.isArray(args.params)) patch.params = args.params as CustomToolParam[];
       if (args.opsTemplate !== undefined && Array.isArray(args.opsTemplate)) patch.opsTemplate = args.opsTemplate as Op[];
+      if (args.steps !== undefined && Array.isArray(args.steps)) patch.steps = args.steps as ToolStep[];
       if (args.promptGuide !== undefined) patch.promptGuide = str(args, 'promptGuide');
-      const updated = updateCustomTool(name, patch, existing);
+      const updated = updateCustomTool(name, patch, existing, KNOWN_TOOLS);
       if (updated.error || !updated.tool) return fail(updated.error || 'Failed to update tool');
       const nextList = existing.map(t => t.id === updated.tool!.id ? updated.tool! : t);
       await saveCustomTools(nextList);
-      registerCustomRecipe(customToolToRecipe(updated.tool));
+      setCustomRecipes(asRecipes(nextList));
       return done(`Updated custom tool “${updated.tool.name}”. Changes persisted.`, { tool: updated.tool });
     }
 
@@ -1903,7 +2045,7 @@ ${templateCatalogue()}`;
       const remaining = existing.filter(t => t.name.toLowerCase() !== norm);
       if (remaining.length === existing.length) return fail(`Custom tool “${name}” not found`);
       await saveCustomTools(remaining);
-      setCustomRecipes(remaining.map(customToolToRecipe));
+      setCustomRecipes(asRecipes(remaining));
       return done(`Deleted custom tool “${name}”`);
     }
     case 'get_project':
@@ -2710,6 +2852,9 @@ ${templateCatalogue()}`;
           const inner = child?.clips.find((c) => c.source.type === 'html');
           const box = inner && inner.source.type === 'html' ? inner.source.box : null;
           if (child && (inner || child.name.startsWith('[MOGRT]'))) layers.push({ clipId: clip.id, name, kind: 'graphic', box: box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
+        } else if (clip.source.type === 'motion') {
+          const box = overlayBox(clip.source.scene, (scene, t) => evaluateScene(scene, t, { sizeOf: (layer, time) => (layer.type === 'text' ? ((f) => [f.width, f.height] as [number, number])(layoutText(layer.text, time, (text, font) => text.length * (parseFloat(font.split('px')[0].split(' ').pop() ?? '64') || 64) * 0.55)) : defaultSize(scene, layer, time)) }));
+          if (box) layers.push({ clipId: clip.id, name, kind: 'graphic', box, from, to });
         } else if (clip.source.type === 'text') {
           const box = textBox(clip, comp);
           if (box) layers.push({ clipId: clip.id, name: `${presetLabel(clip.source.preset)} "${clip.source.text.slice(0, 24)}"`, kind: clip.source.preset === 'caption' ? 'caption' : 'text', box, from, to });
@@ -2760,6 +2905,28 @@ ${templateCatalogue()}`;
         ? `Frame QA sampled ${times.length} frames and found ${issues.length} issue(s). Fix them, then run again until clear. ${hasSubject ? '' : 'No subject track was available (rotoscope_clip gives one), so only graphic-vs-graphic and safe-area checks ran. '}${worst.join(' ')}`
         : `Frame QA sampled ${times.length} frames: no overlaps, every graphic inside the safe area.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'} Look at the contact frames for anything geometry cannot see (contrast, reading time), then verify_edit_workflow.`,
         { issues, sampled: times.length, times: frameTimes, images, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
+    }
+
+    case 'organize_bin': {
+      const { project: organized, moved } = organizeBin(project, assets);
+      if (!moved.length) return done('The bin is already organised: nothing loose to file.', { moved: [] });
+      commit(() => organized);
+      return done(`Filed ${moved.length} bin entr${moved.length === 1 ? 'y' : 'ies'}: ${describeMoved(moved)}.`, { moved });
+    }
+
+    case 'fill_background': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('there is no comp');
+      const from = num(args, 'start') ?? 0;
+      const to = num(args, 'end') ?? Infinity;
+      const spans = uncoveredSpans(project, assets, comp, from, to);
+      if (!spans.length) return done(`Nothing to fill: the picture already fills the frame${num(args, 'start') !== undefined || num(args, 'end') !== undefined ? ' in that range' : ' everywhere on this comp'}.`, { filled: [] });
+      const result = fillBackground(project, assets, comp.id, spans, { source: str(args, 'source'), color: str(args, 'color') });
+      if ('error' in result) return fail(result.error);
+      commit(() => result.project);
+      const lines = result.filled.map((entry) => `${entry.start.toFixed(2)}–${entry.end.toFixed(2)}s on ${entry.track}: ${entry.what}`);
+      const left = uncoveredSpans(result.project, assets, result.project.comps.find((entry) => entry.id === comp.id) ?? comp);
+      return done(`Filled ${result.filled.length} span${result.filled.length === 1 ? '' : 's'} behind the picture:\n${lines.join('\n')}${left.length ? `\nStill uncovered: ${describeUncovered(left, comp, result.project, assets)}` : '\nThe frame is now covered everywhere.'}`, { filled: result.filled, stillUncovered: left });
     }
 
     case 'layout_clip': {
@@ -2967,6 +3134,15 @@ ${templateCatalogue()}`;
       const start = Math.max(0, clip.in);
       const end = start + clip.duration * clip.speed;
       const mode = str(args, 'mode') === 'per-frame' ? 'per-frame' : 'clean-plate';
+      // One static plate cannot span two shots: a median across a cut blends both rooms.
+      if (mode === 'clean-plate') {
+        const cuts = await api.detectScenes(asset.id, start, end, 0.6).catch(() => [] as number[]);
+        const inside = cuts.filter((t) => t > start + 0.15 && t < end - 0.15);
+        if (inside.length) {
+          const at = inside.map((t) => timecode(clip.start + (t - start) / clip.speed, fps(comp))).join(', ');
+          return fail(`This clip crosses ${inside.length} scene cut${inside.length === 1 ? '' : 's'} (timeline ${at}); a single clean plate would blend the shots. Split the clip at the cut${inside.length === 1 ? '' : 's'} (split_clips), rotoscope and erase each shot separately, or pass mode "per-frame".`);
+        }
+      }
       let jobId: string;
       try {
         jobId = await api.eraseStart({ assetId: asset.id, runId, start, end, dilate: num(args, 'dilate'), mode, refine: bool(args, 'refine') });
@@ -3004,7 +3180,22 @@ ${templateCatalogue()}`;
       const found = findClipIn(project, str(args, 'clipId') ?? '');
       if (!found) return fail('Supply the clipId of the subject (rotoscoped) clip.');
       const { clip, comp } = found;
-      const style = str(args, 'style') === 'wipe' ? 'wipe' : 'cubes';
+      const requested = str(args, 'style');
+      if (requested !== 'wipe' && requested !== 'cubes') {
+        // The reference reveal: cells cut from the subject's own matte, seeded at the face.
+        if (!clip.rotoMatte) return fail(`Run rotoscope_clip on ${clip.id} first: the reveal is cut from the subject's matte.`);
+        const at = num(args, 'at') ?? clip.start;
+        const seconds = clamp(num(args, 'duration') ?? 2.4, 0.8, 12);
+        return runMotionTool('create_motion_scene', {
+          template: 'subject-reveal',
+          start: at,
+          duration: Math.min(seconds, Math.max(0.5, clip.start + clip.duration - at)),
+          title: 'Subject reveal',
+          compId: comp.id,
+          params: { subject: { clipId: clip.id }, ...(Array.isArray(args.title) ? { title: args.title } : { title: [] }), ...(typeof args.phrase === 'string' ? { phrase: args.phrase } : { phrase: '' }), cardAt: null, duration: seconds },
+        }, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference });
+      }
+      const style = requested === 'wipe' ? 'wipe' : 'cubes';
       const seconds = clamp(num(args, 'duration') ?? 1.2, 0.4, 3);
       const at = clamp((num(args, 'at') ?? clip.start) - clip.start, 0, Math.max(0, clip.duration - seconds));
       const opacity: Keyframe[] = [{ time: at, value: 0, easing: 'ease-out' }, { time: at + seconds * 0.6, value: clip.transform.opacity || 100, easing: 'hold' }];
@@ -3037,6 +3228,28 @@ ${templateCatalogue()}`;
       return done(
         `${bits.length} piece${bits.length === 1 ? '' : 's'}${source ? ` from ${source}` : ''}${category ? ` in ${category}` : ''}${level ? ` (${level})` : ''}${query ? ` matching "${query}"` : ''}. Library: ${Object.entries(counts).map(([name, count]) => `${name} ${count}`).join(', ')}.`,
         { bits, usage: 'react_bits {"action":"describe","id":"<id>"} for props and a ready-to-copy call; place with create_motion_graphic {"template":"react-bits","bit":"<id>","title":"…","props":{…}} or compose {"template":"react-bits","background":"aurora","layers":[{"bit":"split-text","props":{"text":"…"},"at":0.3}]}.' },
+      );
+    }
+
+    case 'remotion_kit': {
+      // Loaded on first use: the catalogue is ~0.5 MB of preset briefs.
+      const kit = await import('./remotionKit');
+      const id = str(args, 'id');
+      const action = str(args, 'action') || (id ? 'describe' : 'list');
+      if (action === 'describe') {
+        const preset = kit.findPreset(id);
+        if (!preset) return fail(`No Remotion Kit preset called "${id ?? ''}". Browse with remotion_kit {"action":"search","query":"…"} or {"action":"list","category":"intro"}.`);
+        return done(`${preset.name} — ${preset.category}, ${preset.width}x${preset.height}, ${preset.seconds}s. ${preset.description}`, kit.describePreset(preset));
+      }
+      const category = str(args, 'category');
+      const query = str(args, 'query');
+      const orientation = str(args, 'orientation');
+      const limit = typeof args.limit === 'number' ? Math.max(1, Math.min(290, Math.round(args.limit))) : undefined;
+      const presets = kit.listPresets({ category, query, orientation, limit }).map(kit.presetSummary);
+      const counts = kit.remotionKitCounts();
+      return done(
+        `${presets.length} Remotion Kit preset${presets.length === 1 ? '' : 's'}${category ? ` in ${category}` : ''}${orientation ? ` (${orientation})` : ''}${query ? ` matching "${query}"` : ''}. Marketplace: ${Object.entries(counts).map(([name, count]) => `${name} ${count}`).join(', ')}.`,
+        { presets, usage: 'remotion_kit {"action":"describe","id":"<id>"} for the brief (copy, palette, fonts, timing) and a rebuild plan with a ready-to-adapt create_motion_graphic call.' },
       );
     }
 

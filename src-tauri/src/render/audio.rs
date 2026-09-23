@@ -163,7 +163,7 @@ impl<'a> Graph<'a> {
                 let label = self.chain(&[], &format!("aevalsrc=exprs='{expr}':s={SAMPLE_RATE}:d={},{format}", num(length + 1.0)));
                 Ok(Some(Voice { label, lead }))
             }
-            ClipSource::Text { .. } | ClipSource::Shape { .. } | ClipSource::Html { .. } => Ok(None),
+            ClipSource::Text { .. } | ClipSource::Shape { .. } | ClipSource::Html { .. } | ClipSource::Motion { .. } => Ok(None),
         }
     }
 

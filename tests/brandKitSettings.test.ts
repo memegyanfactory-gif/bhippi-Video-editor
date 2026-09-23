@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BrandKitSettings, applyDaisyTheme, chipsFromText, contrastBadge, linesFromText, nextKitName, sanitizeSvgMarkup } from '../src/settings/BrandKitSettings';
-import { newBrandKit } from '../src/lib/brandKit';
+import { BrandKitSettings, applyDaisyTheme, archetypeLabel, cardMotion, chipsFromText, contrastBadge, linesFromText, nextKitName, sanitizeSvgMarkup } from '../src/settings/BrandKitSettings';
+import { ARCHETYPES, newBrandKit } from '../src/lib/brandKit';
 
 describe('Brand kit settings helpers', () => {
   it('splits chips and lines', () => {
@@ -25,6 +25,21 @@ describe('Brand kit settings helpers', () => {
     const kit = applyDaisyTheme(newBrandKit({ brandName: 'X' }), 'synthwave');
     expect(kit.colors.daisyTheme).toBe('synthwave');
     expect(applyDaisyTheme(kit, 'nope').colors.daisyTheme).toBe('synthwave');
+  });
+  it('labels archetype cards without the group suffix', () => {
+    expect(archetypeLabel('Luban (reference)')).toBe('Luban');
+    expect(archetypeLabel('Crimson (house)')).toBe('Crimson');
+    expect(archetypeLabel('Editorial')).toBe('Editorial');
+  });
+  it('turns an archetype motion spec into card custom properties', () => {
+    for (const arch of ARCHETYPES) {
+      const vars = cardMotion(arch.motion);
+      expect(vars['--bk-ease']).toBe(arch.motion.easing);
+      expect(Number.parseFloat(vars['--bk-enter'])).toBeGreaterThanOrEqual(0.24);
+      expect(Number.parseFloat(vars['--bk-enter'])).toBeLessThanOrEqual(1.1);
+      expect(Number.parseFloat(vars['--bk-stagger'])).toBeGreaterThanOrEqual(0.04);
+      expect(vars['--bk-lift'].endsWith('px')).toBe(true);
+    }
   });
   it('exports the component', () => {
     expect(typeof BrandKitSettings).toBe('function');

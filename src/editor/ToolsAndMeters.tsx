@@ -180,12 +180,27 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         ctx.clearRect(0, 0, width, height);
         const reading = levels();
-        const scaleWidth = 24;
-        const lightHeight = 7;
-        const barWidth = Math.max(5, (width - scaleWidth - 6) / 2 - 2);
-        const top = lightHeight + 4;
-        const usable = height - top - 3;
+        // Layout: a peak readout per channel on top, then two narrow LED columns, then the scale.
+        const scaleWidth = 22;
+        const gap = 3;
+        const readoutHeight = 13;
+        const barWidth = Math.max(6, Math.min(14, (width - scaleWidth - 4 - gap) / 2));
+        const barsLeft = Math.max(2, (width - scaleWidth - (barWidth * 2 + gap)) / 2);
+        const top = readoutHeight + 3;
+        const usable = height - top - 2;
         const toY = (db: number) => top + ((0 - Math.min(0, Math.max(floor, db))) / (0 - floor)) * usable;
+        const step = range >= 96 ? 12 : range >= 60 ? 6 : 3;
+
+        // The colour of the scale itself: green to -18, yellow to -6, red above — lit where the
+        // level is, faint everywhere else so the empty part of the scale still reads.
+        const scale = ctx.createLinearGradient(0, top + usable, 0, top);
+        scale.addColorStop(0, '#1f8a3b');
+        scale.addColorStop(Math.max(0, Math.min(1, (-18 - floor) / -floor)), '#39c75a');
+        scale.addColorStop(Math.max(0, Math.min(1, (-12 - floor) / -floor)), '#a7d63c');
+        scale.addColorStop(Math.max(0, Math.min(1, (-6 - floor) / -floor)), '#f2c230');
+        scale.addColorStop(Math.max(0, Math.min(1, (-3 - floor) / -floor)), '#f38a2e');
+        scale.addColorStop(1, '#ef3f35');
+
         for (let channel = 0; channel < 2; channel++) {
           const peak = reading.peak[channel];
           // Instant attack, 24 dB/s release: fast enough to read transients, calm enough to follow.
@@ -198,48 +213,69 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
           }
           if (Number.isFinite(reading.valley[channel])) valley[channel] = !Number.isFinite(valley[channel]) || reading.valley[channel] < valley[channel] ? reading.valley[channel] : valley[channel] + 6 * dt;
           if (peak >= -0.1) clipped.current[channel] = true;
-          const x = 2 + channel * (barWidth + 3);
-          ctx.fillStyle = '#0b0b0b';
+          const x = barsLeft + channel * (barWidth + gap);
+
+          // The empty well, then the whole scale faintly over it.
+          ctx.fillStyle = '#0a0a0b';
           ctx.fillRect(x, top, barWidth, usable);
+          ctx.globalAlpha = 0.13;
+          ctx.fillStyle = scale;
+          ctx.fillRect(x, top, barWidth, usable);
+          ctx.globalAlpha = 1;
+
+          // The level, lit.
           const level = shown[channel];
           if (Number.isFinite(level) && level > floor) {
             const y = toY(level);
             if (colorGradient) {
-              const gradient = ctx.createLinearGradient(0, top + usable, 0, top);
-              gradient.addColorStop(0, '#1d7a33');
-              gradient.addColorStop(Math.max(0, Math.min(1, (-18 - floor) / -floor)), '#3cc157');
-              gradient.addColorStop(Math.max(0, Math.min(1, (-6 - floor) / -floor)), '#e2cf3b');
-              gradient.addColorStop(1, '#e0453b');
-              ctx.fillStyle = gradient;
+              ctx.fillStyle = scale;
               ctx.fillRect(x, y, barWidth, top + usable - y);
             } else {
-              const zones: [number, number, string][] = [[floor, -18, '#3cc157'], [-18, -6, '#e2cf3b'], [-6, 0, '#e0453b']];
+              const zones: [number, number, string][] = [[floor, -18, '#39c75a'], [-18, -6, '#f2c230'], [-6, 0, '#ef3f35']];
               for (const [from, to, color] of zones) {
                 if (level <= from) continue;
                 const yTop = toY(Math.min(level, to));
-                const yBottom = toY(from);
                 ctx.fillStyle = color;
-                ctx.fillRect(x, yTop, barWidth, yBottom - yTop);
+                ctx.fillRect(x, yTop, barWidth, toY(from) - yTop);
               }
             }
           }
+          // LED segments: a hairline of the well every 3 px across lit and unlit alike.
+          ctx.fillStyle = 'rgba(10, 10, 11, 0.85)';
+          for (let y = top + usable - 3; y > top; y -= 3) ctx.fillRect(x, y, barWidth, 1);
+
           if (Number.isFinite(hold[channel]) && hold[channel] > floor) {
-            ctx.fillStyle = hold[channel] > -3 ? '#ff5b4f' : '#d8ddd8';
+            ctx.fillStyle = hold[channel] > -3 ? '#ff6a5f' : '#f2f2f2';
             ctx.fillRect(x, toY(hold[channel]) - 1, barWidth, 2);
           }
           if (showValleys && Number.isFinite(valley[channel]) && valley[channel] > floor) {
             ctx.fillStyle = '#4ea3ff';
             ctx.fillRect(x, toY(valley[channel]) - 1, barWidth, 2);
           }
-          ctx.fillStyle = clipped.current[channel] ? '#ff3b30' : '#2a2a2a';
-          ctx.fillRect(x, 2, barWidth, lightHeight);
+
+          // Peak readout, which is also the clip light: red once the channel has clipped.
+          const over = clipped.current[channel];
+          ctx.fillStyle = over ? '#c9261d' : '#161618';
+          ctx.fillRect(x - 1, 1, barWidth + 2, readoutHeight);
+          ctx.fillStyle = over ? '#fff' : Number.isFinite(hold[channel]) && hold[channel] > -6 ? '#f2c230' : '#c8ccd2';
+          ctx.font = '600 9px Segoe UI, system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          const readout = Number.isFinite(hold[channel]) && hold[channel] > floor ? (hold[channel] >= -0.05 ? '0' : hold[channel].toFixed(hold[channel] > -10 ? 1 : 0)) : '-∞';
+          ctx.fillText(readout.replace('-', '−'), x + barWidth / 2, readoutHeight - 2);
         }
-        ctx.fillStyle = '#8a8a8a';
-        ctx.font = '9px Segoe UI';
+
+        // Scale: a tick and a faint line across both columns at each mark, numbers on the right.
+        const scaleX = barsLeft + barWidth * 2 + gap;
+        ctx.font = '9px Segoe UI, system-ui, sans-serif';
         ctx.textAlign = 'right';
-        const step = range >= 96 ? 12 : range >= 60 ? 6 : 3;
         for (let mark = 0; mark >= floor; mark -= step) {
-          ctx.fillText(String(mark), width - 2, Math.min(height - 2, Math.max(top + 7, toY(mark) + 3)));
+          const y = Math.round(toY(mark));
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+          ctx.fillRect(barsLeft, y, scaleX - barsLeft, 1);
+          ctx.fillStyle = '#5c6068';
+          ctx.fillRect(scaleX + 2, y, 3, 1);
+          ctx.fillStyle = mark === 0 ? '#e6e6e6' : '#8b9099';
+          ctx.fillText(mark === 0 ? '0' : `−${-mark}`, width - 1, Math.min(height - 2, Math.max(top + 7, y + 3)));
         }
       }
       frame = requestAnimationFrame(draw);
@@ -253,12 +289,13 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
   return (
     <div className="meters" onContextMenu={(event) => { event.preventDefault(); setMenu(new DOMRect(event.clientX, event.clientY, 0, 0)); }}>
       <canvas ref={canvas} className="meter-canvas" aria-label="Audio levels" onClick={(event) => {
-        // Clicking the clip lights resets them, as in Premiere.
-        if (event.nativeEvent.offsetY < 12) reset.current++;
+        // Clicking the peak readouts (which are the clip lights) resets them, as in Premiere.
+        if (event.nativeEvent.offsetY < 16) reset.current++;
       }} />
       <div className="meter-foot">
         <button type="button" className={`meter-solo${mutes.all ? ' on' : ''}`} onClick={() => onMutes({ ...mutes, all: !mutes.all })} title="Mute All Audio">M</button>
-        <span>L</span><span>R</span><span>dB</span>
+        <span className="meter-channels"><span>L</span><span>R</span></span>
+        <span className="meter-unit">dB</span>
       </div>
       {menu && (
         <MenuList anchor={menu} onClose={() => setMenu(null)} items={[
