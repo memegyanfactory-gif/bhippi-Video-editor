@@ -3,7 +3,7 @@ import { CheckCircle2, Info, TriangleAlert, X } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-export function Modal({ title, onClose, children, width = 560, footer }: { title: ReactNode; onClose: () => void; children: ReactNode; width?: number; footer?: ReactNode }) {
+export function Modal({ title, onClose, children, width = 560, footer, className, top }: { title: ReactNode; onClose: () => void; children: ReactNode; /** px, or any CSS width (e.g. min(1320px, 94vw)). */ width?: number | string; footer?: ReactNode; className?: string; /** Above everything, the sign-in gate included (closing the app, for example). */ top?: boolean }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -12,8 +12,8 @@ export function Modal({ title, onClose, children, width = 560, footer }: { title
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return createPortal(
-    <div className="modal-backdrop" onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" style={{ width }}>
+    <div className={`modal-backdrop${top ? ' modal-top' : ''}`} onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className={`modal${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" style={{ width }}>
         <div className="modal-head">
           <h2>{title}</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>

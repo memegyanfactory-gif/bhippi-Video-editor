@@ -11,6 +11,7 @@ import { TIMING } from '../motion';
 import { RBX_BASE_CSS, esc, px, type BitTheme } from '../rbx/core';
 import type { Project } from '../types';
 import { ARCHETYPES, HOUSE_ARCHETYPE, findArchetype } from './archetypes';
+import { compactGuideline, guidelineOf, refineGuideline } from './guideline';
 import { isDataUrl } from './logoData';
 import {
   BRAND_KIT_SECTIONS,
@@ -274,6 +275,7 @@ const SECTION_KEYS: Record<BrandKitSection, (keyof BrandKit)[]> = {
   social: ['social'],
   assets: ['assets'],
   notes: ['notes'],
+  guideline: ['guideline'],
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -286,8 +288,18 @@ const deepMerge = <T>(base: T, patch: unknown): T => {
 
 /** Merges a patch into one section (or the whole kit with 'all'); keeps derived fields in step. */
 export function mergeBrandKit(kit: BrandKit, section: BrandKitSection | 'all', patch: Record<string, unknown>): BrandKit {
+  // The kit keeps only the guideline's refinements (moves, layouts and recipes merged by id), so the
+  // rest keeps following the kit's edits; null resets it.
+  if (section === 'guideline') {
+    const value = 'guideline' in patch ? patch.guideline : patch;
+    if (value === null) return { ...kit, guideline: null, updatedAt: now() };
+    const source = isRecord(value) && (value.source === 'edited' || value.source === 'ai') ? value.source : 'ai';
+    return { ...kit, guideline: refineGuideline(kit, isRecord(value) ? value : {}, source), updatedAt: now() };
+  }
   const allowed = section === 'all' ? null : new Set<string>(SECTION_KEYS[section] as string[]);
-  let next: BrandKit = { ...kit };
+  // A guideline an older Helios saved whole is cut to its refinements against the kit before this
+  // edit, the one it was derived from, so the edit reaches everything nobody refined.
+  let next: BrandKit = { ...compactGuideline(kit) };
   for (const [key, value] of Object.entries(patch)) {
     const target = section === 'all' ? key : allowed?.has(key) ? key : SECTION_KEYS[section][0];
     const current = (next as unknown as Record<string, unknown>)[target];
@@ -415,7 +427,20 @@ export function brandKitContext(kit: BrandKit) {
     audio: { music: kit.audio.music, tempo: kit.audio.tempo, sfx: kit.audio.sfx, voice: kit.audio.voice },
     social: { intro: kit.social.intro, outro: kit.social.outro, endCard: kit.social.endCard },
     logos: kit.logos.map((l) => ({ id: l.id, role: l.role, placement: l.placement, vector: !!l.svg, assetId: l.assetId ?? undefined, clearSpace: l.clearSpace, minSize: l.minSize })),
-    howToUse: 'Binding for every graphic, text and generation: theme "brand" on create_motion_graphic and add_text use it automatically; get_brand_kit {"section":"…"} for detail; brand_kit_prompt for generation prefixes; render_brand_board to show it.',
+    guideline: (() => {
+      const g = guidelineOf(kit);
+      return {
+        source: g.source,
+        summary: g.summary,
+        stage: g.color.stage,
+        ratio: g.color.ratio,
+        typeScale: g.typeScale.map((t) => `${t.role} ${t.family} ${t.weight} ${t.size}px ≤${t.maxWordsPerLine}w/line`),
+        timing: g.motion.timing,
+        moves: g.moves.map((m) => `${m.id} (${m.frames}f)`),
+        recipes: g.recipes.map((r) => `${r.id} → ${r.template ?? 'custom'} [${r.moves.join(' → ')}]`),
+      };
+    })(),
+    howToUse: 'Binding for every graphic, text and generation. Motion scenes (create_motion_scene) are built in the brand automatically; the brand-* templates render the guideline moves and layouts exactly. get_brand_guideline for the frame-by-frame moves, layouts and recipes; update_brand_kit {"section":"guideline"} to tailor it to this video; check_brand_compliance before verifying; get_brand_kit {"section":"…"} for any other section. theme "brand" on create_motion_graphic and add_text use it automatically; brand_kit_prompt for generation prefixes; render_brand_board to show it.',
   };
 }
 
@@ -452,7 +477,9 @@ export function brandBoard(kit: BrandKit, canvas: { width: number; height: numbe
   const gradient = kit.colors.gradients[0];
   const sample = kit.voiceGuide.samples[0] ?? kit.tagline ?? kit.name;
   const disp = kit.typography.display;
-  const html = `<div class="rbx bk-board" style="${vars}">
+  // Escaped: the font stacks carry double quotes ("Palatino Linotype", …), which would otherwise end
+  // the attribute early and drop every variable after them (--u, --bg, --fg, …).
+  const html = `<div class="rbx bk-board" style="${esc(vars)}">
     <div class="fill" style="background:var(--bg)"></div>
     <div class="bk-grid" style="${portrait ? 'grid-template-columns:1fr;grid-template-rows:auto auto auto auto 1fr' : ''}">
       <div class="bk-cell bk-id"><div class="a rise" style="--d:.1s">${logoMarkup(kit, 'any', portrait ? 120 : 150)}</div><div class="a rise bk-name" style="--d:.3s;font-family:var(--bk-display);font-weight:${disp.weight};letter-spacing:${disp.letterSpacing};text-transform:${disp.transform}">${esc(kit.name)}</div>${kit.tagline ? `<div class="a rise small" style="--d:.45s;font-family:var(--bk-body)">${esc(kit.tagline)}</div>` : ''}<div class="a fade kicker" style="--d:.6s">${esc(kit.style)} · ${esc(kit.industry || 'brand kit')}</div></div>

@@ -57,6 +57,106 @@ pub fn script(items: &[(Graphic, Placement)], width: u32, height: u32) -> String
             out.push('\n');
         }
     }
+    em_sizes(&out)
+}
+
+/// How many times its em a face's `\fs` is: libass (like VSFilter) fits the OS/2 win ascent +
+/// descent into the font size, where CSS — the preview — fits the em. Without this every export
+/// title came out 25 % smaller than the monitor showed it (Segoe UI: 2724 / 2048 units).
+fn win_height_per_em(font: &str) -> f64 {
+    match font.trim().to_ascii_lowercase().as_str() {
+        "arial" => 1.1172,
+        "arial black" => 1.4102,
+        "impact" => 1.2197,
+        "consolas" => 1.1709,
+        "comic sans ms" => 1.3936,
+        "georgia" => 1.1362,
+        "segoe script" => 1.5840,
+        // Segoe UI in every weight, and the fallback libass picks for unknown names on Windows.
+        _ => 1.3301,
+    }
+}
+
+/// Rescales every font size in a script — style sizes and inline `\fs`, following `\fn`
+/// switches — from CSS em pixels to what libass needs to draw the same em.
+fn em_sizes(script: &str) -> String {
+    let mut styles: std::collections::HashMap<String, (String, f64)> = std::collections::HashMap::new();
+    let mut out = String::with_capacity(script.len() + 256);
+    for line in script.lines() {
+        if let Some(rest) = line.strip_prefix("Style:") {
+            let mut fields: Vec<String> = rest.split(',').map(str::to_owned).collect();
+            // Titles and kinetic lines are weight 800 in the monitor's CSS, which Windows resolves
+            // to the Black face of Segoe UI; libass's bold flag would pick the lighter Bold face.
+            if fields.len() > 7 && matches!(fields[0].trim(), "Title" | "Kinetic") && fields[1].trim() == "Segoe UI" {
+                fields[1] = "Segoe UI Black".to_owned();
+                fields[7] = "0".to_owned();
+            }
+            if fields.len() > 2 {
+                if let Ok(size) = fields[2].trim().parse::<f64>() {
+                    styles.insert(fields[0].trim().to_owned(), (fields[1].clone(), size));
+                    fields[2] = num((size * win_height_per_em(&fields[1])).round());
+                }
+            }
+            out.push_str("Style:");
+            out.push_str(&fields.join(","));
+        } else if let Some(rest) = line.strip_prefix("Dialogue:") {
+            let fields: Vec<&str> = rest.splitn(10, ',').collect();
+            if fields.len() < 10 {
+                out.push_str(line);
+            } else {
+                let (font, size) = styles.get(fields[3].trim()).cloned().unwrap_or_else(|| ("Segoe UI".to_owned(), 0.0));
+                // The subtitle under a Black title is the regular face (CSS weight 500).
+                let text = if font == "Segoe UI Black" { fields[9].replace("\\N{\\fs", "\\N{\\fnSegoe UI\\fs") } else { fields[9].to_owned() };
+                out.push_str("Dialogue:");
+                out.push_str(&fields[..9].join(","));
+                out.push(',');
+                out.push_str(&em_tags(&text, font, size));
+            }
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// `\fs` values in one event's text, rescaled for the face in force where they appear; a `\fn`
+/// switch re-states the size so the new face keeps the same em.
+fn em_tags(text: &str, mut font: String, mut em: f64) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut rest = text;
+    while let Some(open) = rest.find('{') {
+        let Some(close) = rest[open..].find('}') else { break };
+        out.push_str(&rest[..=open]);
+        let block = &rest[open + 1..open + close];
+        let mut index = 0;
+        while index < block.len() {
+            let tail = &block[index..];
+            if let Some(after) = tail.strip_prefix("\\fn") {
+                let end = after.find('\\').unwrap_or(after.len());
+                font = after[..end].to_owned();
+                out.push_str(&tail[..3 + end]);
+                index += 3 + end;
+                let next = &block[index..];
+                let sized_next = next.starts_with("\\fs") && next[3..].starts_with(|c: char| c.is_ascii_digit());
+                if em > 0.0 && !sized_next {
+                    out.push_str(&format!("\\fs{}", num((em * win_height_per_em(&font)).round())));
+                }
+            } else if tail.starts_with("\\fs") && tail[3..].starts_with(|c: char| c.is_ascii_digit() || c == '.') {
+                let digits = tail[3..].find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(tail.len() - 3);
+                em = tail[3..3 + digits].parse().unwrap_or(em);
+                out.push_str(&format!("\\fs{}", num((em * win_height_per_em(&font)).round())));
+                index += 3 + digits;
+            } else {
+                let ch = tail.chars().next().unwrap_or(' ');
+                out.push(ch);
+                index += ch.len_utf8();
+            }
+        }
+        out.push('}');
+        rest = &rest[open + close + 1..];
+    }
+    out.push_str(rest);
     out
 }
 

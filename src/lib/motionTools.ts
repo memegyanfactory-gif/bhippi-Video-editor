@@ -2,18 +2,21 @@
 // raw layer JSON, inspect and patch them, and learn a style from a reference film.
 import { MOTION_TEMPLATES, findTemplate } from '../motion/kit';
 import type { KitContext } from '../motion/kit/common';
+import { brandifyScene, buildInBrand } from '../motion/kit/brandify';
+import { currentMotionBrand } from './brandKit/activeStore';
+import type { MotionBrand } from './brandKit/motionBrand';
 import type { FootageSource, Layer, MotionScene } from '../motion/types';
 import { EFFECT_TYPES, validateScene } from '../motion/validate';
 import { keyTimes } from '../motion/anim';
 import { clamp, timecode } from './editor';
 import { api, errorText, fileSrc } from './ipc';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
-import { freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
+import { freeTrack, newClip, newComp, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
 import type { Clip, ClipSource, Comp, Project, ToolResult } from './types';
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes']);
 /** Read-only / planning motion tools, allowed in any production phase. */
 export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile']);
 
@@ -25,6 +28,8 @@ export type MotionToolContext = {
   pickComp: (project: Project, args: Args) => Comp | undefined;
   current: () => Project;
   setReference?: (id: string | null) => void;
+  /** The active brand kit for the engine; every scene is built in it (null: the house Crimson look). */
+  brand?: MotionBrand | null;
 };
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
@@ -193,6 +198,37 @@ function placeCues(comp: Comp, scene: MotionScene, start: number): { comp: Comp;
   return { comp: next, ids };
 }
 
+export const MOTION_FOLDER = 'AI Motion';
+
+/** A comp holding one motion scene on V1, sized and timed like the comp it will be nested in. */
+function motionComp(parent: Comp, title: string, clip: Clip): Comp {
+  const inner = newComp({ name: `[Motion] ${title}`, width: parent.width, height: parent.height, fps: parent.fps });
+  const v1 = inner.tracks.find((track) => track.kind === 'video')!;
+  return { ...inner, tracks: inner.tracks.map((t) => (t.id === v1.id ? { ...t, name: 'Motion scene' } : t)), clips: [{ ...clip, trackId: v1.id, start: 0 }] };
+}
+
+/**
+ * Where a motion clip's scene time 0 sits on a given comp's timeline: its own start, plus the
+ * start of the nested-comp clip that holds it when it lives in a "[Motion]" comp.
+ */
+export function sceneOriginIn(project: Project, clip: Clip, owner: Comp, timelineCompId: string): number {
+  if (owner.id === timelineCompId) return clip.start;
+  const parent = project.comps.find((c) => c.id === timelineCompId);
+  const holder = parent?.clips.find((c) => c.source.type === 'comp' && c.source.compId === owner.id);
+  return holder ? holder.start + (clip.start - holder.in) / Math.max(1e-6, holder.speed) : clip.start;
+}
+
+/** Keeps the nested-comp clips that hold a motion comp as long as its scene. */
+function syncHolders(project: Project, owner: Comp, duration: number): Project {
+  if (!owner.name.startsWith('[Motion]')) return project;
+  return {
+    ...project,
+    comps: project.comps.map((c) => (c.clips.some((clip) => clip.source.type === 'comp' && clip.source.compId === owner.id)
+      ? { ...c, clips: c.clips.map((clip) => (clip.source.type === 'comp' && clip.source.compId === owner.id ? { ...clip, duration } : clip)) }
+      : c)),
+  };
+}
+
 /** The first video track above every track that has a picture during [start, end). */
 function trackAbove(comp: Comp, start: number, end: number) {
   const video = tracksOf(comp, 'video');
@@ -278,7 +314,9 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const comp = ctx.pickComp(project, args);
       if (!comp) return fail('There is no composition to place the scene in.');
       const start = Math.max(0, num(args, 'start') ?? 0);
-      const kit: KitContext = { width: comp.width, height: comp.height };
+      // The active brand kit drives every scene unless the call opts out with useBrand:false.
+      const brand = args.useBrand === false ? null : ctx.brand ?? null;
+      const kit: KitContext = { width: comp.width, height: comp.height, ...(brand ? { brand, font: brand.fonts.display } : {}) };
       const accent = str(args, 'accent');
       if (accent) kit.palette = { accent };
       let scene: MotionScene;
@@ -303,7 +341,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
           }
         }
         try {
-          scene = spec.build(kit, params);
+          scene = buildInBrand(spec, kit, params, brand);
         } catch (error) {
           return fail(`The ${templateId} template could not be built: ${errorText(error)}`);
         }
@@ -311,24 +349,38 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         const rawScene = obj(args, 'scene');
         if (!rawScene) return fail('Give a template id (list_motion_templates) or a raw scene {version:1,width,height,duration,layers:[…]}.');
         scene = { version: 1, width: comp.width, height: comp.height, ...(rawScene as object) } as MotionScene;
+        if (brand) scene = brandifyScene(scene, brand);
       }
       const duration = clamp(num(args, 'duration') ?? scene.duration, 1 / comp.fps, 600);
       scene = { ...scene, duration: Math.max(scene.duration, duration) };
       const problems = validateScene(scene);
       if (problems.length) return fail(`The scene is not valid: ${problems.slice(0, 8).join(' ')}`);
       const title = str(args, 'title') ?? findTemplate(templateId ?? '')?.label ?? 'Motion scene';
+      const nest = args.nest !== false;
+      const clip = newClip({ trackId: '', start: nest ? 0 : start, duration, source: { type: 'motion', scene, title }, name: title, label: 'mango' });
+      // Everything the AI builds lives in its own comp ("[Motion] title", in the AI Motion bin):
+      // the timeline gets one nested clip the user can move, trim or open to change the design.
+      const nested = nest ? motionComp(comp, title, clip) : null;
       const placed = trackAbove(comp, start, start + duration);
-      const clip = newClip({ trackId: placed.track.id, start, duration, source: { type: 'motion', scene, title }, name: title });
-      let next = placeClips(placed.comp, [clip], 'overwrite');
+      const outer = nested
+        ? newClip({ trackId: placed.track.id, start, duration, source: { type: 'comp', compId: nested.id }, name: nested.name, label: 'mango' })
+        : { ...clip, trackId: placed.track.id };
+      let next = placeClips(placed.comp, [outer], 'overwrite');
       let sfx: string[] = [];
       if (args.sfx !== false && scene.cues?.length) {
         const cued = placeCues(next, scene, start);
         next = cued.comp;
         sfx = cued.ids;
       }
-      ctx.editComp(comp, () => next);
-      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'}` : ''}. Preview and export use the same GPU renderer. Check it with inspect_clip_frames, then retime or restyle with update_motion_scene.`, {
-        clipId: clip.id, sfxClipIds: sfx, scene: summarizeScene(scene),
+      if (nested) {
+        ctx.commit((current) => {
+          const folderId = current.folders.find((f) => f.name === MOTION_FOLDER && f.parentId === null)?.id ?? `folder_${nested.id}`;
+          const folders = current.folders.some((f) => f.id === folderId) ? current.folders : [...current.folders, { id: folderId, name: MOTION_FOLDER, parentId: null }];
+          return { ...current, folders, comps: [...current.comps.map((c) => (c.id === comp.id ? next : c)), { ...nested, folderId }] };
+        });
+      } else ctx.editComp(comp, () => next);
+      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${nested ? ` as the nested comp "${nested.name}" (in the ${MOTION_FOLDER} bin; open it to change its layers)` : ''} on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track` : ''}. Preview and export use the same GPU renderer. Check it with inspect_clip_frames, then retime or restyle with update_motion_scene (clipId is the scene clip inside the comp).`, {
+        clipId: clip.id, compClipId: nested ? outer.id : clip.id, compId: nested?.id ?? comp.id, sfxClipIds: sfx, scene: summarizeScene(scene),
       });
     }
 
@@ -356,7 +408,8 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         const spec = templateId ? findTemplate(templateId) : undefined;
         if (!spec) return fail('This scene was not built from a template; patch its layers instead.');
         const merged = { ...(scene.template?.params ?? {}), ...resolveParams(params, ctx, clip.start) };
-        scene = spec.build({ width: scene.width, height: scene.height }, merged);
+        const brand = args.useBrand === false ? null : ctx.brand ?? scene.brand?.snapshot ?? null;
+        scene = buildInBrand(spec, { width: scene.width, height: scene.height }, merged, brand);
         changes.push(`rebuilt ${templateId} with ${Object.keys(params).join(', ')}`);
       }
       const replacement = obj(args, 'scene');
@@ -401,7 +454,10 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const problems = validateScene(scene);
       if (problems.length) return fail(`The edited scene is not valid: ${problems.slice(0, 8).join(' ')}`);
       const duration = retime ? clip.duration * retime : Math.max(clip.duration, Math.min(scene.duration, clip.duration));
-      ctx.editComp(comp, (current) => ({ ...current, clips: current.clips.map((c) => (c.id === clip.id ? { ...c, duration, source: { ...source, scene, frames: undefined } } : c)) }));
+      ctx.commit((current) => {
+        const edited = { ...current, comps: current.comps.map((c) => (c.id === comp.id ? { ...c, clips: c.clips.map((entry) => (entry.id === clip.id ? { ...entry, duration, source: { ...source, scene, frames: undefined } } : entry)) } : c)) };
+        return syncHolders(edited, comp, clip.start + duration);
+      });
       return done(`Updated ${source.title ?? 'the motion scene'}: ${changes.join('; ')}.`, { clipId: clip.id, summary: summarizeScene(scene) });
     }
 
@@ -492,7 +548,8 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         const offset = Array.isArray(apply.offset) ? (apply.offset as number[]) : [0, 0];
         const step = Math.max(1, Math.round(samples.length / 240));
         const picked = samples.filter((_, i) => i % step === 0 || i === samples.length - 1);
-        const sceneT = (at: number) => toTimeline(at) - motion.start;
+        const origin = sceneOriginIn(ctx.current(), motion, target.comp, comp.id);
+        const sceneT = (at: number) => toTimeline(at) - origin;
         layer.transform = {
           ...(layer.transform ?? {}),
           position: { k: picked.map((s) => ({ t: sceneT(s.at), v: [s.x * scene.width + (offset[0] ?? 0), s.y * scene.height + (offset[1] ?? 0)] })) },
@@ -511,6 +568,15 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
           planar: tracks.planar?.samples.map((s) => ({ t: toTimeline(s.at), x: s.x, y: s.y, scale: s.scale, rotation: s.rotation, c: s.confidence })) ?? null,
         },
       });
+    }
+
+    case 'nest_motion_scenes': {
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('There is no composition.');
+      const result = nestLooseMotionScenes(ctx.current(), comp.id);
+      if (!result.count) return done('Every motion scene in this comp is already inside its own comp.');
+      ctx.commit(() => result.project);
+      return done(`Moved ${result.count} motion scene${result.count === 1 ? '' : 's'} into their own "[Motion]" comps (${MOTION_FOLDER} bin); the timeline keeps one nested clip each, same place and length.`, { count: result.count });
     }
   }
   return fail(`Unknown motion tool ${name}.`);
@@ -547,6 +613,31 @@ export async function placeTemplateByHand(options: { history: { current: () => P
     editComp: (comp, change) => history.commit((current) => ({ ...current, comps: current.comps.map((c) => (c.id === comp.id ? change(c) : c)) }), 'Motion Template'),
     pickComp: (p) => p.comps.find((c) => c.id === p.activeCompId) ?? p.comps[0],
     current: () => history.current(),
+    brand: currentMotionBrand(project),
   };
   return runMotionTool('create_motion_scene', { template: templateId, params, start }, ctx);
+}
+
+/**
+ * Moves every motion scene sitting directly on a comp's timeline into its own "[Motion]" comp,
+ * leaving a nested clip at the same place, length and track. Scenes already nested are left.
+ */
+export function nestLooseMotionScenes(project: Project, compId: string): { project: Project; count: number } {
+  const comp = project.comps.find((c) => c.id === compId);
+  if (!comp) return { project, count: 0 };
+  const created: Comp[] = [];
+  const clips = comp.clips.map((clip) => {
+    if (clip.source.type !== 'motion') return clip;
+    const title = clip.source.title ?? clip.name ?? 'Motion scene';
+    const inner = motionComp(comp, title, { ...clip, id: `${clip.id}_scene` });
+    created.push(inner);
+    return { ...clip, source: { type: 'comp' as const, compId: inner.id }, name: inner.name, in: 0, speed: 1, reverse: false, hold: null, label: 'mango' as const };
+  });
+  if (!created.length) return { project, count: 0 };
+  const folderId = project.folders.find((f) => f.name === MOTION_FOLDER && f.parentId === null)?.id ?? `folder_${created[0].id}`;
+  const folders = project.folders.some((f) => f.id === folderId) ? project.folders : [...project.folders, { id: folderId, name: MOTION_FOLDER, parentId: null }];
+  return {
+    project: { ...project, folders, comps: [...project.comps.map((c) => (c.id === compId ? { ...c, clips } : c)), ...created.map((c) => ({ ...c, folderId }))] },
+    count: created.length,
+  };
 }

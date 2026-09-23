@@ -13,7 +13,10 @@
 // do not survive, which is why the Crimson templates avoid both.
 import gsap from 'gsap';
 import { api } from './ipc';
+import { openFrameWriter, type FrameWriter } from './pngEncoder';
 import { mogrtCanvas, usesCompCanvas } from './motionGraphics';
+import { rbBackgroundFromName, rbBackgroundHtml } from './reactbits';
+import { REACT_BITS_TEMPLATE } from './rbx';
 import type { Clip, Comp, Project } from './types';
 
 type HtmlSource = Extract<Clip['source'], { type: 'html' }>;
@@ -87,13 +90,6 @@ const decode = (url: string) => new Promise<HTMLImageElement>((resolve, reject) 
   image.src = url;
 });
 
-const toPng = (canvas: HTMLCanvasElement) => new Promise<Uint8Array>((resolve, reject) => {
-  canvas.toBlob((blob) => {
-    if (!blob) { reject(new Error('PNG encoding failed')); return; }
-    blob.arrayBuffer().then((buffer) => resolve(new Uint8Array(buffer))).catch(reject);
-  }, 'image/png');
-});
-
 /** A motion graphic mounted off-screen, ready to be drawn at any moment of its clip. */
 type Mounted = { draw: (elapsed: number) => Promise<HTMLCanvasElement>; canvas: { width: number; height: number }; unmount: () => void };
 
@@ -156,16 +152,20 @@ export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: strin
   const frames = Math.max(1, Math.round(clip.duration * fps));
   const dir = await api.mogrtFramesBegin(clip.id);
   const mounted = mountGraphic(source, clip.duration, comp);
+  let writer: FrameWriter | null = null;
   try {
+    // Frame i's PNG is encoded (on workers) and written while frame i+1 is drawn.
+    writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames));
     for (let index = 0; index < frames; index++) {
       if (options.signal?.aborted) throw new Error('export cancelled');
       const sheet = await mounted.draw(index / fps);
       options.onCanvas?.(sheet);
-      await api.mogrtFrameWrite(dir, index, await toPng(sheet));
-      options.onProgress?.(index + 1, frames);
+      await writer.canvas(index, sheet);
     }
+    await writer.finish();
   } finally {
     mounted.unmount();
+    await writer?.close();
   }
   return { dir, fps, frames, width: mounted.canvas.width, height: mounted.canvas.height };
 }
@@ -230,10 +230,43 @@ export function htmlClipsForExport(project: Project, compId: string): { comp: Co
       if (!clip.enabled) continue;
       if (clip.source.type === 'comp') visit(clip.source.compId);
       if (clip.source.type === 'html' && !clip.adjustment) out.push({ comp, clip, source: clip.source });
+      const background = rbBackgroundSource(project, clip);
+      if (background && !clip.adjustment) out.push({ comp, clip, source: background });
     }
   };
   visit(compId);
   return out;
+}
+
+/**
+ * A color matte named like a React Bits background ("RB: Aurora") is drawn by the monitor as an
+ * animated layer (see Compositor); for the export it becomes the same layer as an HTML graphic,
+ * so it is rendered to frames here instead of exporting as the flat matte colour.
+ */
+function rbBackgroundSource(project: Project, clip: Clip): HtmlSource | null {
+  if (clip.source.type !== 'item') return null;
+  const itemId = clip.source.itemId;
+  const item = project.items.find((entry) => entry.id === itemId);
+  const bg = item?.kind === 'color-matte' ? rbBackgroundFromName(clip.name) : undefined;
+  if (!bg) return null;
+  return { type: 'html', ...rbBackgroundHtml(bg), title: `${bg.label} background`, template: REACT_BITS_TEMPLATE };
+}
+
+/**
+ * The clip the export overlays for a rendered background: the monitor draws it full-frame with
+ * only its opacity (and transitions) applied, so position, scale, mask and colour effects — and
+ * the old still-grade `4-color-gradient` twin — are left out here too.
+ */
+function asRenderedBackground(clip: Clip, source: HtmlSource, frames: RenderedFrames): Clip {
+  return {
+    ...clip,
+    source: { ...source, frames },
+    transform: { ...clip.transform, x: 0, y: 0, scale: 100, rotation: 0, cropLeft: 0, cropTop: 0, cropRight: 0, cropBottom: 0 },
+    keyframes: { ...clip.keyframes, x: [], y: [], scale: [], rotation: [] },
+    effects: { ...clip.effects, brightness: 0, contrast: 0, saturation: 100, blur: 0, hue: 0, invert: 0, flipH: false, flipV: false },
+    appliedEffects: [],
+    mask: null,
+  };
 }
 
 /**
@@ -247,6 +280,7 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
   const targets = htmlClipsForExport(project, compId);
   if (!targets.length) return project;
   const rendered = new Map<string, RenderedFrames>();
+  const sources = new Map(targets.map((target) => [target.clip.id, target.source]));
   for (const [i, target] of targets.entries()) {
     const title = target.source.title ?? 'motion graphic';
     options.onItem?.(title, i + 1, targets.length, htmlFrameCount(target.clip, target.comp));
@@ -261,7 +295,13 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
     ...project,
     comps: project.comps.map((comp) => ({
       ...comp,
-      clips: comp.clips.map((clip) => (clip.source.type === 'html' && rendered.has(clip.id) ? { ...clip, source: { ...clip.source, frames: rendered.get(clip.id) } } : clip)),
+      clips: comp.clips.map((clip) => {
+        const frames = rendered.get(clip.id);
+        if (!frames) return clip;
+        if (clip.source.type === 'html') return { ...clip, source: { ...clip.source, frames } };
+        const source = sources.get(clip.id);
+        return source && clip.source.type === 'item' ? asRenderedBackground(clip, source, frames) : clip;
+      }),
     })),
   };
 }

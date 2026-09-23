@@ -1557,18 +1557,21 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "helios"
-version = "0.2.0"
+version = "1.0.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
  "futures-util",
  "helios-providers",
+ "ico",
  "keyring",
  "percent-encoding",
  "reqwest 0.12.28",
+ "ring",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -1580,11 +1583,12 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ulid",
+ "winreg",
 ]
 
 [[package]]
 name = "helios-providers"
-version = "0.2.0"
+version = "1.0.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

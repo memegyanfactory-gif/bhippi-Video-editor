@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { useToast } from '../components/ui';
 import { MOTION_TEMPLATES } from '../motion/kit';
 import type { History } from '../lib/history';
-import { placeTemplateByHand, TEMPLATE_FOOTAGE } from '../lib/motionTools';
+import { nestLooseMotionScenes, placeTemplateByHand, TEMPLATE_FOOTAGE } from '../lib/motionTools';
 import { playhead } from '../lib/playhead';
 import type { Asset } from '../lib/types';
 
@@ -23,9 +23,22 @@ export function MotionTemplates({ history, assets, clipSelection }: { history: H
       setBusy(null);
     }
   };
+  const project = history.current();
+  const comp = project.comps.find((c) => c.id === project.activeCompId) ?? project.comps[0];
+  const loose = comp ? comp.clips.filter((clip) => clip.source.type === 'motion').length : 0;
+  const nest = () => {
+    if (!comp) return;
+    const result = nestLooseMotionScenes(history.current(), comp.id);
+    if (!result.count) return;
+    history.commit(() => result.project, 'Put Motion Scenes into Comps');
+    toast({ tone: 'success', title: `${result.count} motion scene${result.count === 1 ? '' : 's'} moved into comps`, body: 'Find them in the AI Motion bin; double-click a nested clip to edit it.', timeout: 3500 });
+  };
   return (
     <div className="effects-section">
-      <div className="effects-title">Motion templates <span className="muted">— GPU engine, at the playhead; footage templates use the selected clip</span></div>
+      <div className="effects-title">
+        Motion templates <span className="muted">— GPU engine, at the playhead; footage templates use the selected clip</span>
+        {loose > 0 && <><div className="toolbar-spacer" /><button type="button" className="btn btn-small" onClick={nest} title="Each loose motion scene becomes its own [Motion] comp, placed where it was">Put {loose} motion scene{loose === 1 ? '' : 's'} into comps</button></>}
+      </div>
       <div className="chips" style={{ flexWrap: 'wrap' }}>
         {MOTION_TEMPLATES.map((spec) => (
           <button key={spec.id} type="button" className="chip" disabled={busy !== null} onClick={() => void place(spec.id)}

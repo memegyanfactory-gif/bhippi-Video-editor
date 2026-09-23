@@ -258,6 +258,91 @@ pub async fn scrape_page(url: &str, max_chars: usize, extract_media: bool) -> Re
     })
 }
 
+/// A page's raw HTML and its linked stylesheets, for reading a brand off a website (colours,
+/// fonts, logo). Both are capped so a heavy site cannot flood the model.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PageSource {
+    pub url: String,
+    pub html: String,
+    pub stylesheets: Vec<Stylesheet>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Stylesheet {
+    pub url: String,
+    pub css: String,
+}
+
+const HTML_CAP: usize = 1_500_000;
+const CSS_CAP: usize = 700_000;
+
+fn capped(mut text: String, cap: usize) -> String {
+    if text.len() > cap {
+        let mut end = cap;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    text
+}
+
+pub async fn page_source(url: &str) -> Result<PageSource, String> {
+    let client = http_client()?;
+    let resp = client
+        .get(url)
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach URL {url}: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Page returned status code: {}", resp.status()));
+    }
+    let final_url = resp.url().to_string();
+    let html = capped(resp.text().await.map_err(|e| format!("Could not read response: {e}"))?, HTML_CAP);
+
+    let mut hrefs: Vec<String> = Vec::new();
+    let lower = html.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(at) = lower[from..].find("<link") {
+        let start = from + at;
+        let end = lower[start..].find('>').map(|e| start + e + 1).unwrap_or(lower.len());
+        let tag = &html[start..end];
+        let tag_lower = tag.to_ascii_lowercase();
+        if tag_lower.contains("stylesheet") {
+            if let Some(href) = extract_attribute(tag, "href") {
+                if let Some(abs) = resolve_relative_url(&final_url, &href) {
+                    if !hrefs.contains(&abs) {
+                        hrefs.push(abs);
+                    }
+                }
+            }
+        }
+        from = end;
+        if hrefs.len() >= 8 {
+            break;
+        }
+    }
+
+    let mut stylesheets = Vec::new();
+    let mut budget = CSS_CAP;
+    for href in hrefs {
+        if budget == 0 {
+            break;
+        }
+        let Ok(resp) = client.get(&href).header("Accept", "text/css,*/*;q=0.1").send().await else { continue };
+        if !resp.status().is_success() {
+            continue;
+        }
+        let Ok(css) = resp.text().await else { continue };
+        let css = capped(css, budget);
+        budget = budget.saturating_sub(css.len());
+        stylesheets.push(Stylesheet { url: href, css });
+    }
+    Ok(PageSource { url: final_url, html, stylesheets })
+}
+
 fn extract_attribute(tag: &str, attr: &str) -> Option<String> {
     let attr_lower = attr.to_lowercase();
     let tag_lower = tag.to_lowercase();

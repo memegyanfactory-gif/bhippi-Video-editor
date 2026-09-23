@@ -19,6 +19,7 @@ import {
 } from '../lib/timeline';
 import type { Asset, Clip, ClipSource, Comp, Project, Tool, Track, Transition } from '../lib/types';
 import { ClipWave } from './ClipWave';
+import { CacheBar } from './CacheBar';
 
 /** Width of the track-head column. The CSS reads it as --tl-head (set on the scroll area). */
 export const HEAD = 150;
@@ -1009,6 +1010,7 @@ export function Timeline(props: Props) {
             {inX !== null && <div className="ruler-in" style={{ left: inX }} />}
             {outX !== null && <div className="ruler-out" style={{ left: outX }} />}
             {inX !== null && outX !== null && outX > inX && <div className="ruler-range" style={{ left: inX, width: outX - inX }} />}
+            <CacheBar compId={comp.id} zoom={zoom} head={HEAD} />
             {comp.markers.map((marker) => (
               <button key={marker.id} type="button" className="ruler-marker" style={{ left: HEAD + marker.time * zoom, background: marker.color }} title={`${marker.name || 'Marker'} · ${timecode(marker.time, fps)} — click to jump, double-click to edit, Alt+click to delete`}
                 onPointerDown={(event) => {

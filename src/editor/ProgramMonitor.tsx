@@ -12,6 +12,8 @@ import { playhead, usePlayhead, usePlaying, useRate } from '../lib/playhead';
 import { compDuration, freeTrack, newClip, placeClips, textSource, updateComp, type AssetMap } from '../lib/timeline';
 import type { Clip, Comp, KeyframedProperty, Mask, Project, Tool, RotoCorrection } from '../lib/types';
 import { CompAudio, CompLayers } from './Compositor';
+import { DEFAULT_CACHE_MB, previewCache } from '../lib/previewCache';
+import { warmAhead } from './previewWarm';
 
 export type ProgramApi = { toggle: () => void; step: (frames: number) => void; shuttle: (direction: 1 | -1 | 0) => void; playAround: () => void; playInToOut: () => void; getStage: () => HTMLDivElement | null };
 
@@ -33,7 +35,14 @@ type Props = {
   onExtract: () => void;
   onExportFrame: () => void;
   apiRef: RefObject<ProgramApi | null>;
+  /** The RAM preview cache (lib/previewCache.ts): on/off and its budget, from Settings. */
+  previewCache?: { enabled: boolean; budgetMb: number };
+  onPreviewCache?: (next: { enabled: boolean; budgetMb: number }) => void;
 };
+
+/** RAM budgets offered for the preview cache, in megabytes. */
+const CACHE_BUDGETS = [512, 1024, 1536, 3072, 6144];
+const budgetLabel = (mb: number) => `${+(mb / 1024).toFixed(1)} GB`;
 
 const ZOOMS: { label: string; value: number }[] = [
   { label: 'Fit', value: 0 }, { label: '10%', value: 0.1 }, { label: '25%', value: 0.25 }, { label: '50%', value: 0.5 }, { label: '75%', value: 0.75 }, { label: '100%', value: 1 }, { label: '150%', value: 1.5 }, { label: '200%', value: 2 }, { label: '400%', value: 4 },
@@ -474,6 +483,19 @@ export function ProgramMonitor(props: Props) {
   const rangeIn = comp?.inPoint ?? null;
   const rangeOut = comp?.outPoint ?? null;
 
+  // The RAM preview cache: motion scenes rendered ahead, media warmed ahead of the playhead.
+  const cacheOn = props.previewCache?.enabled ?? true;
+  const cacheMb = props.previewCache?.budgetMb ?? DEFAULT_CACHE_MB;
+  useEffect(() => { previewCache.configure({ enabled: cacheOn, budgetMb: cacheMb }); }, [cacheOn, cacheMb]);
+  useEffect(() => {
+    const scenes = project.comps.flatMap((entry) => entry.clips.flatMap((clip) => (clip.source.type === 'motion' ? [clip.source.scene] : [])));
+    previewCache.setSource(cacheOn ? comp : undefined, assets, scenes);
+  }, [project, comp, assets, cacheOn]);
+  useEffect(() => { previewCache.setView(stageW * (window.devicePixelRatio || 1)); }, [stageW]);
+  const warmSlot = Math.floor(time * 2);
+  useEffect(() => { if (comp) warmAhead(comp, assets, playhead.get(), cacheOn); }, [comp, assets, warmSlot, cacheOn]);
+  const setCache = (next: Partial<{ enabled: boolean; budgetMb: number }>) => props.onPreviewCache?.({ enabled: cacheOn, budgetMb: cacheMb, ...next });
+
   return (
     <div className="monitor program">
       {tool === 'roto' && <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 10px', flexWrap: 'wrap' }}>
@@ -645,6 +667,9 @@ export function ProgramMonitor(props: Props) {
           { separator: true },
           { label: 'Play In to Out', shortcut: 'Ctrl+Shift+Space', onSelect: playInToOut, disabled: rangeIn === null },
           { label: 'Play Around', shortcut: 'Shift+K', onSelect: playAround, disabled: empty },
+          { separator: true },
+          { label: 'Preview Cache in RAM', checked: cacheOn, onSelect: () => setCache({ enabled: !cacheOn }), disabled: !props.onPreviewCache },
+          { label: `Cache Budget (${budgetLabel(cacheMb)})`, disabled: !props.onPreviewCache || !cacheOn, submenu: CACHE_BUDGETS.map((mb) => ({ label: budgetLabel(mb), checked: mb === cacheMb, onSelect: () => setCache({ budgetMb: mb }) })) },
         ]} />
       )}
     </div>

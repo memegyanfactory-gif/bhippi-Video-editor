@@ -11,6 +11,13 @@ pub struct ExportPrefs {
     /// `draft` · `standard` · `high`.
     pub quality: Option<String>,
     pub folder: Option<String>,
+    /// `mp4` · `mov` · `mov-alpha` · `avi` · `mp3` — the UI owns the list.
+    pub format: Option<String>,
+    /// `rgb` · `rgba`.
+    pub channel: Option<String>,
+    /// `auto` · `gpu` · `cpu` — which H.264 encoder MP4/MOV exports use. `auto` (the default)
+    /// takes the detected hardware encoder and falls back to libx264 if it fails.
+    pub encoder: Option<String>,
 }
 
 /// Everything about speech: which transcriber to reach for, and which voice reads a script.
@@ -46,6 +53,17 @@ pub struct Settings {
     pub local_roto_engine: Option<String>,
     pub local_video_model: Option<String>,
     pub local_media_models: std::collections::HashMap<String, String>,
+    /// When true the AI does not call local image/video generation on its own.
+    pub disable_local_generation: Option<bool>,
+    /// Where project folders are made; `Documents/Helios` when unset (see storage.rs).
+    pub storage_root: Option<String>,
+    /// Copy imported media into the project's Footage folder instead of referencing it in place.
+    pub copy_imports: Option<bool>,
+    /// The first-run onboarding has been finished or skipped.
+    pub onboarded: Option<bool>,
+    /// Fetch a new version as soon as bhippi.com has one (installing still waits for the user).
+    /// Unset means on.
+    pub auto_update: Option<bool>,
     /// Providers the user switched off. Everything else that is usable is offered.
     pub disabled_providers: Vec<String>,
     /// The chat picker's last choice.
@@ -83,6 +101,10 @@ pub struct Settings {
     pub ideagraph_brain: Option<String>,
     /// Record Helios AI turn outcomes into the brain when true.
     pub ideagraph_record: Option<bool>,
+    /// The Program monitor's RAM preview cache; on when unset.
+    pub preview_cache_enabled: Option<bool>,
+    /// Its RAM budget in megabytes; the UI's default (1536) when unset.
+    pub preview_cache_mb: Option<u32>,
 }
 
 const KEYCHAIN_SERVICE: &str = "helios-studio";

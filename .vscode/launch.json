@@ -30,6 +30,16 @@
       "cwd": "${workspaceFolder}",
       "console": "internalConsole",
       "environment": [{ "name": "RUST_BACKTRACE", "value": "1" }]
+    },
+    {
+      // Attach to a Helios that is already running (or frozen): pick helios.exe — not the
+      // `--mcp-bridge` one — then press Pause and open the "main" thread in Call Stack.
+      // Needs the debug build (target/debug/helios.pdb). Detach leaves the app running.
+      "name": "Helios (Attach to running)",
+      "type": "cppvsdbg",
+      "request": "attach",
+      "processId": "${command:pickProcess}",
+      "symbolSearchPath": "${workspaceFolder}/target/debug"
     }
   ]
 }

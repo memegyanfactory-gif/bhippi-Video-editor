@@ -12,7 +12,10 @@ import {
   type BrandKit, type BrandKitDoc, type BrandKitSection, type BrandLogo, type Corner, type LogoRole,
 } from './brandKit';
 import type { NewBrandKitInput } from './brandKit/build';
-import { errorText } from './ipc';
+import { relativeLuminance } from './brandKit/build';
+import { brandFromPage } from './brandKit/fromWebsite';
+import { guidelineOf } from './brandKit/guideline';
+import { api, errorText } from './ipc';
 import { createMotionGraphicComp } from './motionGraphics';
 import { playhead } from './playhead';
 import type { Comp, Project, ToolResult } from './types';
@@ -30,6 +33,7 @@ export type BrandToolContext = {
 export const BRAND_KIT_TOOLS = new Set([
   'list_brand_kits', 'get_brand_kit', 'list_brand_archetypes', 'create_brand_kit', 'update_brand_kit', 'delete_brand_kit',
   'set_active_brand_kit', 'apply_brand_kit', 'brand_kit_prompt', 'render_brand_board', 'import_brand_logo', 'export_brand_kit', 'import_brand_kit',
+  'get_brand_guideline', 'extract_brand_from_url', 'check_brand_compliance',
 ]);
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
@@ -89,6 +93,7 @@ function sectionOf(kit: BrandKit, section: string): unknown {
     case 'social': return kit.social;
     case 'assets': return kit.assets;
     case 'notes': return kit.notes;
+    case 'guideline': return guidelineOf(kit);
     case 'all': return publicKit(kit);
     default: return undefined;
   }
@@ -278,9 +283,29 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
     case 'import_brand_logo': {
       const kit = kitOf(host, project, args);
       if (!kit) return noKit(str(args, 'id'));
-      const path = str(args, 'path');
-      if (!path) return fail('path is required: the logo file (svg, png, webp, jpg).');
+      let path = str(args, 'path');
       const role: LogoRole = isRole(args.role) ? args.role : 'primary';
+      // A logo straight from a website (extract_brand_from_url): inline SVG markup or an image URL.
+      const svgMarkup = str(args, 'svg');
+      const url = str(args, 'url');
+      if (!path && (svgMarkup || url)) {
+        try {
+          const dir = await api.storageDir('guidelines');
+          const slug = kit.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'brand';
+          if (svgMarkup) {
+            const clean = sanitizeSvg(svgMarkup);
+            if (!clean.includes('<svg')) return fail('svg must be SVG markup.');
+            path = `${dir}\\${slug}-${role}-logo.svg`;
+            await api.fsWriteFile(path, clean, true);
+          } else if (url) {
+            const downloaded = await api.mediaDownload(url, 'image', `${slug}-${role}-logo`);
+            path = downloaded.path;
+          }
+        } catch (error) {
+          return fail(`Could not fetch the logo: ${errorText(error)}`);
+        }
+      }
+      if (!path) return fail('Give the logo as path (a file), url (an image on the web) or svg (markup).');
       let assets;
       try {
         assets = await host.importMedia([path], ctx.folderFor('Brand'));
@@ -334,7 +359,138 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
       return done(`Imported brand kit "${result.name}".`, { kit: publicKit(result), context: brandKitContext(result) });
     }
 
+    case 'get_brand_guideline': {
+      const kit = kitOf(host, project, args);
+      if (!kit) return noKit(str(args, 'id'));
+      const g = guidelineOf(kit);
+      const part = str(args, 'part') ?? 'summary';
+      const moveId = str(args, 'move');
+      const aspect = str(args, 'aspect');
+      if (moveId) {
+        const move = g.moves.find((m) => m.id === moveId);
+        if (!move) return fail(`No move "${moveId}". Moves: ${g.moves.map((m) => m.id).join(', ')}.`);
+        return done(`${kit.name} — ${move.name}: ${move.frames} frames at ${move.fps} fps. ${move.description}`, { move });
+      }
+      const layouts = aspect ? g.layouts.filter((l) => l.aspect === aspect) : g.layouts;
+      switch (part) {
+        case 'summary':
+          return done(`${kit.name} guideline (${g.source}). ${g.summary}`, {
+            summary: g.summary, source: g.source, color: { ratio: g.color.ratio, stage: g.color.stage, roles: g.color.roles }, typeScale: g.typeScale, motion: g.motion,
+            moves: g.moves.map((m) => ({ id: m.id, name: m.name, frames: m.frames, use: m.use, description: m.description })),
+            layouts: layouts.map((l) => ({ id: l.id, aspect: l.aspect, use: l.use, zones: l.zones.map((z) => z.role) })),
+            recipes: g.recipes.map((r) => ({ id: r.id, name: r.name, template: r.template, moves: r.moves, layout: r.layout, hold: r.hold })),
+            howToUse: 'Build beats with the recipe templates (create_motion_scene {"template":"brand-title"|"brand-lower-third"|"brand-stat"|"brand-panel"|"brand-logo-sting"|"brand-end-card"|"brand-transition"}); they render these moves and layouts exactly. Other templates are recoloured, re-typed and re-timed to the brand automatically. Refine with update_brand_kit {"section":"guideline","patch":{…}}: moves, layouts and recipes merge by id.',
+          });
+        case 'color': return done(`${kit.name} colour usage: ${g.color.ratio}.`, { color: g.color });
+        case 'type': return done(`${kit.name} type scale (px at 1080p).`, { typeScale: g.typeScale });
+        case 'motion': return done(`${kit.name} motion.`, { motion: g.motion });
+        case 'moves': return done(`${g.moves.length} moves, keyed frame by frame.`, { moves: g.moves });
+        case 'layouts': return done(`${layouts.length} layouts${aspect ? ` for ${aspect}` : ''}; zones are fractions of the frame (x, y, w, h).`, { layouts });
+        case 'recipes': return done(`${g.recipes.length} scene recipes.`, { recipes: g.recipes });
+        case 'rules': return done(`${kit.name} dos and donts.`, { dos: g.dos, donts: g.donts, colorRules: g.color.rules, motionPrinciples: g.motion.principles });
+        case 'all': return done(`${kit.name} guideline, complete.`, { guideline: { ...g, layouts } });
+        default: return fail('part is one of summary, color, type, motion, moves, layouts, recipes, rules, all.');
+      }
+    }
+
+    case 'extract_brand_from_url': {
+      const url = str(args, 'url');
+      if (!url || !/^https?:\/\//i.test(url)) return fail('url is required: the product or company website (https://…).');
+      let page;
+      try {
+        page = await api.webPageSource(url);
+      } catch (error) {
+        return fail(`Could not read ${url}: ${errorText(error)}`);
+      }
+      const found = brandFromPage(page.url, page.html, page.stylesheets);
+      const c = found.colors;
+      const light = c.background ? relativeLuminance(c.background) > 0.5 : true;
+      const suggestion = {
+        brandName: found.name || undefined,
+        tagline: found.description.slice(0, 90) || undefined,
+        primary: c.primary ?? undefined,
+        accent: c.accent ?? undefined,
+        background: c.background ?? undefined,
+        text: c.text ?? undefined,
+        displayFont: found.fonts.display,
+        bodyFont: found.fonts.body,
+        style: light ? 'bold-startup' : 'tech-gradient',
+      };
+      return done(
+        `Read ${found.name || url}: primary ${c.primary ?? '?'}, accent ${c.accent ?? '?'}, background ${c.background ?? '?'}, text ${c.text ?? '?'}; type ${found.fonts.declared.slice(0, 3).join(', ') || 'not declared'} → ${found.fonts.display}/${found.fonts.body} on this machine; ${found.logos.length} logo candidate${found.logos.length === 1 ? '' : 's'}. ` +
+          'Check the candidates (the most-used colour on a site is not always its brand colour), then create_brand_kit with the real values, import_brand_logo {"url"|"svg"} for the logo, and write the guideline for this video with update_brand_kit {"section":"guideline"}.',
+        { website: { ...found, logos: found.logos.map((l) => (l.svg ? { ...l, svg: l.svg.length > 6000 ? `${l.svg.slice(0, 6000)}…` : l.svg } : l)) }, createBrandKitArgs: suggestion },
+      );
+    }
+
+    case 'check_brand_compliance': {
+      const kit = kitOf(host, project, args);
+      if (!kit) return noKit(str(args, 'id'));
+      const comp = ctx.comp;
+      if (!comp) return fail('There is no composition to check.');
+      const report = complianceReport(project, comp, kit);
+      return done(report.issues.length ? `${report.issues.length} off-brand item${report.issues.length === 1 ? '' : 's'} in ${comp.name}: ${report.issues.slice(0, 6).map((i) => `${i.clipId} ${i.problem}`).join('; ')}. Fix with update_motion_scene / apply_brand_kit {"restyle":true}, or rebuild with a brand-* template.` : `Everything in ${comp.name} (${report.checked} graphics) uses ${kit.name}'s colours and fonts.`, report);
+    }
+
     default:
       return fail(`Helios has no brand kit tool called ${name}`);
   }
+}
+
+// ── brand compliance ─────────────────────────────────────────────────────────
+
+const HEX_RE = /#[0-9a-fA-F]{6}\b/g;
+const rgbOf = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const chromatic = (hex: string) => {
+  const [r, g, b] = rgbOf(hex).map((c) => c / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const s = max === min ? 0 : (max - min) / (l > 0.5 ? 2 - max - min : max + min);
+  return s > 0.22 && l > 0.08 && l < 0.92;
+};
+
+/** Every graphic in a comp (and the comps nested in it) checked against the kit's colours and fonts. */
+export function complianceReport(project: Project, comp: Comp, kit: BrandKit) {
+  const g = guidelineOf(kit);
+  const palette = [...g.color.roles.map((r) => r.hex), ...g.color.stage.gradient, ...kit.colors.tokens.map((t) => t.hex)].filter((h) => /^#[0-9a-f]{6}$/i.test(h));
+  const fonts = new Set([kit.typography.display.family, kit.typography.heading.family, kit.typography.body.family, kit.typography.caption.family, kit.typography.mono.family].map((f) => f.toLowerCase()));
+  const near = (hex: string) => palette.some((p) => { const a = rgbOf(p); const b = rgbOf(hex); return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 70; });
+  // Mixes between two brand colours (gradients, ramps, the brand's white and black) are on brand too.
+  const anchors = [...palette, '#ffffff', '#000000'];
+  const between = (hex: string) => anchors.some((a) => anchors.some((b) => {
+    if (a === b) return false;
+    const x = rgbOf(a); const y = rgbOf(b); const c = rgbOf(hex);
+    const d = [y[0] - x[0], y[1] - x[1], y[2] - x[2]];
+    const len = d[0] * d[0] + d[1] * d[1] + d[2] * d[2] || 1;
+    const t = Math.max(0, Math.min(1, ((c[0] - x[0]) * d[0] + (c[1] - x[1]) * d[1] + (c[2] - x[2]) * d[2]) / len));
+    return Math.hypot(c[0] - (x[0] + d[0] * t), c[1] - (x[1] + d[1] * t), c[2] - (x[2] + d[2] * t)) < 40;
+  }));
+  const issues: { clipId: string; comp: string; problem: string }[] = [];
+  let checked = 0;
+  const seen = new Set<string>();
+  const visit = (c: Comp) => {
+    if (seen.has(c.id)) return;
+    seen.add(c.id);
+    for (const clip of c.clips) {
+      const source = clip.source as { type: string } & Record<string, unknown>;
+      if (source.type === 'comp' && typeof source.compId === 'string') {
+        const inner = project.comps.find((x) => x.id === source.compId);
+        if (inner) visit(inner);
+        continue;
+      }
+      if (source.type !== 'motion' && source.type !== 'html' && source.type !== 'text') continue;
+      checked++;
+      const scene = source.type === 'motion' ? (source.scene as { brand?: unknown }) : null;
+      const text = JSON.stringify(source.type === 'motion' ? { ...scene, brand: undefined } : source.type === 'html' ? { html: source.html, css: source.css } : { color: source.color });
+      const off = [...new Set((text.match(HEX_RE) ?? []).map((h) => h.toLowerCase()))].filter((h) => chromatic(h) && !near(h) && !between(h));
+      if (off.length) issues.push({ clipId: clip.id, comp: c.name, problem: `uses colours outside the brand: ${off.slice(0, 5).join(', ')}` });
+      const fontHits = [...text.matchAll(/"font"\s*:\s*"([^"]+)"|font-family\s*:\s*([^;"}]+)/g)].map((m) => (m[1] ?? m[2]).split(',')[0].replace(/[\\"']/g, '').trim()).filter(Boolean);
+      const offFonts = [...new Set(fontHits.filter((f) => !fonts.has(f.toLowerCase()) && !/^var\(/.test(f) && !/^(inherit|sans-serif|serif|monospace|system-ui)$/i.test(f)))];
+      if (offFonts.length) issues.push({ clipId: clip.id, comp: c.name, problem: `uses fonts outside the brand: ${offFonts.slice(0, 4).join(', ')}` });
+      if (scene && !scene.brand) issues.push({ clipId: clip.id, comp: c.name, problem: 'motion scene was not built in the brand (rebuild with update_motion_scene or a brand-* template)' });
+    }
+  };
+  visit(comp);
+  return { kit: kit.name, checked, issues };
 }

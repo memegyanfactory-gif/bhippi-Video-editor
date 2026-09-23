@@ -59,6 +59,38 @@ export const releaseMedia = (kind: Kind, src: string, element: HTMLMediaElement)
   });
 };
 
+/**
+ * Opens an element for a source a clip will need soon and parks it on `time`, so the clip that
+ * takes it later finds it loaded instead of starting cold. Only into an empty bucket: an idle
+ * element already there (above all one just handed over mid-play) is never displaced.
+ * Resolves true once the element has a frame (or sound) at `time`.
+ */
+export const primeMedia = (kind: Kind, src: string, time: number): Promise<boolean> => {
+  const id = slot(kind, src);
+  const bucket = idle.get(id) ?? [];
+  if (bucket.length) {
+    const ready = bucket[bucket.length - 1];
+    return Promise.resolve(ready.readyState >= 2);
+  }
+  const element = acquireMedia(kind, src);
+  bucket.push(element);
+  idle.set(id, bucket);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok: boolean) => { if (done) return; done = true; clearTimeout(timer); resolve(ok); };
+    const timer = setTimeout(() => finish(element.readyState >= 2), 8000);
+    const park = () => {
+      if (Math.abs(element.currentTime - time) > 0.04) element.currentTime = Math.max(0, time);
+      else if (element.readyState >= 2) finish(true);
+      else element.addEventListener('loadeddata', () => finish(true), { once: true });
+    };
+    element.addEventListener('loadedmetadata', park, { once: true });
+    element.addEventListener('seeked', () => finish(element.readyState >= 2), { once: true });
+    element.addEventListener('error', () => finish(false), { once: true });
+    if (element.readyState >= 1) park();
+  });
+};
+
 /** Drops every idle element. Used when a project closes, so decoders are not held forever. */
 export const clearMediaPool = () => {
   for (const bucket of idle.values()) {

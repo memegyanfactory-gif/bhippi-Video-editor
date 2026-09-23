@@ -42,10 +42,29 @@ export type Standing = 'unknown' | 'ok' | 'warn' | 'high' | 'exhausted';
 
 const KEY = 'helios.usage.v1';
 
+/**
+ * How long a refusal that named no reset time keeps a provider marked out. Free and shared models
+ * refuse with "overloaded" or a bare 429 that clears in minutes; without a bound, one such turn
+ * painted the provider red for good.
+ */
+export const REFUSAL_HOLD_MS = 10 * 60_000;
+
+/**
+ * Older builds recorded a refusal as a spent session window with no reset time, which no later
+ * turn could clear for providers that never report windows (OpenCode, Gemini, Antigravity). Those
+ * fabricated windows are dropped on load; a real reading always carries a reset time.
+ */
+export function heal(snapshot: Snapshot): Snapshot {
+  const fabricated = (window: Window | null) => window !== null && window.used >= 1 && window.resetsAt === null;
+  if (snapshot.status !== 'rejected' || !fabricated(snapshot.session)) return snapshot;
+  return { ...snapshot, status: 'reported', session: null };
+}
+
 const load = (): Record<string, Snapshot> => {
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Record<string, Snapshot>) : {};
+    const parsed = raw ? (JSON.parse(raw) as Record<string, Snapshot>) : {};
+    return Object.fromEntries(Object.entries(parsed).map(([id, snapshot]) => [id, heal(snapshot)]));
   } catch {
     return {};
   }
@@ -134,20 +153,31 @@ export function recordTokens(providerId: string, model: string | null, input: nu
  * Records that a turn was refused because the allowance is gone. `resetsAt` is whatever the
  * provider said, which may be a date, a duration or nothing at all.
  */
-export function recordExhausted(providerId: string, model: string | null, resetsAt: string | null) {
-  const until = parseReset(resetsAt);
+export function recordExhausted(providerId: string, model: string | null, resetsAt: string | null, now = Date.now()) {
+  // A refusal that names no time is held briefly rather than forever: the next turn that works
+  // (see `recordSuccess`) or the hold running out, whichever is first, clears it.
+  const until = parseReset(resetsAt) ?? Math.round((now + REFUSAL_HOLD_MS) / 1000);
   const existing = snapshots[providerId];
   snapshots[providerId] = {
     providerId,
     model: model ?? existing?.model ?? null,
     status: 'rejected',
-    // Refused means spent, whatever the last reading said.
-    session: existing?.session ? { ...existing.session, used: 1 } : { used: 1, resetsAt: until },
+    // The provider's own windows are kept as they were; the refusal lives in `exhaustedUntil`.
+    session: existing?.session ?? null,
     weekly: existing?.weekly ?? null,
     plan: existing?.plan ?? null,
-    at: Date.now(),
+    tokens: existing?.tokens ?? null,
+    at: now,
     exhaustedUntil: until,
   };
+  save();
+}
+
+/** A turn finished without a fault: whatever refusal was on record is over. */
+export function recordSuccess(providerId: string) {
+  const existing = snapshots[providerId];
+  if (!existing || (existing.status !== 'rejected' && existing.exhaustedUntil === null)) return;
+  snapshots[providerId] = { ...heal(existing), status: existing.status === 'rejected' ? 'reported' : existing.status, exhaustedUntil: null };
   save();
 }
 
@@ -194,7 +224,12 @@ export function standing(snapshot: Snapshot | null, now = Date.now()): Standing 
   if (!snapshot) return 'unknown';
   if (snapshot.exhaustedUntil && snapshot.exhaustedUntil * 1000 > now) return 'exhausted';
   const { used, window } = worst(snapshot);
-  if (!window) return snapshot.status === 'rejected' ? 'exhausted' : 'unknown';
+  // A refusal whose hold has run out is history, not a standing: only a live hold (above) or a
+  // window the provider itself reported spent (below) says "out".
+  if (!window) return 'unknown';
+  // A window whose reset time has passed has rolled over, whatever it read before.
+  const { resetsAt } = worst(snapshot);
+  if (resetsAt && resetsAt * 1000 <= now) return 'ok';
   if (used >= 0.995) return 'exhausted';
   if (used >= 0.9) return 'high';
   if (used >= 0.75) return 'warn';

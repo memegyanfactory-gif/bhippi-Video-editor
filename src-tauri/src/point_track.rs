@@ -37,7 +37,8 @@ pub struct PointTracks {
 }
 
 pub fn dir(root: &Path, asset_id: &str) -> PathBuf {
-    root.join("tracking").join(asset_id).join("points")
+    // `root` is the Tracking category folder (see storage.rs).
+    root.join(asset_id).join("points")
 }
 
 /// Pulls the frames of `[from, from + seconds)` at `fps`, `WORK_WIDTH` wide.

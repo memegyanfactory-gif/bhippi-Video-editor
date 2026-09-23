@@ -91,6 +91,9 @@ pub struct ProviderSpec {
     /// How a CLI agent is handed an MCP server for one turn; `None` means it cannot be.
     pub mcp: Option<McpWiring>,
     /// Model names this backend is known to accept, used when it cannot be asked.
+    ///
+    /// Cloud rows use it as the offline fallback: the live `GET /models` list replaces it
+    /// whenever the vendor answers.
     pub models: &'static [&'static str],
     /// Exact model ids offered after `models`, each only when the installed CLI is new enough.
     pub pinned_models: &'static [PinnedModel],
@@ -327,6 +330,20 @@ pub const CATALOG: &[ProviderSpec] = &[
         prompt_args: Some(&["--output-format", "stream-json"]),
         prompt_via_stdin: true,
         model_args: Some(&["--model", "{model}"]),
+        // Gemini CLI has no command that prints its models, so the list is the one its bundle
+        // validates `--model` against (`VALID_GEMINI_MODELS` in @google/gemini-cli 0.60): the
+        // family aliases first, which every release resolves, then the exact ids.
+        models: &["pro", "flash", "flash-lite"],
+        pinned_models: &[
+            pin("gemini-3.1-pro-preview"),
+            pin("gemini-3-pro-preview"),
+            pin("gemini-3.5-flash"),
+            pin("gemini-3-flash-preview"),
+            pin("gemini-3.1-flash-lite"),
+            pin("gemini-2.5-pro"),
+            pin("gemini-2.5-flash"),
+            pin("gemini-2.5-flash-lite"),
+        ],
         mcp: Some(McpWiring::GeminiWorkspaceSettings),
         ..cli(
             "gemini",
@@ -448,78 +465,105 @@ pub const CATALOG: &[ProviderSpec] = &[
         Api::OpenAiCompat,
         "https://jan.ai",
     ),
-    cloud(
-        "anthropic",
-        "Anthropic API",
-        Api::Anthropic,
-        "https://api.anthropic.com/v1",
-        &["ANTHROPIC_API_KEY"],
-        "https://console.anthropic.com/settings/keys",
-    ),
-    cloud(
-        "openai",
-        "OpenAI API",
-        Api::OpenAiCompat,
-        "https://api.openai.com/v1",
-        &["OPENAI_API_KEY"],
-        "https://platform.openai.com/api-keys",
-    ),
-    cloud(
-        "google",
-        "Google Gemini API",
-        Api::OpenAiCompat,
-        "https://generativelanguage.googleapis.com/v1beta/openai",
-        &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        "https://aistudio.google.com/apikey",
-    ),
-    cloud(
-        "xai",
-        "xAI API",
-        Api::OpenAiCompat,
-        "https://api.x.ai/v1",
-        &["XAI_API_KEY"],
-        "https://console.x.ai",
-    ),
-    cloud(
-        "groq",
-        "Groq API",
-        Api::OpenAiCompat,
-        "https://api.groq.com/openai/v1",
-        &["GROQ_API_KEY"],
-        "https://console.groq.com/keys",
-    ),
-    cloud(
-        "openrouter",
-        "OpenRouter",
-        Api::OpenAiCompat,
-        "https://openrouter.ai/api/v1",
-        &["OPENROUTER_API_KEY"],
-        "https://openrouter.ai/keys",
-    ),
-    cloud(
-        "deepseek",
-        "DeepSeek API",
-        Api::OpenAiCompat,
-        "https://api.deepseek.com/v1",
-        &["DEEPSEEK_API_KEY"],
-        "https://platform.deepseek.com/api_keys",
-    ),
-    cloud(
-        "mistral",
-        "Mistral API",
-        Api::OpenAiCompat,
-        "https://api.mistral.ai/v1",
-        &["MISTRAL_API_KEY"],
-        "https://console.mistral.ai/api-keys",
-    ),
-    cloud(
-        "moonshot",
-        "Moonshot (Kimi) API",
-        Api::OpenAiCompat,
-        "https://api.moonshot.ai/v1",
-        &["MOONSHOT_API_KEY"],
-        "https://platform.moonshot.ai",
-    ),
+    ProviderSpec {
+        models: &["claude-opus-5-5", "claude-opus-5", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"],
+        ..cloud(
+            "anthropic",
+            "Anthropic API",
+            Api::Anthropic,
+            "https://api.anthropic.com/v1",
+            &["ANTHROPIC_API_KEY"],
+            "https://console.anthropic.com/settings/keys",
+        )
+    },
+    ProviderSpec {
+        models: &["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
+        ..cloud(
+            "openai",
+            "OpenAI API",
+            Api::OpenAiCompat,
+            "https://api.openai.com/v1",
+            &["OPENAI_API_KEY"],
+            "https://platform.openai.com/api-keys",
+        )
+    },
+    ProviderSpec {
+        models: &["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-pro-preview", "gemini-3-flash-preview"],
+        ..cloud(
+            "google",
+            "Google Gemini API",
+            Api::OpenAiCompat,
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "https://aistudio.google.com/apikey",
+        )
+    },
+    ProviderSpec {
+        models: &["grok-4", "grok-4-fast-reasoning", "grok-4-fast-non-reasoning", "grok-code-fast-1", "grok-3-mini"],
+        ..cloud(
+            "xai",
+            "xAI API",
+            Api::OpenAiCompat,
+            "https://api.x.ai/v1",
+            &["XAI_API_KEY"],
+            "https://console.x.ai",
+        )
+    },
+    ProviderSpec {
+        models: &["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3-32b"],
+        ..cloud(
+            "groq",
+            "Groq API",
+            Api::OpenAiCompat,
+            "https://api.groq.com/openai/v1",
+            &["GROQ_API_KEY"],
+            "https://console.groq.com/keys",
+        )
+    },
+    ProviderSpec {
+        models: &["openrouter/auto"],
+        ..cloud(
+            "openrouter",
+            "OpenRouter",
+            Api::OpenAiCompat,
+            "https://openrouter.ai/api/v1",
+            &["OPENROUTER_API_KEY"],
+            "https://openrouter.ai/keys",
+        )
+    },
+    ProviderSpec {
+        models: &["deepseek-chat", "deepseek-reasoner"],
+        ..cloud(
+            "deepseek",
+            "DeepSeek API",
+            Api::OpenAiCompat,
+            "https://api.deepseek.com/v1",
+            &["DEEPSEEK_API_KEY"],
+            "https://platform.deepseek.com/api_keys",
+        )
+    },
+    ProviderSpec {
+        models: &["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest", "codestral-latest"],
+        ..cloud(
+            "mistral",
+            "Mistral API",
+            Api::OpenAiCompat,
+            "https://api.mistral.ai/v1",
+            &["MISTRAL_API_KEY"],
+            "https://console.mistral.ai/api-keys",
+        )
+    },
+    ProviderSpec {
+        models: &["kimi-latest", "kimi-k2-0905-preview", "kimi-k2-turbo-preview"],
+        ..cloud(
+            "moonshot",
+            "Moonshot (Kimi) API",
+            Api::OpenAiCompat,
+            "https://api.moonshot.ai/v1",
+            &["MOONSHOT_API_KEY"],
+            "https://platform.moonshot.ai",
+        )
+    },
 ];
 
 /// The id of Helios' offline command parser, which is built in rather than catalogued.
@@ -663,7 +707,10 @@ mod tests {
     #[test]
     fn every_listable_backend_can_pin_what_it_lists() {
         for entry in CATALOG {
-            if entry.list_models_args.is_some() || !entry.models.is_empty() || !entry.pinned_models.is_empty() {
+            // Cloud and local rows pin the model in the request body, not in argv.
+            if entry.kind == ProviderKind::Cli
+                && (entry.list_models_args.is_some() || !entry.models.is_empty() || !entry.pinned_models.is_empty())
+            {
                 assert!(entry.model_args.is_some(), "{} offers models it cannot pin", entry.id);
             }
         }

@@ -11,7 +11,7 @@ import { TerminalPanel } from './panels/TerminalPanel';
 import { EditWorkflow } from './lib/editWorkflow';
 import { TranscriptPanel } from './panels/TranscriptPanel';
 import { jobsStore, LiveJobs } from './lib/jobsStore';
-import { fillMissingCardFrames, requestCardFrames, type FrameHost } from './lib/storyboardFrames';
+import { fillMissingCardFrames, requestCardFrames, withCardPicture, type FrameHost } from './lib/storyboardFrames';
 import { describeMoved, organizeBin } from './lib/binOrganize';
 import { advance as advanceProduction, userAdvance } from './lib/production';
 import { ProductionBar } from './chat/ProductionBar';
@@ -51,6 +51,7 @@ import type { CaptionStyle } from './lib/captionStyles';
 import { capitalize, clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, parseCaptions, safeFileName, STILL_DEFAULT, timecode, uid } from './lib/editor';
 import { useHistory } from './lib/history';
 import { api, errorText, events, type McpStatus } from './lib/ipc';
+import { updater, useUpdaterPick } from './lib/updater';
 import { playhead, usePlaying } from './lib/playhead';
 import { makeStickFigure } from './lib/stickFigure';
 import { StickFigureDialog } from './components/StickFigureDialog';
@@ -76,12 +77,18 @@ import { ExportDialog } from './settings/ExportDialog';
 import { RenderQueueDialog } from './settings/RenderQueueDialog';
 import { channelForFormat } from './lib/exportPresets';
 import { HomeScreen } from './settings/HomeScreen';
+import { Onboarding } from './onboarding/Onboarding';
+import { registerStorageRoot } from './lib/storage';
+import { rewritePaths, storyboardDocs } from './lib/projectDocs';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
+import { isSetUp } from './settings/ProvidersSettings';
 import { SHORTCUTS } from './lib/shortcuts';
 import { FXConsoleModal } from './components/FXConsoleModal';
 import { loadFxSettings, loadFxSnapshots, saveFxSnapshots } from './lib/fxConsole';
 import { getLiveMousePos } from './lib/mouseTracker';
 import type { FxSnapshot } from './lib/types';
+import { setBrandKitDoc } from './lib/brandKit/activeStore';
+import { licenseStore, useLicense } from './license/licenseStore';
 
 /**
  * How narrow each panel may be dragged.
@@ -144,6 +151,8 @@ export default function App() {
   const [savedProject, setSavedProject] = useState<Project | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [settings, setSettings] = useState<Settings>(EMPTY_SETTINGS);
+  // Brand kits for code without a settings handle (Motion panel, inspector rebuilds).
+  useEffect(() => setBrandKitDoc(settings.brandKits ?? null), [settings.brandKits]);
   const permission = (settings.permission as PermissionMode | null) ?? DEFAULT_PERMISSION;
   const effort = (settings.effort as Effort | null) ?? DEFAULT_EFFORT;
   // Purely a look: remembered with the other chat choices so it survives a restart.
@@ -233,6 +242,10 @@ export default function App() {
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceRanges, setSourceRanges] = useState<Record<string, SourceRange>>({});
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  /** First run: the storage + models onboarding, until Settings.onboarded is true. */
+  const [onboarding, setOnboarding] = useState(false);
+  /** The open project's folder under the storage root (storage.rs), for paths built in the UI. */
+  const projectDirRef = useRef<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<'properties' | 'effects'>('properties');
   const [exportOpen, setExportOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
@@ -242,6 +255,17 @@ export default function App() {
   const lastMousePos = useRef<{ x: number; y: number }>({ x: 400, y: 250 });
   const [menu, setMenu] = useState<ContextMenu>(null);
   const [dialog, setDialog] = useState<ReactNode>(null);
+  // When the license gate covers the app (signed out, no key, revoked), close what was open under it.
+  const licenseBlocked = useLicense().blocked;
+  useEffect(() => {
+    if (!licenseBlocked) return;
+    setSettingsTab(null);
+    setMenu(null);
+    setExportOpen(false);
+    setQueueOpen(false);
+    setShortcutsOpen(false);
+    setFxConsoleOpen(false);
+  }, [licenseBlocked]);
   const [incoming, setIncoming] = useState<IncomingDrag | null>(null);
   const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [fileHover, setFileHover] = useState(false);
@@ -282,6 +306,8 @@ export default function App() {
       if (cancelled) return;
       setInfo(appInfo);
       registerSfx(appInfo.sfx);
+      if (!stored.onboarded) setOnboarding(true);
+      void api.storageInfo().then((storage) => { registerStorageRoot(storage.root); projectDirRef.current = storage.projectDir; }).catch(() => undefined);
       void warmCustomTools({ dataDir: appInfo.dataDir, ffmpeg: appInfo.ffmpeg.path });
       setSettings({ ...EMPTY_SETTINGS, ...stored, export: { ...EMPTY_SETTINGS.export, ...stored.export } });
       // A layout saved before these floors existed is raised to them rather than left overlapping.
@@ -330,6 +356,15 @@ export default function App() {
       }),
       events.openFile((path) => {
         actionLogger.user(`Open File: ${path}`, { path });
+        // Behind the license gate a double-clicked project waits until Helios is unlocked.
+        if (licenseStore.get().blocked) {
+          const unsubscribe = licenseStore.subscribe(() => {
+            if (licenseStore.get().blocked) return;
+            unsubscribe();
+            void openProjectFile(path);
+          });
+          return;
+        }
         void openProjectFile(path);
       }),
       events.job((job) => {
@@ -694,6 +729,7 @@ export default function App() {
     const handle = window.setTimeout(() => {
       api.projectSave(snapshot)
         .then(() => {
+          void api.storageProjectDir().then((dir) => { projectDirRef.current = dir; }).catch(() => undefined);
           // Coming back from a refused save is worth saying; staying saved is not.
           if (!saveFault.current) return;
           saveFault.current = null;
@@ -708,6 +744,19 @@ export default function App() {
     }, 500);
     return () => window.clearTimeout(handle);
   }, [project, loaded, toast]);
+
+  // Media deleted (or put back) in Explorer shows as offline (or online) when the window comes
+  // back into focus. The check is one stat per file; the library only reloads when it changed.
+  useEffect(() => {
+    const onFocus = () => {
+      void api.libraryMissing().then((missing) => {
+        const gone = new Set(missing);
+        if (assetsRef.current.some((asset) => !!asset.missing !== gone.has(asset.id))) void refreshAssets();
+      }).catch(() => undefined);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshAssets]);
 
   const saveSettings = useCallback((patch: Partial<Settings>) => {
     const next = { ...settingsRef.current, ...patch };
@@ -733,10 +782,22 @@ export default function App() {
   }, [settings]);
 
   // ── project files ──────────────────────────────────────────────────────
-  const documentFor = (value: Project): HeliosDocument => ({
-    format: 'helios', version: 3, savedAt: new Date().toISOString(), project: value,
-    assets: assets.filter((asset) => value.media.some((ref) => ref.assetId === asset.id)),
-  });
+  /**
+   * Everything a .helios needs to open complete: the project, its media, and in `extras` the
+   * brand kit (so it opens with its look on a machine that never had the kit), the chat
+   * transcript and the project folder its files were sorted into.
+   */
+  const documentFor = async (value: Project): Promise<HeliosDocument> => {
+    const [chat, projectFolder] = await Promise.all([
+      api.chatLogLoad().catch(() => [] as unknown[]),
+      api.storageProjectDir().catch(() => null),
+    ]);
+    return {
+      format: 'helios', version: 3, savedAt: new Date().toISOString(), project: value,
+      assets: assets.filter((asset) => value.media.some((ref) => ref.assetId === asset.id)),
+      extras: { brandKit: resolveActiveKit(settingsRef.current.brandKits, value), chat, projectFolder },
+    };
+  };
 
   const rememberRecent = (path: string) => {
     const recents = [path, ...settingsRef.current.recentProjects.filter((item) => item !== path)].slice(0, 12);
@@ -746,12 +807,34 @@ export default function App() {
   const writeProject = async (path: string, keepPath: boolean): Promise<boolean> => {
     const target = path.toLowerCase().endsWith('.helios') ? path : `${path}.helios`;
     try {
-      await api.projectFileWrite(target, documentFor(history.current()));
+      // The save gathers every file the project uses (AI downloads, generated media, voice-overs,
+      // roto runs, storyboard pictures, the AI's guidelines…) into the folder the .helios owns and
+      // files each comp's plan under Storyboard/ — see src-tauri/src/bundle.rs.
+      const base = history.current();
+      const report = await api.projectFileSave(target, await documentFor(base), keepPath, storyboardDocs(base));
       if (keepPath) {
-        setSavedProject(history.current());
+        // From now on the project reads its media from that folder: point the open project there.
+        const moved = rewritePaths(base, report.rewrites);
+        if (moved !== base) history.view((current) => (current === base ? moved : rewritePaths(current, report.rewrites)));
+        setSavedProject(moved);
         rememberRecent(target);
+        projectDirRef.current = report.projectFolder;
+        void api.storageSetProject(base.name).catch(() => undefined);
+        void refreshAssets();
       }
-      toast({ tone: 'success', title: 'Saved', body: target.split(/[\\/]/).pop(), timeout: 2200 });
+      const gathered = report.copied + report.moved;
+      const folderName = report.projectFolder.split(/[\\/]/).pop();
+      const detail = [
+        gathered ? `${gathered} file${gathered === 1 ? '' : 's'} gathered into “${folderName}”` : null,
+        report.failures.length ? `${report.failures.length} could not be copied: ${report.failures[0]}` : null,
+      ].filter(Boolean).join(' · ');
+      toast({
+        tone: report.failures.length ? 'error' : 'success',
+        title: 'Saved',
+        body: [target.split(/[\\/]/).pop(), detail].filter(Boolean).join(' — '),
+        timeout: report.failures.length ? 9000 : 2600,
+        actions: [{ label: 'Open folder', run: () => void api.openPath(report.projectFolder) }],
+      });
       return true;
     } catch (error) {
       toast({ tone: 'error', title: 'Could not save', body: errorText(error) });
@@ -760,7 +843,10 @@ export default function App() {
   };
 
   const saveAs = async (keepPath = true): Promise<boolean> => {
-    const path = await api.pickSavePath(keepPath ? 'Save project as' : 'Save a copy', `${safeFileName(project.name)}.helios`, 'Helios project', ['helios']);
+    // Unsaved projects are offered their own project folder (<storage root>/<name>/Project).
+    await api.storageSetProject(project.name).catch(() => undefined);
+    const folder = await api.storageDir('project').catch(() => null);
+    const path = await api.pickSavePath(keepPath ? 'Save project as' : 'Save a copy', `${safeFileName(project.name)}.helios`, 'Helios project', ['helios'], folder);
     if (!path) return false;
     return writeProject(path, keepPath);
   };
@@ -783,6 +869,16 @@ export default function App() {
       setSelection([]);
       playhead.seek(0);
       rememberRecent(path);
+      void api.storageSetProject(opened.name).catch(() => undefined);
+      // What the file carries beyond the project: its brand kit (added if this machine lacks it)
+      // and the chat transcript.
+      const extras = raw.extras;
+      const kit = extras?.brandKit;
+      if (kit?.id) {
+        const doc = settingsRef.current.brandKits ?? { kits: [], activeId: null };
+        if (!doc.kits.some((entry) => entry.id === kit.id)) saveSettings({ brandKits: { kits: [...doc.kits, kit], activeId: doc.activeId ?? kit.id } });
+      }
+      if (Array.isArray(extras?.chat) && extras.chat.length) chatApi.current?.load(extras.chat);
       setMode('edit');
       toast({ tone: 'success', title: 'Project opened', body: path.split(/[\\/]/).pop(), timeout: 2500 });
     } catch (error) {
@@ -815,6 +911,7 @@ export default function App() {
     guardUnsaved(() => {
       const fresh = newProject();
       history.reset(fresh);
+      void api.storageSetProject(fresh.name).catch(() => undefined);
       setSavedProject(null);
       saveSettings({ projectPath: null });
       setSelection([]);
@@ -840,6 +937,7 @@ export default function App() {
       setDialog(
         <ConfirmDialog
           title="Close Helios"
+          top
           body={`Save changes to “${history.current().name}” before closing?`}
           confirmLabel="Save and close"
           discardLabel="Close without saving"
@@ -851,6 +949,47 @@ export default function App() {
     });
     return () => void pending.then((unlisten) => unlisten());
   }, [savedProject, history]);
+
+  // Updates from bhippi.com (lib/updater.ts): checked in the background once the project is in.
+  // Installing closes Helios, so the work is saved first. A project with a file is saved to it when
+  // it has changes, as closing the window does. Every project is also flushed to the autosave that
+  // reopens it, so an edit still in the autosave's half-second wait is not lost; for the session
+  // project (no file) that is its only copy, so the install waits for it rather than asking where
+  // to save.
+  useEffect(() => {
+    updater.setBeforeInstall(async () => {
+      const path = settingsRef.current.projectPath;
+      if (path && savedProject && savedProject !== history.current() && !(await saveProject())) return false;
+      try {
+        await api.projectSave(healProject(history.current()));
+        return true;
+      } catch (error) {
+        if (path) return true;
+        toast({ tone: 'error', title: 'Could not save before updating', body: `${errorText(error)} The update is still ready in Settings › About.` });
+        return false;
+      }
+    });
+  });
+  useEffect(() => {
+    if (loaded) updater.start(() => settingsRef.current.autoUpdate !== false);
+  }, [loaded]);
+  // Only the phase and version the toast needs: the whole state changes with every download
+  // progress event, and the app must not re-render for those.
+  const updateNews = useUpdaterPick(({ phase, info }) => ((phase === 'ready' || phase === 'available') && info?.latest ? `${phase} ${info.latest}` : null));
+  const announced = useRef('');
+  useEffect(() => {
+    if (!updateNews || announced.current === updateNews) return;
+    const [phase, version] = updateNews.split(' ');
+    // With automatic downloads on, "available" is only a moment before the download starts (the
+    // store starts one after every check that finds an update): say nothing until it is ready.
+    if (phase === 'available' && settingsRef.current.autoUpdate !== false && !updater.get().info?.dev) return;
+    announced.current = updateNews;
+    toast(
+      phase === 'ready'
+        ? { tone: 'success', title: `Helios ${version} is ready`, body: 'Install it now, or any time from Settings › About. Your project is saved first.', timeout: 15000, actions: [{ label: 'Restart and install', run: () => void updater.install() }] }
+        : { tone: 'info', title: `Helios ${version} is available`, body: 'Download it from Settings › About.', timeout: 10000, actions: [{ label: 'Open', run: () => setSettingsTab('about') }] },
+    );
+  }, [updateNews, toast]);
 
   // ── layout ─────────────────────────────────────────────────────────────
   const hidden = (panel: PanelId) => layout.hidden.includes(panel);
@@ -1186,7 +1325,7 @@ export default function App() {
   // ── export ─────────────────────────────────────────────────────────────
   const startExport = useCallback(async (options: ExportOptions, folder: string) => {
     setExportOpen(false);
-    saveSettings({ export: { resolution: options.resolution, fps: options.fps, quality: options.quality, folder, format: options.format, channel: channelForFormat(options.format) ?? 'rgb' } });
+    saveSettings({ export: { resolution: options.resolution, fps: options.fps, quality: options.quality, folder, format: options.format, channel: channelForFormat(options.format) ?? 'rgb', encoder: options.encoder ?? null } });
     // One render window for the whole export (no toast per frame): pre-render stages, then the
     // FFmpeg encode job, with a live picture of the frame being rendered.
     const project = history.current();
@@ -1329,9 +1468,10 @@ export default function App() {
       else if (payload.type === 'leave') setFileHover(false);
       else if (payload.type === 'drop') {
         setFileHover(false);
+        if (licenseStore.get().blocked) return;
         const ratio = window.devicePixelRatio || 1;
         const point = { x: payload.position.x / ratio, y: payload.position.y / ratio };
-        if (document.elementFromPoint(point.x, point.y)?.closest('.chat')) return;
+        if (document.elementFromPoint(point.x, point.y)?.closest('.chat, .sketch-editor')) return;
         const heliosFile = payload.paths.find((path) => path.toLowerCase().endsWith('.helios'));
         if (heliosFile) void openProjectFile(heliosFile);
         else void importFiles(payload.paths, point);
@@ -1803,7 +1943,8 @@ export default function App() {
       ] },
       { separator: true },
       { label: 'Project Settings…', onSelect: projectSettings },
-      { label: 'Reveal Project Data Folder', onSelect: () => info && void api.openPath(info.dataDir) },
+      { label: 'Open Project Folder', onSelect: () => void api.storageOpen(null).catch((error) => toast({ tone: 'error', title: 'Could not open the project folder', body: errorText(error) })) },
+      { label: 'Reveal Helios Data Folder', onSelect: () => info && void api.openPath(info.dataDir) },
       { separator: true },
       { label: 'Exit', shortcut: 'Ctrl+Q', onSelect: () => void getCurrentWindow().close() },
     ] },
@@ -1991,6 +2132,8 @@ export default function App() {
       event.preventDefault();
       action();
     };
+    // Nothing reaches the editor while the license gate covers it.
+    if (licenseStore.get().blocked) return;
     if (isTyping(event.target) || settingsTab || exportOpen || shortcutsOpen || dialog || menu) {
       if (event.key === 'Escape' && menu) setMenu(null);
       return;
@@ -2258,6 +2401,12 @@ export default function App() {
     project: () => history.current(),
     commit: (change, label) => history.commit(change, label),
     framePath: (name) => {
+      // Storyboard frames belong to the project: <project folder>/Storyboard (export_frame makes it).
+      const projectDir = projectDirRef.current;
+      if (projectDir) {
+        const sep = projectDir.includes('\\') ? '\\' : '/';
+        return `${projectDir}${sep}Storyboard${sep}${name}`;
+      }
       if (!info) throw new Error('Helios is still starting up');
       const sep = info.dataDir.includes('\\') ? '\\' : '/';
       return `${info.dataDir}${sep}thumbnails${sep}${name}`;
@@ -2266,6 +2415,8 @@ export default function App() {
   };
   frameHostRef.current = frameHost;
   const requestFrames = (kind: 'auto' | 'edit' | 'concept', indices?: number[]) => { if (comp) requestCardFrames(frameHost, comp.id, kind, indices); };
+  // A picture the user made by hand for a card: a sketch (kept editable on the scene) or a photo.
+  const cardPicture = (index: number, picture: { thumbnail: string; sketch?: unknown }) => { if (comp) history.commit((current) => withCardPicture(current, comp.id, index, picture), picture.sketch ? `Storyboard sketch · scene ${index + 1}` : `Storyboard photo · scene ${index + 1}`); };
   const hasStoryboard = !!comp?.storyboard?.length || !!comp?.videoBlueprint?.scenes?.length;
 
   const panel = (id: PanelId, tabs: { id: string; label: ReactNode }[], active: string, children: ReactNode, extras: Partial<Parameters<typeof Panel>[0]> = {}) => (
@@ -2286,6 +2437,7 @@ export default function App() {
             compId={comp.id}
             aspect={comp.width / Math.max(1, comp.height)}
             onRequestFrames={requestFrames}
+            onCardPicture={cardPicture}
             blueprint={comp.videoBlueprint ?? null}
             actionLabel={userAdvance(comp.production?.phase) === 'gathering' ? 'Start generating' : userAdvance(comp.production?.phase) === 'editing' ? 'Start editing' : null}
             onExecuteBlueprint={userAdvance(comp.production?.phase) ? () => advanceProductionPhase(comp.id, userAdvance(comp.production?.phase)!) : undefined}
@@ -2317,7 +2469,7 @@ export default function App() {
             setPendingAsks(rest);
           }}
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief() }; }} tools={toolRuns}
+          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
             // The brain learns every turn's tool outcomes; recording never disturbs the chat.
             if (!settingsRef.current.ideagraphRecord || !outcome.tools.length) return;
@@ -2352,6 +2504,7 @@ export default function App() {
           compId={comp.id}
           aspect={comp.width / Math.max(1, comp.height)}
           onRequestFrames={requestFrames}
+          onCardPicture={cardPicture}
           actionLabel={userAdvance(comp.production?.phase) === 'gathering' ? 'Start generating' : userAdvance(comp.production?.phase) === 'editing' ? 'Start editing' : null}
           onExecuteBlueprint={userAdvance(comp.production?.phase) ? () => advanceProductionPhase(comp.id, userAdvance(comp.production?.phase)!) : undefined}
           executing={Object.values(toolRuns).flat().some((run) => run.status === 'running')}
@@ -2369,7 +2522,9 @@ export default function App() {
   const programPanel = panel('program', [{ id: 'program', label: `Program: ${comp?.name ?? '—'}` }], 'program', (
     <ProgramMonitor project={project} comp={comp} assets={assetMap} offline={offline} history={history} selection={selection} onSelect={setSelection} tool={tool} onTool={setTool}
       onImport={() => void pickFiles()} onMarkIn={markIn} onMarkOut={markOut} onAddMarker={addMarker} onLift={() => removeRangeNow('lift')} onExtract={() => removeRangeNow('extract')}
-      onExportFrame={() => void exportFrame()} apiRef={programApi} />
+      onExportFrame={() => void exportFrame()} apiRef={programApi}
+      previewCache={{ enabled: settings.previewCacheEnabled ?? true, budgetMb: settings.previewCacheMb ?? 1536 }}
+      onPreviewCache={(next) => saveSettings({ previewCacheEnabled: next.enabled, previewCacheMb: next.budgetMb })} />
   ), { menu: [{ label: 'Export Frame…', onSelect: () => void exportFrame(), disabled: !hasClips }, { label: 'Clear In and Out', onSelect: clearInOut }] });
 
   const propertiesPanel = panel(
@@ -2488,7 +2643,7 @@ export default function App() {
         mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }} onQueue={() => setQueueOpen(true)}
         exportDisabled={!hasClips} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}
-        onSettings={() => setSettingsTab('providers')} providerBadge={<ProviderLogo id={providerId} size={24} />}
+        onSettings={() => setSettingsTab('providers')} onUpdates={() => setSettingsTab('about')} providerBadge={<ProviderLogo id={providerId} size={24} />}
       />
 
       {mode === 'home' && (
@@ -2568,6 +2723,12 @@ export default function App() {
           return (
             <>
               {mediaJobs.length > 0 && <span className="status-item"><LoaderCircle size={12} className="spin" /> Preparing {mediaJobs.length} media…</span>}
+              {runningJobs.filter((job) => job.kind === 'collect').map((job) => (
+                <span key={job.id} className="status-item export-progress" title={job.label}>
+                  <LoaderCircle size={12} className="spin" /> {job.message}
+                  <span className="progress"><span style={{ width: `${Math.round(job.progress * 100)}%` }} /></span>
+                </span>
+              ))}
               {runningJobs.filter((job) => job.kind === 'install').map((job) => <span key={job.id} className="status-item"><LoaderCircle size={12} className="spin" /> {job.label}…</span>)}
               {exportJob && (
                 <button type="button" className="status-item export-progress" onClick={() => setQueueOpen(true)} title="Open the render queue">
@@ -2608,6 +2769,7 @@ export default function App() {
       )}
       {menu && <MenuList items={menu.items} anchor={menu.anchor} onClose={() => setMenu(null)} />}
       {dialog}
+      {onboarding && loaded && <Onboarding onPatch={(patch) => saveSettings(patch)} onDone={() => setOnboarding(false)} />}
       {settingsTab && <LiveJobs>{(live) => <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
       <ErrorBoundary scope="Render window"><RenderWindow /></ErrorBoundary>
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder) => void startExport(options, folder)} />}
@@ -2638,6 +2800,8 @@ export default function App() {
 function ProvidersQuick({ providers, activeId, onUse, onManage, onToggle }: { providers: ProviderInfo[]; activeId: string | null; onUse: (id: string) => void; onManage: () => void; onToggle: (row: ProviderInfo, enabled: boolean) => void }) {
   const ready = providers.filter((row) => row.usable);
   const others = providers.filter((row) => !row.usable);
+  // Set up but not answering (a rejected key, Ollama stopped): still worth a line here.
+  const broken = others.filter(isSetUp);
   return (
     <div className="providers-quick">
       <div className="pq-intro">
@@ -2652,14 +2816,20 @@ function ProvidersQuick({ providers, activeId, onUse, onManage, onToggle }: { pr
           {row.kind !== 'builtin' && <button type="button" className="btn btn-small btn-ghost" onClick={() => onToggle(row, !row.enabled)}>{row.enabled ? 'Off' : 'On'}</button>}
         </div>
       ))}
-      {others.length > 0 && <div className="pq-heading">Not set up</div>}
-      {others.map((row) => (
+      {broken.map((row) => (
         <div key={row.id} className="pq-row dim">
           <ProviderLogo id={row.id} size={18} />
-          <div className="pq-text"><strong>{row.label}</strong><span>{row.kind === 'cli' ? 'not installed' : row.kind === 'cloud_api' ? 'needs an API key' : 'not running'}</span></div>
-          <button type="button" className="btn btn-small btn-ghost" onClick={onManage}>Set up</button>
+          <div className="pq-text"><strong>{row.label}</strong><span>{row.kind === 'cloud_api' ? 'key not accepted' : row.kind === 'local_server' ? 'not running' : row.kind === 'cli' ? 'not signed in' : 'not answering'}</span></div>
+          <button type="button" className="btn btn-small btn-ghost" onClick={onManage}>Fix</button>
         </div>
       ))}
+      {/* Providers this computer does not have wait in Settings › AI providers › Add provider,
+          rather than filling this list with "not running" and "needs an API key" rows. */}
+      {others.length > broken.length && (
+        <button type="button" className="btn btn-small btn-ghost pq-add" onClick={onManage} title={others.filter((row) => !isSetUp(row)).map((row) => row.label).join(', ')}>
+          + Add provider
+        </button>
+      )}
     </div>
   );
 }

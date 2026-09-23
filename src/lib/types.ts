@@ -1,7 +1,7 @@
 // Shapes shared with the Rust side (src-tauri/src). Field names match serde's camelCase output.
 // The project model mirrors src-tauri/src/project.rs — read its module doc for the conventions.
 
-import type { BrandKitDoc } from './brandKit/types';
+import type { BrandKit, BrandKitDoc } from './brandKit/types';
 import type { MotionScene } from '../motion/types';
 
 export type Preset = 'title' | 'kinetic' | 'lower-third' | 'caption';
@@ -255,6 +255,8 @@ export type VideoBlueprintScene = ProductionBeat & {
   status?: VideoBlueprintAssetStatus;
   /** Optional preview frame path (storyboard thumbnails). */
   thumbnail?: string;
+  /** A hand-drawn sketch of the card (StoryboardSketch), kept editable; `thumbnail` is its PNG. */
+  sketch?: import('./sketch').SketchDoc;
 };
 
 export type StoryboardScene = ProductionBeat & {
@@ -266,6 +268,8 @@ export type StoryboardScene = ProductionBeat & {
   evidence: string;
   refs?: string[];
   thumbnail?: string;
+  /** A hand-drawn sketch of the card (StoryboardSketch), kept editable; `thumbnail` is its PNG. */
+  sketch?: import('./sketch').SketchDoc;
 };
 
 /**
@@ -434,7 +438,7 @@ export type ProviderInfo = {
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 export type Job = {
   id: string;
-  kind: 'export' | 'media' | 'install' | 'transcribe' | 'model' | 'speech' | 'generation';
+  kind: 'export' | 'media' | 'install' | 'transcribe' | 'model' | 'speech' | 'generation' | 'collect';
   label: string;
   status: JobStatus;
   progress: number;
@@ -476,7 +480,14 @@ export type ChatEvent =
 export type ToolCall = { turnId: string; callId: string; name: string; args: Record<string, unknown> };
 export type ToolResult = { ok: true; summary?: string; [key: string]: unknown } | { ok: false; error: string; [key: string]: unknown };
 
-export type ToolStatus = { found: boolean; path: string | null; version: string | null; x264: boolean };
+export type ToolStatus = {
+  found: boolean; path: string | null; version: string | null; x264: boolean;
+  /** Hardware H.264 encoder confirmed by a test encode (`h264_nvenc` · `h264_qsv` · `h264_amf`), and its readable name. */
+  gpuEncoder?: string | null; gpuEncoderLabel?: string | null;
+};
+
+/** Which H.264 encoder MP4/MOV exports use: the detected GPU one (falling back to the CPU if it fails), or always the CPU. */
+export type ExportEncoder = 'auto' | 'gpu' | 'cpu';
 
 export type AppInfo = {
   version: string;
@@ -488,7 +499,7 @@ export type AppInfo = {
 
 export type ExportFormat = 'mp4' | 'mov' | 'mov-alpha' | 'avi' | 'mp3';
 
-export type ExportPrefs = { resolution: number | null; fps: number | null; quality: string | null; folder: string | null; format?: ExportFormat | null; channel?: 'rgb' | 'rgba' | null };
+export type ExportPrefs = { resolution: number | null; fps: number | null; quality: string | null; folder: string | null; format?: ExportFormat | null; channel?: 'rgb' | 'rgba' | null; encoder?: ExportEncoder | null };
 
 /** How a script should be read aloud, and by whom. */
 export type VoiceMode = 'auto' | 'hinglish' | 'hindi-roman' | 'en' | 'hi';
@@ -520,6 +531,14 @@ export type Settings = {
    * topics with none to find) instead of generating images/video with local models. Local
    * generation stays reachable — this only turns off the AI calling it automatically. */
   disableLocalGeneration?: boolean | null;
+  /** Where project folders are made (see src/lib/storage.ts); Documents/Helios when unset. */
+  storageRoot?: string | null;
+  /** Copy imported media into the project's Footage folder instead of referencing it in place. */
+  copyImports?: boolean | null;
+  /** The first-run onboarding was finished or skipped. */
+  onboarded?: boolean | null;
+  /** Fetch a new version as soon as bhippi.com has one; installing still waits for the user. Unset means on. */
+  autoUpdate?: boolean | null;
   disabledProviders: string[];
   providerId: string | null;
   model: string | null;
@@ -551,6 +570,10 @@ export type Settings = {
   ideagraphRecord: boolean | null;
   /** The .helios file the session project belongs to, when it has been saved. */
   projectPath: string | null;
+  /** The Program monitor's RAM preview cache (lib/previewCache.ts); on when unset. */
+  previewCacheEnabled?: boolean | null;
+  /** Its RAM budget in megabytes; 1536 when unset. */
+  previewCacheMb?: number | null;
 };
 
 export type PanelId = 'chat' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools';
@@ -584,6 +607,8 @@ export type ExportOptions = {
   inToOut: boolean;
   /** Container + codec set; mov-alpha is ProRes 4444 with an alpha channel. */
   format: ExportFormat;
+  /** H.264 encoder for MP4/MOV; unset follows Settings (`auto`). */
+  encoder?: ExportEncoder;
 };
 
 /** Timeline selection: clip ids in the active comp. */
@@ -602,6 +627,19 @@ export type HeliosDocument = {
   project: Project;
   /** The media the project references, so it can be relinked on another session. */
   assets: Asset[];
+  /** What else the project needs to open complete elsewhere; absent in older files. */
+  extras?: HeliosExtras;
+};
+
+export type HeliosExtras = {
+  /** The project's brand kit, so it opens with its look on a machine that never had the kit. */
+  brandKit?: BrandKit | null;
+  /** The chat transcript at save time. */
+  chat?: unknown[];
+  /** The project folder the files were organised into when it was saved. */
+  projectFolder?: string | null;
+  /** JSON pointers of the paths stored relative to the .helios (resolved by the backend on open). */
+  relativePaths?: string[];
 };
 
 export type FxSnapshot = {

@@ -3,6 +3,7 @@ import { prepareEffectExport } from './effectExport';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { AppInfo, Asset, ChatEvent, ExportOptions, Job, Project, ProviderInfo, Settings, ToolCall, ToolResult, ToolStatus } from './types';
+import type { StorageCategoryId } from './storage';
 
 export type ChatRequest = {
   turnId: string;
@@ -17,6 +18,16 @@ export type ChatRequest = {
   handoff?: { fromLabel: string; fromModel: string | null } | null;
   /** The project summary the model sees, built by `aiContext`. */
   context: unknown;
+};
+
+/** A document filed into the project folder on save. */
+export type ProjectDocFile = { category: 'guidelines' | 'storyboard' | 'research'; name: string; content: string };
+/** One document in the project folder (or an older workspace note, `legacy`). */
+export type ProjectDoc = { name: string; path: string; folder: string; relative: string; size: number; modified: number; legacy: boolean };
+/** What a save gathered: counts, and old → new paths for the paths the project holds itself. */
+export type ProjectSaveReport = {
+  path: string; projectFolder: string; rewrites: { from: string; to: string }[];
+  copied: number; moved: number; reused: number; left: number; bytes: number; failures: string[];
 };
 
 export type ImportResult = { imported: Asset[]; existing: Asset[]; failed: { path: string; reason: string }[] };
@@ -114,6 +125,8 @@ export type GlobSearchResult = {
   pattern: string;
   matches: string[];
   totalMatches: number;
+  /** The walk hit its entry/time budget before covering every folder. */
+  truncated?: boolean;
 };
 
 export type GrepMatch = {
@@ -126,6 +139,8 @@ export type GrepSearchResult = {
   query: string;
   matches: GrepMatch[];
   totalMatches: number;
+  /** The walk hit its entry/time budget before covering every folder. */
+  truncated?: boolean;
 };
 
 export type RunCommandResult = {
@@ -218,6 +233,67 @@ export type Transcript = {
 /** A key Helios keeps for a service that is not a chat provider. The key itself never comes back. */
 export type ServiceKey = { id: string; label: string; blurb: string; saved: boolean };
 
+export type StorageInfo = {
+  root: string;
+  defaultRoot: string;
+  /** True when the user chose the root in Settings. */
+  custom: boolean;
+  projectName: string;
+  projectDir: string;
+  categories: { id: StorageCategoryId; folder: string; path: string; exists: boolean; bytes: number }[];
+};
+
+/** The bhippi.com account behind this copy of Helios (see src-tauri/src/license.rs). */
+export type LicenseKind = 'paid' | 'tester' | 'admin';
+export type AccountDevice = { id: string; name: string | null; os: string | null; version: string | null; dev: boolean; firstSeen: number; lastSeen: number; current: boolean };
+export type AccountView = {
+  user: { id: string; email: string; name: string | null; picture: string | null; isAdmin: boolean } | null;
+  license: { key: string; kind: LicenseKind; maxDevices: number; revoked: boolean; since: number; slotsUsed?: number } | null;
+  devices: AccountDevice[] | null;
+};
+export type LicenseState = 'signed_out' | 'active' | 'no_license' | 'slots_full' | 'revoked' | 'unreachable';
+export type LicenseStatus = {
+  state: LicenseState;
+  /** Active on the offline certificate because bhippi.com didn't answer. */
+  offline: boolean;
+  devBuild: boolean;
+  /** A debug build started with HELIOS_DEV_NO_LICENSE=1: the gate offers to continue without a license. */
+  devBypassAllowed: boolean;
+  account: AccountView | null;
+  expiresAt: number | null;
+  message: string | null;
+  deviceName: string;
+};
+
+export type UpdateInfo = {
+  current: string;
+  latest: string | null;
+  available: boolean;
+  size: number | null;
+  notes: string | null;
+  uploadedAt: number | null;
+  /** A verified installer for `latest`, already downloaded. */
+  ready: string | null;
+  /** A development build: it offers updates but never fetches one on its own. */
+  dev: boolean;
+};
+
+/**
+ * A download on `helios://update`: 'downloading' as bytes arrive, then one end — 'done' (`path`
+ * set), 'failed' (`error` set) or 'cancelled'.
+ */
+export type UpdateProgress = {
+  version: string;
+  received: number;
+  total: number | null;
+  state: 'downloading' | 'done' | 'failed' | 'cancelled';
+  path: string | null;
+  error: string | null;
+};
+
+/** The download running in updater.rs right now (`downloading` false when none). */
+export type UpdateStatus = { downloading: boolean; version: string | null; received: number; total: number | null };
+
 export const api = {
   appInfo: () => invoke<AppInfo>('app_info'),
   settingsGet: () => invoke<Settings>('settings_get'),
@@ -229,6 +305,23 @@ export const api = {
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   openPath: (path: string) => invoke<void>('open_path', { path }),
   openUrl: (url: string) => invoke<void>('open_url', { url }),
+  licenseStatus: () => invoke<LicenseStatus>('license_status'),
+  licenseLoginStart: () => invoke<{ code: string; url: string; expiresAt: number }>('license_login_start'),
+  licenseLoginPoll: () => invoke<{ state: 'pending' | 'expired' | 'done'; status: LicenseStatus | null }>('license_login_poll'),
+  licenseLoginCancel: () => invoke<void>('license_login_cancel'),
+  licenseRedeem: (key: string) => invoke<LicenseStatus>('license_redeem', { key }),
+  licenseReleaseDevice: (deviceId: string) => invoke<LicenseStatus>('license_release_device', { deviceId }),
+  licenseSignOut: () => invoke<LicenseStatus>('license_sign_out'),
+  /** Asks bhippi.com for the newest version (updater.rs). */
+  updateCheck: () => invoke<UpdateInfo>('update_check'),
+  /** Downloads and verifies the newest installer; resolves to its path. Progress on `helios://update`. */
+  updateDownload: () => invoke<string>('update_download'),
+  /** The download under way, so a reloaded window can show it again. */
+  updateStatus: () => invoke<UpdateStatus>('update_status'),
+  /** Stops the download under way (nothing when there is none); its `updateDownload` rejects. */
+  updateCancel: () => invoke<void>('update_cancel'),
+  /** Runs a downloaded installer and closes Helios; the installer starts the new version. */
+  updateInstall: (path: string) => invoke<void>('update_install', { path }),
   /** A file path passed on the command line (double-clicking a .helios file). */
   startupFile: () => invoke<string | null>('startup_file'),
 
@@ -319,6 +412,8 @@ export const api = {
     invoke<ReferenceFilm>('refs_save_guideline', { name, notes, palette, pack, source }),
   webSearch: (query: string, limit?: number) => invoke<SearchResult[]>('web_search', { query, limit }),
   webScrape: (url: string, maxChars?: number) => invoke<ScrapeResult>('web_scrape', { url, maxChars }),
+  /** Raw HTML and linked stylesheets of a page (brand extraction). */
+  webPageSource: (url: string) => invoke<{ url: string; html: string; stylesheets: { url: string; css: string }[] }>('web_page_source', { url }),
   mediaDownload: (
     url: string,
     mediaType?: string,
@@ -354,13 +449,40 @@ export const api = {
   fsRunCommand: (command: string, cwd?: string, timeoutSecs?: number) =>
     invoke<RunCommandResult>('fs_run_command', { command, cwd, timeoutSecs }),
   /** File dialogs, parented to the main window so they always come to the front. */
-  pickSavePath: (title: string, defaultName: string, filterName: string, extensions: string[]) =>
-    invoke<string | null>('pick_save_path', { title, defaultName, filterName, extensions }),
+  pickSavePath: (title: string, defaultName: string, filterName: string, extensions: string[], directory?: string | null) =>
+    invoke<string | null>('pick_save_path', { title, defaultName, filterName, extensions, directory: directory ?? null }),
+  /** A folder picker parented to the main window. */
+  pickFolder: (title: string, directory?: string | null) => invoke<string | null>('pick_folder', { title, directory: directory ?? null }),
+  /** Where project files go: the root, the open project's folder, and each category folder. */
+  storageInfo: () => invoke<StorageInfo>('storage_info'),
+  /** Moves the storage root (null returns to Documents/Helios); refuses a folder it cannot write. */
+  storageSetRoot: (path: string | null) => invoke<StorageInfo>('storage_set_root', { path }),
+  /** Which project new files belong to (autosave also sets it). */
+  storageSetProject: (name: string) => invoke<void>('storage_set_project', { name }),
+  /** The open project's folder, not created. */
+  storageProjectDir: () => invoke<string>('storage_project_dir'),
+  /** A category folder of the open project, created; no category is the project folder. */
+  storageDir: (category?: StorageCategoryId | null) => invoke<string>('storage_dir', { category: category ?? null }),
+  /** Opens a category folder, the project folder (no category) or the root ('root'). */
+  storageOpen: (category?: StorageCategoryId | 'root' | null) => invoke<void>('storage_open', { category: category ?? null }),
   pickOpenPath: (title: string, filterName: string, extensions: string[]) =>
     invoke<string | null>('pick_open_path', { title, filterName, extensions }),
   /** Reads and writes `.helios` project files. */
   projectFileRead: (path: string) => invoke<unknown>('project_file_read', { path }),
   projectFileWrite: (path: string, document: unknown) => invoke<void>('project_file_write', { path, document }),
+  /**
+   * Save / Save As (keepPath) or Save a copy: gathers every file the project uses into the folder
+   * the .helios owns, files `docs` there, and writes the .helios with relative paths (bundle.rs).
+   */
+  projectFileSave: (path: string, document: unknown, keepPath: boolean, docs: ProjectDocFile[]) =>
+    invoke<ProjectSaveReport>('project_file_save', { path, document, keepPath, docs }),
+  /** The open project's guidelines, plans, storyboards and research notes. */
+  projectDocs: () => invoke<ProjectDoc[]>('project_docs'),
+  projectDocRead: (path: string) => invoke<string>('project_doc_read', { path }),
+  projectDocWrite: (category: ProjectDocFile['category'], name: string, content: string) => invoke<string>('project_doc_write', { category, name, content }),
+  projectDocDelete: (path: string) => invoke<void>('project_doc_delete', { path }),
+  /** Ids of library media whose file is gone — cheap, for noticing deletions made in Explorer. */
+  libraryMissing: () => invoke<string[]>('library_missing'),
   hardwareInfo: () => invoke<{os:string;architecture:string;threads:number;cpu:string|null;ramGb:number|null;diskFreeGb:number|null;gpus:string[];nvidia:{name:string;vramMb:number}[]}>('hardware_info'),
   learningLoad: () => invoke<import('./learning').LearningSkill[]>('learning_load'),
   learningSave: (skills: import('./learning').LearningSkill[]) => invoke<void>('learning_save', { skills }),
@@ -402,6 +524,10 @@ export const api = {
   mogrtFramesBegin: (clipId: string) => invoke<string>('mogrt_frames_begin', { clipId }),
   /** One PNG frame, sent as raw bytes so a 1080p sequence never goes through JSON. */
   mogrtFrameWrite: (dir: string, index: number, png: Uint8Array) => invoke<void>('mogrt_frame_write', png, { headers: { 'x-mogrt-dir': dir, 'x-mogrt-index': String(index) } }),
+  /** Saves a storyboard card picture (a sketch PNG or a dropped photo's bytes) as raw bytes; returns its path. */
+  storyboardImageSave: (compId: string, scene: number, bytes: Uint8Array) => invoke<string>('storyboard_image_save', bytes, { headers: { 'x-comp-id': compId, 'x-scene': String(scene) } }),
+  /** Copies a photo from disk into the storyboard folder so the project owns it; returns the copy's path. */
+  storyboardImageImport: (compId: string, scene: number, source: string) => invoke<string>('storyboard_image_import', { compId, scene, source }),
 
   providersList: () => invoke<ProviderInfo[]>('providers_list'),
   providersRefresh: () => invoke<ProviderInfo[]>('providers_refresh'),
@@ -442,6 +568,10 @@ export const events = {
   openFile: on<string>('helios://open-file'),
   /** A model finished downloading or was removed; the Speech panel refreshes itself. */
   models: on<null>('helios://models'),
+  /** A guideline, plan or note in the project folder changed (the AI wrote it, or a save filed it). */
+  docs: on<null>('helios://docs'),
+  /** An update downloading, and how its download ended (updater.rs). */
+  update: on<UpdateProgress>('helios://update'),
 };
 
 /** A URL the webview can load for a local file Helios imported or produced. */

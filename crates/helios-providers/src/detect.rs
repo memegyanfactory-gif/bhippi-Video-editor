@@ -109,8 +109,40 @@ async fn cli_row(entry: &ProviderSpec, enabled: bool) -> ProviderInfo {
     }
     row.version = version;
     row.installed = true;
-    row.health = Health::Healthy { latency_ms: 0 };
+    row.health = match signed_out_reason(entry.id) {
+        Some(reason) => Health::Unavailable { reason },
+        None => Health::Healthy { latency_ms: 0 },
+    };
     row
+}
+
+/// Why an installed CLI cannot answer yet, when that can be told without running a turn.
+///
+/// Gemini CLI refuses every headless turn ("Please set an Auth method…", exit 41) until it has
+/// been signed in once interactively or given a key, and it says so only after the prompt is
+/// sent. Its sign-in leaves `oauth_creds.json` or an auth choice in `settings.json`; a key or
+/// Vertex/Code Assist switch arrives by environment.
+fn signed_out_reason(id: &str) -> Option<String> {
+    if id != "gemini" {
+        return None;
+    }
+    let home = std::env::var_os("GEMINI_CLI_HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .or_else(|| std::env::var_os("HOME"))?;
+    let dir = std::path::PathBuf::from(home).join(".gemini");
+    gemini_signed_out(&dir, |name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+        .then(|| "installed, but not signed in — run `gemini` once in a terminal to sign in, or set GEMINI_API_KEY".to_owned())
+}
+
+/// Whether Gemini CLI has no way to authenticate: no key or switch in the environment, no
+/// OAuth credentials, and no auth type chosen in its settings.
+fn gemini_signed_out(dir: &std::path::Path, env_set: impl Fn(&str) -> bool) -> bool {
+    const ENV: &[&str] = &["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA", "GOOGLE_CLOUD_PROJECT"];
+    if ENV.iter().any(|name| env_set(name)) || dir.join("oauth_creds.json").is_file() {
+        return false;
+    }
+    let settings = std::fs::read_to_string(dir.join("settings.json")).unwrap_or_default();
+    !(settings.contains("selectedType") || settings.contains("selectedAuthType"))
 }
 
 /// One local server answering on one port.
@@ -270,27 +302,34 @@ async fn list_cloud_models(entry: &ProviderSpec, key: &str) -> Result<Vec<String
         .json()
         .await
         .map_err(|error| CloudProbe::Unreachable(error.to_string()))?;
-    let mut models = extract_model_names(&value);
-    if entry.id == "openai" {
-        models.retain(|name| is_chat_model(name));
-    }
-    if entry.id == "google" {
-        for name in &mut models {
-            if let Some(stripped) = name.strip_prefix("models/") {
-                *name = stripped.to_owned();
-            }
-        }
-    }
-    Ok(models)
+    Ok(cloud_chat_models(entry.id, extract_model_names(&value)))
 }
 
-/// OpenAI's `/models` lists every endpoint's models; only chat models belong in a chat picker.
+/// A vendor's `/models` answer, reduced to what a chat turn can use: Gemini's `models/`
+/// prefix dropped, and every embedding, speech, image and moderation endpoint left out.
+#[must_use]
+pub fn cloud_chat_models(provider: &str, names: Vec<String>) -> Vec<String> {
+    let names = names.into_iter().map(|name| match name.strip_prefix("models/") {
+        Some(stripped) if provider == "google" => stripped.to_owned(),
+        _ => name,
+    });
+    // OpenRouter lists hundreds of chat models and nothing else; its ids name other vendors'
+    // image models only as chat-capable multimodal ones, so it is left whole.
+    if provider == "openrouter" {
+        return dedup(names.collect());
+    }
+    dedup(names.filter(|name| is_chat_model(name)).collect())
+}
+
+/// Cloud `/models` lists every endpoint's models; only chat models belong in a chat picker.
 fn is_chat_model(name: &str) -> bool {
     const NOT_CHAT: &[&str] = &[
-        "embedding", "tts", "whisper", "dall-e", "moderation", "davinci", "babbage", "audio",
-        "realtime", "transcribe", "image", "search", "computer-use", "sora",
+        "embed", "tts", "whisper", "dall-e", "moderation", "davinci", "babbage", "audio",
+        "realtime", "transcribe", "image", "search", "computer-use", "sora", "imagen", "veo",
+        "aqa", "imagine", "ocr", "guard", "lyria", "native-audio", "-live", "playai",
     ];
-    !NOT_CHAT.iter().any(|needle| name.contains(needle))
+    let lower = name.to_ascii_lowercase();
+    !NOT_CHAT.iter().any(|needle| lower.contains(needle))
 }
 
 fn builtin_row() -> ProviderInfo {
@@ -451,8 +490,8 @@ async fn read_version(binary: &ResolvedCommand) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_model_names, is_chat_model, parse_model_lines, parse_model_list, resolve_key,
-        server_row, ApiKeys,
+        cloud_chat_models, extract_model_names, is_chat_model, parse_model_lines,
+        parse_model_list, resolve_key, server_row, ApiKeys,
     };
     use serde_json::json;
 
@@ -508,5 +547,116 @@ mod tests {
         assert!(is_chat_model("gpt-5.1"));
         assert!(!is_chat_model("text-embedding-3-large"));
         assert!(!is_chat_model("gpt-4o-mini-tts"));
+    }
+
+    /// Recorded shapes of each vendor's `GET /models`, reduced to what the chat picker offers.
+    #[test]
+    fn cloud_lists_keep_only_chat_models_per_vendor() {
+        let google = json!({ "models": [
+            { "name": "models/gemini-2.5-pro" },
+            { "name": "models/gemini-2.5-flash-lite" },
+            { "name": "models/text-embedding-004" },
+            { "name": "models/imagen-4.0-generate-001" },
+            { "name": "models/veo-3.0-generate-preview" },
+            { "name": "models/aqa" },
+        ] });
+        assert_eq!(
+            cloud_chat_models("google", extract_model_names(&google)),
+            ["gemini-2.5-pro", "gemini-2.5-flash-lite"]
+        );
+        let xai = json!({ "object": "list", "data": [
+            { "id": "grok-4", "object": "model" },
+            { "id": "grok-4-fast-reasoning", "object": "model" },
+            { "id": "grok-2-image-1212", "object": "model" },
+            { "id": "grok-imagine-video", "object": "model" },
+        ] });
+        assert_eq!(cloud_chat_models("xai", extract_model_names(&xai)), ["grok-4", "grok-4-fast-reasoning"]);
+        let groq = json!({ "data": [
+            { "id": "llama-3.3-70b-versatile" },
+            { "id": "whisper-large-v3" },
+            { "id": "meta-llama/llama-guard-4-12b" },
+            { "id": "openai/gpt-oss-120b" },
+        ] });
+        assert_eq!(cloud_chat_models("groq", extract_model_names(&groq)), ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]);
+        let mistral = json!({ "data": [
+            { "id": "mistral-large-latest" }, { "id": "mistral-embed" }, { "id": "mistral-ocr-latest" }, { "id": "mistral-large-latest" },
+        ] });
+        assert_eq!(cloud_chat_models("mistral", extract_model_names(&mistral)), ["mistral-large-latest"]);
+        let anthropic = json!({ "data": [ { "id": "claude-opus-5-5", "type": "model" }, { "id": "claude-haiku-4-5", "type": "model" } ], "has_more": false });
+        assert_eq!(cloud_chat_models("anthropic", extract_model_names(&anthropic)), ["claude-opus-5-5", "claude-haiku-4-5"]);
+    }
+
+    /// Real `grok models` and `opencode models` output from this project's dev machine.
+    #[test]
+    fn real_cli_model_listings_parse() {
+        let grok = "You are logged in with grok.com.
+
+Default model: grok-4.7
+
+Available models:
+  * grok-4.7 (default)
+";
+        assert_eq!(parse_model_list(grok), ["grok-4.7"]);
+        let opencode = "opencode/big-pickle
+openrouter/~anthropic/claude-opus-latest
+openrouter/anthropic/claude-sonnet-4.5
+openrouter/cohere/north-mini-code:free
+";
+        assert_eq!(parse_model_list(opencode).len(), 4);
+    }
+
+    #[test]
+    fn gemini_cli_without_any_sign_in_is_reported_signed_out() {
+        let dir = std::env::temp_dir().join(format!("helios-gemini-auth-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let no_env = |_: &str| false;
+        assert!(super::gemini_signed_out(&dir, no_env));
+        assert!(!super::gemini_signed_out(&dir, |name| name == "GEMINI_API_KEY"));
+        std::fs::write(dir.join("settings.json"), r#"{"security":{"auth":{"selectedType":"oauth-personal"}}}"#).expect("write");
+        assert!(!super::gemini_signed_out(&dir, no_env));
+        std::fs::remove_file(dir.join("settings.json")).expect("rm");
+        std::fs::write(dir.join("oauth_creds.json"), "{}").expect("write");
+        assert!(!super::gemini_signed_out(&dir, no_env));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Cloud rows with no key still carry the offline list, so adding a key is the only step.
+    #[test]
+    fn every_cloud_vendor_has_an_offline_fallback_list() {
+        for entry in crate::CATALOG.iter().filter(|entry| entry.kind == crate::ProviderKind::CloudApi) {
+            assert!(!entry.models.is_empty(), "{} has no fallback models", entry.id);
+        }
+        let gemini = crate::spec("gemini").expect("gemini");
+        assert!(gemini.models.contains(&"flash"), "Gemini CLI offers its aliases");
+    }
+}
+
+#[cfg(test)]
+mod live {
+    /// `cargo test -p helios-providers live_detect -- --ignored --nocapture` prints what this
+    /// machine really offers: every row, its health, and how many models it listed.
+    #[tokio::test]
+    #[ignore = "probes the real CLIs, servers and keys on this machine"]
+    async fn live_detect() {
+        let started = std::time::Instant::now();
+        let rows = super::detect(crate::CATALOG, &[], &super::ApiKeys::new()).await;
+        for row in rows {
+            println!(
+                "{:<12} installed={:<5} usable={:<5} version={:?} health={:?} models={} {:?}",
+                row.id,
+                row.installed,
+                row.usable,
+                row.version,
+                row.health,
+                row.models.len(),
+                row.models.iter().take(12).collect::<Vec<_>>()
+            );
+        }
+        println!("took {:?}", started.elapsed());
+        if let Ok(path) = std::env::var("HELIOS_DETECT_DUMP") {
+            let rows = super::detect(crate::CATALOG, &[], &super::ApiKeys::new()).await;
+            std::fs::write(path, serde_json::to_string_pretty(&rows).unwrap_or_default()).expect("dump");
+        }
     }
 }

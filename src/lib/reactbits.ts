@@ -15,11 +15,10 @@
 //                 cursors, trails) become deterministic auto-paths (orbit / float /
 //                 pulse) so the export can match the preview. Each entry names the
 //                 nearest `motion.ts` move.
-//   BACKGROUNDS-> ambient loop layers. Preview is a layered-gradient div running
-//                 one of five shared loops; export is the same look frozen into a
-//                 `4-color-gradient` (a rendered effect), which is the documented
-//                 parity rule: backgrounds animate in preview, hold as a still
-//                 grade in export.
+//   BACKGROUNDS-> ambient loop layers. A layered-gradient div running one of five
+//                 shared loops, paused at the playhead's moment; the export renders
+//                 the same div to frames (`rbBackgroundHtml`, htmlFrames.ts), so it
+//                 animates in the MP4 exactly as in the monitor.
 //   CARDS      -> lower-third / title recipes: a preset plus a move plus a card
 //                 CSS treatment for the preview.
 //
@@ -341,11 +340,12 @@ export const rbExportBase = (motionId: string | null | undefined): string => fin
 export const rbMoveFor = (motionId: string | null | undefined): string => findRb(motionId)?.move ?? 'rise';
 
 /**
- * Preview style for an ambient background layer: four-corner colour field with a
- * slow shared loop. The export equivalent is `rbBackgroundGradient()` frozen into
- * a `4-color-gradient` effect (see below).
+ * Style for an ambient background layer: four-corner colour field with a slow shared
+ * loop. With `elapsed` (seconds into the clip) the loop is paused at that moment, so
+ * the monitor shows the frame for the playhead and the export — which renders the
+ * same layer to frames through `rbBackgroundHtml()` — draws exactly the same thing.
  */
-export function rbBackgroundStyle(bg: RbBackground): CSSProperties {
+export function rbBackgroundStyle(bg: RbBackground, elapsed?: number): CSSProperties {
   const [a, b, c, d] = bg.colors;
   return {
     backgroundImage: [
@@ -360,6 +360,30 @@ export function rbBackgroundStyle(bg: RbBackground): CSSProperties {
     animationTimingFunction: 'ease-in-out',
     animationIterationCount: 'infinite',
     animationDirection: 'alternate',
+    ...(elapsed === undefined ? {} : { animationPlayState: 'paused', animationDelay: `${-Math.max(0, elapsed)}s` }),
+  };
+}
+
+const RB_BG_CSS = `.rb-bg-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+@keyframes rb-bg-drift{from{background-position:0% 0%,100% 0%,50% 100%,0 0}to{background-position:100% 60%,0% 40%,60% 0%,0 0}}
+@keyframes rb-bg-spin{from{background-position:0% 0%,100% 0%,50% 100%,0 0;filter:hue-rotate(-12deg)}to{background-position:60% 100%,40% 100%,30% 20%,0 0;filter:hue-rotate(12deg)}}
+@keyframes rb-bg-pulse{from{transform:scale(1);filter:brightness(0.92)}to{transform:scale(1.08);filter:brightness(1.1)}}
+@keyframes rb-bg-rain{from{background-position:0% -30%,100% -30%,50% -30%,0 0}to{background-position:0% 60%,100% 50%,50% 80%,0 0}}
+@keyframes rb-bg-shimmer{from{background-position:0% 0%,100% 0%,50% 100%,0 0;filter:saturate(0.9) hue-rotate(-8deg)}to{background-position:80% 40%,20% 60%,60% 10%,0 0;filter:saturate(1.15) hue-rotate(8deg)}}`;
+
+/**
+ * The background as a self-contained HTML graphic, for the export's frame renderer
+ * (src/lib/htmlFrames.ts): the same layer the monitor draws, its loop paused at
+ * `--elapsed` (which the renderer sets per frame), so the MP4 animates exactly like
+ * the preview instead of holding a still grade. Keyframes mirror app.css.
+ */
+export function rbBackgroundHtml(bg: RbBackground): { html: string; css: string } {
+  const style = rbBackgroundStyle(bg);
+  const kebab = (key: string) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  const inline = Object.entries(style).map(([key, value]) => `${kebab(key)}:${String(value).replace(/"/g, "'")}`).join(';');
+  return {
+    html: `<div class="rb-bg-layer" style="${inline};animation-play-state:paused;animation-delay:calc(var(--elapsed, 0) * -1s)"></div>`,
+    css: RB_BG_CSS,
   };
 }
 

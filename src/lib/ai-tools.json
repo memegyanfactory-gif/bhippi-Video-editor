@@ -4134,7 +4134,7 @@
     },
     {
       "name": "get_brand_kit",
-      "description": "Returns a brand kit - the project's active kit when no id is given - as a whole or one section (identity, logos, colors, typography, voice, motion, imagery, layout, audio, social, assets, notes). Read this before designing when a kit is active. Read-only, any phase.",
+      "description": "Returns a brand kit - the project's active kit when no id is given - as a whole or one section (identity, logos, colors, typography, voice, motion, imagery, layout, audio, social, assets, notes, guideline). Read this before designing when a kit is active. Read-only, any phase.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -4156,7 +4156,8 @@
               "audio",
               "social",
               "assets",
-              "notes"
+              "notes",
+              "guideline"
             ],
             "description": "One section of the kit."
           },
@@ -4321,7 +4322,7 @@
     },
     {
       "name": "update_brand_kit",
-      "description": "Merges a patch into one section of a brand kit (or 'all') and saves it. Colour token changes keep the quick palette in step; typography changes keep the fonts in step. Returns the updated section.",
+      "description": "Merges a patch into one section of a brand kit (or 'all') and saves it. Colour token changes keep the quick palette in step; typography changes keep the fonts in step. Returns the updated section. Section \"guideline\" writes the video-specific brand guideline: patch {summary, color:{rules,ratio}, motion:{principles, timing:{enter,exit,hold,stagger,wordStagger}, easing:{enter,exit}, distance, blur, overshoot}, moves:[{id, name, use, description, fps:30, frames, elements:[{name, role, keys:[{frame, state:{opacity,x,y,scale,rotate,blur,clip}, ease?}]}]}], layouts:[{id, aspect, zones:[{role,name,x,y,w,h,align,type}]}], recipes:[…], dos, donts}; moves, layouts and recipes merge by id over the derived ones, so change only what this video needs. patch {\"guideline\": null} resets to the derived guideline.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -4344,7 +4345,8 @@
               "social",
               "assets",
               "notes",
-              "all"
+              "all",
+              "guideline"
             ]
           },
           "patch": {
@@ -4511,13 +4513,13 @@
     },
     {
       "name": "import_brand_logo",
-      "description": "Imports a logo file into the project library's Brand folder, embeds it for export (SVG stays vector; raster logos become data URLs) and attaches it to the kit with its role, clear space and placement.",
+      "description": "Imports a logo into the project library's Brand folder, embeds it for export (SVG stays vector; raster logos become data URLs) and attaches it to the kit with its role, clear space and placement. Give a local path, an image url from the web, or inline svg markup (from extract_brand_from_url).",
       "input_schema": {
         "type": "object",
         "properties": {
           "path": {
             "type": "string",
-            "description": "Absolute path to the logo file (svg, png, webp, jpg)."
+            "description": "Absolute path to the logo file (svg, png, webp, jpg). One of path, url or svg."
           },
           "role": {
             "type": "string",
@@ -4556,12 +4558,18 @@
           "query": {
             "type": "string",
             "description": "Free text to pick the kit by (brand or product name, industry, style words) when you do not know the id; the best unambiguous match wins."
+          },
+          "url": {
+            "type": "string",
+            "description": "A logo image URL (downloaded into the project)."
+          },
+          "svg": {
+            "type": "string",
+            "description": "Inline SVG markup of the logo (saved as a file, stays vector)."
           }
         },
         "additionalProperties": false,
-        "required": [
-          "path"
-        ]
+        "required": []
       }
     },
     {
@@ -5036,7 +5044,7 @@
     },
     {
       "name": "create_motion_scene",
-      "description": "Places a GPU motion scene on its own track above the footage: After Effects-style layers with keyframes (bezier eases, expressions), 3D layers and camera, parenting, masks, track mattes, blend modes, motion blur, glow/blur/glass/halation/duotone/pixel-sort/zoom-blur effects, text animators that land word by word, and matte effects cut from a roto matte (subject-reveal, matte-fill). Give a `template` (list_motion_templates) with `params`, or a raw `scene` {version:1,width,height,duration,layers:[…]}. Footage params take {\"clipId\"} of a timeline clip — its asset, source time and roto matte are filled in. subject-reveal/big-number-behind need rotoscope_clip first and use the clean plate from erase_subject_clip when one exists. The scene's sound cues are laid on audio tracks unless sfx is false.",
+      "description": "Places a GPU motion scene on its own track above the footage: After Effects-style layers with keyframes (bezier eases, expressions), 3D layers and camera, parenting, masks, track mattes, blend modes, motion blur, glow/blur/glass/halation/duotone/pixel-sort/zoom-blur effects, text animators that land word by word, and matte effects cut from a roto matte (subject-reveal, matte-fill). Give a `template` (list_motion_templates) with `params`, or a raw `scene` {version:1,width,height,duration,layers:[…]}. Footage params take {\"clipId\"} of a timeline clip — its asset, source time and roto matte are filled in. subject-reveal/big-number-behind need rotoscope_clip first and use the clean plate from erase_subject_clip when one exists. The scene's sound cues are laid on audio tracks unless sfx is false. With a brand kit active every scene is built in the brand; prefer the brand-* templates (brand-title, brand-lower-third, brand-stat, brand-panel, brand-logo-sting, brand-end-card, brand-transition), which render the kit's guideline moves and layouts exactly.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5073,6 +5081,14 @@
           },
           "compId": {
             "type": "string"
+          },
+          "nest": {
+            "type": "boolean",
+            "description": "Put the scene in its own \"[Motion]\" comp and place that comp on the timeline (default true). The returned clipId is the scene clip inside the comp."
+          },
+          "useBrand": {
+            "type": "boolean",
+            "description": "Default true: with a brand kit active the scene is built in it (brand-* templates from its guideline; every other template recoloured, re-typed and re-timed to the brand). false keeps the house Crimson look."
           }
         },
         "additionalProperties": false
@@ -5273,6 +5289,96 @@
         "required": [
           "clipId"
         ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "nest_motion_scenes",
+      "description": "Moves every motion scene placed directly on the comp's timeline into its own \"[Motion] …\" comp (AI Motion bin) and leaves one nested clip at the same place and length, so each AI graphic can be opened and changed later. New scenes from create_motion_scene are nested already.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_brand_guideline",
+      "description": "Reads the active brand kit's detailed guideline - the rules every graphic of this video follows: colour usage and stage, the type scale in px at 1080p, motion timing/easing/travel, the signature moves keyed frame by frame (title-in, word-cascade, title-out, lower-third-in/out, stat-count, emphasis, logo-sting, transition, end-card, caption-pop, background-drift), layouts per aspect ratio with zones, and scene recipes that map beats to brand-* motion templates. Read it before planning the edit and again before building graphics. Read-only, any phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          },
+          "part": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "color",
+              "type",
+              "motion",
+              "moves",
+              "layouts",
+              "recipes",
+              "rules",
+              "all"
+            ],
+            "description": "Default summary (everything at a glance)."
+          },
+          "move": {
+            "type": "string",
+            "description": "One move id: its full frame-by-frame keys."
+          },
+          "aspect": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "description": "Only the layouts for this aspect ratio."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "extract_brand_from_url",
+      "description": "Reads a brand off a website (the product or company URL the user gave): the colours its CSS paints with, weighted by use (brand/primary/accent variables, backgrounds, buttons, theme-color), the fonts it declares mapped to installed families, and logo candidates (inline SVG, logo images, icons). Returns candidates plus suggested create_brand_kit arguments. Use it first whenever the user gives a product link and has no kit. Read-only, any phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "https:// address of the site."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "check_brand_compliance",
+      "description": "Checks every graphic in the composition (and comps nested in it) against the active brand kit: colours outside the palette, fonts outside the type pairing, motion scenes not built in the brand. Run it before verify_edit_workflow and fix what it reports. Read-only, any phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kit id or name; the active kit when omitted."
+          },
+          "compId": {
+            "type": "string",
+            "description": "Composition to check; the active one when omitted."
+          }
+        },
         "additionalProperties": false
       }
     }

@@ -2,6 +2,7 @@
 // to its frame, every matte frame loaded), to a PNG sequence with alpha that the FFmpeg exporter
 // overlays like an HTML graphic's frames. Same renderer as the preview.
 import { api } from '../lib/ipc';
+import { openFrameWriter, type FrameWriter } from '../lib/pngEncoder';
 import type { Asset, Clip, Comp, Project } from '../lib/types';
 import { MotionRenderer } from './gl/renderer';
 import { editorMediaHost } from './host';
@@ -9,16 +10,19 @@ import { editorMediaHost } from './host';
 type MotionSource = Extract<Clip['source'], { type: 'motion' }>;
 export type RenderedFrames = { dir: string; fps: number; frames: number; width: number; height: number };
 
-async function toPng(width: number, height: number, data: Uint8ClampedArray, onCanvas?: (canvas: OffscreenCanvas | HTMLCanvasElement) => void): Promise<Uint8Array> {
-  const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(width, height) : Object.assign(document.createElement('canvas'), { width, height });
-  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-  if (!ctx) throw new Error('no 2D canvas for PNG encoding');
-  ctx.putImageData(new ImageData(data, width, height), 0, 0);
-  onCanvas?.(canvas);
-  const blob = canvas instanceof OffscreenCanvas
-    ? await canvas.convertToBlob({ type: 'image/png' })
-    : await new Promise<Blob>((resolve, reject) => (canvas as HTMLCanvasElement).toBlob((b) => (b ? resolve(b) : reject(new Error('PNG encoding failed'))), 'image/png'));
-  return new Uint8Array(await blob.arrayBuffer());
+/** One reused 2D canvas showing the frame just rendered, for the progress preview. */
+function previewSurface() {
+  let surface: { canvas: OffscreenCanvas | HTMLCanvasElement; context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } | null = null;
+  return (width: number, height: number, data: Uint8ClampedArray) => {
+    if (!surface || surface.canvas.width !== width || surface.canvas.height !== height) {
+      const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(width, height) : Object.assign(document.createElement('canvas'), { width, height });
+      const context = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+      if (!context) throw new Error('no 2D canvas for the frame preview');
+      surface = { canvas, context };
+    }
+    surface.context.putImageData(new ImageData(data, width, height), 0, 0);
+    return surface.canvas;
+  };
 }
 
 /** Renders one motion clip's frames (clip-local, at the comp rate) to `dir/%05d.png`. */
@@ -29,17 +33,25 @@ export async function renderMotionClipFrames(source: MotionSource, clip: Clip, c
   const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : document.createElement('canvas');
   const renderer = new MotionRenderer(canvas, editorMediaHost(assets, 'export'));
   const scene = source.scene;
+  const preview = previewSurface();
+  let writer: FrameWriter | null = null;
   try {
+    // Frame i's PNG is encoded (on workers) and written while frame i+1 renders.
+    writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames));
     for (let index = 0; index < frames; index++) {
       if (options.signal?.aborted) throw new Error('export cancelled');
       const local = index / fps;
-      const t = clip.hold !== null ? clip.hold : Math.max(0, Math.min(scene.duration - 1e-4, clip.in + (clip.reverse ? clip.duration - local : local) * clip.speed));
+      // The preview's scene time (Compositor 'motion': sourceTimeAt, held inside the scene) — a
+      // frame hold is clamped the same way, so a hold past the scene's end shows its last frame.
+      const t = Math.max(0, Math.min(scene.duration - 1e-3, clip.hold !== null ? clip.hold : clip.in + (clip.reverse ? clip.duration - local : local) * clip.speed));
       await renderer.bank.prepareExact(scene, t);
       const px = renderer.pixels(scene, t, { scale: 1, fps, motionBlur: true });
-      await api.mogrtFrameWrite(dir, index, await toPng(px.width, px.height, px.data, options.onCanvas));
-      options.onProgress?.(index + 1, frames);
+      if (options.onCanvas) options.onCanvas(preview(px.width, px.height, px.data));
+      await writer.pixels(index, px.width, px.height, px.data);
     }
+    await writer.finish();
   } finally {
+    await writer?.close();
     renderer.dispose();
   }
   return { dir, fps, frames, width: scene.width, height: scene.height };

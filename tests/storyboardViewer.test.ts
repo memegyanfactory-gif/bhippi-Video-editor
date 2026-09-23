@@ -37,7 +37,7 @@ describe('StoryboardViewer component', () => {
       }),
     );
 
-    expect(html).toContain('storyboard-widget small');
+    expect(html).toContain('sb-strip small');
     expect(html).toContain('Storyboard');
     expect(html).toContain('2 scenes');
     expect(html).toContain('00:00:00:00');

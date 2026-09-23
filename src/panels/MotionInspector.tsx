@@ -9,6 +9,9 @@ import { validateScene } from '../motion/validate';
 import type { History } from '../lib/history';
 import { updateComp } from '../lib/timeline';
 import type { Clip, Comp } from '../lib/types';
+import { buildInBrand } from '../motion/kit/brandify';
+import { brandKitById } from '../lib/brandKit/activeStore';
+import { motionBrandFromKit } from '../lib/brandKit/motionBrand';
 
 type MotionSource = Extract<Clip['source'], { type: 'motion' }>;
 
@@ -78,7 +81,8 @@ export function MotionInspector({ clip, comp, history, disabled, Section, Row }:
       if (value === undefined) delete params[key]; else params[key] = value;
     }
     try {
-      commitScene(spec.build({ width: scene.width, height: scene.height }, params), `Motion: ${spec.label}`);
+      const kit = brandKitById(scene.brand?.kitId);
+      commitScene(buildInBrand(spec, { width: scene.width, height: scene.height }, params, kit ? motionBrandFromKit(kit) : scene.brand?.snapshot ?? null), `Motion: ${spec.label}`);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     }

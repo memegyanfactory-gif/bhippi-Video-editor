@@ -14,6 +14,31 @@ pub struct ToolStatus {
     pub version: Option<String>,
     /// Whether the build carries libx264; without it exports fall back to a slower encoder.
     pub x264: bool,
+    /// The hardware H.264 encoder exports use by default (`h264_nvenc` · `h264_qsv` · `h264_amf`),
+    /// confirmed by a one-frame test encode — listed by `-encoders` is not enough, the driver
+    /// and the card must be there too. `None` when no GPU encoder works on this machine.
+    pub gpu_encoder: Option<String>,
+    /// A readable name for it, e.g. "NVIDIA NVENC".
+    pub gpu_encoder_label: Option<String>,
+}
+
+/// Hardware H.264 encoders in order of preference, with the name the UI shows.
+pub const GPU_ENCODERS: [(&str, &str); 3] = [("h264_nvenc", "NVIDIA NVENC"), ("h264_qsv", "Intel Quick Sync"), ("h264_amf", "AMD AMF")];
+
+/// The first hardware encoder the build lists that also encodes a real frame here.
+async fn detect_gpu_encoder(ffmpeg: &Path, listed: &str) -> Option<&'static str> {
+    for (name, _) in GPU_ENCODERS {
+        if !listed.contains(name) {
+            continue;
+        }
+        // 256×256 clears every vendor's minimum frame size; yuv420p is what exports feed it.
+        let probe = ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:r=30", "-frames:v", "1", "-pix_fmt", "yuv420p", "-c:v", name, "-f", "null", "-"];
+        let ok = tokio::time::timeout(std::time::Duration::from_secs(15), run(ffmpeg, &probe, None)).await.is_ok_and(|result| result.is_ok());
+        if ok {
+            return Some(name);
+        }
+    }
+    None
 }
 
 #[derive(Clone, Debug, Default)]
@@ -147,15 +172,17 @@ pub async fn resolve(explicit: Option<&str>) -> Tools {
                 .unwrap_or_default()
                 .to_owned()
         });
-    let x264 = run(&ffmpeg, &["-hide_banner", "-encoders"], None)
-        .await
-        .is_ok_and(|out| out.contains("libx264"));
+    let encoders = run(&ffmpeg, &["-hide_banner", "-encoders"], None).await.unwrap_or_default();
+    let x264 = encoders.contains("libx264");
+    let gpu = detect_gpu_encoder(&ffmpeg, &encoders).await;
     Tools {
         status: ToolStatus {
             found: true,
             path: Some(ffmpeg.display().to_string()),
             version,
             x264,
+            gpu_encoder: gpu.map(str::to_owned),
+            gpu_encoder_label: gpu.and_then(|name| GPU_ENCODERS.iter().find(|(id, _)| *id == name)).map(|(_, label)| (*label).to_owned()),
         },
         ffmpeg: Some(ffmpeg),
         ffprobe: Some(ffprobe),

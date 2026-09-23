@@ -268,13 +268,14 @@ fn collect_entries(
         let p = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip internal/heavy directories unless root
-        if p.is_dir() && (name == ".git" || name == "node_modules" || name == "target") {
+        // Symlinks and junctions are listed but never entered: Windows profiles carry
+        // self-referencing junctions ("Application Data") that would loop.
+        let is_link = entry.file_type().is_ok_and(|kind| kind.is_symlink());
+        let metadata = entry.metadata().ok();
+        let is_dir = !is_link && metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        if is_dir && is_skipped_dir(&name) {
             continue;
         }
-
-        let metadata = entry.metadata().ok();
-        let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
         let size_bytes = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
         let modified_epoch = metadata
             .and_then(|m| m.modified().ok())
@@ -299,6 +300,66 @@ fn collect_entries(
 
 // ───────────────────────────── 5. glob_search ─────────────────────────────
 
+/// Directories the searches never descend into: VCS metadata, dependency and build trees.
+fn is_skipped_dir(name: &str) -> bool {
+    matches!(name, ".git" | "node_modules" | "target" | ".gemini" | "$Recycle.Bin" | "System Volume Information")
+}
+
+/// How much of the disk one search may touch. A search rooted at a home folder or a drive
+/// would otherwise walk millions of entries; past the budget it stops and says so.
+const WALK_MAX_ENTRIES: usize = 200_000;
+const WALK_MAX_TIME: Duration = Duration::from_secs(20);
+
+struct WalkBudget {
+    started: Instant,
+    visited: usize,
+    exhausted: bool,
+}
+
+impl WalkBudget {
+    fn new() -> Self {
+        Self { started: Instant::now(), visited: 0, exhausted: false }
+    }
+
+    /// Counts one entry; false once the search has used up its budget.
+    fn tick(&mut self) -> bool {
+        self.visited += 1;
+        if self.visited > WALK_MAX_ENTRIES || (self.visited % 512 == 0 && self.started.elapsed() > WALK_MAX_TIME) {
+            self.exhausted = true;
+        }
+        !self.exhausted
+    }
+}
+
+/// Calls `visit` for every file under `dir` (depth first), skipping heavy directories and never
+/// following symlinks or junctions. `visit` returns false to stop the walk.
+fn walk_files(dir: &Path, budget: &mut WalkBudget, visit: &mut dyn FnMut(&Path, &str) -> bool) -> bool {
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return true;
+    };
+    for entry in read_dir.flatten() {
+        if !budget.tick() {
+            return false;
+        }
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_symlink() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let keep_going = if kind.is_dir() {
+            is_skipped_dir(&name) || walk_files(&entry.path(), budget, visit)
+        } else {
+            visit(&entry.path(), &name)
+        };
+        if !keep_going {
+            return false;
+        }
+    }
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobSearchResult {
@@ -306,6 +367,8 @@ pub struct GlobSearchResult {
     pub pattern: String,
     pub matches: Vec<String>,
     pub total_matches: usize,
+    /// The walk hit its entry or time budget, so files may exist that were not searched.
+    pub truncated: bool,
 }
 
 pub fn glob_search(
@@ -320,9 +383,14 @@ pub fn glob_search(
 
     let max_matches = limit.unwrap_or(200);
     let mut matches = Vec::new();
-    let pat_lower = pattern.to_lowercase();
-
-    walk_glob(base, &pat_lower, max_matches, &mut matches);
+    let mut budget = WalkBudget::new();
+    walk_files(base, &mut budget, &mut |file, name| {
+        let relative = file.strip_prefix(base).unwrap_or(file).to_string_lossy().replace('\\', "/");
+        if match_pattern(name, pattern) || match_pattern(&relative, pattern) {
+            matches.push(file.to_string_lossy().replace('\\', "/"));
+        }
+        matches.len() < max_matches
+    });
 
     let total = matches.len();
     Ok(GlobSearchResult {
@@ -330,53 +398,38 @@ pub fn glob_search(
         pattern: pattern.to_string(),
         matches,
         total_matches: total,
+        truncated: budget.exhausted,
     })
 }
 
-fn walk_glob(dir: &Path, pattern: &str, limit: usize, matches: &mut Vec<String>) {
-    if matches.len() >= limit {
-        return;
-    }
-    let read_dir = match fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(_) => return,
-    };
-
-    for entry in read_dir.flatten() {
-        if matches.len() >= limit {
-            break;
-        }
-        let p = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        if p.is_dir() {
-            if name == ".git" || name == "node_modules" || name == "target" {
-                continue;
-            }
-            walk_glob(&p, pattern, limit, matches);
-        } else if match_pattern(&name, pattern)
-            || match_pattern(&p.to_string_lossy().replace('\\', "/"), pattern)
-        {
-            matches.push(p.to_string_lossy().replace('\\', "/"));
-        }
-    }
+/// Glob match, case-insensitive: `*` is any run within one path segment, `**` any run across
+/// segments, `?` one character. Callers try it against both the file name and the path
+/// relative to the search root, so `**/clip*.mp4` and `media/*.mp4` both work.
+fn match_pattern(candidate: &str, pattern: &str) -> bool {
+    let cand: Vec<char> = candidate.to_lowercase().chars().collect();
+    let pat = pattern.replace('\\', "/").to_lowercase();
+    let pat = pat.trim_start_matches("./");
+    let pat = pat.strip_prefix("**/").unwrap_or(pat);
+    let pat: Vec<char> = pat.chars().collect();
+    wildcard(&pat, &cand)
 }
 
-fn match_pattern(candidate: &str, pattern: &str) -> bool {
-    let cand = candidate.to_lowercase();
-    let pat = pattern.trim_start_matches("**/").to_lowercase();
-
-    if pat.starts_with('*') && pat.ends_with('*') && pat.len() > 2 {
-        let sub = &pat[1..pat.len() - 1];
-        cand.contains(sub)
-    } else if pat.starts_with('*') {
-        let ext = &pat[1..];
-        cand.ends_with(ext)
-    } else if pat.ends_with('*') {
-        let pre = &pat[..pat.len() - 1];
-        cand.starts_with(pre)
-    } else {
-        cand == pat || cand.ends_with(&format!("/{}", pat))
+fn wildcard(pat: &[char], text: &[char]) -> bool {
+    match pat.first() {
+        None => text.is_empty(),
+        Some('*') if pat.get(1) == Some(&'*') => {
+            // `**/` may also stand for no directories at all.
+            let rest = &pat[2..];
+            let rest_no_slash = rest.strip_prefix(&['/']).unwrap_or(rest);
+            (0..=text.len()).any(|skip| wildcard(rest, &text[skip..]) || wildcard(rest_no_slash, &text[skip..]))
+        }
+        Some('*') => {
+            let rest = &pat[1..];
+            let segment = text.iter().position(|&c| c == '/').unwrap_or(text.len());
+            (0..=segment).any(|skip| wildcard(rest, &text[skip..]))
+        }
+        Some('?') => text.first().is_some_and(|&c| c != '/') && wildcard(&pat[1..], &text[1..]),
+        Some(&c) => text.first() == Some(&c) && wildcard(&pat[1..], &text[1..]),
     }
 }
 
@@ -396,7 +449,13 @@ pub struct GrepSearchResult {
     pub query: String,
     pub matches: Vec<GrepMatch>,
     pub total_matches: usize,
+    /// The walk hit its entry or time budget, so files may exist that were not searched.
+    pub truncated: bool,
 }
+
+/// Text files larger than this are not grepped: they are logs or data, and reading them
+/// whole would stall the search.
+const GREP_MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
 pub fn grep_search(
     path: &str,
@@ -412,72 +471,38 @@ pub fn grep_search(
     let limit = max_matches.unwrap_or(100);
     let mut matches = Vec::new();
     let q_lower = query.to_lowercase();
-
-    walk_grep(base, &q_lower, file_pattern, limit, &mut matches);
+    let mut budget = WalkBudget::new();
+    walk_files(base, &mut budget, &mut |file, name| {
+        if file_pattern.is_some_and(|pat| !match_pattern(name, pat)) || is_binary_extension(name) {
+            return true;
+        }
+        if fs::metadata(file).map_or(true, |meta| meta.len() > GREP_MAX_FILE_BYTES) {
+            return true;
+        }
+        if let Ok(content) = fs::read_to_string(file) {
+            for (idx, line) in content.lines().enumerate() {
+                if matches.len() >= limit {
+                    break;
+                }
+                if line.to_lowercase().contains(&q_lower) {
+                    matches.push(GrepMatch {
+                        file: file.to_string_lossy().replace('\\', "/"),
+                        line_number: idx + 1,
+                        line_content: line.chars().take(200).collect(),
+                    });
+                }
+            }
+        }
+        matches.len() < limit
+    });
 
     let total = matches.len();
     Ok(GrepSearchResult {
         query: query.to_string(),
         matches,
         total_matches: total,
+        truncated: budget.exhausted,
     })
-}
-
-fn walk_grep(
-    dir: &Path,
-    query_lower: &str,
-    file_pat: Option<&str>,
-    limit: usize,
-    matches: &mut Vec<GrepMatch>,
-) {
-    if matches.len() >= limit {
-        return;
-    }
-    let read_dir = match fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(_) => return,
-    };
-
-    for entry in read_dir.flatten() {
-        if matches.len() >= limit {
-            break;
-        }
-        let p = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        if p.is_dir() {
-            if name == ".git" || name == "node_modules" || name == "target" || name == ".gemini" {
-                continue;
-            }
-            walk_grep(&p, query_lower, file_pat, limit, matches);
-        } else {
-            // Check file pattern if provided
-            if let Some(pat) = file_pat {
-                if !match_pattern(&name, pat) {
-                    continue;
-                }
-            }
-            // Skip known binary formats
-            if is_binary_extension(&name) {
-                continue;
-            }
-            // Read file lines
-            if let Ok(content) = fs::read_to_string(&p) {
-                for (idx, line) in content.lines().enumerate() {
-                    if matches.len() >= limit {
-                        break;
-                    }
-                    if line.to_lowercase().contains(query_lower) {
-                        matches.push(GrepMatch {
-                            file: p.to_string_lossy().replace('\\', "/"),
-                            line_number: idx + 1,
-                            line_content: line.chars().take(200).collect(),
-                        });
-                    }
-                }
-            }
-        }
-    }
 }
 
 fn is_binary_extension(name: &str) -> bool {
@@ -575,4 +600,42 @@ pub async fn run_command(
         exit_code,
         duration_ms,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{glob_search, match_pattern};
+
+    #[test]
+    fn globs_match_wildcards_anywhere_in_the_name() {
+        assert!(match_pattern("Herdr Copy Mode.mp4", "**/herdr*.mp4"));
+        assert!(match_pattern("clip.MP4", "*.mp4"));
+        assert!(match_pattern("clip_01.mov", "clip_??.mov"));
+        assert!(match_pattern("notes.md", "notes.md"));
+        assert!(!match_pattern("herdr.mp4.part", "herdr*.mp4"));
+        assert!(!match_pattern("other.mp4", "herdr*.mp4"));
+    }
+
+    #[test]
+    fn slash_patterns_match_the_relative_path() {
+        assert!(match_pattern("media/a.mp4", "media/*.mp4"));
+        assert!(!match_pattern("media/deep/a.mp4", "media/*.mp4"));
+        assert!(match_pattern("media/deep/a.mp4", "media/**/*.mp4"));
+        assert!(match_pattern("media/a.mp4", "media/**/*.mp4"));
+    }
+
+    #[test]
+    fn glob_search_finds_nested_files_and_skips_heavy_dirs() {
+        let root = std::env::temp_dir().join(format!("helios-glob-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        std::fs::create_dir_all(root.join("node_modules/x")).unwrap();
+        std::fs::write(root.join("a/b/Herdr Copy.mp4"), b"").unwrap();
+        std::fs::write(root.join("node_modules/x/herdr.mp4"), b"").unwrap();
+        let found = glob_search(root.to_str().unwrap(), "**/herdr*.mp4", Some(10)).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(found.total_matches, 1, "{:?}", found.matches);
+        assert!(found.matches[0].ends_with("a/b/Herdr Copy.mp4"));
+        assert!(!found.truncated);
+    }
 }

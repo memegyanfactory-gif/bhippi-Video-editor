@@ -6,6 +6,7 @@
 // anything already in a folder was put there on purpose.
 
 import { uid } from './editor';
+import { storageKind, type StorageKind } from './storage';
 import type { AssetMap } from './timeline';
 import type { Asset, Comp, Project } from './types';
 
@@ -36,13 +37,15 @@ const BROLL = /(^|[^a-z])(b-?roll|broll|stock|cutaway|scene\d*)([^a-z]|$)/i;
 const norm = (path: string) => path.replace(/\\/g, '/').toLowerCase();
 
 /**
- * Which of Helios's own folders (in its app data, studio.helios.desktop) a file is in, if any.
- * Only those say where a file came from — "downloads" alone would also match the user's own
- * Windows Downloads folder, where their camera footage often lives.
+ * Which of Helios's own folders a file is in, if any: the project folders under the storage root
+ * (Documents/Helios/<project>/Downloads, Generated, Audio/Voice-overs…) or, for files made before
+ * those existed, the app data folder (studio.helios.desktop). Only those say where a file came
+ * from — "downloads" alone would also match the user's own Windows Downloads folder, where their
+ * camera footage often lives.
  */
-function heliosFolder(path: string): 'downloads' | 'generated' | 'voice-overs' | 'sfx' | null {
+function heliosFolder(path: string): StorageKind | null {
   const match = /\/studio\.helios\.desktop\/(downloads|generated|voice-overs|sfx)\//.exec(norm(path));
-  return (match?.[1] as 'downloads' | 'generated' | 'voice-overs' | 'sfx' | undefined) ?? null;
+  return (match?.[1] as StorageKind | undefined) ?? storageKind(path);
 }
 
 /** A comp that is a graphic rather than a sequence: named [MOGRT], or only HTML/text/shape layers. */

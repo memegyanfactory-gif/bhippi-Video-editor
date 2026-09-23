@@ -75,9 +75,14 @@ describe('motion tools', () => {
     const result = await runMotionTool('create_motion_scene', { scene: raw, start: 1 }, h.ctx);
     expect(result.ok).toBe(true);
     const after = h.get().comps[0];
-    const motion = after.clips.find((c) => c.source.type === 'motion')!;
-    expect(motion.start).toBe(1);
-    expect(motion.trackId).not.toBe(v1.id);
+    // The scene lives in its own "[Motion]" comp; the timeline gets the nested comp clip.
+    const holder = after.clips.find((c) => c.source.type === 'comp')!;
+    expect(holder.start).toBe(1);
+    expect(holder.trackId).not.toBe(v1.id);
+    const inner = h.get().comps.find((c) => c.id === (holder.source as { compId: string }).compId)!;
+    expect(inner.name).toMatch(/^\[Motion\]/);
+    expect(inner.clips.find((c) => c.source.type === 'motion')!.start).toBe(0);
+    expect(h.get().folders.find((f) => f.id === inner.folderId)?.name).toBe('AI Motion');
     expect(after.clips.some((c) => c.source.type === 'sfx' && Math.abs(c.start - 1.1) < 1e-9)).toBe(true);
   });
 
@@ -90,22 +95,26 @@ describe('motion tools', () => {
   it('patches, rebuilds and retimes a scene', async () => {
     const h = harness(newProject());
     await runMotionTool('create_motion_scene', { template: 'subject-reveal', params: { subject: { path: 'talk.mp4', matte: 'm' }, cardAt: null }, start: 0, sfx: false }, h.ctx);
-    const clip = h.get().comps[0].clips.find((c) => c.source.type === 'motion')!;
+    const clip = h.get().comps.flatMap((c) => c.clips).find((c) => c.source.type === 'motion')!;
     const patched = await runMotionTool('update_motion_scene', { clipId: clip.id, patches: [{ layer: 'subject', path: 'effects.0.speed', value: 0.7 }] }, h.ctx);
     expect(patched.ok).toBe(true);
-    const scene = (h.get().comps[0].clips.find((c) => c.id === clip.id)!.source as { scene: MotionScene }).scene;
+    const find = () => h.get().comps.flatMap((c) => c.clips).find((c) => c.id === clip.id)!;
+    const scene = (find().source as { scene: MotionScene }).scene;
     const subject = scene.layers.find((l) => l.id === 'subject')!;
     expect(subject.effects?.[0].speed).toBe(0.7);
 
     const rebuilt = await runMotionTool('update_motion_scene', { clipId: clip.id, params: { title: ['Edit', 'Faster'] } }, h.ctx);
     expect(rebuilt.ok).toBe(true);
-    const again = (h.get().comps[0].clips.find((c) => c.id === clip.id)!.source as { scene: MotionScene }).scene;
+    const again = (find().source as { scene: MotionScene }).scene;
     const titles = again.layers.filter((l) => l.type === 'text').map((l) => (l.type === 'text' ? l.text.text : ''));
     expect(titles).toContain('Edit');
 
-    const before = h.get().comps[0].clips.find((c) => c.id === clip.id)!.duration;
+    const before = find().duration;
     await runMotionTool('update_motion_scene', { clipId: clip.id, retime: 2 }, h.ctx);
-    expect(h.get().comps[0].clips.find((c) => c.id === clip.id)!.duration).toBeCloseTo(before * 2);
+    expect(find().duration).toBeCloseTo(before * 2);
+    // The nested comp clip on the timeline follows the new length.
+    const holder = h.get().comps[0].clips.find((c) => c.source.type === 'comp')!;
+    expect(holder.duration).toBeCloseTo(before * 2);
   });
 
   it('saves the built-in style profile as the active guideline', async () => {
@@ -114,5 +123,23 @@ describe('motion tools', () => {
     const result = await runMotionTool('save_style_profile', { builtin: 'motion-designer-explainer' }, { ...h.ctx, setReference });
     expect(result.ok).toBe(true);
     expect(setReference).toHaveBeenCalledWith('g1');
+  });
+});
+
+import { nestLooseMotionScenes } from '../src/lib/motionTools';
+
+describe('nestLooseMotionScenes', () => {
+  it('wraps loose scenes in [Motion] comps at the same place and length', () => {
+    const project = newProject();
+    const comp = project.comps[0];
+    const v2 = comp.tracks.filter((t) => t.kind === 'video')[1];
+    const loose = newClip({ trackId: v2.id, start: 3, duration: 2, source: { type: 'motion', scene: raw, title: 'Hello' } });
+    const result = nestLooseMotionScenes({ ...project, comps: [{ ...comp, clips: [loose] }] }, comp.id);
+    expect(result.count).toBe(1);
+    const holder = result.project.comps[0].clips[0];
+    expect(holder).toMatchObject({ start: 3, duration: 2, trackId: v2.id, source: { type: 'comp' } });
+    const inner = result.project.comps.find((c) => c.id === (holder.source as { compId: string }).compId)!;
+    expect(inner.clips[0].source.type).toBe('motion');
+    expect(nestLooseMotionScenes(result.project, comp.id).count).toBe(0);
   });
 });

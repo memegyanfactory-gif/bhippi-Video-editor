@@ -53,8 +53,11 @@ export class MotionRenderer {
   readonly bank: MediaBank;
   private canvases = new CanvasCache();
   private uploads = new Map<string, WebGLTexture>();
-  private textCache = new Map<string, TextFrame>();
+  /** Laid-out text per text *data object* (scenes are immutable, so an edit is a new object) and time. */
+  private textCache = new WeakMap<object, Map<string, TextFrame>>();
   private textSignatures = new Map<string, { signature: string; size: [number, number] }>();
+  /** Footage or matte frames the last draw had to leave out because they were still loading. */
+  incomplete = 0;
 
   constructor(readonly canvas: HTMLCanvasElement | OffscreenCanvas, host: MediaHost) {
     this.gl = new GL(canvas);
@@ -82,12 +85,18 @@ export class MotionRenderer {
   }
 
   private text(scene: MotionScene, layer: Layer & { type: 'text' }, t: number, index: number): TextFrame {
-    const key = `${layer.id}@${t.toFixed(5)}`;
-    let frame = this.textCache.get(key);
+    // Keyed by the text data itself, not the layer id: two scenes (or an edited scene) can share ids.
+    let byTime = this.textCache.get(layer.text);
+    if (!byTime) {
+      byTime = new Map();
+      this.textCache.set(layer.text, byTime);
+    }
+    const key = `${index}|${scene.width}x${scene.height}|${t.toFixed(5)}`;
+    let frame = byTime.get(key);
     if (!frame) {
       frame = textFrame(layer.text, t, { seed: scene.seed ?? 1, index, duration: scene.duration, width: scene.width, height: scene.height });
-      this.textCache.set(key, frame);
-      if (this.textCache.size > 256) this.textCache.delete(this.textCache.keys().next().value!);
+      byTime.set(key, frame);
+      if (byTime.size > 256) byTime.delete(byTime.keys().next().value!);
     }
     return frame;
   }
@@ -133,7 +142,7 @@ export class MotionRenderer {
       case 'footage': {
         const time = sourceTime(layer.source, L.time);
         const picture = this.bank.frame(layer.source, time);
-        if (!picture) return null;
+        if (!picture) { this.incomplete++; return null; }
         const tex = this.upload(`f:${picture.key.split('@')[0]}`, picture.image);
         const fit = layer.fit ?? 'cover';
         const sw = picture.width;
@@ -144,6 +153,7 @@ export class MotionRenderer {
         const uFit = [((dw - w) / 2) / dw, ((dh - h) / 2) / dh, w / dw, h / dh];
         const matteFrame = layer.source.matte ? this.bank.matteFrame(layer.source.matte, time) : null;
         const matteTex = matteFrame ? this.upload(`m:${layer.id}`, matteFrame.image) : null;
+        if (layer.source.matte && !matteTex) this.incomplete++;
         target = gl.acquire(W, H);
         gl.pass('footage', S.FOOTAGE_FS, target, { uTex: tex, uMatte: matteTex, uFit, uHasMatte: matteTex ? 1 : 0, uCutout: layer.source.cutout && !wantsMatteFx ? 1 : 0, uMatteMode: 0 });
         if (layer.source.cutout && layer.source.matte && !matteTex) {
@@ -160,7 +170,7 @@ export class MotionRenderer {
       case 'text': {
         const tf = this.text(scene, layer, L.time, L.index);
         // Settled type is the common case: re-raster only when some glyph actually changed.
-        const signature = `${density.toFixed(3)}|${tf.width}x${tf.height}|${tf.glyphs.map((g) => `${g.ch}${g.color}${(g.dx).toFixed(2)},${(g.dy).toFixed(2)},${g.scale.toFixed(4)},${g.rotation.toFixed(2)},${g.opacity.toFixed(3)},${g.blur.toFixed(2)},${g.skew.toFixed(2)}`).join(';')}|${tf.strikes.map((k) => k.progress.toFixed(3)).join(',')}`;
+        const signature = `${density.toFixed(3)}|${tf.width}x${tf.height}|${tf.glyphs.map((g) => `${g.ch}${g.font}${g.color}${(g.dx).toFixed(2)},${(g.dy).toFixed(2)},${g.scale.toFixed(4)},${g.rotation.toFixed(2)},${g.opacity.toFixed(3)},${g.blur.toFixed(2)},${g.skew.toFixed(2)}`).join(';')}|${tf.strikes.map((k) => k.progress.toFixed(3)).join(',')}`;
         const key = `t:${layer.id}`;
         const cached = this.textSignatures.get(key);
         let tex: WebGLTexture;
@@ -352,6 +362,7 @@ export class MotionRenderer {
   draw(scene: MotionScene, t: number, options: RenderOptions = {}) {
     if (this.gl.lost) return;
     const scale = options.scale ?? 1;
+    this.incomplete = 0;
     const target = this.renderScene(scene, t, scale, 0, options);
     const canvas = this.canvas;
     if (canvas.width !== target.w || canvas.height !== target.h) { canvas.width = target.w; canvas.height = target.h; }
@@ -362,6 +373,7 @@ export class MotionRenderer {
 
   /** Renders the frame and returns straight-alpha RGBA pixels, rows top-first (for PNG). */
   pixels(scene: MotionScene, t: number, options: RenderOptions = {}): { width: number; height: number; data: Uint8ClampedArray } {
+    this.incomplete = 0;
     const target = this.renderScene(scene, t, options.scale ?? 1, 0, options);
     const straight = this.gl.acquire(target.w, target.h);
     this.gl.pass('unpremul', UNPREMUL_FS, straight, { uTex: target.tex });

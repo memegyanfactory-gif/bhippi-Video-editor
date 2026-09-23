@@ -60,3 +60,29 @@ HTML the `render_brand_board` tool places on the timeline); "Use for this projec
 Logos: inline SVG survives export as markup; raster logos are embedded as data URLs once when imported.
 Fonts resolve by installed family name in both preview and export, so typography is restricted to
 system-safe families (`SYSTEM_FONTS` in `src/lib/brandKit/build.ts`).
+
+## The guideline (2026-09-23)
+
+Every kit carries a detailed **guideline** (`src/lib/brandKit/guideline.ts`, type `BrandGuideline`): colour usage and the stage,
+a type scale in px at 1080p, motion timing/easing/travel, **signature moves keyed frame by frame at 30 fps** (title-in,
+word-cascade, title-out, lower-third-in/out, stat-count, emphasis, logo-sting, transition, end-card, caption-pop,
+background-drift), layouts per aspect ratio with zones (fractions of the frame), scene recipes and dos/don'ts.
+`guidelineOf(kit)` derives it from the tokens; the AI tailors it per video with `update_brand_kit {"section":"guideline"}`
+(moves, layouts and recipes merge by id; colours and type always follow the tokens; `{"guideline": null}` resets).
+Settings → Brand kit → Guideline draws all of it, moves as filmstrips with their key tables.
+
+**In the motion engine** (`src/motion/kit/brandify.ts`, `brandTemplates.ts`):
+- `brand-title`, `brand-lower-third`, `brand-stat`, `brand-panel`, `brand-logo-sting`, `brand-end-card`, `brand-transition`
+  render the guideline's moves in its layout zones and type scale.
+- Every other template is built with the brand font and then **brandified**: Crimson's warm reds (and the procedural
+  backgrounds' red defaults) move onto a lightness ramp built from the brand colours, fonts become the brand's, `*-out` / `*-in`
+  eases and text cascade timing become the brand's. The brand's own colours are never remapped.
+- `create_motion_scene` / `update_motion_scene`, the Motion panel and the inspector all build in the active kit;
+  scenes keep `scene.brand` (a snapshot) so rebuilds stay on brand. `useBrand:false` keeps the house look.
+
+**AI tools**: `get_brand_guideline`, `extract_brand_from_url` (colours/fonts/logos off a website via the Rust
+`web_page_source` command), `check_brand_compliance` (off-palette colours, off-brand fonts, unbranded scenes),
+`import_brand_logo {"url"|"svg"}`. The system prompt's PLAN step 3b makes the AI settle the brand and write this video's
+guideline before scripting; the "Product / SaaS video from a link" playbook covers an empty timeline.
+
+Verify visually in the Motion Lab: the `brand-*`, `house-ribbon*` scenes in `src/motion/lab/scenesBrand.ts`.

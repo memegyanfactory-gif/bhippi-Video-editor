@@ -1,0 +1,63 @@
+/* ── Model picker (src/components/ModelPicker.tsx) and the speed rail in the thinking popover ──
+   The panel is a fixed height; only the list scrolls. Kept out of app.css so the picker's look
+   lives in one place. */
+
+.mp.picker-panel { overflow: hidden; }
+.mp-rail { flex: none; overflow-y: auto; scrollbar-width: none; }
+.mp-rail::-webkit-scrollbar { display: none; }
+.mp-main { min-height: 0; gap: 4px; }
+
+.mp-heading { display: flex; align-items: center; gap: 6px; padding: 1px 2px 1px 4px; font-size: 11.5px; min-height: 20px; }
+.mp-heading strong { white-space: nowrap; }
+.mp-heading span { flex: 1; min-width: 0; color: var(--text-faint); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-icon { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-faint); }
+.mp-icon:hover:not(:disabled) { background: var(--panel-3); color: var(--text); }
+
+.mp-list { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+.mp-group { position: sticky; top: 0; z-index: 1; padding: 5px 6px 3px; background: var(--panel-2, #252525); color: var(--text-faint); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+
+.mp-row { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 3px 4px 3px 8px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
+.mp-row.cursor { background: var(--panel-3); }
+.mp-row.selected { border-color: var(--blue); background: var(--blue-soft); }
+.mp-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mp-title { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-sub { color: var(--text-faint); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-check { flex: none; color: var(--blue-hi, var(--blue)); }
+.mp-star { flex: none; opacity: 0; }
+.mp-row:hover .mp-star, .mp-row.cursor .mp-star, .mp-star.on { opacity: 1; }
+
+.mp-tiers { flex: none; display: flex; gap: 2px; padding: 2px; border-radius: 5px; background: var(--field, #151515); }
+.mp-tier { height: 20px; padding: 0 7px; border: 0; border-radius: 3px; background: transparent; color: var(--text-dim); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.mp-tier:hover { background: var(--panel-3); color: var(--text); }
+.mp-tier.on { background: var(--blue); color: #fff; }
+
+.mp-foot { display: flex; align-items: center; gap: 6px; min-height: 26px; padding-top: 4px; border-top: 1px solid var(--line); }
+.mp-link { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: var(--text-dim); font-size: 11px; }
+.mp-link:hover { background: var(--panel-3); color: var(--text); }
+.mp-link:last-child { margin-left: auto; }
+.mp-custom { flex: 1; min-width: 0; }
+.mp-custom input { flex: 1; min-width: 0; }
+
+/* The speed rail sits above the thinking rail in the same popover. */
+.speed-block { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.speed-model { margin: 3px 2px 0; color: var(--text-faint); font-size: 10px; font-family: var(--mono, ui-monospace, monospace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.speed-model b { color: var(--text-dim); font-weight: 600; }
+.speed-steps { display: flex; justify-content: space-between; gap: 4px; padding: 2px 2px 0; }
+.speed-steps button { flex: 1 1 0; min-width: 0; height: 18px; padding: 0 2px; border: 0; border-radius: 3px; background: transparent; color: var(--text-faint); font-size: 9.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.speed-steps button:hover { color: var(--text); background: var(--panel-3); }
+.speed-steps button.on { color: var(--text); }
+
+/* ── Settings › AI providers: installed first, the rest behind "Add provider" ── */
+.provider-add { margin-top: 14px; }
+.provider-add-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.provider-add-list { margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 5px; }
+.provider-add-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--text-dim); text-align: left; font-size: 11.5px; }
+.provider-add-item:hover { background: var(--panel-3); color: var(--text); }
+.provider-add-item.open { border-color: var(--blue); color: var(--text); }
+.provider-add-item span { display: flex; flex-direction: column; min-width: 0; }
+.provider-add-item small { color: var(--text-faint); font-size: 10px; }
+.provider-add-detail { margin-top: 6px; }
+.provider-models-line { color: var(--text-faint); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-speed { color: var(--text); font-weight: 600; }
+.chip-speed + .chip-slot { padding-left: 5px; border-left: 1px solid var(--line-strong, #444); }
+.pq-add { align-self: flex-start; margin-top: 6px; }

@@ -23,9 +23,13 @@ pub struct Document {
     pub project: Project,
     #[serde(default)]
     pub assets: Vec<Asset>,
+    /// What else a project needs to open complete on another machine — its brand kit, the chat
+    /// transcript, where its project folder was. The UI owns the shape; older files have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extras: Option<serde_json::Value>,
 }
 
-fn check_extension(path: &Path) -> Result<(), String> {
+pub(crate) fn check_extension(path: &Path) -> Result<(), String> {
     if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case(EXTENSION)) {
         Ok(())
     } else {
@@ -291,7 +295,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("helios-doc-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let path = dir.join("My Story.helios");
-        let document = Document { format: "helios".to_owned(), version: 3, saved_at: "now".to_owned(), project: Project::default(), assets: Vec::new() };
+        let document = Document { format: "helios".to_owned(), version: 3, saved_at: "now".to_owned(), project: Project::default(), assets: Vec::new(), extras: None };
         write_document(&path, &document).expect("write");
         let read = read_document(&path).expect("read");
         assert_eq!(read.project.name, Project::default().name);

@@ -18,7 +18,7 @@ import { createMotionGraphicComp, mogrtCanvas } from './motionGraphics';
 import { CRIMSON_GUIDELINE_NOTES, CRIMSON_PALETTE, templateCatalogue, templateSpec, type MogrtLayout } from './motionGuide';
 import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, type ReactBitsLayer } from './rbx';
 import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
-import { brandKitTheme, brandedPrompt } from './brandKit';
+import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
 import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, textBox, type QaIssue, type QaLayer } from './production';
 import { detectBeats, snapTimesToBeats } from './beats';
 import { loadPeaks } from './peaks';
@@ -52,6 +52,10 @@ import {
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
 import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
+
+/** Tells the model a file search stopped at its budget, so "0 found" is not "not there". */
+const truncatedNote = (truncated: boolean | undefined) =>
+  truncated ? ' The search stopped early (too many files) — narrow the base path and search again.' : '';
 
 export type ToolSpec = { name: string; description: string; input_schema: unknown };
 export const TOOL_SPECS: ToolSpec[] = catalog.tools as ToolSpec[];
@@ -587,7 +591,8 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
 
   // The motion engine: AE-grade scenes from templates or layer JSON, and reference style profiles.
   if (MOTION_TOOLS.has(name)) {
-    return runMotionTool(name, args, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference });
+    const kitForMotion = activeBrandKit(host, project);
+    return runMotionTool(name, args, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: kitForMotion ? motionBrandFromKit(kitForMotion) : null });
   }
 
   // Brand kits: read in any phase, written through the host's settings callbacks.
@@ -785,7 +790,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const scenes: NonNullable<Comp['storyboard']> = (args.scenes as Record<string, unknown>[]).map((raw, i) => {
         const row = raw as Args;
         const refs = Array.isArray(row.refs) ? (row.refs as unknown[]).filter((r): r is string => typeof r === 'string') : undefined;
-        return { ...parseBeat(row, i + 1, knownIds, beatProblems), start: row.start as number, end: row.end as number, intent: row.intent as string, visual: row.visual as string, audio: row.audio as string, evidence: row.evidence as string, ...(refs?.length ? { refs } : {}) };
+        // The user's own work on a card (a drawn sketch, an uploaded or generated picture) survives
+        // the AI re-saving the plan: carry it over from the scene that covered the same moment.
+        const previous = comp.storyboard?.find((old) => Math.abs(old.start - (row.start as number)) < 0.5) ?? comp.storyboard?.[i];
+        const kept = previous ? { ...(previous.thumbnail ? { thumbnail: previous.thumbnail } : {}), ...(previous.sketch ? { sketch: previous.sketch } : {}) } : {};
+        return { ...kept, ...parseBeat(row, i + 1, knownIds, beatProblems), start: row.start as number, end: row.end as number, intent: row.intent as string, visual: row.visual as string, audio: row.audio as string, evidence: row.evidence as string, ...(refs?.length ? { refs } : {}) };
       });
       const production = parseProduction(args, 'footage', comp.production, beatProblems);
       if (beatProblems.length) return fail(beatProblems.slice(0, 8).join(' ') + (beatProblems.length > 8 ? ` Plus ${beatProblems.length - 8} more.` : ''));
@@ -1428,11 +1437,12 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const limit = num(args, 'limit');
       try {
         const res = await api.fsGlobSearch(path, pattern, limit);
-        return done(`Found ${res.totalMatches} match(es) for pattern "${res.pattern}" in ${res.basePath}.`, {
+        return done(`Found ${res.totalMatches} match(es) for pattern "${res.pattern}" in ${res.basePath}.${truncatedNote(res.truncated)}`, {
           basePath: res.basePath,
           pattern: res.pattern,
           matches: res.matches,
           totalMatches: res.totalMatches,
+          truncated: res.truncated ?? false,
         });
       } catch (error) {
         return fail(errorText(error));
@@ -1447,10 +1457,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const maxMatches = num(args, 'maxMatches');
       try {
         const res = await api.fsGrepSearch(path, query, filePattern, maxMatches);
-        return done(`Found ${res.totalMatches} matching line(s) for "${res.query}" in ${path}.`, {
+        return done(`Found ${res.totalMatches} matching line(s) for "${res.query}" in ${path}.${truncatedNote(res.truncated)}`, {
           query: res.query,
           matches: res.matches,
           totalMatches: res.totalMatches,
+          truncated: res.truncated ?? false,
         });
       } catch (error) {
         return fail(errorText(error));
@@ -1594,14 +1605,26 @@ ${templateCatalogue()}`;
           host.setReference(ref.id);
         }
         const brief = await api.refsBrief(ref.id);
+        // The guideline is also a document in the project folder (Guidelines/), which the user
+        // opens from the Project panel and finds in Explorer.
+        const paletteLine = palette?.length ? `
+
+**Palette:** ${palette.join(' · ')}` : '';
+        const file = await Promise.resolve()
+          .then(() => api.projectDocWrite('guidelines', `${ref.name} guideline`, `# ${ref.name}
+
+${notes.trim()}${paletteLine}
+`))
+          .catch(() => null);
         return done(
-          `Project guideline "${ref.name}" created and activated for this video project. Its rules are now loaded in the AI context.`,
+          `Project guideline "${ref.name}" created and activated for this video project. Its rules are now loaded in the AI context.${file ? ` Saved as ${file}.` : ''}`,
           {
             id: ref.id,
             name: ref.name,
             pack: ref.pack,
             palette: ref.palette,
             brief: brief || notes,
+            file,
           }
         );
       } catch (error) {
@@ -2853,7 +2876,12 @@ ${templateCatalogue()}`;
           const child = project.comps.find((c) => c.id === (clip.source as { compId: string }).compId);
           const inner = child?.clips.find((c) => c.source.type === 'html');
           const box = inner && inner.source.type === 'html' ? inner.source.box : null;
-          if (child && (inner || child.name.startsWith('[MOGRT]'))) layers.push({ clipId: clip.id, name, kind: 'graphic', box: box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
+          const motion = child?.clips.find((c) => c.source.type === 'motion');
+          if (motion && motion.source.type === 'motion') {
+            // An AI motion scene nested in its "[Motion]" comp: QA it like an overlay scene.
+            const motionBox = overlayBox(motion.source.scene, (scene, t) => evaluateScene(scene, t, { sizeOf: (layer, time) => (layer.type === 'text' ? ((f) => [f.width - f.pad * 2, f.height - f.pad * 2] as [number, number])(layoutText(layer.text, time, (text, font) => text.length * (parseFloat(font.split('px')[0].split(' ').pop() ?? '64') || 64) * 0.55)) : defaultSize(scene, layer, time)) }));
+            if (motionBox) layers.push({ clipId: clip.id, name, kind: 'graphic', box: motionBox, from, to });
+          } else if (child && (inner || child.name.startsWith('[MOGRT]'))) layers.push({ clipId: clip.id, name, kind: 'graphic', box: box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
         } else if (clip.source.type === 'motion') {
           const box = overlayBox(clip.source.scene, (scene, t) => evaluateScene(scene, t, { sizeOf: (layer, time) => (layer.type === 'text' ? ((f) => [f.width, f.height] as [number, number])(layoutText(layer.text, time, (text, font) => text.length * (parseFloat(font.split('px')[0].split(' ').pop() ?? '64') || 64) * 0.55)) : defaultSize(scene, layer, time)) }));
           if (box) layers.push({ clipId: clip.id, name, kind: 'graphic', box, from, to });
@@ -3195,7 +3223,7 @@ ${templateCatalogue()}`;
           title: 'Subject reveal',
           compId: comp.id,
           params: { subject: { clipId: clip.id }, ...(Array.isArray(args.title) ? { title: args.title } : { title: [] }), ...(typeof args.phrase === 'string' ? { phrase: args.phrase } : { phrase: '' }), cardAt: null, duration: seconds },
-        }, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference });
+        }, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: (() => { const kit = activeBrandKit(host, project); return kit ? motionBrandFromKit(kit) : null; })() });
       }
       const style = requested === 'wipe' ? 'wipe' : 'cubes';
       const seconds = clamp(num(args, 'duration') ?? 1.2, 0.4, 3);

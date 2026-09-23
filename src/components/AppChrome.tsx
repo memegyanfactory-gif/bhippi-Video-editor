@@ -1,6 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Home, Maximize, Minimize, Minus, PanelLeft, Settings, Share, Square, Volume2, VolumeX, X } from 'lucide-react';
 import { useState } from 'react';
+import { UpdateButton } from './UpdateButton';
 import { MenuList, type MenuItem } from './workspace';
 
 export type MenuGroup = { label: string; items: MenuItem[] };
@@ -53,6 +54,8 @@ type HeaderProps = {
   programMaximized: boolean;
   onToggleProgramMax: () => void;
   onSettings: () => void;
+  /** Opens Settings › About (release notes, the auto-download switch) — the update panel's "Details". */
+  onUpdates: () => void;
   providerBadge: React.ReactNode;
   resourceMonitor?: React.ReactNode;
 };
@@ -87,6 +90,7 @@ export function HeaderBar(props: HeaderProps) {
         <button type="button" className="icon-btn" onClick={props.onExport} disabled={props.exportDisabled} title="Quick export (Ctrl+M)"><Share size={16} /></button>
         <button type="button" className="icon-btn" onClick={props.onToggleMute} title={props.muted ? 'Unmute preview' : 'Mute preview'}>{props.muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
         <button type="button" className="icon-btn" onClick={props.onToggleProgramMax} title="Maximize Program monitor (`)">{props.programMaximized ? <Minimize size={15} /> : <Maximize size={15} />}</button>
+        <UpdateButton onDetails={props.onUpdates} />
         <button type="button" className="icon-btn" onClick={props.onSettings} title="Settings (Ctrl+,)"><Settings size={16} /></button>
         <button type="button" className="header-avatar" onClick={props.onSettings} title="AI providers">{props.providerBadge}</button>
       </div>

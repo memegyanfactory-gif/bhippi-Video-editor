@@ -549,7 +549,7 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
         for _round in 0..MAX_ROUNDS {
             let mut filter = FenceFilter::default();
             let raw = match self.round(provider, request.clone(), Some(&mut filter)).await {
-                Ok((raw, _)) => raw,
+                Ok((raw, _)) => ai_tools::without_echo(&raw),
                 Err(interrupt) => return self.interrupted(interrupt),
             };
             let (_, calls, notes) = ai_tools::extract_calls(&raw);
@@ -612,8 +612,12 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
 /// base64 would only bloat the next prompt for a picture the model can never actually see.
 fn text_round_feedback(results: &[(String, Value)]) -> String {
     let mut out = String::new();
-    out.push_str("\n## What your last reply's calls actually returned\n");
-    out.push_str("Use the ids and values below instead of ones you guessed — do not assume a call succeeded, or that its id/asset matches what you expected, until you see it here.\n");
+    let _ = writeln!(out, "\n{}", ai_tools::RESULTS_HEADING);
+    let _ = writeln!(
+        out,
+        "{} — do not assume a call succeeded, or that its id/asset matches what you expected, until you see it here. Helios writes this section after it runs your block; never write it yourself.",
+        ai_tools::RESULTS_LEAD
+    );
     for (name, result) in results {
         let mut shown = result.clone();
         if let Some(map) = shown.as_object_mut() {

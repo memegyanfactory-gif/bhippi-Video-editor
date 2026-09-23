@@ -1,0 +1,70 @@
+/* The sign-in / license gate and About › Profile. */
+
+.gate { position: fixed; inset: 0; z-index: 200000; display: grid; place-items: center; padding: 48px 20px 20px; background: radial-gradient(1200px 600px at 50% -10%, rgba(45, 140, 235, 0.14), transparent 60%), var(--seam); user-select: none; animation: gate-fade 200ms ease-out; }
+.gate-overlay { background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(10px); }
+.gate-titlebar { position: fixed; top: 0; left: 0; right: 0; height: 34px; display: flex; align-items: center; padding-left: 12px; color: var(--text-faint); font-size: 12px; }
+.gate-titlebar span { flex: 1; height: 100%; display: flex; align-items: center; gap: 7px; }
+.gate-titlebar button { width: 46px; height: 34px; display: grid; place-items: center; border: 0; background: transparent; color: var(--text-dim); }
+.gate-titlebar button:hover { background: var(--panel-3); color: var(--text); }
+.gate-titlebar .gate-close:hover { background: #c42b1c; color: #fff; }
+.gate-card { width: min(460px, 100%); display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 28px 20px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--lift); animation: gate-rise 320ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.gate-logo { margin-bottom: 14px; filter: drop-shadow(0 10px 24px rgba(255, 170, 60, 0.28)); }
+.gate-body { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.gate-body h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
+.gate-lead { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.55; max-width: 380px; }
+.gate-lead strong { color: var(--text); }
+.gate-checking { display: flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: 13px; padding: 20px 0; }
+.gate-google { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: 240px; height: 40px; margin-top: 6px; padding: 0 18px; border: 0; border-radius: 999px; background: #fff; color: #1f1f1f; font-size: 13.5px; font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); transition: transform 120ms, box-shadow 120ms; }
+.gate-google:hover:not(:disabled) { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.gate-google:active:not(:disabled) { transform: translateY(1px); }
+.gate-code { margin: 4px 0; padding: 10px 20px; border-radius: 10px; background: var(--field); border: 1px solid var(--line-strong); font-family: var(--mono); font-size: 26px; font-weight: 600; letter-spacing: 0.14em; color: var(--text); user-select: text; }
+.gate-waiting { display: flex; align-items: center; gap: 8px; color: var(--text-faint); font-size: 12px; }
+.gate-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
+.gate-error { margin: 2px 0 0; color: var(--red); font-size: 12px; max-width: 380px; }
+.gate-who { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 4px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--text-dim); font-size: 12px; margin-bottom: 4px; }
+.gate-who span:not(.account-avatar) { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gate-key { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 4px 4px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--field); color: var(--text-faint); }
+.gate-key:focus-within { box-shadow: var(--ring); }
+.gate-key input { flex: 1; min-width: 0; height: 32px; border: 0; background: transparent; outline: none; font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.04em; color: var(--text); }
+.gate-devices { list-style: none; margin: 4px 0 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.gate-devices li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; color: var(--text-faint); }
+.gate-device-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 11.5px; }
+.gate-device-text strong { color: var(--text); font-size: 12.5px; font-weight: 600; }
+.gate-or { display: flex; align-items: center; gap: 10px; width: 100%; margin: 10px 0 2px; color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.gate-or::before, .gate-or::after { content: ''; flex: 1; height: 1px; background: var(--line-strong); }
+.gate-hint { margin: 0; color: var(--text-faint); font-size: 11.5px; }
+.gate-link { border: 0; padding: 0; background: none; color: var(--blue-hi); font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.gate-dev { margin-top: 16px; border: 0; background: transparent; color: var(--text-faint); font-size: 11px; text-decoration: underline dotted; text-underline-offset: 3px; }
+.gate-dev:hover { color: var(--amber); }
+@keyframes gate-fade { from { opacity: 0; } }
+@keyframes gate-rise { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
+
+.account-avatar { flex: none; border-radius: 50%; object-fit: cover; }
+.account-avatar-letter { display: inline-grid; place-items: center; background: var(--blue); color: #fff; font-weight: 700; }
+
+.profile-card { width: 100%; display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--text-dim); font-size: 12px; }
+.profile-signed-out { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; }
+.profile-signed-out .gate-body { width: auto; }
+.profile-signed-out .gate-google { min-width: 0; margin: 0; height: 34px; font-size: 12.5px; }
+.profile-head { display: flex; align-items: center; gap: 12px; }
+.profile-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.profile-copy strong { color: var(--text); font-size: 13.5px; font-weight: 600; }
+.profile-copy > span { overflow: hidden; text-overflow: ellipsis; }
+.profile-pill { padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; }
+.kind-paid { background: var(--green-soft); color: var(--green); }
+.kind-tester { background: var(--amber-soft); color: var(--amber); }
+.kind-admin { background: rgba(160, 130, 255, 0.16); color: #b9a6ff; }
+.kind-dev { background: var(--blue-soft); color: var(--blue-hi); }
+.kind-revoked { background: var(--red-soft); color: var(--red); }
+.profile-note { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--amber); font-size: 11.5px; }
+.profile-row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.profile-label { width: 64px; flex: none; color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.profile-key { flex: 1; min-width: 0; padding: 5px 8px; border-radius: 5px; background: var(--field); border: 1px solid var(--line); color: var(--text); font-size: 12px; letter-spacing: 0.04em; user-select: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-slots { display: flex; gap: 4px; }
+.profile-slots span { width: 34px; height: 6px; border-radius: 999px; background: var(--panel-4); }
+.profile-slots span.used { background: var(--blue); }
+.profile-devices { list-style: none; margin: 0 0 0 72px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.profile-devices li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; background: var(--panel-3); color: var(--text-faint); }
+.profile-devices .profile-copy > span:first-child { color: var(--text); font-size: 12px; }
+.profile-this { margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--blue-soft); color: var(--blue-hi); font-size: 10px; font-weight: 700; }
+.profile-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; border-top: 1px solid var(--line); margin-top: 2px; padding-top: 10px; }

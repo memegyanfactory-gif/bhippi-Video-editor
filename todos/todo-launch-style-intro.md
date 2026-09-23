@@ -1,0 +1,11 @@
+# Todo: Plan a launch-style, seamless channel intro from "what I do.mp4" (PLAN phase)
+- [x] Read the timeline (get_comp)
+- [x] Transcribe the full clip with word timings
+- [x] Scan the frames (text-only gate + ffmpeg contact sheet to actually see framing/face position)
+- [x] Check local media capabilities (roto, erase/inpaint, video/image/audio gen)
+- [x] Research the channel @yousef-boat (videos, streams, icon, about) and the tools mentioned (git, etc.)
+- [x] Find copyright-free launch music tracks (2–3 to crossfade) + SFX sources
+- [x] Write the video guideline (create_project_guideline): Crimson gradient wave bg, 3D panel moves, square mask presenter, no visible cuts
+- [x] Write the spine + hook reshuffle from the transcript
+- [x] Save the storyboard (5–12 s beats, graphics, transitions, shots, sfx, music crossfade plan)
+- [x] End turn with the plan summary → user presses Start generating

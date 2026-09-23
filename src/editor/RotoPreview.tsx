@@ -30,6 +30,53 @@ function ensureLumaFilter(): string {
 
 type MaskFrame = { image: HTMLImageElement; alpha?: ImageData; mask?: HTMLCanvasElement };
 
+/** The roto run a `matte.mkv` path belongs to (its folder name). */
+const runOf = (matte: string) => matte.replaceAll('\\', '/').split('/').at(-2) ?? '';
+
+/** The matte PNG of frame `index` of a roto run. */
+function maskUrl(matte: string, index: number): string {
+  const folder = matte.replaceAll('\\', '/').split('/').slice(0, -1).join('/');
+  return fileSrc(`${folder}/preview/${String(index + 1).padStart(5, '0')}.png`.replace(/\//g, '\\'));
+}
+
+/**
+ * Matte PNGs loaded (or loading) for every roto clip, shared so the media warm-up
+ * (editor/previewWarm.ts) can fetch a clip's first frames before it appears.
+ */
+const sharedMasks = new Map<string, Promise<HTMLImageElement>>();
+function loadMask(url: string): Promise<HTMLImageElement> {
+  let hit = sharedMasks.get(url);
+  if (hit) { sharedMasks.delete(url); sharedMasks.set(url, hit); return hit; }
+  hit = canvasImage(url);
+  hit.catch(() => sharedMasks.delete(url));
+  sharedMasks.set(url, hit);
+  while (sharedMasks.size > 96) sharedMasks.delete(sharedMasks.keys().next().value!);
+  return hit;
+}
+
+const runMeta = new Map<string, Promise<RotoCache | null>>();
+function readRun(runId: string): Promise<RotoCache | null> {
+  let hit = runMeta.get(runId);
+  if (!hit) {
+    hit = api.rotoRead(runId);
+    // A failed read is not remembered: the next mount asks again (and reports it).
+    hit.catch(() => runMeta.delete(runId));
+    runMeta.set(runId, hit);
+  }
+  return hit;
+}
+
+/** Fetches `count` matte frames from the one at source seconds `sourceTime`; true once all loaded. */
+export async function prefetchRotoMatte(matte: string, sourceTime: number, count = 20): Promise<boolean> {
+  const meta = await readRun(runOf(matte)).catch(() => null);
+  if (!meta || !meta.frames) return false;
+  const first = meta.subjects[0]?.at ?? 0;
+  const index = Math.max(0, Math.min(meta.frames - 1, Math.floor((sourceTime - first) * meta.fps + 1e-5)));
+  const loads: Promise<unknown>[] = [];
+  for (let k = index; k < Math.min(meta.frames, index + count); k++) loads.push(loadMask(maskUrl(matte, k)));
+  return Promise.all(loads).then(() => true, () => false);
+}
+
 /** The CPU alpha copy, only when something needs the pixels (manual corrections, or a canvas with no filter support). */
 function readAlpha(entry: MaskFrame): MaskFrame {
   if (entry.alpha && entry.mask) return entry;
@@ -72,21 +119,18 @@ export function RotoPreview({ matte, sourceTime, video, corrections, at, fps, qu
     let gpu: string | null | undefined;
     /** What the canvas currently shows, so a paused frame costs nothing per tick. */
     let drawn: { time: number; index: number; frame: number; corrections: RotoCorrection[]; scale: number } | null = null;
-    const parts = matte.replaceAll('\\', '/').split('/');
-    const runId = parts.at(-2) ?? '';
-    const folder = parts.slice(0, -1).join('/');
+    const runId = runOf(matte);
     setError(null);
-    void api.rotoRead(runId).then(result => { if (!stopped) { metadata = result; if (!result) setError('Roto cache unavailable; run Roto again.'); } }).catch(() => { if (!stopped) setError('Cannot read Roto preview.'); });
+    void readRun(runId).then(result => { if (!stopped) { metadata = result; if (!result) setError('Roto cache unavailable; run Roto again.'); } }).catch(() => { if (!stopped) setError('Cannot read Roto preview.'); });
     const fetchMask = (index: number) => {
-      if (!metadata || index < 0 || index >= metadata.frames || cache.has(index) || pending.has(index) || failed.has(index) || pending.size >= 4) return;
+      if (!metadata || index < 0 || index >= metadata.frames || cache.has(index) || pending.has(index) || failed.has(index) || pending.size >= 6) return;
       pending.add(index);
-      const previewPath = `${folder}/preview/${String(index + 1).padStart(5, '0')}.png`.replace(/\//g, '\\');
-      void canvasImage(fileSrc(previewPath)).then(image => {
+      void loadMask(maskUrl(matte, index)).then(image => {
         pending.delete(index);
         if (stopped) return;
         // Decoded off the main thread by the image loader; nothing is read back here.
         cache.set(index, { image });
-        while (cache.size > 12) cache.delete(cache.keys().next().value!);
+        while (cache.size > 24) cache.delete(cache.keys().next().value!);
       }).catch(error => { pending.delete(index); failed.add(index); if (!stopped) setError(`Roto preview: ${error instanceof Error ? error.message : String(error)}`); });
     };
     const draw = () => {
@@ -100,7 +144,7 @@ export function RotoPreview({ matte, sourceTime, video, corrections, at, fps, qu
       const decodedTime = media.currentTime;
       const index = Math.max(0, Math.min(metadata.frames - 1, Math.floor((decodedTime - first) * metadata.fps + 1e-5)));
       fetchMask(index);
-      for (const offset of [1, 2, 3, -1]) fetchMask(index + offset);
+      for (const offset of [1, 2, 3, 4, 5, 6, -1]) fetchMask(index + offset);
       const entry = cache.get(index);
       if (!entry) {
         drawn = null;

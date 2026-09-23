@@ -19,7 +19,7 @@ fn main() {
             let dir = std::path::PathBuf::from(appdata).join("studio.helios.desktop");
             let _ = std::fs::create_dir_all(&dir);
             let log_path = dir.join("crash.log");
-            let backtrace = std::backtrace::Backtrace::capture();
+            let backtrace = std::backtrace::Backtrace::force_capture();
             let msg = format!(
                 "Time: {}\nLocation: {}\nPayload: {}\nBacktrace:\n{:?}\n\n",
                 chrono::Utc::now(),

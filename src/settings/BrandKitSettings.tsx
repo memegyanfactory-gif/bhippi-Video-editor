@@ -1,16 +1,19 @@
 // Settings → Brand kit: the editor for the kits the AI and every graphic read from.
 //
-// A kit is data (src/lib/brandKit). This panel lists the user's kits, starts new ones from an
-// archetype or a DaisyUI theme, edits every section, previews the brand board live, and points
-// the open project (or the user default) at a kit. Persistence is the settings document.
+// A kit is data (src/lib/brandKit). The left side is a library of cards — the user's kits, the house
+// look, the style archetypes, the reference kits and the DaisyUI colour themes. One click selects and
+// applies: a kit becomes this project's kit, an archetype opens (or starts) a kit in that style, a
+// colour theme recolours the selected kit. The right side edits the selected kit and previews its
+// brand board. Persistence is the settings document.
 
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { HtmlMotionLayer } from '../editor/HtmlMotionLayer';
+import { BrandGuidelineView } from './BrandGuidelineView';
 import { useToast } from '../components/ui';
 import {
   ARCHETYPES, DAISY_THEMES, SYSTEM_FONTS, assetDataUrl, assetText, brandBoard, brandKitSummary, brandKitTheme, contrastRatio, daisyThemeToBrandColors, emptyBrandKitDoc, exportBrandKit,
-  findArchetype, findDaisyTheme, fontStack, importBrandKit, isDark, logoMarkup, mergeBrandKit, newBrandKit, resolveActiveKit, validateBrandKit,
+  colorsFrom, findArchetype, findDaisyTheme, fontStack, importBrandKit, isDark, logoMarkup, mergeBrandKit, newBrandKit, resolveActiveKit, validateBrandKit,
   type BrandArchetype, type BrandKit, type DaisyTheme, type BrandKitDoc, type BrandKitSection, type BrandLogo, type ColorRole,
 } from '../lib/brandKit';
 import { api, errorText } from '../lib/ipc';
@@ -80,7 +83,7 @@ export const cardMotion = (motion: BrandArchetype['motion']): Record<string, str
 });
 
 /** One starting style as a miniature brand board: field, display type, swatches, motion on hover. */
-function ArchetypeCard({ arch, selected, onPick }: { arch: BrandArchetype; selected: boolean; onPick: () => void }) {
+function ArchetypeCard({ arch, selected, made, onPick }: { arch: BrandArchetype; selected: boolean; made?: boolean; onPick: () => void }) {
   const c = arch.colors;
   const display = arch.typography.display;
   return (
@@ -88,7 +91,7 @@ function ArchetypeCard({ arch, selected, onPick }: { arch: BrandArchetype; selec
       type="button"
       className={`bk-card ${selected ? 'active' : ''}`}
       onClick={onPick}
-      title={`${arch.name} — ${arch.character}`}
+      title={`${arch.name} — ${arch.character}${made ? ' · you have a kit in this style' : ''}`}
       aria-pressed={selected}
       style={{ ...cardMotion(arch.motion), background: c.bg, color: c.text }}
     >
@@ -101,6 +104,7 @@ function ArchetypeCard({ arch, selected, onPick }: { arch: BrandArchetype; selec
       </span>
       <span className="bk-card-swatches">{[c.primary, c.accent, c.accent2, c.surface, c.text].map((hex, i) => <i key={i} style={{ background: hex, transitionDelay: `calc(var(--bk-stagger) * ${i})` }} />)}</span>
       {selected && <span className="bk-card-check" style={{ background: c.primary, color: c.bg }}>✓</span>}
+      {made && !selected && <span className="bk-card-made" title="You have a kit in this style">●</span>}
     </button>
   );
 }
@@ -140,18 +144,18 @@ function DaisyCard({ theme, selected, onPick }: { theme: DaisyTheme; selected: b
   );
 }
 
-/** A horizontally scrolling shelf of cards, grouped by heading. */
-function CardShelf({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+/** A titled grid of cards that wraps, so every choice is visible and one click away. */
+function LibrarySection({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="bk-shelf">
+    <section className="bk-lib-section">
       <div className="bk-shelf-head"><strong>{label}</strong>{hint && <small>{hint}</small>}</div>
-      <div className="bk-shelf-scroll">{children}</div>
-    </div>
+      <div className="bk-lib-grid">{children}</div>
+    </section>
   );
 }
 
 const ROLES: ColorRole[] = ['primary', 'secondary', 'accent', 'background', 'surface', 'text', 'muted', 'success', 'warning', 'error', 'info', 'neutral', 'custom'];
-const SECTION_LABELS: Record<BrandKitSection, string> = { identity: 'Identity', logos: 'Logos', colors: 'Colours', typography: 'Typography', voice: 'Voice', motion: 'Motion', imagery: 'Imagery', layout: 'Layout', audio: 'Audio', social: 'Social', assets: 'Assets', notes: 'Notes' };
+const SECTION_LABELS: Record<BrandKitSection, string> = { identity: 'Identity', logos: 'Logos', colors: 'Colours', typography: 'Typography', voice: 'Voice', motion: 'Motion', imagery: 'Imagery', layout: 'Layout', audio: 'Audio', social: 'Social', assets: 'Assets', notes: 'Notes', guideline: 'Guideline' };
 
 // ── component ────────────────────────────────────────────────────────────────
 
@@ -159,24 +163,27 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
   const toast = useToast();
   const doc: BrandKitDoc = props.settings.brandKits ?? emptyBrandKitDoc();
   const [selectedId, setSelectedId] = useState<string | null>(doc.kits[0]?.id ?? null);
-  const [newStyle, setNewStyle] = useState<string>('crimson-house');
-  const [newDaisy, setNewDaisy] = useState<string>('');
   const [importText, setImportText] = useState('');
   const [showImport, setShowImport] = useState(false);
   const selected = doc.kits.find((k) => k.id === selectedId) ?? doc.kits[0] ?? null;
   const active = resolveActiveKit(doc, { activeBrandKitId: props.projectBrandKitId });
   const timer = useRef<number | null>(null);
 
+  // The latest settings, so a delayed save never writes an older document over a newer one.
+  const settingsRef = useRef(props.settings);
+  settingsRef.current = props.settings;
   const persist = async (next: BrandKitDoc) => {
+    // A structural save supersedes any typing save still waiting.
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
     try {
-      props.onSettings(await api.settingsSave({ ...props.settings, brandKits: next }));
+      props.onSettings(await api.settingsSave({ ...settingsRef.current, brandKits: next }));
     } catch (error) {
       toast({ tone: 'error', title: 'Could not save the brand kit', body: errorText(error) });
     }
   };
   /** Typing edits coalesce; structural edits save at once. */
   const persistSoon = (next: BrandKitDoc) => {
-    props.onSettings({ ...props.settings, brandKits: next });
+    props.onSettings({ ...settingsRef.current, brandKits: next });
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => { void persist(next); }, 500);
   };
@@ -191,17 +198,43 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
     void replace(mergeBrandKit(selected, section, value), soon);
   };
 
-  const create = async (kit: BrandKit) => {
+  /** Adds a kit and selects it; `useForProject` makes it the project's kit (one history step). */
+  const create = async (kit: BrandKit, useForProject = false) => {
     const next: BrandKitDoc = { kits: [...doc.kits, kit], activeId: doc.activeId ?? kit.id };
     await persist(next);
     setSelectedId(kit.id);
-    if (!props.projectBrandKitId) props.onProjectBrandKit(kit.id);
+    if (useForProject || !props.projectBrandKitId) props.onProjectBrandKit(kit.id);
   };
-  const createFromChoice = async () => {
-    const arch = findArchetype(newStyle) ?? ARCHETYPES[0];
-    let kit = newBrandKit({ style: arch.id, name: arch.group === 'house' ? 'My brand' : arch.name.replace(' (reference)', '') });
-    if (newDaisy) kit = applyDaisyTheme(kit, newDaisy);
-    await create(kit);
+  /** A kit card: select it and make it this project's kit. */
+  const pickKit = (kit: BrandKit) => {
+    setSelectedId(kit.id);
+    if (props.projectBrandKitId !== kit.id) {
+      props.onProjectBrandKit(kit.id);
+      toast({ tone: 'success', title: `Using ${kit.name}`, body: 'Every new graphic, title and generation in this project follows it.', timeout: 2200 });
+    }
+  };
+  /** An archetype or reference card: open the kit already made in that style, or start one, and use it. */
+  const pickArchetype = async (arch: BrandArchetype) => {
+    // The kit in view wins, then the project's, then the first kit made in that style.
+    const existing = (selected?.style === arch.id ? selected : null)
+      ?? doc.kits.find((k) => k.id === props.projectBrandKitId && k.style === arch.id)
+      ?? doc.kits.find((k) => k.style === arch.id);
+    if (existing) return pickKit(existing);
+    const kit = newBrandKit({ style: arch.id, name: arch.group === 'house' ? 'My brand' : archetypeLabel(arch.name) });
+    await create(kit, true);
+    toast({ tone: 'success', title: `Started ${kit.name}`, body: `A new kit in the ${archetypeLabel(arch.name)} style, now used by this project. Edit it on the right.`, timeout: 2600 });
+  };
+  /** A colour card: recolour the selected kit (null = back to its archetype's own colours). */
+  const pickColours = (themeId: string | null) => {
+    if (!selected) return toast({ tone: 'info', title: 'Pick a kit first', body: 'Colour themes recolour the selected kit.' });
+    let next: BrandKit;
+    if (themeId) next = applyDaisyTheme(selected, themeId);
+    else {
+      const arch = findArchetype(selected.style) ?? ARCHETYPES[0];
+      next = mergeBrandKit(selected, 'colors', { colors: { ...colorsFrom(arch, arch.colors), daisyTheme: null } });
+    }
+    void replace(next, false);
+    if (props.projectBrandKitId !== selected.id) props.onProjectBrandKit(selected.id);
   };
   const duplicate = async () => {
     if (!selected) return;
@@ -258,37 +291,74 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
     void replace({ ...selected, logos: [...selected.logos.filter((l) => l.role !== role), logo], updatedAt: new Date().toISOString() }, false);
   };
 
-  if (!doc.kits.length) {
-    return (
-      <div className="bk-empty">
-        <h3>Brand kit</h3>
-        <p>A brand kit is the identity every graphic, caption and generated image is edited to: logo, colours, type, voice, motion, imagery, layout, audio. Start one three ways:</p>
-        <NewKitRow newStyle={newStyle} setNewStyle={setNewStyle} newDaisy={newDaisy} setNewDaisy={setNewDaisy} onCreate={() => void createFromChoice()} onImport={() => setShowImport((v) => !v)} />
-        {showImport && <ImportBox value={importText} onChange={setImportText} onImport={() => void doImport()} />}
-        <p>Or ask Helios AI: “create a brand kit for my product — bold startup style, orange accent”.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="bk-root">
-      <div className="bk-list">
-        {doc.kits.map((kit) => (
-          <button key={kit.id} type="button" className={`bk-list-item ${selected?.id === kit.id ? 'active' : ''}`} onClick={() => setSelectedId(kit.id)}>
-            <KitThumb kit={kit} />
-            <strong>{kit.name}</strong>
-            <span>{kit.style}{kit.industry ? ` · ${kit.industry}` : ''}</span>
-            <div className="bk-badges">
-              {doc.activeId === kit.id && <span className="bk-badge">default</span>}
-              {props.projectBrandKitId === kit.id && <span className="bk-badge on">this project</span>}
-              {active?.id === kit.id && props.projectBrandKitId !== kit.id && <span className="bk-badge on">active</span>}
-            </div>
-          </button>
+      <div className="bk-library">
+        {doc.kits.length > 0 ? (
+          <LibrarySection label="Your kits" hint="Click one to use it for this project">
+            {doc.kits.map((kit) => (
+              <button
+                key={kit.id}
+                type="button"
+                className={`bk-kit-card ${selected?.id === kit.id ? 'active' : ''}`}
+                onClick={() => pickKit(kit)}
+                aria-pressed={props.projectBrandKitId === kit.id}
+                title={`${kit.name} — click to use it for this project`}
+              >
+                <KitThumb kit={kit} />
+                <strong>{kit.name}</strong>
+                <span>{kit.style}{kit.industry ? ` · ${kit.industry}` : ''}</span>
+                <div className="bk-badges">
+                  {props.projectBrandKitId === kit.id && <span className="bk-badge on">this project</span>}
+                  {doc.activeId === kit.id && <span className="bk-badge">default</span>}
+                  {active?.id === kit.id && props.projectBrandKitId !== kit.id && <span className="bk-badge on">active</span>}
+                </div>
+              </button>
+            ))}
+          </LibrarySection>
+        ) : (
+          <div className="bk-empty">
+            <strong>No brand kit yet.</strong>
+            <span>Click any style below to start one — it is used by this project right away. Or ask Helios AI: “make a brand kit from https://my-product.com”.</span>
+          </div>
+        )}
+        {ARCHETYPE_GROUPS.map(({ group, label, hint }) => (
+          <LibrarySection key={group} label={label} hint={hint}>
+            {ARCHETYPES.filter((a) => a.group === group).map((a) => (
+              <ArchetypeCard key={a.id} arch={a} selected={selected?.style === a.id} made={doc.kits.some((k) => k.style === a.id)} onPick={() => void pickArchetype(a)} />
+            ))}
+          </LibrarySection>
         ))}
-        <NewKitRow compact newStyle={newStyle} setNewStyle={setNewStyle} newDaisy={newDaisy} setNewDaisy={setNewDaisy} onCreate={() => void createFromChoice()} onImport={() => setShowImport((v) => !v)} />
+        <LibrarySection label="Colours" hint={selected ? `Click to recolour ${selected.name}` : 'Pick a kit, then a colour theme'}>
+          {(() => {
+            const arch = (selected && findArchetype(selected.style)) || ARCHETYPES[0];
+            // Marked only when the kit really wears its style's colours (not custom ones).
+            const styleHexes = colorsFrom(arch, arch.colors).tokens.map((t) => t.hex.toLowerCase()).sort().join();
+            const own = !!selected && !selected.colors.daisyTheme && selected.colors.tokens.map((t) => t.hex.toLowerCase()).sort().join() === styleHexes;
+            return (
+              <button
+                type="button"
+                className={`bk-card bk-card-none ${own ? 'active' : ''}`}
+                onClick={() => pickColours(null)}
+                aria-pressed={own}
+                title={selected ? `Recolour ${selected.name} with ${archetypeLabel(arch.name)}'s own colours${own ? '' : ' (replaces its current colours)'}` : 'Pick a kit first'}
+                style={{ ...cardMotion(arch.motion), background: arch.colors.bg, color: arch.colors.text }}
+              >
+                <span className="bk-card-swatches tall">{[arch.colors.primary, arch.colors.accent, arch.colors.accent2, arch.colors.surface].map((hex, i) => <i key={i} style={{ background: hex, transitionDelay: `calc(var(--bk-stagger) * ${i})` }} />)}</span>
+                <span className="bk-card-body"><span className="bk-card-title">Style colours</span><span className="bk-card-sub" style={{ color: arch.colors.muted }}>{archetypeLabel(arch.name)}</span></span>
+                {own && <span className="bk-card-check" style={{ background: arch.colors.primary, color: arch.colors.bg }}>✓</span>}
+              </button>
+            );
+          })()}
+          {DAISY_THEMES.map((t) => <DaisyCard key={t.id} theme={t} selected={selected?.colors.daisyTheme === t.id} onPick={() => pickColours(t.id)} />)}
+        </LibrarySection>
+        <div className="bk-library-actions">
+          <button type="button" className="btn btn-small" onClick={() => setShowImport((v) => !v)}>Import JSON</button>
+          {selected && <button type="button" className="btn btn-small" onClick={() => void duplicate()}>Duplicate {selected.name}</button>}
+        </div>
         {showImport && <ImportBox value={importText} onChange={setImportText} onImport={() => void doImport()} />}
       </div>
-      {selected && (
+      {selected ? (
         <KitEditor
           kit={selected}
           isDefault={doc.activeId === selected.id}
@@ -302,52 +372,21 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
           onDelete={() => void remove()}
           onAddLogo={(role) => void addLogo(role)}
         />
+      ) : (
+        <div className="bk-editor bk-editor-empty">
+          <h3>Brand kit</h3>
+          <p>A brand kit is the identity every graphic, caption and generated image is edited to: logo, colours, type, voice, motion, imagery, layout, audio — and the guideline the AI builds videos from. Pick a style on the left to start one.</p>
+        </div>
       )}
     </div>
   );
 }
 
 const ARCHETYPE_GROUPS: { group: BrandArchetype['group']; label: string; hint: string }[] = [
-  { group: 'house', label: 'House', hint: 'The Helios look' },
-  { group: 'archetype', label: 'Style archetypes', hint: 'Hover to see the motion' },
-  { group: 'reference', label: 'Reference kits', hint: 'Rebuilt from public brand boards' },
+  { group: 'house', label: 'House', hint: 'The Helios look — click to use it' },
+  { group: 'archetype', label: 'Style archetypes', hint: 'Click to start (or open) a kit in that style · hover shows its motion' },
+  { group: 'reference', label: 'Reference kits', hint: 'Rebuilt from public brand boards · click to use' },
 ];
-
-function NewKitRow({ compact, newStyle, setNewStyle, newDaisy, setNewDaisy, onCreate, onImport }: { compact?: boolean; newStyle: string; setNewStyle: (v: string) => void; newDaisy: string; setNewDaisy: (v: string) => void; onCreate: () => void; onImport: () => void }) {
-  const arch = findArchetype(newStyle) ?? ARCHETYPES[0];
-  const daisy = newDaisy ? findDaisyTheme(newDaisy) : null;
-  return (
-    <div className={`bk-new ${compact ? 'compact' : ''}`}>
-      {ARCHETYPE_GROUPS.map(({ group, label, hint }) => (
-        <CardShelf key={group} label={label} hint={hint}>
-          {ARCHETYPES.filter((a) => a.group === group).map((a) => (
-            <ArchetypeCard key={a.id} arch={a} selected={a.id === arch.id} onPick={() => setNewStyle(a.id)} />
-          ))}
-        </CardShelf>
-      ))}
-      <CardShelf label="Colours" hint="Keep the archetype's palette, or take a DaisyUI theme's">
-        <button
-          type="button"
-          className={`bk-card bk-card-none ${newDaisy ? '' : 'active'}`}
-          onClick={() => setNewDaisy('')}
-          aria-pressed={!newDaisy}
-          title={`Keep ${archetypeLabel(arch.name)}'s own colours`}
-          style={{ ...cardMotion(arch.motion), background: arch.colors.bg, color: arch.colors.text }}
-        >
-          <span className="bk-card-swatches tall">{[arch.colors.primary, arch.colors.accent, arch.colors.accent2, arch.colors.surface].map((hex, i) => <i key={i} style={{ background: hex, transitionDelay: `calc(var(--bk-stagger) * ${i})` }} />)}</span>
-          <span className="bk-card-body"><span className="bk-card-title">Archetype colours</span><span className="bk-card-sub" style={{ color: arch.colors.muted }}>{archetypeLabel(arch.name)}</span></span>
-          {!newDaisy && <span className="bk-card-check" style={{ background: arch.colors.primary, color: arch.colors.bg }}>✓</span>}
-        </button>
-        {DAISY_THEMES.map((t) => <DaisyCard key={t.id} theme={t} selected={t.id === newDaisy} onPick={() => setNewDaisy(t.id)} />)}
-      </CardShelf>
-      <div className="bk-new-actions">
-        <span className="bk-new-pick">{archetypeLabel(arch.name)}{daisy ? ` · DaisyUI ${daisy.name}` : ''}</span>
-        <button type="button" className="btn btn-primary btn-small" onClick={onCreate}>New kit</button>
-        <button type="button" className="btn btn-small" onClick={onImport}>Import JSON</button>
-      </div>
-    </div>
-  );
-}
 
 function ImportBox({ value, onChange, onImport }: { value: string; onChange: (v: string) => void; onImport: () => void }) {
   return (
@@ -394,7 +433,7 @@ function KitEditor({ kit, isDefault, isProject, onPatch, onReplace, onDefault, o
         <input type="range" min={0} max={board.seconds} step={0.05} value={time} onChange={(e) => { setPlaying(false); setTime(Number(e.target.value)); }} />
         <span>{time.toFixed(1)}s</span>
       </div>
-      <div className="bk-summary">{brandKitSummary(kit)}</div>
+      <div className="bk-summary bk-summary-clamp" title={brandKitSummary(kit)}>{brandKitSummary(kit)}</div>
       <div className="bk-actions">
         <button type="button" className={`btn btn-small ${isProject ? 'btn-primary' : ''}`} onClick={onProject}>{isProject ? 'Used by this project' : 'Use for this project'}</button>
         <button type="button" className={`btn btn-small ${isDefault ? 'btn-primary' : ''}`} onClick={onDefault}>{isDefault ? 'Default for new projects' : 'Make default'}</button>
@@ -403,6 +442,10 @@ function KitEditor({ kit, isDefault, isProject, onPatch, onReplace, onDefault, o
         <button type="button" className="btn btn-ghost btn-small danger" onClick={onDelete}>Delete</button>
       </div>
       {errors.length > 0 && <div className="bk-errors">{errors.map((e) => <span key={e}>• {e}</span>)}</div>}
+
+      <Section title={SECTION_LABELS.guideline} hint="what the AI builds videos from">
+        <BrandGuidelineView kit={kit} onReset={() => onPatch('guideline', { guideline: null })} />
+      </Section>
 
       <Section title={SECTION_LABELS.identity} hint={kit.style} open>
         <div className="bk-grid">

@@ -186,6 +186,129 @@ export type BrandAsset = {
   notes: string;
 };
 
+// ── the brand guideline: how the kit looks and moves, frame by frame ─────────────────────────
+//
+// Every kit carries a guideline the AI builds videos from. It is derived from the kit's tokens
+// (src/lib/brandKit/guideline.ts) the moment a kit exists, and the AI or the user may refine any
+// part of it (`update_brand_kit {"section":"guideline"}`). Brand motion templates in the motion
+// engine (`brand-*`) are built directly from `moves` and `layouts`, so what the guideline says is
+// what renders.
+
+/** One element's state at one frame. Offsets are design px at 1080p; scale is a factor (1 = rest). */
+export type FrameState = {
+  opacity?: number;
+  x?: number;
+  y?: number;
+  scale?: number;
+  rotate?: number;
+  blur?: number;
+  /** Reveal from the element's leading edge, 0 (hidden) … 1 (whole). */
+  clip?: number;
+  /** Letter spacing delta in 1/100 em. */
+  tracking?: number;
+};
+
+/** A keyframe of a move. `ease` shapes the segment that starts here (a cubic-bezier or a named ease). */
+export type MoveKey = { frame: number; state: FrameState; ease?: string; note?: string };
+
+export type MoveRole = 'headline' | 'subhead' | 'body' | 'kicker' | 'panel' | 'accent-bar' | 'logo' | 'background' | 'number' | 'label' | 'cta' | 'caption' | 'outgoing' | 'incoming' | 'shape';
+
+export type MoveElement = { name: string; role: MoveRole; keys: MoveKey[]; note?: string };
+
+/** A signature animation: every element it moves, keyed frame by frame at `fps`. */
+export type BrandMove = {
+  id: string;
+  name: string;
+  /** When to use it. */
+  use: string;
+  /** How it reads, in words (what happens on which frame). */
+  description: string;
+  fps: number;
+  /** Length in frames. */
+  frames: number;
+  elements: MoveElement[];
+};
+
+export type LayoutZone = {
+  /** headline, subhead, logo, captions, panel, number, cta, presenter, media, lower-third … */
+  role: string;
+  name: string;
+  /** Fractions of the frame: left, top, width, height. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  align: 'left' | 'center' | 'right';
+  /** Which step of the type scale sets text here. */
+  type?: 'display' | 'heading' | 'subhead' | 'body' | 'caption' | 'label';
+  notes?: string;
+};
+
+export type BrandLayoutSpec = { id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; use: string; zones: LayoutZone[] };
+
+export type TypeStep = {
+  role: 'display' | 'heading' | 'subhead' | 'body' | 'caption' | 'label';
+  family: string;
+  weight: number;
+  /** Design px at 1080p (short side). */
+  size: number;
+  lineHeight: number;
+  /** 1/100 em. */
+  tracking: number;
+  transform: BrandTypeface['transform'];
+  color: string;
+  maxWordsPerLine: number;
+};
+
+/** A kind of beat and exactly how the brand builds it. */
+export type SceneRecipe = {
+  id: string;
+  name: string;
+  use: string;
+  /** A `layouts` id per aspect ratio. */
+  layout: string;
+  background: { kind: 'solid' | 'gradient' | 'procedural' | 'footage'; colors: string[]; procedural?: string; note: string };
+  /** `moves` ids, in the order they play. */
+  moves: string[];
+  /** The motion-engine template that realises it (`brand-*`). */
+  template?: string;
+  copy: string;
+  /** Seconds on screen after the last element lands. */
+  hold: number;
+};
+
+export type BrandGuideline = {
+  version: 1;
+  /** derived = computed from the kit's tokens; ai / edited = refined since. */
+  source: 'derived' | 'ai' | 'edited';
+  updatedAt: string;
+  summary: string;
+  color: {
+    /** The proportion rule, e.g. "60 background / 30 surface / 10 accent". */
+    ratio: string;
+    stage: { tone: 'dark' | 'light'; background: string; gradient: string[]; note: string };
+    roles: { role: string; hex: string; use: string }[];
+    rules: string[];
+  };
+  typeScale: TypeStep[];
+  motion: {
+    principles: string[];
+    fps: number;
+    easing: { enter: string; exit: string; move: string };
+    /** Seconds. */
+    timing: { enter: number; exit: number; hold: number; stagger: number; wordStagger: number };
+    /** px at 1080p an element travels when it enters. */
+    distance: number;
+    blur: number;
+    overshoot: number;
+  };
+  moves: BrandMove[];
+  layouts: BrandLayoutSpec[];
+  recipes: SceneRecipe[];
+  dos: string[];
+  donts: string[];
+};
+
 /** A complete brand kit. `Brand`'s fields stay the quick summary the older code reads. */
 export type BrandKit = Brand & {
   id: string;
@@ -210,6 +333,8 @@ export type BrandKit = Brand & {
   social: BrandSocial;
   assets: BrandAsset[];
   notes: string;
+  /** The detailed guideline; derived from the tokens when absent (`guidelineOf`). */
+  guideline?: BrandGuideline | null;
 };
 
 /** What Settings persists. */
@@ -239,5 +364,5 @@ export type BrandArchetype = {
 };
 
 /** The sections a patch may touch, for `update_brand_kit` and the Settings editor. */
-export const BRAND_KIT_SECTIONS = ['identity', 'logos', 'colors', 'typography', 'voice', 'motion', 'imagery', 'layout', 'audio', 'social', 'assets', 'notes'] as const;
+export const BRAND_KIT_SECTIONS = ['identity', 'logos', 'colors', 'typography', 'voice', 'motion', 'imagery', 'layout', 'audio', 'social', 'assets', 'notes', 'guideline'] as const;
 export type BrandKitSection = (typeof BRAND_KIT_SECTIONS)[number];

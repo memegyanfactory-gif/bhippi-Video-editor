@@ -4,10 +4,11 @@ import { videoDir } from '@tauri-apps/api/path';
 import { Film, FolderOpen } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Modal } from '../components/ui';
+import { api } from '../lib/ipc';
 import { safeFileName, timecode } from '../lib/editor';
 import { channelForFormat, describeExport, findFormat, formatForChannel, outputSize, recommendResolution, withExtension, EXPORT_FORMATS, RESOLUTION_PRESETS } from '../lib/exportPresets';
 import { compDuration } from '../lib/timeline';
-import type { Comp, ExportFormat, ExportOptions, ExportPrefs, Project } from '../lib/types';
+import type { Comp, ExportEncoder, ExportFormat, ExportOptions, ExportPrefs, Project, ToolStatus } from '../lib/types';
 
 const RATES = [null, 24, 25, 30, 50, 60];
 
@@ -36,6 +37,12 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport 
   const [fps, setFps] = useState<number | null>(prefs.fps ?? null);
   const [quality, setQuality] = useState<ExportOptions['quality']>((prefs.quality as ExportOptions['quality']) ?? 'standard');
   const [inToOut, setInToOut] = useState(false);
+  const [encoder, setEncoder] = useState<ExportEncoder>(prefs.encoder ?? 'auto');
+  // Read fresh: detection runs in the background at launch and may finish after the app loads.
+  const [tools, setTools] = useState<ToolStatus | null>(null);
+  useEffect(() => { void api.appInfo().then((info) => setTools(info.ffmpeg)).catch(() => undefined); }, []);
+  const gpuLabel = tools?.gpuEncoderLabel ?? null;
+  const h264 = format === 'mp4' || format === 'mov';
   const ranged = comp.inPoint !== null && comp.outPoint !== null && comp.outPoint > comp.inPoint;
   const total = compDuration(comp);
   const length = inToOut && ranged ? (comp.outPoint ?? 0) - (comp.inPoint ?? 0) : total;
@@ -45,7 +52,8 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport 
 
   useEffect(() => {
     if (folder) return;
-    void videoDir().then(setFolder).catch(() => undefined);
+    // The project's Exports folder by default; the system Videos folder if that is unavailable.
+    void api.storageDir('exports').then(setFolder).catch(() => videoDir().then(setFolder)).catch(() => undefined);
   }, [folder]);
 
   const pickFormat = (id: ExportFormat) => {
@@ -71,7 +79,7 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport 
   const submit = () => {
     const file = withExtension(name, def.ext);
     const separator = folder.includes('/') && !folder.includes('\\') ? '/' : '\\';
-    onExport({ output: folder ? `${folder.replace(/[\\/]+$/, '')}${separator}${file}` : file, compId: comp.id, resolution, fps, quality, inToOut: inToOut && ranged, format }, folder);
+    onExport({ output: folder ? `${folder.replace(/[\\/]+$/, '')}${separator}${file}` : file, compId: comp.id, resolution, fps, quality, inToOut: inToOut && ranged, format, encoder }, folder);
   };
 
   const pickFolder = async () => {
@@ -153,6 +161,16 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport 
             ))}
           </div>
         </div>
+        {h264 && (
+          <div className="field">
+            <span>Encoder</span>
+            <div className="segmented wide">
+              <button type="button" className={encoder !== 'cpu' ? 'active' : ''} onClick={() => setEncoder('auto')} disabled={!gpuLabel} title={gpuLabel ? `Hardware H.264 on ${gpuLabel}; falls back to the CPU if the GPU encode fails` : 'No working GPU encoder was found'}>GPU{gpuLabel ? ` · ${gpuLabel}` : ''}</button>
+              <button type="button" className={encoder === 'cpu' || !gpuLabel ? 'active' : ''} onClick={() => setEncoder('cpu')}>CPU · {tools && !tools.x264 ? 'MPEG-4' : 'x264'}</button>
+            </div>
+            <small className="muted">{gpuLabel ? (encoder === 'cpu' ? 'x264 on the processor: slowest, smallest files at the same quality.' : `Encodes on the graphics card (${tools?.gpuEncoder}) — several times faster; retried on the CPU automatically if it fails.`) : tools ? 'No GPU encoder works on this machine; x264 on the processor is used.' : 'Checking for a GPU encoder…'}</small>
+          </div>
+        )}
         <div className="field">
           <span>Range</span>
           <div className="segmented wide">

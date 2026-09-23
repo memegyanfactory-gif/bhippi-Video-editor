@@ -1,0 +1,18 @@
+# Todo: edit the seamless Yousef launch intro from the saved storyboard
+- [x] Check workflow status, read the timeline, clear the per-turn gates (transcript, frame scan, capabilities)
+- [x] Activate brand kit / style profile (Yusuf — Learn AI Live already active)
+- [x] Cuts: trim dead air (pauses >0.4 s) and insert the 3.7 s cold open (rendered presenter_cut.mp4, 72.6 s)
+- [x] Beat 1: cold open card wall + roto + clean plate + subject-reveal
+- [x] Beat 2: channel lower-third + YOUSEF behind subject + punch-ins on the jump cuts
+- [x] Beats 3–4: square-card presenter on crimson wave stage + stat / comparison graphics + b-roll
+- [x] Beat 5: zoom back full frame, rear titles STREAM / LEARN / TOGETHER / DISCOVER
+- [x] Beats 6–8: split panel, node map, live-chat panel
+- [x] Beat 9: all-tiers hex roadmap + banner card
+- [x] Beat 10: git clone terminal animation + teaching card
+- [x] Beat 11: subscribe clicks + end card
+- [x] Music: Voxel / Wallpaper / Movement Proposition with crossfades, level_audio, duck/swell
+- [x] Beats: analyze_music_beats (122 BPM; entrances kept on speech, not snapped)
+- [x] SFX clean-up (thin out repeated hits, riser before the reveal)
+- [x] Captions: skipped on purpose (graphics already print the lines; YouTube CC covers the rest)
+- [x] run_frame_qa until clear (logo bug pulled inside safe area; clear)
+- [x] get_comp + verify_edit_workflow → blocked only on storyboardRefs (needs local image generation, OFF in Settings)

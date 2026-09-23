@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1e26"/>
+      <stop offset="1" stop-color="#0a0a0e"/>
+    </linearGradient>
+    <radialGradient id="bloom" gradientUnits="userSpaceOnUse" cx="540.7" cy="512" r="300">
+      <stop offset="0" stop-color="#ff9a1f" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ff9a1f" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#tile)"/>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bloom)"/>
+  <rect x="66" y="66" width="892" height="892" rx="198" fill="none" stroke="#fff" stroke-opacity="0.1" stroke-width="4"/>
+  <svg x="225.28" y="225.28" width="573.44" height="573.44" viewBox="-12 0 600 600">
+  <title>Helios</title>
+  <!-- The Helios mark: a silver H whose crossbar loops back on itself, lit amber at the bend.
+       Master for every logo in the app and, through scripts/build-icons.py, every app icon. -->
+  <defs>
+    <path id="helios-left" d="M0 32A32 32 0 0 1 32 0H148A32 32 0 0 1 180 32V200A10 10 0 0 0 190 210H294A90 90 0 0 1 294 390H190A10 10 0 0 0 180 400V568A32 32 0 0 1 148 600H32A32 32 0 0 1 0 568V328A6 6 0 0 1 6 322H294A22 22 0 0 0 294 278H6A6 6 0 0 1 0 272Z"/>
+    <linearGradient id="helios-silver" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#fbfbfc"/>
+      <stop offset="0.45" stop-color="#d6d6dc"/>
+      <stop offset="1" stop-color="#85858f"/>
+    </linearGradient>
+    <linearGradient id="helios-amber" gradientUnits="userSpaceOnUse" x1="232" y1="0" x2="304" y2="0">
+      <stop offset="0" stop-color="#ffc23d" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffb52e"/>
+    </linearGradient>
+    <radialGradient id="helios-core" gradientUnits="userSpaceOnUse" cx="318" cy="300" r="84">
+      <stop offset="0" stop-color="#fff8dc"/>
+      <stop offset="0.45" stop-color="#ffdb66"/>
+      <stop offset="1" stop-color="#ffd35a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="helios-glow" gradientUnits="userSpaceOnUse" cx="318" cy="300" r="128">
+      <stop offset="0" stop-color="#ffb52e" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#ffb52e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="318" cy="300" r="128" fill="url(#helios-glow)"/>
+  <use href="#helios-left" fill="url(#helios-silver)"/>
+  <use href="#helios-left" fill="url(#helios-amber)"/>
+  <use href="#helios-left" fill="url(#helios-core)"/>
+  <rect x="396" y="0" width="180" height="600" rx="32" fill="url(#helios-silver)"/>
+</svg>
+</svg>

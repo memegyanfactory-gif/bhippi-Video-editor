@@ -1,12 +1,9 @@
-# Todo: Gather every planned shot and the music for the channel intro
-- [x] Check the phase and local models
-- [x] Scene 1: crimson glow still (image)
-- [x] Scene 2: on-air lamp on green screen (video)
-- [x] Scene 3: dusty tapes (video)
-- [x] Scene 4: crimson light streaks plate (video)
-- [x] Scene 5: code-bracket icon on green screen (image)
-- [x] Scene 7: chat bubbles on green screen (video)
-- [x] Scene 8: crimson network plate (video)
-- [x] Scene 9: typing hands close-up (video)
-- [x] Music: royalty-free lo-fi bed (download)
-- [x] finish_gathering and report
+# Todo: Gather every planned asset for the channel-intro edit
+- [x] Check the workflow phase (gathering, 5 pending)
+- [ ] Create + activate the brand kit "Yusuf — Learn AI Live" (blocked in GATHER by the phase guard; moved to first step of EDIT)
+- [x] Scene 3: download code-editor b-roll (300–306 s, no audio)
+- [x] Scene 11: hackathon community photo (Wikimedia)
+- [x] Scene 12: download live-coding b-roll (400–406 s, no audio)
+- [x] Scene 13: download the GitHub mark image
+- [x] Music: Kevin MacLeod "Wallpaper" bed
+- [ ] finish_gathering and hand over

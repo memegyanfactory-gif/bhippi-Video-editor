@@ -52,8 +52,10 @@ pub struct Roto {
     pub subjects: Vec<SubjectBox>,
 }
 
+/// One run's folder. `root` is the Roto category folder: the project's `Roto/` (see
+/// storage.rs), or `<app data>/roto` for runs made before project folders existed.
 pub fn dir(root: &Path, asset_id: &str) -> PathBuf {
-    root.join("roto").join(asset_id)
+    root.join(asset_id)
 }
 
 pub fn read(root: &Path, asset_id: &str) -> Option<Roto> {

@@ -59,7 +59,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="crash">
         <div className="crash-card">
-          <h1>Helios hit an error</h1>
+          <h1><img src="/helios.svg" alt="" width={22} height={22} /> Helios hit an error</h1>
           <p>Your project is autosaved, so nothing is lost. Try again — the details are saved to crash.log in the Helios data folder.</p>
           <pre>{error.message}{info ? `\n${info}` : ''}</pre>
           <div className="crash-actions">

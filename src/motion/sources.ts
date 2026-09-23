@@ -128,22 +128,27 @@ export class MediaBank {
         const meta = this.matteSequence(layer.source.matte);
         if (meta) {
           const index = this.matteIndex(meta, time);
-          for (const k of [index, index + 1, index + 2]) if (k < meta.frames) this.image(meta.frameUrl(k), this.matteFrames);
+          for (let k = index; k <= index + 5; k++) if (k < meta.frames) this.image(meta.frameUrl(k), this.matteFrames);
           this.trimMattes();
         }
       }
     }
   }
 
-  /** Export: seeks every video to its exact frame and loads every matte frame, then resolves. */
-  async prepareExact(scene: MotionScene, t: number): Promise<void> {
+  /**
+   * Export: seeks every video to its exact frame and loads every matte frame, then resolves.
+   * `presented: false` (the preview cache) trusts `seeked` alone: the decoded frame is already
+   * uploadable then, and waiting for it to reach the compositor costs up to 120 ms a frame on
+   * a video that is not in the page.
+   */
+  async prepareExact(scene: MotionScene, t: number, options: { presented?: boolean } = {}): Promise<void> {
     const waits: Promise<unknown>[] = [];
     for (const { layer, time } of footageAt(scene, t)) {
       const resolved = this.host.resolve(layer.source);
       if (!resolved) continue;
       if (resolved.kind === 'image') { waits.push(this.image(resolved.url).ready); continue; }
       const entry = this.video(resolved.url);
-      waits.push(entry.ready.then(() => seekExact(entry.el, time)));
+      waits.push(entry.ready.then(() => seekExact(entry.el, time, options.presented ?? true)));
       if (layer.source.matte) {
         const path = layer.source.matte;
         waits.push((async () => {
@@ -160,8 +165,41 @@ export class MediaBank {
     await Promise.all(waits);
   }
 
+  /** The videos a scene shows at `t`: each one's speed, and whether a time remap drives it (capture runs). */
+  videosAt(scene: MotionScene, t: number): { el: HTMLVideoElement; speed: number; remapped: boolean }[] {
+    const out: { el: HTMLVideoElement; speed: number; remapped: boolean }[] = [];
+    for (const { layer } of footageAt(scene, t)) {
+      const resolved = this.host.resolve(layer.source);
+      if (!resolved || resolved.kind !== 'video') continue;
+      out.push({ el: this.video(resolved.url).el, speed: layer.source.speed ?? 1, remapped: layer.source.timeRemap !== undefined });
+    }
+    return out;
+  }
+
+  /** Loads every matte frame the scene needs from `from` to `to` scene seconds (at most 90). */
+  async loadMattes(scene: MotionScene, from: number, to: number, fps: number): Promise<void> {
+    const waits: Promise<unknown>[] = [];
+    const seen = new Set<string>();
+    for (let t = from; t <= to + 1e-6 && seen.size < 90; t += 1 / fps) {
+      for (const { layer, time } of footageAt(scene, t)) {
+        const path = layer.source.matte;
+        if (!path) continue;
+        if (!this.mattes.has(path)) this.matteSequence(path);
+        const meta = await this.mattes.get(path)!;
+        this.matteMeta.set(path, meta);
+        if (!meta) continue;
+        const url = meta.frameUrl(this.matteIndex(meta, time));
+        if (seen.has(url)) continue;
+        seen.add(url);
+        waits.push(this.image(url, this.matteFrames).ready);
+      }
+    }
+    await Promise.all(waits);
+    this.trimMattes();
+  }
+
   private trimMattes() {
-    while (this.matteFrames.size > 48) {
+    while (this.matteFrames.size > 128) {
       const first = this.matteFrames.keys().next().value!;
       this.matteFrames.delete(first);
     }
@@ -197,6 +235,33 @@ export class MediaBank {
     return null;
   }
 
+  /**
+   * Gets a scene that is about to appear ready without disturbing one on screen: loads its
+   * stills, opens its videos (parking an idle one on the first frame it will show) and starts
+   * its matte frames. A video that is playing belongs to a scene on screen and is left alone.
+   */
+  warm(scene: MotionScene, t: number) {
+    for (const { layer, time } of footageAt(scene, t)) {
+      const resolved = this.host.resolve(layer.source);
+      if (!resolved) continue;
+      if (resolved.kind === 'image') { this.image(resolved.url); continue; }
+      if (layer.source.matte) {
+        const meta = this.matteSequence(layer.source.matte);
+        if (meta) {
+          const index = this.matteIndex(meta, time);
+          for (let k = index; k <= index + 8 && k < meta.frames; k++) this.image(meta.frameUrl(k), this.matteFrames);
+          this.trimMattes();
+        }
+      }
+      const known = this.videos.get(resolved.url);
+      // Used by a scene on screen in the last second (playing, or parked on its frame): not ours.
+      if (known && (!known.el.paused || known.el.seeking || performance.now() - known.lastUsed < 1000)) continue;
+      const entry = known ?? this.video(resolved.url);
+      entry.lastUsed = 0;
+      if (Math.abs(entry.el.currentTime - time) > 1 / 60) entry.el.currentTime = time;
+    }
+  }
+
   /** Pauses everything (the preview stopped or the layer left the screen). */
   pauseAll() {
     for (const { el } of this.videos.values()) if (!el.paused) el.pause();
@@ -211,7 +276,7 @@ export class MediaBank {
 }
 
 /** Seeks a video to `time` and resolves once that frame is decoded and presentable. */
-export function seekExact(el: HTMLVideoElement, time: number): Promise<void> {
+export function seekExact(el: HTMLVideoElement, time: number, presented = true): Promise<void> {
   if (!el.paused) el.pause();
   const target = Math.max(0, Math.min(Number.isFinite(el.duration) ? el.duration - 1e-3 : time, time));
   if (Math.abs(el.currentTime - target) < 1e-4 && el.readyState >= 2 && !el.seeking) return Promise.resolve();
@@ -223,7 +288,7 @@ export function seekExact(el: HTMLVideoElement, time: number): Promise<void> {
       el.removeEventListener('seeked', onSeeked);
       // Wait for the frame to actually be presented to the compositor when the API exists.
       const rvfc = (el as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback;
-      if (rvfc) {
+      if (rvfc && presented) {
         rvfc.call(el, () => finish());
         setTimeout(finish, 120);
       } else finish();

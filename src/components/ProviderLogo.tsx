@@ -87,14 +87,6 @@ VECTOR_MARKS.gemini = {
     "M12 24A14.3 14.3 0 0 0 0 12 14.3 14.3 0 0 0 12 0a14.3 14.3 0 0 0 12 12 14.3 14.3 0 0 0-12 12",
   ],
 };
-VECTOR_MARKS.helios = {
-  bg: "#FFC53D",
-  fg: "#16110A",
-  paths: [
-    "M12 7.2a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6zM11 1.5h2v3.3h-2zm0 17.7h2v3.3h-2zM1.5 11h3.3v2H1.5zm17.7 0h3.3v2h-3.3zM4.2 5.6l1.4-1.4 2.3 2.3-1.4 1.4zm11.9 11.9 1.4-1.4 2.3 2.3-1.4 1.4zM4.2 18.4l2.3-2.3 1.4 1.4-2.3 2.3zM16.1 6.5l2.3-2.3 1.4 1.4-2.3 2.3z",
-  ],
-};
-
 // Aliases for matching vector marks
 VECTOR_MARKS.agy = VECTOR_MARKS.antigravity;
 VECTOR_MARKS.openai = VECTOR_MARKS.codex;
@@ -151,6 +143,20 @@ export function ProviderLogo({ id, size = 20, transparent = false, className }: 
             fill="url(#agy-arch-grad)"
           />
         </svg>
+      </span>
+    );
+  }
+
+  // Helios itself: the app's own mark (public/helios.svg), silver and amber on a dark tile.
+  if (normalized === "helios") {
+    return (
+      <span
+        className={`provider-logo provider-logo-vector${className ? ` ${className}` : ""}`}
+        style={{ width: size, height: size, background: transparent ? "transparent" : "#16161b" }}
+        aria-hidden="true"
+        title="Helios"
+      >
+        <img src="/helios.svg" alt="" style={{ width: "72%", height: "72%" }} />
       </span>
     );
   }

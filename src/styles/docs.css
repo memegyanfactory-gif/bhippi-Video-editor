@@ -1,0 +1,26 @@
+/* Project documents: the Documents list in the Project panel and the Markdown viewer (DocViewer). */
+.doc-viewer { padding: 16px 22px 20px; min-height: 160px; max-height: min(70vh, 760px); overflow-y: auto; }
+.doc-viewer .markdown { font-size: 13px; line-height: 1.6; color: var(--text); }
+.doc-viewer .markdown h1 { font-size: 19px; margin: 0 0 12px; font-weight: 650; }
+.doc-viewer .markdown h2 { font-size: 15px; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.doc-viewer .markdown h3 { font-size: 13.5px; margin: 14px 0 6px; font-weight: 600; }
+.doc-viewer .markdown ul, .doc-viewer .markdown ol { padding-left: 20px; }
+.doc-viewer .markdown li { margin: 2px 0; }
+.doc-viewer .markdown em { color: var(--text-dim); }
+.doc-viewer .markdown a { color: var(--blue-hi, var(--blue)); text-decoration: none; cursor: default; }
+.doc-viewer .markdown blockquote { margin: 8px 0; padding: 2px 12px; border-left: 3px solid var(--line-strong); color: var(--text-dim); }
+.doc-viewer .markdown table { border-collapse: collapse; margin: 8px 0; }
+.doc-viewer .markdown th, .doc-viewer .markdown td { border: 1px solid var(--line-strong); padding: 4px 8px; text-align: left; }
+.doc-viewer .markdown hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+.doc-viewer-empty { color: var(--text-faint); font-size: 12.5px; margin: 24px 0; text-align: center; }
+.doc-viewer-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 11px; }
+.doc-viewer-delete:hover:not(:disabled) { border-color: #a33; color: #ff8a8a; }
+
+.bin-docs-group { margin: 4px 0 2px 6px; color: var(--text-faint); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; display: flex; align-items: center; gap: 4px; border: 0; background: transparent; padding: 2px 0; cursor: pointer; }
+.bin-doc { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 4px; font-size: 11.5px; cursor: pointer; }
+.bin-doc:hover { background: var(--panel-3); }
+.bin-doc.picked { background: var(--blue-soft, rgba(45, 140, 235, 0.18)); }
+.bin-doc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bin-doc-icon { flex: none; color: var(--text-dim); }
+.bin-doc .icon-btn { opacity: 0; }
+.bin-doc:hover .icon-btn, .bin-doc.picked .icon-btn { opacity: 1; }

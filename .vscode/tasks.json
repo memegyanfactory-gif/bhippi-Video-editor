@@ -106,6 +106,36 @@
       "detail": "Vitest for the UI, cargo test for the workspace."
     },
     {
+      "label": "helios: dump hang stacks",
+      "type": "shell",
+      "command": "npm run debug:hang",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      },
+      "detail": "Frozen window? Prints the UI thread's stack without stopping the app (full dump in target/hang-reports)."
+    },
+    {
+      "label": "helios: show logs",
+      "type": "shell",
+      "command": "npm run debug:log",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      },
+      "detail": "Tail helios.log, hang.log and crash.log from %APPDATA%/studio.helios.desktop."
+    },
+    {
       "label": "helios: installer",
       "type": "shell",
       "command": "npm run bundle",

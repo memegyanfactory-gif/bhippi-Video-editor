@@ -29,6 +29,11 @@ export const canPreview = (asset: Asset | undefined) =>
 
 /** Clips this far ahead get their media element early so cuts land on the right frame. */
 const PRELOAD = 1.5;
+/**
+ * HTML graphics mount (hidden) this far ahead: parsing the markup, running its script and loading
+ * its fonts and images took long enough that a graphic mounted at its cut showed up a beat late.
+ */
+const HTML_PRELOAD = 2;
 /** Picture within this of the playhead (about one frame) is left alone. */
 const VIDEO_IN_SYNC = 0.03;
 /** The most a drifting picture runs fast or slow to catch up: 12%, invisible at normal speed. */
@@ -456,7 +461,7 @@ function Layer(props: LayerProps) {
       if (!visible) return null;
       return (
         <div className="layer" data-clip-id={depth === 0 ? clip.id : undefined} style={{ inset: 0, opacity, zIndex, ...transition.style, ...hidden }}>
-          <div className="rb-bg-layer" style={rbBackgroundStyle(bg)} />
+          <div className="rb-bg-layer" style={rbBackgroundStyle(bg, time - clip.start)} />
           {transition.dip && <div className="layer-dip" style={{ background: transition.dip.color, opacity: transition.dip.opacity }} />}
         </div>
       );
@@ -500,7 +505,7 @@ function Layer(props: LayerProps) {
       return (
         <div className="layer motion-layer" data-clip-id={depth === 0 ? clip.id : undefined}
           style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden }}>
-          {visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={clip.source.scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} /></ErrorBoundary>}
+          {visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={clip.source.scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} fps={comp.fps} /></ErrorBoundary>}
         </div>
       );
     }
@@ -569,7 +574,9 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
     for (let clipIdx = 0; clipIdx < trackClips.length; clipIdx++) {
       const clip = trackClips[clipIdx];
       const active = activeAt(comp, clip, time);
-      const upcoming = !active && props.playing && clip.source.type === 'media' && upcomingAt(comp, clip, time);
+      const upcoming = !active && props.playing && (clip.source.type === 'media'
+        ? upcomingAt(comp, clip, time)
+        : clip.source.type === 'html' && appearsAt(comp, clip) > time && appearsAt(comp, clip) - time < HTML_PRELOAD);
       if (!active && !upcoming) continue;
 
       const clipState = states.get(clip.id);
@@ -585,8 +592,22 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
         const adjTransform = adjApplied.transforms.length ? adjApplied.transforms.join(' ') : undefined;
         const adjOpacity = (clip.transform.opacity ?? 100) / 100;
 
-        // Wrap the accumulated layers below this adjustment layer with its filters and distortion
-        if (accumulated.length > 0 && (adjFilter || adjTransform || adjOpacity < 1)) {
+        // An adjustment at partial opacity or behind a mask applies its look to part of the
+        // picture, the way the export does: the filtered picture over the unfiltered one. A
+        // backdrop filter is exactly that (opacity and mask blend it with what is below).
+        // Wrapping the stack instead faded the whole picture below out to black and ignored
+        // the mask. SVG filters (url(...)) cannot run as a backdrop filter; those keep the wrap.
+        const partial = adjOpacity < 1 || !!clip.mask;
+        if (accumulated.length > 0 && partial && adjFilter && !adjTransform && !adjFilter.includes('url(')) {
+          accumulated.push(
+            <div
+              key={`adj-backdrop-${clip.id}`}
+              className="adjustment-backdrop"
+              style={{ position: 'absolute', inset: 0, backdropFilter: adjFilter, opacity: adjOpacity, zIndex: clipZIndex, pointerEvents: 'none', ...maskStyle(clip.mask, props.stageW, props.stageH, props.stageH) }}
+            />,
+          );
+        } else if (accumulated.length > 0 && (adjFilter || adjTransform || adjOpacity < 1)) {
+          // Wrap the accumulated layers below this adjustment layer with its filters and distortion
           const below = accumulated;
           accumulated = [
             <div

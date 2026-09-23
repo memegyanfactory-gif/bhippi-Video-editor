@@ -15,6 +15,7 @@ mod chat;
 mod files;
 mod jobs;
 mod library;
+mod license;
 mod mcp;
 mod mcp_client;
 mod models;
@@ -22,6 +23,7 @@ mod offline;
 mod person;
 mod point_track;
 mod project;mod ref_guides;
+mod provider_cache;
 mod refs;
 mod render;
 mod roto;
@@ -33,10 +35,17 @@ mod subtitles;
 mod tools;
 mod transcribe;
 mod typesafe;
+mod updater;
 mod web_media;
 mod system_tools;
 mod subagent;
 mod safe_asset;
+mod storyboard;
+mod storage;
+mod watchdog;
+mod bundle;
+#[cfg(windows)]
+mod window_icon;
 
 use crate::ai_tools::{EventExecutor, PendingCalls, ToolCallEvent, TOOL_CALL_EVENT};
 use crate::chat::{ChatEvent, ChatRequest, McpLink, TurnContext, CHAT_EVENT};
@@ -78,6 +87,8 @@ pub struct AppState {
     jobs: Jobs,
     fontconfig: Option<PathBuf>,
     subagents: Arc<subagent::Supervisor>,
+    /// Where project files go (storage.rs): the default root and the open project's name.
+    storage: storage::Storage,
 }
 
 type CommandResult<T> = Result<T, String>;
@@ -104,6 +115,16 @@ impl AppState {
 
     fn settings(&self) -> Settings {
         self.settings.lock().map(|settings| settings.clone()).unwrap_or_default()
+    }
+
+    /// The Roto folder a run lives in: the open project's, or wherever an older run already is.
+    fn roto_root(&self, run_id: &str) -> PathBuf {
+        storage::locate(self, storage::Category::Roto, &self.paths.root.join("roto"), run_id)
+    }
+
+    /// The same for an asset's tracking passes.
+    fn tracking_root(&self, asset_id: &str) -> PathBuf {
+        storage::locate(self, storage::Category::Tracking, &self.paths.root.join("tracking"), asset_id)
     }
 }
 
@@ -240,11 +261,23 @@ async fn library_import(app: AppHandle, state: State<'_, Arc<AppState>>, paths: 
     let mut imported = Vec::new();
     let mut existing = Vec::new();
     let mut failed = Vec::new();
+    // Settings › Storage › "Copy imported media into the project folder" (off by default).
+    let footage = if state.settings().copy_imports == Some(true) { storage::dir(&state, storage::Category::Footage).ok() } else { None };
+    let storage_root = storage::root(&state);
     for path in paths.into_iter().take(200) {
-        let candidate = PathBuf::from(&path);
+        let mut candidate = PathBuf::from(&path);
         if candidate.is_dir() {
             failed.push(ImportFailure { path, reason: "folders cannot be imported — select the files inside".to_owned() });
             continue;
+        }
+        if let Some(footage) = &footage {
+            match storage::copy_into_footage(&candidate, footage, &storage_root).await {
+                Ok(copied) => candidate = copied,
+                Err(reason) => {
+                    failed.push(ImportFailure { path, reason });
+                    continue;
+                }
+            }
         }
         match library::import(&tools, &candidate).await {
             Ok(asset) => match known.get(&asset.path.to_lowercase()) {
@@ -302,7 +335,22 @@ async fn library_adopt(app: AppHandle, state: State<'_, Arc<AppState>>, assets: 
                 .or_else(|| items.iter().find(|asset| asset.path.eq_ignore_ascii_case(&incoming.path)))
                 .cloned()
         };
-        if let Some(asset) = known {
+        if let Some(mut asset) = known {
+            // The file carries where its media is now (a saved project folder, perhaps moved):
+            // read it from there when it is there, keeping the library's id and derived files.
+            let carried = PathBuf::from(&incoming.path);
+            if asset.id == incoming.id && !asset.path.eq_ignore_ascii_case(&incoming.path) && carried.is_file() {
+                let mut items = state.library.lock().map_err(lock_error)?;
+                if let Some(slot) = items.iter_mut().find(|item| item.id == asset.id) {
+                    slot.path = incoming.path.clone();
+                    slot.missing = false;
+                    asset = slot.clone();
+                }
+                state.save_library(&items)?;
+                drop(items);
+                allow_asset(&app, &asset);
+                let _ignored = app.emit(LIBRARY_EVENT, ());
+            }
             mapping.insert(incoming.id, asset);
             continue;
         }
@@ -456,17 +504,24 @@ async fn pick_save_path(
     default_name: String,
     filter_name: String,
     extensions: Vec<String>,
+    directory: Option<String>,
 ) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
     let window = app.get_webview_window("main")?;
     tauri::async_runtime::spawn_blocking(move || {
         let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
-        app.dialog()
+        let mut dialog = app
+            .dialog()
             .file()
             .set_parent(&window)
             .set_title(&title)
             .set_file_name(&default_name)
-            .add_filter(&filter_name, &extensions)
+            .add_filter(&filter_name, &extensions);
+        // Start in the project's folder (created on demand) when the UI names one.
+        if let Some(start) = directory.filter(|dir| std::fs::create_dir_all(dir).is_ok()) {
+            dialog = dialog.set_directory(start);
+        }
+        dialog
             .blocking_save_file()
             .and_then(|path| path.into_path().ok())
             .map(|path| path.display().to_string())
@@ -641,6 +696,11 @@ async fn web_scrape(url: String, max_chars: Option<usize>) -> CommandResult<web_
 }
 
 #[tauri::command]
+async fn web_page_source(url: String) -> CommandResult<web_media::PageSource> {
+    web_media::page_source(&url).await
+}
+
+#[tauri::command]
 async fn media_download(
     state: State<'_, Arc<AppState>>,
     url: String,
@@ -652,7 +712,7 @@ async fn media_download(
     no_audio: Option<bool>,
     crop: Option<String>,
 ) -> CommandResult<web_media::DownloadResult> {
-    let downloads_dir = state.paths.root.join("downloads");
+    let downloads_dir = storage::dir(&state, storage::Category::Downloads)?;
     let ffmpeg_path = state.tools().ffmpeg().ok().map(|p| p.to_path_buf());
     web_media::download_media(
         &downloads_dir,
@@ -670,62 +730,93 @@ async fn media_download(
 }
 
 // ───────────────────────────── system & developer tools ─────────────────────────────
+//
+// These are async and run on the blocking pool: a sync Tauri command runs on the UI thread,
+// and one glob over a home folder froze the whole window ("Not Responding").
+
+/// Runs file-system work off the UI thread.
+async fn off_ui_thread<T: Send + 'static>(work: impl FnOnce() -> CommandResult<T> + Send + 'static) -> CommandResult<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("the file tool stopped unexpectedly: {error}"))?
+}
 
 #[tauri::command]
-fn fs_read_file(
+async fn fs_read_file(
+    state: State<'_, Arc<AppState>>,
     path: String,
     start_line: Option<usize>,
     end_line: Option<usize>,
 ) -> CommandResult<system_tools::ReadFileResult> {
-    system_tools::read_file(&path, start_line, end_line)
+    // `todos/…` notes live in the open project's Guidelines folder (bundle.rs).
+    let path = bundle::agent_path_existing(&state, &path);
+    off_ui_thread(move || system_tools::read_file(&path, start_line, end_line)).await
 }
 
 #[tauri::command]
-fn fs_write_file(
+async fn fs_write_file(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
     path: String,
     content: String,
     overwrite: Option<bool>,
 ) -> CommandResult<system_tools::WriteFileResult> {
-    system_tools::write_file(&path, &content, overwrite)
+    let path = bundle::agent_path(&state, &path);
+    let written = path.clone();
+    let result = off_ui_thread(move || system_tools::write_file(&path, &content, overwrite)).await;
+    if result.is_ok() {
+        bundle::notify_if_doc(&app, &written);
+    }
+    result
 }
 
 #[tauri::command]
-fn fs_edit_file(
+async fn fs_edit_file(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
     path: String,
     old_string: String,
     new_string: String,
     allow_multiple: Option<bool>,
 ) -> CommandResult<system_tools::EditFileResult> {
-    system_tools::edit_file(&path, &old_string, &new_string, allow_multiple)
+    let path = bundle::agent_path_existing(&state, &path);
+    let edited = path.clone();
+    let result = off_ui_thread(move || system_tools::edit_file(&path, &old_string, &new_string, allow_multiple)).await;
+    if result.is_ok() {
+        bundle::notify_if_doc(&app, &edited);
+    }
+    result
 }
 
 #[tauri::command]
-fn fs_list_directory(
+async fn fs_list_directory(
+    state: State<'_, Arc<AppState>>,
     path: String,
     recursive: Option<bool>,
     max_depth: Option<usize>,
     limit: Option<usize>,
 ) -> CommandResult<system_tools::ListDirectoryResult> {
-    system_tools::list_directory(&path, recursive, max_depth, limit)
+    let path = bundle::agent_path_existing(&state, &path);
+    off_ui_thread(move || system_tools::list_directory(&path, recursive, max_depth, limit)).await
 }
 
 #[tauri::command]
-fn fs_glob_search(
+async fn fs_glob_search(
     path: String,
     pattern: String,
     limit: Option<usize>,
 ) -> CommandResult<system_tools::GlobSearchResult> {
-    system_tools::glob_search(&path, &pattern, limit)
+    off_ui_thread(move || system_tools::glob_search(&path, &pattern, limit)).await
 }
 
 #[tauri::command]
-fn fs_grep_search(
+async fn fs_grep_search(
     path: String,
     query: String,
     file_pattern: Option<String>,
     max_matches: Option<usize>,
 ) -> CommandResult<system_tools::GrepSearchResult> {
-    system_tools::grep_search(&path, &query, file_pattern.as_deref(), max_matches)
+    off_ui_thread(move || system_tools::grep_search(&path, &query, file_pattern.as_deref(), max_matches)).await
 }
 
 #[tauri::command]
@@ -994,19 +1085,24 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
     let lease = local_media::acquire()?;
     let job = state.jobs.start("generation", format!("Generating {task}"), true);
     let id = job.id().to_owned();
-    let folder = state.paths.root.join("generated").join(&id);
+    // What the model makes goes to the project's Generated folder under a readable name; the
+    // worker script and its request are scratch.
+    let kind_folder = if task.starts_with("image") { "Images" } else if task == "video" { "Video" } else { "Audio" };
+    let folder = storage::dir(&state, storage::Category::Generated)?.join(kind_folder).join(&id);
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
-    let worker = folder.join("worker.py");
+    let scratch = state.paths.work.join(&id);
+    std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
+    let worker = scratch.join("worker.py");
     let worker_source = if is_ltx23 {
         include_str!("../workers/ltx23_worker.py")
     } else {
         include_str!("../workers/local_media.py")
     };
     std::fs::write(&worker, worker_source).map_err(|e| e.to_string())?;
-    let output = folder.join(format!("generated.{extension}"));
+    let output = folder.join(format!("{}.{extension}", storage::readable_name(prompt, 60, "generated")));
     request["checkpoint"] = serde_json::json!(checkpoint);
     request["output"] = serde_json::json!(output);
-    let input = folder.join("request.json");
+    let input = scratch.join("request.json");
     store::write_json(&input, &request)?;
     let receipt_folder = state.paths.models.join("verification");
     tauri::async_runtime::spawn(async move {
@@ -1077,7 +1173,8 @@ fn depth_start(state: State<'_, Arc<AppState>>, id: String, from: f64, fps: f64,
     let prefs = state.settings();
     let python = PathBuf::from(prefs.local_media_python.ok_or("Configure the local GPU runtime first")?);
     let checkpoint = media_checkpoint(&state.settings(), &state.paths, "depth").ok_or("Install Depth Anything 3 in Local Media settings")?;
-    let folder = roto::dir(&state.paths.root, &id);
+    let root = state.roto_root(&id);
+    let folder = roto::dir(&root, &id);
     if folder.join("depth-request.json").exists() || folder.join("matte.mkv").exists() { return Err("Use a fresh frame extraction for each depth run; existing masks are immutable".into()); }
     if !folder.join("frames").is_dir() { return Err("Extract source frames first".into()); }
     let lease = local_media::acquire()?;
@@ -1088,7 +1185,6 @@ fn depth_start(state: State<'_, Arc<AppState>>, id: String, from: f64, fps: f64,
     std::fs::write(folder.join("depth_media.py"), include_str!("../workers/depth_media.py")).map_err(|e| e.to_string())?;
     let input = folder.join("depth-request.json");
     store::write_json(&input, &serde_json::json!({ "action": "depth-occlusion", "folder": folder, "checkpoint": checkpoint, "from": from, "fps": fps, "threshold": threshold, "softness": softness }))?;
-    let root = state.paths.root.clone();
     let receipts = state.paths.models.join("verification");
     let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
     tauri::async_runtime::spawn(async move {
@@ -1120,7 +1216,8 @@ fn roto_track_start(state: State<'_, Arc<AppState>>, id: String, from: f64, fps:
     let python = PathBuf::from(prefs.local_media_python.clone().ok_or("Configure the local GPU runtime first")?);
     let sam = media_checkpoint(&prefs, &state.paths, "sam2").ok_or("Install SAM 2.1 in Local Media settings")?;
     let vit = media_checkpoint(&prefs, &state.paths, "vitmatte").ok_or("Install ViTMatte in Local Media settings")?;
-    let folder = roto::dir(&state.paths.root, &id);
+    let root = state.roto_root(&id);
+    let folder = roto::dir(&root, &id);
     if !folder.join("frames").is_dir() { return Err("Extract source frames first".into()); }
     let lease = local_media::acquire()?;
     let job = state.jobs.start("model", "Tracked Roto · SAM 2.1 + ViTMatte", true);
@@ -1130,7 +1227,6 @@ fn roto_track_start(state: State<'_, Arc<AppState>>, id: String, from: f64, fps:
     std::fs::write(folder.join("tracked_roto.py"), include_str!("../workers/tracked_roto.py")).map_err(|e| e.to_string())?;
     let input = folder.join("request.json");
     store::write_json(&input, &serde_json::json!({ "action": "tracked-roto", "folder": folder, "sam2": sam, "vitmatte": vit, "from": from, "fps": fps, "points": points }))?;
-    let root = state.paths.root.clone();
     let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
     tauri::async_runtime::spawn(async move {
         let _lease = lease;
@@ -1168,13 +1264,13 @@ async fn person_track_start(state: State<'_, Arc<AppState>>, id: String, from: f
     if media_checkpoint(&prefs, &state.paths, "person-track").is_none() { return Err("Install the person tracker in Local Media settings first".into()); }
     let asset = state.assets_by_id().get(&id).cloned().ok_or("Media not found")?;
     if asset.kind != library::AssetKind::Video { return Err("Person tracking needs video".into()); }
-    let folder = person::dir(&state.paths.root, &id);
+    let root = state.tracking_root(&id);
+    let folder = person::dir(&root, &id);
     let lease = local_media::acquire()?;
     let job = state.jobs.start("model", "Person tracking · RF-DETR Nano + ByteTrack", true);
     let job_id = job.id().to_owned();
     let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
     let source = asset.path.clone();
-    let root = state.paths.root.clone();
     tauri::async_runtime::spawn(async move {
         let _lease = lease;
         let result = async {
@@ -1217,7 +1313,7 @@ async fn point_track_start(state: State<'_, Arc<AppState>>, id: String, from: f6
     if !python.is_file() { return Err("The configured Python executable is missing".into()); }
     let asset = state.assets_by_id().get(&id).cloned().ok_or("Media not found")?;
     if asset.kind != library::AssetKind::Video { return Err("Tracking needs video".into()); }
-    let folder = point_track::dir(&state.paths.root, &id);
+    let folder = point_track::dir(&state.tracking_root(&id), &id);
     let job = state.jobs.start("model", "Motion tracking · Lucas–Kanade", true);
     let job_id = job.id().to_owned();
     let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
@@ -1260,8 +1356,9 @@ fn matte_model(app: AppHandle, state: State<'_, Arc<AppState>>) -> Option<serde_
 #[tauri::command]
 fn roto_read(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> Option<roto::Roto> {
     if !roto::valid_run_id(&id) { return None; }
-    app.asset_protocol_scope().allow_directory(roto::dir(&state.paths.root, &id).join("preview"), false).ok()?;
-    roto::read(&state.paths.root, &id)
+    let root = state.roto_root(&id);
+    app.asset_protocol_scope().allow_directory(roto::dir(&root, &id).join("preview"), false).ok()?;
+    roto::read(&root, &id)
 }
 
 /// Pulls the frames a matting pass will look at, and says where they are.
@@ -1285,7 +1382,7 @@ async fn roto_frames(
     let tools = state.tools();
     let ffmpeg = tools.ffmpeg()?;
     let run_id = format!("run-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos());
-    let (folder, count) = roto::extract_frames(ffmpeg, &asset.path, &state.paths.root, &run_id, from, seconds, Some(effective_fps)).await?;
+    let (folder, count) = roto::extract_frames(ffmpeg, &asset.path, &state.roto_root(&run_id), &run_id, from, seconds, Some(effective_fps)).await?;
     app.asset_protocol_scope().allow_directory(&folder, false).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "folder": folder.display().to_string(), "frames": count, "runId": run_id, "fps": effective_fps }))
 }
@@ -1305,7 +1402,7 @@ fn roto_matte_frame(
     if !roto::valid_run_id(&id) || width == 0 || height == 0 || width > 4096 || height > 4096 || alpha.len() != width * height {
         return Err("that alpha plane is smaller than the frame it claims to be".to_owned());
     }
-    let folder = roto::dir(&state.paths.root, &id).join("mattes");
+    let folder = roto::dir(&state.roto_root(&id), &id).join("mattes");
     std::fs::create_dir_all(&folder).map_err(|error| format!("cannot make the matte folder: {error}"))?;
     // A greyscale PGM: a nine-byte header and the plane itself. FFmpeg reads it directly, and the
     // renderer already speaks this format for its masks, so no image library is needed.
@@ -1332,13 +1429,14 @@ async fn roto_finish(
     if !roto::valid_run_id(&id) || !fps.is_finite() || !(1.0..=120.0).contains(&fps) || subjects.is_empty() {
         return Err("invalid Roto run or empty matte".into());
     }
-    let path = roto::pack_matte(ffmpeg, &state.paths.root, &id, fps).await?;
+    let root = state.roto_root(&id);
+    let path = roto::pack_matte(ffmpeg, &root, &id, fps).await?;
     app.asset_protocol_scope().allow_file(&path).map_err(|e| e.to_string())?;
-    let preview_dir = roto::dir(&state.paths.root, &id).join("preview");
+    let preview_dir = roto::dir(&root, &id).join("preview");
     let _ = app.asset_protocol_scope().allow_directory(&preview_dir, false);
     let matte = Some(path);
     let result = roto::Roto { asset_id: id.clone(), model, fps, frames: subjects.len(), matte, subjects };
-    let folder = roto::dir(&state.paths.root, &id);
+    let folder = roto::dir(&root, &id);
     std::fs::create_dir_all(&folder).map_err(|error| format!("cannot make the roto folder: {error}"))?;
     let text = serde_json::to_string(&result).map_err(|error| format!("cannot write the roto: {error}"))?;
     std::fs::write(folder.join("roto.json"), text).map_err(|error| format!("cannot write the roto: {error}"))?;
@@ -1378,7 +1476,7 @@ fn erase_start(
     let mode = mode.unwrap_or_else(|| "clean-plate".to_owned());
     if !["clean-plate", "per-frame"].contains(&mode.as_str()) { return Err("mode must be clean-plate or per-frame".into()); }
     let refine = refine.unwrap_or(false);
-    let roto = roto::read(&state.paths.root, &run_id).ok_or("That Roto run does not exist")?;
+    let roto = roto::read(&state.roto_root(&run_id), &run_id).ok_or("That Roto run does not exist")?;
     if roto.asset_id != asset_id { return Err("That Roto run belongs to a different piece of media".into()); }
     let matte = roto.matte.clone().filter(|path| Path::new(path).is_file()).ok_or("That Roto run has no matte yet; finish Roto first")?;
     let asset = state.assets_by_id().remove(&asset_id).ok_or("Media not found")?;
@@ -1404,7 +1502,10 @@ fn erase_start(
     let job = state.jobs.start("generation", format!("Erasing subject · {}", asset.name), true);
     let id = job.id().to_owned();
     let work = state.paths.work.join(&id);
-    let folder = state.paths.root.join("generated").join(&id);
+    // The erased clip and its clean plate go to the project's Clean plates folder, named after
+    // the clip; the job id stays in the name so deleting the job can find it.
+    let stem = asset.name.rsplit_once('.').map_or(asset.name.as_str(), |(stem, _)| stem);
+    let folder = storage::dir(&state, storage::Category::CleanPlates)?.join(format!("{} {id}", storage::readable_name(stem, 50, "clip")));
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let _ignored = app.asset_protocol_scope().allow_directory(&folder, false);
@@ -1718,7 +1819,7 @@ async fn speech_generate(
 ) -> CommandResult<Asset> {
     let prefs = state.settings().speech;
     let tools = state.tools();
-    let dir = state.paths.root.join("voice-overs");
+    let dir = storage::dir(&state, storage::Category::VoiceOvers)?;
     std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
     let stamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S");
     let wanted = name.unwrap_or_else(|| text.chars().take(40).collect());
@@ -1788,13 +1889,22 @@ fn project_load(state: State<'_, Arc<AppState>>) -> serde_json::Value {
 fn project_save(state: State<'_, Arc<AppState>>, mut project: Project) -> CommandResult<()> {
     project.sanitize();
     project.validate_shape()?;
-    store::write_json(&state.paths.project_file(), &project)
+    storage::set_current_project(&state, &project.name);
+    store::write_json(&state.paths.project_file(), &project)?;
+    storage::autosave_backup(&state, &project);
+    Ok(())
 }
 
-/// Opens a `.helios` file. The UI migrates and sanitises what comes back.
+/// Opens a `.helios` file, its relative paths made absolute against where it now is (so a
+/// moved project folder reads its media from itself). The UI migrates and sanitises the rest.
 #[tauri::command]
-fn project_file_read(path: String) -> CommandResult<Document> {
-    files::read_document(Path::new(&path))
+fn project_file_read(app: AppHandle, path: String) -> CommandResult<Document> {
+    let file = Path::new(&path);
+    let document = bundle::read(file)?;
+    if let Some(folder) = storage::saved_folder(file).filter(|folder| folder.is_dir()) {
+        let _ignored = app.asset_protocol_scope().allow_directory(folder, true);
+    }
+    Ok(document)
 }
 
 #[tauri::command]
@@ -1854,7 +1964,7 @@ async fn audio_loudness(state: State<'_, Arc<AppState>>, asset_id: String, start
 #[tauri::command]
 async fn save_recording(app: AppHandle, state: State<'_, Arc<AppState>>, bytes: Vec<u8>, extension: String) -> CommandResult<Asset> {
     let tools = state.tools();
-    let dir = state.paths.root.join("recordings");
+    let dir = storage::dir(&state, storage::Category::Recordings)?;
     let path = files::save_recording(&tools, &dir, &bytes, &extension).await?;
     let asset = library::import(&tools, &path).await?;
     {
@@ -1894,7 +2004,7 @@ async fn mogrt_frames_begin(state: State<'_, Arc<AppState>>, clip_id: String) ->
 
 /// One rendered frame, sent as the raw request body (a PNG) with the folder and frame index in
 /// the headers, so a 1080p sequence does not travel through JSON number arrays.
-#[tauri::command]
+#[tauri::command(async)]
 fn mogrt_frame_write(state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> CommandResult<()> {
     let header = |name: &str| request.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned).ok_or_else(|| format!("missing {name} header"));
     let dir = PathBuf::from(header("x-mogrt-dir")?);
@@ -1980,7 +2090,18 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
     }
     let sfx_dir = state.paths.sfx.clone();
     let kind = if options.format == "mp3" { render::Output::Audio } else { render::Output::Video };
-    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, kind, 0.0)?;
+    let assets = state.assets_by_id();
+    // The GPU encoder when one works here and neither the dialog nor Settings refuses it.
+    let preference = options.encoder.clone().or_else(|| state.settings().export.encoder);
+    let encoder = render::VideoEncoder::choose(preference.as_deref(), tools.status.x264, tools.status.gpu_encoder.as_deref());
+    let plan = render::plan_with_encoder(&project, &assets, &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), encoder, kind, 0.0)?;
+    // The same render on the CPU, kept ready in case the hardware encoder fails mid-way (a driver
+    // reset, a session limit, a frame size the card refuses).
+    let fallback = if encoder.is_gpu() && matches!(options.format.as_str(), "mp4" | "mov") {
+        Some(render::plan_with_encoder(&project, &assets, &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), render::VideoEncoder::cpu(tools.status.x264), kind, 0.0)?)
+    } else {
+        None
+    };
     let comp_name = project.comp(&options.comp_id).map_or_else(|| "video".to_owned(), |comp| comp.name.clone());
     let file_name = output.file_name().map_or_else(|| "video".into(), |name| name.to_string_lossy().into_owned());
     let job = state.jobs.start("export", format!("Exporting {comp_name} · {file_name} ({})", options.format), true);
@@ -2008,12 +2129,26 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
             job.progress(0.0, "Queued — waiting for a render slot");
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-        job.progress(0.0, format!("Rendering {}×{}", plan.width, plan.height));
+        let on = if encoder.is_gpu() { " on the GPU" } else { "" };
+        job.progress(0.0, format!("Rendering {}×{}{on}", plan.width, plan.height));
         let cancel = job.cancel.clone();
-        let result = tools::run_ffmpeg_with_progress(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |fraction| {
-            job.progress(fraction * 0.99, format!("Rendering {}%", (fraction * 100.0).round()));
+        let mut result = tools::run_ffmpeg_with_progress(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |fraction| {
+            job.progress(fraction * 0.99, format!("Rendering{on} {}%", (fraction * 100.0).round()));
         })
         .await;
+        if let (Err(reason), Some(fallback)) = (&result, &fallback) {
+            if !*job.cancel.borrow() {
+                eprintln!("helios: GPU export failed, retrying with the CPU encoder: {reason}");
+                let written = fallback.files.iter().try_for_each(|(name, contents)| std::fs::write(work.join(name), contents));
+                if written.is_ok() {
+                    job.progress(0.0, "GPU encoder failed — rendering again on the CPU");
+                    result = tools::run_ffmpeg_with_progress(&ffmpeg, &fallback.args, Some(&work), &env, fallback.duration, job.cancel.clone(), |fraction| {
+                        job.progress(fraction * 0.99, format!("Rendering on the CPU {}%", (fraction * 100.0).round()));
+                    })
+                    .await;
+                }
+            }
+        }
         let _ignored = std::fs::remove_dir_all(&work);
         match result {
             Ok(()) => {
@@ -2039,8 +2174,12 @@ async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id
     if !output.to_ascii_lowercase().ends_with(".png") {
         return Err("frames are saved as .png".to_owned());
     }
+    // Storyboard frames go to the project's Storyboard folder, which may not exist yet.
+    if let Some(parent) = Path::new(&output).parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    }
     // `short_side` renders a smaller still (storyboard cards need 540p, not the full frame).
-    let options = ExportOptions { output: output.clone(), comp_id, resolution: short_side.map(|side| side.clamp(144, 4320)), fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned() };
+    let options = ExportOptions { output: output.clone(), comp_id, resolution: short_side.map(|side| side.clamp(144, 4320)), fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None };
     let sfx_dir = state.paths.sfx.clone();
     let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, time)?;
     let work = state.paths.work.join(format!("frame-{}", store::new_id()));
@@ -2086,7 +2225,7 @@ async fn comp_poster(state: State<'_, Arc<AppState>>, project: Project, comp_id:
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let options = ExportOptions { output: output.display().to_string(), comp_id, resolution: Some(360), fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned() };
+    let options = ExportOptions { output: output.display().to_string(), comp_id, resolution: Some(360), fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None };
     let sfx_dir = state.paths.sfx.clone();
     let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, total / 2.0)?;
     let work = state.paths.work.join(format!("poster-{}", store::new_id()));
@@ -2167,6 +2306,7 @@ fn job_delete(state: State<'_, Arc<AppState>>, id: String) -> bool {
     if folder.is_dir() {
         let _ = std::fs::remove_dir_all(&folder);
     }
+    storage::remove_job_output(&state, &id);
     state.jobs.delete(&id)
 }
 
@@ -2185,7 +2325,14 @@ async fn detect_providers(app: &AppHandle, state: &AppState) -> Vec<ProviderInfo
     let _guard = state.detecting.lock().await;
     let disabled = state.settings().disabled_providers;
     let keys = tauri::async_runtime::spawn_blocking(keychain_keys).await.unwrap_or_default();
-    let rows = helios_providers::detect(CATALOG, &disabled, &keys).await;
+    let mut rows = helios_providers::detect(CATALOG, &disabled, &keys).await;
+    // A provider whose listing failed this sweep keeps the models it listed last time.
+    let cache_file = provider_cache::file(&state.paths.root);
+    let mut cache: provider_cache::ModelCache = store::read_json(&cache_file);
+    provider_cache::fill(&mut rows, &cache);
+    if provider_cache::remember(&rows, &mut cache) {
+        let _ignored = store::write_json(&cache_file, &cache);
+    }
     if let Ok(mut current) = state.providers.write() {
         current.clone_from(&rows);
     }
@@ -2496,8 +2643,15 @@ async fn chat_wait_subagent(
 
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // The config's windows exist by now; give each a taskbar icon drawn at the taskbar's size.
+    #[cfg(windows)]
+    for window in app.webview_windows().values() {
+        window_icon::install(&window.as_ref().window());
+    }
     let root = app.path().app_data_dir()?;
+    let default_storage = storage::default_root(app.handle(), &root);
     let paths = Paths::new(root)?;
+    watchdog::start(app.handle().clone(), paths.root.join("logs").join("hang.log"));
     helios_providers::set_agent_workspace(paths.agent_workspace.clone());
     if let Err(error) = sfx::ensure_all(&paths.sfx) {
         tracing::warn!(%error, "sound effects unavailable");
@@ -2529,6 +2683,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let _ignored = scope.allow_directory(&paths.sfx, false);
     let _ignored = scope.allow_directory(&paths.thumbnails, false);
     let _ignored = scope.allow_directory(&paths.root.join("generated"), false);
+    // Everything under the storage root (the project folders) is Helios' own output.
+    let storage_root = settings.storage_root.clone().filter(|path| !path.trim().is_empty()).map(PathBuf::from).unwrap_or_else(|| default_storage.clone());
+    storage::allow_root(&handle, &storage_root);
+    let _ignored = scope.allow_directory(storyboard::storyboard_dir(&paths), true);
     for asset in &library {
         allow_asset(&handle, asset);
     }
@@ -2560,6 +2718,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         settings: Mutex::new(settings.clone()),
         paths,
         subagents: Arc::new(subagent::Supervisor::new()),
+        storage: storage::Storage::new(default_storage),
     });
     app.manage(state.clone());
 
@@ -2603,12 +2762,44 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Wraps the IPC handler so the UI watchdog knows which command holds the UI thread.
+fn watched<R: tauri::Runtime>(
+    handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let args = match invoke.message.payload() {
+            tauri::ipc::InvokeBody::Json(value) => watchdog::summarize(value),
+            tauri::ipc::InvokeBody::Raw(bytes) => format!("<{} raw bytes>", bytes.len()),
+        };
+        let _running = watchdog::enter(invoke.message.command(), args);
+        handler(invoke)
+    }
+}
+
 pub use crate::mcp::{run_bridge as run_mcp_bridge, BRIDGE_FLAG as MCP_BRIDGE_FLAG};
 
+/// `%APPDATA%/studio.helios.desktop/logs/helios.log`: every tracing line also lands here, so a
+/// session can be read back after the fact (and by a coding agent) — stderr is gone once the
+/// window closes. The previous run's log is kept as `helios.previous.log`.
+fn open_log_file() -> Option<std::fs::File> {
+    let dir = PathBuf::from(std::env::var_os("APPDATA")?).join("studio.helios.desktop").join("logs");
+    std::fs::create_dir_all(&dir).ok()?;
+    let log = dir.join("helios.log");
+    let _ignored = std::fs::rename(&log, dir.join("helios.previous.log"));
+    std::fs::File::create(log).ok()
+}
+
 pub fn run() {
-    let _ignored = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_env("HELIOS_LOG").unwrap_or_else(|_| "info".into()))
-        .try_init();
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+    let filter = || tracing_subscriber::EnvFilter::try_from_env("HELIOS_LOG").unwrap_or_else(|_| "info".into());
+    let _ignored = match open_log_file() {
+        Some(file) => tracing_subscriber::fmt()
+            .with_env_filter(filter())
+            .with_ansi(false)
+            .with_writer(std::io::stderr.and(Mutex::new(file)))
+            .try_init(),
+        None => tracing_subscriber::fmt().with_env_filter(filter()).try_init(),
+    };
 
     let result = tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol("asset", |_ctx, request, responder| {
@@ -2643,7 +2834,32 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(setup)
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(watched(tauri::generate_handler![
+            license::license_status,
+            license::license_login_start,
+            license::license_login_poll,
+            license::license_login_cancel,
+            license::license_redeem,
+            license::license_release_device,
+            license::license_sign_out,
+            updater::update_check,
+            updater::update_download,
+            updater::update_status,
+            updater::update_cancel,
+            updater::update_install,
+            storage::storage_info,
+            storage::storage_set_root,
+            storage::storage_set_project,
+            storage::storage_dir,
+            storage::storage_project_dir,
+            storage::storage_open,
+            storage::pick_folder,
+            bundle::project_file_save,
+            bundle::project_docs,
+            bundle::project_doc_read,
+            bundle::project_doc_write,
+            bundle::project_doc_delete,
+            bundle::library_missing,
             analysis_frames,
             ideagraph_status,
             ideagraph_ingest,
@@ -2688,6 +2904,7 @@ pub fn run() {
             refs_save_guideline,
             web_search,
             web_scrape,
+            web_page_source,
             media_download,
             fs_read_file,
             fs_write_file,
@@ -2725,6 +2942,8 @@ pub fn run() {
             save_recording,
             mogrt_frames_begin,
             mogrt_frame_write,
+            storyboard::storyboard_image_save,
+            storyboard::storyboard_image_import,
             hardware_info,
             resource_usage,
             learning_load,
@@ -2757,7 +2976,7 @@ pub fn run() {
             chat_subagent_status,
             chat_list_subagents,
             chat_wait_subagent,
-        ])
+        ]))
         .run(tauri::generate_context!());
     if let Err(error) = result {
         eprintln!("Helios could not start: {error}");

@@ -194,7 +194,7 @@ impl ToolExecutor for EventExecutor {
         let timeout = match name.as_str() {
             "ask_user" => self.timeout.max(Duration::from_secs(24 * 3600)),
             "rotoscope_clip" | "depth_occlusion_clip" | "analyze_clip_speech" | "generate_local_media" | "import_generated_media" | "generation_job"
-            | "download_online_media" | "scrape_videos" | "online_research" | "scrape_web_page" | "synthesize_speech_voiceover" | "install_local_model"
+            | "download_online_media" | "scrape_videos" | "online_research" | "scrape_web_page" | "extract_brand_from_url" | "synthesize_speech_voiceover" | "install_local_model"
             | "erase_subject_clip" | "run_frame_qa" | "level_audio" | "analyze_music_beats" | "track_people" | "podcast_cut" | "wait_subagent" | "run_command" | "bash"
             | "apply_recipe" | "apply_edit" | "add_captions" | "detect_scenes" | "analyze_reference_video" | "create_motion_scene" | "track_motion" => self.timeout.max(Duration::from_secs(1800)),
             _ => self.timeout.max(Duration::from_secs(180)),
@@ -228,7 +228,20 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
 
 // ───────────────────────────── the text protocol ─────────────────────────────
 
-/// Hides a `helios-tools` block from streamed text as it arrives.
+/// The heading Helios puts over a round's real results (chat.rs `text_round_feedback`).
+pub const RESULTS_HEADING: &str = "## What your last reply's calls actually returned";
+/// The line under it.
+pub const RESULTS_LEAD: &str = "Use the ids and values below instead of ones you guessed";
+
+/// How a model's reply starts writing that results section itself. A CLI reads every round as one
+/// flat prompt — its reply, the results, its reply, the results — and some models carry the
+/// pattern on: after their block they write the results too, invented. Those must never reach
+/// the user as words nor go back to the model as fact.
+const ECHOES: [&str; 2] = [RESULTS_HEADING, RESULTS_LEAD];
+
+/// Hides a `helios-tools` block from streamed text as it arrives, and an echoed results section:
+/// up to the next block when no block came before it, else for the rest of the round (the same
+/// cut as `without_echo`).
 ///
 /// The block comes last, but it streams like any other words; without this the user would
 /// watch JSON type itself out and then vanish when the turn ends.
@@ -237,6 +250,11 @@ pub struct FenceFilter {
     /// Text seen but not shown yet, because it may turn out to be part of a fence.
     pending: String,
     inside: bool,
+    /// A block has opened this round, so a results section from here on ends the round.
+    planned: bool,
+    /// In a results section the model wrote itself; hidden until its next block opens, or for
+    /// the rest of the round once it follows a block of the model's own.
+    echo: bool,
 }
 
 impl FenceFilter {
@@ -246,24 +264,39 @@ impl FenceFilter {
         let mut visible = String::new();
         let opener = format!("```{FENCE}");
         loop {
-            // A fence can be split across chunks, so whatever could still grow into one is
-            // held back rather than shown or dropped.
-            let (marker, inside) = if self.inside { ("```", true) } else { (opener.as_str(), false) };
-            match self.pending.find(marker) {
-                Some(at) => {
-                    if !inside {
+            if self.echo && self.planned {
+                self.pending.clear();
+                return visible;
+            }
+            // What ends the current state: a closing fence inside a block; otherwise the next
+            // block, or (in plain words) the start of an echoed results section.
+            let markers: Vec<&str> = if self.inside {
+                vec!["```"]
+            } else if self.echo {
+                vec![opener.as_str()]
+            } else {
+                std::iter::once(opener.as_str()).chain(ECHOES).collect()
+            };
+            let shown = !self.inside && !self.echo;
+            match markers.iter().filter_map(|marker| self.pending.find(marker).map(|at| (at, *marker))).min_by_key(|(at, _)| *at) {
+                Some((at, marker)) => {
+                    if shown {
                         visible.push_str(&self.pending[..at]);
                     }
                     self.pending.drain(..at + marker.len());
-                    self.inside = !inside;
+                    if self.inside {
+                        self.inside = false;
+                    } else if marker == opener {
+                        (self.inside, self.echo, self.planned) = (true, false, true);
+                    } else {
+                        self.echo = true;
+                    }
                 }
                 None => {
-                    let keep = (1..marker.len())
-                        .rev()
-                        .find(|len| self.pending.ends_with(marker.get(..*len).unwrap_or_default()))
-                        .unwrap_or(0);
-                    let cut = self.pending.len() - keep;
-                    if !inside {
+                    // A marker can be split across chunks, so whatever could still grow into one
+                    // is held back rather than shown or dropped.
+                    let cut = self.pending.len() - held_back(&self.pending, &markers);
+                    if shown {
                         visible.push_str(&self.pending[..cut]);
                     }
                     self.pending.drain(..cut);
@@ -273,13 +306,60 @@ impl FenceFilter {
         }
     }
 
-    /// Whatever was held back and is not part of a block.
+    /// Whatever was held back and is not part of a block or an echo.
     pub fn finish(&mut self) -> String {
         let rest = std::mem::take(&mut self.pending);
-        if self.inside {
+        if self.inside || self.echo {
             String::new()
         } else {
             rest
+        }
+    }
+}
+
+/// How many bytes at the end of `text` could still grow into one of `markers`. Only prefixes that
+/// end on a character of the marker count, so `text` is always cut on a character boundary.
+fn held_back(text: &str, markers: &[&str]) -> usize {
+    markers
+        .iter()
+        .filter_map(|marker| {
+            (1..marker.len())
+                .rev()
+                .filter(|len| marker.is_char_boundary(*len))
+                .find(|len| text.ends_with(&marker[..*len]))
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// A finished text-protocol reply with any results section the model wrote itself cut out, so
+/// the next round's prompt holds only results Helios really produced. Before the model's first
+/// block the section is cut up to the next block — it restated results it really saw. After a
+/// block of its own it is cut from its first line to the end of the reply, and nothing after it
+/// runs: those later blocks were planned from results it invented. Blocks are kept as written.
+pub fn without_echo(reply: &str) -> String {
+    let opener = format!("```{FENCE}");
+    let mut out = String::new();
+    let mut rest = reply;
+    let mut planned = false;
+    loop {
+        let echo = ECHOES.iter().filter_map(|marker| rest.find(marker)).min();
+        let block = rest.find(&opener);
+        if let Some(at) = echo.filter(|at| block.is_none_or(|open| *at < open)) {
+            out.push_str(&rest[..at]);
+            if planned {
+                return out;
+            }
+            rest = rest[at..].find(&opener).map_or("", |next| &rest[at + next..]);
+        } else if let Some(open) = block {
+            let body = open + opener.len();
+            let end = rest[body..].find("```").map_or(rest.len(), |close| body + close + 3);
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+            planned = true;
+        } else {
+            out.push_str(rest);
+            return out;
         }
     }
 }
@@ -430,7 +510,7 @@ pub mod testing {
 mod tests {
     use super::{
         compact_catalogue, extract_calls, is_known, run_call, specs, testing::FakeExecutor, EventExecutor,
-        FenceFilter, PendingCalls, ToolCallEvent, ToolExecutor,
+        without_echo, FenceFilter, PendingCalls, ToolCallEvent, ToolExecutor,
     };
     use serde_json::json;
     use std::sync::{Arc, Mutex};
@@ -537,6 +617,75 @@ mod tests {
         let mut shown = plain.push("Use ```rust code``` and a trailing `");
         shown.push_str(&plain.finish());
         assert_eq!(shown, "Use ```rust code``` and a trailing `");
+    }
+
+    /// What a `FenceFilter` shows of `reply` streamed `size` characters at a time.
+    fn streamed(reply: &str, size: usize) -> String {
+        let mut filter = FenceFilter::default();
+        let chars: Vec<char> = reply.chars().collect();
+        let mut shown: String = chars.chunks(size).map(|piece| filter.push(&piece.iter().collect::<String>())).collect();
+        shown.push_str(&filter.finish());
+        shown
+    }
+
+    fn names(calls: &[super::TextCall]) -> Vec<&str> {
+        calls.iter().map(|call| call.name.as_str()).collect()
+    }
+
+    #[test]
+    fn a_results_section_the_model_writes_after_its_block_ends_the_round() {
+        // The model's own words, its block, then an invented copy of Helios' results — split
+        // mid-heading — and a second block planned from them, with a made-up id.
+        let reply = "Updating the kit.\n```helios-tools\n[{\"tool\":\"undo\"}]\n```\n## What your last reply's calls actually returned\nUse the ids and values below instead of ones you guessed.\n- `edit_file` -> {\"ok\":true,\"assetId\":\"a_12\"}\n```helios-tools\n[{\"tool\":\"get_comp\"}]\n```\nDone.";
+        for size in [1, 7, 13] {
+            assert_eq!(streamed(reply, size), "Updating the kit.\n\n", "{size}-char chunks");
+        }
+
+        let kept = without_echo(reply);
+        for invented in ["actually returned", "edit_file", "get_comp", "Done."] {
+            assert!(!kept.contains(invented), "{kept}");
+        }
+        let (visible, calls, _) = extract_calls(&kept);
+        assert_eq!(visible, "Updating the kit.");
+        assert_eq!(names(&calls), ["undo"], "only the block written before the invented results runs");
+
+        // An echo with no block after it hides the rest of the round.
+        let mut tail = FenceFilter::default();
+        let mut shown = tail.push("Ok.\nUse the ids and values below instead of ones you guessed\n- `undo` → {}");
+        shown.push_str(&tail.finish());
+        assert_eq!(shown, "Ok.\n");
+        assert_eq!(without_echo("Ok.\nUse the ids and values below instead of ones you guessed\n- x"), "Ok.\n");
+    }
+
+    #[test]
+    fn real_results_restated_before_any_block_are_hidden_and_the_block_after_them_runs() {
+        // The model first repeats the results it was just given, then plans from them; anything
+        // it writes as results after that block of its own is invented again and ends the round.
+        let reply = "Got it.\n## What your last reply's calls actually returned\n- `add_clip` → {\"ok\":true,\"clipId\":\"c_9\"}\n```helios-tools\n[{\"tool\":\"get_comp\"}]\n```\nChecking the cut.\n## What your last reply's calls actually returned\n- `get_comp` → {}\n```helios-tools\n[{\"tool\":\"delete_clip\"}]\n```";
+        for size in [1, 7, 13] {
+            assert_eq!(streamed(reply, size), "Got it.\n\nChecking the cut.\n", "{size}-char chunks");
+        }
+        let kept = without_echo(reply);
+        assert!(!kept.contains("c_9") && !kept.contains("delete_clip"), "{kept}");
+        let (visible, calls, _) = extract_calls(&kept);
+        assert_eq!(visible, "Got it.\n\nChecking the cut.");
+        assert_eq!(names(&calls), ["get_comp"]);
+    }
+
+    #[test]
+    fn text_held_back_for_a_marker_is_cut_on_a_character_boundary() {
+        // A marker with an em dash: its first byte alone is no prefix of it, so nothing splits a
+        // character of the text (this once cut "नमस्ते" two bytes from its end and panicked).
+        let markers = ["— results"];
+        assert_eq!(super::held_back("नमस्ते", &markers), 0);
+        assert_eq!(super::held_back("नमस्ते —", &markers), "—".len());
+        assert_eq!(super::held_back("ok — res", &markers), "— res".len());
+        assert_eq!(super::held_back("", &markers), 0);
+
+        let text = "नमस्ते 🎬 — the cut is on the beat.";
+        for size in [1, 2, 5] {
+            assert_eq!(streamed(text, size), text, "{size}-char chunks");
+        }
     }
 
     #[test]

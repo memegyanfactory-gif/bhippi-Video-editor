@@ -1,6 +1,7 @@
 // Shared vocabulary for motion-kit templates: the reference video's motion grammar as helpers.
 // Entrances are blur + slide + fade on expo-out; exits are faster on expo-in; nothing is linear.
 import { keys } from '../anim';
+import type { MotionBrand } from '../../lib/brandKit/motionBrand';
 import type { Ease, Effect, FootageSource, Key, Layer, MotionScene, Vec } from '../types';
 
 export type Palette = { void: string; oxblood: string; crimson: string; accent: string; pink: string; white: string; muted: string };
@@ -21,6 +22,8 @@ export type KitContext = {
   palette?: Partial<Palette>;
   /** Font family for body/headline type; the brand kit's when it has one. */
   font?: string;
+  /** The active brand kit, resolved for the engine; `brand-*` templates build from its guideline and every scene is put in it. */
+  brand?: MotionBrand;
 };
 
 export const pal = (ctx: KitContext): Palette => ({ ...CRIMSON_PALETTE, ...(ctx.palette ?? {}) });

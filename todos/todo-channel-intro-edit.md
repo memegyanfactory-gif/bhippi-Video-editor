@@ -1,0 +1,20 @@
+# Todo: Edit the "what I do" channel intro from the saved 14-beat storyboard, brand kit applied, QA-clear and verified
+- [x] Check the workflow phase (editing, no gates pending)
+- [x] Stop the temporary local file server from the gather phase
+- [x] Create + activate brand kit "Yusuf — Learn AI Live" (Crimson house look)
+- [x] get_comp (fresh ids)
+- [x] Cuts: trim 0–1.2 s dead air and the 69.4–71.5 s pause (ripple, captions follow) — new timeline = old −1.2 s, after 68.2 old −3.3 s
+- [x] Place music bed on A2, level_audio (dialogue −16 LUFS, music ~20 dB under), score_audio_clip ducking
+- [x] analyze_music_beats + snap planned cut points to beats (186 BPM) — closed the gaps it opened
+- [x] Split V1 into beat segments at the storyboard boundaries
+- [x] Framing per beat: punch-ins 114% (beats 2,5,9,13) and layout_clip right-55 (beats 3,4,7,8,10,11,12,14) + fill_background
+- [x] Transitions: zoom-punch / push / occluder at the planned seams
+- [x] Beat 6: rotoscope + "LET'S JUST STREAM" text behind subject
+- [x] B-roll/photos: code b-roll (b3), hackathon photo (b11), live-coding b-roll (b12), GitHub mark (b13)
+- [x] Motion graphics beats 1–5 (comparison replaced with side-panel: template ignored layout)
+- [x] Motion graphics beats 6–10
+- [x] Motion graphics beats 11–14 (numbered-lanes replaced with animated-list: too wide)
+- [x] SFX per graphic event
+- [x] Captions: kept, moved under the presenter (x +0.2, 65%) so they clear the left panels
+- [x] run_frame_qa → fix → rerun until clear (title shrunk inside safe area; captions moved; 0 issues on full + 40–73 s passes)
+- [ ] get_comp + verify_edit_workflow — BLOCKED: every gate passes except storyboardRefs (needs reference stills from the local image model; local generation is disabled in Settings → Local Media)

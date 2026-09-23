@@ -3,9 +3,11 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/ui';
+import { LicenseGate } from './license/LicenseGate';
 import './styles/app.css';
 import './styles/terminal.css';
 import './styles/brandkit.css';
+import './styles/license.css';
 
 // A desktop app has no use for the browser's own context menu (Back, Reload, Inspect) — except
 // when the user has text selected, where that menu's "Copy" is the only right-click way to grab
@@ -22,7 +24,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <ToastProvider>
-        <App />
+        <LicenseGate>
+          <App />
+        </LicenseGate>
       </ToastProvider>
     </ErrorBoundary>
   </StrictMode>,

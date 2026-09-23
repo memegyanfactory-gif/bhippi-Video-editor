@@ -8,6 +8,7 @@
 // · `layers` are listed bottom to top: the first entry is drawn first.
 // · A layer's `position` defaults to the canvas centre and its `anchor` to its own centre.
 // · Any animatable value (`Prop`) is a literal, `{ k: keys }` or `{ expr: '…' }` — see anim.ts.
+import type { MotionBrand } from '../lib/brandKit/motionBrand';
 
 export type Vec = number[];
 
@@ -260,4 +261,6 @@ export type MotionScene = {
   cues?: { at: number; sound: 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'click'; note?: string }[];
   /** Template id and params it was built from, so it can be rebuilt with new words. */
   template?: { id: string; params: Record<string, unknown> };
+  /** The brand kit the scene was put in (src/motion/kit/brandify.ts), with the snapshot it used, so rebuilds stay on brand. */
+  brand?: { kitId: string; name: string; snapshot: MotionBrand };
 };

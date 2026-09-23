@@ -1,0 +1,12 @@
+# Todo: Plan the channel-intro rebuild in 5–12 s batches (fast frame scan, transcript first) and save the storyboard
+- [x] Check workflow phase and pending gates
+- [x] Read the saved batch plan from the last session
+- [x] Get the comp
+- [x] Transcript: analyze_clip_speech on the source clip (music bed transcription failed: no transcriber configured)
+- [x] Fast frame understanding: ffmpeg contact sheet of the source (1.6 s) + text-only scan per clip (all 19 done)
+- [x] Build a reusable fast-frame-scan custom tool (fast_contact_sheet) — blocked by the same gate this turn
+- [x] Check local models: SDXL + LTX installed but local generation switched OFF; SAM2/ViTMatte/Depth ready; Stable Audio + LaMa missing
+- [x] Root cause of the stalls: transcript gate demanded the instrumental music bed be transcribed → every tool refused
+- [x] Patched D:\Helios\src\lib\editWorkflow.ts (music-named audio exempt; failed "no engine" transcription stops blocking); tsc clean
+- [ ] User: restart Helios so the patch loads; turn ON local generation (Settings → Local Media)
+- [ ] Next run: save_storyboard from todos/plan-masterpiece-rebuild.md (10 batches) and end the turn for Start generating

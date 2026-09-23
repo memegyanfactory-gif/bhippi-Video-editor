@@ -5,6 +5,8 @@ import { Check, ChevronDown, Gauge, Hand, ShieldAlert, Sparkles, Zap } from 'luc
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Portal } from '../components/Portal';
 import { EFFORTS, PERMISSION_MODES, type Effort, type PermissionMode } from '../lib/permissions';
+import type { SpeedStep } from '../lib/modelTiers';
+import '../styles/models.css';
 
 /**
  * Where a popover goes. It is positioned in viewport coordinates rather than inside the chat
@@ -76,12 +78,83 @@ function toSteps(levels: Effort[]): Step[] {
   return levels.map((value, index) => ({ id: value, name: label(value), top: index === levels.length - 1 }));
 }
 
-export function ThinkingSlider({ effort, levels, awesome, onAwesome, onSelect }: {
+/**
+ * The speed rail: one family's sizes, fastest on the left. Every stop is a real model id the
+ * provider listed (lib/modelTiers.ts), and moving the knob switches the chat to that id — the
+ * line under the rail names exactly what the next turn will send.
+ */
+function SpeedRail({ steps, index, sends, onPick }: { steps: SpeedStep[]; index: number; sends: string | null; onPick: (id: string) => void }) {
+  const rail = useRef<HTMLDivElement>(null);
+  const at = Math.max(0, index);
+  const fill = steps.length <= 1 ? 100 : (at / (steps.length - 1)) * 100;
+  const go = (next: number) => {
+    const step = steps[Math.min(steps.length - 1, Math.max(0, next))];
+    if (step && next !== index) onPick(step.id);
+  };
+  const pick = (clientX: number) => {
+    const box = rail.current?.getBoundingClientRect();
+    if (!box || box.width <= 0 || steps.length <= 1) return;
+    go(Math.round(Math.min(1, Math.max(0, (clientX - box.left) / box.width)) * (steps.length - 1)));
+  };
+  return (
+    <div className="speed-block">
+      <div className="thinking-head">
+        <span className="thinking-title">Speed</span>
+        <strong className="thinking-value">{steps[at]?.label}</strong>
+      </div>
+      <div
+        className="thinking-track"
+        role="slider"
+        tabIndex={0}
+        aria-label="Model speed"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(1, steps.length - 1)}
+        aria-valuenow={at}
+        aria-valuetext={steps[at]?.id ?? ''}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          pick(event.clientX);
+        }}
+        onPointerUp={(event) => pick(event.clientX)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowRight' || event.key === 'ArrowUp') go(at + 1);
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') go(at - 1);
+        }}
+      >
+        <div className="thinking-rail-stage" ref={rail}>
+          <div className="thinking-rail">
+            {steps.map((step, stop) => (
+              <span key={step.id} className={`rail-dot${stop <= at ? ' lit' : ''}`} style={{ left: `${steps.length <= 1 ? 50 : (stop / (steps.length - 1)) * 100}%` }} />
+            ))}
+            <div className="thinking-fill" style={{ width: `${fill}%` }} />
+          </div>
+          <div className="thinking-knob" style={{ left: `${fill}%` }} />
+        </div>
+      </div>
+      <div className="speed-steps">
+        {steps.map((step, stop) => (
+          <button key={step.id} type="button" className={stop === at ? 'on' : ''} title={step.id} onClick={() => go(stop)}>{step.label}</button>
+        ))}
+      </div>
+      {sends && <p className="speed-model" title={sends}>Sends <b>{sends}</b></p>}
+    </div>
+  );
+}
+
+export function ThinkingSlider({ effort, levels, awesome, onAwesome, onSelect, speeds = [], speedAt = -1, sends = null, onSpeed }: {
   effort: Effort;
   levels: Effort[];
   awesome: boolean;
   onAwesome: (on: boolean) => void;
   onSelect: (effort: Effort) => void;
+  /** The chosen model's sizes, fastest first; fewer than two means no speed rail. */
+  speeds?: SpeedStep[];
+  /** Which of `speeds` is in use. */
+  speedAt?: number;
+  /** The exact model id the next turn sends, after speed and effort variants are applied. */
+  sends?: string | null;
+  onSpeed?: (model: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { anchor, floating } = useDismiss(open, () => setOpen(false));
@@ -92,6 +165,8 @@ export function ThinkingSlider({ effort, levels, awesome, onAwesome, onSelect }:
   const index = Math.max(0, steps.findIndex((step) => step.id === effort));
   const current = steps[index] ?? steps[steps.length - 1];
   const fill = steps.length <= 1 ? 100 : (index / (steps.length - 1)) * 100;
+  const hasSpeed = speeds.length > 1 && !!onSpeed;
+  const speedName = hasSpeed ? speeds[Math.max(0, speedAt)]?.label : null;
 
   // A provider that does not take this level must not leave the chip showing one.
   useEffect(() => {
@@ -118,22 +193,27 @@ export function ThinkingSlider({ effort, levels, awesome, onAwesome, onSelect }:
         ref={trigger}
         className={`chip-btn${open ? ' active' : ''}${current?.top ? ' top' : ''}`}
         onClick={() => setOpen(!open)}
-        title={`Thinking: ${current?.name ?? ''} — ${hint(current?.id ?? 'medium')}`}
+        title={[speedName && `Speed: ${speedName}`, current && `Thinking: ${current.name} — ${hint(current.id)}`, sends && `Sends ${sends}`].filter(Boolean).join(' · ')}
         aria-expanded={open}
-        aria-label={`Thinking level: ${current?.name ?? ''}`}
+        aria-label={[speedName && `Speed: ${speedName}`, current && `Thinking level: ${current.name}`].filter(Boolean).join(', ')}
       >
         <Gauge size={12} />
+        {speedName && <span className="chip-speed">{speedName}</span>}
         {/* Every level is rendered into one grid cell with all but the current one hidden, so
             the chip is as wide as its widest word and nothing beside it shifts as you slide. */}
-        <span className="chip-slot">
-          {steps.map((item) => <span key={item.id} className="chip-slot-ghost" aria-hidden="true">{item.name}</span>)}
-          <span className="chip-slot-value">{current?.name}</span>
-        </span>
+        {steps.length > 0 && (
+          <span className="chip-slot">
+            {steps.map((item) => <span key={item.id} className="chip-slot-ghost" aria-hidden="true">{item.name}</span>)}
+            <span className="chip-slot-value">{current?.name}</span>
+          </span>
+        )}
         <ChevronDown size={10} />
       </button>
 
       {open && (
-        <Portal><div ref={floating} className={`chip-popover thinking-popover${current?.top ? ' top' : ''}`} style={placement(trigger.current, 228)} role="dialog" aria-label="Thinking level">
+        <Portal><div ref={floating} className={`chip-popover thinking-popover${current?.top ? ' top' : ''}`} style={placement(trigger.current, 228)} role="dialog" aria-label="Speed and thinking level">
+          {hasSpeed && onSpeed && <SpeedRail steps={speeds} index={speedAt} sends={steps.length ? null : sends} onPick={onSpeed} />}
+          {steps.length > 0 && <>
           <div className="thinking-head">
             <span className="thinking-title">Thinking</span>
             <strong className="thinking-value">{current?.name}</strong>
@@ -191,6 +271,8 @@ export function ThinkingSlider({ effort, levels, awesome, onAwesome, onSelect }:
             <span>Smarter</span>
           </div>
           <p className="thinking-hint">{hint(current?.id ?? 'medium')}</p>
+          {sends && <p className="speed-model" title={sends}>Sends <b>{sends}</b></p>}
+          </>}
 
           {/* Looks only. It changes nothing about the model, the tools or the edits — it is here
               because this is where the animation it borrows comes from. */}

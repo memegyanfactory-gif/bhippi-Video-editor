@@ -364,7 +364,7 @@ export function ShortcutsDialog({ shortcuts, onClose }: { shortcuts: [string, st
 }
 
 /** Asks about unsaved work before closing or replacing the project. */
-export function ConfirmDialog({ title, body, confirmLabel, discardLabel, onConfirm, onDiscard, onClose }: { title: string; body: string; confirmLabel: string; discardLabel?: string; onConfirm: () => void; onDiscard?: () => void; onClose: () => void }) {
+export function ConfirmDialog({ title, body, confirmLabel, discardLabel, onConfirm, onDiscard, onClose, top }: { title: string; body: string; confirmLabel: string; discardLabel?: string; onConfirm: () => void; onDiscard?: () => void; onClose: () => void; /** Show above everything (the sign-in gate included). */ top?: boolean }) {
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Enter') onConfirm();
@@ -373,7 +373,7 @@ export function ConfirmDialog({ title, body, confirmLabel, discardLabel, onConfi
     return () => window.removeEventListener('keydown', key);
   }, [onConfirm]);
   return (
-    <Modal title={title} onClose={onClose} width={440} footer={
+    <Modal title={title} onClose={onClose} width={440} top={top} footer={
       <>
         {discardLabel && onDiscard && <button type="button" className="btn" onClick={onDiscard}>{discardLabel}</button>}
         <div className="toolbar-spacer" />

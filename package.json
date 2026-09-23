@@ -1,6 +1,6 @@
 {
   "name": "helios",
-  "version": "0.2.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,7 +16,9 @@
     "lint": "eslint . && cargo clippy --workspace --all-targets -- -D warnings",
     "test": "vitest run && cargo test --workspace",
     "test:ui": "vitest run",
-    "stop": "node scripts/stop-app.mjs"
+    "stop": "node scripts/stop-app.mjs",
+    "debug:hang": "node scripts/debug-hang.mjs",
+    "debug:log": "node scripts/debug-log.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

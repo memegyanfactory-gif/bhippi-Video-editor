@@ -40,7 +40,7 @@ fn library(assets: Vec<Asset>) -> HashMap<String, Asset> {
 }
 
 fn options(comp_id: &str) -> ExportOptions {
-    ExportOptions { output: "out.mp4".to_owned(), comp_id: comp_id.to_owned(), resolution: None, fps: None, quality: "standard".to_owned(), in_to_out: false, format: "mp4".to_owned() }
+    ExportOptions { output: "out.mp4".to_owned(), comp_id: comp_id.to_owned(), resolution: None, fps: None, quality: "standard".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None }
 }
 
 fn build(project: &Project, assets: &HashMap<String, Asset>, options: &ExportOptions, output: Output, start: f64) -> Result<RenderPlan, String> {
@@ -357,4 +357,134 @@ fn motion_scenes_export_their_rendered_frames_and_nothing_without_them() {
     let project_without = project(vec![comp("c", vec![clip("a", "v1", 0.0, 4.0, media("m")), bare])]);
     let plan = build(&project_without, &assets, &options("c"), Output::Video, 0.0).expect("plan without frames");
     assert!(!plan.args.iter().any(|arg| arg.contains("%05d.png")));
+}
+
+#[test]
+fn the_gpu_encoder_is_chosen_unless_refused_and_its_quality_ladder_is_constant_quality() {
+    use super::{plan_with_encoder, VideoEncoder};
+    assert_eq!(VideoEncoder::choose(None, true, Some("h264_nvenc")), VideoEncoder::Nvenc);
+    assert_eq!(VideoEncoder::choose(Some("auto"), true, Some("h264_qsv")), VideoEncoder::Qsv);
+    assert_eq!(VideoEncoder::choose(Some("gpu"), true, Some("h264_amf")), VideoEncoder::Amf);
+    assert_eq!(VideoEncoder::choose(Some("cpu"), true, Some("h264_nvenc")), VideoEncoder::X264, "Settings can refuse the GPU");
+    assert_eq!(VideoEncoder::choose(Some("gpu"), true, None), VideoEncoder::X264, "no working GPU encoder falls back to x264");
+    assert_eq!(VideoEncoder::choose(None, false, Some("hevc_whatever")), VideoEncoder::Mpeg4, "unknown names are not trusted");
+
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let project = project(vec![comp("c", vec![clip("a", "v1", 0.0, 2.0, media("m"))])]);
+    let render = |format: &str, output: &str, quality: &str, encoder: VideoEncoder| {
+        let options = ExportOptions { format: format.to_owned(), output: output.to_owned(), quality: quality.to_owned(), ..options("c") };
+        plan_with_encoder(&project, &assets, &options, |kind| format!("sfx/{}.wav", kind.as_str()), encoder, Output::Video, 0.0).expect("plan").args.join(" ")
+    };
+    let standard = render("mp4", "out.mp4", "standard", VideoEncoder::Nvenc);
+    assert!(standard.contains("-c:v h264_nvenc -preset p4 -tune hq -rc vbr -cq 23 -b:v 0 -spatial-aq 1"), "{standard}");
+    assert!(standard.contains("-pix_fmt yuv420p") && standard.contains("+faststart"), "the MP4 flags stay: {standard}");
+    assert!(render("mov", "out.mov", "high", VideoEncoder::Nvenc).contains("-preset p6 -tune hq -rc vbr -cq 19"));
+    assert!(render("mp4", "out.mp4", "draft", VideoEncoder::Nvenc).contains("-preset p2 -tune hq -rc vbr -cq 30"));
+    assert!(render("mp4", "out.mp4", "standard", VideoEncoder::Qsv).contains("-c:v h264_qsv -preset medium -global_quality 23"));
+    assert!(render("mp4", "out.mp4", "standard", VideoEncoder::Amf).contains("-c:v h264_amf -quality balanced -rc cqp"));
+    assert!(render("mp4", "out.mp4", "standard", VideoEncoder::X264).contains("-c:v libx264 -preset medium -crf 20"));
+    // The GPU only ever encodes H.264: AVI stays MPEG-4, alpha stays ProRes 4444.
+    assert!(render("avi", "out.avi", "standard", VideoEncoder::Nvenc).contains("-c:v mpeg4"));
+    let alpha = render("mov-alpha", "out.mov", "standard", VideoEncoder::Nvenc);
+    assert!(alpha.contains("prores_ks") && !alpha.contains("nvenc"), "{alpha}");
+}
+
+/// A comp of two clips joined by a transition of `kind`, or only one of them.
+fn transition_graph(kind: TransitionKind, sides: (bool, bool)) -> String {
+    let assets = library(vec![asset("m", AssetKind::Video, 30.0)]);
+    let mut clips = Vec::new();
+    if sides.0 { clips.push(clip("a", "v1", 0.0, 4.0, media("m"))); }
+    if sides.1 { clips.push(clip("b", "v1", 4.0, 4.0, media("m"))); }
+    let mut comp = comp("c", clips);
+    let alignment = match sides { (true, false) => crate::project::Alignment::End, (false, true) => crate::project::Alignment::Start, _ => crate::project::Alignment::Center };
+    comp.transitions.push(Transition { id: "x".into(), track_id: "v1".into(), kind, from_clip: sides.0.then(|| "a".into()), to_clip: sides.1.then(|| "b".into()), duration: 1.0, alignment });
+    graph(&build(&project(vec![comp]), &assets, &options("c"), Output::Video, 0.0).expect("plan"))
+}
+
+#[test]
+fn one_sided_transitions_follow_the_preview_instead_of_blending_with_nothing() {
+    // A fade out at the end is the clip's opacity going down, not a blend of its colour with black.
+    let fade_out = transition_graph(TransitionKind::CrossDissolve, (true, false));
+    assert!(fade_out.contains("fade=t=out:st=0:d=1:alpha=1") && !fade_out.contains("xfade"), "{fade_out}");
+    let fade_in = transition_graph(TransitionKind::FilmDissolve, (false, true));
+    assert!(fade_in.contains("fade=t=in:st=0:d=1:alpha=1"), "{fade_in}");
+    // A one-sided dip reaches its colour at the end of the window, not half-way.
+    let dip = transition_graph(TransitionKind::DipToBlack, (true, false));
+    assert!(dip.contains("fade=t=out:st=0:d=1:color=black") && !dip.contains("trim=start_frame=15,setpts"), "{dip}");
+    assert!(dip.contains("nullsink"), "the empty side is consumed: {dip}");
+    // Two-sided dips keep their halves.
+    assert!(transition_graph(TransitionKind::DipToWhite, (true, true)).contains("concat=n=2:v=1:a=0"));
+    // A lone outgoing wipe uncovers from the side the preview does; an iris shrinks the clip.
+    assert!(transition_graph(TransitionKind::WipeLeft, (true, false)).contains("xfade=transition=wiperight"));
+    let iris_out = transition_graph(TransitionKind::IrisRound, (true, false));
+    assert!(iris_out.contains("P*0.530330*hypot(W,H)),A,B)"), "{iris_out}");
+}
+
+#[test]
+fn iris_and_cross_zoom_draw_the_preview_shapes() {
+    // CSS circle(75%) is 0.5303 of the diagonal.
+    let iris = transition_graph(TransitionKind::IrisRound, (true, true));
+    assert!(iris.contains("(1-P)*0.530330*hypot(W,H)),B,A)"), "{iris}");
+    // Cross zoom scales both pictures (1→2× out, 2→1× in) and composites them over, per plane.
+    let zoom = transition_graph(TransitionKind::CrossZoom, (true, true));
+    assert!(zoom.contains("transition=custom") && !zoom.contains("zoomin"), "{zoom}");
+    assert!(zoom.contains("a0(W/2+(X-W/2)/(1+(1-P))") && zoom.contains("b3(W/2+(X-W/2)/(2-(1-P))"), "{zoom}");
+    assert!(zoom.contains("if(eq(PLANE,3)"), "alpha is composited too: {zoom}");
+}
+
+#[test]
+fn keys_export_with_the_preview_formulas_and_every_offered_effect_plans() {
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let mut keyed = clip("a", "v1", 0.0, 2.0, media("m"));
+    keyed.applied_effects = vec![
+        serde_json::json!({ "id": "k", "effectId": "keylight", "name": "Keylight", "category": "Keying", "enabled": true, "params": { "screenColor": "#00ff00", "screenGain": 30, "screenBalance": 10, "despill": 50 } }),
+        serde_json::json!({ "id": "e", "effectId": "extract", "name": "Extract", "category": "Keying", "enabled": true, "params": { "blackPoint": 51, "softness": 20 } }),
+        serde_json::json!({ "id": "l", "effectId": "linear-color-key", "name": "Linear", "category": "Keying", "enabled": true, "params": { "keyColor": "#0000ff", "tolerance": 60 } }),
+    ];
+    let text = graph(&build(&project(vec![comp("c", vec![keyed])]), &assets, &options("c"), Output::Video, 0.0).expect("keys are exportable"));
+    // Green screen: matte 1.5R − 3G + 1.5B + 1.1, green pulled half-way toward red and blue.
+    assert!(text.contains("g='0.25*r(X,Y)+0.5*g(X,Y)+0.25*b(X,Y)'"), "{text}");
+    assert!(text.contains("a='alpha(X,Y)*clip((1.5*r(X,Y)+-3*g(X,Y)+1.5*b(X,Y))/255+1.1,0,1)'"), "{text}");
+    // Blue screen: the blue channel is the one keyed and despilled; gain follows the tolerance.
+    assert!(text.contains("b='0.25*r(X,Y)+0.25*g(X,Y)+0.5*b(X,Y)'") && text.contains("(3*r(X,Y)+3*g(X,Y)+-6*b(X,Y))"), "{text}");
+    // Luma key: (luma − 0.2) / 0.2.
+    assert!(text.contains("*clip((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255*5+-1,0,1)"), "{text}");
+    assert!(!text.contains("colorkey") && !text.contains("lumakey"));
+}
+
+#[test]
+fn text_is_sized_by_its_em_and_burned_straight_onto_the_picture() {
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let title = clip("t", "v2", 0.0, 2.0, ClipSource::Text { text: "Hi".into(), subtitle: "there".into(), preset: Preset::Title, color: "#FFFFFF".into(), style: None, vertical: false });
+    let plan = build(&project(vec![comp("c", vec![clip("a", "v1", 0.0, 2.0, media("m")), title])]), &assets, &options("c"), Output::Video, 0.0).expect("plan");
+    let script = plan.files.iter().find(|(name, _)| name.ends_with(".ass")).map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned()).expect("a script");
+    // CSS: 0.105 × 1080 = 113 px of em. libass fits Segoe UI's win height (1.3301 em) into \fs.
+    assert!(script.contains("Style: Title,Segoe UI Black,150,"), "{script}");
+    assert!(script.contains("Style: Caption,Segoe UI,78,"), "0.055 × 1080 = 59 px em: {script}");
+    assert!(script.contains("\\N{\\fnSegoe UI\\fs60"), "the subtitle is the regular face at 45 px em: {script}");
+    let text = graph(&plan);
+    assert!(text.contains("ass=filename=") && !text.contains("alpha=straight"), "no full-frame overlay for plain text: {text}");
+}
+
+#[test]
+fn bars_are_the_classic_pattern_the_monitor_draws() {
+    let mut project = project(vec![comp("c", vec![clip("b", "v1", 0.0, 2.0, ClipSource::Item { item_id: "bars".into() })])]);
+    project.items.push(ProjectItem { id: "bars".into(), kind: ItemKind::BarsAndTone, name: "Bars".into(), color: "#FFFFFF".into(), width: 1920, height: 1080, duration: 5.0, folder_id: None });
+    let text = graph(&build(&project, &HashMap::new(), &options("c"), Output::Video, 0.0).expect("plan"));
+    assert!(text.contains("smptebars=") && !text.contains("smptehdbars"), "{text}");
+}
+
+#[test]
+fn a_rendered_sequence_holds_its_first_frame_while_a_transition_shows_it_early() {
+    use crate::project::HtmlFrames;
+    let assets = library(vec![asset("m", AssetKind::Video, 30.0)]);
+    let frames = Some(HtmlFrames { dir: "C:/frames/g".into(), fps: 30.0, frames: 120, width: 1920, height: 1080 });
+    let scene = serde_json::json!({ "version": 1, "width": 1920, "height": 1080, "duration": 4.0, "layers": [] });
+    let mut comp = comp("c", vec![clip("a", "v1", 0.0, 4.0, media("m")), clip("g", "v1", 4.0, 4.0, ClipSource::Motion { scene, title: None, frames })]);
+    comp.transitions.push(Transition { id: "x".into(), track_id: "v1".into(), kind: TransitionKind::CrossDissolve, from_clip: Some("a".into()), to_clip: Some("g".into()), duration: 1.0, alignment: crate::project::Alignment::Center });
+    let plan = build(&project(vec![comp]), &assets, &options("c"), Output::Video, 0.0).expect("plan");
+    let text = graph(&plan);
+    // Half a second of the window falls before the scene starts: 15 frames of its first frame.
+    assert!(text.contains("tpad=start_mode=clone:start=15"), "{text}");
+    assert!(plan.args.join(" ").contains("-start_number 0 -i C:/frames/g/%05d.png"));
 }

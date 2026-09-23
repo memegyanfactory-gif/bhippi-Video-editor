@@ -87,6 +87,29 @@ export function withCardThumbnail(project: Project, compId: string, index: numbe
   };
 }
 
+/**
+ * `project` with one scene's hand-made picture: the PNG as its thumbnail and, for a sketch, the
+ * vector document that stays editable (`sketch: null` drops it, e.g. when a photo replaces it).
+ */
+export function withCardPicture(project: Project, compId: string, index: number, patch: { thumbnail: string; sketch?: unknown }): Project {
+  const apply = <T extends object>(scene: T): T => {
+    const next: Record<string, unknown> = { ...scene, thumbnail: patch.thumbnail };
+    if (patch.sketch === null) delete next.sketch;
+    else if (patch.sketch !== undefined) next.sketch = patch.sketch;
+    return next as T;
+  };
+  return {
+    ...project,
+    comps: project.comps.map((comp) => {
+      if (comp.id !== compId) return comp;
+      if (comp.videoBlueprint?.scenes?.length) {
+        return { ...comp, videoBlueprint: { ...comp.videoBlueprint, scenes: comp.videoBlueprint.scenes.map((scene, i) => (i === index ? apply(scene) : scene)) } };
+      }
+      return { ...comp, storyboard: (comp.storyboard ?? []).map((scene, i) => (i === index ? apply(scene) : scene)) };
+    }),
+  };
+}
+
 // ── the queue ───────────────────────────────────────────────────────────────
 
 export type FrameKind = 'edit' | 'concept';

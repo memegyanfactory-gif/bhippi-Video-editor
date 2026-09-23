@@ -300,7 +300,10 @@ impl ProviderInfo {
             ProviderKind::LocalServer => {
                 self.detected_port.is_some() && matches!(self.health, Health::Healthy { .. })
             }
-            ProviderKind::Cli | ProviderKind::CloudApi => self.installed,
+            // A CLI that is installed but cannot answer (Gemini CLI with no sign-in) says so in
+            // `health`; offering it would only produce a turn that fails on its first word.
+            ProviderKind::Cli => self.installed && !matches!(self.health, Health::Unavailable { .. }),
+            ProviderKind::CloudApi => self.installed,
         }
     }
 }

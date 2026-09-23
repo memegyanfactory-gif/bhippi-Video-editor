@@ -51,8 +51,10 @@ pub struct PersonTracks {
     pub tracks: Vec<PersonTrack>,
 }
 
+/// One asset's tracking folder. `root` is the Tracking category folder (see storage.rs), or
+/// `<app data>/tracking` for passes made before project folders existed.
 pub fn dir(root: &Path, asset_id: &str) -> PathBuf {
-    root.join("tracking").join(asset_id)
+    root.join(asset_id)
 }
 
 pub fn read(root: &Path, asset_id: &str) -> Option<PersonTracks> {

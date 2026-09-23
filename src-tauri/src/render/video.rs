@@ -351,11 +351,14 @@ impl<'a> Graph<'a> {
     /// from the frame nearest `tau` and holds the last frame if the sequence runs out.
     fn html_frames(&mut self, rendered: &HtmlFrames, tau: f64, frames: u64) -> Source {
         let rate = rendered.fps.max(1.0);
-        let first = ((tau * rate).round() as u64).min(rendered.frames.saturating_sub(1));
+        let first = ((tau.max(0.0) * rate).round() as u64).min(rendered.frames.saturating_sub(1));
+        // A transition can show the clip before its first frame (tau < 0): the preview holds the
+        // first frame there, so the sequence starts that many output frames late.
+        let lead = ((-tau).max(0.0) * self.fps()).round() as u64;
         let dir = rendered.dir.trim_end_matches(|c| c == '/' || c == '\\');
         let pattern = format!("{dir}/%05d.png");
         let index = self.input(vec!["-framerate".into(), num(rate), "-start_number".into(), first.to_string(), "-i".into(), pattern]);
-        let label = self.chain(&[format!("{index}:v:0")], &format!("format=rgba,setpts=PTS-STARTPTS,fps={},{}", self.rate.text(), self.conform(0, frames)));
+        let label = self.chain(&[format!("{index}:v:0")], &format!("format=rgba,setpts=PTS-STARTPTS,fps={},{}", self.rate.text(), self.conform(lead.min(frames), frames)));
         Source { label, w: f64::from(rendered.width.max(1)), h: f64::from(rendered.height.max(1)), natural: None }
     }
 
@@ -417,7 +420,8 @@ impl<'a> Graph<'a> {
         let body = match item.kind {
             ItemKind::ColorMatte => format!("color=c=0x{}:{size}", hex(&item.color)),
             ItemKind::BlackVideo => format!("color=c=black:{size}"),
-            ItemKind::BarsAndTone => format!("smptehdbars={size}"),
+            // The classic SMPTE pattern (75 % bars, castellations, PLUGE) the preview draws.
+            ItemKind::BarsAndTone => format!("smptebars={size}"),
             ItemKind::Countdown => format!("color=c=0x111111:{size}"),
             ItemKind::TransparentVideo | ItemKind::AdjustmentLayer => return None,
         };
@@ -696,11 +700,13 @@ impl<'a> Graph<'a> {
         let (fa, fb) = window;
         let length = fb - fa;
         let mut sides = Vec::new();
-        for clip in [out, into] {
+        let mut drawn = [false; 2];
+        for (index, clip) in [out, into].into_iter().enumerate() {
             let label = match clip {
                 Some(clip) => self.picture(clip, frame, span, fa, fb, depth)?,
                 None => None,
             };
+            drawn[index] = label.is_some();
             sides.push(match label {
                 Some(label) => label,
                 None => self.gap(frame, length),
@@ -709,8 +715,32 @@ impl<'a> Graph<'a> {
         let (start, end) = (visible.0 - fa, visible.1 - fa);
         let cut = format!("tpad=stop_mode=clone:stop=1,trim=start_frame={start}:end_frame={end},{}", self.conform(0, (end - start) as u64));
         let seconds = length as f64 / self.fps();
-        let joined = match kind {
-            TransitionKind::DipToBlack | TransitionKind::DipToWhite if length >= 2 => {
+        let d = num(seconds.clamp(1e-3, 60.0));
+        // One-sided transitions (a fade in from nothing, a fade out at the end) follow the
+        // preview's single-clip rules, not a blend with the empty side: xfade on straight alpha
+        // would darken the colour as well as the alpha, and a dip would reach its colour at the
+        // half-way point and then show nothing.
+        let single = match drawn {
+            [true, false] => Some(0),
+            [false, true] => Some(1),
+            _ => None,
+        };
+        let joined = match (kind, single) {
+            (TransitionKind::DipToBlack | TransitionKind::DipToWhite, Some(side)) => {
+                // The dip colour covers the clip in proportion to how far it is from the cut.
+                let colour = if kind == TransitionKind::DipToBlack { "black" } else { "white" };
+                let way = if side == 0 { "out" } else { "in" };
+                self.filters.push(format!("[{}]nullsink", sides[1 - side]));
+                self.chain(&[sides[side].clone()], &format!("fade=t={way}:st=0:d={d}:color={colour}"))
+            }
+            (TransitionKind::CrossDissolve | TransitionKind::FilmDissolve | TransitionKind::AdditiveDissolve, Some(side))
+            | (TransitionKind::SlideLeft | TransitionKind::SlideRight | TransitionKind::SlideUp | TransitionKind::SlideDown, Some(side @ 0)) => {
+                // Opacity only: the clip fades against whatever is below it.
+                let way = if side == 0 { "out" } else { "in" };
+                self.filters.push(format!("[{}]nullsink", sides[1 - side]));
+                self.chain(&[sides[side].clone()], &format!("fade=t={way}:st=0:d={d}:alpha=1"))
+            }
+            (TransitionKind::DipToBlack | TransitionKind::DipToWhite, None) if length >= 2 => {
                 let colour = if kind == TransitionKind::DipToBlack { "black" } else { "white" };
                 let half = length / 2;
                 let first = self.chain(&[sides[0].clone()], &format!("trim=end_frame={half},fade=t=out:st=0:d={}:color={colour},{}", num(half as f64 / self.fps()), self.conform(0, half as u64)));
@@ -720,7 +750,10 @@ impl<'a> Graph<'a> {
                 );
                 self.chain(&[first, second], "concat=n=2:v=1:a=0")
             }
-            _ => self.chain(&sides, &format!("xfade=transition={}:duration={}:offset=0", mode(kind), num(seconds.clamp(1e-3, 60.0)))),
+            _ => {
+                let mode = if single == Some(0) { mode_single_out(kind) } else { None }.unwrap_or_else(|| mode(kind));
+                self.chain(&sides, &format!("xfade=transition={mode}:duration={d}:offset=0"))
+            }
         };
         Ok(self.chain(&[joined], &cut))
     }
@@ -736,10 +769,18 @@ impl<'a> Graph<'a> {
             let items=vec![(graphic,placement(comp,clip,frame,track_id))];
             let name=self.file("text","ass",text::script(&items,frame.w,frame.h).into_bytes());
             let (before,after)=if span.t0.abs()>1e-9 {(format!("setpts=round(PTS+{}/TB),",num(span.t0)),format!(",setpts=round(PTS-{}/TB)",num(span.t0)))}else{(String::new(),String::new())};
-            let gap=self.gap(frame,span.frames as i64);
-            let mut parts=vec![format!("{before}ass=filename={name}:alpha=1{after}")];
-            parts.extend(effects(&clip.effects,frame.h,""));
+            let burn=format!("{before}ass=filename={name}:alpha=1{after}");
+            let mut parts=effects(&clip.effects,frame.h,"");
             parts.extend(self.stack_effects(clip,frame.h,""));
+            if parts.is_empty() {
+                // Nothing to apply to the text alone: libass blends straight onto the composite,
+                // pixel-identical to drawing a transparent layer and overlaying it, at a quarter
+                // of the cost of a full-frame overlay per frame.
+                current=self.chain(&[current],&burn);
+                continue;
+            }
+            parts.insert(0,burn);
+            let gap=self.gap(frame,span.frames as i64);
             let layer=self.chain(&[gap],&parts.join(","));
             current=self.chain(&[current,layer],"overlay=format=auto:alpha=straight:shortest=1");
         }
@@ -859,13 +900,44 @@ fn mode(kind: TransitionKind) -> String {
         TransitionKind::WipeRight => "wiperight".to_owned(),
         TransitionKind::WipeUp => "wipeup".to_owned(),
         TransitionKind::WipeDown => "wipedown".to_owned(),
-        TransitionKind::CrossZoom => "zoomin".to_owned(),
+        TransitionKind::CrossZoom => cross_zoom(),
         // xfade's own iris modes soften and offset their edges; these are the plain shapes the
-        // preview can draw with a clip-path.
-        TransitionKind::IrisRound => "custom:expr='if(lt(hypot(X-W/2,Y-H/2),(1-P)*hypot(W,H)/2),B,A)'".to_owned(),
+        // preview draws with a clip-path. CSS `circle(r%)` measures r against hypot(W, H) / √2,
+        // so the preview's 75 % is 0.5303 of the diagonal.
+        TransitionKind::IrisRound => "custom:expr='if(lt(hypot(X-W/2,Y-H/2),(1-P)*0.530330*hypot(W,H)),B,A)'".to_owned(),
         TransitionKind::IrisBox => "custom:expr='if(lt(abs(X-W/2),(1-P)*W/2)*lt(abs(Y-H/2),(1-P)*H/2),B,A)'".to_owned(),
         _ => "fade".to_owned(),
     }
+}
+
+/// A transition with only its outgoing clip, where the preview's single-clip shape differs from
+/// blending into nothing: wipes and irises take the clip away (it shrinks into the iris, the
+/// wipe uncovers from the side it came in from).
+fn mode_single_out(kind: TransitionKind) -> Option<String> {
+    Some(match kind {
+        TransitionKind::WipeLeft => "wiperight".to_owned(),
+        TransitionKind::WipeRight => "wipeleft".to_owned(),
+        TransitionKind::WipeUp => "wipedown".to_owned(),
+        TransitionKind::WipeDown => "wipeup".to_owned(),
+        TransitionKind::IrisRound => "custom:expr='if(lt(hypot(X-W/2,Y-H/2),P*0.530330*hypot(W,H)),A,B)'".to_owned(),
+        TransitionKind::IrisBox => "custom:expr='if(lt(abs(X-W/2),P*W/2)*lt(abs(Y-H/2),P*H/2),A,B)'".to_owned(),
+        _ => return None,
+    })
+}
+
+/// The preview's cross zoom: the outgoing picture grows from 1× to 2× while it fades out, the
+/// incoming one settles from 2× to 1× while it fades in over it — composited "over" on straight
+/// alpha, plane by plane (gbrap: 0 G, 1 B, 2 R, 3 alpha). xfade's P runs 1 → 0.
+fn cross_zoom() -> String {
+    let q = "(1-P)";
+    let (xa, ya) = (format!("W/2+(X-W/2)/(1+{q})"), format!("H/2+(Y-H/2)/(1+{q})"));
+    let (xb, yb) = (format!("W/2+(X-W/2)/(2-{q})"), format!("H/2+(Y-H/2)/(2-{q})"));
+    let pick = |side: &str, x: &str, y: &str| format!("if(eq(PLANE,0),{side}0({x},{y}),if(eq(PLANE,1),{side}1({x},{y}),{side}2({x},{y})))");
+    let alpha_a = format!("a3({xa},{ya})/255*P");
+    let alpha_b = format!("b3({xb},{yb})/255*{q}");
+    let alpha = format!("({alpha_b}+{alpha_a}*(1-{alpha_b}))");
+    let colour = format!("({}*{alpha_b}+{}*{alpha_a}*(1-{alpha_b}))/max({alpha},0.000001)", pick("b", &xb, &yb), pick("a", &xa, &ya));
+    format!("custom:expr='if(eq(PLANE,3),255*{alpha},{colour})'")
 }
 
 /// A text clip's placement: its own transform, plus fades from any transition on it.
@@ -976,24 +1048,34 @@ impl Graph<'_> {
                     output.push(format!("geq=r='{}':g='{}':b='{}':a='alpha(X,Y)'{enable}",rows[0],rows[1],rows[2]));
                 },
                 "keylight"|"linear-color-key"=>{
+                    // The preview's key (effectFilters.tsx), term for term: the matte is a linear
+                    // colour difference against the screen's channel, the picture is despilled by
+                    // pulling that channel toward the other two, and the matte multiplies alpha.
                     let color_str=p.get("screenColor").or_else(||p.get("keyColor")).and_then(|v|v.as_str()).unwrap_or("#00ff00");
                     let hex=color_str.trim_start_matches('#');
-                    let similarity=(n("screenGain",n("tolerance",30.0))/100.0).clamp(0.01,1.0);
-                    let blend=(n("screenBalance",n("softness",10.0))/100.0).clamp(0.0,1.0);
-                    output.push(format!("colorkey=0x{hex}:{similarity}:{blend}{enable}"));
-                    let despill_amount=n("despill",50.0);
-                    if despill_amount>0.0 {
-                        let is_blue=hex.len()==6&&&hex[4..6]>&hex[2..4]&&&hex[4..6]>&hex[0..2];
-                        let despill_type=if is_blue{"blue"}else{"green"};
-                        let mix=(despill_amount/100.0).clamp(0.0,1.0);
-                        output.push(format!("despill=type={despill_type}:mix={mix}{enable}"));
-                    }
+                    let channel=|range:std::ops::Range<usize>|hex.get(range).and_then(|h|u8::from_str_radix(h,16).ok()).map_or(0.0,|v|f64::from(v)/255.0);
+                    let (kr,kg,kb)=(channel(0..2),channel(2..4),channel(4..6));
+                    let gain=n("screenGain",n("tolerance",30.0)).max(1.0)/30.0;
+                    let balance=n("screenBalance",n("softness",10.0)).max(0.0)/100.0;
+                    let despill=(n("despill",50.0)/100.0).clamp(0.0,1.0);
+                    let blue=kb>kg&&kb>kr;
+                    let (half,keep)=(num(0.5*despill),num(1.0-despill));
+                    let (g,b)=if blue {
+                        ("g(X,Y)".to_owned(),format!("{half}*r(X,Y)+{half}*g(X,Y)+{keep}*b(X,Y)"))
+                    } else {
+                        (format!("{half}*r(X,Y)+{keep}*g(X,Y)+{half}*b(X,Y)"),"b(X,Y)".to_owned())
+                    };
+                    let (wr,wg,wb)=if blue {(1.5*gain,1.5*gain,-3.0*gain)} else {(1.5*gain,-3.0*gain,1.5*gain)};
+                    let matte=format!("clip(({}*r(X,Y)+{}*g(X,Y)+{}*b(X,Y))/255+{},0,1)",num(wr),num(wg),num(wb),num(1.0+balance));
+                    output.push(format!("geq=r='r(X,Y)':g='{g}':b='{b}':a='alpha(X,Y)*{matte}'{enable}"));
                 },
                 "extract"=>{
+                    // The preview's luma key: alpha × clamp((luma − black point) / softness).
                     let bp=n("blackPoint",25.0).clamp(0.0,255.0)/255.0;
-                    let tolerance=(n("softness",15.0)/100.0).clamp(0.01,1.0);
-                    let softness=(n("softness",15.0)/100.0).clamp(0.0,1.0);
-                    output.push(format!("lumakey=threshold={bp}:tolerance={tolerance}:softness={softness}{enable}"));
+                    let soft=(n("softness",15.0)/100.0).max(0.01);
+                    let invert=p["invert"].as_bool()==Some(true);
+                    let (slope,intercept)=if invert {(-1.0/soft,1.0+bp/soft)} else {(1.0/soft,-bp/soft)};
+                    output.push(format!("geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*clip((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255*{}+{},0,1)'{enable}",num(slope),num(intercept)));
                 },
                 _=>{},
             }

@@ -5,6 +5,7 @@ import type { MotionScene } from '../types';
 import { STAGE_LAB_SCENES } from './scenesStage';
 import { OVERLAY_LAB_SCENES } from './scenesOverlay';
 import { STORY_LAB_SCENES } from './scenesStory';
+import { BRAND_LAB_SCENES } from './scenesBrand';
 
 const ctx = { width: 1280, height: 720 };
 const talk = { path: 'talk.mp4', in: 0, matte: 'matte@29.97@72' };
@@ -14,6 +15,7 @@ export const LAB_SCENES: Record<string, () => MotionScene> = {
   ...STAGE_LAB_SCENES,
   ...OVERLAY_LAB_SCENES,
   ...STORY_LAB_SCENES,
+  ...BRAND_LAB_SCENES,
   orient: () => ({
     version: 1, width: 1280, height: 720, duration: 1, background: '#202020',
     layers: [

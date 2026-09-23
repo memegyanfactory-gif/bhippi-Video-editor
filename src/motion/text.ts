@@ -39,7 +39,23 @@ export type StrikeState = { x0: number; x1: number; y: number; progress: number;
 
 export type TextFrame = { width: number; height: number; glyphs: GlyphState[]; strikes: StrikeState[]; pad: number };
 
-export const fontString = (family: string, size: number, weight: number, italic: boolean) => `${italic ? 'italic ' : ''}${weight} ${Math.max(1, size).toFixed(2)}px ${family}`;
+const SERIF = /georgia|garamond|times|cambria|palatino|serif|playfair|merriweather|lora|baskerville/i;
+const MONO = /mono|code|consol|courier/i;
+/**
+ * A single family name becomes a stack with a fallback of the same kind, so a font the machine lacks
+ * falls back to a sans (or serif / mono) instead of the canvas default serif. Stacks pass through.
+ */
+export function familyStack(family: string): string {
+  if (family.includes(',')) return family;
+  const name = family.replace(/^["']|["']$/g, '').trim();
+  if (!name) return DEFAULT_FONT;
+  const quoted = `"${name}"`;
+  if (MONO.test(name)) return `${quoted}, "Cascadia Code", Consolas, monospace`;
+  if (SERIF.test(name) && !/sans/i.test(name)) return `${quoted}, Georgia, "Times New Roman", serif`;
+  return `${quoted}, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif`;
+}
+
+export const fontString = (family: string, size: number, weight: number, italic: boolean) => `${italic ? 'italic ' : ''}${weight} ${Math.max(1, size).toFixed(2)}px ${familyStack(family)}`;
 
 function formatCounter(value: number, decimals: number, separator: string, format: string): string {
   const fixed = Math.abs(value).toFixed(Math.max(0, decimals));
