@@ -72,6 +72,18 @@ the comp and moves, trims, hides, deletes, restacks or restyles any layer. A pre
   are unchanged.
 - **Limit.** A precomp's comp draws from its layers only while every picture in it is a layer
   clip. Otherwise it falls back to the scene stored on the precomp layer.
+- **When the split happens.** A single-clip comp is split the moment it becomes the timeline on
+  screen: from the bin, a double-click, an already-open tab, a project opening on it, or the
+  assistant.
+- **HTML graphics too.** "[MOGRT]" comps (`src/lib/htmlLayers.ts`) open the same way.
+  - **What becomes a layer:** every animated element (Crimson's `a` class), plate and line art,
+    plus any block that paints outside those. Layers are named after what they show; a root
+    background becomes "Background".
+  - **How a layer shows only itself:** each layer clip carries the whole graphic, and CSS scoped to
+    its own copy (`data-hl-show`) shows only its part. Clicking the part in the monitor selects
+    that clip.
+  - **Export:** an untouched graphic renders once, as a whole. A changed one renders layer by
+    layer.
 
 ## Safe area (`src/motion/safeArea.ts`)
 

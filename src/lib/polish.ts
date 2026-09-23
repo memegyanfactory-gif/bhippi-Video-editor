@@ -5,6 +5,7 @@
 // frame reads as blank: mostly flat white (a light stage covering everything), empty black, or one
 // flat colour.
 import { layerTitle, stackGroups } from './motionStack';
+import { htmlLayerInfo } from './htmlLayers';
 import { animated } from './keyframes';
 import { placement } from './editor';
 import { fileSrc } from './ipc';
@@ -117,7 +118,9 @@ export async function collectQaLayers(project: Project, assets: AssetMap, comp: 
     const to = clipEnd(clip);
     const name = clip.name ?? clip.id;
     if (clip.source.type === 'html') {
-      layers.push({ clipId: clip.id, name, kind: 'graphic', box: clip.source.box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
+      // The layers of one opened graphic are designed together, not a collision.
+      const stack = htmlLayerInfo(clip.source)?.stack;
+      layers.push({ clipId: stack ? `html:${stack}` : clip.id, ...(stack ? { group: `html:${stack}` } : {}), name, kind: 'graphic', box: clip.source.box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
     } else if (clip.source.type === 'text') {
       const box = textBox(clip, comp);
       if (box) layers.push({ clipId: clip.id, name: `${clip.source.preset} "${clip.source.text.slice(0, 24)}"`, kind: clip.source.preset === 'caption' ? 'caption' : 'text', box, from, to });

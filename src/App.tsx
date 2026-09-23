@@ -64,6 +64,7 @@ import {
   type AssetMap,
 } from './lib/timeline';
 import { isLayeredComp, splitMotionComps } from './lib/motionStack';
+import { isHtmlLayered, splitHtmlComp } from './lib/htmlLayers';
 import type { AppInfo, Asset, Clip, Comp, ExportOptions, HeliosDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase } from './lib/types';
 import { ProjectPanel, type DragPayload, type EffectPreset, type ProjectTab } from './panels/ProjectPanel';
 import { PropertiesPanel } from './panels/PropertiesPanel';
@@ -1096,18 +1097,28 @@ export default function App() {
   };
 
   const openComp = (compId: string) => {
-    // A "[Motion]" comp that still holds its scene as one clip opens as its layers, one clip per
-    // track, the way it draws already (one undo step; the clips that nest it are untouched).
-    const target = history.current().comps.find((entry) => entry.id === compId);
-    if (target?.name.startsWith('[Motion]') && !isLayeredComp(target)) {
-      const opened = splitMotionComps(history.current(), [compId]);
-      if (opened.split.length) history.commit(() => opened.project, 'Open Motion Layers');
-    }
     history.view((current) => ({ ...current, activeCompId: compId, openCompIds: current.openCompIds.includes(compId) ? current.openCompIds : [...current.openCompIds, compId] }));
     setSelection([]);
     playhead.seek(0);
     showPanel('timeline');
   };
+
+  // A motion comp that still holds its graphic as one clip opens as its layers — one clip per
+  // track, drawing exactly as before — however it became the timeline on screen: the bin, a
+  // double-click, a timeline tab that was already open, a project opening on it, the assistant.
+  // One undo step; the clips that nest it are untouched.
+  useEffect(() => {
+    const current = history.current();
+    const active = current.comps.find((entry) => entry.id === current.activeCompId);
+    if (!active) return;
+    if (active.name.startsWith('[Motion]') && !isLayeredComp(active)) {
+      const opened = splitMotionComps(current, [active.id]);
+      if (opened.split.length) history.commit(() => opened.project, 'Open Motion Layers');
+    } else if (active.name.startsWith('[MOGRT]') && !isHtmlLayered(active)) {
+      const opened = splitHtmlComp(current, active.id);
+      if (opened) history.commit(() => opened, 'Open Graphic Layers');
+    }
+  }, [project.activeCompId]);
 
   const closeComp = (compId: string) => {
     history.view((current) => {

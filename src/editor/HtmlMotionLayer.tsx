@@ -17,6 +17,7 @@ export function HtmlMotionLayer({
   clipDuration,
   stageW,
   stageH,
+  pick,
 }: {
   source: HtmlMotionSource;
   time: number;
@@ -24,6 +25,12 @@ export function HtmlMotionLayer({
   clipDuration: number;
   stageW: number;
   stageH: number;
+  /**
+   * One layer of an opened graphic (lib/htmlLayers.ts) on the top-level timeline: its own part
+   * takes the pointer and carries the clip id, so clicking the part selects this clip and the
+   * Motion handles wrap the part rather than the whole frame.
+   */
+  pick?: { clipId: string; layer: string };
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
@@ -77,6 +84,19 @@ export function HtmlMotionLayer({
       }
     };
   }, [source.js, source.html, clipDuration]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!pick || !container || pick.layer === 'rest') return;
+    const part = container.querySelector<HTMLElement>(`[data-hl="${pick.layer}"]`);
+    if (!part) return;
+    part.setAttribute('data-clip-id', pick.clipId);
+    part.style.pointerEvents = 'auto';
+    return () => {
+      part.removeAttribute('data-clip-id');
+      part.style.pointerEvents = '';
+    };
+  }, [pick?.clipId, pick?.layer, markup]);
 
   // Frame-accurate seek on every frame / playhead change
   useLayoutEffect(() => {

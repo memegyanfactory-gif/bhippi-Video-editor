@@ -18,6 +18,7 @@ import { mogrtCanvas, usesCompCanvas } from './motionGraphics';
 import { rbBackgroundFromName, rbBackgroundHtml } from './reactbits';
 import { REACT_BITS_TEMPLATE } from './rbx';
 import { clipEnd, compClocks } from './timeline';
+import { wholeGraphics } from './htmlLayers';
 import type { Clip, Comp, Project } from './types';
 
 type HtmlSource = Extract<Clip['source'], { type: 'html' }>;
@@ -219,18 +220,26 @@ export async function renderHtmlCompStill(comp: Comp, width = 480): Promise<stri
   }
 }
 
-export function htmlClipsForExport(project: Project, compId: string): { comp: Comp; clip: Clip; source: HtmlSource }[] {
+/**
+ * Every HTML picture an export of `compId` renders. An opened graphic nobody changed renders once
+ * as the whole graphic, on its first layer clip (`members` are the layer clips it stands for,
+ * switched off in the export copy); every other layer renders on its own.
+ */
+export function htmlClipsForExport(project: Project, compId: string): { comp: Comp; clip: Clip; source: HtmlSource; members?: string[] }[] {
   const seen = new Set<string>();
-  const out: { comp: Comp; clip: Clip; source: HtmlSource }[] = [];
+  const out: { comp: Comp; clip: Clip; source: HtmlSource; members?: string[] }[] = [];
   const visit = (id: string) => {
     if (seen.has(id)) return;
     seen.add(id);
     const comp = project.comps.find((c) => c.id === id);
     if (!comp) return;
+    const whole = wholeGraphics(comp);
+    const merged = new Set(whole.flatMap((entry) => entry.members.map((clip) => clip.id)));
+    for (const entry of whole) out.push({ comp, clip: entry.members[0], source: entry.source, members: entry.members.map((clip) => clip.id) });
     for (const clip of comp.clips) {
       if (!clip.enabled) continue;
       if (clip.source.type === 'comp') visit(clip.source.compId);
-      if (clip.source.type === 'html' && !clip.adjustment) out.push({ comp, clip, source: clip.source });
+      if (clip.source.type === 'html' && !clip.adjustment && !merged.has(clip.id)) out.push({ comp, clip, source: clip.source });
       const background = rbBackgroundSource(project, clip);
       if (background && !clip.adjustment) out.push({ comp, clip, source: background });
     }
@@ -282,6 +291,7 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
   if (!targets.length) return project;
   const rendered = new Map<string, RenderedFrames>();
   const sources = new Map(targets.map((target) => [target.clip.id, target.source]));
+  const merged = mergedMembers(targets);
   for (const [i, target] of targets.entries()) {
     const title = target.source.title ?? 'motion graphic';
     options.onItem?.(title, i + 1, targets.length, htmlFrameCount(target.clip, target.comp));
@@ -292,18 +302,25 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
     });
     rendered.set(target.clip.id, frames);
   }
-  return withHtmlRendered(project, sources, rendered);
+  return withHtmlRendered(project, sources, rendered, merged);
 }
 
-function withHtmlRendered(project: Project, sources: Map<string, HtmlSource>, rendered: Map<string, RenderedFrames>): Project {
+/** The layer clips a whole-graphic target stands for, other than the one that carries it. */
+function mergedMembers(targets: { clip: Clip; members?: string[] }[]): Set<string> {
+  return new Set(targets.flatMap((target) => (target.members ?? []).filter((id) => id !== target.clip.id)));
+}
+
+function withHtmlRendered(project: Project, sources: Map<string, HtmlSource>, rendered: Map<string, RenderedFrames>, merged = new Set<string>()): Project {
   return {
     ...project,
     comps: project.comps.map((comp) => ({
       ...comp,
       clips: comp.clips.map((clip) => {
+        if (merged.has(clip.id)) return { ...clip, enabled: false };
         const frames = rendered.get(clip.id);
         if (!frames) return clip;
-        if (clip.source.type === 'html') return { ...clip, source: { ...clip.source, frames } };
+        // The carrier of a whole graphic draws the graphic, not just its own layer.
+        if (clip.source.type === 'html') return { ...clip, source: { ...(sources.get(clip.id) ?? clip.source), frames } };
         const source = sources.get(clip.id);
         return source && clip.source.type === 'item' ? asRenderedBackground(clip, source, frames) : clip;
       }),
@@ -323,6 +340,7 @@ export async function renderHtmlStill(project: Project, compId: string, times: n
   for (const time of times) for (const [id, list] of compClocks(project, compId, time)) clocks.set(id, [...(clocks.get(id) ?? []), ...list]);
   const rendered = new Map<string, RenderedFrames>();
   const sources = new Map(targets.map((target) => [target.clip.id, target.source]));
+  const merged = mergedMembers(targets);
   for (const target of targets) {
     const clip = target.clip;
     const fps = Math.min(target.comp.fps, 30);
@@ -342,5 +360,5 @@ export async function renderHtmlStill(project: Project, compId: string, times: n
     }
     rendered.set(clip.id, { dir, fps, frames: Math.max(...indices) + 1, width: mounted.canvas.width, height: mounted.canvas.height });
   }
-  return withHtmlRendered(project, sources, rendered);
+  return withHtmlRendered(project, sources, rendered, merged);
 }

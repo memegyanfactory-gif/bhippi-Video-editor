@@ -20,6 +20,7 @@ import { RotoPreview } from './RotoPreview';
 import { HtmlMotionLayer } from './HtmlMotionLayer';
 import { MotionLayer, sceneLayerBoxes } from './MotionLayer';
 import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../lib/motionStack';
+import { htmlLayerInfo } from '../lib/htmlLayers';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 
 /** What the webview should load for an asset: its preview proxy when one exists. */
@@ -486,9 +487,12 @@ function Layer(props: LayerProps) {
       return wrapper(<ShapePicture clip={clip} />, box, width, height);
     }
     case 'html': {
+      // One layer of an opened graphic: only its own part is hit-tested (see HtmlMotionLayer's pick).
+      const part = htmlLayerInfo(clip.source)?.layer;
+      const own = depth === 0 && part !== undefined;
       return (
-        <div className="layer html-motion-layer" data-clip-id={depth === 0 ? clip.id : undefined}
-          style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden }}>
+        <div className="layer html-motion-layer" data-clip-id={depth === 0 && !own ? clip.id : undefined}
+          style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden, ...(own ? { pointerEvents: 'none' as const } : {}) }}>
           <HtmlMotionLayer
             source={clip.source}
             time={Math.min(time, clipEnd(clip) - 1e-3)}
@@ -496,6 +500,7 @@ function Layer(props: LayerProps) {
             clipDuration={clip.duration}
             stageW={stageW}
             stageH={stageH}
+            pick={own ? { clipId: clip.id, layer: part } : undefined}
           />
         </div>
       );
