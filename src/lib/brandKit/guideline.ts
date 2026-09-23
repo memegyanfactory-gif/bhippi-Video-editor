@@ -491,7 +491,7 @@ function refinementsOf(kit: BrandKit, derived: BrandGuideline): Refinements | nu
   const lists = { moves: changed(g.moves, derived.moves), layouts: changed(g.layouts, derived.layouts), recipes: changed(g.recipes, derived.recipes) };
   const lines = (v: unknown) => (Array.isArray(v) ? texts(v) : undefined);
   return {
-    ...(unlike({ summary: valid(g, ['summary'] as const, isText).summary, color: colorFields(g.color), motion: motionFields(g.motion), dos: lines(g.dos), donts: lines(g.donts) }, derived) as Partial<Refinements>),
+    ...(unlike({ summary: isText(g.summary) ? g.summary : undefined, color: colorFields(g.color), motion: motionFields(g.motion), dos: lines(g.dos), donts: lines(g.donts) }, derived) as Partial<Refinements>),
     ...Object.fromEntries(Object.entries(lists).filter(([, items]) => items.length)),
     version: 1,
     source: g.source === 'edited' ? 'edited' : 'ai',
@@ -501,8 +501,8 @@ function refinementsOf(kit: BrandKit, derived: BrandGuideline): Refinements | nu
 
 /** The kit with a guideline an older Helios saved whole cut down to its refinements; any other kit as it is. */
 export function compactGuideline(kit: BrandKit): BrandKit {
-  if (!isObject(kit.guideline) || !Array.isArray(kit.guideline.typeScale)) return kit;
-  return { ...kit, guideline: refinementsOf(kit, deriveGuideline(kit)) as unknown as BrandGuideline | null };
+  if (!isObject(kit.guideline) || kit.guideline.source === 'derived' || !Array.isArray(kit.guideline.typeScale)) return kit;
+  return { ...kit, guideline: refinementsOf(kit, deriveGuideline(kit)) as unknown as BrandGuideline };
 }
 
 /**

@@ -264,6 +264,7 @@ impl FenceFilter {
         let mut visible = String::new();
         let opener = format!("```{FENCE}");
         loop {
+            // Invented results after the model's own block: the rest was planned from them.
             if self.echo && self.planned {
                 self.pending.clear();
                 return visible;
