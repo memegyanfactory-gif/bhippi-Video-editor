@@ -20,6 +20,7 @@ import {
 import type { Asset, Clip, ClipSource, Comp, Project, Tool, Track, Transition } from '../lib/types';
 import { ClipWave } from './ClipWave';
 import { CacheBar } from './CacheBar';
+import { isLayerClip, ownLayers } from '../lib/motionStack';
 
 /** Width of the track-head column. The CSS reads it as --tl-head (set on the scroll area). */
 export const HEAD = 150;
@@ -796,6 +797,11 @@ export function Timeline(props: Props) {
         onDoubleClick={() => {
           if (clip.source.type === 'comp') props.onOpenComp(clip.source.compId);
           else if (clip.source.type === 'media') props.onOpenInSource(clip.source.assetId, { in: clip.in, out: clip.in + clip.duration * clip.speed });
+          else if (isLayerClip(clip)) {
+            // A precomp layer ("Shot as card") opens its own layered comp, like a nested comp clip.
+            const precomp = ownLayers(clip.source.scene).find((layer) => layer.type === 'precomp' && layer.comp);
+            if (precomp?.type === 'precomp' && precomp.comp && project.comps.some((entry) => entry.id === precomp.comp)) props.onOpenComp(precomp.comp);
+          }
         }}
         title={title}
       >

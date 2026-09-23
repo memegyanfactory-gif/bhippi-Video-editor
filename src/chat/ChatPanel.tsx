@@ -1,7 +1,7 @@
 import { modelVariants, variantModel } from '../lib/modelVariants';
 import { speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Paperclip, RotateCcw, X } from 'lucide-react';
+import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Paperclip, RotateCcw, Wand2, X } from 'lucide-react';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { ModelPicker } from '../components/ModelPicker';
@@ -82,7 +82,7 @@ export function retryNote(message: Pick<Assistant, 'content' | 'steps'>, runs: r
     : undefined;
 }
 
-export type ChatApi = { clear: () => void; focus: () => void; send: (text: string) => void; /** Replaces the transcript (opening a .helios that carries one). */ load: (messages: unknown[]) => void };
+export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .helios that carries one). */ load: (messages: unknown[]) => void };
 
 type Props = {
   apiRef: RefObject<ChatApi | null>;
@@ -132,6 +132,8 @@ type Props = {
   canRevert: (turnId: string) => boolean;
   /** The production phase dock, docked low right above the composer rather than the transcript. */
   productionBar?: ReactNode;
+  /** The polish pass (frame QA and fixes over the whole timeline, or the in/out selection); absent when there is nothing to polish. */
+  onPolish?: () => void;
 };
 
 
@@ -279,7 +281,7 @@ export function ChatPanel(props: Props) {
   const turnMeta = useRef(new Map<string, { provider: string; model: string | null; prompt: string }>());
 
   const streaming = messages.some((message) => message.role === 'assistant' && message.status === 'streaming');
-  const sendRef = useRef<(text: string) => void>(() => undefined);
+  const sendRef = useRef<(text: string, mode?: 'full' | 'quick') => void>(() => undefined);
   const [workflowMode, setWorkflowMode] = useState<'full' | 'quick'>('full');
   const active = props.providers.find((provider) => provider.id === props.providerId);
   /** The chosen model's sizes (Flash-Lite · Flash · Pro…), for the speed rail. */
@@ -598,7 +600,8 @@ export function ChatPanel(props: Props) {
     return () => window.clearTimeout(handle);
   }, [launch]);
 
-  const send = async (text: string, hiddenExtra?: string) => {
+  const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick') => {
+    const mode = modeOverride ?? workflowMode;
     const sentImages=[...imagesRef.current];
     const message = text.trim() || (sentImages.length ? 'Please inspect the attached images.' : '');
     if (!message) return;
@@ -613,7 +616,7 @@ export function ChatPanel(props: Props) {
     const providerModels=propsRef.current.providers.find(p=>p.id===providerId)?.models||[];
     const model=variantModel(providerModels,propsRef.current.model,propsRef.current.effort);
     const turnId = uid();
-    propsRef.current.onStartWorkflow(turnId, workflowMode);
+    propsRef.current.onStartWorkflow(turnId, mode);
     const history = historyFor(messages, providerId, model);
     // Who the new model is relieving, read straight off the transcript — so a cleared chat has
     // nobody to hand over from and starts clean.
@@ -632,7 +635,7 @@ export function ChatPanel(props: Props) {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
-      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), editingWorkflow: workflowMode, workflowInstruction: 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.' } });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), editingWorkflow: mode, workflowInstruction: 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.' } });
       setImages([]);
     } catch (error) {
       actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
@@ -728,8 +731,8 @@ export function ChatPanel(props: Props) {
     props.onChooseModel(nextProvider, nextModel);
   };
 
-  props.apiRef.current = { clear, focus: () => inputRef.current?.focus(), send: (text: string) => sendRef.current(text), load: loadTranscript };
-  sendRef.current = (text: string) => void send(text);
+  props.apiRef.current = { clear, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript };
+  sendRef.current = (text: string, mode?: 'full' | 'quick') => void send(text, undefined, mode);
 
   // A message typed mid-turn waits here, then goes by itself.
   useEffect(() => {
@@ -1148,6 +1151,7 @@ export function ChatPanel(props: Props) {
           aria-label="Message Helios AI"
         />
         <div className="composer-bar"><button type="button" className="icon-btn" aria-label="Attach images" title="Attach images" onClick={()=>imageInput.current?.click()}><Paperclip size={15}/></button>
+          {props.onPolish && <button type="button" className="icon-btn" aria-label="Polish the edit" title="Polish — check every frame (off-frame panels, blank or white frames, black edges, overlaps) and fix it: the whole timeline, or the in/out selection when one is set" disabled={streaming} onClick={props.onPolish}><Wand2 size={15}/></button>}
           <ModelPicker
             providers={props.providers.filter((provider) => provider.usable && provider.enabled)}
             providerId={props.providerId}

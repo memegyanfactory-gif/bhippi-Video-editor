@@ -191,6 +191,12 @@ export const vec = (prop: Prop<Vec> | Prop<number | Vec> | undefined, t: number,
   return [...value, ...fallback.slice(value.length)];
 };
 
+/** A layer's own clock at scene time `t` (its Start Time and Time Stretch, see types.ts). */
+export function layerTime(layer: { startTime?: number; timeScale?: number }, t: number): number {
+  if (layer.startTime === undefined && layer.timeScale === undefined) return t;
+  return (t - (layer.startTime ?? 0)) * (layer.timeScale ?? 1);
+}
+
 /** Every key time used by a prop (for UI markers and for tests). */
 export function keyTimes(prop: Prop<number | Vec> | undefined): number[] {
   if (isAnimated(prop)) return prop.k.map((key) => key.t);

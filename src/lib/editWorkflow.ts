@@ -109,6 +109,9 @@ const preparation = new Set([
   'run_command',
   'bash',
   'download_online_media',
+  // Bringing files into the bin never touches the timeline: it must not wait on transcription.
+  'import_media',
+  'organize_bin',
   'create_project_guideline',
   'create_folder',
   'get_project',
@@ -317,13 +320,26 @@ export class EditWorkflow {
     // A production carries the planning turn's receipts forward. They only count while the
     // timeline is exactly what was analysed; any cut since then means a fresh look.
     const receipts = comp?.production?.receipts;
-    if (comp && receipts && receipts.fingerprint === timing(comp)) {
+    // What was said in a file does not change when the timeline is cut: transcripts (kept per
+    // asset) and the model check carry over whatever happened since.
+    if (comp && receipts) {
       for (const id of receipts.transcribed) this.transcripts.add(id);
-      for (const source of this.sources) for (const frame of receipts.framesSeen[source.clipId] ?? []) source.seen.add(frame);
       this.capabilities = receipts.capabilities;
+    }
+    if (comp && receipts && receipts.fingerprint === timing(comp)) {
+      for (const source of this.sources) for (const frame of receipts.framesSeen[source.clipId] ?? []) source.seen.add(frame);
       if (receipts.planned) this.planned = timing(comp);
       this.inspected = timing(comp);
     }
+  }
+  /**
+   * Whether the production is past planning and gathering with its analysis on record: the plan
+   * was made from transcribed, scanned footage, so later turns edit and polish without scanning
+   * every clip again (they still read the timeline first).
+   */
+  private producing(comp: Comp | undefined): boolean {
+    const production = comp?.production;
+    return !!production?.receipts && (production.phase === 'editing' || production.phase === 'polishing' || production.phase === 'done');
   }
   /** The receipts worth stamping on the production when a plan is saved. */
   receipts(project: Project): WorkflowReceipts | null {
@@ -384,6 +400,10 @@ export class EditWorkflow {
     if (clipIds.some(id => !comp.clips.some(c => c.id === id))) return 'All edited clips must belong to the workflow composition.';
     const state = this.status(project);
     if (!state.timelineRead) return 'Read the current timeline with get_comp before editing or planning. Timing changed or has not been inspected.';
+    if (this.producing(comp)) {
+      if (name.startsWith('mcp__')) return 'External tools cannot bypass this workflow. Use the native editing tools, or select Quick edit for a separate explicitly scoped task.';
+      return null;
+    }
     if (state.transcriptPending.length) {
       const shown = state.transcriptPending.slice(0, 4).map(id => `analyze_clip_speech {"clipId":"${id}"}`).join(' then ');
       const more = state.transcriptPending.length > 4 ? ` plus ${state.transcriptPending.length - 4} more clip(s) from editing_workflow_status` : '';
@@ -586,14 +606,22 @@ export class EditWorkflow {
     if (phase === 'plan-ready' || phase === 'gathering' || phase === 'gathered') return { ok: false, error: `Nothing to verify yet: the production is in the ${phase} phase. verify_edit_workflow belongs to the end of the editing phase, after the user has pressed Start editing and the timeline is assembled.` };
     if (this.mode === 'full' && (phase === 'editing' || phase === 'polishing') && !status.qaCurrent) return { ok: false, error: `Polish pass missing: call run_frame_qa after your last edit (it reports every graphic or caption overlapping the subject or another graphic, with contact sheets), fix what it finds, run it again until it is clear, then verify. ${JSON.stringify({ phase, actions: status.successfulActions.length })}` };
     if (status.blueprintActive) return { ok: false, error: `Workflow incomplete: blueprint saved but not executed. Gather all assets, call execute_blueprint, then assemble. ${JSON.stringify(status)}` };
-    const planOk = status.storyboardCurrent || status.blueprintExecuted || status.blueprintPlan;
-    if (this.mode === 'full' && (!status.timelineRead || !status.finalTimelineRead || !planOk || status.transcriptPending.length || status.frameReviewPending.length || status.pendingJobs.length || status.pendingPlacement.length)) return { ok: false, error: `Workflow incomplete: ${JSON.stringify(status)}. Finish or explicitly report blocked work; do not claim completion.` };
+    const producing = this.producing(comp);
+    const planOk = status.storyboardCurrent || status.blueprintExecuted || status.blueprintPlan || (producing && !!comp?.storyboard?.length);
+    const analysed = producing || (!status.transcriptPending.length && !status.frameReviewPending.length);
+    if (this.mode === 'full' && (!status.timelineRead || !status.finalTimelineRead || !planOk || !analysed || status.pendingJobs.length || status.pendingPlacement.length)) return { ok: false, error: `Workflow incomplete: ${JSON.stringify(status)}. Finish or explicitly report blocked work; do not claim completion.` };
     const needsPro = this.mode === 'full' && !!comp?.clips.some(c => c.enabled && c.source.type === 'media');
+    // A later turn of a production being edited (a fix, the polish pass) is judged on the timeline
+    // it leaves, not on what it did itself: the graphics and the sound design are already there.
+    const onTimeline = producing && comp ? {
+      visual: comp.clips.some(c => c.enabled && (c.source.type === 'comp' || c.source.type === 'motion' || c.source.type === 'html' || c.source.type === 'text' || !!c.rotoMatte)),
+      sound: comp.clips.some(c => c.enabled && c.source.type === 'sfx') || comp.tracks.filter(t => t.kind === 'audio' && comp.clips.some(c => c.enabled && c.trackId === t.id)).length > 1,
+    } : null;
     if (needsPro) {
       if (!status.capabilitiesChecked) return { ok: false, error: `Pro pass missing: local image/video/audio/depth models were never checked. Call local_media_capabilities, then run the planned roto/depth/generation work or report the blocker. ${JSON.stringify(status)}` };
-      if (!status.proVisualPass) return { ok: false, error: `Pro visual pass missing: no motion graphics, roto/depth matte, or generated media placed. Add kinetic/title/lower-third motion graphics, isolate a subject (rotoscope_clip/depth_occlusion_clip) and layer text behind it, or generate+import+place a storyboard asset — or report the blocker. ${JSON.stringify(status)}` };
-      if (!status.soundPass) return { ok: false, error: `Sound pass missing: no shaped music/SFX. Lay the music bed, shape it with score_audio_clip (duck under dialogue, swell on beats), add whoosh/impact/riser accents — or report the blocker. ${JSON.stringify(status)}` };
-      if (!status.storyboardRefs && !status.blueprintExecuted && !status.blueprintPlan) return { ok: false, error: `Storyboard has no visual references: generate 1+ reference stills (local image model), import them, and attach their asset IDs as refs on the relevant scenes — or report the blocker. ${JSON.stringify(status)}` };
+      if (!status.proVisualPass && !onTimeline?.visual) return { ok: false, error: `Pro visual pass missing: no motion graphics, roto/depth matte, or generated media placed. Add kinetic/title/lower-third motion graphics, isolate a subject (rotoscope_clip/depth_occlusion_clip) and layer text behind it, or generate+import+place a storyboard asset — or report the blocker. ${JSON.stringify(status)}` };
+      if (!status.soundPass && !onTimeline?.sound) return { ok: false, error: `Sound pass missing: no shaped music/SFX. Lay the music bed, shape it with score_audio_clip (duck under dialogue, swell on beats), add whoosh/impact/riser accents — or report the blocker. ${JSON.stringify(status)}` };
+      if (!status.storyboardRefs && !status.blueprintExecuted && !status.blueprintPlan && !onTimeline) return { ok: false, error: `Storyboard has no visual references: generate 1+ reference stills (local image model), import them, and attach their asset IDs as refs on the relevant scenes — or report the blocker. ${JSON.stringify(status)}` };
     }
     if (!comp || comp.clips.some(c => !comp.tracks.some(t => t.id === c.trackId) || !Number.isFinite(c.start) || !Number.isFinite(c.duration) || c.start < 0 || c.duration <= 0)) return { ok: false, error: 'Timeline contains invalid clip timing or missing tracks.' };
     // Picture scaled down, moved or cropped with nothing behind it renders black at the edges.

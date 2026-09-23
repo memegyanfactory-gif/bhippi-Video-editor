@@ -253,12 +253,8 @@ export class MotionRenderer {
     return placed;
   }
 
-  /** Renders `scene` at scene time `t` into a new target of (width × height) × scale. */
-  renderScene(scene: MotionScene, t: number, scale: number, depth = 0, options: { fps?: number; motionBlur?: boolean } = {}): Target {
-    const gl = this.gl;
-    const fps = options.fps ?? 30;
-    const W = Math.max(1, Math.round(scene.width * scale));
-    const H = Math.max(1, Math.round(scene.height * scale));
+  /** Layer sizes and default anchors as the renderer lays the layers out (text is measured). */
+  private layout(scene: MotionScene) {
     const sizeOf = (layer: Layer, time: number): [number, number] => {
       if (layer.type === 'text') {
         // Layer space is the unpadded text block: the animation padding lives only in the quad,
@@ -273,7 +269,21 @@ export class MotionRenderer {
       if (layer.type !== 'text' || !layer.text.align || layer.text.align === 'center') return null;
       return [layer.text.align === 'left' ? 0 : size[0], size[1] / 2, 0];
     };
-    const frame = evaluateScene(scene, t, { sizeOf, anchorOf, fps, motionBlur: options.motionBlur !== false });
+    return { sizeOf, anchorOf };
+  }
+
+  /** The scene resolved at `t` the way `renderScene` lays it out (measured text): for hit boxes, handles and layout checks. */
+  evaluate(scene: MotionScene, t: number, fps = 30): ResolvedFrame {
+    return evaluateScene(scene, t, { ...this.layout(scene), fps, motionBlur: false });
+  }
+
+  /** Renders `scene` at scene time `t` into a new target of (width × height) × scale. */
+  renderScene(scene: MotionScene, t: number, scale: number, depth = 0, options: { fps?: number; motionBlur?: boolean } = {}): Target {
+    const gl = this.gl;
+    const fps = options.fps ?? 30;
+    const W = Math.max(1, Math.round(scene.width * scale));
+    const H = Math.max(1, Math.round(scene.height * scale));
+    const frame = evaluateScene(scene, t, { ...this.layout(scene), fps, motionBlur: options.motionBlur !== false });
     let acc = gl.acquire(W, H);
     if (scene.background) {
       const c = parseColor(scene.background);
@@ -284,7 +294,7 @@ export class MotionRenderer {
       const L = frame.layers[index];
       const layer = L.layer;
       if (!L.active || L.opacity <= 0) continue;
-      if (layer.hidden || (matteSources.has(layer.id) && layer.hidden !== false)) continue;
+      if (layer.hidden || layer.ref || (matteSources.has(layer.id) && layer.hidden !== false)) continue;
 
       if (layer.adjustment) {
         acc = this.adjust(scene, frame, L, acc, scale, W, H, depth, fps);

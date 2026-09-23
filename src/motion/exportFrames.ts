@@ -2,7 +2,9 @@
 // to its frame, every matte frame loaded), to a PNG sequence with alpha that the FFmpeg exporter
 // overlays like an HTML graphic's frames. Same renderer as the preview.
 import { api } from '../lib/ipc';
+import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../lib/motionStack';
 import { openFrameWriter, type FrameWriter } from '../lib/pngEncoder';
+import { clipEnd, compClocks, newClip } from '../lib/timeline';
 import type { Asset, Clip, Comp, Project } from '../lib/types';
 import { MotionRenderer } from './gl/renderer';
 import { editorMediaHost } from './host';
@@ -60,25 +62,92 @@ export async function renderMotionClipFrames(source: MotionSource, clip: Clip, c
 /** Frames a motion clip renders to at export. */
 export const motionFrameCount = (clip: Pick<Clip, 'duration'>, comp: Pick<Comp, 'fps'>) => Math.max(1, Math.round(clip.duration * Math.min(60, Math.max(1, comp.fps))));
 
-export function motionClipsForExport(project: Project, compId: string): { comp: Comp; clip: Clip; source: MotionSource }[] {
+/**
+ * One motion picture an export renders: a fused layer stack as one stand-in clip on its bottom
+ * track (`members` are the layer clips it stands for), or a motion clip that draws on its own.
+ */
+export type MotionTarget = { comp: Comp; clip: Clip; source: MotionSource; members: string[] };
+
+/** A layered stack's stand-in: comp time is scene time, so it starts where the stack does and reads from there. */
+function carrierClip(group: StackGroup): Clip {
+  const names = group.clips.map((clip) => clip.name ?? '').filter(Boolean);
+  return newClip({
+    id: `stack_${group.clips[0].id}`,
+    trackId: group.trackIds[0],
+    start: group.start,
+    in: group.start,
+    duration: Math.max(1e-3, group.end - group.start),
+    source: { type: 'motion', scene: group.scene, title: names.length > 1 ? `${names[0]} + ${names.length - 1} layers` : names[0] || 'Motion layers' },
+    name: 'Motion layers',
+  });
+}
+
+/** A layer clip drawing on its own has its Motion properties baked into its scene: the exporter must not move it again. */
+function restingClip(clip: Clip): Clip {
+  return {
+    ...clip,
+    transform: { ...clip.transform, x: 0, y: 0, scale: 100, rotation: 0, opacity: 100 },
+    keyframes: { ...clip.keyframes, x: [], y: [], scale: [], rotation: [], opacity: [] },
+  };
+}
+
+export function motionClipsForExport(project: Project, compId: string): MotionTarget[] {
   const seen = new Set<string>();
-  const out: { comp: Comp; clip: Clip; source: MotionSource }[] = [];
+  const out: MotionTarget[] = [];
   const visit = (id: string) => {
     if (seen.has(id)) return;
     seen.add(id);
     const comp = project.comps.find((c) => c.id === id);
     if (!comp) return;
+    const groups = stackGroups(project, comp);
+    const grouped = new Set(groups.flatMap((group) => group.clips.map((clip) => clip.id)));
+    for (const group of groups) {
+      const clip = carrierClip(group);
+      out.push({ comp, clip, source: clip.source as MotionSource, members: group.clips.map((member) => member.id) });
+    }
     for (const clip of comp.clips) {
       if (!clip.enabled) continue;
       if (clip.source.type === 'comp') visit(clip.source.compId);
-      if (clip.source.type === 'motion' && !clip.adjustment) out.push({ comp, clip, source: clip.source });
+      if (clip.source.type === 'motion' && !clip.adjustment && !grouped.has(clip.id)) {
+        const scene = standaloneScene(project, clip) ?? clip.source.scene;
+        out.push({ comp, clip: isLayerClip(clip) ? restingClip(clip) : clip, source: { ...clip.source, scene }, members: [clip.id] });
+      }
     }
   };
   visit(compId);
   return out;
 }
 
-/** A copy of the project whose motion clips carry rendered frame sequences. */
+/**
+ * The project as the FFmpeg exporter takes it: every motion picture carries its rendered frames,
+ * and each fused layer stack is one clip (its layer clips switched off in this copy).
+ */
+function withRendered(project: Project, targets: MotionTarget[], rendered: Map<string, RenderedFrames>): Project {
+  const byComp = new Map<string, MotionTarget[]>();
+  for (const target of targets) byComp.set(target.comp.id, [...(byComp.get(target.comp.id) ?? []), target]);
+  return {
+    ...project,
+    comps: project.comps.map((comp) => {
+      const mine = byComp.get(comp.id);
+      if (!mine) return comp;
+      const replaced = new Map<string, Clip>();
+      const off = new Set<string>();
+      const carriers: Clip[] = [];
+      for (const target of mine) {
+        const frames = rendered.get(target.clip.id);
+        const clip = { ...target.clip, source: { ...target.source, ...(frames ? { frames } : {}) } };
+        if (target.members.length === 1 && target.members[0] === target.clip.id) replaced.set(target.clip.id, clip);
+        else {
+          for (const id of target.members) off.add(id);
+          carriers.push(clip);
+        }
+      }
+      return { ...comp, clips: [...comp.clips.map((clip) => replaced.get(clip.id) ?? (off.has(clip.id) ? { ...clip, enabled: false } : clip)), ...carriers] };
+    }),
+  };
+}
+
+/** A copy of the project whose motion pictures carry rendered frame sequences. */
 export async function renderMotionScenesForExport(project: Project, compId: string, assets: Asset[], options: { signal?: AbortSignal; onProgress?: (message: string) => void; onItem?: (title: string, index: number, count: number, frames: number) => void; onFrame?: (done: number, total: number) => void; onCanvas?: (canvas: OffscreenCanvas | HTMLCanvasElement) => void } = {}): Promise<Project> {
   const targets = motionClipsForExport(project, compId);
   if (!targets.length) return project;
@@ -92,11 +161,48 @@ export async function renderMotionScenesForExport(project: Project, compId: stri
       onProgress: (done, total) => { options.onFrame?.(done, total); options.onProgress?.(`Rendering ${title} (${i + 1}/${targets.length}) · ${done}/${total} frames`); },
     }));
   }
-  return {
-    ...project,
-    comps: project.comps.map((comp) => ({
-      ...comp,
-      clips: comp.clips.map((clip) => (clip.source.type === 'motion' && rendered.has(clip.id) ? { ...clip, source: { ...clip.source, frames: rendered.get(clip.id) } } : clip)),
-    })),
-  };
+  return withRendered(project, targets, rendered);
+}
+
+/**
+ * The project with every motion picture on screen at `times` of `compId` (nested comps followed
+ * down) carrying just the frames those moments need, so single-frame exports — the QA contact
+ * sheet, storyboard cards — show the motion graphics instead of leaving them out.
+ */
+export async function renderMotionStill(project: Project, compId: string, times: number[], assets: Asset[]): Promise<Project> {
+  const targets = motionClipsForExport(project, compId);
+  if (!targets.length || !times.length) return project;
+  const clocks = new Map<string, number[]>();
+  for (const time of times) for (const [id, list] of compClocks(project, compId, time)) clocks.set(id, [...(clocks.get(id) ?? []), ...list]);
+  const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : document.createElement('canvas');
+  const renderer = new MotionRenderer(canvas, editorMediaHost(assets, 'export'));
+  const rendered = new Map<string, RenderedFrames>();
+  try {
+    for (const target of targets) {
+      const clip = target.clip;
+      const fps = Math.min(60, Math.max(1, target.comp.fps));
+      // The exporter reads frame round(τ·fps) of the sequence: those files are all it needs.
+      const indices = [...new Set((clocks.get(target.comp.id) ?? []).filter((at) => at >= clip.start && at < clipEnd(clip)).map((at) => Math.max(0, Math.round((at - clip.start) * fps))))];
+      if (!indices.length) continue;
+      const scene = target.source.scene;
+      const dir = await api.mogrtFramesBegin(`${clip.id}-still`);
+      const writer = await openFrameWriter(dir, () => undefined);
+      try {
+        for (const index of indices) {
+          const local = index / fps;
+          const sceneTime = Math.max(0, Math.min(scene.duration - 1e-3, clip.hold !== null ? clip.hold : clip.in + (clip.reverse ? clip.duration - local : local) * clip.speed));
+          await renderer.bank.prepareExact(scene, sceneTime);
+          const px = renderer.pixels(scene, sceneTime, { scale: 1, fps, motionBlur: true });
+          await writer.pixels(index, px.width, px.height, px.data);
+        }
+        await writer.finish();
+      } finally {
+        await writer.close();
+      }
+      rendered.set(clip.id, { dir, fps, frames: Math.max(...indices) + 1, width: scene.width, height: scene.height });
+    }
+  } finally {
+    renderer.dispose();
+  }
+  return withRendered(project, targets, rendered);
 }

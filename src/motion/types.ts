@@ -231,6 +231,25 @@ type LayerCommon = {
   adjustment?: boolean;
   /** Free-form notes the AI can use to explain intent. */
   note?: string;
+  /**
+   * AE's Start Time and Time Stretch: the layer's own clock is `(t − startTime) × timeScale`, so its
+   * keyframes, text, footage and effects play from there. In/out stay in scene time. A layered
+   * motion comp (lib/motionStack.ts) sets both from where the layer's clip sits and how fast it runs.
+   */
+  startTime?: number;
+  timeScale?: number;
+  /**
+   * The clip transform of a layered motion comp's layer clip, applied after everything else, in
+   * canvas pixels around the canvas centre: what moving, scaling or fading the clip on the timeline
+   * does to the layer (keyed on scene time). Children do not inherit it.
+   */
+  frame?: { offset?: Prop<Vec>; scale?: Prop<number>; rotation?: Prop<number>; opacity?: Prop<number> };
+  /**
+   * A copy of a layer that lives in another clip of the same layered comp, kept (hidden) so this
+   * clip still renders right on its own: a parent, a matte source or the camera. The stack drops it
+   * when it renders the whole comp as one scene.
+   */
+  ref?: boolean;
 };
 
 export type Layer = LayerCommon & (
@@ -241,7 +260,7 @@ export type Layer = LayerCommon & (
   | { type: 'text'; text: TextLayerData }
   | { type: 'null' }
   | { type: 'camera'; zoom?: Prop<number>; pointOfInterest?: Prop<Vec>; focus?: Prop<number>; aperture?: Prop<number> }
-  | { type: 'precomp'; scene: MotionScene; /** Scene seconds at which the precomp's time 0 plays. */ offset?: number; speed?: number }
+  | { type: 'precomp'; scene: MotionScene; /** Scene seconds at which the precomp's time 0 plays. */ offset?: number; speed?: number; /** A layered motion comp that holds this precomp's layers; when present it replaces `scene` (which stays as the fallback). */ comp?: string }
 );
 
 export type LayerType = Layer['type'];
@@ -263,4 +282,10 @@ export type MotionScene = {
   template?: { id: string; params: Record<string, unknown> };
   /** The brand kit the scene was put in (src/motion/kit/brandify.ts), with the snapshot it used, so rebuilds stay on brand. */
   brand?: { kitId: string; name: string; snapshot: MotionBrand };
+  /**
+   * Set on the scene of one layer clip of a layered motion comp (lib/motionStack.ts): `own` lists
+   * the layer(s) this clip is; every other layer in it is a hidden `ref` copy. `id` ties together
+   * the clips opened from one scene.
+   */
+  stack?: { id: string; own: string[] };
 };

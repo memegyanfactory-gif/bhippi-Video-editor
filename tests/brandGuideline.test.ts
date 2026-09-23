@@ -14,7 +14,8 @@ import { brandFromPage, systemFontFor } from '../src/lib/brandKit/fromWebsite';
 import { complianceReport } from '../src/lib/brandKitTools';
 import { runMotionTool, type MotionToolContext } from '../src/lib/motionTools';
 import { newProject, updateComp } from '../src/lib/timeline';
-import type { Project } from '../src/lib/types';
+import { logicalScene } from '../src/lib/motionStack';
+import type { Project, ToolResult } from '../src/lib/types';
 import { MOTION_TEMPLATES, findTemplate } from '../src/motion/kit';
 import { brandColour, brandifyScene, buildInBrand } from '../src/motion/kit/brandify';
 import { validateScene } from '../src/motion/validate';
@@ -258,9 +259,10 @@ describe('create_motion_scene with a brand kit', () => {
     } as unknown as MotionToolContext;
     return { ctx, get: () => current };
   };
-  const sceneOf = (project: Project, clipId: string) => {
-    for (const comp of project.comps) for (const clip of comp.clips) if (clip.id === clipId && clip.source.type === 'motion') return clip.source.scene;
-    return null;
+  /** The scene a create_motion_scene result stands for: its layered comp read back as one scene. */
+  const sceneOf = (project: Project, result: ToolResult) => {
+    const comp = result.ok ? project.comps.find((c) => c.id === result.compId) : undefined;
+    return comp ? logicalScene(project, comp) : null;
   };
 
   it('builds a brand template and says so', async () => {
@@ -268,17 +270,19 @@ describe('create_motion_scene with a brand kit', () => {
     const result = await runMotionTool('create_motion_scene', { template: 'brand-title', params: { title: 'Ship faster', kicker: 'NEW' }, start: 0 }, h.ctx);
     expect(result.ok).toBe(true);
     expect(String(result.summary)).toContain('Flowbase');
-    expect(sceneOf(h.get(), String(result.clipId))?.brand?.name).toBe('Flowbase');
+    expect(sceneOf(h.get(), result)?.brand?.name).toBe('Flowbase');
   });
 
   it('puts a house template in the brand, and useBrand:false keeps the house look', async () => {
     const h = harness(newProject('p'));
     const branded = await runMotionTool('create_motion_scene', { template: 'ribbon-title', params: { title: 'Ship faster' }, start: 0 }, h.ctx);
     expect(branded.ok).toBe(true);
-    const scene = sceneOf(h.get(), String(branded.clipId));
+    const scene = sceneOf(h.get(), branded);
+    expect(scene).not.toBeNull();
     expect(allColours({ ...scene, brand: undefined }).filter((c) => isWarmRed(c.slice(0, 7)))).toEqual([]);
     const house = await runMotionTool('create_motion_scene', { template: 'ribbon-title', params: { title: 'Ship faster' }, start: 4, useBrand: false }, h.ctx);
-    const plain = sceneOf(h.get(), String(house.clipId));
+    const plain = sceneOf(h.get(), house);
+    expect(plain).not.toBeNull();
     expect(plain?.brand).toBeUndefined();
   });
 
@@ -294,8 +298,9 @@ describe('create_motion_scene with a brand kit', () => {
     expect(report.issues.every((i) => !i.problem.includes('brand-stat'))).toBe(true);
     // Only the house scene is flagged.
     const flagged = new Set(report.issues.map((i) => i.clipId));
-    const brandClip = project.comps.flatMap((c) => c.clips).find((c) => c.source.type === 'motion' && c.source.scene.template?.id === 'brand-stat');
-    expect(brandClip && flagged.has(brandClip.id)).toBe(false);
+    const brandClips = project.comps.flatMap((c) => c.clips).filter((c) => c.source.type === 'motion' && c.source.scene.template?.id === 'brand-stat');
+    expect(brandClips.length).toBeGreaterThan(0);
+    expect(brandClips.some((c) => flagged.has(c.id))).toBe(false);
   });
 });
 

@@ -75,10 +75,16 @@ describe('production phase gates', () => {
     expect(editing.status(f.project).frameReviewPending).toEqual([]);
     expect(editing.status(f.project).storyboardCurrent).toBe(true);
     expect(editing.before('add_text', { text: 'x' }, f.project)).toBeNull();
-    // A cut since the plan invalidates the carried receipts.
+    // A cut since the plan: the footage says what it said, so the transcript still counts and a
+    // later editing turn (a fix, the polish pass) reads the timeline and edits, without
+    // re-transcribing or re-scanning every clip.
     f.clip.duration = 1;
-    const stale = new EditWorkflow(f.project, f.assets);
-    expect(stale.status(f.project).transcriptPending).toEqual([f.clip.id]);
+    const later = new EditWorkflow(f.project, f.assets);
+    expect(later.status(f.project).transcriptPending).toEqual([]);
+    expect(later.before('add_text', { text: 'x' }, f.project)).toContain('get_comp');
+    later.record('get_comp', {}, { ok: true, id: f.comp.id }, f.project);
+    expect(later.before('add_text', { text: 'x' }, f.project)).toBeNull();
+    expect(later.before('import_media', { paths: ['C:/a.png'] }, f.project)).toBeNull();
   });
   it('verify needs a frame-QA pass after the last edit, then the production can be marked done', () => {
     const f = planned('editing');

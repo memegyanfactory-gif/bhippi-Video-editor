@@ -20,12 +20,14 @@ const STEPS: { key: 'plan' | 'gather' | 'edit' | 'polish'; label: string; icon: 
 
 const ORDER: ProductionPhase[] = ['planning', 'plan-ready', 'gathering', 'gathered', 'editing', 'polishing', 'done'];
 
-export function ProductionBar({ comp, busy, onAdvance }: {
+export function ProductionBar({ comp, busy, onAdvance, onPolish }: {
   comp: Comp;
   /** True while a turn is running, so the button waits for it. */
   busy: boolean;
   /** The user pressed the button: move the production to `phase` and tell the model. */
   onAdvance: (phase: ProductionPhase) => void;
+  /** The polish pass over the whole timeline (or the in/out selection), offered once the edit is on the timeline. */
+  onPolish?: () => void;
 }) {
   const production = comp.production;
   if (!production) return null;
@@ -72,6 +74,18 @@ export function ProductionBar({ comp, busy, onAdvance }: {
           );
         })}
       </ol>
+      {!button && onPolish && (phase === 'editing' || phase === 'polishing') && (
+        <button
+          type="button"
+          className={`production-go${busy ? ' busy' : ''}`}
+          disabled={busy}
+          title={busy ? 'Waiting for the assistant…' : 'Polish — check every frame and fix what is off: panels outside the frame, blank or white frames, black edges, overlaps (the in/out selection when one is set)'}
+          aria-label={busy ? 'Waiting for the assistant' : 'Polish'}
+          onClick={onPolish}
+        >
+          {busy ? <LoaderCircle size={14} className="spin" /> : <Wand2 size={14} />}
+        </button>
+      )}
       {button && (
         <button
           type="button"

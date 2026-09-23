@@ -138,8 +138,14 @@ export function gatherReport(comp: Comp): { ready: number; total: number; missin
 
 // ───────────────────────────── frame QA geometry ─────────────────────────────
 
-export type QaLayer = { clipId: string; name: string; kind: 'graphic' | 'text' | 'caption' | 'subject'; box: Box; from: number; to: number };
-export type QaIssue = { at: number; a: string; b: string; kind: 'covers-subject' | 'graphic-overlap' | 'outside-safe' | 'caption-collision'; overlap: number; suggestion: string };
+/**
+ * Something QA measures on screen. `picture` is footage or a still reduced to a card or a
+ * picture-in-picture; `behind` is type drawn under the cut-out subject (it cannot cover the
+ * face); layers that share a `group` (one motion scene) are designed together and never
+ * reported as overlapping each other.
+ */
+export type QaLayer = { clipId: string; name: string; kind: 'graphic' | 'text' | 'caption' | 'subject' | 'picture'; box: Box; from: number; to: number; behind?: boolean; group?: string };
+export type QaIssue = { at: number; a: string; b: string; kind: 'covers-subject' | 'graphic-overlap' | 'outside-safe' | 'off-frame' | 'caption-collision' | 'blank-frame' | 'black-edges'; overlap: number; suggestion: string };
 
 const intersection = (a: Box, b: Box): number => {
   const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
@@ -180,6 +186,8 @@ export function frameQa(comp: Comp, layers: QaLayer[], times: number[]): QaIssue
       const area = graphic.box.width * graphic.box.height;
       if (area <= 0) continue;
       for (const subject of subjects) {
+        // Type set behind the cut-out subject cannot cover them; a card of the subject's own footage is them.
+        if (graphic.behind || graphic.clipId === subject.clipId) continue;
         // The face and hands live in the upper two thirds of the subject box; covering that
         // is the fault, brushing the shoulders is not.
         const head: Box = { x: subject.box.x, y: subject.box.y, width: subject.box.width, height: subject.box.height * 0.66 };
@@ -190,7 +198,7 @@ export function frameQa(comp: Comp, layers: QaLayer[], times: number[]): QaIssue
         }
       }
       for (const other of graphics) {
-        if (other === graphic || other.clipId <= graphic.clipId) continue;
+        if (other === graphic || other.clipId <= graphic.clipId || (graphic.group && graphic.group === other.group)) continue;
         const shared = intersection(graphic.box, other.box) / Math.min(area, other.box.width * other.box.height);
         if (shared > 0.15) {
           const kind = graphic.kind === 'caption' || other.kind === 'caption' ? 'caption-collision' : 'graphic-overlap';
@@ -198,12 +206,16 @@ export function frameQa(comp: Comp, layers: QaLayer[], times: number[]): QaIssue
         }
       }
       const inside = intersection(graphic.box, safe) / area;
-      if (inside < 0.97) {
-        issues.push({ at, a: graphic.name, b: 'safe area', kind: 'outside-safe', overlap: 1 - inside, suggestion: `"${graphic.name}" crosses the safe margins; pull it inside ${Math.round(safe.x * 100)}% / ${Math.round((1 - safe.x - safe.width) * 100)}% from the edges.` });
+      const onFrame = intersection(graphic.box, { x: 0, y: 0, width: 1, height: 1 }) / area;
+      const how = graphic.kind === 'picture' ? 'layout_clip (its slots sit inside the safe area) or a smaller scale / x' : graphic.group ? 'update_motion_scene (patch the layer position, or rebuild — scenes are fitted to the safe area)' : 'its layout or position';
+      if (onFrame < 0.995) {
+        issues.push({ at, a: graphic.name, b: 'frame edge', kind: 'off-frame', overlap: 1 - onFrame, suggestion: `"${graphic.name}" runs ${Math.round((1 - onFrame) * 100)}% outside the picture; bring it back inside the safe area with ${how}.` });
+      } else if (inside < 0.97) {
+        issues.push({ at, a: graphic.name, b: 'safe area', kind: 'outside-safe', overlap: 1 - inside, suggestion: `"${graphic.name}" crosses the safe margins; pull it inside ${Math.round(safe.x * 100)}% / ${Math.round((1 - safe.x - safe.width) * 100)}% from the edges with ${how}.` });
       }
     }
   }
-  const order: Record<QaIssue['kind'], number> = { 'covers-subject': 0, 'caption-collision': 1, 'graphic-overlap': 2, 'outside-safe': 3 };
+  const order: Record<QaIssue['kind'], number> = { 'blank-frame': 0, 'black-edges': 1, 'covers-subject': 2, 'off-frame': 3, 'caption-collision': 4, 'graphic-overlap': 5, 'outside-safe': 6 };
   return issues.sort((a, b) => a.at - b.at || order[a.kind] - order[b.kind] || b.overlap - a.overlap);
 }
 

@@ -19,7 +19,7 @@ import { CRIMSON_GUIDELINE_NOTES, CRIMSON_PALETTE, templateCatalogue, templateSp
 import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, type ReactBitsLayer } from './rbx';
 import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
 import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
-import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, textBox, type QaIssue, type QaLayer } from './production';
+import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, type QaIssue } from './production';
 import { detectBeats, snapTimesToBeats } from './beats';
 import { loadPeaks } from './peaks';
 import { animated } from './keyframes';
@@ -31,9 +31,9 @@ import { evaluateTypedDecision, type TypedQuestion } from './typedDecisions';
 import catalog from './ai-tools.json';
 import { MOTION_TOOLS, runMotionTool } from './motionTools';
 import { SFX_GAIN_DB, sfxClipFields, sfxTrack } from './sfxLevels';
-import { overlayBox } from '../motion/validate';
-import { defaultSize, evaluateScene } from '../motion/evaluate';
-import { layoutText } from '../motion/text';
+import { blankFinding, collectQaLayers, frameStats } from './polish';
+import { renderMotionStill } from '../motion/exportFrames';
+import { renderHtmlStill } from './htmlFrames';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
 import type { History } from './history';
 import { api, errorText } from './ipc';
@@ -111,7 +111,7 @@ function findOrCreateFolder(
 type Args = Record<string, unknown>;
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
-const done = (summary: string, data: Record<string, unknown> = {}): ToolResult => ({ ok: true, summary, ...data });
+const done = (summary: string, data: Record<string, unknown> = {}): ToolResult => ({ ok: true, ...data, summary });
 
 const num = (args: Args, key: string): number | undefined => {
   const value = args[key];
@@ -243,8 +243,17 @@ export function aiContext(project: Project, assets: AssetMap, selection: string[
     items: project.items.map((item) => ({ id: item.id, name: item.name, kind: item.kind, color: item.color, duration: round(item.duration), used: counts.get(item.id) ?? 0, folder: item.folderId ?? undefined })),
     folders: project.folders.map((folder) => ({ id: folder.id, name: folder.name, parent: folder.parentId ?? undefined })),
     activeComp: active ? compDetail(project, assets, active) : null,
+    layoutRules: LAYOUT_RULES,
   };
 }
+
+/** What every turn is reminded of about the frame: it is read each turn with the project. */
+const LAYOUT_RULES = [
+  'Motion scenes open as layered "[Motion]" comps: one clip per layer on its own track, so the user can open one and change any layer. Edit them with update_motion_scene (clipId = the comp clip, the comp or a layer clip; patches by layer id); split_motion_layers opens older single-clip ones.',
+  'Everything rests inside the frame: panels, cards, type and reduced footage sit inside the safe area (5% at the sides, 6% top and bottom), never against or past an edge. layout_clip slots and fitted motion scenes already do; a hand-set x/y/scale must too.',
+  'No blank frames: when the project has a designed background plate (a generated gradient on V1), full-frame templates go over it with background "none" — a light brand stage covering it reads as a white screen. Reduced footage always has a designed background behind it, never flat white or black.',
+  'Finish every edit with the polish pass: run_frame_qa over the range (it renders real frames with the motion graphics and reports off-frame, safe-area, blank-frame, black-edge and overlap problems), fix each at its source, run it again until clear.',
+].join(' ');
 
 // ───────────────────────────── helpers ─────────────────────────────
 
@@ -2860,81 +2869,71 @@ ${notes.trim()}${paletteLine}
       if (!comp) return fail('Choose a composition.');
       const duration = compDuration(comp);
       if (duration <= 0) return fail('The timeline is empty; nothing to check.');
+      // The range under review: the whole timeline, the in/out selection, or explicit start/end.
+      const selection = bool(args, 'selection') === true && comp.inPoint !== null && comp.outPoint !== null && comp.outPoint > comp.inPoint;
+      const from = clamp(num(args, 'start') ?? (selection ? comp.inPoint! : 0), 0, Math.max(0, duration - 1 / fps(comp)));
+      const to = clamp(num(args, 'end') ?? (selection ? comp.outPoint! : duration), from + 1 / fps(comp), duration);
       const step = clamp(num(args, 'step') ?? 1.5, 0.25, 10);
-      const times = Array.isArray(args.times) ? (args.times as unknown[]).filter((t): t is number => typeof t === 'number' && t >= 0 && t < duration).slice(0, 60) : qaTimes(comp, duration, step);
-      const layers: QaLayer[] = [];
-      const videoTracks = new Set(comp.tracks.filter((t) => t.kind === 'video' && !t.hidden).map((t) => t.id));
-      const frameAspect = comp.width / Math.max(1, comp.height);
-      for (const clip of comp.clips) {
-        if (!clip.enabled || !videoTracks.has(clip.trackId)) continue;
-        const from = clip.start;
-        const to = clip.start + clip.duration;
-        const name = clip.name ?? clip.id;
-        if (clip.source.type === 'html') {
-          layers.push({ clipId: clip.id, name, kind: 'graphic', box: clip.source.box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
-        } else if (clip.source.type === 'comp') {
-          const child = project.comps.find((c) => c.id === (clip.source as { compId: string }).compId);
-          const inner = child?.clips.find((c) => c.source.type === 'html');
-          const box = inner && inner.source.type === 'html' ? inner.source.box : null;
-          const motion = child?.clips.find((c) => c.source.type === 'motion');
-          if (motion && motion.source.type === 'motion') {
-            // An AI motion scene nested in its "[Motion]" comp: QA it like an overlay scene.
-            const motionBox = overlayBox(motion.source.scene, (scene, t) => evaluateScene(scene, t, { sizeOf: (layer, time) => (layer.type === 'text' ? ((f) => [f.width - f.pad * 2, f.height - f.pad * 2] as [number, number])(layoutText(layer.text, time, (text, font) => text.length * (parseFloat(font.split('px')[0].split(' ').pop() ?? '64') || 64) * 0.55)) : defaultSize(scene, layer, time)) }));
-            if (motionBox) layers.push({ clipId: clip.id, name, kind: 'graphic', box: motionBox, from, to });
-          } else if (child && (inner || child.name.startsWith('[MOGRT]'))) layers.push({ clipId: clip.id, name, kind: 'graphic', box: box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
-        } else if (clip.source.type === 'motion') {
-          const box = overlayBox(clip.source.scene, (scene, t) => evaluateScene(scene, t, { sizeOf: (layer, time) => (layer.type === 'text' ? ((f) => [f.width, f.height] as [number, number])(layoutText(layer.text, time, (text, font) => text.length * (parseFloat(font.split('px')[0].split(' ').pop() ?? '64') || 64) * 0.55)) : defaultSize(scene, layer, time)) }));
-          if (box) layers.push({ clipId: clip.id, name, kind: 'graphic', box, from, to });
-        } else if (clip.source.type === 'text') {
-          const box = textBox(clip, comp);
-          if (box) layers.push({ clipId: clip.id, name: `${presetLabel(clip.source.preset)} "${clip.source.text.slice(0, 24)}"`, kind: clip.source.preset === 'caption' ? 'caption' : 'text', box, from, to });
-        } else if (clip.source.type === 'media' && clip.rotoMatte && !(clip.name ?? '').toLowerCase().includes('background')) {
-          const runId = clip.rotoMatte.replace(/[\\/]+matte\.[a-z0-9]+$/i, '').split(/[\\/]/).pop() ?? '';
-          const cache = runId ? await api.rotoRead(runId).catch(() => null) : null;
-          const asset = assets.get(clip.source.assetId);
-          if (cache && cache.subjects.length && asset) {
-            const srcAspect = asset.width / Math.max(1, asset.height);
-            for (const t of times) {
-              if (t < from || t >= to) continue;
-              const source = clip.in + (t - clip.start) * clip.speed;
-              let best = cache.subjects[0];
-              for (const s of cache.subjects) if (Math.abs(s.at - source) < Math.abs(best.at - source)) best = s;
-              if (best.cover < 0.01) continue;
-              const scale = animated(clip, 'scale', t, clip.transform.scale) / 100;
-              const tx = animated(clip, 'x', t, clip.transform.x);
-              const ty = animated(clip, 'y', t, clip.transform.y);
-              const picW = scale * Math.min(1, srcAspect / frameAspect);
-              const picH = scale * Math.min(1, frameAspect / srcAspect);
-              layers.push({ clipId: clip.id, name: `subject (${asset.name})`, kind: 'subject', box: { x: 0.5 + tx - picW / 2 + best.x * picW, y: 0.5 + ty - picH / 2 + best.y * picH, width: best.width * picW, height: best.height * picH }, from: t, to: t + 1e-3 });
-            }
-          }
-        }
-      }
+      const sampled = Array.isArray(args.times)
+        ? (args.times as unknown[]).filter((t): t is number => typeof t === 'number' && t >= 0 && t < duration)
+        : qaTimes(comp, duration, step, 1000).filter((t) => t >= from && t < to);
+      const times = sampled.length > 48 ? sampled.filter((_, i) => i % Math.ceil(sampled.length / 48) === 0) : sampled;
+      if (!times.length) return fail('Nothing to sample in that range.');
+      const layers = await collectQaLayers(project, assets, comp, times, { rotoSubjects: async (runId) => (await api.rotoRead(runId))?.subjects ?? null });
       const issues: QaIssue[] = frameQa(comp, layers, times);
-      const hasSubject = layers.some((l) => l.kind === 'subject');
-      // Contact frames for the model's own eyes: the worst moments first, then an even spread.
-      const wanted = [...new Set([...issues.slice(0, 4).map((i) => i.at), ...times.filter((_, i) => i % Math.max(1, Math.ceil(times.length / 4)) === 0)])].slice(0, 6);
+      // Black edges: a reduced or moved picture with nothing behind it.
+      for (const span of uncoveredSpans(project, assets, comp, from, to)) {
+        issues.push({ at: span.start, a: 'frame edges', b: 'nothing behind', kind: 'black-edges', overlap: 1, suggestion: `Black at the frame edges ${timecode(span.start, fps(comp))}–${timecode(span.end, fps(comp))}: fill_background {"start":${span.start.toFixed(2)},"end":${span.end.toFixed(2)}} or put a designed plate on V1.` });
+      }
+      // Rendered frames — motion scenes and HTML graphics drawn in, as the export draws them — for
+      // the blank-frame check and for the model's own eyes.
+      const frameCount = Math.round(clamp(num(args, 'frames') ?? 12, 0, 24));
+      const spread = Array.from({ length: frameCount }, (_, i) => Math.round((from + ((i + 0.5) * (to - from)) / Math.max(1, frameCount)) * 100) / 100);
+      const firstIssues = [...new Set(issues.map((issue) => issue.at))].slice(0, 4);
+      const stillTimes = [...new Set([...firstIssues, ...spread])].filter((t) => t >= 0 && t < duration).sort((x, y) => x - y);
       let images: string[] = [];
       let frameTimes: number[] = [];
-      if (bool(args, 'images') !== false && wanted.length) {
+      let renderNote = '';
+      if (stillTimes.length) {
         try {
           const dir = await api.mogrtFramesBegin('qa');
-          const paths: string[] = [];
-          for (const [i, t] of wanted.entries()) paths.push(await api.exportFrame(project, comp.id, t, `${dir}/qa-${String(i).padStart(2, '0')}.png`));
-          images = await api.chatReadImages(paths);
-          frameTimes = wanted;
+          const prepared = await renderHtmlStill(await renderMotionStill(project, comp.id, stillTimes, [...assets.values()]), comp.id, stillTimes);
+          const shots: { at: number; path: string }[] = [];
+          for (const [i, t] of stillTimes.entries()) {
+            const path = await api.exportFrame(prepared, comp.id, t, `${dir}/qa-${String(i).padStart(2, '0')}.png`, 540);
+            shots.push({ at: t, path });
+            const stats = await frameStats(path);
+            const blank = stats ? blankFinding(stats) : null;
+            if (blank) issues.push({ at: t, a: 'the frame', b: 'picture', kind: 'blank-frame', overlap: blank.share, suggestion: `${blank.what}. Put a designed background under it (a generated gradient plate on V1, or fill_background), give full-frame brand templates background "none" over that plate, and keep light full-frame stages off the timeline.` });
+          }
+          if (bool(args, 'images') !== false) {
+            const wanted = [...new Set([...issues.map((issue) => issue.at).filter((t) => stillTimes.includes(t)).slice(0, 3), ...stillTimes.filter((_, i) => i % Math.max(1, Math.ceil(stillTimes.length / 4)) === 0)])].slice(0, 6);
+            const picked = shots.filter((shot) => wanted.includes(shot.at));
+            images = await api.chatReadImages(picked.map((shot) => shot.path));
+            frameTimes = picked.map((shot) => shot.at);
+          }
         } catch (error) {
-          images = [];
-          frameTimes = [];
-          void error;
+          renderNote = ` Contact frames could not be rendered (${errorText(error)}), so blank frames were not checked.`;
         }
       }
-      if (comp.production) editComp(comp, current => ({ ...current, production: current.production ? { ...(current.production.phase === 'editing' ? advance(current.production, 'polishing') : current.production), qa: { at: Date.now(), sampled: times.length, issues: issues.length, clear: issues.length === 0 }, updatedAt: Date.now() } : current.production }));
-      const worst = issues.slice(0, 12).map((i) => `${timecode(i.at, fps(comp))} ${i.kind}: "${i.a}" vs "${i.b}" (${Math.round(i.overlap * 100)}%). ${i.suggestion}`);
-      return done(issues.length
-        ? `Frame QA sampled ${times.length} frames and found ${issues.length} issue(s). Fix them, then run again until clear. ${hasSubject ? '' : 'No subject track was available (rotoscope_clip gives one), so only graphic-vs-graphic and safe-area checks ran. '}${worst.join(' ')}`
-        : `Frame QA sampled ${times.length} frames: no overlaps, every graphic inside the safe area.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'} Look at the contact frames for anything geometry cannot see (contrast, reading time), then verify_edit_workflow.`,
-        { issues, sampled: times.length, times: frameTimes, images, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
+      const order: Record<QaIssue['kind'], number> = { 'blank-frame': 0, 'black-edges': 1, 'covers-subject': 2, 'off-frame': 3, 'caption-collision': 4, 'graphic-overlap': 5, 'outside-safe': 6 };
+      issues.sort((x, y) => order[x.kind] - order[y.kind] || x.at - y.at);
+      // One line per problem, not per sampled frame: the same card off the frame for ten samples is one fix.
+      const grouped = new Map<string, { issue: QaIssue; from: number; to: number; count: number }>();
+      for (const issue of issues) {
+        const key = `${issue.kind}|${issue.a}|${issue.b}`;
+        const known = grouped.get(key);
+        if (known) { known.from = Math.min(known.from, issue.at); known.to = Math.max(known.to, issue.at); known.count++; } else grouped.set(key, { issue, from: issue.at, to: issue.at, count: 1 });
+      }
+      const problems = [...grouped.values()];
+      const hasSubject = layers.some((l) => l.kind === 'subject');
+      if (comp.production) editComp(comp, current => ({ ...current, production: current.production ? { ...(current.production.phase === 'editing' ? advance(current.production, 'polishing') : current.production), qa: { at: Date.now(), sampled: times.length, issues: problems.length, clear: problems.length === 0 }, updatedAt: Date.now() } : current.production }));
+      const where = `${timecode(from, fps(comp))}–${timecode(to, fps(comp))}${selection ? ' (the in/out selection)' : ''}`;
+      const lines = problems.slice(0, 16).map(({ issue, from: first, to: last, count }) => `${timecode(first, fps(comp))}${last > first ? `–${timecode(last, fps(comp))}` : ''} ${issue.kind}: "${issue.a}"${issue.b ? ` vs "${issue.b}"` : ''}${count > 1 ? ` (${count} samples)` : ''}. ${issue.suggestion}`);
+      return done(problems.length
+        ? `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: ${problems.length} problem(s). Fix every one, then run it again until it is clear.${hasSubject ? '' : ' No subject track was available (rotoscope_clip gives one), so subject coverage was not checked.'}${renderNote}\n${lines.join('\n')}`
+        : `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: nothing off the frame or outside the safe area, no overlaps, no blank or black-edged frames.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'}${renderNote} Look at the contact frames for what geometry cannot judge (contrast, reading time, taste), then verify_edit_workflow.`,
+        { issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
     }
 
     case 'organize_bin': {
@@ -2967,7 +2966,8 @@ ${notes.trim()}${paletteLine}
       const slot = str(args, 'slot') ?? 'left-55';
       const SLOTS: Record<string, { scale: number; x: number; y: number }> = portrait
         ? { 'left-55': { scale: 62, x: 0, y: -0.19 }, 'right-55': { scale: 62, x: 0, y: 0.19 }, 'top-55': { scale: 62, x: 0, y: -0.19 }, 'bottom-55': { scale: 62, x: 0, y: 0.19 }, 'pip-bottom-right': { scale: 36, x: 0.28, y: 0.26 }, 'pip-bottom-left': { scale: 36, x: -0.28, y: 0.26 }, 'pip-top-right': { scale: 36, x: 0.28, y: -0.26 }, 'pip-top-left': { scale: 36, x: -0.28, y: -0.26 }, 'centre-small': { scale: 72, x: 0, y: 0 }, full: { scale: 100, x: 0, y: 0 } }
-        : { 'left-55': { scale: 56, x: -0.2, y: 0 }, 'right-55': { scale: 56, x: 0.2, y: 0 }, 'top-55': { scale: 56, x: -0.2, y: 0 }, 'bottom-55': { scale: 56, x: 0.2, y: 0 }, 'pip-bottom-right': { scale: 34, x: 0.3, y: 0.28 }, 'pip-bottom-left': { scale: 34, x: -0.3, y: 0.28 }, 'pip-top-right': { scale: 34, x: 0.3, y: -0.28 }, 'pip-top-left': { scale: 34, x: -0.3, y: -0.28 }, 'centre-small': { scale: 72, x: 0, y: 0 }, full: { scale: 100, x: 0, y: 0 } };
+        // Every slot rests inside the 5% safe area; the 55% slots leave a 3% gutter and a 35% column for the side panel.
+        : { 'left-55': { scale: 52, x: -0.19, y: 0 }, 'right-55': { scale: 52, x: 0.19, y: 0 }, 'top-55': { scale: 52, x: -0.19, y: 0 }, 'bottom-55': { scale: 52, x: 0.19, y: 0 }, 'pip-bottom-right': { scale: 30, x: 0.3, y: 0.29 }, 'pip-bottom-left': { scale: 30, x: -0.3, y: 0.29 }, 'pip-top-right': { scale: 30, x: 0.3, y: -0.29 }, 'pip-top-left': { scale: 30, x: -0.3, y: -0.29 }, 'centre-small': { scale: 72, x: 0, y: 0 }, full: { scale: 100, x: 0, y: 0 } };
       const target = SLOTS[slot];
       if (!target) return fail(`slot must be one of ${Object.keys(SLOTS).join(', ')}.`);
       const animate = bool(args, 'animate') !== false;

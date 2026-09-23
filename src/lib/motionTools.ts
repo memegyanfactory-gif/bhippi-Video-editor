@@ -11,12 +11,15 @@ import { keyTimes } from '../motion/anim';
 import { clamp, timecode } from './editor';
 import { api, errorText, fileSrc } from './ipc';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
-import { freeTrack, newClip, newComp, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
+import { clipEnd, compDuration, freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
+import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps } from './motionStack';
+import { fitToSafeArea, layoutIssues, type LayoutIssue } from '../motion/safeArea';
+import { SAFE } from './layout';
 import type { Clip, ClipSource, Comp, Project, ToolResult } from './types';
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers']);
 /** Read-only / planning motion tools, allowed in any production phase. */
 export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile']);
 
@@ -33,7 +36,7 @@ export type MotionToolContext = {
 };
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
-const done = (summary: string, data: Record<string, unknown> = {}): ToolResult => ({ ok: true, summary, ...data });
+const done = (summary: string, data: Record<string, unknown> = {}): ToolResult => ({ ok: true, ...data, summary });
 const str = (args: Args, key: string) => (typeof args[key] === 'string' && (args[key] as string).trim() ? (args[key] as string).trim() : undefined);
 const num = (args: Args, key: string) => (typeof args[key] === 'number' && Number.isFinite(args[key]) ? (args[key] as number) : undefined);
 const obj = (args: Args, key: string) => (args[key] && typeof args[key] === 'object' && !Array.isArray(args[key]) ? (args[key] as Args) : undefined);
@@ -200,22 +203,17 @@ function placeCues(comp: Comp, scene: MotionScene, start: number): { comp: Comp;
 
 export const MOTION_FOLDER = 'AI Motion';
 
-/** A comp holding one motion scene on V1, sized and timed like the comp it will be nested in. */
-function motionComp(parent: Comp, title: string, clip: Clip): Comp {
-  const inner = newComp({ name: `[Motion] ${title}`, width: parent.width, height: parent.height, fps: parent.fps });
-  const v1 = inner.tracks.find((track) => track.kind === 'video')!;
-  return { ...inner, tracks: inner.tracks.map((t) => (t.id === v1.id ? { ...t, name: 'Motion scene' } : t)), clips: [{ ...clip, trackId: v1.id, start: 0 }] };
-}
-
 /**
  * Where a motion clip's scene time 0 sits on a given comp's timeline: its own start, plus the
  * start of the nested-comp clip that holds it when it lives in a "[Motion]" comp.
  */
 export function sceneOriginIn(project: Project, clip: Clip, owner: Comp, timelineCompId: string): number {
-  if (owner.id === timelineCompId) return clip.start;
+  // Where the clip's scene time 0 falls on its own comp (a layer clip may have been trimmed or moved).
+  const origin = clip.start - clip.in / Math.max(1e-6, clip.speed);
+  if (owner.id === timelineCompId) return origin;
   const parent = project.comps.find((c) => c.id === timelineCompId);
   const holder = parent?.clips.find((c) => c.source.type === 'comp' && c.source.compId === owner.id);
-  return holder ? holder.start + (clip.start - holder.in) / Math.max(1e-6, holder.speed) : clip.start;
+  return holder ? holder.start + (origin - holder.in) / Math.max(1e-6, holder.speed) : origin;
 }
 
 /** Keeps the nested-comp clips that hold a motion comp as long as its scene. */
@@ -296,6 +294,160 @@ async function imageDataUrl(path: string): Promise<string | null> {
   }
 }
 
+// ───────────────────────── layered motion comps ─────────────────────────
+
+type MotionSource = Extract<ClipSource, { type: 'motion' }>;
+
+/** The safe margin a call asks for (one fraction for every side), else the editor's safe area. */
+const safeMargin = (args: Args): number | { x: number; y: number } => {
+  const asked = num(args, 'safeMargin');
+  return asked === undefined ? { x: SAFE.left, y: SAFE.top } : clamp(asked, 0, 0.2);
+};
+
+/** What `id` points at: a layered motion comp (by comp, holder clip or any layer clip), or a single motion scene clip. */
+function resolveMotion(project: Project, id: string): { kind: 'stack'; comp: Comp } | { kind: 'clip'; clip: Clip; comp: Comp } | null {
+  if (!id) return null;
+  const found = findClip(project, id);
+  if (found && isLayerClip(found.clip)) return { kind: 'stack', comp: found.comp };
+  if (found?.clip.source.type === 'motion') return { kind: 'clip', ...found };
+  const compId = found?.clip.source.type === 'comp' ? found.clip.source.compId : project.comps.some((c) => c.id === id) ? id : null;
+  const inner = compId ? project.comps.find((c) => c.id === compId) : undefined;
+  if (!inner) return null;
+  if (isLayeredComp(inner)) return { kind: 'stack', comp: inner };
+  const clip = inner.clips.find((c) => c.source.type === 'motion');
+  return clip ? { kind: 'clip', clip, comp: inner } : null;
+}
+
+/** A layered comp's layers as the AI reads them: where each clip is, on which track, whether it shows. */
+function layerListing(project: Project, comp: Comp): Record<string, unknown>[] {
+  const video = tracksOf(comp, 'video');
+  return comp.clips.filter(isLayerClip).flatMap((clip) => ownLayers(clip.source.scene).map((layer) => {
+    const index = video.findIndex((track) => track.id === clip.trackId);
+    const inner = layer.type === 'precomp' && layer.comp ? project.comps.find((c) => c.id === layer.comp) : undefined;
+    return {
+      layerId: layer.id, clipId: clip.id, name: clip.name ?? layer.name ?? layer.id, type: layer.type, track: `V${index + 1}`,
+      start: Math.round(clip.start * 1000) / 1000, end: Math.round(clipEnd(clip) * 1000) / 1000,
+      ...(!clip.enabled || video[index]?.hidden ? { hidden: true } : {}),
+      ...(layer.type === 'text' ? { text: layer.text.text ?? layer.text.spans?.map((s) => s.text).join('') } : {}),
+      ...(inner ? { precompCompId: inner.id, precompLayers: layerListing(project, inner).map((entry) => `${String(entry.name)} (${String(entry.layerId)})`) } : {}),
+    };
+  }));
+}
+
+function describeLayout(issues: LayoutIssue[]): string {
+  return `Outside the safe area: ${issues.slice(0, 6).map((issue) => `${issue.names.join(' + ')}${issue.offFrame ? ' (partly off the frame)' : ''} by ${Object.entries(issue.overflow).filter(([, v]) => v > 0).map(([side, v]) => `${v}px ${side}`).join(', ')} at ${issue.at.toFixed(2)} s`).join('; ')}.`;
+}
+
+function fitReport(fit: ReturnType<typeof fitToSafeArea> | null, margin: number | { x: number; y: number }): string {
+  if (!fit) return '';
+  const pct = typeof margin === 'number' ? `${Math.round(margin * 100)}%` : `${Math.round(margin.x * 100)}%/${Math.round(margin.y * 100)}%`;
+  const moved = fit.moved.length ? ` Moved inside the ${pct} safe area: ${fit.moved.map((m) => `${m.names.join(' + ')} (${m.dx >= 0 ? '+' : ''}${m.dx}, ${m.dy >= 0 ? '+' : ''}${m.dy} px${m.scale < 1 ? `, ×${m.scale}` : ''})`).join('; ')}.` : '';
+  return `${moved}${fit.remaining.length ? ` ${describeLayout(fit.remaining)}` : ''}`;
+}
+
+/** A brand stage so light it reads as a blank white frame (the Organic Earth linen, for one). */
+function lightStageNote(scene: MotionScene): string {
+  const stage = scene.layers.find((layer) => layer.id === 'brand-stage' && layer.type === 'shape');
+  if (!stage || stage.type !== 'shape') return '';
+  const colours = stage.shape.gradient?.stops.map(([, c]) => c) ?? (stage.shape.fill ? [stage.shape.fill] : []);
+  const light = colours.filter((c) => /^#[0-9a-f]{6}/i.test(c)).map((c) => [1, 3, 5].reduce((sum, i) => sum + parseInt(c.slice(i, i + 2), 16), 0) / (3 * 255));
+  if (!light.length || light.reduce((a, b) => a + b, 0) / light.length < 0.8) return '';
+  return ' Its brand stage is a light, nearly flat gradient that reads as a blank white frame on screen: over footage use background "none" with a designed background plate under it (fill_background, or a generated gradient), and look at it in run_frame_qa.';
+}
+
+/** Clip on screen for all of [from, to) whose name says it is a background plate (not a clean plate of the room). */
+function backgroundPlate(ctx: MotionToolContext, comp: Comp, from: number, to: number): string | null {
+  const visible = new Set(tracksOf(comp, 'video').filter((track) => !track.hidden).map((track) => track.id));
+  for (const clip of comp.clips) {
+    if (!clip.enabled || !visible.has(clip.trackId) || clip.start > from + 0.05 || clipEnd(clip) < to - 0.05) continue;
+    const name = clip.name ?? (clip.source.type === 'media' ? ctx.assets.get(clip.source.assetId)?.name : clip.source.type === 'comp' ? ctx.project.comps.find((c) => c.id === (clip.source as { compId: string }).compId)?.name : null) ?? '';
+    if (/background|backdrop|gradient|wallpaper|texture|\bbg\b|\bplate\b/i.test(name) && !/clean plate/i.test(name)) return name;
+  }
+  return null;
+}
+
+type SceneEdit = { scene: MotionScene; changes: string[]; retime: number | null; rebuilt: boolean; fitNote: string };
+
+/** Applies update_motion_scene's params / scene / removeLayers / addLayers / patches / retime to a copy of `base`, then keeps it inside the safe area. */
+function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneStart: number): SceneEdit | { error: string } {
+  let scene: MotionScene = JSON.parse(JSON.stringify(base));
+  const changes: string[] = [];
+  let rebuilt = false;
+  const params = obj(args, 'params');
+  if (params) {
+    const templateId = scene.template?.id;
+    const spec = templateId ? findTemplate(templateId) : undefined;
+    if (!spec) return { error: 'This scene was not built from a template; patch its layers instead.' };
+    const merged = { ...(scene.template?.params ?? {}), ...resolveParams(params, ctx, sceneStart) };
+    const brand = args.useBrand === false ? null : ctx.brand ?? scene.brand?.snapshot ?? null;
+    scene = buildInBrand(spec, { width: scene.width, height: scene.height }, merged, brand);
+    changes.push(`rebuilt ${templateId} with ${Object.keys(params).join(', ')}`);
+    rebuilt = true;
+  }
+  const replacement = obj(args, 'scene');
+  if (replacement) { scene = { ...scene, ...(replacement as object) } as MotionScene; changes.push('replaced the scene'); rebuilt = true; }
+  for (const id of Array.isArray(args.removeLayers) ? (args.removeLayers as unknown[]).filter((v): v is string => typeof v === 'string') : []) {
+    const before = scene.layers.length;
+    scene.layers = scene.layers.filter((layer) => layer.id !== id);
+    if (scene.layers.length < before) changes.push(`removed ${id}`);
+  }
+  for (const raw of Array.isArray(args.addLayers) ? (args.addLayers as unknown[]) : []) {
+    const entry = raw as Args;
+    const layer = (entry.layer ?? entry) as Layer;
+    if (!layer || typeof layer !== 'object' || typeof layer.id !== 'string') return { error: 'addLayers entries are layers (or {layer, above|below}) with an id.' };
+    const anchorId = (entry.above ?? entry.below) as string | undefined;
+    const index = anchorId ? scene.layers.findIndex((l) => l.id === anchorId) : -1;
+    if (index >= 0) scene.layers.splice(entry.above ? index + 1 : index, 0, layer);
+    else scene.layers.push(layer);
+    changes.push(`added ${layer.id}`);
+  }
+  for (const raw of Array.isArray(args.patches) ? (args.patches as unknown[]) : []) {
+    const patch = raw as Args;
+    const path = typeof patch.path === 'string' ? patch.path : '';
+    if (!path) return { error: 'Each patch needs a path (e.g. "transform.position" or "effects.0.radius").' };
+    const target = typeof patch.layer === 'string' ? findLayer(scene, patch.layer) : (scene as unknown as Layer);
+    if (!target) return { error: `No layer "${String(patch.layer)}" in the scene. Layers: ${scene.layers.map((l) => l.id).join(', ')}.` };
+    if (!setPath(target as unknown as Args, path, patch.value)) return { error: `Could not set ${path}.` };
+    changes.push(`${patch.layer ?? 'scene'}.${path}`);
+  }
+  const retime = num(args, 'retime');
+  const stretching = !!retime && retime > 0 && retime !== 1;
+  if (stretching) {
+    const stretch = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(stretch);
+      if (!value || typeof value !== 'object') return value;
+      const out: Args = {};
+      for (const [k, v] of Object.entries(value as Args)) out[k] = (k === 't' || k === 'at' || k === 'in' || k === 'out' || k === 'delay' || k === 'stagger' || k === 'duration') && typeof v === 'number' ? v * retime : k === 'times' && Array.isArray(v) ? v.map((x) => (typeof x === 'number' ? x * retime : x)) : stretch(v);
+      return out;
+    };
+    scene = { ...(stretch(scene) as MotionScene), width: scene.width, height: scene.height, version: 1 };
+    changes.push(`retimed ×${retime}`);
+  }
+  if (!changes.length) return { error: 'Nothing to change: give params, patches, addLayers, removeLayers, retime or scene.' };
+  const problems = validateScene(scene);
+  if (problems.length) return { error: `The edited scene is not valid: ${problems.slice(0, 8).join(' ')}` };
+  const fit = args.fit === false ? null : fitToSafeArea(scene, { margin: safeMargin(args) });
+  return { scene: fit ? fit.scene : scene, changes, retime: stretching ? retime : null, rebuilt, fitNote: fitReport(fit, safeMargin(args)) };
+}
+
+/** update_motion_scene on a layered comp: edit the scene its layers stand for, then write it back layer by layer. */
+function updateStack(comp: Comp, args: Args, ctx: MotionToolContext): ToolResult {
+  const base = logicalScene(ctx.project, comp);
+  if (!base) return fail('That comp has no motion layers.');
+  const holder = ctx.project.comps.flatMap((c) => c.clips).find((clip) => clip.source.type === 'comp' && clip.source.compId === comp.id);
+  const edit = editScene(base, args, ctx, holder?.start ?? 0);
+  if ('error' in edit) return fail(edit.error);
+  const timing = edit.rebuilt || edit.retime ? 'scene' : 'keep';
+  ctx.commit((current) => {
+    const restacked = restack(current, comp.id, edit.scene, timing);
+    const after = restacked.comps.find((c) => c.id === comp.id);
+    // A scene that got longer or shorter takes the clips that hold it along.
+    return after && Math.abs(edit.scene.duration - base.duration) > 1e-3 ? syncHolders(restacked, after, compDuration(after)) : restacked;
+  });
+  const after = ctx.current().comps.find((c) => c.id === comp.id) ?? comp;
+  return done(`Updated "${comp.name}": ${edit.changes.join('; ')}. Its layers keep their clips, tracks and the user's timing and Motion changes${timing === 'scene' ? ' (clips nobody moved take the new timing)' : ''}.${edit.fitNote}`, { compId: comp.id, layers: layerListing(ctx.current(), after), outline: summarizeScene(edit.scene) });
+}
+
 // ───────────────────────── the tools ─────────────────────────
 
 export async function runMotionTool(name: string, args: Args, ctx: MotionToolContext): Promise<ToolResult> {
@@ -321,11 +473,21 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       if (accent) kit.palette = { accent };
       let scene: MotionScene;
       const templateId = str(args, 'template');
+      let plateNote = '';
       if (templateId) {
         const spec = findTemplate(templateId);
         if (!spec) return fail(`No motion template "${templateId}". Templates: ${MOTION_TEMPLATES.map((s) => s.id).join(', ')}.`);
         const raw = obj(args, 'params') ?? {};
         const params = resolveParams(raw, ctx, start);
+        // Over a designed background plate a full-frame brand template draws no stage of its own:
+        // its light, flat brand stage covered the plate and read as a blank white frame.
+        if ('background' in spec.params && raw.background === undefined) {
+          const plate = backgroundPlate(ctx, comp, start, start + (num(args, 'duration') ?? spec.seconds));
+          if (plate) {
+            params.background = 'none';
+            plateNote = ` It sits over the background plate "${plate}", so it draws no stage of its own (background "none").`;
+          }
+        }
         // The subject reveal wants a face and a clean plate: find both when the AI did not.
         if (templateId === 'subject-reveal' || templateId === 'big-number-behind') {
           const subjectRef = raw.subject as Args | undefined;
@@ -355,110 +517,82 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       scene = { ...scene, duration: Math.max(scene.duration, duration) };
       const problems = validateScene(scene);
       if (problems.length) return fail(`The scene is not valid: ${problems.slice(0, 8).join(' ')}`);
+      // Type, panels and cards rest inside the safe area: the frame is the design's boundary.
+      const fit = args.fit === false ? null : fitToSafeArea(scene, { margin: safeMargin(args) });
+      if (fit) scene = fit.scene;
       const title = str(args, 'title') ?? findTemplate(templateId ?? '')?.label ?? 'Motion scene';
       const nest = args.nest !== false;
-      const clip = newClip({ trackId: '', start: nest ? 0 : start, duration, source: { type: 'motion', scene, title }, name: title, label: 'mango' });
-      // Everything the AI builds lives in its own comp ("[Motion] title", in the AI Motion bin):
-      // the timeline gets one nested clip the user can move, trim or open to change the design.
-      const nested = nest ? motionComp(comp, title, clip) : null;
       const placed = trackAbove(comp, start, start + duration);
-      const outer = nested
-        ? newClip({ trackId: placed.track.id, start, duration, source: { type: 'comp', compId: nested.id }, name: nested.name, label: 'mango' })
-        : { ...clip, trackId: placed.track.id };
-      let next = placeClips(placed.comp, [outer], 'overwrite');
+      // Everything the AI builds lives in its own comp ("[Motion] title", in the AI Motion bin),
+      // opened into layers — one clip per layer on its own track, as After Effects shows a comp —
+      // and the timeline gets one nested clip the user can move, trim or open.
+      const exploded = nest ? explodeScene(scene, { name: `[Motion] ${title}`, fps: comp.fps, width: comp.width, height: comp.height }) : null;
+      const clip = exploded
+        ? newClip({ trackId: placed.track.id, start, duration, source: { type: 'comp', compId: exploded.comp.id }, name: exploded.comp.name, label: 'mango' })
+        : newClip({ trackId: placed.track.id, start, duration, source: { type: 'motion', scene, title }, name: title, label: 'mango' });
+      let next = placeClips(placed.comp, [clip], 'overwrite');
       let sfx: string[] = [];
       if (args.sfx !== false && scene.cues?.length) {
         const cued = placeCues(next, scene, start);
         next = cued.comp;
         sfx = cued.ids;
       }
-      if (nested) {
+      if (exploded) {
         ctx.commit((current) => {
-          const folderId = current.folders.find((f) => f.name === MOTION_FOLDER && f.parentId === null)?.id ?? `folder_${nested.id}`;
+          const folderId = current.folders.find((f) => f.name === MOTION_FOLDER && f.parentId === null)?.id ?? `folder_${exploded.comp.id}`;
           const folders = current.folders.some((f) => f.id === folderId) ? current.folders : [...current.folders, { id: folderId, name: MOTION_FOLDER, parentId: null }];
-          return { ...current, folders, comps: [...current.comps.map((c) => (c.id === comp.id ? next : c)), { ...nested, folderId }] };
+          return { ...current, folders, comps: [...current.comps.map((c) => (c.id === comp.id ? next : c)), ...[exploded.comp, ...exploded.nested].map((c) => ({ ...c, folderId }))] };
         });
       } else ctx.editComp(comp, () => next);
-      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${nested ? ` as the nested comp "${nested.name}" (in the ${MOTION_FOLDER} bin; open it to change its layers)` : ''} on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track` : ''}. Preview and export use the same GPU renderer. Check it with inspect_clip_frames, then retime or restyle with update_motion_scene (clipId is the scene clip inside the comp).`, {
-        clipId: clip.id, compClipId: nested ? outer.id : clip.id, compId: nested?.id ?? comp.id, sfxClipIds: sfx, scene: summarizeScene(scene),
+      const layers = exploded?.layers.filter((layer) => layer.compId === exploded.comp.id) ?? [];
+      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${exploded ? ` as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin): ${layers.length} layer${layers.length === 1 ? '' : 's'} — ${layers.map((layer) => layer.name).join(', ')} — each a clip on its own track, so the user can open it and move, trim, hide or restyle any layer${exploded.nested.length ? ` (precomps open as their own layered comps)` : ''}` : ''}, on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track` : ''}.${plateNote}${fitReport(fit, safeMargin(args))}${lightStageNote(scene)} Preview and export use the same GPU renderer. Check it with run_frame_qa (it now renders motion graphics into the contact frames); change it with update_motion_scene {"clipId":"${clip.id}"} — params rebuild the template, patches edit a layer by its id.`, {
+        clipId: clip.id, compClipId: clip.id, compId: exploded?.comp.id ?? comp.id, sfxClipIds: sfx,
+        layers: exploded?.layers.map(({ layerId, clipId, compId, name, type, start: from, end }) => ({ layerId, clipId, compId, name, type, start: from, end })) ?? [],
+        outline: summarizeScene(scene),
       });
     }
 
     case 'get_motion_scene': {
-      const found = findClip(project, str(args, 'clipId') ?? '');
-      if (!found || found.clip.source.type !== 'motion') return fail('Supply the clipId of a motion scene clip.');
-      const scene = found.clip.source.scene;
-      return done(`${found.clip.source.title ?? 'Motion scene'}: ${scene.layers.length} layers, ${scene.duration.toFixed(2)} s${scene.template ? `, built from ${scene.template.id}` : ''}.`, {
-        summary: summarizeScene(scene),
+      const target = resolveMotion(project, str(args, 'clipId') ?? str(args, 'compId') ?? '');
+      if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
+      if (target.kind === 'stack') {
+        const scene = logicalScene(project, target.comp);
+        if (!scene) return fail('That comp has no motion layers.');
+        const layers = layerListing(project, target.comp);
+        const drawn = layeredCompScene(project, target.comp) ?? scene;
+        const layout = layoutIssues(drawn, { margin: safeMargin(args) });
+        return done(`"${target.comp.name}": ${layers.length} layer clip${layers.length === 1 ? '' : 's'} (${layers.map((layer) => layer.name).join(', ')}), ${scene.duration.toFixed(2)} s${scene.template ? `, built from ${scene.template.id}` : ''}.${layout.length ? ` ${describeLayout(layout)}` : ' Everything rests inside the safe area.'} Edit a layer with update_motion_scene patches by its layerId, or its clip on the comp's timeline.`, {
+          compId: target.comp.id,
+          layers,
+          outline: summarizeScene(scene),
+          layout,
+          ...(args.full === true ? { scene } : {}),
+          ...(scene.template ? { templateParams: scene.template.params } : {}),
+        });
+      }
+      const scene = (target.clip.source as MotionSource).scene;
+      return done(`${(target.clip.source as MotionSource).title ?? 'Motion scene'}: ${scene.layers.length} layers, ${scene.duration.toFixed(2)} s${scene.template ? `, built from ${scene.template.id}` : ''}. It is one clip; split_motion_layers opens it into a clip per layer.`, {
+        outline: summarizeScene(scene),
         ...(args.full === true ? { scene } : {}),
         ...(scene.template ? { templateParams: scene.template.params } : {}),
       });
     }
 
     case 'update_motion_scene': {
-      const found = findClip(project, str(args, 'clipId') ?? '');
-      if (!found || found.clip.source.type !== 'motion') return fail('Supply the clipId of a motion scene clip.');
-      const { clip, comp } = found;
-      const source = found.clip.source;
-      let scene: MotionScene = JSON.parse(JSON.stringify(source.scene));
-      const changes: string[] = [];
-      const params = obj(args, 'params');
-      if (params) {
-        const templateId = scene.template?.id;
-        const spec = templateId ? findTemplate(templateId) : undefined;
-        if (!spec) return fail('This scene was not built from a template; patch its layers instead.');
-        const merged = { ...(scene.template?.params ?? {}), ...resolveParams(params, ctx, clip.start) };
-        const brand = args.useBrand === false ? null : ctx.brand ?? scene.brand?.snapshot ?? null;
-        scene = buildInBrand(spec, { width: scene.width, height: scene.height }, merged, brand);
-        changes.push(`rebuilt ${templateId} with ${Object.keys(params).join(', ')}`);
-      }
-      const replacement = obj(args, 'scene');
-      if (replacement) { scene = { ...scene, ...(replacement as object) } as MotionScene; changes.push('replaced the scene'); }
-      for (const id of Array.isArray(args.removeLayers) ? (args.removeLayers as unknown[]).filter((v): v is string => typeof v === 'string') : []) {
-        const before = scene.layers.length;
-        scene.layers = scene.layers.filter((layer) => layer.id !== id);
-        if (scene.layers.length < before) changes.push(`removed ${id}`);
-      }
-      for (const raw of Array.isArray(args.addLayers) ? (args.addLayers as unknown[]) : []) {
-        const entry = raw as Args;
-        const layer = (entry.layer ?? entry) as Layer;
-        if (!layer || typeof layer !== 'object' || typeof layer.id !== 'string') return fail('addLayers entries are layers (or {layer, above|below}) with an id.');
-        const anchorId = (entry.above ?? entry.below) as string | undefined;
-        const index = anchorId ? scene.layers.findIndex((l) => l.id === anchorId) : -1;
-        if (index >= 0) scene.layers.splice(entry.above ? index + 1 : index, 0, layer);
-        else scene.layers.push(layer);
-        changes.push(`added ${layer.id}`);
-      }
-      for (const raw of Array.isArray(args.patches) ? (args.patches as unknown[]) : []) {
-        const patch = raw as Args;
-        const path = typeof patch.path === 'string' ? patch.path : '';
-        if (!path) return fail('Each patch needs a path (e.g. "transform.position" or "effects.0.radius").');
-        const target = typeof patch.layer === 'string' ? findLayer(scene, patch.layer) : (scene as unknown as Layer);
-        if (!target) return fail(`No layer "${String(patch.layer)}" in the scene.`);
-        if (!setPath(target as unknown as Args, path, patch.value)) return fail(`Could not set ${path}.`);
-        changes.push(`${patch.layer ?? 'scene'}.${path}`);
-      }
-      const retime = num(args, 'retime');
-      if (retime && retime > 0 && retime !== 1) {
-        const stretch = (value: unknown): unknown => {
-          if (Array.isArray(value)) return value.map(stretch);
-          if (!value || typeof value !== 'object') return value;
-          const out: Args = {};
-          for (const [k, v] of Object.entries(value as Args)) out[k] = (k === 't' || k === 'at' || k === 'in' || k === 'out' || k === 'delay' || k === 'stagger' || k === 'duration') && typeof v === 'number' ? v * retime : k === 'times' && Array.isArray(v) ? v.map((x) => (typeof x === 'number' ? x * retime : x)) : stretch(v);
-          return out;
-        };
-        scene = { ...(stretch(scene) as MotionScene), width: scene.width, height: scene.height, version: 1 };
-        changes.push(`retimed ×${retime}`);
-      }
-      if (!changes.length) return fail('Nothing to change: give params, patches, addLayers, removeLayers, retime or scene.');
-      const problems = validateScene(scene);
-      if (problems.length) return fail(`The edited scene is not valid: ${problems.slice(0, 8).join(' ')}`);
+      const target = resolveMotion(project, str(args, 'clipId') ?? str(args, 'compId') ?? '');
+      if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
+      if (target.kind === 'stack') return updateStack(target.comp, args, ctx);
+      const { clip, comp } = target;
+      const source = clip.source as MotionSource;
+      const edit = editScene(source.scene, args, ctx, clip.start);
+      if ('error' in edit) return fail(edit.error);
+      const { scene, changes, retime } = edit;
       const duration = retime ? clip.duration * retime : Math.max(clip.duration, Math.min(scene.duration, clip.duration));
       ctx.commit((current) => {
         const edited = { ...current, comps: current.comps.map((c) => (c.id === comp.id ? { ...c, clips: c.clips.map((entry) => (entry.id === clip.id ? { ...entry, duration, source: { ...source, scene, frames: undefined } } : entry)) } : c)) };
         return syncHolders(edited, comp, clip.start + duration);
       });
-      return done(`Updated ${source.title ?? 'the motion scene'}: ${changes.join('; ')}.`, { clipId: clip.id, summary: summarizeScene(scene) });
+      return done(`Updated ${source.title ?? 'the motion scene'}: ${changes.join('; ')}.${edit.fitNote}`, { clipId: clip.id, outline: summarizeScene(scene) });
     }
 
     case 'analyze_reference_video': {
@@ -576,7 +710,17 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const result = nestLooseMotionScenes(ctx.current(), comp.id);
       if (!result.count) return done('Every motion scene in this comp is already inside its own comp.');
       ctx.commit(() => result.project);
-      return done(`Moved ${result.count} motion scene${result.count === 1 ? '' : 's'} into their own "[Motion]" comps (${MOTION_FOLDER} bin); the timeline keeps one nested clip each, same place and length.`, { count: result.count });
+      return done(`Moved ${result.count} motion scene${result.count === 1 ? '' : 's'} into their own layered "[Motion]" comps (${MOTION_FOLDER} bin), one clip per layer; the timeline keeps one nested clip each, same place and length.`, { count: result.count });
+    }
+
+    case 'split_motion_layers': {
+      const ids = [str(args, 'compId'), ...(Array.isArray(args.compIds) ? (args.compIds as unknown[]).filter((v): v is string => typeof v === 'string') : [])]
+        .filter((id): id is string => !!id)
+        .map((id) => { const found = findClip(project, id); return found?.clip.source.type === 'comp' ? found.clip.source.compId : id; });
+      const result = splitMotionComps(ctx.current(), ids);
+      if (!result.split.length) return done(`Nothing to split: ${result.skipped.length ? result.skipped.join('; ') : 'every "[Motion]" comp already shows its layers.'}`, { split: [] });
+      ctx.commit(() => result.project);
+      return done(`Opened ${result.split.length} motion comp${result.split.length === 1 ? '' : 's'} into layers: ${result.split.map((entry) => `"${entry.name}" (${entry.layers} layers)`).join(', ')}. Each layer is now a clip on its own track; the timeline clips that hold them are unchanged and they draw exactly as before.${result.skipped.length ? ` Skipped: ${result.skipped.join('; ')}.` : ''}`, { split: result.split });
     }
   }
   return fail(`Unknown motion tool ${name}.`);
@@ -619,25 +763,27 @@ export async function placeTemplateByHand(options: { history: { current: () => P
 }
 
 /**
- * Moves every motion scene sitting directly on a comp's timeline into its own "[Motion]" comp,
- * leaving a nested clip at the same place, length and track. Scenes already nested are left.
+ * Moves every motion scene sitting directly on a comp's timeline into its own layered "[Motion]"
+ * comp (one clip per layer), leaving a nested clip at the same place, length, track, in point and
+ * speed. Layer clips and scenes already nested are left alone.
  */
 export function nestLooseMotionScenes(project: Project, compId: string): { project: Project; count: number } {
   const comp = project.comps.find((c) => c.id === compId);
   if (!comp) return { project, count: 0 };
   const created: Comp[] = [];
   const clips = comp.clips.map((clip) => {
-    if (clip.source.type !== 'motion') return clip;
+    if (clip.source.type !== 'motion' || isLayerClip(clip)) return clip;
     const title = clip.source.title ?? clip.name ?? 'Motion scene';
-    const inner = motionComp(comp, title, { ...clip, id: `${clip.id}_scene` });
-    created.push(inner);
-    return { ...clip, source: { type: 'comp' as const, compId: inner.id }, name: inner.name, in: 0, speed: 1, reverse: false, hold: null, label: 'mango' as const };
+    const exploded = explodeScene(clip.source.scene, { name: `[Motion] ${title}`, fps: comp.fps, width: comp.width, height: comp.height });
+    created.push(exploded.comp, ...exploded.nested);
+    // The nested comp's time is the scene's time, so the clip keeps its in point and speed.
+    return { ...clip, source: { type: 'comp' as const, compId: exploded.comp.id }, name: exploded.comp.name, label: 'mango' as const };
   });
   if (!created.length) return { project, count: 0 };
   const folderId = project.folders.find((f) => f.name === MOTION_FOLDER && f.parentId === null)?.id ?? `folder_${created[0].id}`;
   const folders = project.folders.some((f) => f.id === folderId) ? project.folders : [...project.folders, { id: folderId, name: MOTION_FOLDER, parentId: null }];
   return {
-    project: { ...project, folders, comps: [...project.comps.map((c) => (c.id === compId ? { ...c, clips } : c)), ...created.map((c) => ({ ...c, folderId }))] },
-    count: created.length,
+    project: { ...project, folders, comps: [...project.comps.map((c) => (c.id === compId ? { ...c, clips } : c)), ...created.map((c) => ({ ...c, folderId: c.folderId ?? folderId }))] },
+    count: clips.filter((clip, i) => clip !== comp.clips[i]).length,
   };
 }

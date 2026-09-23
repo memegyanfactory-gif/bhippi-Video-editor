@@ -14,6 +14,8 @@ import type { Clip, Comp, KeyframedProperty, Mask, Project, Tool, RotoCorrection
 import { CompAudio, CompLayers } from './Compositor';
 import { DEFAULT_CACHE_MB, previewCache } from '../lib/previewCache';
 import { warmAhead } from './previewWarm';
+import { stackGroups, standaloneScene } from '../lib/motionStack';
+import type { MotionScene } from '../motion/types';
 
 export type ProgramApi = { toggle: () => void; step: (frames: number) => void; shuttle: (direction: 1 | -1 | 0) => void; playAround: () => void; playInToOut: () => void; getStage: () => HTMLDivElement | null };
 
@@ -488,8 +490,14 @@ export function ProgramMonitor(props: Props) {
   const cacheMb = props.previewCache?.budgetMb ?? DEFAULT_CACHE_MB;
   useEffect(() => { previewCache.configure({ enabled: cacheOn, budgetMb: cacheMb }); }, [cacheOn, cacheMb]);
   useEffect(() => {
-    const scenes = project.comps.flatMap((entry) => entry.clips.flatMap((clip) => (clip.source.type === 'motion' ? [clip.source.scene] : [])));
-    previewCache.setSource(cacheOn ? comp : undefined, assets, scenes);
+    // What draws: every motion clip's scene (a layer clip on its own resolves its precomps and
+    // Motion properties), plus each layered stack fused into one scene.
+    const sceneOf = (clip: Clip) => standaloneScene(project, clip) ?? (clip.source as { scene: MotionScene }).scene;
+    const groups = comp ? stackGroups(project, comp) : [];
+    const scenes = [
+      ...project.comps.flatMap((entry) => [...entry.clips.flatMap((clip) => (clip.source.type === 'motion' ? [sceneOf(clip)] : [])), ...stackGroups(project, entry).map((group) => group.scene)]),
+    ];
+    previewCache.setSource(cacheOn ? comp : undefined, assets, scenes, { groups, sceneOf });
   }, [project, comp, assets, cacheOn]);
   useEffect(() => { previewCache.setView(stageW * (window.devicePixelRatio || 1)); }, [stageW]);
   const warmSlot = Math.floor(time * 2);

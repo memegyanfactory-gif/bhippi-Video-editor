@@ -71,4 +71,11 @@ describe('the folded work line', () => {
     expect(code).toEqual(['todos/plan.md', 'D:\\Projects']);
     expect(renderDetail('No results found')).toBe('No results found');
   });
+
+  it('shows a tool summary that is not text instead of crashing the chat', () => {
+    // get_motion_scene once returned its scene outline as `summary`: "e.split is not a function".
+    expect(() => renderDetail({ width: 1920, layers: [] })).not.toThrow();
+    expect(renderDetail({ width: 1920 })).toBe('{"width":1920}');
+    expect(renderDetail(undefined)).toBe('');
+  });
 });

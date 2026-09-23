@@ -231,8 +231,8 @@ export const SLOT_BOX: Record<BitLayout, Box> = {
   'lower-third': { x: 0.05, y: 0.72, width: 0.5, height: 0.18 },
   'top-left': { x: 0.05, y: 0.07, width: 0.32, height: 0.2 },
   'top-right': { x: 0.63, y: 0.07, width: 0.32, height: 0.2 },
-  'side-panel-left': { x: 0.04, y: 0.1, width: 0.42, height: 0.8 },
-  'side-panel-right': { x: 0.54, y: 0.1, width: 0.42, height: 0.8 },
+  'side-panel-left': { x: 0.05, y: 0.1, width: 0.35, height: 0.8 },
+  'side-panel-right': { x: 0.6, y: 0.1, width: 0.35, height: 0.8 },
 };
 
 export const LAYOUTS = Object.keys(SLOT_BOX) as BitLayout[];
@@ -335,8 +335,8 @@ export const RBX_BASE_CSS = `
 .rbx .slot-lower-third{left:5%;top:72%;width:50%;height:18%;display:flex;align-items:flex-end}
 .rbx .slot-top-left{left:5%;top:7%;width:32%;height:20%}
 .rbx .slot-top-right{left:63%;top:7%;width:32%;height:20%;display:flex;justify-content:flex-end}
-.rbx .slot-side-panel-left{left:4%;top:10%;width:42%;height:80%;display:flex;align-items:center}
-.rbx .slot-side-panel-right{left:54%;top:10%;width:42%;height:80%;display:flex;align-items:center}
+.rbx .slot-side-panel-left{left:5%;top:10%;width:35%;height:80%;display:flex;align-items:center}
+.rbx .slot-side-panel-right{left:60%;top:10%;width:35%;height:80%;display:flex;align-items:center}
 .rbx .fill{position:absolute;inset:0}
 .rbx .center{display:flex;align-items:center;justify-content:center;text-align:center}
 .rbx .col{display:flex;flex-direction:column}

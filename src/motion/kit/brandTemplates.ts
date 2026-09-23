@@ -309,7 +309,8 @@ function brandLogoSting(ctx: KitContext, p: Record<string, unknown>): MotionScen
   const spec = layoutFor(b.guideline, 'end-card', ctx.width, ctx.height);
   const sting = move(b, 'logo-sting');
   const duration = num(p.duration, (sting?.frames ?? 40) / 30 + 1.2);
-  const layers: Layer[] = [animate(stageLayer(ctx, b, duration), [{ element: element(b, 'logo-sting', 'background'), at: 0, fps: 30 }], b, [ctx.width / 2, ctx.height / 2], u)];
+  // background "none" puts the sting over whatever is below it (a background plate, the footage).
+  const layers: Layer[] = str(p.background, 'gradient') === 'none' ? [] : [animate(stageLayer(ctx, b, duration), [{ element: element(b, 'logo-sting', 'background'), at: 0, fps: 30 }], b, [ctx.width / 2, ctx.height / 2], u)];
   const logoZone = zoneOf(spec, 'logo');
   const headZone = zoneOf(spec, 'headline');
   const asset = str(p.logo) || b.logoAsset;
@@ -335,7 +336,7 @@ function brandEndCard(ctx: KitContext, p: Record<string, unknown>): MotionScene 
   const spec = layoutFor(b.guideline, 'end-card', ctx.width, ctx.height);
   const card = move(b, 'end-card');
   const duration = num(p.duration, (card?.frames ?? 40) / 30 + 2.5);
-  const layers: Layer[] = [stageLayer(ctx, b, duration)];
+  const layers: Layer[] = str(p.background, 'gradient') === 'none' ? [] : [stageLayer(ctx, b, duration)];
   const headZone = zoneOf(spec, 'headline');
   if (headZone) layers.push(headlineLayer('headline', str(p.headline, str(p.title, 'Thanks for watching')), headZone, step(b, 'heading'), ctx, b, (element(b, 'end-card', 'headline')?.keys[0]?.frame ?? 4) / 30, null, { accentWord: str(p.accentWord) || undefined }));
   const ctaZone = zoneOf(spec, 'cta');
@@ -385,8 +386,8 @@ export const BRAND_TEMPLATES: TemplateSpec[] = [
   { id: 'brand-lower-third', label: 'Brand lower third', technique: 'brand guideline: lower-third-in / out', use: 'A name and role (or a source) over the talking shot, in the brand lower-third zone.', params: { name: 'string', role: 'string', duration: P.duration }, seconds: 4, fullFrame: false, build: recorded('brand-lower-third', brandLowerThird) },
   { id: 'brand-stat', label: 'Brand stat', technique: 'brand guideline: stat-count', use: 'One real number that counts up, with its label.', params: { value: 'number', prefix: 'string', suffix: 'string (e.g. "%")', decimals: 'number', label: 'string', accentNumber: 'boolean (true)', ...P }, seconds: 3.5, fullFrame: true, build: recorded('brand-stat', brandStat) },
   { id: 'brand-panel', label: 'Brand panel', technique: 'brand guideline: split layout', use: 'Title and up to 5 points on a brand panel beside the presenter (reframe the footage to the other side with layout_clip).', params: { title: 'string', points: 'string[] (≤5)', side: '"left" (default) | "right"', duration: P.duration }, seconds: 6, fullFrame: false, build: recorded('brand-panel', brandPanel) },
-  { id: 'brand-logo-sting', label: 'Brand logo sting', technique: 'brand guideline: logo-sting', use: 'Intro / outro ident with the brand logo (or wordmark) and tagline.', params: { name: 'string (brand name)', tagline: 'string', logo: 'asset id (defaults to the kit logo)', duration: P.duration }, seconds: 2.5, fullFrame: true, build: recorded('brand-logo-sting', brandLogoSting) },
-  { id: 'brand-end-card', label: 'Brand end card', technique: 'brand guideline: end-card', use: 'The last seconds: headline, call to action, logo.', params: { headline: 'string', cta: 'string', accentWord: 'string', handle: 'string (shown when the kit has no logo file)', duration: P.duration }, seconds: 4, fullFrame: true, build: recorded('brand-end-card', brandEndCard) },
+  { id: 'brand-logo-sting', label: 'Brand logo sting', technique: 'brand guideline: logo-sting', use: 'Intro / outro ident with the brand logo (or wordmark) and tagline.', params: { name: 'string (brand name)', tagline: 'string', logo: 'asset id (defaults to the kit logo)', ...P }, seconds: 2.5, fullFrame: true, build: recorded('brand-logo-sting', brandLogoSting) },
+  { id: 'brand-end-card', label: 'Brand end card', technique: 'brand guideline: end-card', use: 'The last seconds: headline, call to action, logo.', params: { headline: 'string', cta: 'string', accentWord: 'string', handle: 'string (shown when the kit has no logo file)', ...P }, seconds: 4, fullFrame: true, build: recorded('brand-end-card', brandEndCard) },
   { id: 'brand-transition', label: 'Brand transition', technique: 'brand guideline: transition', use: 'A brand-colour wipe to cover a cut between beats; place it centred on the cut.', params: { duration: P.duration }, seconds: 0.6, fullFrame: false, build: recorded('brand-transition', brandTransition) },
 ];
 

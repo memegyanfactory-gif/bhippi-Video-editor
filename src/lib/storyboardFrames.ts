@@ -17,7 +17,9 @@ import { brandedPrompt, type BrandKit } from './brandKit';
 import { api, errorText } from './ipc';
 import { jobsStore } from './jobsStore';
 import { clipEnd, tracksOf } from './timeline';
-import type { Comp, Project } from './types';
+import type { Asset, Comp, Project } from './types';
+import { renderHtmlStill } from './htmlFrames';
+import { renderMotionStill } from '../motion/exportFrames';
 
 /** What a card is about, in either storyboard shape. */
 export type CardScene = { start: number; end: number; title?: string; intent: string; visual: string; prompt?: string; thumbnail?: string };
@@ -122,6 +124,8 @@ export type FrameHost = {
   /** Where rendered edit frames are written (the app's thumbnails folder). */
   framePath: (name: string) => string;
   kit: () => BrandKit | null;
+  /** The project's media, for drawing motion scenes into edit frames (without it they are left out). */
+  assets?: () => Asset[];
 };
 
 type Task = { key: string; compId: string; index: number; kind: FrameKind; host: FrameHost };
@@ -169,7 +173,11 @@ async function runTask(task: Task) {
   let path: string;
   if (task.kind === 'edit') {
     const output = task.host.framePath(`storyboard-${comp.id}-${task.index}-${Date.now().toString(36)}.png`);
-    path = await api.exportFrame(project, comp.id, cardTime(scene), output, 540);
+    const at = cardTime(scene);
+    // The export draws motion scenes and HTML graphics from frames rendered here; a card is one of them.
+    const assets = task.host.assets?.();
+    const prepared = assets ? await renderHtmlStill(await renderMotionStill(project, comp.id, [at], assets), comp.id, [at]) : project;
+    path = await api.exportFrame(prepared, comp.id, at, output, 540);
   } else {
     const { width, height } = frameSize(comp);
     const { prompt, negative } = conceptPrompt(scene, comp, task.host.kit());

@@ -118,7 +118,8 @@ export type TemplateSpec = {
 };
 
 const centre = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
-const sideBox = (layout: MogrtLayout) => (layout === 'side-panel-left' ? { x: 0.04, y: 0.1, width: 0.42, height: 0.8 } : { x: 0.54, y: 0.1, width: 0.42, height: 0.8 });
+/** The column a footage card in layout_clip's 55% slot leaves free: inside the 5% safe area with a 3% gutter. */
+const sideBox = (layout: MogrtLayout) => (layout === 'side-panel-left' ? { x: 0.05, y: 0.1, width: 0.35, height: 0.8 } : { x: 0.6, y: 0.1, width: 0.35, height: 0.8 });
 const cornerBox = (layout: MogrtLayout) => (layout === 'top-left' ? { x: 0.05, y: 0.07, width: 0.32, height: 0.18 } : { x: 0.63, y: 0.07, width: 0.32, height: 0.18 });
 const lowerBox = () => ({ x: 0.05, y: 0.74, width: 0.5, height: 0.16 });
 const full = () => ({ x: 0, y: 0, width: 1, height: 1 });
@@ -231,7 +232,7 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const active = Math.min(rows.length - 1, Math.max(0, params.activeIndex ?? rows.length - 1));
       const isSide = spec.id === 'side-panel' || layout.startsWith('side-panel');
       const geometry = isSide
-        ? `${side}:${px(70)};top:${px(110)};width:${px(760)};bottom:${px(110)};padding:${px(54)} ${px(58)}`
+        ? `${side}:${px(96)};top:${px(110)};width:${px(672)};bottom:${px(110)};padding:${px(48)} ${px(50)}`
         : `left:${px(445)};top:${px(226)};width:${px(1030)};min-height:${px(600)};padding:${px(54)} ${px(62)}`;
       const list = rows.map((row, i) => {
         const [head, ...rest] = row.split(/\s[—–-]\s/);

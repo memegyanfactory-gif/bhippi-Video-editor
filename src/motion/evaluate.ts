@@ -1,7 +1,7 @@
 // Resolves a MotionScene at one moment into a flat list of layers with their final matrices,
 // opacities, masks and effect parameters. Pure: no DOM, no GL — the GPU executor, thumbnails,
 // frame QA and the tests all read the same answer.
-import { num, vec, valueOf, isAnimated, isExpression, type ExprContext } from './anim';
+import { layerTime, num, vec, valueOf, isAnimated, isExpression, type ExprContext } from './anim';
 import { identity, lookAt, multiply, perspective, rotationX, rotationY, rotationZ, scaling, skewing, transformPoint, translation, type Mat4 } from './math';
 import type { Effect, Layer, Mask, MotionScene, Prop, Vec } from './types';
 
@@ -141,8 +141,9 @@ function worldMatrices(scene: MotionScene, t: number, sizeOf: SizeOf, ctx: (inde
     const hit = cache.get(index);
     if (hit) return hit;
     const layer = scene.layers[index];
-    const size = sizeOf(layer, t);
-    const local = localTransform(layer, size, scene, t, ctx(index), anchorOf);
+    const lt = layerTime(layer, t);
+    const size = sizeOf(layer, lt);
+    const local = localTransform(layer, size, scene, lt, ctx(index), anchorOf);
     let world = local.matrix;
     const parentIndex = layer.parent !== undefined ? byId.get(layer.parent) : undefined;
     if (parentIndex !== undefined && !visiting.has(parentIndex) && parentIndex !== index) {
@@ -165,10 +166,12 @@ function cameraAt(scene: MotionScene, t: number, world: (index: number) => Mat4,
     if (layer.type !== 'camera') continue;
     if (t < (layer.in ?? 0) || t >= (layer.out ?? Infinity)) continue;
     const c = ctx(index);
-    const zoom = Math.max(1, num(layer.zoom, t, defaultZoom, c));
+    // The camera's own clock (its clip may sit anywhere on a layered comp's timeline).
+    const lt = layerTime(layer, t);
+    const zoom = Math.max(1, num(layer.zoom, lt, defaultZoom, c));
     const tr = layer.transform ?? {};
-    const localEye = vec(tr.position, t, [scene.width / 2, scene.height / 2, -zoom], c);
-    const localTarget = vec(layer.pointOfInterest, t, [scene.width / 2, scene.height / 2, 0], c);
+    const localEye = vec(tr.position, lt, [scene.width / 2, scene.height / 2, -zoom], c);
+    const localTarget = vec(layer.pointOfInterest, lt, [scene.width / 2, scene.height / 2, 0], c);
     let eye = localEye;
     let target = localTarget;
     if (layer.parent) {
@@ -185,9 +188,9 @@ function cameraAt(scene: MotionScene, t: number, world: (index: number) => Mat4,
     // itself when its position was animated but not its target: AE's one-node camera.
     if (layer.pointOfInterest === undefined) target = [eye[0], eye[1], (eye[2] ?? 0) + zoom];
     let view = lookAt([eye[0], eye[1], eye[2] ?? -zoom], [target[0], target[1], target[2] ?? 0]);
-    const roll = num(tr.rotation, t, 0, c);
+    const roll = num(tr.rotation, lt, 0, c);
     if (roll) view = multiply(rotationZ(-roll), view);
-    return { eye, target, zoom, view, projection: perspective(zoom, scene.width, scene.height), focus: num(layer.focus, t, zoom, c), aperture: num(layer.aperture, t, 0, c) };
+    return { eye, target, zoom, view, projection: perspective(zoom, scene.width, scene.height), focus: num(layer.focus, lt, zoom, c), aperture: num(layer.aperture, lt, 0, c) };
   }
   const eye = [scene.width / 2, scene.height / 2, -defaultZoom];
   const target = [scene.width / 2, scene.height / 2, 0];
@@ -196,13 +199,38 @@ function cameraAt(scene: MotionScene, t: number, world: (index: number) => Mat4,
 
 export type EvaluateOptions = { sizeOf?: SizeOf; anchorOf?: AnchorOf; fps?: number; motionBlur?: boolean };
 
+/**
+ * A layer clip's own transform on a layered comp's timeline (`layer.frame`), applied after the
+ * parent chain and the camera: the offset moves the picture in canvas pixels, scale and rotation
+ * turn it about its own centre where it stands — what the clip's Motion properties do to the
+ * layer, the way AE scales a layer about its anchor. Null when there is none.
+ */
+function clipFrame(layer: Layer, placed: Mat4, size: [number, number], t: number): { matrix: Mat4; opacity: number } | null {
+  const frame = layer.frame;
+  if (!frame) return null;
+  const offset = vec(frame.offset, t, [0, 0]);
+  const scale = num(frame.scale, t, 100) / 100;
+  const rotation = num(frame.rotation, t, 0);
+  const opacity = Math.max(0, Math.min(100, num(frame.opacity, t, 100))) / 100;
+  const centre = transformPoint(placed, size[0] / 2, size[1] / 2, 0);
+  const w = Math.abs(centre[3]) > 1e-9 ? centre[3] : 1;
+  const cx = centre[0] / w;
+  const cy = centre[1] / w;
+  let m = translation(cx + offset[0], cy + offset[1], 0);
+  if (rotation) m = multiply(m, rotationZ(rotation));
+  if (scale !== 1) m = multiply(m, scaling(scale, scale, 1));
+  return { matrix: multiply(m, translation(-cx, -cy, 0)), opacity };
+}
+
 function frameMatrices(scene: MotionScene, t: number, sizeOf: SizeOf, ctx: (index: number) => ExprContext, anchorOf?: AnchorOf) {
   const { resolve } = worldMatrices(scene, t, sizeOf, ctx, anchorOf);
   const camera = cameraAt(scene, t, (index) => resolve(index).world, ctx);
   const cameraMatrix = multiply(camera.projection, camera.view);
   const final = (index: number) => {
     const entry = resolve(index);
-    return { ...entry, matrix: entry.local.is3D ? multiply(cameraMatrix, entry.world) : entry.world };
+    const placed = entry.local.is3D ? multiply(cameraMatrix, entry.world) : entry.world;
+    const clip = clipFrame(scene.layers[index], placed, entry.size, t);
+    return { ...entry, matrix: clip ? multiply(clip.matrix, placed) : placed, clipOpacity: clip?.opacity ?? 1 };
   };
   return { final, camera, cameraMatrix };
 }
@@ -224,6 +252,7 @@ export function evaluateScene(scene: MotionScene, t: number, options: EvaluateOp
   const layers: ResolvedLayer[] = scene.layers.map((layer, index) => {
     const c = ctx(index);
     const entry = now.final(index);
+    const lt = layerTime(layer, t);
     const active = t >= (layer.in ?? 0) && t < (layer.out ?? Infinity) && layer.type !== 'camera' && layer.type !== 'null';
     let blurMatrices: Mat4[] = [];
     if (layer.motionBlur && subFrames.length) {
@@ -240,12 +269,12 @@ export function evaluateScene(scene: MotionScene, t: number, options: EvaluateOp
       size: entry.size,
       matrix: entry.matrix,
       blurMatrices,
-      opacity: entry.local.opacity,
+      opacity: entry.local.opacity * entry.clipOpacity,
       is3D: entry.local.is3D,
       depth: cam[2],
-      masks: (layer.masks ?? []).map((mask) => resolveMask(mask, entry.size, t, c)),
-      effects: (layer.effects ?? []).filter((effect) => effect.enabled !== false).map((effect) => resolveEffect(effect, t, c)),
-      time: layer.type === 'precomp' ? (t - (layer.offset ?? 0)) * (layer.speed ?? 1) : t,
+      masks: (layer.masks ?? []).map((mask) => resolveMask(mask, entry.size, lt, c)),
+      effects: (layer.effects ?? []).filter((effect) => effect.enabled !== false).map((effect) => resolveEffect(effect, lt, c)),
+      time: layer.type === 'precomp' ? (lt - (layer.offset ?? 0)) * (layer.speed ?? 1) : lt,
     };
   });
 
@@ -278,9 +307,13 @@ export function projectPoint(frame: ResolvedFrame, layerId: string, x: number, y
 /** Canvas-space bounding box of a layer's content, or null when it is behind the camera. */
 export function layerBounds(frame: ResolvedFrame, layerId: string): { x: number; y: number; width: number; height: number } | null {
   const layer = frame.layers.find((entry) => entry.layer.id === layerId);
-  if (!layer) return null;
-  const [w, h] = layer.size;
-  const corners = [[0, 0], [w, 0], [w, h], [0, h]].map(([x, y]) => transformPoint(layer.matrix, x, y, 0));
+  return layer ? entryBounds(layer.matrix, layer.size) : null;
+}
+
+/** Canvas-space bounding box of content of `size` placed by `matrix`, or null behind the camera. */
+export function entryBounds(matrix: Mat4, size: [number, number]): { x: number; y: number; width: number; height: number } | null {
+  const [w, h] = size;
+  const corners = [[0, 0], [w, 0], [w, h], [0, h]].map(([x, y]) => transformPoint(matrix, x, y, 0));
   if (corners.some((p) => p[3] <= 1e-6)) return null;
   const xs = corners.map((p) => p[0] / p[3]);
   const ys = corners.map((p) => p[1] / p[3]);

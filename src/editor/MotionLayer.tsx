@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { editorMediaHost } from '../motion/host';
 import { MotionRenderer } from '../motion/gl/renderer';
+import { entryBounds } from '../motion/evaluate';
 import type { MediaHost } from '../motion/sources';
 import type { MotionScene } from '../motion/types';
 import type { Asset } from '../lib/types';
@@ -33,6 +34,27 @@ function previewRenderer(assets: Map<string, Asset>): MotionRenderer | null {
     }
   }
   return shared;
+}
+
+/**
+ * Canvas-space boxes of the layers a scene draws at `t` (visible, not hidden or a matte-only
+ * copy), laid out by the preview renderer so text is measured. Empty without WebGL.
+ */
+export function sceneLayerBoxes(scene: MotionScene, time: number, assets: Map<string, Asset>, fps = 30): { id: string; x: number; y: number; width: number; height: number }[] {
+  const renderer = previewRenderer(assets);
+  if (!renderer) return [];
+  try {
+    const frame = renderer.evaluate(scene, time, fps);
+    const matteSources = new Set(scene.layers.map((layer) => layer.matte?.layer).filter(Boolean));
+    return frame.layers.flatMap((entry) => {
+      const layer = entry.layer;
+      if (!entry.active || entry.opacity <= 0.01 || layer.hidden || layer.ref || matteSources.has(layer.id)) return [];
+      const box = entryBounds(entry.matrix, entry.size);
+      return box && box.width > 0 && box.height > 0 ? [{ id: layer.id, ...box }] : [];
+    });
+  } catch {
+    return [];
+  }
 }
 
 /**

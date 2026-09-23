@@ -63,6 +63,7 @@ import {
   sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, tracksOf, transitionsOnSelection, trimEdge, updateComp, updateTrack, withLinked, wouldCycle,
   type AssetMap,
 } from './lib/timeline';
+import { isLayeredComp, splitMotionComps } from './lib/motionStack';
 import type { AppInfo, Asset, Clip, Comp, ExportOptions, HeliosDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase } from './lib/types';
 import { ProjectPanel, type DragPayload, type EffectPreset, type ProjectTab } from './panels/ProjectPanel';
 import { PropertiesPanel } from './panels/PropertiesPanel';
@@ -671,7 +672,9 @@ export default function App() {
           result = { ok: false as const, error: errorText(error) };
         }
       }
-      const summary = result.ok ? (result.summary ?? 'done') : result.error;
+      // Always text: the activity list renders it, and a tool that put an object here crashed the chat.
+      const told: unknown = result.ok ? (result.summary ?? 'done') : result.error;
+      const summary = typeof told === 'string' ? told : JSON.stringify(told) ?? String(told);
       const changedProject = result.ok && hostRef.current.history.current() !== projectBeforeTool;
       toolAborts.current.delete(call.callId);
       const ms = Date.now() - started;
@@ -718,6 +721,27 @@ export default function App() {
       ? 'Start generating. The plan is approved: begin the GATHER phase now. Call editing_workflow_status, then gather every planned shot one call at a time with its sceneIndex — text-to-video shots 5–7 s from their own script and prompt (generate_local_media task video, wait true), images, downloads and scrapes into their research folders, the voice-over (synthesize_speech_voiceover) and the music bed. Retry a failed generation once with a simpler prompt. When everything has a real asset, call finish_gathering and end your turn with a short list of what was gathered. Do not touch the timeline.'
       : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, layout_clip + create_motion_graphic per beat with the Crimson templates, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
     window.setTimeout(() => chatApi.current?.send(message), 50);
+  };
+
+  /**
+   * The polish pass: the model looks at every frame of the whole timeline (or the in/out
+   * selection), fixes what is off and checks again until it is clear. A production being edited
+   * runs it in its own workflow; any other timeline in Quick edit, so it is not first sent back to
+   * transcribe and storyboard footage it is only polishing.
+   */
+  const polishEdit = () => {
+    const target = history.current().comps.find((entry) => entry.id === history.current().activeCompId);
+    if (!target) return;
+    const selection = target.inPoint !== null && target.outPoint !== null && target.outPoint > target.inPoint;
+    const range = selection ? `the in/out selection ${timecode(target.inPoint!, target.fps)}–${timecode(target.outPoint!, target.fps)} of "${target.name}" (run_frame_qa with "selection": true)` : `the whole timeline of "${target.name}"`;
+    const produced = !!target.production && ['editing', 'polishing', 'done'].includes(target.production.phase);
+    const message = `Polish ${range}. This is the final look-and-improve pass: make what is there better, do not re-plan or add new sections. `
+      + '1) editing_workflow_status and get_comp. '
+      + '2) run_frame_qa over that range. It renders frames with the motion graphics drawn in and reports anything off the frame or outside the safe area, blank or white frames, black edges, graphics over the face, collisions. '
+      + '3) Fix every problem at its source: a footage card or panel outside the frame → layout_clip (its slots sit inside the safe area) or update_motion_scene patches (motion comps are layered: patch the layer by its id); a white, blank or flat frame → a designed background plate under it (the project\'s generated gradient on V1, fill_background) and background "none" on full-frame brand templates over it; black edges → fill_background; overlaps → move, shrink or retime one of them. '
+      + '4) Look at the contact frames yourself: contrast, reading time, one focal point, nothing cramped against an edge; improve what looks weak. '
+      + '5) run_frame_qa again until it is clear, then get_comp and verify_edit_workflow. Say what you changed and anything you could not fix.';
+    chatApi.current?.send(message, { mode: produced ? 'full' : 'quick' });
   };
 
   // ── persistence ────────────────────────────────────────────────────────
@@ -1072,6 +1096,13 @@ export default function App() {
   };
 
   const openComp = (compId: string) => {
+    // A "[Motion]" comp that still holds its scene as one clip opens as its layers, one clip per
+    // track, the way it draws already (one undo step; the clips that nest it are untouched).
+    const target = history.current().comps.find((entry) => entry.id === compId);
+    if (target?.name.startsWith('[Motion]') && !isLayeredComp(target)) {
+      const opened = splitMotionComps(history.current(), [compId]);
+      if (opened.split.length) history.commit(() => opened.project, 'Open Motion Layers');
+    }
     history.view((current) => ({ ...current, activeCompId: compId, openCompIds: current.openCompIds.includes(compId) ? current.openCompIds : [...current.openCompIds, compId] }));
     setSelection([]);
     playhead.seek(0);
@@ -2412,6 +2443,7 @@ export default function App() {
       return `${info.dataDir}${sep}thumbnails${sep}${name}`;
     },
     kit: () => resolveActiveKit(settingsRef.current.brandKits, history.current()),
+    assets: () => assetsRef.current,
   };
   frameHostRef.current = frameHost;
   const requestFrames = (kind: 'auto' | 'edit' | 'concept', indices?: number[]) => { if (comp) requestCardFrames(frameHost, comp.id, kind, indices); };
@@ -2451,11 +2483,13 @@ export default function App() {
             plan for the next task starts a fresh production (see parseProduction), which
             brings the dock back. */}
         <ChatPanel apiRef={chatApi} providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
+          onPolish={comp?.clips.length && !(comp.production && ['planning', 'plan-ready', 'gathering', 'gathered'].includes(comp.production.phase)) ? polishEdit : undefined}
           productionBar={comp?.production && comp.production.phase !== 'done' && (
             <ProductionBar
               comp={comp}
               busy={Object.values(toolRuns).flat().some((run) => run.status === 'running')}
               onAdvance={(phase) => advanceProductionPhase(comp.id, phase)}
+              onPolish={polishEdit}
             />
           )}
           effort={effort} onEffort={(value) => saveSettings({ effort: value })}

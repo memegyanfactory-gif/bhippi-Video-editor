@@ -188,7 +188,9 @@ export function summarize(items: Item[], runs: ToolRun[], steps: Step[]) {
 }
 
 /** Paths and file names in a detail line are set in the code face; the prose around them is not. */
-export function renderDetail(text: string): ReactNode {
+export function renderDetail(detail: unknown): ReactNode {
+  // A detail is text; anything else (a tool that returned an object) is shown as JSON, not a crash.
+  const text = typeof detail === 'string' ? detail : detail === undefined || detail === null ? '' : JSON.stringify(detail) ?? String(detail);
   const parts = text.split(/(\S*[\\/]\S*|[\w-]*[A-Za-z_][\w-]*\.[a-z][a-z0-9]{0,4}(?=$|[\s,;:)]))/);
   if (parts.length === 1) return text;
   return parts.map((part, index) =>

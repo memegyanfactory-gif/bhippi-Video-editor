@@ -926,6 +926,28 @@ export function sourceTimeAt(clip: Clip, time: number): number {
   return clip.reverse ? sourceOut(clip) - offset : clip.in + offset;
 }
 
+/**
+ * Where each comp's clock stands at `time` of `compId`: the root at `time`, then every comp nested
+ * in a clip that is on screen (enabled, on a visible track), followed down. A comp nested twice
+ * lists both times.
+ */
+export function compClocks(project: Project, compId: string, time: number): Map<string, number[]> {
+  const clocks = new Map<string, number[]>();
+  const walk = (id: string, t: number, depth: number) => {
+    if (depth > 6) return;
+    clocks.set(id, [...(clocks.get(id) ?? []), t]);
+    const comp = project.comps.find((entry) => entry.id === id);
+    if (!comp) return;
+    const hidden = new Set(comp.tracks.filter((track) => track.hidden).map((track) => track.id));
+    for (const clip of comp.clips) {
+      if (!clip.enabled || hidden.has(clip.trackId) || clip.source.type !== 'comp' || t < clip.start || t >= clipEnd(clip)) continue;
+      walk(clip.source.compId, sourceTimeAt(clip, t), depth + 1);
+    }
+  };
+  walk(compId, time, 0);
+  return clocks;
+}
+
 /** Add Frame Hold: the part of each video clip after `time` freezes on the frame at `time`. */
 export function addFrameHold(comp: Comp, ids: string[], time: number): Comp {
   const video = new Set(tracksOf(comp, 'video').map((track) => track.id));

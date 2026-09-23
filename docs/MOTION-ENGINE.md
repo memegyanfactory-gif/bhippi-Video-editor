@@ -35,6 +35,59 @@ Preview and export run the same renderer code, so what you see is what exports.
 
 - **Before export**, `App.tsx` calls `renderMotionScenesForExport` right after the HTML graphics pass.
 - **A motion clip that has no rendered frames** exports nothing. It never falls back to a flattened stand-in.
+- **Single frames** (the QA contact sheet, storyboard cards) go through `renderMotionStill` and
+  `renderHtmlStill` first. They render only the frames those moments need, so a frame export
+  shows the graphics.
+
+## Layered motion comps (`src/lib/motionStack.ts`)
+
+A scene the AI or the Graphics tab places opens as a "[Motion] …" comp with **one clip per
+layer**, each on its own track, bottom to top, the way After Effects shows a comp. The user opens
+the comp and moves, trims, hides, deletes, restacks or restyles any layer. A precomp layer
+("Shot as card") gets its own layered comp; double-clicking its clip opens it.
+
+- **One clip per layer.** Each layer clip is an ordinary `motion` clip. Its scene holds its own
+  layer (`scene.stack.own`) plus hidden `ref` copies of what that layer needs to draw alone:
+  its parents, its matte and the camera. The scene JSON carries everything, so neither the project
+  format nor Rust changes.
+- **Drawn as one scene.** `stackGroups` fuses the layer clips of consecutive video tracks back
+  into one scene. Mattes, parents, frosted-glass backdrops, blend and adjustment layers and the 3D
+  camera therefore work across clips exactly as the template built them. A fused stack and the
+  original scene render pixel-identical (checked on the GPU for every media-free template).
+- **Where fusion is used.** The Compositor draws a group at its bottom track's place and puts an
+  invisible hit box over each layer, so clicking a title selects its clip. The export renders a
+  group as one stand-in clip, with its layer clips switched off in the export copy. The preview
+  cache plans groups too.
+- **The clip drives its layer.** Where a clip sits and how fast it runs become the layer's
+  `startTime` and `timeScale` (AE's Start Time and Time Stretch). Its Motion properties and
+  their keyframes become `frame`, applied after the parent chain and the camera. Scale and
+  rotation turn about the layer's own centre.
+- **Clips that draw on their own.** A clip with an NLE effect, mask, crop or transition, or one
+  that is reversed or held, is not fused. It draws alone through `standaloneScene`.
+- **Editing the stack.** `logicalScene` reads a comp back as one scene. `restack` writes an
+  edited scene back layer by layer. Each layer keeps its clip, its track (lock, visibility,
+  order) and the user's moves. Precomps write into the comps they already have.
+- **Older comps.** Single-clip "[Motion]" comps split in place when opened (`splitMotionComps`,
+  also the `split_motion_layers` tool). The comp keeps its id, so the timeline clips that hold it
+  are unchanged.
+- **Limit.** A precomp's comp draws from its layers only while every picture in it is a layer
+  clip. Otherwise it falls back to the scene stored on the precomp layer.
+
+## Safe area (`src/motion/safeArea.ts`)
+
+Type, panels and cards must rest inside the editor's safe area: 5% at the sides and 6% top and
+bottom (`lib/layout.ts` `SAFE`).
+
+- **Judged at rest.** A layer is judged where it rests: on screen, at least half opaque and not
+  moving. Entrances from off frame are therefore fine.
+- **Clusters move together.** Layers that overlap where they rest (a panel and its words) form one
+  cluster, and a cluster moves as one.
+- **Fitting.** `fitToSafeArea` moves every informational cluster back inside, and shrinks it if
+  it is too big. The move is applied at the top parent. `create_motion_scene` and
+  `update_motion_scene` run it unless `fit: false`.
+- **Left alone.** Full-frame layers, full-width bands (not type) and 3D layers bleed by design.
+- **Measuring.** `evaluateMeasured` (`src/motion/measure.ts`) lays text out the way the renderer
+  does, without the GPU.
 
 ## Scene model (`src/motion/types.ts`)
 
@@ -130,18 +183,33 @@ the effect helpers, and `unit(ctx)`, which scales every size to the canvas's sho
 |---|---|
 | `list_motion_templates` | The catalogue with params. |
 | `create_motion_scene` | Builds a template, or accepts a raw scene, and places it on its own track above the footage. Sound cues go on audio tracks. Footage params take `{clipId}`, which fills in the asset, source time and roto matte. `subject-reveal` finds the face (from the roto subject box) and the clean plate (from the eraser) itself. |
-| `get_motion_scene` / `update_motion_scene` | Read a scene, then edit it: rebuild from template params, patch any property by path, add or remove layers, retime. |
+| `get_motion_scene` / `update_motion_scene` | Read a scene (a layered comp lists every layer with its clip id), then edit it: rebuild from template params, patch any property by path, add or remove layers, retime. On a layered comp the edit is written back layer by layer. The id can be the comp, the clip that holds it on the timeline, any layer clip, or a single scene clip. |
+| `nest_motion_scenes` / `split_motion_layers` | Put loose scenes into layered comps, and open older single-clip comps into layers in place. |
 | `track_motion` | OpenCV Lucas–Kanade point or planar tracking (`workers/point_track.py`, command `point_track_start`). It can write the track as keyframes on a scene layer. |
 | `analyze_reference_video` | Measures a film: cuts, shot histogram, hook density, palette, contact sheets as images. Built on `refs_ingest`. |
 | `save_style_profile` | Stores the profile as the project's active guideline. `builtin: "motion-designer-explainer"` is the measured reference. |
 
 - **`reveal_subject`** now defaults to the cell reveal. The old tile grid is still available as `style: "cubes"`.
 - **`erase_subject_clip`** refuses a clean-plate range that crosses a scene cut.
-- **Frame QA** checks overlay scenes against the subject's face.
+- **Frame QA** (`run_frame_qa`, `src/lib/polish.ts`) is the polish pass. It covers the whole
+  timeline or the in/out selection. It measures:
+  - every motion layer where it rests, including inside nested "[Motion]" comps
+  - HTML graphics, titles and captions
+  - reduced footage cards
+  - the roto subject
+
+  It reports anything off the frame or outside the safe area, graphics over the face, collisions
+  and black edges. From rendered frames with the graphics drawn in, it also reports blank frames:
+  flat white, empty black, or one flat colour.
+- **Background plate.** Over a background plate on the timeline, full-frame brand templates get
+  `background: "none"`. A light brand stage covering the plate reads as a blank white frame.
 
 ## Editing by hand
 
-When a motion clip is selected, the Properties panel shows a Motion inspector
+When a layer clip is selected, the Properties panel shows that layer: its words, colour, blend,
+motion blur, effects and JSON. The template params rebuild the whole stack.
+
+When a single motion clip is selected, the Properties panel shows a Motion inspector
 (`src/panels/MotionInspector.tsx`) with:
 
 - template params and a Rebuild button
@@ -154,6 +222,8 @@ When a motion clip is selected, the Properties panel shows a Motion inspector
 - **Unit tests:**
   - `tests/motionEngine.test.ts`: easing, keyframes, expressions, 3D, parenting, text engine.
   - `tests/motionTools.test.ts`: validation and the tools.
+  - `tests/motionStack.test.ts`: split, fuse, retime and restack of layered comps.
+  - `tests/motionSafeArea.test.ts`: the safe-area check and fitter, over every template.
   - `tests/motionKit*.test.ts`: every template at landscape and portrait.
   - `render::tests::motion_scenes_export_*`: the FFmpeg side.
 - **Motion Lab** (`motion-lab.html`, dev only). Run `npx vite --port 1437`, then open

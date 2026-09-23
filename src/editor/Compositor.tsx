@@ -18,7 +18,8 @@ import type { Asset, Clip, Comp, Mask, Project, ProjectItem, Transition } from '
 import { TextLayer } from './Overlay';
 import { RotoPreview } from './RotoPreview';
 import { HtmlMotionLayer } from './HtmlMotionLayer';
-import { MotionLayer } from './MotionLayer';
+import { MotionLayer, sceneLayerBoxes } from './MotionLayer';
+import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../lib/motionStack';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 
 /** What the webview should load for an asset: its preview proxy when one exists. */
@@ -502,10 +503,15 @@ function Layer(props: LayerProps) {
     case 'motion': {
       // Scene time: clip-local seconds through the clip's in point and speed, held on its last frame.
       const sceneTime = Math.max(0, Math.min(clip.source.scene.duration - 1e-3, sourceTimeAt(clip, Math.min(time, clipEnd(clip) - 1e-3))));
+      // A layer of a layered motion comp drawing on its own: its Motion properties are baked into
+      // the scene (they move the layer about its own centre), so the box itself stays put.
+      const layer = isLayerClip(clip);
+      const scene = standaloneScene(project, clip) ?? clip.source.scene;
+      const moved = layer ? '' : `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})`;
       return (
         <div className="layer motion-layer" data-clip-id={depth === 0 ? clip.id : undefined}
-          style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden }}>
-          {visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={clip.source.scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} fps={comp.fps} /></ErrorBoundary>}
+          style={{ inset: 0, opacity: layer ? (typeof transition.style.opacity === 'number' ? transition.style.opacity : 1) : opacity, zIndex, transform: `${moved}${appliedTransform}` || undefined, filter, ...transition.style, ...hidden }}>
+          {visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} fps={comp.fps} /></ErrorBoundary>}
         </div>
       );
     }
@@ -545,6 +551,45 @@ function Layer(props: LayerProps) {
   }
 }
 
+/**
+ * The layer clips of consecutive tracks of a layered motion comp, drawn as the one scene they came
+ * from (lib/motionStack.ts) at the bottom track's place in the stack. On the top-level timeline an
+ * invisible box sits over each layer, so clicking a title selects its clip and the Motion handles
+ * wrap that layer.
+ */
+function StackLayer({ group, comp, time, depth, zIndex, playing, rate, stageW, stageH, quality, assets }: Frame & { group: StackGroup; comp: Comp; time: number; depth: number; zIndex: number; stageW: number; stageH: number }) {
+  const sceneTime = Math.max(0, Math.min(group.scene.duration - 1e-3, time));
+  const boxes = useMemo(() => {
+    if (depth !== 0 || playing) return [];
+    // One box per clip on screen: the union of its own layers' boxes.
+    const byClip = new Map<string, { x0: number; y0: number; x1: number; y1: number }>();
+    for (const box of sceneLayerBoxes(group.scene, sceneTime, assets, comp.fps)) {
+      const clipId = group.owner.get(box.id);
+      if (!clipId) continue;
+      const known = byClip.get(clipId);
+      byClip.set(clipId, known
+        ? { x0: Math.min(known.x0, box.x), y0: Math.min(known.y0, box.y), x1: Math.max(known.x1, box.x + box.width), y1: Math.max(known.y1, box.y + box.height) }
+        : { x0: box.x, y0: box.y, x1: box.x + box.width, y1: box.y + box.height });
+    }
+    return group.clips.flatMap((clip, order) => {
+      const box = byClip.get(clip.id);
+      return box ? [{ clipId: clip.id, order, x: box.x0, y: box.y0, width: box.x1 - box.x0, height: box.y1 - box.y0 }] : [];
+    });
+  }, [group, sceneTime, depth, playing, assets, comp.fps]);
+  const k = stageW / Math.max(1, comp.width);
+  return (
+    <>
+      <div className="layer motion-layer stack-layer" style={{ inset: 0, zIndex }}>
+        <ErrorBoundary scope="Motion scene"><MotionLayer scene={group.scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={quality} assets={assets} fps={comp.fps} /></ErrorBoundary>
+      </div>
+      {boxes.map((box) => (
+        <div key={box.clipId} className="layer stack-hit" data-clip-id={box.clipId}
+          style={{ left: box.x * k, top: box.y * k, width: Math.max(4, box.width * k), height: Math.max(4, box.height * k), zIndex: zIndex + 1 + box.order }} />
+      ))}
+    </>
+  );
+}
+
 /** Every visible video track of `comp` at `time`, bottom to top. */
 export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: number; stageH: number; depth: number }) {
   const { comp, time, project } = props;
@@ -562,11 +607,21 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
 
   let accumulated: ReactNode[] = [];
   const videoTracks = tracksOf(comp, 'video');
+  // Layer clips of a layered motion comp draw together as their scene, at the bottom track's place.
+  const groups = stackGroups(project, comp);
+  const groupOf = new Map(groups.flatMap((group) => group.trackIds.map((id) => [id, group] as const)));
 
   for (const track of videoTracks) {
     if (track.hidden) continue;
     const trackIdx = videoTracks.findIndex((t) => t.id === track.id);
     const baseZIndex = (trackIdx >= 0 ? trackIdx + 1 : 1) * 100;
+    const group = groupOf.get(track.id);
+    if (group) {
+      if (group.trackIds[0] === track.id && group.clips.some((clip) => activeAt(comp, clip, time))) {
+        accumulated.push(<StackLayer key={group.key} {...props} group={group} comp={comp} zIndex={baseZIndex} />);
+      }
+      continue;
+    }
     const trackClips = comp.clips
       .filter((clip) => clip.trackId === track.id && clip.enabled)
       .sort((a, b) => a.start - b.start);

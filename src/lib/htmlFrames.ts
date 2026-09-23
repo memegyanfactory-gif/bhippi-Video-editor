@@ -17,6 +17,7 @@ import { openFrameWriter, type FrameWriter } from './pngEncoder';
 import { mogrtCanvas, usesCompCanvas } from './motionGraphics';
 import { rbBackgroundFromName, rbBackgroundHtml } from './reactbits';
 import { REACT_BITS_TEMPLATE } from './rbx';
+import { clipEnd, compClocks } from './timeline';
 import type { Clip, Comp, Project } from './types';
 
 type HtmlSource = Extract<Clip['source'], { type: 'html' }>;
@@ -291,6 +292,10 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
     });
     rendered.set(target.clip.id, frames);
   }
+  return withHtmlRendered(project, sources, rendered);
+}
+
+function withHtmlRendered(project: Project, sources: Map<string, HtmlSource>, rendered: Map<string, RenderedFrames>): Project {
   return {
     ...project,
     comps: project.comps.map((comp) => ({
@@ -304,4 +309,38 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
       }),
     })),
   };
+}
+
+/**
+ * The project with every HTML graphic on screen at `times` of `compId` (nested comps followed
+ * down) carrying the frames those moments need, so single-frame exports — the QA contact sheet,
+ * storyboard cards — show the graphics instead of a bare title.
+ */
+export async function renderHtmlStill(project: Project, compId: string, times: number[]): Promise<Project> {
+  const targets = htmlClipsForExport(project, compId);
+  if (!targets.length || !times.length) return project;
+  const clocks = new Map<string, number[]>();
+  for (const time of times) for (const [id, list] of compClocks(project, compId, time)) clocks.set(id, [...(clocks.get(id) ?? []), ...list]);
+  const rendered = new Map<string, RenderedFrames>();
+  const sources = new Map(targets.map((target) => [target.clip.id, target.source]));
+  for (const target of targets) {
+    const clip = target.clip;
+    const fps = Math.min(target.comp.fps, 30);
+    // The exporter reads frame round(τ·fps) of the sequence: those files are all it needs.
+    const indices = [...new Set((clocks.get(target.comp.id) ?? []).filter((at) => at >= clip.start && at < clipEnd(clip)).map((at) => Math.max(0, Math.round((at - clip.start) * fps))))];
+    if (!indices.length) continue;
+    const dir = await api.mogrtFramesBegin(`${clip.id}-still`);
+    const mounted = mountGraphic(target.source, clip.duration, target.comp);
+    let writer: FrameWriter | null = null;
+    try {
+      writer = await openFrameWriter(dir);
+      for (const index of indices) await writer.canvas(index, await mounted.draw(index / fps));
+      await writer.finish();
+    } finally {
+      mounted.unmount();
+      await writer?.close();
+    }
+    rendered.set(clip.id, { dir, fps, frames: Math.max(...indices) + 1, width: mounted.canvas.width, height: mounted.canvas.height });
+  }
+  return withHtmlRendered(project, sources, rendered);
 }

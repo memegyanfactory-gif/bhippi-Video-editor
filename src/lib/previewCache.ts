@@ -22,6 +22,7 @@ import { MotionRenderer } from '../motion/gl/renderer';
 import { editorMediaHost } from '../motion/host';
 import type { MediaHost } from '../motion/sources';
 import type { MotionScene } from '../motion/types';
+import type { StackGroup } from './motionStack';
 import { playhead } from './playhead';
 import { clipEnd, sourceTimeAt } from './timeline';
 import type { Asset, Clip, Comp } from './types';
@@ -90,14 +91,29 @@ export type PlanClip = {
   frames: Int32Array;
 };
 
-/** Top-level motion clips of `comp` that draw (enabled, on a visible track), frame by frame. */
-export function planComp(comp: Comp, keyOf: (scene: MotionScene) => string): PlanClip[] {
+/**
+ * Top-level motion pictures of `comp` that draw (enabled, on a visible track), frame by frame: each
+ * fused layer stack as one scene on comp time (lib/motionStack.ts), and every other motion clip
+ * with the scene it draws (`sceneOf` resolves a layer clip drawing on its own).
+ */
+export function planComp(comp: Comp, keyOf: (scene: MotionScene) => string, options: { groups?: StackGroup[]; sceneOf?: (clip: Clip) => MotionScene } = {}): PlanClip[] {
   const fps = comp.fps;
   const hidden = new Set(comp.tracks.filter((track) => track.hidden || track.kind !== 'video').map((track) => track.id));
   const plan: PlanClip[] = [];
+  const grouped = new Set<string>();
+  for (const group of options.groups ?? []) {
+    for (const clip of group.clips) grouped.add(clip.id);
+    const first = Math.ceil(group.start * fps - 1e-6);
+    const last = Math.ceil(group.end * fps - 1e-6);
+    const count = Math.max(0, last - first);
+    const frames = new Int32Array(count);
+    // Comp time is the stack's scene time.
+    for (let i = 0; i < count; i++) frames[i] = sceneFrameOf(Math.max(0, Math.min(group.scene.duration - 1e-3, (first + i) / fps)), fps);
+    plan.push({ clipId: group.key, key: keyOf(group.scene), scene: group.scene, first, frames });
+  }
   for (const clip of comp.clips) {
-    if (!clip.enabled || clip.adjustment || clip.source.type !== 'motion' || hidden.has(clip.trackId)) continue;
-    const scene = clip.source.scene;
+    if (!clip.enabled || clip.adjustment || clip.source.type !== 'motion' || hidden.has(clip.trackId) || grouped.has(clip.id)) continue;
+    const scene = options.sceneOf?.(clip) ?? clip.source.scene;
     const first = Math.ceil(clip.start * fps - 1e-6);
     const last = Math.ceil(clipEnd(clip) * fps - 1e-6);
     const count = Math.max(0, last - first);
@@ -280,7 +296,7 @@ export const DEFAULT_CACHE_MB = 1536;
 
 type Snapshot = { enabled: boolean; compId: string | null; spans: Span[]; bytes: number; frames: number; budget: number; busy: boolean };
 
-type Source = { comp: Comp; assets: ReadonlyMap<string, Asset> };
+type Source = { comp: Comp; assets: ReadonlyMap<string, Asset>; groups: StackGroup[]; sceneOf?: (clip: Clip) => MotionScene };
 
 const store = new FrameStore();
 let enabled = true;
@@ -563,7 +579,7 @@ function distanceOf(entry: CacheEntry, head: number): number {
 
 function replan() {
   if (!source) { plan = []; placement = new Map(); return; }
-  plan = planComp(source.comp, keyOf);
+  plan = planComp(source.comp, keyOf, { groups: source.groups, sceneOf: source.sceneOf });
   placement = new Map();
   const head = Math.round(playhead.get() * fpsOf());
   for (const clip of plan) for (let i = 0; i < clip.frames.length; i++) {
@@ -602,8 +618,8 @@ export const previewCache = {
    * The comp the Program monitor shows. Frames of scenes no clip in the project uses any more
    * are dropped (an edited scene has a new key); everything else is kept.
    */
-  setSource(comp: Comp | undefined, assets: ReadonlyMap<string, Asset>, allScenes: MotionScene[]) {
-    source = comp ? { comp, assets } : null;
+  setSource(comp: Comp | undefined, assets: ReadonlyMap<string, Asset>, allScenes: MotionScene[], stack: { groups?: StackGroup[]; sceneOf?: (clip: Clip) => MotionScene } = {}) {
+    source = comp ? { comp, assets, groups: stack.groups ?? [], sceneOf: stack.sceneOf } : null;
     generation++;
     reach = Infinity;
     const keep = new Set(allScenes.map((scene) => sceneKeyOf(scene, assets)));

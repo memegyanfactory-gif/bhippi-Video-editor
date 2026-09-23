@@ -1,7 +1,7 @@
 // Footage, stills and roto mattes for motion scenes. The bank owns hidden, muted media elements;
 // in the preview they run alongside the playhead, in the export every frame is sought exactly.
 import type { FootageSource, Layer, MotionScene } from './types';
-import { num } from './anim';
+import { layerTime, num } from './anim';
 
 /** What the host (the Helios editor, a test harness) knows about media. */
 export type MediaHost = {
@@ -23,14 +23,19 @@ export function sourceTime(source: FootageSource, t: number): number {
   return Math.max(0, (source.in ?? 0) + t * (source.speed ?? 1));
 }
 
-/** Every footage layer of a scene (precomps included) with the source time it needs at `t`. */
-export function footageAt(scene: MotionScene, t: number, out: { layer: Layer & { type: 'footage' }; time: number }[] = [], depth = 0): typeof out {
+/**
+ * Every footage layer of a scene (precomps included) with the source time it needs at `t`, and
+ * how many source seconds it runs per scene second (its own speed times any time stretch above it).
+ */
+export function footageAt(scene: MotionScene, t: number, out: { layer: Layer & { type: 'footage' }; time: number; rate: number }[] = [], depth = 0, rate = 1): typeof out {
   if (depth > 6) return out;
   for (const layer of scene.layers) {
     const inWindow = t >= (layer.in ?? 0) - 0.5 && t < (layer.out ?? Infinity) + 0.1;
     if (!inWindow) continue;
-    if (layer.type === 'footage') out.push({ layer, time: sourceTime(layer.source, t) });
-    else if (layer.type === 'precomp') footageAt(layer.scene, (t - (layer.offset ?? 0)) * (layer.speed ?? 1), out, depth + 1);
+    const lt = layerTime(layer, t);
+    const stretch = rate * (layer.timeScale ?? 1);
+    if (layer.type === 'footage') out.push({ layer, time: sourceTime(layer.source, lt), rate: stretch * (layer.source.speed ?? 1) });
+    else if (layer.type === 'precomp') footageAt(layer.scene, (lt - (layer.offset ?? 0)) * (layer.speed ?? 1), out, depth + 1, stretch * (layer.speed ?? 1));
   }
   return out;
 }
@@ -107,12 +112,12 @@ export class MediaBank {
    * paused) and starts matte loads. Never waits.
    */
   syncPreview(scene: MotionScene, t: number, playing: boolean, rate: number) {
-    for (const { layer, time } of footageAt(scene, t)) {
+    for (const { layer, time, rate: runs } of footageAt(scene, t)) {
       const resolved = this.host.resolve(layer.source);
       if (!resolved) continue;
       if (resolved.kind === 'image') { this.image(resolved.url); continue; }
       const { el } = this.video(resolved.url);
-      const speed = (layer.source.speed ?? 1) * rate;
+      const speed = runs * rate;
       if (playing && rate > 0 && layer.source.timeRemap === undefined) {
         const drift = time - el.currentTime;
         if (!el.seeking && Math.abs(drift) > 0.25) el.currentTime = time;
@@ -168,10 +173,10 @@ export class MediaBank {
   /** The videos a scene shows at `t`: each one's speed, and whether a time remap drives it (capture runs). */
   videosAt(scene: MotionScene, t: number): { el: HTMLVideoElement; speed: number; remapped: boolean }[] {
     const out: { el: HTMLVideoElement; speed: number; remapped: boolean }[] = [];
-    for (const { layer } of footageAt(scene, t)) {
+    for (const { layer, rate } of footageAt(scene, t)) {
       const resolved = this.host.resolve(layer.source);
       if (!resolved || resolved.kind !== 'video') continue;
-      out.push({ el: this.video(resolved.url).el, speed: layer.source.speed ?? 1, remapped: layer.source.timeRemap !== undefined });
+      out.push({ el: this.video(resolved.url).el, speed: rate, remapped: layer.source.timeRemap !== undefined });
     }
     return out;
   }

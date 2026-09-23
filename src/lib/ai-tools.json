@@ -4714,7 +4714,7 @@
     },
     {
       "name": "run_frame_qa",
-      "description": "POLISH phase: samples the timeline (every scene start plus every `step` seconds), computes where every motion graphic, title and caption draws and where the rotoscoped subject is, and reports overlaps (graphic covering the face/hands, graphic-on-graphic, caption collisions, outside safe margins) with a fix per issue, plus contact frames for you to look at. verify_edit_workflow requires a clear pass after your last edit.",
+      "description": "POLISH pass over the whole timeline or a range (the in/out selection, or start/end): samples it (every scene start plus every `step` seconds) and measures where every motion-scene layer rests (nested \"[Motion]\" comps included), every HTML graphic, title and caption, every footage or still reduced to a card or picture-in-picture, and the rotoscoped subject. Reports: anything off the frame or outside the safe area, graphics covering the face/hands, graphic-on-graphic and caption collisions, black frame edges, and — from rendered frames with the motion graphics drawn in — blank frames (flat white from a light stage, empty black, one flat colour). Each problem once, with its time range and the fix. Returns contact frames for you to look at. verify_edit_workflow requires a clear pass after your last edit.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -4735,6 +4735,22 @@
           "images": {
             "type": "boolean",
             "description": "Return contact frames (default true)."
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds the review starts (default 0, or the in point with selection)."
+          },
+          "end": {
+            "type": "number",
+            "description": "Timeline seconds the review ends (default the end, or the out point with selection)."
+          },
+          "selection": {
+            "type": "boolean",
+            "description": "Review only the in/out selection of the comp."
+          },
+          "frames": {
+            "type": "number",
+            "description": "Frames to render across the range for the blank-frame check (default 12, 0–24)."
           }
         }
       }
@@ -4780,7 +4796,7 @@
     },
     {
       "name": "layout_clip",
-      "description": "Reframes footage with a weighted, exporting move: presenter to the left/right 55% (slot left-55 / right-55) so a side-panel or teaching-card can take the other side, picture-in-picture corners (pip-bottom-right …), centre-small, or back to full. Animates scale/x/y with ease-out over `duration` seconds starting at `at`, and optionally returns at `until`.",
+      "description": "Reframes footage with a weighted, exporting move: presenter to the left/right 55% (slot left-55 / right-55, a 52% card inside the safe area) so a side-panel or teaching-card can take the 35% column on the other side, picture-in-picture corners (pip-bottom-right …, inside the safe area), centre-small, or back to full. Animates scale/x/y with ease-out over `duration` seconds starting at `at`, and optionally returns at `until`. Every slot keeps the picture inside the safe margins.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5044,7 +5060,7 @@
     },
     {
       "name": "create_motion_scene",
-      "description": "Places a GPU motion scene on its own track above the footage: After Effects-style layers with keyframes (bezier eases, expressions), 3D layers and camera, parenting, masks, track mattes, blend modes, motion blur, glow/blur/glass/halation/duotone/pixel-sort/zoom-blur effects, text animators that land word by word, and matte effects cut from a roto matte (subject-reveal, matte-fill). Give a `template` (list_motion_templates) with `params`, or a raw `scene` {version:1,width,height,duration,layers:[…]}. Footage params take {\"clipId\"} of a timeline clip — its asset, source time and roto matte are filled in. subject-reveal/big-number-behind need rotoscope_clip first and use the clean plate from erase_subject_clip when one exists. The scene's sound cues are laid on audio tracks unless sfx is false. With a brand kit active every scene is built in the brand; prefer the brand-* templates (brand-title, brand-lower-third, brand-stat, brand-panel, brand-logo-sting, brand-end-card, brand-transition), which render the kit's guideline moves and layouts exactly.",
+      "description": "Places a GPU motion scene on its own track above the footage, opened as a layered \"[Motion]\" comp: each layer (stage, titles, subject, phrase, panels, cards) is its own clip on its own track, the way After Effects shows a comp, so the user can open it and move, trim, hide, restack or restyle any layer — and it still renders as one scene, exactly as the template built it. The engine: After Effects-style layers with keyframes (bezier eases, expressions), 3D layers and camera, parenting, masks, track mattes, blend modes, motion blur, glow/blur/glass/halation/duotone/pixel-sort/zoom-blur effects, text animators that land word by word, and matte effects cut from a roto matte (subject-reveal, matte-fill). Give a `template` (list_motion_templates) with `params`, or a raw `scene` {version:1,width,height,duration,layers:[…]}. Footage params take {\"clipId\"} of a timeline clip — its asset, source time and roto matte are filled in. subject-reveal/big-number-behind need rotoscope_clip first and use the clean plate from erase_subject_clip when one exists. Every scene is fitted to the safe area (panels and type never rest off the frame). Over a background plate on the timeline (a clip named background/gradient/backdrop/plate), full-frame brand templates draw no stage of their own, so the plate shows instead of a flat brand stage. The scene's sound cues are laid on audio tracks unless sfx is false. With a brand kit active every scene is built in the brand; prefer the brand-* templates (brand-title, brand-lower-third, brand-stat, brand-panel, brand-logo-sting, brand-end-card, brand-transition), which render the kit's guideline moves and layouts exactly. The result lists the layers with their clip ids.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5084,11 +5100,19 @@
           },
           "nest": {
             "type": "boolean",
-            "description": "Put the scene in its own \"[Motion]\" comp and place that comp on the timeline (default true). The returned clipId is the scene clip inside the comp."
+            "description": "Default true: the scene lives in its own layered \"[Motion]\" comp (one clip per layer) placed on the timeline as one nested clip. false places the whole scene as a single clip directly on the timeline."
           },
           "useBrand": {
             "type": "boolean",
             "description": "Default true: with a brand kit active the scene is built in it (brand-* templates from its guideline; every other template recoloured, re-typed and re-timed to the brand). false keeps the house Crimson look."
+          },
+          "fit": {
+            "type": "boolean",
+            "description": "Default true: type, panels and cards that rest outside the safe area are moved (and shrunk if too big) back inside it. false leaves the layout exactly as given."
+          },
+          "safeMargin": {
+            "type": "number",
+            "description": "Safe margin as a fraction of the frame on every side (default: the editor safe area, 5% at the sides and 6% top and bottom; the storyboard may ask for 0.06)."
           }
         },
         "additionalProperties": false
@@ -5096,31 +5120,38 @@
     },
     {
       "name": "get_motion_scene",
-      "description": "Reads a motion scene clip: layers (id, type, text, effects, animated properties with key times), cues and the template params it was built from. full: true returns the whole scene JSON for precise edits.",
+      "description": "Reads a motion scene. For a layered \"[Motion]\" comp: every layer with its clip id, track, time on the comp, text and whether it is hidden (precomps list their own layers and comp), the scene outline (types, effects, animated properties with key times), the template params it was built from, and any layer resting outside the safe area. full: true adds the whole scene JSON for precise edits.",
       "input_schema": {
         "type": "object",
         "properties": {
           "clipId": {
-            "type": "string"
+            "type": "string",
+            "description": "The \"[Motion]\" comp clip on the timeline (what create_motion_scene returns as clipId), the comp id, any of its layer clips, or a single motion scene clip."
+          },
+          "compId": {
+            "type": "string",
+            "description": "The \"[Motion]\" comp id (instead of clipId)."
           },
           "full": {
             "type": "boolean"
           }
         },
-        "required": [
-          "clipId"
-        ],
         "additionalProperties": false
       }
     },
     {
       "name": "update_motion_scene",
-      "description": "Edits a motion scene clip. params: new template params (the scene is rebuilt from its template, e.g. new words, times, colours). patches: [{layer, path, value}] set any layer property by dotted path — e.g. {layer:\"title-left\",path:\"transform.position\",value:{k:[{t:0,v:[400,300],ease:\"expo-out\"},{t:0.6,v:[480,300]}]}}, {layer:\"subject\",path:\"effects.0.speed\",value:0.8}, value null deletes. addLayers: [layer | {layer, above|below: id}]. removeLayers: [ids]. retime: factor (>1 slower). scene: replace fields of the scene.",
+      "description": "Edits a motion scene; on a layered \"[Motion]\" comp the change is written back layer by layer, keeping each layer's clip and track and the user's own moves, trims, hides and Motion changes. params: new template params (rebuilt from its template, e.g. new words, times, colours; clips nobody moved take the new timing). patches: [{layer, path, value}] set any layer property by dotted path — e.g. {layer:\"title-left\",path:\"transform.position\",value:{k:[{t:0,v:[400,300],ease:\"expo-out\"},{t:0.6,v:[480,300]}]}}, {layer:\"subject\",path:\"effects.0.speed\",value:0.8}, value null deletes (times are the layer's own seconds). addLayers: [layer | {layer, above|below: id}] (a new layer gets its own clip and track). removeLayers: [ids]. retime: factor (>1 slower). scene: replace fields of the scene. The result is fitted to the safe area unless fit is false.",
       "input_schema": {
         "type": "object",
         "properties": {
           "clipId": {
-            "type": "string"
+            "type": "string",
+            "description": "The \"[Motion]\" comp clip on the timeline (what create_motion_scene returns as clipId), the comp id, any of its layer clips, or a single motion scene clip."
+          },
+          "compId": {
+            "type": "string",
+            "description": "The \"[Motion]\" comp id (instead of clipId)."
           },
           "params": {
             "type": "object",
@@ -5164,11 +5195,16 @@
           "scene": {
             "type": "object",
             "additionalProperties": true
+          },
+          "fit": {
+            "type": "boolean",
+            "description": "Default true: type, panels and cards that rest outside the safe area are moved (and shrunk if too big) back inside it. false leaves the layout exactly as given."
+          },
+          "safeMargin": {
+            "type": "number",
+            "description": "Safe margin as a fraction of the frame on every side (default: the editor safe area, 5% at the sides and 6% top and bottom; the storyboard may ask for 0.06)."
           }
         },
-        "required": [
-          "clipId"
-        ],
         "additionalProperties": false
       }
     },
@@ -5294,12 +5330,32 @@
     },
     {
       "name": "nest_motion_scenes",
-      "description": "Moves every motion scene placed directly on the comp's timeline into its own \"[Motion] …\" comp (AI Motion bin) and leaves one nested clip at the same place and length, so each AI graphic can be opened and changed later. New scenes from create_motion_scene are nested already.",
+      "description": "Moves every motion scene placed directly on the comp's timeline into its own layered \"[Motion] …\" comp (AI Motion bin), one clip per layer, and leaves one nested clip at the same place and length. New scenes from create_motion_scene are layered already.",
       "input_schema": {
         "type": "object",
         "properties": {
           "compId": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "split_motion_layers",
+      "description": "Opens \"[Motion]\" comps that still hold their scene as ONE clip into layers — one clip per layer on its own track, precomps as their own layered comps — in place: the comp keeps its id, so the timeline clips that nest it are untouched and it draws exactly as before. Use it on older motion comps so the user can see and change each layer. No ids: every such comp in the project.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string",
+            "description": "A \"[Motion]\" comp id, or the timeline clip that nests it."
+          },
+          "compIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false

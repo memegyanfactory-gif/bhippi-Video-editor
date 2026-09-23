@@ -7,7 +7,7 @@ vi.mock('../src/lib/ipc', () => ({
 }));
 
 import { runMotionTool, type MotionToolContext } from '../src/lib/motionTools';
-import { newClip, newProject, updateComp } from '../src/lib/timeline';
+import { compDuration, newClip, newProject, updateComp } from '../src/lib/timeline';
 import type { Comp, Project } from '../src/lib/types';
 import { validateScene } from '../src/motion/validate';
 import type { MotionScene } from '../src/motion/types';
@@ -92,29 +92,65 @@ describe('motion tools', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('patches, rebuilds and retimes a scene', async () => {
+  it('patches, rebuilds and retimes a scene layer by layer', async () => {
     const h = harness(newProject());
-    await runMotionTool('create_motion_scene', { template: 'subject-reveal', params: { subject: { path: 'talk.mp4', matte: 'm' }, cardAt: null }, start: 0, sfx: false }, h.ctx);
-    const clip = h.get().comps.flatMap((c) => c.clips).find((c) => c.source.type === 'motion')!;
-    const patched = await runMotionTool('update_motion_scene', { clipId: clip.id, patches: [{ layer: 'subject', path: 'effects.0.speed', value: 0.7 }] }, h.ctx);
+    const made = await runMotionTool('create_motion_scene', { template: 'subject-reveal', params: { subject: { path: 'talk.mp4', matte: 'm' }, cardAt: null }, start: 0, sfx: false }, h.ctx);
+    expect(made.ok).toBe(true);
+    // The scene opens as layers: one clip per layer on its own track.
+    const layers = made.layers as { layerId: string; clipId: string }[];
+    expect(layers.map((l) => l.layerId)).toEqual(['plate', 'title-left', 'title-right', 'subject', 'phrase']);
+    const holderId = String(made.clipId);
+    const motionComp = () => h.get().comps.find((c) => c.id === made.compId)!;
+    const clipOf = (layerId: string) => motionComp().clips.find((c) => c.source.type === 'motion' && c.source.scene.stack?.own.includes(layerId))!;
+    const ownOf = (layerId: string) => (clipOf(layerId).source as { scene: MotionScene }).scene.layers.find((l) => l.id === layerId && !l.ref)!;
+
+    // The user moves the phrase layer; a patch on another layer keeps that.
+    h.ctx.commit((p) => updateComp(p, made.compId as string, (c) => ({ ...c, clips: c.clips.map((clip) => (clip.id === clipOf('phrase').id ? { ...clip, start: clip.start + 0.5, transform: { ...clip.transform, x: 0.1 } } : clip)) })));
+    const phraseClip = clipOf('phrase');
+    const patched = await runMotionTool('update_motion_scene', { clipId: holderId, patches: [{ layer: 'subject', path: 'effects.0.speed', value: 0.7 }] }, h.ctx);
     expect(patched.ok).toBe(true);
-    const find = () => h.get().comps.flatMap((c) => c.clips).find((c) => c.id === clip.id)!;
-    const scene = (find().source as { scene: MotionScene }).scene;
-    const subject = scene.layers.find((l) => l.id === 'subject')!;
-    expect(subject.effects?.[0].speed).toBe(0.7);
+    expect(ownOf('subject').effects?.[0].speed).toBe(0.7);
+    expect(clipOf('phrase')).toMatchObject({ id: phraseClip.id, start: phraseClip.start, trackId: phraseClip.trackId, transform: { x: 0.1 } });
 
-    const rebuilt = await runMotionTool('update_motion_scene', { clipId: clip.id, params: { title: ['Edit', 'Faster'] } }, h.ctx);
+    // A layer clip id works too, and a rebuild keeps every layer's clip.
+    const rebuilt = await runMotionTool('update_motion_scene', { clipId: clipOf('plate').id, params: { title: ['Edit', 'Faster'] } }, h.ctx);
     expect(rebuilt.ok).toBe(true);
-    const again = (find().source as { scene: MotionScene }).scene;
-    const titles = again.layers.filter((l) => l.type === 'text').map((l) => (l.type === 'text' ? l.text.text : ''));
-    expect(titles).toContain('Edit');
+    const left = ownOf('title-left');
+    expect(left.type === 'text' ? left.text.text : '').toBe('Edit');
+    expect(clipOf('phrase').id).toBe(phraseClip.id);
 
-    const before = find().duration;
-    await runMotionTool('update_motion_scene', { clipId: clip.id, retime: 2 }, h.ctx);
-    expect(find().duration).toBeCloseTo(before * 2);
+    const length = (made.outline as { duration: number }).duration;
+    const retimed = await runMotionTool('update_motion_scene', { compId: made.compId, retime: 2 }, h.ctx);
+    expect(retimed.ok).toBe(true);
+    // The layers nobody moved stretch with the scene; the phrase the user slid keeps its place.
+    expect(compDuration(motionComp())).toBeCloseTo(length * 2, 3);
+    expect(clipOf('phrase').start).toBe(phraseClip.start);
     // The nested comp clip on the timeline follows the new length.
+    const holder = h.get().comps[0].clips.find((c) => c.id === holderId)!;
+    expect(holder.duration).toBeCloseTo(compDuration(motionComp()), 3);
+
+    const read = await runMotionTool('get_motion_scene', { clipId: holderId }, h.ctx);
+    expect(read.ok).toBe(true);
+    expect((read.layers as unknown[]).length).toBe(5);
+    expect(typeof read.summary).toBe('string');
+  });
+
+  it('opens an older single-clip motion comp into layers in place', async () => {
+    const h = harness(newProject());
+    await runMotionTool('create_motion_scene', { scene: raw, start: 1, nest: false, sfx: false }, h.ctx);
+    const nested = await runMotionTool('nest_motion_scenes', {}, h.ctx);
+    expect(nested.ok).toBe(true);
     const holder = h.get().comps[0].clips.find((c) => c.source.type === 'comp')!;
-    expect(holder.duration).toBeCloseTo(before * 2);
+    const inner = h.get().comps.find((c) => c.id === (holder.source as { compId: string }).compId)!;
+    expect(inner.clips.map((c) => c.name)).toEqual(['bg', 'Hello']);
+    // An old-style comp: the whole scene as one clip.
+    const legacy = { ...inner, clips: [newClip({ trackId: inner.tracks[0].id, start: 0, duration: 2, source: { type: 'motion', scene: raw, title: 'Old' } })] };
+    h.ctx.commit((p) => ({ ...p, comps: p.comps.map((c) => (c.id === inner.id ? legacy : c)) }));
+    const split = await runMotionTool('split_motion_layers', { compId: holder.id }, h.ctx);
+    expect(split.ok).toBe(true);
+    const after = h.get().comps.find((c) => c.id === inner.id)!;
+    expect(after.clips.filter((c) => c.source.type === 'motion').map((c) => c.name)).toEqual(['bg', 'Hello']);
+    expect(h.get().comps[0].clips.find((c) => c.id === holder.id)).toEqual(holder);
   });
 
   it('saves the built-in style profile as the active guideline', async () => {

@@ -80,7 +80,8 @@ describe('frame QA geometry', () => {
     const issues = frameQa(comp, layers, [1]);
     expect(issues.some((i) => i.kind === 'covers-subject' && i.a === 'Teaching card')).toBe(true);
     expect(issues.some((i) => i.kind === 'graphic-overlap')).toBe(true);
-    expect(issues.some((i) => i.kind === 'outside-safe' && i.a === 'Corner label')).toBe(true);
+    // It runs past the right edge: off the frame, not merely over the margin.
+    expect(issues.some((i) => i.kind === 'off-frame' && i.a === 'Corner label')).toBe(true);
     expect(issues[0].kind).toBe('covers-subject');
     expect(issues[0].suggestion).toMatch(/layout_clip|behind/);
   });

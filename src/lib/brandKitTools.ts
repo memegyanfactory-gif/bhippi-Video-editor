@@ -37,7 +37,7 @@ export const BRAND_KIT_TOOLS = new Set([
 ]);
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
-const done = (summary: string, data: Record<string, unknown> = {}): ToolResult => ({ ok: true, summary, ...data });
+const done = (summary: string, data: Record<string, unknown> = {}): ToolResult => ({ ok: true, ...data, summary });
 const str = (args: Args, key: string): string | undefined => (typeof args[key] === 'string' && (args[key] as string).trim() ? (args[key] as string) : undefined);
 const num = (args: Args, key: string): number | undefined => (typeof args[key] === 'number' && Number.isFinite(args[key]) ? (args[key] as number) : undefined);
 const bool = (args: Args, key: string): boolean | undefined => (typeof args[key] === 'boolean' ? (args[key] as boolean) : undefined);
@@ -185,7 +185,7 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
       if (errors.length) return fail(`That change would make the kit invalid: ${errors.join('; ')}.`);
       const error = await saveDoc(host, { ...doc, kits: doc.kits.map((k) => (k.id === kit.id ? next : k)) });
       if (error) return fail(error);
-      return done(`Updated ${section} of "${next.name}".`, { id: next.id, section, value: sectionOf(next, section), summary: brandKitSummary(next) });
+      return done(`Updated ${section} of "${next.name}".`, { id: next.id, section, value: sectionOf(next, section), kit: brandKitSummary(next) });
     }
 
     case 'delete_brand_kit': {
@@ -472,6 +472,11 @@ export function complianceReport(project: Project, comp: Comp, kit: BrandKit) {
   const visit = (c: Comp) => {
     if (seen.has(c.id)) return;
     seen.add(c.id);
+    // A layered motion comp's scene is in the brand when any of its layer clips carries the brand
+    // (the snapshot rides on one of them); an off-brand stack is reported once, not per layer.
+    const stackOf = (clip: Comp['clips'][number]) => (clip.source.type === 'motion' ? clip.source.scene.stack?.id : undefined);
+    const brandedStacks = new Set(c.clips.filter((clip) => clip.source.type === 'motion' && clip.source.scene.brand).map(stackOf).filter(Boolean));
+    const reportedStacks = new Set<string>();
     for (const clip of c.clips) {
       const source = clip.source as { type: string } & Record<string, unknown>;
       if (source.type === 'comp' && typeof source.compId === 'string') {
@@ -488,7 +493,11 @@ export function complianceReport(project: Project, comp: Comp, kit: BrandKit) {
       const fontHits = [...text.matchAll(/"font"\s*:\s*"([^"]+)"|font-family\s*:\s*([^;"}]+)/g)].map((m) => (m[1] ?? m[2]).split(',')[0].replace(/[\\"']/g, '').trim()).filter(Boolean);
       const offFonts = [...new Set(fontHits.filter((f) => !fonts.has(f.toLowerCase()) && !/^var\(/.test(f) && !/^(inherit|sans-serif|serif|monospace|system-ui)$/i.test(f)))];
       if (offFonts.length) issues.push({ clipId: clip.id, comp: c.name, problem: `uses fonts outside the brand: ${offFonts.slice(0, 4).join(', ')}` });
-      if (scene && !scene.brand) issues.push({ clipId: clip.id, comp: c.name, problem: 'motion scene was not built in the brand (rebuild with update_motion_scene or a brand-* template)' });
+      const stack = stackOf(clip);
+      if (scene && !scene.brand && !(stack && brandedStacks.has(stack)) && !(stack && reportedStacks.has(stack))) {
+        if (stack) reportedStacks.add(stack);
+        issues.push({ clipId: clip.id, comp: c.name, problem: 'motion scene was not built in the brand (rebuild with update_motion_scene or a brand-* template)' });
+      }
     }
   };
   visit(comp);
