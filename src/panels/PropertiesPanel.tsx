@@ -5,6 +5,7 @@ import { useState, type ReactNode } from 'react';
 import { ColorSwatches } from '../components/ui';
 import { ScrubNumber } from '../components/workspace';
 import { MotionInspector } from './MotionInspector';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { CAPTION_STYLES, styleLabel } from '../lib/captionStyles';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, parseTimecode, presetLabel, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
@@ -307,7 +308,7 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
         </Section>
       )}
 
-      {source.type === 'motion' && <MotionInspector clip={clip} comp={comp} history={history} disabled={disabled} Section={Section} Row={Row} />}
+      {source.type === 'motion' && <ErrorBoundary scope="Motion inspector"><MotionInspector clip={clip} comp={comp} history={history} disabled={disabled} Section={Section} Row={Row} /></ErrorBoundary>}
 
       {source.type === 'html' && (
         <Section title="Motion Graphic" icon={<Sparkles size={12} />}>

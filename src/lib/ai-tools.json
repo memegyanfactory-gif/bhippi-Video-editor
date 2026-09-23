@@ -2299,7 +2299,7 @@
     },
     {
       "name": "add_sound_effect",
-      "description": "Adds a built-in sound effect clip: whoosh (0.9 s, place ~0.3 s before a cut), impact (1.4 s, lands on a title or beat), chime (1.6 s), pop (0.25 s, text and stickers), riser (2 s, ends where tension releases). Without a track it uses the first audio track free at that time, creating one if needed.",
+      "description": "Adds a built-in sound effect clip: whoosh (0.9 s, place ~0.3 s before a cut), impact (1.4 s, lands on a title or beat), chime (1.6 s), pop (0.25 s, text and stickers), riser (2 s, ends where tension releases). Without a track it uses the first audio track free at that time, creating one if needed. Default level sits under the voice (whoosh −16 dB, impact −14, pop/chime −18, riser −20) on an \"SFX\" track, named for what it marks; pass `note` (what the sound is for, e.g. \"card lands\") and only raise `volume` (linear gain) for a deliberate hit.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2325,6 +2325,10 @@
           "volume": {
             "type": "number",
             "description": "Linear gain, 1 = as recorded (default 0.7)."
+          },
+          "note": {
+            "type": "string",
+            "description": "What the sound marks (shown in its clip name, e.g. \"frame to card\")."
           }
         },
         "required": [
@@ -3286,7 +3290,7 @@
     },
     {
       "name": "generate_selection_sound",
-      "description": "Generate deterministic local procedural sound accents at the start of selected clips, on new audio tracks with editable gain and fades. Preserves existing audio. This is not visual/audio scene understanding or a downloaded generative model.",
+      "description": "Generate deterministic local procedural sound accents at the start of selected clips, on new audio tracks with editable gain and fades. Preserves existing audio. This is not visual/audio scene understanding or a downloaded generative model. Defaults to the SFX level for its kind (−14 to −20 dB) so it never covers speech.",
       "input_schema": {
         "type": "object",
         "properties": {

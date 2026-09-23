@@ -19,6 +19,7 @@ import { TextLayer } from './Overlay';
 import { RotoPreview } from './RotoPreview';
 import { HtmlMotionLayer } from './HtmlMotionLayer';
 import { MotionLayer } from './MotionLayer';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 /** What the webview should load for an asset: its preview proxy when one exists. */
 export const mediaSrc = (asset: Asset | undefined) => (asset ? fileSrc(asset.proxy ?? asset.path) : '');
@@ -499,7 +500,7 @@ function Layer(props: LayerProps) {
       return (
         <div className="layer motion-layer" data-clip-id={depth === 0 ? clip.id : undefined}
           style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden }}>
-          {visible && <MotionLayer scene={clip.source.scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} />}
+          {visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={clip.source.scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} /></ErrorBoundary>}
         </div>
       );
     }

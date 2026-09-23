@@ -19,6 +19,7 @@ import { AVAILABLE_EFFECTS as ALL_EFFECTS, type EffectDefinition } from '../lib/
 import { FXConsolePanel } from './FXConsolePanel';
 import { SubtitleTab } from './SubtitleTab';
 import { MotionTemplates } from './MotionTemplates';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 export type EffectPreset = EffectDefinition;
 
@@ -558,7 +559,7 @@ function GraphicsTab({ project, assets, history, clipSelection, onAddText, onCap
           ))}
         </div>
       </div>
-      <MotionTemplates history={history} assets={assets} clipSelection={clipSelection} />
+      <ErrorBoundary scope="Motion templates"><MotionTemplates history={history} assets={assets} clipSelection={clipSelection} /></ErrorBoundary>
       <div className="effects-section grow">
         <div className="effects-title">
           Caption styles <span className="muted">· from WatchFIWN</span>

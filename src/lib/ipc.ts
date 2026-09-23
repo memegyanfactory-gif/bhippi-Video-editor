@@ -385,6 +385,8 @@ export const api = {
   localMediaGenerate: (request: Record<string, unknown>) => invoke<string>('local_media_generate', { request }),
   localMediaInstall: (task: string, hfToken?: string) => invoke<string>('local_media_install', hfToken ? { task, hf_token: hfToken } : { task }),
   jobCancel: (id: string) => invoke<boolean>('job_cancel', { id }),
+  /** Appends a caught frontend crash to crash.log (beside Rust panics). */
+  frontendCrash: (message: string, stack: string, components: string) => invoke<void>('frontend_crash', { message, stack, components }),
   jobDelete: (id: string) => invoke<boolean>('job_delete', { id }),
 
   /** Scene Edit Detection: the cut times inside a piece of media. */

@@ -30,6 +30,7 @@ import { evaluateTypedDecision, type TypedQuestion } from './typedDecisions';
 // src/lib/ai-tools.json; this file is the other half of that contract.
 import catalog from './ai-tools.json';
 import { MOTION_TOOLS, runMotionTool } from './motionTools';
+import { SFX_GAIN_DB, sfxClipFields, sfxTrack } from './sfxLevels';
 import { overlayBox } from '../motion/validate';
 import { defaultSize, evaluateScene } from '../motion/evaluate';
 import { layoutText } from '../motion/text';
@@ -1893,7 +1894,7 @@ ${templateCatalogue()}`;
     case 'generate_selection_sound': {
       const comp=pickComp(project,args);if(!comp)return fail('Choose a composition.');
       const kind=str(args,'kind')||'whoosh';if(!['whoosh','impact','chime','pop','riser'].includes(kind))return fail('Choose whoosh, impact, chime, pop, or riser.');
-      try{const result=generateSelectionSound(comp,list(args,'clipIds').length?list(args,'clipIds'):host.selection(),kind as import('./types').SfxKind,num(args,'gainDb')??-9);
+      try{const result=generateSelectionSound(comp,list(args,'clipIds').length?list(args,'clipIds'):host.selection(),kind as import('./types').SfxKind,num(args,'gainDb')??SFX_GAIN_DB[kind as import('./types').SfxKind]);
       editComp(comp,()=>result.comp);host.setSelection(result.ids);return done('Local procedural accents added on new audio tracks; original audio preserved',{clipIds:result.ids});}catch(error){return fail(String(error));}
     }
     case 'list_effects':
@@ -2377,8 +2378,9 @@ ${templateCatalogue()}`;
       const start = Math.max(0, num(args, 'start') ?? playhead.get());
       const source: ClipSource = { type: 'sfx', kind };
       const duration = sourceInfo(project, assets, source).length;
-      const target = trackFor(comp, str(args, 'track'), 'audio') ?? freeTrack(comp, 'audio', start, start + duration, 0);
-      const clip = newClip({ trackId: target.track.id, start, duration, source, volume: clamp(num(args, 'volume') ?? 0.7, 0, 8) });
+      const target = trackFor(comp, str(args, 'track'), 'audio') ?? sfxTrack(comp, start, start + duration);
+      // Default level sits under the voice; an explicit volume still wins.
+      const clip = newClip({ trackId: target.track.id, start, duration, source, ...sfxClipFields(kind, str(args, 'note') ?? str(args, 'name'), num(args, 'volume') !== undefined ? clamp(num(args, 'volume')!, 0, 8) : undefined) });
       editComp(comp, () => placeClips(target.comp, [clip], 'overwrite'));
       return done(`${kind} at ${timecode(start, fps(comp))} on ${trackLabel(target.comp, target.track.id)}`, { clipId: clip.id });
     }
@@ -3004,8 +3006,8 @@ ${templateCatalogue()}`;
         const length = sourceInfo(project, assets, source).length;
         const start = Math.max(0, time - 0.25);
         const latest = host.history.current().comps.find((c) => c.id === comp.id) ?? next;
-        const free = freeTrack(latest, 'audio', start, start + length, 0);
-        const sfx = newClip({ trackId: free.track.id, start, duration: length, source, volume: 0.55 });
+        const free = sfxTrack(latest, start, start + length);
+        const sfx = newClip({ trackId: free.track.id, start, duration: length, source, ...sfxClipFields(source.kind, `${style} transition`) });
         editComp(latest, () => placeClips(free.comp, [sfx], 'overwrite'));
         sfxId = sfx.id;
       }

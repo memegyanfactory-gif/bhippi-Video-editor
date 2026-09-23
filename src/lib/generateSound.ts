@@ -1,8 +1,9 @@
 import {SFX_LENGTH} from './editor';
+import {SFX_GAIN_DB,sfxName} from './sfxLevels';
 import {newClip,newTrack,clipEnd} from './timeline';
 import type {Comp,SfxKind,Track,Clip} from './types';
 /** Deterministic local sound accents. Original tracks and audio are never edited. */
-export function generateSelectionSound(comp:Comp,selected:string[],kind:SfxKind,gainDb=-9):{comp:Comp;ids:string[]} {
+export function generateSelectionSound(comp:Comp,selected:string[],kind:SfxKind,gainDb=SFX_GAIN_DB[kind]):{comp:Comp;ids:string[]} {
   if(!Object.hasOwn(SFX_LENGTH,kind))throw new Error('Choose a supported procedural sound.');
   if(!Number.isFinite(gainDb)||gainDb<-60||gainDb>0)throw new Error('Gain must be between -60 and 0 dB.');
   const sources=comp.clips.filter(c=>selected.includes(c.id)&&c.enabled).sort((a,b)=>a.start-b.start);
@@ -15,7 +16,7 @@ export function generateSelectionSound(comp:Comp,selected:string[],kind:SfxKind,
     let track=tracks.find(t=>!clips.some(c=>c.trackId===t.id&&clipEnd(c)>source.start));
     if(!track){track={...newTrack('audio'),name:'Generated sound · '+kind};tracks.push(track);}
     const duration=Math.min(SFX_LENGTH[kind],source.duration),volume=Math.pow(10,gainDb/20),fade=Math.min(.03,duration/4);
-    const clip=newClip({trackId:track.id,start:source.start,duration,source:{type:'sfx',kind},name:'Local '+kind,volume,audioType:'sfx'});
+    const clip=newClip({trackId:track.id,start:source.start,duration,source:{type:'sfx',kind},name:sfxName(kind,'cut accent'),volume,audioType:'sfx'});
     clip.keyframes={...clip.keyframes,volume:[{time:0,value:0,easing:'linear'},{time:fade,value:volume,easing:'linear'},{time:Math.max(fade,duration-fade),value:volume,easing:'linear'},{time:duration,value:0,easing:'linear'}]};
     clips.push(clip);
   }

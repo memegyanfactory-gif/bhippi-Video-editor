@@ -18,8 +18,8 @@ const host: MediaHost = {
   },
   async matte(path) {
     // Lab mattes are folders of numbered PNGs: "<folder>@<fps>@<frames>".
-    const [folder, fps, frames] = path.split('@');
-    return { fps: Number(fps), frames: Number(frames), first: 0, frameUrl: (i: number) => `${media}/${folder}/${String(i + 1).padStart(5, '0')}.png` };
+    const [folder, fps, frames, first] = path.split('@');
+    return { fps: Number(fps), frames: Number(frames), first: Number(first ?? 0) || 0, frameUrl: (i: number) => `${media}/${folder}/${String(i + 1).padStart(5, '0')}.png` };
   },
 };
 
@@ -90,5 +90,12 @@ async function exportTest(name: string, fps = 30, seconds?: number) {
   return { frames, ms: Math.round(performance.now() - started) };
 }
 
-Object.assign(window, { lab: { exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
+/** Loads scenes exported from a real project (a JSON list of {title, scene}) as user-0, user-1, … */
+async function loadUser(url: string) {
+  const list = (await (await fetch(url)).json()) as { title: string; scene: MotionScene }[];
+  list.forEach((entry, i) => { LAB_SCENES[`user-${i}`] = () => entry.scene; });
+  return list.map((entry, i) => `user-${i}: ${entry.title}`);
+}
+
+Object.assign(window, { lab: { loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
 document.title = 'Motion Lab ready';

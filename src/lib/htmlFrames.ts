@@ -151,7 +151,7 @@ function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'wi
  * Renders one HTML clip to `dir/%05d.png` at `fps`, `duration` seconds long, on a canvas the
  * size of the comp's design canvas. Returns what the export needs to overlay it.
  */
-export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {}): Promise<RenderedFrames> {
+export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void } = {}): Promise<RenderedFrames> {
   const fps = Math.min(options.fps ?? comp.fps, 30);
   const frames = Math.max(1, Math.round(clip.duration * fps));
   const dir = await api.mogrtFramesBegin(clip.id);
@@ -160,6 +160,7 @@ export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: strin
     for (let index = 0; index < frames; index++) {
       if (options.signal?.aborted) throw new Error('export cancelled');
       const sheet = await mounted.draw(index / fps);
+      options.onCanvas?.(sheet);
       await api.mogrtFrameWrite(dir, index, await toPng(sheet));
       options.onProgress?.(index + 1, frames);
     }
@@ -239,15 +240,20 @@ export function htmlClipsForExport(project: Project, compId: string): { comp: Co
  * A copy of the project whose HTML clips carry rendered frame sequences, ready for export. The
  * saved project is untouched; frames live under the work folder and are swept after a day.
  */
-export async function renderMotionGraphicsForExport(project: Project, compId: string, options: { signal?: AbortSignal; onProgress?: (message: string) => void } = {}): Promise<Project> {
+/** Frames an HTML graphic renders to at export. */
+export const htmlFrameCount = (clip: Pick<Clip, 'duration'>, comp: Pick<Comp, 'fps'>) => Math.max(1, Math.round(clip.duration * Math.min(comp.fps, 30)));
+
+export async function renderMotionGraphicsForExport(project: Project, compId: string, options: { signal?: AbortSignal; onProgress?: (message: string) => void; onItem?: (title: string, index: number, count: number, frames: number) => void; onFrame?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void } = {}): Promise<Project> {
   const targets = htmlClipsForExport(project, compId);
   if (!targets.length) return project;
   const rendered = new Map<string, RenderedFrames>();
   for (const [i, target] of targets.entries()) {
     const title = target.source.title ?? 'motion graphic';
+    options.onItem?.(title, i + 1, targets.length, htmlFrameCount(target.clip, target.comp));
     const frames = await renderHtmlClipFrames(target.source, target.clip, target.comp, {
       signal: options.signal,
-      onProgress: (done, total) => options.onProgress?.(`Rendering ${title} (${i + 1}/${targets.length}) · ${done}/${total} frames`),
+      onCanvas: options.onCanvas,
+      onProgress: (done, total) => { options.onFrame?.(done, total); options.onProgress?.(`Rendering ${title} (${i + 1}/${targets.length}) · ${done}/${total} frames`); },
     });
     rendered.set(target.clip.id, frames);
   }

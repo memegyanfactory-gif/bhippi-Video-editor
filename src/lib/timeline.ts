@@ -99,6 +99,9 @@ export function newItem(kind: ItemKind, comp: Pick<Comp, 'width' | 'height'>, op
   };
 }
 
+/** Default SFX level by kind (linear gain: whoosh ≈ −16 dB … riser ≈ −20 dB); lib/sfxLevels.ts builds on it. */
+export const SFX_DEFAULT_GAIN: Record<SfxKind, number> = { whoosh: 0.16, impact: 0.2, pop: 0.125, chime: 0.125, riser: 0.1 };
+
 export function newClip(fields: Pick<Clip, 'trackId' | 'start' | 'duration' | 'source'> & Partial<Clip>): Clip {
   return {
     id: uid(), in: 0, speed: 1, linkId: null, enabled: true, name: null, volume: fields.source.type === 'sfx' ? 0.7 : 1,
@@ -1283,7 +1286,8 @@ function migrateLegacy(value: Legacy, assets: AssetMap): Project {
     const kind = sound.kind ?? 'pop';
     const start = Math.max(0, finite(sound.start, 0));
     const free = freeTrack(comp, 'audio', start, start + SFX_LENGTH[kind], 1);
-    comp = { ...free.comp, clips: [...free.comp.clips, newClip({ trackId: free.track.id, start, duration: SFX_LENGTH[kind], source: { type: 'sfx', kind }, volume: clamp(finite(sound.volume, 0.7), 0, 8) })] };
+    // Sound effects default well under the voice (−14…−20 dB by kind) and say what they are.
+    comp = { ...free.comp, clips: [...free.comp.clips, newClip({ trackId: free.track.id, start, duration: SFX_LENGTH[kind], source: { type: 'sfx', kind }, volume: clamp(finite(sound.volume, SFX_DEFAULT_GAIN[kind]), 0, 8), name: `SFX · ${kind.charAt(0).toUpperCase()}${kind.slice(1)}`, audioType: 'sfx' })] };
   }
   comp = {
     ...comp,

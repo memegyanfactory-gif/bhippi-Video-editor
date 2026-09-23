@@ -24,8 +24,12 @@ import { StoryboardViewer } from './chat/StoryboardViewer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ResourceMonitor } from './components/ResourceMonitor';
 import { GenerationJobsMenu } from './components/GenerationJobsMenu';
-import { renderMotionGraphicsForExport } from './lib/htmlFrames';
-import { renderMotionScenesForExport } from './motion/exportFrames';
+import { htmlClipsForExport, htmlFrameCount, renderMotionGraphicsForExport } from './lib/htmlFrames';
+import { motionClipsForExport, motionFrameCount, renderMotionScenesForExport } from './motion/exportFrames';
+import { renderProgress, type RenderStage } from './lib/renderProgress';
+import { sfxClipFields, sfxTrack } from './lib/sfxLevels';
+import { RenderWindow } from './components/RenderWindow';
+import { ErrorBoundary, takeLastCrash } from './components/ErrorBoundary';
 import { ProviderLogo } from './components/ProviderLogo';
 import { useToast } from './components/ui';
 import { MenuList, Panel, Splitter, type MenuItem } from './components/workspace';
@@ -128,6 +132,11 @@ function describeArgs(args: Record<string, unknown>): string {
 
 export default function App() {
   const toast = useToast();
+  // A crash the last session hit (the error boundary kept it): say so once, with the message.
+  useEffect(() => {
+    const crash = takeLastCrash();
+    if (crash) toast({ tone: 'error', title: 'Helios recovered from an error', body: `${crash.message} — details are in crash.log in the Helios data folder.`, timeout: 12000 });
+  }, [toast]);
   const history = useHistory(newProject());
   const { project } = history;
   const [learningOpen, setLearningOpen] = useState(false);
@@ -1141,8 +1150,8 @@ export default function App() {
     const at = playhead.get();
     const source = { type: 'sfx' as const, kind };
     const duration = sourceInfo(project, assetMap, source).length;
-    const free = freeTrack(comp, 'audio', at, at + duration, 0);
-    const clip = newClip({ trackId: free.track.id, start: at, duration, source, volume: 0.7 });
+    const free = sfxTrack(comp, at, at + duration);
+    const clip = newClip({ trackId: free.track.id, start: at, duration, source, ...sfxClipFields(kind) });
     editComp(() => placeClips(free.comp, [clip], 'overwrite'), 'Add Sound Effect');
     setSelection([clip.id]);
   };
@@ -1178,20 +1187,32 @@ export default function App() {
   const startExport = useCallback(async (options: ExportOptions, folder: string) => {
     setExportOpen(false);
     saveSettings({ export: { resolution: options.resolution, fps: options.fps, quality: options.quality, folder, format: options.format, channel: channelForFormat(options.format) ?? 'rgb' } });
+    // One render window for the whole export (no toast per frame): pre-render stages, then the
+    // FFmpeg encode job, with a live picture of the frame being rendered.
+    const project = history.current();
+    const graphicsTargets = htmlClipsForExport(project, options.compId);
+    const sceneTargets = motionClipsForExport(project, options.compId);
+    const stages: RenderStage[] = [...(graphicsTargets.length ? ['graphics' as const] : []), ...(sceneTargets.length ? ['scenes' as const] : []), 'encoding'];
+    const totalFrames = graphicsTargets.reduce((sum, t) => sum + htmlFrameCount(t.clip, t.comp), 0) + sceneTargets.reduce((sum, t) => sum + motionFrameCount(t.clip, t.comp), 0);
+    const signal = renderProgress.start(stages, totalFrames, options.output);
+    const onItem = (title: string, index: number, count: number, frames: number) => renderProgress.item(title, index, count, frames);
+    const onFrame = (done: number) => renderProgress.frame(done);
+    const onCanvas = (canvas: HTMLCanvasElement | OffscreenCanvas) => void renderProgress.preview(canvas);
     try {
       // Motion graphics are live DOM in the preview; the export gets them as rendered frames
       // with alpha, so cards, charts and panels animate in the MP4 exactly as they do here.
-      const graphics = await renderMotionGraphicsForExport(history.current(), options.compId, {
-        onProgress: (message) => toast({ tone: 'info', title: 'Preparing motion graphics', body: message, timeout: 1200 }),
-      });
+      if (graphicsTargets.length) renderProgress.stage('graphics');
+      const graphics = await renderMotionGraphicsForExport(project, options.compId, { signal, onItem, onFrame, onCanvas });
       // Motion scenes (the GPU engine) render frame-exact off-screen with the preview's own code.
-      const prepared = await renderMotionScenesForExport(graphics, options.compId, assetsRef.current, {
-        onProgress: (message) => toast({ tone: 'info', title: 'Rendering motion scenes', body: message, timeout: 1200 }),
-      });
-      await api.exportStart(prepared, options);
-      toast({ tone: 'info', title: 'Export started', body: 'Progress is in the status bar.', timeout: 2500 });
+      if (sceneTargets.length) renderProgress.stage('scenes');
+      const prepared = await renderMotionScenesForExport(graphics, options.compId, assetsRef.current, { signal, onItem, onFrame, onCanvas });
+      if (signal.aborted) throw new Error('export cancelled');
+      const jobId = await api.exportStart(prepared, options);
+      renderProgress.encoding(jobId);
     } catch (error) {
-      toast({ tone: 'error', title: 'Export could not start', body: errorText(error) });
+      const text = errorText(error);
+      if (signal.aborted || /cancel/i.test(text)) renderProgress.finish('cancelled');
+      else renderProgress.finish('error', { error: `Export could not start: ${text}` });
     }
   }, [history, saveSettings, toast]);
 
@@ -2588,6 +2609,7 @@ export default function App() {
       {menu && <MenuList items={menu.items} anchor={menu.anchor} onClose={() => setMenu(null)} />}
       {dialog}
       {settingsTab && <LiveJobs>{(live) => <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
+      <ErrorBoundary scope="Render window"><RenderWindow /></ErrorBoundary>
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder) => void startExport(options, folder)} />}
       {queueOpen && <LiveJobs>{(live) => <RenderQueueDialog jobs={live} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}</LiveJobs>}
       {shortcutsOpen && <ShortcutsDialog shortcuts={SHORTCUTS} onClose={() => setShortcutsOpen(false)} />}

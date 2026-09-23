@@ -7,6 +7,7 @@ import { EFFECT_TYPES, validateScene } from '../motion/validate';
 import { keyTimes } from '../motion/anim';
 import { clamp, timecode } from './editor';
 import { api, errorText, fileSrc } from './ipc';
+import { sfxClipFields, sfxTrack } from './sfxLevels';
 import { freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
 import type { Clip, ClipSource, Comp, Project, ToolResult } from './types';
 
@@ -182,9 +183,10 @@ function placeCues(comp: Comp, scene: MotionScene, start: number): { comp: Comp;
     if (!kind) continue;
     const at = Math.max(0, start + cue.at);
     const duration = kind === 'riser' ? 2 : 1.2;
-    const target = freeTrack(next, 'audio', at, at + duration, 0);
+    const target = sfxTrack(next, at, at + duration);
     const source: ClipSource = { type: 'sfx', kind };
-    const clip = newClip({ trackId: target.track.id, start: at, duration, source, volume: kind === 'riser' ? 0.35 : 0.55, name: `SFX ${kind}${cue.note ? ` · ${cue.note}` : ''}` });
+    // Cues are seasoning under the voice (−14…−20 dB), named for what they mark.
+    const clip = newClip({ trackId: target.track.id, start: at, duration, source, ...sfxClipFields(kind, cue.note ?? scene.template?.id) });
     next = placeClips(target.comp, [clip], 'overwrite');
     ids.push(clip.id);
   }

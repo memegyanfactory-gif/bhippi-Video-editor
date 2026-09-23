@@ -1802,6 +1802,27 @@ fn project_file_write(path: String, document: Document) -> CommandResult<()> {
     files::write_document(Path::new(&path), &document)
 }
 
+/// A frontend crash (the error boundary caught it): appended to `crash.log` beside Rust panics,
+/// so a full-screen error survives the reload that clears it and can be diagnosed later.
+#[tauri::command]
+fn frontend_crash(state: State<'_, Arc<AppState>>, message: String, stack: String, components: String) -> CommandResult<()> {
+    let clip = |text: &str, max: usize| text.chars().take(max).collect::<String>();
+    let entry = format!("Time: {}
+Frontend error: {}
+Stack:
+{}
+Components:
+{}
+
+", chrono::Utc::now(), clip(&message, 2000), clip(&stack, 6000), clip(&components, 4000));
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(state.paths.root.join("crash.log"))
+        .and_then(|mut file| std::io::Write::write_all(&mut file, entry.as_bytes()))
+        .map_err(|error| error.to_string())
+}
+
 /// A project file passed on the command line (double-clicking a `.helios` file).
 #[tauri::command]
 fn startup_file() -> Option<String> {
@@ -2634,6 +2655,7 @@ pub fn run() {
             roto_track_start,
             person_track_start,
             point_track_start,
+            frontend_crash,
             app_info,
             settings_get,
             settings_save,
