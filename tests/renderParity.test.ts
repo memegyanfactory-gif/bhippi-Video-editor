@@ -25,6 +25,8 @@ vi.mock('../src/motion/gl/raster', async () => {
     rasterMasks: () => ({ width: 1, height: 1 }),
   };
 });
+// The playhead hooks subscribe to a store with no server snapshot: a server render reads them plainly.
+vi.mock('../src/lib/playhead', async (importOriginal) => ({ ...(await importOriginal<typeof import('../src/lib/playhead')>()), usePlayhead: () => 0, usePlaying: () => false, useRate: () => 1 }));
 // A server render runs no effects, so the graphic's GSAP timeline is never built.
 vi.mock('gsap', () => ({ default: {} }));
 vi.mock('../src/lib/ipc', () => ({ api: { mogrtFramesBegin: async (id: string) => `frames/${id}`, frontendCrash: async () => undefined }, errorText: (e: unknown) => String(e), fileSrc: (p: string) => p }));
@@ -33,6 +35,7 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { CompLayers } from '../src/editor/Compositor';
 import { HtmlMotionLayer } from '../src/editor/HtmlMotionLayer';
+import { ProgramMonitor, shouldStep } from '../src/editor/ProgramMonitor';
 import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
 import { newClip, newComp, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
@@ -278,5 +281,34 @@ describe('motion clip placement', () => {
     expect(style).toContain('width:1080px');
     expect(html).toMatch(/class="layer-inner" style="[^"]*mask-image:url/);
     expect(html).toMatch(/class="layer-fill" style="transform:scale\(-1, 1\)"/);
+  });
+});
+
+describe('program monitor playback', () => {
+  it('moves the playhead 29-30 times a second on a jittery 60 Hz display', () => {
+    let seed = 7;
+    const jitter = () => { seed = (seed * 16807) % 2147483647; return ((seed / 2147483647) * 2 - 1) * 0.05; };
+    let last = 0;
+    let carry = 0;
+    let updates = 0;
+    for (let i = 1; i <= 600; i++) {
+      const now = (i * 1000) / 60 + jitter();
+      carry += (now - last) / 1000;
+      last = now;
+      if (shouldStep(carry)) { updates++; carry = 0; }
+    }
+    expect(updates / 10).toBeGreaterThanOrEqual(29);
+    expect(updates / 10).toBeLessThanOrEqual(30);
+  });
+
+  it('keeps the layers in one wrapper whether or not the preview is downscaled', () => {
+    const project = newProject();
+    const props = {
+      project, comp: project.comps[0], assets: new Map(), offline: new Set<string>(), history: {} as never, selection: [], onSelect: () => undefined,
+      tool: 'select' as never, onTool: () => undefined, onImport: () => undefined, onMarkIn: () => undefined, onMarkOut: () => undefined, onAddMarker: () => undefined,
+      onLift: () => undefined, onExtract: () => undefined, onExportFrame: () => undefined, apiRef: { current: null },
+    };
+    // Paused, full quality: the same element the downscaled playback render uses.
+    expect(renderToString(React.createElement(ProgramMonitor, props))).toMatch(/<div class="stage-render" style="width:\d+px;height:\d+px">/);
   });
 });
