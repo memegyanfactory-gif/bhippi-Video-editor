@@ -522,8 +522,10 @@ export const api = {
   saveRecording: (bytes: number[], extension: string) => invoke<Asset>('save_recording', { bytes, extension }),
   /** A fresh folder under the work dir for one motion graphic's rendered export frames. */
   mogrtFramesBegin: (clipId: string) => invoke<string>('mogrt_frames_begin', { clipId }),
-  /** One PNG frame, sent as raw bytes so a 1080p sequence never goes through JSON. */
-  mogrtFrameWrite: (dir: string, index: number, png: Uint8Array) => invoke<void>('mogrt_frame_write', png, { headers: { 'x-mogrt-dir': dir, 'x-mogrt-index': String(index) } }),
+  /** One PNG frame, sent as raw bytes so a 1080p sequence never goes through JSON. Only the
+   *  folder's ASCII name goes in the header (a non-ASCII profile path cannot); Rust finds it under work/mogrt. */
+  mogrtFrameWrite: (dir: string, index: number, png: Uint8Array) =>
+    invoke<void>('mogrt_frame_write', png, { headers: { 'x-mogrt-dir': dir.split(/[\\/]/).filter(Boolean).pop() ?? '', 'x-mogrt-index': String(index) } }),
   /** Saves a storyboard card picture (a sketch PNG or a dropped photo's bytes) as raw bytes; returns its path. */
   storyboardImageSave: (compId: string, scene: number, bytes: Uint8Array) => invoke<string>('storyboard_image_save', bytes, { headers: { 'x-comp-id': compId, 'x-scene': String(scene) } }),
   /** Copies a photo from disk into the storyboard folder so the project owns it; returns the copy's path. */
@@ -572,6 +574,9 @@ export const events = {
   docs: on<null>('helios://docs'),
   /** An update downloading, and how its download ended (updater.rs). */
   update: on<UpdateProgress>('helios://update'),
+  /** Settings the backend changed itself (a provider switched off, a model installed, a program
+   *  located), so the UI's copy is fresh before its next settings save. */
+  settings: on<Settings>('helios://settings'),
 };
 
 /** A URL the webview can load for a local file Helios imported or produced. */

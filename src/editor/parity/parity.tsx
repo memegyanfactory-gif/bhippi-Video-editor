@@ -8,13 +8,14 @@
 // and resolves once every video has its frame and motion layers have painted.
 const params = new URLSearchParams(location.search);
 const media = params.get('media') ?? 'http://127.0.0.1:8767';
+const frames = params.get('frames') ?? 'C:/parity-frames';
 let renders = 0;
 const toUrl = (path: string) => `${media}/${path.replace(/^[A-Za-z]:[\\/]/, '').replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')}`;
 (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
   convertFileSrc: (path: string) => toUrl(path),
   // The export's frame pre-render talks to two commands; frames go to the file server by PUT.
   invoke: async (cmd: string, args: unknown, options?: { headers?: Record<string, string> }) => {
-    if (cmd === 'mogrt_frames_begin') return `${params.get('frames') ?? 'C:/parity-frames'}/${(args as { clipId: string }).clipId}-${++renders}`;
+    if (cmd === 'mogrt_frames_begin') return `${frames}/${(args as { clipId: string }).clipId}-${++renders}`;
     // Roto mattes (motion scene cutouts): the run's roto.json under ?roto=<the app's roto folder>.
     if (cmd === 'roto_read') {
       const root = params.get('roto');
@@ -23,7 +24,8 @@ const toUrl = (path: string) => `${media}/${path.replace(/^[A-Za-z]:[\\/]/, '').
       return response.ok ? response.json() : null;
     }
     if (cmd === 'mogrt_frame_write') {
-      const dir = options?.headers?.['x-mogrt-dir'] ?? '';
+      // The header carries only the folder's name, as the app's Rust side expects.
+      const dir = `${frames}/${options?.headers?.['x-mogrt-dir'] ?? ''}`;
       const index = Number(options?.headers?.['x-mogrt-index'] ?? 0);
       const response = await fetch(toUrl(`${dir}/${String(index).padStart(5, '0')}.png`), { method: 'PUT', body: args as Uint8Array });
       if (!response.ok) throw new Error(`frame upload failed: ${response.status}`);
