@@ -500,6 +500,8 @@ fn prepare_media(app: AppHandle, state: Arc<AppState>, asset: Asset) {
         }
         let _ignored = app.emit(LIBRARY_EVENT, ());
         match saved {
+            // `derive` made nothing and left the preview pending; say why rather than "Ready".
+            Ok(()) if tools.ffmpeg().is_err() => job.fail("FFmpeg is not available yet; previews are made once it is found"),
             Ok(()) if derived.preview == "failed" => job.fail("Could not build a preview; export still uses the original"),
             Ok(()) => job.done("Ready", None),
             Err(error) => job.fail(error),
@@ -1233,6 +1235,10 @@ fn local_media_install(app: AppHandle, state: State<'_, Arc<AppState>>, task: St
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let worker = work.join("worker.py");
     std::fs::write(&worker, include_str!("../workers/local_media.py")).map_err(|e| e.to_string())?;
+    // The person tracker's installer lives in its own module, which the worker imports.
+    if task == "person-track" {
+        std::fs::write(work.join("person_track.py"), include_str!("../workers/person_track.py")).map_err(|e| e.to_string())?;
+    }
     let input = work.join("request.json");
     store::write_json(&input, &serde_json::json!({ "action": "install", "task": task, "output": output, "hf_token": hf_token }))?;
     let shared = state.inner().clone();
@@ -2809,7 +2815,14 @@ async fn chat_spawn_subagent(
         executor: Arc::new(executor),
         mcp,
     };
+    let parent_turn_id = spec.parent_turn_id.clone();
     let subagent_id = state.subagents.spawn(spec, context, app, (stop_sender, stop))?;
+    // The parent may have ended since it was looked up, after its own stop_children ran.
+    let parent_alive = state.turns.lock().map_err(lock_error)?.contains_key(&parent_turn_id);
+    if !parent_alive {
+        let _stopped = state.subagents.stop(&subagent_id);
+        return Err("the parent turn has ended".to_owned());
+    }
     Ok(serde_json::json!({
         "ok": true,
         "subagentId": subagent_id,

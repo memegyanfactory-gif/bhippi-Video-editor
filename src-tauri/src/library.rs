@@ -366,7 +366,10 @@ pub async fn derive(
         }
     }
 
-    if asset.preview != "native" {
+    // A good proxy from an earlier run is kept: the startup backfill also comes back for a missing
+    // thumbnail or peaks, and re-encoding the whole file for those would repeat every launch.
+    let proxy_kept = asset.preview == "ready" && derived_ok(&asset.proxy);
+    if asset.preview != "native" && !proxy_kept {
         report(0.65, "Preview proxy");
         let (target, part) = proxy_files(proxies, id, asset.kind);
         let part_text = part.display().to_string();
