@@ -116,6 +116,8 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
   const setEnabled = async (row: ProviderInfo, enabled: boolean) => {
     try {
       onProviders(await api.providerSetEnabled(row.id, enabled));
+      // The backend records the choice in the settings itself: read them back, or the next save undoes it.
+      onSettings(await api.settingsGet());
     } catch (error) {
       toast({ tone: 'error', title: 'Could not update provider', body: errorText(error) });
     }

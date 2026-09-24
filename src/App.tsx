@@ -86,6 +86,7 @@ import { rewritePaths, storyboardDocs } from './lib/projectDocs';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
 import { isSetUp } from './settings/ProvidersSettings';
 import { SHORTCUTS } from './lib/shortcuts';
+import { settingsSync } from './lib/settingsSync';
 import { APP_CHORDS, chordAction, type Chord } from './lib/chords';
 import { FXConsoleModal } from './components/FXConsoleModal';
 import { loadFxSettings, loadFxSnapshots, saveFxSnapshots } from './lib/fxConsole';
@@ -313,7 +314,7 @@ export default function App() {
       if (!stored.onboarded) setOnboarding(true);
       void api.storageInfo().then((storage) => { registerStorageRoot(storage.root); projectDirRef.current = storage.projectDir; }).catch(() => undefined);
       void warmCustomTools({ dataDir: appInfo.dataDir, ffmpeg: appInfo.ffmpeg.path });
-      setSettings({ ...EMPTY_SETTINGS, ...stored, export: { ...EMPTY_SETTINGS.export, ...stored.export } });
+      settingsStore.apply(stored);
       // A layout saved before these floors existed is raised to them rather than left overlapping.
       if (stored.layout) {
         const saved = { ...DEFAULT_LAYOUT, ...stored.layout, meters: { ...DEFAULT_METERS, ...(stored.layout.meters ?? {}) } };
@@ -475,7 +476,7 @@ export default function App() {
     settings: () => settingsRef.current,
     saveSettings: async (next: Settings) => {
       const saved = await api.settingsSave(next);
-      setSettings(saved);
+      settingsStore.apply(saved);
       return saved;
     },
   }), [history, assetMap, selection, refreshAssets]);
@@ -785,11 +786,8 @@ export default function App() {
     return () => window.removeEventListener('focus', onFocus);
   }, [refreshAssets]);
 
-  const saveSettings = useCallback((patch: Partial<Settings>) => {
-    const next = { ...settingsRef.current, ...patch };
-    setSettings(next);
-    api.settingsSave(next).catch(() => undefined);
-  }, []);
+  const settingsStore = useMemo(() => settingsSync(EMPTY_SETTINGS, settingsRef, setSettings), []);
+  const saveSettings = useCallback((patch: Partial<Settings>) => settingsStore.save(patch), [settingsStore]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -2548,7 +2546,7 @@ export default function App() {
           workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
           onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)} />
       </div>
-      {chatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void api.providerSetEnabled(row.id, enabled).then(setProviders)} />}
+      {chatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void settingsStore.setProviderEnabled(row.id, enabled).then(setProviders)} />}
     </>
   ), { onTab: (id) => setChatTab(id as 'chat' | 'providers'), menu: [{ label: 'New Conversation', onSelect: () => { chatApi.current?.clear(); endConversation(); } }, { label: 'Manage AI Providers…', onSelect: () => setSettingsTab('providers') }], className: 'panel-chat' });
 
