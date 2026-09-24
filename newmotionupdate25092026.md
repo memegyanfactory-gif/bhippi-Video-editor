@@ -184,5 +184,5 @@ This is a live record of what's done and what's left in the plan in
 ---
 
 ## Notes
-- Nothing is committed yet. All changes are in the working tree on `main`.
+- Phase 0 and Phase A are committed and pushed to `main` (commit 5acfbcf, 25 Sep 2026). Later phases will be committed as they finish.
 - Tests are run after each item. The desktop app is never started or stopped, and nothing is built into `target/release`.
