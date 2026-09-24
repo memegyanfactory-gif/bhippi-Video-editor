@@ -1,0 +1,18 @@
+[
+  {
+    "name": "find_receipt",
+    "description": "@funny receipts researcher: finds the exact moment someone said something in a YouTube video, from the video's captions, without downloading any video. Searches YouTube with yt-dlp (`query`), reads each result's captions (manual Hindi/English first, else the original-language auto captions; cached per video in Documents/Helios/Receipts/captions, so a repeat search is instant) and fuzzy-matches `quote` across scripts: a Roman Hinglish quote finds Devanagari captions and the other way round (\"Modi se achcha ek gadha better hai\" finds मोदी से अच्छा एक गधा बेटर है). Returns candidates best first — url, title, channel, start/end in source seconds (padded 0.3 s), the caption text matched, a 0–1 score — each with `download`: the download_online_media arguments {url, startTime, endTime} that fetch only that moment. Check the title/channel/text of the best one before downloading; scores under 0.7 are near misses. Requests run one at a time and HTTP 429s from YouTube are waited out, so a search takes 10–60 s. Read-only; any phase. Then download_online_media {url, startTime, endTime} (GATHER) and use the clip as a `receipt` move with word captions.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string", "description": "What to search YouTube for: who said it and where (\"KK Create Dhruv Rathee podcast\", \"Rahul Gandhi press conference vote chori H files\"), or one YouTube URL to search in." },
+        "quote": { "type": "string", "description": "The words as they were said, in Roman Hinglish, English or Devanagari. Shorter and exact beats long and paraphrased." },
+        "maxResults": { "type": "integer", "description": "Videos to search (default 6, max 15)." },
+        "channel": { "type": "string", "description": "Keep to videos by this channel or uploader (matched loosely: \"KK Create\" matches \"Learn By KK Create\")." },
+        "lang": { "type": "string", "description": "Caption language to read (\"hi\", \"en\"). Default: Hindi, then English." }
+      },
+      "required": ["query", "quote"],
+      "additionalProperties": false
+    }
+  }
+]

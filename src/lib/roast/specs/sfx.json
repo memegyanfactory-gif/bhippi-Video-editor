@@ -1,0 +1,37 @@
+[
+  {
+    "name": "search_sfx",
+    "description": "@funny sound library search. Searches, best first: the built-in procedural sounds (whoosh, impact, chime, pop, riser, and the @funny kinds boom = vine boom, scratch = record scratch, bleep = censor tone, swish, ding = bell, glitch — ids sfx-proc-<kind>, no download), the curated CC0 seed pack, and every sound fetched before. Names match in English, Hinglish and Devanagari (\"vine boom\", \"bruhhh\", \"dhamaka\", \"धमाका\", \"घंटी\"). With `online: true` it also asks Freesound (CC0 only; needs the user's Freesound key in Settings), Openverse (keyless Creative Commons audio, much of it from Freesound) and Myinstants (meme sound names; user uploads of copyrighted audio, licence unknown — use only as a short commentary sting, prefer built-in or CC0). Every hit carries its id, licence, credit, duration, score and reasons. Read-only; any phase. Pick one and place it with place_sfx.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string", "description": "What the sound is, in any script: a name (\"vine boom\", \"bruh\", \"sad violin\"), a kind (\"record scratch\", \"airhorn\") or a Hinglish word (\"dhamaka\", \"ghanti\")." },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "Only sounds carrying at least one of these tags (e.g. [\"meme\"], [\"transition\"], [\"censor\"]). A tag-only search lists them." },
+        "online": { "type": "boolean", "description": "Also search Freesound (with the user's key), Openverse and Myinstants (default false)." },
+        "limit": { "type": "integer", "description": "Results to return (default 10, max 30)." }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "place_sfx",
+    "description": "@funny: places one sound at `at` (timeline seconds) on the comp's SFX audio track (found or made), labelled audioType sfx, in one undo step, and returns its clipId. Give exactly one of: `kind` (a built-in: whoosh, impact, chime, pop, riser, boom, scratch, bleep, swish, ding, glitch), `id` (from search_sfx; a library sample is downloaded once, trimmed of silence, loudness-normalised to -16 LUFS and imported into the SFX bin), or `query` (picks the best local match, else searches online; Myinstants uploads are skipped unless allowCopyrighted). Default levels sit under the voice: built-ins by kind (boom -14 dB, whoosh/swish/ding -16, bleep/glitch -18, scratch -20), samples -14 dB (-10 for meme/voice sounds like \"bruh\"); pass `db` only for a deliberate hit. Timing: a meme sound lands on the punchline word's end (+0-150 ms); a whoosh or swish starts ~0.2-0.3 s before the cut or entry it leads into; a pop or ding on the frame a sticker or text appears. The same sound at most 3 times per video; 6-12 sounds a minute in high-energy stretches. For a bleep over a word, use roast_move bleep (it trims the tone to the word). Returns the licence and credit line for the description's credits.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "compId": { "type": "string" },
+        "at": { "type": "number", "description": "Timeline seconds the sound starts on." },
+        "kind": { "type": "string", "enum": ["whoosh", "impact", "chime", "pop", "riser", "boom", "scratch", "bleep", "swish", "ding", "glitch"], "description": "A built-in procedural sound." },
+        "id": { "type": "string", "description": "A library id from search_sfx (sfx-proc-<kind>, a seed id, fs-…, ov-…, mi-…)." },
+        "query": { "type": "string", "description": "Find and place the best match in one step (any script)." },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "With query: only sounds carrying one of these tags." },
+        "online": { "type": "boolean", "description": "With query: search online when nothing local fits (default true)." },
+        "allowCopyrighted": { "type": "boolean", "description": "With query: allow a Myinstants upload (rights unknown). Default false." },
+        "db": { "type": "number", "description": "Gain in dB (-60 to 6); defaults sit 10-20 dB under the voice." },
+        "note": { "type": "string", "description": "What the sound marks, shown in the clip name (e.g. \"punchline\", \"card lands\")." }
+      },
+      "required": ["at"],
+      "additionalProperties": false
+    }
+  }
+]

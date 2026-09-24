@@ -3,9 +3,11 @@
 
 import type { BrandKit, BrandKitDoc } from './brandKit/types';
 import type { MotionScene } from '../motion/types';
+import type { RoastState } from './roast/types';
 
 export type Preset = 'title' | 'kinetic' | 'lower-third' | 'caption';
-export type SfxKind = 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser';
+/** Procedural sounds (Rust `SfxKind`); the last six are the @funny kinds (ROAST_SFX_KINDS). */
+export type SfxKind = 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'boom' | 'scratch' | 'bleep' | 'swish' | 'ding' | 'glitch';
 
 export type Transform = {
   fit: 'fit' | 'fill';
@@ -78,7 +80,7 @@ export type ClipSource =
   | { type: 'text'; text: string; subtitle: string; preset: Preset; color: string; style: string | null; vertical: boolean }
   | { type: 'sfx'; kind: SfxKind }
   | { type: 'shape'; shape: ShapeKind; sides: number; fill: string | null; stroke: string | null; strokeWidth: number; width: number; height: number; cornerRadius: number }
-  | { type: 'html'; html: string; css?: string; js?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number } }
+  | { type: 'html'; html: string; css?: string; js?: string; /** A script held back from a project file opened from elsewhere, until the user trusts it. */ quarantinedJs?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number } }
   | { type: 'scene3d'; scene: any; title?: string }
   /** A GPU motion scene (src/motion): AE-style layers, camera, mattes, effects. Export overlays `frames`. */
   | { type: 'motion'; scene: MotionScene; title?: string; frames?: { dir: string; fps: number; frames: number; width: number; height: number } };
@@ -330,6 +332,8 @@ export type Comp = {
   videoBlueprint?: VideoBlueprint | null;
   /** Phase, gates and research of the production this comp is; null until a plan is saved. */
   production?: Production | null;
+  /** The @funny plan on this comp: beat sheet, roast EDL, what was applied and its Edit DNA (src/lib/roast). */
+  roast?: RoastState;
   id: string;
   name: string;
   width: number;
@@ -377,6 +381,8 @@ export type Project = {
   captionStyle: string | null;
   /** The brand kit this project is edited to (a Settings brand kit id); the user default when null. */
   activeBrandKitId?: string | null;
+  /** Where each downloaded asset came from and under which licence, by asset id (the council's Researcher reads it). */
+  provenance?: Record<string, import('./council').Provenance> | null;
 };
 
 /** Text timing in the shape the caption renderers take. */
@@ -574,6 +580,8 @@ export type Settings = {
   previewCacheEnabled?: boolean | null;
   /** Its RAM budget in megabytes; 1536 when unset. */
   previewCacheMb?: number | null;
+  /** The pixel avatar that acts out what Helios AI is doing (src/avatar); on when unset. */
+  avatar?: boolean | null;
 };
 
 export type PanelId = 'chat' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools';

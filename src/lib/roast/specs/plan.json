@@ -1,0 +1,105 @@
+[
+  {
+    "name": "save_beat_sheet",
+    "description": "Saves the beat sheet of a roast recording on the comp (@funny step 2): each sentence labelled setup / punchline / claim / quote / reference / question / emotion / callback / profanity / cta / filler, with a comic intent, entities and echo words. Checked and tidied first: beats sorted, overlaps trimmed, ids made unique, unknown kinds and intents dropped. Pass the transcript's timeline words to fill punchAt (end of a punchline's last word), profanity spans (Hindi/Hinglish in Roman and Devanagari, English, YouTube's [ __ ]) and echo words the beats leave out. Returns counts by kind and the profanity found (bleep candidates).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "compId": { "type": "string" },
+        "beats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "start": { "type": "number", "description": "Timeline seconds." },
+              "end": { "type": "number" },
+              "text": { "type": "string", "description": "The words spoken, as transcribed (Devanagari and/or Roman)." },
+              "kinds": { "type": "array", "items": { "type": "string", "enum": ["setup", "punchline", "claim", "quote", "reference", "question", "emotion", "callback", "profanity", "cta", "filler"] } },
+              "intent": { "type": "string", "description": "One comic intent: betrayal, exposed, chase, clueless, fake-sad, hype, cringe, shock, awkward, victory, fail, sarcasm, confusion, denial, flex, disgust, suspense, wholesome, rage, dead, money, lie, smell, dance, agree, disagree, ignore, overreact, plot-twist, hypocrisy, cheating, poison, crazy, proud, scared, bye." },
+              "entities": { "type": "array", "items": { "type": "string" } },
+              "echo": { "type": "array", "items": { "type": "string" }, "description": "Concrete words a meme could repeat (\"zeher\", \"juice\", \"German shepherd\")." },
+              "punchAt": { "type": "number", "description": "Timeline seconds the punchline lands (end of its last word)." },
+              "notes": { "type": "string" }
+            },
+            "required": ["start", "end", "kinds"]
+          }
+        },
+        "words": {
+          "type": "array",
+          "description": "Optional: the transcript's words in timeline seconds, to fill punchAt, profanity and echo words.",
+          "items": { "type": "object", "properties": { "text": { "type": "string" }, "start": { "type": "number" }, "end": { "type": "number" } }, "required": ["text", "start", "end"] }
+        }
+      },
+      "required": ["beats"]
+    }
+  },
+  {
+    "name": "roast_move",
+    "description": "Makes one comedy move on the timeline and appends it to the comp's roast EDL, as one undo step. Moves: meme_cutaway {assetId, in?, fit?: fill|fit|blur-fill, keepAudio?, duckHostDb?, entry?: cut|whip|zoom, memeId?} full-frame on the Memes lane, the host muted while the meme's own sound plays, blur-fill by default for vertical sources, 0.6-4 s; receipt {assetId, in?, fit?, captions?, words?: [{text,start,end}] in the clip's source seconds, label?} with word-by-word captions and a *NAME label; side_cutout {assetId, side: left|right, heightPct? (55), enter?: slide|pop} slides in from off-frame with overshoot; host_on_bg {bgAssetId | color, hostClipId?, in?} needs a roto matte or key on the host; keyword_pop {text (1-3 words), style: memeImpact|roundedPop|labelStar|fireCta, position?: top|center|bottom|behind, color?}; emoji_pop {emoji, x?, y?, sizePct?}; sticker {text, shape?, color?, x?, y?}; overlay_fx {fx: fx-money-rain|fx-speed-lines|fx-hearts-burst|fx-embers|fx-spotlight|fx-confetti|fx-smoke-question, tint?}; card {template: roast-article-card|roast-then-now|roast-fact-strip|roast-profile-card|roast-poster-card|roast-sticker-badge|roast-title-card|roast-cta-fire, params, placement?}; title_card {text, photoAssetId?, accent?}; cta {text}; zoom_punch {clipId?, scale? (112-140), ease?: snap|slow}; shake {clipId?, intensityPx?, frames?}; whip {clipId?} across the host cut nearest at; bw_freeze {clipId?, freeze?}; label {text, x?, y?, path?: [{t,x,y}] with t seconds from at}; head_paste {headAssetId, path: [{t,x,y,scale,rotation?}]}; bleep {from, to, cover?: emoji|blur|none, mouth?}; music_sting {assetId, in?, db?, fadeOut?, snapToBeat?}; sfx {cue}. Every move plays its default sound unless sfx is given (null: silent): a swish for slides, cards and whips, a pop for text, a boom for a still meme, an impact for a shake, a scratch for a freeze, a ding for a CTA. Clips it makes are named roast:<id>.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "compId": { "type": "string" },
+        "event": {
+          "type": "object",
+          "description": "A RoastEvent: the move's fields plus id? (e1, e2... when left out), at (timeline seconds; for memes the punchline word's end), duration (seconds; the move's default when left out), why (one sentence; required for meme_cutaway, receipt and side_cutout), beatId?, sfx? ({kind|id|assetId, offset?, db?} or null), provenance?, alternates?.",
+          "properties": {
+            "id": { "type": "string" },
+            "move": { "type": "string", "enum": ["meme_cutaway", "receipt", "side_cutout", "host_on_bg", "keyword_pop", "emoji_pop", "sticker", "overlay_fx", "card", "title_card", "cta", "zoom_punch", "shake", "whip", "bw_freeze", "label", "head_paste", "bleep", "music_sting", "sfx"] },
+            "at": { "type": "number" },
+            "duration": { "type": "number" },
+            "why": { "type": "string" }
+          },
+          "required": ["move", "at"]
+        },
+        "beats": { "type": "array", "items": { "type": "number" }, "description": "Optional beat times (timeline seconds) for music_sting snapping; the plan's analysed music is used when left out." },
+        "downbeats": { "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["event"]
+    }
+  },
+  {
+    "name": "validate_roast_edl",
+    "description": "Checks a roast EDL without touching the timeline: unknown asset or clip ids, events outside the comp, overlapping full-frame cutaways, a missing why on meme_cutaway / receipt / side_cutout, host_on_bg without a matte or key, the same sound more than 3 times, durations out of bounds. Runs the plan on a copy and returns the Edit DNA it would have, its dead zones (host-only stretches over 8 s) and the findings against the @funny band. Run it before apply_roast_edl.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "compId": { "type": "string" },
+        "events": { "type": "array", "items": { "type": "object" }, "description": "RoastEvents, as for roast_move." },
+        "replace": { "type": "boolean", "description": "Judge the plan as replacing the comp's current roast plan (default: merged into it, same ids replaced)." },
+        "beats": { "type": "array", "items": { "type": "number" } },
+        "downbeats": { "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["events"]
+    }
+  },
+  {
+    "name": "apply_roast_edl",
+    "description": "Assembles a roast EDL on the timeline in one undo step. Validates first and applies nothing if any event has an error. Events with ids already applied are taken back and made again (re-applying never doubles clips); replace:true takes back the whole previous plan first. Stores the plan, what each event made and the resulting Edit DNA on the comp, and returns the report: errors, warnings, dead zones and findings against the @funny band.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "compId": { "type": "string" },
+        "events": { "type": "array", "items": { "type": "object" }, "description": "RoastEvents, as for roast_move." },
+        "replace": { "type": "boolean" },
+        "beats": { "type": "array", "items": { "type": "number" }, "description": "Beat times, timeline seconds (music_sting snapping, on-beat share)." },
+        "downbeats": { "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["events"]
+    }
+  },
+  {
+    "name": "edit_dna",
+    "description": "Measures the Edit DNA of the timeline (cuts and cuts per minute, median shot, longest host-only stretch with no cut or event, on-screen events, SFX per minute, music coverage, memes, text events, on-beat share with beats) or of a video file (source: file, path; scene cuts, SFX transients, music, beat alignment, unkeyed green share), and compares it with the @funny band: dead zones over 8 s block hand-back; slow opening minutes, SFX out of 6-12 a minute and a constant music bed are fixes.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "compId": { "type": "string" },
+        "source": { "type": "string", "enum": ["timeline", "file"] },
+        "path": { "type": "string", "description": "The video file to measure (source: file)." },
+        "beats": { "type": "array", "items": { "type": "number" }, "description": "Beat times, timeline seconds, for the on-beat share." }
+      }
+    }
+  }
+]

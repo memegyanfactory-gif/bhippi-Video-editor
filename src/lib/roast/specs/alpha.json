@@ -1,0 +1,62 @@
+[
+  {
+    "name": "cutout_image",
+    "description": "Cut a person (or any subject) out of a photo or one video frame with BiRefNet (MIT, local GPU; the model downloads on first use, ~450 MB general / ~890 MB portrait) and import the RGBA PNG into the \"Cutouts\" bin. The edge is cleaned (islands and haze removed, 1 px choke, foreground colour re-estimated under hair, green screens despilled). For the side_cutout sticker look, stroke adds a white outline (strokePx is its thickness when the cut-out is shown 1080 px tall, default 8), shadow a soft drop shadow; the canvas is padded so neither is clipped, and a side the frame edge cuts through stays a straight edge with no stroke. With several people in the frame, pass region around the one you want. Returns assetId (place it with side_cutout or place_clip), bbox of the subject in the source frame (0–1), coverage, and the PNG size. Look at the result before relying on its edge.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "assetId": { "type": "string", "description": "Image or video asset to cut from." },
+        "clipId": { "type": "string", "description": "A media clip instead of an asset; the frame defaults to the middle of what the clip shows." },
+        "path": { "type": "string", "description": "A file on disk that is not imported yet (e.g. a download path)." },
+        "time": { "type": "number", "minimum": 0, "description": "Source seconds of the video frame to cut from (default: middle of the clip or asset)." },
+        "model": { "type": "string", "enum": ["general", "portrait"], "description": "general (default) for anything; portrait for people with loose hair." },
+        "stroke": { "type": "boolean", "description": "Bake a white sticker outline in (default false)." },
+        "strokePx": { "type": "number", "exclusiveMinimum": 0, "maximum": 64, "description": "Outline thickness when the cut-out is shown 1080 px tall (default 8; 6–10 reads as a sticker)." },
+        "shadow": { "type": "boolean", "description": "Bake a soft drop shadow in (default false)." },
+        "region": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "[x, y, width, height] in frame fractions: only the subject inside is cut out. Use it to pick one person from a group."
+        },
+        "choke": { "type": "number", "minimum": 0, "maximum": 8, "description": "Pixels to pull the edge in (default 1)." },
+        "crop": { "type": "boolean", "description": "Crop to the subject plus room for the stroke and shadow (default true); false keeps the full frame." }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "detect_faces",
+    "description": "Find and track faces in a video span (or a still) with YuNet (OpenCV Zoo, MIT; CPU, no GPU; 230 KB model fetched on first use). Faces are linked across frames by overlap, so each track is one person. Returns FaceTrack[]: {id, frames:[{t (source seconds), x, y, width, height (0–1 frame fractions), score, mouth:{x, y} (midpoint of the mouth corners)}]} — the path for head_paste and the mouth box for bleep covers. A span defaults to the clip's source range (or 10 s of an asset); at most 3600 frames per call.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "assetId": { "type": "string", "description": "Video or image asset." },
+        "clipId": { "type": "string", "description": "A media clip; the span defaults to what the clip shows." },
+        "start": { "type": "number", "minimum": 0, "description": "Source seconds to start at." },
+        "end": { "type": "number", "minimum": 0, "description": "Source seconds to stop at." },
+        "fps": { "type": "number", "minimum": 1, "maximum": 30, "description": "Samples per second (default 10)." }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "key_green_screen",
+    "description": "Detect a chroma-green backdrop and key it. Samples frames of each clip's source range (FFmpeg + a border/full-frame chroma test, no model), reports greenShare (0–1 share of sampled frames standing on a green backdrop) and the backdrop's colour, and — for every clip whose greenShare is at least minShare — attaches the keylight effect (screen colour, gain and balance solved from the measured backdrop, 50 % spill suppression) exactly as edit_effect would, all in one undo step; an existing keylight on the clip is updated rather than duplicated. Keylight renders in preview and export. Use all: true to scan every video clip of the comp (compId or the active one). After keying, look at a frame for fringe or holes in dark clothes and put something behind the host.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "clipId": { "type": "string", "description": "One video clip to check and key." },
+        "all": { "type": "boolean", "description": "Check every enabled video clip of the comp (clips named like a background plate are skipped)." },
+        "compId": { "type": "string", "description": "Comp for all: true (default: the active comp)." },
+        "minShare": { "type": "number", "minimum": 0.05, "maximum": 1, "description": "Key a clip when at least this share of its frames is green (default 0.5)." },
+        "dryRun": { "type": "boolean", "description": "Measure and report only; attach nothing." }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+]

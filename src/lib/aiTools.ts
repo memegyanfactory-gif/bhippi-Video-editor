@@ -5,7 +5,7 @@ import { binIds, describeMoved, organizeBin } from './binOrganize';
 import { textBehindSubject, mediaBehindSubject } from './behindSubject';
 import { depthOcclusion } from './depth';
 import { scoreEnvelope, type AudioEnvelope } from './audioEnvelope';
-import { rotoscope } from './roto';
+import { rotoscope, rotoscopeLong, type LongRotoResult } from './roto';
 import { validateRotoResult } from './rotoValidation';
 import { generateSelectionSound } from './generateSound';
 import { AVAILABLE_EFFECTS } from './effectsCatalog';
@@ -20,16 +20,20 @@ import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, typ
 import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
 import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
 import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, type QaIssue } from './production';
-import { detectBeats, snapTimesToBeats } from './beats';
+import { detectBeats, snapCutsToBeats } from './beats';
 import { loadPeaks } from './peaks';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
 import { evaluateTypedDecision, type TypedQuestion } from './typedDecisions';
+import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilRole, type Provenance } from './council';
 // Runs Helios AI's tool calls against the live project. Every tool is one undo step labelled
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
 import catalog from './ai-tools.json';
 import { MOTION_TOOLS, runMotionTool } from './motionTools';
+import { ROAST_TOOLS, memeLookup, primeMemeCache, runRoastTool } from './roast/tools';
+import { isRoastCardTemplate } from './roast/cards';
+import { CARD_TEMPLATES } from './roast/types';
 import { SFX_GAIN_DB, sfxClipFields, sfxTrack } from './sfxLevels';
 import { blankFinding, collectQaLayers, frameStats } from './polish';
 import { renderMotionStill } from '../motion/exportFrames';
@@ -411,7 +415,7 @@ function parseProduction(args: Args, mode: Production['mode'], existing: Product
 }
 
 /** Tools that produce media; with a `sceneIndex` their result attaches to the plan by itself. */
-const MEDIA_TOOLS = new Set(['generate_local_media', 'import_generated_media', 'download_online_media', 'scrape_videos', 'synthesize_speech_voiceover', 'erase_subject_clip']);
+const MEDIA_TOOLS = new Set(['generate_local_media', 'import_generated_media', 'download_online_media', 'scrape_videos', 'find_free_media', 'synthesize_speech_voiceover', 'erase_subject_clip', 'get_meme_media', 'cutout_image']);
 
 const resultAssetId = (result: ToolResult): string | null => {
   const r = result as Record<string, unknown>;
@@ -434,7 +438,7 @@ function attachGathered(host: ToolHost, name: string, args: Args, result: ToolRe
   if (!comp?.production) return null;
   const sceneIndex = Number.isInteger(args.sceneIndex) ? (args.sceneIndex as number) : null;
   const shotIndex = Number.isInteger(args.shotIndex) ? (args.shotIndex as number) : null;
-  const kind = name === 'synthesize_speech_voiceover' ? 'voiceover' : name === 'erase_subject_clip' ? 'video' : typeof args.kind === 'string' ? args.kind : args.task === 'audio' ? 'music' : args.task === 'image' ? 'image' : args.task === 'video' ? 'video' : name === 'download_online_media' || name === 'scrape_videos' ? 'download' : null;
+  const kind = name === 'synthesize_speech_voiceover' ? 'voiceover' : name === 'erase_subject_clip' ? 'video' : name === 'find_free_media' || name === 'get_meme_media' ? 'download' : name === 'cutout_image' ? 'image' : typeof args.kind === 'string' ? args.kind : args.task === 'audio' ? 'music' : args.task === 'image' ? 'image' : args.task === 'video' ? 'video' : name === 'download_online_media' || name === 'scrape_videos' ? 'download' : null;
   let target: { sceneIndex: number; shotIndex?: number | null; kind?: string | null } | null = null;
   if (sceneIndex !== null) target = { sceneIndex, shotIndex, kind };
   else if (kind === 'voiceover' || kind === 'music') {
@@ -604,6 +608,14 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
     return runMotionTool(name, args, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: kitForMotion ? motionBrandFromKit(kitForMotion) : null });
   }
 
+  // @funny: memes, receipts, sounds, cutouts and the roast plan (src/lib/roast).
+  if (ROAST_TOOLS.has(name)) {
+    return runRoastTool(name, args, {
+      project, assets, commit, editComp, pickComp, current: () => host.history.current(), signal,
+      importFiles: (paths, folder) => host.importMedia(paths, folder ? findOrCreateFolder(host.history.current(), commit, folder) : null),
+    });
+  }
+
   // Brand kits: read in any phase, written through the host's settings callbacks.
   if (BRAND_KIT_TOOLS.has(name)) {
     return runBrandKitTool(host, name, args, { project, comp: pickComp(project, args) ?? null, commit, folderFor: (folder) => findOrCreateFolder(project, commit, folder) });
@@ -612,7 +624,10 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
   switch (name) {
     case 'spawn_subagent': {
       const task = str(args, 'task');
-      const labelText = str(args, 'label') || 'Subagent';
+      const roleArg = str(args, 'role');
+      if (roleArg && !isCouncilRole(roleArg)) return fail(`role must be one of ${COUNCIL.map((member) => member.id).join(', ')}.`);
+      const member = councilMember(roleArg);
+      const labelText = member ? `${member.name}: ${str(args, 'label') || member.title}` : (str(args, 'label') || 'Subagent');
       if (!task) return fail('task is required');
       const parentTurnId = turnId ?? host.turnId ?? '';
       try {
@@ -622,8 +637,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
           label: labelText,
           model: str(args, 'model') ?? undefined,
           maxRounds: num(args, 'maxRounds') ?? undefined,
+          // A council seat works from its own brief and sees the project the lead sees.
+          persona: member?.brief,
+          context: aiContext(project, assets, host.selection()),
         });
-        return done(`Spawned subagent "${labelText}"`, { subagentId: result.subagentId, label: labelText });
+        return done(`Spawned ${member ? `the ${member.name}` : 'subagent'} "${labelText}"`, { subagentId: result.subagentId, label: labelText, role: member?.id ?? null });
       } catch (err) {
         return fail(errorText(err));
       }
@@ -637,6 +655,67 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       } catch (err) {
         return fail(errorText(err));
       }
+    }
+    case 'consult_council': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('No comp to review.');
+      const wanted = str(args, 'member');
+      if (wanted && wanted !== 'all' && !isCouncilRole(wanted)) return fail(`member must be all or one of ${COUNCIL.map((member) => member.id).join(', ')}.`);
+      const only: CouncilRole[] | undefined = wanted && wanted !== 'all' ? [wanted as CouncilRole] : undefined;
+      // The Comedian checks each placed meme against the library (verified, how fresh).
+      await primeMemeCache(comp);
+      const review = councilReview(project, assets, comp, only, { meme: memeLookup });
+      const blocks = review.notes.filter((note) => note.severity === 'block').length;
+      const fixes = review.notes.filter((note) => note.severity === 'fix').length;
+      const head = blocks ? `The council holds the cut: ${blocks} blocking note(s), ${fixes} fix(es).` : fixes ? `The council wants ${fixes} fix(es) before it signs off.` : 'The council signs off.';
+      return done(`${head}\n${describeReview(review, only)}`, {
+        verdicts: only ? Object.fromEntries(only.map((role) => [role, review.verdicts[role]])) : review.verdicts,
+        notes: review.notes,
+        motionDensity: Math.round(review.motionDensity * 100) / 100,
+        framesInMotion: review.frames,
+        briefs: (only ?? COUNCIL.map((member) => member.id)).map((role) => ({ role, name: councilMember(role)?.name, motto: councilMember(role)?.motto })),
+      });
+    }
+    case 'find_free_media': {
+      const query = str(args, 'query');
+      if (!query) return fail('Supply what to search for.');
+      const kind = (['image', 'video', 'audio'] as const).find((k) => k === str(args, 'kind')) ?? 'any';
+      const limit = Math.min(Math.max(1, num(args, 'limit') ?? 10), 30);
+      let found;
+      try {
+        found = await api.freeMediaSearch(query, kind, limit);
+      } catch (error) {
+        return fail(`No licence-clear library answered: ${errorText(error)}. Try a simpler query, or online_research for the subject's own press material.`);
+      }
+      const results = found.map((item, index) => ({ index, title: item.title, kind: item.kind, provider: item.provider, license: item.license, credit: item.attributionRequired ? item.attribution : null, size: item.width && item.height ? `${item.width}×${item.height}` : null, duration: item.duration, page: item.page }));
+      if (!(bool(args, 'download') ?? false)) {
+        return done(`${found.length} licence-clear result(s) for "${query}". Download the best with find_free_media {"download":true,"pick":[indices]}.`, { query, results });
+      }
+      const picks = Array.isArray(args.pick) ? (args.pick as unknown[]).filter((v): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < found.length) : [];
+      const chosen = (picks.length ? picks.map((i) => found[i]) : found).slice(0, Math.min(Math.max(1, num(args, 'maxDownloads') ?? 3), 10));
+      const folderName = str(args, 'folderName') ?? `Research: ${query}`;
+      const folderId = findOrCreateFolder(project, commit, folderName);
+      const imported: Asset[] = [];
+      const failed: string[] = [];
+      const records: Record<string, Provenance> = {};
+      for (const item of chosen) {
+        try {
+          const dl = await api.mediaDownload(item.url, item.kind, undefined, undefined, undefined, undefined, undefined, undefined);
+          const [asset] = await host.importMedia([dl.path], folderId);
+          if (!asset) throw new Error('the file could not be imported');
+          imported.push(asset);
+          records[asset.id] = { url: item.url, host: rightsOf(item.url).host, tier: 'free', license: item.license, credit: item.attribution, attributionRequired: item.attributionRequired, provider: item.provider, page: item.page, at: Date.now() };
+        } catch (error) {
+          failed.push(`${item.title}: ${errorText(error)}`);
+        }
+      }
+      if (Object.keys(records).length) commit((current) => withProvenance(current, records));
+      if (!imported.length) return fail(`Nothing downloaded. ${failed.join(' · ')}`);
+      const credits = chosen.filter((item) => item.attributionRequired).map((item) => item.attribution);
+      return done(
+        `Downloaded ${imported.length} licence-clear file(s) into "${folderName}"${failed.length ? ` (${failed.length} failed)` : ''}.${credits.length ? ` Credit required: ${credits.join(' · ')}` : ' No credit required.'}`,
+        { assets: imported.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind })), assetId: imported[0].id, licenses: chosen.map((item) => ({ title: item.title, license: item.license, credit: item.attribution })), failed },
+      );
     }
     case 'list_subagents': {
       const parentTurnId = turnId ?? host.turnId ?? '';
@@ -990,15 +1069,23 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
             }
           }
 
-          for (const mUrl of candidateMediaUrls) {
+          // The Researcher's order: licence-clear files first, never a watermarked stock preview.
+          const rank = { free: 0, unknown: 1, social: 2, watermarked: 3 } as const;
+          const ranked = candidateMediaUrls.map((mUrl) => ({ mUrl, rights: rightsOf(mUrl) })).filter((c) => c.rights.tier !== 'watermarked').sort((a, b) => rank[a.rights.tier] - rank[b.rights.tier]);
+          const gatheredRecords: Record<string, Provenance> = {};
+          for (const { mUrl, rights } of ranked) {
             try {
               const dl = await api.mediaDownload(mUrl, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
               const imported = await host.importMedia([dl.path], targetFolderId);
-              if (imported[0]) gatheredAssets.push(imported[0]);
+              if (imported[0]) {
+                gatheredAssets.push(imported[0]);
+                gatheredRecords[imported[0].id] = { url: mUrl, host: rights.host, tier: rights.tier, license: rights.license, at: Date.now() };
+              }
             } catch (dlErr) {
               console.warn(`Could not download gathered media from ${mUrl}:`, dlErr);
             }
           }
+          if (Object.keys(gatheredRecords).length) commit((current) => withProvenance(current, gatheredRecords));
         }
 
         const gatherNote = gatheredAssets.length
@@ -1296,7 +1383,13 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
         const importedAssets: Asset[] = [];
         const failedDownloads: { url: string; error: string }[] = [];
 
+        const scrapedRecords: Record<string, Provenance> = {};
         for (const vUrl of selectedVideos) {
+          const vRights = rightsOf(vUrl);
+          if (vRights.tier === 'watermarked') {
+            failedDownloads.push({ url: vUrl, error: `Researcher: ${vRights.note}` });
+            continue;
+          }
           try {
             const dl = await api.mediaDownload(
               vUrl,
@@ -1311,11 +1404,13 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
             const imported = await host.importMedia([dl.path], targetFolderId);
             if (imported[0]) {
               importedAssets.push(imported[0]);
+              scrapedRecords[imported[0].id] = { url: vUrl, host: vRights.host, tier: vRights.tier, license: vRights.license, page: url, at: Date.now() };
             }
           } catch (dlErr) {
             failedDownloads.push({ url: vUrl, error: errorText(dlErr) });
           }
         }
+        if (Object.keys(scrapedRecords).length) commit((current) => withProvenance(current, scrapedRecords));
 
         const successCount = importedAssets.length;
         const failCount = failedDownloads.length;
@@ -1507,6 +1602,9 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
     case 'download_online_media': {
       const url = str(args, 'url');
       if (!url) return fail('Supply an online media URL.');
+      // The Researcher's veto: a stock preview is a watermarked file, whatever the query wanted.
+      const rights = rightsOf(url);
+      if (rights.tier === 'watermarked') return fail(`Researcher: ${rights.note} Find it licence-clear instead — find_free_media {"query":"…"} (Openverse, Wikimedia Commons, NASA), Pexels or Pixabay — or the subject's own press kit.`);
       const mediaType = str(args, 'mediaType');
       const filename = str(args, 'filename');
       const resolution = str(args, 'resolution');
@@ -1556,14 +1654,16 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
           }
         }
 
+        commit((current) => withProvenance(current, { [asset.id]: { url, host: rights.host, tier: rights.tier, license: rights.license, at: Date.now() } }));
         const folderMsg = targetFolderId ? ` inside folder "${folderName || targetFolderId}"` : '';
         const trimMsg = (startTime || endTime) ? ` (trimmed ${startTime || '0'}-${endTime || 'end'})` : '';
         const audioMsg = noAudio ? ' [video-only / no sound]' : '';
         const cropMsg = crop ? ` [cropped: ${crop}]` : '';
 
         return done(
-          `Downloaded and imported "${asset.name}" (${asset.kind}, asset ID: ${asset.id})${folderMsg}${trimMsg}${audioMsg}${cropMsg}. Ready to place on timeline or use in storyboard.`,
+          `Downloaded and imported "${asset.name}" (${asset.kind}, asset ID: ${asset.id})${folderMsg}${trimMsg}${audioMsg}${cropMsg}. Ready to place on timeline or use in storyboard.${rights.tier === 'free' ? ` Licence: ${rights.license}.` : ` Researcher: ${rights.note}`}`,
           {
+            rights: { tier: rights.tier, host: rights.host, license: rights.license },
             assetId: asset.id,
             asset,
             path: downloaded.path,
@@ -1756,7 +1856,12 @@ ${notes.trim()}${paletteLine}
         const supplied = Array.isArray(args.points) ? args.points : clip.rotoCorrections ?? [];
         const points = supplied.map(raw => { const row = raw as Args; return { at: num(row, 'at') ?? 0, x: num(row, 'x') ?? -1, y: num(row, 'y') ?? -1, mode: str(row, 'mode') === 'exclude' ? 'exclude' as const : 'include' as const, kind: 'click' as const, radius: 0.035, softness: 0.5 }; });
         const actualFps = (asset.fps && Number.isFinite(asset.fps) && asset.fps > 0 ? asset.fps : comp.fps);
-        const result = await rotoscope(asset.id, { from: clip.in, seconds: clip.duration, fps: actualFps, modelPath: model.path, model: model.id, engine, points, signal });
+        if (engine === 'sam2-vitmatte' && clip.duration > 300) return fail('sam2-vitmatte mattes up to 300 s in one pass. Use engine rvm for a long host shot: it mattes in 30 s chunks and caches them.');
+        // RVM mattes any length: clips over 30 s go in cached, resumable chunks with cross-faded overlaps.
+        const long = engine === 'rvm' && clip.duration > 30;
+        const result = long
+          ? await rotoscopeLong(asset.id, { from: clip.in, seconds: clip.duration, fps: actualFps, modelPath: model.path, model: model.id, signal })
+          : await rotoscope(asset.id, { from: clip.in, seconds: clip.duration, fps: actualFps, modelPath: model.path, model: model.id, engine, points, signal });
         validateRotoResult(result);
         const live = host.history.current().comps.find(entry => entry.id === comp.id)?.clips.find(item => item.id === clip.id);
         if (!live || live.in !== clip.in || live.duration !== clip.duration || live.speed !== clip.speed || live.reverse !== clip.reverse || JSON.stringify(live.source) !== JSON.stringify(clip.source)) return fail('The clip changed during inference; the cached matte was not attached.');
@@ -1766,7 +1871,7 @@ ${notes.trim()}${paletteLine}
         }) })));
         const attached = host.history.current().comps.find(c => c.id === comp.id)?.clips.find(c => c.id === clip.id);
         if (attached?.rotoMatte !== result.matte) return fail('The matte was generated but its timeline attachment could not be confirmed. Do not claim Roto was applied.');
-        return done('Subject matte generated and attachment verified. Review the cutout; a duplicate original background underneath can make isolated Roto appear unchanged until you insert text/media between the layers.', { clipId: clip.id, frames: result.frames, model: model.id, previewSupported: true, meanSubjectCoverage: result.subjects.reduce((sum, s) => sum + s.cover, 0) / result.frames, visualQualityVerified: false });
+        return done('Subject matte generated and attachment verified. Review the cutout; a duplicate original background underneath can make isolated Roto appear unchanged until you insert text/media between the layers.', { clipId: clip.id, frames: result.frames, model: model.id, ...(long ? { chunks: (result as LongRotoResult).chunks, reused: (result as LongRotoResult).reused } : {}), previewSupported: true, meanSubjectCoverage: result.subjects.reduce((sum, s) => sum + s.cover, 0) / result.frames, visualQualityVerified: false });
       } catch (error) { return fail(errorText(error)); }
     }
     case 'analyze_clip_speech': {
@@ -3074,46 +3179,12 @@ ${notes.trim()}${paletteLine}
         if (!music?.beats?.length || !musicClip) return fail('No beats known: run analyze_music_beats on the music (placed on the timeline) first, or pass beats as timeline seconds.');
         beats = music.beats.map((b) => musicClip.start + (b - musicClip.in) / musicClip.speed).filter((t) => t >= 0);
       }
-      const videoTracks = comp.tracks.filter((t) => t.kind === 'video' && !t.locked);
       const only = Array.isArray(args.clipIds) ? new Set((args.clipIds as unknown[]).filter((id): id is string => typeof id === 'string')) : null;
-      const minFrame = 1 / fps(comp);
-      const changes: { clipId: string; name: string; edge: 'start' | 'end'; from: number; to: number }[] = [];
-      let next = comp;
-      for (const track of videoTracks) {
-        const clips = next.clips.filter((c) => c.trackId === track.id && c.enabled).sort((a, b) => a.start - b.start);
-        clips.forEach((clip, i) => {
-          if (only && !only.has(clip.id)) return;
-          const overlay = clip.source.type !== 'media';
-          const prev = clips[i - 1];
-          const after = clips[i + 1];
-          const startSnap = snapTimesToBeats([clip.start], beats, tolerance)[0];
-          if (startSnap.snapped !== null && Math.abs(startSnap.delta) > minFrame && clip.start > 1e-6) {
-            const delta = startSnap.snapped - clip.start;
-            const prevEnd = prev ? prev.start + prev.duration : 0;
-            if (startSnap.snapped >= prevEnd - 1e-6 && clip.duration - delta > 0.2) {
-              const moved = overlay ? { ...clip, start: startSnap.snapped } : { ...clip, start: startSnap.snapped, in: Math.max(0, clip.in + delta * clip.speed), duration: clip.duration - delta };
-              next = { ...next, clips: next.clips.map((c) => (c.id === clip.id ? moved : c)) };
-              changes.push({ clipId: clip.id, name: clip.name ?? clip.id, edge: 'start', from: clip.start, to: startSnap.snapped });
-              clip = moved;
-            }
-          }
-          if (!overlay) {
-            const end = clip.start + clip.duration;
-            const endSnap = snapTimesToBeats([end], beats, tolerance)[0];
-            if (endSnap.snapped !== null && Math.abs(endSnap.delta) > minFrame) {
-              const nextStart = after ? after.start : Infinity;
-              const newDuration = endSnap.snapped - clip.start;
-              if (endSnap.snapped <= nextStart + 1e-6 && newDuration > 0.2) {
-                next = { ...next, clips: next.clips.map((c) => (c.id === clip.id ? { ...c, duration: newDuration } : c)) };
-                changes.push({ clipId: clip.id, name: clip.name ?? clip.id, edge: 'end', from: end, to: endSnap.snapped });
-              }
-            }
-          }
-        });
-      }
+      // Butt cuts roll as one edit point, so snapping never opens a gap (WORLD-CLASS-PLAN C1).
+      const { comp: next, changes } = snapCutsToBeats(comp, beats, { tolerance, only, limit, minDuration: 0.2 });
       if (!changes.length) return done(`Every cut is already within ${Math.round(tolerance * 1000)} ms of a beat (${beats.length} beats).`, { changes: [], beats: beats.length });
       editComp(comp, () => next);
-      return done(`${changes.length} edge(s) moved onto beats (±${Math.round(tolerance * 1000)} ms): ${changes.slice(0, 8).map((c) => `${c.name} ${c.edge} ${timecode(c.from, fps(comp))}→${timecode(c.to, fps(comp))}`).join('; ')}. Media clips were trimmed, overlays moved; gaps may have opened — check get_comp.`, { changes, beats: beats.length });
+      return done(`${changes.length} edge(s) moved onto beats (±${Math.round(tolerance * 1000)} ms): ${changes.slice(0, 8).map((c) => `${c.name} ${c.edge} ${timecode(c.from, fps(comp))}→${timecode(c.to, fps(comp))}`).join('; ')}. Butt cuts rolled together; free edges trimmed, overlays moved; linked audio stays put (J/L split).`, { changes, beats: beats.length });
     }
 
     case 'level_audio': {
@@ -3324,7 +3395,7 @@ ${notes.trim()}${paletteLine}
       const layout = MOGRT_LAYOUTS.has(String(args.layout)) ? (String(args.layout) as MogrtLayout) : undefined;
       const cameraMove = (['none', 'push-in', 'travel'] as const).find((item) => item === str(args, 'cameraMove'));
       const reactBits = isReactBitsTemplate(template) && !templateSpec(template);
-      if (template !== 'custom' && !templateSpec(template) && !reactBits && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout'].includes(template)) return fail(`Unknown template "${template}". Crimson templates:\n${templateCatalogue()}\nReact Bits: template "react-bits" with bit/props or layers — browse with react_bits {"action":"list"}.`);
+      if (template !== 'custom' && !templateSpec(template) && !reactBits && !isRoastCardTemplate(template) && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout'].includes(template)) return fail(`Unknown template "${template}". Crimson templates:\n${templateCatalogue()}\nReact Bits: template "react-bits" with bit/props or layers — browse with react_bits {"action":"list"}. @funny cards: ${CARD_TEMPLATES.join(', ')} (their fields in "params").`);
 
       try {
         const result = createMotionGraphicComp(project, {

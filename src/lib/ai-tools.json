@@ -1446,7 +1446,7 @@
     },
     {
       "name": "rotoscope_clip",
-      "description": "Roto a forward normal-speed video clip up to 30s; attach matte for preview/export in one undo step. Uses the engine selected in Settings unless engine is explicitly supplied. RVM targets humans. sam2-vitmatte tracks a selected subject using corrective points, generates trimaps and refines alpha. It requires installed SAM2.1 and ViTMatte checkpoints and a positive point on frame zero. Points use clip-local seconds and normalized source coordinates; obtain them from actual frame images. Review alpha edges; superiority over RVM is not established.",
+      "description": "Roto a forward normal-speed video clip (rvm: up to 60 minutes — clips over 30 s are matted in 30 s chunks with 1 s cross-faded overlaps, cached per asset+range and resumable; a repeat returns the cached matte. sam2-vitmatte: one pass, ≤ 300 s); attach matte for preview/export in one undo step. Uses the engine selected in Settings unless engine is explicitly supplied. RVM targets humans. sam2-vitmatte tracks a selected subject using corrective points, generates trimaps and refines alpha. It requires installed SAM2.1 and ViTMatte checkpoints and a positive point on frame zero. Points use clip-local seconds and normalized source coordinates; obtain them from actual frame images. Review alpha edges; superiority over RVM is not established.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2299,7 +2299,7 @@
     },
     {
       "name": "add_sound_effect",
-      "description": "Adds a built-in sound effect clip: whoosh (0.9 s, place ~0.3 s before a cut), impact (1.4 s, lands on a title or beat), chime (1.6 s), pop (0.25 s, text and stickers), riser (2 s, ends where tension releases). Without a track it uses the first audio track free at that time, creating one if needed. Default level sits under the voice (whoosh −16 dB, impact −14, pop/chime −18, riser −20) on an \"SFX\" track, named for what it marks; pass `note` (what the sound is for, e.g. \"card lands\") and only raise `volume` (linear gain) for a deliberate hit.",
+      "description": "Adds a built-in sound effect clip: whoosh (0.9 s, place ~0.3 s before a cut), impact (1.4 s, lands on a title or beat), chime (1.6 s), pop (0.25 s, text and stickers), riser (2 s, ends where tension releases); @funny hits: boom (1.2 s, the vine-boom punchline hit), scratch (0.5 s, record scratch for a freeze), bleep (0.8 s, 1 kHz censor tone), swish (0.35 s, a short bright whoosh for a slide-in), ding (1.5 s, a bell for a card or a correct answer), glitch (0.4 s, stutter). Without a track it uses the first audio track free at that time, creating one if needed. Default level sits under the voice (whoosh −16 dB, impact −14, pop/chime −18, riser −20) on an \"SFX\" track, named for what it marks; pass `note` (what the sound is for, e.g. \"card lands\") and only raise `volume` (linear gain) for a deliberate hit.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2313,7 +2313,13 @@
               "impact",
               "chime",
               "pop",
-              "riser"
+              "riser",
+              "boom",
+              "scratch",
+              "bleep",
+              "swish",
+              "ding",
+              "glitch"
             ]
           },
           "start": {
@@ -3310,7 +3316,13 @@
               "impact",
               "chime",
               "pop",
-              "riser"
+              "riser",
+              "boom",
+              "scratch",
+              "bleep",
+              "swish",
+              "ding",
+              "glitch"
             ]
           },
           "gainDb": {
@@ -4612,8 +4624,92 @@
       }
     },
     {
+      "name": "consult_council",
+      "description": "Ask the AI council to review the timeline. Five specialists check the real clips, frame by frame: the Animator (dead stretches with no designed motion, motion density, static or linear graphics), the Director (jump cuts, locked-off shots, almost-centred or unsafe placement, balance, rhythm, letterboxing), the Audio Guru (music bed, ducking, fades, silent graphic entrances, loud SFX, clipping, cuts off the beat, dead air) and the Researcher (sources behind the plan, watermarked / social / unlicensed files on the timeline, credits owed), plus the Comedian on @funny edits (every meme has a sourced why and lands on the punchline, no repeats, fresh memes, no dead zones over 8 s, the roast Edit DNA band). Each note has a severity: block (verify_edit_workflow refuses until fixed), fix, or note. Call it after building each pass and before verify_edit_workflow; fix every block and fix it lists.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "member": {
+            "type": "string",
+            "enum": [
+              "all",
+              "animator",
+              "researcher",
+              "audio",
+              "director",
+              "comedian"
+            ],
+            "description": "One seat, or all (default)."
+          },
+          "compId": {
+            "type": "string",
+            "description": "Comp to review; the active comp by default."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "find_free_media",
+      "description": "The Researcher's library search: licence-clear stills, video and audio with no watermark, from Openverse (CC0 / CC BY / CC BY-SA, commercial use allowed), Wikimedia Commons and NASA (public domain). Every result carries its licence and credit line. Search in PLAN (download false) to plan shots; download in GATHER with `download: true` and `pick` (result indices) — files land in a Research folder with their licence recorded, and `sceneIndex` attaches them to the plan. Prefer this over scraping arbitrary pages.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What to find, in plain words (e.g. 'city skyline night', 'ocean waves')."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "any"
+            ],
+            "description": "Media kind (default any)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Results to return (default 10, max 30)."
+          },
+          "download": {
+            "type": "boolean",
+            "description": "Download and import the picks (GATHER phase)."
+          },
+          "pick": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Indices of the results to download; the top results when omitted."
+          },
+          "maxDownloads": {
+            "type": "integer",
+            "description": "Most files to download (default 3, max 10)."
+          },
+          "folderName": {
+            "type": "string",
+            "description": "Project folder (default 'Research: <query>')."
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "description": "Plan scene the first download belongs to."
+          },
+          "shotIndex": {
+            "type": "integer",
+            "description": "Shot within the scene."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "spawn_subagent",
-      "description": "Spawn an autonomous AI sub-worker that runs in parallel. The subagent has access to all Helios tools and works independently on the given task. Use for independent work that doesn't block the main conversation: research, media generation, audio processing, motion graphic creation. Returns immediately with a subagent ID; the subagent's progress and results appear in the chat's agent map. Max 6 concurrent subagents per turn.",
+      "description": "Spawn an autonomous AI sub-worker that runs in parallel. The subagent has access to all Helios tools and works independently on the given task, seeing the same project summary. Give it a council `role` to make it one of the five specialists: `researcher` (deep sourced research + licence-clear, watermark-free downloads), `animator` (frame-by-frame, motion-graphic-heavy graphics), `audio` (mix engineer / music producer: levels, ducking, beat sync, SFX per frame), `director` (layout, symmetry, camera angles, shot rhythm), `comedian` (@funny: memes that echo the punchline, receipts, comic timing). Returns immediately with a subagent ID; the subagent's progress and results appear in the chat's agent map. Max 6 concurrent subagents per turn.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -4632,6 +4728,17 @@
           "maxRounds": {
             "type": "integer",
             "description": "Maximum tool call rounds (default 30). Lower = faster/cheaper, higher = more thorough."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "researcher",
+              "animator",
+              "audio",
+              "director",
+              "comedian"
+            ],
+            "description": "Optional council seat the worker takes: its brief leads the worker's instructions."
           }
         },
         "required": [
@@ -5436,6 +5543,1006 @@
           }
         },
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_memes",
+      "description": "@funny meme brain: searches the local meme library (a curated Indian + global seed plus every meme saved with save_meme) for a beat. Pass the punchline's concrete words as `echo` — the literal echo (the meme says or names the word the host just said: \"zeher\", \"juice\", \"German shepherd\") is the strongest match and the device that makes a meme land. Also matches names and aliases in English, Hinglish and Devanagari (ज़हर finds zeher/zahar), the meme's meaning, what is said in its clip, the comic intent, emotion, trend score and region (Indian memes first when the words look Hinglish). Every hit carries reasons, meaning, useWhen, dontUseWhen and its formats. Unverified memes are hidden unless includeUnverified. Read-only; any phase. Before placing a hit, check its dontUseWhen against the beat and write a one-line why; then fetch it with get_meme_media.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Free text: a meme name, a topic or the beat's words (any script)."
+          },
+          "echo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Concrete words or short phrases from the beat a meme could repeat back (from the beat sheet's echo list), e.g. [\"zeher\"] or [\"German shepherd\"]."
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "betrayal",
+              "exposed",
+              "chase",
+              "clueless",
+              "fake-sad",
+              "hype",
+              "cringe",
+              "shock",
+              "awkward",
+              "victory",
+              "fail",
+              "sarcasm",
+              "confusion",
+              "denial",
+              "flex",
+              "disgust",
+              "suspense",
+              "wholesome",
+              "rage",
+              "dead",
+              "money",
+              "lie",
+              "smell",
+              "dance",
+              "agree",
+              "disagree",
+              "ignore",
+              "overreact",
+              "plot-twist",
+              "hypocrisy",
+              "cheating",
+              "poison",
+              "crazy",
+              "proud",
+              "scared",
+              "bye"
+            ],
+            "description": "The beat's comic intent."
+          },
+          "emotion": {
+            "type": "string",
+            "description": "The emotion to hit (shock, sad, flex, cringe…)."
+          },
+          "region": {
+            "type": "string",
+            "enum": [
+              "IN",
+              "global",
+              "any"
+            ],
+            "description": "Prefer Indian or global memes. Default: IN first when the words look Hinglish or Devanagari."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "clip",
+              "image",
+              "template",
+              "sound",
+              "sticker",
+              "gif",
+              "any"
+            ],
+            "description": "Prefer memes that have this format (e.g. clip for a cutaway with its own audio)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Hits to return (default 8, max 30)."
+          },
+          "includeUnverified": {
+            "type": "boolean",
+            "description": "Also return memes whose meaning has not been checked against a source (never auto-place those)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "refresh_meme_trends",
+      "description": "@funny meme brain: what is trending right now, from Know Your Meme (newsfeed, with each entry's About/Origin text as `explainer`), Imgflip top templates, Reddit weekly top (r/IndianDankMemes, r/IndianMeyMeys, r/dankmemes, r/memes), YouTube searches via yt-dlp, and KLIPY / GIPHY trending when their keys are set in Settings › Memes. Answers the cached refresh when it is under 6 hours old (force:true refetches). Run it at the start of every @funny edit. Returns candidates (name, provider, url, explainer, mediaUrls), per-provider counts, problems (a failing provider never fails the call) and libraryHits (library memes trending now). Candidates are NOT library memes: to use one, write meaning / useWhen / dontUseWhen from its explainer or source page and call save_meme first.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "description": "Refetch even when the last refresh is under 6 hours old."
+          },
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Extra YouTube searches for this video's topic (at most 4), e.g. [\"Dhurandhar meme\"]; only used when the refresh goes online."
+          },
+          "query": {
+            "type": "string",
+            "description": "Only return candidates whose name or explainer contains this text."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Only return candidates from this provider (kym, imgflip, reddit, youtube, klipy, giphy)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Candidates to return (default 40, max 150)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "save_meme",
+      "description": "@funny meme brain: saves a meme into the library (new, or replacing the entry with the same id), so search_memes can find it and get_meme_media can fetch it. Write meaning, useWhen and dontUseWhen from a real source (the explainer or page from refresh_meme_trends, Know Your Meme, Wikipedia, a Reddit explainer) and list that source in sources — a meme you cannot explain from a source must not be saved as verified. Rules: id kebab-case (derived from the name when omitted); meaning at least 30 characters; at least one useWhen; at least one source url; intent only from the comic intents; each format needs a url (page, video or file) or a yt-dlp query (\"ytsearch3:oggy jack juice meme\"), with in/out in source seconds for the usable moment and a transcript of what is said in it when there is speech. Writes only the meme library (Documents/Helios/Memes), not the project.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kebab-case id, e.g. \"oggy-jack-juice\". Default: from the name."
+          },
+          "name": {
+            "type": "string",
+            "description": "The meme's common name."
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Other names people use, in English, Hinglish (Roman) and Devanagari."
+          },
+          "origin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "film",
+                  "tv",
+                  "creator",
+                  "viral",
+                  "game",
+                  "ad",
+                  "news",
+                  "cartoon",
+                  "other"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "description": "The film, show, creator or post it comes from."
+              },
+              "year": {
+                "type": "integer"
+              },
+              "detail": {
+                "type": "string",
+                "description": "Scene, episode or timestamp."
+              }
+            },
+            "required": [
+              "kind",
+              "title"
+            ],
+            "additionalProperties": false
+          },
+          "meaning": {
+            "type": "string",
+            "description": "What the meme means and how people use it, written from the source (at least 30 characters)."
+          },
+          "useWhen": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Situations it fits (at least one)."
+          },
+          "dontUseWhen": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Situations it must not be used in (tragedy, wrong tone, a misread)."
+          },
+          "emotion": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "intent": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "betrayal",
+                "exposed",
+                "chase",
+                "clueless",
+                "fake-sad",
+                "hype",
+                "cringe",
+                "shock",
+                "awkward",
+                "victory",
+                "fail",
+                "sarcasm",
+                "confusion",
+                "denial",
+                "flex",
+                "disgust",
+                "suspense",
+                "wholesome",
+                "rage",
+                "dead",
+                "money",
+                "lie",
+                "smell",
+                "dance",
+                "agree",
+                "disagree",
+                "ignore",
+                "overreact",
+                "plot-twist",
+                "hypocrisy",
+                "cheating",
+                "poison",
+                "crazy",
+                "proud",
+                "scared",
+                "bye"
+              ]
+            },
+            "description": "Comic intents it serves."
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "clip",
+                    "image",
+                    "template",
+                    "sound",
+                    "sticker",
+                    "gif"
+                  ]
+                },
+                "url": {
+                  "type": "string",
+                  "description": "A page, video (YouTube…) or direct file URL."
+                },
+                "query": {
+                  "type": "string",
+                  "description": "A yt-dlp search when there is no fixed URL, e.g. \"ytsearch3:oggy jack juice meme\"."
+                },
+                "in": {
+                  "type": "number",
+                  "description": "Source seconds where the usable moment starts."
+                },
+                "out": {
+                  "type": "number",
+                  "description": "Source seconds where it ends."
+                },
+                "hasAudio": {
+                  "type": "boolean"
+                },
+                "transcript": {
+                  "type": "string",
+                  "description": "What is said in the clip (so it can echo the host's words)."
+                },
+                "provider": {
+                  "type": "string",
+                  "description": "youtube, kym, klipy, giphy, imgflip, reddit…"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "region": {
+            "type": "string",
+            "enum": [
+              "IN",
+              "global"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "hi",
+              "en",
+              "hinglish",
+              "none"
+            ]
+          },
+          "firstSeen": {
+            "type": "string",
+            "description": "ISO date it first trended, when known."
+          },
+          "trendScore": {
+            "type": "number",
+            "description": "0–1; how hot it is now (default 0.5)."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Where the meaning came from (at least one)."
+          },
+          "safety": {
+            "type": "object",
+            "properties": {
+              "nsfw": {
+                "type": "boolean"
+              },
+              "political": {
+                "type": "boolean"
+              },
+              "religious": {
+                "type": "boolean"
+              },
+              "profanity": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Default true: the meaning was written from the listed source. False keeps it out of automatic placement."
+          }
+        },
+        "required": [
+          "name",
+          "meaning",
+          "useWhen",
+          "sources"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_meme_media",
+      "description": "@funny meme brain: fetches one format of a library meme — a direct download, or yt-dlp for a page/video URL or a search query — cut to its moment (in/out, source seconds; keyframes forced at the cuts), caches it under Documents/Helios/Memes/media, and imports it into the project's \"Memes\" folder with commentary provenance. Returns assetId, and in/out within the imported file (already cut, so in is 0) plus hasAudio, ready for place_clip or a meme_cutaway move. The same format and cut come from the cache on the next call. Keep meme clips short (0.6–4 s is typical; at most 120 s). GATHER phase.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "memeId": {
+            "type": "string",
+            "description": "The meme's id (from search_memes)."
+          },
+          "format": {
+            "type": "integer",
+            "description": "Index into the meme's formats. Default: the best for a cutaway (a clip with sound, a clip, a GIF, a sound, a sticker, a still)."
+          },
+          "formatType": {
+            "type": "string",
+            "enum": [
+              "clip",
+              "image",
+              "template",
+              "sound",
+              "sticker",
+              "gif"
+            ],
+            "description": "Or the first format of this type."
+          },
+          "in": {
+            "type": "number",
+            "description": "Source seconds to start the cut (default: the format's own in)."
+          },
+          "out": {
+            "type": "number",
+            "description": "Source seconds to end the cut (default: the format's own out)."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Download again even when a cached cut exists."
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "description": "Storyboard scene this media is for; the file is attached to that planned shot."
+          },
+          "shotIndex": {
+            "type": "integer",
+            "description": "Shot within the scene (with sceneIndex)."
+          }
+        },
+        "required": [
+          "memeId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "find_receipt",
+      "description": "@funny receipts researcher: finds the exact moment someone said something in a YouTube video, from the video's captions, without downloading any video. Searches YouTube with yt-dlp (`query`), reads each result's captions (manual Hindi/English first, else the original-language auto captions; cached per video in Documents/Helios/Receipts/captions, so a repeat search is instant) and fuzzy-matches `quote` across scripts: a Roman Hinglish quote finds Devanagari captions and the other way round (\"Modi se achcha ek gadha better hai\" finds मोदी से अच्छा एक गधा बेटर है). Returns candidates best first — url, title, channel, start/end in source seconds (padded 0.3 s), the caption text matched, a 0–1 score — each with `download`: the download_online_media arguments {url, startTime, endTime} that fetch only that moment. Check the title/channel/text of the best one before downloading; scores under 0.7 are near misses. Requests run one at a time and HTTP 429s from YouTube are waited out, so a search takes 10–60 s. Read-only; any phase. Then download_online_media {url, startTime, endTime} (GATHER) and use the clip as a `receipt` move with word captions.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What to search YouTube for: who said it and where (\"KK Create Dhruv Rathee podcast\", \"Rahul Gandhi press conference vote chori H files\"), or one YouTube URL to search in."
+          },
+          "quote": {
+            "type": "string",
+            "description": "The words as they were said, in Roman Hinglish, English or Devanagari. Shorter and exact beats long and paraphrased."
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Videos to search (default 6, max 15)."
+          },
+          "channel": {
+            "type": "string",
+            "description": "Keep to videos by this channel or uploader (matched loosely: \"KK Create\" matches \"Learn By KK Create\")."
+          },
+          "lang": {
+            "type": "string",
+            "description": "Caption language to read (\"hi\", \"en\"). Default: Hindi, then English."
+          }
+        },
+        "required": [
+          "query",
+          "quote"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_sfx",
+      "description": "@funny sound library search. Searches, best first: the built-in procedural sounds (whoosh, impact, chime, pop, riser, and the @funny kinds boom = vine boom, scratch = record scratch, bleep = censor tone, swish, ding = bell, glitch — ids sfx-proc-<kind>, no download), the curated CC0 seed pack, and every sound fetched before. Names match in English, Hinglish and Devanagari (\"vine boom\", \"bruhhh\", \"dhamaka\", \"धमाका\", \"घंटी\"). With `online: true` it also asks Freesound (CC0 only; needs the user's Freesound key in Settings), Openverse (keyless Creative Commons audio, much of it from Freesound) and Myinstants (meme sound names; user uploads of copyrighted audio, licence unknown — use only as a short commentary sting, prefer built-in or CC0). Every hit carries its id, licence, credit, duration, score and reasons. Read-only; any phase. Pick one and place it with place_sfx.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What the sound is, in any script: a name (\"vine boom\", \"bruh\", \"sad violin\"), a kind (\"record scratch\", \"airhorn\") or a Hinglish word (\"dhamaka\", \"ghanti\")."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only sounds carrying at least one of these tags (e.g. [\"meme\"], [\"transition\"], [\"censor\"]). A tag-only search lists them."
+          },
+          "online": {
+            "type": "boolean",
+            "description": "Also search Freesound (with the user's key), Openverse and Myinstants (default false)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Results to return (default 10, max 30)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "place_sfx",
+      "description": "@funny: places one sound at `at` (timeline seconds) on the comp's SFX audio track (found or made), labelled audioType sfx, in one undo step, and returns its clipId. Give exactly one of: `kind` (a built-in: whoosh, impact, chime, pop, riser, boom, scratch, bleep, swish, ding, glitch), `id` (from search_sfx; a library sample is downloaded once, trimmed of silence, loudness-normalised to -16 LUFS and imported into the SFX bin), or `query` (picks the best local match, else searches online; Myinstants uploads are skipped unless allowCopyrighted). Default levels sit under the voice: built-ins by kind (boom -14 dB, whoosh/swish/ding -16, bleep/glitch -18, scratch -20), samples -14 dB (-10 for meme/voice sounds like \"bruh\"); pass `db` only for a deliberate hit. Timing: a meme sound lands on the punchline word's end (+0-150 ms); a whoosh or swish starts ~0.2-0.3 s before the cut or entry it leads into; a pop or ding on the frame a sticker or text appears. The same sound at most 3 times per video; 6-12 sounds a minute in high-energy stretches. For a bleep over a word, use roast_move bleep (it trims the tone to the word). Returns the licence and credit line for the description's credits.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline seconds the sound starts on."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "whoosh",
+              "impact",
+              "chime",
+              "pop",
+              "riser",
+              "boom",
+              "scratch",
+              "bleep",
+              "swish",
+              "ding",
+              "glitch"
+            ],
+            "description": "A built-in procedural sound."
+          },
+          "id": {
+            "type": "string",
+            "description": "A library id from search_sfx (sfx-proc-<kind>, a seed id, fs-…, ov-…, mi-…)."
+          },
+          "query": {
+            "type": "string",
+            "description": "Find and place the best match in one step (any script)."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With query: only sounds carrying one of these tags."
+          },
+          "online": {
+            "type": "boolean",
+            "description": "With query: search online when nothing local fits (default true)."
+          },
+          "allowCopyrighted": {
+            "type": "boolean",
+            "description": "With query: allow a Myinstants upload (rights unknown). Default false."
+          },
+          "db": {
+            "type": "number",
+            "description": "Gain in dB (-60 to 6); defaults sit 10-20 dB under the voice."
+          },
+          "note": {
+            "type": "string",
+            "description": "What the sound marks, shown in the clip name (e.g. \"punchline\", \"card lands\")."
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "cutout_image",
+      "description": "Cut a person (or any subject) out of a photo or one video frame with BiRefNet (MIT, local GPU; the model downloads on first use, ~450 MB general / ~890 MB portrait) and import the RGBA PNG into the \"Cutouts\" bin. The edge is cleaned (islands and haze removed, 1 px choke, foreground colour re-estimated under hair, green screens despilled). For the side_cutout sticker look, stroke adds a white outline (strokePx is its thickness when the cut-out is shown 1080 px tall, default 8), shadow a soft drop shadow; the canvas is padded so neither is clipped, and a side the frame edge cuts through stays a straight edge with no stroke. With several people in the frame, pass region around the one you want. Returns assetId (place it with side_cutout or place_clip), bbox of the subject in the source frame (0–1), coverage, and the PNG size. Look at the result before relying on its edge.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "description": "Image or video asset to cut from."
+          },
+          "clipId": {
+            "type": "string",
+            "description": "A media clip instead of an asset; the frame defaults to the middle of what the clip shows."
+          },
+          "path": {
+            "type": "string",
+            "description": "A file on disk that is not imported yet (e.g. a download path)."
+          },
+          "time": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Source seconds of the video frame to cut from (default: middle of the clip or asset)."
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "general",
+              "portrait"
+            ],
+            "description": "general (default) for anything; portrait for people with loose hair."
+          },
+          "stroke": {
+            "type": "boolean",
+            "description": "Bake a white sticker outline in (default false)."
+          },
+          "strokePx": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 64,
+            "description": "Outline thickness when the cut-out is shown 1080 px tall (default 8; 6–10 reads as a sticker)."
+          },
+          "shadow": {
+            "type": "boolean",
+            "description": "Bake a soft drop shadow in (default false)."
+          },
+          "region": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "minItems": 4,
+            "maxItems": 4,
+            "description": "[x, y, width, height] in frame fractions: only the subject inside is cut out. Use it to pick one person from a group."
+          },
+          "choke": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 8,
+            "description": "Pixels to pull the edge in (default 1)."
+          },
+          "crop": {
+            "type": "boolean",
+            "description": "Crop to the subject plus room for the stroke and shadow (default true); false keeps the full frame."
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "description": "Storyboard scene this media is for; the file is attached to that planned shot."
+          },
+          "shotIndex": {
+            "type": "integer",
+            "description": "Shot within the scene (with sceneIndex)."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "detect_faces",
+      "description": "Find and track faces in a video span (or a still) with YuNet (OpenCV Zoo, MIT; CPU, no GPU; 230 KB model fetched on first use). Faces are linked across frames by overlap, so each track is one person. Returns FaceTrack[]: {id, frames:[{t (source seconds), x, y, width, height (0–1 frame fractions), score, mouth:{x, y} (midpoint of the mouth corners)}]} — the path for head_paste and the mouth box for bleep covers. A span defaults to the clip's source range (or 10 s of an asset); at most 3600 frames per call.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "description": "Video or image asset."
+          },
+          "clipId": {
+            "type": "string",
+            "description": "A media clip; the span defaults to what the clip shows."
+          },
+          "start": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Source seconds to start at."
+          },
+          "end": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Source seconds to stop at."
+          },
+          "fps": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "Samples per second (default 10)."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "key_green_screen",
+      "description": "Detect a chroma-green backdrop and key it. Samples frames of each clip's source range (FFmpeg + a border/full-frame chroma test, no model), reports greenShare (0–1 share of sampled frames standing on a green backdrop) and the backdrop's colour, and — for every clip whose greenShare is at least minShare — attaches the keylight effect (screen colour, gain and balance solved from the measured backdrop, 50 % spill suppression) exactly as edit_effect would, all in one undo step; an existing keylight on the clip is updated rather than duplicated. Keylight renders in preview and export. Use all: true to scan every video clip of the comp (compId or the active one). After keying, look at a frame for fringe or holes in dark clothes and put something behind the host.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string",
+            "description": "One video clip to check and key."
+          },
+          "all": {
+            "type": "boolean",
+            "description": "Check every enabled video clip of the comp (clips named like a background plate are skipped)."
+          },
+          "compId": {
+            "type": "string",
+            "description": "Comp for all: true (default: the active comp)."
+          },
+          "minShare": {
+            "type": "number",
+            "minimum": 0.05,
+            "maximum": 1,
+            "description": "Key a clip when at least this share of its frames is green (default 0.5)."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Measure and report only; attach nothing."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "save_beat_sheet",
+      "description": "Saves the beat sheet of a roast recording on the comp (@funny step 2): each sentence labelled setup / punchline / claim / quote / reference / question / emotion / callback / profanity / cta / filler, with a comic intent, entities and echo words. Checked and tidied first: beats sorted, overlaps trimmed, ids made unique, unknown kinds and intents dropped. Pass the transcript's timeline words to fill punchAt (end of a punchline's last word), profanity spans (Hindi/Hinglish in Roman and Devanagari, English, YouTube's [ __ ]) and echo words the beats leave out. Returns counts by kind and the profanity found (bleep candidates).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "number",
+                  "description": "Timeline seconds."
+                },
+                "end": {
+                  "type": "number"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "The words spoken, as transcribed (Devanagari and/or Roman)."
+                },
+                "kinds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "setup",
+                      "punchline",
+                      "claim",
+                      "quote",
+                      "reference",
+                      "question",
+                      "emotion",
+                      "callback",
+                      "profanity",
+                      "cta",
+                      "filler"
+                    ]
+                  }
+                },
+                "intent": {
+                  "type": "string",
+                  "description": "One comic intent: betrayal, exposed, chase, clueless, fake-sad, hype, cringe, shock, awkward, victory, fail, sarcasm, confusion, denial, flex, disgust, suspense, wholesome, rage, dead, money, lie, smell, dance, agree, disagree, ignore, overreact, plot-twist, hypocrisy, cheating, poison, crazy, proud, scared, bye."
+                },
+                "entities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "echo": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Concrete words a meme could repeat (\"zeher\", \"juice\", \"German shepherd\")."
+                },
+                "punchAt": {
+                  "type": "number",
+                  "description": "Timeline seconds the punchline lands (end of its last word)."
+                },
+                "notes": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "kinds"
+              ]
+            }
+          },
+          "words": {
+            "type": "array",
+            "description": "Optional: the transcript's words in timeline seconds, to fill punchAt, profanity and echo words.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "number"
+                },
+                "end": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "text",
+                "start",
+                "end"
+              ]
+            }
+          }
+        },
+        "required": [
+          "beats"
+        ]
+      }
+    },
+    {
+      "name": "roast_move",
+      "description": "Makes one comedy move on the timeline and appends it to the comp's roast EDL, as one undo step. Moves: meme_cutaway {assetId, in?, fit?: fill|fit|blur-fill, keepAudio?, duckHostDb?, entry?: cut|whip|zoom, memeId?} full-frame on the Memes lane, the host muted while the meme's own sound plays, blur-fill by default for vertical sources, 0.6-4 s; receipt {assetId, in?, fit?, captions?, words?: [{text,start,end}] in the clip's source seconds, label?} with word-by-word captions and a *NAME label; side_cutout {assetId, side: left|right, heightPct? (55), enter?: slide|pop} slides in from off-frame with overshoot; host_on_bg {bgAssetId | color, hostClipId?, in?} needs a roto matte or key on the host; keyword_pop {text (1-3 words), style: memeImpact|roundedPop|labelStar|fireCta, position?: top|center|bottom|behind, color?}; emoji_pop {emoji, x?, y?, sizePct?}; sticker {text, shape?, color?, x?, y?}; overlay_fx {fx: fx-money-rain|fx-speed-lines|fx-hearts-burst|fx-embers|fx-spotlight|fx-confetti|fx-smoke-question, tint?}; card {template: roast-article-card|roast-then-now|roast-fact-strip|roast-profile-card|roast-poster-card|roast-sticker-badge|roast-title-card|roast-cta-fire, params, placement?}; title_card {text, photoAssetId?, accent?}; cta {text}; zoom_punch {clipId?, scale? (112-140), ease?: snap|slow}; shake {clipId?, intensityPx?, frames?}; whip {clipId?} across the host cut nearest at; bw_freeze {clipId?, freeze?}; label {text, x?, y?, path?: [{t,x,y}] with t seconds from at}; head_paste {headAssetId, path: [{t,x,y,scale,rotation?}]}; bleep {from, to, cover?: emoji|blur|none, mouth?}; music_sting {assetId, in?, db?, fadeOut?, snapToBeat?}; sfx {cue}. Every move plays its default sound unless sfx is given (null: silent): a swish for slides, cards and whips, a pop for text, a boom for a still meme, an impact for a shake, a scratch for a freeze, a ding for a CTA. Clips it makes are named roast:<id>.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "event": {
+            "type": "object",
+            "description": "A RoastEvent: the move's fields plus id? (e1, e2... when left out), at (timeline seconds; for memes the punchline word's end), duration (seconds; the move's default when left out), why (one sentence; required for meme_cutaway, receipt and side_cutout), beatId?, sfx? ({kind|id|assetId, offset?, db?} or null), provenance?, alternates?.",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "move": {
+                "type": "string",
+                "enum": [
+                  "meme_cutaway",
+                  "receipt",
+                  "side_cutout",
+                  "host_on_bg",
+                  "keyword_pop",
+                  "emoji_pop",
+                  "sticker",
+                  "overlay_fx",
+                  "card",
+                  "title_card",
+                  "cta",
+                  "zoom_punch",
+                  "shake",
+                  "whip",
+                  "bw_freeze",
+                  "label",
+                  "head_paste",
+                  "bleep",
+                  "music_sting",
+                  "sfx"
+                ]
+              },
+              "at": {
+                "type": "number"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "why": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "move",
+              "at"
+            ]
+          },
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Optional beat times (timeline seconds) for music_sting snapping; the plan's analysed music is used when left out."
+          },
+          "downbeats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "event"
+        ]
+      }
+    },
+    {
+      "name": "validate_roast_edl",
+      "description": "Checks a roast EDL without touching the timeline: unknown asset or clip ids, events outside the comp, overlapping full-frame cutaways, a missing why on meme_cutaway / receipt / side_cutout, host_on_bg without a matte or key, the same sound more than 3 times, durations out of bounds. Runs the plan on a copy and returns the Edit DNA it would have, its dead zones (host-only stretches over 8 s) and the findings against the @funny band. Run it before apply_roast_edl.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "RoastEvents, as for roast_move."
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "Judge the plan as replacing the comp's current roast plan (default: merged into it, same ids replaced)."
+          },
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "downbeats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "events"
+        ]
+      }
+    },
+    {
+      "name": "apply_roast_edl",
+      "description": "Assembles a roast EDL on the timeline in one undo step. Validates first and applies nothing if any event has an error. Events with ids already applied are taken back and made again (re-applying never doubles clips); replace:true takes back the whole previous plan first. Stores the plan, what each event made and the resulting Edit DNA on the comp, and returns the report: errors, warnings, dead zones and findings against the @funny band.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "RoastEvents, as for roast_move."
+          },
+          "replace": {
+            "type": "boolean"
+          },
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Beat times, timeline seconds (music_sting snapping, on-beat share)."
+          },
+          "downbeats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "events"
+        ]
+      }
+    },
+    {
+      "name": "edit_dna",
+      "description": "Measures the Edit DNA of the timeline (cuts and cuts per minute, median shot, longest host-only stretch with no cut or event, on-screen events, SFX per minute, music coverage, memes, text events, on-beat share with beats) or of a video file (source: file, path; scene cuts, SFX transients, music, beat alignment, unkeyed green share), and compares it with the @funny band: dead zones over 8 s block hand-back; slow opening minutes, SFX out of 6-12 a minute and a constant music bed are fixes.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "timeline",
+              "file"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "The video file to measure (source: file)."
+          },
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Beat times, timeline seconds, for the on-beat share."
+          }
+        }
       }
     }
   ]

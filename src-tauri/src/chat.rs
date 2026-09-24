@@ -28,17 +28,82 @@ use helios_providers::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
 
 pub const CHAT_EVENT: &str = "helios://chat";
 const PROMPT: &str = include_str!("../prompts/copilot.md");
 const FALLBACK_PROMPT: &str = include_str!("../prompts/tools-fallback.md");
+/// The @funny edit style's brief (src/lib/styles.ts), put in the prompt while the style is on.
+const FUNNY_BRIEF: &str = include_str!("../prompts/styles/funny.md");
+/// Where a style's brief goes: after the house rules, just before the project summary.
+const SUMMARY_HEADING: &str = "## Project summary";
 const HISTORY_TURNS: usize = 12;
+
+/// The edit style of every turn now running, by turn id. A subagent's id is
+/// `<parent turn>:sub:<ulid>` (subagent.rs) and its context is the bare project summary the
+/// `spawn_subagent` tool sends, without the chat's `editStyle` — so this is how a worker spawned
+/// during a @funny turn still works from the @funny brief.
+static RUNNING_STYLES: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
+
+/// Keeps a turn's edit style in `RUNNING_STYLES` for as long as the turn runs.
+struct StyleHold(Option<String>);
+
+impl StyleHold {
+    fn register(req: &ChatRequest) -> Self {
+        let Some(style) = edit_style(req) else {
+            return Self(None);
+        };
+        if let Ok(mut running) = RUNNING_STYLES.lock() {
+            running.insert(req.turn_id.clone(), style);
+        }
+        Self(Some(req.turn_id.clone()))
+    }
+}
+
+impl Drop for StyleHold {
+    fn drop(&mut self) {
+        if let (Some(turn_id), Ok(mut running)) = (self.0.take(), RUNNING_STYLES.lock()) {
+            running.remove(&turn_id);
+        }
+    }
+}
+
+/// The edit style this turn works in: the context's `editStyle` (set by the `@funny` chip), or
+/// for a subagent the style of the nearest turn above it that is still running.
+fn edit_style(req: &ChatRequest) -> Option<String> {
+    let own = req.context.get("editStyle").and_then(Value::as_str).map(|style| style.trim().trim_start_matches('@'));
+    if let Some(style) = own.filter(|style| !style.is_empty()) {
+        return Some(style.to_ascii_lowercase());
+    }
+    let running = RUNNING_STYLES.lock().ok()?;
+    let mut id = req.turn_id.as_str();
+    while let Some((parent, _)) = id.rsplit_once(":sub:") {
+        if let Some(style) = running.get(parent) {
+            return Some(style.clone());
+        }
+        id = parent;
+    }
+    None
+}
+
+/// The brief Helios has for a style id; none for a style it does not know.
+fn style_brief(style: &str) -> Option<&'static str> {
+    match style {
+        "funny" => Some(FUNNY_BRIEF),
+        _ => None,
+    }
+}
+
+/// A brief's `Persona:` line: who the model is when no council seat leads the prompt.
+fn brief_persona(brief: &str) -> Option<&str> {
+    brief.lines().find_map(|line| line.strip_prefix("Persona:")).map(str::trim).filter(|persona| !persona.is_empty())
+}
 
 /// Rounds of native tool calls one turn may take. A full pro pipeline
 /// (transcript + frame scans + storyboard + batched cuts/roto/depth/behind-subject/
@@ -91,6 +156,10 @@ pub struct ChatRequest {
     /// The project as the model should see it, built by the UI (`src/lib/aiContext.ts`).
     #[serde(default)]
     pub context: Value,
+    /// A council seat (src/lib/council.ts) this turn works from — set on a subagent spawned with a
+    /// role, so the Researcher researches like the Researcher and not like a generalist.
+    #[serde(default)]
+    pub persona: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -231,7 +300,35 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
         .map(|style| format!("`{}` {} ({})", style.id, style.label, style.category))
         .collect::<Vec<_>>()
         .join(" · ");
-    let mut system = PROMPT.replace("{{STYLES}}", &styles).replace("{{CONTEXT}}", &context);
+    // An edit style the user switched on (`@funny`) brings its brief, clearly fenced, after the
+    // house rules and before the project summary. Its persona line leads the prompt below instead.
+    let brief = edit_style(req).and_then(|id| style_brief(&id).map(|brief| (id, brief)));
+    let mut base = PROMPT.to_owned();
+    if let Some((id, brief)) = &brief {
+        let body = brief.lines().filter(|line| !line.starts_with("Persona:")).collect::<Vec<_>>().join("\n");
+        let section = format!(
+            "## ACTIVE EDIT STYLE: @{id}\n\nThe user switched this style on; it holds for this turn and every worker you spawn.\n\n{}\n\n## END OF THE @{id} STYLE\n\n",
+            body.trim()
+        );
+        match base.find(SUMMARY_HEADING) {
+            Some(at) => base.insert_str(at, &section),
+            None => {
+                base.push_str("\n\n");
+                base.push_str(&section);
+            }
+        }
+    }
+    let mut system = base.replace("{{STYLES}}", &styles).replace("{{CONTEXT}}", &context);
+    // A council seat leads the prompt: the member's obsessions and rules frame everything after.
+    // With no seat, a style's persona does.
+    let persona = req.persona.as_deref().map(str::trim).filter(|p| !p.is_empty()).or_else(|| brief.as_ref().and_then(|(_, brief)| brief_persona(brief)));
+    if let Some(persona) = persona {
+        system = format!("{persona}
+
+---
+
+{system}");
+    }
     if mode == ToolMode::Text {
         system.push_str("\n\n");
         system.push_str(&FALLBACK_PROMPT.replace("{{TOOLS}}", &ai_tools::compact_catalogue()));
@@ -647,6 +744,8 @@ pub async fn run_turn(
     emit: impl Fn(ChatEvent) + Send + Sync,
 ) {
     let started = std::time::Instant::now();
+    // Subagents this turn spawns inherit its edit style through this, until the turn ends.
+    let _style = StyleHold::register(&req);
     let TurnContext { row, keys, executor, mcp } = context;
     emit(ChatEvent::Start {
         turn_id: req.turn_id.clone(),
@@ -739,6 +838,7 @@ mod tests {
             history: Vec::new(),
             handoff: None,
             context: json!({"playhead": 1.5}),
+            persona: None,
         }
     }
 
@@ -1019,6 +1119,78 @@ mod tests {
             text.system.find("helios-tools") < text.system.find("## The user's new message"),
             "the fallback rules come before the message"
         );
+    }
+
+    #[test]
+    fn a_council_persona_leads_the_system_prompt() {
+        let mut req = request("find b-roll");
+        req.persona = Some("## Council seat: Researcher
+Only licence-clear media.".to_owned());
+        let built = build_request(&req, &row("claude", true), ToolMode::Mcp);
+        assert!(built.system.starts_with("## Council seat: Researcher"), "the seat comes first");
+        assert!(built.system.contains("You are **Helios AI**"), "the house prompt still follows");
+        let plain = build_request(&request("hi"), &row("claude", true), ToolMode::Mcp);
+        assert!(plain.system.starts_with("You are **Helios AI**"));
+    }
+
+    /// A line only the @funny brief has, so its presence proves the brief is in the prompt.
+    const FUNNY_MARKER: &str = "## Never do this (what sank the amateur version)";
+
+    #[test]
+    fn the_funny_style_brings_its_brief_and_persona() {
+        assert!(super::FUNNY_BRIEF.contains(FUNNY_MARKER), "the marker is a line of funny.md");
+        assert!(!super::FUNNY_BRIEF.contains("{{"), "the brief has no placeholders to leave unfilled");
+        let mut req = request("roast this");
+        req.context = json!({"playhead": 1.5, "editStyle": "funny"});
+        for (row, mode) in [(row("claude", true), ToolMode::Mcp), (row("grok", true), ToolMode::Text), (row_of("openai", ProviderKind::CloudApi, true), ToolMode::Native)] {
+            let built = build_request(&req, &row, mode);
+            let system = &built.system;
+            assert!(system.contains(FUNNY_MARKER), "the brief is in the {mode:?} prompt");
+            assert!(system.contains("## ACTIVE EDIT STYLE: @funny") && system.contains("## END OF THE @funny STYLE"), "it is fenced");
+            assert!(system.starts_with("You are Helios AI in roast-editor mode"), "with no seat, the style's persona leads");
+            assert_eq!(system.matches("in roast-editor mode").count(), 1, "the persona line is not repeated inside the brief");
+            let fence = system.find("## ACTIVE EDIT STYLE").expect("fence");
+            assert!(system.find("You are **Helios AI**").expect("house prompt") < fence, "after the house rules");
+            assert!(fence < system.find("## Project summary").expect("summary"), "before the project summary");
+            assert!(!system.contains("{{") && system.contains("\"playhead\": 1.5"));
+        }
+    }
+
+    #[test]
+    fn without_the_style_there_is_no_brief_and_a_seat_still_leads() {
+        let plain = build_request(&request("hi"), &row("claude", true), ToolMode::Mcp);
+        assert!(!plain.system.contains(FUNNY_MARKER) && !plain.system.contains("## ACTIVE EDIT STYLE"), "copilot.md only names the heading; the fenced brief is absent");
+        let mut other = request("hi");
+        other.context = json!({"editStyle": "documentary"});
+        assert!(!build_request(&other, &row("claude", true), ToolMode::Mcp).system.contains("## ACTIVE EDIT STYLE"), "a style with no brief adds nothing");
+
+        let mut seat = request("find the receipts");
+        seat.context = json!({"editStyle": "@Funny"});
+        seat.persona = Some("## Council seat: THE RESEARCHER".to_owned());
+        let built = build_request(&seat, &row("claude", true), ToolMode::Mcp);
+        assert!(built.system.starts_with("## Council seat: THE RESEARCHER"), "the seat leads");
+        assert!(built.system.contains(FUNNY_MARKER), "and still edits in the style");
+        assert!(!built.system.contains("in roast-editor mode"));
+    }
+
+    #[test]
+    fn a_subagent_of_a_funny_turn_gets_the_brief_while_its_parent_runs() {
+        let mut parent = request("roast this");
+        parent.turn_id = "funny-parent-7f3a".to_owned();
+        parent.context = json!({"editStyle": "funny"});
+        // The worker's context is the bare project summary spawn_subagent sends: no editStyle.
+        let mut worker = request("find memes for beat 3");
+        worker.turn_id = "funny-parent-7f3a:sub:01jworker".to_owned();
+        let mut nested = request("fetch the clip");
+        nested.turn_id = "funny-parent-7f3a:sub:01jworker:sub:01jnested".to_owned();
+        let hold = super::StyleHold::register(&parent);
+        assert!(build_request(&worker, &row("claude", true), ToolMode::Mcp).system.contains(FUNNY_MARKER));
+        assert!(build_request(&nested, &row("claude", true), ToolMode::Mcp).system.contains(FUNNY_MARKER));
+        drop(hold);
+        assert!(!build_request(&worker, &row("claude", true), ToolMode::Mcp).system.contains(FUNNY_MARKER), "the hold ends with the turn");
+        let mut unrelated = request("hi");
+        unrelated.turn_id = "someone-else:sub:01j".to_owned();
+        assert!(!build_request(&unrelated, &row("claude", true), ToolMode::Mcp).system.contains(FUNNY_MARKER));
     }
 
     #[test]

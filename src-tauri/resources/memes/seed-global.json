@@ -1,0 +1,4338 @@
+[
+  {
+    "id": "gl-six-seven",
+    "name": "6-7 (Six Seven)",
+    "aliases": [
+      "67",
+      "6 7",
+      "six seven",
+      "67 meme",
+      "6-7 kid",
+      "doot doot",
+      "sixty seven",
+      "67 hand sign"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "\"Doot Doot\" by Skrilla; Overtime Elite player Taylen Kinney's \"six, seven\" clips",
+      "year": 2025,
+      "detail": "Skrilla's Dec 2024 song says \"6-7\" (67th Street, Philadelphia); TK forced \"six, seven\" plus a see-saw palms-up hand gesture into interviews in Jan 2025."
+    },
+    "meaning": "A deliberately pointless \"six, seven\" said with a see-saw hand gesture. It means nothing, and that is the joke: Gen Alpha brainrot that gets forced into any mention of the numbers 6 and 7.",
+    "useWhen": [
+      "The host or target says the number 6, 7, 67 or 6'7\" (literal echo)",
+      "Mocking kid/Gen-Alpha brainrot behaviour in the target's audience",
+      "A nonsensical non-answer to a serious question"
+    ],
+    "dontUseWhen": [
+      "An older or non-internet audience that won't know it",
+      "More than once per video: the meme is famously overused"
+    ],
+    "emotion": [
+      "absurd",
+      "ironic",
+      "silly"
+    ],
+    "intent": [
+      "crazy",
+      "clueless"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=XEFZ30Cvdnc",
+        "query": "ytsearch3:6 7 meme original taylen kinney",
+        "hasAudio": true,
+        "transcript": "Six, seven.",
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "url": "https://www.myinstants.com/en/instant/67-71609/",
+        "hasAudio": true,
+        "provider": "myinstants",
+        "transcript": "six seven"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2025-01-25",
+    "trendScore": 0.85,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/67-meme-six-seven",
+        "title": "Know Your Meme: 67 Meme / Six Seven"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-doakes-cant-prove-it",
+    "name": "But You Can't Prove It (James Doakes)",
+    "aliases": [
+      "doakes",
+      "james doakes",
+      "can't prove it",
+      "you can't prove it",
+      "dexter meme",
+      "doakes stare",
+      "right but can't prove it"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Dexter (Showtime)",
+      "year": 2024,
+      "detail": "Detective James Doakes suspects Dexter Morgan is a serial killer but can never prove it. First caption meme on r/Dexter, 23 Sep 2024; popular through 2025."
+    },
+    "meaning": "Reaction images of Detective Doakes glaring with a determined look, meaning \"I know you're hiding something, but I can't prove it.\"",
+    "useWhen": [
+      "The host suspects the target is lying but has no receipt yet",
+      "The target's excuse is suspiciously convenient",
+      "Just before the receipt drops: \"can't prove it... yet\""
+    ],
+    "dontUseWhen": [
+      "When the proof is already on screen (use an exposed meme instead)",
+      "Accusing a real person of a crime with no evidence"
+    ],
+    "emotion": [
+      "suspicious",
+      "determined",
+      "smug"
+    ],
+    "intent": [
+      "lie",
+      "suspense",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/598954416/Cant-prove-it",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=kIte0CuJZ5E",
+        "query": "ytsearch3:doakes but you can't prove it meme dexter",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2024-09-23",
+    "trendScore": 0.85,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/but-you-cant-prove-it-james-doakes-reaction-images",
+        "title": "Know Your Meme: But You Can't Prove It / James Doakes Reaction Images"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-nihilist-penguin",
+    "name": "Nihilist Penguin (Penguin Walking Toward Mountain)",
+    "aliases": [
+      "nihilist penguin",
+      "lonely penguin",
+      "penguin walking to the mountains",
+      "herzog penguin",
+      "but why penguin",
+      "wandering penguin"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Encounters at the End of the World (Werner Herzog)",
+      "year": 2007,
+      "detail": "A lone Adelie penguin leaves its colony and heads inland towards the mountains and certain death. Became a huge meme in early 2026."
+    },
+    "meaning": "A lone penguin walks away from its colony, food and safety towards the mountains. In 2026 it is read as quitting everything and walking away from society, responsibilities or the grind.",
+    "useWhen": [
+      "The target quits or abandons a project, brand or career halfway",
+      "The host gives up on the target: \"I'm done\"",
+      "An existential \"why am I even doing this\" moment"
+    ],
+    "dontUseWhen": [
+      "Real deaths, grief or a mental-health crisis",
+      "Suicide-related topics"
+    ],
+    "emotion": [
+      "resigned",
+      "existential",
+      "deadpan"
+    ],
+    "intent": [
+      "bye",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=mZMxsIGTnz0",
+        "query": "ytsearch3:nihilist penguin werner herzog encounters at the end of the world",
+        "in": 0,
+        "out": 43,
+        "hasAudio": true,
+        "transcript": "Shortly afterwards, we saw him heading straight towards the mountains some 70 km away. ... With 5,000 km ahead of him, he's heading towards certain death. But why?",
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/635319620/Nihilistic-penguin",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2026-01",
+    "trendScore": 0.9,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/penguin-walking-toward-mountain-nihilist-penguin",
+        "title": "Know Your Meme: Penguin Walking Toward Mountain / Nihilist Penguin"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-jimothy-raccoon",
+    "name": "Jimothy the Raccoon",
+    "aliases": [
+      "jimothy",
+      "jimothy raccoon",
+      "short spine raccoon",
+      "round raccoon",
+      "seattle raccoon",
+      "built different raccoon"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Instagram video by Kiana Hall (@c1vrgr1), Ballard, Seattle",
+      "year": 2026,
+      "detail": "A wild raccoon with short spine syndrome, round and short, filmed on 14 Jul 2026; covered by ABC News and KING 5; Google added an Easter egg."
+    },
+    "meaning": "A round, stubby wild raccoon with short spine syndrome who waddles along totally unbothered. The internet loves him and captions him as a mood, a coworker or someone arriving unbothered.",
+    "useWhen": [
+      "The target strolls into a mess completely unbothered",
+      "\"Built different\" jokes (about behaviour, not bodies)",
+      "A wholesome breather between harsh roast beats"
+    ],
+    "dontUseWhen": [
+      "Mocking anyone's body or disability: Jimothy is loved, not the butt of the joke",
+      "Comparing the target's body shape to him"
+    ],
+    "emotion": [
+      "wholesome",
+      "unbothered",
+      "cute"
+    ],
+    "intent": [
+      "wholesome",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=59CgFY3zQAg",
+        "query": "ytsearch3:jimothy the raccoon short spine syndrome",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2026-07-14",
+    "trendScore": 0.95,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/jimothy-the-raccoon",
+        "title": "Know Your Meme: Jimothy the Raccoon"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-spongebob-handcuffs",
+    "name": "SpongeBob in Handcuffs",
+    "aliases": [
+      "spongebob handcuffs",
+      "handcuffs too big",
+      "spongebob arrested",
+      "loose handcuffs"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "SpongeBob SquarePants, \"Cave Dwelling Sponge\" (S11)",
+      "year": 2017,
+      "detail": "SpongeBob is arrested and the handcuffs are far too big for his skinny wrists. Meme since ~2021; strong resurgence in Aug 2026."
+    },
+    "meaning": "SpongeBob in handcuffs that slide straight off his wrists: a predicament that looks serious but is completely escapable. It is used for people who are \"trapped\" in low-stakes situations they could simply walk out of.",
+    "useWhen": [
+      "The target claims they were \"forced\" into something they could have walked away from",
+      "Playing the victim of a contract or subscription that has a cancel button",
+      "Empty legal threats that don't actually hold anyone"
+    ],
+    "dontUseWhen": [
+      "Real arrests, jail or police violence",
+      "Actual coercion or abuse"
+    ],
+    "emotion": [
+      "ironic",
+      "smug"
+    ],
+    "intent": [
+      "sarcasm",
+      "denial"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/582711260/Spongebob-handcuffs",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:spongebob handcuffs meme",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2021",
+    "trendScore": 0.9,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/spongebob-in-handcuffs",
+        "title": "Know Your Meme: SpongeBob in Handcuffs"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-kinda-chic",
+    "name": "Kinda Chic",
+    "aliases": [
+      "kinda chic",
+      "kinda chic to",
+      "kinda chic trend",
+      "it's kinda chic"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Instagram/TikTok caption trend",
+      "year": 2026,
+      "detail": "Early example by Instagram user mariabegins, 27 Apr 2026; went viral through summer 2026."
+    },
+    "meaning": "A caption format, \"Kinda chic to...\", that calls unglamorous, non-expensive things (growth, peace, ageing, body positivity) chic. In a roast it works sarcastically: it reframes the target's failure as if it were a virtue.",
+    "useWhen": [
+      "Sarcastic praise of the target's embarrassing habit (\"kinda chic to delete the tweet after getting caught\")",
+      "A 3–4 line list card over a still",
+      "The host being self-deprecating"
+    ],
+    "dontUseWhen": [
+      "Body-shaming or ageing jokes (the trend is body-positive)",
+      "Sincere, wholesome beats where sarcasm reads as mean"
+    ],
+    "emotion": [
+      "sarcastic",
+      "self-aware",
+      "wholesome"
+    ],
+    "intent": [
+      "sarcasm",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "template",
+        "url": "https://knowyourmeme.com/memes/kinda-chic-trend",
+        "hasAudio": false,
+        "provider": "knowyourmeme"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=LJqIudbkiHY",
+        "query": "ytsearch3:kinda chic trend",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2026-04-27",
+    "trendScore": 0.95,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/kinda-chic-trend",
+        "title": "Know Your Meme: Kinda Chic Trend"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-leo-didnt-agree",
+    "name": "New Leo Meme / TFW You Didn't Agree To This",
+    "aliases": [
+      "tfw you didn't agree to this",
+      "that feeling when you didn't agree to this",
+      "new leo meme",
+      "leo oscars 2026",
+      "leonardo dicaprio shrug"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "98th Academy Awards (host Conan O'Brien)",
+      "year": 2026,
+      "detail": "On 15 Mar 2026 Conan made a \"new Leo meme\" live, cutting to a moustached DiCaprio shrugging under the caption."
+    },
+    "meaning": "Leonardo DiCaprio shrugging and smirking under \"TFW you didn't agree to this\". It is about being dragged into something you never signed up for.",
+    "useWhen": [
+      "The target is dragged into a controversy they never signed up for",
+      "The host is forced to cover a topic",
+      "A collab partner or guest gets blindsided"
+    ],
+    "dontUseWhen": [
+      "Serious consent issues",
+      "Real coercion"
+    ],
+    "emotion": [
+      "resigned",
+      "amused",
+      "awkward"
+    ],
+    "intent": [
+      "awkward",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=zevRjcl_FEI",
+        "query": "ytsearch3:conan o'brien new leo meme oscars 2026",
+        "in": 8.5,
+        "out": 15.2,
+        "hasAudio": true,
+        "transcript": "Let's make a new meme with Leo right now. That feeling when you didn't agree to this.",
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/642884484/Leo-Oscars",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2026-03-15",
+    "trendScore": 0.8,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/new-leo-meme-tfw-you-didnt-agree-to-this",
+        "title": "Know Your Meme: New Leo Meme / TFW You Didn't Agree To This"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-gucci-morty",
+    "name": "Gucci Morty",
+    "aliases": [
+      "gucci morty",
+      "drip morty",
+      "aura morty"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Rick and Morty fan edit (Instagram @blephin_)",
+      "year": 2026,
+      "detail": "Morty edited with a Gucci T-shirt, skinny jeans and a short dark haircut, posted 16 Aug 2026."
+    },
+    "meaning": "An edited Morty in Gucci and skinny jeans, ironically hyped as having immense aura. It is mostly used in music edits.",
+    "useWhen": [
+      "The target attempts a glow-up or a new aesthetic",
+      "Ironic aura-hype for a mediocre flex",
+      "\"Drip check\" moments"
+    ],
+    "dontUseWhen": [
+      "Sincere praise",
+      "Audiences outside Gen-Z meme culture"
+    ],
+    "emotion": [
+      "ironic",
+      "hype"
+    ],
+    "intent": [
+      "flex",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "template",
+        "url": "https://knowyourmeme.com/memes/gucci-morty",
+        "hasAudio": false,
+        "provider": "knowyourmeme"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=VuMStVRk7Sk",
+        "query": "ytsearch3:gucci morty edit",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2026-08-16",
+    "trendScore": 0.95,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/gucci-morty",
+        "title": "Know Your Meme: Gucci Morty"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-jet2-holiday",
+    "name": "Nothing Beats a Jet2 Holiday",
+    "aliases": [
+      "jet2 holiday",
+      "nothing beats a jet2 holiday",
+      "jet2",
+      "darling hold my hand",
+      "hold my hand jet2"
+    ],
+    "origin": {
+      "kind": "ad",
+      "title": "Jet2 \"Nothing beats a Jet2holiday\" TV advert (Jess Glynne, \"Hold My Hand\")",
+      "year": 2024,
+      "detail": "The ad was uploaded 4 Jan 2024; from March 2025 it was used sarcastically on TikTok."
+    },
+    "meaning": "The upbeat ad voice-over \"Nothing beats a Jet2 holiday\" put sarcastically over chaotic, disastrous or dangerous situations.",
+    "useWhen": [
+      "The target's plan, trip, event or launch goes horribly wrong",
+      "Ironic cheer over a montage of chaos",
+      "A 'dream collab' that turned into a disaster"
+    ],
+    "dontUseWhen": [
+      "Real disasters with victims (accidents, deaths)",
+      "Viewers who've never heard the ad (it needs the audio)"
+    ],
+    "emotion": [
+      "ironic",
+      "cheerful",
+      "chaotic"
+    ],
+    "intent": [
+      "sarcasm",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=YQZEoZ4W0ac",
+        "query": "ytsearch3:nothing beats a jet2 holiday meme",
+        "hasAudio": true,
+        "transcript": "Nothing beats a Jet2 holiday.",
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=ReXHwSS0r5U",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2025-03",
+    "trendScore": 0.75,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/nothing-beats-a-jet2-holiday",
+        "title": "Know Your Meme: Nothing Beats a Jet2 Holiday"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-hood-saxophone",
+    "name": "Saxophones Getting Louder (Hood Saxophone)",
+    "aliases": [
+      "saxophone gets louder",
+      "saxophones getting louder",
+      "hood saxophone",
+      "boyz n the hood saxophone",
+      "90s movie saxophones",
+      "you hear them saxophones"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Boyz n the Hood (theme by Stanley Clarke)",
+      "year": 1991,
+      "detail": "TikTok memes from 30 Dec 2025 (@foreverhumblemarc96). The saxophones mean something bad is about to happen to you."
+    },
+    "meaning": "The Boyz n the Hood saxophones play, and get louder, as a sign that something bad is about to happen to you. It is emotional foreshadowing for a slow-motion disaster.",
+    "useWhen": [
+      "The build-up just before the target's downfall or exposé",
+      "A slow realisation that things are going wrong",
+      "The target walks straight into an obvious trap"
+    ],
+    "dontUseWhen": [
+      "Real shootings or violence (the source scene is a character being shot)",
+      "Tragic news"
+    ],
+    "emotion": [
+      "ominous",
+      "dread",
+      "tense"
+    ],
+    "intent": [
+      "suspense",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "url": "https://www.youtube.com/watch?v=olc4RzxlwXI",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=olc4RzxlwXI",
+        "query": "ytsearch3:boyz n the hood saxophone meme",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2025-12-30",
+    "trendScore": 0.9,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/hood-saxophone-90s-movie-saxophones",
+        "title": "Know Your Meme: Hood Saxophone / '90s Movie Saxophones"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-aura-farming-boat-kid",
+    "name": "Aura Farming (Boat Kid)",
+    "aliases": [
+      "aura farming",
+      "boat kid",
+      "pacu jalur kid",
+      "aura farming kid",
+      "boat race kid",
+      "young black and rich"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "Pacu Jalur boat race, Riau, Indonesia (TikTok @lensa.rams)",
+      "year": 2025,
+      "detail": "A kid dancing coolly on the bow of a racing boat went viral in June–July 2025, usually set to \"Young Black & Rich\" by Melly Mike."
+    },
+    "meaning": "A kid on the bow of a racing boat, dancing effortlessly cool. It is the face of \"aura farming\": acting cool on purpose to build aura.",
+    "useWhen": [
+      "The target does something effortlessly cool (sincere or ironic)",
+      "The host's own flex after landing a burn",
+      "A victory lap or entrance"
+    ],
+    "dontUseWhen": [
+      "Mocking the kid",
+      "When the target is being cringe, unless the irony is obvious"
+    ],
+    "emotion": [
+      "cool",
+      "confident",
+      "hype"
+    ],
+    "intent": [
+      "flex",
+      "victory"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=dh5Q3suYdYs",
+        "query": "ytsearch3:pacu jalur boat kid aura farming",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2025-06",
+    "trendScore": 0.8,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/indonesian-boat-racing-kid",
+        "title": "Know Your Meme: Indonesian Boat Racing Kid"
+      },
+      {
+        "url": "https://knowyourmeme.com/memes/aura-farming",
+        "title": "Know Your Meme: Aura Farming"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-chill-guy",
+    "name": "Just a Chill Guy",
+    "aliases": [
+      "chill guy",
+      "just a chill guy",
+      "my new character",
+      "chill guy meme",
+      "lowkey chill guy"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "\"My new character\" drawing by Phillip Banks (@PhillipBankss)",
+      "year": 2023,
+      "detail": "Posted 4 Oct 2023; went viral on TikTok in late 2024 and into 2025."
+    },
+    "meaning": "A smirking dog-man with his hands in his pockets: \"just a chill guy\" who lowkey doesn't care. It is used to downplay stress or to describe someone acting unbothered.",
+    "useWhen": [
+      "The target pretends not to care after being called out",
+      "The host acting unbothered about hate comments",
+      "Someone calm in the middle of chaos"
+    ],
+    "dontUseWhen": [
+      "Genuine stress or anxiety moments",
+      "Brand or ad use (the artist has objected to commercial use)"
+    ],
+    "emotion": [
+      "unbothered",
+      "smug"
+    ],
+    "intent": [
+      "ignore",
+      "denial"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/562391530/Chill-guy",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=Hl2DVLxB7R0",
+        "query": "ytsearch3:just a chill guy meme",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2023-10-04",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/just-a-chill-guy-my-new-character",
+        "title": "Know Your Meme: Just a Chill Guy / My New Character"
+      },
+      {
+        "url": "https://napoleoncat.com/blog/trending-memes/",
+        "title": "NapoleonCat: Popular memes on social media (September 2026)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-absolute-cinema",
+    "name": "Absolute Cinema",
+    "aliases": [
+      "absolute cinema",
+      "this is cinema",
+      "scorsese hands",
+      "kino",
+      "cinema"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "Martin Scorsese photo, The New York Times interview",
+      "year": 2020,
+      "detail": "A B&W photo of Scorsese raising his hands (NYT, 2 Jan 2020), captioned \"Absolute Cinema\" from Dec 2022."
+    },
+    "meaning": "Martin Scorsese raising both hands: \"Absolute Cinema.\" It praises something as a masterpiece, often ironically about a dramatic moment.",
+    "useWhen": [
+      "The target's over-dramatic video or acting (ironic)",
+      "A perfectly timed fail or plot twist",
+      "The host's own great callback"
+    ],
+    "dontUseWhen": [
+      "Straight, sincere critique segments"
+    ],
+    "emotion": [
+      "impressed",
+      "ironic"
+    ],
+    "intent": [
+      "hype",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/8d317n.png",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=OUnNZUXO-aI",
+        "query": "ytsearch3:absolute cinema meme template",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2022-12-01",
+    "trendScore": 0.7,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/absolute-cinema",
+        "title": "Know Your Meme: Absolute Cinema"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-very-demure",
+    "name": "Very Demure, Very Mindful",
+    "aliases": [
+      "very demure",
+      "very mindful",
+      "demure",
+      "very cutesy",
+      "demure meme"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "TikToker Jools Lebron (@joolieannie)",
+      "year": 2024,
+      "detail": "Videos from 2–6 Aug 2024 on how to look \"demure\" at work."
+    },
+    "meaning": "\"Very demure, very mindful\": describing modest, tasteful behaviour. It is used sarcastically when someone is the opposite of demure.",
+    "useWhen": [
+      "The target behaves outrageously (sarcastic \"very demure\")",
+      "The host does something mildly classy",
+      "An understated flex"
+    ],
+    "dontUseWhen": [
+      "Jokes about the creator herself or anyone's gender identity"
+    ],
+    "emotion": [
+      "sarcastic",
+      "prim"
+    ],
+    "intent": [
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=PSVnmhKW56Y",
+        "query": "ytsearch3:very demure very mindful original tiktok",
+        "in": 2.5,
+        "out": 5.4,
+        "hasAudio": true,
+        "transcript": "You see how I do my makeup for work? Very demure, very mindful.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2024-08-02",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/very-demure-very-mindful",
+        "title": "Know Your Meme: Very Demure, Very Mindful"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-chicken-jockey",
+    "name": "Chicken Jockey!",
+    "aliases": [
+      "chicken jockey",
+      "minecraft movie",
+      "jack black chicken jockey",
+      "i am steve",
+      "chicken jockey minecraft"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "A Minecraft Movie (Warner Bros.)",
+      "year": 2025,
+      "detail": "Jack Black's Steve yells \"Chicken jockey!\" as a baby zombie rides a chicken into the arena. It was a meme from the 27 Feb 2025 trailer, and cinema crowds erupted at the line."
+    },
+    "meaning": "Jack Black yelling \"Chicken jockey!\" at an absurd arrival. It is a chaotic hype cue, and it's funny because the delivery is so blunt.",
+    "useWhen": [
+      "An absurd surprise entrance or reveal",
+      "Announcing a ridiculous combo or collab",
+      "A crowd going wild over something dumb"
+    ],
+    "dontUseWhen": [
+      "Serious beats",
+      "Using it more than once"
+    ],
+    "emotion": [
+      "chaotic",
+      "hype",
+      "absurd"
+    ],
+    "intent": [
+      "hype",
+      "overreact",
+      "crazy"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=EY4h38NaXwU",
+        "query": "ytsearch3:chicken jockey minecraft movie scene",
+        "in": 42.5,
+        "out": 46,
+        "hasAudio": true,
+        "transcript": "Chicken jockey!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2025-02-27",
+    "trendScore": 0.7,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/chicken-jockey-minecraft-movie",
+        "title": "Know Your Meme: Chicken Jockey (Minecraft Movie)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-i-just-get-so-nervy",
+    "name": "I Just Get So Nervy",
+    "aliases": [
+      "i just get so nervy",
+      "so nervy",
+      "nervy",
+      "roblox parrot",
+      "nobrainjames parrot"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "nobrainjames, \"TROLLING as PARROTS on ROBLOX VOICE CHAT\"",
+      "year": 2026,
+      "detail": "Uploaded 20 Jan 2026. A player's line is parroted back again and again; clips spread on TikTok in Jan–Feb 2026."
+    },
+    "meaning": "A Roblox voice-chat player's awkward \"I just get so nervy\", repeated back by a parrot avatar. It stands for awkward, cringe nervousness.",
+    "useWhen": [
+      "The target is visibly nervous or stammering in an interview",
+      "Just before the host reveals something risky",
+      "An awkward first attempt"
+    ],
+    "dontUseWhen": [
+      "Real anxiety disorders",
+      "Long use (the source voices may be minors); keep it to one line"
+    ],
+    "emotion": [
+      "nervous",
+      "awkward",
+      "cringe"
+    ],
+    "intent": [
+      "awkward",
+      "scared",
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=Y3LMt9jQ4CQ",
+        "query": "ytsearch3:i just get so nervy roblox parrot",
+        "in": 151.4,
+        "out": 153.0,
+        "hasAudio": true,
+        "transcript": "I just get so nervy.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2026-01-20",
+    "trendScore": 0.8,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/i-just-get-so-nervy",
+        "title": "Know Your Meme: I Just Get So Nervy"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-why-would-i-deceive-you",
+    "name": "Why Would I Deceive You? (Elizabeth Holmes)",
+    "aliases": [
+      "why would i deceive you",
+      "elizabeth holmes",
+      "nathan fielder",
+      "you can see everything",
+      "i'm not deceiving you"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "You Can See Everything (A24 teaser; Nathan Fielder, Elizabeth Holmes)",
+      "year": 2026,
+      "detail": "Teaser released 6 Sep 2026. Theranos founder Holmes, wide-eyed, answers Fielder's question with \"Why would I deceive you?\""
+    },
+    "meaning": "A convicted fraudster asks, wide-eyed, \"Why would I deceive you?\" It is used when an obviously untrustworthy person insists they are honest.",
+    "useWhen": [
+      "The target insists they're honest right before the receipt proves otherwise",
+      "A sponsor, giveaway or course claim that is obviously a scam",
+      "\"Trust me bro\" moments"
+    ],
+    "dontUseWhen": [
+      "When there is no receipt (it implies a lie)",
+      "Accusing a real person of fraud without evidence"
+    ],
+    "emotion": [
+      "deadpan",
+      "suspicious",
+      "ironic"
+    ],
+    "intent": [
+      "lie",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=GGJSRFWALTI",
+        "query": "ytsearch3:elizabeth holmes why would i deceive you nathan fielder",
+        "in": 15.9,
+        "out": 19.0,
+        "hasAudio": true,
+        "transcript": "Why would I deceive you?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2026-09-06",
+    "trendScore": 0.98,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/elizabeth-holmes-and-nathan-fielder-why-would-i-deceive-you",
+        "title": "Know Your Meme: Elizabeth Holmes and Nathan Fielder \"Why Would I Deceive You?\""
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-andy-closing-laptop",
+    "name": "Andy Closing Laptop",
+    "aliases": [
+      "andy closing laptop",
+      "closing laptop",
+      "toy story laptop",
+      "logging off",
+      "i'm done"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Toy Story 3 (Pixar)",
+      "year": 2010,
+      "detail": "A GIF from 2017; heavily used on X in 2025–2026, including a viral thread in Feb 2026."
+    },
+    "meaning": "Andy shuts his laptop and spins away, exhausted: done with this, logging off.",
+    "useWhen": [
+      "The host gives up reading the target's comments or tweets",
+      "\"I've seen enough\" after a receipt",
+      "Ending a segment"
+    ],
+    "dontUseWhen": [
+      "Sincere burnout or mental-health talk"
+    ],
+    "emotion": [
+      "exhausted",
+      "done"
+    ],
+    "intent": [
+      "bye",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=YgeHrsPdl5I",
+        "query": "ytsearch3:andy closing laptop toy story 3",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2017-04-18",
+    "trendScore": 0.7,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/andy-closing-laptop",
+        "title": "Know Your Meme: Andy Closing Laptop"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-thats-my-husband",
+    "name": "That's My Husband (Taylor Swift)",
+    "aliases": [
+      "that's my husband",
+      "taylor swift that's my husband",
+      "taylor swift ring point",
+      "travis kelce touchdown"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "Kansas City Chiefs game: Taylor Swift reacting to Travis Kelce's touchdown",
+      "year": 2026,
+      "detail": "Clip shared 20–21 Sep 2026: Swift cheers, points at her ring and says \"That's my husband!\""
+    },
+    "meaning": "Taylor Swift points at her wedding ring and cheers \"That's my husband!\" It is used for proudly celebrating someone over something big, or comically minor.",
+    "useWhen": [
+      "The target's fan or partner hypes a mediocre achievement",
+      "The host proudly claims a tiny win",
+      "Stan behaviour"
+    ],
+    "dontUseWhen": [
+      "Cheating or relationship-drama contexts",
+      "Mocking the couple themselves"
+    ],
+    "emotion": [
+      "proud",
+      "excited"
+    ],
+    "intent": [
+      "proud",
+      "flex"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=_GRwrZCOh3A",
+        "query": "ytsearch3:taylor swift that's my husband touchdown",
+        "hasAudio": true,
+        "transcript": "That's my husband!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2026-09-20",
+    "trendScore": 0.97,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/taylor-swifts-thats-my-husband",
+        "title": "Know Your Meme: Taylor Swift's \"That's My Husband\""
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-let-him-cook",
+    "name": "Let Him Cook",
+    "aliases": [
+      "let him cook",
+      "let that boy cook",
+      "he's cooking",
+      "who let him cook",
+      "bro is cooking"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Rapper Lil B (\"Let that boy cook\")",
+      "year": 2010,
+      "detail": "Lil B's catchphrase; revived as general slang in 2022–2023."
+    },
+    "meaning": "\"Let him cook\": give someone space to execute their plan. It is ironic when the plan is obviously dumb.",
+    "useWhen": [
+      "The target starts an obviously bad idea (then cut to the fail)",
+      "The host's scheme before the payoff",
+      "A rizz attempt that is about to go wrong"
+    ],
+    "dontUseWhen": [
+      "When the plan genuinely works and you want sincere praise; use a hype meme instead"
+    ],
+    "emotion": [
+      "ironic",
+      "anticipation"
+    ],
+    "intent": [
+      "hype",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=kJIOEQ7hAb4",
+        "query": "ytsearch3:let him cook meme",
+        "hasAudio": true,
+        "transcript": "Let him cook.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2010-07-14",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/let-him-cook-let-that-boy-cook",
+        "title": "Know Your Meme: Let Him Cook / Let That Boy Cook"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-your-ai-slop-bores-me",
+    "name": "Your AI Slop Bores Me",
+    "aliases": [
+      "your ai slop bores me",
+      "ai slop",
+      "ai slop bores me",
+      "slop"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Reaction image catchphrase (2025); youraislopbores.me site by Mihir Maroju (2026)",
+      "year": 2025,
+      "detail": "A reaction image from 2025 used to call out AI-generated posts; the human-answers-as-AI website went viral in March 2026."
+    },
+    "meaning": "A blunt dismissal of AI-generated content: \"Your AI slop bores me.\" It is used to call out lazy AI posts, images or scripts.",
+    "useWhen": [
+      "The target posts AI-generated thumbnails, images or \"facts\"",
+      "A creator's obviously ChatGPT-written apology or script",
+      "AI-edited receipts or fake stills"
+    ],
+    "dontUseWhen": [
+      "When the content isn't actually AI-made (check first)",
+      "Targeting artists who were falsely accused of using AI"
+    ],
+    "emotion": [
+      "bored",
+      "dismissive"
+    ],
+    "intent": [
+      "disgust",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/635421751/Your-AI-slop-bores-me",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=NUA33-H6PUo",
+        "query": "ytsearch3:your ai slop bores me meme",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2025",
+    "trendScore": 0.85,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/sites/your-ai-slop-bores-me",
+        "title": "Know Your Meme: Your AI Slop Bores Me"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-just-this-once",
+    "name": "Just This Once (Let's LARP)",
+    "aliases": [
+      "just this once",
+      "let's larp just this once",
+      "yuta just this once",
+      "jjk just this once"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Jujutsu Kaisen, chapter 180 (Yuta vs Ryu)",
+      "year": 2026,
+      "detail": "A 2022 manga panel of a battered Yuta raising a finger; edits and \"Let's LARP, just this once\" memes spread from March–April 2026."
+    },
+    "meaning": "A battered Yuta raising a finger: \"Just this once.\" It means deliberately handicapping yourself, or indulging in something you normally wouldn't, for fun.",
+    "useWhen": [
+      "The host agrees to play along with the target's logic \"just this once\"",
+      "Taking the target's claim seriously for a bit",
+      "Giving the target a head start before destroying their argument"
+    ],
+    "dontUseWhen": [
+      "Viewers who don't know anime (it needs the image and caption)"
+    ],
+    "emotion": [
+      "smug",
+      "playful"
+    ],
+    "intent": [
+      "flex",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/650378853/Lets-larp-just-this-once",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=rcwPboN4Pw0",
+        "query": "ytsearch3:just this once yuta jujutsu kaisen meme",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2026-03-26",
+    "trendScore": 0.8,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/just-this-once",
+        "title": "Know Your Meme: Just This Once"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-lets-groove",
+    "name": "Let's Groove (Kronk)",
+    "aliases": [
+      "let's groove",
+      "kronk dance",
+      "kronk let's groove",
+      "kronk's new groove dance",
+      "let's groove tonight"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Kronk's New Groove (Kronk and Ms. Birdwell dance to Earth, Wind & Fire)",
+      "year": 2005,
+      "detail": "The dance scene became reanimations and dance trends in the mid-2020s, with a resurgence in Aug 2026."
+    },
+    "meaning": "Kronk and Ms. Birdwell dancing happily to \"Let's Groove\" while the bread bakes. It stands for carefree, wholesome celebration dancing.",
+    "useWhen": [
+      "The target celebrates a tiny win way too hard",
+      "The host's victory dance after a burn lands",
+      "Two creators suddenly getting along"
+    ],
+    "dontUseWhen": [
+      "Sad or serious beats"
+    ],
+    "emotion": [
+      "joyful",
+      "carefree"
+    ],
+    "intent": [
+      "dance",
+      "victory",
+      "wholesome"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=b3nXgDx5KoI",
+        "query": "ytsearch3:kronk let's groove scene",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2026-08",
+    "trendScore": 0.85,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/lets-groove",
+        "title": "Know Your Meme: Let's Groove"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-emotional-damage",
+    "name": "Emotional Damage",
+    "aliases": [
+      "emotional damage",
+      "steven he",
+      "emotional damage meme",
+      "emotional damage pompeii"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Steven He, \"When 'Asian' Is a Difficulty Mode\"",
+      "year": 2021,
+      "detail": "Uploaded 21 Sep 2021; He yells \"Emotional damage!\" around 1:05."
+    },
+    "meaning": "Steven He yelling \"Emotional damage!\" It is a reaction to someone getting owned or emotionally destroyed.",
+    "useWhen": [
+      "The host lands a brutal burn on the target",
+      "The target gets owned in their own clip",
+      "A savage comment is read out"
+    ],
+    "dontUseWhen": [
+      "Real trauma or grief",
+      "Using it more than once (heavily overused)"
+    ],
+    "emotion": [
+      "savage",
+      "triumphant"
+    ],
+    "intent": [
+      "dead",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=miD_TWmdGIY",
+        "query": "ytsearch3:emotional damage steven he meme original",
+        "in": 65.5,
+        "out": 68.5,
+        "hasAudio": true,
+        "transcript": "Emotional damage!",
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "url": "https://www.myinstants.com/en/instant/emotional-damage-meme-74555/",
+        "hasAudio": true,
+        "provider": "myinstants",
+        "transcript": "Emotional damage!"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2021-09-21",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/emotional-damage",
+        "title": "Know Your Meme: Emotional Damage"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-why-are-you-running",
+    "name": "Why Are You Running?",
+    "aliases": [
+      "why are you running",
+      "why you running",
+      "why are you running meme"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Pretty Liars 1 (Nollywood)",
+      "year": 2010,
+      "detail": "A woman runs away over-dramatically from a man she owes money; he gets out of his car and yells the line. Remixed on Vine and YouTube."
+    },
+    "meaning": "A man yelling \"Why are you running?\" at someone running away dramatically. It is used when someone avoids accountability.",
+    "useWhen": [
+      "The target dodges a question, deletes posts or avoids a debate",
+      "A chase edit",
+      "Someone disappears after being called out"
+    ],
+    "dontUseWhen": [
+      "Real police chases or violence"
+    ],
+    "emotion": [
+      "accusing",
+      "absurd"
+    ],
+    "intent": [
+      "chase",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=GKy1FkApzh8",
+        "query": "ytsearch3:why are you running meme original",
+        "hasAudio": true,
+        "transcript": "Why are you running? Why are you running?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2010",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/why-are-you-running",
+        "title": "Know Your Meme: Why Are You Running?"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-free-real-estate",
+    "name": "It's Free Real Estate",
+    "aliases": [
+      "it's free real estate",
+      "free real estate",
+      "free house for you jim",
+      "tim and eric"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Tim & Eric Awesome Show, Great Job! (\"Free House For You, Jim\")",
+      "year": 2009,
+      "detail": "Aired 24 Mar 2009; Tim Heidecker whispers the line at the end."
+    },
+    "meaning": "Tim Heidecker whispering \"It's free real estate.\" It is a bait-and-switch punchline for grabbing an opportunity that was left wide open.",
+    "useWhen": [
+      "The target leaves an open goal for the roast",
+      "Someone shamelessly grabs a space or opportunity",
+      "The host taking an easy shot"
+    ],
+    "dontUseWhen": [
+      "Real housing, eviction or poverty stories"
+    ],
+    "emotion": [
+      "smug",
+      "sly"
+    ],
+    "intent": [
+      "sarcasm",
+      "flex"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=cd4-UnU8lWY",
+        "query": "ytsearch3:it's free real estate tim and eric",
+        "in": 34.5,
+        "out": 38.5,
+        "hasAudio": true,
+        "transcript": "It's a free house. It's free real estate.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2009-03-24",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/its-free-real-estate",
+        "title": "Know Your Meme: It's Free Real Estate"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-surprised-pikachu",
+    "name": "Surprised Pikachu",
+    "aliases": [
+      "surprised pikachu",
+      "shocked pikachu",
+      "pikachu shocked face"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Pokemon, S1E10 \"Bulbasaur and the Hidden Village\"",
+      "year": 1997,
+      "detail": "A screenshot used as a reaction from Sep 2018 (Tumblr)."
+    },
+    "meaning": "Pikachu with its mouth agape: fake shock at the entirely predictable result of your own actions.",
+    "useWhen": [
+      "The target is shocked by consequences they caused",
+      "Predictable backlash after a bad take",
+      "\"Who could have seen this coming\""
+    ],
+    "dontUseWhen": [
+      "Genuinely unforeseeable tragedies"
+    ],
+    "emotion": [
+      "shocked",
+      "ironic"
+    ],
+    "intent": [
+      "shock",
+      "clueless"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/2kbn1e.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=8LiiV7zACbI",
+        "query": "ytsearch3:surprised pikachu meme",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2018-09-26",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/surprised-pikachu",
+        "title": "Know Your Meme: Surprised Pikachu"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-distracted-boyfriend",
+    "name": "Distracted Boyfriend",
+    "aliases": [
+      "distracted boyfriend",
+      "man looking at other woman",
+      "jealous girlfriend meme"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Stock photo by Antonio Guillem (iStock)",
+      "year": 2017,
+      "detail": "The photo was posted 1 Nov 2015 and became an object-labelling meme in 2017."
+    },
+    "meaning": "A man turns to look at another woman while his girlfriend glares. It is about abandoning what you have for something new and shiny.",
+    "useWhen": [
+      "The target abandons loyal fans or an old brand for a new trend or sponsor",
+      "Switching sides",
+      "Chasing clout over principles"
+    ],
+    "dontUseWhen": [
+      "Real infidelity stories involving private people"
+    ],
+    "emotion": [
+      "tempted",
+      "betrayed"
+    ],
+    "intent": [
+      "betrayal",
+      "cheating"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/1ur9b0.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2017-01-30",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/distracted-boyfriend",
+        "title": "Know Your Meme: Distracted Boyfriend"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-coffin-dance",
+    "name": "Coffin Dance",
+    "aliases": [
+      "coffin dance",
+      "dancing pallbearers",
+      "astronomia",
+      "coffin meme",
+      "ghana pallbearers"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "Ghanaian dancing pallbearers (BBC News Africa report) + \"Astronomia\"",
+      "year": 2020,
+      "detail": "The videos date from 2015–2017 and were paired with Tony Igy's \"Astronomia\" in FAIL edits from March 2020."
+    },
+    "meaning": "Ghanaian pallbearers dancing with a coffin, set to \"Astronomia\". It marks a fatal fail: someone's career or argument is being buried.",
+    "useWhen": [
+      "The target's career or argument dies on camera",
+      "A catastrophic fail",
+      "\"RIP\" to their reputation"
+    ],
+    "dontUseWhen": [
+      "Real deaths, funerals or tragedies"
+    ],
+    "emotion": [
+      "mock-mourning",
+      "chaotic"
+    ],
+    "intent": [
+      "dead",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=j9V78UbdzWI",
+        "query": "ytsearch3:coffin dance meme astronomia original",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2020-03",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/coffin-dance-dancing-pallbearers",
+        "title": "Know Your Meme: Coffin Dance / Dancing Pallbearers"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-to-be-continued",
+    "name": "To Be Continued (Roundabout)",
+    "aliases": [
+      "to be continued",
+      "roundabout",
+      "jojo to be continued",
+      "to be continued meme"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "JoJo's Bizarre Adventure ending, \"Roundabout\" by Yes",
+      "year": 2016,
+      "detail": "The anime uses Yes's 1971 \"Roundabout\" and a \"To Be Continued\" arrow; used in Vine/YouTube edits from 2016."
+    },
+    "meaning": "A freeze-frame with a sepia tint, a \"To Be Continued\" arrow and the \"Roundabout\" riff, right before disaster.",
+    "useWhen": [
+      "Freeze just before the target's fail",
+      "A cliffhanger before the receipts",
+      "Ending a segment on suspense"
+    ],
+    "dontUseWhen": [
+      "Serious injuries or accidents"
+    ],
+    "emotion": [
+      "suspense",
+      "anticipation"
+    ],
+    "intent": [
+      "suspense",
+      "fail",
+      "plot-twist"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=bLGHyr4U11c",
+        "query": "ytsearch3:to be continued meme roundabout jojo",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2016",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/yes-roundabout-to-be-continued",
+        "title": "Know Your Meme: Yes - Roundabout / To Be Continued"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-directed-by-robert-b-weide",
+    "name": "Directed by Robert B. Weide (Curb Your Enthusiasm)",
+    "aliases": [
+      "directed by robert b weide",
+      "curb your enthusiasm",
+      "curb theme",
+      "frolic",
+      "robert b weide"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Curb Your Enthusiasm end credits, \"Frolic\" by Luciano Michelini",
+      "year": 2008,
+      "detail": "The earliest known remix is from 2008; the credits open with \"Directed by Robert B. Weide\"."
+    },
+    "meaning": "Cut to the Curb Your Enthusiasm credits and the \"Frolic\" theme just as an awkward situation is about to escalate: inevitable failure.",
+    "useWhen": [
+      "The target's awkward moment, right before it escalates",
+      "The end of a cringe clip",
+      "The host's joke bombing"
+    ],
+    "dontUseWhen": [
+      "Serious or tragic endings"
+    ],
+    "emotion": [
+      "awkward",
+      "cringe"
+    ],
+    "intent": [
+      "awkward",
+      "cringe",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=xx7EBA-zMn0",
+        "query": "ytsearch3:directed by robert b weide meme",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2008-06-23",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/curb-your-enthusiasm-theme-remixes",
+        "title": "Know Your Meme: Curb Your Enthusiasm Theme Remixes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-sad-violin",
+    "name": "Sad Violin",
+    "aliases": [
+      "sad violin",
+      "sad romance",
+      "world's smallest violin",
+      "sad music"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "\"Sad Romance\" from the Korean drama Over the Green Fields",
+      "year": 2002,
+      "detail": "Composed by Ji Pyeongkeyon; the string arrangement is the version sampled online."
+    },
+    "meaning": "A mournful violin tune played over mock-sad moments.",
+    "useWhen": [
+      "The target plays the victim",
+      "A fake-sad sob story",
+      "The host \"mourning\" the target's losses"
+    ],
+    "dontUseWhen": [
+      "Real grief or loss"
+    ],
+    "emotion": [
+      "mock-sad",
+      "melodramatic"
+    ],
+    "intent": [
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=7ODcC5z6Ca0",
+        "query": "ytsearch3:sad violin meme sound",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "url": "https://www.myinstants.com/en/instant/sad-violin-the-meme-one/",
+        "hasAudio": true,
+        "provider": "myinstants"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2002",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/sad-violin",
+        "title": "Know Your Meme: Sad Violin"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-hide-the-pain-harold",
+    "name": "Hide the Pain Harold",
+    "aliases": [
+      "hide the pain harold",
+      "harold",
+      "smiling through pain"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Stock photos of Andras Arato",
+      "year": 2011,
+      "detail": "First noticed on Facepunch in 2011."
+    },
+    "meaning": "A senior stock-photo model whose smile clearly hides pain or discomfort.",
+    "useWhen": [
+      "The target is smiling through backlash",
+      "The host pretends to be fine after reading the comments",
+      "Awkward forced positivity"
+    ],
+    "dontUseWhen": [
+      "Real suffering"
+    ],
+    "emotion": [
+      "forced-smile",
+      "awkward"
+    ],
+    "intent": [
+      "fake-sad",
+      "denial",
+      "awkward"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/gk5el.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2011-09-13",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/hide-the-pain-harold",
+        "title": "Know Your Meme: Hide The Pain Harold"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-this-is-fine",
+    "name": "This Is Fine",
+    "aliases": [
+      "this is fine",
+      "this is fine dog",
+      "everything is fine",
+      "dog in burning room"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Gunshow #648 by K.C. Green",
+      "year": 2013,
+      "detail": "Posted 9 Jan 2013; a reaction image since 2016."
+    },
+    "meaning": "A dog calmly insisting everything is fine while the room burns around him: denial in the face of disaster.",
+    "useWhen": [
+      "The target insists all is well while everything collapses",
+      "A company or creator ignoring a scandal",
+      "The host pretending the comment section is fine"
+    ],
+    "dontUseWhen": [
+      "Real fires or disasters"
+    ],
+    "emotion": [
+      "denial",
+      "calm"
+    ],
+    "intent": [
+      "denial",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/wxica.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=0oBx7Jg4m-o",
+        "query": "ytsearch3:this is fine dog meme animated",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2013-01-09",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/this-is-fine",
+        "title": "Know Your Meme: This Is Fine"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-visible-confusion",
+    "name": "[Visible Confusion]",
+    "aliases": [
+      "visible confusion",
+      "obi wan confused",
+      "confused obi wan"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Star Wars: Episode II - Attack of the Clones",
+      "year": 2002,
+      "detail": "Obi-Wan on Kamino; used with the caption \"[visible confusion]\" since 2017."
+    },
+    "meaning": "Obi-Wan Kenobi looking bewildered, captioned \"[visible confusion]\".",
+    "useWhen": [
+      "The target's statement makes no sense",
+      "Contradictory claims",
+      "A bizarre product or idea"
+    ],
+    "dontUseWhen": [
+      "When the joke needs the audience to be angry rather than confused"
+    ],
+    "emotion": [
+      "confused"
+    ],
+    "intent": [
+      "confusion"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/151018260/Visible-Confusion",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=6yMdtAEPbqI",
+        "query": "ytsearch3:visible confusion obi wan meme",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2017",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/visible-confusion",
+        "title": "Know Your Meme: [Visible Confusion]"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-ight-imma-head-out",
+    "name": "Ight Imma Head Out",
+    "aliases": [
+      "ight imma head out",
+      "imma head out",
+      "aight imma head out",
+      "spongebob head out",
+      "alright bro im boutta head out"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "SpongeBob SquarePants, \"The Smoking Peanut\"",
+      "year": 2001,
+      "detail": "A screenshot of SpongeBob getting up from (actually into) a chair; a meme since 2019."
+    },
+    "meaning": "SpongeBob rising from his chair: \"Ight, imma head out.\" It means wanting to leave a situation.",
+    "useWhen": [
+      "The host leaves after an unbearable take",
+      "The target exits an argument or ghosts",
+      "Viewers leaving after a cringe moment"
+    ],
+    "dontUseWhen": [
+      "When someone leaves for serious reasons"
+    ],
+    "emotion": [
+      "done",
+      "awkward"
+    ],
+    "intent": [
+      "bye",
+      "awkward"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/Spongebob-Ight-Imma-Head-Out",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=F3d4kDeo_2I",
+        "query": "ytsearch3:ight imma head out spongebob meme",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2019",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/ight-imma-head-out",
+        "title": "Know Your Meme: Ight Imma Head Out"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-oh-no-capone",
+    "name": "Oh No (Capone) Freeze-Frame",
+    "aliases": [
+      "oh no",
+      "oh no oh no oh no no no no",
+      "capone oh no",
+      "oh no song",
+      "oh no tiktok"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "TikTok trend set to \"Oh No\" by Capone (sampling the Shangri-Las)",
+      "year": 2020,
+      "detail": "The trend started around Sep 2020: freeze-frames right before a fail, zooming in rhythm with the song."
+    },
+    "meaning": "\"Oh no, oh no, oh no no no no no\" plays over freeze-frames (often zooming in) right before disaster.",
+    "useWhen": [
+      "Freeze the target just before the fail lands",
+      "Reveal a bad decision step by step",
+      "A setup that's obviously going wrong"
+    ],
+    "dontUseWhen": [
+      "Real injuries or accidents"
+    ],
+    "emotion": [
+      "anticipation",
+      "comic-dread"
+    ],
+    "intent": [
+      "fail",
+      "suspense"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=xTEB8jEWpz4",
+        "query": "ytsearch3:oh no oh no oh no no no no meme song",
+        "hasAudio": true,
+        "transcript": "Oh no, oh no, oh no no no no no.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2020-09",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/capone-oh-no-tiktok-trend",
+        "title": "Know Your Meme: Capone - Oh No TikTok Trend"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-oh-no-no-no-laugh",
+    "name": "Oh No No No Laugh",
+    "aliases": [
+      "oh no no no laugh",
+      "oh no no no no laugh",
+      "ohnonono laugh",
+      "no no no laugh"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Viral laughing audio (TikTok/YouTube soundboards)",
+      "detail": "Origin unconfirmed: sources disagree on the original video."
+    },
+    "meaning": "A voice going \"oh no, no, no, no\" that breaks into laughter, used as a mocking laugh at someone's embarrassing fail. (Meaning taken from how soundboards and TikTok use it; no authoritative explainer found.)",
+    "useWhen": [
+      "The target's embarrassing fail or bad take",
+      "A cringe moment the host can't take seriously"
+    ],
+    "dontUseWhen": [
+      "Real accidents or injuries"
+    ],
+    "emotion": [
+      "mocking",
+      "amused"
+    ],
+    "intent": [
+      "fail",
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=U1UtRnGn5hc",
+        "query": "ytsearch3:oh no no no no laugh meme sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "url": "https://www.myinstants.com/en/instant/oh-no-no-no-laugh-56694/",
+        "hasAudio": true,
+        "provider": "myinstants"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.myinstants.com/en/instant/oh-no-no-no-laugh-56694/",
+        "title": "Myinstants: oh no no no laugh"
+      }
+    ],
+    "safety": {},
+    "verified": false
+  },
+  {
+    "id": "gl-wait-thats-illegal",
+    "name": "Wait, That's Illegal",
+    "aliases": [
+      "wait that's illegal",
+      "that's illegal",
+      "illegal meme"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Red vs. Blue, \"Real Life vs. Internet\" (Rooster Teeth)",
+      "year": 2004,
+      "detail": "Church says the line; a reaction image since 2019."
+    },
+    "meaning": "Church from Red vs. Blue: \"Wait, that's illegal.\" It reacts to something that breaks the rules, often absurdly.",
+    "useWhen": [
+      "The target breaks platform rules, ethics or basic logic",
+      "A shady hack or loophole",
+      "Plagiarism caught on screen"
+    ],
+    "dontUseWhen": [
+      "Real crimes with victims"
+    ],
+    "emotion": [
+      "alarmed",
+      "absurd"
+    ],
+    "intent": [
+      "shock",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=sHfPbROIu0E",
+        "query": "ytsearch3:wait that's illegal meme",
+        "in": 9.9,
+        "out": 11.2,
+        "hasAudio": true,
+        "transcript": "Wait, that's illegal.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2019",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/wait-thats-illegal",
+        "title": "Know Your Meme: Wait, That's Illegal"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-bruh",
+    "name": "Bruh",
+    "aliases": [
+      "bruh",
+      "bruh sound effect",
+      "bruh moment",
+      "bruh sound effect 2"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Vine by CallHimBzar (\"Bruh Sound Effect #2\")",
+      "year": 2014,
+      "detail": "Vine posted 1 May 2014 with a dubbed \"Bruh\"; a meme sound from 2018."
+    },
+    "meaning": "A flat, disappointed \"Bruh.\" It conveys frustration or being let down.",
+    "useWhen": [
+      "The target says something disappointingly dumb",
+      "A predictable letdown",
+      "The host's deadpan reaction to a bad take"
+    ],
+    "dontUseWhen": [
+      "Overuse: at most 2–3 times per video"
+    ],
+    "emotion": [
+      "disappointed",
+      "deadpan"
+    ],
+    "intent": [
+      "cringe",
+      "disagree"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=2ZIpFytCSVc",
+        "query": "ytsearch3:bruh sound effect 2",
+        "hasAudio": true,
+        "transcript": "Bruh.",
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "url": "https://www.myinstants.com/en/instant/bruh/",
+        "hasAudio": true,
+        "provider": "myinstants",
+        "transcript": "Bruh."
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2014-05-01",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/bruh-sound-effect-2",
+        "title": "Know Your Meme: Bruh Sound Effect #2"
+      },
+      {
+        "url": "https://knowyourmeme.com/memes/bruh",
+        "title": "Know Your Meme: Bruh"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-vine-boom",
+    "name": "Vine Boom",
+    "aliases": [
+      "vine boom",
+      "vine thud",
+      "boom sound effect",
+      "vine boom sound"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Bluezone Corporation sound pack, popularised on Vine by King Bach",
+      "year": 2012,
+      "detail": "Uploaded to YouTube 7 Nov 2012; ubiquitous on Vine from 2014; now used ironically."
+    },
+    "meaning": "An echoing \"boom\" that punctuates a shocking or suspicious statement. Its overuse is now part of the joke.",
+    "useWhen": [
+      "Right after the target says something outrageous (stack it with a zoom punch)",
+      "A stare or reveal",
+      "A suspicious line"
+    ],
+    "dontUseWhen": [
+      "Using it more than 3 times per video"
+    ],
+    "emotion": [
+      "shock",
+      "emphasis"
+    ],
+    "intent": [
+      "shock",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "url": "https://www.myinstants.com/en/instant/vine-boom-sound-70972/",
+        "hasAudio": true,
+        "provider": "myinstants"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=Oc7Cin_87H4",
+        "query": "ytsearch3:vine boom sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2012-11-07",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/vine-thud-boom-sound-effect",
+        "title": "Know Your Meme: Vine Thud / Boom Sound Effect"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-mr-incredible-uncanny",
+    "name": "Mr. Incredible Becoming Uncanny",
+    "aliases": [
+      "mr incredible becoming uncanny",
+      "uncanny mr incredible",
+      "traumatized mr incredible",
+      "mr incredible phases",
+      "becoming canny"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "The Incredibles (edited \"Traumatized Mr. Incredible\" images)",
+      "year": 2021,
+      "detail": "A format from Dec 2021 that grew out of the July 2021 Traumatized Mr. Incredible meme."
+    },
+    "meaning": "Mr. Incredible gets more and more distorted and traumatised in phases as the facts get worse. The \"canny\" version runs in the other direction.",
+    "useWhen": [
+      "Listing the target's red flags in escalating order",
+      "Each new fact is worse than the last",
+      "The \"the more you know\" beat of a roast"
+    ],
+    "dontUseWhen": [
+      "Disturbing real crimes: phase images get dark"
+    ],
+    "emotion": [
+      "horrified",
+      "escalating"
+    ],
+    "intent": [
+      "shock",
+      "scared",
+      "plot-twist"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=UUIyGJVQ1nM",
+        "query": "ytsearch3:mr incredible becoming uncanny",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2021-12",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/mr-incredible-becoming-uncanny",
+        "title": "Know Your Meme: Mr. Incredible Becoming Uncanny"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-patrick-bateman-sigma",
+    "name": "Sigma Face / Patrick Bateman",
+    "aliases": [
+      "sigma face",
+      "sigma male",
+      "patrick bateman",
+      "patrick bateman walking",
+      "sigma",
+      "american psycho",
+      "ooh face"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "American Psycho",
+      "year": 2000,
+      "detail": "Bateman's office walk became edits from Nov 2020; the \"Sigma Face\" TikTok trend started in late 2022."
+    },
+    "meaning": "Christian Bale's Patrick Bateman as the ironic \"sigma male\": a cold, self-serious lone wolf. It is used to mock grindset posturing or as an ironic flex.",
+    "useWhen": [
+      "The target posts \"sigma grindset\" or alpha-male advice",
+      "The host's smug look after a burn",
+      "An ironic cold walk-in"
+    ],
+    "dontUseWhen": [
+      "Violent scenes from the film",
+      "Glorifying real misogyny"
+    ],
+    "emotion": [
+      "smug",
+      "cold",
+      "ironic"
+    ],
+    "intent": [
+      "flex",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=Z54FdjHqPgM",
+        "query": "ytsearch3:patrick bateman sigma face meme",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=lHJCBuRq7To",
+        "query": "ytsearch3:patrick bateman walking meme",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2020-11-17",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/sigma-face",
+        "title": "Know Your Meme: Sigma Face"
+      },
+      {
+        "url": "https://knowyourmeme.com/memes/patrick-bateman-walking",
+        "title": "Know Your Meme: Patrick Bateman Walking"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-anakin-padme",
+    "name": "For the Better, Right? (Anakin & Padme)",
+    "aliases": [
+      "anakin padme",
+      "for the better right",
+      "anakin and padme",
+      "padme meme",
+      "clueless padme"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Star Wars: Episode II - Attack of the Clones",
+      "year": 2021,
+      "detail": "A four-panel picnic-scene format from 2021; the captioned dialogue never appears in the film."
+    },
+    "meaning": "Anakin states a plan, Padme smiles \"...for the better, right?\", and her smile fades when he says nothing. It exposes a sinister hidden motive.",
+    "useWhen": [
+      "The target's plan has an obvious hidden bad motive",
+      "The host asks the question the target won't answer",
+      "The audience realises the implication"
+    ],
+    "dontUseWhen": [
+      "When the motive is genuinely good"
+    ],
+    "emotion": [
+      "uneasy",
+      "realisation"
+    ],
+    "intent": [
+      "plot-twist",
+      "clueless",
+      "suspense"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/5c7lwq.png",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=EmW74ZpGGOI",
+        "query": "ytsearch3:anakin padme for the better right meme template",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2021",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/for-the-better-right",
+        "title": "Know Your Meme: For the Better, Right?"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-rock-eyebrow",
+    "name": "The Rock's Eyebrow Raise",
+    "aliases": [
+      "the rock eyebrow",
+      "rock eyebrow raise",
+      "the rock sus",
+      "people's eyebrow",
+      "sus eyebrow"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Dwayne \"The Rock\" Johnson's \"People's Eyebrow\" (WWE)",
+      "year": 2021,
+      "detail": "Reaction videos with the Vine thud surged in March and September 2021."
+    },
+    "meaning": "The Rock slowly raising one eyebrow, usually with a vine boom. It means suspicion: \"sus\".",
+    "useWhen": [
+      "The target says something suspicious",
+      "A too-good-to-be-true claim",
+      "A shady sponsor read"
+    ],
+    "dontUseWhen": [
+      "When the thing is already proven (use an exposed meme)"
+    ],
+    "emotion": [
+      "suspicious"
+    ],
+    "intent": [
+      "lie",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=llAT4mUWu74",
+        "query": "ytsearch3:the rock eyebrow raise meme vine boom",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2021-03",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/the-rocks-eyebrow-raise",
+        "title": "Know Your Meme: The Rock's Eyebrow Raise"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-confused-travolta",
+    "name": "Confused Travolta",
+    "aliases": [
+      "confused travolta",
+      "john travolta confused",
+      "pulp fiction confused",
+      "where is it"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Pulp Fiction (Vincent Vega)",
+      "year": 1994,
+      "detail": "A GIF cut out of the film (2012) and edited into other scenes from 2015."
+    },
+    "meaning": "John Travolta looking around, lost. It is used for searching for something that isn't there.",
+    "useWhen": [
+      "Looking for the target's promised results or proof that doesn't exist",
+      "\"Where's the content?\"",
+      "Empty claims"
+    ],
+    "dontUseWhen": [
+      "Real missing-person stories"
+    ],
+    "emotion": [
+      "confused",
+      "searching"
+    ],
+    "intent": [
+      "confusion",
+      "clueless"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=AtarqnxH_ZY",
+        "query": "ytsearch3:confused travolta green screen",
+        "hasAudio": false,
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/53312603/Confused-Travolta",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2015",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/confused-travolta",
+        "title": "Know Your Meme: Confused Travolta"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-confused-math-lady",
+    "name": "Confused Math Lady",
+    "aliases": [
+      "math lady",
+      "confused math lady",
+      "calculating meme",
+      "nazare tedesco",
+      "confused lady"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Senhora do Destino (Brazilian telenovela; Renata Sorrah as Nazare Tedesco)",
+      "year": 2004,
+      "detail": "The math equations were added later; the GIF spread from 2013."
+    },
+    "meaning": "A woman thinking hard while equations float around her: trying to make sense of confusing logic or numbers.",
+    "useWhen": [
+      "The target's numbers or logic don't add up",
+      "A convoluted excuse",
+      "Suspicious stats or earnings claims"
+    ],
+    "dontUseWhen": [
+      "When the math is actually simple and the joke would read as mocking viewers"
+    ],
+    "emotion": [
+      "confused",
+      "calculating"
+    ],
+    "intent": [
+      "confusion"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=ufb6DQ0_XFE",
+        "query": "ytsearch3:confused math lady meme green screen",
+        "hasAudio": false,
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/80996545/Math-ladyConfused-lady",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2013",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/confused-math-lady",
+        "title": "Know Your Meme: Confused Math Lady"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-waiting-skeleton",
+    "name": "Waiting Skeleton",
+    "aliases": [
+      "waiting skeleton",
+      "skeleton waiting",
+      "me waiting",
+      "waiting for op",
+      "still waiting"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "\"Waiting for OP\" image macros",
+      "year": 2009,
+      "detail": "A skeleton-waiting macro from 29 Dec 2009; the skeleton-on-a-bench template is common on Imgflip."
+    },
+    "meaning": "A skeleton that has waited so long it died: waiting forever for something that never comes.",
+    "useWhen": [
+      "Waiting for the target's promised apology, video or proof",
+      "A delayed launch or refund",
+      "\"Still waiting for the explanation\""
+    ],
+    "dontUseWhen": [
+      "Real deaths"
+    ],
+    "emotion": [
+      "impatient",
+      "deadpan"
+    ],
+    "intent": [
+      "sarcasm",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/2fm6x.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=UyXHjm874GY",
+        "query": "ytsearch3:waiting skeleton meme",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2009-12-29",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/waiting-for-op",
+        "title": "Know Your Meme: Waiting for OP"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-mocking-spongebob",
+    "name": "Mocking SpongeBob",
+    "aliases": [
+      "mocking spongebob",
+      "spongemock",
+      "spongebob chicken",
+      "alternating caps"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "SpongeBob SquarePants, \"Little Yellow Book\"",
+      "year": 2017,
+      "detail": "The episode aired 25 Nov 2012; the meme started 4 May 2017."
+    },
+    "meaning": "SpongeBob bent over like a chicken, captioned in aLtErNaTiNg CaPs, repeating someone's words mockingly.",
+    "useWhen": [
+      "Repeating the target's own quote back mockingly (literal echo)",
+      "A dumb excuse",
+      "Corporate-speak apologies"
+    ],
+    "dontUseWhen": [
+      "When the quote is about a real tragedy"
+    ],
+    "emotion": [
+      "mocking"
+    ],
+    "intent": [
+      "sarcasm",
+      "disagree"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/1otk96.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2017-05-04",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/mocking-spongebob",
+        "title": "Know Your Meme: Mocking SpongeBob"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-stop-it-get-some-help",
+    "name": "Stop It, Get Some Help",
+    "aliases": [
+      "stop it get some help",
+      "michael jordan stop it",
+      "get some help"
+    ],
+    "origin": {
+      "kind": "ad",
+      "title": "Michael Jordan anti-drug PSA (McDonald's)",
+      "year": 1987,
+      "detail": "Aired 26 May 1987; a Vine/YouTube reaction clip."
+    },
+    "meaning": "Michael Jordan telling viewers to \"stop it\" and \"get some help\", used to poke fun at cringeworthy behaviour.",
+    "useWhen": [
+      "The target posts something deeply cringe",
+      "A bad habit on repeat",
+      "Weird fan behaviour"
+    ],
+    "dontUseWhen": [
+      "Real addiction or mental-health topics"
+    ],
+    "emotion": [
+      "disapproving"
+    ],
+    "intent": [
+      "cringe",
+      "disgust",
+      "disagree"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=rb8z2BMrd60",
+        "query": "ytsearch3:michael jordan stop it get some help",
+        "in": 48.3,
+        "out": 52.0,
+        "hasAudio": true,
+        "transcript": "If you're doing it, stop it. Get some help.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "1987-05-26",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/stop-it-get-some-help",
+        "title": "Know Your Meme: Stop It, Get Some Help"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-idiot-sandwich",
+    "name": "An Idiot Sandwich",
+    "aliases": [
+      "idiot sandwich",
+      "gordon ramsay idiot sandwich",
+      "what are you",
+      "an idiot sandwich"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "The Late Late Show with James Corden, \"Hell's Cafeteria\" skit",
+      "year": 2015,
+      "detail": "Aired 26 Apr 2015: Gordon Ramsay holds Julie Chen's head between two slices of bread."
+    },
+    "meaning": "Gordon Ramsay asks \"What are you?\" and the answer is \"An idiot sandwich.\" It is someone forced to admit they're an idiot.",
+    "useWhen": [
+      "The target admits something dumb on camera",
+      "Forced to own a mistake",
+      "A self-own"
+    ],
+    "dontUseWhen": [
+      "Real humiliation of private individuals"
+    ],
+    "emotion": [
+      "humiliated",
+      "comic"
+    ],
+    "intent": [
+      "exposed",
+      "clueless"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=9AoIvLh-jVs",
+        "query": "ytsearch3:gordon ramsay idiot sandwich",
+        "hasAudio": true,
+        "transcript": "What are you? An idiot sandwich.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2015-04-26",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/an-idiot-sandwich",
+        "title": "Know Your Meme: An Idiot Sandwich"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-spider-man-pointing",
+    "name": "Spider-Man Pointing at Spider-Man",
+    "aliases": [
+      "spiderman pointing",
+      "spider-man pointing",
+      "two spidermen",
+      "pointing spiderman"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Spider-Man (1967), episode \"Double Identity\"",
+      "year": 2011,
+      "detail": "A still of two Spider-Men pointing at each other; image macro from Feb 2011."
+    },
+    "meaning": "Two identical Spider-Men pointing at each other: two parties accusing each other of the same thing.",
+    "useWhen": [
+      "The target accuses someone of exactly what they do themselves",
+      "Two creators calling each other copycats",
+      "Hypocrisy callouts"
+    ],
+    "dontUseWhen": [
+      "When the two sides are genuinely different"
+    ],
+    "emotion": [
+      "accusing",
+      "ironic"
+    ],
+    "intent": [
+      "hypocrisy"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/1tkjq9.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2011-02-05",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/spider-man-pointing-at-spider-man",
+        "title": "Know Your Meme: Spider-Man Pointing at Spider-Man"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-drakeposting",
+    "name": "Drakeposting (Drake Hotline Bling)",
+    "aliases": [
+      "drake meme",
+      "drakeposting",
+      "drake hotline bling",
+      "drake yes no",
+      "drake no yes"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Drake, \"Hotline Bling\" music video",
+      "year": 2015,
+      "detail": "A two-panel reaction: disgusted rejection on top, approval below."
+    },
+    "meaning": "Drake recoils from one thing and approves of another. It is a two-panel preference or contrast.",
+    "useWhen": [
+      "What the target says vs what they do",
+      "The host's preference between two options",
+      "Hypocrisy comparisons"
+    ],
+    "dontUseWhen": [
+      "More than one comparison card in a row"
+    ],
+    "emotion": [
+      "disapproving",
+      "approving"
+    ],
+    "intent": [
+      "agree",
+      "disagree",
+      "hypocrisy"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/30b1gx.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=gzF4ZMvnnFo",
+        "query": "ytsearch3:drake hotline bling meme no yes",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2015",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/drakeposting",
+        "title": "Know Your Meme: Drakeposting"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-kermit-tea",
+    "name": "But That's None of My Business (Kermit Tea)",
+    "aliases": [
+      "kermit tea",
+      "kermit sipping tea",
+      "but that's none of my business",
+      "sipping tea",
+      "none of my business"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Kermit the Frog (The Muppets; Lipton ad still)",
+      "year": 2014,
+      "detail": "The \"none of my business\" macro from June 2014 (Instagram)."
+    },
+    "meaning": "Kermit sipping tea after a petty remark: \"But that's none of my business.\"",
+    "useWhen": [
+      "The host drops a petty side-comment about the target",
+      "Passive-aggressive observations",
+      "Spilling tea"
+    ],
+    "dontUseWhen": [
+      "When the host needs to be direct"
+    ],
+    "emotion": [
+      "petty",
+      "sarcastic"
+    ],
+    "intent": [
+      "sarcasm",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/But-Thats-None-Of-My-Business",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2014-06-17",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/kermit-sipping-tea-but-thats-none-of-my-business",
+        "title": "Know Your Meme: Kermit Sipping Tea / But That's None of My Business"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-crying-jordan",
+    "name": "Crying Michael Jordan",
+    "aliases": [
+      "crying jordan",
+      "crying michael jordan",
+      "jordan crying"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "Michael Jordan's Basketball Hall of Fame induction speech",
+      "year": 2009,
+      "detail": "11 Sep 2009; a Photoshop reaction for sadness and defeat."
+    },
+    "meaning": "A tearful Michael Jordan face pasted on losers. It means sadness or defeat.",
+    "useWhen": [
+      "The target loses publicly",
+      "Their fans after a flop",
+      "Paste on the target's photo after a burn (head-paste)"
+    ],
+    "dontUseWhen": [
+      "Real grief"
+    ],
+    "emotion": [
+      "sad",
+      "defeated"
+    ],
+    "intent": [
+      "fake-sad",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/10866054/crying-michael-jordan",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2009-09-11",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/crying-michael-jordan",
+        "title": "Know Your Meme: Crying Michael Jordan"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-ah-shit-here-we-go-again",
+    "name": "Ah Shit, Here We Go Again",
+    "aliases": [
+      "ah shit here we go again",
+      "here we go again",
+      "cj here we go again",
+      "gta san andreas meme"
+    ],
+    "origin": {
+      "kind": "game",
+      "title": "Grand Theft Auto: San Andreas (opening, CJ)",
+      "year": 2004,
+      "detail": "A popular exploitable from April 2019."
+    },
+    "meaning": "CJ sighing \"Ah shit, here we go again\" on returning to trouble. It is about the same thing happening yet again.",
+    "useWhen": [
+      "The target repeats the same controversy",
+      "Another apology video",
+      "A callback to an earlier bit"
+    ],
+    "dontUseWhen": [
+      "Family-friendly edits (contains profanity; bleep it or use the image)"
+    ],
+    "emotion": [
+      "weary",
+      "resigned"
+    ],
+    "intent": [
+      "sarcasm",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=QK_Ro6fHNwI",
+        "query": "ytsearch3:ah shit here we go again gta san andreas",
+        "in": 0,
+        "out": 3.4,
+        "hasAudio": true,
+        "transcript": "Ah shit, here we go again.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2019-04",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/ah-shit-here-we-go-again",
+        "title": "Know Your Meme: Ah Shit, Here We Go Again"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "gl-mission-failed",
+    "name": "Mission Failed, We'll Get 'Em Next Time",
+    "aliases": [
+      "mission failed",
+      "mission failed we'll get em next time",
+      "we'll get em next time",
+      "cod mission failed"
+    ],
+    "origin": {
+      "kind": "game",
+      "title": "Call of Duty: Modern Warfare 2 (Special Ops game over)",
+      "year": 2009,
+      "detail": "Ghost's radio line on failing a mission; used in FAIL edits."
+    },
+    "meaning": "The Call of Duty game-over line, used over any failure.",
+    "useWhen": [
+      "The target's plan fails",
+      "A failed comeback or roast attempt",
+      "The host's joke fails (self-own)"
+    ],
+    "dontUseWhen": [
+      "Real military casualties"
+    ],
+    "emotion": [
+      "defeated",
+      "comic"
+    ],
+    "intent": [
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=_lLJGvygENo",
+        "query": "ytsearch3:mission failed we'll get em next time meme",
+        "in": 4.8,
+        "out": 9.7,
+        "hasAudio": true,
+        "transcript": "Mission failed, we'll get 'em next time.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2009-11",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/mission-failed-well-get-em-next-time",
+        "title": "Know Your Meme: Mission Failed, We'll Get 'Em Next Time"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-always-has-been",
+    "name": "Wait, It's All...? Always Has Been",
+    "aliases": [
+      "always has been",
+      "wait it's all ohio",
+      "astronaut meme",
+      "wait its all"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Astronauts-in-space exploitable (4chan / Reddit)",
+      "year": 2020,
+      "detail": "An MS Paint original from 2016; the high-res astronaut version dominated from 2020."
+    },
+    "meaning": "One astronaut realises \"Wait, it's all X?\" and the other, holding a gun, says \"Always has been.\" A shocking truth was true all along.",
+    "useWhen": [
+      "Revealing the target was always doing this (old receipts)",
+      "\"Wait, it was all sponsored?\"",
+      "A plot twist that was obvious"
+    ],
+    "dontUseWhen": [
+      "Real violence (the second astronaut holds a gun)"
+    ],
+    "emotion": [
+      "realisation",
+      "ominous"
+    ],
+    "intent": [
+      "plot-twist",
+      "betrayal",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/46e43q.png",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=SYNfJMrBpe4",
+        "query": "ytsearch3:always has been meme astronaut",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2020",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/wait-its-all-ohio-always-has-been",
+        "title": "Know Your Meme: Wait, It's All Ohio? Always Has Been"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-roll-safe",
+    "name": "Roll Safe (Think About It)",
+    "aliases": [
+      "roll safe",
+      "think about it",
+      "guy tapping head",
+      "big brain",
+      "roll safe meme"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Hood Documentary (BBC Three), Kayode Ewumi as Reece \"Roll Safe\" Simpson",
+      "year": 2016,
+      "detail": "The screenshot became an image macro in early 2017."
+    },
+    "meaning": "A man grinning and tapping his temple over \"genius\" logic that is actually terrible.",
+    "useWhen": [
+      "The target's dumb \"smart\" idea",
+      "Loophole logic",
+      "A self-defeating strategy"
+    ],
+    "dontUseWhen": [
+      "Using the original clip audio (the source joke is sexual)"
+    ],
+    "emotion": [
+      "smug",
+      "dumb-smart"
+    ],
+    "intent": [
+      "clueless",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/1h7in3.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=GdYo1Q5YZ7o",
+        "query": "ytsearch3:roll safe think about it meme original",
+        "hasAudio": false,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2016-06-01",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/roll-safe",
+        "title": "Know Your Meme: Roll Safe"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-side-eye-chloe",
+    "name": "Side-Eyeing Chloe",
+    "aliases": [
+      "side eye chloe",
+      "side eyeing chloe",
+      "chloe side eye",
+      "side eye"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "\"Lily's Disneyland Surprise... AGAIN!\" (YouTube)",
+      "year": 2013,
+      "detail": "12 Sep 2013: little sister Chloe gives a concerned side-eye while Lily cries with joy."
+    },
+    "meaning": "A little girl's concerned, sceptical side-eye.",
+    "useWhen": [
+      "The target says something weird or creepy",
+      "The host's sceptical reaction",
+      "An awkward over-enthusiasm"
+    ],
+    "dontUseWhen": [
+      "Mocking the child herself"
+    ],
+    "emotion": [
+      "sceptical",
+      "uneasy"
+    ],
+    "intent": [
+      "disgust",
+      "awkward",
+      "lie"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/12558820/Side-Eyeing-Chloe",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=MrGLPEmjKHU",
+        "query": "ytsearch3:side eye chloe original video",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2013-09-12",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/side-eyeing-chloe",
+        "title": "Know Your Meme: Side Eyeing Chloe"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-monkey-puppet",
+    "name": "Awkward Look Monkey Puppet",
+    "aliases": [
+      "monkey puppet",
+      "awkward monkey",
+      "monkey side eye",
+      "awkward look monkey",
+      "monkey looking away"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Okiku Naru Ko (Japanese children's TV)",
+      "year": 2016,
+      "detail": "The two-frame side-eye was made in Photoshop in 2016; a popular reaction from 2019."
+    },
+    "meaning": "A monkey puppet glancing at the camera, then awkwardly away: caught, pretending not to notice.",
+    "useWhen": [
+      "The target is caught in a lie",
+      "The host pretends not to see the obvious",
+      "Awkward silence after a bad joke"
+    ],
+    "dontUseWhen": [
+      "When the moment needs confrontation, not avoidance"
+    ],
+    "emotion": [
+      "awkward",
+      "guilty"
+    ],
+    "intent": [
+      "awkward",
+      "ignore",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/2gnnjh.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:awkward look monkey puppet meme",
+        "hasAudio": false,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2016-05-05",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/awkward-look-monkey-puppet",
+        "title": "Know Your Meme: Awkward Look Monkey Puppet"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-no-god-please-no",
+    "name": "No, God! Please, No! (Michael Scott)",
+    "aliases": [
+      "no god please no",
+      "michael scott no",
+      "nooo",
+      "no god no",
+      "the office no"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "The Office (US), S5E9 \"The Surplus\" (Toby returns)",
+      "year": 2008,
+      "detail": "Aired 20 Nov 2008: Michael reacts to Toby's return from Costa Rica."
+    },
+    "meaning": "Michael Scott screaming \"No, God! No, God, please, no!\" It is extreme, over-the-top aversion.",
+    "useWhen": [
+      "The target announces a sequel, comeback or collab nobody wanted",
+      "The host sees something horrifying in the comments",
+      "An overreaction bit"
+    ],
+    "dontUseWhen": [
+      "Real tragedies"
+    ],
+    "emotion": [
+      "horrified",
+      "dramatic"
+    ],
+    "intent": [
+      "overreact",
+      "disgust",
+      "scared"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=CQ_eDE0OMds",
+        "query": "ytsearch3:michael scott no god please no",
+        "in": 99.0,
+        "out": 110.0,
+        "hasAudio": true,
+        "transcript": "No, God! No, God, please, no! No! No! Noooo!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2008-11-20",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/no-god-please-no",
+        "title": "Know Your Meme: No God, Please No!"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-hello-darkness",
+    "name": "Hello Darkness, My Old Friend",
+    "aliases": [
+      "hello darkness my old friend",
+      "hello darkness",
+      "sound of silence"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Simon & Garfunkel, \"The Sound of Silence\"",
+      "year": 2016,
+      "detail": "A 1964 song; its opening line became dramatic background music in parody videos around 2016."
+    },
+    "meaning": "The \"Hello darkness, my old friend\" opening plays over a sad, lonely or grim return to a bad situation.",
+    "useWhen": [
+      "The target returns to old habits",
+      "The host alone reading the comments at 3am",
+      "A dark realisation"
+    ],
+    "dontUseWhen": [
+      "Real depression or grief"
+    ],
+    "emotion": [
+      "melancholy",
+      "ironic"
+    ],
+    "intent": [
+      "fake-sad",
+      "awkward"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=cZpNI9tMJiE",
+        "query": "ytsearch3:hello darkness my old friend meme sound effect",
+        "hasAudio": true,
+        "transcript": "Hello darkness, my old friend.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2016",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/hello-darkness-my-old-friend",
+        "title": "Know Your Meme: Hello Darkness, My Old Friend"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-sweating-jordan-peele",
+    "name": "Sweating Jordan Peele",
+    "aliases": [
+      "jordan peele sweating",
+      "sweating guy",
+      "nervous sweating",
+      "key and peele sweating"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Key & Peele, \"Browser History\" sketch",
+      "year": 2013,
+      "detail": "Aired 18 Sep 2013: Peele sweats when his girlfriend asks about his browser history."
+    },
+    "meaning": "Jordan Peele sweating profusely: exaggerated nervousness.",
+    "useWhen": [
+      "The target faces a tough question",
+      "Just before the receipts drop",
+      "Caught with an embarrassing search history or DMs"
+    ],
+    "dontUseWhen": [
+      "Real anxiety"
+    ],
+    "emotion": [
+      "nervous",
+      "guilty"
+    ],
+    "intent": [
+      "scared",
+      "exposed",
+      "awkward"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/210959447/Sweating-Jordan-Peele",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=kJmbH00Tk2I",
+        "query": "ytsearch3:jordan peele sweating meme",
+        "hasAudio": false,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2013-09-18",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/sweating-jordan-peele",
+        "title": "Know Your Meme: Sweating Jordan Peele"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-stonks",
+    "name": "Stonks",
+    "aliases": [
+      "stonks",
+      "not stonks",
+      "meme man stonks",
+      "stocks meme"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Meme Man, Facebook page Special Meme Fresh",
+      "year": 2017,
+      "detail": "Posted 5 Jun 2017."
+    },
+    "meaning": "Meme Man in front of a stock chart, \"Stonks\": ironic financial \"gains\" from dumb decisions (\"not stonks\" for losses).",
+    "useWhen": [
+      "The target's cash grab",
+      "Profiting from a bad decision",
+      "Money talk, earnings claims"
+    ],
+    "dontUseWhen": [
+      "Real financial losses of viewers"
+    ],
+    "emotion": [
+      "ironic",
+      "smug"
+    ],
+    "intent": [
+      "money",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/186821996/stonks",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2017-06-05",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/stonks",
+        "title": "Know Your Meme: Stonks"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-record-scratch-freeze-frame",
+    "name": "*Record Scratch* *Freeze Frame* Yep, That's Me",
+    "aliases": [
+      "record scratch freeze frame",
+      "yep that's me",
+      "you're probably wondering how i got here",
+      "freeze frame"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Movie cliche (popularised by Robot Chicken and online posts)",
+      "year": 2015,
+      "detail": "A record scratch and a freeze-frame, then narration: \"Yep, that's me. You're probably wondering how I got into this situation.\""
+    },
+    "meaning": "A record scratch, a freeze-frame, and \"Yep, that's me. You're probably wondering how I got into this situation.\" It opens a story at its disaster.",
+    "useWhen": [
+      "A cold open at the target's worst moment, then rewind",
+      "Introducing the host mid-disaster",
+      "A story told out of order"
+    ],
+    "dontUseWhen": [
+      "Serious incidents"
+    ],
+    "emotion": [
+      "ironic",
+      "narrative"
+    ],
+    "intent": [
+      "plot-twist",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=B4LFYs3VpxY",
+        "query": "ytsearch3:record scratch freeze frame yep that's me you're probably wondering",
+        "hasAudio": true,
+        "transcript": "Yep, that's me. You're probably wondering how I got into this situation.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2015",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/record-scratch-freeze-frame-yep-thats-me",
+        "title": "Know Your Meme: *Record Scratch* *Freeze Frame* / Yep, That's Me"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-pablo-escobar-waiting",
+    "name": "Pablo Escobar Waiting (Sad Pablo)",
+    "aliases": [
+      "pablo escobar waiting",
+      "sad pablo escobar",
+      "lonely pablo",
+      "narcos waiting"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Narcos (Netflix), season 2",
+      "year": 2016,
+      "detail": "A three-panel template from 8 Oct 2016: Escobar staring blankly in a field, a kitchen and an empty pool."
+    },
+    "meaning": "Pablo Escobar alone in three bleak scenes: sad, bored waiting and loneliness.",
+    "useWhen": [
+      "Nobody showed up to the target's event or stream",
+      "Waiting for the target to reply",
+      "The host alone after losing a bet"
+    ],
+    "dontUseWhen": [
+      "Glamorising the real cartel boss"
+    ],
+    "emotion": [
+      "lonely",
+      "bored"
+    ],
+    "intent": [
+      "fake-sad",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://i.imgflip.com/1c1uej.jpg",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=ArMBaiw0uBM",
+        "query": "ytsearch3:pablo escobar waiting meme narcos",
+        "hasAudio": false,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2016-10-08",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/pablo-escobar-waiting",
+        "title": "Know Your Meme: Pablo Escobar Waiting"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-dramatic-chipmunk",
+    "name": "Dramatic Chipmunk",
+    "aliases": [
+      "dramatic chipmunk",
+      "dramatic prairie dog",
+      "dramatic look",
+      "dun dun dun chipmunk"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Hello! Morning (Japanese TV), prairie dog segment",
+      "year": 2007,
+      "detail": "Uploaded as \"Dramatic Look\" on 6 Jun 2007, set to the Young Frankenstein score."
+    },
+    "meaning": "A prairie dog whips its head to the camera with a dramatic music sting: over-the-top shock.",
+    "useWhen": [
+      "The target makes a shocking reveal",
+      "A mock-dramatic reaction to something trivial",
+      "A \"dun dun dunnn\" moment"
+    ],
+    "dontUseWhen": [
+      "Genuinely shocking tragedies"
+    ],
+    "emotion": [
+      "dramatic",
+      "shocked"
+    ],
+    "intent": [
+      "overreact",
+      "shock",
+      "suspense"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=y8Kyi0WNg40",
+        "query": "ytsearch3:dramatic chipmunk original",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2007-06-06",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/dramatic-chipmunk",
+        "title": "Know Your Meme: Dramatic Chipmunk"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-kombucha-girl",
+    "name": "Kombucha Girl",
+    "aliases": [
+      "kombucha girl",
+      "brittany broski",
+      "trying kombucha",
+      "kombucha reaction"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "TikTok by Brittany Tomlinson (@brittanyt445)",
+      "year": 2019,
+      "detail": "Posted 6 Aug 2019: she sips kombucha and flip-flops between disgust and approval."
+    },
+    "meaning": "A woman sips kombucha and flips between disgust and approval: mixed feelings about something.",
+    "useWhen": [
+      "The host tries the target's product or content",
+      "\"It's bad... but kind of good?\"",
+      "A take the host can't decide on"
+    ],
+    "dontUseWhen": [
+      "When the verdict is clearly one-sided"
+    ],
+    "emotion": [
+      "disgusted",
+      "unsure"
+    ],
+    "intent": [
+      "disgust",
+      "confusion"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=d9Ac0w5PccU",
+        "query": "ytsearch3:kombucha girl original tiktok",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/197671929/Kombucha-Girl",
+        "hasAudio": false,
+        "provider": "imgflip"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2019-08-06",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/kombucha-girl-trying-kombucha-for-the-first-time",
+        "title": "Know Your Meme: Kombucha Girl / Trying Kombucha for the First Time"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-shut-up-and-take-my-money",
+    "name": "Shut Up and Take My Money!",
+    "aliases": [
+      "shut up and take my money",
+      "take my money",
+      "futurama fry money"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Futurama, \"Attack of the Killer App\"",
+      "year": 2010,
+      "detail": "Aired 1 Jul 2010: Fry waves cash for the eyePhone."
+    },
+    "meaning": "Fry waving cash: \"Shut up and take my money!\" It is enthusiastic, impulsive buying.",
+    "useWhen": [
+      "Fans blindly buying the target's overpriced merch or course",
+      "An irresistible offer (ironic)",
+      "Money-grab segments"
+    ],
+    "dontUseWhen": [
+      "Real scams that hurt viewers (don't endorse them)"
+    ],
+    "emotion": [
+      "eager",
+      "ironic"
+    ],
+    "intent": [
+      "money",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/Shut-Up-And-Take-My-Money-Fry",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=OnB1TgxgwEA",
+        "query": "ytsearch3:shut up and take my money futurama",
+        "hasAudio": true,
+        "transcript": "Shut up and take my money!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2010-07-01",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/shut-up-and-take-my-money",
+        "title": "Know Your Meme: Shut Up And Take My Money!"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-blinking-white-guy",
+    "name": "Blinking White Guy",
+    "aliases": [
+      "blinking white guy",
+      "blinking guy",
+      "drew scanlon",
+      "double take",
+      "white guy blinking"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Giant Bomb \"Unprofessional Fridays\" (Drew Scanlon)",
+      "year": 2015,
+      "detail": "The episode aired 6 Dec 2013; the GIF was used as a reaction from July 2015."
+    },
+    "meaning": "Drew Scanlon's double-take blink: incredulous disbelief.",
+    "useWhen": [
+      "The target says something unbelievable",
+      "A double-take at a claim",
+      "\"Did they really just say that?\""
+    ],
+    "dontUseWhen": [
+      "When outrage fits better than disbelief"
+    ],
+    "emotion": [
+      "incredulous"
+    ],
+    "intent": [
+      "shock",
+      "confusion"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/96572077/White-guy-blinking",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=8uyTWFUNdxc",
+        "query": "ytsearch3:blinking white guy meme",
+        "hasAudio": false,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2015-07-27",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/blinking-white-guy",
+        "title": "Know Your Meme: Blinking White Guy"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-im-in-danger",
+    "name": "(Chuckles) I'm in Danger",
+    "aliases": [
+      "i'm in danger",
+      "chuckles i'm in danger",
+      "ralph in danger",
+      "ralph wiggum"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Family Guy, \"The Simpsons Guy\" (Ralph Wiggum on the bus)",
+      "year": 2014,
+      "detail": "Aired 28 Sep 2014; a reaction meme from 2018."
+    },
+    "meaning": "Ralph Wiggum chuckling on a bus, \"I'm in danger.\" It means cheerfully realising you're in trouble.",
+    "useWhen": [
+      "The target realises the receipts are out",
+      "The host about to roast someone powerful",
+      "Walking into obvious trouble"
+    ],
+    "dontUseWhen": [
+      "Real danger or violence"
+    ],
+    "emotion": [
+      "nervous",
+      "oblivious"
+    ],
+    "intent": [
+      "scared",
+      "clueless"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "url": "https://imgflip.com/meme/137253445/Chuckles-Im-in-danger",
+        "hasAudio": false,
+        "provider": "imgflip"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=HdKqAVpUOwI",
+        "query": "ytsearch3:ralph wiggum chuckles i'm in danger",
+        "hasAudio": true,
+        "transcript": "I'm in danger.",
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2018",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/ralph-in-danger-im-in-danger",
+        "title": "Know Your Meme: Ralph In Danger / I'm In Danger"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  }
+]

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('../src/lib/ipc', () => ({ api: {}, errorText: (e: unknown) => String(e), fileSrc: (p: string) => p }));
-import { beatGrid, detectBeats, estimateTempo, nearestBeatAfter, onsetEnvelope, snapTimesToBeats } from '../src/lib/beats';
+import { beatGrid, detectBeats, estimateTempo, nearestBeatAfter, nearestDownbeat, onsetEnvelope, snapCutsToBeats, snapTimesToBeats } from '../src/lib/beats';
 import { BUCKETS_PER_SECOND, type Peaks } from '../src/lib/peaks';
+import { clipEnd, newClip, newProject, tracksOf } from '../src/lib/timeline';
+import type { Clip, Comp } from '../src/lib/types';
 
 /** Deterministic pseudo-noise in [-1, 1) — a plain LCG so every run sees the same "recording". */
 const noise = (seed: number) => {
@@ -103,5 +105,83 @@ describe('beat detection', () => {
     expect(grid.score).toBeGreaterThan(0.5);
     // The same clicks read from 0.2 s in: the phase moves to 30 buckets to stay on them.
     expect(beatGrid(envelope.subarray(20), BUCKETS_PER_SECOND, 120).phase).toBe(30);
+  });
+});
+
+describe('snapping cuts to beats (C1: no black gaps at butt cuts)', () => {
+  /** V1: A [0,2] B [2,5] C [5,8], then D alone at [10,12]; each with linked audio on A1. Sources run 20 s from `in` 1. */
+  const edit = () => {
+    const base = newProject().comps[0];
+    const v1 = tracksOf(base, 'video')[0];
+    const a1 = tracksOf(base, 'audio')[0];
+    const clips: Clip[] = [];
+    for (const [id, start, duration] of [['A', 0, 2], ['B', 2, 3], ['C', 5, 3], ['D', 10, 2]] as const) {
+      const source = { type: 'media' as const, assetId: `asset-${id}` };
+      clips.push(newClip({ id, trackId: v1.id, start, duration, in: 1, source, linkId: `link-${id}`, name: id }));
+      clips.push(newClip({ id: `${id}-audio`, trackId: a1.id, start, duration, in: 1, source, linkId: `link-${id}` }));
+    }
+    const comp: Comp = { ...base, clips };
+    return { comp, v1: v1.id, a1: a1.id };
+  };
+  const limit = () => 20;
+  const byId = (comp: Comp, id: string) => comp.clips.find((clip) => clip.id === id)!;
+  const gaps = (comp: Comp, trackId: string) => {
+    const clips = comp.clips.filter((clip) => clip.trackId === trackId).sort((a, b) => a.start - b.start);
+    return clips.slice(1).map((clip, i) => clip.start - clipEnd(clips[i])).filter((gap) => Math.abs(gap) > 1e-6);
+  };
+
+  it('rolls a butt cut onto a beat either side, leaving no gap and linked audio untouched', () => {
+    const { comp, v1, a1 } = edit();
+    // A/B cut at 2 moves late to 2.1; B/C cut at 5 moves early to 4.9.
+    const { comp: next, changes } = snapCutsToBeats(comp, [2.1, 4.9], { tolerance: 0.12, limit });
+    expect(changes.map((c) => [c.clipId, c.edge, c.mode, c.to])).toEqual([['B', 'start', 'roll', 2.1], ['C', 'start', 'roll', 4.9]]);
+    // The only gap on V1 is the one that was always there, before D.
+    expect(gaps(next, v1)).toEqual([2]);
+    expect(clipEnd(byId(next, 'A'))).toBeCloseTo(2.1, 9);
+    expect(byId(next, 'B').start).toBeCloseTo(2.1, 9);
+    expect(byId(next, 'B').in).toBeCloseTo(1.1, 9);
+    expect(clipEnd(byId(next, 'B'))).toBeCloseTo(4.9, 9);
+    expect(byId(next, 'C').start).toBeCloseTo(4.9, 9);
+    expect(byId(next, 'C').in).toBeCloseTo(0.9, 9);
+    expect(clipEnd(byId(next, 'C'))).toBeCloseTo(8, 9);
+    // The audio under the cuts did not move (a J/L split, not a hole).
+    expect(next.clips.filter((clip) => clip.trackId === a1)).toEqual(comp.clips.filter((clip) => clip.trackId === a1));
+  });
+
+  it('holds a cut whose roll would run past the media, instead of opening a gap', () => {
+    const { comp, v1 } = edit();
+    // A's media ends exactly at its out point (in 1 + 2 s = 3 s), so its tail cannot extend to 2.1.
+    const tight = (clip: Clip) => (clip.id === 'A' ? 3 : 20);
+    const { comp: next, changes } = snapCutsToBeats(comp, [2.1], { tolerance: 0.12, limit: tight });
+    expect(changes).toEqual([]);
+    expect(next).toBe(comp);
+    expect(gaps(next, v1)).toEqual([2]);
+  });
+
+  it('trims free edges beside a gap and respects `only`', () => {
+    const { comp } = edit();
+    const { comp: next, changes } = snapCutsToBeats(comp, [8.05, 10.05, 11.9], { tolerance: 0.12, limit });
+    expect(changes.map((c) => [c.clipId, c.edge, c.mode])).toEqual([['C', 'end', 'trim'], ['D', 'start', 'trim'], ['D', 'end', 'trim']]);
+    expect(clipEnd(byId(next, 'C'))).toBeCloseTo(8.05, 9);
+    expect(byId(next, 'D').start).toBeCloseTo(10.05, 9);
+    expect(clipEnd(byId(next, 'D'))).toBeCloseTo(11.9, 9);
+    const onlyB = snapCutsToBeats(comp, [2.1, 4.9, 10.05], { tolerance: 0.12, limit, only: new Set(['B']) });
+    // B's head and tail are butt cuts, so both roll; D is not listed and stays.
+    expect(onlyB.changes.map((c) => c.clipId)).toEqual(['B', 'C']);
+    expect(byId(onlyB.comp, 'D').start).toBe(10);
+  });
+
+  it('leaves cuts already on the beat, out of tolerance, or at zero alone', () => {
+    const { comp } = edit();
+    expect(snapCutsToBeats(comp, [0.05, 2.01, 5.5], { tolerance: 0.12, limit }).changes).toEqual([]);
+  });
+});
+
+describe('downbeats for stingers', () => {
+  it('finds the nearest bar line', () => {
+    expect(nearestDownbeat(3.1, [0, 2, 4, 6])).toBe(4);
+    expect(nearestDownbeat(2.9, { downbeats: [0, 2, 4, 6] })).toBe(2);
+    expect(nearestDownbeat(2.9, [0, 2, 4, 6], 0.5)).toBeNull();
+    expect(nearestDownbeat(1, [])).toBeNull();
   });
 });

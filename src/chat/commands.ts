@@ -4,6 +4,7 @@
 // than not offering it, because the panel is a promise about what the chat can do.
 import { TOOL_SPECS } from '../lib/aiTools';
 import { EFFORTS, PERMISSION_MODES, type Effort, type PermissionMode } from '../lib/permissions';
+import { STYLES, findStyle, type StyleId } from '../lib/styles';
 
 export type CommandGroup = 'Chat' | 'Project' | 'Settings';
 
@@ -35,6 +36,9 @@ export type CommandContext = {
   references: { id: string; name: string; pack: string | null; cutEvery: number }[];
   /** Edits from here on follow that reference; its guideline goes into every turn's context. */
   useReference: (id: string) => void;
+  /** The edit style every turn works in (`@funny`), or null for none — src/lib/styles.ts. */
+  editStyle: StyleId | null;
+  setStyle: (id: StyleId | null) => void;
   canRevert: boolean;
 };
 
@@ -158,6 +162,30 @@ export const COMMANDS: Command[] = [
         return;
       }
       context.useReference(found.id);
+    },
+  },
+  {
+    name: '/style',
+    args: 'id|off',
+    summary: 'Edit in a style until you turn it off — @funny: roast / meme edit',
+    group: 'Project',
+    options: () => [...STYLES.map((style) => style.id), 'off'],
+    run: (context, argument) => {
+      const wanted = argument.trim().toLowerCase();
+      if (!wanted) {
+        const lines = STYLES.map((style) => `· **${style.label}** — ${style.description}${style.id === context.editStyle ? ' (on)' : ''}`);
+        context.say(`Edit styles:\n\n${lines.join('\n')}\n\nUse \`/style <id>\` or type \`@${STYLES[0].id}\` to switch one on, \`/style off\` to go back to the house style.`);
+        return;
+      }
+      if (['off', 'none', 'clear'].includes(wanted)) {
+        if (!context.editStyle) context.say('No edit style is on.');
+        context.setStyle(null);
+        return;
+      }
+      const style = findStyle(wanted);
+      // No message on success: the chip above the composer says so, as it does for a reference.
+      if (style) context.setStyle(style.id);
+      else context.say(`There is no "${argument.trim()}" style. Styles: ${STYLES.map((item) => item.label).join(', ')}.`);
     },
   },
   {

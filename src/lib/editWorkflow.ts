@@ -1,4 +1,5 @@
 import { describeUncovered, uncoveredSpans } from './coverage';
+import { councilMember, councilReview } from './council';
 import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } from './types';
 import { compDuration } from './timeline';
 
@@ -109,6 +110,9 @@ const preparation = new Set([
   'run_command',
   'bash',
   'download_online_media',
+  // Licence-clear search in PLAN; its downloads are held to GATHER by the phase gate.
+  'find_free_media',
+  'consult_council',
   // Bringing files into the bin never touches the timeline: it must not wait on transcription.
   'import_media',
   'organize_bin',
@@ -171,6 +175,20 @@ const preparation = new Set([
   'attach_production_asset',
   'finish_gathering',
   'analyze_music_beats',
+  // @funny planning: the beat sheet, meme and sound research, receipts, faces and the EDL check
+  // change the plan or the libraries, never the timeline. get_meme_media and cutout_image make
+  // media, so the phase gate still holds them to GATHER.
+  'save_beat_sheet',
+  'search_memes',
+  'refresh_meme_trends',
+  'save_meme',
+  'get_meme_media',
+  'find_receipt',
+  'search_sfx',
+  'cutout_image',
+  'detect_faces',
+  'validate_roast_edl',
+  'edit_dna',
 ]);
 const timing = (comp: Comp) => JSON.stringify([comp.fps, comp.clips.map(c => [c.id, c.trackId, c.source, c.start, c.in, c.duration, c.speed, c.reverse, c.hold, c.enabled])]);
 
@@ -189,6 +207,9 @@ const GATHER_TOOLS = new Set([
   'erase_subject_clip',
   'attach_production_asset',
   'finish_gathering',
+  // @funny: a meme clip and a cut-out photo are gathered media like any download.
+  'get_meme_media',
+  'cutout_image',
 ]);
 
 /** `generate_local_media` tasks the "disable local generation" setting turns off — image and
@@ -235,10 +256,17 @@ const ALWAYS_TOOLS = new Set([
   'list_custom_tools',
   'list_subagents',
   'wait_subagent',
+  'consult_council',
   'local_media_capabilities',
   'ask_user',
   'set_playhead',
   'analyze_music_beats',
+  // @funny reads: the libraries, captions and the measured edit.
+  'search_memes',
+  'find_receipt',
+  'search_sfx',
+  'validate_roast_edl',
+  'edit_dna',
 ]);
 
 const isPlanTool = (name: string) => name === 'save_storyboard' || name === 'save_video_blueprint';
@@ -439,7 +467,7 @@ export class EditWorkflow {
     if (this.closedPhase === 'gather') return 'Gathering is finished and this phase is closed. Do not call more tools: end your turn with a short summary of what was gathered. The user presses Start editing.';
     const phase = comp.production?.phase ?? null;
     const gatherMedia = name === 'online_research' && args.gatherMedia === true;
-    const scrapeMedia = name === 'scrape_web_page' && args.downloadVideos === true;
+    const scrapeMedia = (name === 'scrape_web_page' && args.downloadVideos === true) || (name === 'find_free_media' && args.download === true);
     if (name === 'run_command' || name === 'bash') return null;
     if (phase === null) {
       // No plan saved yet: media gathering waits for one; timeline tools fall through to the
@@ -471,7 +499,7 @@ export class EditWorkflow {
     }
     if (phase === 'gathered') {
       if (name === 'attach_production_asset') return null;
-      if (GATHER_TOOLS.has(name) || !preparation.has(name)) return 'Everything is gathered and the plan is waiting for the user to press Start editing. End your turn.';
+      if (GATHER_TOOLS.has(name) || scrapeMedia || !preparation.has(name)) return 'Everything is gathered and the plan is waiting for the user to press Start editing. End your turn.';
       return null;
     }
     return null;
@@ -528,6 +556,8 @@ export class EditWorkflow {
     if ((name === 'save_storyboard' || name === 'save_video_blueprint') && comp.production?.phase === 'plan-ready') this.closedPhase = 'plan';
     if (name === 'finish_gathering' && comp.production?.phase === 'gathered') this.closedPhase = 'gather';
     if (name === 'run_frame_qa') this.qaAtAction = this.actions.length;
+    // An @funny beat sheet is a timed plan of the current timeline, like a storyboard.
+    if (name === 'save_beat_sheet') this.planned = timing(comp);
     if (name === 'save_storyboard') {
       this.planned = timing(comp);
       const scenes = Array.isArray(args.scenes) ? (args.scenes as StoryboardSceneInput[]) : [];
@@ -627,6 +657,11 @@ export class EditWorkflow {
     // Picture scaled down, moved or cropped with nothing behind it renders black at the edges.
     const uncovered = assets ? uncoveredSpans(project, assets, comp) : [];
     if (uncovered.length) return { ok: false, error: `Black frame edges: ${describeUncovered(uncovered, comp, project, assets)} Fix them, then verify again.` };
+    // The council signs the cut off: a blocking note from any seat is unfinished work.
+    if (this.mode === 'full' && assets) {
+      const holds = councilReview(project, assets, comp).notes.filter((note) => note.severity === 'block');
+      if (holds.length) return { ok: false, error: `The council holds the cut. Fix these, then consult_council and verify again:\n${holds.map((note) => `- ${councilMember(note.member)?.name}: ${note.text} → ${note.fix}`).join('\n')}` };
+    }
     this.finished = true;
     this.verifiedSnapshot = JSON.stringify(comp);
     return { ok: true, summary: 'Workflow receipts and timeline structure checked. This does not verify rendered frames, matte quality, music quality or unsupported model features.', workflow: this.status(project) };

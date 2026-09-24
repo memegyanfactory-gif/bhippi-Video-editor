@@ -296,7 +296,10 @@ fn plan(message: &str, context: &Value) -> Plan {
                 .to_owned(),
         );
     }
-    if lowered.contains("help") || lowered.contains("what can you do") {
+    // A roast / meme edit is a whole pipeline (beat sheet, meme research, receipts), not a command:
+    // say what the @funny style does and that it needs a model, unless the message also held edits.
+    let funny = asks_for_funny(message, context);
+    if !funny && (lowered.contains("help") || lowered.contains("what can you do")) {
         return Plan::Reply(HELP.to_owned());
     }
 
@@ -434,7 +437,23 @@ fn plan(message: &str, context: &Value) -> Plan {
             steps.push(call("add_text", Value::Object(args), format!("Added {noun} “{body}”{when}")));
         }
     }
+    let edits = steps.iter().any(|step| matches!(step, Step::Call { .. } | Step::SoundAtCuts { .. } | Step::Remove { .. }));
+    if funny && !edits {
+        return Plan::Reply(FUNNY.to_owned());
+    }
     Plan::Steps(steps)
+}
+
+/// Words that ask for the @funny style (src/lib/styles.ts), outside any quoted text — a title
+/// that says "funny" is a title — or the style already switched on in the chat.
+fn asks_for_funny(message: &str, context: &Value) -> bool {
+    const WORDS: &[&str] = &["funny", "roast", "roasting", "meme", "memes", "comedy", "comedic", "mazedaar", "mazaak"];
+    let mut unquoted = message.to_lowercase();
+    for text in quoted(message).iter().filter(|text| !text.trim().is_empty()) {
+        unquoted = unquoted.replace(&text.to_lowercase(), " ");
+    }
+    let styled = context.get("editStyle").and_then(Value::as_str).is_some_and(|style| style.trim_start_matches('@').eq_ignore_ascii_case("funny"));
+    styled || unquoted.split(|c: char| !c.is_alphanumeric()).any(|word| WORDS.contains(&word))
 }
 
 const COMMAND_LIST: &str = "- `add title \"Text\" at 1s for 3s` (also: kinetic, lower third, caption)\n\
@@ -445,6 +464,13 @@ const COMMAND_LIST: &str = "- `add title \"Text\" at 1s for 3s` (also: kinetic, 
 - `remove last title` · `remove all sounds` · `undo`\n\
 - `rename \"Goa trip\"`\n\
 - `caption style Hormozi` (any style from Graphics › Caption styles)";
+
+const FUNNY: &str = "That's a job for **@funny**, Helios' roast / meme edit style. Type `@funny` in the chat (or `/style funny`) and \
+Helios AI edits your recording like a roast channel: it keys your green screen, reads the transcript for setups and punchlines, \
+finds memes that echo your words and the target's own clips as receipts, lands each one on the punchline with keyword text, \
+cut-outs, stickers and a sound on every entry, then checks the pacing against a professional roast edit.\n\n\
+Planning the jokes and researching the memes needs an AI model, so pick a provider (Claude, Codex, Gemini, Ollama or another) \
+from the model menu below first. Offline I can still make direct edits: `add whoosh at 2s`, `add title \"BRUH\" at 4s`, `split at 4.5s`.";
 
 const HELP: &str = "Here's what I can do offline:\n\n\
 - `add title \"Text\" at 1s for 3s` (also: kinetic, lower third, caption)\n\
@@ -540,6 +566,22 @@ mod tests {
         assert_eq!(executor.calls.lock().expect("calls")[3], ("delete_clips".to_owned(), json!({"clipIds": ["t"]})));
         assert_eq!(reply.lines().count(), 2, "{reply}");
         assert!(reply.contains("Couldn't do that (Added pop at 2.00s): no such thing"), "{reply}");
+    }
+
+    #[test]
+    fn a_roast_request_explains_the_funny_style_and_that_it_needs_a_model() {
+        for message in ["make this funny", "@funny roast this video", "Roast him with memes and cut on the beat", "help me with a meme edit"] {
+            let Plan::Reply(reply) = plan(message, &json!({})) else {
+                panic!("{message} is a style request, not an edit");
+            };
+            assert!(reply.contains("@funny") && reply.contains("provider"), "{reply}");
+        }
+        // With the style on, a message with no command gets the same answer…
+        assert!(matches!(plan("make it better", &json!({"editStyle": "funny"})), Plan::Reply(reply) if reply.contains("@funny")));
+        // …but real edits still run, and a quoted "funny" is just a title.
+        assert_eq!(calls("@funny add whoosh at 2s", &json!({})), vec![("add_sound_effect", json!({"kind": "whoosh", "start": 2.0}))]);
+        assert_eq!(calls("add title \"so funny\" at 1s", &json!({})), vec![("add_text", json!({"text": "so funny", "preset": "title", "duration": 2.5, "start": 1.0}))]);
+        assert!(matches!(plan("help", &json!({})), Plan::Reply(reply) if reply.starts_with("Here's what I can do offline")));
     }
 
     #[tokio::test]

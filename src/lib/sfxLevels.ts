@@ -7,7 +7,21 @@ import type { Comp, SfxKind, Track } from './types';
 /** Linear gain per kind (a whoosh reads at −16 dB; a pop or chime quieter; a riser sits low). */
 export const SFX_GAIN: Record<SfxKind, number> = SFX_DEFAULT_GAIN;
 
-export const SFX_GAIN_DB: Record<SfxKind, number> = { whoosh: -16, impact: -14, pop: -18, chime: -18, riser: -20 };
+/**
+ * The same in dB. The @funny kinds are set from their measured loudness (all peak at −1.5 dBTP):
+ * boom −13 LUFS raw → −14 dB, the loudest of them (≈ −27 LUFS); scratch −6 → −20; bleep (a full
+ * sine, −4.6) → −18, just under the voice it replaces; swish, ding −16; glitch −18.
+ */
+export const SFX_GAIN_DB: Record<SfxKind, number> = { whoosh: -16, impact: -14, pop: -18, chime: -18, riser: -20, boom: -14, scratch: -20, bleep: -18, swish: -16, ding: -16, glitch: -18 };
+
+/**
+ * Sampled sounds from the SFX library arrive normalised to −16 LUFS (sfx_library.rs). Meme and
+ * voice sounds ("bruh", a vine boom, a laugh) are the joke itself and sit higher than seasoning.
+ */
+export function sampleSfxDb(tags: readonly string[] = []): number {
+  const loud = tags.some((tag) => /^(meme|voice|vocal|reaction|punchline|laugh|funny|comedy)$/i.test(tag));
+  return loud ? -10 : -14;
+}
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 

@@ -644,6 +644,12 @@ const EFFECTS: { kind: SfxKind; hint: string }[] = [
   { kind: 'pop', hint: 'Light tick for text and stickers' },
   { kind: 'chime', hint: 'Bright accent for wins and endings' },
   { kind: 'riser', hint: 'Builds tension into a drop' },
+  { kind: 'boom', hint: 'Vine boom — lands a punchline' },
+  { kind: 'scratch', hint: 'Record scratch — freeze frame, wait what' },
+  { kind: 'bleep', hint: 'Censor bleep — trim it to the word' },
+  { kind: 'swish', hint: 'Short bright swoosh for slides and pops' },
+  { kind: 'ding', hint: 'Bell — correct, idea, notification' },
+  { kind: 'glitch', hint: 'Digital stutter for glitch cuts' },
 ];
 
 function AudioTab({ onAddSfx, onDragStart, project, assets }: Props) {

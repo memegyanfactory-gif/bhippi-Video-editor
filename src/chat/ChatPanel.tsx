@@ -1,7 +1,7 @@
 import { modelVariants, variantModel } from '../lib/modelVariants';
 import { speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Paperclip, RotateCcw, Wand2, X } from 'lucide-react';
+import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Laugh, Paperclip, RotateCcw, Wand2, X } from 'lucide-react';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { ModelPicker } from '../components/ModelPicker';
@@ -21,7 +21,9 @@ import { handoffFor, historyFor } from './handoff';
 import { copyText } from '../lib/clipboard';
 import { uid } from '../lib/editor';
 import { api, errorText, events, type ReferenceFilm } from '../lib/ipc';
+import { findStyle, styleInMessage, stylesMatching, type StyleDef, type StyleId } from '../lib/styles';
 import { actionLogger } from '../lib/actionLogger';
+import { avatarBus } from '../avatar/bus';
 import type { TurnOutcome } from '../lib/ideagraph';
 import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 
@@ -67,6 +69,9 @@ export type ChatMessage =
 
 type Assistant = Extract<ChatMessage, { role: 'assistant' }>;
 
+/** One row of the `@` list: an edit style, or a reference film. */
+type MentionHit = { kind: 'style'; style: StyleDef } | { kind: 'reference'; ref: ReferenceFilm };
+
 /**
  * The hidden note a retry sends with the prompt again. A turn that got somewhere is continued, not
  * restarted: the transcript already holds every completed edit, so resending the bare prompt
@@ -102,6 +107,9 @@ type Props = {
   onClear?: () => void;
   /** The reference edits should follow from here on, or null to stop following one. */
   onReference: (id: string | null) => void;
+  /** The edit style every turn works in until it is cleared (`@funny`, src/lib/styles.ts), and the setter. */
+  editStyle: StyleId | null;
+  onStyle: (id: StyleId | null) => void;
   /** A question the assistant is waiting on, and the answer going back to it. */
   ask: { question: string; options: string[]; context: string | null } | null;
   /** How many are waiting, so the card can say which one this is. */
@@ -422,6 +430,8 @@ export function ChatPanel(props: Props) {
             const lost = new Set(absent.filter((item) => missing.current.has(item.turnId)).map((item) => item.turnId));
             missing.current = new Set(absent.map((item) => item.turnId));
             if (lost.size === 0) return items;
+            // The avatar stops with the transcript (telling it twice is harmless).
+            for (const turnId of lost) avatarBus.turn(turnId, false, 'failed');
             return items.map((item) =>
               item.role === 'assistant' && lost.has(item.turnId)
                 ? {
@@ -613,6 +623,10 @@ export function ChatPanel(props: Props) {
       return;
     }
     const { providerId, getContext } = propsRef.current;
+    // "@funny" typed into a message switches the style on. The host's context is a render behind
+    // the state change, so this send carries the style itself.
+    const tagged = styleInMessage(message);
+    if (tagged && tagged.id !== propsRef.current.editStyle) propsRef.current.onStyle(tagged.id);
     const providerModels=propsRef.current.providers.find(p=>p.id===providerId)?.models||[];
     const model=variantModel(providerModels,propsRef.current.model,propsRef.current.effort);
     const turnId = uid();
@@ -635,7 +649,7 @@ export function ChatPanel(props: Props) {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
-      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), editingWorkflow: mode, workflowInstruction: 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.' } });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), editingWorkflow: mode, workflowInstruction: 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.' } });
       setImages([]);
     } catch (error) {
       actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
@@ -691,7 +705,10 @@ export function ChatPanel(props: Props) {
    */
   const stop = (note?: string) => {
     for (const message of messages) {
-      if (message.role === 'assistant' && message.status === 'streaming') void api.chatStop(message.turnId).catch(() => undefined);
+      if (message.role !== 'assistant' || message.status !== 'streaming') continue;
+      void api.chatStop(message.turnId).catch(() => undefined);
+      // The avatar stops the moment the user does, not when (or if) the backend's closing event arrives.
+      avatarBus.turn(message.turnId, false, 'stopped');
     }
     setMessages((items) =>
       items.map((item) =>
@@ -811,6 +828,8 @@ export function ChatPanel(props: Props) {
     awesome: props.awesome,
     references: references.map((item) => ({ id: item.id, name: item.name, pack: item.pack, cutEvery: item.cutEvery })),
     useReference: (id) => attachReference(id),
+    editStyle: props.editStyle,
+    setStyle: (id) => props.onStyle(id),
     canRevert: !!lastTurn && props.canRevert(lastTurn.turnId),
   };
 
@@ -823,26 +842,36 @@ export function ChatPanel(props: Props) {
   /**
    * `@` attaches a reference, the way `@` attaches a file everywhere else. It is deliberately not
    * `/ref`: a slash command runs and is over, while an attachment stays on the conversation, and
-   * the gesture should say which of the two is happening.
+   * the gesture should say which of the two is happening. Edit styles (`@funny`) are offered first:
+   * one stays on for every turn until its chip is cleared.
    */
   const mention = (() => {
     const match = /(^|\s)@([\w-]*)$/.exec(draft);
     if (!match || commandsHidden) return null;
     const query = match[2].toLowerCase();
-    const hits = references.filter((item) => item.name.toLowerCase().startsWith(query));
+    const hits: MentionHit[] = [
+      ...stylesMatching(query).map((style) => ({ kind: 'style' as const, style })),
+      ...references.filter((item) => item.name.toLowerCase().startsWith(query)).map((ref) => ({ kind: 'reference' as const, ref })),
+    ];
     return hits.length ? { at: match.index + match[1].length, query, hits } : null;
   })();
 
-  /** Puts `@name ` in the draft and attaches it, leaving the caret ready to keep typing. */
+  /** Puts `@name ` in the draft and attaches it (or switches the style on), leaving the caret ready to keep typing. */
   const pickMention = (index: number) => {
     if (!mention) return;
     const found = mention.hits[index];
     if (!found) return;
-    setDraft(`${draft.slice(0, mention.at)}@${found.name} `);
-    attachReference(found.id);
+    if (found.kind === 'style') {
+      setDraft(`${draft.slice(0, mention.at)}${found.style.label} `);
+      props.onStyle(found.style.id);
+    } else {
+      setDraft(`${draft.slice(0, mention.at)}@${found.ref.name} `);
+      attachReference(found.ref.id);
+    }
     setCommandRow(0);
     inputRef.current?.focus();
   };
+  const activeStyle = findStyle(props.editStyle);
 
   // ── the command panel ────────────────────────────────────────────────────
   const match = commandsHidden ? null : matchCommands(draft);
@@ -1039,28 +1068,43 @@ export function ChatPanel(props: Props) {
       >
         {props.awesome && streaming && <ComposerStreak />}
         {mention && (
-          <div className="cmd-panel" role="listbox" aria-label="Attach a reference">
-            <div className="cmd-group">Reference</div>
-            {mention.hits.map((item, index) => (
-              <button
-                key={item.id}
-                type="button"
-                role="option"
-                aria-selected={index === Math.min(commandRow, mention.hits.length - 1)}
-                className={`cmd-row${index === Math.min(commandRow, mention.hits.length - 1) ? ' active' : ''}`}
-                onMouseEnter={() => setCommandRow(index)}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  pickMention(index);
-                }}
-              >
-                <span className="cmd-name">@{item.name}</span>
-                <span className="cmd-summary">
-                  {item.pack ?? 'reference'}
-                  {item.seconds > 0 ? ` · ${Math.round(item.seconds)}s, a cut every ${item.cutEvery.toFixed(1)}s` : ''}
-                </span>
-              </button>
-            ))}
+          <div className="cmd-panel" role="listbox" aria-label="Choose an edit style or attach a reference">
+            {mention.hits.map((item, index) => {
+              const active = index === Math.min(commandRow, mention.hits.length - 1);
+              // One heading per kind, at its first row; the rows keep one running index for the arrows.
+              const heading = index === 0 || mention.hits[index - 1].kind !== item.kind ? (item.kind === 'style' ? 'Style' : 'Reference') : null;
+              return (
+                <div key={item.kind === 'style' ? `style:${item.style.id}` : `ref:${item.ref.id}`} className="cmd-section">
+                  {heading && <div className="cmd-group">{heading}</div>}
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={`cmd-row${active ? ' active' : ''}`}
+                    onMouseEnter={() => setCommandRow(index)}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      pickMention(index);
+                    }}
+                  >
+                    {item.kind === 'style' ? (
+                      <>
+                        <span className="cmd-name">{item.style.label}<span className="cmd-args"> style</span></span>
+                        <span className="cmd-summary">{item.style.description}{item.style.id === props.editStyle ? ' · on' : ''}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="cmd-name">@{item.ref.name}</span>
+                        <span className="cmd-summary">
+                          {item.ref.pack ?? 'reference'}
+                          {item.ref.seconds > 0 ? ` · ${Math.round(item.ref.seconds)}s, a cut every ${item.ref.cutEvery.toFixed(1)}s` : ''}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
         {panelOpen && !mention && (
@@ -1079,6 +1123,14 @@ export function ChatPanel(props: Props) {
             <span className="attached-name">{attached.name}</span>
             <span className="attached-detail">{attached.pack ?? 'reference'}{attached.seconds > 0 ? ` · a cut every ${attached.cutEvery.toFixed(1)}s` : ''}</span>
             <button type="button" onClick={() => attachReference(null)} aria-label="Detach reference"><X size={11} /></button>
+          </div>
+        )}
+        {activeStyle && (
+          <div className="attached-ref attached-style" title="Every turn edits in this style until you clear it">
+            <Laugh size={11} />
+            <span className="attached-name">{activeStyle.label}</span>
+            <span className="attached-detail">{activeStyle.description}</span>
+            <button type="button" onClick={() => props.onStyle(null)} aria-label={`Turn off the ${activeStyle.label} style`}><X size={11} /></button>
           </div>
         )}
         <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={e=>{void addImages(Array.from(e.target.files||[]));e.target.value='';}} />

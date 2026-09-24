@@ -30,6 +30,7 @@ mod roto;
 mod settings;
 mod speech;
 mod sfx;
+mod sfx_library;
 mod store;
 mod subtitles;
 mod tools;
@@ -37,6 +38,10 @@ mod transcribe;
 mod typesafe;
 mod updater;
 mod web_media;
+mod receipts;
+mod memes;
+mod free_media;
+mod frame_sink;
 mod system_tools;
 mod subagent;
 mod safe_asset;
@@ -44,6 +49,7 @@ mod storyboard;
 mod storage;
 mod watchdog;
 mod bundle;
+mod cutout;
 #[cfg(windows)]
 mod window_icon;
 
@@ -62,12 +68,49 @@ use crate::tools::{ToolStatus, Tools};
 use helios_providers::detect::ApiKeys;
 use helios_providers::{ProviderInfo, ProviderKind, CATALOG};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 const PROVIDERS_EVENT: &str = "helios://providers";
+/// Settings the backend changed itself, so the UI's copy never saves an older one over them.
+const SETTINGS_EVENT: &str = "helios://settings";
+
+/// A chat turn that is still running: how to stop it, and the provider and model it answers
+/// with, which its subagents use too.
+struct TurnHandle {
+    stop: tokio::sync::watch::Sender<bool>,
+    row: ProviderInfo,
+    model: Option<String>,
+}
+
+/// Orders project autosaves that run on the blocking pool. Each save takes the next number when
+/// it arrives, and its write goes ahead only if no later save has been written already, so a
+/// slow older snapshot is never renamed over a newer current.json.
+#[derive(Default)]
+struct SaveGate {
+    issued: std::sync::atomic::AtomicU64,
+    /// The newest save written so far. Held across a write, so two writes never interleave.
+    written: Mutex<u64>,
+}
+
+impl SaveGate {
+    fn ticket(&self) -> u64 {
+        self.issued.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+    }
+
+    /// Runs `write` for `ticket`, or skips it (successfully) when a newer save got there first.
+    fn write(&self, ticket: u64, write: impl FnOnce() -> CommandResult<()>) -> CommandResult<()> {
+        let mut written = self.written.lock().map_err(lock_error)?;
+        if *written > ticket {
+            return Ok(());
+        }
+        write()?;
+        *written = ticket;
+        Ok(())
+    }
+}
 
 pub struct AppState {
     paths: Paths,
@@ -77,7 +120,11 @@ pub struct AppState {
     providers: RwLock<Vec<ProviderInfo>>,
     detecting: tokio::sync::Mutex<()>,
     provider_maintenance: Mutex<bool>,
-    turns: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
+    turns: Mutex<HashMap<String, TurnHandle>>,
+    /// Assets whose thumbnails, waveform and proxy are being made right now; one job each.
+    preparing: Arc<Mutex<HashSet<String>>>,
+    /// Orders autosaves that finish out of order (see `project_save`).
+    saves: SaveGate,
     /// Tool calls the UI is running for chat turns, waiting on `chat_tool_result`.
     tool_calls: Arc<PendingCalls>,
     /// The loopback listener CLI agents' MCP bridges connect to; `None` if it could not bind.
@@ -89,6 +136,8 @@ pub struct AppState {
     subagents: Arc<subagent::Supervisor>,
     /// Where project files go (storage.rs): the default root and the open project's name.
     storage: storage::Storage,
+    /// The loopback endpoint export frames are PUT to (frame_sink.rs), started on first use.
+    frame_sink: tokio::sync::Mutex<Option<frame_sink::FrameSink>>,
 }
 
 type CommandResult<T> = Result<T, String>;
@@ -115,6 +164,17 @@ impl AppState {
 
     fn settings(&self) -> Settings {
         self.settings.lock().map(|settings| settings.clone()).unwrap_or_default()
+    }
+
+    /// Changes settings and writes them while holding the lock, so two writers never leave the
+    /// file and memory out of step. Nothing changes when the write fails. Answers with the result.
+    fn update_settings(&self, change: impl FnOnce(&mut Settings)) -> CommandResult<Settings> {
+        let mut settings = self.settings.lock().map_err(lock_error)?;
+        let mut next = settings.clone();
+        change(&mut next);
+        store::write_json(&self.paths.settings_file(), &next)?;
+        *settings = next.clone();
+        Ok(next)
     }
 
     /// The Roto folder a run lives in: the open project's, or wherever an older run already is.
@@ -171,9 +231,11 @@ fn settings_get(state: State<'_, Arc<AppState>>) -> Settings {
 
 #[tauri::command]
 async fn settings_save(state: State<'_, Arc<AppState>>, settings: Settings) -> CommandResult<Settings> {
-    let ffmpeg_changed = state.settings().ffmpeg_path != settings.ffmpeg_path;
-    store::write_json(&state.paths.settings_file(), &settings)?;
-    *state.settings.lock().map_err(lock_error)? = settings.clone();
+    let mut ffmpeg_changed = false;
+    state.update_settings(|current| {
+        ffmpeg_changed = current.ffmpeg_path != settings.ffmpeg_path;
+        *current = settings.clone();
+    })?;
     if ffmpeg_changed {
         let tools = tools::resolve(settings.ffmpeg_path.as_deref()).await;
         *state.tools.write().map_err(lock_error)? = tools;
@@ -212,29 +274,23 @@ fn open_url(app: AppHandle, url: String) -> CommandResult<()> {
 
 // ───────────────────────────── library ─────────────────────────────
 
+/// Read-only: media that still needs derived files gets them from the startup backfill, not
+/// here — this runs on every library event, and starting jobs from it looped.
 #[tauri::command]
-fn library_list(app: AppHandle, state: State<'_, Arc<AppState>>) -> Vec<Asset> {
-    let items: Vec<Asset> = state
-        .library
-        .lock()
-        .map(|items| {
-            items
-                .iter()
-                .cloned()
-                .map(|mut asset| {
-                    asset.missing = !Path::new(&asset.path).is_file();
-                    asset
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    // Media imported before a derived file existed gets it now, rather than only on re-import.
-    for asset in &items {
-        if !asset.missing && asset.has_audio && asset.peaks.is_none() {
-            prepare_media(app.clone(), state.inner().clone(), asset.clone());
-        }
-    }
-    items
+async fn library_list(state: State<'_, Arc<AppState>>) -> CommandResult<Vec<Asset>> {
+    let items: Vec<Asset> = state.library.lock().map(|items| items.clone()).unwrap_or_default();
+    // A file on a sleeping drive or an offline share can take seconds to stat.
+    tauri::async_runtime::spawn_blocking(move || {
+        items
+            .into_iter()
+            .map(|mut asset| {
+                asset.missing = !Path::new(&asset.path).is_file();
+                asset
+            })
+            .collect()
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[derive(Serialize)]
@@ -382,8 +438,44 @@ async fn library_adopt(app: AppHandle, state: State<'_, Arc<AppState>>, assets: 
     Ok(mapping)
 }
 
+/// One asset's place in `AppState::preparing`, given back when dropped — also when the job
+/// panics or returns early.
+struct Preparing {
+    set: Arc<Mutex<HashSet<String>>>,
+    id: String,
+}
+
+impl Preparing {
+    /// `None` when that asset is already being prepared.
+    fn claim(set: &Arc<Mutex<HashSet<String>>>, id: &str) -> Option<Self> {
+        set.lock().ok()?.insert(id.to_owned()).then(|| Self { set: set.clone(), id: id.to_owned() })
+    }
+}
+
+impl Drop for Preparing {
+    fn drop(&mut self) {
+        if let Ok(mut set) = self.set.lock() {
+            set.remove(&self.id);
+        }
+    }
+}
+
+/// Copies what `derive` made onto the library's entry. Everything else in the entry may have
+/// changed while it ran, so only the derived files and the preview state are taken.
+fn merge_derived(slot: &mut Asset, derived: &Asset) {
+    slot.thumbnail.clone_from(&derived.thumbnail);
+    slot.filmstrip.clone_from(&derived.filmstrip);
+    slot.waveform.clone_from(&derived.waveform);
+    slot.peaks.clone_from(&derived.peaks);
+    slot.proxy.clone_from(&derived.proxy);
+    slot.preview.clone_from(&derived.preview);
+}
+
 /// Thumbnails, filmstrip, waveform and proxy, in the background with visible progress.
+/// One job per asset at a time: import, relink and the startup backfill can all ask at once,
+/// and two FFmpeg runs encoding one proxy file leave it corrupt.
 fn prepare_media(app: AppHandle, state: Arc<AppState>, asset: Asset) {
+    let Some(claim) = Preparing::claim(&state.preparing, &asset.id) else { return };
     tauri::async_runtime::spawn(async move {
         let job = state.jobs.start("media", format!("Preparing {}", asset.name), false);
         let tools = state.tools();
@@ -392,12 +484,20 @@ fn prepare_media(app: AppHandle, state: Arc<AppState>, asset: Asset) {
         })
         .await;
         allow_asset(&app, &derived);
+        let mut relinked = None;
         let saved = state.library.lock().map_err(lock_error).and_then(|mut items| {
-            if let Some(slot) = items.iter_mut().find(|item| item.id == derived.id) {
-                *slot = derived.clone();
+            match items.iter_mut().find(|item| item.id == derived.id) {
+                Some(slot) if slot.path == derived.path => merge_derived(slot, &derived),
+                // Pointed at another file while this ran: what was made belongs to the old one.
+                Some(slot) => relinked = Some(slot.clone()),
+                None => {}
             }
             state.save_library(&items)
         });
+        drop(claim);
+        if let Some(current) = relinked {
+            prepare_media(app.clone(), state.clone(), current);
+        }
         let _ignored = app.emit(LIBRARY_EVENT, ());
         match saved {
             Ok(()) if derived.preview == "failed" => job.fail("Could not build a preview; export still uses the original"),
@@ -452,14 +552,11 @@ fn mcp_servers(state: State<'_, Arc<AppState>>) -> Vec<mcp_client::Status> {
 /// Adds or replaces a server, connects to it, and returns what it can do.
 #[tauri::command]
 async fn mcp_add(app: AppHandle, state: State<'_, Arc<AppState>>, server: mcp_client::Server) -> CommandResult<mcp_client::Status> {
-    {
-        let mut settings = state.settings.lock().map_err(lock_error)?;
+    let saved = state.update_settings(|settings| {
         settings.mcp_servers.retain(|item| item.id != server.id);
         settings.mcp_servers.push(server.clone());
-        let saved = settings.clone();
-        drop(settings);
-        store::write_json(&state.paths.settings_file(), &saved)?;
-    }
+    })?;
+    let _ignored = app.emit(SETTINGS_EVENT, &saved);
     let hub = state.mcp_out.clone();
     // Starting a process and waiting on its handshake must not blockrendering.
     let status = tauri::async_runtime::spawn_blocking(move || hub.connect(&server))
@@ -471,13 +568,8 @@ async fn mcp_add(app: AppHandle, state: State<'_, Arc<AppState>>, server: mcp_cl
 
 #[tauri::command]
 fn mcp_remove(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> CommandResult<()> {
-    {
-        let mut settings = state.settings.lock().map_err(lock_error)?;
-        settings.mcp_servers.retain(|item| item.id != id);
-        let saved = settings.clone();
-        drop(settings);
-        store::write_json(&state.paths.settings_file(), &saved)?;
-    }
+    let saved = state.update_settings(|settings| settings.mcp_servers.retain(|item| item.id != id))?;
+    let _ignored = app.emit(SETTINGS_EVENT, &saved);
     state.mcp_out.disconnect(&id);
     let _ignored = app.emit("helios://connections", ());
     Ok(())
@@ -693,6 +785,12 @@ async fn web_search(query: String, limit: Option<usize>) -> CommandResult<Vec<we
 #[tauri::command]
 async fn web_scrape(url: String, max_chars: Option<usize>) -> CommandResult<web_media::ScrapeResult> {
     web_media::scrape_page(&url, max_chars.unwrap_or(4000), true).await
+}
+
+/// Licence-clear stills, video and audio (Openverse, Wikimedia Commons, NASA) with their licences.
+#[tauri::command]
+async fn free_media_search(query: String, kind: Option<String>, limit: Option<usize>) -> CommandResult<Vec<free_media::FreeMedia>> {
+    free_media::search(&query, kind.as_deref().unwrap_or("any"), limit.unwrap_or(12)).await
 }
 
 #[tauri::command]
@@ -1121,7 +1219,7 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
 }
 
 #[tauri::command]
-fn local_media_install(state: State<'_, Arc<AppState>>, task: String, hf_token: Option<String>) -> CommandResult<String> {
+fn local_media_install(app: AppHandle, state: State<'_, Arc<AppState>>, task: String, hf_token: Option<String>) -> CommandResult<String> {
     if !["image", "video", "video-ltx", "video-wan", "audio", "sam2", "vitmatte", "depth", "person-track", "erase"].contains(&task.as_str()) { return Err("Unknown model adapter".into()); }
     if external_media_download(&state.paths, &task).is_some_and(|v| v["status"] == "running") { return Err("This model is already downloading. Follow its progress in Local Media settings.".into()); }
     let prefs = state.settings();
@@ -1143,18 +1241,19 @@ fn local_media_install(state: State<'_, Arc<AppState>>, task: String, hf_token: 
         let result = local_media::run(&python, &worker, &input, &job).await;
         match result {
             Ok(()) => {
-                let saved = (|| -> Result<(), String> {
-                    let mut prefs = shared.settings.lock().map_err(lock_error)?;
+                let saved = shared.update_settings(|prefs| {
                     prefs.local_media_models.insert(task.clone(), output.display().to_string());
                     if task == "video-ltx" || task == "video" {
                         prefs.local_video_model = Some("ltx".into());
                     } else if task == "video-wan" {
                         prefs.local_video_model = Some("wan".into());
                     }
-                    store::write_json(&shared.paths.settings_file(), &*prefs)
-                })();
+                });
                 match saved {
-                    Ok(()) => job.done("Model installed; refresh Local Media settings", Some(serde_json::json!({ "path": output, "task": task }))),
+                    Ok(prefs) => {
+                        let _ignored = app.emit(SETTINGS_EVENT, &prefs);
+                        job.done("Model installed; refresh Local Media settings", Some(serde_json::json!({ "path": output, "task": task })));
+                    }
                     Err(error) => job.fail(error),
                 }
             }
@@ -1571,6 +1670,17 @@ const SERVICE_KEYS: &[(&str, &str, &str)] = &[
         "ElevenLabs",
         "Adds your own ElevenLabs voices to the voice-over list.",
     ),
+    (
+        "klipy",
+        "KLIPY",
+        "Trending GIFs, short clips with sound, memes and stickers for @funny edits. Free test keys at klipy.com/developers (100 calls an hour); its media is credited \"Powered by KLIPY\".",
+    ),
+    ("giphy", "GIPHY", "Trending stickers for @funny edits. GIPHY charges beyond a small beta key."),
+    (
+        "freesound",
+        "Freesound",
+        "Live sound-effect search (CC0 only) on top of the shipped SFX pack. Freesound's API is free for non-commercial use.",
+    ),
 ];
 
 #[derive(serde::Serialize)]
@@ -1749,16 +1859,16 @@ fn model_delete(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> 
 /// Points Helios at a whisper.cpp or Piper program the user installed themselves. An empty
 /// path goes back to looking for Helios' own download and then PATH.
 #[tauri::command]
-async fn speech_locate(state: State<'_, Arc<AppState>>, runtime: String, path: Option<String>) -> CommandResult<models::SpeechStatus> {
+async fn speech_locate(app: AppHandle, state: State<'_, Arc<AppState>>, runtime: String, path: Option<String>) -> CommandResult<models::SpeechStatus> {
     let chosen = path.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
-    let mut settings = state.settings();
-    match runtime.as_str() {
-        "whisper" => settings.speech.whisper_path = chosen,
-        "piper" => settings.speech.piper_path = chosen,
-        other => return Err(format!("unknown speech runtime: {other}")),
+    if !matches!(runtime.as_str(), "whisper" | "piper") {
+        return Err(format!("unknown speech runtime: {runtime}"));
     }
-    store::write_json(&state.paths.settings_file(), &settings)?;
-    *state.settings.lock().map_err(lock_error)? = settings;
+    let settings = state.update_settings(|settings| match runtime.as_str() {
+        "whisper" => settings.speech.whisper_path = chosen,
+        _ => settings.speech.piper_path = chosen,
+    })?;
+    let _ignored = app.emit(SETTINGS_EVENT, &settings);
     Ok(speech_status_of(state.inner()))
 }
 
@@ -1885,31 +1995,43 @@ fn project_load(state: State<'_, Arc<AppState>>) -> serde_json::Value {
     store::read_json(&state.paths.project_file())
 }
 
+/// Autosave, off the UI thread (a big project takes tens of milliseconds to check and write).
+/// Saves can now overlap, so the gate keeps an older snapshot from landing after a newer one.
 #[tauri::command]
-fn project_save(state: State<'_, Arc<AppState>>, mut project: Project) -> CommandResult<()> {
-    project.sanitize();
-    project.validate_shape()?;
-    storage::set_current_project(&state, &project.name);
-    store::write_json(&state.paths.project_file(), &project)?;
-    storage::autosave_backup(&state, &project);
-    Ok(())
+async fn project_save(state: State<'_, Arc<AppState>>, mut project: Project) -> CommandResult<()> {
+    let ticket = state.saves.ticket();
+    let state = state.inner().clone();
+    off_ui_thread(move || {
+        project.sanitize();
+        project.validate_shape()?;
+        state.saves.write(ticket, || {
+            storage::set_current_project(&state, &project.name);
+            store::write_json(&state.paths.project_file(), &project)?;
+            storage::autosave_backup(&state, &project);
+            Ok(())
+        })
+    })
+    .await
 }
 
 /// Opens a `.helios` file, its relative paths made absolute against where it now is (so a
 /// moved project folder reads its media from itself). The UI migrates and sanitises the rest.
 #[tauri::command]
-fn project_file_read(app: AppHandle, path: String) -> CommandResult<Document> {
-    let file = Path::new(&path);
-    let document = bundle::read(file)?;
-    if let Some(folder) = storage::saved_folder(file).filter(|folder| folder.is_dir()) {
-        let _ignored = app.asset_protocol_scope().allow_directory(folder, true);
-    }
-    Ok(document)
+async fn project_file_read(app: AppHandle, path: String) -> CommandResult<Document> {
+    off_ui_thread(move || {
+        let file = Path::new(&path);
+        let document = bundle::read(file)?;
+        if let Some(folder) = storage::saved_folder(file).filter(|folder| folder.is_dir()) {
+            let _ignored = app.asset_protocol_scope().allow_directory(folder, true);
+        }
+        Ok(document)
+    })
+    .await
 }
 
 #[tauri::command]
-fn project_file_write(path: String, document: Document) -> CommandResult<()> {
-    files::write_document(Path::new(&path), &document)
+async fn project_file_write(path: String, document: Document) -> CommandResult<()> {
+    off_ui_thread(move || files::write_document(Path::new(&path), &document)).await
 }
 
 /// A frontend crash (the error boundary caught it): appended to `crash.log` beside Rust panics,
@@ -2002,18 +2124,41 @@ async fn mogrt_frames_begin(state: State<'_, Arc<AppState>>, clip_id: String) ->
     Ok(dir.display().to_string())
 }
 
-/// One rendered frame, sent as the raw request body (a PNG) with the folder and frame index in
-/// the headers, so a 1080p sequence does not travel through JSON number arrays.
+/// The frame folder `mogrt_frames_begin` made, from its last path component. Only that ASCII
+/// leaf travels in a header: the full path sits under the user profile, and a name like
+/// C:\Users\张伟 cannot be a header value. The character check also rules out traversal.
+fn mogrt_frame_dir(work: &Path, leaf: &str) -> CommandResult<PathBuf> {
+    let valid = !leaf.is_empty() && leaf.len() <= 96 && leaf.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !valid {
+        return Err("bad frame folder".to_owned());
+    }
+    let dir = work.join("mogrt").join(leaf);
+    if !dir.is_dir() {
+        return Err("frame folder is gone".to_owned());
+    }
+    Ok(dir)
+}
+
+/// Where the export's frame writer PUTs frames (frame_sink.rs): a loopback URL and its token.
+/// Started the first time an export asks; `mogrt_frame_write` stays as the fallback.
+#[tauri::command]
+async fn frame_sink(state: State<'_, Arc<AppState>>) -> CommandResult<frame_sink::FrameSink> {
+    let mut sink = state.frame_sink.lock().await;
+    if let Some(running) = sink.as_ref() {
+        return Ok(running.clone());
+    }
+    let started = frame_sink::start(state.paths.work.clone()).await.map_err(|error| format!("the frame sink could not start: {error}"))?;
+    *sink = Some(started.clone());
+    Ok(started)
+}
+
+/// One rendered frame, sent as the raw request body (a PNG) with the folder's name and the frame
+/// index in the headers, so a 1080p sequence does not travel through JSON number arrays.
 #[tauri::command(async)]
 fn mogrt_frame_write(state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> CommandResult<()> {
     let header = |name: &str| request.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned).ok_or_else(|| format!("missing {name} header"));
-    let dir = PathBuf::from(header("x-mogrt-dir")?);
+    let dir = mogrt_frame_dir(&state.paths.work, &header("x-mogrt-dir")?)?;
     let index: u64 = header("x-mogrt-index")?.parse().map_err(|_| "bad frame index".to_owned())?;
-    let root = state.paths.work.join("mogrt");
-    let inside = dir.canonicalize().ok().zip(root.canonicalize().ok()).is_some_and(|(dir, root)| dir.starts_with(root));
-    if !inside {
-        return Err("frames may only be written under the work folder".to_owned());
-    }
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("a frame must be sent as raw bytes".to_owned()) };
     if bytes.len() < 8 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
         return Err("a frame must be a PNG".to_owned());
@@ -2074,6 +2219,61 @@ fn chat_log_save(state: State<'_, Arc<AppState>>, messages: serde_json::Value) -
 
 // ───────────────────────────── export & jobs ─────────────────────────────
 
+/// Where an export renders before it takes its real name: beside it, keeping the extension so
+/// FFmpeg still picks the right container.
+fn export_part_path(output: &Path) -> PathBuf {
+    let stem = output.file_stem().map_or_else(|| "export".into(), |stem| stem.to_string_lossy());
+    let ext = output.extension().map_or_else(|| "mp4".into(), |ext| ext.to_string_lossy());
+    output.with_file_name(format!("{stem}.helios-part.{ext}"))
+}
+
+/// A path the way the file system compares it: canonical where the file (or, for one not written
+/// yet, its folder) exists, without the `\\?\` prefix, and case-folded on Windows.
+fn comparable_path(path: &Path) -> String {
+    let resolved = std::fs::canonicalize(path)
+        .ok()
+        .or_else(|| Some(std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
+        .unwrap_or_else(|| path.to_path_buf());
+    let text = resolved.display().to_string();
+    let text = text.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(text);
+    if cfg!(windows) { text.replace('/', "\\").to_lowercase() } else { text }
+}
+
+/// Refuses an export onto one of the files it reads. FFmpeg either refuses such a render (and
+/// the failed export used to delete the target, which was the source) or, when only the case
+/// differs, truncates the source while reading it. Relative inputs are the plan's own files.
+fn refuse_overwriting_an_input(output: &Path, args: &[String], work: &Path) -> CommandResult<()> {
+    let target = comparable_path(output);
+    for (index, pair) in args.windows(2).enumerate() {
+        let generated = index >= 2 && args[index - 2] == "-f" && args[index - 1] == "lavfi";
+        if pair[0] != "-i" || generated {
+            continue;
+        }
+        if comparable_path(&work.join(&pair[1])) == target {
+            let name = output.file_name().map_or_else(|| output.display().to_string(), |name| name.to_string_lossy().into_owned());
+            return Err(format!("the export would overwrite {name}, which this comp uses — choose another file name"));
+        }
+    }
+    Ok(())
+}
+
+/// Puts a finished render in place. A failed or cancelled one removes only its part file, never
+/// `output`: that may be a file the user already had, or one the comp was reading.
+fn finish_export(part: &Path, output: &Path, result: CommandResult<()>) -> CommandResult<()> {
+    if let Err(reason) = result {
+        let _ignored = std::fs::remove_file(part);
+        return Err(reason);
+    }
+    if std::fs::rename(part, output).is_ok() {
+        return Ok(());
+    }
+    // Windows cannot always replace a file by renaming onto it; clear the earlier export first.
+    let _ignored = std::fs::remove_file(output);
+    std::fs::rename(part, output).map_err(|error| {
+        format!("the render finished but could not be saved as {}: {error} (it is at {})", output.display(), part.display())
+    })
+}
+
 #[tauri::command]
 async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: Project, options: ExportOptions) -> CommandResult<String> {
     /// How many ffmpeg exports burn at once; further renders queue behind them.
@@ -2088,20 +2288,26 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
     if let Some(parent) = output.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     }
+    // FFmpeg writes a part file beside the target, which takes the real name only once it is done.
+    let part = export_part_path(&output);
+    let rendering = ExportOptions { output: part.display().to_string(), ..options.clone() };
     let sfx_dir = state.paths.sfx.clone();
     let kind = if options.format == "mp3" { render::Output::Audio } else { render::Output::Video };
     let assets = state.assets_by_id();
     // The GPU encoder when one works here and neither the dialog nor Settings refuses it.
     let preference = options.encoder.clone().or_else(|| state.settings().export.encoder);
     let encoder = render::VideoEncoder::choose(preference.as_deref(), tools.status.x264, tools.status.gpu_encoder.as_deref());
-    let plan = render::plan_with_encoder(&project, &assets, &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), encoder, kind, 0.0)?;
+    let plan = render::plan_with_encoder(&project, &assets, &rendering, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), encoder, kind, 0.0)?;
     // The same render on the CPU, kept ready in case the hardware encoder fails mid-way (a driver
     // reset, a session limit, a frame size the card refuses).
     let fallback = if encoder.is_gpu() && matches!(options.format.as_str(), "mp4" | "mov") {
-        Some(render::plan_with_encoder(&project, &assets, &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), render::VideoEncoder::cpu(tools.status.x264), kind, 0.0)?)
+        Some(render::plan_with_encoder(&project, &assets, &rendering, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), render::VideoEncoder::cpu(tools.status.x264), kind, 0.0)?)
     } else {
         None
     };
+    for args in std::iter::once(&plan.args).chain(fallback.as_ref().map(|fallback| &fallback.args)) {
+        refuse_overwriting_an_input(&output, args, &state.paths.work)?;
+    }
     let comp_name = project.comp(&options.comp_id).map_or_else(|| "video".to_owned(), |comp| comp.name.clone());
     let file_name = output.file_name().map_or_else(|| "video".into(), |name| name.to_string_lossy().into_owned());
     let job = state.jobs.start("export", format!("Exporting {comp_name} · {file_name} ({})", options.format), true);
@@ -2150,16 +2356,13 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
             }
         }
         let _ignored = std::fs::remove_dir_all(&work);
-        match result {
+        match finish_export(&part, &output, result) {
             Ok(()) => {
                 let size = std::fs::metadata(&output_text).map(|meta| meta.len()).unwrap_or(0);
                 let _ignored=app_handle.asset_protocol_scope().allow_file(&output_text);
                 job.done("Export complete", Some(serde_json::json!({ "path": output_text, "size": size, "duration": plan.duration })));
             }
-            Err(reason) => {
-                let _ignored = std::fs::remove_file(&output_text);
-                job.fail(reason);
-            }
+            Err(reason) => job.fail(reason),
         }
         let _ignored = app_handle.emit(LIBRARY_EVENT, ());
     });
@@ -2362,13 +2565,13 @@ fn apply_enabled(rows: &mut [ProviderInfo], disabled: &[String]) {
 
 #[tauri::command]
 fn provider_set_enabled(app: AppHandle, state: State<'_, Arc<AppState>>, id: String, enabled: bool) -> CommandResult<Vec<ProviderInfo>> {
-    let mut settings = state.settings();
-    settings.disabled_providers.retain(|item| item != &id);
-    if !enabled {
-        settings.disabled_providers.push(id);
-    }
-    store::write_json(&state.paths.settings_file(), &settings)?;
-    *state.settings.lock().map_err(lock_error)? = settings.clone();
+    let settings = state.update_settings(|settings| {
+        settings.disabled_providers.retain(|item| item != &id);
+        if !enabled {
+            settings.disabled_providers.push(id);
+        }
+    })?;
+    let _ignored = app.emit(SETTINGS_EVENT, &settings);
     let mut rows = state.providers.write().map_err(lock_error)?;
     apply_enabled(&mut rows, &settings.disabled_providers);
     let _ignored = app.emit(PROVIDERS_EVENT, &*rows);
@@ -2465,7 +2668,8 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, request: ChatReque
         if !matches!(prefix, "data:image/png;base64" | "data:image/jpeg;base64" | "data:image/webp;base64") || encoded.len() > 6 * 1024 * 1024 || base64::engine::general_purpose::STANDARD.decode(encoded).is_err() { return Err("Invalid or oversized image attachment".to_owned()); }
     }
     let (stop_sender, stop) = tokio::sync::watch::channel(false);
-    state.turns.lock().map_err(lock_error)?.insert(request.turn_id.clone(), stop_sender);
+    let handle = TurnHandle { stop: stop_sender, row: row.clone(), model: request.model.clone() };
+    state.turns.lock().map_err(lock_error)?.insert(request.turn_id.clone(), handle);
     drop(maintenance);
     let tool_app = app.clone();
     let executor = EventExecutor::new(
@@ -2495,6 +2699,8 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, request: ChatReque
         if let Ok(mut turns) = state.turns.lock() {
             turns.remove(&turn_id);
         }
+        // Subagents never outlive the turn that started them.
+        state.subagents.stop_children(&turn_id);
     });
     Ok(())
 }
@@ -2545,19 +2751,22 @@ fn chat_stop(state: State<'_, Arc<AppState>>, turn_id: String) -> bool {
     if state.subagents.stop(&turn_id) {
         return true;
     }
-    state
+    // A turn's subagents stop with it, even when the turn itself has already ended.
+    let children = state.subagents.stop_children(&turn_id);
+    let parent = state
         .turns
         .lock()
         .ok()
-        .and_then(|turns| turns.get(&turn_id).map(|sender| sender.send(true).is_ok()))
-        .unwrap_or(false)
+        .and_then(|turns| turns.get(&turn_id).map(|turn| turn.stop.send(true).is_ok()))
+        .unwrap_or(false);
+    parent || children
 }
 
 #[tauri::command]
 async fn chat_spawn_subagent(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
-    spec: subagent::SubagentSpec,
+    mut spec: subagent::SubagentSpec,
 ) -> CommandResult<serde_json::Value> {
     if spec.task.trim().is_empty() {
         return Err("a subagent needs a task".to_owned());
@@ -2565,17 +2774,21 @@ async fn chat_spawn_subagent(
     if spec.label.trim().is_empty() {
         return Err("a subagent needs a label".to_owned());
     }
-    // Resolve the provider for the subagent (same as the parent turn's).
-    let rows = state.providers.read().map_err(lock_error)?.clone();
-    let row = if rows.is_empty() {
-        builtin_row()
-    } else {
-        let provider_id = spec.model.as_deref().and_then(|_| None);
-        chat::resolve_row(&rows, provider_id).unwrap_or_else(|_| builtin_row())
+    // The subagent answers with the parent turn's provider and model.
+    let (row, parent_model) = {
+        let turns = state.turns.lock().map_err(lock_error)?;
+        let parent = turns.get(&spec.parent_turn_id).ok_or("the parent turn has ended")?;
+        (parent.row.clone(), parent.model.clone())
     };
+    if row.kind == ProviderKind::Builtin {
+        return Err("subagents need an AI model; the offline command parser cannot run a free-form task".to_owned());
+    }
+    spec.model = spec.model.or(parent_model);
     let keys = tauri::async_runtime::spawn_blocking(keychain_keys)
         .await
         .unwrap_or_default();
+    // One stop signal for the subagent's turn and its tool calls alike.
+    let (stop_sender, stop) = tokio::sync::watch::channel(false);
     let tool_app = app.clone();
     let executor = EventExecutor::new(
         spec.parent_turn_id.clone(),
@@ -2583,7 +2796,7 @@ async fn chat_spawn_subagent(
         move |event: ToolCallEvent| {
             let _ignored = tool_app.emit(TOOL_CALL_EVENT, &event);
         },
-        tokio::sync::watch::channel(false).1,
+        stop.clone(),
         ai_tools::CALL_TIMEOUT,
     );
     let mcp = state.mcp.clone().and_then(|hub| {
@@ -2596,7 +2809,7 @@ async fn chat_spawn_subagent(
         executor: Arc::new(executor),
         mcp,
     };
-    let subagent_id = state.subagents.spawn(spec, context, app)?;
+    let subagent_id = state.subagents.spawn(spec, context, app, (stop_sender, stop))?;
     Ok(serde_json::json!({
         "ok": true,
         "subagentId": subagent_id,
@@ -2709,6 +2922,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         providers: RwLock::new(Vec::new()),
         detecting: tokio::sync::Mutex::new(()),
         turns: Mutex::new(HashMap::new()),
+        preparing: Arc::default(),
+        saves: SaveGate::default(),
         provider_maintenance: Mutex::new(false),
         tool_calls: Arc::new(PendingCalls::default()),
         mcp,
@@ -2719,6 +2934,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         paths,
         subagents: Arc::new(subagent::Supervisor::new()),
         storage: storage::Storage::new(default_storage),
+        frame_sink: tokio::sync::Mutex::new(None),
     });
     app.manage(state.clone());
 
@@ -2732,8 +2948,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let _ignored = handle.emit("helios://tools", background.tools().status);
         // Media imported while FFmpeg was missing gets its previews now — as does
         // anything whose recorded thumbnail file went missing since (stale path
-        // in the saved library). Runs once per launch, so a file FFmpeg cannot
-        // read costs one background job, not a loop.
+        // in the saved library) and media with sound that has no peaks yet. Runs
+        // once per launch, so a file FFmpeg cannot read costs one background job,
+        // not a loop.
         let pending: Vec<Asset> = background
             .library
             .lock()
@@ -2903,9 +3120,21 @@ pub fn run() {
             refs_brief,
             refs_save_guideline,
             web_search,
+            free_media_search,
+            memes::memes_search,
+            memes::memes_refresh,
+            memes::memes_save,
+            memes::memes_get,
+            memes::memes_fetch_media,
+            memes::memes_stats,
+            sfx_library::sfx_library_search,
+            sfx_library::sfx_library_fetch,
             web_scrape,
             web_page_source,
             media_download,
+            receipts::receipts_find,
+            receipts::edit_dna_file,
+            receipts::edit_dna_install,
             fs_read_file,
             fs_write_file,
             fs_edit_file,
@@ -2942,8 +3171,15 @@ pub fn run() {
             save_recording,
             mogrt_frames_begin,
             mogrt_frame_write,
+            frame_sink,
             storyboard::storyboard_image_save,
             storyboard::storyboard_image_import,
+            cutout::cutout_image,
+            cutout::detect_faces,
+            cutout::detect_green_screen,
+            cutout::roto_long_manifest,
+            cutout::roto_long_record,
+            cutout::roto_stitch,
             hardware_info,
             resource_usage,
             learning_load,
@@ -3020,5 +3256,112 @@ mod frame_tests {
         assert!(!valid_note_name(".hidden.md"));
         assert!(!valid_note_name("notes.txt"));
         assert!(!valid_note_name(""));
+    }
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::{export_part_path, finish_export, mogrt_frame_dir, refuse_overwriting_an_input, Preparing, SaveGate};
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("helios-{name}-{}", crate::store::new_id()));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    fn inputs(paths: &[&Path]) -> Vec<String> {
+        let mut args = vec!["-y".to_owned(), "-f".to_owned(), "lavfi".to_owned(), "-i".to_owned(), "color=c=black".to_owned()];
+        for path in paths {
+            args.extend(["-i".to_owned(), path.display().to_string()]);
+        }
+        args.push("out.mp4".to_owned());
+        args
+    }
+
+    #[test]
+    fn an_export_onto_one_of_its_inputs_is_refused() {
+        let dir = scratch("export-guard");
+        let work = dir.join("work");
+        let source = dir.join("Source.mp4");
+        std::fs::write(&source, b"footage").expect("source");
+        let error = refuse_overwriting_an_input(&source, &inputs(&[&source]), &work).expect_err("same file");
+        assert!(error.contains("Source.mp4"), "{error}");
+        // Another name, a generated input and the plan's own files pass.
+        assert!(refuse_overwriting_an_input(&dir.join("Render.mp4"), &inputs(&[&source]), &work).is_ok());
+        assert!(refuse_overwriting_an_input(&dir.join("list.txt"), &["-i".to_owned(), "list.txt".to_owned()], &work).is_ok());
+        if cfg!(windows) {
+            // The file system does not tell the two apart, so neither may the guard.
+            assert!(refuse_overwriting_an_input(&dir.join("SOURCE.MP4"), &inputs(&[&source]), &work).is_err());
+        }
+        let _ignored = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_failed_export_removes_only_its_part_file() {
+        let dir = scratch("export-finish");
+        let output = dir.join("Final cut.mp4");
+        let part = export_part_path(&output);
+        assert_eq!(part, dir.join("Final cut.helios-part.mp4"));
+        std::fs::write(&output, b"the user's earlier file").expect("target");
+        std::fs::write(&part, b"half a render").expect("part");
+        assert!(finish_export(&part, &output, Err("ffmpeg failed".to_owned())).is_err());
+        assert!(!part.exists());
+        assert_eq!(std::fs::read(&output).expect("target kept"), b"the user's earlier file");
+        // A finished one takes the real name, replacing the earlier file.
+        std::fs::write(&part, b"the new render").expect("part");
+        assert!(finish_export(&part, &output, Ok(())).is_ok());
+        assert!(!part.exists());
+        assert_eq!(std::fs::read(&output).expect("target"), b"the new render");
+        let _ignored = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn mogrt_frames_find_their_folder_by_name_under_a_non_ascii_work_root() {
+        let work = scratch("张伟").join("work");
+        std::fs::create_dir_all(work.join("mogrt").join("clip-1_2")).expect("frame dir");
+        assert_eq!(mogrt_frame_dir(&work, "clip-1_2").expect("valid"), work.join("mogrt").join("clip-1_2"));
+        for leaf in ["..", "a/b", r"a\b", "", "C:", "gone"] {
+            assert!(mogrt_frame_dir(&work, leaf).is_err(), "{leaf:?}");
+        }
+        assert!(mogrt_frame_dir(&work, &"a".repeat(97)).is_err());
+        let _ignored = std::fs::remove_dir_all(work.parent().expect("root"));
+    }
+
+    #[test]
+    fn library_prepare_runs_one_job_per_asset() {
+        let preparing: Arc<Mutex<HashSet<String>>> = Arc::default();
+        let mut spawned = 0;
+        let mut prepare = |id: &str| Preparing::claim(&preparing, id).inspect(|_| spawned += 1);
+        let first = prepare("a1");
+        assert!(first.is_some());
+        assert!(prepare("a1").is_none(), "a second ask while the first runs spawns nothing");
+        let other = prepare("a2");
+        assert!(other.is_some());
+        drop(first);
+        assert!(prepare("a1").is_some(), "the claim is given back when the job ends");
+        assert_eq!(spawned, 3);
+        drop(other);
+    }
+
+    #[test]
+    fn project_saves_that_finish_out_of_order_keep_the_newer_one() {
+        let gate = SaveGate::default();
+        let written = Mutex::new(Vec::new());
+        let (older, newer) = (gate.ticket(), gate.ticket());
+        let save = |ticket: u64, content: &'static str| {
+            gate.write(ticket, || {
+                written.lock().expect("log").push(content);
+                Ok(())
+            })
+        };
+        save(newer, "newer").expect("newer");
+        save(older, "older").expect("older is skipped, not an error");
+        assert_eq!(*written.lock().expect("log"), ["newer"]);
+        let latest = gate.ticket();
+        save(latest, "latest").expect("latest");
+        assert_eq!(*written.lock().expect("log"), ["newer", "latest"]);
     }
 }

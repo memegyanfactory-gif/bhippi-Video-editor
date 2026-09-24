@@ -39,10 +39,29 @@ pub enum SfxKind {
     Chime,
     Pop,
     Riser,
+    // The @funny kinds (ROAST_SFX_KINDS in src/lib/roast/types.ts).
+    Boom,
+    Scratch,
+    Bleep,
+    Swish,
+    Ding,
+    Glitch,
 }
 
 impl SfxKind {
-    pub const ALL: [Self; 5] = [Self::Whoosh, Self::Impact, Self::Chime, Self::Pop, Self::Riser];
+    pub const ALL: [Self; 11] = [
+        Self::Whoosh,
+        Self::Impact,
+        Self::Chime,
+        Self::Pop,
+        Self::Riser,
+        Self::Boom,
+        Self::Scratch,
+        Self::Bleep,
+        Self::Swish,
+        Self::Ding,
+        Self::Glitch,
+    ];
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -52,6 +71,12 @@ impl SfxKind {
             Self::Chime => "chime",
             Self::Pop => "pop",
             Self::Riser => "riser",
+            Self::Boom => "boom",
+            Self::Scratch => "scratch",
+            Self::Bleep => "bleep",
+            Self::Swish => "swish",
+            Self::Ding => "ding",
+            Self::Glitch => "glitch",
         }
     }
 
@@ -64,7 +89,19 @@ impl SfxKind {
             Self::Chime => 1.6,
             Self::Pop => 0.25,
             Self::Riser => 2.0,
+            Self::Boom => 1.2,
+            Self::Scratch => 0.5,
+            Self::Bleep => 0.8,
+            Self::Swish => 0.35,
+            Self::Ding => 1.5,
+            Self::Glitch => 0.4,
         }
+    }
+
+    /// The kind named `name` (its serde / UI id), if there is one.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.as_str() == name)
     }
 }
 
@@ -419,6 +456,10 @@ pub enum ClipSource {
         /// the preview. When present the export overlays the frames instead of a static title.
         #[serde(default)]
         frames: Option<HtmlFrames>,
+        /// Script the frontend took out of an untrusted graphic, kept so it can be reviewed and
+        /// restored; never run, and only the frontend reads it.
+        #[serde(default, rename = "quarantinedJs", skip_serializing_if = "Option::is_none")]
+        quarantined_js: Option<String>,
     },
     /// A GPU motion scene (src/motion in the frontend): After Effects-style layers, cameras,
     /// mattes and effects. Only the frontend can draw it; the export overlays the PNG sequence
@@ -701,6 +742,10 @@ pub struct Comp {
     /// the frontend owns its shape; Rust only has to keep it across save and load.
     #[serde(default)]
     pub production: Option<serde_json::Value>,
+    /// The @funny plan (see src/lib/roast/types.ts `RoastState`): beat sheet, roast EDL, applied
+    /// clip ids and Edit DNA. Opaque here, like `production`; kept so it survives save and load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roast: Option<serde_json::Value>,
     pub id: String,
     pub name: String,
     pub width: u32,
@@ -889,6 +934,10 @@ pub struct Project {
     /// The Settings brand kit this project is edited to (see src/lib/brandKit); the user default when unset.
     #[serde(default)]
     pub active_brand_kit_id: Option<String>,
+    /// Where each downloaded asset came from and under which licence, keyed by asset id (see
+    /// src/lib/council.ts); the UI owns the shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<serde_json::Value>,
 }
 
 pub const VERSION: u32 = 3;
@@ -925,6 +974,7 @@ impl Default for Project {
             open_comp_ids: Vec::new(),
             caption_style: None,
             active_brand_kit_id: None,
+            provenance: None,
         }
     }
 }
@@ -1334,6 +1384,7 @@ pub mod fixtures {
             storyboard: Vec::new(),
             video_blueprint: None,
             production: None,
+            roast: None,
             id: id.to_owned(),
             name: id.to_owned(),
             width: 1920,
@@ -1392,6 +1443,17 @@ mod tests {
         assert_eq!(back["comps"][0]["clips"][2]["source"]["preset"], "lower-third");
         assert_eq!(back["comps"][0]["tracks"][1]["kind"], "audio");
         assert_eq!(back["items"][0]["kind"], "color-matte");
+    }
+
+    #[test]
+    fn project_html_clips_keep_their_quarantined_script() {
+        let source = serde_json::json!({ "type": "html", "html": "<h1>Hi</h1>", "quarantinedJs": "fetch('https://example.com')" });
+        let parsed: ClipSource = serde_json::from_value(source).expect("parse");
+        let back = serde_json::to_value(&parsed).expect("serialise");
+        assert_eq!(back["quarantinedJs"], "fetch('https://example.com')");
+        // A graphic with nothing quarantined writes no key for it.
+        let clean: ClipSource = serde_json::from_value(serde_json::json!({ "type": "html", "html": "<h1>Hi</h1>" })).expect("parse");
+        assert!(serde_json::to_value(&clean).expect("serialise").get("quarantinedJs").is_none());
     }
 
     #[test]
@@ -1496,6 +1558,7 @@ mod tests {
             template: None,
             layout_box: None,
             frames: None,
+            quarantined_js: None,
         });
         let graphic = Graphic::from_clip(&card).expect("html graphic");
         assert_eq!(graphic.text, "DAILY AI streams & news");
@@ -1509,10 +1572,41 @@ mod tests {
             template: None,
             layout_box: None,
             frames: None,
+            quarantined_js: None,
         });
         assert_eq!(Graphic::from_clip(&bare).expect("title fallback").text, "Lower third");
         // Nothing to say means nothing to draw — still skipped, not blank.
-        let empty = clip("e", "v2", 0.0, 1.0, ClipSource::Html { html: "<br/>".into(), css: None, js: None, title: None, template: None, layout_box: None, frames: None });
+        let empty = clip("e", "v2", 0.0, 1.0, ClipSource::Html { html: "<br/>".into(), css: None, js: None, title: None, template: None, layout_box: None, frames: None, quarantined_js: None });
         assert!(Graphic::from_clip(&empty).is_none());
+    }
+
+    #[test]
+    fn a_comps_roast_plan_survives_load_and_save() {
+        // Rust drops fields it does not know on save; the @funny plan lives on the comp as raw JSON.
+        let roast = serde_json::json!({
+            "beatSheet": {"version": 1, "compId": "c", "beats": [{"id": "b1", "start": 1.2, "end": 3.4, "text": "Dhruv ek German shepherd hai", "kinds": ["punchline"], "intent": "exposed", "echo": ["German shepherd"], "punchAt": 3.4}]},
+            "edl": {"version": 1, "compId": "c", "style": "funny", "events": [{"id": "e1", "move": "meme_cutaway", "assetId": "m", "at": 3.4, "duration": 1.5, "why": "echoes the dog", "sfx": null}]},
+            "applied": [{"eventId": "e1", "clipIds": ["x1", "x2"]}],
+            "dna": {"duration": 10.0, "cuts": 2, "cutsPerMinute": [12.0], "medianShot": 2.5, "longestStatic": {"start": 0.0, "end": 3.4, "seconds": 3.4}, "eventsPerMinute": [6.0], "sfxPerMinute": [0.0], "musicCoverage": 0.0, "onBeat": null, "memes": 1, "textEvents": 0, "greenShare": null}
+        });
+        let json = serde_json::json!({
+            "version": 3, "name": "Roast", "activeCompId": "c", "openCompIds": ["c"],
+            "comps": [
+                {"id": "c", "name": "Main", "width": 1920, "height": 1080, "fps": 30, "roast": roast.clone(),
+                 "tracks": [{"id": "v1", "kind": "video", "name": ""}], "clips": []},
+                {"id": "d", "name": "Plain", "width": 1920, "height": 1080, "fps": 30, "tracks": [], "clips": []}
+            ],
+            "items": [], "media": [], "folders": []
+        });
+        let mut project: Project = serde_json::from_value(json).expect("parse");
+        for comp in &mut project.comps {
+            comp.sanitize();
+        }
+        project.validate_shape().expect("valid");
+        let saved = serde_json::to_value(&project).expect("serialise");
+        assert_eq!(saved["comps"][0]["roast"], roast, "the plan comes back unchanged");
+        assert!(saved["comps"][1].get("roast").is_none(), "a comp without a plan saves without the key");
+        let reloaded: Project = serde_json::from_value(saved).expect("reload");
+        assert_eq!(reloaded.comps[0].roast.as_ref(), Some(&roast));
     }
 }

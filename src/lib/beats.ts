@@ -4,6 +4,8 @@
 // deterministic arithmetic — no audio decoding, no dependencies — so it runs instantly in the
 // webview on a 10-minute song (60 000 buckets × at most a few hundred lags).
 import { BUCKETS_PER_SECOND, type Peaks } from './peaks';
+import { clipEnd, neighbour, trimEdge } from './timeline';
+import type { Clip, Comp } from './types';
 
 export type TempoEstimate = { bpm: number; confidence: number; lag: number };
 export type BeatGrid = { beats: number[]; phase: number; score: number };
@@ -302,3 +304,102 @@ export const nearestBeatAfter = (beats: number[], t: number, minGap = 0): number
   const index = lowerBound(beats, t + Math.max(0, minGap));
   return index < beats.length ? beats[index] : null;
 };
+
+/**
+ * The downbeat (bar line) nearest `t`, for landing a music stinger: `grid` is a BeatAnalysis or
+ * its downbeat times. Null when there are none, or none within `maxDistance` seconds.
+ */
+export const nearestDownbeat = (t: number, grid: number[] | Pick<BeatAnalysis, 'downbeats'>, maxDistance = Infinity): number | null => {
+  const downbeats = Array.isArray(grid) ? grid : grid.downbeats;
+  if (!downbeats.length) return null;
+  return snapTimesToBeats([t], downbeats, maxDistance)[0].snapped;
+};
+
+/** One edit point that moved onto a beat. `roll`: a butt cut, both sides moved together. */
+export type CutSnap = { clipId: string; name: string; edge: 'start' | 'end'; from: number; to: number; mode: 'roll' | 'trim' | 'move'; partnerId?: string };
+
+export type SnapCutsOptions = {
+  /** How far (seconds) an edge may move to reach a beat. */
+  tolerance: number;
+  /** Clips whose edges may move (every clip when omitted); a butt cut moves when either side is listed. */
+  only?: ReadonlySet<string> | null;
+  /** Seconds of source each clip has (timeline `sourceLimit`), so an edge never runs past its media. */
+  limit: (clip: Clip) => number;
+  /** Shortest a clip may become (default 0.2 s). */
+  minDuration?: number;
+};
+
+/**
+ * Moves the cuts on unlocked video tracks onto the nearest beat within `tolerance` (the fix for
+ * WORLD-CLASS-PLAN C1, where every snapped butt cut opened a 1–4-frame black gap because the two
+ * clips' edges were trimmed independently against a stale snapshot). Here:
+ * - a butt cut is ONE edit point and is rolled — the outgoing tail and the incoming head move
+ *   together (`trimEdge` 'rolling', alone), so the clips stay joined; linked audio stays put and
+ *   the cut becomes a short J/L split;
+ * - a free edge (beside a gap) is trimmed ('normal': never over a neighbour, never past its media);
+ * - a non-media overlay whose edges are both free is moved whole, never onto a neighbour;
+ * - an edge at 0, already within a frame of its beat, or whose move would not land on the beat
+ *   (media too short, a neighbour in the way) stays where it is.
+ * Every edit is applied to the live comp, one edit point at a time.
+ */
+export function snapCutsToBeats(comp: Comp, beats: number[], options: SnapCutsOptions): { comp: Comp; changes: CutSnap[] } {
+  const frame = 1 / (comp.fps || 30);
+  const minDuration = options.minDuration ?? 0.2;
+  const may = (id: string) => !options.only || options.only.has(id);
+  const target = (time: number): number | null => {
+    const snap = snapTimesToBeats([time], beats, options.tolerance)[0];
+    return snap.snapped !== null && Math.abs(snap.delta) > frame ? snap.snapped : null;
+  };
+  const lands = (value: number | undefined, beat: number) => value !== undefined && Math.abs(value - beat) < 1e-6;
+  const find = (state: Comp, id: string) => state.clips.find((clip) => clip.id === id);
+  let next = comp;
+  const changes: CutSnap[] = [];
+  for (const track of comp.tracks.filter((t) => t.kind === 'video' && !t.locked)) {
+    const order = comp.clips.filter((clip) => clip.trackId === track.id && clip.enabled).sort((a, b) => a.start - b.start).map((clip) => clip.id);
+    for (const id of order) {
+      const clip = find(next, id);
+      if (!clip) continue;
+      const name = clip.name ?? clip.id;
+      const previous = neighbour(next.clips, clip, 'before');
+      const after = neighbour(next.clips, clip, 'after');
+      // The head: a roll when it butts the clip before, else a trim or (overlays) a move.
+      const head = clip.start > 1e-6 ? target(clip.start) : null;
+      if (head !== null && previous && (may(clip.id) || may(previous.id))) {
+        const trial = trimEdge(next, previous.id, 'out', head, 'rolling', options.limit, { alone: true, minDuration });
+        const outgoing = find(trial, previous.id);
+        if (outgoing && lands(clipEnd(outgoing), head) && lands(find(trial, clip.id)?.start, head)) {
+          next = trial;
+          changes.push({ clipId: clip.id, name, edge: 'start', from: clip.start, to: head, mode: 'roll', partnerId: previous.id });
+        }
+      } else if (head !== null && !previous && may(clip.id)) {
+        if (clip.source.type !== 'media' && !after) {
+          const others = next.clips.filter((other) => other.trackId === clip.trackId && other.id !== clip.id);
+          const clear = others.every((other) => clipEnd(other) <= head + 1e-6 || other.start >= head + clip.duration - 1e-6);
+          if (clear) {
+            next = { ...next, clips: next.clips.map((c) => (c.id === clip.id ? { ...c, start: head } : c)) };
+            changes.push({ clipId: clip.id, name, edge: 'start', from: clip.start, to: head, mode: 'move' });
+          }
+        } else {
+          const trial = trimEdge(next, clip.id, 'in', head, 'normal', options.limit, { alone: true, minDuration });
+          if (lands(find(trial, clip.id)?.start, head)) {
+            next = trial;
+            changes.push({ clipId: clip.id, name, edge: 'start', from: clip.start, to: head, mode: 'trim' });
+          }
+        }
+      }
+      // The tail, only when free (a butted tail is the next clip's head) and only for media.
+      const current = find(next, id);
+      if (!current || current.source.type !== 'media' || neighbour(next.clips, current, 'after') || !may(current.id)) continue;
+      const end = clipEnd(current);
+      const tail = target(end);
+      if (tail === null) continue;
+      const trial = trimEdge(next, current.id, 'out', tail, 'normal', options.limit, { alone: true, minDuration });
+      const trimmed = find(trial, current.id);
+      if (trimmed && lands(clipEnd(trimmed), tail)) {
+        next = trial;
+        changes.push({ clipId: current.id, name, edge: 'end', from: end, to: tail, mode: 'trim' });
+      }
+    }
+  }
+  return { comp: next, changes };
+}

@@ -36,6 +36,17 @@ const READS = new Set([
   'set_in_out',
   'detect_scenes',
   'ask_user',
+  'consult_council',
+  // @funny research and measuring: they read the meme and sound libraries, captions and the timeline.
+  // save_meme writes only the user's meme library, never the project.
+  'search_memes',
+  'refresh_meme_trends',
+  'save_meme',
+  'find_receipt',
+  'search_sfx',
+  'detect_faces',
+  'validate_roast_edl',
+  'edit_dna',
 ]);
 
 /** Tools that throw something away, which only Full access may do. */

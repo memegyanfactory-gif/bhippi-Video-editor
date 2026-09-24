@@ -105,6 +105,8 @@ pub struct Settings {
     pub preview_cache_enabled: Option<bool>,
     /// Its RAM budget in megabytes; the UI's default (1536) when unset.
     pub preview_cache_mb: Option<u32>,
+    /// The pixel avatar that acts out what Helios AI is doing; on when unset.
+    pub avatar: Option<bool>,
 }
 
 const KEYCHAIN_SERVICE: &str = "helios-studio";

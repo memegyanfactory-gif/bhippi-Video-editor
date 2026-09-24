@@ -1,0 +1,5817 @@
+[
+  {
+    "id": "in-sooryavansham-zeher-wali-kheer",
+    "name": "Sooryavansham zeher wali kheer (Amitabh vomits blood)",
+    "aliases": [
+      "zeher wali kheer",
+      "zehar wali kheer",
+      "sooryavansham kheer",
+      "suryavansham kheer",
+      "amitabh blood vomit",
+      "amitabh khoon ki ulti",
+      "amitabh zeher meme",
+      "amitabh death scene meme",
+      "thakur bhanu pratap singh",
+      "poisoned kheer",
+      "ज़हर वाली खीर",
+      "सूर्यवंशम खीर",
+      "खून की उल्टी"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Sooryavansham",
+      "year": 1999,
+      "detail": "Climax: villain Deshraj poisons the kheer that Heera's son Sonu carries to his 'friend', secretly his grandfather Thakur Bhanu Pratap Singh (Amitabh Bachchan: grey hair, red tilak, white shawl). He coughs and vomits blood and collapses (he survives). Endless reruns on Set Max/Sony Max made the scene a meme. The @funny reference edit (Meme Gyan, 0:21.5) cut to this exact shot right after the host said 'kachre ke dibbe mein zeher daal diya'."
+    },
+    "meaning": "Thakur Bhanu Pratap's melodramatic blood-vomit after eating poisoned kheer is Bollywood's most over-the-top poisoning. Used whenever something is called 'zeher' (poison/toxic) or is so bad it could kill you; the joke is the absurd over-reaction.",
+    "useWhen": [
+      "The host literally says 'zeher', 'zehreela', 'poison' or 'toxic' about content or a combo",
+      "Something is so cringe or bad that watching it 'kills' you",
+      "A collaboration or advice is framed as poison ('ye podcast zeher hai')",
+      "Food or a product is roasted as inedible"
+    ],
+    "dontUseWhen": [
+      "Real poisoning, suicide or a death in the news",
+      "Topics about Amitabh Bachchan's actual health"
+    ],
+    "emotion": [
+      "overdramatic",
+      "disgust",
+      "dying"
+    ],
+    "intent": [
+      "poison",
+      "dead",
+      "overreact"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=G_hhmuji8Es",
+        "query": "ytsearch3:sooryavansham amitabh blood vomit meme template",
+        "in": 0,
+        "out": 2.8,
+        "hasAudio": true,
+        "transcript": "(no dialogue: choking, retching and dramatic background score)",
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:sooryavansham zeher wali kheer scene",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "gif",
+        "url": "https://tenor.com/view/sooryavansham-amitabh-vomit-zeher-wali-kheer-thakur-bhanu-pratap-singh-amitabh-bachhan-vomit-gif-25768165",
+        "provider": "tenor"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2021-07-22",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://flashbackbollywood.in/2023/05/20/sooryavansham-set-max-sunday-memes/",
+        "title": "Flashback Bollywood: Sooryavansham, Set Max and the memes"
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Sooryavansham",
+        "title": "Wikipedia: Sooryavansham (plot: the poisoned kheer)"
+      },
+      {
+        "url": "https://tenor.com/view/sooryavansham-amitabh-vomit-zeher-wali-kheer-thakur-bhanu-pratap-singh-amitabh-bachhan-vomit-gif-25768165",
+        "title": "Tenor: Sooryavansham zeher wali kheer GIF"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-sooryavansham-set-max-rerun",
+    "name": "Sooryavansham on Set Max again",
+    "aliases": [
+      "set max sooryavansham",
+      "sooryavansham again",
+      "suryavansham set max",
+      "sony max sooryavansham",
+      "sooryavansham rerun",
+      "सूर्यवंशम सेट मैक्स",
+      "फिर से सूर्यवंशम"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Sooryavansham (1999) reruns on Set Max / Sony Max",
+      "year": 1999,
+      "detail": "The film under-performed in theatres, but Set Max (now Sony Max) aired it so often for two decades that 'Sooryavansham on Set Max' became the national joke for anything endlessly repeated. Sony Max itself played along in promos."
+    },
+    "meaning": "Shorthand for something repeated so often that everyone has memorised it. A sarcastic jab at a creator recycling the same content, excuse or controversy.",
+    "useWhen": [
+      "A creator repeats the same take, excuse or video format again",
+      "A controversy or apology 'airs' for the hundredth time",
+      "Saying the audience has seen this story many times"
+    ],
+    "dontUseWhen": [
+      "The thing is genuinely new",
+      "The joke needs the poison scene (use in-sooryavansham-zeher-wali-kheer)"
+    ],
+    "emotion": [
+      "bored",
+      "sarcastic",
+      "deja vu"
+    ],
+    "intent": [
+      "sarcasm",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:sooryavansham set max meme",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://flashbackbollywood.in/2023/05/20/sooryavansham-set-max-sunday-memes/",
+        "title": "Flashback Bollywood: Sooryavansham, Set Max and the memes"
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Sooryavansham",
+        "title": "Wikipedia: Sooryavansham (satellite reruns, cult status)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-dancing-husky-ichu-ichu",
+    "name": "Dancing husky (Husky Dance / Ichu Ichu trend)",
+    "aliases": [
+      "dancing husky",
+      "husky dance",
+      "husky dance meme",
+      "dog dance meme",
+      "ichu ichu",
+      "ichu ichu husky",
+      "husky dance daily",
+      "nachta kutta",
+      "dancing dog",
+      "हस्की डांस",
+      "नाचता कुत्ता",
+      "इच्चु इच्चु"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Husky Dance Daily (Instagram, @huskydancedaily)",
+      "year": 2025,
+      "detail": "A husky standing on its hind legs and dancing in an empty grey room (bell collar). Kerala creator D. Arjun (Vaikom) paired it with 'Ichu Ichu' from the Tamil film Vedi (2011, music Vijay Antony); it went from ~20K to 1M+ views overnight and became a pan-India reel trend in Oct 2025; Vijay Antony and Sameera Reddy recreated it. The @funny reference edit used it at 0:37 right after the host said 'Dhruv ek German shepherd hai'."
+    },
+    "meaning": "A dog grooving like a human: pure absurd joy. In Indian edits it lands as a literal echo whenever a dog is mentioned, or to show someone dancing happily or dancing to someone else's tune.",
+    "useWhen": [
+      "The host mentions a dog: 'kutta', 'German shepherd', 'doggy', 'pet'",
+      "Someone celebrates a tiny win far too much",
+      "'Uske ishaaron pe naach raha hai': dancing to someone's tune",
+      "A hype beat that needs 1-2 s of silly energy"
+    ],
+    "dontUseWhen": [
+      "Calling a group of people 'dogs' as a slur (reads as dehumanising, not funny)",
+      "Sad or serious beats"
+    ],
+    "emotion": [
+      "joy",
+      "silly",
+      "hype"
+    ],
+    "intent": [
+      "dance",
+      "hype",
+      "crazy"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=mGYJOnkWRow",
+        "query": "ytsearch3:husky dance meme ichu ichu",
+        "hasAudio": true,
+        "transcript": "(no speech: 'Ichu Ichu' Tamil song)",
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:husky dancing green screen meme",
+        "hasAudio": true,
+        "transcript": "(no speech)",
+        "provider": "youtube"
+      },
+      {
+        "type": "gif",
+        "url": "https://tenor.com/view/husky-dance-husky-dance-meme-gif-18093414725535763569",
+        "provider": "tenor"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2025-10-01",
+    "trendScore": 0.85,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://english.bigtvlive.com/viral-news/arjun-d-creator-behind-instagrams-viral-husky-dance-trend/",
+        "title": "BigTV: Meet the creator behind Instagram's viral husky dance trend (31 Oct 2025)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-samajh-rahe-ho-na",
+    "name": "Samajh rahe ho na? (Harsh Beniwal, REC camcorder clip)",
+    "aliases": [
+      "samajh rahe ho",
+      "samajh rahe ho na",
+      "samajh rahe ho aap",
+      "samjh rhe ho",
+      "samaj rahe ho",
+      "harsh beniwal samajh rahe ho",
+      "cringe tiktoker",
+      "camcorder rec meme",
+      "REC meme",
+      "समझ रहे हो",
+      "समझ रहे हो ना",
+      "समझ रहे हो आप"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Harsh Beniwal - 'A Day With Cringe TikToker'",
+      "year": 2020,
+      "detail": "Harsh Beniwal in character as a cringe TikToker (red bandana, silver jacket, kohl eyes), filmed through a camcorder overlay (REC, ISO 200, F 2.7, HD 720P, 30 FPS), grinning, pointing and winking: 'Samajh rahe ho? Samajh rahe ho aap? Samajh rahe ho na?'. YouTube upload date 2020-05-17 (HumorNama says 17 March 2020). This is the 'camcorder REC meme clip' in the @funny reference edit (1:33.5), used after an insinuating question."
+    },
+    "meaning": "A smug, knowing wink: 'you get what I mean, right?'. Used to imply a double meaning or an obvious hidden motive without saying it out loud.",
+    "useWhen": [
+      "Right after an insinuation or innuendo ('AC wale room mein kya kar raha tha...')",
+      "Implying an obvious hidden motive (paid promotion, agenda, a setting)",
+      "The host drops a hint and wants the audience to connect the dots"
+    ],
+    "dontUseWhen": [
+      "Insinuating sexual misconduct about a real private person",
+      "The beat is sincere or an apology"
+    ],
+    "emotion": [
+      "smug",
+      "sly",
+      "knowing"
+    ],
+    "intent": [
+      "sarcasm",
+      "exposed",
+      "awkward"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=27MW2bhBKTM",
+        "query": "ytsearch3:samajh rahe ho harsh beniwal meme template",
+        "hasAudio": true,
+        "transcript": "Samajh rahe ho? Samajh rahe ho aap? Samajh rahe ho na? / समझ रहे हो? समझ रहे हो आप? समझ रहे हो ना?",
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=ExPE7ATCXg8",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2020-05-17",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/samajh-rahe-ho-meme-template/",
+        "title": "HumorNama: Samajh Rahe Ho meme template"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-lekin-bhai-uske-room-mai",
+    "name": "Lekin bhai uske room mai aap kya kar rahe the? (text card)",
+    "aliases": [
+      "lekin bhai uske room mai aap kya kar rahe the",
+      "uske room mein kya kar rahe the",
+      "aap uske room me kya kar rahe the",
+      "but what were you doing in his room",
+      "लेकिन भाई उसके रूम में आप क्या कर रहे थे",
+      "उसके रूम में क्या कर रहे थे"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Text-card line (origin unverified)",
+      "detail": "Seen in the @funny reference edit (Meme Gyan, 1:30) as white caps on a black card over a fading Trollge face, followed by Harsh Beniwal's 'Samajh rahe ho na?' clip. Web and YouTube searches (Roman and Devanagari) found no original clip, podcast or scene; it looks like a stock insinuating comment-section question rather than a quote. Treat it as a text template."
+    },
+    "meaning": "A mock-innocent follow-up question that points at the suspicious detail in someone's story: 'fine, but what were you doing in that room?'. The joke is the insinuation, usually followed by a knowing reaction clip.",
+    "useWhen": [
+      "Someone's story has one suspicious detail the host wants to highlight",
+      "A follow-up to a line about being in a room or place they shouldn't be",
+      "As a setup card before in-samajh-rahe-ho-na or a troll-face reaction"
+    ],
+    "dontUseWhen": [
+      "Stories involving assault, minors or real allegations",
+      "Anything that would read as slut-shaming a real person"
+    ],
+    "emotion": [
+      "suspicious",
+      "sly"
+    ],
+    "intent": [
+      "exposed",
+      "suspense",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "template",
+        "query": "ytsearch3:trollge black screen meme template",
+        "hasAudio": false,
+        "transcript": "LEKIN BHAI USKE ROOM MAI AAP KYA KAR RAHE THE / लेकिन भाई उसके रूम में आप क्या कर रहे थे",
+        "provider": "text-card"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "trendScore": 0.4,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/trollge",
+        "title": "Know Your Meme: Trollge (the card's visual format; the line's own origin is unverified)"
+      }
+    ],
+    "safety": {},
+    "verified": false
+  },
+  {
+    "id": "in-trollge-black-card",
+    "name": "Trollge black card (fading troll face + caps line)",
+    "aliases": [
+      "trollge",
+      "troll face",
+      "trollface black screen",
+      "troll face fade",
+      "sinister troll face",
+      "phonk trollge",
+      "ट्रोल फेस",
+      "ट्रोलफेस"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Trollge / Phonk Trollge",
+      "year": 2020,
+      "detail": "An unsmiling, shadowed Trollface on black (Trollge circulated from July 2020; Phonk Trollge colour-morph edits from Dec 2021). Global format; Indian editors use it as a black card with a one-line Hinglish caption while the troll face fades in and out in red, as in the @funny reference edit at 1:30."
+    },
+    "meaning": "An ominous 'you know what happened' beat: a sly or dark one-liner on black with a sinister troll face. Signals trolling, an insinuation or a dark twist.",
+    "useWhen": [
+      "Delivering an insinuating question or dark punchline as on-screen text",
+      "A sinister plot twist in the story",
+      "Implying someone got trolled or is up to something"
+    ],
+    "dontUseWhen": [
+      "Real tragedies (the format reads as mocking)",
+      "When the line needs to be heard, not read"
+    ],
+    "emotion": [
+      "ominous",
+      "sly",
+      "dark"
+    ],
+    "intent": [
+      "plot-twist",
+      "suspense",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "template",
+        "query": "ytsearch3:trollge black screen meme template",
+        "hasAudio": false,
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "url": "https://knowyourmeme.com/memes/trollge",
+        "provider": "kym"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2020-07-01",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/trollge",
+        "title": "Know Your Meme: Trollge"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-dictator-race-cheat",
+    "name": "The Dictator 100 m race (Aladeen cheats to win)",
+    "aliases": [
+      "dictator race",
+      "the dictator race scene",
+      "aladeen race",
+      "dictator olympics",
+      "dictator cheating race",
+      "dictator shoots runners",
+      "sacha baron cohen race",
+      "डिक्टेटर रेस",
+      "तानाशाह रेस"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "The Dictator",
+      "year": 2012,
+      "detail": "Admiral General Aladeen (Sacha Baron Cohen) runs the 100 m at games he organised: fires the starting pistol after he has already started, shoots rivals who catch up, and has the finish-line tape carried to him. A Hollywood film, but a staple of Indian roast edits; the @funny reference edit used it at 3:07 for 'hypocrisy ka Olympic gold medal'."
+    },
+    "meaning": "The textbook rigged contest: someone wins only because they cheat and control the rules. Used for hypocrisy, unfair advantages and 'winning' every argument by changing the rules.",
+    "useWhen": [
+      "'Olympic gold medal in hypocrisy', or someone 'wins' every argument by moving the goalposts",
+      "A creator cheats, fakes numbers or games the system",
+      "Someone judges others by rules they don't follow themselves"
+    ],
+    "dontUseWhen": [
+      "A fair, honest win",
+      "Beats about real violence or shootings"
+    ],
+    "emotion": [
+      "smug",
+      "unfair",
+      "absurd"
+    ],
+    "intent": [
+      "cheating",
+      "hypocrisy",
+      "victory"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=dcu5sYxcEuo",
+        "query": "ytsearch3:the dictator 100 meter race scene",
+        "hasAudio": true,
+        "transcript": "(starting gun, gunshots, crowd; no key dialogue)",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "en",
+    "firstSeen": "2012-05-16",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.aljazeera.com/opinions/2024/4/15/modis-elections-or-dictator-aladeens-olympics",
+        "title": "Al Jazeera (Apoorvanand, 15 Apr 2024): the Aladeen race as the rigged-contest metaphor in Indian commentary"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-oggy-jack-mera-juice-kahan-gaya",
+    "name": "Maza aa raha hai... mera juice kahan gaya? (Jack, Oggy)",
+    "aliases": [
+      "mera juice kahan gaya",
+      "mera juice kaha gaya",
+      "maza aa raha hai",
+      "maja aa rha hai",
+      "jack juice meme",
+      "oggy jack juice",
+      "oggy juice meme",
+      "jack sofa meme",
+      "मेरा जूस कहां गया",
+      "मज़ा आ रहा है",
+      "जैक जूस"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Oggy and the Cockroaches (Hindi meme dub)",
+      "detail": "Jack lounges on a purple sofa in a field next to a TV, laughing; a Hindi voice says 'Maza aa raha hai', he gulps an orange juice, finds the glass empty ('Mera juice kahan gaya?') and tosses it ('Kya baat hai'). The show itself has no Hindi dialogue: the line is a meme dub, not the original show. Templates date from 2024. The @funny reference edit placed it at 4:55; the words at 4:55-4:57 in its captions are the clip's own audio, not the host."
+    },
+    "meaning": "Smug enjoyment followed by 'where did my juice go?': someone chilling and enjoying the drama, or mock-confusion when something they had suddenly vanishes.",
+    "useWhen": [
+      "Someone enjoys the drama or controversy from a distance ('maza aa raha hai')",
+      "Something disappears: money, followers, a deleted video, 'juice'",
+      "The host literally says 'maza aa raha hai' or 'juice'"
+    ],
+    "dontUseWhen": [
+      "Real loss or grief",
+      "When a silent cartoon cut is needed (this clip has a dubbed voice)"
+    ],
+    "emotion": [
+      "smug",
+      "chill",
+      "confused"
+    ],
+    "intent": [
+      "flex",
+      "confusion",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=dtKNkRFZVBs",
+        "query": "ytsearch3:maza aa raha hai mera juice kaha gaya meme template",
+        "in": 0,
+        "out": 9,
+        "hasAudio": true,
+        "transcript": "Maza aa raha hai... mera juice kahan gaya? ... Kya baat hai! / मज़ा आ रहा है... मेरा जूस कहां गया? ... क्या बात है!",
+        "provider": "youtube"
+      },
+      {
+        "type": "gif",
+        "url": "https://tenor.com/view/jack-oggy-juice-kahan-gaya-maza-aa-raha-hai-gif-11898954455444315367",
+        "provider": "tenor"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2024-05-15",
+    "trendScore": 0.7,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://tenor.com/view/jack-oggy-juice-kahan-gaya-maza-aa-raha-hai-gif-11898954455444315367",
+        "title": "Tenor: Jack Oggy Juice Kahan Gaya / Maza aa raha hai"
+      },
+      {
+        "url": "https://memes.co.in/trending-memes/video/1074/maza-aa-raha-hai-mera-juice-kaha-gaya-meme-download",
+        "title": "memes.co.in: maza aa raha hai mera juice kaha gaya meme template"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-cid-ae-pakad-chase",
+    "name": "Ae ruk, pakad! (CID chase, abusive dub)",
+    "aliases": [
+      "ae ruk pakad",
+      "ahe rok pakad",
+      "pakad pakad",
+      "pakdo pakdo",
+      "cid pakad",
+      "cid chase meme",
+      "cid pakad mc",
+      "ए रुक पकड़",
+      "पकड़ पकड़"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "CID (Sony TV), dubbed meme",
+      "detail": "A Sony TV CID chase: a crowd of officers runs across a muddy ground after a fleeing man. The meme version has a dubbed voice screaming 'Ae ruk! Pakad... pakad bh**di, pakad le beh*n ke l***e ki!'. Used in the @funny reference edit at 4:33.5 with a '*DHRUV' label on the man being chased."
+    },
+    "meaning": "A frantic, foul-mouthed 'catch him!' chase. Used when someone is running away from accountability, or when everyone is after one person.",
+    "useWhen": [
+      "The host says 'ruk', 'pakad', 'bhaag' or someone 'bhaag gaya'",
+      "A creator runs from criticism, deletes a video or dodges questions",
+      "The whole internet is after one person (label them with a '*NAME' tag)"
+    ],
+    "dontUseWhen": [
+      "Family-friendly edits (heavy gaalis: bleep it or pick a clean chase)",
+      "Real mob violence or lynching stories"
+    ],
+    "emotion": [
+      "chaotic",
+      "angry",
+      "panic"
+    ],
+    "intent": [
+      "chase",
+      "rage",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=q7DCvBJnZbc",
+        "query": "ytsearch3:ahe rok pakad cid meme",
+        "in": 0,
+        "out": 6,
+        "hasAudio": true,
+        "transcript": "Ae ruk! Pakad... pakad bh**di, pakad le beh*n ke l***e ki! / ए रुक! पकड़... पकड़ भो***, पकड़ ले ब*न के ल**े की!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2025-05-13",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://indianmemetemplates.com/cid-pakad-mc/",
+        "title": "Indian Meme Templates: CID Pakad MC (26 May 2025)"
+      },
+      {
+        "url": "https://www.latestly.com/quickly/social-viral/acp-pradyuman-abhijeet-and-daya-hilarious-cid-meme-templates-and-funny-reels-go-viral-6764162.html",
+        "title": "LatestLY: CID meme templates and reels go viral"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-utha-le-re-baba",
+    "name": "Utha le re Baba (Baburao prays)",
+    "aliases": [
+      "utha le re baba",
+      "uthale re baba",
+      "utha le re deva",
+      "mereko nahi re in dono ko utha le",
+      "baburao prayer",
+      "उठा ले रे बाबा",
+      "मेरे को नहीं रे, इन दोनों को उठा ले"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Hera Pheri",
+      "year": 2000,
+      "detail": "Baburao (Paresh Rawal), fed up with tenants Raju and Shyam, looks up to God: 'Utha le re Baba... mere ko nahi re, in dono ko utha le!'. Wikipedia quotes it as 'Utha le re deva'; template audio says 'Baba'."
+    },
+    "meaning": "An exasperated prayer asking God to remove the annoying people from your life, then quickly clarifying 'not me, them'. Peak fed-up energy.",
+    "useWhen": [
+      "The host is fed up with two people/creators arguing",
+      "Someone's content is so annoying the host 'prays' for relief",
+      "A duo that keeps causing trouble"
+    ],
+    "dontUseWhen": [
+      "Real deaths, illness or tragedy",
+      "When the target is a single sympathetic person"
+    ],
+    "emotion": [
+      "fed up",
+      "exasperated",
+      "overdramatic"
+    ],
+    "intent": [
+      "rage",
+      "overreact"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:utha le re baba hera pheri meme template",
+        "hasAudio": true,
+        "transcript": "Utha le re Baba, utha le... mere ko nahi re, in dono ko utha le! / उठा ले रे बाबा, उठा ले... मेरे को नहीं रे, इन दोनों को उठा ले!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2000-03-31",
+    "trendScore": 0.7,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Baburao_Ganpatrao_Apte",
+        "title": "Wikipedia: Baburao Ganpatrao Apte (catchphrases, memes)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-ye-baburao-ka-style-hai",
+    "name": "Ye Baburao ka style hai",
+    "aliases": [
+      "ye baburao ka style hai",
+      "yeh baburao ka style hai",
+      "baburao style",
+      "babu bhaiya style",
+      "ये बाबूराव का स्टाइल है"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Hera Pheri",
+      "year": 2000,
+      "detail": "Baburao (Paresh Rawal) justifying his odd way of doing things. Wikipedia lists it among his Hera Pheri catchphrases (often misattributed to Phir Hera Pheri); cricketer Suryakumar Yadav recited it on The Kapil Sharma Show."
+    },
+    "meaning": "Shameless pride in a weird or clumsy way of doing something: 'that's just my style'. Used to mock someone owning a bizarre habit.",
+    "useWhen": [
+      "A creator defends a weird habit or format as 'style'",
+      "Someone does something clumsy with total confidence",
+      "Host shows off a quirky move of his own"
+    ],
+    "dontUseWhen": [
+      "Genuinely skilled work (the joke is that the style is odd)"
+    ],
+    "emotion": [
+      "smug",
+      "quirky",
+      "proud"
+    ],
+    "intent": [
+      "flex",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ye baburao ka style hai scene",
+        "hasAudio": true,
+        "transcript": "Ye Baburao ka style hai! / ये बाबूराव का स्टाइल है!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2000-03-31",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Baburao_Ganpatrao_Apte",
+        "title": "Wikipedia: Baburao Ganpatrao Apte (catchphrases, memes)"
+      },
+      {
+        "url": "https://bharatiyavishwa.com/hera-pheri-meme-templates/",
+        "title": "Bharatiya Vishwa: Hera Pheri meme templates"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-khopdi-tod-saale-ka",
+    "name": "Khopdi tod saale ka! (Baburao)",
+    "aliases": [
+      "khopdi tod saale ka",
+      "khopadi tod sale ka",
+      "maar khopdi tod",
+      "baburao khopdi tod",
+      "खोपड़ी तोड़ साले का"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Hera Pheri (Baburao)",
+      "detail": "Baburao (Paresh Rawal) egging on a fight: 'Maar... khopdi tod saale ka!'. Template uploads and lists disagree on whether it is from Hera Pheri (2000) or Phir Hera Pheri (2006)."
+    },
+    "meaning": "Bloodthirsty cheering for someone to get beaten up. Used when the host wants a rival roasted harder or two people to fight it out.",
+    "useWhen": [
+      "Two creators start a beef and the host cheers it on",
+      "Someone deserves to be roasted hard",
+      "An annoying performance (ScrollDroll: when Anu Malik starts his shayari)"
+    ],
+    "dontUseWhen": [
+      "Real violence or assault news"
+    ],
+    "emotion": [
+      "bloodthirsty",
+      "hype",
+      "angry"
+    ],
+    "intent": [
+      "rage",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:khopdi tod saale ka hera pheri meme template",
+        "hasAudio": true,
+        "transcript": "Maar... khopdi tod saale ka! / मार... खोपड़ी तोड़ साले का!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://scrolldroll.com/hera-pheri-memes/",
+        "title": "ScrollDroll: 30 best Hera Pheri memes"
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Baburao_Ganpatrao_Apte",
+        "title": "Wikipedia: Baburao Ganpatrao Apte (catchphrases, memes)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-25-din-mein-paisa-double",
+    "name": "25 din mein paisa double (Laxmi Chit Fund)",
+    "aliases": [
+      "25 din mein paisa double",
+      "21 din mein paisa double",
+      "paisa double",
+      "laxmi chit fund",
+      "lakshmi chit fund",
+      "paisa double scheme",
+      "25 दिन में पैसा डबल",
+      "पैसा डबल"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Phir Hera Pheri",
+      "year": 2006,
+      "detail": "Raju (Akshay Kumar) falls for a money-doubling scheme (the Laxmi Chit Fund ad bit; the main con in the plot, per Wikipedia, promises to double money in 21 days). Meme templates use '25 din mein paisa double'; both numbers circulate."
+    },
+    "meaning": "The ultimate too-good-to-be-true scam promise. Used for MLM pitches, crypto/trading 'gurus', betting apps and any get-rich-quick scheme.",
+    "useWhen": [
+      "A creator promotes a trading/betting/MLM scheme",
+      "Someone promises unrealistic returns",
+      "Fake 'earn from home' courses"
+    ],
+    "dontUseWhen": [
+      "Genuine investment advice being discussed seriously",
+      "Real fraud victims' stories (mocks victims)"
+    ],
+    "emotion": [
+      "greedy",
+      "gullible",
+      "scam"
+    ],
+    "intent": [
+      "money",
+      "lie",
+      "cheating"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:25 din mein paisa double phir hera pheri scene",
+        "hasAudio": true,
+        "transcript": "25 din mein paisa double! / 25 दिन में पैसा डबल!",
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:laxmi chit fund paisa double meme template",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2006-06-09",
+    "trendScore": 0.7,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://scrolldroll.com/hera-pheri-memes/",
+        "title": "ScrollDroll: 30 best Hera Pheri memes"
+      },
+      {
+        "url": "https://bharatiyavishwa.com/phir-hera-pheri-meme-templates/",
+        "title": "Bharatiya Vishwa: Phir Hera Pheri meme templates"
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Phir_Hera_Pheri",
+        "title": "Wikipedia: Phir Hera Pheri (plot: money doubled in 21 days)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-paisa-hi-paisa-hoga",
+    "name": "Paisa hi paisa hoga (Raju)",
+    "aliases": [
+      "paisa hi paisa hoga",
+      "paisa hi paisa",
+      "raju paisa",
+      "akshay kumar paisa hi paisa hoga",
+      "पैसा ही पैसा होगा"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Phir Hera Pheri",
+      "year": 2006,
+      "detail": "Raju (Akshay Kumar) daydreaming about the riches the scheme will bring."
+    },
+    "meaning": "Greedy daydream of limitless money. Used when someone expects a jackpot from a dubious plan (ScrollDroll: gym memberships in January).",
+    "useWhen": [
+      "A creator counts money before earning it",
+      "Brand deal / sponsorship greed",
+      "Someone quits a job for a 'sure-shot' scheme"
+    ],
+    "dontUseWhen": [
+      "Discussions of real poverty or financial distress"
+    ],
+    "emotion": [
+      "greedy",
+      "excited",
+      "delusional"
+    ],
+    "intent": [
+      "money",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:paisa hi paisa hoga phir hera pheri meme template",
+        "hasAudio": true,
+        "transcript": "Paisa hi paisa hoga! / पैसा ही पैसा होगा!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2006-06-09",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://scrolldroll.com/hera-pheri-memes/",
+        "title": "ScrollDroll: 30 best Hera Pheri memes"
+      },
+      {
+        "url": "https://bharatiyavishwa.com/phir-hera-pheri-meme-templates/",
+        "title": "Bharatiya Vishwa: Phir Hera Pheri meme templates"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-50-rupya-kaat-overacting",
+    "name": "50 rupya kaat overacting ka",
+    "aliases": [
+      "50 rupya kaat overacting ka",
+      "pachas rupaye kaat overacting ke",
+      "overacting ka paisa kaat",
+      "overacting meme",
+      "50 रुपया काट ओवरएक्टिंग का"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Hera Pheri",
+      "year": 2000,
+      "detail": "Raju (Akshay Kumar) docking pay for someone's overacting (listed under Hera Pheri by Bharatiya Vishwa; ScrollDroll caption: Indian Idol producer paying Neha Kakkar)."
+    },
+    "meaning": "Calling out fake, exaggerated emotion or acting by 'deducting' money for overacting.",
+    "useWhen": [
+      "A creator fakes crying or shock in a video",
+      "Reality-show sob story or staged reaction",
+      "Over-the-top apology video"
+    ],
+    "dontUseWhen": [
+      "Genuine emotion about grief or trauma"
+    ],
+    "emotion": [
+      "sarcastic",
+      "unimpressed"
+    ],
+    "intent": [
+      "cringe",
+      "sarcasm",
+      "overreact"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:50 rupya kaat overacting ka hera pheri",
+        "hasAudio": true,
+        "transcript": "Pachaas rupaya kaat, overacting ka! / पचास रुपया काट, ओवरएक्टिंग का!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2000-03-31",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://bharatiyavishwa.com/hera-pheri-meme-templates/",
+        "title": "Bharatiya Vishwa: Hera Pheri meme templates"
+      },
+      {
+        "url": "https://scrolldroll.com/hera-pheri-memes/",
+        "title": "ScrollDroll: 30 best Hera Pheri memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-abhi-maza-aayega-na-bhidu",
+    "name": "Abhi maza aayega na bhidu",
+    "aliases": [
+      "abhi maza aayega na bhidu",
+      "ab maza aayega bhidu",
+      "maza aayega na bhidu",
+      "munna bhai phir hera pheri",
+      "अभी मज़ा आएगा ना भिडू"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Phir Hera Pheri",
+      "year": 2006,
+      "detail": "Johnny Lever's gangster Munna bhai, gleefully anticipating chaos (credited to Johnny Lever by Bharatiya Vishwa; ScrollDroll caption: two disliked people fighting each other)."
+    },
+    "meaning": "Gleeful anticipation right before chaos, a fight or a big reveal starts.",
+    "useWhen": [
+      "Right before playing a receipt / exposing clip",
+      "Two controversial creators about to clash",
+      "The drama is about to escalate"
+    ],
+    "dontUseWhen": [
+      "Sincere or sad beats"
+    ],
+    "emotion": [
+      "gleeful",
+      "anticipation",
+      "hype"
+    ],
+    "intent": [
+      "hype",
+      "suspense"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:abhi maza aayega na bhidu meme template",
+        "hasAudio": true,
+        "transcript": "Abhi maza aayega na bhidu! / अभी मज़ा आएगा ना भिडू!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2006-06-09",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://bharatiyavishwa.com/phir-hera-pheri-meme-templates/",
+        "title": "Bharatiya Vishwa: Phir Hera Pheri meme templates"
+      },
+      {
+        "url": "https://scrolldroll.com/hera-pheri-memes/",
+        "title": "ScrollDroll: 30 best Hera Pheri memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-majnu-bhai-painting",
+    "name": "Majnu bhai's painting (horse + donkey)",
+    "aliases": [
+      "majnu bhai painting",
+      "majnu bhai ki painting",
+      "welcome painting",
+      "horse donkey painting",
+      "gadha ghoda painting",
+      "anil kapoor painting",
+      "मजनू भाई की पेंटिंग"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Welcome",
+      "year": 2007,
+      "detail": "Majnu bhai (Anil Kapoor), a gangster who fancies himself a painter, proudly shows his painting of a horse and a donkey. Anil Kapoor (Mar 2026): the horse does the work, the donkey takes the credit."
+    },
+    "meaning": "Proudly presented, terrible 'art'. Used for amateurish work shown off as a masterpiece, or for someone taking credit for another's work.",
+    "useWhen": [
+      "A creator shows off a badly made thumbnail/edit/logo",
+      "Someone takes credit for someone else's work",
+      "'Masterpiece' that is obviously bad"
+    ],
+    "dontUseWhen": [
+      "Real artists' genuine work"
+    ],
+    "emotion": [
+      "proud",
+      "absurd"
+    ],
+    "intent": [
+      "cringe",
+      "flex",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:majnu bhai painting scene welcome",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "query": "ytsearch3:majnu bhai painting meme template",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2007-12-21",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.newkerala.com/news/a/anil-kapoor-explains-deep-philosophy-behind-iconic-majnu-587.htm",
+        "title": "NewKerala (Mar 2026): Anil Kapoor explains the Majnu Bhai painting"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-control-uday-control",
+    "name": "Control Uday, control! (Welcome)",
+    "aliases": [
+      "control uday control",
+      "uday bhai control",
+      "nana patekar control",
+      "uday shetty",
+      "कंट्रोल उदय कंट्रोल"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Welcome",
+      "year": 2007,
+      "detail": "Don Uday Shetty (Nana Patekar) tells himself to calm down when Advocate Harkesh Sahni interrupts his sister's marriage talks."
+    },
+    "meaning": "Visibly trying to keep your temper and not explode. Used when the host is about to lose it but restrains himself.",
+    "useWhen": [
+      "The host is triggered by a statement but 'stays calm'",
+      "Before a rant the host is holding back",
+      "Reading a very provoking comment"
+    ],
+    "dontUseWhen": [
+      "Real anger-management or mental-health discussions"
+    ],
+    "emotion": [
+      "restraint",
+      "angry",
+      "tense"
+    ],
+    "intent": [
+      "rage",
+      "awkward"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:control uday control meme template",
+        "hasAudio": true,
+        "transcript": "Control, Uday, control! / कंट्रोल उदय, कंट्रोल!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2007-12-21",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/control-uday-control-meme-template/",
+        "title": "HumorNama: Control Uday Control meme template"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-kitne-aadmi-the",
+    "name": "Kitne aadmi the? (Gabbar)",
+    "aliases": [
+      "kitne aadmi the",
+      "gabbar singh",
+      "sholay gabbar",
+      "kitne aadmi the sardar",
+      "कितने आदमी थे"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Sholay",
+      "year": 1975,
+      "detail": "Gabbar Singh (Amjad Khan) interrogating his returning men."
+    },
+    "meaning": "The villain's menacing head-count question. Used for being outnumbered, for interrogating failure, or asking how many people it took to mess something up.",
+    "useWhen": [
+      "Asking how many people were involved in a controversy",
+      "A team fails and the boss interrogates",
+      "Outnumbered: everyone vs one creator"
+    ],
+    "dontUseWhen": [
+      "Real crimes with victims"
+    ],
+    "emotion": [
+      "menacing",
+      "interrogating"
+    ],
+    "intent": [
+      "rage",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:kitne aadmi the sholay gabbar scene",
+        "hasAudio": true,
+        "transcript": "Kitne aadmi the? / कितने आदमी थे?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1975-08-15",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      },
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-mere-paas-maa-hai",
+    "name": "Mere paas maa hai (Deewar)",
+    "aliases": [
+      "mere paas maa hai",
+      "mere pass maa hai",
+      "deewar dialogue",
+      "aaj mere paas building hai",
+      "मेरे पास माँ है"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Deewaar",
+      "year": 1975,
+      "detail": "Vijay (Amitabh Bachchan) lists his wealth; brother Ravi (Shashi Kapoor) answers 'Mere paas maa hai'."
+    },
+    "meaning": "The emotional trump card that beats any flex of wealth. Used as a mock-wholesome comeback when someone has nothing else to show.",
+    "useWhen": [
+      "Someone flexes money and the other side answers with 'values'",
+      "A poor argument dressed as an emotional win",
+      "Comparing a rich creator with an honest small one"
+    ],
+    "dontUseWhen": [
+      "Real loss of a mother or family grief"
+    ],
+    "emotion": [
+      "emotional",
+      "smug"
+    ],
+    "intent": [
+      "flex",
+      "victory",
+      "wholesome"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:mere paas maa hai deewar scene",
+        "hasAudio": true,
+        "transcript": "Mere paas maa hai. / मेरे पास माँ है।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1975-01-24",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-rishte-mein-toh-hum-tumhare-baap",
+    "name": "Rishte mein toh hum tumhare baap lagte hain (Shahenshah)",
+    "aliases": [
+      "rishte mein toh hum tumhare baap lagte hain",
+      "naam hai shahenshah",
+      "baap lagte hain",
+      "shahenshah dialogue",
+      "रिश्ते में तो हम तुम्हारे बाप लगते हैं"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Shahenshah",
+      "year": 1988,
+      "detail": "Amitabh Bachchan as Shahenshah: 'Rishte mein toh hum tumhare baap lagte hain, naam hai Shahenshah'."
+    },
+    "meaning": "Asserting total superiority over someone ('I'm your father'). Used when a senior/original schools a copycat.",
+    "useWhen": [
+      "An original creator vs a copycat",
+      "Someone claims superiority in a rivalry",
+      "India vs a rival team in cricket banter"
+    ],
+    "dontUseWhen": [
+      "When the host is the one being outclassed (use a fail meme)"
+    ],
+    "emotion": [
+      "dominant",
+      "smug"
+    ],
+    "intent": [
+      "flex",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:rishte mein toh hum tumhare baap lagte hain shahenshah",
+        "hasAudio": true,
+        "transcript": "Rishte mein toh hum tumhare baap lagte hain, naam hai Shahenshah! / रिश्ते में तो हम तुम्हारे बाप लगते हैं, नाम है शहंशाह!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1988-02-12",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-all-is-well",
+    "name": "Aal izz well (3 Idiots)",
+    "aliases": [
+      "all is well",
+      "aal izz well",
+      "all izz well",
+      "3 idiots all is well",
+      "ऑल इज़ वेल"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "3 Idiots",
+      "year": 2009,
+      "detail": "Rancho (Aamir Khan) teaches his friends to pat their chest and say 'Aal izz well' to calm the heart."
+    },
+    "meaning": "Forced optimism. In memes it's used sarcastically when everything is clearly falling apart.",
+    "useWhen": [
+      "A creator claims everything is fine mid-controversy",
+      "Denial while the situation burns",
+      "Before results/exams/launch"
+    ],
+    "dontUseWhen": [
+      "Genuine mental-health or grief beats"
+    ],
+    "emotion": [
+      "denial",
+      "optimistic"
+    ],
+    "intent": [
+      "denial",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:aal izz well 3 idiots scene",
+        "hasAudio": true,
+        "transcript": "Aal izz well! / आल इज़ वेल!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2009-12-25",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-tension-lene-ka-nahi",
+    "name": "Tension lene ka nahi, sirf dene ka (Munna Bhai)",
+    "aliases": [
+      "tension lene ka nahi sirf dene ka",
+      "tension nahi lene ka",
+      "munna bhai tension",
+      "टेंशन लेने का नहीं, सिर्फ देने का"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Munna Bhai M.B.B.S.",
+      "year": 2003,
+      "detail": "Munna (Sanjay Dutt) philosophy per Koimoi."
+    },
+    "meaning": "Carefree, unbothered attitude: don't take stress, only give it. Used for someone blissfully unbothered while others panic.",
+    "useWhen": [
+      "A creator ignores backlash and keeps posting",
+      "The host brushes off hate comments",
+      "Someone causing chaos without caring"
+    ],
+    "dontUseWhen": [
+      "Serious stress or mental-health topics"
+    ],
+    "emotion": [
+      "chill",
+      "unbothered"
+    ],
+    "intent": [
+      "ignore",
+      "flex"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:tension lene ka nahi sirf dene ka munna bhai",
+        "hasAudio": true,
+        "transcript": "Tension lene ka nahi, sirf dene ka. / टेंशन लेने का नहीं, सिर्फ देने का।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2003-12-19",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-bas-kar-pagle-rulayega-kya",
+    "name": "Bas kar pagle, ab rulayega kya",
+    "aliases": [
+      "bas kar pagle rulayega kya",
+      "bas kar ab rulayega kya",
+      "abe rulayega kya",
+      "rulayega kya pagle",
+      "बस कर पगले, अब रुलाएगा क्या"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Munna Bhai M.B.B.S.",
+      "year": 2003,
+      "detail": "Indian Meme Templates traces 'Bas kar ab rulayega kya' to Munna Bhai M.B.B.S. (2003); template uploads are tagged Munna Bhai."
+    },
+    "meaning": "Mock-emotional response to an over-sentimental or 'touching' statement, usually sarcastic.",
+    "useWhen": [
+      "A creator posts a sentimental 'thank you fans' after a controversy",
+      "Someone's sob story is obviously staged",
+      "Over-sweet praise or fake humility"
+    ],
+    "dontUseWhen": [
+      "Real tragedy or grief"
+    ],
+    "emotion": [
+      "mock-emotional",
+      "sarcastic"
+    ],
+    "intent": [
+      "fake-sad",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:bas kar pagle rulayega kya meme template",
+        "hasAudio": true,
+        "transcript": "Bas kar pagle, ab rulayega kya? / बस कर पगले, अब रुलाएगा क्या?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2003-12-19",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://indianmemetemplates.com/bas-kar-ab-rulayega-kya/",
+        "title": "Indian Meme Templates: Bas kar ab rulayega kya"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-poo-kaun-hai-ye",
+    "name": "Poo: 'Kaun hai ye, jisne dobara mud ke mujhe nahi dekha?'",
+    "aliases": [
+      "poo",
+      "kaun hai ye jisne dobara mud ke mujhe nahi dekha",
+      "who is he poo",
+      "k3g poo",
+      "kareena poo",
+      "कौन है ये जिसने दोबारा मुड़ के मुझे नहीं देखा"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Kabhi Khushi Kabhie Gham...",
+      "year": 2001,
+      "detail": "Poo (Kareena Kapoor) is outraged that a boy didn't turn back to look at her. Delhi Police used it for a traffic-signal campaign (Jul 2022)."
+    },
+    "meaning": "Self-obsessed diva outrage at being ignored. Used for attention-seekers and people who think the world revolves around them.",
+    "useWhen": [
+      "A celebrity/creator is upset nobody noticed them",
+      "Someone demands attention or special treatment",
+      "Self-obsessed influencer behaviour"
+    ],
+    "dontUseWhen": [
+      "Stories about harassment or stalking (the line is about wanting attention)"
+    ],
+    "emotion": [
+      "vain",
+      "diva",
+      "offended"
+    ],
+    "intent": [
+      "flex",
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:poo kaun hai ye jisne dobara mud ke mujhe nahi dekha",
+        "hasAudio": true,
+        "transcript": "Kaun hai ye, jisne dobara mud ke mujhe nahi dekha? / कौन है ये, जिसने दोबारा मुड़ के मुझे नहीं देखा?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2001-12-14",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.india.com/viral/viral-video-delhi-police-uses-iconic-poo-dialogue-from-k3g-to-teach-road-safety-5518642/",
+        "title": "India.com: Delhi Police uses Poo's K3G dialogue (Jul 2022)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-bade-bade-deshon-mein",
+    "name": "Bade bade deshon mein aisi chhoti chhoti baatein hoti rehti hain",
+    "aliases": [
+      "bade bade deshon mein",
+      "choti choti baatein",
+      "senorita bade bade deshon mein",
+      "ddlj dialogue",
+      "बड़े बड़े देशों में ऐसी छोटी छोटी बातें होती रहती हैं"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Dilwale Dulhania Le Jayenge",
+      "year": 1995,
+      "detail": "Raj (Shah Rukh Khan) shrugging off a mishap to Simran."
+    },
+    "meaning": "Brushing off a blunder as no big deal. Used when someone downplays an obvious mess.",
+    "useWhen": [
+      "A creator shrugs off a scandal as 'small thing'",
+      "Government/brand downplays a mess",
+      "The host downplays his own mistake"
+    ],
+    "dontUseWhen": [
+      "Serious harm or disasters"
+    ],
+    "emotion": [
+      "dismissive",
+      "smooth"
+    ],
+    "intent": [
+      "denial",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:bade bade deshon mein aisi choti choti baatein ddlj",
+        "hasAudio": true,
+        "transcript": "Bade bade deshon mein aisi chhoti chhoti baatein hoti rehti hain, Senorita. / बड़े बड़े देशों में ऐसी छोटी छोटी बातें होती रहती हैं, सेनोरिटा।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1995-10-20",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      },
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-ja-simran-ja",
+    "name": "Ja Simran ja, jee le apni zindagi",
+    "aliases": [
+      "ja simran ja",
+      "jaa simran jaa",
+      "jee le apni zindagi",
+      "ddlj ending",
+      "जा सिमरन जा, जी ले अपनी ज़िंदगी"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Dilwale Dulhania Le Jayenge",
+      "year": 1995,
+      "detail": "Baldev (Amrish Puri) finally lets Simran (Kajol) go to Raj at the railway station."
+    },
+    "meaning": "Grudging permission / letting go. Used when someone is finally allowed to leave or do what they wanted, or sarcastically 'go live your life'.",
+    "useWhen": [
+      "Letting a creator 'go' after a bad collab",
+      "Someone finally gets permission/freedom",
+      "Sarcastic send-off to a person leaving a platform"
+    ],
+    "dontUseWhen": [
+      "Real family estrangement stories"
+    ],
+    "emotion": [
+      "release",
+      "dramatic"
+    ],
+    "intent": [
+      "bye",
+      "victory"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ja simran ja jee le apni zindagi ddlj scene",
+        "hasAudio": true,
+        "transcript": "Ja Simran ja, jee le apni zindagi. / जा सिमरन जा, जी ले अपनी ज़िंदगी।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1995-10-20",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-crime-master-gogo",
+    "name": "Crime Master Gogo naam hai mera",
+    "aliases": [
+      "crime master gogo",
+      "aankhen nikal ke gotiyan khelta hoon",
+      "gogo",
+      "andaz apna apna gogo",
+      "क्राइम मास्टर गोगो"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Andaz Apna Apna",
+      "year": 1994,
+      "detail": "Shakti Kapoor's cartoonish villain: 'Crime Master Gogo naam hai mera, aankhen nikal ke gotiyan khelta hoon main'."
+    },
+    "meaning": "A villain intro that is more ridiculous than scary. Used for someone trying to act menacing but coming off silly.",
+    "useWhen": [
+      "A creator acting like a tough guy",
+      "Wannabe gangster reels",
+      "Introducing a self-proclaimed mastermind"
+    ],
+    "dontUseWhen": [
+      "Real criminals and victims"
+    ],
+    "emotion": [
+      "menacing",
+      "silly"
+    ],
+    "intent": [
+      "flex",
+      "crazy"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:crime master gogo naam hai mera aankhen nikal ke gotiyan khelta hoon",
+        "hasAudio": true,
+        "transcript": "Crime Master Gogo naam hai mera, aankhen nikal ke gotiyan khelta hoon main. / क्राइम मास्टर गोगो नाम है मेरा, आँखें निकाल के गोटियाँ खेलता हूँ मैं।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1994-04-11",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-main-apni-favourite-hoon",
+    "name": "Main apni favourite hoon (Geet)",
+    "aliases": [
+      "main apni favourite hoon",
+      "mein apni favourite hoon",
+      "geet jab we met",
+      "मैं अपनी फेवरेट हूँ"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Jab We Met",
+      "year": 2007,
+      "detail": "Geet (Kareena Kapoor) declaring self-love."
+    },
+    "meaning": "Unapologetic self-love. Used for someone who is their own biggest fan.",
+    "useWhen": [
+      "A creator praises themselves",
+      "Self-hype after a win",
+      "Someone reposting their own compliments"
+    ],
+    "dontUseWhen": [
+      "When someone is genuinely low / self-esteem beats"
+    ],
+    "emotion": [
+      "confident",
+      "vain"
+    ],
+    "intent": [
+      "flex",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:main apni favourite hoon jab we met scene",
+        "hasAudio": true,
+        "transcript": "Main apni favourite hoon! / मैं अपनी फेवरेट हूँ!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2007-10-26",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-ek-baar-jo-maine-commitment",
+    "name": "Ek baar jo maine commitment kar di...",
+    "aliases": [
+      "ek baar jo maine commitment kar di",
+      "main khud ki bhi nahi sunta",
+      "salman commitment",
+      "wanted dialogue",
+      "एक बार जो मैंने कमिटमेंट कर दी"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Wanted",
+      "year": 2009,
+      "detail": "Radhe (Salman Khan): 'Ek baar jo maine commitment kar di, uske baad toh main khud ki bhi nahi sunta'."
+    },
+    "meaning": "Stubborn determination. Used for someone sticking to a bad decision no matter what.",
+    "useWhen": [
+      "A creator doubles down on a wrong claim",
+      "Someone keeps a promise that makes no sense",
+      "Diet/gym resolutions"
+    ],
+    "dontUseWhen": [
+      "Real commitments like marriage vows in a serious story"
+    ],
+    "emotion": [
+      "stubborn",
+      "swag"
+    ],
+    "intent": [
+      "flex",
+      "denial"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ek baar jo maine commitment kar di wanted salman",
+        "hasAudio": true,
+        "transcript": "Ek baar jo maine commitment kar di, uske baad toh main khud ki bhi nahi sunta. / एक बार जो मैंने कमिटमेंट कर दी, उसके बाद तो मैं खुद की भी नहीं सुनता।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2009-09-18",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      },
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-tussi-ja-rahe-ho",
+    "name": "Tussi ja rahe ho? Tussi na jao!",
+    "aliases": [
+      "tussi ja rahe ho tussi na jao",
+      "tusi ja rahe ho",
+      "tussi na jao",
+      "kkhh sardar kid",
+      "तुस्सी जा रहे हो? तुस्सी ना जाओ"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Kuch Kuch Hota Hai",
+      "year": 1998,
+      "detail": "The little Sardar boy at the summer camp (Parzaan Dastur) pleading with Rahul not to leave. Often misremembered as from another film."
+    },
+    "meaning": "Over-dramatic plea for someone not to leave. Used sarcastically when someone threatens to quit or leave a platform.",
+    "useWhen": [
+      "A creator announces a break/quitting",
+      "Someone leaves a group/collab",
+      "Fake farewells"
+    ],
+    "dontUseWhen": [
+      "Real goodbyes or deaths"
+    ],
+    "emotion": [
+      "pleading",
+      "mock-sad"
+    ],
+    "intent": [
+      "fake-sad",
+      "bye"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:tussi ja rahe ho tussi na jao kuch kuch hota hai",
+        "hasAudio": true,
+        "transcript": "Tussi ja rahe ho? Tussi na jao! / तुस्सी जा रहे हो? तुस्सी ना जाओ!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "1998-10-16",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://etc.bdir.in/dialogue/v/MTIz",
+        "title": "bDir: Kuch Kuch Hota Hai - Tussi ja rahe ho? Tussi na jao"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-don-ko-pakadna",
+    "name": "Don ko pakadna mushkil hi nahi, namumkin hai",
+    "aliases": [
+      "don ko pakadna mushkil hi nahi namumkin hai",
+      "don ko pakadna",
+      "namumkin hai",
+      "डॉन को पकड़ना मुश्किल ही नहीं, नामुमकिन है"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Don",
+      "year": 1978,
+      "detail": "Amitabh Bachchan as Don."
+    },
+    "meaning": "Smug claim of being uncatchable. Used for someone who keeps escaping accountability.",
+    "useWhen": [
+      "A creator dodges every question",
+      "Someone escapes consequences again",
+      "The host claims no one can catch his lies (ironically)"
+    ],
+    "dontUseWhen": [
+      "Real fugitives in serious crime news"
+    ],
+    "emotion": [
+      "smug",
+      "slippery"
+    ],
+    "intent": [
+      "flex",
+      "chase"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:don ko pakadna mushkil hi nahi namumkin hai",
+        "hasAudio": true,
+        "transcript": "Don ko pakadna mushkil hi nahi, namumkin hai. / डॉन को पकड़ना मुश्किल ही नहीं, नामुमकिन है।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1978-05-12",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-mogambo-khush-hua",
+    "name": "Mogambo khush hua!",
+    "aliases": [
+      "mogambo khush hua",
+      "mogambo",
+      "mr india villain",
+      "मोगैम्बो खुश हुआ"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Mr. India",
+      "year": 1987,
+      "detail": "Mogambo (Amrish Puri) celebrating a successful evil plan."
+    },
+    "meaning": "Villainous satisfaction when a plan works. Used for exaggerated joy or evil triumph.",
+    "useWhen": [
+      "The host's prediction comes true",
+      "A villain-like creator gets what they wanted",
+      "Evil plan succeeds"
+    ],
+    "dontUseWhen": [
+      "Sincere celebrations"
+    ],
+    "emotion": [
+      "evil",
+      "satisfied"
+    ],
+    "intent": [
+      "victory",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:mogambo khush hua mr india scene",
+        "hasAudio": true,
+        "transcript": "Mogambo khush hua! / मोगैम्बो खुश हुआ!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1987-05-25",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      },
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-pushpa-i-hate-tears",
+    "name": "Pushpa, I hate tears",
+    "aliases": [
+      "pushpa i hate tears",
+      "i hate tears",
+      "rajesh khanna pushpa",
+      "पुष्पा, आई हेट टियर्स"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Amar Prem",
+      "year": 1972,
+      "detail": "Anand Babu (Rajesh Khanna) to Pushpa (Sharmila Tagore)."
+    },
+    "meaning": "Mock heartbreak or exaggerated indifference to someone's crying.",
+    "useWhen": [
+      "A creator cries on camera for sympathy",
+      "Fake tears in an apology video",
+      "Telling someone to stop whining"
+    ],
+    "dontUseWhen": [
+      "Real grief"
+    ],
+    "emotion": [
+      "dismissive",
+      "dramatic"
+    ],
+    "intent": [
+      "fake-sad",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:pushpa i hate tears amar prem rajesh khanna",
+        "hasAudio": true,
+        "transcript": "Pushpa, I hate tears. / पुष्पा, आई हेट टियर्स।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "1972-01-01",
+    "trendScore": 0.35,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      },
+      {
+        "url": "https://www.filmcompanion.in/features/best-bollywood-dialogues-you-have-probably-used-irl-mere-paas-maa-hai-kitne-aadmi-the-hows-the-josh-all-izz-well",
+        "title": "Film Companion: 50 iconic Bollywood dialogues you've used IRL"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-hows-the-josh",
+    "name": "How's the josh? High sir!",
+    "aliases": [
+      "hows the josh",
+      "how's the josh high sir",
+      "josh high sir",
+      "uri dialogue",
+      "हाउज़ द जोश"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Uri: The Surgical Strike",
+      "year": 2019,
+      "detail": "Major Vihaan (Vicky Kaushal) rallying his soldiers."
+    },
+    "meaning": "A hype call-and-response. Used ironically to pump up a crowd or mock forced enthusiasm.",
+    "useWhen": [
+      "Hyping the audience before a big reveal",
+      "Mocking forced corporate enthusiasm",
+      "Start of a 'battle' between creators"
+    ],
+    "dontUseWhen": [
+      "Mocking soldiers or real military operations"
+    ],
+    "emotion": [
+      "hype",
+      "motivated"
+    ],
+    "intent": [
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:how's the josh high sir uri scene",
+        "hasAudio": true,
+        "transcript": "How's the josh? High, sir! / हाउज़ द जोश? हाई सर!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2019-01-11",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-tumse-na-ho-payega",
+    "name": "Beta, tumse na ho payega",
+    "aliases": [
+      "tumse na ho payega",
+      "beta tumse na ho payega",
+      "tumse na ho paega",
+      "gangs of wasseypur tumse na ho payega",
+      "बेटा, तुमसे ना हो पाएगा"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Gangs of Wasseypur Part 2",
+      "year": 2012,
+      "detail": "Ramadhir Singh (Tigmanshu Dhulia) dismissing his son J.P. Singh. Some articles wrongly credit Faizal (Nawazuddin)."
+    },
+    "meaning": "Blunt dismissal of someone's ability. Used to mock overconfidence or incompetence.",
+    "useWhen": [
+      "A creator attempts something clearly beyond them",
+      "Someone's plan is doomed",
+      "The host mocks a rival's comeback attempt"
+    ],
+    "dontUseWhen": [
+      "Kids or genuine beginners trying their best"
+    ],
+    "emotion": [
+      "dismissive",
+      "condescending"
+    ],
+    "intent": [
+      "fail",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:beta tumse na ho payega gangs of wasseypur meme template",
+        "hasAudio": true,
+        "transcript": "Beta, tumse na ho payega. / बेटा, तुमसे ना हो पाएगा।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2012-08-08",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      },
+      {
+        "url": "https://scrolldroll.com/gangs-of-wasseypur-dialogues/",
+        "title": "ScrollDroll: 20 best Gangs of Wasseypur dialogues"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-keh-ke-lenge",
+    "name": "Goli nahi marenge... keh ke lenge uski",
+    "aliases": [
+      "keh ke lenge",
+      "keh ke lunga",
+      "kehke lenge uski",
+      "goli nahi marenge",
+      "sardar khan",
+      "कह के लेंगे"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Gangs of Wasseypur",
+      "year": 2012,
+      "detail": "Sardar Khan (Manoj Bajpayee) on Ramadhir Singh: 'Us harami ko mitana hai humein... goli nahi marenge, keh ke lenge uski'. Also the song 'Keh Ke Lunga'."
+    },
+    "meaning": "Announced, open revenge: we'll get him and tell him first. Used for a promised takedown or roast.",
+    "useWhen": [
+      "The host announces he's about to roast someone thoroughly",
+      "Revenge-arc between creators",
+      "Open challenge"
+    ],
+    "dontUseWhen": [
+      "Real threats of violence"
+    ],
+    "emotion": [
+      "vengeful",
+      "confident"
+    ],
+    "intent": [
+      "rage",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:goli nahi marenge keh ke lenge uski sardar khan",
+        "hasAudio": true,
+        "transcript": "Goli nahi marenge saale ko... keh ke lenge uski. / गोली नहीं मारेंगे साले को... कह के लेंगे उसकी।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2012-06-22",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://scrolldroll.com/gangs-of-wasseypur-dialogues/",
+        "title": "ScrollDroll: 20 best Gangs of Wasseypur dialogues"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-sabka-badla-lega-faizal",
+    "name": "Baap ka, dada ka, bhai ka... sabka badla lega re tera Faizal",
+    "aliases": [
+      "sabka badla lega re tera faizal",
+      "baap ka dada ka bhai ka",
+      "faizal khan badla",
+      "सबका बदला लेगा रे तेरा फ़ैज़ल"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Gangs of Wasseypur Part 2",
+      "year": 2012,
+      "detail": "Faizal Khan (Nawazuddin Siddiqui) vowing revenge."
+    },
+    "meaning": "Over-the-top vow of revenge for every past wrong. Used for comeback/revenge arcs, even petty ones.",
+    "useWhen": [
+      "A creator returns to answer all critics at once",
+      "India vs a team that beat us before",
+      "The host 'avenges' his audience"
+    ],
+    "dontUseWhen": [
+      "Real revenge crimes"
+    ],
+    "emotion": [
+      "vengeful",
+      "intense"
+    ],
+    "intent": [
+      "rage",
+      "victory"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:baap ka dada ka bhai ka sabka badla lega re tera faizal scene",
+        "hasAudio": true,
+        "transcript": "Baap ka, dada ka, bhai ka... sabka badla lega re tera Faizal! / बाप का, दादा का, भाई का... सबका बदला लेगा रे तेरा फ़ैज़ल!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2012-08-08",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://scrolldroll.com/gangs-of-wasseypur-dialogues/",
+        "title": "ScrollDroll: 20 best Gangs of Wasseypur dialogues"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-jab-tak-cinema-hai",
+    "name": "Jab tak Hindustan mein cinema hai, log chutiya bante rahenge",
+    "aliases": [
+      "jab tak cinema hai log chutiya bante rahenge",
+      "hindustan mein jab tak cinema hai",
+      "ramadhir singh cinema",
+      "जब तक हिंदुस्तान में सिनेमा है, लोग चूतिया बनते रहेंगे"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Gangs of Wasseypur Part 2",
+      "year": 2012,
+      "detail": "Ramadhir Singh (Tigmanshu Dhulia) on how films shape people."
+    },
+    "meaning": "Cynical line that people will keep getting fooled by drama and spectacle. Used when an audience falls for staged content or propaganda.",
+    "useWhen": [
+      "Audience believes a staged/scripted video",
+      "Fans fooled by a film's hype or PR",
+      "Fake news spreads because it's filmy"
+    ],
+    "dontUseWhen": [
+      "Family-friendly edits (gaali)",
+      "When the audience of this video is the target"
+    ],
+    "emotion": [
+      "cynical",
+      "knowing"
+    ],
+    "intent": [
+      "lie",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:jab tak cinema hai log chutiya bante rahenge ramadhir singh",
+        "hasAudio": true,
+        "transcript": "Jab tak Hindustan mein cinema hai, log chutiya bante rahenge. / जब तक हिंदुस्तान में सिनेमा है, लोग चूतिया बनते रहेंगे।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2012-08-08",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://scrolldroll.com/gangs-of-wasseypur-dialogues/",
+        "title": "ScrollDroll: 20 best Gangs of Wasseypur dialogues"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-dukh-kaahe-khatam-nahi-hota",
+    "name": "Saala ye dukh kaahe khatam nahi hota hai be",
+    "aliases": [
+      "ye dukh kahe khatam nahi hota",
+      "dukh kaahe khatam nahi hota be",
+      "masaan dukh",
+      "vicky kaushal dukh",
+      "साला ये दुख काहे खतम नहीं होता है बे"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Masaan",
+      "year": 2015,
+      "detail": "Deepak (Vicky Kaushal) breaking down to his friends after his girlfriend's death (an improvised moment that stayed in the final cut)."
+    },
+    "meaning": "Endless suffering, played for laughs about repeated small misfortunes.",
+    "useWhen": [
+      "One problem after another for a creator",
+      "The host's repeated bad luck",
+      "Another controversy in the same week"
+    ],
+    "dontUseWhen": [
+      "Real grief or death (the source scene is about a death)"
+    ],
+    "emotion": [
+      "sad",
+      "hopeless"
+    ],
+    "intent": [
+      "fake-sad",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:saala ye dukh kahe khatam nahi hota hai be masaan scene",
+        "hasAudio": true,
+        "transcript": "Saala ye dukh kaahe khatam nahi hota hai be? / साला ये दुख काहे खतम नहीं होता है बे?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2015-07-24",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/saala-ye-dukh-kaahe-khatam-nahi-hota-hai-be-meme-template/",
+        "title": "HumorNama: Ye dukh kaahe khatam nahi hota hai meme template"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-ye-bhi-theek-hai",
+    "name": "Ye bhi theek hai (Robin, Mirzapur 2)",
+    "aliases": [
+      "ye bhi theek hai",
+      "yeh bhi theek hai",
+      "ye bhi thik hai",
+      "robin mirzapur",
+      "ये भी ठीक है"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Mirzapur (Season 2)",
+      "year": 2020,
+      "detail": "Robin (Priyanshu Painyuli) says it calmly even when Golu points a gun at him (S2E4), and repeatedly through the season. Commonly misattributed to Kaleen bhaiya."
+    },
+    "meaning": "Calm, resigned acceptance of whatever absurd thing just happened.",
+    "useWhen": [
+      "The host shrugs at an absurd claim",
+      "Accepting a ridiculous outcome",
+      "Someone keeps changing their story and the host just nods"
+    ],
+    "dontUseWhen": [
+      "When the beat needs outrage"
+    ],
+    "emotion": [
+      "resigned",
+      "chill"
+    ],
+    "intent": [
+      "agree",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ye bhi theek hai mirzapur 2 meme template robin",
+        "hasAudio": true,
+        "transcript": "Ye bhi theek hai. / ये भी ठीक है।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2020-10-23",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/ye-bhi-theek-hai-meme-template/",
+        "title": "HumorNama: Ye Bhi Theek Hai meme template"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-shuru-majboori-mein-kiye-the",
+    "name": "Shuru majboori mein kiye the, ab maza aa raha hai (Guddu)",
+    "aliases": [
+      "shuru majboori mein kiye the",
+      "ab maza aa raha hai",
+      "guddu pandit",
+      "mirzapur guddu",
+      "शुरू मजबूरी में किए थे, अब मज़ा आ रहा है"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Mirzapur (Season 1)",
+      "year": 2018,
+      "detail": "Guddu Pandit (Ali Fazal) to his father Ramakant (Rajesh Tailang) about their crime work."
+    },
+    "meaning": "Started something out of necessity, now enjoying it too much.",
+    "useWhen": [
+      "A creator who started roasting for money now loves drama",
+      "Someone who 'reluctantly' joined a trend and now can't stop",
+      "Bad habits that became hobbies"
+    ],
+    "dontUseWhen": [
+      "Real crime or addiction stories"
+    ],
+    "emotion": [
+      "devilish",
+      "enjoying"
+    ],
+    "intent": [
+      "flex",
+      "crazy"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:shuru majboori mein kiye the ab maza aa raha hai guddu mirzapur",
+        "hasAudio": true,
+        "transcript": "Shuru majboori mein kiye the, ab maza aa raha hai. / शुरू मजबूरी में किए थे, अब मज़ा आ रहा है।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2018-11-16",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/shuru-majboori-me-kiye-the-meme-template/",
+        "title": "HumorNama: Shuru majboori me kiye the meme template"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-dekh-raha-hai-binod",
+    "name": "Dekh raha hai Binod? (Panchayat S2)",
+    "aliases": [
+      "dekh raha hai binod",
+      "dekh raha hai vinod",
+      "banrakas",
+      "bhushan panchayat",
+      "angrezi bol bol ke baat ko ghumaya",
+      "देख रहा है बिनोद"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Panchayat (Season 2)",
+      "year": 2022,
+      "detail": "Bhushan 'Banrakas' (Durgesh Kumar) to Vinod about the Sachiv: 'Dekh raha hai Binod, kaise angrezi bol-bol ke baat ko ghumaya ja raha hai'. Not the 2020 Binod comment meme (in-binod)."
+    },
+    "meaning": "Pointing out, to a sidekick, how someone is twisting words or manipulating. Sardonic 'are you seeing this?'.",
+    "useWhen": [
+      "A creator twists facts with fancy English/jargon",
+      "The host points out manipulation in a clip",
+      "Spin doctors and PR language"
+    ],
+    "dontUseWhen": [
+      "When there's no manipulation to point out"
+    ],
+    "emotion": [
+      "sardonic",
+      "suspicious"
+    ],
+    "intent": [
+      "exposed",
+      "sarcasm",
+      "lie"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:dekh raha hai binod panchayat season 2 scene bhushan",
+        "hasAudio": true,
+        "transcript": "Dekh raha hai Binod, kaise angrezi bol-bol ke baat ko ghumaya ja raha hai. / देख रहा है बिनोद, कैसे अंग्रेज़ी बोल-बोल के बात को घुमाया जा रहा है।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2022-06-16",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/dekh-raha-hai-vinod-dekh-raha-hai-binod",
+        "title": "Know Your Meme: Dekh Raha Hai Vinod / Binod"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-gajab-bejjati-hai",
+    "name": "Gajab bejjati hai yaar (Panchayat)",
+    "aliases": [
+      "gajab bejjati hai",
+      "gazab bezzati hai yaar",
+      "gajab beizzati",
+      "panchayat bejjati",
+      "गजब बेइज्जती है यार"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Panchayat (Season 1)",
+      "year": 2020,
+      "detail": "The groom's friend (Vaibhav Rajoriya) complains when the Sachiv asks him to wait for dinner (S1E3)."
+    },
+    "meaning": "Mock outrage at a small insult. Used when someone gets publicly embarrassed or disrespected.",
+    "useWhen": [
+      "A creator gets owned in comments",
+      "Someone is ignored/insulted publicly",
+      "Brand replies savagely to a creator"
+    ],
+    "dontUseWhen": [
+      "Real humiliation or bullying of a private person"
+    ],
+    "emotion": [
+      "insulted",
+      "embarrassed"
+    ],
+    "intent": [
+      "awkward",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:gajab bejjati hai yaar meme template panchayat",
+        "hasAudio": true,
+        "transcript": "Gajab bejjati hai yaar! / गजब बेइज्जती है यार!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2020-04-03",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://indianmemetemplates.com/gajab-bejjati-hai-yaar/",
+        "title": "Indian Meme Templates: Gajab bejjati hai yaar"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-apun-hi-bhagwan-hai",
+    "name": "Kabhi kabhi lagta hai apun hi bhagwan hai",
+    "aliases": [
+      "apun hi bhagwan hai",
+      "kabhi kabhi lagta hai apun hi bhagwan hai",
+      "ganesh gaitonde",
+      "sacred games",
+      "कभी कभी लगता है अपुन ही भगवान है"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Sacred Games",
+      "year": 2018,
+      "detail": "Ganesh Gaitonde (Nawazuddin Siddiqui)."
+    },
+    "meaning": "God complex / extreme overconfidence after a small success.",
+    "useWhen": [
+      "A creator thinks they're untouchable",
+      "Someone gets cocky after one viral video",
+      "The host after a correct prediction"
+    ],
+    "dontUseWhen": [
+      "Religious discussions (can read as blasphemy)"
+    ],
+    "emotion": [
+      "arrogant",
+      "godlike"
+    ],
+    "intent": [
+      "flex",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:kabhi kabhi lagta hai apun hi bhagwan hai sacred games scene",
+        "hasAudio": true,
+        "transcript": "Kabhi kabhi lagta hai apun hi bhagwan hai. / कभी कभी लगता है अपुन ही भगवान है।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2018-07-06",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://indianmemetemplates.com/kabhi-kabhi-lagta-hai-apun-hi-bhagwan-hai/",
+        "title": "Indian Meme Templates: Kabhi kabhi lagta hai apun hi bhagwan hai"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-main-jhukega-nahi-saala",
+    "name": "Main jhukega nahi saala (Pushpa)",
+    "aliases": [
+      "jhukega nahi saala",
+      "main jhukega nahi",
+      "thaggede le",
+      "pushpa jhukega nahi",
+      "pushpa beard swipe",
+      "मैं झुकेगा नहीं साला"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Pushpa: The Rise (Hindi dub)",
+      "year": 2021,
+      "detail": "Pushpa Raj (Allu Arjun) with the chin/beard swipe; the Telugu 'Thaggede Le' became 'Jhukega nahi saala' in Hindi and reached cult status (Wikipedia)."
+    },
+    "meaning": "Defiant refusal to back down. Used for stubborn creators who won't apologise.",
+    "useWhen": [
+      "A creator refuses to apologise",
+      "Someone doubles down after backlash",
+      "Host stands his ground"
+    ],
+    "dontUseWhen": [
+      "When backing down is the right thing and the target is a victim"
+    ],
+    "emotion": [
+      "defiant",
+      "swag"
+    ],
+    "intent": [
+      "flex",
+      "denial"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:main jhukega nahi saala pushpa hindi dialogue scene",
+        "hasAudio": true,
+        "transcript": "Pushpa... main jhukega nahi saala! / पुष्पा... मैं झुकेगा नहीं साला!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2021-12-17",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Pushpa:_The_Rise",
+        "title": "Wikipedia: Pushpa: The Rise (dialogue's cult status)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-kgf-violence",
+    "name": "Violence, violence, violence... I don't like it (KGF 2)",
+    "aliases": [
+      "violence violence violence",
+      "violence likes me",
+      "i dont like it i avoid",
+      "rocky bhai violence",
+      "kgf violence dialogue",
+      "वायलेंस वायलेंस वायलेंस"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "KGF: Chapter 2",
+      "year": 2022,
+      "detail": "Rocky (Yash) before an action sequence."
+    },
+    "meaning": "Mock-reluctant menace: I avoid trouble, but trouble loves me. Used when a creator 'avoids' controversy yet keeps landing in it.",
+    "useWhen": [
+      "A controversy magnet says they hate drama",
+      "Host 'didn't want to' roast but here we are",
+      "Replace 'violence' with 'controversy'"
+    ],
+    "dontUseWhen": [
+      "Real violence"
+    ],
+    "emotion": [
+      "swag",
+      "menacing"
+    ],
+    "intent": [
+      "flex",
+      "hypocrisy"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:violence violence violence i dont like it kgf chapter 2 hindi scene",
+        "hasAudio": true,
+        "transcript": "Violence, violence, violence... I don't like it, I avoid. But violence likes me, I can't avoid. / वायलेंस, वायलेंस, वायलेंस... आई डोंट लाइक इट, आई अवॉइड...",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "en",
+    "firstSeen": "2022-04-14",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.pinkvilla.com/entertainment/south/top-kgf-dialogues-yashs-but-violence-likes-me-i-cant-avoid-punch-line-steals-the-show-1357019",
+        "title": "Pinkvilla: Top KGF dialogues"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-jamal-kudu-bobby-deol-entry",
+    "name": "Bobby Deol's Jamal Kudu entry (Animal)",
+    "aliases": [
+      "jamal kudu",
+      "jamal jamaloo",
+      "bobby deol entry",
+      "abrar entry",
+      "animal bobby deol dance",
+      "glass on head dance",
+      "जमाल कुडू"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Animal",
+      "year": 2023,
+      "detail": "Abrar (Bobby Deol) enters his brother's wedding dancing to the Iranian song 'Jamal Jamaloo' (released as 'Jamal Kudu', Dec 2023) with a glass on his head; became a reels trend."
+    },
+    "meaning": "An iconic, swaggering villain entry. Used to introduce a person/creator dramatically.",
+    "useWhen": [
+      "Introducing the 'villain' of the story",
+      "A creator's dramatic comeback entry",
+      "Hype intro before a roast target appears"
+    ],
+    "dontUseWhen": [
+      "Sad beats"
+    ],
+    "emotion": [
+      "swag",
+      "menacing",
+      "hype"
+    ],
+    "intent": [
+      "dance",
+      "hype",
+      "flex"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:bobby deol entry jamal kudu animal scene",
+        "hasAudio": true,
+        "transcript": "(Persian song 'Jamal Jamaloo', no dialogue)",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2023-12-01",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.indiatvnews.com/entertainment/news/animal-makers-unveil-bobby-deol-viral-entry-song-jamal-kudu-watch-2023-12-13-907131",
+        "title": "India TV: Bobby Deol's viral entry song 'Jamal Kudu' (13 Dec 2023)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-kattappa-ne-baahubali-ko-kyun-maara",
+    "name": "Kattappa ne Baahubali ko kyun maara?",
+    "aliases": [
+      "kattappa ne baahubali ko kyun maara",
+      "katappa ne bahubali ko kyu mara",
+      "why kattappa killed baahubali",
+      "kattappa backstab",
+      "कटप्पा ने बाहुबली को क्यों मारा"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Baahubali: The Beginning / Baahubali 2",
+      "year": 2015,
+      "detail": "The cliffhanger of Baahubali: The Beginning (Kattappa stabs Amarendra Baahubali) became the national question until Baahubali 2 (2017) answered it; Rajamouli called it 'the theme of the film'."
+    },
+    "meaning": "The ultimate unanswered question / betrayal by a trusted person.",
+    "useWhen": [
+      "A trusted ally betrays a creator",
+      "An unanswered mystery the host keeps teasing",
+      "Why did X do Y?"
+    ],
+    "dontUseWhen": [
+      "Real betrayals involving violence"
+    ],
+    "emotion": [
+      "curious",
+      "betrayed"
+    ],
+    "intent": [
+      "betrayal",
+      "suspense",
+      "plot-twist"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:kattappa kills baahubali scene hindi baahubali 2",
+        "hasAudio": true,
+        "transcript": "(Kattappa stabs Amarendra Baahubali in the back; dramatic score)",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2015-07-10",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Baahubali_2:_The_Conclusion",
+        "title": "Wikipedia: Baahubali 2 (the 'Why Kattappa killed Baahubali' question)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-aata-majhi-satakli",
+    "name": "Aata majhi satakli! (Singham)",
+    "aliases": [
+      "aata majhi satakli",
+      "ata majhi satakli",
+      "singham satakli",
+      "bajirao singham",
+      "आता माझी सटकली"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Singham",
+      "year": 2011,
+      "detail": "Bajirao Singham (Ajay Devgn) snaps at the don Jaikant Shikre; Marathi for 'now I've lost it'. Later a Singham Returns song."
+    },
+    "meaning": "The moment someone finally loses their temper.",
+    "useWhen": [
+      "The host finally snaps after reading a claim",
+      "Someone's patience runs out",
+      "Rage build-up"
+    ],
+    "dontUseWhen": [
+      "Police brutality stories"
+    ],
+    "emotion": [
+      "angry",
+      "explosive"
+    ],
+    "intent": [
+      "rage"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:aata majhi satakli singham scene ajay devgn prakash raj",
+        "hasAudio": true,
+        "transcript": "Aata majhi satakli! / आता माझी सटकली!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2011-07-22",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://rajdeepsardesai.net/columns/aata-majhi-satakli-the-singham-syndrome",
+        "title": "Rajdeep Sardesai: 'Aata Majhi Satakli': the Singham syndrome"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-bete-ko-haath-lagane-se-pehle",
+    "name": "Bete ko haath lagane se pehle, baap se baat kar (Jawan)",
+    "aliases": [
+      "bete ko haath lagane se pehle baap se baat kar",
+      "baap se baat kar",
+      "jawan dialogue",
+      "srk baap",
+      "बेटे को हाथ लगाने से पहले, बाप से बात कर"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Jawan",
+      "year": 2023,
+      "detail": "Shah Rukh Khan in the Jawan trailer (31 Aug 2023); 'baap' trended #1 on X."
+    },
+    "meaning": "Protective father warning: deal with me first. Used when a senior/mentor defends their junior.",
+    "useWhen": [
+      "A senior creator defends a junior",
+      "Fans defend their favourite",
+      "Host protects his audience from a scam"
+    ],
+    "dontUseWhen": [
+      "Reading it as a reference to real legal cases of private individuals"
+    ],
+    "emotion": [
+      "protective",
+      "menacing"
+    ],
+    "intent": [
+      "flex",
+      "rage"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:bete ko haath lagane se pehle baap se baat kar jawan scene",
+        "hasAudio": true,
+        "transcript": "Bete ko haath lagane se pehle, baap se baat kar. / बेटे को हाथ लगाने से पहले, बाप से बात कर।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2023-08-31",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.businesstoday.in/trending/entertainment/story/jawan-trailer-shah-rukh-khans-dialogue-bete-ko-haath-lagane-se-pehle-goes-viral-see-reactions-396420-2023-08-31",
+        "title": "Business Today: Jawan dialogue goes viral (31 Aug 2023)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-o-stree-kal-aana",
+    "name": "O Stree, kal aana",
+    "aliases": [
+      "o stree kal aana",
+      "stree kal aana",
+      "come tomorrow",
+      "nale ba",
+      "ओ स्त्री कल आना"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Stree",
+      "year": 2018,
+      "detail": "Chanderi townsfolk write 'O Stree kal aana' on walls so the ghost postpones her visit (inspired by the Kannada 'Nale Ba' legend)."
+    },
+    "meaning": "Politely postponing something scary forever. Used for procrastination or dodging a confrontation.",
+    "useWhen": [
+      "A creator keeps postponing a promised reply",
+      "Dodging a debate invitation",
+      "Procrastinating on anything"
+    ],
+    "dontUseWhen": [
+      "Real harassment/stalking topics"
+    ],
+    "emotion": [
+      "scared",
+      "evasive"
+    ],
+    "intent": [
+      "scared",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:stree teaser o stree kal aana",
+        "hasAudio": true,
+        "transcript": "O Stree, kal aana. / ओ स्त्री, कल आना।",
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "query": "ytsearch3:o stree kal aana meme template",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2018-08-31",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Stree_(2018_film)",
+        "title": "Wikipedia: Stree (2018)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-saiyaara-crying-audience",
+    "name": "Saiyaara theatre crying reactions",
+    "aliases": [
+      "saiyaara crying",
+      "saiyaara reaction",
+      "saiyaara audience",
+      "genz crying in theatre",
+      "saiyaara cringe",
+      "सैयारा रोते हुए"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Saiyaara (audience reaction videos)",
+      "year": 2025,
+      "detail": "After Saiyaara's 18 Jul 2025 release, clips of viewers sobbing, screaming, fainting and dancing shirtless in theatres went viral and were mocked as cringe."
+    },
+    "meaning": "Over-the-top public emotion for content/reels. Used to mock performative crying or fans who overreact.",
+    "useWhen": [
+      "Fans overreact to a creator's video",
+      "Performative emotional reactions for reels",
+      "Someone cries over something minor"
+    ],
+    "dontUseWhen": [
+      "Genuine grief"
+    ],
+    "emotion": [
+      "overdramatic",
+      "cringe"
+    ],
+    "intent": [
+      "overreact",
+      "cringe",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:saiyaara audience crying in theatre viral video",
+        "hasAudio": true,
+        "transcript": "(crying, screaming in a theatre; no key dialogue)",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2025-07-19",
+    "trendScore": 0.7,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://elle.in/life-culture/why-saiyaara-theatre-reactions-are-peak-cringe-and-how-not-to-be-that-guy-9523332",
+        "title": "ELLE India: Why Saiyaara theatre reactions are peak cringe (22 Jul 2025)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-rehman-dakait-fa9la-entry",
+    "name": "Rehman Dakait entry on FA9LA (Dhurandhar)",
+    "aliases": [
+      "rehman dakait",
+      "fa9la",
+      "faasla",
+      "akshaye khanna entry",
+      "akshaye khanna dance",
+      "dhurandhar entry",
+      "रहमान डकैत",
+      "फसला"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Dhurandhar",
+      "year": 2025,
+      "detail": "Akshaye Khanna as Rehman Dakait walks in and breaks into an unplanned dance to Bahraini rapper Flipperachi's 'FA9LA'; the entry flooded reels and memes in Dec 2025 (compared to Bobby Deol's Animal entry)."
+    },
+    "meaning": "A cool, swaggering villain entry with sudden dance moves. Used to introduce someone with dramatic 'aura'.",
+    "useWhen": [
+      "Introducing a roast target or 'villain' of the story",
+      "A creator walking in like they own the place",
+      "Topic videos about Dhurandhar"
+    ],
+    "dontUseWhen": [
+      "Sad or serious beats"
+    ],
+    "emotion": [
+      "swag",
+      "aura",
+      "hype"
+    ],
+    "intent": [
+      "dance",
+      "flex",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:rehman dakait entry fa9la meme template",
+        "hasAudio": true,
+        "transcript": "(Arabic rap 'FA9LA' by Flipperachi; no dialogue)",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2025-12-05",
+    "trendScore": 0.85,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://gulfnews.com/entertainment/bahrain-to-bollywood-how-arabic-rapper-flipperachi-went-viral-in-india-with-fa9la-from-bollywood-hit-dhurandhar-1.500383545",
+        "title": "Gulf News (18 Dec 2025): Flipperachi's FA9LA goes viral in India"
+      },
+      {
+        "url": "https://www.filmibeat.com/photo-gallery/akshaye-khanna-breaks-the-internet-with-dhurandhar-farah-khan-becomes-his-viral-messenger-104232.html",
+        "title": "Filmibeat: Akshaye Khanna breaks the internet with Dhurandhar"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-ghayal-hoon-isliye-ghatak-hoon",
+    "name": "Ghayal hoon, isliye ghatak hoon (Dhurandhar)",
+    "aliases": [
+      "ghayal hoon isliye ghatak hoon",
+      "ghayal hoon isiliye ghatak hoon",
+      "dhurandhar dialogue",
+      "ranveer singh hamza",
+      "घायल हूँ इसलिए घातक हूँ"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Dhurandhar",
+      "year": 2025,
+      "detail": "Ranveer Singh's undercover agent's line, a nod to Sunny Deol's films Ghayal and Ghatak (Sunny Deol said it was used 'just for respect', Feb 2026)."
+    },
+    "meaning": "Wounded and therefore dangerous: a comeback-hero line. Used ironically for someone who got roasted and is now 'coming back stronger'.",
+    "useWhen": [
+      "A creator returns after being criticised",
+      "The host after reading hate comments",
+      "Dhurandhar-topic videos"
+    ],
+    "dontUseWhen": [
+      "Real injuries or violence"
+    ],
+    "emotion": [
+      "intense",
+      "vengeful"
+    ],
+    "intent": [
+      "rage",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ghayal hoon isliye ghatak hoon dhurandhar scene hamza",
+        "hasAudio": true,
+        "transcript": "Ghayal hoon, isliye ghatak hoon. / घायल हूँ, इसलिए घातक हूँ।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2025-12-05",
+    "trendScore": 0.75,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.india.com/entertainment/sunny-deol-breaks-silence-on-ghayal-and-ghatak-titles-being-used-in-ranveer-singhs-dhurandhar-just-for-respect-maybe-he-used-the-dialogue-8306755/",
+        "title": "India.com (14 Feb 2026): Sunny Deol on 'Ghayal' and 'Ghatak' in Dhurandhar"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-baccha-hai-tu-mera",
+    "name": "Baccha hai tu mera (Jameel Jamali, Dhurandhar 2)",
+    "aliases": [
+      "baccha hai tu mera",
+      "bachcha hai tu mera",
+      "mera baccha hai tu",
+      "jameel jamali",
+      "jameel maamu",
+      "rakesh bedi",
+      "aaja tujhe fanta pilata hun",
+      "बच्चा है तू मेरा"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Dhurandhar 2: The Revenge",
+      "year": 2026,
+      "detail": "Rakesh Bedi's comic character Jameel Jamali (Jameel Maamu) says it affectionately; a running gag also has him offering 'Aaja tujhe Fanta pilata hun'. In the scene (clip jUt6KPGu_kQ, captions) he reassures Hamza: 'Tu fikr mat kar, main hoon na. Main sambhal lunga.' Released 19 Mar 2026; within a week brands, Delhi/UP/Mumbai Police and meme pages used the line."
+    },
+    "meaning": "Condescending-affectionate 'you're just my kid': dismissing someone as a child you can handle. Used to belittle a rival or talk down to a junior.",
+    "useWhen": [
+      "The host belittles a younger/smaller creator",
+      "An experienced person schools a newbie",
+      "Brands/fans talking down to a rival",
+      "Dhurandhar-topic videos"
+    ],
+    "dontUseWhen": [
+      "Real parent-child abuse topics"
+    ],
+    "emotion": [
+      "condescending",
+      "affectionate",
+      "smug"
+    ],
+    "intent": [
+      "flex",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=jUt6KPGu_kQ",
+        "query": "ytsearch3:baccha hai tu mera dhurandhar 2 scene jameel jamali",
+        "hasAudio": true,
+        "transcript": "Baccha hai tu mera. / बच्चा है तू मेरा।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2026-03-19",
+    "trendScore": 0.95,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.india.com/entertainment/baccha-hai-tu-mera-memes-jameel-jamali-viral-dhurandhar-dialogue-rakesh-bedi-will-make-you-rofl-check-here-8356960/",
+        "title": "India.com (26 Mar 2026): 'Baccha hai tu mera' memes"
+      },
+      {
+        "url": "https://www.afaqs.com/news/advertising/baccha-hai-tu-mera-goes-viral-brands-rope-in-rakesh-bedi-after-dhurandhar-2-11432024",
+        "title": "afaqs: 'Baccha hai tu mera' goes viral; brands rope in Rakesh Bedi"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-rasode-mein-kaun-tha",
+    "name": "Rasode mein kaun tha? (Kokilaben)",
+    "aliases": [
+      "rasode mein kaun tha",
+      "rasode me kon tha",
+      "rasode mein kaun tha rashi thi",
+      "kokilaben",
+      "kokila ben",
+      "who was in the kitchen",
+      "रसोड़े में कौन था",
+      "कोकिलाबेन"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Saath Nibhaana Saathiya",
+      "year": 2010,
+      "detail": "Kokilaben (Rupal Patel) interrogates daughters-in-law Gopi and Rashi about who put the empty cooker on the gas after removing the chana. Yashraj Mukhate's rap remix (Aug 2020) made it viral."
+    },
+    "meaning": "Soap-opera interrogation over a trivial mess: 'Who was in the kitchen?'. The humour is melodramatic gravity applied to something tiny.",
+    "useWhen": [
+      "The host asks who is responsible for a blunder ('ye kisne kiya?')",
+      "Mock-interrogating a creator about a silly mistake",
+      "A whodunit beat about something trivial"
+    ],
+    "dontUseWhen": [
+      "Blame for a serious crime or tragedy",
+      "Cooking content with no blame or mystery angle"
+    ],
+    "emotion": [
+      "dramatic",
+      "suspicious",
+      "angry"
+    ],
+    "intent": [
+      "exposed",
+      "overreact",
+      "suspense"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:rasode mein kaun tha original scene kokilaben",
+        "hasAudio": true,
+        "transcript": "Rasode mein kaun tha? Tum thi, main thi, ya kaun tha? / रसोड़े में कौन था? तुम थी, मैं थी, या कौन था?",
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:yashraj mukhate rasode mein kaun tha",
+        "hasAudio": true,
+        "transcript": "Rasode mein kaun tha... Rashi thi! / रसोड़े में कौन था... राशि थी!",
+        "provider": "youtube"
+      },
+      {
+        "type": "template",
+        "url": "https://imgflip.com/memegenerator/266894568/Rasode-me-kaun-tha",
+        "provider": "imgflip"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2020-08-20",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.thequint.com/neon/social-buzz/kokilaben-gopi-bahu-memes-viral-on-internet-saath-nibhaana-saathiya",
+        "title": "The Quint: Kokilaben memes - Rasode mein kaun tha?"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-gopi-bahu-laptop",
+    "name": "Gopi bahu washes the laptop",
+    "aliases": [
+      "gopi bahu laptop",
+      "gopi washing laptop",
+      "laptop dho diya",
+      "gopi ahem laptop",
+      "saath nibhaana saathiya laptop",
+      "गोपी बहू लैपटॉप धोती",
+      "लैपटॉप धो दिया"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Saath Nibhaana Saathiya",
+      "year": 2010,
+      "detail": "Naive daughter-in-law Gopi (Giaa Manek) washes her husband Ahem's laptop with soap and water to 'clean' it."
+    },
+    "meaning": "Well-meaning but catastrophically clueless action, especially with technology.",
+    "useWhen": [
+      "Someone 'fixes' something and destroys it",
+      "A creator clueless about tech/AI",
+      "Excuse for being late or broken work (the SpotboyE office joke)"
+    ],
+    "dontUseWhen": [
+      "Mocking genuinely less-educated people or elders"
+    ],
+    "emotion": [
+      "clueless",
+      "innocent"
+    ],
+    "intent": [
+      "clueless",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:gopi bahu washing laptop saath nibhaana saathiya",
+        "hasAudio": true,
+        "transcript": "(Gopi scrubbing the laptop with soap water; no key line)",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.spotboye.com/trending/trending-news/employee-sends-his-boss-gopi-bahu-washing-laptop-with-soap-water-meme-as-a-reason-to-logging-in-late-internet-goes-emotional-damage/64746aa80a6d960b1e681d6b",
+        "title": "SpotboyE (May 2023): Gopi bahu washing laptop meme"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-cid-daya-darwaza-tod-do",
+    "name": "Daya, darwaza tod do (CID)",
+    "aliases": [
+      "daya darwaza tod do",
+      "daya darwaza todo",
+      "cid door break",
+      "daya door",
+      "दया दरवाज़ा तोड़ दो"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "CID (Sony TV)",
+      "year": 1998,
+      "detail": "ACP Pradyuman (Shivaji Satam) orders Inspector Daya (Dayanand Shetty) to break down a door, which he does with one kick. Reused in Singham Returns and Singham Again."
+    },
+    "meaning": "Brute-force solution to any locked problem. Used when the host wants to break into/expose something directly.",
+    "useWhen": [
+      "Breaking into the 'truth' of a controversy",
+      "Someone won't answer, so force it open",
+      "Over-the-top solution to a small obstacle"
+    ],
+    "dontUseWhen": [
+      "Real break-ins or police brutality"
+    ],
+    "emotion": [
+      "forceful",
+      "decisive"
+    ],
+    "intent": [
+      "exposed",
+      "rage"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:daya darwaza tod do original clip cid",
+        "hasAudio": true,
+        "transcript": "Daya, darwaza tod do! / दया, दरवाज़ा तोड़ दो!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1998-01-21",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Dayanand_Shetty",
+        "title": "Wikipedia: Dayanand Shetty ('Daya darwaaza tod do')"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-cid-kuch-toh-gadbad-hai",
+    "name": "Kuch toh gadbad hai, Daya (CID)",
+    "aliases": [
+      "kuch toh gadbad hai daya",
+      "kuch to gadbad hai",
+      "acp pradyuman",
+      "cid gadbad",
+      "कुछ तो गड़बड़ है दया"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "CID (Sony TV)",
+      "year": 1998,
+      "detail": "ACP Pradyuman (Shivaji Satam), squinting and gesturing, sensing something fishy."
+    },
+    "meaning": "Suspicion that something doesn't add up.",
+    "useWhen": [
+      "A creator's story has inconsistencies",
+      "Numbers/views look fake",
+      "Right before the host reveals a receipt"
+    ],
+    "dontUseWhen": [
+      "When nothing is actually suspicious"
+    ],
+    "emotion": [
+      "suspicious",
+      "thinking"
+    ],
+    "intent": [
+      "suspense",
+      "exposed",
+      "lie"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:kuch toh gadbad hai daya meme template",
+        "hasAudio": true,
+        "transcript": "Kuch toh gadbad hai, Daya. / कुछ तो गड़बड़ है, दया।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1998-01-21",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.bollywoodlife.com/tv/happy-birthday-shivaji-satam-these-memes-on-cids-acp-pradyuman-memes-will-make-you-rofl-for-sure-1608424/",
+        "title": "BollywoodLife (Apr 2020): ACP Pradyuman memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-kbc-lock-kiya-jaaye",
+    "name": "Computer ji, lock kiya jaaye (KBC)",
+    "aliases": [
+      "lock kiya jaaye",
+      "lock kiya jaye",
+      "computer ji",
+      "kbc lock",
+      "amitabh kbc",
+      "कंप्यूटर जी, लॉक किया जाए"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Kaun Banega Crorepati",
+      "year": 2000,
+      "detail": "Amitabh Bachchan's KBC hosting line to the screen; he even listed it in his 2022 personality-rights suit."
+    },
+    "meaning": "Confirming a final answer with game-show gravity. Used when the host locks in a verdict or prediction.",
+    "useWhen": [
+      "Locking the final verdict on a creator",
+      "Before revealing the 'correct answer'",
+      "Someone commits to a bad decision"
+    ],
+    "dontUseWhen": [
+      "Amitabh Bachchan's personal life topics"
+    ],
+    "emotion": [
+      "decisive",
+      "dramatic"
+    ],
+    "intent": [
+      "suspense",
+      "agree"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:computer ji lock kiya jaaye amitabh bachchan",
+        "hasAudio": true,
+        "transcript": "Computer ji, lock kiya jaaye. / कंप्यूटर जी, लॉक किया जाए।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2000-07-03",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://theprint.in/india/big-b-computer-ji-lock-kiya-jaaye-what-amitabh-bachchans-suit-for-personality-rights-means/1247185/",
+        "title": "ThePrint (Dec 2022): Big B, 'Computer ji, lock kiya jaaye'"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-sorry-shaktimaan",
+    "name": "Sorry Shaktimaan",
+    "aliases": [
+      "sorry shaktimaan",
+      "sorry shaktiman",
+      "chhoti chhoti magar moti baatein",
+      "shaktimaan kids sorry",
+      "सॉरी शक्तिमान"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Shaktimaan (DD National)",
+      "year": 1997,
+      "detail": "End-of-episode segment 'Chhoti Chhoti Magar Moti Baatein': Shaktimaan (Mukesh Khanna) stops kids doing something wrong ('Thehro!') and they reply 'Sorry Shaktimaan'."
+    },
+    "meaning": "A sheepish, childlike apology after getting caught doing something dumb.",
+    "useWhen": [
+      "A creator's forced apology video",
+      "Someone caught doing something stupid",
+      "The host 'apologises' sarcastically"
+    ],
+    "dontUseWhen": [
+      "Apologies for serious harm"
+    ],
+    "emotion": [
+      "sheepish",
+      "nostalgic"
+    ],
+    "intent": [
+      "fail",
+      "awkward"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:sorry shaktimaan meme template",
+        "hasAudio": true,
+        "transcript": "Sorry Shaktimaan. / सॉरी शक्तिमान।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1997-09-13",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://imbalancedbastards.wordpress.com/tag/sorry-shaktimaan/",
+        "title": "The Kabir and Das Project: Sorry Shaktimaan"
+      },
+      {
+        "url": "https://www.latestly.com/social-viral/shaktimaan-funny-memes-and-jokes-sorry-shaktiman-meme-templates-and-gangadhar-hi-shaktimaan-hai-hilarious-photos-sum-up-the-powerrr-of-desi-super-6410359.html",
+        "title": "LatestLY (Nov 2024): Sorry Shaktimaan meme templates"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-gangadhar-hi-shaktimaan-hai",
+    "name": "Gangadhar hi Shaktimaan hai",
+    "aliases": [
+      "gangadhar hi shaktimaan hai",
+      "gangadhar shaktimaan",
+      "secret identity reveal",
+      "गंगाधर ही शक्तिमान है"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Shaktimaan (DD National)",
+      "year": 1997,
+      "detail": "The reveal that clumsy photographer Gangadhar is secretly Shaktimaan."
+    },
+    "meaning": "The obvious secret-identity reveal. Used when someone's alt account, fake persona or hidden link is exposed.",
+    "useWhen": [
+      "Revealing a creator runs a fake/alt account",
+      "Two 'different' people turn out to be the same",
+      "A hidden sponsorship behind a 'neutral' review"
+    ],
+    "dontUseWhen": [
+      "Doxxing real private individuals"
+    ],
+    "emotion": [
+      "reveal",
+      "shock"
+    ],
+    "intent": [
+      "plot-twist",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:gangadhar hi shaktimaan hai meme template",
+        "hasAudio": true,
+        "transcript": "Gangadhar hi Shaktimaan hai! / गंगाधर ही शक्तिमान है!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1997-09-13",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.latestly.com/social-viral/shaktimaan-funny-memes-and-jokes-sorry-shaktiman-meme-templates-and-gangadhar-hi-shaktimaan-hai-hilarious-photos-sum-up-the-powerrr-of-desi-super-6410359.html",
+        "title": "LatestLY (Nov 2024): 'Gangadhar hi Shaktimaan hai' memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-daya-hey-maa-mataji",
+    "name": "He Maa Mataji! (Daya Ben, TMKOC)",
+    "aliases": [
+      "hey maa mataji",
+      "he maa mata ji",
+      "daya ben",
+      "daya bhabhi",
+      "tmkoc daya",
+      "हे माँ माताजी"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Taarak Mehta Ka Ooltah Chashmah",
+      "year": 2008,
+      "detail": "Daya Ben (Disha Vakani)'s shocked exclamation; LatestLY calls it her most legendary reaction."
+    },
+    "meaning": "Over-the-top shocked gasp at something outrageous.",
+    "useWhen": [
+      "Reacting to a shocking claim or number",
+      "Someone says something scandalous",
+      "Plot twist in the story"
+    ],
+    "dontUseWhen": [
+      "Genuinely tragic news"
+    ],
+    "emotion": [
+      "shocked",
+      "dramatic"
+    ],
+    "intent": [
+      "shock",
+      "overreact"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:hey maa mataji daya bhabhi meme template",
+        "hasAudio": true,
+        "transcript": "He Maa... Mataji! / हे माँ... माताजी!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2008-07-28",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.latestly.com/socially/social-viral/taarak-mehta-ka-ooltah-chashmah-funny-meme-templates-iconic-jethalal-memes-tmkoc-instagram-reels-daya-bens-hilarious-reactions-and-jokes-that-are-perfect-for-every-desi-m-6305499.html",
+        "title": "LatestLY (Sep 2024): TMKOC meme templates"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-sahi-pakde-hain",
+    "name": "Sahi pakde hain (Angoori Bhabhi)",
+    "aliases": [
+      "sahi pakde hain",
+      "sahi pakde hai",
+      "angoori bhabhi",
+      "bhabiji ghar par hain",
+      "सही पकड़े हैं"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Bhabiji Ghar Par Hain! (&TV)",
+      "year": 2015,
+      "detail": "Angoori (Shilpa Shinde, later Shubhangi Atre) approving Vibhuti's correction of her mispronounced English."
+    },
+    "meaning": "Cheerful 'you got it right!'. Used to confirm the host's guess or a viewer's correct prediction.",
+    "useWhen": [
+      "The host's guess about a creator turns out correct",
+      "Confirming the audience figured it out",
+      "Approving a correct comment"
+    ],
+    "dontUseWhen": [
+      "When the guess is wrong (it's approval)"
+    ],
+    "emotion": [
+      "approving",
+      "cheerful"
+    ],
+    "intent": [
+      "agree",
+      "victory"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:sahi pakde hain angoori bhabhi meme",
+        "hasAudio": true,
+        "transcript": "Sahi pakde hain! / सही पकड़े हैं!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2015-03-02",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.freepressjournal.in/viral/national-technology-day-pragati-trends-on-twitter-with-sahi-pakde-hai-memes-from-bhabhi-ji-ghar-par-hai",
+        "title": "Free Press Journal (May 2022): 'Sahi pakde hai' memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-babaji-ka-thullu",
+    "name": "Babaji ka thullu (Kapil Sharma)",
+    "aliases": [
+      "babaji ka thullu",
+      "baba ji ka thullu",
+      "thullu",
+      "kapil sharma thullu",
+      "बाबाजी का ठुल्लू"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Comedy Nights with Kapil (Colors)",
+      "year": 2013,
+      "detail": "Kapil Sharma's catchphrase (with thumb gesture), a TV-safe swap for the slang 'babaji ka ghanta'."
+    },
+    "meaning": "You get absolutely nothing, when you expected something.",
+    "useWhen": [
+      "Fans/subscribers got nothing from a creator's promise",
+      "A 'giveaway' that gave nothing",
+      "Expectations vs zero results"
+    ],
+    "dontUseWhen": [
+      "Formal or serious beats"
+    ],
+    "emotion": [
+      "mocking",
+      "cheeky"
+    ],
+    "intent": [
+      "sarcasm",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:babaji ka thullu kapil sharma meme",
+        "hasAudio": true,
+        "transcript": "Babaji ka thullu! / बाबाजी का ठुल्लू!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2013-06-22",
+    "trendScore": 0.4,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.crazypundit.com/news/ever-wonder-from-where-kapil-sharma-got-the-idea-of-babaji-ka-thullu/",
+        "title": "CrazyPundit: where Kapil Sharma got 'Babaji ka thullu'"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-ashneer-doglapan",
+    "name": "Ye sab doglapan hai (Ashneer Grover)",
+    "aliases": [
+      "ye sab doglapan hai",
+      "yeh sab doglapan hai",
+      "doglapan",
+      "ashneer grover doglapan",
+      "shark tank doglapan",
+      "ये सब दोगलापन है",
+      "दोगलापन"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Shark Tank India (Season 1)",
+      "year": 2021,
+      "detail": "Ashneer Grover's blunt verdict on a pitch; one of his pet lines that became memes (The Tribune, Feb 2022)."
+    },
+    "meaning": "'This is all hypocrisy/double standards.' The go-to meme for calling out someone's double standards.",
+    "useWhen": [
+      "A creator criticises others for what they do themselves",
+      "Double standards in a controversy",
+      "Host catches contradictory statements"
+    ],
+    "dontUseWhen": [
+      "When there's no contradiction to point to"
+    ],
+    "emotion": [
+      "blunt",
+      "disgusted"
+    ],
+    "intent": [
+      "hypocrisy",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ashneer grover ye sab doglapan hai meme template",
+        "hasAudio": true,
+        "transcript": "Ye sab doglapan hai. / ये सब दोगलापन है।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2022-01-01",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.tribuneindia.com/news/entertainment/shark-tank-indias-meme-is-helping-people-reduce-their-screen-time-see-ashneer-grover-schooling-netizens-372762",
+        "title": "The Tribune (Feb 2022): Shark Tank India memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-ashneer-bhai-kya-kar-raha-hai",
+    "name": "Bhai kya kar raha hai tu? (Ashneer Grover)",
+    "aliases": [
+      "bhai kya kar raha hai tu",
+      "bhai kya kar rha hai tu",
+      "kya kar raha hai tu",
+      "ashneer grover",
+      "shark tank meme",
+      "भाई क्या कर रहा है तू"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Shark Tank India (Season 1)",
+      "year": 2021,
+      "detail": "Ashneer Grover's exasperated question to founders; listed among the judges' meme lines by The Tribune."
+    },
+    "meaning": "Exasperated disbelief at someone's bad decision.",
+    "useWhen": [
+      "A creator makes an obviously dumb move",
+      "Wasting money on something pointless",
+      "Someone ruins a good opportunity"
+    ],
+    "dontUseWhen": [
+      "Sincere mistakes by beginners"
+    ],
+    "emotion": [
+      "exasperated",
+      "disbelief"
+    ],
+    "intent": [
+      "fail",
+      "rage"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:bhai kya kar raha hai tu ashneer grover meme template",
+        "hasAudio": true,
+        "transcript": "Bhai, kya kar raha hai tu? / भाई, क्या कर रहा है तू?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2022-01-01",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.tribuneindia.com/news/entertainment/shark-tank-indias-meme-is-helping-people-reduce-their-screen-time-see-ashneer-grover-schooling-netizens-372762",
+        "title": "The Tribune (Feb 2022): Shark Tank India memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-tuada-kutta-tommy",
+    "name": "Tuada kutta Tommy, saada kutta kutta (Shehnaaz Gill)",
+    "aliases": [
+      "tuada kutta tommy",
+      "tauda kutta tommy",
+      "sadda kutta kutta",
+      "shehnaaz gill",
+      "yashraj mukhate tommy",
+      "तुआडा कुत्ता टॉमी"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Bigg Boss 13 / Yashraj Mukhate remix",
+      "year": 2019,
+      "detail": "Heartbroken Shehnaaz Gill complains to Sidharth Shukla in Bigg Boss 13: 'your dog is Tommy, mine is just a dog' (double standards). Yashraj Mukhate's 'dialogue with beats' remix (Dec 2020) made it viral."
+    },
+    "meaning": "Complaining about double standards: your stuff is special, mine is ordinary.",
+    "useWhen": [
+      "A creator's fans excuse their idol but slam others for the same thing",
+      "Double standards in treatment",
+      "Host mock-whines about unfairness"
+    ],
+    "dontUseWhen": [
+      "Real discrimination stories"
+    ],
+    "emotion": [
+      "whiny",
+      "sulking"
+    ],
+    "intent": [
+      "hypocrisy",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:tuada kutta tommy yashraj mukhate",
+        "hasAudio": true,
+        "transcript": "Tuada kutta Tommy, saada kutta kutta! / तुआडा कुत्ता टॉमी, साडा कुत्ता कुत्ता!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2020-12-08",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.freepressjournal.in/viral/after-rasoda-and-biggini-shoot-yashraj-mukhate-drops-shehnaaz-gills-tuada-kutta-tommy-remix",
+        "title": "Free Press Journal (Dec 2020): Yashraj Mukhate drops 'Tuada Kutta Tommy' remix"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-chin-tapak-dum-dum",
+    "name": "Chin Tapak Dum Dum (Chhota Bheem)",
+    "aliases": [
+      "chin tapak dum dum",
+      "cheen tapak dum dum",
+      "chin tapak dam dam",
+      "chhota bheem magician",
+      "चिन टपाक डम डम"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Chhota Bheem (Pogo)",
+      "year": 2008,
+      "detail": "An evil magician villain narrates to fellow prisoners (incl. Daaku Mangal Singh) how he made a sand army, saying his spell 'Chin Tapak Dum Dum' again and again (S4E47 'Old Enemies'). Went viral Jul-Aug 2024 as reels, memes and ringtones."
+    },
+    "meaning": "A cartoon villain's magic spell, used for making something 'magically' appear or disappear, or for over-confident schemes.",
+    "useWhen": [
+      "Something magically appears/disappears (money, followers, evidence)",
+      "A creator's 'magic trick' explanation",
+      "Silly villain energy"
+    ],
+    "dontUseWhen": [
+      "Serious topics"
+    ],
+    "emotion": [
+      "silly",
+      "nostalgic",
+      "villainous"
+    ],
+    "intent": [
+      "crazy",
+      "plot-twist"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:chin tapak dum dum meme template",
+        "hasAudio": true,
+        "transcript": "Chin Tapak Dum Dum! / चिन टपाक डम डम!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2024-07-15",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://indianmemetemplates.com/chin-tapak-dum-dum/",
+        "title": "Indian Meme Templates: Chin Tapak Dum Dum"
+      },
+      {
+        "url": "https://www.republicworld.com/viral/why-is-chin-tapak-dum-dum-meme-viral-on-social-media-know-real-story-behind-it",
+        "title": "Republic: why Chin Tapak Dum Dum is viral"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-maro-mujhe-maro",
+    "name": "Oh bhai, maro mujhe maro (Momin Saqib)",
+    "aliases": [
+      "maro mujhe maro",
+      "bhai maro mujhe maro",
+      "oh bhai maro",
+      "momin saqib",
+      "waqt badal diya jazbaat badal diye",
+      "मारो मुझे मारो"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "Dunya News interview, 2019 Cricket World Cup",
+      "year": 2019,
+      "detail": "Pakistani fan Momin Saqib's anguished reaction after Pakistan lost to India by 89 runs (16 Jun 2019, Manchester). Pakistani origin but a staple of Indian meme edits."
+    },
+    "meaning": "Over-dramatic despair after a humiliating loss; 'just beat me'.",
+    "useWhen": [
+      "A rival loses badly (esp. India vs Pakistan)",
+      "A creator gets destroyed in a debate",
+      "Mock-despair at a terrible outcome"
+    ],
+    "dontUseWhen": [
+      "Mocking a nationality or religion",
+      "Real grief"
+    ],
+    "emotion": [
+      "despair",
+      "overdramatic"
+    ],
+    "intent": [
+      "fail",
+      "overreact",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=6EUN9kmFktA",
+        "query": "ytsearch3:maro mujhe maro original momin saqib",
+        "hasAudio": true,
+        "transcript": "Oh bhai, maro mujhe maro! Maro mujhe... / ओ भाई, मारो मुझे मारो!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2019-06-16",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/bhai-maro-mujhe-maro-waqt-badal-diya",
+        "title": "Know Your Meme: Bhai Maro Mujhe Maro / Waqt Badal Diya"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-mauka-mauka",
+    "name": "Mauka Mauka (Star Sports ad)",
+    "aliases": [
+      "mauka mauka",
+      "mauka mauka ad",
+      "pakistan fan firecrackers",
+      "mauka mauka jingle",
+      "मौका मौका"
+    ],
+    "origin": {
+      "kind": "ad",
+      "title": "Star Sports 'Mauka Mauka' campaign (2015 Cricket World Cup)",
+      "year": 2015,
+      "detail": "A Pakistani fan (Vishal Malhotra) saves firecrackers for a World Cup win over India that never comes; jingle by Vikas Dubey, sung by Alamgir Khan. Later flipped as a taunt by both sides."
+    },
+    "meaning": "Waiting forever for a chance that never comes; a taunt at a perennial loser.",
+    "useWhen": [
+      "A creator keeps waiting for a comeback that never happens",
+      "Rival keeps losing to the same opponent",
+      "An 'opportunity' finally arrives (or doesn't)"
+    ],
+    "dontUseWhen": [
+      "Nationalistic hate against Pakistanis"
+    ],
+    "emotion": [
+      "taunting",
+      "hopeful"
+    ],
+    "intent": [
+      "fail",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:mauka mauka star sports ad 2015 india vs pakistan",
+        "hasAudio": true,
+        "transcript": "Mauka mauka... / मौका मौका...",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2015-02-10",
+    "trendScore": 0.4,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Mauka_Mauka",
+        "title": "Wikipedia: Mauka Mauka"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-rohit-garden-mein-ghumega",
+    "name": "Koi bhi garden mein ghumega... (Rohit Sharma stump mic)",
+    "aliases": [
+      "garden mein ghumega",
+      "koi garden mein nahi ghumega",
+      "rohit sharma stump mic",
+      "rohit garden",
+      "गार्डन में घूमेगा"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "India vs England, 2nd Test, Visakhapatnam (stump mic)",
+      "year": 2024,
+      "detail": "Captain Rohit Sharma, annoyed at fielders strolling between overs, caught on the stump mic: 'Koi bhi garden mein ghumega, maa c**** dunga sabka' (2 Feb 2024). He later explained it was about urgency."
+    },
+    "meaning": "A captain scolding a lazy team. Used when people are casually 'strolling' instead of working.",
+    "useWhen": [
+      "A team/creator is slacking",
+      "Someone takes a serious thing too casually",
+      "Host scolds his editors/audience jokingly"
+    ],
+    "dontUseWhen": [
+      "Family-friendly edits without a bleep (gaali)"
+    ],
+    "emotion": [
+      "angry",
+      "commanding"
+    ],
+    "intent": [
+      "rage"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:rohit sharma garden mein ghumega stump mic",
+        "hasAudio": true,
+        "transcript": "Koi bhi garden mein ghumega... [bleep] dunga sabka. / कोई भी गार्डन में घूमेगा...",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2024-02-02",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.latestly.com/socially/sports/cricket/koi-bhu-garden-mein-ghumega-rohit-sharma-heard-using-cuss-word-during-ind-vs-eng-2nd-test-day-2024-video-goes-viral-5735534.html",
+        "title": "LatestLY (Feb 2024): stump mic catches Rohit Sharma"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-arnab-nation-wants-to-know",
+    "name": "The nation wants to know! (Arnab Goswami)",
+    "aliases": [
+      "the nation wants to know",
+      "nation wants to know",
+      "arnab goswami",
+      "arnab",
+      "नेशन वांट्स टू नो"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "The Newshour (Times Now) / Republic TV",
+      "year": 2006,
+      "detail": "Arnab Goswami's shouted catchphrase; he says he switched from 'Arnab wants to know' to 'the nation wants to know' when a politician kept dodging."
+    },
+    "meaning": "Aggressive, theatrical demand for answers. Used to mock-interrogate a creator.",
+    "useWhen": [
+      "The host demands an answer from a creator",
+      "Mock news-anchor outrage",
+      "A question everyone is asking"
+    ],
+    "dontUseWhen": [
+      "Using it to take sides in real party politics"
+    ],
+    "emotion": [
+      "aggressive",
+      "theatrical"
+    ],
+    "intent": [
+      "overreact",
+      "exposed",
+      "rage"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=dSdOntYAGnY",
+        "query": "ytsearch3:arnab goswami the nation wants to know meme template",
+        "hasAudio": true,
+        "transcript": "The nation wants to know! / द नेशन वांट्स टू नो!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "en",
+    "trendScore": 0.4,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.inuth.com/trends/social-virals/watch-revealed-how-arnab-goswami-came-up-with-the-catchphrase-nation-wants-to-know/",
+        "title": "InUth: how Arnab came up with 'Nation wants to know'"
+      }
+    ],
+    "safety": {
+      "political": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-moye-moye",
+    "name": "Moye moye (Džanum)",
+    "aliases": [
+      "moye moye",
+      "moye moye sound",
+      "moje more",
+      "dzanum",
+      "teya dora",
+      "sad moye moye",
+      "मोये मोये"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "'Džanum' by Teya Dora (Serbian song)",
+      "year": 2023,
+      "detail": "Chorus of Teya Dora's Serbian song 'Džanum' (Mar 2023; 'moje more' = 'my nightmares'). Took off on Bangladeshi meme pages in Oct 2023 and swept Indian reels in Nov-Dec 2023 as a sad/fail sound."
+    },
+    "meaning": "A mournful sting for when something goes wrong: the 'sad violin' of Indian reels.",
+    "useWhen": [
+      "Right after a creator's plan fails",
+      "Someone gets exposed or rejected",
+      "Mock-sad moment after a bad result"
+    ],
+    "dontUseWhen": [
+      "Real tragedies or deaths",
+      "Beats that need silence"
+    ],
+    "emotion": [
+      "sad",
+      "defeated"
+    ],
+    "intent": [
+      "fail",
+      "fake-sad",
+      "dead"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:moye moye sound effect meme",
+        "hasAudio": true,
+        "transcript": "(sung) Moye moye... / मोये मोये...",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2023-10-01",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/moye-moye-dzanum-by-teya-dora",
+        "title": "Know Your Meme: Moye Moye / 'Džanum' by Teya Dora"
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Moye_moye",
+        "title": "Wikipedia: Moye moye"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-just-looking-like-a-wow",
+    "name": "So beautiful, so elegant, just looking like a wow!",
+    "aliases": [
+      "just looking like a wow",
+      "so beautiful so elegant",
+      "looking like a wow",
+      "jasmeen kaur",
+      "जस्ट लुकिंग लाइक अ वॉव"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Jasmeen Kaur's boutique videos (West Delhi)",
+      "year": 2023,
+      "detail": "Boutique owner Jasmeen Kaur describing salwar suits in her sales videos; went viral Sep-Oct 2023 (Wikipedia). Yashraj Mukhate remixed it; celebrities and brands adopted it."
+    },
+    "meaning": "Over-the-top praise. Used sarcastically for something clearly not 'wow'.",
+    "useWhen": [
+      "A creator shows off something mediocre",
+      "Sarcastic praise for a bad thumbnail/outfit/logo",
+      "Genuine hype for something actually impressive"
+    ],
+    "dontUseWhen": [
+      "Mocking the original creator's English or accent"
+    ],
+    "emotion": [
+      "impressed",
+      "sarcastic"
+    ],
+    "intent": [
+      "flex",
+      "sarcasm",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:so beautiful so elegant just looking like a wow original",
+        "hasAudio": true,
+        "transcript": "So beautiful, so elegant, just looking like a wow! / सो ब्यूटीफुल, सो एलिगेंट, जस्ट लुकिंग लाइक अ वॉव!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "en",
+    "firstSeen": "2023-09-01",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/So_beautiful,_so_elegant._Just_looking_like_a_wow!",
+        "title": "Wikipedia: So beautiful, so elegant. Just looking like a wow!"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-bhupendra-jogi",
+    "name": "Bhupendra Jogi",
+    "aliases": [
+      "bhupendra jogi",
+      "naam kya hai bhupendra jogi",
+      "bhupendra jogi meme",
+      "भूपेंद्र जोगी"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "The Lallantop vox-pop, Madhya Pradesh elections",
+      "year": 2018,
+      "detail": "A man asked his name in a 2018 Lallantop street interview (about a claim that MP's roads beat America's) answers 'Bhupendra Jogi'; the clip resurfaced and went viral in 2023."
+    },
+    "meaning": "An oddly memorable deadpan self-introduction. Used when someone's name is asked or a random person becomes famous.",
+    "useWhen": [
+      "Introducing a random person/creator nobody knows",
+      "'Naam kya hai?' beats",
+      "Someone suddenly famous for nothing"
+    ],
+    "dontUseWhen": [
+      "Using the election/roads part of the full clip in a political edit"
+    ],
+    "emotion": [
+      "deadpan",
+      "awkward"
+    ],
+    "intent": [
+      "awkward",
+      "clueless"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:bhupendra jogi original video lallantop",
+        "hasAudio": true,
+        "transcript": "Naam kya hai? ... Bhupendra Jogi. / नाम क्या है? ... भूपेंद्र जोगी।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2023-01-01",
+    "trendScore": 0.35,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/bhupendra-jogi",
+        "title": "Know Your Meme: Bhupendra Jogi"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-kacha-badam",
+    "name": "Kacha Badam",
+    "aliases": [
+      "kacha badam",
+      "kacha badam song",
+      "bhuban badyakar",
+      "peanut seller song",
+      "कच्चा बादाम"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Bhuban Badyakar's peanut-selling jingle",
+      "year": 2022,
+      "detail": "A Birbhum (West Bengal) peanut seller's self-made jingle went viral in early 2022 after remixes; dance trends followed."
+    },
+    "meaning": "An earworm dance trend; now a dated 'cringe reel' marker.",
+    "useWhen": [
+      "Mocking a creator jumping on old trends",
+      "Dance beat for an absurd moment",
+      "Nostalgia for 2022 reels"
+    ],
+    "dontUseWhen": [
+      "Mocking the singer's poverty"
+    ],
+    "emotion": [
+      "catchy",
+      "silly"
+    ],
+    "intent": [
+      "dance",
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:kacha badam original bhuban badyakar",
+        "hasAudio": true,
+        "transcript": "Kacha badam... / कचा बादाम...",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2022-01-15",
+    "trendScore": 0.3,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Bhuban_Badyakar",
+        "title": "Wikipedia: Bhuban Badyakar"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-binod",
+    "name": "Binod (comment-section meme)",
+    "aliases": [
+      "binod",
+      "binod tharu",
+      "slayy point binod",
+      "#binod",
+      "बिनोद"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Slayy Point - 'Why Indian Comments Section is Garbage (BINOD)'",
+      "year": 2020,
+      "detail": "Slayy Point (15 Jul 2020) highlighted user Binod Tharu, who comments only his name; 'Binod' became a copypasta and trended in Aug 2020. Not the Panchayat line (in-dekh-raha-hai-binod)."
+    },
+    "meaning": "A pointless one-word comment that answers everything. Used for nonsense comments or when the 'answer' is absurdly irrelevant.",
+    "useWhen": [
+      "Reading dumb comments on a creator's video",
+      "Answering a question with nonsense",
+      "Spam/bot comments"
+    ],
+    "dontUseWhen": [
+      "Mocking a real named private user"
+    ],
+    "emotion": [
+      "absurd",
+      "nostalgic"
+    ],
+    "intent": [
+      "clueless",
+      "ignore"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=CbNYxFIQ5jI",
+        "query": "ytsearch3:why indian comments section is garbage binod slayy point",
+        "hasAudio": true,
+        "transcript": "Binod. / बिनोद।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2020-07-15",
+    "trendScore": 0.3,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/binod",
+        "title": "Know Your Meme: Binod"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-pawri-ho-rahi-hai",
+    "name": "Ye hamari pawri ho rahi hai",
+    "aliases": [
+      "pawri ho rahi hai",
+      "pawri hori hai",
+      "ye hamari pawri ho rahi hai",
+      "ye hamari car hai",
+      "dananeer",
+      "पावरी हो रही है"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Dananeer Mobeen's Instagram video",
+      "year": 2021,
+      "detail": "Pakistani creator Dananeer Mobeen's video (6 Feb 2021) mocking 'burger' kids: 'Ye hamari car hai, ye hum hain, aur ye hamari pawri ho rahi hai'. Yashraj Mukhate's remix (12 Feb 2021) made it huge in India."
+    },
+    "meaning": "Posh, fake-accent showing off of a mundane moment.",
+    "useWhen": [
+      "A creator shows off a lavish party/vlog",
+      "Rich-kid behaviour",
+      "Mock-posh narration of a boring scene"
+    ],
+    "dontUseWhen": [
+      "Nationality-based mockery"
+    ],
+    "emotion": [
+      "posh",
+      "show-off"
+    ],
+    "intent": [
+      "flex",
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "url": "https://www.youtube.com/watch?v=jEJI6Nf1aWU",
+        "query": "ytsearch3:pawri hori hai yashraj mukhate dialogue with beats",
+        "hasAudio": true,
+        "transcript": "Ye hamari car hai, aur ye hum hain, aur ye hamari pawri ho rahi hai. / ये हमारी कार है, और ये हम हैं, और ये हमारी पावरी हो रही है।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2021-02-06",
+    "trendScore": 0.35,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/pawri-ye-hamari-pawri-ho-rahi-hai",
+        "title": "Know Your Meme: Pawri / Ye Hamari Pawri Ho Rahi Hai"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-selfie-maine-le-li-aaj",
+    "name": "Selfie maine le li aaj (Dhinchak Pooja)",
+    "aliases": [
+      "selfie maine le li aaj",
+      "selfie maine leli aaj",
+      "dhinchak pooja",
+      "swag wali topi",
+      "सेल्फी मैंने ले ली आज"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Dhinchak Pooja - 'Selfie Maine Leli Aaj'",
+      "year": 2017,
+      "detail": "Dhinchak Pooja's self-made 'cringe pop' song (2017); YouTube removed her videos in June 2017 after a complaint, but re-uploads live on."
+    },
+    "meaning": "Peak cringe self-made content.",
+    "useWhen": [
+      "A creator releases a terrible song/video",
+      "Self-obsessed selfie content",
+      "Cringe pop comparisons"
+    ],
+    "dontUseWhen": [
+      "Personal attacks on the singer"
+    ],
+    "emotion": [
+      "cringe",
+      "nostalgic"
+    ],
+    "intent": [
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:selfie maine le li aaj dhinchak pooja",
+        "hasAudio": true,
+        "transcript": "Selfie maine le li aaj... / सेल्फी मैंने ले ली आज...",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2017-01-01",
+    "trendScore": 0.3,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Dhinchak_Pooja",
+        "title": "Wikipedia: Dhinchak Pooja"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-dolly-chaiwala",
+    "name": "Dolly Chaiwala",
+    "aliases": [
+      "dolly chaiwala",
+      "dolly ki tapri",
+      "dolly chai",
+      "bill gates chai",
+      "डॉली चायवाला"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Dolly Ki Tapri, Nagpur",
+      "year": 2024,
+      "detail": "Nagpur tea seller Sunil Patil ('Dolly'), known for flamboyant tea-pouring style, went viral in Feb 2024 serving tea to Bill Gates."
+    },
+    "meaning": "Flamboyant swagger over a simple job; accidental celebrity.",
+    "useWhen": [
+      "A creator with more style than substance",
+      "Someone becomes famous via one celebrity clip",
+      "Over-the-top presentation of an ordinary thing"
+    ],
+    "dontUseWhen": [
+      "Mocking street vendors' livelihoods"
+    ],
+    "emotion": [
+      "swag",
+      "flamboyant"
+    ],
+    "intent": [
+      "flex"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:dolly chaiwala bill gates viral video",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2024-02-28",
+    "trendScore": 0.4,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Dolly_Chaiwala",
+        "title": "Wikipedia: Dolly Chaiwala"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-thara-bhai-joginder",
+    "name": "Thara bhai Joginder",
+    "aliases": [
+      "thara bhai joginder",
+      "yo joginder",
+      "joginder",
+      "tharra bhai",
+      "थारा भाई जोगिंदर"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Joginder Yadav (YouTuber)",
+      "year": 2021,
+      "detail": "Haryanvi creator Joginder's boastful self-intro; first memes on Reddit on 17 Jul 2021 (HumorNama)."
+    },
+    "meaning": "Mocking a loud boaster.",
+    "useWhen": [
+      "A creator hypes himself up loudly",
+      "Self-proclaimed 'bhai' energy",
+      "Fake-tough intros"
+    ],
+    "dontUseWhen": [
+      "Mocking regional accent alone"
+    ],
+    "emotion": [
+      "boastful",
+      "loud"
+    ],
+    "intent": [
+      "flex",
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:thara bhai joginder meme template",
+        "hasAudio": true,
+        "transcript": "Thara bhai Joginder! / थारा भाई जोगिंदर!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2021-07-17",
+    "trendScore": 0.35,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/thara-bhai-joginder-meme-template/",
+        "title": "HumorNama: Thara Bhai Joginder meme template"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-kothi-bangle-wale-log",
+    "name": "Kothi bangle wale log (Puneet Superstar)",
+    "aliases": [
+      "kothi bangle wale log",
+      "kothi bangle",
+      "puneet superstar",
+      "lord puneet",
+      "कोठी बंगले वाले लोग"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Puneet Superstar (Lord Puneet)",
+      "year": 2020,
+      "detail": "Bihar-born comedian Puneet Kumar's catchphrase about 'mansion people' (the rich/upper middle class); perceived as cringe, later as layered irony; Bigg Boss OTT 2 (2023)."
+    },
+    "meaning": "Mock-bitter jab at rich, privileged people.",
+    "useWhen": [
+      "A rich creator lectures ordinary people",
+      "Privileged takes vs middle-class reality",
+      "Luxury flexing"
+    ],
+    "dontUseWhen": [
+      "Class-based harassment of real people"
+    ],
+    "emotion": [
+      "ironic",
+      "salty"
+    ],
+    "intent": [
+      "money",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:puneet superstar kothi bangle wale log",
+        "hasAudio": true,
+        "transcript": "Kothi bangle wale log... / कोठी बंगले वाले लोग...",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "trendScore": 0.3,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/people/puneet-superstar",
+        "title": "Know Your Meme: Puneet Superstar"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-gaddari-karbe",
+    "name": "Gaddari karbe (Indian boys fighting)",
+    "aliases": [
+      "gaddari karbe",
+      "gaddar",
+      "gaddar saala",
+      "indian boys fighting",
+      "गद्दारी करबे",
+      "गद्दार"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Viral kids' fight video",
+      "year": 2023,
+      "detail": "A young boy accuses another of being a 'gaddar' (traitor) in a village fight; earliest upload 12 Mar 2023, exploded on r/IndianDankMemes and Twitter in Apr 2023."
+    },
+    "meaning": "Calling out a traitor friend.",
+    "useWhen": [
+      "A creator switches sides or collabs with the enemy",
+      "Friend betrays the group",
+      "Fans who 'switched' to a rival"
+    ],
+    "dontUseWhen": [
+      "Real communal/political 'traitor' labels (anti-national rhetoric)",
+      "Content that could shame the real children"
+    ],
+    "emotion": [
+      "betrayed",
+      "angry"
+    ],
+    "intent": [
+      "betrayal",
+      "rage"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:gaddari karbe meme template",
+        "hasAudio": true,
+        "transcript": "Gaddari karbe? ... gaddar! / गद्दारी करबे? ... गद्दार!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2023-03-12",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/gaddari-karbe-indian-boys-fighting",
+        "title": "Know Your Meme: Gaddari Karbe / Indian Boys Fighting"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-nikal-laude",
+    "name": "Nikal lavde, pehli fursat mein nikal (Hindustani Bhau)",
+    "aliases": [
+      "nikal laude",
+      "pehli fursat mein nikal",
+      "nikal lavde",
+      "hindustani bhau",
+      "निकल पहली फुर्सत में निकल"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Hindustani Bhau (Vikas Phatak)",
+      "year": 2019,
+      "detail": "Bhau, sitting in his car, reacting to a Javed Akhtar statement (Jun 2019): 'Nikal lavde, pehli fursat mein nikal'. Meme reaction since 13 Jun 2019."
+    },
+    "meaning": "Get out, right now. A crude dismissal.",
+    "useWhen": [
+      "Telling a creator to leave/quit",
+      "Kicking out a bad argument",
+      "Someone overstays"
+    ],
+    "dontUseWhen": [
+      "Family-friendly edits (gaali; use the 'pehli fursat mein nikal' cut)",
+      "The original's political target"
+    ],
+    "emotion": [
+      "dismissive",
+      "angry"
+    ],
+    "intent": [
+      "bye",
+      "rage"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:nikal lavde pehli fursat mein nikal meme template",
+        "hasAudio": true,
+        "transcript": "Nikal lavde, pehli fursat mein nikal! / निकल ल*डे, पहली फुर्सत में निकल!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2019-06-13",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/nikal-lavde-pehli-fursat-mein-nikal",
+        "title": "Know Your Meme: Nikal Lavde, Pehli Fursat Mein Nikal"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-arey-bhai-bhai-bhai-nagarpalika",
+    "name": "Arey bhai bhai bhai! (Nagarpalika ko bulao)",
+    "aliases": [
+      "arey bhai bhai bhai",
+      "nagarpalika ko bulao",
+      "bhai bhai bhai",
+      "shahid alvi",
+      "pit fall meme",
+      "अरे भाई भाई भाई",
+      "नगरपालिका को बुलाओ"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Shahid Alvi Sid's anti-corruption video",
+      "year": 2017,
+      "detail": "Kanpur YouTuber Shahid Alvi Sid, delivering a serious message on corruption (20 Aug 2017), falls into a pit mid-sentence; friends yell 'Arey bhai bhai bhai!' and he swears at the municipality."
+    },
+    "meaning": "Sudden fall mid-speech: a serious moment ruined by instant karma.",
+    "useWhen": [
+      "A creator lecturing others gets instantly contradicted",
+      "Something collapses mid-flex",
+      "Unexpected fail"
+    ],
+    "dontUseWhen": [
+      "Real injuries/accidents",
+      "Family-friendly edits without bleep"
+    ],
+    "emotion": [
+      "shock",
+      "chaotic"
+    ],
+    "intent": [
+      "fail",
+      "shock"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:arey bhai bhai bhai nagarpalika meme",
+        "hasAudio": true,
+        "transcript": "Arey bhai bhai bhai... Nagarpalika ko bulao! / अरे भाई भाई भाई... नगरपालिका को बुलाओ!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2017-08-20",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://wotpost.org/shahid-alvi-sid-bhrashtachar-nagar-palika-video/",
+        "title": "Wotpost: Shahid Alvi Sid - the Nagarpalika video"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-carry-bahut-tez-ho-rahe-ho",
+    "name": "Bahut tez ho rahe ho (CarryMinati)",
+    "aliases": [
+      "bahut tez ho rahe ho",
+      "bahut tej ho rahe ho",
+      "carryminati bahut tez",
+      "carry minati",
+      "बहुत तेज़ हो रहे हो"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "CarryMinati - 'YouTube vs TikTok: The End'",
+      "year": 2020,
+      "detail": "From CarryMinati's TikTok roast (9 May 2020), the first Indian video to 10M likes before YouTube removed it."
+    },
+    "meaning": "Mocking someone acting over-smart.",
+    "useWhen": [
+      "A creator tries to be clever",
+      "Someone's 'gotcha' backfires",
+      "Over-smart comment"
+    ],
+    "dontUseWhen": [
+      "Genuinely clever insights"
+    ],
+    "emotion": [
+      "sarcastic",
+      "mocking"
+    ],
+    "intent": [
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:bahut tez ho rahe ho carryminati meme template",
+        "hasAudio": true,
+        "transcript": "Bahut tez ho rahe ho! / बहुत तेज़ हो रहे हो!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2020-05-09",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/bahut-tez-ho-rahe-ho-meme-template/",
+        "title": "HumorNama: Bahut Tez Ho Rahe Ho meme template"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-carry-koi-baat-nahi-hum-to",
+    "name": "Koi baat nahi, hum toh ch***ye hain (CarryMinati)",
+    "aliases": [
+      "koi baat nahi hum to chutiye hain",
+      "koi baat nahi",
+      "hum toh chutiye hain",
+      "carryminati laughing",
+      "कोई बात नहीं हम तो"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "CarryMinati (laughing, white T-shirt, headphones)",
+      "detail": "CarryMinati laughing: 'Koi baat nahi, hum toh [ch***ye] hain... dobara try karenge.' The @funny reference edit used it at 2:48.9 after the host mock-agreed with an absurd claim."
+    },
+    "meaning": "Sarcastic self-deprecation: 'fine, we're the fools then'. Used to mock an absurd accusation by pretending to accept it.",
+    "useWhen": [
+      "Mock-accepting an absurd claim ('haan haan, hum hi galat hain')",
+      "After a creator insults the audience",
+      "Sarcastic surrender"
+    ],
+    "dontUseWhen": [
+      "Family-friendly edits (gaali; bleep it)"
+    ],
+    "emotion": [
+      "sarcastic",
+      "laughing"
+    ],
+    "intent": [
+      "sarcasm",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=czUMDiWY2bM",
+        "query": "ytsearch3:koi baat nahi hum to chutiye hai carryminati meme template",
+        "hasAudio": true,
+        "transcript": "Koi baat nahi, hum toh ch***ye hain... dobara try karenge. / कोई बात नहीं, हम तो ... हैं... दोबारा ट्राई करेंगे।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://indianmemetemplates.com/koi-baat-nahi-hum-to-chutiye-hai-carryminati/",
+        "title": "Indian Meme Templates: Koi baat nahi hum to chutiye hai CarryMinati"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-khel-khatam-beta",
+    "name": "Data khatam, khel khatam... khel khatam beta (Pawan Singh)",
+    "aliases": [
+      "khel khatam",
+      "khel khatam beta",
+      "data khatam khel khatam",
+      "pawan singh khel khatam",
+      "game over",
+      "खेल खत्म बेटा",
+      "खेल खत्म"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Pawan Singh clip (Bhojpuri star)",
+      "detail": "Pawan Singh lecturing: 'Bas din bhar mobile mein lage raho... data khatam, khel khatam. Khel khatam beta.' Clip uploads date from late Dec 2025; a top 2026 Indian meme ('game over'). The full clip also mentions 'Hindu-Muslim videos' and was reposted by a political party - trim to the 'khel khatam beta' part."
+    },
+    "meaning": "Game over: the situation is finished and there's no comeback.",
+    "useWhen": [
+      "A creator gets caught / exposed with no way out",
+      "Receipts end the argument",
+      "Final verdict on a controversy"
+    ],
+    "dontUseWhen": [
+      "Using the full clip (it references religion; political reuse)",
+      "Real deaths or endings"
+    ],
+    "emotion": [
+      "final",
+      "smug"
+    ],
+    "intent": [
+      "victory",
+      "exposed",
+      "bye"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:khel khatam beta pawan singh meme template",
+        "hasAudio": true,
+        "transcript": "Data khatam, khel khatam... khel khatam beta. / डाटा खत्म, खेल खत्म... खेल खत्म बेटा।",
+        "provider": "youtube"
+      },
+      {
+        "type": "gif",
+        "url": "https://tenor.com/view/khel-khatam-pawan-singh-khel-khatam-meme-ghee-khatam-game-over-gif-15974957765264102326",
+        "provider": "tenor"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2025-12-27",
+    "trendScore": 0.85,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://mememarketingagency.com/15-most-trending-indian-memes/",
+        "title": "Meme Marketing Agency: 15 most trending Indian memes (2026) - 'Khel Khatam'"
+      },
+      {
+        "url": "https://tenor.com/view/khel-khatam-pawan-singh-khel-khatam-meme-ghee-khatam-game-over-gif-15974957765264102326",
+        "title": "Tenor: Khel Khatam Pawan Singh GIF"
+      }
+    ],
+    "safety": {
+      "religious": true
+    },
+    "verified": true
+  },
+  {
+    "id": "in-ruko-zara-sabar-karo",
+    "name": "Ruko zara, sabar karo (Hindustani Bhau)",
+    "aliases": [
+      "ruko zara sabar karo",
+      "ruko jara sabar karo",
+      "sabar karo",
+      "hindustani bhau ruko",
+      "रुको ज़रा सब्र करो"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Hindustani Bhau",
+      "detail": "Hindustani Bhau (Vikas Phatak) telling viewers to wait; Indian Meme Templates traces it to his video 'I love you la*di'."
+    },
+    "meaning": "'Wait, have patience': a tease before a reveal.",
+    "useWhen": [
+      "Right before revealing a receipt/twist",
+      "Telling impatient viewers to wait",
+      "Building suspense"
+    ],
+    "dontUseWhen": [
+      "When nothing follows the tease"
+    ],
+    "emotion": [
+      "teasing",
+      "calm"
+    ],
+    "intent": [
+      "suspense"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ruko zara sabar karo hindustani bhau meme template",
+        "hasAudio": true,
+        "transcript": "Ruko zara, sabar karo. / रुको ज़रा, सब्र करो।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://indianmemetemplates.com/ruko-jara-sabar-karo/",
+        "title": "Indian Meme Templates: Ruko jara sabar karo"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-arpit-bala-ye-kaise-ho-gaya",
+    "name": "Ye kaise ho gaya? (Arpit Bala shocked)",
+    "aliases": [
+      "ye kaise ho gaya",
+      "arpit bala shocked",
+      "arpit bala",
+      "shocked reaction",
+      "ये कैसे हो गया"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Arpit Bala reaction clip",
+      "detail": "Creator Arpit Bala's wide-eyed shocked reaction; a stock reaction template on memes.co.in."
+    },
+    "meaning": "Disbelief: 'how did this even happen?'.",
+    "useWhen": [
+      "A shocking number or result",
+      "Someone pulls off something unbelievable",
+      "Plot twist"
+    ],
+    "dontUseWhen": [
+      "Real accidents"
+    ],
+    "emotion": [
+      "shocked",
+      "disbelief"
+    ],
+    "intent": [
+      "shock",
+      "confusion"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ye kaise ho gaya arpit bala shocked meme template",
+        "hasAudio": true,
+        "transcript": "Ye kaise ho gaya? / ये कैसे हो गया?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://memes.co.in/meme-templates/video/2157/ye-kaise-ho-gaya-arpit-bala-shocked-memes-download",
+        "title": "memes.co.in: Ye Kaise Ho Gaya Arpit Bala shocked"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-bhai-sahab-ye-kis-line-mein",
+    "name": "Bhaisahab, ye kis line mein aa gaye aap? (Welcome)",
+    "aliases": [
+      "bhai sahab ye kis line mein aa gaye aap",
+      "ye kis line mein aa gaye",
+      "kis line mein aa gaye aap",
+      "भाईसाहब ये किस लाइन में आ गए आप"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Welcome",
+      "year": 2007,
+      "detail": "Rajiv (Akshay Kumar) to don Uday Shetty (Nana Patekar) when the gangster is rehearsing for a film shoot."
+    },
+    "meaning": "Surprise at someone switching to an unexpected career or behaviour.",
+    "useWhen": [
+      "A creator pivots to an unrelated niche",
+      "A politician/actor starts a podcast/brand",
+      "Someone acts totally out of character"
+    ],
+    "dontUseWhen": [
+      "Real job losses"
+    ],
+    "emotion": [
+      "surprised",
+      "amused"
+    ],
+    "intent": [
+      "confusion",
+      "plot-twist"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:bhaisahab ye kis line mein aa gaye aap meme template",
+        "hasAudio": true,
+        "transcript": "Bhaisahab, ye kis line mein aa gaye aap? / भाईसाहब, ये किस लाइन में आ गए आप?",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2007-12-21",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/bhaisahab-ye-kis-line-mei-aa-gaye-aap-meme-template/",
+        "title": "HumorNama: Bhaisahab ye kis line mei aa gaye aap"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-kaun-hai-ye-log",
+    "name": "Kaun hain ye log? Kahan se aate hain? (Jolly LLB)",
+    "aliases": [
+      "kaun hai ye log",
+      "kahan se aate hain ye log",
+      "kon hai ye log",
+      "who are these people",
+      "कौन हैं ये लोग? कहाँ से आते हैं?"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Jolly LLB",
+      "year": 2013,
+      "detail": "Arshad Warsi's lawyer in the climax courtroom speech about people sleeping on footpaths. Often used without knowing its origin."
+    },
+    "meaning": "Bewildered: who are these people and where do they come from?",
+    "useWhen": [
+      "Reading absurd comments/fans defending a creator",
+      "A bizarre group of people in a clip",
+      "Unexpected supporters appear"
+    ],
+    "dontUseWhen": [
+      "Targeting the homeless or migrants (the original context)",
+      "Communal 'outsiders' framing"
+    ],
+    "emotion": [
+      "bewildered",
+      "confused"
+    ],
+    "intent": [
+      "confusion",
+      "disgust"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:kaun hai ye log kahan se aate hain jolly llb meme",
+        "hasAudio": true,
+        "transcript": "Kaun hain ye log? Kahan se aate hain ye? / कौन हैं ये लोग? कहाँ से आते हैं ये?",
+        "provider": "youtube"
+      },
+      {
+        "type": "template",
+        "url": "https://imgflip.com/memetemplate/200948181/Kaun-hai-yeh-log",
+        "provider": "imgflip"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2013-03-15",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://humornama.com/meme-templates/kaun-hain-ye-log-meme-template/",
+        "title": "HumorNama: Kaun Hain Ye Log meme template"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-panchayat-ek-ek-cup-chai",
+    "name": "Ek-ek cup chai aur bola jaaye (Panchayat)",
+    "aliases": [
+      "ek ek cup chai aur bola jaaye",
+      "1-1 cup chai",
+      "ek cup chai aur",
+      "panchayat chai",
+      "एक एक कप चाय और बोला जाए"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Panchayat (Prime Video)",
+      "year": 2020,
+      "detail": "A Panchayat scene (captions confirm the line: 'Bada majboot tala hai bhai... ek-ek cup chai aur bola jaaye'). No explainer found that documents it as a meme template, so it is unverified."
+    },
+    "meaning": "Ordering another round of tea to settle in for a long discussion/drama.",
+    "useWhen": [
+      "The host settles in for a long roast ('chai mangao')",
+      "A drama that will take a while",
+      "Literal echo on 'chai'"
+    ],
+    "dontUseWhen": [
+      "As a standalone joke without the chai echo"
+    ],
+    "emotion": [
+      "relaxed",
+      "gossip"
+    ],
+    "intent": [
+      "suspense",
+      "agree"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "url": "https://www.youtube.com/watch?v=PRJ6D6FB-xo",
+        "query": "ytsearch3:ek ek cup chai aur bola jaye panchayat",
+        "hasAudio": true,
+        "transcript": "Ek-ek cup chai aur bola jaaye. / एक-एक कप चाय और बोला जाए।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "trendScore": 0.3,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://en.wikipedia.org/wiki/Panchayat_(TV_series)",
+        "title": "Wikipedia: Panchayat (TV series) - show only; the line's meme use is unverified"
+      }
+    ],
+    "safety": {},
+    "verified": false
+  },
+  {
+    "id": "in-waqt-badal-diya",
+    "name": "Waqt badal diya, jazbaat badal diye, zindagi badal di (Momin Saqib)",
+    "aliases": [
+      "waqt badal diya",
+      "jazbaat badal diye",
+      "zindagi badal di",
+      "ek dum se waqt badal diya",
+      "momin saqib",
+      "वक़्त बदल दिया, जज़्बात बदल दिए, ज़िंदगी बदल दी"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "Dunya News interview, 2019 Cricket World Cup",
+      "year": 2019,
+      "detail": "Second half of Pakistani fan Momin Saqib's post-match rant (16 Jun 2019); KYM notes it became a standalone catchphrase for sudden life changes. See in-maro-mujhe-maro for the first half."
+    },
+    "meaning": "Over-dramatic line for a sudden, total change of circumstances.",
+    "useWhen": [
+      "A creator's life/career flips overnight",
+      "Before-vs-after glow-up or downfall",
+      "One event changes everything"
+    ],
+    "dontUseWhen": [
+      "Mocking a nationality",
+      "Real life-changing tragedies"
+    ],
+    "emotion": [
+      "dramatic",
+      "overwhelmed"
+    ],
+    "intent": [
+      "plot-twist",
+      "overreact"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:waqt badal diya jazbaat badal diye zindagi badal di meme",
+        "hasAudio": true,
+        "transcript": "Ek dum se waqt badal diya, jazbaat badal diye, zindagi badal di! / एक दम से वक़्त बदल दिया, जज़्बात बदल दिए, ज़िंदगी बदल दी!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "2019-06-16",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/bhai-maro-mujhe-maro-waqt-badal-diya",
+        "title": "Know Your Meme: Bhai Maro Mujhe Maro / Waqt Badal Diya"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-kutte-kamine-khoon-pee-jaunga",
+    "name": "Kutte, kamine, main tera khoon pee jaunga! (Dharmendra)",
+    "aliases": [
+      "kutte kamine main tera khoon pee jaunga",
+      "kutte main tera khoon pee jaunga",
+      "dharmendra khoon pee jaunga",
+      "कुत्ते, कमीने, मैं तेरा खून पी जाऊँगा"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Yaadon Ki Baaraat",
+      "year": 1973,
+      "detail": "Dharmendra's trademark rage line (credited to Yaadon Ki Baaraat by Koimoi)."
+    },
+    "meaning": "Over-the-top filmy rage at a minor annoyance.",
+    "useWhen": [
+      "The host 'loses it' at a ridiculous claim",
+      "Exaggerated anger at a small inconvenience",
+      "Old-school filmy threat for comic effect"
+    ],
+    "dontUseWhen": [
+      "Real threats or violence"
+    ],
+    "emotion": [
+      "furious",
+      "filmy"
+    ],
+    "intent": [
+      "rage",
+      "overreact"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:kutte kamine main tera khoon pee jaunga dharmendra",
+        "hasAudio": true,
+        "transcript": "Kutte, kamine, main tera khoon pee jaunga! / कुत्ते, कमीने, मैं तेरा खून पी जाऊँगा!",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "1973-01-01",
+    "trendScore": 0.4,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "in-dosti-mein-no-sorry-no-thank-you",
+    "name": "Dosti ka ek usool hai: no sorry, no thank you",
+    "aliases": [
+      "dosti mein no sorry no thank you",
+      "no sorry no thank you",
+      "dosti ka ek usool hai madam",
+      "maine pyar kiya dialogue",
+      "दोस्ती का एक उसूल है मैडम, नो सॉरी नो थैंक यू"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Maine Pyar Kiya",
+      "year": 1989,
+      "detail": "Prem (Salman Khan) to Suman (Bhagyashree)."
+    },
+    "meaning": "Friendship needs no formalities. Used sarcastically when a 'friend' creator takes without giving back.",
+    "useWhen": [
+      "Creator 'friends' who never credit each other",
+      "Mock-wholesome friendship moment",
+      "Someone apologises/thanks too formally"
+    ],
+    "dontUseWhen": [
+      "Serious conflicts"
+    ],
+    "emotion": [
+      "wholesome",
+      "cheesy"
+    ],
+    "intent": [
+      "wholesome",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:dosti ka ek usool hai madam no sorry no thank you maine pyar kiya",
+        "hasAudio": true,
+        "transcript": "Dosti ka ek usool hai, madam: no sorry, no thank you. / दोस्ती का एक उसूल है, मैडम: नो सॉरी, नो थैंक यू।",
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hinglish",
+    "firstSeen": "1989-12-29",
+    "trendScore": 0.4,
+    "lastVerified": "2026-09-24",
+    "sources": [
+      {
+        "url": "https://www.koimoi.com/bollywood/10-iconic-bollywood-dialogues-that-became-internet-memes-from-mogambo-khush-hua-to-kitne-aadmi-the/",
+        "title": "Koimoi: 10 iconic Bollywood dialogues that became internet memes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  }
+]

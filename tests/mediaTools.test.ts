@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../src/lib/ipc', () => ({ api: { analysisFrames: vi.fn(), jobsList: vi.fn(), settingsGet: vi.fn(), matteModel: vi.fn(), localMediaStatus: vi.fn() }, errorText: (e: unknown) => String(e) }));
-vi.mock('../src/lib/roto', () => ({ rotoscope: vi.fn() }));
+vi.mock('../src/lib/roto', () => ({ rotoscope: vi.fn(), rotoscopeLong: vi.fn() }));
 vi.mock('../src/lib/depth', () => ({ depthOcclusion: vi.fn() }));
 import { depthOcclusion } from '../src/lib/depth';
-import { rotoscope } from '../src/lib/roto';
+import { rotoscope, rotoscopeLong } from '../src/lib/roto';
 import { api } from '../src/lib/ipc';
 import { runTool, type ToolHost } from '../src/lib/aiTools';
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
@@ -137,6 +137,19 @@ describe('media tool contracts', () => {
     const rotoRes = await runTool(host, 'rotoscope_clip', { clipId: clip.id });
     expect(rotoRes.ok).toBe(true);
     expect(vi.mocked(rotoscope).mock.calls[0][1].fps).toBe(23.976);
+  });
+  it('mattes a long host shot in chunks with rvm, and keeps sam2 to one 300 s pass', async () => {
+    const { host, clip } = fixture();
+    const long = { ...clip, speed: 1, in: 0, duration: 600 };
+    host.history.commit((p) => ({ ...p, comps: p.comps.map((c) => ({ ...c, clips: c.clips.map((x) => (x.id === clip.id ? long : x)) })) }), 'long');
+    vi.mocked(api.settingsGet).mockResolvedValue({} as never);
+    vi.mocked(api.matteModel).mockResolvedValue({ id: 'matte-rvm', path: 'rvm.onnx' } as never);
+    vi.mocked(rotoscopeLong).mockResolvedValue({ matte: 'long.mkv', frames: 2, subjects: [{ at: 0, x: .2, y: .1, width: .4, height: .8, cover: .3 }, { at: 1, x: .2, y: .1, width: .4, height: .8, cover: .3 }], runId: 'r', chunks: 20, reused: 0, stitched: true } as never);
+    const res = await runTool(host, 'rotoscope_clip', { clipId: clip.id });
+    expect(res).toMatchObject({ ok: true, chunks: 20 });
+    expect(vi.mocked(rotoscopeLong).mock.calls[0][1].seconds).toBe(600);
+    const sam = await runTool(host, 'rotoscope_clip', { clipId: clip.id, engine: 'sam2-vitmatte' });
+    expect(sam.ok).toBe(false);
   });
   it('tells the model up front when local generation is off, so planning routes shots online instead', async () => {
     const { host } = fixture();

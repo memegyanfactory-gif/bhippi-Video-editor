@@ -1,0 +1,2815 @@
+[
+  {
+    "id": "sfx-whoosh-fast",
+    "name": "Fast whoosh",
+    "tags": [
+      "transition",
+      "whoosh",
+      "movement"
+    ],
+    "aliases": [
+      "whoosh",
+      "woosh",
+      "swoosh",
+      "transition sound",
+      "fast whoosh",
+      "hawa wala sound"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "whoosh",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-whoosh-soft",
+    "name": "Soft whoosh",
+    "tags": [
+      "transition",
+      "whoosh",
+      "subtle"
+    ],
+    "aliases": [
+      "soft whoosh",
+      "gentle whoosh",
+      "slide whoosh"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "whoosh",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-whoosh-heavy",
+    "name": "Heavy cinematic whoosh",
+    "tags": [
+      "transition",
+      "whoosh",
+      "cinematic"
+    ],
+    "aliases": [
+      "cinematic whoosh",
+      "heavy whoosh",
+      "trailer whoosh"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "whoosh",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-whip-pan",
+    "name": "Whip-pan swish",
+    "tags": [
+      "transition",
+      "whip",
+      "swish"
+    ],
+    "aliases": [
+      "whip transition",
+      "whip pan",
+      "swish",
+      "fast swipe"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "swish",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-swish-text",
+    "name": "Text slide swish",
+    "tags": [
+      "text",
+      "swish",
+      "ui"
+    ],
+    "aliases": [
+      "text swish",
+      "title swish",
+      "slide in sound"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "swish",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-pop-text",
+    "name": "Text pop",
+    "tags": [
+      "text",
+      "pop",
+      "ui"
+    ],
+    "aliases": [
+      "pop",
+      "text pop",
+      "caption pop",
+      "pop sound"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "pop",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-pop-bubble",
+    "name": "Bubble pop",
+    "tags": [
+      "pop",
+      "cartoon",
+      "sticker"
+    ],
+    "aliases": [
+      "bubble pop",
+      "plop",
+      "sticker pop"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "pop",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-pop-emoji",
+    "name": "Emoji pop",
+    "tags": [
+      "pop",
+      "emoji",
+      "sticker"
+    ],
+    "aliases": [
+      "emoji pop",
+      "sticker sound",
+      "pop up"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "pop",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-ding-bell",
+    "name": "Ding",
+    "tags": [
+      "ding",
+      "correct",
+      "idea"
+    ],
+    "aliases": [
+      "ding",
+      "ding ding",
+      "bell ding",
+      "correct ding",
+      "idea sound"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "ding",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-ding-notification",
+    "name": "Notification ding",
+    "tags": [
+      "ding",
+      "notification",
+      "ui"
+    ],
+    "aliases": [
+      "notification",
+      "message ding",
+      "phone ding"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "ding",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-chime-sparkle",
+    "name": "Sparkle chime",
+    "tags": [
+      "chime",
+      "sparkle",
+      "glow-up"
+    ],
+    "aliases": [
+      "sparkle",
+      "shine",
+      "glow up sound",
+      "twinkle",
+      "chamak"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "chime",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-chime-reveal",
+    "name": "Reveal chime",
+    "tags": [
+      "chime",
+      "reveal"
+    ],
+    "aliases": [
+      "reveal chime",
+      "magic reveal",
+      "ta da chime"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "chime",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-bleep-censor",
+    "name": "Censor bleep",
+    "tags": [
+      "bleep",
+      "censor",
+      "profanity"
+    ],
+    "aliases": [
+      "bleep",
+      "beep",
+      "censor beep",
+      "tooot",
+      "gaali beep",
+      "censor"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "bleep",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-bleep-long",
+    "name": "Long censor bleep",
+    "tags": [
+      "bleep",
+      "censor",
+      "profanity"
+    ],
+    "aliases": [
+      "long beep",
+      "long bleep",
+      "flatline beep"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "bleep",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-glitch-short",
+    "name": "Glitch hit",
+    "tags": [
+      "glitch",
+      "digital",
+      "transition"
+    ],
+    "aliases": [
+      "glitch",
+      "glitch sound",
+      "error glitch",
+      "digital glitch"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "glitch",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-glitch-transition",
+    "name": "Glitch transition",
+    "tags": [
+      "glitch",
+      "transition",
+      "digital"
+    ],
+    "aliases": [
+      "glitch transition",
+      "vhs glitch",
+      "static glitch"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "glitch",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-riser-tension",
+    "name": "Tension riser",
+    "tags": [
+      "riser",
+      "suspense",
+      "build-up"
+    ],
+    "aliases": [
+      "riser",
+      "tension riser",
+      "build up",
+      "suspense riser"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "riser",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-riser-short",
+    "name": "Short riser",
+    "tags": [
+      "riser",
+      "transition"
+    ],
+    "aliases": [
+      "short riser",
+      "swell",
+      "uplifter"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "riser",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-impact-hit",
+    "name": "Impact hit",
+    "tags": [
+      "impact",
+      "hit",
+      "punch-in"
+    ],
+    "aliases": [
+      "impact",
+      "hit",
+      "thud",
+      "zoom hit",
+      "dhamaka"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "impact",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-impact-zoom",
+    "name": "Zoom-punch impact",
+    "tags": [
+      "impact",
+      "zoom",
+      "punch-in"
+    ],
+    "aliases": [
+      "zoom punch",
+      "punch in sound",
+      "zoom impact"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "impact",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-boom-vine",
+    "name": "Vine-boom style boom",
+    "tags": [
+      "boom",
+      "impact",
+      "reaction",
+      "meme"
+    ],
+    "aliases": [
+      "vine boom",
+      "boom",
+      "bass boom",
+      "vine thud",
+      "dhoom"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "boom",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-boom-cinematic",
+    "name": "Cinematic boom",
+    "tags": [
+      "boom",
+      "cinematic",
+      "suspense"
+    ],
+    "aliases": [
+      "trailer boom",
+      "braam",
+      "cinematic hit",
+      "movie boom"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "boom",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-boom-sub-drop",
+    "name": "Sub drop",
+    "tags": [
+      "boom",
+      "bass",
+      "drop"
+    ],
+    "aliases": [
+      "sub drop",
+      "bass drop",
+      "808 drop"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "boom",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-scratch-quick",
+    "name": "Record scratch (synth)",
+    "tags": [
+      "scratch",
+      "freeze",
+      "fail"
+    ],
+    "aliases": [
+      "record scratch",
+      "scratch",
+      "freeze frame",
+      "wait what"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "scratch",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-scratch-rewind",
+    "name": "Rewind scratch (synth)",
+    "tags": [
+      "scratch",
+      "rewind",
+      "transition"
+    ],
+    "aliases": [
+      "rewind",
+      "rewind scratch",
+      "go back"
+    ],
+    "kind": "procedural",
+    "proceduralKind": "scratch",
+    "provider": "builtin"
+  },
+  {
+    "id": "sfx-record-scratch",
+    "name": "Record scratch",
+    "tags": [
+      "scratch",
+      "freeze",
+      "fail",
+      "reaction"
+    ],
+    "aliases": [
+      "record scratch",
+      "vinyl scratch",
+      "freeze frame",
+      "yep that's me",
+      "scratch sound"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/simkiott/sounds/43404/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "simkiott",
+    "duration": 1.6
+  },
+  {
+    "id": "sfx-vinyl-rewind",
+    "name": "Vinyl rewind",
+    "tags": [
+      "scratch",
+      "rewind",
+      "transition"
+    ],
+    "aliases": [
+      "rewind",
+      "vinyl rewind",
+      "wait go back",
+      "rewind sound"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/TasmanianPower/sounds/162493/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "TasmanianPower",
+    "duration": 2.68
+  },
+  {
+    "id": "sfx-airhorn",
+    "name": "Airhorn",
+    "tags": [
+      "hype",
+      "airhorn",
+      "celebration"
+    ],
+    "aliases": [
+      "airhorn",
+      "air horn",
+      "mlg airhorn",
+      "horn",
+      "bhompu"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/jacksonacademyashmore/sounds/414208/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "jacksonacademyashmore",
+    "duration": 1.61
+  },
+  {
+    "id": "sfx-dj-airhorn",
+    "name": "DJ airhorn",
+    "tags": [
+      "hype",
+      "airhorn",
+      "celebration"
+    ],
+    "aliases": [
+      "dj airhorn",
+      "dj horn",
+      "party horn",
+      "mlg"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/pfranzen/sounds/528807/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "pfranzen",
+    "duration": 2.01
+  },
+  {
+    "id": "sfx-crickets",
+    "name": "Crickets (awkward silence)",
+    "tags": [
+      "awkward",
+      "silence",
+      "reaction"
+    ],
+    "aliases": [
+      "crickets",
+      "awkward silence",
+      "cricket sound",
+      "jhingur",
+      "sannata"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/FreethinkerAnon/sounds/129678/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "FreethinkerAnon",
+    "duration": 15.59
+  },
+  {
+    "id": "sfx-laugh-track",
+    "name": "Sitcom laugh track",
+    "tags": [
+      "laugh",
+      "reaction",
+      "comedy"
+    ],
+    "aliases": [
+      "laugh track",
+      "sitcom laugh",
+      "audience laugh",
+      "haha",
+      "hasi"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Kinoton/sounds/383207/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Kinoton",
+    "duration": 43.35
+  },
+  {
+    "id": "sfx-sad-trombone",
+    "name": "Sad trombone (wah wah wah)",
+    "tags": [
+      "fail",
+      "sad",
+      "comedy"
+    ],
+    "aliases": [
+      "sad trombone",
+      "wah wah wah",
+      "fail sound",
+      "womp womp",
+      "price is right fail"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/kirbydx/sounds/175409/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "kirbydx",
+    "duration": 5.21
+  },
+  {
+    "id": "sfx-sad-violin",
+    "name": "Sad violin solo",
+    "tags": [
+      "sad",
+      "fake-sad",
+      "music"
+    ],
+    "aliases": [
+      "sad violin",
+      "sad music",
+      "violin",
+      "emotional music",
+      "dukhi music"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/szegvari/sounds/516652/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "szegvari",
+    "duration": 11.09
+  },
+  {
+    "id": "sfx-dun-dun-dun",
+    "name": "Dun dun duuun",
+    "tags": [
+      "suspense",
+      "dramatic",
+      "reveal"
+    ],
+    "aliases": [
+      "dun dun dun",
+      "dun dun dunnn",
+      "dramatic sound",
+      "plot twist sound"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/divenorth/sounds/215558/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "divenorth",
+    "duration": 8.27
+  },
+  {
+    "id": "sfx-cash-register",
+    "name": "Cash register (ka-ching)",
+    "tags": [
+      "cash",
+      "money",
+      "reaction"
+    ],
+    "aliases": [
+      "cash register",
+      "ka ching",
+      "cha ching",
+      "money sound",
+      "paisa sound"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Zott820/sounds/209578/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Zott820",
+    "duration": 2.75
+  },
+  {
+    "id": "sfx-boing",
+    "name": "Cartoon boing",
+    "tags": [
+      "cartoon",
+      "bounce",
+      "fail"
+    ],
+    "aliases": [
+      "boing",
+      "boink",
+      "spring",
+      "cartoon bounce"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/simon.rue/sounds/61847/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "simon.rue",
+    "duration": 0.74
+  },
+  {
+    "id": "sfx-slap",
+    "name": "Slap",
+    "tags": [
+      "impact",
+      "slap",
+      "reaction"
+    ],
+    "aliases": [
+      "slap",
+      "thappad",
+      "chaanta",
+      "slap sound"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/MootMcnoodles/sounds/444407/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "MootMcnoodles",
+    "duration": 1.07
+  },
+  {
+    "id": "sfx-punch",
+    "name": "Punch",
+    "tags": [
+      "impact",
+      "punch",
+      "fight"
+    ],
+    "aliases": [
+      "punch",
+      "ghoonsa",
+      "hit",
+      "punch sound",
+      "mukka"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/thefsoundman/sounds/118513/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "thefsoundman",
+    "duration": 0.63
+  },
+  {
+    "id": "sfx-body-fall",
+    "name": "Body fall thud",
+    "tags": [
+      "impact",
+      "fall",
+      "fail"
+    ],
+    "aliases": [
+      "body fall",
+      "fall",
+      "thud",
+      "gir gaya"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/DylanTheFish/sounds/417994/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "DylanTheFish",
+    "duration": 1.78
+  },
+  {
+    "id": "sfx-bone-crack",
+    "name": "Bone crack",
+    "tags": [
+      "impact",
+      "crack",
+      "pain"
+    ],
+    "aliases": [
+      "bone crack",
+      "neck snap",
+      "crack",
+      "haddi toot gayi"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/danielrutterfilms/sounds/134025/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "danielrutterfilms",
+    "duration": 1.56
+  },
+  {
+    "id": "sfx-glass-break",
+    "name": "Glass break",
+    "tags": [
+      "impact",
+      "break",
+      "fail"
+    ],
+    "aliases": [
+      "glass break",
+      "shatter",
+      "glass shatter",
+      "kaanch toota"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/avrahamy/sounds/141563/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "avrahamy",
+    "duration": 1.87
+  },
+  {
+    "id": "sfx-explosion",
+    "name": "Explosion",
+    "tags": [
+      "impact",
+      "explosion",
+      "boom"
+    ],
+    "aliases": [
+      "explosion",
+      "blast",
+      "dhamaka",
+      "bomb"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/tommccann/sounds/235968/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "tommccann",
+    "duration": 7.8
+  },
+  {
+    "id": "sfx-fart",
+    "name": "Fart",
+    "tags": [
+      "crude",
+      "cartoon",
+      "reaction"
+    ],
+    "aliases": [
+      "fart",
+      "fart sound",
+      "paad",
+      "wet fart"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/kuchtaa/sounds/555418/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "kuchtaa",
+    "duration": 1.24
+  },
+  {
+    "id": "sfx-camera-shutter",
+    "name": "Camera shutter",
+    "tags": [
+      "camera",
+      "screenshot",
+      "receipt"
+    ],
+    "aliases": [
+      "camera shutter",
+      "screenshot sound",
+      "click",
+      "photo click",
+      "screenshot le liya"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/pooky1/sounds/431588/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "pooky1",
+    "duration": 0.55
+  },
+  {
+    "id": "sfx-keyboard-typing",
+    "name": "Keyboard typing",
+    "tags": [
+      "typing",
+      "ui",
+      "receipt"
+    ],
+    "aliases": [
+      "typing",
+      "keyboard",
+      "typing sound",
+      "hacker typing"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Alivvie/sounds/323432/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Alivvie",
+    "duration": 8.68
+  },
+  {
+    "id": "sfx-notification-chime",
+    "name": "Notification chime",
+    "tags": [
+      "ding",
+      "notification",
+      "ui"
+    ],
+    "aliases": [
+      "notification",
+      "message",
+      "ping"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Jofae/sounds/380482/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Jofae",
+    "duration": 0.32
+  },
+  {
+    "id": "sfx-gong",
+    "name": "Gong",
+    "tags": [
+      "impact",
+      "gong",
+      "dramatic"
+    ],
+    "aliases": [
+      "gong",
+      "chinese gong",
+      "ghanta"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/nkuitse/sounds/18654/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "nkuitse",
+    "duration": 5.24
+  },
+  {
+    "id": "sfx-thunder",
+    "name": "Thunder",
+    "tags": [
+      "dramatic",
+      "thunder",
+      "suspense"
+    ],
+    "aliases": [
+      "thunder",
+      "lightning",
+      "bijli",
+      "dramatic thunder"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/lennyboy/sounds/244053/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "lennyboy",
+    "duration": 15.85
+  },
+  {
+    "id": "sfx-heartbeat",
+    "name": "Heartbeat",
+    "tags": [
+      "suspense",
+      "tension"
+    ],
+    "aliases": [
+      "heartbeat",
+      "dhak dhak",
+      "heart beat",
+      "tension"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/greyseraphim/sounds/21409/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "greyseraphim",
+    "duration": 41.42
+  },
+  {
+    "id": "sfx-drumroll",
+    "name": "Drumroll",
+    "tags": [
+      "suspense",
+      "reveal",
+      "drum"
+    ],
+    "aliases": [
+      "drumroll",
+      "drum roll",
+      "reveal drum"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/adriann/sounds/191718/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "adriann",
+    "duration": 5.97
+  },
+  {
+    "id": "sfx-rimshot",
+    "name": "Rimshot (ba dum tss)",
+    "tags": [
+      "comedy",
+      "drum",
+      "joke"
+    ],
+    "aliases": [
+      "rimshot",
+      "ba dum tss",
+      "badum tss",
+      "joke drum"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Sajmund/sounds/132418/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Sajmund",
+    "duration": 1.07
+  },
+  {
+    "id": "sfx-cheer",
+    "name": "Crowd cheer",
+    "tags": [
+      "crowd",
+      "celebration",
+      "victory"
+    ],
+    "aliases": [
+      "cheer",
+      "crowd cheer",
+      "yay",
+      "celebration"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/jayfrosting/sounds/333404/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "jayfrosting",
+    "duration": 4.13
+  },
+  {
+    "id": "sfx-applause",
+    "name": "Large crowd applause",
+    "tags": [
+      "crowd",
+      "applause",
+      "victory"
+    ],
+    "aliases": [
+      "applause",
+      "clapping",
+      "taaliyan",
+      "clap"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Bansemer/sounds/160493/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Bansemer",
+    "duration": 82.91
+  },
+  {
+    "id": "sfx-crowd-gasp",
+    "name": "Crowd gasp",
+    "tags": [
+      "crowd",
+      "shock",
+      "reaction"
+    ],
+    "aliases": [
+      "gasp",
+      "crowd gasp",
+      "ooh",
+      "shock"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/HowardV/sounds/264376/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "HowardV",
+    "duration": 8.62
+  },
+  {
+    "id": "sfx-crowd-aww",
+    "name": "Crowd aww",
+    "tags": [
+      "crowd",
+      "wholesome",
+      "reaction"
+    ],
+    "aliases": [
+      "aww",
+      "awww",
+      "cute"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/phmiller42/sounds/124996/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "phmiller42",
+    "duration": 2.0
+  },
+  {
+    "id": "sfx-crowd-boo",
+    "name": "Crowd boo",
+    "tags": [
+      "crowd",
+      "disapproval",
+      "reaction"
+    ],
+    "aliases": [
+      "boo",
+      "booing",
+      "crowd boo",
+      "hoot"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/dr_skitz/sounds/353925/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "dr_skitz",
+    "duration": 4.0
+  },
+  {
+    "id": "sfx-kids-woah",
+    "name": "Kids 'woah'",
+    "tags": [
+      "crowd",
+      "reaction",
+      "wow"
+    ],
+    "aliases": [
+      "woah",
+      "wow kids",
+      "kids wow",
+      "whoa"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/DesignDean/sounds/397317/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "DesignDean",
+    "duration": 4.54
+  },
+  {
+    "id": "sfx-evil-laugh",
+    "name": "Evil laugh",
+    "tags": [
+      "laugh",
+      "villain",
+      "reaction"
+    ],
+    "aliases": [
+      "evil laugh",
+      "villain laugh",
+      "muhahaha",
+      "mogambo laugh"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/timtube/sounds/169826/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "timtube",
+    "duration": 8.12
+  },
+  {
+    "id": "sfx-scream",
+    "name": "Scream",
+    "tags": [
+      "scream",
+      "scared",
+      "reaction"
+    ],
+    "aliases": [
+      "scream",
+      "cheekh",
+      "aaaah",
+      "girl scream"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/tcrocker68/sounds/235592/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "tcrocker68",
+    "duration": 2.47
+  },
+  {
+    "id": "sfx-rooster",
+    "name": "Rooster crow",
+    "tags": [
+      "animal",
+      "cartoon",
+      "morning"
+    ],
+    "aliases": [
+      "rooster",
+      "murga",
+      "kukdoo koo",
+      "cock a doodle doo"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/BenjaminNelan/sounds/435508/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "BenjaminNelan",
+    "duration": 2.16
+  },
+  {
+    "id": "sfx-cat-meow",
+    "name": "Cat meow",
+    "tags": [
+      "animal",
+      "cute"
+    ],
+    "aliases": [
+      "meow",
+      "cat",
+      "billi",
+      "meow sound"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/tuberatanka/sounds/110011/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "tuberatanka",
+    "duration": 1.54
+  },
+  {
+    "id": "sfx-dog-bark",
+    "name": "Dog bark",
+    "tags": [
+      "animal",
+      "bark"
+    ],
+    "aliases": [
+      "dog bark",
+      "bhau bhau",
+      "kutta",
+      "woof"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/LittleBigSounds/sounds/163459/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "LittleBigSounds",
+    "duration": 1.95
+  },
+  {
+    "id": "sfx-duck-quack",
+    "name": "Duck quack",
+    "tags": [
+      "animal",
+      "cartoon"
+    ],
+    "aliases": [
+      "quack",
+      "duck",
+      "batakh",
+      "mac quack"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Reitanna/sounds/242664/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Reitanna",
+    "duration": 0.6
+  },
+  {
+    "id": "sfx-metal-pipe-hit",
+    "name": "Metal pipe hit",
+    "tags": [
+      "impact",
+      "metal",
+      "meme"
+    ],
+    "aliases": [
+      "metal pipe",
+      "metal pipe falling",
+      "pipe clang",
+      "clang"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/ani_music/sounds/244983/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "ani_music",
+    "duration": 1.0
+  },
+  {
+    "id": "sfx-door-knock",
+    "name": "Door knock",
+    "tags": [
+      "knock",
+      "suspense"
+    ],
+    "aliases": [
+      "knock",
+      "door knock",
+      "knock knock",
+      "khat khat",
+      "koun hai"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/wjtaylor/sounds/268500/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "wjtaylor",
+    "duration": 2.08
+  },
+  {
+    "id": "sfx-door-creak",
+    "name": "Door creak",
+    "tags": [
+      "creak",
+      "suspense",
+      "horror"
+    ],
+    "aliases": [
+      "door creak",
+      "creak",
+      "spooky door"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/JarredGibb/sounds/219499/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "JarredGibb",
+    "duration": 0.96
+  },
+  {
+    "id": "sfx-running",
+    "name": "Running footsteps",
+    "tags": [
+      "footsteps",
+      "chase",
+      "run"
+    ],
+    "aliases": [
+      "running",
+      "footsteps",
+      "bhaag",
+      "run sound"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Topschool/sounds/443218/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Topschool",
+    "duration": 3.31
+  },
+  {
+    "id": "sfx-car-horn",
+    "name": "Car horn honk",
+    "tags": [
+      "horn",
+      "traffic",
+      "indian"
+    ],
+    "aliases": [
+      "car horn",
+      "honk",
+      "horn",
+      "peeep",
+      "bhonpu"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/MicktheMicGuy/sounds/434878/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "MicktheMicGuy",
+    "duration": 0.87
+  },
+  {
+    "id": "sfx-tire-screech",
+    "name": "Tire screech",
+    "tags": [
+      "brake",
+      "stop",
+      "transition"
+    ],
+    "aliases": [
+      "tire screech",
+      "brake",
+      "screech",
+      "skid"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/RutgerMuller/sounds/104026/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "RutgerMuller",
+    "duration": 2.0
+  },
+  {
+    "id": "sfx-police-siren",
+    "name": "Police siren",
+    "tags": [
+      "siren",
+      "police",
+      "exposed"
+    ],
+    "aliases": [
+      "police siren",
+      "siren",
+      "police",
+      "cops",
+      "wee woo"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/sofialomba/sounds/469411/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "sofialomba",
+    "duration": 13.26
+  },
+  {
+    "id": "sfx-wrong-buzzer",
+    "name": "Wrong-answer buzzer",
+    "tags": [
+      "buzzer",
+      "wrong",
+      "fail"
+    ],
+    "aliases": [
+      "wrong buzzer",
+      "wrong answer",
+      "buzzer",
+      "eeennh",
+      "galat"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/KevinVG207/sounds/331912/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "KevinVG207",
+    "duration": 0.49
+  },
+  {
+    "id": "sfx-correct-answer",
+    "name": "Correct-answer ding",
+    "tags": [
+      "ding",
+      "correct",
+      "victory"
+    ],
+    "aliases": [
+      "correct",
+      "right answer",
+      "correct sound",
+      "sahi jawab"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/CogFireStudios/sounds/421002/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "CogFireStudios",
+    "duration": 0.87
+  },
+  {
+    "id": "sfx-power-up",
+    "name": "Game power-up",
+    "tags": [
+      "game",
+      "level-up",
+      "victory"
+    ],
+    "aliases": [
+      "power up",
+      "level up",
+      "upgrade"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Jofae/sounds/368651/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Jofae",
+    "duration": 1.09
+  },
+  {
+    "id": "sfx-game-over",
+    "name": "Game over",
+    "tags": [
+      "game",
+      "fail",
+      "dead"
+    ],
+    "aliases": [
+      "game over",
+      "life lost",
+      "you died"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/noirenex/sounds/159408/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "noirenex",
+    "duration": 1.96
+  },
+  {
+    "id": "sfx-tada",
+    "name": "Tada fanfare",
+    "tags": [
+      "fanfare",
+      "reveal",
+      "victory"
+    ],
+    "aliases": [
+      "tada",
+      "ta da",
+      "tadaa",
+      "fanfare"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/plasterbrain/sounds/397355/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "plasterbrain",
+    "duration": 1.72
+  },
+  {
+    "id": "sfx-cartoon-fall",
+    "name": "Cartoon fall (slide whistle)",
+    "tags": [
+      "cartoon",
+      "fall",
+      "fail"
+    ],
+    "aliases": [
+      "cartoon fall",
+      "slide whistle",
+      "falling whistle"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/plasterbrain/sounds/395443/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "plasterbrain",
+    "duration": 2.05
+  },
+  {
+    "id": "sfx-magic-sparkle",
+    "name": "Magic sparkle",
+    "tags": [
+      "sparkle",
+      "magic",
+      "glow-up"
+    ],
+    "aliases": [
+      "sparkle",
+      "magic",
+      "twinkle",
+      "wink sparkle"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/MLaudio/sounds/511485/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "MLaudio",
+    "duration": 1.27
+  },
+  {
+    "id": "sfx-funeral-bell",
+    "name": "Funeral bell toll",
+    "tags": [
+      "bell",
+      "dead",
+      "dramatic"
+    ],
+    "aliases": [
+      "funeral bell",
+      "death bell",
+      "rip",
+      "toll"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/aoristos/sounds/329324/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "aoristos",
+    "duration": 28.87
+  },
+  {
+    "id": "sfx-horror-sting",
+    "name": "Horror sting",
+    "tags": [
+      "horror",
+      "suspense",
+      "scared"
+    ],
+    "aliases": [
+      "horror sting",
+      "jump scare",
+      "scary sound",
+      "darr"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/SamsterBirdies/sounds/522567/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "SamsterBirdies",
+    "duration": 14.28
+  },
+  {
+    "id": "sfx-whip-crack",
+    "name": "Whip crack",
+    "tags": [
+      "impact",
+      "whip"
+    ],
+    "aliases": [
+      "whip crack",
+      "whip",
+      "chabuk"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/SciFiSounds/sounds/529925/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "SciFiSounds",
+    "duration": 0.53
+  },
+  {
+    "id": "sfx-bonk",
+    "name": "Bonk",
+    "tags": [
+      "cartoon",
+      "impact",
+      "meme"
+    ],
+    "aliases": [
+      "bonk",
+      "head bonk",
+      "tak"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/thecoolcookie17/sounds/573047/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "thecoolcookie17",
+    "duration": 2.0
+  },
+  {
+    "id": "sfx-toilet-flush",
+    "name": "Toilet flush",
+    "tags": [
+      "crude",
+      "fail",
+      "bye"
+    ],
+    "aliases": [
+      "toilet flush",
+      "flush",
+      "career flushed"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/lorenzgillner/sounds/274448/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "lorenzgillner",
+    "duration": 4.0
+  },
+  {
+    "id": "sfx-snore",
+    "name": "Snoring",
+    "tags": [
+      "boring",
+      "sleep",
+      "reaction"
+    ],
+    "aliases": [
+      "snore",
+      "snoring",
+      "boring",
+      "kharrate",
+      "so gaya"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/sirplus/sounds/20545/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "sirplus",
+    "duration": 32.21
+  },
+  {
+    "id": "sfx-cartoon-kiss",
+    "name": "Cartoon kiss",
+    "tags": [
+      "romance",
+      "cartoon",
+      "kiss"
+    ],
+    "aliases": [
+      "kiss",
+      "mwah",
+      "chumma",
+      "romance"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/trijohnstone/sounds/536335/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "trijohnstone",
+    "duration": 1.5
+  },
+  {
+    "id": "sfx-ticking-timer",
+    "name": "Ticking timer",
+    "tags": [
+      "suspense",
+      "clock",
+      "countdown"
+    ],
+    "aliases": [
+      "ticking",
+      "clock ticking",
+      "tick tock",
+      "countdown",
+      "timer"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/LilMati/sounds/487725/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "LilMati",
+    "duration": 5.0
+  },
+  {
+    "id": "sfx-slurp",
+    "name": "Slurp (sipping tea)",
+    "tags": [
+      "cartoon",
+      "drink",
+      "tea"
+    ],
+    "aliases": [
+      "slurp",
+      "sip",
+      "sipping tea",
+      "chai sip",
+      "tea"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Breviceps/sounds/445974/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Breviceps",
+    "duration": 0.52
+  },
+  {
+    "id": "sfx-clown-horn",
+    "name": "Clown horn",
+    "tags": [
+      "cartoon",
+      "clown",
+      "fail"
+    ],
+    "aliases": [
+      "clown horn",
+      "honk honk",
+      "clown",
+      "joker",
+      "bike horn"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/inplay/sounds/251611/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "inplay",
+    "duration": 1.03
+  },
+  {
+    "id": "sfx-angelic-choir",
+    "name": "Angelic choir",
+    "tags": [
+      "heavenly",
+      "reveal",
+      "wholesome"
+    ],
+    "aliases": [
+      "angelic choir",
+      "heavenly",
+      "aaaah choir",
+      "divine",
+      "hallelujah"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/bone666138/sounds/274121/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "bone666138",
+    "duration": 6.3
+  },
+  {
+    "id": "sfx-bomb-fall",
+    "name": "Falling bomb whistle",
+    "tags": [
+      "cartoon",
+      "fall",
+      "suspense"
+    ],
+    "aliases": [
+      "bomb falling",
+      "falling whistle",
+      "incoming",
+      "bomb drop"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Daleonfire/sounds/506313/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Daleonfire",
+    "duration": 2.92
+  },
+  {
+    "id": "sfx-bruh-cc0",
+    "name": "Bruh (CC0 recreation)",
+    "tags": [
+      "reaction",
+      "voice",
+      "meme"
+    ],
+    "aliases": [
+      "bruh",
+      "bruh sound effect",
+      "bro"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Autellaem/sounds/534387/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Autellaem",
+    "duration": 0.72
+  },
+  {
+    "id": "sfx-anime-wow-cc0",
+    "name": "Anime girl 'wow' (CC0)",
+    "tags": [
+      "anime",
+      "reaction",
+      "voice"
+    ],
+    "aliases": [
+      "anime wow",
+      "wow",
+      "kawaii wow"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/DarkNightPrincess/sounds/658569/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "DarkNightPrincess",
+    "duration": 1.98
+  },
+  {
+    "id": "sfx-drama-boom",
+    "name": "Drama boom (vine-boom style, CC0)",
+    "tags": [
+      "boom",
+      "impact",
+      "reaction",
+      "meme"
+    ],
+    "aliases": [
+      "vine boom",
+      "drama boom",
+      "boom",
+      "bass boom"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/modusmogulus/sounds/802074/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "modusmogulus",
+    "duration": 3.63
+  },
+  {
+    "id": "sfx-coin-drop",
+    "name": "Coin drop",
+    "tags": [
+      "cash",
+      "money",
+      "coin"
+    ],
+    "aliases": [
+      "coin drop",
+      "sikka",
+      "coins",
+      "money drop"
+    ],
+    "kind": "sample",
+    "url": "https://freesound.org/people/Jace/sounds/17502/",
+    "provider": "freesound",
+    "license": "CC0",
+    "credit": "Jace",
+    "duration": 2.25
+  },
+  {
+    "id": "sfx-mi-vine-boom",
+    "name": "Vine boom (original)",
+    "tags": [
+      "boom",
+      "reaction",
+      "meme",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "vine boom",
+      "vine boom sound",
+      "boom"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/vine-boom-sound-70972/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.25
+  },
+  {
+    "id": "sfx-mi-bruh",
+    "name": "Bruh (original)",
+    "tags": [
+      "reaction",
+      "voice",
+      "meme",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "bruh",
+      "bruh sound effect",
+      "bruh sound effect 2"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/bruh/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 0.82
+  },
+  {
+    "id": "sfx-mi-fahhh",
+    "name": "FAHHH",
+    "tags": [
+      "reaction",
+      "voice",
+      "meme",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "fahhh",
+      "faaah",
+      "fahhhhhh",
+      "faaaah",
+      "fah",
+      "i've got this fahhh"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/fahhhhhhhhhhhhhh-3525/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.93
+  },
+  {
+    "id": "sfx-mi-faaah",
+    "name": "FAAAH (alt upload)",
+    "tags": [
+      "reaction",
+      "voice",
+      "meme",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "faaah",
+      "fahhh",
+      "faah"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/faaah-63455/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.93
+  },
+  {
+    "id": "sfx-mi-anime-wow",
+    "name": "Anime wow",
+    "tags": [
+      "anime",
+      "reaction",
+      "voice",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "anime wow",
+      "wow anime",
+      "uwu wow"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/anime-wow/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 4.18
+  },
+  {
+    "id": "sfx-mi-anime-ahh",
+    "name": "Anime ahh",
+    "tags": [
+      "anime",
+      "reaction",
+      "voice",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "anime ahh",
+      "anime moan",
+      "ahh"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/anime-ahh-73606/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 0.84
+  },
+  {
+    "id": "sfx-mi-among-us-role-reveal",
+    "name": "Among Us role reveal",
+    "tags": [
+      "game",
+      "reveal",
+      "suspense",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "among us role reveal",
+      "impostor reveal",
+      "among us",
+      "role reveal"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/among-us-role-reveal-sound-34956/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 4.57
+  },
+  {
+    "id": "sfx-mi-spiderman-meme-song",
+    "name": "Spider-Man meme song",
+    "tags": [
+      "music",
+      "meme",
+      "cartoon",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "spiderman meme song",
+      "spiderman song",
+      "spider-man theme"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/spiderman-meme-song-37638/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 12.4
+  },
+  {
+    "id": "sfx-mi-sad-violin",
+    "name": "Sad violin (the meme one)",
+    "tags": [
+      "sad",
+      "fake-sad",
+      "music",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "sad violin",
+      "sad violin meme",
+      "dukhi violin"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/sad-violin-the-meme-one/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 4.55
+  },
+  {
+    "id": "sfx-mi-emotional-damage",
+    "name": "Emotional damage",
+    "tags": [
+      "reaction",
+      "voice",
+      "meme",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "emotional damage",
+      "steven he"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/emotional-damage-meme-74555/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 3.32
+  },
+  {
+    "id": "sfx-mi-oh-no-no-no-laugh",
+    "name": "Oh no no no laugh",
+    "tags": [
+      "laugh",
+      "reaction",
+      "meme",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "oh no no no",
+      "oh no no no laugh",
+      "ohnonono"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/oh-no-no-no-laugh-56694/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 10.89
+  },
+  {
+    "id": "sfx-mi-are-baap-re",
+    "name": "Are baap re, yaad aaya",
+    "tags": [
+      "indian",
+      "reaction",
+      "voice",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "are baap re",
+      "arre baap re",
+      "baap re yaad aaya",
+      "अरे बाप रे"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/are-baap-re-yaad-aya-20126/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.72
+  },
+  {
+    "id": "sfx-mi-chalo",
+    "name": "Chalo",
+    "tags": [
+      "indian",
+      "voice",
+      "bye",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "chalo",
+      "chalo chalo",
+      "चलो"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/chalo-9295/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.44
+  },
+  {
+    "id": "sfx-mi-moye-moye",
+    "name": "Moye moye",
+    "tags": [
+      "indian",
+      "sad",
+      "fail",
+      "music",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "moye moye",
+      "moye more",
+      "मोये मोये",
+      "moye moye sad"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/moye-moye-22301/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 15.92
+  },
+  {
+    "id": "sfx-mi-tunak-tunak",
+    "name": "Tunak Tunak Tun",
+    "tags": [
+      "indian",
+      "music",
+      "dance",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "tunak tunak",
+      "tunak tunak tun",
+      "daler mehndi",
+      "तुनक तुनक"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/tunak-tunak-tun/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 12.69
+  },
+  {
+    "id": "sfx-mi-oh-my-god-wow",
+    "name": "Oh my god, wow!",
+    "tags": [
+      "anime",
+      "reaction",
+      "voice",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "oh my god wow",
+      "omg wow",
+      "oh my god"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/oh-my-god-wow-47646/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 6.6
+  },
+  {
+    "id": "sfx-mi-tuturu",
+    "name": "Tuturu",
+    "tags": [
+      "anime",
+      "voice",
+      "cute",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "tuturu",
+      "tutturu",
+      "mayuri tuturu"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/tuturu/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.2
+  },
+  {
+    "id": "sfx-mi-windows-xp-error",
+    "name": "Windows XP error",
+    "tags": [
+      "error",
+      "ui",
+      "fail",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "windows error",
+      "windows xp error",
+      "error sound"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/windows-xp-error/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 0.99
+  },
+  {
+    "id": "sfx-mi-taco-bell-bong",
+    "name": "Taco Bell bong",
+    "tags": [
+      "impact",
+      "meme",
+      "bong",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "taco bell bong",
+      "bong",
+      "taco bell"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/taco-bell-bong-42481/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.91
+  },
+  {
+    "id": "sfx-mi-metal-pipe-falling",
+    "name": "Metal pipe falling",
+    "tags": [
+      "impact",
+      "meme",
+      "metal",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "metal pipe falling",
+      "metal pipe",
+      "pipe falling",
+      "loha girna"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/metal-pipe-falling-sound-effect-7737/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 3.17
+  },
+  {
+    "id": "sfx-mi-undertaker-bell",
+    "name": "Undertaker bell",
+    "tags": [
+      "dramatic",
+      "entrance",
+      "dead",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "undertaker bell",
+      "undertaker gong",
+      "undertaker",
+      "wwe bell"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/the-undertaker-bell-30938/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 4.21
+  },
+  {
+    "id": "sfx-mi-among-us-sus",
+    "name": "Among Us sus",
+    "tags": [
+      "game",
+      "suspicious",
+      "meme",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "sus",
+      "amogus",
+      "among us sus",
+      "suspicious"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/amongus-sus-74999/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 4.65
+  },
+  {
+    "id": "sfx-mi-rizz",
+    "name": "Rizz sound effect",
+    "tags": [
+      "meme",
+      "romance",
+      "flex",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "rizz",
+      "rizz sound",
+      "rizz effect"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/rizz-sound-effect-54189/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.93
+  },
+  {
+    "id": "sfx-mi-dexter-meme",
+    "name": "Dexter meme",
+    "tags": [
+      "suspense",
+      "meme",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "dexter meme",
+      "dexter",
+      "doakes",
+      "can't prove it"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/dexter-meme-26140/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 10.71
+  },
+  {
+    "id": "sfx-mi-chicken-scream",
+    "name": "Chicken on tree screaming",
+    "tags": [
+      "animal",
+      "scream",
+      "meme",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "chicken screaming",
+      "chicken on tree",
+      "screaming chicken",
+      "murgi"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/chicken-on-tree-screaming-53890/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 5.74
+  },
+  {
+    "id": "sfx-mi-alag-level-ka-banda",
+    "name": "Matlab woh alag hi level ka banda tha",
+    "tags": [
+      "indian",
+      "voice",
+      "flex",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "alag hi level ka banda",
+      "matlab wo alag hi level ka banda tha",
+      "alag level"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/matlab-wo-alag-hi-level-ka-banda-tha-38061/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.96
+  },
+  {
+    "id": "sfx-mi-shocked",
+    "name": "Shocked sound",
+    "tags": [
+      "reaction",
+      "shock",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "shocked",
+      "shock sound",
+      "gasp"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/shocked-sound-37548/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.42
+  },
+  {
+    "id": "sfx-mi-romance",
+    "name": "Romanceeee",
+    "tags": [
+      "romance",
+      "voice",
+      "meme",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "romance",
+      "romanceeee",
+      "romantic"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/romanceeeeeeeeeeeeee-29042/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 5.81
+  },
+  {
+    "id": "sfx-mi-aayein",
+    "name": "Aayein?",
+    "tags": [
+      "indian",
+      "reaction",
+      "confusion",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "aayein",
+      "aaye",
+      "ayein",
+      "आयें"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/aayein-meme-98363/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 0.63
+  },
+  {
+    "id": "sfx-mi-kuch-to-gadbad-hai",
+    "name": "Kuch toh gadbad hai (CID)",
+    "tags": [
+      "indian",
+      "suspense",
+      "voice",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "kuch to gadbad hai",
+      "daya kuch to gadbad hai",
+      "salunkhe",
+      "cid",
+      "acp pradyuman",
+      "कुछ तो गड़बड़ है"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/nahi-nahi-saluke-yaha-kuchh-to-gadbad-hai-85884/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 2.58
+  },
+  {
+    "id": "sfx-mi-koun-hai-re",
+    "name": "Kaun hai re",
+    "tags": [
+      "indian",
+      "voice",
+      "suspense",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "kaun hai re",
+      "koun hai re",
+      "kaun hai",
+      "कौन है रे"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/koun-hai-re-15505/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.71
+  },
+  {
+    "id": "sfx-mi-instagram-thud",
+    "name": "Instagram thud",
+    "tags": [
+      "impact",
+      "meme",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "instagram thud",
+      "thud",
+      "reels thud"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/instagram-thud-55328/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.25
+  },
+  {
+    "id": "sfx-mi-ruko-jara",
+    "name": "Ruko zara, sabar karo",
+    "tags": [
+      "indian",
+      "voice",
+      "suspense",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "ruko jara",
+      "ruko zara sabar karo",
+      "sabar karo",
+      "रुको ज़रा"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/ruko-jara-33002/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 7.0
+  },
+  {
+    "id": "sfx-mi-spongebob-fail",
+    "name": "SpongeBob fail",
+    "tags": [
+      "cartoon",
+      "fail",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "spongebob fail",
+      "fail sound",
+      "spongebob"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/spongebob-fail-11236/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 3.38
+  },
+  {
+    "id": "sfx-mi-kya-scene-hai",
+    "name": "Waah, kya scene hai",
+    "tags": [
+      "indian",
+      "voice",
+      "sarcasm",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "kya scene hai",
+      "waah kya scene hai",
+      "क्या सीन है"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/waah-kya-scene-hai-97336/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 2.14
+  },
+  {
+    "id": "sfx-mi-shabash-beta",
+    "name": "Shabash beta",
+    "tags": [
+      "indian",
+      "voice",
+      "sarcasm",
+      "proud",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "shabash beta",
+      "shabaash",
+      "शाबाश बेटा"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/shabash-beta-31847/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 3.53
+  },
+  {
+    "id": "sfx-mi-very-handsome-boy",
+    "name": "Wow kya ladka hai, very handsome boy",
+    "tags": [
+      "indian",
+      "voice",
+      "flex",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "very handsome boy",
+      "wow kya ladka hai",
+      "handsome boy"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/wow-kya-ladka-hai-very-handsome-boy-34512/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 9.01
+  },
+  {
+    "id": "sfx-mi-six-seven",
+    "name": "6-7 (six seven)",
+    "tags": [
+      "meme",
+      "voice",
+      "brainrot",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "67",
+      "six seven",
+      "6 7"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/67-71609/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.94
+  },
+  {
+    "id": "sfx-mi-few-moments-later",
+    "name": "A few moments later (SpongeBob)",
+    "tags": [
+      "cartoon",
+      "transition",
+      "time-skip",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "a few moments later",
+      "few moments later",
+      "time skip",
+      "spongebob narrator"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/a-few-moments-later-sponge-bob-sfx-fun-80331/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 2.02
+  },
+  {
+    "id": "sfx-mi-acha-ji-aisa-hai-kya",
+    "name": "Accha ji, aisa hai kya",
+    "tags": [
+      "indian",
+      "voice",
+      "sarcasm",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "acha ji aisa hai kya",
+      "accha ji",
+      "aisa hai kya",
+      "अच्छा जी"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/acha-ji-aisa-hai-kya-56288/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 4.92
+  },
+  {
+    "id": "sfx-mi-ammi-bacha-la",
+    "name": "Ammi bacha la re",
+    "tags": [
+      "indian",
+      "voice",
+      "scared",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "ammi bacha la re",
+      "ammi bachao",
+      "bachao"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/ammi-bacha-la-re-43518/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 11.54
+  },
+  {
+    "id": "sfx-mi-hee-hee",
+    "name": "Michael Jackson 'hee hee'",
+    "tags": [
+      "voice",
+      "meme",
+      "reaction",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "hee hee",
+      "michael jackson hee hee",
+      "hehe"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/michael-jackson-hee-hee-40277/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 1.42
+  },
+  {
+    "id": "sfx-mi-oh-hell-nah",
+    "name": "Oh my god bro, oh hell nah",
+    "tags": [
+      "voice",
+      "reaction",
+      "disgust",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "oh hell nah",
+      "hell nah",
+      "oh my god bro"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/oh-my-god-bro-oh-hell-nah-man-42939/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 10.8
+  },
+  {
+    "id": "sfx-mi-khatam-tata-bye-bye",
+    "name": "Khatam, tata, bye bye",
+    "tags": [
+      "indian",
+      "voice",
+      "bye",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "khatam tata bye bye",
+      "khatam tata",
+      "khel khatam",
+      "tata bye bye"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/khatam-tata-92546/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 6.94
+  },
+  {
+    "id": "sfx-mi-dun-dun-dunnn",
+    "name": "Dun dun dunnnn (original)",
+    "tags": [
+      "suspense",
+      "dramatic",
+      "trending-in",
+      "copyrighted-source"
+    ],
+    "aliases": [
+      "dun dun dun",
+      "dun dun dunnnn",
+      "dramatic"
+    ],
+    "kind": "sample",
+    "url": "https://www.myinstants.com/en/instant/dun-dun-dunnnnnnnn-68584/",
+    "provider": "myinstants",
+    "license": "unknown",
+    "duration": 5.12
+  }
+]

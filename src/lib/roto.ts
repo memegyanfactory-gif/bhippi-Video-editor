@@ -9,9 +9,11 @@
 // and each alpha plane goes straight back to Helios, which writes it and works out where the
 // subject is. Nothing is held in memory but the current frame.
 import * as ort from 'onnxruntime-web';
-import { api, fileSrc } from './ipc';
+import { invoke } from '@tauri-apps/api/core';
+import { api, fileSrc, type RotoCache } from './ipc';
 import { canvasImage } from './canvasImage';
 import { validateRotoResult } from './rotoValidation';
+import { longRotoKey, planRotoChunks } from './rotoEngine';
 
 /** Where the model is happiest, and small enough that a minute of footage is seconds of work. */
 const WORK = { width: 512, height: 288 };
@@ -198,6 +200,87 @@ export async function rotoscope(...args: Parameters<typeof runRotoscope>): Promi
   if (running) throw new Error('A Roto job is already running. Wait for it to finish or cancel it from the tool panel.');
   running = true;
   try { const result = await runRotoscope(...args); validateRotoResult(result); return result; } finally { running = false; }
+}
+
+/** What `roto_long_manifest` keeps per asset + range (src-tauri/src/cutout.rs). */
+type LongManifest = { key: string; assetId: string; chunks: { index: number; runId: string; frames: number }[]; master?: string | null };
+
+export type LongRotoResult = RotoResult & {
+  /** The Roto run the matte lives in (its folder name). */
+  runId: string;
+  chunks: number;
+  /** Chunks (or the whole stitched matte) taken from the cache instead of matted again. */
+  reused: number;
+  stitched: boolean;
+};
+
+const runOfMatte = (matte: string | null) => (matte ?? '').replaceAll('\\', '/').split('/').at(-2) ?? '';
+
+/**
+ * Mattes a long host shot — minutes, not seconds — in ~30 s RVM chunks with a second of
+ * overlap, then stitches them into one Roto run whose matte cross-fades each overlap. Resumable:
+ * every finished chunk is recorded against the asset + range (`longRotoKey`), so a cancelled or
+ * failed run picks up where it stopped, and a finished one comes straight from the cache.
+ * A range that fits in one chunk is an ordinary `rotoscope` pass. RVM only: SAM tracking needs
+ * a seed click per chunk, which a long pass cannot supply.
+ */
+export async function rotoscopeLong(
+  assetId: string,
+  options: { from?: number; seconds: number; fps: number; modelPath: string; model?: string; signal?: AbortSignal; chunkSeconds?: number; overlapSeconds?: number },
+  onProgress?: (progress: RotoProgress) => void,
+): Promise<LongRotoResult> {
+  const from = options.from ?? 0;
+  const plan = planRotoChunks(from, options.seconds, options.fps, options);
+  const model = options.model ?? 'matte-rvm';
+  const check = () => { if (options.signal?.aborted) throw new Error('Cancelled; the finished chunks are kept and the next run resumes from them.'); };
+  if (plan.length === 1) {
+    const single = await rotoscope(assetId, { from, seconds: options.seconds, fps: options.fps, modelPath: options.modelPath, model, signal: options.signal, engine: 'rvm' }, onProgress);
+    return { ...single, runId: runOfMatte(single.matte), chunks: 1, reused: 0, stitched: false };
+  }
+  if (running) throw new Error('A Roto job is already running. Wait for it to finish or cancel it from the tool panel.');
+  running = true;
+  try {
+    const key = longRotoKey(assetId, from, options.seconds, options.fps, model, options);
+    let manifest = await invoke<LongManifest>('roto_long_manifest', { assetId, key });
+    if (manifest.master) {
+      const cached = await api.rotoRead(manifest.master);
+      if (cached?.matte && cached.frames > 0) {
+        const result: RotoResult = { frames: cached.frames, subjects: cached.subjects, matte: cached.matte };
+        validateRotoResult(result);
+        onProgress?.({ done: cached.frames, total: cached.frames, stage: 'Matte already made for this range' });
+        return { ...result, runId: manifest.master, chunks: plan.length, reused: plan.length, stitched: true };
+      }
+    }
+    const total = plan.reduce((sum, chunk) => sum + chunk.frames, 0);
+    let before = 0;
+    let reused = 0;
+    for (const chunk of plan) {
+      check();
+      const stage = `Chunk ${chunk.index + 1}/${plan.length}`;
+      if (manifest.chunks.some((entry) => entry.index === chunk.index)) {
+        reused++;
+        before += chunk.frames;
+        onProgress?.({ done: before, total, stage: `${stage} already matted` });
+        continue;
+      }
+      const result = await runRotoscope(
+        assetId,
+        { from: chunk.from, seconds: chunk.seconds, fps: options.fps, modelPath: options.modelPath, model, signal: options.signal, engine: 'rvm' },
+        (progress) => onProgress?.({ done: before + Math.round((progress.done / Math.max(1, progress.total)) * chunk.frames), total, stage: `${stage} · ${progress.stage}` }),
+      );
+      validateRotoResult(result);
+      manifest = await invoke<LongManifest>('roto_long_record', { assetId, key, index: chunk.index, runId: runOfMatte(result.matte) });
+      before += chunk.frames;
+    }
+    check();
+    onProgress?.({ done: total, total, stage: `Stitching ${plan.length} chunks` });
+    const stitched = await invoke<RotoCache>('roto_stitch', { assetId, key, from, chunks: plan.length });
+    const result: RotoResult = { frames: stitched.frames, subjects: stitched.subjects, matte: stitched.matte };
+    validateRotoResult(result);
+    return { ...result, runId: runOfMatte(result.matte), chunks: plan.length, reused, stitched: true };
+  } finally {
+    running = false;
+  }
 }
 
 /** Frees the model. Worth doing when a project closes: it is fifteen megabytes of weights. */

@@ -1,11 +1,13 @@
 import type { Clip, Comp, Project, Track } from './types';
-import { buildCrimsonTemplate, templateSpec, type MogrtLayout } from './motionGuide';
+import type { Box } from './layout';
+import { CRIMSON, buildCrimsonTemplate, templateSpec, type MogrtLayout } from './motionGuide';
 import { REACT_BITS_TEMPLATE, buildReactBitsGraphic, isReactBitsTemplate, type ReactBitsLayer } from './rbx';
 import { brandKitCrimson, brandKitTheme, retintGraphicHtml } from './brandKit/build';
 import type { BrandKit } from './brandKit/types';
+import { buildRoastCard, isRoastCardTemplate } from './roast/cards';
 
 /** Templates designed on the comp's own canvas (1920 wide landscape / 1080 wide portrait): Crimson and React Bits. */
-export const usesCompCanvas = (template: string | undefined | null): boolean => !!template && (!!templateSpec(template) || template === REACT_BITS_TEMPLATE);
+export const usesCompCanvas = (template: string | undefined | null): boolean => !!template && (!!templateSpec(template) || template === REACT_BITS_TEMPLATE || isRoastCardTemplate(template));
 
 export type MotionGraphicTemplateId =
   | 'lower-third'
@@ -78,6 +80,21 @@ export function mogrtCanvas(comp: { width: number; height: number }): { width: n
   return { width, height: Math.round((width * comp.height) / Math.max(1, comp.width)) };
 }
 
+/**
+ * Where the fixed 1920×1080 canvas of the older templates and custom graphics lands in a frame of
+ * `frame`'s shape: fitted and centred, as the export places it (a band across a tall frame).
+ */
+export function fittedBand(frame: { width: number; height: number }): Box {
+  const aspect = frame.width / Math.max(1, frame.height);
+  const design = 1920 / 1080;
+  if (aspect < design) {
+    const height = aspect / design;
+    return { x: 0, y: (1 - height) / 2, width: 1, height };
+  }
+  const width = design / aspect;
+  return { x: (1 - width) / 2, y: 0, width, height: 1 };
+}
+
 const uid = () => `c_${Math.random().toString(36).slice(2, 9)}`;
 
 /**
@@ -85,12 +102,17 @@ const uid = () => `c_${Math.random().toString(36).slice(2, 9)}`;
  * Built with glassmorphism, responsive CSS variables, and deterministic timeline scrubbing.
  */
 export function buildMotionGraphic(params: MotionGraphicParams): MotionGraphicBundle {
-  const template = (params.template || 'lower-third').toLowerCase();
+  const template = (params.template || 'crimson-lower-third').toLowerCase();
   const title = params.title || 'HELIOS MOTION';
-  const subtitle = params.subtitle || 'AI-Powered Creative Studio';
-  const accent = params.accentColor || '#38bdf8'; // Sky cyan default
-  const metric = params.metric || '+340%';
-  const badge = params.badge || 'PRO FEATURE';
+  // Copy the caller did not give is left out, never made up.
+  const subtitle = params.subtitle ?? '';
+  const metric = params.metric ?? '';
+  const badge = params.badge ?? '';
+  const brand = params.brand ?? null;
+  const accent = params.accentColor || (brand ? brandKitCrimson(brand).accent : CRIMSON.tokens.accent);
+  // These draw on a fixed 1920×1080 canvas fitted into the comp; their boxes say where in it.
+  const band = fittedBand(params.canvas ?? { width: 1920, height: 1080 });
+  const inBand = (box: Box): Box => ({ x: band.x + box.x * band.width, y: band.y + box.y * band.height, width: box.width * band.width, height: box.height * band.height });
 
   if (template === 'custom' && params.html) {
     return {
@@ -99,12 +121,17 @@ export function buildMotionGraphic(params: MotionGraphicParams): MotionGraphicBu
       html: params.html,
       css: params.css || '',
       js: params.js || '',
-      box: { x: 0, y: 0, width: 1, height: 1 },
+      box: band,
     };
   }
 
+  // The @funny roast cards (src/lib/roast/cards.ts): their own params, or the common fields mapped on.
+  if (isRoastCardTemplate(template)) {
+    const card = buildRoastCard(template, { ...(params.title ? { headline: params.title, text: params.title, name: params.title } : {}), ...(params.subtitle ? { source: params.subtitle, bio: params.subtitle } : {}), ...(params.accentColor ? { accent: params.accentColor } : {}), ...(params.params ?? {}) }, params.canvas ?? { width: 1920, height: 1080 });
+    return { template, title: card.title, html: card.html, css: card.css, js: '', box: card.box, layout: params.layout };
+  }
+
   // React Bits: one piece, or a background plus layered pieces, from the 205-piece library.
-  const brand = params.brand ?? null;
   if (isReactBitsTemplate(template) && !templateSpec(template)) {
     const useBrandTheme = !!brand && (!params.theme || params.theme === 'brand');
     const built = buildReactBitsGraphic({
@@ -139,12 +166,13 @@ export function buildMotionGraphic(params: MotionGraphicParams): MotionGraphicBu
       return {
         template: 'kinetic-title',
         title: `Title: ${title}`,
+        box: inBand({ x: 0.25, y: 0.36, width: 0.5, height: 0.28 }),
         html: `
 <div class="mgt-container mgt-center">
   <div class="mgt-kinetic-card">
-    <div class="mgt-kicker-tag">${badge}</div>
+    ${badge ? `<div class="mgt-kicker-tag">${badge}</div>` : ''}
     <h1 class="mgt-kinetic-headline">${wordSpans}</h1>
-    <div class="mgt-kinetic-sub">${subtitle}</div>
+    ${subtitle ? `<div class="mgt-kinetic-sub">${subtitle}</div>` : ''}
     <div class="mgt-glow-line"></div>
   </div>
 </div>`.trim(),
@@ -166,7 +194,6 @@ export function buildMotionGraphic(params: MotionGraphicParams): MotionGraphicBu
   text-align: center;
   padding: 40px 60px;
   background: radial-gradient(circle at center, rgba(15, 23, 42, 0.75) 0%, rgba(15, 23, 42, 0.4) 100%);
-  backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 24px;
   box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.6), 0 0 40px -10px ${accent}40;
@@ -253,16 +280,17 @@ if (window.gsap && container) {
       return {
         template: 'stat-callout',
         title: `Stat: ${title}`,
+        box: inBand({ x: 0.776, y: 0.056, width: 0.193, height: 0.178 }),
         html: `
 <div class="mgt-container mgt-top-right">
   <div class="mgt-stat-box">
     <div class="mgt-stat-header">
-      <span class="mgt-stat-badge">${badge}</span>
+      ${badge ? `<span class="mgt-stat-badge">${badge}</span>` : ''}
       <span class="mgt-stat-pulse"></span>
     </div>
-    <div class="mgt-stat-metric">${metric}</div>
+    ${metric ? `<div class="mgt-stat-metric">${metric}</div>` : ''}
     <div class="mgt-stat-title">${title}</div>
-    <div class="mgt-stat-sub">${subtitle}</div>
+    ${subtitle ? `<div class="mgt-stat-sub">${subtitle}</div>` : ''}
     <div class="mgt-progress-track">
       <div class="mgt-progress-fill"></div>
     </div>
@@ -287,7 +315,6 @@ if (window.gsap && container) {
   width: 320px;
   padding: 24px;
   background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 20px;
   box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.5), 0 0 30px -10px ${accent}40;
@@ -362,13 +389,14 @@ if (window.gsap && container) {
       return {
         template: 'feature-badge',
         title: `Badge: ${title}`,
+        box: inBand({ x: 0.031, y: 0.056, width: 0.22, height: 0.041 }),
         html: `
 <div class="mgt-container mgt-top-left">
   <div class="mgt-badge-pill">
     <div class="mgt-badge-dot"></div>
     <div class="mgt-badge-title">${title}</div>
-    <div class="mgt-badge-divider"></div>
-    <div class="mgt-badge-sub">${subtitle}</div>
+    ${subtitle ? `<div class="mgt-badge-divider"></div>
+    <div class="mgt-badge-sub">${subtitle}</div>` : ''}
   </div>
 </div>`.trim(),
         css: `
@@ -391,7 +419,6 @@ if (window.gsap && container) {
   align-items: center;
   padding: 12px 24px;
   background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 9999px;
   box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.4), 0 0 20px -5px ${accent}50;
@@ -438,6 +465,7 @@ if (window.gsap && container) {
       return {
         template: 'social-callout',
         title: `Social: ${title}`,
+        box: inBand({ x: 0.78, y: 0.882, width: 0.19, height: 0.062 }),
         html: `
 <div class="mgt-container mgt-bottom-right">
   <div class="mgt-social-card">
@@ -446,7 +474,7 @@ if (window.gsap && container) {
     </div>
     <div class="mgt-social-text">
       <div class="mgt-social-title">${title}</div>
-      <div class="mgt-social-sub">${subtitle}</div>
+      ${subtitle ? `<div class="mgt-social-sub">${subtitle}</div>` : ''}
     </div>
     <div class="mgt-social-btn">SUBSCRIBE</div>
   </div>
@@ -471,7 +499,6 @@ if (window.gsap && container) {
   align-items: center;
   padding: 16px 22px;
   background: rgba(15, 23, 42, 0.9);
-  backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 16px;
   box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5);
@@ -520,6 +547,7 @@ if (window.gsap && container) {
       return {
         template: 'lower-third',
         title: `Lower Third: ${title}`,
+        box: inBand({ x: 0.042, y: 0.859, width: 0.25, height: 0.085 }),
         html: `
 <div class="mgt-container mgt-bottom-left">
   <div class="mgt-lower-third-card">
@@ -529,7 +557,7 @@ if (window.gsap && container) {
         <span class="mgt-name">${title}</span>
         ${badge ? `<span class="mgt-pill">${badge}</span>` : ''}
       </div>
-      <div class="mgt-sub-row">${subtitle}</div>
+      ${subtitle ? `<div class="mgt-sub-row">${subtitle}</div>` : ''}
     </div>
   </div>
 </div>`.trim(),
@@ -552,7 +580,6 @@ if (window.gsap && container) {
   display: flex;
   align-items: stretch;
   background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
   overflow: hidden;

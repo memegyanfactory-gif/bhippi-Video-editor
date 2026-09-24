@@ -1,5 +1,5 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Boxes, Brain, Check, Code2, Cpu, Film, FolderOpen, Gem, HardDrive, LoaderCircle, Mic, Palette, RefreshCw, Scissors, ShieldCheck, Sparkles, TriangleAlert } from 'lucide-react';
+import { Boxes, Brain, Check, Code2, Cpu, Film, FolderOpen, Gem, HardDrive, Laugh, LoaderCircle, Mic, Palette, RefreshCw, Scissors, ShieldCheck, Smile, Sparkles, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { Modal, useToast } from '../components/ui';
 import { SpeechSettings } from './SpeechSettings';
@@ -10,11 +10,13 @@ import { StorageSettings } from './StorageSettings';
 import { ProvidersSettings } from './ProvidersSettings';
 import { ProfileSection } from './ProfileSection';
 import { UpdateSection } from './UpdateSection';
+import { AvatarSettings } from './AvatarSettings';
+import { MemesSettings } from './MemesSettings';
 import { api, errorText } from '../lib/ipc';
 import type { AppInfo, Asset, Job, ProviderInfo, Settings, ToolStatus } from '../lib/types';
 import '../styles/about.css';
 
-export type SettingsTab = 'providers' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'brain' | 'brand' | 'about';
+export type SettingsTab = 'providers' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'memes' | 'about';
 
 type Props = {
   tab: SettingsTab;
@@ -66,6 +68,8 @@ export function SettingsModal(props: Props) {
           <button type="button" className={props.tab === 'media' ? 'active' : ''} onClick={() => props.onTab('media')}><FolderOpen size={14} /> Media &amp; FFmpeg</button>
           <button type="button" className={props.tab === 'storage' ? 'active' : ''} onClick={() => props.onTab('storage')}><HardDrive size={14} /> Storage</button>
           <button type="button" className={props.tab === 'appearance' ? 'active' : ''} onClick={() => props.onTab('appearance')}><Palette size={14} /> Appearance</button>
+          <button type="button" className={props.tab === 'avatar' ? 'active' : ''} onClick={() => props.onTab('avatar')}><Smile size={14} /> Avatar</button>
+          <button type="button" className={props.tab === 'memes' ? 'active' : ''} onClick={() => props.onTab('memes')}><Laugh size={14} /> Memes</button>
           <button type="button" className={props.tab === 'brain' ? 'active' : ''} onClick={() => props.onTab('brain')}><Brain size={14} /> Brain</button>
           <button type="button" className={props.tab === 'brand' ? 'active' : ''} onClick={() => props.onTab('brand')}><Gem size={14} /> Brand kit</button>
           <button type="button" className={props.tab === 'about' ? 'active' : ''} onClick={() => props.onTab('about')}><Cpu size={14} /> About</button>
@@ -98,6 +102,8 @@ export function SettingsModal(props: Props) {
               </div>
             </div>
           )}
+          {props.tab === 'avatar' && <AvatarSettings settings={props.settings} onSettings={props.onSettings} />}
+          {props.tab === 'memes' && <MemesSettings />}
           {props.tab === 'brain' && <BrainSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'about' && (
             // Layout lives in styles/about.css: one container-query grid, so every block shares the

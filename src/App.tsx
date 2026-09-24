@@ -24,8 +24,9 @@ import { StoryboardViewer } from './chat/StoryboardViewer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ResourceMonitor } from './components/ResourceMonitor';
 import { GenerationJobsMenu } from './components/GenerationJobsMenu';
-import { htmlClipsForExport, htmlFrameCount, renderMotionGraphicsForExport } from './lib/htmlFrames';
-import { motionClipsForExport, motionFrameCount, renderMotionScenesForExport } from './motion/exportFrames';
+import { htmlClipsForExport, htmlFrameCount } from './lib/htmlFrames';
+import { motionClipsForExport, motionFrameCount } from './motion/exportFrames';
+import { prerenderForExport, prerenderStill } from './lib/exportPrepare';
 import { renderProgress, type RenderStage } from './lib/renderProgress';
 import { sfxClipFields, sfxTrack } from './lib/sfxLevels';
 import { RenderWindow } from './components/RenderWindow';
@@ -58,10 +59,10 @@ import { StickFigureDialog } from './components/StickFigureDialog';
 import { generateSelectionSound } from './lib/generateSound';
 import { registerSfx } from './lib/sfx';
 import {
-  addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
-  newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, placeClips, razor, removeAttributes, removeClips, removeRange, replaceSource, setGrouped, setLinked, setSpeed, sourceInfo,
-  sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, tracksOf, transitionsOnSelection, trimEdge, updateComp, updateTrack, withLinked, wouldCycle,
-  type AssetMap,
+  addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, closeGap, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, gapAt, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
+  newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, pasteClips, placeClips, quarantineScripts, razor, removeAttributes, removeClips, removeRange, replaceSource, restoreScripts, setGrouped, setLinked, setSpeed, sourceInfo,
+  sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, trackOf, tracksOf, transitionsOnSelection, trimToPlayhead, updateComp, updateTrack, withLinked, wouldCycle,
+  type AssetMap, type ClipboardEntry,
 } from './lib/timeline';
 import { isLayeredComp, splitMotionComps } from './lib/motionStack';
 import { isHtmlLayered, splitHtmlComp } from './lib/htmlLayers';
@@ -85,12 +86,17 @@ import { rewritePaths, storyboardDocs } from './lib/projectDocs';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
 import { isSetUp } from './settings/ProvidersSettings';
 import { SHORTCUTS } from './lib/shortcuts';
+import { settingsSync } from './lib/settingsSync';
+import { APP_CHORDS, chordAction, type Chord } from './lib/chords';
 import { FXConsoleModal } from './components/FXConsoleModal';
 import { loadFxSettings, loadFxSnapshots, saveFxSnapshots } from './lib/fxConsole';
 import { getLiveMousePos } from './lib/mouseTracker';
 import type { FxSnapshot } from './lib/types';
+import type { StyleId } from './lib/styles';
 import { setBrandKitDoc } from './lib/brandKit/activeStore';
 import { licenseStore, useLicense } from './license/licenseStore';
+import { Avatar } from './avatar/Avatar';
+import { avatarBus } from './avatar/bus';
 
 /**
  * How narrow each panel may be dragged.
@@ -117,7 +123,7 @@ const PREFERENCE = ['claude', 'codex', 'gemini', 'ollama', 'lmstudio', 'anthropi
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || (target.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes((target as HTMLInputElement).type)));
 
-type Clipboard = { clips: Clip[]; comp: string } | null;
+type Clipboard = { clips: ClipboardEntry[]; comp: string } | null;
 type ContextMenu = { anchor: DOMRect; items: MenuItem[] } | null;
 
 /**
@@ -203,6 +209,9 @@ export default function App() {
   // The reference edits follow. Its guideline is added to the context every turn, so the model is
   // working from the same reading of the film the editor is.
   const [referenceId, setReferenceId] = useState<string | null>(null);
+  // The edit style (`@funny`, src/lib/styles.ts) every turn works in until the chat's chip clears
+  // it; the backend puts the style's brief in the prompt when the context names it.
+  const [editStyle, setEditStyle] = useState<StyleId | null>(null);
   const [referenceBrief, setReferenceBrief] = useState<string | null>(null);
   useEffect(() => {
     if (!referenceId) return setReferenceBrief(null);
@@ -311,7 +320,7 @@ export default function App() {
       if (!stored.onboarded) setOnboarding(true);
       void api.storageInfo().then((storage) => { registerStorageRoot(storage.root); projectDirRef.current = storage.projectDir; }).catch(() => undefined);
       void warmCustomTools({ dataDir: appInfo.dataDir, ffmpeg: appInfo.ffmpeg.path });
-      setSettings({ ...EMPTY_SETTINGS, ...stored, export: { ...EMPTY_SETTINGS.export, ...stored.export } });
+      settingsStore.apply(stored);
       // A layout saved before these floors existed is raised to them rather than left overlapping.
       if (stored.layout) {
         const saved = { ...DEFAULT_LAYOUT, ...stored.layout, meters: { ...DEFAULT_METERS, ...(stored.layout.meters ?? {}) } };
@@ -473,7 +482,7 @@ export default function App() {
     settings: () => settingsRef.current,
     saveSettings: async (next: Settings) => {
       const saved = await api.settingsSave(next);
-      setSettings(saved);
+      settingsStore.apply(saved);
       return saved;
     },
   }), [history, assetMap, selection, refreshAssets]);
@@ -557,10 +566,21 @@ export default function App() {
   const toolAborts = useRef(new Map<string, { turnId: string; controller: AbortController }>());
   useEffect(() => {
     const pending = events.chat(event => {
+      // The avatar mirrors every turn, the council workers' included (their turn id is the subagent id):
+      // thinking, writing the reply, the steps a CLI takes by itself, and how the turn closed.
+      if (event.event === 'start') avatarBus.turn(event.turnId, true);
+      else if (event.event === 'delta') {
+        const delta = event.delta;
+        if (delta.kind === 'thinking') avatarBus.chat(event.turnId, 'thinking');
+        else if (delta.kind === 'text') avatarBus.chat(event.turnId, 'writing');
+        else if (delta.kind === 'step') avatarBus.step(event.turnId, delta.id, delta.verb, delta.title, delta.done);
+      }
       if (event.event === 'done') {
         actionLogger.ai(`AI Turn Completed [${event.turnId}]`);
         for (const entry of toolAborts.current.values()) if (entry.turnId === event.turnId) entry.controller.abort();
+        avatarBus.turn(event.turnId, false, event.stopped ? 'stopped' : event.fault ? 'failed' : 'done');
       } else if (event.event === 'subagent_update') {
+        if (event.state !== 'running') avatarBus.turn(event.subagentId, false, event.state === 'done' ? 'done' : 'failed');
         actionLogger.ai(`Subagent [${event.subagentId}]: ${event.label} (${event.state})`, event);
         setAgents((current) => {
           const idx = current.findIndex((a) => a.id === event.subagentId);
@@ -607,6 +627,7 @@ export default function App() {
       }
       let result;
       const projectBeforeTool = hostRef.current.history.current();
+      avatarBus.toolStart(call.turnId, call.callId, call.name, call.args);
       // What the assistant may do without asking is the user's choice, not the model's.
       const permitted = allowTool(permissionRef.current, call.name);
       let workflow = editWorkflows.current.get(call.turnId);
@@ -678,6 +699,7 @@ export default function App() {
       const summary = typeof told === 'string' ? told : JSON.stringify(told) ?? String(told);
       const changedProject = result.ok && hostRef.current.history.current() !== projectBeforeTool;
       toolAborts.current.delete(call.callId);
+      avatarBus.toolEnd(call.turnId, call.callId, call.name, result.ok, projectBeforeTool, hostRef.current.history.current());
       const ms = Date.now() - started;
       if (result.ok) {
         actionLogger.ai(`Tool Finished: ${call.name} (${ms}ms) - ${summary}`, { result });
@@ -720,7 +742,7 @@ export default function App() {
     history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: advanceProduction(c.production, phase) } : c)), phase === 'gathering' ? 'Start generating' : 'Start editing');
     const message = phase === 'gathering'
       ? 'Start generating. The plan is approved: begin the GATHER phase now. Call editing_workflow_status, then gather every planned shot one call at a time with its sceneIndex — text-to-video shots 5–7 s from their own script and prompt (generate_local_media task video, wait true), images, downloads and scrapes into their research folders, the voice-over (synthesize_speech_voiceover) and the music bed. Retry a failed generation once with a simpler prompt. When everything has a real asset, call finish_gathering and end your turn with a short list of what was gathered. Do not touch the timeline.'
-      : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, layout_clip + create_motion_graphic per beat with the Crimson templates, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
+      : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, each beat\'s planned graphic — with a brand kit active, its brand-* recipe via create_motion_scene; otherwise a motion-engine template via create_motion_scene, or a Crimson HTML template via create_motion_graphic where the engine has none; layout_clip where the beat has a side panel, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
     window.setTimeout(() => chatApi.current?.send(message), 50);
   };
 
@@ -783,11 +805,8 @@ export default function App() {
     return () => window.removeEventListener('focus', onFocus);
   }, [refreshAssets]);
 
-  const saveSettings = useCallback((patch: Partial<Settings>) => {
-    const next = { ...settingsRef.current, ...patch };
-    setSettings(next);
-    api.settingsSave(next).catch(() => undefined);
-  }, []);
+  const settingsStore = useMemo(() => settingsSync(EMPTY_SETTINGS, settingsRef, setSettings), []);
+  const saveSettings = useCallback((patch: Partial<Settings>) => settingsStore.save(patch), [settingsStore]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -888,7 +907,10 @@ export default function App() {
       }
       const library = await api.libraryList();
       setAssets(library);
-      const opened = loadProject(raw.project ?? raw, new Map(library.map((asset) => [asset.id, asset])));
+      // A graphic's script runs with the app's own rights, so the scripts of a file from elsewhere
+      // wait until the user says they trust it. Projects made here and the autosave never come
+      // through this path.
+      const { project: opened, count: scripts } = quarantineScripts(loadProject(raw.project ?? raw, new Map(library.map((asset) => [asset.id, asset]))));
       history.reset(opened);
       setSavedProject(opened);
       setSelection([]);
@@ -905,10 +927,39 @@ export default function App() {
       }
       if (Array.isArray(extras?.chat) && extras.chat.length) chatApi.current?.load(extras.chat);
       setMode('edit');
+      if (scripts) askToRunScripts(scripts, opened);
       toast({ tone: 'success', title: 'Project opened', body: path.split(/[\\/]/).pop(), timeout: 2500 });
     } catch (error) {
       toast({ tone: 'error', title: 'Could not open that project', body: errorText(error) });
     }
+  };
+
+  const hasHeldScripts = project.comps.some((comp) => comp.clips.some((clip) => clip.source.type === 'html' && !!clip.source.quarantinedJs));
+  /** Puts back the graphic scripts an opened file held back (File › Enable Graphic Scripts). */
+  const enableScripts = () => {
+    const current = history.current();
+    const restored = restoreScripts(current);
+    if (restored !== current) history.commit(() => restored, 'Enable Graphic Scripts');
+  };
+  const askToRunScripts = (count: number, opened: Project) => {
+    setDialog(
+      <ConfirmDialog
+        title="Run graphic scripts?"
+        body={`This project contains ${count} motion-graphic script${count === 1 ? '' : 's'}. Scripts can run commands on your PC. Only run them if you trust the person who sent this file. Run them?`}
+        confirmLabel="Run them"
+        discardLabel="Not now"
+        onConfirm={() => {
+          setDialog(null);
+          // Straight after opening, trusting the file is part of opening it: no undo step, nothing unsaved.
+          if (history.current() !== opened) return enableScripts();
+          const restored = restoreScripts(opened);
+          history.reset(restored);
+          setSavedProject(restored);
+        }}
+        onDiscard={() => setDialog(null)}
+        onClose={() => setDialog(null)}
+      />,
+    );
   };
 
   const guardUnsaved = (next: () => void, title: string) => {
@@ -1128,20 +1179,23 @@ export default function App() {
     });
   };
 
+  const deleteTransition = (id: string) => {
+    editComp((current) => ({ ...current, transitions: current.transitions.filter((item) => item.id !== id) }), 'Delete Transition');
+    setTransitionSelection(null);
+  };
+
   const deleteSelection = (ripple: boolean) => {
-    if (!comp || !selection.length) return;
-    if (transitionSelection) {
-      editComp((current) => ({ ...current, transitions: current.transitions.filter((item) => item.id !== transitionSelection) }), 'Delete Transition');
-      setTransitionSelection(null);
-      return;
-    }
+    if (!comp) return;
+    // A selected transition goes first: selecting one does not always clear the clip selection.
+    if (transitionSelection) return deleteTransition(transitionSelection);
+    if (!selection.length) return;
     editComp((current) => removeClips(current, linkedSelection ? withLinked(current, selection) : selection, ripple), ripple ? 'Ripple Delete' : 'Clear');
     setSelection([]);
   };
 
   const copySelection = (cut: boolean) => {
     if (!comp || !selection.length) return;
-    clipboard.current = { clips: selectedClips.map((clip) => ({ ...clip })), comp: comp.id };
+    clipboard.current = { clips: selectedClips.map((clip) => ({ clip: { ...clip }, kind: trackOf(comp, clip.trackId)?.kind ?? 'video', index: Math.max(0, trackIndex(comp, clip.trackId)) })), comp: comp.id };
     if (cut) deleteSelection(false);
     toast({ tone: 'info', title: cut ? 'Cut' : 'Copied', body: `${selectedClips.length} clip${selectedClips.length === 1 ? '' : 's'} — Ctrl+V pastes at the playhead.`, timeout: 1800 });
   };
@@ -1149,24 +1203,10 @@ export default function App() {
   const paste = (insert: boolean) => {
     const board = clipboard.current;
     if (!board || !comp) return;
-    const at = playhead.get();
-    const earliest = Math.min(...board.clips.map((clip) => clip.start));
-    let next = comp;
-    const links = new Map<string, string>();
-    const placed: Clip[] = [];
-    for (const clip of board.clips) {
-      const kind = tracksOf(comp, 'video').some((track) => track.id === clip.trackId) ? 'video' : 'audio';
-      const index = Math.max(0, trackIndex(board.comp === comp.id ? comp : next, clip.trackId));
-      let track = tracksOf(next, kind)[index];
-      if (!track) {
-        next = addTracks(next, kind, index + 1 - tracksOf(next, kind).length).comp;
-        track = tracksOf(next, kind)[index];
-      }
-      const linkId = clip.linkId ? (links.get(clip.linkId) ?? links.set(clip.linkId, uid()).get(clip.linkId) ?? null) : null;
-      placed.push({ ...clip, id: uid(), linkId, trackId: track.id, start: at + (clip.start - earliest) });
-    }
-    editComp(() => placeClips(next, placed, insert ? 'insert' : 'overwrite'), insert ? 'Paste Insert' : 'Paste');
-    setSelection(placed.map((clip) => clip.id));
+    const pasted = pasteClips(history.current(), comp.id, board, playhead.get(), insert ? 'insert' : 'overwrite');
+    if (pasted.ids.length) history.commit(() => pasted.project, insert ? 'Paste Insert' : 'Paste');
+    if (pasted.skipped.length) toast({ tone: 'info', title: 'Not pasted', body: `${pasted.skipped.length} nested comp${pasted.skipped.length === 1 ? '' : 's'} would end up inside ${pasted.skipped.length === 1 ? 'itself' : 'themselves'}.` });
+    if (pasted.ids.length) setSelection(pasted.ids);
   };
 
   const addEdit = (allTracks: boolean) => {
@@ -1215,18 +1255,16 @@ export default function App() {
     }
   };
 
-  const trimToPlayhead = (side: 'previous' | 'next', ripple: boolean) => {
+  const trimAtPlayhead = (side: 'previous' | 'next', ripple: boolean) => {
     if (!comp) return;
     const at = playhead.get();
     const tracks = targetedTracks();
-    let next = comp;
-    for (const trackId of tracks) {
-      const clips = next.clips.filter((clip) => clip.trackId === trackId).sort((a, b) => a.start - b.start);
-      const target = side === 'previous' ? [...clips].reverse().find((clip) => clip.start < at - 1e-4) : clips.find((clip) => clipEnd(clip) > at + 1e-4);
-      if (!target) continue;
-      next = trimEdge(next, target.id, side === 'previous' ? 'out' : 'in', at, ripple ? 'ripple' : 'normal', limit, { minDuration: frame });
+    editComp((current) => trimToPlayhead(current, tracks, at, side, ripple, limit, frame), ripple ? 'Ripple Trim to Playhead' : 'Extend Edit to Playhead');
+    // Q takes off the head of the clip under the playhead: what was shown there now starts at its old start.
+    if (side === 'previous' && ripple) {
+      const starts = comp.clips.filter((clip) => tracks.includes(clip.trackId) && clip.start < at - 1e-4 && clipEnd(clip) > at + 1e-4).map((clip) => clip.start);
+      if (starts.length) playhead.seek(Math.min(...starts));
     }
-    editComp(() => next, ripple ? 'Ripple Trim to Playhead' : 'Extend Edit to Playhead');
   };
 
   const clipVolume = (deltaDb: number) => {
@@ -1321,12 +1359,12 @@ export default function App() {
     showPanel('properties');
   };
 
-  const soundSelectionMenu = (ids:string[]) => (['whoosh','impact','chime','pop','riser'] as const).map(kind=>({
+  const soundSelectionMenu = (ids:string[]) => (['whoosh','impact','chime','pop','riser','boom','scratch','bleep','swish','ding','glitch'] as const).map(kind=>({
     label:kind[0].toUpperCase()+kind.slice(1)+' · local procedural',
     onSelect:()=>{if(!comp)return;try{const result=generateSelectionSound(comp,ids,kind);editComp(()=>result.comp,'Generate Sound for Selection');setSelection(result.ids);}catch(error){toast({tone:'error',title:'Could not generate sound',body:String(error)});}}
   }));
 
-  const addSfx = (kind: Parameters<typeof clipsForSource>[2] extends never ? never : 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser') => {
+  const addSfx = (kind: import('./lib/types').SfxKind) => {
     if (!comp) return;
     const at = playhead.get();
     const source = { type: 'sfx' as const, kind };
@@ -1382,11 +1420,8 @@ export default function App() {
     try {
       // Motion graphics are live DOM in the preview; the export gets them as rendered frames
       // with alpha, so cards, charts and panels animate in the MP4 exactly as they do here.
-      if (graphicsTargets.length) renderProgress.stage('graphics');
-      const graphics = await renderMotionGraphicsForExport(project, options.compId, { signal, onItem, onFrame, onCanvas });
       // Motion scenes (the GPU engine) render frame-exact off-screen with the preview's own code.
-      if (sceneTargets.length) renderProgress.stage('scenes');
-      const prepared = await renderMotionScenesForExport(graphics, options.compId, assetsRef.current, { signal, onItem, onFrame, onCanvas });
+      const prepared = await prerenderForExport(project, options.compId, assetsRef.current, { signal, onStage: (stage) => renderProgress.stage(stage), onItem, onFrame, onCanvas });
       if (signal.aborted) throw new Error('export cancelled');
       const jobId = await api.exportStart(prepared, options);
       renderProgress.encoding(jobId);
@@ -1404,7 +1439,9 @@ export default function App() {
     const path = await saveDialog({ title: 'Export frame', defaultPath: `${base ? `${base}\\` : ''}${safeFileName(comp.name)} ${timecode(at, fps).replace(/:/g, '-')}.png`, filters: [{ name: 'PNG image', extensions: ['png'] }] });
     if (!path) return;
     try {
-      const written = await api.exportFrame(history.current(), comp.id, at, path.toLowerCase().endsWith('.png') ? path : `${path}.png`);
+      // The frame's motion scenes and graphics are rendered first, or the PNG would leave them out.
+      const prepared = await prerenderStill(history.current(), comp.id, at, assetsRef.current);
+      const written = await api.exportFrame(prepared, comp.id, at, path.toLowerCase().endsWith('.png') ? path : `${path}.png`);
       toast({ tone: 'success', title: 'Frame exported', body: written.split(/[\\/]/).pop(), actions: [{ label: 'Open', run: () => void api.openPath(written) }, { label: 'Show in folder', run: () => void api.revealPath(written) }] });
     } catch (error) {
       toast({ tone: 'error', title: 'Could not export the frame', body: errorText(error) });
@@ -1543,7 +1580,7 @@ export default function App() {
       { label: 'Paste Attributes…', shortcut: 'Ctrl+Alt+V', disabled: !clipboard.current?.clips.length, onSelect: () => setDialog(
         <AttributesDialog title="Paste Attributes" action="Paste" onClose={() => setDialog(null)} onSubmit={(set) => {
           setDialog(null);
-          const from = clipboard.current?.clips[0];
+          const from = clipboard.current?.clips[0]?.clip;
           if (from) editComp((current) => pasteAttributes(current, ids, from, set, limit), 'Paste Attributes');
         }} />) },
       { label: 'Remove Attributes…', onSelect: () => setDialog(
@@ -1796,16 +1833,14 @@ export default function App() {
     ]);
   };
 
-  const emptyMenu = (event: React.MouseEvent, trackId: string | null, at: number) => {
+  const emptyMenu = (event: React.MouseEvent, trackId: string | null, at: number, transitionId?: string) => {
     if (!comp) return;
     showMenu(event, [
+      ...(transitionId ? [{ label: 'Clear', shortcut: 'Delete', onSelect: () => deleteTransition(transitionId) }, { separator: true } as MenuItem] : []),
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: !clipboard.current, onSelect: () => paste(false) },
       { label: 'Paste Insert', shortcut: 'Ctrl+Shift+V', disabled: !clipboard.current, onSelect: () => paste(true) },
       { separator: true },
-      { label: 'Ripple Delete', disabled: !trackId, onSelect: () => trackId && editComp((current) => {
-        const gapTrack = current.clips.some((clip) => clip.trackId === trackId) ? trackId : null;
-        return gapTrack ? removeRange(current, at, at, 'extract') : current;
-      }, 'Ripple Delete') },
+      { label: 'Ripple Delete', disabled: !trackId || !gapAt(comp, trackId, at), onSelect: () => trackId && editComp((current) => closeGap(current, trackId, at), 'Ripple Delete') },
       { label: 'Add Marker', shortcut: 'M', onSelect: addMarker },
       { separator: true },
       { label: 'Zoom to Sequence', shortcut: '\\', onSelect: () => timelineApi.current?.fit() },
@@ -1985,6 +2020,7 @@ export default function App() {
       ] },
       { separator: true },
       { label: 'Project Settings…', onSelect: projectSettings },
+      { label: 'Enable Graphic Scripts', disabled: !hasHeldScripts, onSelect: enableScripts },
       { label: 'Open Project Folder', onSelect: () => void api.storageOpen(null).catch((error) => toast({ tone: 'error', title: 'Could not open the project folder', body: errorText(error) })) },
       { label: 'Reveal Helios Data Folder', onSelect: () => info && void api.openPath(info.dataDir) },
       { separator: true },
@@ -1998,8 +2034,8 @@ export default function App() {
       { label: 'Copy', shortcut: 'Ctrl+C', disabled: !selection.length, onSelect: () => copySelection(false) },
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: !clipboard.current, onSelect: () => paste(false) },
       { label: 'Paste Insert', shortcut: 'Ctrl+Shift+V', disabled: !clipboard.current, onSelect: () => paste(true) },
-      { label: 'Clear', shortcut: 'Delete', disabled: !selection.length, onSelect: () => deleteSelection(false) },
-      { label: 'Ripple Delete', shortcut: 'Shift+Delete', disabled: !selection.length, onSelect: () => deleteSelection(true) },
+      { label: 'Clear', shortcut: 'Delete', disabled: !selection.length && !transitionSelection, onSelect: () => deleteSelection(false) },
+      { label: 'Ripple Delete', shortcut: 'Shift+Delete', disabled: !selection.length && !transitionSelection, onSelect: () => deleteSelection(true) },
       { label: 'Duplicate', shortcut: 'Ctrl+Shift+/', disabled: !selection.length, onSelect: () => {
         if (!comp) return;
         const result = moveClips(comp, linkedSelection ? withLinked(comp, selection) : selection, Math.max(...selectedClips.map(clipEnd)) - Math.min(...selectedClips.map((clip) => clip.start)), { video: 0, audio: 0 }, 'overwrite', true);
@@ -2054,10 +2090,10 @@ export default function App() {
       { label: 'Add Edit', shortcut: 'Ctrl+K', disabled: !hasClips, onSelect: () => addEdit(false) },
       { label: 'Add Edit to All Tracks', shortcut: 'Ctrl+Shift+K', disabled: !hasClips, onSelect: () => addEdit(true) },
       { label: 'Trim Edit', submenu: [
-        { label: 'Ripple Trim Previous Edit to Playhead', shortcut: 'Q', onSelect: () => trimToPlayhead('previous', true) },
-        { label: 'Ripple Trim Next Edit to Playhead', shortcut: 'W', onSelect: () => trimToPlayhead('next', true) },
-        { label: 'Extend Previous Edit to Playhead', shortcut: 'Shift+Q', onSelect: () => trimToPlayhead('previous', false) },
-        { label: 'Extend Next Edit to Playhead', shortcut: 'Shift+W', onSelect: () => trimToPlayhead('next', false) },
+        { label: 'Ripple Trim Previous Edit to Playhead', shortcut: 'Q', onSelect: () => trimAtPlayhead('previous', true) },
+        { label: 'Ripple Trim Next Edit to Playhead', shortcut: 'W', onSelect: () => trimAtPlayhead('next', true) },
+        { label: 'Extend Previous Edit to Playhead', shortcut: 'Shift+Q', onSelect: () => trimAtPlayhead('previous', false) },
+        { label: 'Extend Next Edit to Playhead', shortcut: 'Shift+W', onSelect: () => trimAtPlayhead('next', false) },
       ] },
       { separator: true },
       { label: 'Apply Video Transition', shortcut: 'Ctrl+D', disabled: !selection.length, onSelect: () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition') },
@@ -2180,61 +2216,8 @@ export default function App() {
       if (event.key === 'Escape' && menu) setMenu(null);
       return;
     }
-    // File and app-wide
-    if (ctrl && alt && key === 'n') return run(newProjectNow);
-    if (ctrl && !alt && key === 'n') return run(newCompDialog);
-    if (ctrl && key === 'o') return run(() => void openProject());
-    if (ctrl && alt && key === 's') return run(() => void saveAs(false));
-    if (ctrl && shift && key === 's') return run(() => void saveAs());
-    if (ctrl && key === 's') return run(() => void saveProject());
-    if (ctrl && key === 'i') return run(() => void pickFiles());
-    if (ctrl && shift && key === 'e') return run(() => void exportFrame());
-    if (ctrl && key === 'm') return run(() => hasClips && setExportOpen(true));
-    if (ctrl && key === 'q') return run(() => void getCurrentWindow().close());
-    if (ctrl && key === '/') return run(newFolder);
-    if (ctrl && alt && key === 'k') return run(() => setShortcutsOpen(true));
-    if (ctrl && alt && key === 'l') return run(() => setPanelVisible('chat', hidden('chat')));
-    if (ctrl && key === ',') return run(() => setSettingsTab('providers'));
-    if (ctrl && key === 'f') return run(() => { showPanel('project', 'project'); (document.querySelector('[data-role="bin-search"]') as HTMLInputElement | null)?.focus(); });
-    if (ctrl && (key === ' ' || event.code === 'Space')) {
-      return run(() => {
-        setFxConsoleAnchor(getLiveMousePos());
-        setFxConsoleOpen((curr) => !curr);
-      });
-    }
-    if (mode === 'home') return;
-    // Edit
-    if (ctrl && key === 'z') return run(() => (shift ? history.redo() : history.undo()));
-    if (ctrl && key === 'y') return run(history.redo);
-    if (ctrl && alt && key === 'v') return run(() => selectedClips[0] && clipMenu({ clientX: 200, clientY: 200 }, selectedClips[0].id, playhead.get()));
-    if (ctrl && shift && key === 'v') return run(() => paste(true));
-    if (ctrl && key === 'v') return run(() => paste(false));
-    // Selected prose (chat, settings, anywhere else text is selectable) wants a plain clipboard
-    // copy, not the timeline's clip-copy — this used to preventDefault and hijack Ctrl+C/X even
-    // when nothing in the timeline was selected, so copying chat text silently did nothing.
-    const selectedText = window.getSelection();
-    const hasTextSelection = !!selectedText && !selectedText.isCollapsed && selectedText.toString().length > 0;
-    if (ctrl && key === 'c') { if (hasTextSelection) return; return run(() => copySelection(false)); }
-    if (ctrl && key === 'x') { if (hasTextSelection) return; return run(() => copySelection(true)); }
-    if (ctrl && shift && key === 'a') return run(() => { setSelection([]); setTransitionSelection(null); });
-    if (ctrl && key === 'a') return run(() => comp && setSelection(comp.clips.map((clip) => clip.id)));
-    if (ctrl && key === 'e') return run(() => {
-      const clip = selectedClips[0];
-      if (clip?.source.type === 'media') void api.openPath(assetMap.get(clip.source.assetId)?.path ?? '');
-    });
-    // Clip and comp
-    if (ctrl && key === 'r') return run(() => selectedClips[0] && speedDialog(selectedClips[0], selection));
-    if (ctrl && shift && key === 'g') return run(() => editComp((current) => setGrouped(current, selection, false), 'Ungroup'));
-    if (ctrl && key === 'g') return run(() => editComp((current) => setGrouped(current, selection, true), 'Group'));
-    if (ctrl && key === 'l') return run(() => editComp((current) => setLinked(current, selection, !selectedClips.some((clip) => clip.linkId)), 'Link'));
-    if (ctrl && shift && key === 'k') return run(() => addEdit(true));
-    if (ctrl && key === 'k') return run(() => addEdit(false));
-    if (ctrl && shift && key === 'd') return run(() => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition'));
-    if (ctrl && key === 'd') return run(() => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition'));
-    if (ctrl && key === 't') return run(() => addText('title'));
-    if (ctrl && alt && key === 'r') return run(() => setTool('rectangle'));
-    if (ctrl && alt && key === 'e') return run(() => setTool('ellipse'));
-    if (ctrl && shift && key === '/') return run(() => {
+    const chord = chordAction(event);
+    const duplicate = () => {
       if (!comp || !selection.length) return;
       const span = Math.max(...selectedClips.map(clipEnd)) - Math.min(...selectedClips.map((clip) => clip.start));
       const result = moveClips(comp, linkedSelection ? withLinked(comp, selection) : selection, span, { video: 0, audio: 0 }, 'overwrite', true);
@@ -2242,25 +2225,83 @@ export default function App() {
         editComp(() => result.comp, 'Duplicate');
         setSelection(result.ids);
       }
-    });
-    // Markers
-    if (ctrl && shift && key === 'i') return run(() => editComp((current) => ({ ...current, inPoint: null }), 'Clear In'));
-    if (ctrl && shift && key === 'o') return run(() => editComp((current) => ({ ...current, outPoint: null }), 'Clear Out'));
-    if (ctrl && shift && key === 'x') return run(clearInOut);
-    if (ctrl && alt && shift && key === 'm') return run(() => editComp((current) => ({ ...current, markers: [] }), 'Clear All Markers'));
-    if (ctrl && alt && key === 'm') return run(() => editComp((current) => toggleMarker(current, playhead.get()), 'Clear Marker'));
-    if (ctrl && shift && key === 'm') return run(() => { const target = nextPoint(comp?.markers.map((marker) => marker.time) ?? [], playhead.get(), -1); if (target !== null) playhead.seek(target); });
-    // Track heights and panels
-    if (ctrl && (key === '=' || key === '+')) return run(() => trackHeights('video', 16));
-    if (ctrl && key === '-') return run(() => trackHeights('video', -16));
-    if (alt && (key === '=' || key === '+')) return run(() => trackHeights('audio', 16));
-    if (alt && key === '-') return run(() => trackHeights('audio', -16));
-    if (shift && (key === '=' || key === '+')) return run(() => trackHeights('all', 40));
-    if (shift && key === '_') return run(() => trackHeights('all', -40));
-    if (shift && ['1', '2', '3', '4', '5', '6', '7', '8'].includes(event.key)) {
-      const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools', 'transcript'];
-      return run(() => showPanel(panels[Number(event.key) - 1]));
+    };
+    const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools', 'transcript'];
+    const perform = (name: Chord): (() => void) => {
+      switch (name) {
+        // File and app-wide
+        case 'newProject': return newProjectNow;
+        case 'newComp': return newCompDialog;
+        case 'open': return () => void openProject();
+        case 'saveCopy': return () => void saveAs(false);
+        case 'saveAs': return () => void saveAs();
+        case 'save': return () => void saveProject();
+        case 'import': return () => void pickFiles();
+        case 'exportFrame': return () => void exportFrame();
+        case 'export': return () => hasClips && setExportOpen(true);
+        case 'quit': return () => void getCurrentWindow().close();
+        case 'newFolder': return newFolder;
+        case 'shortcuts': return () => setShortcutsOpen(true);
+        case 'toggleChat': return () => setPanelVisible('chat', hidden('chat'));
+        case 'settings': return () => setSettingsTab('providers');
+        case 'find': return () => { showPanel('project', 'project'); (document.querySelector('[data-role="bin-search"]') as HTMLInputElement | null)?.focus(); };
+        case 'fxConsole': return () => {
+          setFxConsoleAnchor(getLiveMousePos());
+          setFxConsoleOpen((curr) => !curr);
+        };
+        // Edit
+        case 'undo': return history.undo;
+        case 'redo': return history.redo;
+        case 'pasteAttributes': return () => selectedClips[0] && clipMenu({ clientX: 200, clientY: 200 }, selectedClips[0].id, playhead.get());
+        case 'pasteInsert': return () => paste(true);
+        case 'paste': return () => paste(false);
+        case 'copy': return () => copySelection(false);
+        case 'cut': return () => copySelection(true);
+        case 'deselectAll': return () => { setSelection([]); setTransitionSelection(null); };
+        case 'selectAll': return () => comp && setSelection(comp.clips.map((clip) => clip.id));
+        case 'editOriginal': return () => {
+          const clip = selectedClips[0];
+          if (clip?.source.type === 'media') void api.openPath(assetMap.get(clip.source.assetId)?.path ?? '');
+        };
+        case 'duplicate': return duplicate;
+        // Clip and comp
+        case 'speed': return () => selectedClips[0] && speedDialog(selectedClips[0], selection);
+        case 'ungroup': return () => editComp((current) => setGrouped(current, selection, false), 'Ungroup');
+        case 'group': return () => editComp((current) => setGrouped(current, selection, true), 'Group');
+        case 'link': return () => editComp((current) => setLinked(current, selection, !selectedClips.some((clip) => clip.linkId)), 'Link');
+        case 'addEditAll': return () => addEdit(true);
+        case 'addEdit': return () => addEdit(false);
+        case 'applyTransition': return () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition');
+        case 'newTitle': return () => addText('title');
+        case 'rectangle': return () => setTool('rectangle');
+        case 'ellipse': return () => setTool('ellipse');
+        // Markers
+        case 'clearIn': return () => editComp((current) => ({ ...current, inPoint: null }), 'Clear In');
+        case 'clearOut': return () => editComp((current) => ({ ...current, outPoint: null }), 'Clear Out');
+        case 'clearInOut': return clearInOut;
+        case 'clearAllMarkers': return () => editComp((current) => ({ ...current, markers: [] }), 'Clear All Markers');
+        case 'clearMarker': return () => editComp((current) => toggleMarker(current, playhead.get()), 'Clear Marker');
+        case 'previousMarker': return () => { const target = nextPoint(comp?.markers.map((marker) => marker.time) ?? [], playhead.get(), -1); if (target !== null) playhead.seek(target); };
+        // Track heights and panels
+        case 'videoTaller': return () => trackHeights('video', 16);
+        case 'videoShorter': return () => trackHeights('video', -16);
+        case 'audioTaller': return () => trackHeights('audio', 16);
+        case 'audioShorter': return () => trackHeights('audio', -16);
+        case 'allTaller': return () => trackHeights('all', 40);
+        case 'allShorter': return () => trackHeights('all', -40);
+        default: return () => showPanel(panels[Number(name.slice(5)) - 1]);
+      }
+    };
+    if (chord && APP_CHORDS.has(chord)) return run(perform(chord));
+    if (mode === 'home') return;
+    if (chord === 'copy' || chord === 'cut') {
+      // Selected prose (chat, settings, anywhere else text is selectable) wants a plain clipboard
+      // copy, not the timeline's clip-copy — this used to preventDefault and hijack Ctrl+C/X even
+      // when nothing in the timeline was selected, so copying chat text silently did nothing.
+      const selectedText = window.getSelection();
+      if (selectedText && !selectedText.isCollapsed && selectedText.toString().length > 0) return;
     }
+    if (chord) return run(perform(chord));
     if (ctrl) return;
     const sourceFocused = focused === 'source' && !!sourceAsset;
     // Transport and navigation
@@ -2359,11 +2400,11 @@ export default function App() {
       case 'l':
         return run(() => programApi.current?.shuttle(1));
       case 'q':
-        return run(() => trimToPlayhead('previous', !shift));
+        return run(() => trimAtPlayhead('previous', !shift));
       case 'w':
-        return run(() => trimToPlayhead('next', !shift));
+        return run(() => trimAtPlayhead('next', !shift));
       case 'e':
-        return run(() => (shift ? editComp((current) => ({ ...current, clips: current.clips.map((clip) => (selection.includes(clip.id) ? { ...clip, enabled: !selectedClips.every((item) => item.enabled) } : clip)) }), 'Enable') : trimToPlayhead('next', false)));
+        return run(() => (shift ? editComp((current) => ({ ...current, clips: current.clips.map((clip) => (selection.includes(clip.id) ? { ...clip, enabled: !selectedClips.every((item) => item.enabled) } : clip)) }), 'Enable') : trimAtPlayhead('next', false)));
       case 'f':
         return run(matchFrame);
       case 'r':
@@ -2507,6 +2548,7 @@ export default function App() {
           permission={permission} onPermission={(value) => saveSettings({ permission: value })}
           awesome={awesome} onAwesome={(value) => saveSettings({ awesomeLook: value })} onUndo={history.undo} onClear={endConversation}
           onReference={setReferenceId}
+          editStyle={editStyle} onStyle={setEditStyle}
           ask={pendingAsks[0] ?? null} askCount={pendingAsks.length}
           onAnswer={(value) => {
             const [head, ...rest] = pendingAsks;
@@ -2514,7 +2556,7 @@ export default function App() {
             setPendingAsks(rest);
           }}
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
+          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
             // The brain learns every turn's tool outcomes; recording never disturbs the chat.
             if (!settingsRef.current.ideagraphRecord || !outcome.tools.length) return;
@@ -2524,7 +2566,7 @@ export default function App() {
           workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
           onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)} />
       </div>
-      {chatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void api.providerSetEnabled(row.id, enabled).then(setProviders)} />}
+      {chatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void settingsStore.setProviderEnabled(row.id, enabled).then(setProviders)} />}
     </>
   ), { onTab: (id) => setChatTab(id as 'chat' | 'providers'), menu: [{ label: 'New Conversation', onSelect: () => { chatApi.current?.clear(); endConversation(); } }, { label: 'Manage AI Providers…', onSelect: () => setSettingsTab('providers') }], className: 'panel-chat' });
 
@@ -2836,6 +2878,7 @@ export default function App() {
         onExportFrame={() => void exportFrame()}
         onReimportSnapshot={(snap) => void reimportSnapshot(snap)}
       />
+      <Avatar enabled={loaded && mode === 'edit' && settings.avatar !== false} />
       {/* The program's sound keeps playing while a panel is maximized or Home is open. */}
       {mode === 'home' && comp && <div hidden><CompAudio project={project} assets={assetMap} offline={offline} playing={false} rate={1} comp={comp} time={playhead.get()} quality={1} /></div>}
     </div>
