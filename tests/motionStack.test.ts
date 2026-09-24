@@ -217,6 +217,22 @@ describe('stackGroups', () => {
     expect(stackLossy(projectWith(exploded), exploded.comp)).toEqual([]);
   });
 
+  it('gives expressions the in and out points on the layer clock, fused, moved or on its own', () => {
+    const scene: MotionScene = {
+      version: 1, width: W, height: H, duration: 6,
+      layers: [{ id: 'fade', type: 'shape', in: 1, out: 4, shape: { shape: 'rect', size: [400, 200], fill: '#fff' }, transform: { opacity: { expr: 'linear(time, inPoint, inPoint+1, 0, 100)' } } }],
+    };
+    const opacity = (s: MotionScene, t: number) => evaluateScene(s, t).layers.find((l) => l.layer.id === 'fade' && !l.layer.ref)!.opacity;
+    expect(opacity(scene, 1.5)).toBeCloseTo(0.5, 6);
+    const exploded = explodeScene(scene, { name: '[Motion] Fade', fps: 30 });
+    const moved = { ...exploded.comp, clips: exploded.comp.clips.map((clip) => ({ ...clip, start: clip.start + 2 })) };
+    const project = projectWith({ ...exploded, comp: moved });
+    expect(opacity(stackGroups(project, moved)[0].scene, 3.5)).toBeCloseTo(0.5, 6);
+    // Drawn on its own, the clip's scene runs from its in point: half a second in is 1.5 s.
+    const clip = moved.clips[0];
+    expect(opacity(standaloneScene(project, clip)!, clip.in + 0.5 * clip.speed)).toBeCloseTo(0.5, 6);
+  });
+
   it('opens the reference subject reveal with its card precomp as layers', () => {
     const spec = findTemplate('subject-reveal')!;
     const scene = spec.build({ width: W, height: H }, { subject: { asset: 'a1', matte: 'C:/roto/run/matte.mkv' }, plate: { asset: 'p1', kind: 'image' }, title: ['YOU MADE', 'IT HERE'], phrase: 'Welcome to my channel', cardAt: 3.8, duration: 4.8 });

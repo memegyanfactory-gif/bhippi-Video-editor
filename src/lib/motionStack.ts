@@ -531,8 +531,9 @@ function fuse(project: Project, comp: Comp, run: { trackIds: string[]; clips: La
 
 /**
  * The scene a layer clip draws when it is not fused (see `fusable`): its precomp layers resolved
- * to their comps and its Motion properties baked in as the layer's `frame`, in the clip's own
- * scene time. Plain motion clips come back unchanged.
+ * to their comps, its Motion properties baked in as the layer's `frame` and the clip's window as
+ * the layer's in/out (as `logicalScene` reads it), in the clip's own scene time. Plain motion
+ * clips come back unchanged.
  */
 export function standaloneScene(project: Project, clip: Clip): MotionScene | null {
   if (clip.source.type !== 'motion') return null;
@@ -549,9 +550,12 @@ function standalone(project: Project, clip: LayerClip, visiting: Set<string>): A
   const size = project.comps.find((comp) => comp.clips.includes(clip)) ?? { width: source.scene.width, height: source.scene.height };
   const frame = frameOf(clip, size.width, size.height, (local) => clip.in + local * clip.speed);
   const mine = new Set(ownLayers(source.scene).map((layer) => layer.id));
+  // A held frame shows one moment, wherever its window was, and a reversed clip starts on its
+  // window's out point (where a layer is already off), so neither keeps a window.
+  const span = clip.hold === null && !clip.reverse ? { in: clip.in, out: clip.in + clip.duration * clip.speed } : {};
   const scene: MotionScene = {
     ...source.scene,
-    layers: source.scene.layers.map((layer) => (mine.has(layer.id) ? { ...withComp(layer, project, deps, visiting, lossy), ...(frame ? { frame } : {}) } as Layer : layer)),
+    layers: source.scene.layers.map((layer) => (mine.has(layer.id) ? { ...withComp(layer, project, deps, visiting, lossy), ...span, ...(frame ? { frame } : {}) } as Layer : layer)),
   };
   const entry = { deps, scene, lossy: [...new Set(lossy)] };
   standaloneCache.set(clip, entry);
