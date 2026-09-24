@@ -36,9 +36,11 @@ import { renderToString } from 'react-dom/server';
 import { CompLayers } from '../src/editor/Compositor';
 import { HtmlMotionLayer } from '../src/editor/HtmlMotionLayer';
 import { ProgramMonitor, shouldStep } from '../src/editor/ProgramMonitor';
+import { correctionsOnFrame } from '../src/editor/RotoPreview';
+import { correctedAlpha } from '../src/lib/rotoCorrections';
 import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
 import { newClip, newComp, newProject, tracksOf } from '../src/lib/timeline';
-import type { Clip, Project } from '../src/lib/types';
+import type { Clip, Project, RotoCorrection } from '../src/lib/types';
 import { identity } from '../src/motion/math';
 import { MediaBank } from '../src/motion/sources';
 import type { ResolvedLayer } from '../src/motion/evaluate';
@@ -310,5 +312,31 @@ describe('program monitor playback', () => {
     };
     // Paused, full quality: the same element the downscaled playback render uses.
     expect(renderToString(React.createElement(ProgramMonitor, props))).toMatch(/<div class="stage-render" style="width:\d+px;height:\d+px">/);
+  });
+});
+
+describe('roto preview corrections', () => {
+  const fps = 30;
+  const painted: RotoCorrection[] = Array.from({ length: 500 }, (_, i) => ({ at: 10 / fps + 0.001, x: (i % 25) / 25, y: Math.floor(i / 25) / 20, radius: 0.02, softness: 0.5, mode: i % 2 ? 'include' : 'exclude' } as RotoCorrection));
+
+  it('leaves frames without corrections on the GPU path', () => {
+    const onFrame = correctionsOnFrame();
+    // No points: RotoPreview draws the matte through its filter and never calls correctedAlpha.
+    expect(onFrame(painted, 200 / fps, fps)).toEqual([]);
+    expect(onFrame(painted, 10 / fps, fps)).toHaveLength(500);
+  });
+
+  it('works the list out once per frame, and again when the list changes', () => {
+    const onFrame = correctionsOnFrame();
+    const first = onFrame(painted, 10 / fps, fps);
+    expect(onFrame(painted, 10 / fps + 0.01, fps)).toBe(first);
+    expect(onFrame([...painted], 10 / fps, fps)).not.toBe(first);
+  });
+
+  it('corrects frame 10 exactly as the whole list does', () => {
+    const points = correctionsOnFrame()(painted, 10 / fps, fps);
+    for (const [x, y] of [[0, 0], [40, 30], [99, 60], [12, 77]]) {
+      expect(correctedAlpha(0.5, x, y, 100, 100, 10 / fps, fps, points)).toBe(correctedAlpha(0.5, x, y, 100, 100, 10 / fps, fps, painted));
+    }
   });
 });

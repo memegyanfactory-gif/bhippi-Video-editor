@@ -94,6 +94,21 @@ function readAlpha(entry: MaskFrame): MaskFrame {
   return entry;
 }
 
+/**
+ * The corrections painted on the frame at `at` (correctedAlpha's own frame test), worked out once
+ * per list and frame: a clip with hundreds of corrections elsewhere draws most frames on the GPU.
+ */
+export function correctionsOnFrame(): (corrections: RotoCorrection[], at: number, fps: number) => RotoCorrection[] {
+  let last: { corrections: RotoCorrection[]; key: number; fps: number; points: RotoCorrection[] } | null = null;
+  return (corrections, at, fps) => {
+    const key = Math.floor((at + 1e-7) * fps);
+    if (!last || last.corrections !== corrections || last.key !== key || last.fps !== fps) {
+      last = { corrections, key, fps, points: corrections.filter((point) => Math.floor(point.at * fps) === key) };
+    }
+    return last.points;
+  };
+}
+
 /** Low-resolution display of the lossless master; export retains the 16-bit alpha. */
 export function RotoPreview({ matte, sourceTime, video, corrections, at, fps, quality = 1 }: { matte: string; sourceTime: number; video: React.RefObject<HTMLDivElement | null>; corrections: RotoCorrection[]; at: number; fps: number; quality?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -114,7 +129,10 @@ export function RotoPreview({ matte, sourceTime, video, corrections, at, fps, qu
     const cache = new Map<number, MaskFrame>();
     const pending = new Set<number>();
     const failed = new Set<number>();
-    let corrected: { index: number; corrections: RotoCorrection[]; frame: number; canvas: HTMLCanvasElement } | null = null;
+    let corrected: { index: number; corrections: RotoCorrection[]; frame: number } | null = null;
+    /** The corrected matte, one canvas reused for every recompute. */
+    let layer: HTMLCanvasElement | null = null;
+    const onFrame = correctionsOnFrame();
     /** undefined until the first draw decides; null when this canvas cannot filter. */
     let gpu: string | null | undefined;
     /** What the canvas currently shows, so a paused frame costs nothing per tick. */
@@ -180,18 +198,20 @@ export function RotoPreview({ matte, sourceTime, video, corrections, at, fps, qu
       context.globalCompositeOperation = 'copy';
       context.drawImage(media, 0, 0, output.width, output.height);
       context.globalCompositeOperation = 'destination-in';
-      if (active.corrections.length) {
-        // Hand-painted corrections need the pixels; this path is per corrected clip only.
+      const points = onFrame(active.corrections, active.at, active.fps);
+      if (points.length) {
+        // Hand-painted corrections on this frame need the pixels; every other frame stays on the GPU.
         const { alpha } = readAlpha(entry);
         if (alpha) {
-          if (!corrected || corrected.index !== index || corrected.corrections !== active.corrections || corrected.frame !== activeFrame) {
-            const layer = document.createElement('canvas'); layer.width = alpha.width; layer.height = alpha.height;
+          if (!layer || !corrected || corrected.index !== index || corrected.corrections !== active.corrections || corrected.frame !== activeFrame) {
+            layer ??= document.createElement('canvas');
+            if (layer.width !== alpha.width || layer.height !== alpha.height) { layer.width = alpha.width; layer.height = alpha.height; }
             const pixels = new ImageData(new Uint8ClampedArray(alpha.data), alpha.width, alpha.height);
-            for (let p = 0; p < pixels.data.length; p += 4) pixels.data[p + 3] = Math.round(255 * correctedAlpha(alpha.data[p] / 255, (p / 4) % alpha.width, Math.floor(p / 4 / alpha.width), alpha.width, alpha.height, active.at, active.fps, active.corrections));
+            for (let p = 0; p < pixels.data.length; p += 4) pixels.data[p + 3] = Math.round(255 * correctedAlpha(alpha.data[p] / 255, (p / 4) % alpha.width, Math.floor(p / 4 / alpha.width), alpha.width, alpha.height, active.at, active.fps, points));
             layer.getContext('2d')?.putImageData(pixels, 0, 0);
-            corrected = { index, corrections: active.corrections, frame: activeFrame, canvas: layer };
+            corrected = { index, corrections: active.corrections, frame: activeFrame };
           }
-          context.drawImage(corrected.canvas, 0, 0, output.width, output.height);
+          context.drawImage(layer, 0, 0, output.width, output.height);
         }
       } else if (gpu) {
         context.filter = gpu;
