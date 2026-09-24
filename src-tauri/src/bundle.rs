@@ -1022,6 +1022,15 @@ fn human_bytes(bytes: u64) -> String {
     if mb >= 1024.0 { format!("{:.2} GB", mb / 1024.0) } else { format!("{mb:.1} MB") }
 }
 
+/// What a Save As refuses before it plans, creates or moves anything: a project the autosave
+/// would refuse too must not first carry the work folder's files off to the new place.
+fn check_document(file: &Path, document: &Document) -> Result<(), String> {
+    crate::files::check_extension(file)?;
+    let mut probe = document.project.clone();
+    probe.sanitize();
+    probe.validate_shape()
+}
+
 /// Save / Save As: gathers every file the project uses into the folder the `.helios` owns,
 /// points the project (and, for Save / Save As, the library) at the gathered copies, files the
 /// UI's documents, and writes the `.helios` with relative paths. `keep_path` is false for "Save
@@ -1036,7 +1045,7 @@ pub async fn project_file_save(
     docs: Option<Vec<DocFile>>,
 ) -> Result<SaveReport, String> {
     let file = PathBuf::from(&path);
-    crate::files::check_extension(&file)?;
+    check_document(&file, &document)?;
     let project_folder = storage::saved_folder(&file).ok_or("choose a folder to save the project in")?;
     let state = state.inner().clone();
     let settings = state.settings();
@@ -1382,6 +1391,24 @@ mod tests {
         assert!(text.contains("../Downloads/clip.mp4"), "{text}");
         let opened = read(&file).expect("open");
         assert_eq!(Path::new(&opened.assets[0].path), normalize(&clip));
+        let _ignored = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn bundle_save_as_refuses_a_bad_project_before_moving_anything() {
+        use crate::project::fixtures::{clip, comp, project};
+        let base = temp("refuse");
+        let planted = base.join("work").join("mogrt").join("frame.png");
+        put(&planted, b"png");
+        let mut bad = clip("c1", "v1", 0.0, 2.0, crate::project::ClipSource::Media { asset_id: "a1".to_owned() });
+        bad.transform.scale = 1e9;
+        let mut document = Document { format: "helios".to_owned(), version: 3, saved_at: "now".to_owned(), project: project(vec![comp("main", vec![bad])]), assets: Vec::new(), extras: None };
+        let file = base.join("Launch").join("Launch.helios");
+        assert!(check_document(&file, &document).expect_err("out of range").contains("transform"));
+        assert!(planted.is_file(), "nothing was moved");
+        assert!(!base.join("Launch").exists(), "nothing was created");
+        document.project.comps[0].clips[0].transform.scale = 100.0;
+        assert!(check_document(&file, &document).is_ok());
         let _ignored = std::fs::remove_dir_all(base);
     }
 
