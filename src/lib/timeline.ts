@@ -214,6 +214,10 @@ export const updateTrack = (comp: Comp, trackId: string, patch: Partial<Track>):
 
 export const clipEnd = (clip: Clip) => clip.start + clip.duration;
 
+/** The only kind of track a source may sit on, or null when either kind will do. */
+const trackKindFor = (source: ClipSource): TrackKind | null =>
+  source.type === 'sfx' ? 'audio' : source.type === 'text' || source.type === 'shape' || source.type === 'html' || source.type === 'motion' ? 'video' : null;
+
 // ───────────────────────────── putting a comp back inside the rules ──────────────────────────
 
 /**
@@ -231,9 +235,21 @@ export const clipEnd = (clip: Clip) => clip.start + clip.duration;
  */
 export function healComp(comp: Comp): Comp {
   let changed = false;
-  const trackIds = new Set(comp.tracks.map((track) => track.id));
-  const byTrack = new Map<string, Clip[]>();
+  // A picture on an audio track, or a sound effect on a video one, is refused by the backend
+  // too. It moves to the same index on the right kind of track rather than being dropped.
+  const kinds = new Map(comp.tracks.map((track) => [track.id, track.kind]));
+  let fixed = comp;
   for (const clip of comp.clips) {
+    const kind = kinds.get(clip.trackId);
+    const wanted = trackKindFor(clip.source);
+    if (!kind || !wanted || kind === wanted) continue;
+    const ensured = ensureTrack(fixed, wanted, Math.max(0, trackIndex(comp, clip.trackId)));
+    fixed = { ...ensured.comp, clips: ensured.comp.clips.map((item) => (item.id === clip.id ? { ...item, trackId: ensured.track.id } : item)) };
+    changed = true;
+  }
+  const trackIds = new Set(fixed.tracks.map((track) => track.id));
+  const byTrack = new Map<string, Clip[]>();
+  for (const clip of fixed.clips) {
     // A clip on a track that no longer exists can never be seen or selected again.
     if (!trackIds.has(clip.trackId) || !Number.isFinite(clip.start) || !Number.isFinite(clip.duration)) {
       changed = true;
@@ -269,7 +285,7 @@ export function healComp(comp: Comp): Comp {
       kept.push(clip);
     }
   }
-  const candidate: Comp = changed ? { ...comp, clips: kept } : comp;
+  const candidate: Comp = changed ? { ...fixed, clips: kept } : comp;
   const tidied = tidy(candidate);
   if (
     tidied.transitions.length !== comp.transitions.length ||
@@ -687,6 +703,32 @@ export function moveClips(comp: Comp, ids: string[], dt: number, shift: { video:
   const base: Comp = { ...next, clips: remaining, transitions: duplicate ? next.transitions : next.transitions.filter((transition) => !carried.includes(transition)) };
   const result = placeClips(base, placed, mode);
   return { comp: tidy({ ...result, transitions: [...result.transitions, ...moved] }), ids: placed.map((clip) => clip.id) };
+}
+
+/** A copied clip with the kind and index of the track it was copied from. */
+export type ClipboardEntry = { clip: Clip; kind: TrackKind; index: number };
+
+/**
+ * Paste: copied clips placed in `destCompId` from `at` on, keeping their spacing, each on the
+ * same kind and number of track it came from (added when the comp lacks it). Links and groups
+ * among the pasted clips are made fresh so they never join the originals, and a nested comp
+ * that would end up inside itself is skipped (`skipped` holds those clips' ids).
+ */
+export function pasteClips(project: Project, destCompId: string, board: { clips: ClipboardEntry[]; comp: string }, at: number, mode: PlaceMode): { project: Project; ids: string[]; skipped: string[] } {
+  const dest = project.comps.find((comp) => comp.id === destCompId);
+  const skipped = board.clips.filter(({ clip }) => clip.source.type === 'comp' && wouldCycle(project, destCompId, clip.source.compId)).map(({ clip }) => clip.id);
+  const entries = board.clips.filter(({ clip }) => !skipped.includes(clip.id));
+  if (!dest || !entries.length) return { project, ids: [], skipped };
+  const earliest = Math.min(...entries.map(({ clip }) => clip.start));
+  const links = newCtx();
+  const groups = newCtx();
+  let next = dest;
+  const placed = entries.map(({ clip, kind, index }) => {
+    const ensured = ensureTrack(next, kind, index);
+    next = ensured.comp;
+    return { ...clip, id: uid(), linkId: relink(links, clip.linkId), groupId: relink(groups, clip.groupId), trackId: ensured.track.id, start: at + (clip.start - earliest) };
+  });
+  return { project: updateComp(project, destCompId, () => placeClips(next, placed, mode)), ids: placed.map((clip) => clip.id), skipped };
 }
 
 // ───────────────────────────── trim ─────────────────────────────

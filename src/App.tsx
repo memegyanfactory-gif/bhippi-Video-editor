@@ -59,9 +59,9 @@ import { generateSelectionSound } from './lib/generateSound';
 import { registerSfx } from './lib/sfx';
 import {
   addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
-  newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, placeClips, razor, removeAttributes, removeClips, removeRange, replaceSource, setGrouped, setLinked, setSpeed, sourceInfo,
-  sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, tracksOf, transitionsOnSelection, trimEdge, updateComp, updateTrack, withLinked, wouldCycle,
-  type AssetMap,
+  newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, pasteClips, placeClips, razor, removeAttributes, removeClips, removeRange, replaceSource, setGrouped, setLinked, setSpeed, sourceInfo,
+  sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, trackOf, tracksOf, transitionsOnSelection, trimEdge, updateComp, updateTrack, withLinked, wouldCycle,
+  type AssetMap, type ClipboardEntry,
 } from './lib/timeline';
 import { isLayeredComp, splitMotionComps } from './lib/motionStack';
 import { isHtmlLayered, splitHtmlComp } from './lib/htmlLayers';
@@ -117,7 +117,7 @@ const PREFERENCE = ['claude', 'codex', 'gemini', 'ollama', 'lmstudio', 'anthropi
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || (target.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes((target as HTMLInputElement).type)));
 
-type Clipboard = { clips: Clip[]; comp: string } | null;
+type Clipboard = { clips: ClipboardEntry[]; comp: string } | null;
 type ContextMenu = { anchor: DOMRect; items: MenuItem[] } | null;
 
 /**
@@ -1141,7 +1141,7 @@ export default function App() {
 
   const copySelection = (cut: boolean) => {
     if (!comp || !selection.length) return;
-    clipboard.current = { clips: selectedClips.map((clip) => ({ ...clip })), comp: comp.id };
+    clipboard.current = { clips: selectedClips.map((clip) => ({ clip: { ...clip }, kind: trackOf(comp, clip.trackId)?.kind ?? 'video', index: Math.max(0, trackIndex(comp, clip.trackId)) })), comp: comp.id };
     if (cut) deleteSelection(false);
     toast({ tone: 'info', title: cut ? 'Cut' : 'Copied', body: `${selectedClips.length} clip${selectedClips.length === 1 ? '' : 's'} — Ctrl+V pastes at the playhead.`, timeout: 1800 });
   };
@@ -1149,24 +1149,10 @@ export default function App() {
   const paste = (insert: boolean) => {
     const board = clipboard.current;
     if (!board || !comp) return;
-    const at = playhead.get();
-    const earliest = Math.min(...board.clips.map((clip) => clip.start));
-    let next = comp;
-    const links = new Map<string, string>();
-    const placed: Clip[] = [];
-    for (const clip of board.clips) {
-      const kind = tracksOf(comp, 'video').some((track) => track.id === clip.trackId) ? 'video' : 'audio';
-      const index = Math.max(0, trackIndex(board.comp === comp.id ? comp : next, clip.trackId));
-      let track = tracksOf(next, kind)[index];
-      if (!track) {
-        next = addTracks(next, kind, index + 1 - tracksOf(next, kind).length).comp;
-        track = tracksOf(next, kind)[index];
-      }
-      const linkId = clip.linkId ? (links.get(clip.linkId) ?? links.set(clip.linkId, uid()).get(clip.linkId) ?? null) : null;
-      placed.push({ ...clip, id: uid(), linkId, trackId: track.id, start: at + (clip.start - earliest) });
-    }
-    editComp(() => placeClips(next, placed, insert ? 'insert' : 'overwrite'), insert ? 'Paste Insert' : 'Paste');
-    setSelection(placed.map((clip) => clip.id));
+    const pasted = pasteClips(history.current(), comp.id, board, playhead.get(), insert ? 'insert' : 'overwrite');
+    if (pasted.ids.length) history.commit(() => pasted.project, insert ? 'Paste Insert' : 'Paste');
+    if (pasted.skipped.length) toast({ tone: 'info', title: 'Not pasted', body: `${pasted.skipped.length} nested comp${pasted.skipped.length === 1 ? '' : 's'} would end up inside ${pasted.skipped.length === 1 ? 'itself' : 'themselves'}.` });
+    if (pasted.ids.length) setSelection(pasted.ids);
   };
 
   const addEdit = (allTracks: boolean) => {
@@ -1543,7 +1529,7 @@ export default function App() {
       { label: 'Paste Attributes…', shortcut: 'Ctrl+Alt+V', disabled: !clipboard.current?.clips.length, onSelect: () => setDialog(
         <AttributesDialog title="Paste Attributes" action="Paste" onClose={() => setDialog(null)} onSubmit={(set) => {
           setDialog(null);
-          const from = clipboard.current?.clips[0];
+          const from = clipboard.current?.clips[0]?.clip;
           if (from) editComp((current) => pasteAttributes(current, ids, from, set, limit), 'Paste Attributes');
         }} />) },
       { label: 'Remove Attributes…', onSelect: () => setDialog(
