@@ -344,8 +344,10 @@ pub async fn page_source(url: &str) -> Result<PageSource, String> {
 }
 
 fn extract_attribute(tag: &str, attr: &str) -> Option<String> {
-    let attr_lower = attr.to_lowercase();
-    let tag_lower = tag.to_lowercase();
+    // ASCII lowercasing keeps every byte where it was, so an offset found in `tag_lower` is
+    // one in `tag` too; full Unicode lowercasing changes lengths ("İ" grows a byte).
+    let attr_lower = attr.to_ascii_lowercase();
+    let tag_lower = tag.to_ascii_lowercase();
 
     let d_key = format!("{attr_lower}=\"");
     if let Some(idx) = tag_lower.find(&d_key) {
@@ -550,7 +552,8 @@ pub fn extract_video_urls(body: &str, final_url: &str) -> Vec<String> {
 
 /// Normalize iframe embed URLs into canonical watchable platform URLs.
 pub fn normalize_iframe_video_embed(src: &str) -> Option<String> {
-    let lower = src.to_lowercase();
+    // ASCII only, so offsets found in `lower` are valid in `src`.
+    let lower = src.to_ascii_lowercase();
     // YouTube embeds: youtube.com/embed/VIDEO_ID or youtube-nocookie.com/embed/VIDEO_ID
     if lower.contains("youtube.com/embed/") || lower.contains("youtube-nocookie.com/embed/") {
         if let Some(idx) = lower.find("/embed/") {
@@ -784,7 +787,7 @@ fn extract_clean_text(html: &str, max_chars: usize) -> String {
     }
     let text = lines.join("\n");
     if text.len() > max_chars {
-        let mut truncated = text[..max_chars].to_owned();
+        let mut truncated = capped(text, max_chars);
         if let Some(last_nl) = truncated.rfind('\n') {
             truncated.truncate(last_nl);
         }
@@ -1353,6 +1356,26 @@ fn sanitize_filename(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Scraped text is cut on a character boundary, even when the limit lands inside one.
+    #[test]
+    fn clean_text_is_cut_on_a_character_boundary() {
+        let html = format!("<p>{}—</p>", "a".repeat(3999));
+        let text = extract_clean_text(&html, 4000);
+        assert!(text.starts_with("aaa") && text.ends_with("[... content truncated ...]"), "{text}");
+    }
+
+    /// Letters that change length when lowercased must not shift the attribute offsets.
+    #[test]
+    fn attributes_after_non_ascii_text_are_read_whole() {
+        assert_eq!(extract_attribute(r#"<img alt="İstanbul" src="/photos/city.jpg">"#, "src").as_deref(), Some("/photos/city.jpg"));
+        assert_eq!(extract_attribute(r#"<img alt="İİİ" src="/görsel.jpg">"#, "src").as_deref(), Some("/görsel.jpg"));
+        assert_eq!(extract_attribute(r#"<IMG SRC='/A.jpg'>"#, "src").as_deref(), Some("/A.jpg"));
+        assert_eq!(
+            normalize_iframe_video_embed("https://www.youtube.com/embed/İİab12?x=1").as_deref(),
+            Some("https://www.youtube.com/watch?v=İİab12")
+        );
+    }
 
     #[test]
     fn parses_ddg_html_results() {
