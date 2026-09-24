@@ -25,8 +25,13 @@ vi.mock('../src/motion/gl/raster', async () => {
     rasterMasks: () => ({ width: 1, height: 1 }),
   };
 });
+// A server render runs no effects, so the graphic's GSAP timeline is never built.
+vi.mock('gsap', () => ({ default: {} }));
 vi.mock('../src/lib/ipc', () => ({ api: { mogrtFramesBegin: async (id: string) => `frames/${id}`, frontendCrash: async () => undefined }, errorText: (e: unknown) => String(e), fileSrc: (p: string) => p }));
 
+import React from 'react';
+import { renderToString } from 'react-dom/server';
+import { HtmlMotionLayer } from '../src/editor/HtmlMotionLayer';
 import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
@@ -220,5 +225,26 @@ describe('media bank', () => {
     const ready = expect(b.prepareExact(razored, 1)).rejects.toThrow('footage media/a.mp4 did not load in 20 s');
     await vi.advanceTimersByTimeAsync(20_000);
     await ready;
+  });
+});
+
+describe('HTML graphic placement', () => {
+  /** The inline style of the graphic's design canvas as the preview renders it. */
+  const canvasStyle = (stageW: number, stageH: number, template?: string) => {
+    const html = renderToString(React.createElement(HtmlMotionLayer, { source: { html: '<b>Title</b>', template }, time: 0, clipStart: 0, clipDuration: 4, stageW, stageH }));
+    return /class="mgt-canvas" style="([^"]*)"/.exec(html)?.[1] ?? '';
+  };
+
+  it('letterboxes a fixed 1920×1080 graphic in a tall comp, as the export fits it', () => {
+    const style = canvasStyle(1080, 1920);
+    expect(style).toContain('top:656.25px');
+    expect(style).toContain('left:0');
+    expect(style).toContain('scale(0.5625)');
+  });
+
+  it('fills a landscape comp with a fixed graphic unchanged', () => {
+    const style = canvasStyle(1920, 1080);
+    expect(style).toContain('top:0');
+    expect(style).toContain('scale(1)');
   });
 });
