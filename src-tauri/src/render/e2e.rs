@@ -682,3 +682,41 @@ async fn parity_frames() {
         }
     }
 }
+
+/// A whole export of a project as the app hands it over (graphics and scenes already rendered to
+/// frames, e.g. by the parity harness's `parity.prepare`), through the same plan and encoder choice
+/// `export_start` makes. `HELIOS_EXPORT` names a JSON file `{ "project", "assets", "compId" }`;
+/// `HELIOS_EXPORT_OUT` the output file; `HELIOS_EXPORT_FORMAT` / `_QUALITY` / `_ENCODER` default to
+/// mov / high / cpu. Run by hand:
+/// `HELIOS_EXPORT=prepared.json HELIOS_EXPORT_OUT=out.mov cargo test render::e2e::export_prepared -- --ignored --nocapture`.
+#[tokio::test]
+#[ignore = "driven by hand on a prepared project"]
+async fn export_prepared() {
+    use super::{plan_with_encoder, VideoEncoder};
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Prepared { project: Project, assets: Vec<Asset>, comp_id: String }
+    let Some(file) = std::env::var_os("HELIOS_EXPORT") else { return };
+    let prepared: Prepared = serde_json::from_str(&std::fs::read_to_string(file).expect("the project")).expect("project parses");
+    let output = std::env::var("HELIOS_EXPORT_OUT").expect("HELIOS_EXPORT_OUT");
+    let var = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.to_owned());
+    let tools = tools::resolve(None).await;
+    let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
+    let assets: HashMap<String, Asset> = prepared.assets.into_iter().map(|asset| (asset.id.clone(), asset)).collect();
+    let work = Path::new(&output).with_extension("work");
+    std::fs::create_dir_all(&work).unwrap();
+    sfx::ensure_all(&work).expect("the sound effects");
+    let env = tools::FfmpegEnv { fontconfig_file: write_fontconfig(&work) };
+    let format = var("HELIOS_EXPORT_FORMAT", "mov");
+    let options = ExportOptions { output: output.clone(), comp_id: prepared.comp_id, resolution: std::env::var("HELIOS_EXPORT_RESOLUTION").ok().and_then(|v| v.parse().ok()), fps: None, quality: var("HELIOS_EXPORT_QUALITY", "high"), in_to_out: false, format: format.clone(), encoder: None };
+    let encoder = VideoEncoder::choose(Some(&var("HELIOS_EXPORT_ENCODER", "cpu")), tools.status.x264, tools.status.gpu_encoder.as_deref());
+    let kind = if format == "mp3" { Output::Audio } else { Output::Video };
+    let render = plan_with_encoder(&prepared.project, &assets, &options, |kind| sfx::path_for(&work, kind).display().to_string(), encoder, kind, 0.0).expect("a plan");
+    for (name, contents) in &render.files { std::fs::write(work.join(name), contents).unwrap(); }
+    std::fs::write(work.join("args.txt"), render.args.join("
+")).unwrap();
+    let (_hold, cancel) = tokio::sync::watch::channel(false);
+    let started = std::time::Instant::now();
+    tools::run_ffmpeg_with_progress(&ffmpeg, &render.args, Some(&work), &env, render.duration, cancel, |_| ()).await.expect("the export");
+    eprintln!("exported {output} ({encoder:?}, {format}) in {:.1}s for {:.1}s of video", started.elapsed().as_secs_f64(), render.duration);
+}

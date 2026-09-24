@@ -61,9 +61,28 @@ const BEZIERS: Partial<Record<EaseName, [number, number, number, number]>> = {
   'back-in': [0.36, 0, 0.66, -0.56],
   'back-out': [0.34, 1.56, 0.64, 1],
   'back-in-out': [0.68, -0.6, 0.32, 1.6],
+  // Measured on the reference films (bezier fits, docs/REFERENCE-FILMS-PLAN.md §2.1).
+  /** SaaS-light house ease: fast start, long settle (Workly, 4 moves agree). */
+  house: [0.25, 0, 0, 1],
+  /** Dark-AI settle: each frame keeps ~85% of the remaining distance (Solair card stack, rmse .003). */
+  settle: [0.187, 0.368, 0.123, 0.981],
+  /** Panel/card entrance position and tilt: Material 3 emphasized-decelerate. */
+  emphasized: [0.05, 0.7, 0.1, 1],
+  /** Wordmark / big reveal rise (Workly "Workly", rmse .004). */
+  rise: [0.044, 0.419, 0.044, 0.991],
+  /** Camera push onto a UI target (Virgil "Invite" push, 25 f). */
+  push: [0.57, 0, 0.41, 0.98],
+  /** First key of a creep-snap-settle camera move: a slow creep (Limelight dashboard tilt). */
+  creep: [1, 0.093, 0.856, 0.033],
+  /** Second key of creep-snap-settle: the snap and long settle. */
+  'snap-settle': [0.079, 0.602, 0.182, 0.958],
+  /** A brand glyph arriving from the lens and shrinking into the logo (Solair star). */
+  resolve: [0.162, 0.495, 0.117, 1.005],
+  /** The next shot playing inside a card that zooms to full frame, 6–8 f (Modern Motion). */
+  'card-zoom': [0.15, 0.46, 0.43, 1],
 };
 
-export const EASE_NAMES: EaseName[] = ['linear', 'hold', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'sine-in', 'sine-out', 'sine-in-out', 'cubic-in', 'cubic-out', 'cubic-in-out', 'quart-in', 'quart-out', 'quart-in-out', 'expo-in', 'expo-out', 'expo-in-out', 'back-in', 'back-out', 'back-in-out', 'elastic-out', 'bounce-out', 'spring'];
+export const EASE_NAMES: EaseName[] = ['linear', 'hold', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'sine-in', 'sine-out', 'sine-in-out', 'cubic-in', 'cubic-out', 'cubic-in-out', 'quart-in', 'quart-out', 'quart-in-out', 'expo-in', 'expo-out', 'expo-in-out', 'back-in', 'back-out', 'back-in-out', 'elastic-out', 'bounce-out', 'spring', 'house', 'settle', 'emphasized', 'rise', 'push', 'creep', 'snap-settle', 'resolve', 'card-zoom'];
 
 /** Progress 0..1 through a segment shaped by `ease`. */
 export function ease(kind: Ease | undefined, p: number): number {

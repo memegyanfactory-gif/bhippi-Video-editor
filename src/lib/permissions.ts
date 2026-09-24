@@ -47,6 +47,11 @@ const READS = new Set([
   'detect_faces',
   'validate_roast_edl',
   'edit_dna',
+  // Vector catalogues and conversion: read-only, nothing touches the project.
+  'search_icons',
+  'svg_to_shape',
+  'motion_guide',
+  'list_3d_presets',
 ]);
 
 /** Tools that throw something away, which only Full access may do. */

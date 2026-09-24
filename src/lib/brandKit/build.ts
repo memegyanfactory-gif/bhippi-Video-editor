@@ -51,7 +51,7 @@ export const withAlpha = (hex: string, alpha: number): string => `${hex}${Math.r
 // ── type ─────────────────────────────────────────────────────────────────────
 
 /** Families that resolve on a stock Windows/macOS machine; preview and export both read names only. */
-export const SYSTEM_FONTS = ['Inter', 'Segoe UI', 'Arial', 'Helvetica', 'Arial Black', 'Impact', 'Trebuchet MS', 'Verdana', 'Tahoma', 'Calibri', 'Candara', 'Georgia', 'Cambria', 'Palatino Linotype', 'Garamond', 'Times New Roman', 'Consolas', 'Courier New', 'Cascadia Code', 'JetBrains Mono', 'Segoe UI Black'];
+export const SYSTEM_FONTS = ['Inter', 'Segoe UI', 'Arial', 'Helvetica', 'Arial Black', 'Impact', 'Trebuchet MS', 'Verdana', 'Tahoma', 'Calibri', 'Candara', 'Georgia', 'Cambria', 'Palatino Linotype', 'Garamond', 'Times New Roman', 'Consolas', 'Courier New', 'Cascadia Code', 'JetBrains Mono', 'Segoe UI Black', 'Manrope', 'Plus Jakarta Sans', 'Sora', 'Outfit', 'Montserrat', 'Fraunces', 'Caveat', 'Archivo'];
 const SERIF = new Set(['Georgia', 'Cambria', 'Palatino Linotype', 'Garamond', 'Times New Roman']);
 const MONO = new Set(['Consolas', 'Courier New', 'Cascadia Code', 'JetBrains Mono']);
 

@@ -107,7 +107,7 @@ impl VideoEncoder {
         let rung = match quality { "draft" => 0, "standard" => 1, _ => 2 };
         let list: Vec<String> = match self {
             Self::X264 => vec!["-c:v", "libx264", "-preset", ["veryfast", "medium", "slow"][rung], "-crf", ["28", "20", "16"][rung]].into_iter().map(str::to_owned).collect(),
-            Self::Mpeg4 => vec!["-c:v", "mpeg4", "-q:v", ["6", "3", "2"][rung]].into_iter().map(str::to_owned).collect(),
+            Self::Mpeg4 => mpeg4_args(["6", "3", "2"][rung], rung > 0),
             // Constant-quality VBR: -cq steers quality like CRF does; -b:v 0 lifts the bitrate cap.
             // Rungs matched by VMAF against x264 on real footage (RTX 3080, 1080p): p4/cq23 ≈
             // medium/crf20 and p6/cq19 ≈ slow/crf16, each ~1.6× faster to encode; p5+ costs ~2×
@@ -118,6 +118,17 @@ impl VideoEncoder {
         };
         list
     }
+}
+
+/// MPEG-4 Part 2 (AVI, and MP4/MOV on a build without x264). Above Draft it decides each
+/// macroblock by rate–distortion with four motion vectors and trellis quantisation, which removes
+/// most of the codec's blocking at the same quantiser.
+fn mpeg4_args(q: &str, careful: bool) -> Vec<String> {
+    let mut args = vec!["-c:v", "mpeg4", "-q:v", q];
+    if careful {
+        args.extend(["-mbd", "rd", "-flags", "+mv4+aic", "-trellis", "2", "-cmp", "2", "-subcmp", "2"]);
+    }
+    args.into_iter().map(str::to_owned).collect()
 }
 
 fn default_quality() -> String {
@@ -270,6 +281,12 @@ pub fn plan_with_encoder(
     };
 
     let mut graph = Graph::new(project, assets, &sfx_path, rate);
+    // Standard and High resample pictures with Lanczos (the sharpest of FFmpeg's scalers, clearly so
+    // when 4K footage lands in a 1080p frame); Draft keeps the faster bicubic.
+    let high_quality = options.quality != "draft";
+    if high_quality {
+        graph.scaler = "lanczos";
+    }
     let frame = Frame { w: width, h: height, ratio: f64::from(height) / f64::from(comp.height) };
     // ProRes-alpha renders the comp over transparency (nested comps already
     // are); every other video format flattens onto black as before.
@@ -302,13 +319,16 @@ pub fn plan_with_encoder(
             if alpha {
                 graph.chain_to(&[picture], "format=yuva444p10le", "vout");
             } else {
-                graph.chain_to(&[picture], "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p", "vout");
+                // The RGB composite becomes 4:2:0 once, here: accurate rounding and full-precision
+                // chroma keep colour edges (red type, graphics) clean at Standard and High.
+                let convert = if high_quality { "scale=out_color_matrix=bt709:out_range=tv:flags=lanczos+accurate_rnd+full_chroma_int,format=yuv420p" } else { "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p" };
+                graph.chain_to(&[picture], convert, "vout");
             }
             // Codec per container. ProRes 4444 is fixed broadcast quality, so
             // the draft/standard/high ladder only steers H.264, MPEG-4 and MP3.
             let video_codec: Vec<String> = match options.format.as_str() {
                 "mov-alpha" => vec!["-c:v".into(), "prores_ks".into(), "-profile:v".into(), "4444".into()],
-                "avi" => vec!["-c:v".into(), "mpeg4".into(), "-q:v".into(), q.to_string()],
+                "avi" => mpeg4_args(&q.to_string(), options.quality != "draft"),
                 _ => encoder.args(&options.quality),
             };
             args.extend(graph.finish());
@@ -437,6 +457,8 @@ struct Graph<'a> {
     assets: &'a HashMap<String, Asset>,
     sfx: &'a dyn Fn(SfxKind) -> String,
     rate: Rate,
+    /// The swscale filter pictures are resized with (`lanczos` at Standard and High).
+    scaler: &'static str,
     inputs: Vec<Vec<String>>,
     filters: Vec<String>,
     files: Vec<(String, Vec<u8>)>,
@@ -445,7 +467,7 @@ struct Graph<'a> {
 
 impl<'a> Graph<'a> {
     fn new(project: &'a Project, assets: &'a HashMap<String, Asset>, sfx: &'a dyn Fn(SfxKind) -> String, rate: Rate) -> Self {
-        Self { project, assets, sfx, rate, inputs: Vec::new(), filters: Vec::new(), files: Vec::new(), labels: 0 }
+        Self { project, assets, sfx, rate, scaler: "bicubic", inputs: Vec::new(), filters: Vec::new(), files: Vec::new(), labels: 0 }
     }
 
     fn fps(&self) -> f64 {

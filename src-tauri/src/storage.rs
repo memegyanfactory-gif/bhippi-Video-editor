@@ -11,6 +11,7 @@
 //!     Roto/  Tracking/  Clean plates/
 //!     Renders/  Exports/  Storyboard/  Research/
 //!     Guidelines/                 guidelines, plans and todo lists the AI writes (Markdown)
+//!     3D renders/                 headless-Blender frame sequences (blender.rs)
 //! ```
 //!
 //! A `.helios` saved inside a `Project/` folder owns that folder's parent; saved anywhere else
@@ -46,10 +47,12 @@ pub enum Category {
     Storyboard,
     Research,
     Guidelines,
+    /// Headless-Blender renders (PNG sequences with alpha plus camera tracks).
+    ThreeD,
 }
 
 impl Category {
-    pub const ALL: [Category; 15] = [
+    pub const ALL: [Category; 16] = [
         Category::Project,
         Category::Footage,
         Category::Downloads,
@@ -65,6 +68,7 @@ impl Category {
         Category::Storyboard,
         Category::Research,
         Category::Guidelines,
+        Category::ThreeD,
     ];
 
     /// The id the frontend names it by (mirrors `src/lib/storage.ts`).
@@ -85,6 +89,7 @@ impl Category {
             Category::Storyboard => "storyboard",
             Category::Research => "research",
             Category::Guidelines => "guidelines",
+            Category::ThreeD => "3d-renders",
         }
     }
 
@@ -106,6 +111,7 @@ impl Category {
             Category::Storyboard => "Storyboard",
             Category::Research => "Research",
             Category::Guidelines => "Guidelines",
+            Category::ThreeD => "3D renders",
         }
     }
 

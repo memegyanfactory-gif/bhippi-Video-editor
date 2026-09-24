@@ -21,7 +21,9 @@ export type EaseName =
   | 'quart-in' | 'quart-out' | 'quart-in-out'
   | 'expo-in' | 'expo-out' | 'expo-in-out'
   | 'back-in' | 'back-out' | 'back-in-out'
-  | 'elastic-out' | 'bounce-out' | 'spring';
+  | 'elastic-out' | 'bounce-out' | 'spring'
+  // Measured on the reference films (docs/REFERENCE-FILMS-PLAN.md §2.1):
+  | 'house' | 'settle' | 'emphasized' | 'rise' | 'push' | 'creep' | 'snap-settle' | 'resolve' | 'card-zoom';
 export type Ease = EaseName | [number, number, number, number];
 
 /** A keyframe. `ease` shapes the segment that *starts* at this key (Helios' existing convention). */
@@ -84,7 +86,9 @@ export type EffectType =
   | 'fill' | 'drop-shadow' | 'stroke' | 'halation' | 'mosaic' | 'pixel-sort'
   | 'displacement' | 'turbulent-displace' | 'wave-warp' | 'rgb-split' | 'lens-distortion'
   | 'light-leak' | 'liquid-glass' | 'radial-gradient-overlay' | 'matte-choke'
-  | 'subject-reveal' | 'matte-fill' | 'matte-edge-glow';
+  | 'subject-reveal' | 'matte-fill' | 'matte-edge-glow'
+  // Layer styles (the inflated / glass looks): inside the layer's alpha.
+  | 'inner-shadow' | 'inner-glow' | 'bevel' | 'gradient-overlay';
 
 /** Per-glyph animator, AE's Text Animator: properties applied by a range selector's amount. */
 export type TextAnimator = {
@@ -133,7 +137,7 @@ export type TextCascade = {
   dimTo?: number;
   brightenAfter?: number;
   /** Exit: all units leave at `at` over `duration` (staggered like the entrance). */
-  exit?: { at: number; duration?: number; stagger?: number; ease?: Ease; to: { position?: Vec; scale?: number; opacity?: number; blur?: number } };
+  exit?: { at: number; duration?: number; stagger?: number; ease?: Ease; to: { position?: Vec; scale?: number; opacity?: number; blur?: number }; /** Which unit leaves first: 'forward' (default), 'reverse' (last first — Virgil's "Too many"), 'random'. */ order?: 'forward' | 'reverse' | 'random' };
 };
 
 export type TextSpan = { text: string; font?: string; weight?: number; italic?: boolean; color?: string; size?: number; tracking?: number; strike?: { at: number; duration?: number; color?: string } };
@@ -151,6 +155,8 @@ export type TextLayerData = {
   /** Letter spacing in hundredths of an em (AE tracking ÷ 10: AE −30 is −3 here). */
   tracking?: number;
   lineHeight?: number;
+  /** Line spacing in percent of lineHeight, animatable: 0 collapses the lines onto each other (Workly). */
+  lineSpacing?: Prop<number>;
   /** Wrap width in px; no wrapping when absent. */
   box?: number;
   stroke?: { color: string; width: number };
@@ -161,6 +167,37 @@ export type TextLayerData = {
   counter?: { value: Prop<number>; decimals?: number; format?: string; separator?: string };
   /** Typewriter: characters visible, 0..1 of the text. */
   reveal?: Prop<number>;
+  /**
+   * Live typing (measured on the SaaS films: 30 cps in UI fields, 12–13 cps for text read with the
+   * voice-over). The layout only holds what has been typed, so a centred line re-centres as it
+   * grows. `script` types, backspaces and waits (search retype cycles); without it `text` is typed.
+   */
+  type?: TypeOn;
+  /** Overwrite the text with `to`, left to right from `at` (Solair's retype morph); changed letters flash `flash`. */
+  retype?: { to: string; at: number; cps?: number; flash?: string; flashFor?: number };
+  /** Glyphs fly in from scattered places and converge (WasteProtection's "Powered by AI"). */
+  scatter?: { at: number; duration?: number; spread?: number; rotate?: number; stagger?: number; seed?: number; ease?: Ease };
+};
+
+export type TypeOn = {
+  /** Seconds the typing starts. */
+  at?: number;
+  /** Characters per second (30 = one per frame at 30 fps). */
+  cps?: number;
+  /** 'word' types a word at a time (fast AI prompts). */
+  chunk?: 'char' | 'word';
+  script?: ({ type: string } | { backspace: number } | { wait: number })[];
+  backspaceCps?: number;
+  /** Each new character fades in over this many seconds (default 2 frames). */
+  fadeIn?: number;
+  /** A feathered edge: the newest N characters ramp from faint to full (WasteProtection). */
+  edge?: number;
+  /** The newest characters show `color`: the last `chars` of the line, and/or each for `hold` s, then snap; or blend back over `settle` s. */
+  front?: { color: string; chars?: number; hold?: number; settle?: number };
+  caret?: 'bar' | 'block' | 'none';
+  caretColor?: string;
+  /** Caret blinks per second while idle (typing keeps it solid). */
+  blink?: number;
 };
 
 export type ShapeData = {
@@ -185,6 +222,78 @@ export type ShapeData = {
   trimOffset?: Prop<number>;
   /** Repeater: copies with a cumulative offset. */
   repeat?: { count: number; offset: Vec; scale?: number; rotation?: number; opacityEnd?: number };
+  /**
+   * A shape tree instead of the single primitive above (AE shape groups): bezier paths, primitives
+   * and nested groups with their own transforms, fills and strokes, drawn in order (first = back).
+   * Coordinates are layer pixels from the top-left; the layer is sized to the content (or `bounds`).
+   */
+  groups?: ShapeItem[];
+  /** Explicit layer size [w, h] for a shape tree (otherwise its content's right/bottom edge). */
+  bounds?: Vec;
+};
+
+/** Where an array's copies sit. grid: `columns` × rows, `spacing` [x, y]; ring: on a circle of `radius` (copies turn with it when `orient`), starting at `startAngle` degrees (0 = top); line: `spacing` [x, y] between copies. `center` defaults to keeping the whole array in positive layer space. `rotation` (degrees) spins the whole layout. */
+export type ArrayLayout = { type: 'grid' | 'ring' | 'line'; columns?: number; spacing?: Prop<Vec>; radius?: Prop<number>; startAngle?: number; orient?: boolean; center?: Prop<Vec>; rotation?: Prop<number> };
+
+/** A fill or stroke colour: a CSS colour or a gradient in layer pixels. */
+export type Paint = string | { gradient: { kind: 'linear' | 'radial'; stops: [number, string][]; from?: Prop<Vec>; to?: Prop<Vec> } };
+
+export type ShapeStroke = {
+  paint: Paint;
+  width?: Prop<number>;
+  cap?: 'butt' | 'round' | 'square';
+  join?: 'miter' | 'round' | 'bevel';
+  dash?: Vec;
+  /** Trim Paths, 0–100. */
+  trim?: { start?: Prop<number>; end?: Prop<number>; offset?: Prop<number> };
+};
+
+/**
+ * One item of a shape tree. `path` takes SVG path data (`d`: M L H V C S Q T A Z, beziers and
+ * arcs). rect/ellipse/polygon/star sit centred on `position` (default: half their size, so they
+ * start at the origin). A `group` holds `items` under its own transform, fill and stroke, which
+ * its children inherit unless they set their own.
+ */
+export type ShapeItem = {
+  kind: 'path' | 'rect' | 'ellipse' | 'polygon' | 'star' | 'group' | 'icon' | 'array';
+  name?: string;
+  d?: string;
+  /** `icon`: a Lucide icon name ("shield-check", "sparkles", "bar-chart-3"…; find names with search_icons). Expanded to paths when the scene is built. */
+  icon?: string;
+  /** `icon`: size in px (default 96), line colour (default white) and Lucide stroke width (default 2, in 24-unit icon space). */
+  iconSize?: number;
+  color?: string;
+  strokeWidth?: number;
+  position?: Prop<Vec>;
+  size?: Prop<Vec>;
+  /** rect corner radius. */
+  radius?: Prop<number>;
+  /** polygon/star points. */
+  sides?: number;
+  /** star inner radius as a fraction of the outer (default 0.45). */
+  innerRadius?: Prop<number>;
+  items?: ShapeItem[];
+  /** `array`: the item repeated (drawn centred on each slot; author it around 0,0), how many, and where. */
+  item?: ShapeItem;
+  count?: number;
+  layout?: ArrayLayout;
+  /** `array`: move every copy from `layout` to `morph.to` as `morph.t` goes 0 → 1, copy i starting `stagger`·i later (tiles → ring). */
+  morph?: { to: ArrayLayout; t: Prop<number>; stagger?: number };
+  /** `array`: opacity from the first copy to the last, 0–100 (a spinner's tail). */
+  opacityRamp?: [number, number];
+  /**
+   * `group`: path operators run in order over the group's children before it is painted (AE's
+   * Merge Paths, Offset Paths, Round Corners): merge = the first child against the rest.
+   */
+  ops?: ({ op: 'merge'; mode?: 'union' | 'subtract' | 'intersect' | 'xor' } | { op: 'offset'; amount: Prop<number>; join?: 'round' | 'miter' | 'bevel' } | { op: 'round-corners'; radius: Prop<number> })[];
+  /** A leaf that morphs into another shape as `morphT` goes 0 → 1 (square → sparkle, circle → logo mark). */
+  morphTo?: ShapeItem;
+  morphT?: Prop<number>;
+  transform?: { anchor?: Prop<Vec>; position?: Prop<Vec>; scale?: Prop<number | Vec>; rotation?: Prop<number>; opacity?: Prop<number> };
+  fill?: Paint | null;
+  fillRule?: 'nonzero' | 'evenodd';
+  stroke?: ShapeStroke | null;
+  opacity?: Prop<number>;
 };
 
 export type ProceduralKind = 'crimson-stage' | 'radial-glow' | 'linear-gradient' | 'hex-field' | 'grid' | 'light-rails' | 'noise' | 'light-leak' | 'dots' | 'aurora';
@@ -199,6 +308,13 @@ export type FootageSource = {
   speed?: number;
   /** Time remap: source seconds as a function of scene time (overrides in/speed). */
   timeRemap?: Prop<number>;
+  /**
+   * A numbered image sequence instead of one file: `dir/<start + i, zero-padded to digits>.<ext>`.
+   * Headless-Blender renders, Lottie pre-renders and any PNG run with alpha come in this way and
+   * then composite like any footage (mattes, effects, blend, 3D). `first` = source seconds of the
+   * first frame; outside the run the first/last frame holds, or the run repeats with `loop`.
+   */
+  sequence?: { dir: string; fps: number; frames: number; first?: number; start?: number; digits?: number; ext?: 'png' | 'jpg' | 'webp'; loop?: boolean };
   /** Roto matte (the clip's `rotoMatte`) — the subject's alpha, aligned with this source. */
   matte?: string;
   /** Use the matte as this layer's alpha (the cut-out subject). */
@@ -222,6 +338,8 @@ type LayerCommon = {
   matte?: { layer: string; mode: MatteMode };
   /** A layer used only as a matte is not drawn itself. */
   hidden?: boolean;
+  /** Deliberately runs off the frame (a giant word panning past, type cropped by the edge): the safe-area fitter and frame QA leave it alone. */
+  bleed?: boolean;
   masks?: Mask[];
   effects?: Effect[];
   motionBlur?: boolean;
@@ -259,7 +377,13 @@ export type Layer = LayerCommon & (
   | { type: 'shape'; shape: ShapeData }
   | { type: 'text'; text: TextLayerData }
   | { type: 'null' }
-  | { type: 'camera'; zoom?: Prop<number>; pointOfInterest?: Prop<Vec>; focus?: Prop<number>; aperture?: Prop<number> }
+  | { type: 'camera'; zoom?: Prop<number>; pointOfInterest?: Prop<Vec>;
+      /** Focus distance in px from the camera (default: the zoom). 3D layers away from it blur. */
+      focus?: Prop<number>;
+      /** Aperture in px (AE's): 0 = no depth of field. The blur radius is about aperture × |distance − focus| / distance. */
+      aperture?: Prop<number>;
+      /** Depth-of-field shape: `band` = px of depth around the focus that stays sharp; `near`/`far` scale the blur in front of / behind it; `max` caps it (screen px, default 48). */
+      dof?: { band?: Prop<number>; near?: number; far?: number; max?: number } }
   | { type: 'precomp'; scene: MotionScene; /** Scene seconds at which the precomp's time 0 plays. */ offset?: number; speed?: number; /** A layered motion comp that holds this precomp's layers; when present it replaces `scene` (which stays as the fallback). */ comp?: string }
 );
 
@@ -277,7 +401,7 @@ export type MotionScene = {
   /** Seed for wiggle/noise/random so renders are repeatable. */
   seed?: number;
   /** Sound cues the template wants (seconds): the host may lay SFX on them. */
-  cues?: { at: number; sound: 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'click'; note?: string }[];
+  cues?: { at: number; sound: 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'click' | 'tick' | 'key' | 'typing' | 'glass' | 'shimmer' | 'sub' | 'blip' | 'swish' | 'ding' | 'boom'; /** Seconds to keep (a typing bed runs as long as the typing). */ duration?: number; note?: string }[];
   /** Template id and params it was built from, so it can be rebuilt with new words. */
   template?: { id: string; params: Record<string, unknown> };
   /** The brand kit the scene was put in (src/motion/kit/brandify.ts), with the snapshot it used, so rebuilds stay on brand. */

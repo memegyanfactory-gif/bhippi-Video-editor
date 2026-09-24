@@ -68,7 +68,7 @@ function roots(scene: MotionScene): Map<string, string> {
 function candidates(scene: MotionScene): Layer[] {
   const matteSources = new Set(scene.layers.map((layer) => layer.matte?.layer).filter(Boolean));
   return scene.layers.filter((layer) => {
-    if (layer.hidden || layer.ref || layer.adjustment || layer.threeD || matteSources.has(layer.id)) return false;
+    if (layer.hidden || layer.ref || layer.adjustment || layer.threeD || layer.bleed || matteSources.has(layer.id)) return false;
     if (layer.type === 'null' || layer.type === 'camera' || layer.type === 'procedural') return false;
     if ((layer.type === 'solid' || layer.type === 'footage') && !layer.size) return false;
     return true;

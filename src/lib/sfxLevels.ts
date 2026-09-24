@@ -12,7 +12,7 @@ export const SFX_GAIN: Record<SfxKind, number> = SFX_DEFAULT_GAIN;
  * boom −13 LUFS raw → −14 dB, the loudest of them (≈ −27 LUFS); scratch −6 → −20; bleep (a full
  * sine, −4.6) → −18, just under the voice it replaces; swish, ding −16; glitch −18.
  */
-export const SFX_GAIN_DB: Record<SfxKind, number> = { whoosh: -16, impact: -14, pop: -18, chime: -18, riser: -20, boom: -14, scratch: -20, bleep: -18, swish: -16, ding: -16, glitch: -18 };
+export const SFX_GAIN_DB: Record<SfxKind, number> = { whoosh: -16, impact: -14, pop: -18, chime: -18, riser: -20, boom: -14, scratch: -20, bleep: -18, swish: -16, ding: -16, glitch: -18, click: -20, tick: -20, key: -20, typing: -20, glass: -18, shimmer: -20, sub: -14, blip: -20 };
 
 /**
  * Sampled sounds from the SFX library arrive normalised to −16 LUFS (sfx_library.rs). Meme and

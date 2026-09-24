@@ -377,6 +377,14 @@ export const api = {
    */
   eraseStart: (args: { assetId: string; runId: string; start: number; end: number; dilate?: number; mode?: 'clean-plate' | 'per-frame'; refine?: boolean }) =>
     invoke<string>('erase_start', args),
+  /** Whether Blender is installed (the setting, PATH or the usual folders) and which version. */
+  blenderStatus: () => invoke<{ found: boolean; path?: string; version?: string | null; hint?: string }>('blender_status'),
+  /**
+   * Renders a 3D scene (src/lib/blender3d.ts) in headless Blender. Returns the `generation` job id;
+   * its result carries `dir` (PNG sequence 00001.png…, alpha), `frames`, `fps`, `step`, `camera`
+   * (camera.json) and `objects2d` (objects2d.json).
+   */
+  blenderRenderStart: (request: unknown, name?: string) => invoke<string>('blender_render_start', { request, name: name ?? null }),
   /** Whether a TypeSafe key is present, so a judgment can be offered at all. */
   typesafeReady: () => invoke<boolean>('typesafe_ready'),
   /** Files the TypeSafe key; an empty string removes it. Returns whether judgments are ready. */

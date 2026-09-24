@@ -41,7 +41,7 @@ beforeEach(() => {
 
 describe('the SFX kinds', () => {
   it('include the six @funny kinds with lengths and levels', () => {
-    expect(SFX_KINDS).toHaveLength(11);
+    expect(SFX_KINDS).toHaveLength(19);
     for (const kind of ROAST_SFX_KINDS) {
       expect(SFX_KINDS).toContain(kind);
       expect(SFX_LENGTH[kind]).toBeGreaterThan(0);

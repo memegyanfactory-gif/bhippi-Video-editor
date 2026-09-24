@@ -4,6 +4,7 @@
 import { layerTime, num, vec, valueOf, isAnimated, isExpression, type ExprContext } from './anim';
 import { identity, lookAt, multiply, perspective, rotationX, rotationY, rotationZ, scaling, skewing, transformPoint, translation, type Mat4 } from './math';
 import type { Effect, Layer, Mask, MotionScene, Prop, Vec } from './types';
+import { treeBounds } from './vector/shapes';
 
 /** Layer-space size of a layer's content in pixels (text needs measuring, so the host supplies it). */
 export type SizeOf = (layer: Layer, t: number) => [number, number];
@@ -31,9 +32,44 @@ export type ResolvedLayer = {
   effects: ResolvedEffect[];
   /** Scene seconds the content is sampled at (the layer's own time for precomps/footage remaps). */
   time: number;
+  /** Camera depth-of-field blur for this layer: gaussian sigma in *layer* pixels (0 = sharp). */
+  defocus: number;
 };
 
-export type CameraState = { eye: Vec; target: Vec; zoom: number; view: Mat4; projection: Mat4; focus: number; aperture: number };
+export type CameraDof = { band: number; near: number; far: number; max: number };
+export type CameraState = { eye: Vec; target: Vec; zoom: number; view: Mat4; projection: Mat4; focus: number; aperture: number; dof: CameraDof };
+
+const NO_DOF: CameraDof = { band: 0, near: 1, far: 1, max: 48 };
+
+/**
+ * The circle-of-confusion blur (screen-pixel sigma) of a point `depth` px in front of the camera:
+ * AE's thin-lens model, blur radius = aperture × |d − focus| / d × zoom / focus, with a sharp band
+ * around the focus and separate near/far strengths (a 2.5D look keeps a band sharp and softens
+ * both sides; the reference Motion Tricks film is sharp across a 2.2× depth band).
+ */
+export function defocusSigma(camera: CameraState, depth: number): number {
+  if (camera.aperture <= 0 || depth <= 1e-3 || camera.focus <= 0) return 0;
+  const off = Math.max(0, Math.abs(depth - camera.focus) - camera.dof.band / 2);
+  if (off <= 0) return 0;
+  const strength = depth < camera.focus ? camera.dof.near : camera.dof.far;
+  const radius = camera.aperture * (off / depth) * (camera.zoom / camera.focus) * strength;
+  return Math.min(camera.dof.max, radius / 2);
+}
+
+/** Screen pixels per layer pixel where a layer lands (0 when it is behind the camera). */
+export function projectedScale(matrix: Mat4, size: [number, number]): number {
+  const [w, h] = size;
+  if (w <= 0 || h <= 0) return 0;
+  const pts = [[0, 0], [w, 0], [w, h], [0, h]].map(([x, y]) => transformPoint(matrix, x, y, 0)).filter((p) => p[3] > 1e-6).map((p) => [p[0] / p[3], p[1] / p[3]]);
+  if (pts.length < 3) return 0;
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    area += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.sqrt(Math.abs(area / 2) / (w * h));
+}
 
 export type ResolvedFrame = {
   time: number;
@@ -87,6 +123,11 @@ export function defaultSize(scene: Pick<MotionScene, 'width' | 'height'>, layer:
     }
     case 'shape': {
       const shape = layer.shape;
+      if (shape.groups?.length) {
+        if (shape.bounds) return [Math.max(1, shape.bounds[0]), Math.max(1, shape.bounds[1] ?? shape.bounds[0])];
+        const box = treeBounds(shape.groups, t, { seed: 1 });
+        return box ? [Math.max(1, box.x + box.width), Math.max(1, box.y + box.height)] : [1, 1];
+      }
       if (shape.size !== undefined) {
         const s = vec(shape.size, t, [100, 100]);
         return [Math.max(1, s[0]), Math.max(1, s[1])];
@@ -190,11 +231,13 @@ function cameraAt(scene: MotionScene, t: number, world: (index: number) => Mat4,
     let view = lookAt([eye[0], eye[1], eye[2] ?? -zoom], [target[0], target[1], target[2] ?? 0]);
     const roll = num(tr.rotation, lt, 0, c);
     if (roll) view = multiply(rotationZ(-roll), view);
-    return { eye, target, zoom, view, projection: perspective(zoom, scene.width, scene.height), focus: num(layer.focus, lt, zoom, c), aperture: num(layer.aperture, lt, 0, c) };
+    const d = layer.dof;
+    const dof: CameraDof = d ? { band: Math.max(0, num(d.band, lt, 0, c)), near: d.near ?? 1, far: d.far ?? 1, max: d.max ?? 48 } : NO_DOF;
+    return { eye, target, zoom, view, projection: perspective(zoom, scene.width, scene.height), focus: num(layer.focus, lt, zoom, c), aperture: Math.max(0, num(layer.aperture, lt, 0, c)), dof };
   }
   const eye = [scene.width / 2, scene.height / 2, -defaultZoom];
   const target = [scene.width / 2, scene.height / 2, 0];
-  return { eye, target, zoom: defaultZoom, view: lookAt(eye, target), projection: perspective(defaultZoom, scene.width, scene.height), focus: defaultZoom, aperture: 0 };
+  return { eye, target, zoom: defaultZoom, view: lookAt(eye, target), projection: perspective(defaultZoom, scene.width, scene.height), focus: defaultZoom, aperture: 0, dof: NO_DOF };
 }
 
 export type EvaluateOptions = { sizeOf?: SizeOf; anchorOf?: AnchorOf; fps?: number; motionBlur?: boolean };
@@ -266,6 +309,12 @@ export function evaluateScene(scene: MotionScene, t: number, options: EvaluateOp
     }
     const centre = transformPoint(entry.world, entry.size[0] / 2, entry.size[1] / 2, 0);
     const cam = transformPoint(now.camera.view, centre[0], centre[1], centre[2]);
+    let defocus = 0;
+    if (entry.local.is3D && active && now.camera.aperture > 0) {
+      const sigma = defocusSigma(now.camera, cam[2]);
+      const ratio = sigma > 0 ? projectedScale(entry.matrix, entry.size) : 0;
+      if (ratio > 1e-6) defocus = sigma / ratio;
+    }
     return {
       layer,
       index,
@@ -279,6 +328,7 @@ export function evaluateScene(scene: MotionScene, t: number, options: EvaluateOp
       masks: (layer.masks ?? []).map((mask) => resolveMask(mask, entry.size, lt, c)),
       effects: (layer.effects ?? []).filter((effect) => effect.enabled !== false).map((effect) => resolveEffect(effect, lt, c)),
       time: layer.type === 'precomp' ? (lt - (layer.offset ?? 0)) * (layer.speed ?? 1) : lt,
+      defocus,
     };
   });
 

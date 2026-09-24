@@ -6,8 +6,11 @@ import type { MotionScene } from '../motion/types';
 import type { RoastState } from './roast/types';
 
 export type Preset = 'title' | 'kinetic' | 'lower-third' | 'caption';
-/** Procedural sounds (Rust `SfxKind`); the last six are the @funny kinds (ROAST_SFX_KINDS). */
-export type SfxKind = 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'boom' | 'scratch' | 'bleep' | 'swish' | 'ding' | 'glitch';
+/** Procedural sounds (Rust `SfxKind`): the classic five, the six @funny kinds (ROAST_SFX_KINDS) and the UI click. */
+export type SfxKind = 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'boom' | 'scratch' | 'bleep' | 'swish' | 'ding' | 'glitch' | 'click'
+  | 'tick' | 'key' | 'typing' | 'glass' | 'shimmer' | 'sub' | 'blip';
+/** Every procedural sound, in Rust `SfxKind::ALL` order. */
+export const SFX_KINDS: readonly SfxKind[] = ['whoosh', 'impact', 'chime', 'pop', 'riser', 'boom', 'scratch', 'bleep', 'swish', 'ding', 'glitch', 'click', 'tick', 'key', 'typing', 'glass', 'shimmer', 'sub', 'blip'];
 
 export type Transform = {
   fit: 'fit' | 'fill';
@@ -554,6 +557,8 @@ export type Settings = {
   /** The chat's animated look. Surface only — it changes nothing about what the AI does. */
   awesomeLook: boolean | null;
   ffmpegPath: string | null;
+  /** Blender for headless 3D renders; found automatically when unset. */
+  blenderPath?: string | null;
   chatOpen: boolean | null;
   timelineHeight: number | null;
   timelineZoom: number | null;

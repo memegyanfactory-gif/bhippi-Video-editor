@@ -2,6 +2,7 @@
 // in the preview they run alongside the playhead, in the export every frame is sought exactly.
 import type { FootageSource, Layer, MotionScene } from './types';
 import { layerTime, num } from './anim';
+import { ensureFonts } from './fonts';
 
 /** What the host (the Helios editor, a test harness) knows about media. */
 export type MediaHost = {
@@ -9,7 +10,26 @@ export type MediaHost = {
   resolve(source: FootageSource): { url: string; kind: 'video' | 'image'; width?: number; height?: number } | null;
   /** Frame sequence of a roto matte (the clip's `rotoMatte` path). */
   matte(path: string): Promise<MatteSequence | null>;
+  /** URL of a file on disk (image sequences name their frames by path); identity when absent. */
+  file?(path: string): string;
 };
+
+type Sequence = NonNullable<FootageSource['sequence']>;
+
+/** The frame of an image sequence shown at source seconds `time` (held at the ends, or looped). */
+export function sequenceIndex(seq: Sequence, time: number): number {
+  const frames = Math.max(1, Math.floor(seq.frames));
+  const raw = Math.floor((time - (seq.first ?? 0)) * seq.fps + 1e-5);
+  if (seq.loop) return ((raw % frames) + frames) % frames;
+  return Math.max(0, Math.min(frames - 1, raw));
+}
+
+/** The file of frame `index` (0-based) of an image sequence: dir/00001.png by default. */
+export function sequenceFile(seq: Sequence, index: number): string {
+  const dir = seq.dir.replace(/[\\/]+$/, '');
+  const slash = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+  return `${dir}${slash}${String((seq.start ?? 1) + index).padStart(seq.digits ?? 5, '0')}.${seq.ext ?? 'png'}`;
+}
 
 export type MatteSequence = { fps: number; frames: number; /** Source seconds of frame 0. */ first: number; frameUrl: (index: number) => string };
 
@@ -60,6 +80,8 @@ export class MediaBank {
   private mattes = new Map<string, Promise<MatteSequence | null>>();
   private matteMeta = new Map<string, MatteSequence | null>();
   private matteFrames = new Map<string, ImageEntry>();
+  /** Image-sequence frames (a Blender render…): an LRU like the matte frames, never unbounded. */
+  private seqFrames = new Map<string, ImageEntry>();
   private listeners = new Set<() => void>();
   private onFrame = () => { for (const listener of this.listeners) listener(); };
   /** The frame rate draws run at (the renderer sets it): a video within half a frame of the time asked for shows that time. */
@@ -74,7 +96,7 @@ export class MediaBank {
    */
   private footage(scene: MotionScene, t: number) {
     const entries = footageAt(scene, t).flatMap((entry) => {
-      const resolved = this.host.resolve(entry.layer.source);
+      const resolved = this.resolveAt(entry.layer.source, entry.time);
       return resolved ? [{ ...entry, resolved }] : [];
     });
     const shown = entries.filter((entry) => entry.active);
@@ -82,6 +104,29 @@ export class MediaBank {
     const ahead = entries.filter((entry) => !entry.active && !shown.some((on) => on.resolved.url === entry.resolved.url && Math.abs(on.time - entry.time) > near));
     return [...shown, ...ahead];
   }
+
+  /** A source resolved at source time `time`: an image sequence resolves to the file of its frame then. */
+  private resolveAt(source: FootageSource, time: number): { url: string; kind: 'video' | 'image'; width?: number; height?: number; seq?: Sequence } | null {
+    if (source.sequence) return { url: this.sequenceUrl(source.sequence, sequenceIndex(source.sequence, time)), kind: 'image', width: source.width, height: source.height, seq: source.sequence };
+    return this.host.resolve(source);
+  }
+
+  private sequenceUrl(seq: Sequence, index: number): string {
+    const path = sequenceFile(seq, index);
+    return this.host.file ? this.host.file(path) : path;
+  }
+
+  /** Starts loading the frames of a sequence from `index` on (preview lookahead). */
+  private prefetch(seq: Sequence, index: number, ahead: number) {
+    for (let k = index; k <= index + ahead; k++) {
+      const i = seq.loop ? k % Math.max(1, seq.frames) : k;
+      if (i < seq.frames) this.image(this.sequenceUrl(seq, i), this.seqFrames);
+    }
+    while (this.seqFrames.size > 160) this.seqFrames.delete(this.seqFrames.keys().next().value!);
+  }
+
+  /** Tells listeners something they draw changed (a font finished loading). */
+  notify() { this.onFrame(); }
 
   /** Called when a frame the preview was waiting for arrives (a seek finished, a matte loaded). */
   listen(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -142,6 +187,7 @@ export class MediaBank {
    */
   syncPreview(scene: MotionScene, t: number, playing: boolean, rate: number) {
     for (const { layer, time, rate: runs, resolved } of this.footage(scene, t)) {
+      if (resolved.seq) { this.prefetch(resolved.seq, sequenceIndex(resolved.seq, time), 5); continue; }
       if (resolved.kind === 'image') { this.image(resolved.url); continue; }
       const { el } = this.video(resolved.url);
       const speed = runs * rate;
@@ -176,8 +222,10 @@ export class MediaBank {
    * a video that is not in the page.
    */
   async prepareExact(scene: MotionScene, t: number, options: { presented?: boolean } = {}): Promise<void> {
-    const waits: Promise<unknown>[] = [];
+    // Text must be drawn in its real face: an export frame never bakes in a fallback font.
+    const waits: Promise<unknown>[] = [ensureFonts(scene)];
     for (const { layer, time, resolved } of this.footage(scene, t)) {
+      if (resolved.seq) { waits.push(loaded(this.image(resolved.url, this.seqFrames).ready, resolved.url)); continue; }
       if (resolved.kind === 'image') { waits.push(loaded(this.image(resolved.url).ready, resolved.url)); continue; }
       const entry = this.video(resolved.url);
       waits.push(loaded(entry.ready, resolved.url).then(() => loaded(seekExact(entry.el, time, options.presented ?? true), resolved.url)));
@@ -238,6 +286,7 @@ export class MediaBank {
 
   /** The current picture of a footage source, or null while it is loading. */
   frame(source: FootageSource, time: number): FootageFrame | null {
+    if (source.sequence) return this.sequenceFrame(source.sequence, time);
     const resolved = this.host.resolve(source);
     if (!resolved) return null;
     if (resolved.kind === 'image') {
@@ -252,6 +301,20 @@ export class MediaBank {
     const off = Math.abs(entry.el.currentTime - (Number.isFinite(entry.el.duration) ? Math.min(time, entry.el.duration - 1e-3) : time));
     if (entry.el.seeking || off > (entry.el.paused ? 0.5 / this.fps : 0.25)) return null;
     return { image: entry.el, width: entry.el.videoWidth, height: entry.el.videoHeight, key: `${resolved.url}@${entry.el.currentTime.toFixed(4)}` };
+  }
+
+  /** The image-sequence frame for `time`: the exact one, else (preview) the nearest loaded one while it loads. */
+  private sequenceFrame(seq: Sequence, time: number): FootageFrame | null {
+    const index = sequenceIndex(seq, time);
+    const url = this.sequenceUrl(seq, index);
+    const exact = this.image(url, this.seqFrames);
+    if (exact.el.complete && exact.width) return { image: exact.el, width: exact.width, height: exact.height, key: url };
+    for (const k of [index - 1, index + 1, index - 2, index + 2]) {
+      if (k < 0 || k >= seq.frames) continue;
+      const near = this.seqFrames.get(this.sequenceUrl(seq, k));
+      if (near && near.width) return { image: near.el, width: near.width, height: near.height, key: this.sequenceUrl(seq, k) };
+    }
+    return null;
   }
 
   /** The matte frame for `time` (nearest loaded one while the exact frame loads, in preview). */
@@ -276,6 +339,7 @@ export class MediaBank {
    */
   warm(scene: MotionScene, t: number) {
     for (const { layer, time } of footageAt(scene, t)) {
+      if (layer.source.sequence) { this.prefetch(layer.source.sequence, sequenceIndex(layer.source.sequence, time), 8); continue; }
       const resolved = this.host.resolve(layer.source);
       if (!resolved) continue;
       if (resolved.kind === 'image') { this.image(resolved.url); continue; }
@@ -312,6 +376,7 @@ export class MediaBank {
     this.videos.clear();
     this.images.clear();
     this.matteFrames.clear();
+    this.seqFrames.clear();
   }
 }
 

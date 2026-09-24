@@ -5,6 +5,7 @@ import { num, vec, type ExprContext } from '../anim';
 import type { ResolvedMask } from '../evaluate';
 import { layoutText, type Measure, type TextFrame } from '../text';
 import type { ShapeData, TextLayerData } from '../types';
+import { drawTree, treeStrokeWidth } from '../vector/shapes';
 
 export type Canvas2D = HTMLCanvasElement | OffscreenCanvas;
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -165,7 +166,8 @@ function shapePoints(shape: ShapeData, w: number, h: number, t: number, ctx: Exp
 
 /** Draws a shape layer; the canvas has `pad` extra layer pixels on every side for the stroke. */
 export function rasterShape(cache: CanvasCache, key: string, shape: ShapeData, size: [number, number], t: number, density: number, ctx: ExprContext): { canvas: Canvas2D; pad: number } {
-  const strokeWidth = Math.max(0, num(shape.strokeWidth, t, shape.stroke ? 2 : 0, ctx));
+  const tree = shape.groups?.length ? shape.groups : null;
+  const strokeWidth = tree ? treeStrokeWidth(tree, t, ctx) : Math.max(0, num(shape.strokeWidth, t, shape.stroke ? 2 : 0, ctx));
   const [w, h] = size;
   const rep = shape.repeat;
   // Repeater copies land beside the original: grow the canvas to hold all of them.
@@ -175,6 +177,7 @@ export function rasterShape(cache: CanvasCache, key: string, shape: ShapeData, s
   const d = density;
   const off = pad * d;
   const drawOne = () => {
+    if (tree) { drawTree(c, tree, t, ctx, d, off); return; }
     const radius = Math.max(0, num(shape.radius, t, 0, ctx));
     const closedPath = shape.shape === 'rect' || shape.shape === 'ellipse' || shape.shape === 'polygon' || shape.shape === 'star' || (shape.shape === 'path' && shape.closed !== false);
     let length = 0;

@@ -39,6 +39,8 @@ import { ProgramMonitor, shouldStep } from '../src/editor/ProgramMonitor';
 import { correctionsOnFrame } from '../src/editor/RotoPreview';
 import { correctedAlpha } from '../src/lib/rotoCorrections';
 import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
+import { explodeScene } from '../src/lib/motionStack';
+import { findTemplate } from '../src/motion/kit';
 import { newClip, newComp, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project, RotoCorrection } from '../src/lib/types';
 import { identity } from '../src/motion/math';
@@ -104,6 +106,38 @@ describe('WebGL context lifecycle', () => {
     Object.assign(renderer, { incomplete: 0, gl: { lost: true } });
     renderer.draw(emptyScene(), 0);
     expect(renderer.incomplete).toBe(1);
+  });
+});
+
+describe('export copy of a layered motion comp', () => {
+  it('draws each fused stack from a track of its own, so no track has overlapping clips', async () => {
+    // A [Motion] comp opened into layers (one track per layer), nested on V2 over a video on V1.
+    const scene = findTemplate('fx-speed-lines')!.build({ width: 1920, height: 1080 }, {});
+    const exploded = explodeScene(scene, { name: '[Motion] Lines', fps: 30 });
+    const project = newProject();
+    project.comps.push(exploded.comp, ...exploded.nested);
+    const main = project.comps[0];
+    const [v1, v2] = tracksOf(main, 'video').map((track) => track.id);
+    main.clips = [
+      newClip({ trackId: v1, start: 0, duration: 4, source: { type: 'media', assetId: 'video' } }),
+      newClip({ trackId: v2, start: 0, duration: scene.duration, source: { type: 'comp', compId: exploded.comp.id } }),
+    ];
+    const out = await renderMotionScenesForExport(project, main.id, []);
+    const layered = out.comps.find((comp) => comp.id === exploded.comp.id)!;
+    // The exporter refuses a comp where two clips (switched off or not) overlap on one track.
+    for (const track of layered.tracks) {
+      const clips = layered.clips.filter((clip) => clip.trackId === track.id).sort((a, b) => a.start - b.start);
+      for (let i = 1; i < clips.length; i++) expect(clips[i].start).toBeGreaterThanOrEqual(clips[i - 1].start + clips[i - 1].duration - 1e-6);
+    }
+    const drawn = layered.clips.filter((clip) => clip.enabled);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].source.type === 'motion' && drawn[0].source.frames).toBeTruthy();
+    // It draws where the stack's bottom layer was: directly under that track, above anything below.
+    const video = tracksOf(layered, 'video').map((track) => track.id);
+    const bottom = tracksOf(exploded.comp, 'video').find((track) => exploded.comp.clips.some((clip) => clip.trackId === track.id))!.id;
+    expect(video.indexOf(drawn[0].trackId)).toBe(video.indexOf(bottom) - 1);
+    // The main comp's own picture is untouched: the video still draws under the graphics.
+    expect(out.comps[0].clips.filter((clip) => clip.enabled)).toHaveLength(2);
   });
 });
 

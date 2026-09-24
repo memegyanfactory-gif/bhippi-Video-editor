@@ -50,6 +50,7 @@ mod storage;
 mod watchdog;
 mod bundle;
 mod cutout;
+mod blender;
 #[cfg(windows)]
 mod window_icon;
 
@@ -3193,6 +3194,8 @@ pub fn run() {
             cutout::roto_long_manifest,
             cutout::roto_long_record,
             cutout::roto_stitch,
+            blender::blender_status,
+            blender::blender_render_start,
             hardware_info,
             resource_usage,
             learning_load,

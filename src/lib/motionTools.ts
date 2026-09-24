@@ -7,20 +7,26 @@ import { currentMotionBrand } from './brandKit/activeStore';
 import type { MotionBrand } from './brandKit/motionBrand';
 import type { FootageSource, Layer, MotionScene } from '../motion/types';
 import { EFFECT_TYPES, validateScene } from '../motion/validate';
+import { expandIcons, searchIcons, unknownIcons } from '../motion/vector/icons';
+import { svgToShape } from '../motion/vector/svg';
+import { playbook, playbookIndex } from './motionDirection';
+import { PRESETS_3D, renderScene, scene3dRequest, type Render3DResult } from './blender3d';
 import { keyTimes } from '../motion/anim';
-import { clamp, timecode } from './editor';
-import { api, errorText, fileSrc } from './ipc';
+import { clamp, SFX_LENGTH, timecode } from './editor';
+import { api, errorText, fileSrc, type Transcript, type TranscriptWord } from './ipc';
+import { timelineWords } from './transcriptText';
+import { hasWordRefs, resolveWordTimes } from './wordTimes';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
 import { clipEnd, compDuration, freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
 import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps, stackLossy } from './motionStack';
 import { fitToSafeArea, layoutIssues, safeMargins, type LayoutIssue } from '../motion/safeArea';
-import type { Clip, ClipSource, Comp, Project, ToolResult } from './types';
+import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type SfxKind, type ToolResult } from './types';
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets']);
 /** Read-only / planning motion tools, allowed in any production phase. */
-export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile']);
+export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets']);
 
 export type MotionToolContext = {
   project: Project;
@@ -32,6 +38,8 @@ export type MotionToolContext = {
   setReference?: (id: string | null) => void;
   /** The active brand kit for the engine; every scene is built in it (null: the house Crimson look). */
   brand?: MotionBrand | null;
+  /** Ends with the AI turn: long waits (a Blender render) stop waiting, the job carries on. */
+  signal?: AbortSignal;
 };
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
@@ -179,17 +187,32 @@ function findLayer(scene: MotionScene, id: string): Layer | null {
   return null;
 }
 
-const SFX_MAP: Record<string, 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser'> = { whoosh: 'whoosh', impact: 'impact', chime: 'chime', pop: 'pop', riser: 'riser', click: 'pop' };
+const SFX_MAP: Record<string, SfxKind> = Object.fromEntries(SFX_KINDS.map((kind) => [kind, kind]));
+
+/** Every typed text line gets a keyboard bed for as long as it types (unless the scene already cues typing). */
+function typingCues(scene: MotionScene): NonNullable<MotionScene['cues']> {
+  if (scene.cues?.some((cue) => cue.sound === 'typing' || cue.sound === 'key')) return [];
+  const out: NonNullable<MotionScene['cues']> = [];
+  for (const layer of scene.layers) {
+    if (layer.type !== 'text' || !layer.text.type) continue;
+    const ty = layer.text.type;
+    const chars = ty.script?.length ? ty.script.reduce((n, step) => n + ('type' in step ? Array.from(step.type).length : 0), 0) : Array.from(layer.text.text ?? '').length;
+    const seconds = chars / Math.max(1, ty.cps ?? 30);
+    if (seconds < 0.15 || ty.chunk === 'word') continue;
+    out.push({ at: (layer.startTime ?? 0) + (ty.at ?? 0), sound: 'typing', duration: Math.min(SFX_LENGTH.typing, seconds), note: 'typing' });
+  }
+  return out;
+}
 
 /** Places the scene's SFX cues on free audio tracks. */
 function placeCues(comp: Comp, scene: MotionScene, start: number): { comp: Comp; ids: string[] } {
   let next = comp;
   const ids: string[] = [];
-  for (const cue of scene.cues ?? []) {
+  for (const cue of [...(scene.cues ?? []), ...typingCues(scene)]) {
     const kind = SFX_MAP[cue.sound];
     if (!kind) continue;
     const at = Math.max(0, start + cue.at);
-    const duration = kind === 'riser' ? 2 : 1.2;
+    const duration = Math.max(0.05, Math.min(SFX_LENGTH[kind], cue.duration ?? SFX_LENGTH[kind]));
     const target = sfxTrack(next, at, at + duration);
     const source: ClipSource = { type: 'sfx', kind };
     // Cues are seasoning under the voice (−14…−20 dB), named for what they mark.
@@ -450,9 +473,125 @@ function updateStack(comp: Comp, args: Args, ctx: MotionToolContext): ToolResult
 
 // ───────────────────────── the tools ─────────────────────────
 
+/** Words spoken on a comp's timeline, from the transcripts already cached for its media. */
+async function compWords(comp: Comp, ctx: MotionToolContext): Promise<TranscriptWord[]> {
+  const ids = [...new Set(comp.clips.flatMap((clip) => (clip.source.type === 'media' ? [clip.source.assetId] : [])))];
+  if (!ids.length) return [];
+  let cached: Transcript[] = [];
+  try { cached = await api.transcriptsCached(ids); } catch { return []; }
+  return timelineWords(comp, ctx.assets, new Map(cached.map((t) => [t.assetId, t])));
+}
+
+/** An update's added layers, patches and replacement scene with their icons expanded to paths. */
+async function withIcons(args: Args): Promise<Args> {
+  const probe: MotionScene = { version: 1, width: 1, height: 1, duration: 1, layers: [] };
+  const expandLayers = async (layers: unknown[]) => (await expandIcons({ ...probe, layers: layers as Layer[] })).layers;
+  const out: Args = { ...args };
+  if (Array.isArray(args.addLayers)) {
+    const raw = args.addLayers as ({ layer?: Layer } | Layer)[];
+    const plain = raw.map((entry) => ('layer' in entry && entry.layer ? entry.layer : entry) as Layer);
+    const expanded = await expandLayers(plain);
+    out.addLayers = raw.map((entry, i) => ('layer' in entry && entry.layer ? { ...entry, layer: expanded[i] } : expanded[i]));
+  }
+  if (Array.isArray(args.patches)) {
+    out.patches = await Promise.all((args.patches as { value?: unknown }[]).map(async (patch) => {
+      const value = patch.value as { groups?: unknown } | undefined;
+      if (!value || typeof value !== 'object') return patch;
+      const shape = 'groups' in value ? value : null;
+      if (!shape) return patch;
+      const [layer] = await expandLayers([{ id: 'p', type: 'shape', shape } as Layer]);
+      return { ...patch, value: (layer as Layer & { type: 'shape' }).shape };
+    }));
+  }
+  if (args.scene && typeof args.scene === 'object') out.scene = await expandIcons(args.scene as MotionScene);
+  return out;
+}
+
 export async function runMotionTool(name: string, args: Args, ctx: MotionToolContext): Promise<ToolResult> {
   const { project } = ctx;
   switch (name) {
+    case 'motion_guide': {
+      const topic = str(args, 'topic');
+      if (!topic) return done('Motion direction playbooks (measured on pro reference films). Call motion_guide {topic} before planning that kind of film.', { topics: playbookIndex() });
+      const book = playbook(topic);
+      if (!book) return fail(`No playbook "${topic}". Topics: ${playbookIndex().map((p) => p.id).join(', ')}.`);
+      const part = str(args, 'part');
+      const data = part && part in book ? { [part]: book[part as keyof typeof book] } : book;
+      return done(`${book.title} — ${book.use} Follow its beats, timing and rules; use the eases and features it names.`, data as Record<string, unknown>);
+    }
+
+    case 'list_3d_presets': {
+      let status: Awaited<ReturnType<typeof api.blenderStatus>> | null = null;
+      try { status = await api.blenderStatus(); } catch { status = null; }
+      return done(`${PRESETS_3D.length} 3D presets rendered in headless Blender${status?.found ? ` (${status.version ?? 'Blender'} found)` : ' — Blender is NOT installed on this machine: ' + (status?.hint ?? 'install Blender 4.2+ from blender.org')}. Render one with render_3d_scene {"preset":"<id>","params":{…},"start":<s>}; or write a raw scene (objects of kind box/rounded-box/sphere/icosphere/torus/cylinder/cone/capsule/crystal/text/floor, material presets plastic/glass/frosted/pearl/metal/gem/clay/emission/flat, world colour or gradient, camera with keys). Draft (EEVEE, ~0.7 s/frame) first; quality "final" (Cycles GPU, ~3 s/frame) for the export.`, {
+        blender: status, presets: PRESETS_3D.map(({ id, label, use, params, seconds }) => ({ id, label, use, params, seconds })),
+      });
+    }
+
+    case 'render_3d_scene': {
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('There is no composition to place the render in.');
+      const start = Math.max(0, num(args, 'start') ?? 0);
+      let jobId = str(args, 'jobId');
+      const title = str(args, 'title') ?? '3D render';
+      if (!jobId) {
+        const quality = str(args, 'quality') === 'final' ? 'final' : 'draft';
+        const duration = clamp(num(args, 'duration') ?? 4, 0.1, 60);
+        // Full comp size and rate, so the render drops straight in.
+        const frame = { width: comp.width, height: comp.height, fps: Math.round(comp.fps), duration };
+        let request;
+        try {
+          request = scene3dRequest({ preset: str(args, 'preset'), params: obj(args, 'params'), scene: obj(args, 'scene') as never }, frame, quality);
+        } catch (error) { return fail(errorText(error)); }
+        const step = num(args, 'step');
+        if (step) request.step = Math.max(1, Math.round(step));
+        try {
+          jobId = await api.blenderRenderStart(request, title);
+        } catch (error) { return fail(`Blender could not start: ${errorText(error)}`); }
+      }
+      // Wait for the job; the turn ending stops the wait, not the render.
+      const deadline = Date.now() + clamp(num(args, 'waitMinutes') ?? 20, 0.1, 120) * 60_000;
+      let render: Render3DResult | null = null;
+      while (Date.now() < deadline) {
+        if (ctx.signal?.aborted) return fail(`The turn ended while Blender was rendering; the job continues. Place it later with render_3d_scene {"jobId":"${jobId}"}.`);
+        const job = (await api.jobsList()).find((entry) => entry.id === jobId);
+        if (!job) return fail(`No render job ${jobId}.`);
+        if (job.status === 'done') { render = job.result as unknown as Render3DResult; break; }
+        if (job.status === 'error' || job.status === 'cancelled') return fail(`The 3D render ${job.status === 'cancelled' ? 'was cancelled' : `failed: ${job.message}`}`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      if (!render?.dir) return fail(`Blender is still rendering (job ${jobId}); place it later with render_3d_scene {"jobId":"${jobId}"}.`);
+      const scene = renderScene(render, comp, title);
+      if (args.place === false) return done(`3D render ready: ${render.frames} frame(s) in ${render.dir}. Add "layer" to any motion scene (update_motion_scene addLayers) to composite it.`, { render, layer: scene.layers[0], jobId });
+      const placed = await runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start, title, duration: scene.duration, fit: false, sfx: false, useBrand: false }, ctx);
+      if (!placed.ok) return placed;
+      return done(`${placed.summary} The 3D frames (${render.frames}, with alpha) came from headless Blender; camera.json and objects2d.json beside them give the camera and each object's screen box per frame, so 2D layers (glints, callouts, UI) can track it. Re-render the same scene with quality "final" for the export.`, { ...placed, render, layer: scene.layers[0], jobId });
+    }
+
+    case 'search_icons': {
+      const query = str(args, 'query');
+      if (!query) return fail('Give a query, e.g. "shield", "chart", "user plus", "sparkle".');
+      const names = await searchIcons(query, Math.min(60, Math.max(1, num(args, 'limit') ?? 24)));
+      return done(names.length ? `${names.length} Lucide icon${names.length === 1 ? '' : 's'}. Use one in a shape layer: {"kind":"icon","icon":"<name>","iconSize":120,"color":"#fff","position":[x,y]} inside shape.groups.` : 'No icon matches; try a simpler word.', { icons: names });
+    }
+
+    case 'svg_to_shape': {
+      let svg = str(args, 'svg');
+      const path = str(args, 'path');
+      if (!svg && path) {
+        try {
+          const response = await fetch(fileSrc(path));
+          if (!response.ok) return fail(`Could not read ${path}.`);
+          svg = await response.text();
+        } catch (error) { return fail(`Could not read ${path}: ${errorText(error)}`); }
+      }
+      if (!svg || !/<svg[\s>]/i.test(svg)) return fail('Give an SVG file path or svg markup.');
+      const fitArg = Array.isArray(args.fit) ? (args.fit as number[]) : null;
+      const result = svgToShape(svg, { fit: fitArg && fitArg.length >= 2 ? [fitArg[0], fitArg[1]] : undefined, color: str(args, 'color') });
+      if (!result.groups.length) return fail('The SVG draws nothing the engine can read (no paths or shapes).');
+      return done(`${result.groups.length} vector path${result.groups.length === 1 ? '' : 's'}, ${Math.round(result.bounds[0])}×${Math.round(result.bounds[1])} px. Place it as a shape layer: {"type":"shape","shape":{"shape":"path","groups":<groups>,"bounds":<bounds>}} — then trim its strokes, animate groups, or recolour paths.`, { groups: result.groups, bounds: result.bounds });
+    }
+
     case 'list_motion_templates': {
       const query = str(args, 'query')?.toLowerCase();
       const specs = MOTION_TEMPLATES.filter((spec) => !query || `${spec.id} ${spec.label} ${spec.use} ${spec.technique}`.toLowerCase().includes(query));
@@ -515,6 +654,18 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       }
       const duration = clamp(num(args, 'duration') ?? scene.duration, 1 / comp.fps, 600);
       scene = { ...scene, duration: Math.max(scene.duration, duration) };
+      // Times written as {word:"…"} land where the voice-over says it (transcripts of the comp's media).
+      if (hasWordRefs(scene)) {
+        const words = await compWords(comp, ctx);
+        if (!words.length) return fail('The scene times text to spoken words ({word:…}) but no clip on this comp has a transcript yet: transcribe the voice-over first.');
+        const resolved = resolveWordTimes(scene, words, start);
+        if (resolved.missing.length) return fail(`These words are not in the timeline transcript: ${resolved.missing.map((w) => `"${w}"`).join(', ')}. Use the exact spoken words.`);
+        scene = resolved.scene;
+      }
+      // Icons become plain paths now, so the saved scene never depends on the icon library.
+      const missingIcons = await unknownIcons(scene);
+      if (missingIcons.length) return fail(`Unknown icon name${missingIcons.length > 1 ? 's' : ''}: ${missingIcons.join(', ')}. Find names with search_icons.`);
+      scene = await expandIcons(scene);
       const problems = validateScene(scene);
       if (problems.length) return fail(`The scene is not valid: ${problems.slice(0, 8).join(' ')}`);
       // Type, panels and cards rest inside the safe area: the frame is the design's boundary.
@@ -584,10 +735,10 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'update_motion_scene': {
       const target = resolveMotion(project, str(args, 'clipId') ?? str(args, 'compId') ?? '');
       if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
-      if (target.kind === 'stack') return updateStack(target.comp, args, ctx);
+      if (target.kind === 'stack') return updateStack(target.comp, await withIcons(args), ctx);
       const { clip, comp } = target;
       const source = clip.source as MotionSource;
-      const edit = editScene(source.scene, args, ctx, clip.start);
+      const edit = editScene(source.scene, await withIcons(args), ctx, clip.start);
       if ('error' in edit) return fail(edit.error);
       const { scene, changes, retime } = edit;
       const duration = retime ? clip.duration * retime : Math.max(clip.duration, Math.min(scene.duration, clip.duration));

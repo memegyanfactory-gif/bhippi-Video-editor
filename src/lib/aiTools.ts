@@ -20,7 +20,7 @@ import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, typ
 import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
 import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
 import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, type QaIssue } from './production';
-import { detectBeats, snapCutsToBeats } from './beats';
+import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
 import { loadPeaks } from './peaks';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
@@ -56,6 +56,7 @@ import {
   newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
+import { SFX_KINDS } from './types';
 import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
 
 /** Tells the model a file search stopped at its budget, so "0 found" is not "not there". */
@@ -663,7 +664,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
   // The motion engine: AE-grade scenes from templates or layer JSON, and reference style profiles.
   if (MOTION_TOOLS.has(name)) {
     const kitForMotion = activeBrandKit(host, project);
-    return runMotionTool(name, args, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: kitForMotion ? motionBrandFromKit(kitForMotion) : null });
+    return runMotionTool(name, args, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: kitForMotion ? motionBrandFromKit(kitForMotion) : null, signal });
   }
 
   // @funny: memes, receipts, sounds, cutouts and the roast plan (src/lib/roast).
@@ -2040,7 +2041,7 @@ ${notes.trim()}${paletteLine}
     }
     case 'generate_selection_sound': {
       const comp=pickComp(project,args);if(!comp)return fail('Choose a composition.');
-      const kind=str(args,'kind')||'whoosh';if(!['whoosh','impact','chime','pop','riser'].includes(kind))return fail('Choose whoosh, impact, chime, pop, or riser.');
+      const kind=str(args,'kind')||'whoosh';if(!(SFX_KINDS as readonly string[]).includes(kind))return fail(`Choose one of ${SFX_KINDS.join(', ')}.`);
       try{const result=generateSelectionSound(comp,list(args,'clipIds').length?list(args,'clipIds'):host.selection(),kind as import('./types').SfxKind,num(args,'gainDb')??SFX_GAIN_DB[kind as import('./types').SfxKind]);
       editComp(comp,()=>result.comp);host.setSelection(result.ids);return done('Local procedural accents added on new audio tracks; original audio preserved',{clipIds:result.ids});}catch(error){return fail(String(error));}
     }
@@ -2520,8 +2521,8 @@ ${notes.trim()}${paletteLine}
     case 'add_sound_effect': {
       const comp = pickComp(project, args);
       if (!comp) return fail('there is no comp');
-      const kind = (['whoosh', 'impact', 'chime', 'pop', 'riser'] as const).find((item) => item === str(args, 'kind'));
-      if (!kind) return fail('unknown sound effect');
+      const kind = SFX_KINDS.find((item) => item === str(args, 'kind'));
+      if (!kind) return fail(`unknown sound effect; use one of ${SFX_KINDS.join(', ')}`);
       const start = Math.max(0, num(args, 'start') ?? playhead.get());
       const source: ClipSource = { type: 'sfx', kind };
       const duration = sourceInfo(project, assets, source).length;
@@ -3192,7 +3193,8 @@ ${notes.trim()}${paletteLine}
       if (comp?.production && (!comp.production.music?.assetId || comp.production.music.assetId === asset.id)) {
         editComp(comp, current => ({ ...current, production: current.production ? { ...current.production, music: { ...(current.production.music ?? { source: 'existing' as const }), assetId: asset!.id, status: 'ready', bpm: analysis.bpm, beats: analysis.beats.slice(0, 4000) }, updatedAt: Date.now() } : current.production }));
       }
-      return done(`${asset.name}: ${analysis.bpm.toFixed(1)} BPM (confidence ${(analysis.confidence * 100).toFixed(0)}%), ${analysis.beats.length} beats over ${analysis.duration.toFixed(1)} s, downbeats every 4. Beat times are source seconds; snap_cuts_to_beats maps them to the timeline through the music clip.`, { assetId: asset.id, bpm: analysis.bpm, confidence: analysis.confidence, beats: analysis.beats.slice(0, 64), beatCount: analysis.beats.length, downbeats: analysis.downbeats.slice(0, 32) });
+      const structure = musicStructure(peaks, analysis, num(args, 'start') ?? 0);
+      return done(`${asset.name}: ${analysis.bpm.toFixed(1)} BPM (confidence ${(analysis.confidence * 100).toFixed(0)}%), ${analysis.beats.length} beats over ${analysis.duration.toFixed(1)} s, ${structure.bars.length} bars, ${structure.phrases.length} 4-bar phrases, ${structure.drops.length} drop(s)${structure.stops.length ? `, ${structure.stops.length} stop(s)` : ''}. Times are source seconds. Pro rhythm: big world changes on phrase lines or the drop, cuts on the 16th before the beat, motion landing on the beat; snap_cuts_to_beats {grid:"phrase"|"bar"|"beat"} maps them to the timeline.`, { assetId: asset.id, bpm: analysis.bpm, confidence: analysis.confidence, beats: analysis.beats.slice(0, 64), beatCount: analysis.beats.length, downbeats: analysis.downbeats.slice(0, 32), phrases: structure.phrases.slice(0, 32), drops: structure.drops, stops: structure.stops });
     }
 
     case 'snap_cuts_to_beats': {
@@ -3204,7 +3206,18 @@ ${notes.trim()}${paletteLine}
         const music = comp.production?.music;
         const musicClip = music?.assetId ? comp.clips.find((c) => c.enabled && c.source.type === 'media' && c.source.assetId === music.assetId) : undefined;
         if (!music?.beats?.length || !musicClip) return fail('No beats known: run analyze_music_beats on the music (placed on the timeline) first, or pass beats as timeline seconds.');
-        beats = music.beats.map((b) => musicClip.start + (b - musicClip.in) / musicClip.speed).filter((t) => t >= 0);
+        let grid = music.beats;
+        const want = str(args, 'grid');
+        if (want === 'bar' || want === 'phrase') {
+          // Bars and phrases come from the waveform again (the plan stores beats only).
+          const musicAsset = assets.get(music.assetId!);
+          const peaks = musicAsset?.peaks ? await loadPeaks(musicAsset.peaks) : null;
+          if (peaks) {
+            const structure = musicStructure(peaks, detectBeats(peaks));
+            grid = want === 'phrase' ? structure.phrases : structure.bars;
+          }
+        }
+        beats = grid.map((b) => musicClip.start + (b - musicClip.in) / musicClip.speed).filter((t) => t >= 0);
       }
       const only = Array.isArray(args.clipIds) ? new Set((args.clipIds as unknown[]).filter((id): id is string => typeof id === 'string')) : null;
       // Butt cuts roll as one edit point, so snapping never opens a gap (WORLD-CLASS-PLAN C1).

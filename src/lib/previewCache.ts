@@ -366,6 +366,7 @@ function getRenderer(): MotionRenderer | null {
     const host: MediaHost = {
       resolve: (footage) => editorMediaHost((source?.assets ?? new Map()) as Map<string, Asset>, 'preview').resolve(footage),
       matte: (path) => editorMediaHost([], 'preview').matte(path),
+      file: (path) => editorMediaHost([], 'preview').file!(path),
     };
     renderer = new MotionRenderer(canvas, host);
   } catch {

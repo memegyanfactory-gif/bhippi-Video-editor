@@ -41,6 +41,17 @@ describe('layoutIssues', () => {
   });
 });
 
+describe('bleed', () => {
+  it('leaves a layer that runs off the frame on purpose alone: no issue, no fit, no QA box', () => {
+    const bleeding: MotionScene = { ...scene, layers: scene.layers.map((l) => (l.id === 'panel' || l.id === 'words' ? { ...l, bleed: true } as Layer : l)) };
+    expect(layoutIssues(bleeding)).toEqual([]);
+    const fitted = fitToSafeArea(bleeding);
+    expect(fitted.moved).toEqual([]);
+    expect(fitted.scene.layers.find((l) => l.id === 'panel')).toEqual(bleeding.layers.find((l) => l.id === 'panel'));
+    expect(restingLayerBoxes(bleeding, 2).map((b) => b.layer.id)).not.toContain('panel');
+  });
+});
+
 describe('fitToSafeArea', () => {
   it('moves the panel and its words back inside together', () => {
     const fitted = fitToSafeArea(scene);

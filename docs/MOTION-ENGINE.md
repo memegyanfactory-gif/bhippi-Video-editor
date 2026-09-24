@@ -115,6 +115,7 @@ Any animatable value (`Prop`) takes one of three forms:
 - Keyframes: `{ k: [{ t, v, ease }] }`. The `ease` of a key shapes the segment that starts at it.
   - Named eases: `expo-out`, `back-out`, `spring`, and the other names in `EASE_NAMES`.
   - Or CSS-style cubic-bezier control points: `[x1, y1, x2, y2]`.
+  - Measured on the reference films ([REFERENCE-FILMS-PLAN.md](REFERENCE-FILMS-PLAN.md) §2.1): `house` (SaaS entrances), `settle` (dark-AI settle), `emphasized` (panels), `rise` (wordmarks), `push` (camera push onto a target), `creep` then `snap-settle` (two-key camera move), `resolve` (a glyph shrinking into the logo), `card-zoom`. The matching durations are the `TIMING` tokens in `kit/common.ts`.
 - An expression: `{ expr, v?, k? }`, in a safe interpreter (`src/motion/expr.ts`). No `eval`.
   - It supports `wiggle`, `loopOut`/`loopIn` (cycle, pingpong, offset), `valueAtTime`, `linear`, `ease`, `easeIn`, `easeOut`, `clamp`, seeded `random`/`gaussRandom`/`noise`, `posterizeTime`, `Math.*`, vector maths with broadcasting, `var` statements and the ternary operator.
   - A broken expression returns the property's own value, as AE does.
@@ -123,13 +124,13 @@ Any animatable value (`Prop`) takes one of three forms:
 
 | Type | Draws |
 |---|---|
-| `footage` | Video or still, `fit` cover/contain/none. `source.matte` is the Roto matte. `cutout: true` uses it as alpha. |
+| `footage` | Video or still, `fit` cover/contain/none. `source.matte` is the Roto matte. `cutout: true` uses it as alpha. `source.sequence {dir, fps, frames, first?, start?, digits?, ext?, loop?}` plays a numbered image sequence (`dir/00001.png`…), e.g. a headless-Blender render with alpha: an LRU of 160 frames, preview prefetch, exact frames on export. |
 | `solid` | A colour. |
 | `procedural` | One of `crimson-stage`, `radial-glow`, `linear-gradient`, `hex-field`, `grid`, `light-rails`, `noise`, `light-leak`, `dots`, `aurora`. |
-| `shape` | rect, ellipse, polygon, star, path, line. Has fill or gradient, stroke, dash, trim paths (`trimStart`/`trimEnd`/`trimOffset`) and a repeater. |
+| `shape` | rect, ellipse, polygon, star, path, line. Has fill or gradient, stroke, dash, trim paths (`trimStart`/`trimEnd`/`trimOffset`) and a repeater. **Shape trees** (`shape.groups`, src/motion/vector/): AE-style groups of `path` items (SVG path data with beziers and arcs), rect/ellipse/polygon/star, nested `group`s with their own transform, `fill`/`stroke` (colour or gradient `Paint`, gradient points in the item's own space; strokes scale with the group), `fillRule: evenodd` for holes, per-path trim. Static shapes are rasterised once and cached. Icons: `{kind:'icon', icon}` (Lucide, expanded to paths when a scene is built). **Arrays:** `{kind:'array', item, count, layout:{type:grid|ring|line…}, morph:{to, t, stagger}, opacityRamp}` repeat one item and move every copy between two layouts (tiles → dots → spinner). **Morphs:** any leaf with `morphTo` + `morphT` blends into another shape (arc-length resampled, rotation-matched). **Path operators** on a group: `ops: [{op:'merge', mode:union|subtract|intersect|xor}, {op:'offset', amount, join}, {op:'round-corners', radius}]` (Clipper2 via clipper2-ts, Boost licence), all animatable. |
 | `text` | Plain text or rich `spans` (script accent word, italic, colour, strike-through). See **Text** below. |
 | `null` | Nothing. A parent for other layers. |
-| `camera` | AE one- or two-node camera: `zoom`, `pointOfInterest`, `focus`, `aperture`. |
+| `camera` | AE one- or two-node camera: `zoom`, `pointOfInterest`. **Depth of field:** `aperture` (px, 0 = off) and `focus` (px from the camera, default the zoom) blur every 3D layer by its circle of confusion (`defocusSigma` in evaluate.ts; the renderer blurs the layer's content). `dof {band, near, far, max}` keeps a depth band sharp and weights the near and far sides. |
 | `precomp` | A nested scene, with `offset`/`speed`, up to 6 deep. |
 
 **Text layers** also take:
@@ -138,17 +139,26 @@ Any animatable value (`Prop`) takes one of three forms:
 - **`animators`:** AE range selectors (start/end/offset, shapes, smoothness, randomise) driving position, scale, rotation, opacity, blur, tracking, fill colour and skew.
 - **`counter`:** a rolling number.
 - **`reveal`:** a typewriter reveal.
+- **`type`:** live typing (`at`, `cps`, `chunk`, `script` of type/backspace/wait, `fadeIn`, `edge`, `front {color, chars|hold|settle}`, `caret` bar/block with blink). Only what is typed is laid out, so centred lines re-centre.
+- **`retype`:** the new text overwrites the old left to right; changed letters flash.
+- **`scatter`:** glyphs converge from seeded random offsets and turns.
+- **`lineSpacing`** (animatable %) and cascade `exit.order` (`reverse`, `random`).
+- **Fonts:** Inter, Manrope, Plus Jakarta Sans, Sora, Outfit, Montserrat, Fraunces, Caveat and Archivo are bundled (OFL, `src/fonts/bundled.css`); export waits for every face a scene uses (`ensureFonts`).
+- **Word timing:** in `create_motion_scene`, any time may be `{word, mode: lead|land|finish|end, offset, nth}`, resolved from the comp's transcripts (`src/lib/wordTimes.ts`).
 
 ### Settings every layer has
 
 - **Timing and rigging:** `in`/`out`, `parent`, `threeD`.
 - **Transform:** anchor, position, scale, rotation, rotationX/Y, opacity, skew.
+- **Layout:** `bleed: true` marks a layer that runs off the frame on purpose; the safe-area fitter and frame QA leave it alone.
 - **Compositing:** `blend` (17 W3C modes), `matte` { layer, mode: alpha / alpha-inverted / luma / luma-inverted }, `hidden`.
 - **Masks:** `masks[]` of rect (rounded), ellipse or path, with add/subtract/intersect, feather, expansion and invert.
 - **`effects[]`:** the effect stack; every numeric param can be animated.
 - **`motionBlur`:** set per layer. The scene's `motionBlur` sets the samples and shutter angle.
 - **`backdrop`:** frosted glass that blurs what is behind the layer.
 - **`adjustment`:** makes the layer an adjustment layer.
+
+**Sound cues** (`scene.cues`): every procedural sound, including the SaaS/brand kit (tick, key, typing, glass, shimmer, sub, blip). Each cue is placed at its real length (or its `duration`), and text with `type` gets a typing bed for as long as it types.
 
 ### Effects
 
@@ -158,6 +168,7 @@ These are in `src/motion/gl/effects.ts`. Every one exports exactly as it preview
 - **Colour:** chromatic aberration, RGB split, vignette, grain, tint, duotone, black & white, brightness-contrast, hue-saturation, levels, exposure, invert, fill, radial gradient overlay.
 - **Shadow and edges:** drop shadow, stroke (outside/centre/inside), matte choke.
 - **Stylise and distort:** mosaic, pixel sort, displacement, turbulent displace, wave warp, lens distortion, light leak, liquid glass.
+- **Layer styles** (inside the layer's alpha, AE's Layer Styles): `inner-shadow` (size, distance, direction, color, opacity, choke), `inner-glow`, `bevel` (size, depth, angle, altitude, highlight/shadow colours: the inflated soft-3D look), `gradient-overlay` (up to 4 `stops`, angle, scale, `offset` to sweep, `repeat` for a moving band, blend normal/soft-light/multiply/screen).
 
 **Matte FX** read the footage layer's roto matte:
 
@@ -200,6 +211,7 @@ the effect helpers, and `unit(ctx)`, which scales every size to the canvas's sho
 | `track_motion` | OpenCV Lucas–Kanade point or planar tracking (`workers/point_track.py`, command `point_track_start`). It can write the track as keyframes on a scene layer. |
 | `analyze_reference_video` | Measures a film: cuts, shot histogram, hook density, palette, contact sheets as images. Built on `refs_ingest`. |
 | `save_style_profile` | Stores the profile as the project's active guideline. `builtin: "motion-designer-explainer"` is the measured reference. |
+| `list_3d_presets` / `render_3d_scene` | Real 3D from the user's own Blender, run headless (`src-tauri/src/blender.rs`, worker `workers/blender_bridge.py`, GPL, run as a separate program). A preset (`src/lib/blender3d.ts`: pearl-core-orb, crystal-gradient-env, device-hero, logo-extrude, letters-drop) or a raw scene of primitives, crystals and extruded text with material presets, a colour or hand-made gradient world, studio lights and a keyed camera. Keys use the engine's eases, mapped 1:1 onto bezier F-curve handles. The render is a PNG sequence with alpha in the project's `3D renders/` folder, placed as a `source.sequence` footage layer. `camera.json` gives the camera per frame in engine pixels; `objects2d.json` gives each object's screen box per frame. Draft is EEVEE (about 0.7 s a 1080p frame); final is Cycles on the GPU (about 3 s). Blender is found through the `blenderPath` setting, `$BLENDER`, PATH, or the install folders. |
 
 - **`reveal_subject`** now defaults to the cell reveal. The old tile grid is still available as `style: "cubes"`.
 - **`erase_subject_clip`** refuses a clean-plate range that crosses a scene cut.

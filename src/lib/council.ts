@@ -137,7 +137,7 @@ export const SEAT_TOOLS: Record<CouncilRole, ReadonlySet<string>> = {
     'synthesize_speech_voiceover', 'analyze_clip_speech', 'podcast_cut', 'search_sfx', 'place_sfx',
   ]),
   animator: new Set([
-    'create_motion_scene', 'update_motion_scene', 'create_motion_graphic', 'set_keyframes', 'add_text', 'reveal_subject',
+    'create_motion_scene', 'update_motion_scene', 'render_3d_scene', 'create_motion_graphic', 'set_keyframes', 'add_text', 'reveal_subject',
     'add_text_behind_subject', 'add_media_behind_subject', 'rotoscope_clip', 'erase_subject_clip', 'nest_motion_scenes', 'react_bits', 'add_captions',
     'cutout_image', 'detect_faces', 'key_green_screen',
   ]),

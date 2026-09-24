@@ -55,6 +55,14 @@ pub fn samples(kind: SfxKind) -> Vec<f64> {
         SfxKind::Swish => master(swish(frames), 0.004, 0.02),
         SfxKind::Ding => master(ding(frames), 0.001, 0.2),
         SfxKind::Glitch => master(glitch(frames), 0.001, 0.04),
+        SfxKind::Click => master(click(frames), 0.0005, 0.01),
+        SfxKind::Tick => master(tick(frames), 0.0003, 0.01),
+        SfxKind::Key => master(key(frames), 0.0003, 0.01),
+        SfxKind::Typing => master(typing(frames), 0.0003, 0.05),
+        SfxKind::Glass => master(glass(frames), 0.001, 0.2),
+        SfxKind::Shimmer => master(shimmer(frames), 0.01, 0.2),
+        SfxKind::Sub => master(sub(frames), 0.002, 0.3),
+        SfxKind::Blip => master(blip(frames), 0.001, 0.01),
     }
 }
 
@@ -96,7 +104,7 @@ fn classic(kind: SfxKind) -> Vec<f64> {
                     (0.55 * phase.sin() + 0.35 * filtered) * position.powf(1.8)
                 }
                 // Synthesised by their own voices below; never reached.
-                SfxKind::Boom | SfxKind::Scratch | SfxKind::Bleep | SfxKind::Swish | SfxKind::Ding | SfxKind::Glitch => 0.0,
+                SfxKind::Boom | SfxKind::Scratch | SfxKind::Bleep | SfxKind::Swish | SfxKind::Ding | SfxKind::Glitch | SfxKind::Click | SfxKind::Tick | SfxKind::Key | SfxKind::Typing | SfxKind::Glass | SfxKind::Shimmer | SfxKind::Sub | SfxKind::Blip => 0.0,
             };
             (sample * attack * release * 0.8).clamp(-1.0, 1.0)
         })
@@ -345,6 +353,148 @@ fn ding(frames: usize) -> Vec<f64> {
         .collect()
 }
 
+/// A UI click: a bright press transient (high-passed noise + a 3.2 kHz ping, ~6 ms) and a softer
+/// release 45 ms later — the mouse/trackpad click SaaS films put on every press.
+fn click(frames: usize) -> Vec<f64> {
+    let mut noise = Noise(0xC11C_0000_0000_0006);
+    let mut high = Svf::default();
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            let (_, _, air) = high.run(noise.next(), 2500.0, 0.8);
+            let press = (0.7 * air + 0.6 * (TAU * 3200.0 * time).sin()) * (-time / 0.006).exp();
+            let later = time - 0.045;
+            let release = if later >= 0.0 { 0.45 * (0.6 * air + 0.5 * (TAU * 2400.0 * later).sin()) * (-later / 0.004).exp() } else { 0.0 };
+            press + release
+        })
+        .collect()
+}
+
+// ── The SaaS / brand-film voices (docs/REFERENCE-FILMS-PLAN.md P9) ────────
+
+/// A UI tick: a 3 ms burst of high band-passed noise plus a short 2.8 kHz ping — the frame-synced
+/// tick the Limelight film puts under most UI events.
+fn tick(frames: usize) -> Vec<f64> {
+    let mut noise = Noise(0x71C4_0000_0000_0007);
+    let mut band = Svf::default();
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            let (_, b, _) = band.run(noise.next(), 4200.0, 1.4);
+            (0.8 * b + 0.5 * (TAU * 2800.0 * time).sin()) * (-time / 0.003).exp()
+        })
+        .collect()
+}
+
+/// One keystroke (seed picks the key): a low plastic thock, a bright contact click, and the
+/// softer key-up 30–45 ms later.
+fn keystroke(out: &mut [f64], start: usize, seed: u64, level: f64) {
+    let mut noise = Noise(seed | 1);
+    let pitch = 150.0 + 90.0 * noise.unit();
+    let release = 0.030 + 0.015 * noise.unit();
+    let mut high = Svf::default();
+    let length = (0.09 * HZ) as usize;
+    for k in 0..length {
+        let Some(slot) = out.get_mut(start + k) else { break };
+        let time = k as f64 / HZ;
+        let (_, _, click) = high.run(noise.next(), 3200.0, 0.8);
+        let thock = (TAU * pitch * time).sin() * (-time / 0.012).exp();
+        let contact = click * (-time / 0.004).exp();
+        let up = if time >= release { 0.35 * click * (-(time - release) / 0.003).exp() } else { 0.0 };
+        *slot += level * (0.6 * thock + 0.7 * contact + up);
+    }
+}
+
+fn key(frames: usize) -> Vec<f64> {
+    let mut out = vec![0.0; frames];
+    keystroke(&mut out, 0, 0x4B45_5900_0000_0001, 1.0);
+    out
+}
+
+/// A typing bed: keystrokes at a human, uneven ~13 per second with varied keys and weights —
+/// laid under typed text for as long as it types (the clip is trimmed to the typing).
+fn typing(frames: usize) -> Vec<f64> {
+    let mut out = vec![0.0; frames];
+    let mut noise = Noise(0x7479_7069_6E67_0008);
+    let mut at = 0.0_f64;
+    let length = frames as f64 / HZ;
+    let mut n = 0_u64;
+    while at < length - 0.09 {
+        let level = 0.55 + 0.45 * noise.unit();
+        keystroke(&mut out, (at * HZ) as usize, 0x1000 + n * 7919, level);
+        n += 1;
+        // 60–110 ms between keys; now and then a longer pause, as between words.
+        at += 0.06 + 0.05 * noise.unit() + if noise.unit() < 0.12 { 0.12 } else { 0.0 };
+    }
+    out
+}
+
+/// A glass ping: bright inharmonic partials (2.09, 5.2, 8.6 kHz) with fast, faster, fastest
+/// decays and a slowly beating twin — the glint sound of glass cards and orbs.
+fn glass(frames: usize) -> Vec<f64> {
+    const PARTIALS: [(f64, f64, f64); 3] = [(2093.0, 1.0, 0.55), (5234.0, 0.45, 0.22), (8612.0, 0.25, 0.1)];
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            let ring: f64 = PARTIALS.iter().map(|&(f, level, decay)| level * (TAU * f * time).sin() * (-time / decay).exp()).sum();
+            let twin = 0.3 * (TAU * 2097.0 * time).sin() * (-time / 0.5).exp();
+            ramp(time, 0.001) * (ring + twin)
+        })
+        .collect()
+}
+
+/// A shimmer: a cloud of tiny high sine grains (4–9 kHz) whose density swells and fades — the
+/// sparkle under a star glint or a logo resolve.
+fn shimmer(frames: usize) -> Vec<f64> {
+    let mut out = vec![0.0; frames];
+    let mut noise = Noise(0x5348_494D_0000_0009);
+    let length = frames as f64 / HZ;
+    let grains = 90;
+    for _ in 0..grains {
+        // Grains cluster in the middle: the shimmer swells then fades.
+        let at = length * (0.5 + 0.5 * (noise.next() + noise.next()) / 2.0).clamp(0.0, 0.98);
+        let f = 4000.0 + 5000.0 * noise.unit();
+        let decay = 0.02 + 0.06 * noise.unit();
+        let level = 0.3 + 0.7 * noise.unit();
+        let start = (at * HZ) as usize;
+        for k in 0..((decay * 6.0 * HZ) as usize) {
+            let Some(slot) = out.get_mut(start + k) else { break };
+            let time = k as f64 / HZ;
+            *slot += level * (TAU * f * time).sin() * (-time / decay).exp() * ramp(time, 0.002);
+        }
+    }
+    out
+}
+
+/// A sub drop: a sine falling 90 → 35 Hz with a long tail and a touch of drive so it reads on
+/// small speakers — the hit under a slam ("Boom") or a world change on the drop.
+fn sub(frames: usize) -> Vec<f64> {
+    let mut phase = 0.0_f64;
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            let f = 35.0 + 55.0 * (-time / 0.18).exp();
+            phase += TAU * f / HZ;
+            saturate(phase.sin() * (-time / 0.55).exp(), 1.6) + 0.15 * saturate((2.0 * phase).sin() * (-time / 0.3).exp(), 1.2)
+        })
+        .collect()
+}
+
+/// A data blip: a 120 ms square-ish chirp rising 1.3 → 1.9 kHz — counters, chart points, pills.
+fn blip(frames: usize) -> Vec<f64> {
+    let mut phase = 0.0_f64;
+    let length = frames as f64 / HZ;
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            let f = 1300.0 + 600.0 * (time / length);
+            phase += TAU * f / HZ;
+            let square = saturate(phase.sin(), 3.0);
+            square * (1.0 - time / length).powf(1.5)
+        })
+        .collect()
+}
+
 /// A digital glitch: 18–55 ms slices, each one of a stuttered grain of an FM tone, bit-crushed
 /// noise, a decimated square at a random pitch, or a hole — the sound of a buffer skipping.
 fn glitch(frames: usize) -> Vec<f64> {
@@ -462,8 +612,8 @@ mod tests {
     }
 
     #[test]
-    fn the_kind_list_names_eleven_effects_that_parse_back() {
-        assert_eq!(SfxKind::ALL.len(), 11);
+    fn the_kind_list_names_every_effect_and_each_parses_back() {
+        assert_eq!(SfxKind::ALL.len(), 19);
         for kind in SfxKind::ALL {
             assert_eq!(SfxKind::parse(kind.as_str()), Some(kind));
             assert_eq!(serde_json::to_value(kind).ok(), Some(serde_json::json!(kind.as_str())));

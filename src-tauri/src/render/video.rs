@@ -464,7 +464,7 @@ impl<'a> Graph<'a> {
         let matte = raster::mask(mask, mw, mh);
         let name = self.file("mask", "pgm", raster::pgm(mw, mh, &matte));
         let index = self.input(vec!["-i".into(), name]);
-        let gray = self.chain(&[format!("{index}:v:0")], &format!("format=gray,loop=loop=-1:size=1,{},scale={}:{}", self.conform(0, frames), w.round(), h.round()));
+        let gray = self.chain(&[format!("{index}:v:0")], &format!("format=gray,loop=loop=-1:size=1,{},scale={}:{}:flags={}", self.conform(0, frames), w.round(), h.round(), self.scaler));
         let picture = self.chain(&[label], "format=gbrap");
         let (keep, extract) = self.split(&picture);
         let alpha = self.chain(&[extract], "alphaextract");
@@ -625,7 +625,7 @@ impl<'a> Graph<'a> {
             parts.push(cut);
         }
         let (scaled_w, scaled_h) = (((sx1 - sx0) * factor).round().max(1.0), ((sy1 - sy0) * factor).round().max(1.0));
-        parts.push(format!("scale={scaled_w}:{scaled_h}"));
+        parts.push(format!("scale={scaled_w}:{scaled_h}:flags={}", self.scaler));
         let (px, py) = ((u0 - sx0 * factor).round().clamp(0.0, scaled_w - 1.0), (v0 - sy0 * factor).round().clamp(0.0, scaled_h - 1.0));
         let (pw, ph) = ((u1 - u0).round().clamp(1.0, scaled_w - px), (v1 - v0).round().clamp(1.0, scaled_h - py));
         if pw < scaled_w || ph < scaled_h {
@@ -677,7 +677,7 @@ impl<'a> Graph<'a> {
         if let Some(cut) = crop_filter(ox, oy, crop_w, crop_h, sw, sh) {
             parts.push(cut);
         }
-        parts.push(format!("scale={}:{}", (crop_w * factor).round().max(1.0), (crop_h * factor).round().max(1.0)));
+        parts.push(format!("scale={}:{}:flags={}", (crop_w * factor).round().max(1.0), (crop_h * factor).round().max(1.0), self.scaler));
         parts.extend(effects(&clip.effects, frame.h, ""));
         parts.extend(self.stack_effects(clip, frame.h, ""));
         if let Some(alpha) = self.opacity(clip, tau) {
@@ -690,7 +690,7 @@ impl<'a> Graph<'a> {
         if !keys.scale.is_empty() {
             let scale = keyframe_expr(&keys.scale, &time_expr("t", tau)).unwrap_or_else(|| num(clip.transform.scale));
             let ratio = format!("max(0.002,({scale})/{})", num(peak));
-            parts.push(format!("scale=w='max(2,iw*{ratio})':h='max(2,ih*{ratio})':eval=frame"));
+            parts.push(format!("scale=w='max(2,iw*{ratio})':h='max(2,ih*{ratio})':eval=frame:flags={}", self.scaler));
         }
     }
 

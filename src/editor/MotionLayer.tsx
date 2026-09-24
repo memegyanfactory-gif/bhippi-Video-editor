@@ -33,6 +33,7 @@ function previewRenderer(assets: Map<string, Asset>): MotionRenderer | null {
       const host: MediaHost = {
         resolve: (source) => editorMediaHost(currentAssets, 'preview').resolve(source),
         matte: (path) => editorMediaHost(currentAssets, 'preview').matte(path),
+        file: (path) => editorMediaHost(currentAssets, 'preview').file!(path),
       };
       const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : document.createElement('canvas');
       shared = new MotionRenderer(canvas, host);

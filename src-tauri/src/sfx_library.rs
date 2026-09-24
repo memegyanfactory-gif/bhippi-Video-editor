@@ -124,6 +124,14 @@ fn procedural_words(kind: SfxKind) -> (&'static str, &'static [&'static str], &'
         SfxKind::Swish => ("Swish", &["transition", "fast", "air", "slide", "text"], &["swish", "swoosh", "swipe", "quick whoosh", "woosh", "fast whoosh"]),
         SfxKind::Ding => ("Ding", &["bell", "correct", "idea", "notification", "positive"], &["ding", "bell", "ding ding", "correct answer", "ting", "टिंग", "ghanti", "घंटी", "idea"]),
         SfxKind::Glitch => ("Glitch", &["glitch", "digital", "error", "transition"], &["glitch", "error", "stutter", "bitcrush", "malfunction", "static", "gadbad", "गड़बड़"]),
+        SfxKind::Click => ("UI click", &["ui", "click", "saas", "cursor", "button"], &["click", "ui click", "mouse click", "button click", "tap", "press", "cursor"]),
+        SfxKind::Tick => ("UI tick", &["ui", "tick", "saas", "cursor"], &["tick", "ui tick", "soft click", "tap", "select"]),
+        SfxKind::Key => ("Keystroke", &["ui", "keyboard", "typing"], &["key", "keystroke", "keyboard", "key press"]),
+        SfxKind::Typing => ("Typing", &["ui", "keyboard", "typing", "saas"], &["typing", "keyboard typing", "type", "keys"]),
+        SfxKind::Glass => ("Glass ping", &["glass", "sparkle", "ui", "positive", "reveal"], &["glass", "glass ping", "ping", "glint", "crystal"]),
+        SfxKind::Shimmer => ("Shimmer", &["sparkle", "magic", "reveal", "logo"], &["shimmer", "sparkle", "magic dust", "twinkle", "glitter"]),
+        SfxKind::Sub => ("Sub drop", &["impact", "bass", "drop", "hit"], &["sub", "sub drop", "bass drop", "low hit", "808"]),
+        SfxKind::Blip => ("Data blip", &["ui", "data", "counter", "tech"], &["blip", "data blip", "beep", "digital blip", "chart"]),
     }
 }
 

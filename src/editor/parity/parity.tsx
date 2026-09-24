@@ -100,9 +100,9 @@ async function show(data: Case, time: number) {
 }
 
 /** The project as the export receives it: HTML graphics and motion scenes rendered to frames, effect tables baked in. */
-async function prepare(project: Project, compId: string, assets: Asset[] = []) {
-  const graphics = await renderMotionGraphicsForExport(project, compId);
-  const scenes = await renderMotionScenesForExport(graphics, compId, assets);
+async function prepare(project: Project, compId: string, assets: Asset[] = [], options: { fps?: number; scale?: number } = {}) {
+  const graphics = await renderMotionGraphicsForExport(project, compId, options);
+  const scenes = await renderMotionScenesForExport(graphics, compId, assets, options);
   return prepareEffectExport(scenes, compId);
 }
 

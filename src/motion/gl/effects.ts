@@ -203,6 +203,42 @@ export function applyEffect(gl: GL, src: Target, effect: ResolvedEffect, env: Ef
       gl.release(height);
       return out;
     }
+    case 'inner-shadow':
+    case 'inner-glow': {
+      const shadow = effect.type === 'inner-shadow';
+      const size = n(p, 'size', shadow ? 12 : 18) * d;
+      const blurred = blur(gl, src, size * 0.5);
+      const angle = (n(p, 'direction', 135) * Math.PI) / 180;
+      const distance = shadow ? n(p, 'distance', 8) * d : 0;
+      const color = parseColor(s(p, 'color', shadow ? '#000000' : '#ffffff'));
+      const out = gl.acquire(src.w, src.h);
+      gl.pass('inner', S.INNER_FS, out, { uTex: src.tex, uBlurred: blurred.tex, uOffset: [Math.sin(angle) * distance, -Math.cos(angle) * distance], uColor: [color[0], color[1], color[2], n(p, 'opacity', shadow ? 55 : 70) / 100], uChoke: Math.min(0.95, Math.max(0, n(p, 'choke', 0) / 100)), uBlend: shadow ? 0 : 1 });
+      gl.release(blurred);
+      return out;
+    }
+    case 'bevel': {
+      const height = blur(gl, src, n(p, 'size', 16) * 0.5 * d);
+      const angle = (n(p, 'angle', 120) * Math.PI) / 180;
+      const altitude = (n(p, 'altitude', 35) * Math.PI) / 180;
+      // AE convention: the angle is where the light comes FROM (120° = upper left).
+      const light = [-Math.cos(angle) * Math.cos(altitude), -Math.sin(angle) * Math.cos(altitude), Math.sin(altitude)];
+      const hi = parseColor(s(p, 'highlight', '#ffffff'));
+      const sh = parseColor(s(p, 'shadow', '#000000'));
+      const out = gl.acquire(src.w, src.h);
+      gl.pass('bevel', S.BEVEL_FS, out, { uTex: src.tex, uHeight: height.tex, uLight: light, uDepth: n(p, 'depth', 100) / 100 * Math.max(1, n(p, 'size', 16) * d), uHighlight: [hi[0], hi[1], hi[2], n(p, 'highlightOpacity', 75) / 100], uShadow: [sh[0], sh[1], sh[2], n(p, 'shadowOpacity', 45) / 100] });
+      gl.release(height);
+      return out;
+    }
+    case 'gradient-overlay': {
+      const raw = Array.isArray(p.stops) ? (p.stops as [number, string][]) : [[0, s(p, 'from', '#8b6cf0')], [1, s(p, 'to', '#3a7bff')]] as [number, string][];
+      const stops = raw.slice(0, 4).map(([at, color]) => [...rgb(color), at]);
+      while (stops.length < 4) stops.push(stops[stops.length - 1]);
+      const angle = (n(p, 'angle', 90) * Math.PI) / 180;
+      const blendIndex = ['normal', 'soft-light', 'multiply', 'screen'].indexOf(s(p, 'blend', 'normal'));
+      const out = gl.acquire(src.w, src.h);
+      gl.pass('gradient-overlay', S.GRADIENT_OVERLAY_FS, out, { uTex: src.tex, uDir: [Math.cos(angle), Math.sin(angle)], uOffset: n(p, 'offset', 0), uScale: Math.max(0.01, n(p, 'scale', 100) / 100), uC0: stops[0], uC1: stops[1], uC2: stops[2], uC3: stops[3], uCount: Math.min(4, raw.length), uOpacity: n(p, 'opacity', 100) / 100, uBlend: Math.max(0, blendIndex), uRepeat: b(p, 'repeat', false) ? 1 : 0 });
+      return out;
+    }
     case 'subject-reveal': return subjectReveal(gl, src, p, env);
     case 'matte-fill': {
       if (!env.matte && !b(p, 'useAlpha', true)) return copyOf(gl, src);

@@ -320,7 +320,8 @@ describe('brand from a website', () => {
     expect(found.colors.background).toBe('#0b1020');
     expect(found.colors.text).toBe('#f8fafc');
     expect(found.fonts.googleFonts).toContain('Plus Jakarta Sans');
-    expect(found.fonts.display).toBe('Inter');
+    // Plus Jakarta Sans ships with Helios (bundled OFL fonts), so the site's own face is kept.
+    expect(found.fonts.display).toBe('Plus Jakarta Sans');
     expect(found.logos.some((l) => l.kind === 'svg')).toBe(true);
     expect(found.logos.some((l) => l.url === 'https://flowbase.io/img/logo.png')).toBe(true);
   });

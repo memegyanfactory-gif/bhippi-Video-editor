@@ -46,5 +46,6 @@ export function editorMediaHost(assets: Map<string, Asset> | Asset[], purpose: '
       return null;
     },
     matte: rotoMatteSequence,
+    file: (path) => (/^(https?|asset|data|blob):/.test(path) ? path : fileSrc(path)),
   };
 }

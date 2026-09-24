@@ -2,18 +2,39 @@
 // references, expressions and sizes. Returns human-readable problems; empty means valid.
 import { isAnimated, isExpression } from './anim';
 import { checkExpression } from './expr';
-import type { EffectType, Layer, MotionScene } from './types';
+import { parseSvgPath } from './vector/path';
+import type { EffectType, Layer, MotionScene, ShapeItem } from './types';
 
 const LAYER_TYPES = new Set(['footage', 'solid', 'procedural', 'shape', 'text', 'null', 'camera', 'precomp']);
 export const EFFECT_TYPES: EffectType[] = [
   'glow', 'gaussian-blur', 'directional-blur', 'zoom-blur', 'lens-blur', 'chromatic-aberration', 'vignette', 'grain', 'tint', 'duotone', 'black-white',
   'brightness-contrast', 'hue-saturation', 'levels', 'exposure', 'invert', 'fill', 'drop-shadow', 'stroke', 'halation', 'mosaic', 'pixel-sort',
   'displacement', 'turbulent-displace', 'wave-warp', 'rgb-split', 'lens-distortion', 'light-leak', 'liquid-glass', 'radial-gradient-overlay', 'matte-choke',
-  'subject-reveal', 'matte-fill', 'matte-edge-glow',
+  'subject-reveal', 'matte-fill', 'matte-edge-glow', 'inner-shadow', 'inner-glow', 'bevel', 'gradient-overlay',
 ];
 const EFFECTS = new Set<string>(EFFECT_TYPES);
 const PROCEDURALS = new Set(['crimson-stage', 'radial-glow', 'linear-gradient', 'hex-field', 'grid', 'light-rails', 'noise', 'light-leak', 'dots', 'aurora']);
 const BLENDS = new Set(['normal', 'add', 'screen', 'multiply', 'overlay', 'soft-light', 'hard-light', 'color-dodge', 'color-burn', 'lighten', 'darken', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity']);
+
+const ITEM_KINDS = new Set(['path', 'rect', 'ellipse', 'polygon', 'star', 'group', 'icon', 'array']);
+
+/** What is wrong with a shape tree the AI wrote: unknown kinds, paths that draw nothing, empty groups. */
+function shapeTreeProblems(items: unknown, name: string, where = 'shape.groups', depth = 0): string[] {
+  if (!Array.isArray(items)) return [`${name}: ${where} must be a list of shape items.`];
+  if (depth > 16) return [`${name}: ${where} nests too deep (16 levels max).`];
+  const out: string[] = [];
+  items.forEach((raw, i) => {
+    const item = raw as ShapeItem;
+    const at = `${where}[${i}]`;
+    if (!item || typeof item !== 'object' || !ITEM_KINDS.has(item.kind)) { out.push(`${name}: ${at}.kind must be one of ${[...ITEM_KINDS].join(', ')}.`); return; }
+    if (item.kind === 'path' && (typeof item.d !== 'string' || !parseSvgPath(item.d).some((sp) => sp.v.length > 1))) out.push(`${name}: ${at} needs d, SVG path data that draws something (M x y L … C … Z).`);
+    if (item.kind === 'icon' && (typeof item.icon !== 'string' || !item.icon)) out.push(`${name}: ${at} needs icon, a Lucide icon name (search_icons finds them).`);
+    if (item.kind === 'array' && (!item.item || !(Number(item.count) >= 1))) out.push(`${name}: ${at} (array) needs item (the shape to repeat, drawn around 0,0) and count >= 1.`);
+    if (item.kind === 'array' && item.item) out.push(...shapeTreeProblems([item.item], name, `${at}.item`, depth + 1));
+    if (item.kind === 'group') out.push(...shapeTreeProblems(item.items ?? [], name, `${at}.items`, depth + 1));
+  });
+  return out;
+}
 
 /** Visits every animatable value (anything shaped like a Prop) under `value`. */
 function walkProps(value: unknown, path: string, visit: (prop: unknown, path: string) => void) {
@@ -46,9 +67,15 @@ export function validateScene(scene: unknown, depth = 0): string[] {
     if (typeof layer.in === 'number' && layer.in >= s.duration) problems.push(`${name}: in must be before the scene's end.`);
     for (const effect of layer.effects ?? []) if (!EFFECTS.has(effect?.type)) problems.push(`${name}: unknown effect "${String(effect?.type)}" (known: ${EFFECT_TYPES.join(', ')}).`);
     if (layer.type === 'procedural' && !PROCEDURALS.has(layer.kind)) problems.push(`${name}: unknown procedural kind "${layer.kind}".`);
-    if (layer.type === 'footage' && !layer.source?.asset && !layer.source?.path) problems.push(`${name}: footage needs source.asset (a project asset id) or source.path.`);
+    if (layer.type === 'footage' && !layer.source?.asset && !layer.source?.path && !layer.source?.sequence) problems.push(`${name}: footage needs source.asset (a project asset id), source.path or source.sequence.`);
+    if (layer.type === 'footage' && layer.source?.sequence) {
+      const q = layer.source.sequence;
+      if (typeof q.dir !== 'string' || !q.dir) problems.push(`${name}: source.sequence.dir must be the folder of numbered frames.`);
+      if (!(q.fps > 0) || !(q.frames >= 1)) problems.push(`${name}: source.sequence needs fps > 0 and frames ≥ 1.`);
+    }
     if (layer.type === 'text' && !layer.text?.text && !layer.text?.spans?.length && !layer.text?.counter) problems.push(`${name}: text needs text, spans or counter.`);
-    if (layer.type === 'shape' && !layer.shape?.shape) problems.push(`${name}: shape needs shape.shape.`);
+    if (layer.type === 'shape' && !layer.shape?.shape && !layer.shape?.groups?.length) problems.push(`${name}: shape needs shape.shape (a primitive) or shape.groups (a shape tree).`);
+    if (layer.type === 'shape' && layer.shape?.groups) problems.push(...shapeTreeProblems(layer.shape.groups, name));
     if (layer.type === 'precomp') problems.push(...validateScene(layer.scene, depth + 1));
     walkProps(layer, '', (prop, path) => {
       if (isExpression(prop as never)) {

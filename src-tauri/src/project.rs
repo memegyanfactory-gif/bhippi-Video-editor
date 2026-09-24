@@ -46,10 +46,20 @@ pub enum SfxKind {
     Swish,
     Ding,
     Glitch,
+    /// A UI click (press + release): the SaaS/motion-design cue.
+    Click,
+    // The SaaS / brand-film kit (docs/REFERENCE-FILMS-PLAN.md P9).
+    Tick,
+    Key,
+    Typing,
+    Glass,
+    Shimmer,
+    Sub,
+    Blip,
 }
 
 impl SfxKind {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 19] = [
         Self::Whoosh,
         Self::Impact,
         Self::Chime,
@@ -61,6 +71,14 @@ impl SfxKind {
         Self::Swish,
         Self::Ding,
         Self::Glitch,
+        Self::Click,
+        Self::Tick,
+        Self::Key,
+        Self::Typing,
+        Self::Glass,
+        Self::Shimmer,
+        Self::Sub,
+        Self::Blip,
     ];
 
     #[must_use]
@@ -77,6 +95,14 @@ impl SfxKind {
             Self::Swish => "swish",
             Self::Ding => "ding",
             Self::Glitch => "glitch",
+            Self::Click => "click",
+            Self::Tick => "tick",
+            Self::Key => "key",
+            Self::Typing => "typing",
+            Self::Glass => "glass",
+            Self::Shimmer => "shimmer",
+            Self::Sub => "sub",
+            Self::Blip => "blip",
         }
     }
 
@@ -95,6 +121,14 @@ impl SfxKind {
             Self::Swish => 0.35,
             Self::Ding => 1.5,
             Self::Glitch => 0.4,
+            Self::Click => 0.12,
+            Self::Tick => 0.06,
+            Self::Key => 0.1,
+            Self::Typing => 2.0,
+            Self::Glass => 1.2,
+            Self::Shimmer => 1.2,
+            Self::Sub => 1.5,
+            Self::Blip => 0.12,
         }
     }
 

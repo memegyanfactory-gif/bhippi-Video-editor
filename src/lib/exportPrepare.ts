@@ -4,9 +4,13 @@
 import { motionClipsForExport, renderMotionScenesForExport, renderMotionStill } from '../motion/exportFrames';
 import { prepareEffectExport } from './effectExport';
 import { htmlClipsForExport, renderHtmlStill, renderMotionGraphicsForExport } from './htmlFrames';
-import type { Asset, Project } from './types';
+import type { Asset, Comp, Project } from './types';
 
 type Hooks = {
+  /** The export's frame rate (the comp's when unset): graphics animate at it, up to 60. */
+  fps?: number;
+  /** Above 1, graphics are drawn that much larger than the comp (an export above the comp's size). */
+  scale?: number;
   signal?: AbortSignal;
   onStage?: (stage: 'graphics' | 'scenes') => void;
   onItem?: (title: string, index: number, count: number, frames: number) => void;
@@ -22,6 +26,17 @@ export async function prerenderForExport(project: Project, compId: string, asset
   const graphics = await renderMotionGraphicsForExport(project, compId, hooks);
   if (motionClipsForExport(project, compId).length) hooks.onStage?.('scenes');
   return renderMotionScenesForExport(graphics, compId, assets, hooks);
+}
+
+/**
+ * How much larger than the comp an export's graphics are drawn: the output's short side over the
+ * comp's when the export is bigger (a 4K export of a 1080p comp draws them at 2×, sharp rather than
+ * upscaled), and 1 otherwise — a smaller export is scaled down by FFmpeg from full size.
+ */
+export function exportScale(comp: Pick<Comp, 'width' | 'height'>, resolution: number | null | undefined): number {
+  const short = Math.min(comp.width, comp.height);
+  if (!resolution || !short || resolution <= short) return 1;
+  return Math.min(4, resolution / short);
 }
 
 /** Export Frame: the graphics and scenes of `compId` rendered at `at` only, as the preview shows them there. */

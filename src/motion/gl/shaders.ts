@@ -620,3 +620,80 @@ void main() {
   col += (hash12(vUv * uResolution + uTime) - 0.5) / 255.0;
   outColor = vec4(clamp(col, 0.0, 1.0) * alpha, alpha);
 }`;
+
+/**
+ * Inner shadow / inner glow (AE layer styles), drawn source-atop inside the layer's alpha:
+ * `uBlurred` is the layer's alpha blurred (and read shifted by uOffset for a shadow); where it
+ * falls short of full the colour shows. uBlend 0 = normal, 1 = screen (glows).
+ */
+export const INNER_FS = `${HEAD}
+uniform sampler2D uTex;
+uniform sampler2D uBlurred;
+uniform vec2 uOffset;   // pixels
+uniform vec4 uColor;    // rgb, opacity
+uniform float uChoke;   // 0..1: pushes the edge inward
+uniform float uBlend;
+void main() {
+  vec4 s = texture(uTex, vUv);
+  float b = texture(uBlurred, vUv - uOffset / uResolution).a;
+  float amt = clamp((1.0 - b) / max(1e-3, 1.0 - uChoke), 0.0, 1.0) * uColor.a;
+  vec3 col = unpremul(s);
+  vec3 mixed = uBlend > 0.5 ? 1.0 - (1.0 - col) * (1.0 - uColor.rgb * amt) : mix(col, uColor.rgb, amt);
+  outColor = vec4(mixed * s.a, s.a);
+}`;
+
+/**
+ * Bevel & emboss, the "inflated" soft-3D look: the layer's alpha blurred by the bevel size is a
+ * height field; its slope, lit from (angle, altitude), brightens the lit side toward uHighlight and
+ * darkens the far side toward uShadow. Flat interior stays its own colour.
+ */
+export const BEVEL_FS = `${HEAD}
+uniform sampler2D uTex;
+uniform sampler2D uHeight;
+uniform vec3 uLight;      // unit vector, screen space (+y down), z toward the viewer
+uniform float uDepth;
+uniform vec4 uHighlight;  // rgb, opacity
+uniform vec4 uShadow;     // rgb, opacity
+void main() {
+  vec4 s = texture(uTex, vUv);
+  vec2 e = 1.0 / uResolution;
+  float hx = texture(uHeight, vUv + vec2(e.x, 0.0)).a - texture(uHeight, vUv - vec2(e.x, 0.0)).a;
+  float hy = texture(uHeight, vUv + vec2(0.0, e.y)).a - texture(uHeight, vUv - vec2(0.0, e.y)).a;
+  vec3 n = normalize(vec3(-hx * uDepth, -hy * uDepth, 1.0));
+  float shade = dot(n, uLight) - uLight.z;
+  vec3 col = unpremul(s);
+  col = shade > 0.0 ? mix(col, uHighlight.rgb, clamp(shade * 2.5, 0.0, 1.0) * uHighlight.a)
+                    : mix(col, uShadow.rgb, clamp(-shade * 2.5, 0.0, 1.0) * uShadow.a);
+  outColor = vec4(col * s.a, s.a);
+}`;
+
+/** Gradient overlay (AE layer style): up to 4 stops along `uDir`, blended source-atop. uBlend 0 normal, 1 soft light, 2 multiply, 3 screen. */
+export const GRADIENT_OVERLAY_FS = `${HEAD}
+uniform sampler2D uTex;
+uniform vec2 uDir;
+uniform float uOffset;
+uniform float uScale;
+uniform vec4 uC0; uniform vec4 uC1; uniform vec4 uC2; uniform vec4 uC3;  // rgb + stop position
+uniform float uCount;
+uniform float uOpacity;
+uniform float uBlend;
+uniform float uRepeat;  // 0: clamp at the ends; 1: mirror-repeat (a band that sweeps with uOffset)
+vec3 ramp(float g) {
+  vec3 c = uC0.rgb;
+  if (g > uC0.a) c = mix(uC0.rgb, uC1.rgb, clamp((g - uC0.a) / max(1e-4, uC1.a - uC0.a), 0.0, 1.0));
+  if (uCount > 2.5 && g > uC1.a) c = mix(uC1.rgb, uC2.rgb, clamp((g - uC1.a) / max(1e-4, uC2.a - uC1.a), 0.0, 1.0));
+  if (uCount > 3.5 && g > uC2.a) c = mix(uC2.rgb, uC3.rgb, clamp((g - uC2.a) / max(1e-4, uC3.a - uC2.a), 0.0, 1.0));
+  return c;
+}
+void main() {
+  vec4 s = texture(uTex, vUv);
+  float raw = dot(vUv - 0.5, uDir) / uScale + 0.5 + uOffset;
+  float g = uRepeat > 0.5 ? 1.0 - abs(fract(raw * 0.5) * 2.0 - 1.0) : clamp(raw, 0.0, 1.0);
+  vec3 grad = ramp(g);
+  vec3 col = unpremul(s);
+  vec3 b = uBlend < 0.5 ? grad
+    : uBlend < 1.5 ? mix(col - (1.0 - 2.0 * grad) * col * (1.0 - col), col + (2.0 * grad - 1.0) * (sqrt(col) - col), step(0.5, grad))
+    : uBlend < 2.5 ? col * grad
+    : 1.0 - (1.0 - col) * (1.0 - grad);
+  outColor = vec4(mix(col, b, uOpacity) * s.a, s.a);
+}`;

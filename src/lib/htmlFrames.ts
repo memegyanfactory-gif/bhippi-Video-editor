@@ -18,7 +18,7 @@ import { renderProgress } from './renderProgress';
 import { mogrtCanvas, usesCompCanvas } from './motionGraphics';
 import { rbBackgroundFromName, rbBackgroundHtml } from './reactbits';
 import { REACT_BITS_TEMPLATE } from './rbx';
-import { clipEnd, compClocks } from './timeline';
+import { clipEnd, compClocks, exportFrameRate } from './timeline';
 import { wholeGraphics } from './htmlLayers';
 import type { Clip, Comp, Project } from './types';
 
@@ -72,7 +72,9 @@ function freezeStyles(live: Element, clone: Element, pseudoRules: string[], coun
 }
 
 /** The graphic at one moment, as a self-contained SVG data URL. */
-function snapshot(root: HTMLElement, width: number, height: number): string {
+/** `scale` above 1 draws the page larger than its layout (an export above the design size): the
+ * SVG's viewBox keeps the layout while its pixels grow, so type and edges stay sharp. */
+function snapshot(root: HTMLElement, width: number, height: number, scale = 1): string {
   const clone = root.cloneNode(true) as HTMLElement;
   const pseudoRules: string[] = [];
   freezeStyles(root, clone, pseudoRules, { n: 0 });
@@ -82,7 +84,7 @@ function snapshot(root: HTMLElement, width: number, height: number): string {
   style.textContent = pseudoRules.join('\n');
   clone.prepend(style);
   const xhtml = new XMLSerializer().serializeToString(clone);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(width * scale)}" height="${Math.round(height * scale)}" viewBox="0 0 ${width} ${height}"><foreignObject width="${width}" height="${height}">${xhtml}</foreignObject></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
@@ -93,11 +95,12 @@ const decode = (url: string) => new Promise<HTMLImageElement>((resolve, reject) 
   image.src = url;
 });
 
-/** A motion graphic mounted off-screen, ready to be drawn at any moment of its clip. */
-type Mounted = { draw: (elapsed: number) => Promise<HTMLCanvasElement>; canvas: { width: number; height: number }; unmount: () => void };
+/** A motion graphic mounted off-screen, ready to be drawn at any moment of its clip. `pixels` is the
+ * size each drawn frame has (the design canvas times the scale). */
+type Mounted = { draw: (elapsed: number) => Promise<HTMLCanvasElement>; canvas: { width: number; height: number }; pixels: { width: number; height: number }; unmount: () => void };
 
 /** Mounts `source` off-screen on its design canvas, with its GSAP timeline built but paused. */
-function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'width' | 'height' | 'fps'>): Mounted {
+function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'width' | 'height' | 'fps'>, scale = 1): Mounted {
   const canvas = usesCompCanvas(source.template) ? mogrtCanvas(comp) : { width: 1920, height: 1080 };
   const host = document.createElement('div');
   host.className = 'mgt-layer';
@@ -122,9 +125,10 @@ function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'wi
     }
   }
 
+  const pixels = { width: Math.round(canvas.width * scale), height: Math.round(canvas.height * scale) };
   const sheet = document.createElement('canvas');
-  sheet.width = canvas.width;
-  sheet.height = canvas.height;
+  sheet.width = pixels.width;
+  sheet.height = pixels.height;
   const context = sheet.getContext('2d');
   if (!context) throw new Error('no 2D canvas for frame rendering');
 
@@ -138,23 +142,23 @@ function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'wi
     host.style.setProperty('--u', (canvas.width / 1920).toFixed(4));
     timeline?.seek(elapsed, false);
     await nextPaint();
-    const image = await decode(snapshot(stage, canvas.width, canvas.height));
+    const image = await decode(snapshot(stage, canvas.width, canvas.height, scale));
     context.clearRect(0, 0, sheet.width, sheet.height);
     context.drawImage(image, 0, 0);
     return sheet;
   };
-  return { draw, canvas, unmount: () => { timeline?.kill(); host.remove(); } };
+  return { draw, canvas, pixels, unmount: () => { timeline?.kill(); host.remove(); } };
 }
 
 /**
  * Renders one HTML clip to `dir/%05d.png` at `fps`, `duration` seconds long, on a canvas the
  * size of the comp's design canvas. Returns what the export needs to overlay it.
  */
-export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void } = {}): Promise<RenderedFrames> {
-  const fps = Math.min(options.fps ?? comp.fps, 30);
+export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; scale?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void } = {}): Promise<RenderedFrames> {
+  const fps = exportFrameRate(options.fps ?? comp.fps);
   const frames = Math.max(1, Math.round(clip.duration * fps));
   const dir = await api.mogrtFramesBegin(clip.id);
-  const mounted = mountGraphic(source, clip.duration, comp);
+  const mounted = mountGraphic(source, clip.duration, comp, options.scale ?? 1);
   const cancelled = () => { if (options.signal?.aborted) throw new Error('export cancelled'); };
   let writer: FrameWriter | null = null;
   try {
@@ -172,7 +176,7 @@ export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: strin
     mounted.unmount();
     await writer?.close();
   }
-  return { dir, fps, frames, width: mounted.canvas.width, height: mounted.canvas.height };
+  return { dir, fps, frames, width: mounted.pixels.width, height: mounted.pixels.height };
 }
 
 /** How much is drawn: summed brightness steps between neighbouring pixels (text and edges score, flat fields do not). */
@@ -287,9 +291,9 @@ function asRenderedBackground(clip: Clip, source: HtmlSource, frames: RenderedFr
  * saved project is untouched; frames live under the work folder and are swept after a day.
  */
 /** Frames an HTML graphic renders to at export. */
-export const htmlFrameCount = (clip: Pick<Clip, 'duration'>, comp: Pick<Comp, 'fps'>) => Math.max(1, Math.round(clip.duration * Math.min(comp.fps, 30)));
+export const htmlFrameCount = (clip: Pick<Clip, 'duration'>, comp: Pick<Comp, 'fps'>, fps?: number) => Math.max(1, Math.round(clip.duration * exportFrameRate(fps ?? comp.fps)));
 
-export async function renderMotionGraphicsForExport(project: Project, compId: string, options: { signal?: AbortSignal; onProgress?: (message: string) => void; onItem?: (title: string, index: number, count: number, frames: number) => void; onFrame?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void } = {}): Promise<Project> {
+export async function renderMotionGraphicsForExport(project: Project, compId: string, options: { fps?: number; scale?: number; signal?: AbortSignal; onProgress?: (message: string) => void; onItem?: (title: string, index: number, count: number, frames: number) => void; onFrame?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void } = {}): Promise<Project> {
   const targets = htmlClipsForExport(project, compId);
   if (!targets.length) return project;
   const rendered = new Map<string, RenderedFrames>();
@@ -297,8 +301,10 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
   const merged = mergedMembers(targets);
   for (const [i, target] of targets.entries()) {
     const title = target.source.title ?? 'motion graphic';
-    options.onItem?.(title, i + 1, targets.length, htmlFrameCount(target.clip, target.comp));
+    options.onItem?.(title, i + 1, targets.length, htmlFrameCount(target.clip, target.comp, options.fps));
     const frames = await renderHtmlClipFrames(target.source, target.clip, target.comp, {
+      fps: options.fps,
+      scale: options.scale,
       signal: options.signal,
       onCanvas: options.onCanvas,
       onInflight: renderProgress.inflight,
@@ -347,7 +353,7 @@ export async function renderHtmlStill(project: Project, compId: string, times: n
   const merged = mergedMembers(targets);
   for (const target of targets) {
     const clip = target.clip;
-    const fps = Math.min(target.comp.fps, 30);
+    const fps = exportFrameRate(target.comp.fps);
     // The exporter reads frame round(τ·fps) of the sequence: those files are all it needs.
     const indices = [...new Set((clocks.get(target.comp.id) ?? []).filter((at) => at >= clip.start && at < clipEnd(clip)).map((at) => Math.max(0, Math.round((at - clip.start) * fps))))];
     if (!indices.length) continue;
@@ -362,7 +368,7 @@ export async function renderHtmlStill(project: Project, compId: string, times: n
       mounted.unmount();
       await writer?.close();
     }
-    rendered.set(clip.id, { dir, fps, frames: Math.max(...indices) + 1, width: mounted.canvas.width, height: mounted.canvas.height });
+    rendered.set(clip.id, { dir, fps, frames: Math.max(...indices) + 1, width: mounted.pixels.width, height: mounted.pixels.height });
   }
   return withHtmlRendered(project, sources, rendered, merged);
 }

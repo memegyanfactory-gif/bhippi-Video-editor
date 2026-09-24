@@ -4,7 +4,7 @@
 // offset, scale, rotation, opacity, blur and colour — AE's text animators.
 import { ease, num, vec, type ExprContext } from './anim';
 import { hash01 } from './expr';
-import type { TextAnimator, TextLayerData, TextSpan } from './types';
+import type { TextAnimator, TextLayerData, TextSpan, TypeOn } from './types';
 
 export type Measure = (text: string, font: string) => number;
 
@@ -174,11 +174,69 @@ const mixHex = (a: string, b: string, t: number): string => {
   return `#${m.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 };
 
+export type Typed = { text: string; born: number[]; last: number };
+
+/**
+ * What a `type` script has put on screen by time t: the text, when each character appeared, and
+ * the time of the last keystroke. Typing, backspacing and waiting run in order from `at`.
+ */
+export function typedAt(type: TypeOn, text: string, t: number): Typed {
+  const cps = Math.max(1, type.cps ?? 30);
+  const back = Math.max(1, type.backspaceCps ?? cps * 2);
+  const steps = type.script?.length ? type.script : [{ type: text }];
+  const chars: { ch: string; born: number }[] = [];
+  let clock = type.at ?? 0;
+  let last = clock;
+  run: for (const step of steps) {
+    if ('type' in step) {
+      const units = type.chunk === 'word' ? step.type.match(/\S+\s*|\s+/g) ?? [] : Array.from(step.type);
+      for (const unit of units) {
+        if (clock > t) break run;
+        for (const ch of Array.from(unit)) chars.push({ ch, born: clock });
+        last = clock;
+        clock += Array.from(unit).length / cps;
+      }
+    } else if ('backspace' in step) {
+      for (let k = 0; k < step.backspace && chars.length; k++) {
+        if (clock > t) break run;
+        chars.pop();
+        last = clock;
+        clock += 1 / back;
+      }
+    } else if ('wait' in step) clock += Math.max(0, step.wait);
+  }
+  return { text: chars.map((c) => c.ch).join(''), born: chars.map((c) => c.born), last };
+}
+
+/** The text a `retype` shows at t: `to` overwrites the old text left to right. */
+export function retypedAt(from: string, retype: NonNullable<TextLayerData['retype']>, t: number): { text: string; changedAt: number[] } {
+  const to = Array.from(retype.to);
+  const old = Array.from(from);
+  const cps = Math.max(1, retype.cps ?? 30);
+  const k = Math.max(0, Math.floor((t - retype.at) * cps + 1e-6));
+  if (t < retype.at) return { text: from, changedAt: [] };
+  if (k >= to.length) return { text: retype.to, changedAt: to.map((ch, i) => (ch !== old[i] ? retype.at + i / cps : -Infinity)) };
+  const text = [...to.slice(0, k), ...old.slice(k)].join('');
+  return { text, changedAt: to.slice(0, k).map((ch, i) => (ch !== old[i] ? retype.at + i / cps : -Infinity)) };
+}
+
 /** The text layer at scene time `t`: layout, then cascade, animators, reveal and strikes. */
-export function layoutText(data: TextLayerData, t: number, measure: Measure, ctx: ExprContext = { seed: 1 }): TextFrame {
+export function layoutText(source: TextLayerData, t: number, measure: Measure, ctx: ExprContext = { seed: 1 }): TextFrame {
+  // Typing and retyping change what is laid out: only what is on screen takes space.
+  let data = source;
+  let typed: Typed | null = null;
+  let retyped: ReturnType<typeof retypedAt> | null = null;
+  const caretKind = source.type?.caret ?? 'none';
+  if (source.type && !source.spans?.length) {
+    typed = typedAt(source.type, source.text ?? '', t);
+    data = { ...source, text: typed.text + (caretKind === 'none' ? '' : caretKind === 'block' ? '\u2588' : '|') };
+  } else if (source.retype && !source.spans?.length) {
+    retyped = retypedAt(source.text ?? '', source.retype, t);
+    data = { ...source, text: retyped.text };
+  }
   const chars = styledChars(data, t, ctx);
   const lines = layoutLines(chars, measure, data.box);
-  const lineHeightMul = data.lineHeight ?? 1.12;
+  const lineHeightMul = (data.lineHeight ?? 1.12) * Math.max(0, num(data.lineSpacing, t, 100, ctx)) / 100;
   const lineSizes = lines.map((line) => Math.max(...line.map((c) => c.size), num(data.size, t, 96, ctx)));
   const lineWidths = lines.map((line) => (line.length ? line[line.length - 1].x + line[line.length - 1].advance : 0));
   const blockWidth = Math.max(data.box ?? 0, ...lineWidths, 1);
@@ -234,7 +292,8 @@ export function layoutText(data: TextLayerData, t: number, measure: Measure, ctx
       }
       if (cascade.exit) {
         const exit = cascade.exit;
-        const e = ease(exit.ease ?? 'cubic-in', (t - exit.at - u * (exit.stagger ?? 0)) / Math.max(1e-3, exit.duration ?? 0.35));
+        const order = exit.order === 'reverse' ? n - 1 - u : exit.order === 'random' ? Math.floor(hash01(u * 7.31 + n) * n) : u;
+        const e = ease(exit.ease ?? 'cubic-in', (t - exit.at - order * (exit.stagger ?? 0)) / Math.max(1e-3, exit.duration ?? 0.35));
         g.dx += (exit.to.position?.[0] ?? 0) * e;
         g.dy += (exit.to.position?.[1] ?? 0) * e;
         g.scale *= 1 + ((exit.to.scale ?? 100) / 100 - 1) * e;
@@ -269,6 +328,66 @@ export function layoutText(data: TextLayerData, t: number, measure: Measure, ctx
       g.skew += skew * amount;
       if (props.fillColor && amount > 0) g.color = mixHex(g.color, props.fillColor, amount * fillAmount);
       trackShift += tracking * amount;
+    }
+  }
+
+  // Live typing: fade-in, feathered edge, colour front and caret, from each character's age.
+  if (typed && source.type) {
+    const ty = source.type;
+    const born = typed.born.filter((_, i) => typed!.text[i] !== '\n');
+    const count = born.length;
+    const fadeIn = ty.fadeIn ?? 2 / 30;
+    for (const g of glyphs) {
+      if (g.char >= count) continue;
+      const age = t - born[g.char];
+      const rank = count - 1 - g.char;
+      if (fadeIn > 0) g.opacity *= Math.min(1, Math.max(0, age / fadeIn));
+      if (ty.edge && rank < ty.edge) g.opacity *= (rank + 1) / (ty.edge + 1);
+      const front = ty.front;
+      if (front) {
+        const lead = (front.chars !== undefined && rank < front.chars) || (front.hold !== undefined && age < front.hold);
+        if (lead) g.color = front.color;
+        else if (front.settle && age < front.settle) g.color = mixHex(front.color, g.color, ease('ease-out', age / front.settle));
+      }
+    }
+    if (caretKind !== 'none') {
+      const caret = glyphs[glyphs.length - 1];
+      if (caret && caret.char === count) {
+        caret.color = ty.caretColor ?? ty.front?.color ?? caret.color;
+        const idle = t - typed.last;
+        const blink = ty.blink ?? 2;
+        const on = idle < 1 / Math.max(1, ty.cps ?? 30) + 0.05 || blink <= 0 || Math.floor(idle * blink * 2) % 2 === 0;
+        caret.opacity *= on ? 1 : 0;
+        if (caretKind === 'block') caret.scale *= 0.62;
+      }
+    }
+  }
+
+  // Retype: the letters that changed flash the accent while they land.
+  if (retyped && source.retype?.flash) {
+    const flashFor = source.retype.flashFor ?? 0.15;
+    for (const g of glyphs) {
+      const at = retyped.changedAt[g.char];
+      if (at !== undefined && t - at >= 0 && t - at < flashFor) g.color = mixHex(source.retype.flash, g.color, (t - at) / flashFor);
+    }
+  }
+
+  // Scatter: every glyph flies in from its own random place and turn, converging on its slot.
+  if (source.scatter) {
+    const sc = source.scatter;
+    const duration = Math.max(1e-3, sc.duration ?? 0.6);
+    const spread = sc.spread ?? 400;
+    const turn = sc.rotate ?? 90;
+    const seed = (sc.seed ?? 7) * 1000;
+    for (const g of glyphs) {
+      const r = (k: number) => hash01(seed + g.char * 13.1 + k * 101.7);
+      const delay = r(1) * (sc.stagger ?? 0.3) * duration;
+      const p = ease(sc.ease ?? 'settle', (t - sc.at - delay) / duration);
+      const q = 1 - p;
+      g.dx += (r(2) - 0.5) * 2 * spread * q;
+      g.dy += (r(3) - 0.5) * 2 * spread * 0.6 * q;
+      g.rotation += (r(4) - 0.5) * 2 * turn * q;
+      g.opacity *= Math.min(1, Math.max(0, p * 3));
     }
   }
 

@@ -133,6 +133,29 @@ export const estimateTempo = (envelope: Float32Array, hz: number, range = { min:
   }
   if (bestLag === 0 || !(bestScore > 0)) return { bpm: 0, confidence: 0, lag: 0 };
 
+  // Triplet aliases. A dotted-8th figure (3 sixteenths) over a 4/4 beat autocorrelates at 3/4 of
+  // the beat, so a 90 BPM track reads as 120 (the aflow reference film did exactly that). The beat
+  // has to divide the bar: find the strongest bar-length period (3–4 beats of the range) and, when
+  // the pick does not fit it a whole number of times but its ×4/3 or ×3/4 alias does, take the alias.
+  const wideTo = Math.min(Math.floor(n / 2), maxLag * 4);
+  if (wideTo >= minLag * 3) {
+    const wide = autocorrelate(centred, minLag, wideTo);
+    let bar = 0;
+    let barScore = 0;
+    for (let l = Math.max(minLag * 3, Math.round((hz * 60 * 3) / maxBpm)); l <= wideTo; l++) {
+      const peak = wide[l] >= wide[l - 1] && wide[l] >= (l + 1 <= wideTo ? wide[l + 1] : -1);
+      if (peak && wide[l] > barScore) { barScore = wide[l]; bar = l; }
+    }
+    // A bar or two: 3, 4, 6 or 8 beats.
+    const fits = (beat: number) => [3, 4, 6, 8].some((k) => Math.abs(bar / beat - k) < 0.04 * k);
+    if (bar > 0 && barScore > 0.1 && !fits(bestLag) && !fits(bestLag * 2) && !fits(bestLag / 2)) {
+      for (const ratio of [4 / 3, 3 / 4]) {
+        const alias = bestLag * ratio;
+        if (alias >= minLag && alias <= maxLag && fits(alias)) { bestLag = Math.round(alias); break; }
+      }
+    }
+  }
+
   let lag = bestLag;
   if (bestLag > minLag && bestLag < maxLag) {
     const a = acf[bestLag - 1];
@@ -402,4 +425,49 @@ export function snapCutsToBeats(comp: Comp, beats: number[], options: SnapCutsOp
     }
   }
   return { comp: next, changes };
+}
+
+export type MusicStructure = {
+  /** Bar lines (the downbeats), source seconds. */
+  bars: number[];
+  /** Every 4th bar line, phased to where the energy changes most: where big world changes land. */
+  phrases: number[];
+  /** Bars that come in ≥ 4 dB louder than the two before them (the drop). */
+  drops: number[];
+  /** Bars that fall ≥ 8 dB below the two before them (a break or the music stopping). */
+  stops: number[];
+  /** Mean loudness of each bar, dBFS (rms). */
+  barLoudness: number[];
+};
+
+/**
+ * Bars, 4-bar phrases, drops and stops from the beat analysis and the waveform: what the
+ * reference films cut to (aflow: the three biggest events sit on phrase lines within 2 frames;
+ * Virgil: the dark world starts on the drop).
+ */
+export function musicStructure(peaks: Peaks, analysis: BeatAnalysis, start = 0): MusicStructure {
+  const bars = analysis.downbeats;
+  const empty: MusicStructure = { bars, phrases: [], drops: [], stops: [], barLoudness: [] };
+  if (bars.length < 2) return empty;
+  const hz = BUCKETS_PER_SECOND;
+  const rmsAt = (t: number) => { const i = Math.floor(t * hz); return i >= 0 && i < peaks.buckets ? peaks.data[i * 2 + 1] / 255 : 0; };
+  const barLen = bars[1] - bars[0];
+  const loud = bars.map((b) => {
+    let sum = 0, n = 0;
+    for (let t = b; t < b + barLen; t += 1 / hz) { const v = rmsAt(t - start); sum += v * v; n++; }
+    return 20 * Math.log10(Math.sqrt(sum / Math.max(1, n)) + 1e-6);
+  });
+  const change = loud.map((l, i) => (i ? Math.abs(l - loud[i - 1]) : 0));
+  // Phrase phase: of the four ways to group bars in fours, the one whose lines see the most change.
+  let phase = 0, best = -1;
+  for (let p = 0; p < 4; p++) { let s = 0; for (let i = p; i < bars.length; i += 4) s += change[i]; if (s > best) { best = s; phase = p; } }
+  const phrases = bars.filter((_, i) => i >= phase && (i - phase) % 4 === 0);
+  const drops: number[] = [];
+  const stops: number[] = [];
+  for (let i = 2; i < bars.length; i++) {
+    const before = (loud[i - 1] + loud[i - 2]) / 2;
+    if (loud[i] - before >= 4 && (i + 1 >= bars.length || loud[i + 1] - before >= 2)) drops.push(bars[i]);
+    if (before - loud[i] >= 8) stops.push(bars[i]);
+  }
+  return { bars, phrases, drops, stops, barLoudness: loud.map((l) => Math.round(l * 10) / 10) };
 }

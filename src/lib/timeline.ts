@@ -41,6 +41,11 @@ export const ITEM_LABEL: Record<ItemKind, string> = {
   countdown: 'Countdown Leader',
 };
 
+/** The frame rate motion scenes and HTML graphics are rendered at for an export: the export's own
+ * rate (the comp's unless the export sets one), up to 60, so a 60 fps export animates its graphics
+ * at 60 too. */
+export const exportFrameRate = (fps: number) => Math.min(60, Math.max(1, fps));
+
 export const newTrack = (kind: TrackKind): Track => ({ id: uid(), kind, name: '', locked: false, hidden: false, muted: false, solo: false, targeted: true, syncLock: true, height: 52 });
 
 /** A comp with Premiere's default three video and three audio tracks. */
@@ -100,7 +105,7 @@ export function newItem(kind: ItemKind, comp: Pick<Comp, 'width' | 'height'>, op
 }
 
 /** Default SFX level by kind (linear gain: whoosh ≈ −16 dB … riser ≈ −20 dB); lib/sfxLevels.ts builds on it. */
-export const SFX_DEFAULT_GAIN: Record<SfxKind, number> = { whoosh: 0.16, impact: 0.2, pop: 0.125, chime: 0.125, riser: 0.1, boom: 0.2, scratch: 0.1, bleep: 0.125, swish: 0.16, ding: 0.16, glitch: 0.125 };
+export const SFX_DEFAULT_GAIN: Record<SfxKind, number> = { whoosh: 0.16, impact: 0.2, pop: 0.125, chime: 0.125, riser: 0.1, boom: 0.2, scratch: 0.1, bleep: 0.125, swish: 0.16, ding: 0.16, glitch: 0.125, click: 0.1, tick: 0.1, key: 0.1, typing: 0.1, glass: 0.125, shimmer: 0.1, sub: 0.2, blip: 0.1 };
 
 export function newClip(fields: Pick<Clip, 'trackId' | 'start' | 'duration' | 'source'> & Partial<Clip>): Clip {
   return {

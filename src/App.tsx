@@ -26,7 +26,7 @@ import { ResourceMonitor } from './components/ResourceMonitor';
 import { GenerationJobsMenu } from './components/GenerationJobsMenu';
 import { htmlClipsForExport, htmlFrameCount } from './lib/htmlFrames';
 import { motionClipsForExport, motionFrameCount } from './motion/exportFrames';
-import { prerenderForExport, prerenderStill } from './lib/exportPrepare';
+import { exportScale, prerenderForExport, prerenderStill } from './lib/exportPrepare';
 import { renderProgress, type RenderStage } from './lib/renderProgress';
 import { sfxClipFields, sfxTrack } from './lib/sfxLevels';
 import { RenderWindow } from './components/RenderWindow';
@@ -1412,7 +1412,12 @@ export default function App() {
     const graphicsTargets = htmlClipsForExport(project, options.compId);
     const sceneTargets = motionClipsForExport(project, options.compId);
     const stages: RenderStage[] = [...(graphicsTargets.length ? ['graphics' as const] : []), ...(sceneTargets.length ? ['scenes' as const] : []), 'encoding'];
-    const totalFrames = graphicsTargets.reduce((sum, t) => sum + htmlFrameCount(t.clip, t.comp), 0) + sceneTargets.reduce((sum, t) => sum + motionFrameCount(t.clip, t.comp), 0);
+    // Graphics are drawn at the export's frame rate and size, not the comp's: a 60 fps or 4K export
+    // of a 30 fps 1080p comp gets 60 fps, 4K graphics instead of held or upscaled frames.
+    const exported = project.comps.find((entry) => entry.id === options.compId);
+    const fps = options.fps ?? undefined;
+    const scale = exported ? exportScale(exported, options.resolution) : 1;
+    const totalFrames = graphicsTargets.reduce((sum, t) => sum + htmlFrameCount(t.clip, t.comp, fps), 0) + sceneTargets.reduce((sum, t) => sum + motionFrameCount(t.clip, t.comp, fps), 0);
     const signal = renderProgress.start(stages, totalFrames, options.output);
     const onItem = (title: string, index: number, count: number, frames: number) => renderProgress.item(title, index, count, frames);
     const onFrame = (done: number) => renderProgress.frame(done);
@@ -1421,7 +1426,7 @@ export default function App() {
       // Motion graphics are live DOM in the preview; the export gets them as rendered frames
       // with alpha, so cards, charts and panels animate in the MP4 exactly as they do here.
       // Motion scenes (the GPU engine) render frame-exact off-screen with the preview's own code.
-      const prepared = await prerenderForExport(project, options.compId, assetsRef.current, { signal, onStage: (stage) => renderProgress.stage(stage), onItem, onFrame, onCanvas });
+      const prepared = await prerenderForExport(project, options.compId, assetsRef.current, { fps, scale, signal, onStage: (stage) => renderProgress.stage(stage), onItem, onFrame, onCanvas });
       if (signal.aborted) throw new Error('export cancelled');
       const jobId = await api.exportStart(prepared, options);
       renderProgress.encoding(jobId);

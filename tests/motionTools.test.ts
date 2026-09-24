@@ -213,3 +213,21 @@ describe('nestLooseMotionScenes', () => {
     expect(nestLooseMotionScenes(result.project, comp.id).count).toBe(0);
   });
 });
+
+describe('sound cues', () => {
+  it('lays a typing bed under typed text for as long as it types, and every kit sound places', async () => {
+    const h = harness(newProject());
+    const scene: MotionScene = { version: 1, width: 1920, height: 1080, duration: 3, layers: [
+      { id: 'q', type: 'text', text: { text: 'Summarize the investor type breakdown', size: 44, type: { at: 0.5, cps: 30 } } },
+    ], cues: [{ at: 1.2, sound: 'glass' }, { at: 1.6, sound: 'tick' }, { at: 2, sound: 'sub' }] };
+    const result = await runMotionTool('create_motion_scene', { scene, start: 0 }, h.ctx);
+    expect(result.ok).toBe(true);
+    const clips = h.get().comps[0].clips.filter((c) => c.source.type === 'sfx');
+    const kinds = clips.map((c) => (c.source as { kind: string }).kind).sort();
+    expect(kinds).toEqual(['glass', 'sub', 'tick', 'typing']);
+    const typing = clips.find((c) => (c.source as { kind: string }).kind === 'typing')!;
+    expect(typing.start).toBeCloseTo(0.5, 6);
+    // 37 characters at 30 cps.
+    expect(typing.duration).toBeCloseTo(37 / 30, 3);
+  });
+});

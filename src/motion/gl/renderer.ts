@@ -12,6 +12,7 @@ import { parseColor } from './color';
 import { GL, type Target } from './core';
 import { applyEffects, blur, effectPad, type EffectEnv } from './effects';
 import { CanvasCache, rasterMasks, rasterShape, rasterText, textFrame } from './raster';
+import { isStaticShape } from '../vector/shapes';
 import * as S from './shaders';
 import { proceduralUniforms } from './procedural';
 
@@ -57,12 +58,19 @@ export class MotionRenderer {
   private textCache = new WeakMap<object, Map<string, TextFrame>>();
   /** The last raster of each text layer: re-used only for the same text data object and the same glyph picture. */
   private textSignatures = new Map<string, { data: object; signature: string; size: [number, number] }>();
+  /** The last raster of each static shape layer, re-used while its data object and density stay the same. */
+  private shapeRasters = new Map<string, { data: object; density: number; size: [number, number]; pad: number }>();
   /** Footage or matte frames the last draw had to leave out because they were still loading. */
   incomplete = 0;
 
   constructor(readonly canvas: HTMLCanvasElement | OffscreenCanvas, host: MediaHost) {
     this.gl = new GL(canvas);
     this.bank = new MediaBank(host);
+    // A face that finishes loading changes how text measures and draws: drop the cached layouts
+    // and rasters so the next draw uses it, and ask the preview to redraw.
+    if (typeof document !== 'undefined' && document.fonts) {
+      document.fonts.addEventListener('loadingdone', () => { this.textCache = new WeakMap(); this.textSignatures.clear(); this.bank.notify(); });
+    }
   }
 
   private upload(key: string, source: TexImageSource): WebGLTexture {
@@ -191,9 +199,20 @@ export class MotionRenderer {
         break;
       }
       case 'shape': {
+        // A shape with nothing animated rasterises once per density (icons, UI chrome, logos).
+        const key = `s:${layer.id}`;
+        const still = isStaticShape(layer.shape);
+        const cached = still ? this.shapeRasters.get(key) : undefined;
+        if (cached && cached.data === layer.shape && Math.abs(cached.density - density) < 1e-3 && this.uploads.has(key)) {
+          target = this.fromTexture(this.uploads.get(key)!, cached.size[0], cached.size[1]);
+          pad = cached.pad;
+          break;
+        }
         const { canvas, pad: shapePad } = rasterShape(this.canvases, layer.id, layer.shape, [w, h], L.time, density, { seed: scene.seed ?? 1, index: L.index });
-        target = this.fromTexture(this.upload(`s:${layer.id}`, canvas), canvas.width, canvas.height);
+        target = this.fromTexture(this.upload(key, canvas), canvas.width, canvas.height);
         pad = shapePad;
+        if (still) this.shapeRasters.set(key, { data: layer.shape, density, size: [canvas.width, canvas.height], pad });
+        else this.shapeRasters.delete(key);
         break;
       }
       case 'precomp': {
@@ -233,6 +252,17 @@ export class MotionRenderer {
     }
     gl.release(matte);
     gl.release(footage);
+
+    // Camera depth of field: a 3D layer away from the focus blurs by its circle of confusion
+    // (sigma in layer pixels from evaluate), grown first so the soft edge is not clipped.
+    if (!forMatteOnly && L.defocus > 0.25) {
+      const extra = L.defocus * 3;
+      target = this.grow(target, density, extra);
+      pad += Math.ceil(extra * density) / density;
+      const soft = blur(gl, target, L.defocus * density);
+      gl.release(target);
+      target = soft;
+    }
     return { target, pad, density, size: [w, h] };
   }
 

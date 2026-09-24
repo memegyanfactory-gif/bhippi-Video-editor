@@ -6,7 +6,7 @@ import type { Effects, Preset, SfxKind, Transform } from './types';
 export const STILL_DEFAULT = 5;
 export const FPS = 30;
 
-export const SFX_LENGTH: Record<SfxKind, number> = { whoosh: 0.9, impact: 1.4, chime: 1.6, pop: 0.25, riser: 2, boom: 1.2, scratch: 0.5, bleep: 0.8, swish: 0.35, ding: 1.5, glitch: 0.4 };
+export const SFX_LENGTH: Record<SfxKind, number> = { whoosh: 0.9, impact: 1.4, chime: 1.6, pop: 0.25, riser: 2, boom: 1.2, scratch: 0.5, bleep: 0.8, swish: 0.35, ding: 1.5, glitch: 0.4, click: 0.12, tick: 0.06, key: 0.1, typing: 2.0, glass: 1.2, shimmer: 1.2, sub: 1.5, blip: 0.12 };
 
 export const uid = () => crypto.randomUUID().replace(/-/g, '').slice(0, 20);
 

@@ -126,6 +126,10 @@ const preparation = new Set([
   'analyze_clip_speech',
   // Motion engine planning: templates are read and a reference's style is learned before editing.
   'list_motion_templates',
+  'search_icons',
+  'svg_to_shape',
+  'motion_guide',
+  'list_3d_presets',
   'get_motion_scene',
   'analyze_reference_video',
   'save_style_profile',
@@ -227,6 +231,10 @@ const LOCAL_GENERATION_OFF =
 /** Reads and bookkeeping that are fine in any phase, including after a phase has just closed. */
 const ALWAYS_TOOLS = new Set([
   'list_motion_templates',
+  'search_icons',
+  'svg_to_shape',
+  'motion_guide',
+  'list_3d_presets',
   'get_motion_scene',
   'editing_workflow_status',
   'verify_edit_workflow',

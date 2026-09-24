@@ -56,6 +56,32 @@ describe('beat detection', () => {
     expect(result.downbeats[1] - result.downbeats[0]).toBeCloseTo(2, 1);
   });
 
+  it('reads a 90 BPM groove with a dotted-8th figure as 90, not 120 (triplet alias)', () => {
+    // 4/4 at 90 BPM: a dotted-8th figure (3 sixteenths = 0.5 s, which reads as 120) over kick and
+    // snare on the beats, restarting every bar — the aflow reference film's shape, which the
+    // estimator read as 120 before. The beat has to divide the bar.
+    const sixteenth = 60 / 90 / 4;
+    const seconds = 32;
+    const buckets = Math.round(seconds * BUCKETS_PER_SECOND);
+    const data = new Uint8Array(buckets * 2);
+    const next = noise(11);
+    for (let index = 0; index < buckets; index++) { data[index * 2] = Math.round(20 + 6 * next()); data[index * 2 + 1] = Math.round(10 + 4 * next()); }
+    const hit = (time: number, peak: number, rms: number) => {
+      const first = Math.round(time * BUCKETS_PER_SECOND);
+      for (let index = first; index < Math.min(buckets, first + 3); index++) { data[index * 2] = Math.max(data[index * 2], peak); data[index * 2 + 1] = Math.max(data[index * 2 + 1], rms); }
+    };
+    for (let step = 0; step * sixteenth < seconds; step++) {
+      const inBar = step % 16;
+      const time = step * sixteenth;
+      // The figure restarts every bar: 3-3-3-3-2-2 sixteenths (hits on 0, 3, 6, 9, 12, 14).
+      if ([0, 3, 6, 9, 12, 14].includes(inBar)) hit(time, 235, 200);
+      if (inBar === 0) hit(time, 255, 230);
+      else if (inBar % 4 === 0) hit(time, 150, 110);
+    }
+    const result = detectBeats({ data, buckets });
+    expect(Math.abs(result.bpm - 90)).toBeLessThanOrEqual(2);
+  });
+
   it('resolves a tempo whose period is not a whole number of buckets', () => {
     const result = detectBeats(clicks(20, 0.64516));
     expect(Math.abs(result.bpm - 93)).toBeLessThanOrEqual(2);
@@ -183,5 +209,21 @@ describe('downbeats for stingers', () => {
     expect(nearestDownbeat(2.9, { downbeats: [0, 2, 4, 6] })).toBe(2);
     expect(nearestDownbeat(2.9, [0, 2, 4, 6], 0.5)).toBeNull();
     expect(nearestDownbeat(1, [])).toBeNull();
+  });
+});
+
+describe('music structure', () => {
+  it('finds bars, 4-bar phrases and the drop', async () => {
+    const { musicStructure } = await import('../src/lib/beats');
+    // 120 BPM clicks; bars 0–7 quiet, the drop at bar 8 (16 s) where everything gets loud.
+    const peaks = clicks(32, 0.5);
+    for (let i = Math.round(16 * BUCKETS_PER_SECOND); i < peaks.buckets; i++) { peaks.data[i * 2] = Math.max(peaks.data[i * 2], 200); peaks.data[i * 2 + 1] = Math.max(peaks.data[i * 2 + 1], 150); }
+    const analysis = detectBeats(peaks);
+    const s = musicStructure(peaks, analysis);
+    expect(s.bars.length).toBeGreaterThanOrEqual(14);
+    expect(s.drops.some((d) => Math.abs(d - 16) < 0.3)).toBe(true);
+    // The drop is a phrase line: the phrase grid is phased to the biggest change.
+    expect(s.phrases.some((p) => Math.abs(p - 16) < 0.3)).toBe(true);
+    expect(s.phrases.length).toBeGreaterThanOrEqual(3);
   });
 });

@@ -74,6 +74,8 @@ pub struct Settings {
     pub permission: Option<String>,
     /// Explicit FFmpeg binary, when it is not on PATH.
     pub ffmpeg_path: Option<String>,
+    /// Explicit Blender program for 3D renders; found in the usual places when unset (blender.rs).
+    pub blender_path: Option<String>,
     pub chat_open: Option<bool>,
     pub timeline_height: Option<u32>,
     pub timeline_zoom: Option<f64>,

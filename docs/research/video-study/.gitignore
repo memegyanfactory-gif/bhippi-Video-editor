@@ -1,0 +1,10 @@
+# third-party reference media and derived frames stay local
+*
+!.gitignore
+!analyze.py
+!reports/
+!reports/*.md
+!blender_proof/
+!blender_proof/blender_bridge_proof.py
+!blender_proof/proof2.py
+!blender_proof/request.json

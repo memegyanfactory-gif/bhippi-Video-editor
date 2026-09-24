@@ -1,6 +1,7 @@
 // Dev-only harness (motion-lab.html): renders motion scenes in a plain browser so the engine can
 // be checked frame by frame with Playwright, outside the desktop app. Media comes from a local
 // CORS file server given by ?media=http://127.0.0.1:8765.
+import '../../fonts/bundled.css';
 import { MotionRenderer } from '../gl/renderer';
 import type { MediaHost } from '../sources';
 import type { MotionScene } from '../types';
@@ -21,6 +22,7 @@ const host: MediaHost = {
     const [folder, fps, frames, first] = path.split('@');
     return { fps: Number(fps), frames: Number(frames), first: Number(first ?? 0) || 0, frameUrl: (i: number) => `${media}/${folder}/${String(i + 1).padStart(5, '0')}.png` };
   },
+  file: (path) => (/^(https?|data|blob):/.test(path) ? path : `${media}/${path}`),
 };
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;

@@ -4,6 +4,7 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/ui';
 import { LicenseGate } from './license/LicenseGate';
+import './fonts/bundled.css';
 import './styles/app.css';
 import './styles/terminal.css';
 import './styles/brandkit.css';
