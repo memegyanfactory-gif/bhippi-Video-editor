@@ -67,7 +67,7 @@ function createDummyProject(): Project {
 }
 
 describe('Motion Graphics Templates', () => {
-  it('builds a sleek lower-third template with glassmorphism', () => {
+  it('builds a sleek lower-third template without export-unsafe backdrop blur', () => {
     const bundle = buildMotionGraphic({
       template: 'lower-third',
       title: 'Elena Rostova',
@@ -80,7 +80,7 @@ describe('Motion Graphics Templates', () => {
     expect(bundle.html).toContain('Elena Rostova');
     expect(bundle.html).toContain('Chief AI Architect');
     expect(bundle.html).toContain('SPEAKER');
-    expect(bundle.css).toContain('backdrop-filter');
+    expect(bundle.css).not.toContain('backdrop-filter');
     expect(bundle.css).toContain('#10b981');
     expect(bundle.js).toContain('gsap');
   });

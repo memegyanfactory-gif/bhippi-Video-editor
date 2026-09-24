@@ -142,3 +142,34 @@ describe('Crimson templates on 9:16 and 1:1 canvases', () => {
     expect(buildCrimsonTemplate({ template: 'side-panel', ...PARAMS })!.html).toContain('right:calc(96px * var(--u));top:calc(110px * var(--u))');
   });
 });
+
+describe('legacy motion graphic templates', () => {
+  const LEGACY = ['kinetic-title', 'stat-callout', 'feature-badge', 'social-callout', 'lower-third'];
+  it('never makes up copy or stats and keeps export-safe CSS', () => {
+    const stat = buildMotionGraphic({ template: 'stat-callout', title: 'Revenue' });
+    for (const invented of ['+340%', 'PRO FEATURE', 'AI-Powered Creative Studio']) expect(stat.html).not.toContain(invented);
+    expect(stat.html).not.toContain('mgt-stat-metric');
+    expect(stat.html).not.toContain('mgt-stat-badge');
+    for (const template of LEGACY) {
+      const built = buildMotionGraphic({ template, title: 'Revenue' });
+      expect(built.html, template).not.toContain('AI-Powered Creative Studio');
+      expect(built.html, template).not.toContain('PRO FEATURE');
+      expect(built.css, template).not.toContain('backdrop-filter');
+      expect(built.css, template).not.toContain('#38bdf8');
+    }
+    expect(buildMotionGraphic({ template: 'lower-third', title: 'Name' }).css).toContain(CRIMSON.tokens.accent);
+    expect(buildMotionGraphic({ template: 'stat-callout', title: 'Revenue', metric: '+12%', badge: 'Q3' }).html).toContain('+12%');
+  });
+  it('defaults to the Crimson lower third', () => {
+    expect(buildMotionGraphic({ title: 'Ada Lovelace' }).template).toBe('crimson-lower-third');
+  });
+  it('boxes the 1920×1080 canvas where the export fits it into a taller comp', () => {
+    const custom = buildMotionGraphic({ template: 'custom', html: '<div>hi</div>', canvas: { width: 1080, height: 1920 } });
+    expect(custom.box!.y).toBeCloseTo(0.342, 3);
+    expect(custom.box!.height).toBeCloseTo(0.316, 3);
+    expect(buildMotionGraphic({ template: 'custom', html: '<div>hi</div>' }).box).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    const lower = buildMotionGraphic({ template: 'lower-third', title: 'Name', canvas: { width: 1080, height: 1920 } });
+    expect(lower.box!.y).toBeGreaterThan(0.342);
+    expect(lower.box!.y + lower.box!.height).toBeLessThan(0.342 + 0.316);
+  });
+});
