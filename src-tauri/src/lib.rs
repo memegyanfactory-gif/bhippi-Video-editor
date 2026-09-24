@@ -52,6 +52,7 @@ mod bundle;
 mod cutout;
 mod blender;
 mod ui_screen;
+mod ref_motion;
 #[cfg(windows)]
 mod window_icon;
 
@@ -3199,6 +3200,7 @@ pub fn run() {
             blender::blender_render_start,
             ui_screen::ui_screen_save,
             ui_screen::ui_capture,
+            ref_motion::reference_motion_start,
             hardware_info,
             resource_usage,
             learning_load,

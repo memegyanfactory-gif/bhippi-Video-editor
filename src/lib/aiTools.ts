@@ -58,6 +58,8 @@ import {
 } from './timeline';
 import { SFX_KINDS } from './types';
 import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
+import { playbook } from './motionDirection';
+import { GENERIC_TARGET, pacingReport } from './pacing';
 
 /** Tells the model a file search stopped at its budget, so "0 found" is not "not there". */
 const truncatedNote = (truncated: boolean | undefined) =>
@@ -3055,11 +3057,14 @@ ${notes.trim()}${paletteLine}
       const hasSubject = layers.some((l) => l.kind === 'subject');
       if (comp.production) editComp(comp, current => ({ ...current, production: current.production ? { ...(current.production.phase === 'editing' ? advance(current.production, 'polishing') : current.production), qa: { at: Date.now(), sampled: times.length, issues: problems.length, clear: problems.length === 0 }, updatedAt: Date.now() } : current.production }));
       const where = `${timecode(from, fps(comp))}–${timecode(to, fps(comp))}${selection ? ' (the in/out selection)' : ''}`;
+      // Pacing against the genre's measured timing (advice: it never blocks the QA gate).
+      const genreBook = typeof args.genre === 'string' ? playbook(args.genre) : null;
+      const pacing = pacingReport(project, comp, genreBook?.pacing ?? GENERIC_TARGET);
       const lines = problems.slice(0, 16).map(({ issue, from: first, to: last, count }) => `${timecode(first, fps(comp))}${last > first ? `–${timecode(last, fps(comp))}` : ''} ${issue.kind}: "${issue.a}"${issue.b ? ` vs "${issue.b}"` : ''}${count > 1 ? ` (${count} samples)` : ''}. ${issue.suggestion}`);
       return done(problems.length
-        ? `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: ${problems.length} problem(s). Fix every one, then run it again until it is clear; an intended design (a title set behind the subject, a reveal) is instead waived in verify_edit_workflow's acceptedQaIssues with a reason.${hasSubject ? '' : ' No subject track was available (rotoscope_clip gives one), so subject coverage was not checked.'}${renderNote}\n${lines.join('\n')}`
-        : `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: nothing off the frame or outside the safe area, no overlaps, no blank or black-edged frames.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'}${renderNote}${images.length ? ' Look at the contact frames for what geometry cannot judge (contrast, reading time, taste), then' : ' Then'} verify_edit_workflow.`,
-        { issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
+        ? `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: ${problems.length} problem(s). Fix every one, then run it again until it is clear; an intended design (a title set behind the subject, a reveal) is instead waived in verify_edit_workflow's acceptedQaIssues with a reason.${hasSubject ? '' : ' No subject track was available (rotoscope_clip gives one), so subject coverage was not checked.'}${renderNote}\n${lines.join('\n')}\n${pacing.summary}`
+        : `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: nothing off the frame or outside the safe area, no overlaps, no blank or black-edged frames.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'}${renderNote}${images.length ? ' Look at the contact frames for what geometry cannot judge (contrast, reading time, taste), then' : ' Then'} verify_edit_workflow. ${pacing.summary}`,
+        { pacing: pacing.checks, issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
     }
 
     case 'organize_bin': {

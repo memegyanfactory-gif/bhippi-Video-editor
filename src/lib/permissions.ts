@@ -55,6 +55,7 @@ const READS = new Set([
   'list_3d_presets',
   'list_ui_kinds',
   'list_transitions',
+  'check_pacing',
 ]);
 
 /** Tools that throw something away, which only Full access may do. */

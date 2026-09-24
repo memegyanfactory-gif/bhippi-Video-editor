@@ -4846,6 +4846,10 @@
           "frames": {
             "type": "number",
             "description": "Frames to render across the range for the blank-frame check (default 12, 0–24)."
+          },
+          "genre": {
+            "type": "string",
+            "description": "Also report pacing against this genre's measured timing (advice only)."
           }
         }
       }
@@ -5157,6 +5161,33 @@
         "properties": {
           "query": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "check_pacing",
+      "description": "Pacing QA: measures the edit the way the reference films were measured and compares it with a target. It checks how often something new happens (foreground swaps), entrance speed, whether text holds long enough to read, typing speed by purpose (fields vs lines read with the voice-over), and cuts on the beat against chance. Target: a genre's measured pacing (genre: saas-explainer, ai-launch, brand-identity-film, kinetic-type, 2.5d-tricks), or a reference's own pacingTarget from analyze_reference_video.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "genre": {
+            "type": "string"
+          },
+          "target": {
+            "type": "object",
+            "description": "{swapGap: [min,max] s, entrance: [min,max] frames, readingWps?, beatSync?, eases?}; usually analyze_reference_video's motion.pacingTarget."
+          },
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Beat times (timeline s) from analyze_music_beats, to score cuts on the beat."
           }
         },
         "additionalProperties": false
@@ -5908,7 +5939,7 @@
     },
     {
       "name": "analyze_reference_video",
-      "description": "Learns a style from a reference film (\"make my edits like this\"): measures cuts, shot-length histogram, hook density and palette, keeps contact sheets (opening at 4 fps + whole film), and returns the sheets as images for you to study. Then call save_style_profile with what you saw (cadence, look, type, motion grammar, and which motion template each moment maps to). Local path or imported assetId; download URLs first.",
+      "description": "Learns a style from a reference film (\"make my edits like this\"): measures cuts, shot-length histogram, hook density and palette, keeps contact sheets (opening at 4 fps + whole film), and returns the sheets as images for you to study. Then call save_style_profile with what you saw (cadence, look, type, motion grammar, and which motion template each moment maps to). Local path or imported assetId; download URLs first. With the media Python set up it also returns a motion profile: cuts and hidden cuts (blur-bridge, white-out, black, whip), foreground swaps, move lengths with fitted eases matched to Helios's named eases, camera share, animation on twos, the music tempo, and how many cuts land on a beat against chance. It includes a pacingTarget for check_pacing.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5923,6 +5954,14 @@
           },
           "notes": {
             "type": "string"
+          },
+          "motion": {
+            "type": "boolean",
+            "description": "false skips the motion profile (hidden cuts, swaps, fitted eases, camera, tempo; needs the media Python)."
+          },
+          "maxSeconds": {
+            "type": "number",
+            "description": "Seconds of the film to measure for the motion profile (default 180)."
           }
         },
         "additionalProperties": false

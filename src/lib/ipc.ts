@@ -388,6 +388,8 @@ export const api = {
   uiScreenSave: (screen: string, name: string, png: Uint8Array) => invoke<string>('ui_screen_save', png, { headers: { 'x-screen': screen, 'x-name': name } }),
   /** Screenshots a web page at 2× in a headless Edge/Chrome for a UI screen; returns the PNG path and CSS size. */
   uiCapture: (url: string, width?: number, height?: number, dark?: boolean) => invoke<{ path: string; width: number; height: number; scale: number }>('ui_capture', { url, width: width ?? null, height: height ?? null, dark: dark ?? null }),
+  /** Measures a reference film's motion (cuts, hidden cuts, swaps, fitted eases, camera, twos, audio peaks) as an `analysis` job; its result names `profile` and `peaks`. */
+  referenceMotionStart: (path: string, maxSeconds?: number) => invoke<string>('reference_motion_start', { path, maxSeconds: maxSeconds ?? null }),
   blenderRenderStart: (request: unknown, name?: string) => invoke<string>('blender_render_start', { request, name: name ?? null }),
   /** Whether a TypeSafe key is present, so a judgment can be offered at all. */
   typesafeReady: () => invoke<boolean>('typesafe_ready'),

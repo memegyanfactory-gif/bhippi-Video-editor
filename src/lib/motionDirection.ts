@@ -2,6 +2,7 @@
 // pulls with `motion_guide {topic}` instead of carrying it in every prompt. Numbers are the ones
 // measured frame by frame (docs/REFERENCE-FILMS-PLAN.md §2 and the per-film reports); every tool,
 // ease and feature named here is checked to exist by tests/motionDirection.test.ts.
+import type { PacingTarget } from './pacing';
 
 export type Beat = { name: string; seconds: [number, number]; what: string; how: string };
 export type Playbook = {
@@ -21,6 +22,8 @@ export type Playbook = {
   eases: string[];
   /** Engine features to reach for (dotted names). */
   features: string[];
+  /** What check_pacing holds an edit in this genre to (measured on the films). */
+  pacing?: PacingTarget;
   /** What the engine cannot do yet for this genre, and the stand-in to use meanwhile. */
   gaps?: string[];
 };
@@ -65,6 +68,7 @@ export const PLAYBOOKS: Playbook[] = [
     tools: ['create_motion_sequence', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'create_motion_scene', 'update_motion_scene', 'search_icons', 'svg_to_shape', 'add_sound_effect', 'analyze_music_beats', 'snap_cuts_to_beats', 'run_frame_qa'],
     eases: ['house', 'emphasized', 'push', 'rise', 'expo-in'],
     features: ['shape.groups', 'text.type', 'text.retype', 'text.counter', 'effects.gradient-overlay', 'effects.inner-shadow', 'camera.aperture', 'bleed'],
+    pacing: { swapGap: [2, 5], entrance: [6, 36] },
     gaps: ['Capturing the user’s own live product UI (capture_product_ui) is coming; meanwhile rebuild the screen in HTML from a screenshot, or use a kind.'],
   },
   {
@@ -94,6 +98,7 @@ export const PLAYBOOKS: Playbook[] = [
     tools: ['create_motion_scene', 'update_motion_scene', 'search_icons', 'analyze_music_beats', 'snap_cuts_to_beats', 'run_frame_qa'],
     eases: ['settle', 'resolve', 'expo-in', 'emphasized'],
     features: ['shape.groups', 'kind:array', 'morphTo', 'text.type', 'text.retype', 'text.scatter', 'effects.inner-glow', 'effects.gradient-overlay', 'backdrop'],
+    pacing: { swapGap: [0.8, 3], entrance: [3, 24] },
   },
   {
     id: 'brand-identity-film',
@@ -114,6 +119,7 @@ export const PLAYBOOKS: Playbook[] = [
     tools: ['create_motion_scene', 'create_motion_sequence', 'add_fx', 'render_3d_scene', 'list_3d_presets', 'analyze_music_beats', 'snap_cuts_to_beats', 'get_brand_kit'],
     eases: ['rise', 'house', 'expo-in'],
     features: ['shape.groups', 'effects.bevel', 'effects.glow', 'camera.aperture'],
+    pacing: { swapGap: [2, 8], entrance: [6, 44], beatSync: 0.5 },
     gaps: ['Blender is optional: when list_3d_presets says it is not installed, fake orbs with radial-gradient ellipses + bevel + glow. 3D card rings with UI decals and sphere bouquets come in the full Blender pass (plan C3); build them from raw render_3d_scene objects meanwhile.'],
   },
   {
@@ -132,6 +138,7 @@ export const PLAYBOOKS: Playbook[] = [
     tools: ['create_motion_scene', 'update_motion_scene'],
     eases: ['house', 'settle', 'expo-in'],
     features: ['text.cascade', 'text.type', 'text.retype', 'text.scatter', 'text.lineSpacing', 'effects.gradient-overlay'],
+    pacing: { swapGap: [0.4, 2], entrance: [2, 12] },
   },
   {
     id: '2.5d-tricks',
@@ -150,6 +157,7 @@ export const PLAYBOOKS: Playbook[] = [
     tools: ['create_motion_scene', 'update_motion_scene'],
     eases: ['house', 'expo-in', 'settle'],
     features: ['effects.bevel', 'effects.inner-glow', 'effects.gradient-overlay', 'ops.merge', 'morphTo', 'camera.dof'],
+    pacing: { swapGap: [2, 5], entrance: [6, 30] },
     gaps: ['True rim-lit forms with card decals and swap-when-hidden are plan P6; use bevel + gradient-overlay meanwhile.'],
   },
   {

@@ -12,6 +12,8 @@ import { svgToShape } from '../motion/vector/svg';
 import { playbook, playbookIndex } from './motionDirection';
 import { PRESETS_3D, renderScene, scene3dRequest, type Render3DResult } from './blender3d';
 import { buildUiScene, runUiScreenTool } from './uiScreenTools';
+import { GENERIC_TARGET, pacingReport, type PacingTarget } from './pacing';
+import { summarizeProfile, type MotionProfile } from './referenceMotion';
 import { FX_HELP, FX_KINDS, fxLayers, type FxKind, type FxOptions } from '../motion/fx';
 import { evaluateMeasured } from '../motion/measure';
 import { entryBounds } from '../motion/evaluate';
@@ -29,9 +31,9 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing']);
 /** Read-only / planning motion tools, allowed in any production phase. */
-export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets', 'list_ui_kinds', 'list_transitions']);
+export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing']);
 
 export type MotionToolContext = {
   project: Project;
@@ -560,6 +562,18 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       return runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start: num(args, 'start') ?? 0, title: str(args, 'title') ?? kind, duration: longest, fit: false, useBrand: false, sfx: args.sfx !== false }, ctx);
     }
 
+    case 'check_pacing': {
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('There is no composition to check.');
+      const genre = str(args, 'genre');
+      const book = genre ? playbook(genre) : null;
+      if (genre && !book) return fail(`No genre "${genre}". Genres: ${playbookIndex().map((p) => p.id).join(', ')}.`);
+      const target: PacingTarget = { ...(book?.pacing ?? GENERIC_TARGET), ...((obj(args, 'target') as PacingTarget | undefined) ?? {}) };
+      const beats = Array.isArray(args.beats) ? (args.beats as unknown[]).filter((b): b is number => typeof b === 'number') : undefined;
+      const report = pacingReport(project, comp, target, beats);
+      return done(`${report.summary}${genre ? ` (genre ${genre})` : args.target ? ' (reference target)' : ' (generic target; pass genre or a reference pacingTarget)'}`, { checks: report.checks, ok: report.ok, target });
+    }
+
     case 'list_transitions':
       return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition). Give {kind, duration?, direction?, glyph?, mode?, at?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });
 
@@ -861,10 +875,35 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       }
       const cadence = cadenceFromCuts(reference.cuts, reference.seconds);
       const images = (await Promise.all(reference.sheets.slice(0, 3).map(imageDataUrl))).filter((url): url is string => !!url);
+      // The motion profile (hidden cuts, swaps, fitted eases, camera, tempo) needs the media Python; without it the sheets still stand.
+      let motion: (ReturnType<typeof summarizeProfile> & { hiddenCuts: number; cuts: MotionProfile['cuts']; twosShare: number }) | null = null;
+      let motionNote = '';
+      if (args.motion !== false) {
+        try {
+          const jobId = await api.referenceMotionStart(path, num(args, 'maxSeconds'));
+          const deadline = Date.now() + 5 * 60_000;
+          while (Date.now() < deadline && !ctx.signal?.aborted) {
+            const job = (await api.jobsList()).find((j) => j.id === jobId);
+            if (job?.status === 'done') {
+              const res = job.result as { profile?: string; peaks?: string | null } | null;
+              const profile = res?.profile ? ((await (await fetch(fileSrc(res.profile))).json()) as MotionProfile) : null;
+              let peaks = null;
+              if (res?.peaks) { const bytes = new Uint8Array(await (await fetch(fileSrc(res.peaks))).arrayBuffer()); peaks = { data: bytes, buckets: Math.floor(bytes.length / 2) }; }
+              if (profile) motion = { ...summarizeProfile(profile, peaks), hiddenCuts: profile.hiddenCuts, cuts: profile.cuts, twosShare: profile.twosShare };
+              break;
+            }
+            if (job && (job.status === 'error' || job.status === 'cancelled')) { motionNote = ` (No motion profile: ${job.message}.)`; break; }
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          }
+        } catch (error) {
+          motionNote = ` (No motion profile: ${errorText(error)}.)`;
+        }
+      }
       return done(
         `Reference "${reference.name}" measured: ${reference.seconds.toFixed(0)} s, ${cadence.shots} shots (mean ${cadence.meanShot.toFixed(1)} s, median ${cadence.medianShot.toFixed(1)} s), ${cadence.hookCuts} cuts in the first 15 s, palette ${reference.palette.slice(0, 6).join(' ')}. ` +
-        'The contact sheets follow (the opening at 4 fps, then the whole film). Study them: the hook, where graphics sit, type, colour, transitions and which motion templates each moment maps to (list_motion_templates). Then call save_style_profile with the profile so every later edit follows it.',
-        { referenceId: reference.id, cadence, palette: reference.palette, sheets: reference.sheets, images },
+        (motion ? `Motion: ${motion.headline} Hold the edit to it with check_pacing {"target": <pacingTarget>}. ` : motionNote) +
+        'The contact sheets follow (the opening at 4 fps, then the whole film). Study them: the hook, where graphics sit, type, colour, transitions and which motion templates each moment maps to (list_motion_templates). Then call save_style_profile with the profile (include the motion numbers) so every later edit follows it.',
+        { referenceId: reference.id, cadence, palette: reference.palette, sheets: reference.sheets, images, ...(motion ? { motion } : {}) },
       );
     }
 

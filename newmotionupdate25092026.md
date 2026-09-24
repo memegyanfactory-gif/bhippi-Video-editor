@@ -3,7 +3,7 @@
 This is a live record of what's done and what's left in the plan in
 [docs/REFERENCE-FILMS-PLAN.md](docs/REFERENCE-FILMS-PLAN.md). It is updated after every item.
 
-**Overall: study, plan, Phase 0 and Phase A are done ✅. Phase B is in progress (B1 living UI screens ✅, B2 camera director + transitions ✅, B3 particles + FX ✅; B4 reference worker + pacing QA next). Phases C–D have not started.**
+**Overall: study, plan, Phase 0, Phase A and Phase B are done ✅. Phase C (2.5D forms, characters, full Blender, Lottie) is next. Phase D has not started.**
 
 | Stage | Status |
 |---|---|
@@ -11,7 +11,7 @@ This is a live record of what's done and what's left in the plan in
 | Blender headless proofs (2 rounds) | ✅ Done |
 | **Phase 0: quick fixes** | ✅ Done (6 of 6), all tests green |
 | **Phase A: foundations** | ✅ Done (6 of 6), all tests green |
-| **Phase B: the SaaS unlock** | 🟡 3 of 4 done (B1–B3) |
+| **Phase B: the SaaS unlock** | ✅ Done (4 of 4), all tests green |
 | Phase C: 2.5D, characters, full Blender | ⬜ Not started |
 | Phase D: beyond | ⬜ Not started |
 
@@ -226,11 +226,31 @@ This is a live record of what's done and what's left in the plan in
   - **Checked on the GPU:** all 14 FX groups rendered.
   - **Fixed along the way:** the star glint drew only one spike, because leaf shapes don't rotate on their own; each spike is now a group.
   - *Still to do from P5 (later):* smear, painterly (Kuwahara), flakes that disintegrate a layer.
+- B4 ✅ **Reference analysis and pacing QA.**
+  - **`analyze_reference_video` measures motion** with a new worker (`reference_motion.py`, on the media Python):
+    - cuts and **hidden cuts** (blur-bridge, white-out, black, whip);
+    - **foreground swaps** (the content changes while the background stays);
+    - moves with **cubic-bezier eases fitted** to their progress and matched to Helios's named eases;
+    - the camera track and how much the camera moves;
+    - animation on twos;
+    - the audio, run through the app's own fixed tempo code, with **cuts on the beat compared with chance**.
+  - It returns a headline, the numbers and a **`pacingTarget`** (±25% of what was measured).
+  - **Checked on the real films:** Workly's camera moves fit `house` (the ease originally measured from Workly), and the worker finds its blur-bridge at 17.3 s and something new every 2.5 s. Virgil's include `push` (measured from Virgil). About 6 s per film.
+  - **`check_pacing`** (and advice in `run_frame_qa {genre}`) scores an edit against a genre's measured pacing (every playbook now has one) or a reference target:
+    - swap cadence;
+    - entrance speed;
+    - reading holds (words ÷ 3.3 + 0.4 s);
+    - typing speed by purpose (fields ~30 cps, read-along 12–13 cps);
+    - cuts on the beat against chance.
+  - Files: new `src-tauri/workers/reference_motion.py`, `src-tauri/src/ref_motion.rs`, `src/lib/referenceMotion.ts`, `src/lib/pacing.ts`, `tests/fixtures/` (Workly's real profile and peaks); `motionTools.ts`, `aiTools.ts`, `motionDirection.ts` (pacing targets), `ipc.ts`, `lib.rs`, `permissions.ts`, `editWorkflow.ts`, `council.ts`, `ai-tools.json`, `copilot.md`, `MOTION-ENGINE.md`.
+  - Tests: `tests/pacing.test.ts` (6, including Workly's real measurement). **Full suite: 1,218 TypeScript and 292 Rust tests pass.**
+  - **Fixed along the way:**
+    - on a white-background film every cut read as a white-out; a flash must now stand out from its surroundings;
+    - moving-area energy fitted most moves as "linear"; camera travel is now used when the camera moves;
+    - a triple cut from one transition counted three times.
+- **Phase B: complete ✅** (B1–B4).
 
 ## ⏳ Remaining
-
-### Phase B: the SaaS unlock (weeks 4–7)
-- B4 ⬜ Reference-analysis worker + pacing QA against the measured timings.
 
 ### Phase C: depth and characters (weeks 6–14)
 - C1 ⬜ `form` layer: soft 2.5D objects (the Motion Tricks look).
