@@ -13,12 +13,26 @@ vi.mock('../src/motion/gl/renderer', () => ({
 vi.mock('../src/lib/pngEncoder', () => ({
   openFrameWriter: async () => ({ pixels: async () => undefined, canvas: async () => undefined, finish: async () => undefined, close: async () => undefined }),
 }));
+// Text rasters are counted; layout runs for real with a fixed advance per character.
+const rasters = vi.hoisted(() => ({ text: 0 }));
+vi.mock('../src/motion/gl/raster', async () => {
+  const { layoutText } = await vi.importActual<typeof import('../src/motion/text')>('../src/motion/text');
+  return {
+    CanvasCache: class { clear() {} },
+    textFrame: (data: Parameters<typeof layoutText>[0], t: number, ctx: Parameters<typeof layoutText>[3]) => layoutText(data, t, (text) => text.length * 30, ctx),
+    rasterText: (_cache: unknown, _key: string, _data: unknown, frame: { width: number; height: number }, density: number) => { rasters.text++; return { width: frame.width * density, height: frame.height * density }; },
+    rasterShape: () => ({ canvas: { width: 1, height: 1 }, pad: 0 }),
+    rasterMasks: () => ({ width: 1, height: 1 }),
+  };
+});
 vi.mock('../src/lib/ipc', () => ({ api: { mogrtFramesBegin: async (id: string) => `frames/${id}`, frontendCrash: async () => undefined }, errorText: (e: unknown) => String(e), fileSrc: (p: string) => p }));
 
 import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
-import type { MotionScene } from '../src/motion/types';
+import { identity } from '../src/motion/math';
+import type { ResolvedLayer } from '../src/motion/evaluate';
+import type { Layer, MotionScene } from '../src/motion/types';
 
 const { MotionRenderer: RealRenderer } = await vi.importActual<typeof import('../src/motion/gl/renderer')>('../src/motion/gl/renderer');
 
@@ -36,6 +50,7 @@ function motionProject(count: number): Project {
 beforeEach(() => {
   made.renderers = 0;
   made.disposed = 0;
+  rasters.text = 0;
   vi.stubGlobal('OffscreenCanvas', class { constructor(public width: number, public height: number) {} });
 });
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -76,5 +91,45 @@ describe('WebGL context lifecycle', () => {
     Object.assign(renderer, { incomplete: 0, gl: { lost: true } });
     renderer.draw(emptyScene(), 0);
     expect(renderer.incomplete).toBe(1);
+  });
+});
+
+describe('text texture cache', () => {
+  /** A real renderer on a fake GL: enough to run a layer's content path. */
+  function textRenderer() {
+    const renderer = Object.create(RealRenderer.prototype) as InstanceType<typeof RealRenderer>;
+    Object.assign(renderer, {
+      incomplete: 0,
+      canvases: { clear: () => undefined },
+      uploads: new Map(),
+      textCache: new WeakMap(),
+      textSignatures: new Map(),
+      gl: { maxTexture: 8192, upload: (_source: unknown, existing?: object) => existing ?? {}, acquire: (w: number, h: number) => ({ w, h, tex: {} }), pass: () => undefined, release: () => undefined, deleteTexture: () => undefined },
+    });
+    return renderer;
+  }
+  const draw = (renderer: InstanceType<typeof RealRenderer>, text: object) => {
+    const layer = { id: 'title', type: 'text', text } as unknown as Layer;
+    const scene = { width: 1920, height: 1080, duration: 2, layers: [layer] } as unknown as MotionScene;
+    const L = { layer, index: 0, active: true, size: [600, 200], matrix: identity(), blurMatrices: [], opacity: 1, is3D: false, depth: 0, masks: [], effects: [], time: 1 } as unknown as ResolvedLayer;
+    (renderer as unknown as { content: (...args: unknown[]) => unknown }).content(scene, {}, L, 1, 0, 30);
+  };
+
+  it('re-rasters when a two-line layer is realigned, and only then', () => {
+    const renderer = textRenderer();
+    const left = { text: 'a much longer first line\nshort', size: 60, align: 'left' };
+    draw(renderer, left);
+    draw(renderer, left);
+    expect(rasters.text).toBe(1);
+    draw(renderer, { ...left, align: 'center' });
+    expect(rasters.text).toBe(2);
+  });
+
+  it('re-rasters an edit the glyphs do not show (a new stroke colour)', () => {
+    const renderer = textRenderer();
+    const dark = { text: 'Title', size: 60, stroke: { color: '#000', width: 4 } };
+    draw(renderer, dark);
+    draw(renderer, { ...dark, stroke: { color: '#fff', width: 4 } });
+    expect(rasters.text).toBe(2);
   });
 });
