@@ -26,9 +26,11 @@ pub const SERVER_NAME: &str = "helios";
 const PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const DEFAULT_PROTOCOL: &str = "2025-06-18";
 
-/// Longer than the app's own per-call timeout, so the app's answer always wins the race.
-/// Roto/depth/transcribe calls may run up to 900s.
-const BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(950);
+/// Longer than the app's longest per-call timeout (ask_user waits up to 24 h; generation, roto
+/// and transcription up to 30 min), so the app's answer — a result, its own timeout, or
+/// "stopped" — always wins the race. Giving up first would report the turn over while Helios is
+/// still running the call, and a retry would run it twice.
+const BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60 + 60);
 
 // ───────────────────────────── the protocol (pure) ─────────────────────────────
 
@@ -117,8 +119,12 @@ pub fn call_reply(id: Value, result: &Value) -> Value {
     if !omit_image_blocks {
         if let Some(Value::Array(images)) = images {
             for image in images.iter().filter_map(Value::as_str).take(6) {
-                if let Some(data) = image.strip_prefix("data:image/jpeg;base64,") {
-                    content.push(json!({ "type": "image", "mimeType": "image/jpeg", "data": data }));
+                let Some((header, data)) = image.split_once(',') else {
+                    continue;
+                };
+                let mime = header.strip_prefix("data:").and_then(|header| header.strip_suffix(";base64"));
+                if let Some(mime @ ("image/jpeg" | "image/png" | "image/webp")) = mime {
+                    content.push(json!({ "type": "image", "mimeType": mime, "data": data }));
                 }
             }
         }
@@ -421,8 +427,19 @@ mod tests {
     fn frame_evidence_is_image_content_not_a_base64_text_dump() {
         let reply = call_reply(json!(1), &json!({"ok":true,"times":[1.0],"images":["data:image/jpeg;base64,YWJj"]}));
         assert_eq!(reply["result"]["content"][1]["type"], "image");
+        assert_eq!(reply["result"]["content"][1]["mimeType"], "image/jpeg");
         assert_eq!(reply["result"]["content"][1]["data"], "YWJj");
         assert!(!reply["result"]["content"][0]["text"].as_str().unwrap().contains("YWJj"));
+    }
+
+    /// run_frame_qa's contact frames are PNGs; they reach the agent as images of their own type.
+    #[test]
+    fn png_and_webp_frames_keep_their_mime_type() {
+        let reply = call_reply(json!(1), &json!({"ok":true,"images":["data:image/png;base64,iVBO","data:image/webp;base64,UklG","data:image/gif;base64,R0lG","https://example.com/a.jpg"]}));
+        let content = reply["result"]["content"].as_array().expect("content");
+        assert_eq!(content.len(), 3, "{reply}");
+        assert_eq!(content[1], json!({"type": "image", "mimeType": "image/png", "data": "iVBO"}));
+        assert_eq!(content[2], json!({"type": "image", "mimeType": "image/webp", "data": "UklG"}));
     }
 
     #[test]
