@@ -7,8 +7,12 @@
 
 import { placement } from './editor';
 import { animated } from './keyframes';
-import { clipEnd, sourceInfo, tracksOf, transitionWindow, type AssetMap } from './timeline';
+import { clipEnd, sourceInfo, sourceTimeAt, tracksOf, transitionWindow, type AssetMap } from './timeline';
 import type { Clip, Comp, Project } from './types';
+import { entryBounds } from '../motion/evaluate';
+import { parseColor } from '../motion/gl/color';
+import { evaluateMeasured } from '../motion/measure';
+import type { MotionScene } from '../motion/types';
 
 /** A stretch of the comp where some picture is on screen but no layer fills the frame. */
 export type UncoveredSpan = {
@@ -24,6 +28,34 @@ const MIN_SPAN = 0.1; // s; shorter slivers are not reported
 const MAX_DEPTH = 4;
 
 type Picture = { clip: Clip; trackIndex: number; covers: boolean };
+
+const opaque = (color: string | null | undefined) => !!color && parseColor(color)[3] >= 0.995;
+
+/**
+ * Whether a motion scene at scene time `t` paints every pixel of its own canvas: an opaque
+ * background colour, or an opaque full-canvas stage (a solid, a procedural field, or a filled
+ * rect) drawn normally. A layer clip of a layered comp counts only its own layers.
+ */
+function sceneFillsCanvas(scene: MotionScene, t: number, fps: number): boolean {
+  if (opaque(scene.background)) return true;
+  const own = scene.stack ? new Set(scene.stack.own) : null;
+  const matteSources = new Set(scene.layers.map((layer) => layer.matte?.layer).filter(Boolean));
+  const frame = evaluateMeasured(scene, Math.max(0, Math.min(scene.duration - 1e-3, t)), fps);
+  return frame.layers.some((entry) => {
+    const layer = entry.layer;
+    if (own && !own.has(layer.id)) return false;
+    if (!entry.active || layer.hidden || layer.ref || layer.adjustment || layer.threeD || layer.matte || entry.masks.length || matteSources.has(layer.id)) return false;
+    if ((layer.blend ?? 'normal') !== 'normal' || entry.opacity < 0.995) return false;
+    const paints = layer.type === 'solid' ? opaque(layer.color)
+      : layer.type === 'procedural' ? layer.kind !== 'light-leak' // the one field drawn with alpha
+        // Only a square-cornered rect fills its bounds; an ellipse or rounded card leaves the corners.
+        : layer.type === 'shape' ? layer.shape.shape === 'rect' && !layer.shape.radius && (layer.shape.gradient ? layer.shape.gradient.stops.every(([, color]) => opaque(color)) : opaque(layer.shape.fill))
+          : false;
+    if (!paints) return false;
+    const box = entryBounds(entry.matrix, entry.size);
+    return !!box && box.x <= EDGE && box.y <= EDGE && box.x + box.width >= scene.width - EDGE && box.y + box.height >= scene.height - EDGE;
+  });
+}
 
 /** Whether `clip` at comp time `t` is an opaque layer that fills the whole frame. */
 function fillsFrame(project: Project, assets: AssetMap, comp: Comp, clip: Clip, t: number, depth: number): boolean {
@@ -42,6 +74,9 @@ function fillsFrame(project: Project, assets: AssetMap, comp: Comp, clip: Clip, 
     if (!child || depth >= MAX_DEPTH) return false;
     const childTime = clip.in + (t - clip.start) * clip.speed;
     if (!pictureAt(project, assets, child, childTime, depth + 1).filled) return false;
+  } else if (source.type === 'motion') {
+    // A motion scene is an overlay unless an opaque stage covers its canvas at this moment.
+    if (!sceneFillsCanvas(source.scene, sourceTimeAt(clip, t), comp.fps)) return false;
   } else {
     return false; // text, shapes, HTML graphics: overlays with transparency
   }
@@ -148,7 +183,26 @@ export function describeUncovered(spans: UncoveredSpan[], comp: Comp, project?: 
     return clip.name || (project && assets ? sourceInfo(project, assets, clip.source).name : id);
   };
   const names = (ids: string[]) => [...new Set(ids.map(nameOf))].join(', ');
-  const shown = spans.slice(0, 6).map((span) => `${seconds(span.start)}–${seconds(span.end)} (${names(span.clipIds)})`).join('; ');
-  const more = spans.length > 6 ? ` and ${spans.length - 6} more` : '';
-  return `The picture does not fill the frame at ${shown}${more}: it is scaled down, moved, cropped or rotated with nothing behind it, so those frames render black at the edges. Call fill_background to put a background behind it (it picks one from the project library, or a blurred copy of the shot).`;
+  const list = (group: UncoveredSpan[]) => {
+    const shown = group.slice(0, 6).map((span) => `${seconds(span.start)}–${seconds(span.end)} (${names(span.clipIds)})`).join('; ');
+    return `${shown}${group.length > 6 ? ` and ${group.length - 6} more` : ''}`;
+  };
+  // Titles, captions and motion graphics with no picture under them: nothing was scaled or moved.
+  const overlay = (clip: Clip | undefined, depth = 0): boolean => {
+    if (!clip) return false;
+    const source = clip.source;
+    if (source.type === 'comp') {
+      const child = project?.comps.find((entry) => entry.id === source.compId);
+      const shown = child?.clips.filter((entry) => entry.enabled && entry.source.type !== 'sfx') ?? [];
+      return depth < MAX_DEPTH && shown.length > 0 && shown.every((entry) => overlay(entry, depth + 1));
+    }
+    return source.type === 'text' || source.type === 'html' || source.type === 'shape' || source.type === 'motion';
+  };
+  const graphicsOnly = (span: UncoveredSpan) => span.clipIds.every((id) => overlay(comp.clips.find((entry) => entry.id === id)));
+  const graphics = spans.filter(graphicsOnly);
+  const pictures = spans.filter((span) => !graphicsOnly(span));
+  const lines: string[] = [];
+  if (pictures.length) lines.push(`The picture does not fill the frame at ${list(pictures)}: it is scaled down, moved, cropped or rotated with nothing behind it, so those frames render black at the edges.`);
+  if (graphics.length) lines.push(`Only graphics are on screen at ${list(graphics)}: graphics over an empty frame, so everything around them renders black.`);
+  return `${lines.join(' ')} Call fill_background to put a background behind ${pictures.length ? 'it (it picks one from the project library, or a blurred copy of the shot)' : 'them (it picks one from the project library, or a colour matte)'}.`;
 }
