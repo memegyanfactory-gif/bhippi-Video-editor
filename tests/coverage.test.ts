@@ -2,12 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/lib/ipc', () => ({ api: {}, errorText: (e: unknown) => String(e), fileSrc: (p: string) => p }));
 
-import { uncoveredSpans } from '../src/lib/coverage';
+import { describeUncovered, uncoveredSpans } from '../src/lib/coverage';
 import { fillBackground, libraryBackground } from '../src/lib/fillBackground';
 import { runTool, type ToolHost } from '../src/lib/aiTools';
 import { EditWorkflow } from '../src/lib/editWorkflow';
 import { newClip, newProject, tracksOf, type AssetMap } from '../src/lib/timeline';
 import type { Asset, Clip, Project } from '../src/lib/types';
+import { explodeScene } from '../src/lib/motionStack';
+import { newBrandKit } from '../src/lib/brandKit/build';
+import { motionBrandFromKit } from '../src/lib/brandKit/motionBrand';
+import { findTemplate } from '../src/motion/kit';
+import { buildInBrand } from '../src/motion/kit/brandify';
 
 const asset = (id: string, name: string, over: Partial<Asset> = {}): Asset => ({
   id, name, path: `C:/media/${name}`, kind: 'video', duration: 30, width: 1920, height: 1080, fps: 30, hasAudio: true, videoCodec: 'h264', audioCodec: 'aac',
@@ -82,6 +87,46 @@ describe('which frames the picture does not fill', () => {
     const { project, assets, comp } = setup();
     comp.clips = [newClip({ trackId: tracksOf(comp, 'video')[0].id, start: 0, duration: 5, source: { type: 'text', preset: 'title', text: 'Hi', subtitle: '', color: '#fff', style: null } as never })];
     expect(uncoveredSpans(project, assets, comp)).toHaveLength(1);
+  });
+
+  const brandTitle = () => buildInBrand(findTemplate('brand-title')!, { width: 1920, height: 1080 }, { title: 'Ship faster with Flowbase', kicker: 'INTRODUCING' },
+    motionBrandFromKit(newBrandKit({ style: 'tech-gradient', brandName: 'Flowbase', tagline: 'Automations', primary: '#2563eb', accent: '#22d3ee', background: '#0b1020', text: '#f8fafc', displayFont: 'Inter', bodyFont: 'Segoe UI' })));
+
+  it('an opaque full-frame motion stage over a gap fills the frame; scaled down it does not', () => {
+    const { project, assets, comp } = setup();
+    const scene = brandTitle();
+    comp.clips = [newClip({ trackId: tracksOf(comp, 'video')[0].id, start: 0, duration: scene.duration, source: { type: 'motion', scene } })];
+    expect(uncoveredSpans(project, assets, comp)).toEqual([]);
+    comp.clips[0].transform = { ...comp.clips[0].transform, scale: 80 };
+    expect(uncoveredSpans(project, assets, comp)).toHaveLength(1);
+    // Opened into layers, the stage's own layer clip covers for the whole [Motion] comp.
+    const exploded = explodeScene(scene, { name: '[Motion] Title', fps: comp.fps });
+    project.comps.push(exploded.comp);
+    comp.clips = [newClip({ trackId: tracksOf(comp, 'video')[0].id, start: 0, duration: scene.duration, source: { type: 'comp', compId: exploded.comp.id } })];
+    expect(uncoveredSpans(project, assets, comp)).toEqual([]);
+  });
+
+  it('a stage rotated inside the scene leaves the frame corners uncovered', () => {
+    const { project, assets, comp } = setup();
+    const scene = { ...brandTitle(), background: null };
+    comp.clips = [newClip({ trackId: tracksOf(comp, 'video')[0].id, start: 0, duration: scene.duration, source: { type: 'motion', scene } })];
+    expect(uncoveredSpans(project, assets, comp)).toEqual([]);
+    // Tilted 5°, the stage's bounding box still spans the canvas but its corners do not.
+    const tilted = { ...scene, layers: scene.layers.map((layer) => (layer.type === 'text' ? layer : { ...layer, transform: { ...layer.transform, rotation: 5 } })) };
+    comp.clips[0] = { ...comp.clips[0], source: { type: 'motion', scene: tilted } };
+    expect(uncoveredSpans(project, assets, comp)).toHaveLength(1);
+  });
+
+  it('says a title over an empty frame is graphics over nothing, not a scaled picture', () => {
+    const { project, assets, comp } = setup();
+    comp.clips = [newClip({ trackId: tracksOf(comp, 'video')[0].id, start: 0, duration: 5, source: { type: 'text', preset: 'title', text: 'Hi', subtitle: '', color: '#fff', style: null } as never })];
+    const spans = uncoveredSpans(project, assets, comp);
+    expect(spans).toHaveLength(1);
+    const message = describeUncovered(spans, comp, project, assets);
+    expect(message).toContain('graphics over an empty frame');
+    expect(message).not.toContain('scaled down');
+    const small = setup(withTransform({ scale: 70 }));
+    expect(describeUncovered(uncoveredSpans(small.project, small.assets, small.comp), small.comp, small.project, small.assets)).toContain('scaled down, moved, cropped or rotated');
   });
 });
 

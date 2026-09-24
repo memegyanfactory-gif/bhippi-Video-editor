@@ -15,13 +15,14 @@ import { rbBackgroundFromName, rbBackgroundStyle } from '../lib/reactbits';
 import { sfxSrc } from '../lib/sfx';
 import { audible, clipEnd, sourceInfo, sourceTimeAt, tracksOf, transitionWindow, type AssetMap } from '../lib/timeline';
 import type { Asset, Clip, Comp, Mask, Project, ProjectItem, Transition } from '../lib/types';
-import { TextLayer } from './Overlay';
+import { TextLayer, textAnchor } from './Overlay';
 import { RotoPreview } from './RotoPreview';
 import { HtmlMotionLayer } from './HtmlMotionLayer';
 import { MotionLayer, sceneLayerBoxes } from './MotionLayer';
 import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../lib/motionStack';
 import { htmlLayerInfo } from '../lib/htmlLayers';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { edgeBlurDefs, keepEdges } from './edgeBlur';
 
 /** What the webview should load for an asset: its preview proxy when one exists. */
 export const mediaSrc = (asset: Asset | undefined) => (asset ? fileSrc(asset.proxy ?? asset.path) : '');
@@ -221,6 +222,19 @@ type ClockRole = { priority: number; time: number; speed: number; live: boolean 
  * does not. The element comes from the pool, so the clip after a cut inherits the one already
  * running — see lib/mediaPool.ts for why that matters.
  */
+/** Puts a media element at `time`: `fastSeek` where the engine has it (not Chromium), else `currentTime`. */
+function seekMedia(media: HTMLMediaElement & { fastSeek?: (time: number) => void }, time: number) {
+  if (typeof media.fastSeek === 'function') {
+    try {
+      media.fastSeek(time);
+      return;
+    } catch {
+      // Fall through to a plain seek.
+    }
+  }
+  media.currentTime = time;
+}
+
 function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', src: string, sourceTime: number, sync: (element: T) => void, clock?: ClockRole) {
   const holder = useRef<HTMLDivElement>(null);
   const element = useRef<T | null>(null);
@@ -236,18 +250,7 @@ function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', sr
     element.current = media;
     holder.current?.appendChild(media);
 
-    const performSeek = (time: number) => {
-      if ('fastSeek' in media && typeof (media as any).fastSeek === 'function') {
-        try {
-          (media as any).fastSeek(time);
-          return;
-        } catch {
-          media.currentTime = time;
-        }
-      } else {
-        media.currentTime = time;
-      }
-    };
+    const performSeek = (time: number) => seekMedia(media, time);
 
     // A parked element lands on its frame. A playing one — handed straight over at a plain cut —
     // is seeked only when it is well out: a few frames are taken up by the drift correction in the
@@ -304,8 +307,14 @@ function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', sr
 }
 
 function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, clip, at = 0, fps = 30, quality = 1, clock, hidden = false }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; clip?: Clip; at?: number; fps?: number; quality?: number; clock?: ClockRole; hidden?: boolean }) {
-  const holder = useMediaElement<HTMLVideoElement>('video', src, sourceTime, (video) => {
-    if (playing && rate > 0 && !frozen) {
+  const running = playing && rate > 0 && !frozen;
+  // A parked frame is the source frame nearest the playhead, the one the export's `fps` filter
+  // picks. The element shows the frame at or before its time, so parked it is aimed half a frame
+  // later — which also keeps rounding noise just short of a frame boundary (5.3 − 5 is 0.29999…)
+  // from showing the frame before. Running, it is aimed at the time itself: the clock reads it.
+  const parkedAt = sourceTime + 0.5 / Math.max(1, fps);
+  const holder = useMediaElement<HTMLVideoElement>('video', src, running ? sourceTime : parkedAt, (video) => {
+    if (running) {
       // Small drift is taken up by running slightly fast or slow; only a large one is seeked, since
       // a seek on a playing element flushes its decoder and stalls it — which is drift of its own.
       const drift = sourceTime - video.currentTime;
@@ -322,17 +331,9 @@ function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, cl
       if (video.paused) void video.play().catch(() => undefined);
     } else {
       if (!video.paused) video.pause();
-      if (!video.seeking && Math.abs(video.currentTime - sourceTime) > 1 / 120) {
-        if ('fastSeek' in video && typeof (video as any).fastSeek === 'function') {
-          try {
-            (video as any).fastSeek(sourceTime);
-          } catch {
-            video.currentTime = sourceTime;
-          }
-        } else {
-          video.currentTime = sourceTime;
-        }
-      }
+      const end = Number.isFinite(video.duration) && video.duration > 0 ? video.duration - 1e-3 : Infinity;
+      const parked = Math.max(0, Math.min(parkedAt, end));
+      if (!video.seeking && Math.abs(video.currentTime - parked) > 1 / 120) seekMedia(video, parked);
     }
   }, clock);
   return <><div ref={holder} className="layer-media" style={matte ? { visibility: 'hidden' } : undefined} />{matte && <RotoPreview matte={matte} sourceTime={sourceTime} video={holder} corrections={clip?.rotoCorrections ?? []} at={at} fps={fps} quality={quality} />}</>;
@@ -424,7 +425,8 @@ function Layer(props: LayerProps) {
   const opacity = (transform.opacity / 100) * (typeof transition.style.opacity === 'number' ? transition.style.opacity : 1);
   const applied = computeAppliedEffects(clip.id, clip.appliedEffects, stageH);
   const baseFilter = cssFilter(clip.effects, stageH);
-  const filter = [baseFilter, ...applied.cssFilters].filter(Boolean).join(' ') || undefined;
+  // Blur keeps the picture's edges, as the export's does (edgeBlur.tsx).
+  const { filter } = keepEdges([baseFilter, ...applied.cssFilters].filter(Boolean).join(' ') || undefined);
   const appliedTransform = applied.transforms.length ? ` ${applied.transforms.join(' ')}` : '';
   const flip = clip.effects.flipH || clip.effects.flipV ? `scale(${clip.effects.flipH ? -1 : 1}, ${clip.effects.flipV ? -1 : 1})` : '';
   const hidden: CSSProperties = visible ? {} : { visibility: 'hidden' };
@@ -474,7 +476,7 @@ function Layer(props: LayerProps) {
     case 'text': {      const graphic = { id: clip.id, text: clip.source.text, subtitle: clip.source.subtitle, preset: clip.source.preset, color: clip.source.color, style: clip.source.style, start: clip.start, duration: clip.duration };
       return (
         <div className={`layer text-layer${clip.source.vertical ? ' vertical' : ''}`} data-clip-id={depth === 0 ? clip.id : undefined}
-          style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden, ['--short' as string]: `${Math.min(stageW, stageH)}px`, ['--h' as string]: `${stageH}px` }}>
+          style={{ inset: 0, opacity, zIndex, transformOrigin: textAnchor(clip.source.preset, clip.source.style), transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden, ['--short' as string]: `${Math.min(stageW, stageH)}px`, ['--h' as string]: `${stageH}px` }}>
           <div className="overlay"><TextLayer graphic={graphic} time={Math.min(time, clipEnd(clip) - 1e-3)} /></div>
         </div>
       );
@@ -512,11 +514,21 @@ function Layer(props: LayerProps) {
       // the scene (they move the layer about its own centre), so the box itself stays put.
       const layer = isLayerClip(clip);
       const scene = standaloneScene(project, clip) ?? clip.source.scene;
-      const moved = layer ? '' : `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})`;
+      // Placed, cropped, masked and flipped as the export places the scene's frames (exportFrames
+      // `restingClip` for a layer clip): fitted into the comp like any picture.
+      const shown = layer ? { ...transform, x: 0, y: 0, scale: 100, rotation: 0 } : transform;
+      const place = placement(shown, scene.width, scene.height, stageW, stageH);
+      const box: CSSProperties = { left: place.left, top: place.top, width: place.width, height: place.height, clipPath: place.clip, transformOrigin: `${place.originX}px ${place.originY}px`, transform: `${transition.style.transform ?? ''} rotate(${shown.rotation}deg)${appliedTransform}` };
+      const inner: CSSProperties = transition.style.clipPath ? { clipPath: transition.style.clipPath } : {};
+      const { transform: _ignored, clipPath: _clip, ...rest } = transition.style;
+      void _ignored;
+      void _clip;
+      const picture = visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={scene} time={sceneTime} playing={playing} rate={rate} stageW={place.width} stageH={place.height} quality={props.quality} assets={assets} fps={comp.fps} /></ErrorBoundary>;
       return (
         <div className="layer motion-layer" data-clip-id={depth === 0 ? clip.id : undefined}
-          style={{ inset: 0, opacity: layer ? (typeof transition.style.opacity === 'number' ? transition.style.opacity : 1) : opacity, zIndex, transform: `${moved}${appliedTransform}` || undefined, filter, ...transition.style, ...hidden }}>
-          {visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} fps={comp.fps} /></ErrorBoundary>}
+          style={{ ...box, ...rest, opacity: layer ? (typeof transition.style.opacity === 'number' ? transition.style.opacity : 1) : opacity, zIndex, ...hidden }}>
+          <div className="layer-inner" style={{ ...inner, filter, ...maskStyle(clip.mask, place.width, place.height, stageH) }}>{flip ? <div className="layer-fill" style={{ transform: flip }}>{picture}</div> : picture}</div>
+          {transition.dip && <div className="layer-dip" style={{ background: transition.dip.color, opacity: transition.dip.opacity }} />}
         </div>
       );
     }
@@ -600,15 +612,18 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
   const { comp, time, project } = props;
   const states = transitionStates(comp, time);
 
-  // Collect all SVG filter defs across all active clips
+  // Collect all SVG filter defs across all active clips, and the edge-keeping blurs they use.
   const allDefs: ReactNode[] = [];
+  const blurRadii: number[] = [];
   for (const clip of comp.clips) {
     if (!clip.enabled) continue;
     const computed = computeAppliedEffects(clip.id, clip.appliedEffects, props.stageH);
     if (computed.svgDefs.length > 0) {
       allDefs.push(...computed.svgDefs);
     }
+    blurRadii.push(...keepEdges([cssFilter(clip.effects, props.stageH), ...computed.cssFilters].filter(Boolean).join(' ')).radii);
   }
+  allDefs.push(...edgeBlurDefs(blurRadii));
 
   let accumulated: ReactNode[] = [];
   const videoTracks = tracksOf(comp, 'video');
@@ -678,7 +693,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
                 inset: 0,
                 width: '100%',
                 height: '100%',
-                filter: adjFilter,
+                filter: keepEdges(adjFilter).filter,
                 transform: adjTransform,
                 opacity: adjOpacity,
                 zIndex: clipZIndex,

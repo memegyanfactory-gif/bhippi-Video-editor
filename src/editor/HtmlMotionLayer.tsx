@@ -43,7 +43,11 @@ export function HtmlMotionLayer({
   const crimson = usesCompCanvas(source.template);
   const canvasW = crimson && stageW < stageH ? 1080 : 1920;
   const canvasH = crimson ? Math.max(1, Math.round((canvasW * stageH) / Math.max(1, stageW))) : 1080;
-  const scale = stageW / canvasW;
+  // The comp canvas fills the stage. A fixed 1920×1080 one is fitted and centred, as the export
+  // places its frames (render/video.rs `place`, FitMode::Fit): letterboxed in a tall comp.
+  const scale = crimson ? stageW / canvasW : Math.min(stageW / canvasW, stageH / canvasH);
+  const left = crimson ? 0 : (stageW - canvasW * scale) / 2;
+  const top = crimson ? 0 : (stageH - canvasH * scale) / 2;
 
   // The markup object must be stable: a fresh { __html } literal every render
   // makes React reset innerHTML on every playhead tick, wiping GSAP's inline
@@ -133,8 +137,8 @@ export function HtmlMotionLayer({
           width: canvasW,
           height: canvasH,
           position: 'absolute',
-          top: 0,
-          left: 0,
+          top,
+          left,
           transform: `scale(${scale})`,
           transformOrigin: 'top left',
           pointerEvents: 'none',

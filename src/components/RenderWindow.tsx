@@ -53,6 +53,8 @@ export function RenderWindow() {
   }
   const eta = overall > 0.02 ? (elapsed / overall) * (1 - overall) : NaN;
   const running = s.status === 'running';
+  // Cancelled a while ago and still not stopped: the window may be closed regardless.
+  const closable = !running || s.abandoned;
 
   if (s.minimized && running) {
     return (
@@ -78,7 +80,7 @@ export function RenderWindow() {
           <h2><Film size={14} /> {running ? 'Rendering' : s.status === 'done' ? 'Export finished' : s.status === 'cancelled' ? 'Render cancelled' : 'Render failed'}</h2>
           <div className="render-head-actions">
             {running && <button type="button" className="icon-btn" title="Run in background" onClick={() => renderProgress.minimize(true)}><Minimize2 size={14} /></button>}
-            {!running && <button type="button" className="icon-btn" title="Close" onClick={() => renderProgress.close()}><X size={14} /></button>}
+            {closable && <button type="button" className="icon-btn" title="Close" onClick={() => renderProgress.close()}><X size={14} /></button>}
           </div>
         </div>
         <div className="modal-body render-body">
@@ -112,6 +114,8 @@ export function RenderWindow() {
             {s.stage !== 'encoding' && running && (
               <div className="render-item-bar"><i style={{ width: `${s.frames ? (s.frame / s.frames) * 100 : 0}%` }} /></div>
             )}
+            {running && s.stall && <div className="render-error render-stall" role="status">{s.stall}</div>}
+            {running && s.abandoned && <div className="render-error" role="status">The render did not stop after Cancel. You can close this window.</div>}
             {s.error && <div className="render-error" role="alert">{s.error}</div>}
             {s.output && s.status === 'done' && <div className="render-output" title={s.output}>{s.output.split(/[\\/]/).pop()}</div>}
             <div className="render-actions">
@@ -119,7 +123,7 @@ export function RenderWindow() {
               {running && <button type="button" className="btn btn-ghost" onClick={() => renderProgress.minimize(true)}><Minimize2 size={12} /> Run in background</button>}
               {s.status === 'done' && s.output && <button type="button" className="btn btn-primary" onClick={() => void api.openPath(s.output!)}><Play size={12} /> Open</button>}
               {s.status === 'done' && s.output && <button type="button" className="btn" onClick={() => void api.revealPath(s.output!)}><FolderOpen size={12} /> Show in folder</button>}
-              {!running && <button type="button" className="btn btn-ghost" onClick={() => renderProgress.close()}>Close</button>}
+              {closable && <button type="button" className="btn btn-ghost" onClick={() => renderProgress.close()}>Close</button>}
             </div>
           </div>
         </div>

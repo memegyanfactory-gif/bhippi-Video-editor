@@ -286,5 +286,8 @@ export class GL {
     this.programs.clear();
     this.gl.deleteBuffer(this.quad);
     this.gl.deleteVertexArray(this.vao);
+    // Hand the context back now rather than at garbage collection: browsers cap live contexts
+    // and drop the oldest (the Program monitor's) when a new one would exceed the cap.
+    this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }

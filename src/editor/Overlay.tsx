@@ -26,6 +26,23 @@ function Frame({ graphic, elapsed, placement, fade = FADE, children }: { graphic
   );
 }
 
+/**
+ * The point a text clip's transform scales and turns about, as a CSS `transform-origin` on the
+ * full-frame layer: its preset's anchor, as the export places it (render/text.rs `anchor`,
+ * caption_styles.rs `\an5\pos`, subtitles.rs lower thirds) — the frame's centre for titles and
+ * kinetic lines, the style's line for a styled caption, 9 % above the bottom for a plain caption,
+ * the panel's corner for a lower third. Scaled about the frame's centre instead, an 80 % styled
+ * caption drifted ~55 px up the monitor from where the export put it.
+ */
+export function textAnchor(preset: Graphic['preset'], style: string | null): string {
+  if (preset === 'caption') {
+    const styled = findStyle(parseRbStyle(style).base ?? style ?? undefined);
+    return styled ? `50% ${styled.posY}%` : '50% 91%';
+  }
+  if (preset === 'lower-third') return '6% 88%';
+  return '50% 50%';
+}
+
 /** One text clip at `time` (the stage sets `--short` and `--h`). */
 export function TextLayer({ graphic, time }: { graphic: Graphic; time: number }) {
   const elapsed = time - graphic.start;

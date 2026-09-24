@@ -57,6 +57,16 @@ const QUALITIES: { label: string; value: number }[] = [
   { label: 'Full', value: 1 }, { label: '1/2', value: 0.5 }, { label: '1/4', value: 0.25 }, { label: '1/8', value: 0.125 },
 ];
 
+/** Playhead updates while playing: 30 a second is enough for overlays and the timeline. */
+const UI_STEP = 1 / 30;
+
+/**
+ * Whether the playback tick moves the playhead, given the seconds carried since it last did.
+ * Two 60 Hz vblanks sum to about 1/30 s, a hair under or over with timer jitter; a strict gate
+ * let the short pairs through only on the third vblank, so the playhead ran at 20-30 Hz.
+ */
+export const shouldStep = (carry: number) => carry >= UI_STEP - 0.004;
+
 type Box = { left: number; top: number; width: number; height: number };
 type Drag =
   | { kind: 'move'; clipId: string; startX: number; startY: number; origin: { x: number; y: number } }
@@ -146,12 +156,11 @@ export function ProgramMonitor(props: Props) {
     // 30 fps is enough for overlays and the timeline while avoiding a full compositor
     // reconciliation on every display refresh (which caused playback to collapse to ~2 fps
     // on dense timelines).
-    const UI_STEP = 1 / 30;
     const tick = (now: number) => {
       const delta = Math.max(0, (now - last) / 1000);
       last = now;
       carry += delta;
-      if (carry < UI_STEP) {
+      if (!shouldStep(carry)) {
         frame = requestAnimationFrame(tick);
         return;
       }
@@ -525,13 +534,13 @@ export function ProgramMonitor(props: Props) {
             onLostPointerCapture={onUp}
             onDoubleClick={() => pen && finishPen(pen)}
           >
-            {comp && (previewDownscaled ? (
-              <div className="stage-render" style={{ width: renderW, height: renderH, transform: `scale(${stageW / renderW}, ${stageH / renderH})`, transformOrigin: 'top left' }}>
-                <CompLayers project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} stageW={renderW} stageH={renderH} depth={0} quality={quality} />
+            {/* One wrapper either way: swapping the element in this slot on play/pause remounted
+                every layer (video elements, motion canvases) at the moment playback starts. */}
+            {comp && (
+              <div className="stage-render" style={previewDownscaled ? { width: renderW, height: renderH, transform: `scale(${stageW / renderW}, ${stageH / renderH})`, transformOrigin: 'top left' } : { width: stageW, height: stageH }}>
+                <CompLayers project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} stageW={previewDownscaled ? renderW : stageW} stageH={previewDownscaled ? renderH : stageH} depth={0} quality={previewDownscaled ? quality : 1} />
               </div>
-            ) : (
-              <CompLayers project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} stageW={stageW} stageH={stageH} depth={0} quality={1} />
-            ))}
+            )}
             {comp && <CompAudio project={project} assets={assets} offline={props.offline} playing={playing} rate={rate} comp={comp} time={time} quality={1} />}
             {empty && (
               <div className="stage-empty">

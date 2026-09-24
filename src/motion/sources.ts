@@ -16,6 +16,15 @@ export type MatteSequence = { fps: number; frames: number; /** Source seconds of
 export type FootageFrame = { image: TexImageSource; width: number; height: number; key: string };
 
 const EXACT_SEEK_TIMEOUT = 4000;
+/** An export frame gives up on footage that has not loaded (or sought) by then. */
+const FOOTAGE_TIMEOUT = 20000;
+
+/** `wait`, or a rejection naming `url` once FOOTAGE_TIMEOUT passes without it settling. */
+function loaded<T>(wait: Promise<T>, url: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`footage ${url} did not load in 20 s`)), FOOTAGE_TIMEOUT); });
+  return Promise.race([wait, late]).finally(() => clearTimeout(timer));
+}
 
 /** Source seconds a footage layer shows at scene time `t`. */
 export function sourceTime(source: FootageSource, t: number): number {
@@ -24,18 +33,20 @@ export function sourceTime(source: FootageSource, t: number): number {
 }
 
 /**
- * Every footage layer of a scene (precomps included) with the source time it needs at `t`, and
- * how many source seconds it runs per scene second (its own speed times any time stretch above it).
+ * Every footage layer of a scene (precomps included) with the source time it needs at `t`, how
+ * many source seconds it runs per scene second (its own speed times any time stretch above it),
+ * and whether it is on screen at `t` (`active`) or only about to start or just ended (lookahead).
  */
-export function footageAt(scene: MotionScene, t: number, out: { layer: Layer & { type: 'footage' }; time: number; rate: number }[] = [], depth = 0, rate = 1): typeof out {
+export function footageAt(scene: MotionScene, t: number, out: { layer: Layer & { type: 'footage' }; time: number; rate: number; active: boolean }[] = [], depth = 0, rate = 1, shown = true): typeof out {
   if (depth > 6) return out;
   for (const layer of scene.layers) {
     const inWindow = t >= (layer.in ?? 0) - 0.5 && t < (layer.out ?? Infinity) + 0.1;
     if (!inWindow) continue;
+    const active = shown && (layer.in ?? 0) <= t && t < (layer.out ?? Infinity);
     const lt = layerTime(layer, t);
     const stretch = rate * (layer.timeScale ?? 1);
-    if (layer.type === 'footage') out.push({ layer, time: sourceTime(layer.source, lt), rate: stretch * (layer.source.speed ?? 1) });
-    else if (layer.type === 'precomp') footageAt(layer.scene, (lt - (layer.offset ?? 0)) * (layer.speed ?? 1), out, depth + 1, stretch * (layer.speed ?? 1));
+    if (layer.type === 'footage') out.push({ layer, time: sourceTime(layer.source, lt), rate: stretch * (layer.source.speed ?? 1), active });
+    else if (layer.type === 'precomp') footageAt(layer.scene, (lt - (layer.offset ?? 0)) * (layer.speed ?? 1), out, depth + 1, stretch * (layer.speed ?? 1), active);
   }
   return out;
 }
@@ -51,8 +62,26 @@ export class MediaBank {
   private matteFrames = new Map<string, ImageEntry>();
   private listeners = new Set<() => void>();
   private onFrame = () => { for (const listener of this.listeners) listener(); };
+  /** The frame rate draws run at (the renderer sets it): a video within half a frame of the time asked for shows that time. */
+  fps = 30;
 
   constructor(private host: MediaHost) {}
+
+  /**
+   * The footage a scene needs at `t`, resolved: layers on screen first, then the lookahead of
+   * layers about to start. A lookahead entry never takes a video an on-screen layer shows at
+   * another time (a razor cut of one file: the next piece must not pull the first off its frame).
+   */
+  private footage(scene: MotionScene, t: number) {
+    const entries = footageAt(scene, t).flatMap((entry) => {
+      const resolved = this.host.resolve(entry.layer.source);
+      return resolved ? [{ ...entry, resolved }] : [];
+    });
+    const shown = entries.filter((entry) => entry.active);
+    const near = 0.5 / this.fps;
+    const ahead = entries.filter((entry) => !entry.active && !shown.some((on) => on.resolved.url === entry.resolved.url && Math.abs(on.time - entry.time) > near));
+    return [...shown, ...ahead];
+  }
 
   /** Called when a frame the preview was waiting for arrives (a seek finished, a matte loaded). */
   listen(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -112,9 +141,7 @@ export class MediaBank {
    * paused) and starts matte loads. Never waits.
    */
   syncPreview(scene: MotionScene, t: number, playing: boolean, rate: number) {
-    for (const { layer, time, rate: runs } of footageAt(scene, t)) {
-      const resolved = this.host.resolve(layer.source);
-      if (!resolved) continue;
+    for (const { layer, time, rate: runs, resolved } of this.footage(scene, t)) {
       if (resolved.kind === 'image') { this.image(resolved.url); continue; }
       const { el } = this.video(resolved.url);
       const speed = runs * rate;
@@ -138,6 +165,8 @@ export class MediaBank {
         }
       }
     }
+    // Videos no scene on screen asked for lately (their layer ended, their clip left): stop decoding.
+    this.pauseIdle(500);
   }
 
   /**
@@ -148,15 +177,13 @@ export class MediaBank {
    */
   async prepareExact(scene: MotionScene, t: number, options: { presented?: boolean } = {}): Promise<void> {
     const waits: Promise<unknown>[] = [];
-    for (const { layer, time } of footageAt(scene, t)) {
-      const resolved = this.host.resolve(layer.source);
-      if (!resolved) continue;
-      if (resolved.kind === 'image') { waits.push(this.image(resolved.url).ready); continue; }
+    for (const { layer, time, resolved } of this.footage(scene, t)) {
+      if (resolved.kind === 'image') { waits.push(loaded(this.image(resolved.url).ready, resolved.url)); continue; }
       const entry = this.video(resolved.url);
-      waits.push(entry.ready.then(() => seekExact(entry.el, time, options.presented ?? true)));
+      waits.push(loaded(entry.ready, resolved.url).then(() => loaded(seekExact(entry.el, time, options.presented ?? true), resolved.url)));
       if (layer.source.matte) {
         const path = layer.source.matte;
-        waits.push((async () => {
+        waits.push(loaded((async () => {
           if (!this.mattes.has(path)) this.matteSequence(path);
           const meta = await this.mattes.get(path)!;
           this.matteMeta.set(path, meta);
@@ -164,7 +191,7 @@ export class MediaBank {
           const index = this.matteIndex(meta, time);
           await this.image(meta.frameUrl(index), this.matteFrames).ready;
           this.trimMattes();
-        })());
+        })(), path));
       }
     }
     await Promise.all(waits);
@@ -173,9 +200,8 @@ export class MediaBank {
   /** The videos a scene shows at `t`: each one's speed, and whether a time remap drives it (capture runs). */
   videosAt(scene: MotionScene, t: number): { el: HTMLVideoElement; speed: number; remapped: boolean }[] {
     const out: { el: HTMLVideoElement; speed: number; remapped: boolean }[] = [];
-    for (const { layer, rate } of footageAt(scene, t)) {
-      const resolved = this.host.resolve(layer.source);
-      if (!resolved || resolved.kind !== 'video') continue;
+    for (const { layer, rate, resolved } of this.footage(scene, t)) {
+      if (resolved.kind !== 'video') continue;
       out.push({ el: this.video(resolved.url).el, speed: rate, remapped: layer.source.timeRemap !== undefined });
     }
     return out;
@@ -221,7 +247,10 @@ export class MediaBank {
     }
     const entry = this.video(resolved.url);
     if (entry.el.readyState < 2 || !entry.el.videoWidth) return null;
-    void time;
+    // The element shows another moment (another layer's, or it is still seeking): not this
+    // layer's frame. A playing one runs within syncPreview's drift allowance of the playhead.
+    const off = Math.abs(entry.el.currentTime - (Number.isFinite(entry.el.duration) ? Math.min(time, entry.el.duration - 1e-3) : time));
+    if (entry.el.seeking || off > (entry.el.paused ? 0.5 / this.fps : 0.25)) return null;
     return { image: entry.el, width: entry.el.videoWidth, height: entry.el.videoHeight, key: `${resolved.url}@${entry.el.currentTime.toFixed(4)}` };
   }
 
@@ -270,6 +299,12 @@ export class MediaBank {
   /** Pauses everything (the preview stopped or the layer left the screen). */
   pauseAll() {
     for (const { el } of this.videos.values()) if (!el.paused) el.pause();
+  }
+
+  /** Pauses every playing video no one has asked for in the last `ms`. */
+  pauseIdle(ms: number) {
+    const now = performance.now();
+    for (const { el, lastUsed } of this.videos.values()) if (!el.paused && now - lastUsed > ms) el.pause();
   }
 
   dispose() {

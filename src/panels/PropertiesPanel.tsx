@@ -12,7 +12,7 @@ import type { History } from '../lib/history';
 import { api } from '../lib/ipc';
 import { removeKey, setKey, valueAt } from '../lib/keyframes';
 import { playhead, usePlayhead } from '../lib/playhead';
-import { clipEnd, clipName, COMP_PRESETS, FRAME_RATES, ITEM_LABEL, sourceInfo, sourceLimit, trackLabel, transitionLabel, transitionWindow, updateComp, type AssetMap } from '../lib/timeline';
+import { clipEnd, clipName, COMP_PRESETS, FRAME_RATES, ITEM_LABEL, moveClipTo, slipClip, sourceInfo, sourceLimit, trackLabel, transitionLabel, transitionWindow, updateComp, type AssetMap } from '../lib/timeline';
 import type { Clip, Comp, Effects, Keyframe, KeyframedProperty as Property, Mask, Project, Transform, Transition } from '../lib/types';
 
 type Props = {
@@ -154,6 +154,17 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
     if (commit) history.commit(apply, label);
     else history.preview(apply);
   };
+  /**
+   * Start and Source In edit the clip as the timeline would — linked partners along, overwriting
+   * what it lands on — and each step starts again from where the scrub began, so an overwrite
+   * does not pile up on the neighbour step after step.
+   */
+  const timing = (change: (base: Comp) => Comp | null) =>
+    history.preview((present, start) => {
+      const base = start.comps.find((entry) => entry.id === comp.id);
+      const next = base && change(base);
+      return next ? updateComp(present, comp.id, () => next) : present;
+    });
   const setTransform = (change: Partial<Transform>, commit = false) => patch({ transform: { ...clip.transform, ...change } }, 'Motion', commit);
   const setEffects = (change: Partial<Effects>, commit = true) => patch({ effects: { ...clip.effects, ...change } }, 'Effects', commit);
   const setMask = (change: Partial<Mask> | null, commit = true) =>
@@ -354,8 +365,8 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
       )}
 
       <Section title="Timing" defaultOpen={false}>
-        <Row label="Start"><ScrubNumber value={clip.start} min={0} step={1 / comp.fps} format={(value) => timecode(value, comp.fps)} parse={(text) => parseTimecode(text, comp.fps)} disabled={disabled} onChange={(start) => patch({ start }, 'Move', false)} onCommit={() => history.settle('Move')} /></Row>
-        <Row label="Source In"><ScrubNumber value={clip.in} min={0} max={Math.max(0, limit - clip.duration * clip.speed)} step={1 / comp.fps} format={(value) => timecode(value, comp.fps)} parse={(text) => parseTimecode(text, comp.fps)} disabled={disabled} onChange={(value) => patch({ in: value }, 'Slip', false)} onCommit={() => history.settle('Slip')} /></Row>
+        <Row label="Start"><ScrubNumber value={clip.start} min={0} step={1 / comp.fps} format={(value) => timecode(value, comp.fps)} parse={(text) => parseTimecode(text, comp.fps)} disabled={disabled} onChange={(start) => timing((base) => moveClipTo(base, clip.id, start))} onCommit={() => history.settle('Move')} /></Row>
+        <Row label="Source In"><ScrubNumber value={clip.in} min={0} max={Math.max(0, limit - clip.duration * clip.speed)} step={1 / comp.fps} format={(value) => timecode(value, comp.fps)} parse={(text) => parseTimecode(text, comp.fps)} disabled={disabled} onChange={(value) => timing((base) => slipClip(base, clip.id, value - (base.clips.find((item) => item.id === clip.id)?.in ?? value), (item) => sourceLimit(project, assets, item)))} onCommit={() => history.settle('Slip')} /></Row>
         <Row label="Level meter"><span className="prop-readout">{Number.isFinite(db) ? `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB` : '−∞'}</span></Row>
       </Section>
     </div>

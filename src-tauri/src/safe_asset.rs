@@ -34,17 +34,10 @@ pub fn parse_request_path(uri_path: &str) -> Option<PathBuf> {
         return None;
     }
 
-    // Percent-decode first
+    // Percent-decode first. The URI's path already excludes its query and fragment, so a '?' or
+    // '#' left after decoding is part of the file name ("Ep #12.mp4") and stays.
     let decoded = percent_encoding::percent_decode_str(uri_path).decode_utf8_lossy();
-    let mut cleaned = decoded.to_string();
-
-    // Strip query parameters (?t=123) or hash fragments (#frag)
-    if let Some(pos) = cleaned.find('?') {
-        cleaned.truncate(pos);
-    }
-    if let Some(pos) = cleaned.find('#') {
-        cleaned.truncate(pos);
-    }
+    let cleaned = decoded.to_string();
 
     let mut path_str = cleaned.as_str();
 
@@ -296,11 +289,16 @@ mod tests {
         let p1 = parse_request_path("/C:/Users/test/video.mp4");
         assert_eq!(p1, Some(PathBuf::from("C:/Users/test/video.mp4")));
 
-        let p2 = parse_request_path("/C%3A/Users/test/video%20file.mp4?t=123");
+        // `Uri::path()` never includes the query, so none is passed here.
+        let p2 = parse_request_path("/C%3A/Users/test/video%20file.mp4");
         assert_eq!(p2, Some(PathBuf::from("C:/Users/test/video file.mp4")));
+    }
 
-        let p3 = parse_request_path("D:/Helios/thumbnail.png#preview");
-        assert_eq!(p3, Some(PathBuf::from("D:/Helios/thumbnail.png")));
+    #[test]
+    fn keeps_a_hash_that_is_part_of_the_file_name() {
+        // What convertFileSrc sends for C:\clips\Ep #12.mp4.
+        let uri: tauri::http::Uri = "http://asset.localhost/C%3A%5Cclips%5CEp%20%2312.mp4".parse().expect("uri");
+        assert_eq!(parse_request_path(uri.path()), Some(PathBuf::from(r"C:\clips\Ep #12.mp4")));
     }
 
     #[test]

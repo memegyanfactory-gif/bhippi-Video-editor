@@ -1,0 +1,69 @@
+/* The pixel avatar (src/avatar). One fixed layer over the workspace, under dialogs and menus;
+   only the character itself takes the mouse. Everything is drawn crisp: pixel art is scaled with
+   nearest-neighbour sampling and moved in whole pixels. */
+
+.avatar-layer { position: fixed; inset: 0; z-index: 850; pointer-events: none; overflow: hidden; contain: layout style; }
+.avatar-layer canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+.avatar-fx { position: absolute; inset: 0; width: 100vw; height: 100vh; }
+.avatar-body { position: absolute; left: 0; top: 0; will-change: transform; }
+.avatar-sprite { position: absolute; left: 0; top: 0; }
+.avatar-hitbox { position: absolute; pointer-events: auto; cursor: grab; border-radius: 40% 40% 30% 30%; touch-action: none; }
+.avatar-hitbox.grabbing { cursor: grabbing; }
+.avatar-shadow { position: absolute; left: 0; top: 0; width: 56px; height: 8px; border-radius: 50%; background: #000; filter: blur(1px); will-change: transform, opacity; }
+.avatar-bubble, .avatar-tag { position: absolute; left: 0; top: 0; will-change: transform; }
+.avatar-bubble { filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.35)); }
+
+/* A deleted clip, waiting as a ghost for the kick that sends it off the timeline. */
+.avatar-ghost {
+  position: absolute; box-sizing: border-box; border-radius: 3px; border: 2px dashed rgba(255, 255, 255, 0.85);
+  opacity: 0.55; animation: avatar-ghost 900ms steps(3) infinite;
+  transition: transform 620ms cubic-bezier(0.2, 0.7, 0.3, 1), opacity 620ms steps(6);
+}
+@keyframes avatar-ghost { 0%, 100% { translate: 0 0; } 33% { translate: 1px 0; } 66% { translate: -1px 0; } }
+.avatar-cutline { position: absolute; width: 3px; background: #fff; box-shadow: 0 0 0 1px #2a1a26, 0 0 10px 2px rgba(255, 255, 255, 0.8); animation: avatar-cut 700ms steps(7) forwards; }
+@keyframes avatar-cut { 0% { opacity: 1; transform: scaleY(0.2); } 30% { opacity: 1; transform: scaleY(1); } 100% { opacity: 0; transform: scaleY(1); } }
+
+/* The user's cursor, slapped out of their hand (a pixel arrow drawn by engine.ts). */
+.avatar-cursor { position: absolute; transform-origin: 0 0; transition: transform 650ms cubic-bezier(0.2, 0.8, 0.3, 1), opacity 650ms steps(5); }
+
+/* Clips the avatar is working on. */
+.tl-clip[data-avatar='pending'] { opacity: 0.18; filter: saturate(0); }
+.tl-clip[data-avatar='placed'] { animation: avatar-placed 520ms steps(8) both; }
+.tl-clip[data-avatar='bump'] { animation: avatar-bump 380ms steps(6); }
+@keyframes avatar-placed {
+  0% { transform: translateY(-16px); filter: brightness(1.8); }
+  45% { transform: translateY(0) scaleY(0.82); filter: brightness(1.5); }
+  70% { transform: translateY(-4px); filter: brightness(1.2); }
+  100% { transform: none; filter: none; }
+}
+@keyframes avatar-bump { 0%, 100% { transform: none; } 33% { transform: translateX(3px); } 66% { transform: translateX(-2px); } }
+
+/* Settings › Avatar */
+.avatar-settings { display: grid; gap: 16px; }
+.avatar-settings .avatar-switch { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line, #3d3d3d); border-radius: 8px; background: rgba(255, 255, 255, 0.02); }
+.avatar-settings .avatar-switch-copy { display: grid; gap: 2px; flex: 1; }
+.avatar-settings .avatar-switch-copy strong { font-size: 13px; }
+.avatar-settings .avatar-switch-copy span { font-size: 12px; color: var(--text-dim); }
+.avatar-stage-row { display: grid; grid-template-columns: minmax(240px, 300px) 1fr; gap: 16px; align-items: start; }
+@container (max-width: 640px) { .avatar-stage-row { grid-template-columns: 1fr; } }
+.avatar-stage {
+  position: relative; display: grid; place-items: end center; height: 300px; border-radius: 8px; overflow: hidden;
+  background: linear-gradient(#20222b 0 80%, #2c2f3b 80% 81%, #191a20 81%);
+  border: 1px solid var(--line, #3d3d3d);
+}
+.avatar-stage canvas { image-rendering: pixelated; margin-bottom: 26px; }
+.avatar-stage-caption { position: absolute; left: 10px; top: 8px; right: 10px; font-size: 11.5px; line-height: 1.4; color: #cfd3de; }
+.avatar-moves { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.avatar-moves button { font-size: 12px; }
+.avatar-moves button.active { border-color: var(--blue, #2d8ceb); color: #fff; }
+.avatar-council { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.avatar-seat { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line, #3d3d3d); border-radius: 8px; background: rgba(255, 255, 255, 0.02); cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.avatar-seat:hover, .avatar-seat.active { border-color: var(--seat, #888); }
+.avatar-seat canvas { image-rendering: pixelated; }
+.avatar-seat strong { display: block; font-size: 12.5px; color: var(--seat, #fff); }
+.avatar-seat span { display: block; font-size: 11.5px; color: var(--text-dim); line-height: 1.35; }
+.avatar-moves-col { display: grid; gap: 8px; align-content: start; }
+.avatar-council-intro { margin: -8px 0 0; }
+.avatar-tips { margin: 6px 0 0; padding: 0 0 0 16px; display: grid; gap: 6px; font-size: 12px; line-height: 1.45; color: var(--text-dim); }
+.avatar-tips strong { color: var(--text, #ddd); font-weight: 600; }
+.avatar-settings h4 { margin: 4px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }

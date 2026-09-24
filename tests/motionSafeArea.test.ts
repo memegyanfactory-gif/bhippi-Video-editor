@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { fitToSafeArea, layoutIssues } from '../src/motion/safeArea';
+import { fitToSafeArea, layoutIssues, safeMargins } from '../src/motion/safeArea';
 import { evaluateMeasured } from '../src/motion/measure';
 import { entryBounds } from '../src/motion/evaluate';
 import { keys } from '../src/motion/anim';
 import { MOTION_TEMPLATES } from '../src/motion/kit';
-import type { MotionScene } from '../src/motion/types';
+import { restingLayerBoxes } from '../src/lib/polish';
+import { frameQa, type QaLayer } from '../src/lib/production';
+import { newComp } from '../src/lib/timeline';
+import type { Layer, MotionScene } from '../src/motion/types';
 
 const W = 1920;
 const H = 1080;
@@ -74,5 +77,69 @@ describe('fitToSafeArea', () => {
       if (off.length) failures.push(`${spec.id}: ${off.map((issue) => issue.names.join('+')).join(', ')}`);
     }
     expect(failures).toEqual([]);
+  });
+});
+
+describe('safe area by orientation', () => {
+  const params: Record<string, unknown> = { subject: { asset: 'a1', matte: 'C:/roto/run/matte.mkv' }, footage: { asset: 'a1', matte: 'C:/roto/run/matte.mkv' }, plate: { asset: 'p1', kind: 'image' }, title: 'A title that is reasonably long', points: ['First point to make', 'Second point', 'Third one'] };
+  const built = (width: number, height: number) => MOTION_TEMPLATES.flatMap((spec) => {
+    try { return [{ id: spec.id, scene: spec.build({ width, height }, params) }]; } catch { return []; }
+  });
+
+  /** What frame QA (run_frame_qa) says about every fitted template, as `template: layer` → the issue kinds and the layer. */
+  function frameQaOf(width: number, height: number) {
+    const comp = newComp({ name: 'QA', width, height, fps: 30 });
+    const found = new Map<string, { kinds: Set<string>; layer: Layer; box: { width: number; height: number } }>();
+    for (const { id, scene: raw } of built(width, height)) {
+      const scene = fitToSafeArea(raw).scene;
+      const times: number[] = [];
+      for (let t = 0.1; t < scene.duration; t += 0.25) times.push(Math.round(t * 1000) / 1000);
+      const boxes = times.flatMap((t) => restingLayerBoxes(scene, t).map((entry) => ({ ...entry, t })));
+      const layers: QaLayer[] = boxes.map(({ layer, box, behind, t }) => ({ clipId: id, group: id, name: layer.id, kind: layer.type === 'text' ? 'text' : 'graphic', box, from: t, to: t + 1e-3, behind }));
+      for (const issue of frameQa(comp, layers, times)) {
+        if (issue.kind !== 'outside-safe' && issue.kind !== 'off-frame') continue;
+        const entry = boxes.find((box) => box.layer.id === issue.a)!;
+        const key = `${id}: ${issue.a}`;
+        found.set(key, { kinds: new Set([...(found.get(key)?.kinds ?? []), issue.kind]), layer: entry.layer, box: entry.box });
+      }
+    }
+    return found;
+  }
+
+  it('keeps the 16:9 fit exactly as it was (5% at the sides, 6% top and bottom)', () => {
+    for (const { scene } of built(W, H)) expect(fitToSafeArea(scene).scene).toEqual(fitToSafeArea(scene, { margin: { x: 0.05, y: 0.06 } }).scene);
+  }, 60_000);
+
+  it('fits a 9:16 frame to the social margins frame QA checks, so fitted templates pass it', () => {
+    const wide = frameQaOf(W, H);
+    const tall = frameQaOf(1080, 1920);
+    const failures = [...tall].filter(([key, { kinds, layer, box }]) => {
+      if (!kinds.has('outside-safe')) return false;
+      // Already flagged at 16:9: the full-width ribbons, streaks and the dock cursor.
+      if (wide.has(key)) return false;
+      // Full-width or full-height bands bleed by design, and decorative shapes are never moved, in any orientation.
+      if (box.width >= 0.9 || box.height >= 0.9) return false;
+      return layer.type === 'text' || layer.type === 'footage' || layer.type === 'precomp';
+    }).map(([key]) => key);
+    expect(failures).toEqual([]);
+  }, 60_000);
+
+  it('takes per-side margins', () => {
+    const tall: MotionScene = {
+      version: 1, width: 1080, height: 1920, duration: 2,
+      layers: [{ id: 'lower', name: 'Lower third', type: 'text', text: { text: 'Name here', size: 80 }, transform: { position: [540, 1750] } }],
+    };
+    const box = (s: MotionScene) => boxOf(s, 'lower', 1);
+    // The default for a tall frame keeps it above the bottom 18%, where the platform puts its buttons.
+    expect(box(tall).y + box(tall).height).toBeGreaterThan(1920 * 0.82);
+    const fitted = fitToSafeArea(tall).scene;
+    expect(box(fitted).y + box(fitted).height).toBeLessThanOrEqual(1920 * 0.82 + 0.5);
+    // Margins given side by side are used as given.
+    expect(box(fitToSafeArea(tall, { margin: { top: 0.06, bottom: 0.06, left: 0.05, right: 0.05 } }).scene)).toEqual(box(tall));
+    expect(layoutIssues(tall, { margin: { top: 0.1, bottom: 0.05, left: 0.05, right: 0.05 } })).toEqual([]);
+    expect(layoutIssues(tall, { margin: { top: 0.05, bottom: 0.18, left: 0.05, right: 0.05 } })[0].overflow.bottom).toBeGreaterThan(0);
+    expect(safeMargins(tall)).toEqual({ top: 0.12, bottom: 0.18, left: 0.06, right: 0.06 });
+    expect(safeMargins({ width: W, height: H })).toEqual({ top: 0.06, bottom: 0.06, left: 0.05, right: 0.05 });
+    expect(safeMargins(tall, 0.1)).toEqual({ top: 0.1, bottom: 0.1, left: 0.1, right: 0.1 });
   });
 });

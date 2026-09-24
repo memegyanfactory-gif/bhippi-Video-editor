@@ -100,12 +100,22 @@ fn events(graphic: &Graphic, width: u32, height: u32) -> Vec<String> {
             vec![dialogue(0, start, end, name, &with_subtitle(format!("{{{fade}}}{text}")))]
         }
         Preset::LowerThird => {
-            let x = (f64::from(width) * 0.06).round();
-            let y = (f64::from(height) * (1.0 - style(Preset::LowerThird).margin_v)).round();
+            // As the preview draws it (`.ov-lower`, `.ov-lower-third`): one panel whose bottom-left
+            // corner sits 6% in and 12% up, padded 0.022 of the short side across and 0.012 down,
+            // with the text inside it. BorderStyle 4 boxes the whole event once (BorderStyle 3 boxed
+            // each line, and where the boxes overlapped the tint doubled); its box is the back
+            // colour, and `\xbord` / `\ybord` are the padding.
+            let (pad_x, pad_y) = ((short * 0.022).round(), (short * 0.012).round());
+            let x = (f64::from(width) * 0.06).round() + pad_x;
+            let y = (f64::from(height) * (1.0 - style(Preset::LowerThird).margin_v)).round() - pad_y;
             let from = x - f64::from(width) * 0.08;
             let slide = format!("\\move({from},{y},{x},{y},0,320)");
-            let box_color = format!("\\3c{}", ass_color(&graphic.color, 0x20));
-            vec![dialogue(0, start, end, name, &with_subtitle(format!("{{{fade}{slide}{box_color}}}{text}")))]
+            // The panel is the accent at 88% (the preview's `color-mix(… 88%, transparent)`). An
+            // override colour tag carries no alpha — libass drops it, which made the box opaque and
+            // hid white text on a light accent — so the alpha goes in its own `\4a`. The border
+            // widths also stroke the glyphs, so that stroke is made clear (`\3a&HFF&`).
+            let panel = format!("\\4c{}&\\4a&H1F&\\3a&HFF&\\xbord{pad_x}\\ybord{pad_y}\\shad0", ass_color(&graphic.color, 0));
+            vec![dialogue(0, start, end, name, &with_subtitle(format!("{{{fade}{slide}{panel}}}{text}")))]
         }
         Preset::Kinetic => {
             // Words land one after another on a stable line: each event shows the whole line
@@ -156,7 +166,7 @@ pub fn build_ass(graphics: &[Graphic], width: u32, height: u32) -> String {
             style_name(preset),
             (short * look.size).round(),
             if look.bold { -1 } else { 0 },
-            if look.boxed { 3 } else { 1 },
+            if look.boxed { 4 } else { 1 },
             (short * look.outline).round().max(1.0),
             (short * look.shadow).round(),
             look.align,
@@ -220,5 +230,13 @@ mod tests {
             let script = build_ass(&[graphic(preset, "Hello Helios")], 1920, 1080);
             assert!(script.contains("Hello Helios"), "{preset:?}");
         }
+    }
+
+    #[test]
+    fn a_lower_third_panel_is_see_through_like_the_preview() {
+        // libass ignores alpha packed into an override colour, so the panel's 88% lives in \4a.
+        let script = build_ass(&[graphic(Preset::LowerThird, "Jane Doe")], 1920, 1080);
+        assert!(script.contains("\\4c&H003DC5FF&\\4a&H1F&\\3a&HFF&\\xbord24\\ybord13"), "{script}");
+        assert!(script.contains("Style: LowerThird,Segoe UI,56,") && script.contains(",0,0,4,"), "one box around the whole event: {script}");
     }
 }

@@ -64,16 +64,31 @@ describe('subagent tools', () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(api.chatSpawnSubagent).toHaveBeenCalledWith({
+    expect(api.chatSpawnSubagent).toHaveBeenCalledWith(expect.objectContaining({
       parentTurnId: 'parent-turn-123',
       task: 'Research b-roll and gather facts',
       label: 'B-roll Researcher',
       model: undefined,
       maxRounds: undefined,
-    });
+      persona: undefined,
+    }));
+    // The worker sees the project the lead sees.
+    expect(vi.mocked(api.chatSpawnSubagent).mock.calls[0][0].context).toMatchObject({ project: { name: 'Untitled project' } });
     if (result.ok) {
       expect(result.subagentId).toBe('sub-456');
     }
+  });
+
+  it('a council role gives the worker its seat and brief', async () => {
+    const { host } = fixture();
+    vi.mocked(api.chatSpawnSubagent).mockResolvedValue({ ok: true, subagentId: 'sub-789' });
+    const result = await runTool(host, 'spawn_subagent', { task: 'Find licence-clear skyline shots', role: 'researcher' }, undefined, 'parent-turn-123');
+    expect(result.ok).toBe(true);
+    const spec = vi.mocked(api.chatSpawnSubagent).mock.calls[0][0];
+    expect(spec.label).toBe('Researcher: Facts, sources and licence-clear media');
+    expect(spec.persona).toContain('Council seat: THE RESEARCHER');
+    const bad = await runTool(host, 'spawn_subagent', { task: 'x', role: 'caterer' });
+    expect(bad.ok).toBe(false);
   });
 
   it('wait_subagent waits for a subagent or all subagents', async () => {

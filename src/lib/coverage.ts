@@ -7,8 +7,12 @@
 
 import { placement } from './editor';
 import { animated } from './keyframes';
-import { clipEnd, sourceInfo, tracksOf, transitionWindow, type AssetMap } from './timeline';
+import { clipEnd, sourceInfo, sourceTimeAt, tracksOf, transitionWindow, type AssetMap } from './timeline';
 import type { Clip, Comp, Project } from './types';
+import { parseColor } from '../motion/gl/color';
+import { transformPoint, type Mat4 } from '../motion/math';
+import { evaluateMeasured } from '../motion/measure';
+import type { Layer, MotionScene } from '../motion/types';
 
 /** A stretch of the comp where some picture is on screen but no layer fills the frame. */
 export type UncoveredSpan = {
@@ -24,6 +28,53 @@ const MIN_SPAN = 0.1; // s; shorter slivers are not reported
 const MAX_DEPTH = 4;
 
 type Picture = { clip: Clip; trackIndex: number; covers: boolean };
+
+const opaque = (color: string | null | undefined) => !!color && parseColor(color)[3] >= 0.995;
+
+/** Whether a layer's content is opaque over its whole rectangle: a solid, a procedural field, or a filled square-cornered rect. */
+const paintsRect = (layer: Layer) => layer.type === 'solid' ? opaque(layer.color)
+  : layer.type === 'procedural' ? layer.kind !== 'light-leak' // the one field drawn with alpha
+    // Only a square-cornered rect fills its bounds; an ellipse or rounded card leaves the corners.
+    : layer.type === 'shape' ? layer.shape.shape === 'rect' && !layer.shape.radius && (layer.shape.gradient ? layer.shape.gradient.stops.every(([, color]) => opaque(color)) : opaque(layer.shape.fill))
+      : false;
+
+/** Whether content of `size` placed by `matrix` covers the `width`×`height` canvas (within EDGE), rotated or not. */
+function coversCanvas(matrix: Mat4, size: [number, number], width: number, height: number): boolean {
+  const [w, h] = size;
+  const quad = [[0, 0], [w, 0], [w, h], [0, h]].map(([x, y]) => transformPoint(matrix, x, y, 0));
+  if (quad.some((p) => p[3] <= 1e-6)) return false;
+  const points = quad.map((p) => [p[0] / p[3], p[1] / p[3]]);
+  // Signed area gives the winding; a canvas corner is inside when it is on the inner side of every edge.
+  const area = points.reduce((sum, [x, y], i) => { const [nx, ny] = points[(i + 1) % 4]; return sum + x * ny - nx * y; }, 0);
+  if (Math.abs(area) < 1e-6) return false;
+  const sign = Math.sign(area);
+  return [[0, 0], [width, 0], [width, height], [0, height]].every(([cx, cy]) => points.every(([ax, ay], i) => {
+    const [bx, by] = points[(i + 1) % 4];
+    const length = Math.hypot(bx - ax, by - ay);
+    return length > 0 && (sign * ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax))) / length >= -EDGE;
+  }));
+}
+
+/**
+ * Whether a motion scene at scene time `t` paints every pixel of its own canvas: an opaque
+ * background colour, or an opaque full-canvas stage (a solid, a procedural field, or a filled
+ * rect) drawn normally. A layer clip of a layered comp counts only its own layers.
+ */
+function sceneFillsCanvas(scene: MotionScene, t: number, fps: number): boolean {
+  if (opaque(scene.background)) return true;
+  const own = scene.stack ? new Set(scene.stack.own) : null;
+  // Evaluating the scene lays out its text; skip it when no layer could fill the canvas anyway.
+  if (!scene.layers.some((layer) => (!own || own.has(layer.id)) && paintsRect(layer))) return false;
+  const matteSources = new Set(scene.layers.map((layer) => layer.matte?.layer).filter(Boolean));
+  const frame = evaluateMeasured(scene, Math.max(0, Math.min(scene.duration - 1e-3, t)), fps);
+  return frame.layers.some((entry) => {
+    const layer = entry.layer;
+    if (own && !own.has(layer.id)) return false;
+    if (!entry.active || layer.hidden || layer.ref || layer.adjustment || layer.threeD || layer.matte || entry.masks.length || matteSources.has(layer.id)) return false;
+    if ((layer.blend ?? 'normal') !== 'normal' || entry.opacity < 0.995) return false;
+    return paintsRect(layer) && coversCanvas(entry.matrix, entry.size, scene.width, scene.height);
+  });
+}
 
 /** Whether `clip` at comp time `t` is an opaque layer that fills the whole frame. */
 function fillsFrame(project: Project, assets: AssetMap, comp: Comp, clip: Clip, t: number, depth: number): boolean {
@@ -42,6 +93,9 @@ function fillsFrame(project: Project, assets: AssetMap, comp: Comp, clip: Clip, 
     if (!child || depth >= MAX_DEPTH) return false;
     const childTime = clip.in + (t - clip.start) * clip.speed;
     if (!pictureAt(project, assets, child, childTime, depth + 1).filled) return false;
+  } else if (source.type === 'motion') {
+    // A motion scene is an overlay unless an opaque stage covers its canvas at this moment.
+    if (!sceneFillsCanvas(source.scene, sourceTimeAt(clip, t), comp.fps)) return false;
   } else {
     return false; // text, shapes, HTML graphics: overlays with transparency
   }
@@ -148,7 +202,27 @@ export function describeUncovered(spans: UncoveredSpan[], comp: Comp, project?: 
     return clip.name || (project && assets ? sourceInfo(project, assets, clip.source).name : id);
   };
   const names = (ids: string[]) => [...new Set(ids.map(nameOf))].join(', ');
-  const shown = spans.slice(0, 6).map((span) => `${seconds(span.start)}–${seconds(span.end)} (${names(span.clipIds)})`).join('; ');
-  const more = spans.length > 6 ? ` and ${spans.length - 6} more` : '';
-  return `The picture does not fill the frame at ${shown}${more}: it is scaled down, moved, cropped or rotated with nothing behind it, so those frames render black at the edges. Call fill_background to put a background behind it (it picks one from the project library, or a blurred copy of the shot).`;
+  const list = (group: UncoveredSpan[]) => {
+    const shown = group.slice(0, 6).map((span) => `${seconds(span.start)}–${seconds(span.end)} (${names(span.clipIds)})`).join('; ');
+    return `${shown}${group.length > 6 ? ` and ${group.length - 6} more` : ''}`;
+  };
+  // Titles, captions and motion graphics with no picture under them: nothing was scaled or moved.
+  const overlay = (clip: Clip | undefined, depth = 0): boolean => {
+    if (!clip) return false;
+    const source = clip.source;
+    if (source.type === 'comp') {
+      const child = project?.comps.find((entry) => entry.id === source.compId);
+      const video = new Set(child ? tracksOf(child, 'video').filter((track) => !track.hidden).map((track) => track.id) : []);
+      const shown = child?.clips.filter((entry) => entry.enabled && video.has(entry.trackId) && entry.source.type !== 'sfx') ?? [];
+      return depth < MAX_DEPTH && shown.length > 0 && shown.every((entry) => overlay(entry, depth + 1));
+    }
+    return source.type === 'text' || source.type === 'html' || source.type === 'shape' || source.type === 'motion';
+  };
+  const graphicsOnly = (span: UncoveredSpan) => span.clipIds.every((id) => overlay(comp.clips.find((entry) => entry.id === id)));
+  const graphics = spans.filter(graphicsOnly);
+  const pictures = spans.filter((span) => !graphicsOnly(span));
+  const lines: string[] = [];
+  if (pictures.length) lines.push(`The picture does not fill the frame at ${list(pictures)}: it is scaled down, moved, cropped or rotated with nothing behind it, so those frames render black at the edges.`);
+  if (graphics.length) lines.push(`Only graphics are on screen at ${list(graphics)}: graphics over an empty frame, so everything around them renders black.`);
+  return `${lines.join(' ')} Call fill_background to put a background behind ${pictures.length ? 'it (it picks one from the project library, or a blurred copy of the shot)' : 'them (it picks one from the project library, or a colour matte)'}.`;
 }

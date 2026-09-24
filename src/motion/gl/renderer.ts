@@ -55,7 +55,8 @@ export class MotionRenderer {
   private uploads = new Map<string, WebGLTexture>();
   /** Laid-out text per text *data object* (scenes are immutable, so an edit is a new object) and time. */
   private textCache = new WeakMap<object, Map<string, TextFrame>>();
-  private textSignatures = new Map<string, { signature: string; size: [number, number] }>();
+  /** The last raster of each text layer: re-used only for the same text data object and the same glyph picture. */
+  private textSignatures = new Map<string, { data: object; signature: string; size: [number, number] }>();
   /** Footage or matte frames the last draw had to leave out because they were still loading. */
   incomplete = 0;
 
@@ -170,19 +171,20 @@ export class MotionRenderer {
       case 'text': {
         const tf = this.text(scene, layer, L.time, L.index);
         // Settled type is the common case: re-raster only when some glyph actually changed.
-        const signature = `${density.toFixed(3)}|${tf.width}x${tf.height}|${tf.glyphs.map((g) => `${g.ch}${g.font}${g.color}${(g.dx).toFixed(2)},${(g.dy).toFixed(2)},${g.scale.toFixed(4)},${g.rotation.toFixed(2)},${g.opacity.toFixed(3)},${g.blur.toFixed(2)},${g.skew.toFixed(2)}`).join(';')}|${tf.strikes.map((k) => k.progress.toFixed(3)).join(',')}`;
+        const signature = `${density.toFixed(3)}|${tf.width}x${tf.height}|${tf.glyphs.map((g) => `${g.ch}${g.font}${g.color}${g.x.toFixed(2)},${g.y.toFixed(2)},${(g.dx).toFixed(2)},${(g.dy).toFixed(2)},${g.scale.toFixed(4)},${g.rotation.toFixed(2)},${g.opacity.toFixed(3)},${g.blur.toFixed(2)},${g.skew.toFixed(2)}`).join(';')}|${tf.strikes.map((k) => k.progress.toFixed(3)).join(',')}`;
         const key = `t:${layer.id}`;
         const cached = this.textSignatures.get(key);
         let tex: WebGLTexture;
         let size: [number, number];
-        if (cached && cached.signature === signature && this.uploads.has(key)) {
+        // An edit is a new text object (align, stroke, shadow… are not in the glyph signature).
+        if (cached && cached.data === layer.text && cached.signature === signature && this.uploads.has(key)) {
           tex = this.uploads.get(key)!;
           size = cached.size;
         } else {
           const canvas = rasterText(this.canvases, layer.id, layer.text, tf, density);
           tex = this.upload(key, canvas);
           size = [canvas.width, canvas.height];
-          this.textSignatures.set(key, { signature, size });
+          this.textSignatures.set(key, { data: layer.text, signature, size });
         }
         target = this.fromTexture(tex, size[0], size[1]);
         pad = tf.pad;
@@ -370,9 +372,11 @@ export class MotionRenderer {
 
   /** Renders and shows the frame on the renderer's own canvas (the preview). */
   draw(scene: MotionScene, t: number, options: RenderOptions = {}) {
-    if (this.gl.lost) return;
+    // Nothing can be drawn on a lost context: the picture counts as incomplete, so no one keeps it.
+    if (this.gl.lost) { this.incomplete = 1; return; }
     const scale = options.scale ?? 1;
     this.incomplete = 0;
+    this.bank.fps = options.fps ?? 30;
     const target = this.renderScene(scene, t, scale, 0, options);
     const canvas = this.canvas;
     if (canvas.width !== target.w || canvas.height !== target.h) { canvas.width = target.w; canvas.height = target.h; }
@@ -383,11 +387,16 @@ export class MotionRenderer {
 
   /** Renders the frame and returns straight-alpha RGBA pixels, rows top-first (for PNG). */
   pixels(scene: MotionScene, t: number, options: RenderOptions = {}): { width: number; height: number; data: Uint8ClampedArray } {
+    // A lost context reads back zeros: a transparent frame that would export silently.
+    const lost = () => { if (this.gl.lost || this.gl.gl.isContextLost()) throw new Error('GPU context lost while rendering motion frames; export again'); };
+    lost();
     this.incomplete = 0;
+    this.bank.fps = options.fps ?? 30;
     const target = this.renderScene(scene, t, options.scale ?? 1, 0, options);
     const straight = this.gl.acquire(target.w, target.h);
     this.gl.pass('unpremul', UNPREMUL_FS, straight, { uTex: target.tex });
     const data = this.gl.read(straight);
+    lost();
     const out = { width: target.w, height: target.h, data: new Uint8ClampedArray(data.buffer) };
     this.gl.releaseAll();
     return out;

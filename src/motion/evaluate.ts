@@ -239,7 +239,11 @@ function frameMatrices(scene: MotionScene, t: number, sizeOf: SizeOf, ctx: (inde
 export function evaluateScene(scene: MotionScene, t: number, options: EvaluateOptions = {}): ResolvedFrame {
   const sizeOf = options.sizeOf ?? ((layer: Layer, time: number) => defaultSize(scene, layer, time));
   const seed = scene.seed ?? 1;
-  const ctx = (index: number): ExprContext => ({ seed, index, duration: scene.duration, width: scene.width, height: scene.height, inPoint: scene.layers[index]?.in ?? 0, outPoint: scene.layers[index]?.out ?? scene.duration });
+  // In and out points on the layer's own clock, the one `time` runs on in its expressions.
+  const ctx = (index: number): ExprContext => {
+    const layer = scene.layers[index];
+    return { seed, index, duration: scene.duration, width: scene.width, height: scene.height, inPoint: layer ? layerTime(layer, layer.in ?? 0) : 0, outPoint: layer ? layerTime(layer, layer.out ?? scene.duration) : scene.duration };
+  };
   const now = frameMatrices(scene, t, sizeOf, ctx, options.anchorOf);
   const fps = options.fps ?? 30;
   const samples = Math.max(1, Math.min(32, Math.round(scene.motionBlur?.samples ?? 8)));

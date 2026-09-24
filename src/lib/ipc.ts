@@ -63,6 +63,24 @@ export type ReferenceFilm = {
   addedAt: string;
 };
 
+/** One licence-clear file from free_media.rs. */
+export type FreeMedia = {
+  title: string;
+  url: string;
+  page: string;
+  thumbnail: string | null;
+  kind: 'image' | 'video' | 'audio';
+  provider: string;
+  license: string;
+  licenseUrl: string | null;
+  creator: string | null;
+  attributionRequired: boolean;
+  attribution: string;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+};
+
 export type SearchResult = {
   title: string;
   url: string;
@@ -411,6 +429,8 @@ export const api = {
   refsSaveGuideline: (name: string | null, notes: string, palette?: string[], pack?: string | null, source?: string | null) =>
     invoke<ReferenceFilm>('refs_save_guideline', { name, notes, palette, pack, source }),
   webSearch: (query: string, limit?: number) => invoke<SearchResult[]>('web_search', { query, limit }),
+  /** Licence-clear media (Openverse, Wikimedia Commons, NASA) with each file's licence and credit. */
+  freeMediaSearch: (query: string, kind?: 'image' | 'video' | 'audio' | 'any', limit?: number) => invoke<FreeMedia[]>('free_media_search', { query, kind, limit }),
   webScrape: (url: string, maxChars?: number) => invoke<ScrapeResult>('web_scrape', { url, maxChars }),
   /** Raw HTML and linked stylesheets of a page (brand extraction). */
   webPageSource: (url: string) => invoke<{ url: string; html: string; stylesheets: { url: string; css: string }[] }>('web_page_source', { url }),
@@ -522,8 +542,12 @@ export const api = {
   saveRecording: (bytes: number[], extension: string) => invoke<Asset>('save_recording', { bytes, extension }),
   /** A fresh folder under the work dir for one motion graphic's rendered export frames. */
   mogrtFramesBegin: (clipId: string) => invoke<string>('mogrt_frames_begin', { clipId }),
-  /** One PNG frame, sent as raw bytes so a 1080p sequence never goes through JSON. */
-  mogrtFrameWrite: (dir: string, index: number, png: Uint8Array) => invoke<void>('mogrt_frame_write', png, { headers: { 'x-mogrt-dir': dir, 'x-mogrt-index': String(index) } }),
+  /** One PNG frame, sent as raw bytes so a 1080p sequence never goes through JSON. Only the
+   *  folder's ASCII name goes in the header (a non-ASCII profile path cannot); Rust finds it under work/mogrt. */
+  mogrtFrameWrite: (dir: string, index: number, png: Uint8Array) =>
+    invoke<void>('mogrt_frame_write', png, { headers: { 'x-mogrt-dir': dir.split(/[\\/]/).filter(Boolean).pop() ?? '', 'x-mogrt-index': String(index) } }),
+  /** Where export frames are PUT (frame_sink.rs): a loopback URL and the token it wants. */
+  frameSink: () => invoke<{ url: string; token: string }>('frame_sink'),
   /** Saves a storyboard card picture (a sketch PNG or a dropped photo's bytes) as raw bytes; returns its path. */
   storyboardImageSave: (compId: string, scene: number, bytes: Uint8Array) => invoke<string>('storyboard_image_save', bytes, { headers: { 'x-comp-id': compId, 'x-scene': String(scene) } }),
   /** Copies a photo from disk into the storyboard folder so the project owns it; returns the copy's path. */
@@ -544,7 +568,7 @@ export const api = {
   /** Hands one tool call's result back to the running turn. */
   chatToolResult: (turnId: string, callId: string, result: ToolResult) => invoke<void>('chat_tool_result', { turnId, callId, result }),
   /** Spawns a parallel subagent worker. */
-  chatSpawnSubagent: (spec: { parentTurnId: string; task: string; label: string; model?: string; maxRounds?: number }) =>
+  chatSpawnSubagent: (spec: { parentTurnId: string; task: string; label: string; model?: string; maxRounds?: number; persona?: string; context?: unknown }) =>
     invoke<{ ok: boolean; subagentId: string }>('chat_spawn_subagent', { spec }),
   /** Queries a subagent's current state. */
   chatSubagentStatus: (subagentId: string) => invoke<unknown>('chat_subagent_status', { subagentId }),
@@ -572,6 +596,9 @@ export const events = {
   docs: on<null>('helios://docs'),
   /** An update downloading, and how its download ended (updater.rs). */
   update: on<UpdateProgress>('helios://update'),
+  /** Settings the backend changed itself (a provider switched off, a model installed, a program
+   *  located), so the UI's copy is fresh before its next settings save. */
+  settings: on<Settings>('helios://settings'),
 };
 
 /** A URL the webview can load for a local file Helios imported or produced. */

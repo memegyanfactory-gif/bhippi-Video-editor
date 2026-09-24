@@ -3,7 +3,8 @@
 // overlays like an HTML graphic's frames. Same renderer as the preview.
 import { api } from '../lib/ipc';
 import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../lib/motionStack';
-import { openFrameWriter, type FrameWriter } from '../lib/pngEncoder';
+import { openFrameWriter, type FrameWriter, type InflightFrame } from '../lib/pngEncoder';
+import { renderProgress } from '../lib/renderProgress';
 import { clipEnd, compClocks, newClip } from '../lib/timeline';
 import type { Asset, Clip, Comp, Project } from '../lib/types';
 import { MotionRenderer } from './gl/renderer';
@@ -27,26 +28,37 @@ function previewSurface() {
   };
 }
 
-/** Renders one motion clip's frames (clip-local, at the comp rate) to `dir/%05d.png`. */
-export async function renderMotionClipFrames(source: MotionSource, clip: Clip, comp: Pick<Comp, 'fps'>, assets: Asset[], options: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: OffscreenCanvas | HTMLCanvasElement) => void } = {}): Promise<RenderedFrames> {
+/** An off-screen renderer for export frames. */
+function exportRenderer(assets: Asset[]): MotionRenderer {
+  const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : document.createElement('canvas');
+  return new MotionRenderer(canvas, editorMediaHost(assets, 'export'));
+}
+
+/**
+ * Renders one motion clip's frames (clip-local, at the comp rate) to `dir/%05d.png`. With
+ * `options.renderer` it draws on that renderer (which the caller disposes) instead of its own.
+ */
+export async function renderMotionClipFrames(source: MotionSource, clip: Clip, comp: Pick<Comp, 'fps'>, assets: Asset[], options: { signal?: AbortSignal; renderer?: MotionRenderer; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: OffscreenCanvas | HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void } = {}): Promise<RenderedFrames> {
   const fps = Math.min(60, Math.max(1, comp.fps));
   const frames = Math.max(1, Math.round(clip.duration * fps));
   const dir = await api.mogrtFramesBegin(clip.id);
-  const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : document.createElement('canvas');
-  const renderer = new MotionRenderer(canvas, editorMediaHost(assets, 'export'));
+  const renderer = options.renderer ?? exportRenderer(assets);
+  renderer.bank.fps = fps;
   const scene = source.scene;
   const preview = previewSurface();
+  const cancelled = () => { if (options.signal?.aborted) throw new Error('export cancelled'); };
   let writer: FrameWriter | null = null;
   try {
     // Frame i's PNG is encoded (on workers) and written while frame i+1 renders.
-    writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames));
+    writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames), options.signal, options.onInflight);
     for (let index = 0; index < frames; index++) {
-      if (options.signal?.aborted) throw new Error('export cancelled');
+      cancelled();
       const local = index / fps;
       // The preview's scene time (Compositor 'motion': sourceTimeAt, held inside the scene) — a
       // frame hold is clamped the same way, so a hold past the scene's end shows its last frame.
       const t = Math.max(0, Math.min(scene.duration - 1e-3, clip.hold !== null ? clip.hold : clip.in + (clip.reverse ? clip.duration - local : local) * clip.speed));
       await renderer.bank.prepareExact(scene, t);
+      cancelled();
       const px = renderer.pixels(scene, t, { scale: 1, fps, motionBlur: true });
       if (options.onCanvas) options.onCanvas(preview(px.width, px.height, px.data));
       await writer.pixels(index, px.width, px.height, px.data);
@@ -54,7 +66,7 @@ export async function renderMotionClipFrames(source: MotionSource, clip: Clip, c
     await writer.finish();
   } finally {
     await writer?.close();
-    renderer.dispose();
+    if (!options.renderer) renderer.dispose();
   }
   return { dir, fps, frames, width: scene.width, height: scene.height };
 }
@@ -152,14 +164,28 @@ export async function renderMotionScenesForExport(project: Project, compId: stri
   const targets = motionClipsForExport(project, compId);
   if (!targets.length) return project;
   const rendered = new Map<string, RenderedFrames>();
-  for (const [i, target] of targets.entries()) {
-    const title = target.source.title ?? 'motion scene';
-    options.onItem?.(title, i + 1, targets.length, motionFrameCount(target.clip, target.comp));
-    rendered.set(target.clip.id, await renderMotionClipFrames(target.source, target.clip, target.comp, assets, {
-      signal: options.signal,
-      onCanvas: options.onCanvas,
-      onProgress: (done, total) => { options.onFrame?.(done, total); options.onProgress?.(`Rendering ${title} (${i + 1}/${targets.length}) · ${done}/${total} frames`); },
-    }));
+  // One GPU context for the whole export: browsers cap live WebGL contexts, and one per target
+  // used to push the Program monitor's own renderer out.
+  const renderer = exportRenderer(assets);
+  try {
+    for (const [i, target] of targets.entries()) {
+      const title = target.source.title ?? 'motion scene';
+      options.onItem?.(title, i + 1, targets.length, motionFrameCount(target.clip, target.comp));
+      try {
+        rendered.set(target.clip.id, await renderMotionClipFrames(target.source, target.clip, target.comp, assets, {
+          signal: options.signal,
+          renderer,
+          onCanvas: options.onCanvas,
+          onInflight: renderProgress.inflight,
+          onProgress: (done, total) => { options.onFrame?.(done, total); options.onProgress?.(`Rendering ${title} (${i + 1}/${targets.length}) · ${done}/${total} frames`); },
+        }));
+      } finally {
+        // Each target's videos and stills are let go once it is done, as when it had its own renderer.
+        renderer.bank.dispose();
+      }
+    }
+  } finally {
+    renderer.dispose();
   }
   return withRendered(project, targets, rendered);
 }
@@ -174,8 +200,8 @@ export async function renderMotionStill(project: Project, compId: string, times:
   if (!targets.length || !times.length) return project;
   const clocks = new Map<string, number[]>();
   for (const time of times) for (const [id, list] of compClocks(project, compId, time)) clocks.set(id, [...(clocks.get(id) ?? []), ...list]);
-  const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : document.createElement('canvas');
-  const renderer = new MotionRenderer(canvas, editorMediaHost(assets, 'export'));
+  // Made on the first target on screen: a still with no motion in it costs no GPU context.
+  let renderer: MotionRenderer | null = null;
   const rendered = new Map<string, RenderedFrames>();
   try {
     for (const target of targets) {
@@ -184,6 +210,8 @@ export async function renderMotionStill(project: Project, compId: string, times:
       // The exporter reads frame round(τ·fps) of the sequence: those files are all it needs.
       const indices = [...new Set((clocks.get(target.comp.id) ?? []).filter((at) => at >= clip.start && at < clipEnd(clip)).map((at) => Math.max(0, Math.round((at - clip.start) * fps))))];
       if (!indices.length) continue;
+      renderer ??= exportRenderer(assets);
+      renderer.bank.fps = fps;
       const scene = target.source.scene;
       const dir = await api.mogrtFramesBegin(`${clip.id}-still`);
       const writer = await openFrameWriter(dir, () => undefined);
@@ -202,7 +230,7 @@ export async function renderMotionStill(project: Project, compId: string, times:
       rendered.set(clip.id, { dir, fps, frames: Math.max(...indices) + 1, width: scene.width, height: scene.height });
     }
   } finally {
-    renderer.dispose();
+    renderer?.dispose();
   }
   return withRendered(project, targets, rendered);
 }

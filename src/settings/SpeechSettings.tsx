@@ -144,6 +144,8 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
     try {
       const next = await api.speechLocate(runtime, picked);
       setStatus(next);
+      // The backend stores the program's path in the settings itself: read them back, or the next save undoes it.
+      onSettings(await api.settingsGet());
       const found = runtime === 'whisper' ? next.whisper.found : next.piper.found;
       toast(found
         ? { tone: 'success', title: 'Found it', body: (runtime === 'whisper' ? next.whisper.path : next.piper.path) ?? '' }

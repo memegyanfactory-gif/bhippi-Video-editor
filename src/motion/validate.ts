@@ -42,6 +42,8 @@ export function validateScene(scene: unknown, depth = 0): string[] {
     else ids.add(layer.id);
     if (!LAYER_TYPES.has(layer.type)) { problems.push(`${name}: unknown type "${String(layer.type)}".`); continue; }
     if (layer.blend && !BLENDS.has(layer.blend)) problems.push(`${name}: unknown blend "${layer.blend}".`);
+    if (typeof layer.in === 'number' && typeof layer.out === 'number' && !(layer.out > layer.in)) problems.push(`${name}: out must be after in.`);
+    if (typeof layer.in === 'number' && layer.in >= s.duration) problems.push(`${name}: in must be before the scene's end.`);
     for (const effect of layer.effects ?? []) if (!EFFECTS.has(effect?.type)) problems.push(`${name}: unknown effect "${String(effect?.type)}" (known: ${EFFECT_TYPES.join(', ')}).`);
     if (layer.type === 'procedural' && !PROCEDURALS.has(layer.kind)) problems.push(`${name}: unknown procedural kind "${layer.kind}".`);
     if (layer.type === 'footage' && !layer.source?.asset && !layer.source?.path) problems.push(`${name}: footage needs source.asset (a project asset id) or source.path.`);

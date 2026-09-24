@@ -78,7 +78,7 @@ type Props = {
   onOpenInSource: (assetId: string, range: { in: number; out: number }) => void;
   onClipMenu: (event: ReactPointerEvent | React.MouseEvent, clipId: string, time: number) => void;
   onTrackMenu: (event: React.MouseEvent, trackId: string) => void;
-  onEmptyMenu: (event: React.MouseEvent, trackId: string | null, time: number) => void;
+  onEmptyMenu: (event: React.MouseEvent, trackId: string | null, time: number, transitionId?: string) => void;
   onMarkerEdit: (markerId: string) => void;
   onAddMarker: () => void;
   onVoiceOver: (trackId: string) => void;
@@ -346,7 +346,12 @@ export function Timeline(props: Props) {
   const locked = (trackId: string) => !!comp.tracks.find((track) => track.id === trackId)?.locked;
   const limit = (clip: Clip) => sourceLimit(project, assets, clip);
   const setComp = (change: (current: Comp) => Comp, label: string) => history.commit((current) => updateComp(current, comp.id, change), label);
-  const previewComp = (next: Comp) => history.preview((current) => updateComp(current, comp.id, () => next));
+  // Each drag step is rebuilt from where the gesture started — as history has it, so an edit
+  // the assistant commits mid-drag is part of that start and survives the drag.
+  const previewComp = (make: (base: Comp) => Comp) => history.preview((present, start) => {
+    const base = start.comps.find((item) => item.id === comp.id);
+    return base ? updateComp(present, comp.id, () => make(base)) : present;
+  });
   const snapped = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }) => {
     const on = snapping !== !!event?.shiftKey && tool !== 'hand';
     if (!on) return toFrame(value, fps);
@@ -431,9 +436,8 @@ export function Timeline(props: Props) {
     }
     if (tool === 'slip') return capture(event, { kind: 'slip', clipId: clip.id, base: comp, startX: event.clientX });
     if (tool === 'slide') return capture(event, { kind: 'slide', clipId: clip.id, base: comp, startX: event.clientX });
-    if (event.ctrlKey && display.keyframes && !event.shiftKey) return onRubberDown(event, clip, null);
     if (tool === 'select' && picked) {
-      capture(event, { kind: 'move', ids: picked, grab: clip, startX: event.clientX, startRow: rowIndex(clip.trackId), duplicate: event.altKey, moved: false, dt: 0, shift: 0, ctrl: false });
+      capture(event, { kind: 'move', ids: picked, grab: clip, startX: event.clientX, startRow: rowIndex(clip.trackId), duplicate: event.altKey, moved: false, dt: 0, shift: 0, ctrl: event.ctrlKey });
     }
   };
 
@@ -545,24 +549,28 @@ export function Timeline(props: Props) {
         active.dt = Math.max(dt, -earliest);
         const grabKind = comp.tracks.find((track) => track.id === active.grab.trackId)?.kind ?? 'video';
         const target = dropTarget(event.clientX, event.clientY);
+        // Over the other kind's rows the grabbed clip stops at the track nearest them (V1 or A1).
+        // Video and audio shift together, so no moving clip may go below its V1/A1 either —
+        // moveClips would refuse the whole move and the horizontal part would be lost with it.
         if (target && target.kind === grabKind) active.shift = target.index - active.startRow;
-        else if (target) active.shift = grabKind === 'video' ? -active.startRow : tracksOf(comp, 'audio').length - active.startRow;
+        else if (target) active.shift = -active.startRow;
+        active.shift = Math.max(active.shift, ...moving.map((clip) => -trackIndex(comp, clip.trackId)));
         active.ctrl = event.ctrlKey;
         redraw((value) => value + 1);
         return;
       }
       case 'trim': {
         const target = snapped(at, new Set([active.clipId]), event);
-        previewComp(trimEdge(active.base, active.clipId, active.edge, target, active.mode, limit, { minDuration: frame, alone: active.alone || event.altKey && active.mode !== 'stretch' }));
+        previewComp((base) => trimEdge(base, active.clipId, active.edge, target, active.mode, limit, { minDuration: frame, alone: active.alone || event.altKey && active.mode !== 'stretch' }));
         return;
       }
       case 'slip': {
         const clip = active.base.clips.find((item) => item.id === active.clipId);
-        if (clip) previewComp(slipClip(active.base, active.clipId, toFrame(-((event.clientX - active.startX) / zoom) * clip.speed, fps), limit));
+        if (clip) previewComp((base) => slipClip(base, active.clipId, toFrame(-((event.clientX - active.startX) / zoom) * clip.speed, fps), limit));
         return;
       }
       case 'slide':
-        previewComp(slideClip(active.base, active.clipId, toFrame((event.clientX - active.startX) / zoom, fps), limit, frame));
+        previewComp((base) => slideClip(base, active.clipId, toFrame((event.clientX - active.startX) / zoom, fps), limit, frame));
         return;
       case 'marquee': {
         const rect = node?.getBoundingClientRect();
@@ -589,7 +597,7 @@ export function Timeline(props: Props) {
         const value = active.property === 'opacity'
           ? clamp(Math.round(active.startValue - deltaFraction * 100), 0, 100)
           : volumeFromY(volumeY(active.startValue) + deltaFraction);
-        previewComp(updateClipIn(active.base, clip.id, (item) => {
+        previewComp((base) => updateClipIn(base, clip.id, (item) => {
           const keys = item.keyframes[active.property];
           if (active.index === null) {
             if (keys.length) {
@@ -611,7 +619,7 @@ export function Timeline(props: Props) {
         const dx = (event.clientX - active.startX) / zoom;
         const factor = transition.alignment === 'center' ? 2 : 1;
         const duration = Math.max(frame, toFrame(transition.duration + (active.edge === 'out' ? dx : -dx) * factor, fps));
-        previewComp({ ...active.base, transitions: active.base.transitions.map((item) => (item.id === active.id ? { ...item, duration } : item)) });
+        previewComp((base) => ({ ...base, transitions: base.transitions.map((item) => (item.id === active.id ? { ...item, duration } : item)) }));
         return;
       }
       case 'resize': {
@@ -867,7 +875,7 @@ export function Timeline(props: Props) {
           event.preventDefault();
           event.stopPropagation();
           props.onSelectTransition(transition.id);
-          props.onEmptyMenu(event, transition.trackId, window.at);
+          props.onEmptyMenu(event, transition.trackId, window.at, transition.id);
         }}
       >
         <span className="transition-name">{transitionLabel(transition.kind)}</span>

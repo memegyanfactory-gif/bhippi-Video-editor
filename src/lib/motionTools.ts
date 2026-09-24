@@ -12,9 +12,8 @@ import { clamp, timecode } from './editor';
 import { api, errorText, fileSrc } from './ipc';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
 import { clipEnd, compDuration, freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
-import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps } from './motionStack';
-import { fitToSafeArea, layoutIssues, type LayoutIssue } from '../motion/safeArea';
-import { SAFE } from './layout';
+import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps, stackLossy } from './motionStack';
+import { fitToSafeArea, layoutIssues, safeMargins, type LayoutIssue } from '../motion/safeArea';
 import type { Clip, ClipSource, Comp, Project, ToolResult } from './types';
 
 type Args = Record<string, unknown>;
@@ -298,10 +297,10 @@ async function imageDataUrl(path: string): Promise<string | null> {
 
 type MotionSource = Extract<ClipSource, { type: 'motion' }>;
 
-/** The safe margin a call asks for (one fraction for every side), else the editor's safe area. */
-const safeMargin = (args: Args): number | { x: number; y: number } => {
+/** The safe margin a call asks for (one fraction for every side), else undefined: the fitter then uses the editor's safe area for the frame's orientation. */
+const safeMargin = (args: Args): number | undefined => {
   const asked = num(args, 'safeMargin');
-  return asked === undefined ? { x: SAFE.left, y: SAFE.top } : clamp(asked, 0, 0.2);
+  return asked === undefined ? undefined : clamp(asked, 0, 0.2);
 };
 
 /** What `id` points at: a layered motion comp (by comp, holder clip or any layer clip), or a single motion scene clip. */
@@ -338,10 +337,11 @@ function describeLayout(issues: LayoutIssue[]): string {
   return `Outside the safe area: ${issues.slice(0, 6).map((issue) => `${issue.names.join(' + ')}${issue.offFrame ? ' (partly off the frame)' : ''} by ${Object.entries(issue.overflow).filter(([, v]) => v > 0).map(([side, v]) => `${v}px ${side}`).join(', ')} at ${issue.at.toFixed(2)} s`).join('; ')}.`;
 }
 
-function fitReport(fit: ReturnType<typeof fitToSafeArea> | null, margin: number | { x: number; y: number }): string {
+function fitReport(fit: ReturnType<typeof fitToSafeArea> | null, margin: number | undefined): string {
   if (!fit) return '';
-  const pct = typeof margin === 'number' ? `${Math.round(margin * 100)}%` : `${Math.round(margin.x * 100)}%/${Math.round(margin.y * 100)}%`;
-  const moved = fit.moved.length ? ` Moved inside the ${pct} safe area: ${fit.moved.map((m) => `${m.names.join(' + ')} (${m.dx >= 0 ? '+' : ''}${m.dx}, ${m.dy >= 0 ? '+' : ''}${m.dy} px${m.scale < 1 ? `, ×${m.scale}` : ''})`).join('; ')}.` : '';
+  const sides = safeMargins(fit.scene, margin);
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const moved = fit.moved.length ? ` Moved inside the safe area (${pct(sides.top)} top, ${pct(sides.bottom)} bottom, ${pct(sides.left)} left, ${pct(sides.right)} right): ${fit.moved.map((m) => `${m.names.join(' + ')} (${m.dx >= 0 ? '+' : ''}${m.dx}, ${m.dy >= 0 ? '+' : ''}${m.dy} px${m.scale < 1 ? `, ×${m.scale}` : ''})`).join('; ')}.` : '';
   return `${moved}${fit.remaining.length ? ` ${describeLayout(fit.remaining)}` : ''}`;
 }
 
@@ -439,7 +439,7 @@ function updateStack(comp: Comp, args: Args, ctx: MotionToolContext): ToolResult
   if ('error' in edit) return fail(edit.error);
   const timing = edit.rebuilt || edit.retime ? 'scene' : 'keep';
   ctx.commit((current) => {
-    const restacked = restack(current, comp.id, edit.scene, timing);
+    const restacked = restack(current, comp.id, edit.scene, timing, 0, base);
     const after = restacked.comps.find((c) => c.id === comp.id);
     // A scene that got longer or shorter takes the clips that hold it along.
     return after && Math.abs(edit.scene.duration - base.duration) > 1e-3 ? syncHolders(restacked, after, compDuration(after)) : restacked;
@@ -561,11 +561,14 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         const layers = layerListing(project, target.comp);
         const drawn = layeredCompScene(project, target.comp) ?? scene;
         const layout = layoutIssues(drawn, { margin: safeMargin(args) });
-        return done(`"${target.comp.name}": ${layers.length} layer clip${layers.length === 1 ? '' : 's'} (${layers.map((layer) => layer.name).join(', ')}), ${scene.duration.toFixed(2)} s${scene.template ? `, built from ${scene.template.id}` : ''}.${layout.length ? ` ${describeLayout(layout)}` : ' Everything rests inside the safe area.'} Edit a layer with update_motion_scene patches by its layerId, or its clip on the comp's timeline.`, {
+        // Timeline-only edits inside a precomp's comp that its precomp layer cannot draw.
+        const lossy = stackLossy(project, target.comp);
+        return done(`"${target.comp.name}": ${layers.length} layer clip${layers.length === 1 ? '' : 's'} (${layers.map((layer) => layer.name).join(', ')}), ${scene.duration.toFixed(2)} s${scene.template ? `, built from ${scene.template.id}` : ''}.${layout.length ? ` ${describeLayout(layout)}` : ' Everything rests inside the safe area.'}${lossy.length ? ` Not drawn in the precomp: ${lossy.join('; ')}.` : ''} Edit a layer with update_motion_scene patches by its layerId, or its clip on the comp's timeline.`, {
           compId: target.comp.id,
           layers,
           outline: summarizeScene(scene),
           layout,
+          ...(lossy.length ? { lossy } : {}),
           ...(args.full === true ? { scene } : {}),
           ...(scene.template ? { templateParams: scene.template.params } : {}),
         });

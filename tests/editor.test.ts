@@ -1,11 +1,31 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Export's pre-render stand-ins: the real ones need a GPU and a browser. A still marks every
+// motion clip as rendered, so a test can see whether the project handed on went through it.
+const rendered = { dir: 'C:/frames', fps: 30, frames: 1, width: 1920, height: 1080 };
+vi.mock('../src/motion/exportFrames', () => ({
+  motionClipsForExport: () => [],
+  renderMotionScenesForExport: vi.fn(async (project: unknown) => project),
+  renderMotionStill: vi.fn(async (project: Project) => ({
+    ...project,
+    comps: project.comps.map((comp) => ({ ...comp, clips: comp.clips.map((clip) => (clip.source.type === 'motion' ? { ...clip, source: { ...clip.source, frames: rendered } } : clip)) })),
+  })),
+}));
+vi.mock('../src/lib/htmlFrames', () => ({
+  htmlClipsForExport: () => [],
+  renderMotionGraphicsForExport: vi.fn(async (project: unknown) => project),
+  renderHtmlStill: vi.fn(async (project: unknown) => project),
+}));
 import { cssFilter, DEFAULT_TRANSFORM, parseCaptions, parseTimecode, placement, safeFileName, snap, timecode } from '../src/lib/editor';
 import { setKey, shiftKeys, valueAt } from '../src/lib/keyframes';
 import {
   addFrameHold, addTracks, addTransition, clearRange, clipEnd, clipsForSource, compDuration, deleteTracks, editPoints, gapAt, closeGap, loadProject, moveClips, nestClips, newClip, newComp,
-  newProject, placeClips, razor, removeClips, removeRange, resolveTrack, setLinked, setSpeed, slideClip, slipClip, sourceTimeAt, tracksOf, trackLabel, trimEdge, usage, withLinked, wouldCycle, freeTrack,
+  newProject, placeClips, quarantineScripts, razor, removeClips, removeRange, restoreScripts, resolveTrack, setLinked, setSpeed, slideClip, slipClip, sourceTimeAt, tracksOf, trackLabel, trimEdge, trimToPlayhead, usage, withLinked, wouldCycle, freeTrack,
 } from '../src/lib/timeline';
 import type { Asset, Clip, Comp, Project } from '../src/lib/types';
+import { prerenderForExport, prerenderStill } from '../src/lib/exportPrepare';
+import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
+import { renderHtmlStill, renderMotionGraphicsForExport } from '../src/lib/htmlFrames';
 
 const asset = (id: string, kind: Asset['kind'], seconds: number, hasAudio = true): Asset => ({
   id, name: `${id}.mp4`, path: `C:/${id}.mp4`, kind, duration: seconds, width: 1920, height: 1080, fps: 30, hasAudio, videoCodec: 'h264', audioCodec: 'aac',
@@ -139,6 +159,16 @@ describe('delete, lift and extract', () => {
     expect(on(removeRange(comp, 3, 5, 'lift'), v1)).toEqual([[0, 3, 0], [5, 5, 6]]);
   });
 
+  it('extract on chosen tracks leaves a sync-locked track alone where it still holds something in the range', () => {
+    const { comp, v1, v2 } = setup();
+    const long = newClip({ trackId: v1, start: 5, duration: 20, source: media });
+    const early = newClip({ trackId: v2, start: 12, duration: 2, source: media });
+    const late = newClip({ trackId: v2, start: 22, duration: 2, source: media });
+    const next = removeRange({ ...comp, clips: [long, early, late] }, 10, 20, 'extract', [v1]);
+    expect(on(next, v1)).toEqual([[5, 5, 0], [10, 5, 15]]);
+    expect(on(next, v2)).toEqual([[12, 2, 0], [22, 2, 0]]);
+  });
+
   it('finds and closes gaps', () => {
     const { comp, v1, first } = twoPairs();
     const holey = removeClips(comp, withLinked(comp, [first[0].id]), false);
@@ -267,6 +297,25 @@ describe('razor, speed, holds, links, nest', () => {
     expect(usage(nested!.project).get(nested!.compId)).toBe(1);
   });
 
+  it('nesting clips around another leaves the one between them in place', () => {
+    const { comp, v1 } = setup();
+    const [a, b, c] = [0, 2, 4].map((start) => newClip({ trackId: v1, start, duration: 2, source: media }));
+    const nested = nestClips(project({ ...comp, clips: [a, b, c] }), comp.id, [a.id, c.id], 'Nested');
+    const parent = nested!.project.comps.find((item) => item.id === comp.id) as Comp;
+    expect(parent.clips.find((clip) => clip.id === b.id)).toMatchObject({ trackId: v1, start: 2, duration: 2 });
+    const nest = parent.clips.find((clip) => clip.source.type === 'comp') as Clip;
+    expect([nest.start, nest.duration, trackLabel(parent, nest.trackId)]).toEqual([0, 6, 'V2']);
+  });
+
+  it('Q and W trim the clip under the playhead from its head and from its tail', () => {
+    const { comp, v1 } = setup();
+    const clip = newClip({ trackId: v1, start: 2, duration: 8, source: media });
+    const base = { ...comp, clips: [clip] };
+    expect(on(trimToPlayhead(base, [v1], 6, 'previous', true, limit, 1 / 30), v1)).toEqual([[2, 4, 4]]);
+    expect(on(trimToPlayhead(base, [v1], 6, 'next', true, limit, 1 / 30), v1)).toEqual([[2, 4, 0]]);
+    expect(on(trimToPlayhead(base, [v1], 6, 'next', false, limit, 1 / 30), v1)).toEqual([[2, 4, 0]]);
+  });
+
   it('transitions follow a razor cut and disappear when their cut goes away', () => {
     const { comp, v1, first, second } = twoPairs();
     const dissolve = addTransition(comp, v1, 4, 'cross-dissolve', 1);
@@ -355,5 +404,49 @@ describe('helpers', () => {
     expect(snap(1.97, [0, 2, 4], 0.1)).toBe(2);
     expect(parseCaptions('1\n00:00:01,000 --> 00:00:02,500\nHello <i>there</i>\n')).toEqual([{ start: 1, end: 2.5, text: 'Hello there' }]);
     expect(safeFileName('My: "Story"?')).toBe('My Story');
+  });
+});
+
+describe('export pre-render', () => {
+  it('Export Frame renders the motion scenes and graphics at the playhead before the backend sees the project', async () => {
+    const { comp, v1 } = setup();
+    const scene = newClip({ trackId: v1, start: 0, duration: 4, source: { type: 'motion', scene: {} as never } });
+    const still = await prerenderStill(project({ ...comp, clips: [scene] }), comp.id, 2, []);
+    expect(renderMotionStill).toHaveBeenCalledWith(expect.anything(), comp.id, [2], []);
+    expect(renderHtmlStill).toHaveBeenCalledWith(expect.anything(), comp.id, [2]);
+    const clip = still.comps[0].clips[0];
+    expect(clip.source.type === 'motion' && clip.source.frames).toEqual(rendered);
+  });
+
+  it('an effect the export cannot draw fails before any pre-render', async () => {
+    const { comp, v1 } = setup();
+    const fx = { id: 'fx', effectId: 'not-a-real-effect', name: 'Mystery', category: 'Stylize', enabled: true, params: {} };
+    const clip = { ...newClip({ trackId: v1, start: 0, duration: 4, source: media }), appliedEffects: [fx] };
+    vi.mocked(renderMotionGraphicsForExport).mockClear();
+    vi.mocked(renderMotionScenesForExport).mockClear();
+    await expect(prerenderForExport(project({ ...comp, clips: [clip] }), comp.id, [])).rejects.toThrow(/not implemented for export/);
+    expect(renderMotionGraphicsForExport).not.toHaveBeenCalled();
+    expect(renderMotionScenesForExport).not.toHaveBeenCalled();
+  });
+});
+
+describe('graphic scripts from a project file', () => {
+  it('are held back until the user trusts the file, and put back when they do', () => {
+    const { comp, v1, v2 } = setup();
+    const graphic = (trackId: string, js: string) => newClip({ trackId, start: 0, duration: 2, source: { type: 'html', html: '<div></div>', js } });
+    const clips = [graphic(v1, 'window.a = 1'), graphic(v2, 'window.b = 2'), graphic(tracksOf(comp, 'video')[2].id, '')];
+    const opened = quarantineScripts(project({ ...comp, clips }));
+    expect(opened.count).toBe(2);
+    const held = opened.project.comps[0].clips.map((clip) => clip.source.type === 'html' && [clip.source.js, clip.source.quarantinedJs]);
+    expect(held).toEqual([['', 'window.a = 1'], ['', 'window.b = 2'], ['', undefined]]);
+    const restored = restoreScripts(opened.project).comps[0].clips.map((clip) => clip.source.type === 'html' && [clip.source.js, clip.source.quarantinedJs]);
+    expect(restored).toEqual([['window.a = 1', undefined], ['window.b = 2', undefined], ['', undefined]]);
+  });
+
+  it('leaves a project without scripts as it is', () => {
+    const { comp } = twoPairs();
+    const plain = project(comp);
+    expect(quarantineScripts(plain)).toEqual({ project: plain, count: 0 });
+    expect(restoreScripts(plain)).toBe(plain);
   });
 });

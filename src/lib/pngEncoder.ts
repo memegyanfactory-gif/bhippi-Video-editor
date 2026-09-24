@@ -3,12 +3,66 @@
 // workers (same Chromium encoder, identical bytes) while the caller renders the next frame, with
 // a bounded number of frames in flight. Without workers it falls back to encoding on the main
 // thread, still overlapped with rendering.
+//
+// Every stage has a deadline: a frame whose encode or disk write never answers fails the export
+// with a message naming that stage, instead of leaving the render window running forever.
+//
+// Frames reach disk over HTTP: a PUT to the app's loopback frame sink (frame_sink.rs), the same way
+// the export-parity harness sends them. A long run of raw-body invokes could stall mid-export with
+// nothing saying why; `mogrt_frame_write` stays as the fallback when the sink cannot be reached.
 import { api } from './ipc';
 
 type Pending = { resolve: (png: Uint8Array) => void; reject: (error: Error) => void; worker: Worker };
-type Pool = { encode: (message: Record<string, unknown>, transfer: Transferable[]) => Promise<Uint8Array>; size: number; close: () => void };
+/** One queued encode: the worker that has it (its slot, -1: the main thread) and how many jobs it holds. */
+type Encoding = { png: Promise<Uint8Array>; worker: number; queued: number; handle?: Worker };
+type Pool = { encode: (message: Record<string, unknown>, transfer: Transferable[]) => Encoding; restart: (worker: Worker) => void; size: number; close: () => void };
+
+/** A frame on its way to disk, for the render window's stall report. */
+export type InflightFrame = { index: number; stage: 'encode' | 'write' };
 
 const PROBE_TIMEOUT_MS = 4000;
+const ENCODE_TIMEOUT_MS = 30000;
+const WRITE_TIMEOUT_MS = 30000;
+/** How long close() waits for frames still in flight before it gives up on them. */
+const CLOSE_GRACE_MS = 5000;
+
+/**
+ * `p`, or a rejection with `msg` once `ms` pass without it settling. `onTimeout` runs right after
+ * that rejection, so whatever it does to `p` (a restarted worker rejects its jobs) loses the race.
+ */
+export function withTimeout<T>(p: Promise<T>, ms: number, msg: string, onTimeout?: () => void): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => { reject(new Error(msg)); onTimeout?.(); }, ms);
+  });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
+
+type Sink = { url: string; token: string };
+let sinkReady: Promise<Sink | null> | null = null;
+/** The loopback frame sink, asked for once; null (use the invoke) when there is none. */
+const frameSink = () => (sinkReady ??= Promise.resolve().then(() => api.frameSink()).then((sink) => (sink?.url && sink.token ? sink : null), () => null));
+
+/** One PNG to `dir/<index:05>.png`: through the sink, or the invoke when the sink is out of reach. */
+async function writeFrame(dir: string, index: number, png: Uint8Array, signal: AbortSignal): Promise<void> {
+  const sink = await frameSink();
+  if (sink) {
+    const leaf = dir.split(/[\\/]/).filter(Boolean).pop() ?? '';
+    try {
+      const response = await fetch(`${sink.url}/frame/${encodeURIComponent(leaf)}/${index}`, {
+        method: 'PUT', headers: { 'x-helios-token': sink.token }, body: png as BodyInit, signal,
+      });
+      if (response.ok) return;
+      throw new Error(`frame ${index}: the frame sink answered ${response.status}`);
+    } catch (error) {
+      // A network failure (not a refusal, a timeout or a cancel): the sink is out of reach, so this
+      // frame and every later one take the invoke.
+      if (signal.aborted || !(error instanceof TypeError)) throw error;
+      sinkReady = Promise.resolve(null);
+    }
+  }
+  await api.mogrtFrameWrite(dir, index, png);
+}
 
 function spawn(): Worker | null {
   if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return null;
@@ -44,7 +98,7 @@ async function openPool(size: number): Promise<Pool | null> {
   }));
   const ready = await Promise.all(probes);
   if (!ready.every(Boolean)) { workers.forEach((worker) => worker.terminate()); return null; }
-  for (const worker of workers) {
+  const wire = (worker: Worker) => {
     worker.onmessage = (event: MessageEvent<{ id: number; png?: ArrayBuffer; blob?: Blob; error?: string }>) => {
       const job = pending.get(event.data.id);
       if (!job) return;
@@ -55,17 +109,39 @@ async function openPool(size: number): Promise<Pool | null> {
       else job.reject(new Error(event.data.error ?? 'PNG encoding failed'));
     };
     worker.onerror = (event) => { event.preventDefault(); fail(worker, `PNG encoder failed: ${event.message || 'worker error'}`); };
-  }
+    // A reply that cannot be read names no job, so every job on that worker is lost.
+    worker.onmessageerror = () => fail(worker, 'PNG encoder failed: a reply could not be read (messageerror)');
+  };
+  workers.forEach(wire);
   return {
     size: workers.length,
-    encode: (message, transfer) => new Promise<Uint8Array>((resolve, reject) => {
-      let worker = workers[0];
-      for (const candidate of workers) if ((load.get(candidate) ?? 0) < (load.get(worker) ?? 0)) worker = candidate;
+    encode: (message, transfer) => {
+      if (!workers.length) return { png: Promise.reject(new Error('PNG encoder closed')), worker: -1, queued: 0 };
+      let k = 0;
+      for (let i = 1; i < workers.length; i++) if ((load.get(workers[i]) ?? 0) < (load.get(workers[k]) ?? 0)) k = i;
+      const worker = workers[k];
       const id = ++nextId;
-      pending.set(id, { resolve, reject, worker });
-      load.set(worker, (load.get(worker) ?? 0) + 1);
-      worker.postMessage({ ...message, id }, transfer);
-    }),
+      const queued = (load.get(worker) ?? 0) + 1;
+      load.set(worker, queued);
+      const png = new Promise<Uint8Array>((resolve, reject) => {
+        pending.set(id, { resolve, reject, worker });
+        worker.postMessage({ ...message, id }, transfer);
+      });
+      return { png, worker: k, queued, handle: worker };
+    },
+    /**
+     * A worker that stopped answering: its jobs fail and a fresh one takes its place. Named by
+     * the worker itself, not its slot: a slot may hold a fresh worker (or another one) by now.
+     */
+    restart: (stuck) => {
+      const k = workers.indexOf(stuck);
+      if (k < 0) return;
+      stuck.terminate();
+      fail(stuck, 'PNG encoder restarted');
+      load.delete(stuck);
+      const fresh = spawn();
+      if (fresh) { workers[k] = fresh; load.set(fresh, 0); wire(fresh); } else workers.splice(k, 1);
+    },
     close: () => {
       for (const worker of workers) worker.terminate();
       for (const job of pending.values()) job.reject(new Error('PNG encoder closed'));
@@ -92,36 +168,67 @@ export type FrameWriter = {
   canvas: (index: number, canvas: HTMLCanvasElement) => Promise<void>;
   /** Waits for every queued frame to be on disk; throws the first failure. */
   finish: () => Promise<void>;
-  /** Waits for queued frames to settle and frees the workers. Safe to call more than once and after a failure. */
+  /** Waits (a few seconds at most) for queued frames to settle and frees the workers. Safe to call more than once and after a failure. */
   close: () => Promise<void>;
 };
 
 /**
  * Writes frames to `dir/%05d.png` via `mogrt_frame_write`, encoding on workers with at most a few
  * frames in flight. `onWritten(done)` counts frames on disk (completion order may differ from
- * frame order; frames are written by index, so that is harmless).
+ * frame order; frames are written by index, so that is harmless). Aborting `signal` fails the
+ * writer at once, so nothing waits on a frame after a cancel. `onInflight` hears which frames
+ * are encoding or being written whenever that changes.
  */
-export async function openFrameWriter(dir: string, onWritten?: (done: number) => void): Promise<FrameWriter> {
+export async function openFrameWriter(dir: string, onWritten?: (done: number) => void, signal?: AbortSignal, onInflight?: (frames: InflightFrame[]) => void): Promise<FrameWriter> {
   const cores = typeof navigator !== 'undefined' && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
   const pool = await openPool(Math.max(1, Math.min(4, cores - 2)));
   // Encoding workers plus one frame being handed over; each 1080p frame is ~8 MB while queued.
   const limit = pool ? pool.size + 1 : 3;
   const inflight = new Set<Promise<void>>();
+  const stages = new Map<number, InflightFrame['stage']>();
   let failure: Error | null = null;
   let done = 0;
   let closed = false;
   let scratch: { canvas: OffscreenCanvas; context: OffscreenCanvasRenderingContext2D } | null = null;
 
-  const track = (index: number, png: Promise<Uint8Array>) => {
-    const job = png
-      .then((bytes) => api.mogrtFrameWrite(dir, index, bytes))
+  let wake: () => void = () => undefined;
+  /** Settles the first time `failure` is set, so no wait outlives a failure or a cancel. */
+  const failed = new Promise<void>((resolve) => { wake = resolve; });
+  const fail = (error: unknown) => {
+    failure ??= error instanceof Error ? error : new Error(String(error));
+    wake();
+  };
+  const onAbort = () => fail(new Error('export cancelled'));
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener('abort', onAbort, { once: true });
+
+  const stage = (index: number, next: InflightFrame['stage'] | null) => {
+    if (next) stages.set(index, next);
+    else stages.delete(index);
+    onInflight?.([...stages].map(([at, what]) => ({ index: at, stage: what })));
+  };
+  const track = (index: number, encoding: Encoding) => {
+    const where = encoding.worker >= 0 ? `worker ${encoding.worker}` : 'main thread';
+    const restart = () => { if (encoding.handle) pool?.restart(encoding.handle); };
+    stage(index, 'encode');
+    const job = withTimeout(encoding.png, ENCODE_TIMEOUT_MS, `frame ${index}: PNG encoder gave no answer in 30 s (${where}, ${encoding.queued} queued)`, restart)
+      .then((bytes) => {
+        stage(index, 'write');
+        // The request itself is cut off at the deadline (and on Cancel), not only the wait for it.
+        const deadline = AbortSignal.timeout(WRITE_TIMEOUT_MS);
+        const cut = signal ? AbortSignal.any([signal, deadline]) : deadline;
+        return withTimeout(writeFrame(dir, index, bytes, cut), WRITE_TIMEOUT_MS, `frame ${index}: the frame write gave no answer in 30 s`);
+      })
       .then(() => { done++; onWritten?.(done); })
-      .catch((error: unknown) => { failure ??= error instanceof Error ? error : new Error(String(error)); });
+      .catch(fail)
+      .finally(() => stage(index, null));
     inflight.add(job);
     void job.finally(() => inflight.delete(job));
   };
+  /** A frame encoded on the main thread. */
+  const trackHere = (index: number, png: Promise<Uint8Array>) => track(index, { png, worker: -1, queued: inflight.size + 1 });
   const room = async () => {
-    while (inflight.size >= limit && !failure) await Promise.race(inflight);
+    while (inflight.size >= limit && !failure) await Promise.race([...inflight, failed]);
     if (failure) throw failure;
   };
   const check = () => {
@@ -141,7 +248,7 @@ export async function openFrameWriter(dir: string, onWritten?: (done: number) =>
           const context = canvas.getContext('2d');
           if (!context) throw new Error('no 2D canvas for PNG encoding');
           context.putImageData(new ImageData(data, width, height), 0, 0);
-          track(index, encodeCanvasHere(canvas));
+          trackHere(index, encodeCanvasHere(canvas));
         } else {
           if (!scratch || scratch.canvas.width !== width || scratch.canvas.height !== height) {
             const canvas = new OffscreenCanvas(width, height);
@@ -150,7 +257,7 @@ export async function openFrameWriter(dir: string, onWritten?: (done: number) =>
             scratch = { canvas, context };
           }
           scratch.context.putImageData(new ImageData(data, width, height), 0, 0);
-          track(index, encodeCanvasHere(scratch.canvas));
+          trackHere(index, encodeCanvasHere(scratch.canvas));
         }
       }
       await room();
@@ -161,18 +268,23 @@ export async function openFrameWriter(dir: string, onWritten?: (done: number) =>
         const bitmap = await createImageBitmap(canvas);
         track(index, pool.encode({ width: canvas.width, height: canvas.height, bitmap }, [bitmap]));
       } else {
-        track(index, encodeCanvasHere(canvas));
+        trackHere(index, encodeCanvasHere(canvas));
       }
       await room();
     },
     async finish() {
-      while (inflight.size) await Promise.all(inflight);
+      // Every frame settles within its deadlines, and the first failure ends the wait at once.
+      while (inflight.size && !failure) await Promise.race([...inflight, failed]);
       if (failure) throw failure;
     },
     async close() {
       if (closed) return;
       closed = true;
-      while (inflight.size) await Promise.allSettled(inflight);
+      signal?.removeEventListener('abort', onAbort);
+      // After a failure or a cancel nothing queued matters: stopping the encoders fails their
+      // jobs, and disk writes already under way get a moment to land.
+      if (failure || signal?.aborted) pool?.close();
+      if (inflight.size) await withTimeout(Promise.allSettled([...inflight]), CLOSE_GRACE_MS, 'frames still in flight').catch(() => undefined);
       pool?.close();
     },
   };

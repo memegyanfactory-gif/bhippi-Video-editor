@@ -6,6 +6,7 @@
 // flat colour.
 import { layerTitle, stackGroups } from './motionStack';
 import { htmlLayerInfo } from './htmlLayers';
+import { fittedBand, usesCompCanvas } from './motionGraphics';
 import { animated } from './keyframes';
 import { placement } from './editor';
 import { fileSrc } from './ipc';
@@ -30,6 +31,24 @@ function holderMap(clip: Clip, t: number): (box: Box) => Box {
   const y = animated(clip, 'y', t, clip.transform.y);
   return (box) => ({ x: 0.5 + x + (box.x - 0.5) * scale, y: 0.5 + y + (box.y - 0.5) * scale, width: box.width * scale, height: box.height * scale });
 }
+
+const FRAME: Box = { x: 0, y: 0, width: 1, height: 1 };
+
+/** The smallest box holding both. */
+const unite = (a: Box, b: Box): Box => {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, width: Math.max(a.x + a.width, b.x + b.width) - x, height: Math.max(a.y + a.height, b.y + b.height) - y };
+};
+
+/** The part of a comp shaped like `frame` that an HTML graphic's canvas covers: all of it, or the band a fixed 1920×1080 canvas fits into. */
+const canvasOf = (source: { template?: string | null }, frame: { width: number; height: number }): Box => (usesCompCanvas(source.template) ? FRAME : fittedBand(frame));
+
+/**
+ * An HTML graphic's box as QA judges it, or null when there is nothing to judge: no box (never
+ * measured), or one that fills its whole canvas (a backdrop or an unmeasured custom graphic).
+ */
+const judged = (box: Box | null | undefined, canvas: Box = FRAME): Box | null => (box && !(box.width >= FULL * canvas.width && box.height >= FULL * canvas.height) ? box : null);
 
 /** Whether a layer draws under a cut-out subject in the same scene (text "behind" the presenter). */
 function underSubject(scene: MotionScene, index: number): boolean {
@@ -120,17 +139,47 @@ export async function collectQaLayers(project: Project, assets: AssetMap, comp: 
     if (clip.source.type === 'html') {
       // The layers of one opened graphic are designed together, not a collision.
       const stack = htmlLayerInfo(clip.source)?.stack;
-      layers.push({ clipId: stack ? `html:${stack}` : clip.id, ...(stack ? { group: `html:${stack}` } : {}), name, kind: 'graphic', box: clip.source.box ?? { x: 0, y: 0, width: 1, height: 1 }, from, to });
+      const own = clip.source.box;
+      const canvas = canvasOf(clip.source, comp);
+      for (const t of times) {
+        if (!own || t < from || t >= to) continue;
+        // The clip's own move and scale place the graphic, as the compositor and the export do.
+        const box = judged(holderMap(clip, t)(own), canvas);
+        if (box) layers.push({ clipId: stack ? `html:${stack}` : clip.id, ...(stack ? { group: `html:${stack}` } : {}), name, kind: 'graphic', box, from: t, to: t + 1e-3 });
+      }
     } else if (clip.source.type === 'text') {
       const box = textBox(clip, comp);
       if (box) layers.push({ clipId: clip.id, name: `${clip.source.preset} "${clip.source.text.slice(0, 24)}"`, kind: clip.source.preset === 'caption' ? 'caption' : 'text', box, from, to });
     } else if (clip.source.type === 'comp') {
       const child = project.comps.find((c) => c.id === (clip.source as { compId: string }).compId);
       if (!child) continue;
-      const html = child.clips.find((c) => c.source.type === 'html');
-      if (html && html.source.type === 'html') {
-        const map = holderMap(clip, from);
-        layers.push({ clipId: clip.id, name, kind: 'graphic', box: map(html.source.box ?? { x: 0, y: 0, width: 1, height: 1 }), from, to });
+      // A [MOGRT] comp: every HTML graphic in it, through its own transform and then the holder's.
+      const childVisible = new Set(tracksOf(child, 'video').filter((track) => !track.hidden).map((track) => track.id));
+      const htmls = child.clips.filter((c) => c.enabled && childVisible.has(c.trackId) && c.source.type === 'html');
+      if (htmls.length) {
+        // The layer clips of one opened graphic draw one graphic: judged once, where they sit together.
+        const graphics = new Map<string, Clip[]>();
+        for (const html of htmls) {
+          const key = (html.source.type === 'html' && htmlLayerInfo(html.source)?.stack) || html.id;
+          graphics.set(key, [...(graphics.get(key) ?? []), html]);
+        }
+        for (const t of times) {
+          if (t < from || t >= to) continue;
+          const childTime = sourceTimeAt(clip, t);
+          const map = holderMap(clip, t);
+          for (const members of graphics.values()) {
+            let placed: Box | null = null;
+            for (const html of members) {
+              if (html.source.type !== 'html' || !html.source.box || childTime < html.start || childTime >= clipEnd(html)) continue;
+              const box = map(holderMap(html, childTime)(html.source.box));
+              placed = placed ? unite(placed, box) : box;
+            }
+            const first = members[0];
+            const box = first.source.type === 'html' ? judged(placed, canvasOf(first.source, child)) : null;
+            const label = members.length > 1 ? child.name : first.name ?? first.id;
+            if (box) layers.push({ clipId: clip.id, name: graphics.size > 1 ? `${label} (${name})` : name, kind: 'graphic', box, from: t, to: t + 1e-3 });
+          }
+        }
         continue;
       }
       for (const t of times) {

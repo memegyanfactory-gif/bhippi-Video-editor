@@ -9,6 +9,7 @@
 import { entryBounds, type ResolvedFrame } from './evaluate';
 import { evaluateMeasured } from './measure';
 import { isAnimated, isExpression } from './anim';
+import { SAFE, SOCIAL_SAFE } from '../lib/layout';
 import type { Layer, MotionScene, Prop, Vec } from './types';
 
 export type Box = { x: number; y: number; width: number; height: number };
@@ -26,14 +27,26 @@ export type LayoutIssue = {
   fixable: boolean;
 };
 
-/** Margins as fractions of the frame: one number for every side, or per axis. The default is the editor's safe area (lib/layout.ts SAFE): 5% at the sides, 6% top and bottom. */
-export type SafeOptions = { margin?: number | { x: number; y: number }; step?: number; evaluate?: (scene: MotionScene, t: number) => ResolvedFrame };
+export type Margins = { top: number; bottom: number; left: number; right: number };
 
-const DEFAULT_MARGIN = { x: 0.05, y: 0.06 };
+/**
+ * Margins as fractions of the frame: one number for every side, per axis, or per side. The default
+ * is the editor's safe area for the scene's orientation (lib/layout.ts, the one frame QA checks):
+ * SAFE (5% at the sides, 6% top and bottom) for a wide frame, SOCIAL_SAFE (6% at the sides, 12%
+ * top, 18% bottom, clear of the platform's buttons) for a tall one.
+ */
+export type SafeOptions = { margin?: number | { x: number; y: number } | Margins; step?: number; evaluate?: (scene: MotionScene, t: number) => ResolvedFrame };
+
+/** The per-side margins `margin` stands for in `scene`. */
+export function safeMargins(scene: { width: number; height: number }, margin?: SafeOptions['margin']): Margins {
+  if (typeof margin === 'number') return { top: margin, bottom: margin, left: margin, right: margin };
+  if (margin && 'x' in margin) return { top: margin.y, bottom: margin.y, left: margin.x, right: margin.x };
+  return { ...(margin ?? (scene.height > scene.width ? SOCIAL_SAFE : SAFE)) };
+}
 
 function safeRect(scene: MotionScene, margin: SafeOptions['margin']) {
-  const m = typeof margin === 'number' ? { x: margin, y: margin } : margin ?? DEFAULT_MARGIN;
-  return { x0: scene.width * m.x, y0: scene.height * m.y, x1: scene.width * (1 - m.x), y1: scene.height * (1 - m.y) };
+  const m = safeMargins(scene, margin);
+  return { x0: scene.width * m.left, y0: scene.height * m.top, x1: scene.width * (1 - m.right), y1: scene.height * (1 - m.bottom) };
 }
 
 const FULL = 0.9;
