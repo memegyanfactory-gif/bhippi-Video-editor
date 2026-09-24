@@ -10,13 +10,15 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The steps, from least thinking to most. Not every provider offers all four.
+/// The steps, from least thinking to most. Not every provider offers all five.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Level {
     Low,
     Medium,
     High,
+    /// Between High and Max; Claude's 4.7+ and 5 families take it as a step of its own.
+    XHigh,
     Max,
 }
 
@@ -27,6 +29,7 @@ impl Level {
             Level::Low => "low",
             Level::Medium => "medium",
             Level::High => "high",
+            Level::XHigh => "xhigh",
             Level::Max => "max",
         }
     }
@@ -37,12 +40,14 @@ impl Level {
             "minimal" | "low" | "fast" => Some(Level::Low),
             "medium" | "balanced" => Some(Level::Medium),
             "high" | "thorough" => Some(Level::High),
-            "max" | "ultra" | "xhigh" | "maximum" => Some(Level::Max),
+            "xhigh" => Some(Level::XHigh),
+            "max" | "ultra" | "maximum" => Some(Level::Max),
             _ => None,
         }
     }
 }
 
+const FIVE: &[Level] = &[Level::Low, Level::Medium, Level::High, Level::XHigh, Level::Max];
 const FOUR: &[Level] = &[Level::Low, Level::Medium, Level::High, Level::Max];
 const THREE: &[Level] = &[Level::Low, Level::Medium, Level::High];
 const NONE: &[Level] = &[];
@@ -76,14 +81,13 @@ pub fn levels(provider: &str, model: Option<&str>) -> &'static [Level] {
         },
 
         // ── hosted APIs ──────────────────────────────────────────────────────
-        // Extended thinking: Claude 3.7 and the 4/5 families. Older Claudes reject it.
-        "anthropic" => {
-            if has(model, &["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "opus-4", "sonnet-4", "haiku-4", "3-7-sonnet", "fable-5"]) {
-                FOUR
-            } else {
-                NONE
-            }
-        }
+        // Thinking: Claude 3.7 and the 4/5 families; older Claudes reject it. `output_config`
+        // takes xhigh from 4.7 on, and the budget models get the four steps as budgets.
+        "anthropic" => match claude_family(model) {
+            Some(ClaudeFamily::Adaptive { xhigh: true }) => FIVE,
+            Some(ClaudeFamily::Adaptive { xhigh: false } | ClaudeFamily::Budget) => FOUR,
+            None => NONE,
+        },
         // `reasoning_effort` on the reasoning line only; gpt-4o and friends reject it.
         "openai" => {
             if has(model, &["gpt-5", "o1", "o3", "o4"]) {
@@ -115,8 +119,8 @@ pub fn openai_value(level: Level) -> &'static str {
     match level {
         Level::Low => "low",
         Level::Medium => "medium",
-        // The three-step providers never offer Max, so this only guards a stale setting.
-        Level::High | Level::Max => "high",
+        // The three-step providers never offer XHigh or Max, so this only guards a stale setting.
+        Level::High | Level::XHigh | Level::Max => "high",
     }
 }
 
@@ -127,7 +131,63 @@ pub fn anthropic_budget(level: Level) -> u32 {
         Level::Low => 2_048,
         Level::Medium => 8_192,
         Level::High => 16_384,
-        Level::Max => 32_768,
+        // Budget models never offer XHigh; a stale setting gets the top budget.
+        Level::XHigh | Level::Max => 32_768,
+    }
+}
+
+/// How a Claude model is asked to think over the Messages API.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Thinking {
+    /// `thinking: {type: "adaptive"}` steered by `output_config.effort`; `budget_tokens` is a 400
+    /// on 4.7+ and the 5 family, and deprecated on 4.6. `summarize` is set where the thinking
+    /// text is omitted unless asked for (4.7+ and 5), so the UI's thinking stream stays readable.
+    Adaptive { summarize: bool },
+    /// `thinking: {type: "enabled", budget_tokens}`. `output_config.effort` is a 400 on Sonnet 4.5
+    /// and Haiku 4.5, so these models never get it.
+    Budget,
+}
+
+/// Which Claude family a model id belongs to, as far as thinking is concerned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ClaudeFamily {
+    Adaptive { xhigh: bool },
+    Budget,
+}
+
+/// Reads `claude-opus-4-8`, `claude-sonnet-4-5-20250929`, `claude-3-7-sonnet-latest`,
+/// `claude-fable-5-1`… A trailing date is not a minor version, so `claude-opus-4-20250514` is
+/// Opus 4.0. `None` for a model that takes no thinking at all (Claude 3.5 and older, non-Claude).
+fn claude_family(model: &str) -> Option<ClaudeFamily> {
+    let name = model.to_ascii_lowercase();
+    if has(&name, &["fable", "mythos"]) {
+        return Some(ClaudeFamily::Adaptive { xhigh: true });
+    }
+    if has(&name, &["3-7-sonnet", "sonnet-3-7"]) {
+        return Some(ClaudeFamily::Budget);
+    }
+    let rest = ["opus-", "sonnet-", "haiku-"]
+        .iter()
+        .find_map(|family| name.split_once(family).map(|(_, rest)| rest))?;
+    let mut parts = rest.split(|c: char| !c.is_ascii_digit());
+    let short = |part: &&str| (1..=2).contains(&part.len());
+    let major: u32 = parts.next().filter(short)?.parse().ok()?;
+    let minor: u32 = parts.next().filter(short).and_then(|minor| minor.parse().ok()).unwrap_or(0);
+    match (major, minor) {
+        (5.., _) | (4, 7..) => Some(ClaudeFamily::Adaptive { xhigh: true }),
+        (4, 6) => Some(ClaudeFamily::Adaptive { xhigh: false }),
+        (4, _) => Some(ClaudeFamily::Budget),
+        _ => None,
+    }
+}
+
+/// The thinking shape a Claude model takes: adaptive on 4.6+ and the 5 family, a token budget on
+/// the older thinking models (Haiku 4.5, Sonnet/Opus 4.5 and before, Sonnet 3.7).
+#[must_use]
+pub fn anthropic_thinking(model: &str) -> Thinking {
+    match claude_family(model) {
+        Some(ClaudeFamily::Adaptive { xhigh }) => Thinking::Adaptive { summarize: xhigh },
+        Some(ClaudeFamily::Budget) | None => Thinking::Budget,
     }
 }
 
@@ -149,7 +209,7 @@ pub fn resolve(provider: &str, model: Option<&str>, asked: Option<&str>) -> Opti
 
 #[cfg(test)]
 mod tests {
-    use super::{anthropic_budget, levels, openai_value, resolve, Level};
+    use super::{anthropic_budget, anthropic_thinking, levels, openai_value, resolve, Level, Thinking};
 
     #[test]
     fn only_models_that_take_the_setting_offer_it() {
@@ -158,10 +218,11 @@ mod tests {
         assert_eq!(levels("grok", Some("grok-4")).len(), 3);
 
         // Anthropic: thinking on the current families, nothing on the old ones.
-        assert_eq!(levels("anthropic", Some("claude-sonnet-5")).len(), 4);
+        assert_eq!(levels("anthropic", Some("claude-sonnet-5")).len(), 5);
         // Opus 5.5 runs adaptive thinking always on, steered by effort.
-        assert_eq!(levels("anthropic", Some("claude-opus-5-5")).len(), 4);
+        assert_eq!(levels("anthropic", Some("claude-opus-5-5")).len(), 5);
         assert!(levels("anthropic", Some("claude-3-5-sonnet-20241022")).is_empty());
+        assert!(levels("anthropic", Some("claude-3-opus-20240229")).is_empty());
 
         // OpenAI: the reasoning line only.
         assert_eq!(levels("openai", Some("gpt-5")).len(), 3);
@@ -200,6 +261,36 @@ mod tests {
         assert!(anthropic_budget(Level::Low) < anthropic_budget(Level::Max));
         // A budget has to leave room for the answer itself.
         assert!(anthropic_budget(Level::Max) < 64_000);
+    }
+
+    /// xhigh reached the API with Opus 4.7; the 4.6 family tops out at max without it, and the
+    /// budget models get the four steps as budgets.
+    #[test]
+    fn claude_levels_follow_what_output_config_accepts() {
+        for model in ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-5", "claude-fable-5-1", "claude-mythos-5-1"] {
+            assert!(levels("anthropic", Some(model)).contains(&Level::XHigh), "{model}");
+        }
+        for model in ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5", "claude-sonnet-4-5-20250929", "claude-opus-4-20250514", "claude-3-7-sonnet-latest"] {
+            assert_eq!(levels("anthropic", Some(model)), &[Level::Low, Level::Medium, Level::High, Level::Max], "{model}");
+        }
+        assert_eq!(Level::parse("xhigh"), Some(Level::XHigh));
+        // A saved xhigh still reaches a provider without the step, clamped to its top.
+        assert_eq!(resolve("claude", None, Some("xhigh")), Some(Level::Max));
+        assert_eq!(resolve("anthropic", Some("claude-sonnet-4-6"), Some("xhigh")), Some(Level::Max));
+        assert_eq!(resolve("anthropic", Some("claude-opus-4-8"), Some("xhigh")), Some(Level::XHigh));
+    }
+
+    #[test]
+    fn claude_thinking_is_adaptive_from_4_6_and_a_budget_before() {
+        for model in ["claude-opus-5", "claude-opus-5-5", "claude-sonnet-5", "claude-fable-5-1", "claude-mythos-5-1", "claude-opus-4-8", "claude-opus-4-7"] {
+            assert_eq!(anthropic_thinking(model), Thinking::Adaptive { summarize: true }, "{model}");
+        }
+        for model in ["claude-opus-4-6", "claude-sonnet-4-6"] {
+            assert_eq!(anthropic_thinking(model), Thinking::Adaptive { summarize: false }, "{model}");
+        }
+        for model in ["claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5", "claude-opus-4-1-20250805", "claude-opus-4-20250514", "claude-3-7-sonnet-20250219"] {
+            assert_eq!(anthropic_thinking(model), Thinking::Budget, "{model}");
+        }
     }
 
     #[test]

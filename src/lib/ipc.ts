@@ -110,6 +110,8 @@ export type ReadFileResult = {
   startLine: number;
   endLine: number;
   sizeBytes: number;
+  /** No endLine was given and the file goes on past the default window. */
+  truncated?: boolean;
 };
 
 export type WriteFileResult = {

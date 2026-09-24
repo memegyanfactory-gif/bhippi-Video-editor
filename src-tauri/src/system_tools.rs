@@ -8,7 +8,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::{Duration, Instant, UNIX_EPOCH};
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 #[cfg(windows)]
 #[allow(unused_imports)]
@@ -28,7 +30,18 @@ pub struct ReadFileResult {
     pub start_line: usize,
     pub end_line: usize,
     pub size_bytes: u64,
+    /// No `endLine` was given and the file goes on past the default window; page on with
+    /// `startLine = endLine + 1`.
+    #[serde(default)]
+    pub truncated: bool,
 }
+
+/// How much a read with no `endLine` returns: every tool result stays in the conversation for
+/// the rest of the turn, so a whole log must not land in it by default. The byte cap sits well
+/// under chat's 48 KB result budget (JSON escaping included), or the window it returns would be
+/// cut in the middle there.
+const READ_DEFAULT_LINES: usize = 400;
+const READ_DEFAULT_BYTES: usize = 32 * 1024;
 
 pub fn read_file(
     path: &str,
@@ -72,14 +85,21 @@ pub fn read_file(
         Vec::new()
     } else {
         let s_idx = start - 1;
-        let e_idx = end.min(total_lines);
+        let e_idx = end.min(total_lines).max(s_idx);
         all_lines[s_idx..e_idx].to_vec()
     };
 
     let mut numbered_content = String::new();
+    let mut last_line = start - 1;
     for (i, line) in slice.iter().enumerate() {
         let line_num = start + i;
-        numbered_content.push_str(&format!("{:5}: {}\n", line_num, line));
+        let numbered = format!("{:5}: {}\n", line_num, line);
+        let full = i >= READ_DEFAULT_LINES || (i > 0 && numbered_content.len() + numbered.len() > READ_DEFAULT_BYTES);
+        if end_line.is_none() && full {
+            break;
+        }
+        numbered_content.push_str(&numbered);
+        last_line = line_num;
     }
 
     Ok(ReadFileResult {
@@ -87,8 +107,9 @@ pub fn read_file(
         content: numbered_content,
         total_lines,
         start_line: start,
-        end_line: end,
+        end_line: last_line,
         size_bytes,
+        truncated: last_line < end,
     })
 }
 
@@ -544,55 +565,59 @@ pub async fn run_command(
     let timeout_duration = Duration::from_secs(timeout_secs.unwrap_or(60).clamp(1, 600));
     let start_time = Instant::now();
 
-    #[cfg(windows)]
-    let run_future = async {
-        let mut c = tokio::process::Command::new("pwsh");
+    let shell = |program: &str, args: &[&str]| {
+        let mut c = tokio::process::Command::new(program);
+        #[cfg(windows)]
         c.creation_flags(CREATE_NO_WINDOW);
-        c.args(["-NoProfile", "-NonInteractive", "-Command", command]);
+        c.args(args);
         c.current_dir(&work_dir);
-        match c.output().await {
-            Ok(out) => Ok(out),
-            Err(_) => {
-                let mut fallback = tokio::process::Command::new("powershell");
-                fallback.creation_flags(CREATE_NO_WINDOW);
-                fallback.args(["-NoProfile", "-NonInteractive", "-Command", command]);
-                fallback.current_dir(&work_dir);
-                match fallback.output().await {
-                    Ok(out) => Ok(out),
-                    Err(_) => {
-                        let mut cmd_fallback = tokio::process::Command::new("cmd");
-                        cmd_fallback.creation_flags(CREATE_NO_WINDOW);
-                        cmd_fallback.args(["/C", command]);
-                        cmd_fallback.current_dir(&work_dir);
-                        cmd_fallback.output().await
-                    }
-                }
-            }
-        }
+        c.stdin(Stdio::null());
+        c.stdout(Stdio::piped());
+        c.stderr(Stdio::piped());
+        // A command that is abandoned mid-way must not outlive its call.
+        c.kill_on_drop(true);
+        c.spawn()
     };
+
+    #[cfg(windows)]
+    let spawned = shell("pwsh", &["-NoProfile", "-NonInteractive", "-Command", command])
+        .or_else(|_| shell("powershell", &["-NoProfile", "-NonInteractive", "-Command", command]))
+        .or_else(|_| shell("cmd", &["/C", command]));
 
     #[cfg(not(windows))]
-    let run_future = async {
-        let mut c = tokio::process::Command::new("sh");
-        c.args(["-c", command]);
-        c.current_dir(&work_dir);
-        c.output().await
-    };
+    let spawned = shell("sh", &["-c", command]);
 
-    let output = match tokio::time::timeout(timeout_duration, run_future).await {
+    let mut child = spawned.map_err(|e| format!("Failed to execute command: {e}"))?;
+    let pid = child.id();
+    // Both pipes drain while the command runs; a full pipe would stall it.
+    let (mut stdout_task, mut stderr_task) = (drain(child.stdout.take()), drain(child.stderr.take()));
+    let finished = tokio::time::timeout(timeout_duration, async {
+        let status = child.wait().await?;
+        let stdout = (&mut stdout_task).await.unwrap_or_default();
+        let stderr = (&mut stderr_task).await.unwrap_or_default();
+        Ok::<_, std::io::Error>((status, stdout, stderr))
+    })
+    .await;
+    let (status, stdout, stderr) = match finished {
         Ok(res) => res.map_err(|e| format!("Failed to execute command: {e}"))?,
         Err(_) => {
+            // The shell may have started ffmpeg, python or a server: the whole tree goes, before
+            // the shell itself, while its children can still be found through it.
+            kill_tree(pid).await;
+            let _ = child.kill().await;
+            stdout_task.abort();
+            stderr_task.abort();
             return Err(format!(
-                "Command timed out after {} seconds",
+                "Command timed out after {} seconds and was stopped",
                 timeout_duration.as_secs()
-            ))
+            ));
         }
     };
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&stdout).to_string();
+    let stderr = String::from_utf8_lossy(&stderr).to_string();
+    let exit_code = status.code().unwrap_or(-1);
 
     Ok(RunCommandResult {
         stdout,
@@ -602,9 +627,98 @@ pub async fn run_command(
     })
 }
 
+/// Reads a child's pipe to the end on its own task.
+fn drain(pipe: Option<impl AsyncRead + Unpin + Send + 'static>) -> tokio::task::JoinHandle<Vec<u8>> {
+    tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut bytes).await;
+        }
+        bytes
+    })
+}
+
+/// Stops a process and everything it started.
+#[cfg(windows)]
+async fn kill_tree(pid: Option<u32>) {
+    let Some(pid) = pid else {
+        return;
+    };
+    let mut taskkill = tokio::process::Command::new("taskkill");
+    taskkill.creation_flags(CREATE_NO_WINDOW);
+    taskkill.args(["/T", "/F", "/PID", &pid.to_string()]);
+    taskkill.stdout(Stdio::null());
+    taskkill.stderr(Stdio::null());
+    let _ = tokio::time::timeout(Duration::from_secs(10), taskkill.status()).await;
+}
+
+#[cfg(not(windows))]
+async fn kill_tree(_pid: Option<u32>) {}
+
 #[cfg(test)]
 mod tests {
-    use super::{glob_search, match_pattern};
+    use super::{glob_search, match_pattern, read_file, run_command};
+
+    /// With no range, a long file comes back one window at a time, saying where it stopped.
+    #[test]
+    fn read_file_without_a_range_stops_at_the_default_window() {
+        let path = std::env::temp_dir().join(format!("helios-read-{}.log", std::process::id()));
+        let text: String = (1..=5000).map(|line| format!("line {line}
+")).collect();
+        std::fs::write(&path, text).unwrap();
+        let whole = read_file(path.to_str().unwrap(), None, None).unwrap();
+        let ranged = read_file(path.to_str().unwrap(), Some(4990), Some(5000)).unwrap();
+        let paged = read_file(path.to_str().unwrap(), Some(4900), None).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(whole.content.lines().count(), 400);
+        assert_eq!((whole.end_line, whole.total_lines, whole.truncated), (400, 5000, true));
+        assert_eq!((ranged.content.lines().count(), ranged.end_line, ranged.truncated), (11, 5000, false));
+        assert_eq!((paged.end_line, paged.truncated), (5000, false));
+    }
+
+    #[test]
+    fn read_file_without_a_range_stops_at_32_kb() {
+        let path = std::env::temp_dir().join(format!("helios-read-wide-{}.txt", std::process::id()));
+        let text: String = (0..300).map(|_| format!("{}
+", "w".repeat(1000))).collect();
+        std::fs::write(&path, text).unwrap();
+        let read = read_file(path.to_str().unwrap(), None, None).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(read.content.len() <= 32 * 1024, "{}", read.content.len());
+        assert!(read.truncated && read.end_line < 300, "{}", read.end_line);
+        assert_eq!(read.content.lines().count(), read.end_line);
+    }
+
+    /// A timed-out command is stopped with everything it started, not left running behind the
+    /// error.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_timed_out_command_is_stopped_with_its_children() {
+        let marker = format!("helios-timeout-{}", std::process::id());
+        let command = format!("powershell -NoProfile -NonInteractive -Command 'Start-Sleep 30 # {marker}'; Start-Sleep 30");
+        let started = std::time::Instant::now();
+        let error = run_command(&command, None, Some(2)).await.expect_err("times out");
+        assert!(error.contains("timed out after 2 seconds and was stopped"), "{error}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
+        // The query splits the marker so its own command line does not match it.
+        let (head, tail) = marker.split_at(6);
+        let query = format!(
+            "@(Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like ('*' + '{head}' + '{tail}' + '*') }}).Count"
+        );
+        let mut remaining = String::new();
+        for _ in 0..10 {
+            let output = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &query])
+                .output()
+                .expect("query processes");
+            remaining = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if remaining == "0" {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        assert_eq!(remaining, "0", "a process from the timed-out command is still running");
+    }
 
     #[test]
     fn globs_match_wildcards_anywhere_in_the_name() {
