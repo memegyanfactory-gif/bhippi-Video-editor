@@ -619,6 +619,32 @@ mod tests {
         assert_eq!(content[2]["type"], "tool_use");
     }
 
+    /// A block that streamed between two calls arrives as a turn of its own; it merges back in
+    /// the order it streamed.
+    #[test]
+    fn a_thinking_block_between_calls_keeps_its_place() {
+        let first = ToolCall { id: "toolu_01".to_owned(), name: "get_comp".to_owned(), arguments: serde_json::json!({}) };
+        let second = ToolCall { id: "toolu_02".to_owned(), name: "get_timeline".to_owned(), arguments: serde_json::json!({}) };
+        let note = serde_json::json!({"type": "thinking", "thinking": "", "signature": "EqQC"});
+        let mut after = Message::assistant_with_tools(String::new(), vec![second.clone()]);
+        after.thinking_blocks = vec![note.clone()];
+        let req = CompletionRequest::new(
+            "",
+            vec![
+                Message::user("hi".to_owned()),
+                Message::assistant_with_tools("Checking.".to_owned(), vec![first.clone()]),
+                after,
+                Message::tool_result(&first, "{}".to_owned(), false),
+                Message::tool_result(&second, "{}".to_owned(), false),
+            ],
+        );
+        let body = AnthropicProvider::request_body(&req, "claude-opus-5-5");
+        let kinds: Vec<&str> = body["messages"][1]["content"].as_array().expect("content").iter().filter_map(|block| block["type"].as_str()).collect();
+        assert_eq!(kinds, ["text", "tool_use", "thinking", "tool_use"], "{body}");
+        assert_eq!(body["messages"][1]["content"][2], note);
+        assert_eq!(body["messages"].as_array().map(Vec::len), Some(3), "{body}");
+    }
+
     /// A reply cut off at the output limit still reports its usage, then says why it ended.
     #[test]
     fn max_tokens_ends_with_usage_then_done() {

@@ -37,9 +37,11 @@ pub struct ReadFileResult {
 }
 
 /// How much a read with no `endLine` returns: every tool result stays in the conversation for
-/// the rest of the turn, so a whole log must not land in it by default.
+/// the rest of the turn, so a whole log must not land in it by default. The byte cap sits well
+/// under chat's 48 KB result budget (JSON escaping included), or the window it returns would be
+/// cut in the middle there.
 const READ_DEFAULT_LINES: usize = 400;
-const READ_DEFAULT_BYTES: usize = 64 * 1024;
+const READ_DEFAULT_BYTES: usize = 32 * 1024;
 
 pub fn read_file(
     path: &str,
@@ -675,14 +677,14 @@ mod tests {
     }
 
     #[test]
-    fn read_file_without_a_range_stops_at_64_kb() {
+    fn read_file_without_a_range_stops_at_32_kb() {
         let path = std::env::temp_dir().join(format!("helios-read-wide-{}.txt", std::process::id()));
         let text: String = (0..300).map(|_| format!("{}
 ", "w".repeat(1000))).collect();
         std::fs::write(&path, text).unwrap();
         let read = read_file(path.to_str().unwrap(), None, None).unwrap();
         let _ = std::fs::remove_file(&path);
-        assert!(read.content.len() <= 64 * 1024, "{}", read.content.len());
+        assert!(read.content.len() <= 32 * 1024, "{}", read.content.len());
         assert!(read.truncated && read.end_line < 300, "{}", read.end_line);
         assert_eq!(read.content.lines().count(), read.end_line);
     }

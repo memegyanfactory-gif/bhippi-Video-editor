@@ -3590,7 +3590,7 @@
     },
     {
       "name": "read_file",
-      "description": "Read the contents of a file from disk. Can read the entire file or a line range (startLine to endLine, 1-indexed). Returns line-numbered content and file metadata.",
+      "description": "Read the contents of a file from disk: a line range (startLine to endLine, 1-indexed), or without endLine up to 400 lines / 32 KB from startLine (truncated=true and endLine say where to read on). Returns line-numbered content and file metadata.",
       "input_schema": {
         "type": "object",
         "properties": {

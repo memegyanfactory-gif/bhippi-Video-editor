@@ -60,12 +60,13 @@ export const allowTool = (mode: PermissionMode, name: string): { ok: true } | { 
 
 // ── how hard the model should think ────────────────────────────────────────
 
-export type Effort = 'low' | 'medium' | 'high' | 'max';
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export const EFFORTS: { id: Effort; label: string; hint: string }[] = [
   { id: 'low', label: 'Fast', hint: 'Least thinking — quick edits and simple questions' },
   { id: 'medium', label: 'Balanced', hint: 'The default amount of thinking' },
   { id: 'high', label: 'Thorough', hint: 'More thinking, for multi-step edits' },
+  { id: 'xhigh', label: 'Extra', hint: 'Between Thorough and Maximum, on the models that offer it' },
   { id: 'max', label: 'Maximum', hint: 'As much thinking as the model allows' },
 ];
 

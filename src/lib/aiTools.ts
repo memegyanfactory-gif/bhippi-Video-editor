@@ -1374,13 +1374,15 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       try {
         const res = await api.fsReadFile(path, startLine, endLine);
         const shownLines = res.totalLines > 0 ? (res.endLine - res.startLine + 1) : 0;
-        return done(`Read ${res.path} (${shownLines} line(s) shown of ${res.totalLines} total, ${res.sizeBytes} bytes).`, {
+        const more = res.truncated ? ` More follows: read on with startLine ${res.endLine + 1}.` : '';
+        return done(`Read ${res.path} (${shownLines} line(s) shown of ${res.totalLines} total, ${res.sizeBytes} bytes).${more}`, {
           path: res.path,
           content: res.content,
           totalLines: res.totalLines,
           startLine: res.startLine,
           endLine: res.endLine,
           sizeBytes: res.sizeBytes,
+          truncated: !!res.truncated,
         });
       } catch (error) {
         return fail(errorText(error));

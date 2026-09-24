@@ -67,6 +67,25 @@ describe('system and developer tools (Claude & Codex parity)', () => {
     expect(result.content).toContain('import sys');
   });
 
+  it('read_file says where to read on when the default window stops short', async () => {
+    const { host } = fixture();
+    vi.mocked(api.fsReadFile).mockResolvedValue({
+      path: '/workspace/app.log',
+      content: '    1: start\n',
+      totalLines: 5000,
+      startLine: 1,
+      endLine: 400,
+      sizeBytes: 90_000,
+      truncated: true,
+    });
+
+    const result = await runTool(host, 'read_file', { path: '/workspace/app.log' });
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.truncated).toBe(true);
+    expect(result.summary).toContain('startLine 401');
+  });
+
   it('write_file writes content and returns written byte count', async () => {
     const { host } = fixture();
     vi.mocked(api.fsWriteFile).mockResolvedValue({
