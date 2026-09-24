@@ -20,7 +20,7 @@ import { cssFilter, DEFAULT_TRANSFORM, parseCaptions, parseTimecode, placement, 
 import { setKey, shiftKeys, valueAt } from '../src/lib/keyframes';
 import {
   addFrameHold, addTracks, addTransition, clearRange, clipEnd, clipsForSource, compDuration, deleteTracks, editPoints, gapAt, closeGap, loadProject, moveClips, nestClips, newClip, newComp,
-  newProject, placeClips, razor, removeClips, removeRange, resolveTrack, setLinked, setSpeed, slideClip, slipClip, sourceTimeAt, tracksOf, trackLabel, trimEdge, trimToPlayhead, usage, withLinked, wouldCycle, freeTrack,
+  newProject, placeClips, quarantineScripts, razor, removeClips, removeRange, restoreScripts, resolveTrack, setLinked, setSpeed, slideClip, slipClip, sourceTimeAt, tracksOf, trackLabel, trimEdge, trimToPlayhead, usage, withLinked, wouldCycle, freeTrack,
 } from '../src/lib/timeline';
 import type { Asset, Clip, Comp, Project } from '../src/lib/types';
 import { prerenderForExport, prerenderStill } from '../src/lib/exportPrepare';
@@ -427,5 +427,26 @@ describe('export pre-render', () => {
     await expect(prerenderForExport(project({ ...comp, clips: [clip] }), comp.id, [])).rejects.toThrow(/not implemented for export/);
     expect(renderMotionGraphicsForExport).not.toHaveBeenCalled();
     expect(renderMotionScenesForExport).not.toHaveBeenCalled();
+  });
+});
+
+describe('graphic scripts from a project file', () => {
+  it('are held back until the user trusts the file, and put back when they do', () => {
+    const { comp, v1, v2 } = setup();
+    const graphic = (trackId: string, js: string) => newClip({ trackId, start: 0, duration: 2, source: { type: 'html', html: '<div></div>', js } });
+    const clips = [graphic(v1, 'window.a = 1'), graphic(v2, 'window.b = 2'), graphic(tracksOf(comp, 'video')[2].id, '')];
+    const opened = quarantineScripts(project({ ...comp, clips }));
+    expect(opened.count).toBe(2);
+    const held = opened.project.comps[0].clips.map((clip) => clip.source.type === 'html' && [clip.source.js, clip.source.quarantinedJs]);
+    expect(held).toEqual([['', 'window.a = 1'], ['', 'window.b = 2'], ['', undefined]]);
+    const restored = restoreScripts(opened.project).comps[0].clips.map((clip) => clip.source.type === 'html' && [clip.source.js, clip.source.quarantinedJs]);
+    expect(restored).toEqual([['window.a = 1', undefined], ['window.b = 2', undefined], ['', undefined]]);
+  });
+
+  it('leaves a project without scripts as it is', () => {
+    const { comp } = twoPairs();
+    const plain = project(comp);
+    expect(quarantineScripts(plain)).toEqual({ project: plain, count: 0 });
+    expect(restoreScripts(plain)).toBe(plain);
   });
 });

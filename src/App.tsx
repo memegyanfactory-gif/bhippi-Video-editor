@@ -60,7 +60,7 @@ import { generateSelectionSound } from './lib/generateSound';
 import { registerSfx } from './lib/sfx';
 import {
   addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, closeGap, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, gapAt, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
-  newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, pasteClips, placeClips, razor, removeAttributes, removeClips, removeRange, replaceSource, setGrouped, setLinked, setSpeed, sourceInfo,
+  newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, pasteClips, placeClips, quarantineScripts, razor, removeAttributes, removeClips, removeRange, replaceSource, restoreScripts, setGrouped, setLinked, setSpeed, sourceInfo,
   sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, trackOf, tracksOf, transitionsOnSelection, trimToPlayhead, updateComp, updateTrack, withLinked, wouldCycle,
   type AssetMap, type ClipboardEntry,
 } from './lib/timeline';
@@ -890,7 +890,10 @@ export default function App() {
       }
       const library = await api.libraryList();
       setAssets(library);
-      const opened = loadProject(raw.project ?? raw, new Map(library.map((asset) => [asset.id, asset])));
+      // A graphic's script runs with the app's own rights, so the scripts of a file from elsewhere
+      // wait until the user says they trust it. Projects made here and the autosave never come
+      // through this path.
+      const { project: opened, count: scripts } = quarantineScripts(loadProject(raw.project ?? raw, new Map(library.map((asset) => [asset.id, asset]))));
       history.reset(opened);
       setSavedProject(opened);
       setSelection([]);
@@ -907,10 +910,39 @@ export default function App() {
       }
       if (Array.isArray(extras?.chat) && extras.chat.length) chatApi.current?.load(extras.chat);
       setMode('edit');
+      if (scripts) askToRunScripts(scripts, opened);
       toast({ tone: 'success', title: 'Project opened', body: path.split(/[\\/]/).pop(), timeout: 2500 });
     } catch (error) {
       toast({ tone: 'error', title: 'Could not open that project', body: errorText(error) });
     }
+  };
+
+  const hasHeldScripts = project.comps.some((comp) => comp.clips.some((clip) => clip.source.type === 'html' && !!clip.source.quarantinedJs));
+  /** Puts back the graphic scripts an opened file held back (File › Enable Graphic Scripts). */
+  const enableScripts = () => {
+    const current = history.current();
+    const restored = restoreScripts(current);
+    if (restored !== current) history.commit(() => restored, 'Enable Graphic Scripts');
+  };
+  const askToRunScripts = (count: number, opened: Project) => {
+    setDialog(
+      <ConfirmDialog
+        title="Run graphic scripts?"
+        body={`This project contains ${count} motion-graphic script${count === 1 ? '' : 's'}. Scripts can run commands on your PC. Only run them if you trust the person who sent this file. Run them?`}
+        confirmLabel="Run them"
+        discardLabel="Not now"
+        onConfirm={() => {
+          setDialog(null);
+          // Straight after opening, trusting the file is part of opening it: no undo step, nothing unsaved.
+          if (history.current() !== opened) return enableScripts();
+          const restored = restoreScripts(opened);
+          history.reset(restored);
+          setSavedProject(restored);
+        }}
+        onDiscard={() => setDialog(null)}
+        onClose={() => setDialog(null)}
+      />,
+    );
   };
 
   const guardUnsaved = (next: () => void, title: string) => {
@@ -1971,6 +2003,7 @@ export default function App() {
       ] },
       { separator: true },
       { label: 'Project Settings…', onSelect: projectSettings },
+      { label: 'Enable Graphic Scripts', disabled: !hasHeldScripts, onSelect: enableScripts },
       { label: 'Open Project Folder', onSelect: () => void api.storageOpen(null).catch((error) => toast({ tone: 'error', title: 'Could not open the project folder', body: errorText(error) })) },
       { label: 'Reveal Helios Data Folder', onSelect: () => info && void api.openPath(info.dataDir) },
       { separator: true },

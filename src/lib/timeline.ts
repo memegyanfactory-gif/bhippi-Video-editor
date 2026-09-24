@@ -1447,3 +1447,45 @@ export function loadProject(value: unknown, assets: AssetMap): Project {
   if (record.version === 3) return sanitize(value as Project);
   return migrateLegacy(value as Legacy, assets);
 }
+
+/** Every html clip of the project through `change`; the same project back when none changed. */
+function mapHtmlSources(project: Project, change: (source: Extract<ClipSource, { type: 'html' }>) => ClipSource): Project {
+  let changed = false;
+  const comps = project.comps.map((comp) => {
+    let touched = false;
+    const clips = comp.clips.map((clip) => {
+      if (clip.source.type !== 'html') return clip;
+      const source = change(clip.source);
+      if (source === clip.source) return clip;
+      touched = true;
+      return { ...clip, source };
+    });
+    if (!touched) return comp;
+    changed = true;
+    return { ...comp, clips };
+  });
+  return changed ? { ...project, comps } : project;
+}
+
+/**
+ * A project file from elsewhere with its graphics' scripts held back in `quarantinedJs`: a
+ * graphic's script runs with the app's own rights, so it waits until the user trusts the file.
+ * `count` is how many graphics have a script waiting, including any the file already held back.
+ */
+export function quarantineScripts(project: Project): { project: Project; count: number } {
+  let count = 0;
+  const next = mapHtmlSources(project, (source) => {
+    if (source.js || source.quarantinedJs) count++;
+    return source.js ? { ...source, js: '', quarantinedJs: source.js } : source;
+  });
+  return { project: next, count };
+}
+
+/** The scripts `quarantineScripts` held back, put back once the user trusts the project. */
+export function restoreScripts(project: Project): Project {
+  return mapHtmlSources(project, (source) => {
+    if (!source.quarantinedJs) return source;
+    const { quarantinedJs, ...rest } = source;
+    return { ...rest, js: quarantinedJs };
+  });
+}
