@@ -12,7 +12,7 @@ import { clamp, timecode } from './editor';
 import { api, errorText, fileSrc } from './ipc';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
 import { clipEnd, compDuration, freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
-import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps } from './motionStack';
+import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps, stackLossy } from './motionStack';
 import { fitToSafeArea, layoutIssues, safeMargins, type LayoutIssue } from '../motion/safeArea';
 import type { Clip, ClipSource, Comp, Project, ToolResult } from './types';
 
@@ -561,11 +561,14 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         const layers = layerListing(project, target.comp);
         const drawn = layeredCompScene(project, target.comp) ?? scene;
         const layout = layoutIssues(drawn, { margin: safeMargin(args) });
-        return done(`"${target.comp.name}": ${layers.length} layer clip${layers.length === 1 ? '' : 's'} (${layers.map((layer) => layer.name).join(', ')}), ${scene.duration.toFixed(2)} s${scene.template ? `, built from ${scene.template.id}` : ''}.${layout.length ? ` ${describeLayout(layout)}` : ' Everything rests inside the safe area.'} Edit a layer with update_motion_scene patches by its layerId, or its clip on the comp's timeline.`, {
+        // Timeline-only edits inside a precomp's comp that its precomp layer cannot draw.
+        const lossy = stackLossy(project, target.comp);
+        return done(`"${target.comp.name}": ${layers.length} layer clip${layers.length === 1 ? '' : 's'} (${layers.map((layer) => layer.name).join(', ')}), ${scene.duration.toFixed(2)} s${scene.template ? `, built from ${scene.template.id}` : ''}.${layout.length ? ` ${describeLayout(layout)}` : ' Everything rests inside the safe area.'}${lossy.length ? ` Not drawn in the precomp: ${lossy.join('; ')}.` : ''} Edit a layer with update_motion_scene patches by its layerId, or its clip on the comp's timeline.`, {
           compId: target.comp.id,
           layers,
           outline: summarizeScene(scene),
           layout,
+          ...(lossy.length ? { lossy } : {}),
           ...(args.full === true ? { scene } : {}),
           ...(scene.template ? { templateParams: scene.template.params } : {}),
         });

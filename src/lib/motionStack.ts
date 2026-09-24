@@ -314,9 +314,11 @@ export function fusable(comp: Comp, clip: Clip): clip is LayerClip {
 /** Consecutive video tracks of a comp whose clips draw as one scene; `owner` maps each fused layer id to its clip. */
 export type StackGroup = { key: string; trackIds: string[]; clips: LayerClip[]; start: number; end: number; scene: MotionScene; owner: Map<string, string> };
 
-type Cached = { deps: Map<string, Comp>; groups: StackGroup[] };
+/** `lossy`: what the precomps drawn in it leave out (see `compScene`). */
+type Cached = { deps: Map<string, Comp>; groups: StackGroup[]; lossy: string[] };
+type Alone = { deps: Map<string, Comp>; scene: MotionScene; lossy: string[] };
 const groupCache = new WeakMap<Comp, Cached>();
-const standaloneCache = new WeakMap<Clip, { deps: Map<string, Comp>; scene: MotionScene }>();
+const standaloneCache = new WeakMap<Clip, Alone>();
 
 const fresh = (project: Project, deps: Map<string, Comp>) => [...deps].every(([id, comp]) => project.comps.find((entry) => entry.id === id) === comp);
 
@@ -328,13 +330,14 @@ export function stackGroups(project: Project, comp: Comp): StackGroup[] {
 function groupsOf(project: Project, comp: Comp, visiting: Set<string>): Cached {
   const hit = groupCache.get(comp);
   if (hit && fresh(project, hit.deps)) return hit;
-  if (visiting.has(comp.id)) return { deps: new Map(), groups: [] };
+  if (visiting.has(comp.id)) return { deps: new Map(), groups: [], lossy: [] };
   visiting.add(comp.id);
   const deps = new Map<string, Comp>();
   const groups: StackGroup[] = [];
+  const lossy: string[] = [];
   let run: { trackIds: string[]; clips: LayerClip[] } | null = null;
   const close = () => {
-    if (run?.clips.length) groups.push(fuse(project, comp, run, deps, visiting));
+    if (run?.clips.length) groups.push(fuse(project, comp, run, deps, visiting, lossy));
     run = null;
   };
   for (const track of tracksOf(comp, 'video')) {
@@ -349,36 +352,104 @@ function groupsOf(project: Project, comp: Comp, visiting: Set<string>): Cached {
   }
   close();
   visiting.delete(comp.id);
-  const entry = { deps, groups };
+  const entry = { deps, groups, lossy };
   groupCache.set(comp, entry);
   return entry;
 }
 
-/** A precomp's layered comp as one scene, or null when its picture is not all layer clips. */
-function compScene(project: Project, compId: string, deps: Map<string, Comp>, visiting: Set<string>): MotionScene | null {
+/** The fused group that draws the whole of a comp's picture, if one does. */
+function wholeGroup(comp: Comp, groups: StackGroup[]): StackGroup | null {
+  const picture = tracksOf(comp, 'video').filter((track) => !track.hidden && comp.clips.some((clip) => clip.trackId === track.id && clip.enabled));
+  return groups.length === 1 && picture.every((track) => groups[0].trackIds.includes(track.id)) ? groups[0] : null;
+}
+
+/** What the timeline does to a clip of a precomp's comp that the precomp's scene cannot: crop, effects, a mask, transitions. */
+function notDrawn(comp: Comp, clip: Clip): string[] {
+  const t = clip.transform;
+  const e = clip.effects;
+  const out: string[] = [];
+  if (t.cropLeft || t.cropTop || t.cropRight || t.cropBottom) out.push('crop');
+  if (e.blur || e.brightness || e.contrast || e.hue || e.invert || e.saturation !== 100 || e.flipH || e.flipV || clip.appliedEffects?.some((effect) => effect.enabled)) out.push('effects');
+  if (clip.mask) out.push('mask');
+  if (clip.adjustment) out.push('adjustment');
+  if (comp.transitions.some((transition) => transition.fromClip === clip.id || transition.toClip === clip.id)) out.push('transitions');
+  // A plain scene's Motion properties move the whole picture, which only the timeline does.
+  if (!isLayerClip(clip) && frameOf(clip, 1, 1, (local) => local)) out.push('Motion properties');
+  return out;
+}
+
+/**
+ * A precomp's layered comp as the one scene it draws today, or null when there is no such comp.
+ * A comp that fuses whole is its group's scene. Otherwise each fused group and each clip that
+ * draws on its own (`standaloneScene`) is a precomp of its own, bottom first, on its clip's
+ * clock, so every move, trim and new layer shows. What only the timeline can draw (crops,
+ * effects, masks, transitions, pictures that are not motion scenes) is left out and named in
+ * `lossy`.
+ */
+function compScene(project: Project, compId: string, deps: Map<string, Comp>, visiting: Set<string>): { scene: MotionScene; lossy: string[] } | null {
   const inner = project.comps.find((entry) => entry.id === compId);
   if (!inner) return null;
   deps.set(inner.id, inner);
   const cached = groupsOf(project, inner, visiting);
   for (const [id, comp] of cached.deps) deps.set(id, comp);
-  const picture = tracksOf(inner, 'video').filter((track) => !track.hidden && inner.clips.some((clip) => clip.trackId === track.id && clip.enabled));
-  const grouped = new Set(cached.groups.flatMap((group) => group.trackIds));
-  if (cached.groups.length !== 1 || picture.some((track) => !grouped.has(track.id))) return null;
   const duration = Math.max(1 / Math.max(1, inner.fps), compDuration(inner));
-  const scene = cached.groups[0].scene;
   // A precomp's layers that run to its end stay on past it, as a layer with no out point does.
-  const layers = scene.layers.map((layer) => (layer.out !== undefined && layer.out >= duration - 1e-6 ? ({ ...layer, out: undefined } as Layer) : layer));
-  return { ...scene, layers, width: inner.width, height: inner.height, duration };
+  const open = (layers: Layer[]) => layers.map((layer) => (layer.out !== undefined && layer.out >= duration - 1e-6 ? ({ ...layer, out: undefined } as Layer) : layer));
+  const whole = wholeGroup(inner, cached.groups);
+  if (whole) return { scene: { ...whole.scene, layers: open(whole.scene.layers), width: inner.width, height: inner.height, duration }, lossy: cached.lossy };
+  if (visiting.has(inner.id)) return null;
+  visiting.add(inner.id);
+  const lossy = [...cached.lossy];
+  const where = inner.name.split(' · ').pop();
+  const grouped = new Map(cached.groups.flatMap((group) => group.trackIds.map((id) => [id, group] as const)));
+  const layers: Layer[] = [];
+  for (const track of tracksOf(inner, 'video')) {
+    if (track.hidden) continue;
+    const group = grouped.get(track.id);
+    if (group) {
+      if (group.trackIds[0] === track.id) layers.push({ id: group.key, type: 'precomp', scene: { ...group.scene, layers: open(group.scene.layers) }, in: group.start, out: group.end });
+      continue;
+    }
+    for (const clip of inner.clips.filter((entry) => entry.trackId === track.id && entry.enabled).sort((a, b) => a.start - b.start)) {
+      const name = clip.name ?? clip.id;
+      if (clip.source.type !== 'motion') {
+        lossy.push(`${name}: a ${clip.source.type} clip is not drawn inside '${where}'`);
+        continue;
+      }
+      const alone: Alone = isLayerClip(clip) ? standalone(project, clip, visiting) : { deps: new Map(), scene: clip.source.scene, lossy: [] };
+      for (const [id, comp] of alone.deps) deps.set(id, comp);
+      lossy.push(...alone.lossy);
+      const missing = notDrawn(inner, clip);
+      if (missing.length) lossy.push(`${name}: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not applied inside '${where}'`);
+      // The clip's clock: its in point and speed, run backwards when reversed, stopped on a held frame.
+      const clock = clip.hold !== null ? { timeScale: 0, offset: -clip.hold } : clip.reverse ? { startTime: clipEnd(clip) + clip.in / clip.speed, timeScale: -clip.speed } : { startTime: clip.start - clip.in / clip.speed, timeScale: clip.speed };
+      layers.push({ id: clip.id, type: 'precomp', scene: alone.scene, in: clip.start, out: clipEnd(clip), ...clock });
+    }
+  }
+  visiting.delete(inner.id);
+  const first = cached.groups[0]?.scene;
+  const scene: MotionScene = {
+    version: 1,
+    width: inner.width,
+    height: inner.height,
+    duration,
+    ...(first?.motionBlur ? { motionBlur: first.motionBlur } : {}),
+    ...(first?.seed !== undefined ? { seed: first.seed } : {}),
+    layers: open(layers),
+  };
+  return { scene, lossy: [...new Set(lossy)] };
 }
 
-/** Points a precomp layer at the scene its layered comp draws today. */
-function withComp(layer: Layer, project: Project, deps: Map<string, Comp>, visiting: Set<string>): Layer {
+/** Points a precomp layer at the scene its layered comp draws today (its own `scene` only when that comp is gone). */
+function withComp(layer: Layer, project: Project, deps: Map<string, Comp>, visiting: Set<string>, lossy: string[]): Layer {
   if (layer.type !== 'precomp' || !layer.comp) return layer;
-  const scene = compScene(project, layer.comp, deps, visiting);
-  return scene ? { ...layer, scene } : layer;
+  const drawn = compScene(project, layer.comp, deps, visiting);
+  if (!drawn) return layer;
+  lossy.push(...drawn.lossy);
+  return { ...layer, scene: drawn.scene };
 }
 
-function fuse(project: Project, comp: Comp, run: { trackIds: string[]; clips: LayerClip[] }, deps: Map<string, Comp>, visiting: Set<string>): StackGroup {
+function fuse(project: Project, comp: Comp, run: { trackIds: string[]; clips: LayerClip[] }, deps: Map<string, Comp>, visiting: Set<string>, lossy: string[]): StackGroup {
   const primary = run.clips[0].source.scene.stack?.id ?? '';
   // Ids are per stack: two templates both have a "headline". Layers from a second stack get a suffix, references with them.
   const named = (stack: string, id: string) => (stack === primary ? id : `${id}@${stack.slice(0, 6)}`);
@@ -414,7 +485,7 @@ function fuse(project: Project, comp: Comp, run: { trackIds: string[]; clips: La
       const from = layer.in !== undefined ? Math.max(clip.start, toScene(layer.in)) : clip.start;
       const to = layer.out !== undefined ? Math.min(clipEnd(clip), toScene(layer.out)) : clipEnd(clip);
       const placed: Layer = {
-        ...withComp(rename(layer, unique), project, deps, visiting),
+        ...withComp(rename(layer, unique), project, deps, visiting, lossy),
         in: from,
         out: Math.max(from, to),
         ...(Math.abs(startTime) > 1e-9 ? { startTime } : {}),
@@ -446,20 +517,26 @@ function fuse(project: Project, comp: Comp, run: { trackIds: string[]; clips: La
  */
 export function standaloneScene(project: Project, clip: Clip): MotionScene | null {
   if (clip.source.type !== 'motion') return null;
-  const source = clip.source;
-  if (!isLayerClip(clip)) return source.scene;
+  if (!isLayerClip(clip)) return clip.source.scene;
+  return standalone(project, clip, new Set()).scene;
+}
+
+function standalone(project: Project, clip: LayerClip, visiting: Set<string>): Alone {
   const hit = standaloneCache.get(clip);
-  if (hit && fresh(project, hit.deps)) return hit.scene;
+  if (hit && fresh(project, hit.deps)) return hit;
+  const source = clip.source;
   const deps = new Map<string, Comp>();
+  const lossy: string[] = [];
   const size = project.comps.find((comp) => comp.clips.includes(clip)) ?? { width: source.scene.width, height: source.scene.height };
   const frame = frameOf(clip, size.width, size.height, (local) => clip.in + local * clip.speed);
   const mine = new Set(ownLayers(source.scene).map((layer) => layer.id));
   const scene: MotionScene = {
     ...source.scene,
-    layers: source.scene.layers.map((layer) => (mine.has(layer.id) ? { ...withComp(layer, project, deps, new Set()), ...(frame ? { frame } : {}) } as Layer : layer)),
+    layers: source.scene.layers.map((layer) => (mine.has(layer.id) ? { ...withComp(layer, project, deps, visiting, lossy), ...(frame ? { frame } : {}) } as Layer : layer)),
   };
-  standaloneCache.set(clip, { deps, scene });
-  return scene;
+  const entry = { deps, scene, lossy: [...new Set(lossy)] };
+  standaloneCache.set(clip, entry);
+  return entry;
 }
 
 /** The fused group a clip draws in, if any. */
@@ -468,11 +545,26 @@ export function groupOfClip(project: Project, comp: Comp, clipId: string): Stack
 }
 
 /**
- * The scene a layered comp draws as a whole (its single group), or null when the comp has
- * pictures that are not layer clips. What `get_motion_scene` describes and QA measures.
+ * The scene a layered comp draws as a whole (its single group), or null when it does not fuse
+ * whole. What `get_motion_scene` describes and QA measures.
  */
 export function layeredCompScene(project: Project, comp: Comp): MotionScene | null {
-  return compScene(project, comp.id, new Map(), new Set());
+  return wholeGroup(comp, stackGroups(project, comp)) ? compScene(project, comp.id, new Map(), new Set())?.scene ?? null : null;
+}
+
+/**
+ * What the precomps a layered comp draws leave out (crops, effects, masks, transitions and
+ * pictures that are not motion scenes inside their comps) and, when the comp is itself a
+ * precomp's comp, what its own clips lose there. Readable notes; empty when nothing is lost.
+ */
+export function stackLossy(project: Project, comp: Comp): string[] {
+  const nested = project.comps.some((entry) => entry.clips.some((clip) => isLayerClip(clip) && ownLayers(clip.source.scene).some((layer) => layer.type === 'precomp' && layer.comp === comp.id)));
+  if (nested) return compScene(project, comp.id, new Map(), new Set())?.lossy ?? [];
+  const cached = groupsOf(project, comp, new Set());
+  const grouped = new Set(cached.groups.flatMap((group) => group.clips.map((clip) => clip.id)));
+  const visible = new Set(tracksOf(comp, 'video').filter((track) => !track.hidden).map((track) => track.id));
+  const alone = comp.clips.filter((clip): clip is LayerClip => isLayerClip(clip) && clip.enabled && visible.has(clip.trackId) && !grouped.has(clip.id)).flatMap((clip) => standalone(project, clip, new Set()).lossy);
+  return [...new Set([...cached.lossy, ...alone])];
 }
 
 /**

@@ -153,6 +153,20 @@ describe('motion tools', () => {
     expect(h.get().comps[0].clips.find((c) => c.id === holder.id)).toEqual(holder);
   });
 
+  it('says what a precomp leaves out of a timeline edit inside its comp', async () => {
+    const h = harness(newProject());
+    const made = await runMotionTool('create_motion_scene', { template: 'subject-reveal', params: { subject: { path: 'talk.mp4', matte: 'm' }, plate: { path: 'plate.png', kind: 'image' }, title: ['YOU MADE', 'IT HERE'], cardAt: 3 }, start: 0, sfx: false }, h.ctx);
+    expect(made.ok).toBe(true);
+    const inner = h.get().comps.find((c) => c.name.endsWith('· Shot as card'))!;
+    const clean = await runMotionTool('get_motion_scene', { compId: made.compId }, h.ctx);
+    expect(clean.lossy).toBeUndefined();
+    h.ctx.commit((p) => updateComp(p, inner.id, (c) => ({ ...c, clips: c.clips.map((clip) => (clip.name === 'Clean plate' ? { ...clip, transform: { ...clip.transform, cropLeft: 10 } } : clip)) })));
+    const read = await runMotionTool('get_motion_scene', { compId: made.compId }, h.ctx);
+    expect(read.ok).toBe(true);
+    expect(read.lossy).toEqual(["Clean plate: crop is not applied inside 'Shot as card'"]);
+    expect(String(read.summary)).toContain("Clean plate: crop is not applied inside 'Shot as card'");
+  });
+
   it('saves the built-in style profile as the active guideline', async () => {
     const setReference = vi.fn();
     const h = harness(newProject());

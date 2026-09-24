@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { explodeScene, frameOf, fusable, isLayerClip, layeredCompScene, logicalScene, ownLayers, restack, stackGroups, standaloneScene } from '../src/lib/motionStack';
+import { explodeScene, frameOf, fusable, isLayerClip, layeredCompScene, logicalScene, ownLayers, restack, stackGroups, stackLossy, standaloneScene } from '../src/lib/motionStack';
 import { newProject } from '../src/lib/timeline';
 import type { Comp, Project } from '../src/lib/types';
 import { evaluateScene, type ResolvedFrame } from '../src/motion/evaluate';
@@ -189,6 +189,32 @@ describe('stackGroups', () => {
     const drawn = stackGroups(next, outer)[0].scene;
     const shot = drawn.layers.find((l) => l.id === 'shot') as Extract<Layer, { type: 'precomp' }>;
     expect(shot.scene.layers.some((l) => l.type === 'text' && l.text.text === 'DOS')).toBe(true);
+  });
+
+  it('draws a nested precomp comp as it is now, even with a clip only the timeline can draw', () => {
+    const spec = findTemplate('subject-reveal')!;
+    const scene = spec.build({ width: W, height: H }, { subject: { asset: 'a1', matte: 'C:/roto/run/matte.mkv' }, plate: { asset: 'p1', kind: 'image' }, title: ['YOU MADE', 'IT HERE'], phrase: 'Welcome in', cardAt: 3, duration: 4 });
+    const exploded = explodeScene(scene, { name: '[Motion] Reveal', fps: 30 });
+    const innerId = exploded.nested[0].id;
+    const edit = (project: Project, name: string, change: (clip: Comp['clips'][number]) => Comp['clips'][number]): Project => ({
+      ...project,
+      comps: project.comps.map((c) => (c.id === innerId ? { ...c, clips: c.clips.map((clip) => (clip.name === name ? change(clip) : clip)) } : c)),
+    });
+    /** Every layer the parent's fused scene draws, down through its precomps. */
+    const flat = (layers: Layer[]): Layer[] => layers.flatMap((l) => [l, ...(l.type === 'precomp' ? flat(l.scene.layers) : [])]);
+    const titleIn = (project: Project) => flat(stackGroups(project, project.comps.find((c) => c.id === exploded.comp.id)!)[0].scene.layers).find((l) => l.id === 'title-left')?.in;
+    let project = projectWith(exploded);
+    expect(titleIn(project)).toBeCloseTo(0.17, 6);
+    // The user slides the first title a second later, then crops the plate.
+    project = edit(project, 'YOU MADE', (clip) => ({ ...clip, start: clip.start + 1 }));
+    expect(titleIn(project)).toBeCloseTo(1.17, 6);
+    project = edit(project, 'Clean plate', (clip) => ({ ...clip, transform: { ...clip.transform, cropLeft: 10 } }));
+    expect(titleIn(project)).toBeCloseTo(1.17, 6);
+    // The plate still draws (on its own clock), and what it cannot draw there is named.
+    const shot = stackGroups(project, project.comps.find((c) => c.id === exploded.comp.id)!)[0].scene.layers.find((l) => l.id === 'shot') as Extract<Layer, { type: 'precomp' }>;
+    expect(flat(shot.scene.layers).some((l) => l.id === 'plate' && !l.ref)).toBe(true);
+    expect(stackLossy(project, project.comps.find((c) => c.id === exploded.comp.id)!)).toEqual(["Clean plate: crop is not applied inside 'Shot as card'"]);
+    expect(stackLossy(projectWith(exploded), exploded.comp)).toEqual([]);
   });
 
   it('opens the reference subject reveal with its card precomp as layers', () => {
