@@ -217,6 +217,38 @@ describe('stackGroups', () => {
     expect(stackLossy(projectWith(exploded), exploded.comp)).toEqual([]);
   });
 
+  it('keeps a nested clip drawn on its own on past its comp, and leaves an adjustment clip undrawn', () => {
+    const scene: MotionScene = {
+      version: 1, width: W, height: H, duration: 4,
+      layers: [{
+        id: 'card', type: 'precomp', in: 0, out: 4,
+        scene: {
+          version: 1, width: W, height: H, duration: 2,
+          layers: [
+            { id: 'box', type: 'shape', shape: { shape: 'rect', size: [400, 200], fill: '#fff' } },
+            { id: 'wash', type: 'shape', shape: { shape: 'rect', size: [W, H], fill: '#000' } },
+          ],
+        },
+      }],
+    };
+    const exploded = explodeScene(scene, { name: '[Motion] Card', fps: 30 });
+    const innerId = exploded.nested[0].id;
+    // The user crops the box (so it draws on its own) and turns the wash into an adjustment clip.
+    const project: Project = { ...projectWith(exploded), comps: projectWith(exploded).comps.map((c) => (c.id === innerId ? { ...c, clips: c.clips.map((clip) => (clip.name === 'box' ? { ...clip, transform: { ...clip.transform, cropLeft: 10 } } : clip.name === 'wash' ? { ...clip, adjustment: true } : clip)) } : c)) };
+    const outer = project.comps.find((c) => c.id === exploded.comp.id)!;
+    const fused = stackGroups(project, outer)[0].scene;
+    const card = fused.layers.find((l) => l.id === 'card') as Extract<Layer, { type: 'precomp' }>;
+    const inside = (t: number) => {
+      const entry = evaluateScene(fused, t).layers.find((l) => l.layer.id === 'card')!;
+      const flat = (s: MotionScene, time: number): string[] => evaluateScene(s, time).layers.flatMap((l) => (!l.active ? [] : l.layer.type === 'precomp' ? flat(l.layer.scene, l.time) : [l.layer.id]));
+      return flat(card.scene, entry.time);
+    };
+    expect(inside(1)).toEqual(['box']);
+    // Past the card comp's 2 s the box stays on, as it does when the comp fuses whole.
+    expect(inside(3)).toEqual(['box']);
+    expect(stackLossy(project, outer)).toEqual(["box: crop is not applied inside 'card'", "wash: an adjustment clip is not applied inside 'card'"]);
+  });
+
   it('gives expressions the in and out points on the layer clock, fused, moved or on its own', () => {
     const scene: MotionScene = {
       version: 1, width: W, height: H, duration: 6,

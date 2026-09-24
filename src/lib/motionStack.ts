@@ -390,7 +390,6 @@ function notDrawn(comp: Comp, clip: Clip): string[] {
   if (t.cropLeft || t.cropTop || t.cropRight || t.cropBottom) out.push('crop');
   if (e.blur || e.brightness || e.contrast || e.hue || e.invert || e.saturation !== 100 || e.flipH || e.flipV || clip.appliedEffects?.some((effect) => effect.enabled)) out.push('effects');
   if (clip.mask) out.push('mask');
-  if (clip.adjustment) out.push('adjustment');
   if (comp.transitions.some((transition) => transition.fromClip === clip.id || transition.toClip === clip.id)) out.push('transitions');
   // A plain scene's Motion properties move the whole picture, which only the timeline does.
   if (!isLayerClip(clip) && frameOf(clip, 1, 1, (local) => local)) out.push('Motion properties');
@@ -435,6 +434,11 @@ function compScene(project: Project, compId: string, deps: Map<string, Comp>, vi
         lossy.push(`${name}: a ${clip.source.type} clip is not drawn inside '${where}'`);
         continue;
       }
+      // An adjustment clip draws no picture of its own: it changes the tracks below it.
+      if (clip.adjustment) {
+        lossy.push(`${name}: an adjustment clip is not applied inside '${where}'`);
+        continue;
+      }
       const alone: Alone = isLayerClip(clip) ? standalone(project, clip, visiting) : { deps: new Map(), scene: clip.source.scene, lossy: [] };
       for (const [id, comp] of alone.deps) deps.set(id, comp);
       lossy.push(...alone.lossy);
@@ -442,7 +446,10 @@ function compScene(project: Project, compId: string, deps: Map<string, Comp>, vi
       if (missing.length) lossy.push(`${name}: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not applied inside '${where}'`);
       // The clip's clock: its in point and speed, run backwards when reversed, stopped on a held frame.
       const clock = clip.hold !== null ? { timeScale: 0, offset: -clip.hold } : clip.reverse ? { startTime: clipEnd(clip) + clip.in / clip.speed, timeScale: -clip.speed } : { startTime: clip.start - clip.in / clip.speed, timeScale: clip.speed };
-      layers.push({ id: clip.id, type: 'precomp', scene: alone.scene, in: clip.start, out: clipEnd(clip), ...clock });
+      // A layer clip that runs to the comp's end stays on past it, as the fused layers do.
+      const own = new Set(ownLayers(alone.scene).map((layer) => layer.id));
+      const shown = isLayerClip(clip) && clipEnd(clip) >= duration - 1e-6 ? { ...alone.scene, layers: alone.scene.layers.map((layer) => (own.has(layer.id) && !layer.ref ? ({ ...layer, out: undefined } as Layer) : layer)) } : alone.scene;
+      layers.push({ id: clip.id, type: 'precomp', scene: shown, in: clip.start, out: clipEnd(clip), ...clock });
     }
   }
   visiting.delete(inner.id);
