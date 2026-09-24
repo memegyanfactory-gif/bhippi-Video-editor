@@ -419,6 +419,10 @@ pub enum ClipSource {
         /// the preview. When present the export overlays the frames instead of a static title.
         #[serde(default)]
         frames: Option<HtmlFrames>,
+        /// Script the frontend took out of an untrusted graphic, kept so it can be reviewed and
+        /// restored; never run, and only the frontend reads it.
+        #[serde(default, rename = "quarantinedJs", skip_serializing_if = "Option::is_none")]
+        quarantined_js: Option<String>,
     },
     /// A GPU motion scene (src/motion in the frontend): After Effects-style layers, cameras,
     /// mattes and effects. Only the frontend can draw it; the export overlays the PNG sequence
@@ -1395,6 +1399,17 @@ mod tests {
     }
 
     #[test]
+    fn project_html_clips_keep_their_quarantined_script() {
+        let source = serde_json::json!({ "type": "html", "html": "<h1>Hi</h1>", "quarantinedJs": "fetch('https://example.com')" });
+        let parsed: ClipSource = serde_json::from_value(source).expect("parse");
+        let back = serde_json::to_value(&parsed).expect("serialise");
+        assert_eq!(back["quarantinedJs"], "fetch('https://example.com')");
+        // A graphic with nothing quarantined writes no key for it.
+        let clean: ClipSource = serde_json::from_value(serde_json::json!({ "type": "html", "html": "<h1>Hi</h1>" })).expect("parse");
+        assert!(serde_json::to_value(&clean).expect("serialise").get("quarantinedJs").is_none());
+    }
+
+    #[test]
     fn labels_follow_track_order_within_each_kind() {
         let comp = comp("c", Vec::new());
         assert_eq!(comp.track_label("v2").as_deref(), Some("V2"));
@@ -1496,6 +1511,7 @@ mod tests {
             template: None,
             layout_box: None,
             frames: None,
+            quarantined_js: None,
         });
         let graphic = Graphic::from_clip(&card).expect("html graphic");
         assert_eq!(graphic.text, "DAILY AI streams & news");
@@ -1509,10 +1525,11 @@ mod tests {
             template: None,
             layout_box: None,
             frames: None,
+            quarantined_js: None,
         });
         assert_eq!(Graphic::from_clip(&bare).expect("title fallback").text, "Lower third");
         // Nothing to say means nothing to draw — still skipped, not blank.
-        let empty = clip("e", "v2", 0.0, 1.0, ClipSource::Html { html: "<br/>".into(), css: None, js: None, title: None, template: None, layout_box: None, frames: None });
+        let empty = clip("e", "v2", 0.0, 1.0, ClipSource::Html { html: "<br/>".into(), css: None, js: None, title: None, template: None, layout_box: None, frames: None, quarantined_js: None });
         assert!(Graphic::from_clip(&empty).is_none());
     }
 }
