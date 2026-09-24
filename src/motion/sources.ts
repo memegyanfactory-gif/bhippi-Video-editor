@@ -16,6 +16,15 @@ export type MatteSequence = { fps: number; frames: number; /** Source seconds of
 export type FootageFrame = { image: TexImageSource; width: number; height: number; key: string };
 
 const EXACT_SEEK_TIMEOUT = 4000;
+/** An export frame gives up on footage that has not loaded (or sought) by then. */
+const FOOTAGE_TIMEOUT = 20000;
+
+/** `wait`, or a rejection naming `url` once FOOTAGE_TIMEOUT passes without it settling. */
+function loaded<T>(wait: Promise<T>, url: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`footage ${url} did not load in 20 s`)), FOOTAGE_TIMEOUT); });
+  return Promise.race([wait, late]).finally(() => clearTimeout(timer));
+}
 
 /** Source seconds a footage layer shows at scene time `t`. */
 export function sourceTime(source: FootageSource, t: number): number {
@@ -151,9 +160,9 @@ export class MediaBank {
     for (const { layer, time } of footageAt(scene, t)) {
       const resolved = this.host.resolve(layer.source);
       if (!resolved) continue;
-      if (resolved.kind === 'image') { waits.push(this.image(resolved.url).ready); continue; }
+      if (resolved.kind === 'image') { waits.push(loaded(this.image(resolved.url).ready, resolved.url)); continue; }
       const entry = this.video(resolved.url);
-      waits.push(entry.ready.then(() => seekExact(entry.el, time, options.presented ?? true)));
+      waits.push(loaded(entry.ready, resolved.url).then(() => loaded(seekExact(entry.el, time, options.presented ?? true), resolved.url)));
       if (layer.source.matte) {
         const path = layer.source.matte;
         waits.push((async () => {

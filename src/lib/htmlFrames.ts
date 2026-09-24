@@ -13,7 +13,8 @@
 // do not survive, which is why the Crimson templates avoid both.
 import gsap from 'gsap';
 import { api } from './ipc';
-import { openFrameWriter, type FrameWriter } from './pngEncoder';
+import { openFrameWriter, type FrameWriter, type InflightFrame } from './pngEncoder';
+import { renderProgress } from './renderProgress';
 import { mogrtCanvas, usesCompCanvas } from './motionGraphics';
 import { rbBackgroundFromName, rbBackgroundHtml } from './reactbits';
 import { REACT_BITS_TEMPLATE } from './rbx';
@@ -149,18 +150,20 @@ function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'wi
  * Renders one HTML clip to `dir/%05d.png` at `fps`, `duration` seconds long, on a canvas the
  * size of the comp's design canvas. Returns what the export needs to overlay it.
  */
-export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void } = {}): Promise<RenderedFrames> {
+export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void } = {}): Promise<RenderedFrames> {
   const fps = Math.min(options.fps ?? comp.fps, 30);
   const frames = Math.max(1, Math.round(clip.duration * fps));
   const dir = await api.mogrtFramesBegin(clip.id);
   const mounted = mountGraphic(source, clip.duration, comp);
+  const cancelled = () => { if (options.signal?.aborted) throw new Error('export cancelled'); };
   let writer: FrameWriter | null = null;
   try {
     // Frame i's PNG is encoded (on workers) and written while frame i+1 is drawn.
-    writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames));
+    writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames), options.signal, options.onInflight);
     for (let index = 0; index < frames; index++) {
-      if (options.signal?.aborted) throw new Error('export cancelled');
+      cancelled();
       const sheet = await mounted.draw(index / fps);
+      cancelled();
       options.onCanvas?.(sheet);
       await writer.canvas(index, sheet);
     }
@@ -298,6 +301,7 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
     const frames = await renderHtmlClipFrames(target.source, target.clip, target.comp, {
       signal: options.signal,
       onCanvas: options.onCanvas,
+      onInflight: renderProgress.inflight,
       onProgress: (done, total) => { options.onFrame?.(done, total); options.onProgress?.(`Rendering ${title} (${i + 1}/${targets.length}) · ${done}/${total} frames`); },
     });
     rendered.set(target.clip.id, frames);
