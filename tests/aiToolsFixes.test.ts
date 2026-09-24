@@ -91,7 +91,7 @@ describe('level_audio', () => {
     vi.mocked(api.audioLoudness).mockImplementation(async () => {
       // The user drags the shot while the loudness is measured.
       host.history.commit((p) => ({ ...p, comps: p.comps.map((c) => ({ ...c, clips: c.clips.map((x) => (x.id === shot.id ? { ...x, start: 3 } : x)) })) }));
-      return { integratedLufs: -26, truePeakDb: -12 };
+      return { integratedLufs: -26, rangeLu: 6, truePeakDb: -12, duration: 8 };
     });
     const result = await runTool(host, 'level_audio', {});
     expect(result.ok, String(result.error)).toBe(true);
