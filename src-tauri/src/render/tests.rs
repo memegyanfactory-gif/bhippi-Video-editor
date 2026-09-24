@@ -3,7 +3,7 @@
 use super::{keyframe_expr, keyframe_value, plan, ExportOptions, Output, Rate, RenderPlan};
 use crate::library::{Asset, AssetKind};
 use crate::project::fixtures::{clip, comp, project};
-use crate::project::{Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, Mask, MaskShape, Preset, Project, ProjectItem, ShapeKind, SfxKind, Transform, Transition, TransitionKind};
+use crate::project::{Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, Marker, Mask, MaskShape, Preset, Project, ProjectItem, ShapeKind, SfxKind, Transform, Transition, TransitionKind};
 use std::collections::HashMap;
 
 /// An asset the renderer can plan against: `validate_media` insists the file is really there.
@@ -487,4 +487,24 @@ fn a_rendered_sequence_holds_its_first_frame_while_a_transition_shows_it_early()
     // Half a second of the window falls before the scene starts: 15 frames of its first frame.
     assert!(text.contains("tpad=start_mode=clone:start=15"), "{text}");
     assert!(plan.args.join(" ").contains("-start_number 0 -i C:/frames/g/%05d.png"));
+}
+
+#[test]
+fn every_export_is_stamped_with_helios_provenance_and_marker_chapters() {
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let mut named = comp("c", vec![clip("a", "v1", 0.0, 2.0, media("m"))]);
+    named.name = "Goa reel".to_owned();
+    named.markers = vec![
+        Marker { id: "m1".to_owned(), time: 0.5, name: "Hook".to_owned(), color: "#fff".to_owned() },
+        Marker { id: "m2".to_owned(), time: 1.5, name: "".to_owned(), color: "#fff".to_owned() },
+    ];
+    let project = project(vec![named]);
+    let plan = build(&project, &assets, &options("c"), Output::Video, 0.0).expect("plan");
+    let title = plan.args.iter().position(|arg| arg == "title=Goa reel").expect("title metadata");
+    assert_eq!(plan.args[title - 1], "-metadata");
+    let comment = plan.args.iter().find(|arg| arg.starts_with("comment=")).expect("comment metadata");
+    assert!(comment.contains("Made with Helios"), "{comment}");
+    assert!(comment.contains("Hook@0.5s"), "named chapter: {comment}");
+    assert!(comment.contains("Marker@1.5s"), "unnamed chapters still listed: {comment}");
+    assert!(plan.args.iter().any(|arg| arg.starts_with("encoder=Helios")), "{:?}", plan.args);
 }

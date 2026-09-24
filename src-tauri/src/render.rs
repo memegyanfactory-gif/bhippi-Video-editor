@@ -275,6 +275,19 @@ pub fn plan_with_encoder(
     // are); every other video format flattens onto black as before.
     let alpha = options.format == "mov-alpha";
     let mut args: Vec<String> = Vec::new();
+    // Provenance stamped into the file itself: any player or editor opening
+    // the export reads what made it, from what, and where its chapters are.
+    let clean = |text: &str| text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>().trim().to_owned();
+    let chapters = comp.markers.iter().map(|marker| format!("{}@{:.1}s", if marker.name.trim().is_empty() { "Marker" } else { marker.name.trim() }, marker.time)).collect::<Vec<_>>().join("; ");
+    let mut comment = format!("Made with Helios {} · {} · {}x{}@{} · {} clips", env!("CARGO_PKG_VERSION"), comp.name, width, height, rate.text(), comp.clips.len());
+    if !chapters.is_empty() {
+        comment.push_str(&format!(" · chapters: {chapters}"));
+    }
+    let file_metadata: Vec<String> = vec![
+        "-metadata".into(), format!("title={}", clean(&comp.name)),
+        "-metadata".into(), format!("comment={}", clean(&comment.chars().take(500).collect::<String>())),
+        "-metadata".into(), format!("encoder=Helios {}", env!("CARGO_PKG_VERSION")),
+    ];
     // The soundtrack is identical for picture and audio-only exports. Stills
     // build no audio at all: an unmapped filter output fails the render.
     let samples = (duration * f64::from(SAMPLE_RATE)).round().max(1.0) as u64;
@@ -301,6 +314,7 @@ pub fn plan_with_encoder(
             args.extend(graph.finish());
             args.extend(["-map", "[vout]", "-map", "[aout]"].map(str::to_owned));
             args.extend(video_codec);
+            args.extend(file_metadata);
             if alpha {
                 args.extend(["-pix_fmt", "yuva444p10le", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t"].map(str::to_owned));
             } else if options.format == "avi" {
