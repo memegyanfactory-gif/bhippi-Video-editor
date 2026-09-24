@@ -13,8 +13,7 @@ import { api, errorText, fileSrc } from './ipc';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
 import { clipEnd, compDuration, freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
 import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps } from './motionStack';
-import { fitToSafeArea, layoutIssues, type LayoutIssue } from '../motion/safeArea';
-import { SAFE } from './layout';
+import { fitToSafeArea, layoutIssues, safeMargins, type LayoutIssue } from '../motion/safeArea';
 import type { Clip, ClipSource, Comp, Project, ToolResult } from './types';
 
 type Args = Record<string, unknown>;
@@ -298,10 +297,10 @@ async function imageDataUrl(path: string): Promise<string | null> {
 
 type MotionSource = Extract<ClipSource, { type: 'motion' }>;
 
-/** The safe margin a call asks for (one fraction for every side), else the editor's safe area. */
-const safeMargin = (args: Args): number | { x: number; y: number } => {
+/** The safe margin a call asks for (one fraction for every side), else undefined: the fitter then uses the editor's safe area for the frame's orientation. */
+const safeMargin = (args: Args): number | undefined => {
   const asked = num(args, 'safeMargin');
-  return asked === undefined ? { x: SAFE.left, y: SAFE.top } : clamp(asked, 0, 0.2);
+  return asked === undefined ? undefined : clamp(asked, 0, 0.2);
 };
 
 /** What `id` points at: a layered motion comp (by comp, holder clip or any layer clip), or a single motion scene clip. */
@@ -338,10 +337,11 @@ function describeLayout(issues: LayoutIssue[]): string {
   return `Outside the safe area: ${issues.slice(0, 6).map((issue) => `${issue.names.join(' + ')}${issue.offFrame ? ' (partly off the frame)' : ''} by ${Object.entries(issue.overflow).filter(([, v]) => v > 0).map(([side, v]) => `${v}px ${side}`).join(', ')} at ${issue.at.toFixed(2)} s`).join('; ')}.`;
 }
 
-function fitReport(fit: ReturnType<typeof fitToSafeArea> | null, margin: number | { x: number; y: number }): string {
+function fitReport(fit: ReturnType<typeof fitToSafeArea> | null, margin: number | undefined): string {
   if (!fit) return '';
-  const pct = typeof margin === 'number' ? `${Math.round(margin * 100)}%` : `${Math.round(margin.x * 100)}%/${Math.round(margin.y * 100)}%`;
-  const moved = fit.moved.length ? ` Moved inside the ${pct} safe area: ${fit.moved.map((m) => `${m.names.join(' + ')} (${m.dx >= 0 ? '+' : ''}${m.dx}, ${m.dy >= 0 ? '+' : ''}${m.dy} px${m.scale < 1 ? `, ×${m.scale}` : ''})`).join('; ')}.` : '';
+  const sides = safeMargins(fit.scene, margin);
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const moved = fit.moved.length ? ` Moved inside the safe area (${pct(sides.top)} top, ${pct(sides.bottom)} bottom, ${pct(sides.left)} left, ${pct(sides.right)} right): ${fit.moved.map((m) => `${m.names.join(' + ')} (${m.dx >= 0 ? '+' : ''}${m.dx}, ${m.dy >= 0 ? '+' : ''}${m.dy} px${m.scale < 1 ? `, ×${m.scale}` : ''})`).join('; ')}.` : '';
   return `${moved}${fit.remaining.length ? ` ${describeLayout(fit.remaining)}` : ''}`;
 }
 
