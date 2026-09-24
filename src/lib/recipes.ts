@@ -235,11 +235,10 @@ export const RECIPES: Recipe[] = [
   {
     name: 'pro-chunk-edit',
     about:
-      'Cuts video into dynamic 5–12 second narrative chunks with alternating 114% punch-ins, motion graphic topic badges, sound effects, and clean pacing.',
+      'Razors the comp into 5–12 second narrative chunks, cutting at sentence ends when transcript cues are given, and adds a short audio crossfade at each cut. It only cuts: follow it with the punch-ins recipe, motion graphics and SFX.',
     params: [
       { name: 'chunkMin', kind: 'number', about: 'Shortest chunk duration in seconds (typically 5s)', default: 5 },
       { name: 'chunkMax', kind: 'number', about: 'Longest chunk duration in seconds (typically 12s)', default: 12 },
-      { name: 'punchAmount', kind: 'number', about: 'Punch-in scale percentage on alternating cuts', default: 114 },
       { name: 'cues', kind: 'text', about: 'JSON array of timed words or sentence cues from transcript' },
     ],
     unavailable: ({ comp }) => (comp.clips.length === 0 ? 'this comp has no clips to edit' : null),
@@ -299,8 +298,12 @@ export const RECIPES: Recipe[] = [
         ops.push({ op: 'razor', at: cut });
       }
 
-      for (const cut of cuts) {
-        ops.push({ op: 'transition', at: cut, kind: 'constant-power', duration: 0.15 });
+      // The crossfade is for the sound only: the picture keeps a hard cut.
+      const audio = tracksOf(comp, 'audio').map((track) => track.id);
+      if (audio.length) {
+        for (const cut of cuts) {
+          ops.push({ op: 'transition', at: cut, kind: 'constant-power', duration: 0.15, tracks: audio });
+        }
       }
 
       return { label: 'Pro chunk editorial cut', ops };

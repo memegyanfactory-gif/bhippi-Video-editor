@@ -24,7 +24,6 @@ import { detectBeats, snapCutsToBeats } from './beats';
 import { loadPeaks } from './peaks';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
-import { evaluateTypedDecision, type TypedQuestion } from './typedDecisions';
 import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilRole, type Provenance } from './council';
 // Runs Helios AI's tool calls against the live project. Every tool is one undo step labelled
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
@@ -34,11 +33,13 @@ import { MOTION_TOOLS, runMotionTool } from './motionTools';
 import { ROAST_TOOLS, memeLookup, primeMemeCache, runRoastTool } from './roast/tools';
 import { isRoastCardTemplate } from './roast/cards';
 import { CARD_TEMPLATES } from './roast/types';
+import { MOTION_TEMPLATES, findTemplate } from '../motion/kit';
 import { SFX_GAIN_DB, sfxClipFields, sfxTrack } from './sfxLevels';
 import { blankFinding, collectQaLayers, frameStats } from './polish';
 import { renderMotionStill } from '../motion/exportFrames';
 import { renderHtmlStill } from './htmlFrames';
-import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
+import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, placement, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
+import { SOCIAL_SAFE } from './layout';
 import type { History } from './history';
 import { api, errorText } from './ipc';
 import { describe as describeDiff, runProgram, type Op, type Program } from './editProgram';
@@ -60,6 +61,17 @@ import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe
 /** Tells the model a file search stopped at its budget, so "0 found" is not "not there". */
 const truncatedNote = (truncated: boolean | undefined) =>
   truncated ? ' The search stopped early (too many files) — narrow the base path and search again.' : '';
+
+/** How much of a command's stdout (and of its stderr) a result carries: the last 12 KB. */
+const OUTPUT_TAIL_BYTES = 12 * 1024;
+
+/** The last 12 KB of a command's output, and how many bytes were cut from its head. */
+function outputTail(text: string): { text: string; cut: number } {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length <= OUTPUT_TAIL_BYTES) return { text, cut: 0 };
+  // A cut through a multi-byte character decodes as U+FFFD; drop it rather than show it.
+  return { text: new TextDecoder().decode(bytes.subarray(bytes.length - OUTPUT_TAIL_BYTES)).replace(/^�+/, ''), cut: bytes.length - OUTPUT_TAIL_BYTES };
+}
 
 export type ToolSpec = { name: string; description: string; input_schema: unknown };
 export const TOOL_SPECS: ToolSpec[] = catalog.tools as ToolSpec[];
@@ -254,7 +266,7 @@ export function aiContext(project: Project, assets: AssetMap, selection: string[
 /** What every turn is reminded of about the frame: it is read each turn with the project. */
 const LAYOUT_RULES = [
   'Motion scenes open as layered "[Motion]" comps: one clip per layer on its own track, so the user can open one and change any layer. Edit them with update_motion_scene (clipId = the comp clip, the comp or a layer clip; patches by layer id); split_motion_layers opens older single-clip ones.',
-  'Everything rests inside the frame: panels, cards, type and reduced footage sit inside the safe area (5% at the sides, 6% top and bottom), never against or past an edge. layout_clip slots and fitted motion scenes already do; a hand-set x/y/scale must too.',
+  'Everything rests inside the frame: panels, cards, type and reduced footage sit inside the safe area (16:9: 5% sides, 6% top/bottom; 9:16: 6% sides, 12% top, 18% bottom), never against or past an edge. layout_clip slots and fitted motion scenes already do; a hand-set x/y/scale must too.',
   'No blank frames: when the project has a designed background plate (a generated gradient on V1), full-frame templates go over it with background "none" — a light brand stage covering it reads as a white screen. Reduced footage always has a designed background behind it, never flat white or black.',
   'Finish every edit with the polish pass: run_frame_qa over the range (it renders real frames with the motion graphics and reports off-frame, safe-area, blank-frame, black-edge and overlap problems), fix each at its source, run it again until clear.',
 ].join(' ');
@@ -301,6 +313,44 @@ const findClipIn = (project: Project, clipId: string) => {
   }
   return null;
 };
+
+/**
+ * layout_clip's slots in a tall comp, worked out from the picture's own aspect through the
+ * editor's placement so each box lands inside the social safe area (6% sides, 12% top, 18%
+ * bottom). A tall frame stacks rather than sits side by side: left-55/right-55 are top-55/bottom-55.
+ */
+function portraitSlots(clip: Clip, comp: Comp, assets: AssetMap): Record<string, { scale: number; x: number; y: number }> {
+  const asset = clip.source.type === 'media' ? assets.get(clip.source.assetId) : undefined;
+  const [w, h] = asset && asset.width > 0 && asset.height > 0 ? [asset.width, asset.height] : [comp.width, comp.height];
+  // The visible picture at scale 100, as fractions of the comp (crop and fit as the clip has them).
+  const base = placement({ ...clip.transform, x: 0, y: 0, scale: 100 }, w, h, comp.width, comp.height);
+  const bw = (base.width * (1 - (clip.transform.cropLeft + clip.transform.cropRight) / 100)) / comp.width;
+  const bh = (base.height * (1 - (clip.transform.cropTop + clip.transform.cropBottom) / 100)) / comp.height;
+  const safe = { left: SOCIAL_SAFE.left, top: SOCIAL_SAFE.top, right: 1 - SOCIAL_SAFE.right, bottom: 1 - SOCIAL_SAFE.bottom };
+  const round = (value: number, places: number) => Math.round(value * 10 ** places) / 10 ** places;
+  /** The largest picture inside the region, pushed to its `ax`/`ay` side (0 start, 0.5 centre, 1 end). */
+  const fit = (x: number, y: number, width: number, height: number, ax = 0.5, ay = 0.5) => {
+    const k = Math.min(width / bw, height / bh);
+    const cx = x + (width - bw * k) * ax + (bw * k) / 2;
+    const cy = y + (height - bh * k) * ay + (bh * k) / 2;
+    return { scale: round(100 * k * 0.999, 2), x: round(cx - 0.5, 4), y: round(cy - 0.5, 4) };
+  };
+  const sw = safe.right - safe.left;
+  const half = (safe.bottom - safe.top) * 0.55;
+  const pip = { width: 0.42, height: 0.3 };
+  const top = fit(safe.left, safe.top, sw, half);
+  const bottom = fit(safe.left, safe.bottom - half, sw, half);
+  return {
+    'top-55': top, 'bottom-55': bottom, 'left-55': top, 'right-55': bottom,
+    'pip-top-left': fit(safe.left, safe.top, pip.width, pip.height, 0, 0),
+    'pip-top-right': fit(safe.right - pip.width, safe.top, pip.width, pip.height, 1, 0),
+    'pip-bottom-left': fit(safe.left, safe.bottom - pip.height, pip.width, pip.height, 0, 1),
+    'pip-bottom-right': fit(safe.right - pip.width, safe.bottom - pip.height, pip.width, pip.height, 1, 1),
+    'centre-small': fit(safe.left + sw * 0.14, safe.top + (safe.bottom - safe.top) * 0.14, sw * 0.72, (safe.bottom - safe.top) * 0.72),
+    // Full frame covers the frame edge to edge, so no bands show above and below a wide shot.
+    full: { scale: round(100 * Math.max(1 / bw, 1 / bh), 2), x: 0, y: 0 },
+  };
+}
 
 /**
  * The root "Generated" folder AI-made media files into, so generations never
@@ -359,7 +409,9 @@ function parseBeat(row: Args, n: number, knownIds: Set<string>, problems: string
   if (mogrt === null && row.mogrt === null) beat.mogrt = null;
   else if (mogrt) {
     const template = typeof mogrt.template === 'string' ? mogrt.template.trim() : '';
-    if (!templateSpec(template) && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout', 'custom'].includes(template)) problems.push(`Scene ${n}: mogrt.template "${template}" is not a template; choose from ${templateCatalogue().split('\n').map((line) => line.slice(2).split(' ')[0]).join(', ')}.`);
+    // A beat's graphic is a Crimson HTML template (create_motion_graphic) or a brand-*/engine
+    // template (create_motion_scene).
+    if (!templateSpec(template) && !findTemplate(template) && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout', 'custom'].includes(template)) problems.push(`Scene ${n}: mogrt.template "${template}" is not a template; choose a brand-*/engine template (create_motion_scene): ${MOTION_TEMPLATES.map((spec) => spec.id).join(', ')}; or a Crimson HTML template (create_motion_graphic): ${templateCatalogue().split('\n').map((line) => line.slice(2).split(' ')[0]).join(', ')}.`);
     beat.mogrt = {
       template,
       layout: MOGRT_LAYOUTS.has(String(mogrt.layout)) ? (String(mogrt.layout) as MogrtLayout) : undefined,
@@ -1104,71 +1156,6 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
         return fail(errorText(error));
       }
     }
-    case 'typed_decision': {
-      try {
-        const state = (args.state as Record<string, unknown> | string) ?? str(args, 'premise') ?? '';
-        const dType = str(args, 'type') || str(args, 'mode');
-        if (!['choice', 'score', 'noul'].includes(dType || '')) {
-          return fail("Supply type: 'choice', 'score', or 'noul'.");
-        }
-
-        let question: TypedQuestion;
-        if (dType === 'choice') {
-          const rawCriteria = Array.isArray(args.criteria) ? args.criteria : Array.isArray(args.choices) ? args.choices : Array.isArray(args.options) ? args.options : [];
-          const criteria = rawCriteria.map(String);
-          if (!criteria.length) return fail('Choice question requires criteria or choices array.');
-          question = {
-            type: 'choice',
-            instructions: str(args, 'instructions') || str(args, 'premise') || 'Choose the best option',
-            criteria,
-            temperature: num(args, 'temperature'),
-          };
-        } else if (dType === 'score') {
-          const rawLevels = Array.isArray(args.levels) ? args.levels : Array.isArray(args.rubric) ? args.rubric : [];
-          if (!rawLevels.length) return fail('Score question requires levels or rubric array.');
-          const levels = rawLevels.map((l: unknown, idx: number) => {
-            if (typeof l === 'string') {
-              return { level: idx + 1, label: l };
-            }
-            const row = l as { level?: number; label?: string; description?: string };
-            return {
-              level: Number(row.level ?? idx + 1),
-              label: String(row.label ?? ''),
-              description: row.description ? String(row.description) : undefined,
-            };
-          });
-          question = {
-            type: 'score',
-            instructions: str(args, 'instructions') || str(args, 'premise') || 'Score relevance',
-            levels,
-            minScore: num(args, 'minScore'),
-            maxScore: num(args, 'maxScore'),
-          };
-        } else {
-          const prop = str(args, 'proposition') || str(args, 'condition');
-          if (!prop) return fail('Noul question requires a proposition or condition string.');
-          question = {
-            type: 'noul',
-            proposition: prop,
-            threshold: num(args, 'threshold'),
-          };
-        }
-
-        const decision = evaluateTypedDecision(state, question);
-        let summary = '';
-        if (decision.type === 'choice') {
-          summary = `Decided: "${decision.choice}" (Confidence: ${(decision.confidence * 100).toFixed(1)}%).`;
-        } else if (decision.type === 'score') {
-          summary = `Score: ${decision.score} (best level: ${decision.bestLevel} - "${decision.bestLabel}").`;
-        } else {
-          summary = `Condition: ${decision.conditionMet ? 'Met' : 'Unmet'} (P(true): ${(decision.probability * 100).toFixed(1)}%).`;
-        }
-
-        return done(summary, { decision });
-      } catch (error) {
-        return fail(errorText(error));
-      }
-    }
     case 'query_frame_atlas': {
       try {
         const mood = str(args, 'mood');
@@ -1450,11 +1437,12 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
         const mediaNote = result.images.length || result.videos.length
           ? ` Found ${result.images.length} image(s) and ${result.videos.length} video link(s).`
           : '';
+        // `imageUrls`, not `images`: the transports strip `images` as the vision payload of frame tools.
         return done(`Scraped "${result.title || url}".${mediaNote}`, {
           url: result.url,
           title: result.title,
           text: result.text,
-          images: result.images,
+          imageUrls: result.images,
           videos: result.videos,
         });
       } catch (error) {
@@ -1582,13 +1570,19 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       try {
         const res = await api.fsRunCommand(command, cwd, timeoutSecs);
         const statusNote = res.exitCode === 0 ? 'succeeded (exit code 0)' : `finished with exit code ${res.exitCode}`;
-        const outputSummary = res.stdout.trim() || res.stderr.trim() || '(no output)';
-        return done(`Command ${statusNote} in ${res.durationMs}ms.\nOutput:\n${outputSummary.slice(0, 2000)}`, {
+        // Results stay in the transcript for the rest of the turn: only the tail of a long output is kept.
+        const stdout = outputTail(res.stdout);
+        const stderr = outputTail(res.stderr);
+        const truncated = stdout.cut > 0 || stderr.cut > 0;
+        const outputSummary = stdout.text.trim() || stderr.text.trim() || '(no output)';
+        return done(`Command ${statusNote} in ${res.durationMs}ms.${truncated ? ' The output was truncated to its last 12 KB; pipe it to a file and read_file a range.' : ''}\nOutput:\n${truncated ? outputSummary.slice(-2000) : outputSummary.slice(0, 2000)}`, {
           command,
           cwd,
           exitCode: res.exitCode,
-          stdout: res.stdout,
-          stderr: res.stderr,
+          stdout: stdout.text,
+          stderr: stderr.text,
+          ...(stdout.cut ? { stdoutTruncated: stdout.cut } : {}),
+          ...(stderr.cut ? { stderrTruncated: stderr.cut } : {}),
           durationMs: res.durationMs,
         });
       } catch (error) {
@@ -1974,9 +1968,17 @@ ${notes.trim()}${paletteLine}
         cast, options: { minShot, maxZoom, cutaways: bool(args, 'cutaways') ?? true },
       });
       if (!plan.shots.length) return fail('The planner found no shots — check the people boxes and transcript range.');
-      const applied = applyPodcastCut(comp, clip, plan, tracks, { mode, maxZoom, nameTags });
+      // Tracking and transcription took a while: cut the comp as it is now, and only if the clip is
+      // exactly what was analysed, so nothing the user did meanwhile is thrown away.
+      const liveComp = host.history.current().comps.find((entry) => entry.id === comp.id);
+      const liveClip = liveComp?.clips.find((entry) => entry.id === clip.id);
+      if (signal?.aborted || !liveComp || !liveClip || JSON.stringify(liveClip) !== JSON.stringify(clip) || liveComp.tracks.find((track) => track.id === liveClip.trackId)?.locked) {
+        return fail('The clip changed while podcast_cut was analysing; nothing was applied. Re-run podcast_cut.');
+      }
+      const sourceAspect = asset.width > 0 && asset.height > 0 ? asset.width / asset.height : undefined;
+      const applied = applyPodcastCut(liveComp, liveClip, plan, tracks, { mode, maxZoom, nameTags, sourceAspect });
       if (!applied.ok) return fail(applied.error);
-      editComp(comp, () => applied.comp);
+      editComp(liveComp, () => applied.comp);
 
       const review = [
         trackedBy ? `Faces by machine (${trackedBy}): eyeball one single per person — a wrong track punches the wrong face.` : 'Review the singles at 2x: a wrong box punches the wrong face — fix boxes, re-run.',
@@ -2830,17 +2832,20 @@ ${notes.trim()}${paletteLine}
       const property = str(args, 'property') as KeyframedProperty | undefined;
       if (!found) return fail('no clip with that id');
       if (!property || !(property in EMPTY_KEYFRAMES)) return fail('unknown property');
-      const keys: Keyframe[] = (Array.isArray(args.keyframes) ? args.keyframes : [])
-        .map((entry) => {
-          const key = entry as Args;
-          const time = num(key, 'time');
-          const value = num(key, 'value');
-          if (time === undefined || value === undefined) return null;
-          const easing = EASINGS.find((item) => item === str(key, 'easing')) ?? 'linear';
-          return { time: Math.max(0, time), value, easing: easing as Easing };
-        })
-        .filter((key): key is Keyframe => !!key)
-        .sort((a, b) => a.time - b.time);
+      if (!Array.isArray(args.keyframes)) return fail('keyframes must be an array of {time, value, easing?}; pass [] to clear');
+      // Every entry parses or nothing is written: a dropped entry used to clear the property and report success.
+      const numeric = (value: unknown) => (typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN);
+      const keys: Keyframe[] = [];
+      for (const [i, entry] of (args.keyframes as unknown[]).entries()) {
+        const key = (entry && typeof entry === 'object' ? entry : {}) as Args;
+        const time = numeric(key.time);
+        const value = numeric(key.value);
+        if (!Number.isFinite(time) || !Number.isFinite(value)) return fail(`keyframes[${i}] needs numeric time and value (clip keyframes use {time, value, easing}, not the motion engine's {t, v, ease})`);
+        const easing = key.easing === undefined ? 'linear' : EASINGS.find((item) => item === key.easing);
+        if (!easing) return fail(`keyframes[${i}] has an unknown easing "${String(key.easing)}"; use one of ${EASINGS.join(', ')}`);
+        keys.push({ time: Math.max(0, time), value, easing });
+      }
+      keys.sort((a, b) => a.time - b.time);
       editComp(found.comp, (current) => ({ ...current, clips: current.clips.map((clip) => (clip.id === found.clip.id ? { ...clip, keyframes: { ...clip.keyframes, [property]: keys } } : clip)) }));
       return done(keys.length ? `${keys.length} ${property} keyframes on ${clipName(project, assets, found.clip)}` : `Cleared ${property} keyframes`);
     }
@@ -3002,10 +3007,10 @@ ${notes.trim()}${paletteLine}
       let frameTimes: number[] = [];
       let renderNote = '';
       if (stillTimes.length) {
+        const shots: { at: number; path: string }[] = [];
         try {
           const dir = await api.mogrtFramesBegin('qa');
           const prepared = await renderHtmlStill(await renderMotionStill(project, comp.id, stillTimes, [...assets.values()]), comp.id, stillTimes);
-          const shots: { at: number; path: string }[] = [];
           for (const [i, t] of stillTimes.entries()) {
             const path = await api.exportFrame(prepared, comp.id, t, `${dir}/qa-${String(i).padStart(2, '0')}.png`, 540);
             shots.push({ at: t, path });
@@ -3013,14 +3018,21 @@ ${notes.trim()}${paletteLine}
             const blank = stats ? blankFinding(stats) : null;
             if (blank) issues.push({ at: t, a: 'the frame', b: 'picture', kind: 'blank-frame', overlap: blank.share, suggestion: `${blank.what}. Put a designed background under it (a generated gradient plate on V1, or fill_background), give full-frame brand templates background "none" over that plate, and keep light full-frame stages off the timeline.` });
           }
-          if (bool(args, 'images') !== false) {
-            const wanted = [...new Set([...issues.map((issue) => issue.at).filter((t) => stillTimes.includes(t)).slice(0, 3), ...stillTimes.filter((_, i) => i % Math.max(1, Math.ceil(stillTimes.length / 4)) === 0)])].slice(0, 6);
-            const picked = shots.filter((shot) => wanted.includes(shot.at));
-            images = await api.chatReadImages(picked.map((shot) => shot.path));
-            frameTimes = picked.map((shot) => shot.at);
-          }
         } catch (error) {
           renderNote = ` Contact frames could not be rendered (${errorText(error)}), so blank frames were not checked.`;
+        }
+        if (shots.length && bool(args, 'images') !== false) {
+          // At most four attached: the first two problem moments, then evenly spread stills.
+          const problemTimes = [...new Set(issues.map((issue) => issue.at))].filter((t) => shots.some((shot) => shot.at === t)).slice(0, 2);
+          const spreadShots = shots.filter((_, i) => i % Math.max(1, Math.ceil(shots.length / 4)) === 0).map((shot) => shot.at);
+          const wanted = [...new Set([...problemTimes, ...spreadShots])].slice(0, 4);
+          const picked = shots.filter((shot) => wanted.includes(shot.at));
+          try {
+            images = await api.chatReadImages(picked.map((shot) => shot.path));
+            frameTimes = picked.map((shot) => shot.at);
+          } catch (error) {
+            renderNote += ` Contact frames were rendered and checked for blanks but could not be attached (${errorText(error)}).`;
+          }
         }
       }
       const order: Record<QaIssue['kind'], number> = { 'blank-frame': 0, 'black-edges': 1, 'covers-subject': 2, 'off-frame': 3, 'caption-collision': 4, 'graphic-overlap': 5, 'outside-safe': 6 };
@@ -3038,8 +3050,8 @@ ${notes.trim()}${paletteLine}
       const where = `${timecode(from, fps(comp))}–${timecode(to, fps(comp))}${selection ? ' (the in/out selection)' : ''}`;
       const lines = problems.slice(0, 16).map(({ issue, from: first, to: last, count }) => `${timecode(first, fps(comp))}${last > first ? `–${timecode(last, fps(comp))}` : ''} ${issue.kind}: "${issue.a}"${issue.b ? ` vs "${issue.b}"` : ''}${count > 1 ? ` (${count} samples)` : ''}. ${issue.suggestion}`);
       return done(problems.length
-        ? `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: ${problems.length} problem(s). Fix every one, then run it again until it is clear.${hasSubject ? '' : ' No subject track was available (rotoscope_clip gives one), so subject coverage was not checked.'}${renderNote}\n${lines.join('\n')}`
-        : `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: nothing off the frame or outside the safe area, no overlaps, no blank or black-edged frames.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'}${renderNote} Look at the contact frames for what geometry cannot judge (contrast, reading time, taste), then verify_edit_workflow.`,
+        ? `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: ${problems.length} problem(s). Fix every one, then run it again until it is clear; an intended design (a title set behind the subject, a reveal) is instead waived in verify_edit_workflow's acceptedQaIssues with a reason.${hasSubject ? '' : ' No subject track was available (rotoscope_clip gives one), so subject coverage was not checked.'}${renderNote}\n${lines.join('\n')}`
+        : `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: nothing off the frame or outside the safe area, no overlaps, no blank or black-edged frames.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'}${renderNote}${images.length ? ' Look at the contact frames for what geometry cannot judge (contrast, reading time, taste), then' : ' Then'} verify_edit_workflow.`,
         { issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
     }
 
@@ -3072,7 +3084,7 @@ ${notes.trim()}${paletteLine}
       const portrait = comp.height > comp.width;
       const slot = str(args, 'slot') ?? 'left-55';
       const SLOTS: Record<string, { scale: number; x: number; y: number }> = portrait
-        ? { 'left-55': { scale: 62, x: 0, y: -0.19 }, 'right-55': { scale: 62, x: 0, y: 0.19 }, 'top-55': { scale: 62, x: 0, y: -0.19 }, 'bottom-55': { scale: 62, x: 0, y: 0.19 }, 'pip-bottom-right': { scale: 36, x: 0.28, y: 0.26 }, 'pip-bottom-left': { scale: 36, x: -0.28, y: 0.26 }, 'pip-top-right': { scale: 36, x: 0.28, y: -0.26 }, 'pip-top-left': { scale: 36, x: -0.28, y: -0.26 }, 'centre-small': { scale: 72, x: 0, y: 0 }, full: { scale: 100, x: 0, y: 0 } }
+        ? portraitSlots(clip, comp, assets)
         // Every slot rests inside the 5% safe area; the 55% slots leave a 3% gutter and a 35% column for the side panel.
         : { 'left-55': { scale: 52, x: -0.19, y: 0 }, 'right-55': { scale: 52, x: 0.19, y: 0 }, 'top-55': { scale: 52, x: -0.19, y: 0 }, 'bottom-55': { scale: 52, x: 0.19, y: 0 }, 'pip-bottom-right': { scale: 30, x: 0.3, y: 0.29 }, 'pip-bottom-left': { scale: 30, x: -0.3, y: 0.29 }, 'pip-top-right': { scale: 30, x: 0.3, y: -0.29 }, 'pip-top-left': { scale: 30, x: -0.3, y: -0.29 }, 'centre-small': { scale: 72, x: 0, y: 0 }, full: { scale: 100, x: 0, y: 0 } };
       const target = SLOTS[slot];
@@ -3096,8 +3108,15 @@ ${notes.trim()}${paletteLine}
         transform: animate ? c.transform : { ...c.transform, scale: target.scale, x: target.x, y: target.y },
         keyframes: animate ? { ...c.keyframes, scale: keys(fromScale, target.scale), x: keys(fromX, target.x), y: keys(fromY, target.y) } : c.keyframes,
       })) }));
+      const moved = `${clip.name ?? clip.id} reframed to ${slot} (scale ${target.scale}%)${animate ? ` with a ${moveSeconds}s ease-out move at ${timecode(clip.start + at, fps(comp))}${back !== null ? ` returning at ${timecode(clip.start + back, fps(comp))}` : ''}` : ''}.`;
+      if (portrait) {
+        // A tall frame stacks: the picture takes the top or the bottom, and the other half is free.
+        const free = slot === 'full' ? 'none' : slot === 'centre-small' ? 'centre' : target.y < 0 ? 'bottom' : 'top';
+        const freeNote = free === 'top' || free === 'bottom' ? ` The ${free} of the frame is free for a teaching-card or panel.` : '';
+        return done(`${moved}${freeNote}`, { clipId: clip.id, slot, transform: target, freeSide: free });
+      }
       const free = slot.startsWith('left') || slot.endsWith('left') ? 'right' : slot.startsWith('right') || slot.endsWith('right') ? 'left' : 'centre';
-      return done(`${clip.name ?? clip.id} reframed to ${slot} (scale ${target.scale}%)${animate ? ` with a ${moveSeconds}s ease-out move at ${timecode(clip.start + at, fps(comp))}${back !== null ? ` returning at ${timecode(clip.start + back, fps(comp))}` : ''}` : ''}. The ${free} side is free for a side-panel / teaching-card (layout side-panel-${free === 'centre' ? 'right' : free}).`, { clipId: clip.id, slot, transform: target, freeSide: free });
+      return done(`${moved} The ${free} side is free for a side-panel / teaching-card (layout side-panel-${free === 'centre' ? 'right' : free}).`, { clipId: clip.id, slot, transform: target, freeSide: free });
     }
 
     case 'seamless_transition': {
@@ -3186,7 +3205,7 @@ ${notes.trim()}${paletteLine}
       const { comp: next, changes } = snapCutsToBeats(comp, beats, { tolerance, only, limit, minDuration: 0.2 });
       if (!changes.length) return done(`Every cut is already within ${Math.round(tolerance * 1000)} ms of a beat (${beats.length} beats).`, { changes: [], beats: beats.length });
       editComp(comp, () => next);
-      return done(`${changes.length} edge(s) moved onto beats (±${Math.round(tolerance * 1000)} ms): ${changes.slice(0, 8).map((c) => `${c.name} ${c.edge} ${timecode(c.from, fps(comp))}→${timecode(c.to, fps(comp))}`).join('; ')}. Butt cuts rolled together; free edges trimmed, overlays moved; linked audio stays put (J/L split).`, { changes, beats: beats.length });
+      return done(`${changes.length} edge(s) moved onto beats (±${Math.round(tolerance * 1000)} ms): ${changes.slice(0, 8).map((c) => `${c.name} ${c.edge} ${timecode(c.from, fps(comp))}→${timecode(c.to, fps(comp))}`).join('; ')}. Butt cuts rolled together (both sides move, so no gaps open); free edges trimmed, overlays moved; linked audio stays put (J/L split).`, { changes, beats: beats.length });
     }
 
     case 'level_audio': {
@@ -3198,7 +3217,8 @@ ${notes.trim()}${paletteLine}
       const audioTracks = new Set(comp.tracks.filter((t) => t.kind === 'audio').map((t) => t.id));
       const musicAsset = comp.production?.music?.assetId ?? null;
       const rows: { clipId: string; name: string; role: 'voice' | 'music' | 'sfx'; measured: number; targetLufs: number; gainDb: number; truePeakDb: number }[] = [];
-      let next = comp;
+      // Measuring awaits per clip; the gains are patched onto the comp as it is then, so edits made meanwhile stay.
+      const patches = new Map<string, { volume: number; audioType: 'music' | 'dialogue' }>();
       for (const clip of comp.clips) {
         if (!clip.enabled || !audioTracks.has(clip.trackId) || clip.source.type !== 'media') continue;
         if (only && !only.has(clip.id)) continue;
@@ -3215,11 +3235,14 @@ ${notes.trim()}${paletteLine}
         const wanted = role === 'music' ? target + bedDb : target;
         const gainDb = clamp(wanted - measured.integratedLufs, -30, 24);
         const volume = clamp(10 ** (gainDb / 20), 0, 8);
-        next = { ...next, clips: next.clips.map((c) => (c.id === clip.id ? { ...c, volume, audioType: c.audioType ?? (role === 'music' ? 'music' : 'dialogue') } : c)) };
+        patches.set(clip.id, { volume, audioType: role === 'music' ? 'music' : 'dialogue' });
         rows.push({ clipId: clip.id, name: clip.name ?? asset.name, role, measured: Math.round(measured.integratedLufs * 10) / 10, targetLufs: wanted, gainDb: Math.round(gainDb * 10) / 10, truePeakDb: Math.round(measured.truePeakDb * 10) / 10 });
       }
       if (!rows.length) return fail('No dialogue or music clips with audio on the audio tracks to level.');
-      editComp(comp, () => next);
+      editComp(comp, (current) => ({ ...current, clips: current.clips.map((c) => {
+        const patch = patches.get(c.id);
+        return patch ? { ...c, volume: patch.volume, audioType: c.audioType ?? patch.audioType } : c;
+      }) }));
       const hot = rows.filter((r) => r.truePeakDb + r.gainDb > -1);
       return done(`Levelled ${rows.length} clip(s): dialogue to ${target} LUFS, music bed ${bedDb} dB under it. ${rows.map((r) => `${r.name} (${r.role}) ${r.measured}→${r.targetLufs} LUFS, ${r.gainDb >= 0 ? '+' : ''}${r.gainDb} dB`).join('; ')}.${hot.length ? ` ${hot.length} clip(s) may now peak above −1 dBTP; keep them or lower gain slightly.` : ''} Next: score_audio_clip on the music with the speech ranges to duck it a further 3–5 dB under dense phrases.`, { rows });
     }
@@ -3359,7 +3382,8 @@ ${notes.trim()}${paletteLine}
     case 'create_motion_graphic': {
       const comp = pickComp(project, args);
       if (!comp) return fail('No composition found.');
-      const template = str(args, 'template') || 'lower-third';
+      // The house lower third, not the legacy one, when the model names no template.
+      const template = str(args, 'template') || 'crimson-lower-third';
       const title = str(args, 'title') || 'HELIOS MOTION';
       const subtitle = str(args, 'subtitle') || '';
       // Crimson and React Bits keep their own accent when none is given; the legacy set falls back to sky in the builder.
@@ -3380,7 +3404,9 @@ ${notes.trim()}${paletteLine}
           until: num(item, 'until'),
         }))
         : undefined;
-      const metric = str(args, 'metric') || '+340%';
+      // Never a placeholder number: a stat on screen is a claim.
+      const metric = str(args, 'metric') || undefined;
+      if (template === 'stat-callout' && !metric) return fail('stat-callout needs a real, verified metric (the number exactly as the source states it); without one use a title or teaching-card template.');
       const badge = str(args, 'badge') || '';
       const html = str(args, 'html') || undefined;
       const css = str(args, 'css') || undefined;

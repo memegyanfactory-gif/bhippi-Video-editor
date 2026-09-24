@@ -80,11 +80,29 @@ type MentionHit = { kind: 'style'; style: StyleDef } | { kind: 'reference'; ref:
  * before a word) is simply sent again; telling the model work was done would have it skip parts
  * of a request it never started.
  */
-export function retryNote(message: Pick<Assistant, 'content' | 'steps'>, runs: readonly ToolRun[]): string | undefined {
+export function retryNote(message: Pick<Assistant, 'content' | 'steps'>, runs: readonly ToolRun[], status: WorkflowPhaseStatus = null): string | undefined {
   const progressed = runs.length > 0 || message.steps.length > 0 || message.content.trim().length > 0;
-  return progressed
-    ? '[Continuing after an interruption — do not redo completed edits. First read the current timeline with get_comp, identify the first unfinished step of the request, continue from there in 5–12s batches, and finish with verify_edit_workflow.]'
-    : undefined;
+  if (!progressed) return undefined;
+  // A plan or gather turn ends at the user's button, not at verify: continue just that phase.
+  if (endsAtButton(status)) return `[Continuing after an interruption — do not redo completed work. ${continuePrompt(status)}]`;
+  return '[Continuing after an interruption — do not redo completed edits. First read the current timeline with get_comp, identify the first unfinished step of the request, continue from there in 5–12s batches, and finish with verify_edit_workflow.]';
+}
+
+type WorkflowPhaseStatus = { phase?: string | null; gather?: { ready: number; total: number; pending: string[] } | null } | null;
+
+/** Plan and gather turns end when their phase closes; the user's button (Start generating, Start editing) moves on. */
+const endsAtButton = (status: WorkflowPhaseStatus) => ['plan', 'planning', 'plan-ready', 'gathering', 'gathered'].includes(status?.phase ?? '');
+
+/**
+ * The standing instruction each turn carries. Telling a plan or gather turn not to stop before
+ * verify_edit_workflow sent it past the user's button into timeline edits the guard refuses, so
+ * those phases are told to finish their own work and end the turn.
+ */
+export function workflowInstruction(status: WorkflowPhaseStatus): string {
+  if (!endsAtButton(status)) return 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.';
+  const phase = status?.phase;
+  const next = phase === 'gathering' || phase === 'gathered' ? 'Start editing' : 'Start generating';
+  return `Call editing_workflow_status first. The production is in the ${phase} phase: finish this phase and end your turn — the user presses ${next} to move on. Do not edit the timeline in this turn.`;
 }
 
 export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .helios that carries one). */ load: (messages: unknown[]) => void };
@@ -649,7 +667,7 @@ export function ChatPanel(props: Props) {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
-      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), editingWorkflow: mode, workflowInstruction: 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.' } });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), editingWorkflow: mode, workflowInstruction: workflowInstruction(propsRef.current.workflowStatus(turnId)) } });
       setImages([]);
     } catch (error) {
       actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
@@ -678,7 +696,7 @@ export function ChatPanel(props: Props) {
   const remedy = (message: Assistant, action: TurnFault['remedy']) => {
     if (action === 'retry') {
       const text = lastUserMessage(message.id);
-      if (text) void send(text, retryNote(message, propsRef.current.tools[message.turnId] ?? []));
+      if (text) void send(text, retryNote(message, propsRef.current.tools[message.turnId] ?? [], propsRef.current.workflowStatus(message.turnId)));
     } else if (action === 'switch_provider') {
       setPickerOpen(true);
     } else if (action === 'compact') {
@@ -1259,7 +1277,7 @@ export function ChatPanel(props: Props) {
  * the actual pending shots (from live production state, not the model's own stale plan) points it
  * at the one thing left to do.
  */
-function continuePrompt(status: { phase?: string | null; gather?: { ready: number; total: number; pending: string[] } | null } | null): string {
+function continuePrompt(status: WorkflowPhaseStatus): string {
   const phase = status?.phase ?? null;
   const shared = 'Call editing_workflow_status first and trust what it reports over anything you planned earlier — the project may already be further along than your last reply assumed.';
   if (phase === 'gathering') {
@@ -1268,6 +1286,9 @@ function continuePrompt(status: { phase?: string | null; gather?: { ready: numbe
       ? ` Still pending: ${pending.slice(0, 6).join('; ')}${pending.length > 6 ? ` (+${pending.length - 6} more)` : ''}.`
       : '';
     return `Continue the GATHER phase only.${named} ${shared} Generate or download ONLY the shots still pending (one call per shot, with sceneIndex so it attaches to the plan), attach_production_asset each real result, and do not touch the timeline or plan edit-phase work yet. Once every shot has a real attached asset, call finish_gathering and end your turn.`;
+  }
+  if (phase === 'gathered') {
+    return `Gathering is finished. ${shared} Attach any real result still unattached with attach_production_asset, then end your turn with a short summary of what was gathered — the user presses Start editing.`;
   }
   if (phase === 'plan-ready' || phase === null || phase === 'planning') {
     return `Continue the PLAN phase only. ${shared} Finish research, script, shots (with sceneIndex, script/prompt, graphics, transition, SFX, music per beat) and save it with save_storyboard or save_video_blueprint, then end your turn — do not generate media yet.`;

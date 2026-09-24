@@ -72,7 +72,9 @@ describe('online research and web scraping tools', () => {
     expect(api.webScrape).toHaveBeenCalledWith('https://example.com/article', 4000);
     if (!result.ok) throw new Error(result.error);
     expect(result.summary).toContain('Guide to Video Hooks');
-    expect(result.images).toEqual(['https://example.com/img1.png']);
+    // Not `images`: every transport strips that key as the frame tools' vision payload.
+    expect(result.imageUrls).toEqual(['https://example.com/img1.png']);
+    expect(result.images).toBeUndefined();
     expect(result.videos).toEqual(['https://example.com/clip.mp4']);
   });
 
