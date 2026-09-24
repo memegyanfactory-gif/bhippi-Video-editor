@@ -1,4 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Export's pre-render stand-ins: the real ones need a GPU and a browser. A still marks every
+// motion clip as rendered, so a test can see whether the project handed on went through it.
+const rendered = { dir: 'C:/frames', fps: 30, frames: 1, width: 1920, height: 1080 };
+vi.mock('../src/motion/exportFrames', () => ({
+  motionClipsForExport: () => [],
+  renderMotionScenesForExport: vi.fn(async (project: unknown) => project),
+  renderMotionStill: vi.fn(async (project: Project) => ({
+    ...project,
+    comps: project.comps.map((comp) => ({ ...comp, clips: comp.clips.map((clip) => (clip.source.type === 'motion' ? { ...clip, source: { ...clip.source, frames: rendered } } : clip)) })),
+  })),
+}));
+vi.mock('../src/lib/htmlFrames', () => ({
+  htmlClipsForExport: () => [],
+  renderMotionGraphicsForExport: vi.fn(async (project: unknown) => project),
+  renderHtmlStill: vi.fn(async (project: unknown) => project),
+}));
 import { cssFilter, DEFAULT_TRANSFORM, parseCaptions, parseTimecode, placement, safeFileName, snap, timecode } from '../src/lib/editor';
 import { setKey, shiftKeys, valueAt } from '../src/lib/keyframes';
 import {
@@ -6,6 +23,9 @@ import {
   newProject, placeClips, razor, removeClips, removeRange, resolveTrack, setLinked, setSpeed, slideClip, slipClip, sourceTimeAt, tracksOf, trackLabel, trimEdge, trimToPlayhead, usage, withLinked, wouldCycle, freeTrack,
 } from '../src/lib/timeline';
 import type { Asset, Clip, Comp, Project } from '../src/lib/types';
+import { prerenderForExport, prerenderStill } from '../src/lib/exportPrepare';
+import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
+import { renderHtmlStill, renderMotionGraphicsForExport } from '../src/lib/htmlFrames';
 
 const asset = (id: string, kind: Asset['kind'], seconds: number, hasAudio = true): Asset => ({
   id, name: `${id}.mp4`, path: `C:/${id}.mp4`, kind, duration: seconds, width: 1920, height: 1080, fps: 30, hasAudio, videoCodec: 'h264', audioCodec: 'aac',
@@ -384,5 +404,28 @@ describe('helpers', () => {
     expect(snap(1.97, [0, 2, 4], 0.1)).toBe(2);
     expect(parseCaptions('1\n00:00:01,000 --> 00:00:02,500\nHello <i>there</i>\n')).toEqual([{ start: 1, end: 2.5, text: 'Hello there' }]);
     expect(safeFileName('My: "Story"?')).toBe('My Story');
+  });
+});
+
+describe('export pre-render', () => {
+  it('Export Frame renders the motion scenes and graphics at the playhead before the backend sees the project', async () => {
+    const { comp, v1 } = setup();
+    const scene = newClip({ trackId: v1, start: 0, duration: 4, source: { type: 'motion', scene: {} as never } });
+    const still = await prerenderStill(project({ ...comp, clips: [scene] }), comp.id, 2, []);
+    expect(renderMotionStill).toHaveBeenCalledWith(expect.anything(), comp.id, [2], []);
+    expect(renderHtmlStill).toHaveBeenCalledWith(expect.anything(), comp.id, [2]);
+    const clip = still.comps[0].clips[0];
+    expect(clip.source.type === 'motion' && clip.source.frames).toEqual(rendered);
+  });
+
+  it('an effect the export cannot draw fails before any pre-render', async () => {
+    const { comp, v1 } = setup();
+    const fx = { id: 'fx', effectId: 'not-a-real-effect', name: 'Mystery', category: 'Stylize', enabled: true, params: {} };
+    const clip = { ...newClip({ trackId: v1, start: 0, duration: 4, source: media }), appliedEffects: [fx] };
+    vi.mocked(renderMotionGraphicsForExport).mockClear();
+    vi.mocked(renderMotionScenesForExport).mockClear();
+    await expect(prerenderForExport(project({ ...comp, clips: [clip] }), comp.id, [])).rejects.toThrow(/not implemented for export/);
+    expect(renderMotionGraphicsForExport).not.toHaveBeenCalled();
+    expect(renderMotionScenesForExport).not.toHaveBeenCalled();
   });
 });

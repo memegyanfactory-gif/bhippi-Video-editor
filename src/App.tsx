@@ -24,8 +24,9 @@ import { StoryboardViewer } from './chat/StoryboardViewer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ResourceMonitor } from './components/ResourceMonitor';
 import { GenerationJobsMenu } from './components/GenerationJobsMenu';
-import { htmlClipsForExport, htmlFrameCount, renderMotionGraphicsForExport } from './lib/htmlFrames';
-import { motionClipsForExport, motionFrameCount, renderMotionScenesForExport } from './motion/exportFrames';
+import { htmlClipsForExport, htmlFrameCount } from './lib/htmlFrames';
+import { motionClipsForExport, motionFrameCount } from './motion/exportFrames';
+import { prerenderForExport, prerenderStill } from './lib/exportPrepare';
 import { renderProgress, type RenderStage } from './lib/renderProgress';
 import { sfxClipFields, sfxTrack } from './lib/sfxLevels';
 import { RenderWindow } from './components/RenderWindow';
@@ -721,7 +722,7 @@ export default function App() {
     history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: advanceProduction(c.production, phase) } : c)), phase === 'gathering' ? 'Start generating' : 'Start editing');
     const message = phase === 'gathering'
       ? 'Start generating. The plan is approved: begin the GATHER phase now. Call editing_workflow_status, then gather every planned shot one call at a time with its sceneIndex — text-to-video shots 5–7 s from their own script and prompt (generate_local_media task video, wait true), images, downloads and scrapes into their research folders, the voice-over (synthesize_speech_voiceover) and the music bed. Retry a failed generation once with a simpler prompt. When everything has a real asset, call finish_gathering and end your turn with a short list of what was gathered. Do not touch the timeline.'
-      : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, layout_clip + create_motion_graphic per beat with the Crimson templates, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
+      : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, each beat\'s planned graphic — with a brand kit active, its brand-* recipe via create_motion_scene; otherwise a motion-engine template via create_motion_scene, or a Crimson HTML template via create_motion_graphic where the engine has none; layout_clip where the beat has a side panel, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
     window.setTimeout(() => chatApi.current?.send(message), 50);
   };
 
@@ -1370,11 +1371,8 @@ export default function App() {
     try {
       // Motion graphics are live DOM in the preview; the export gets them as rendered frames
       // with alpha, so cards, charts and panels animate in the MP4 exactly as they do here.
-      if (graphicsTargets.length) renderProgress.stage('graphics');
-      const graphics = await renderMotionGraphicsForExport(project, options.compId, { signal, onItem, onFrame, onCanvas });
       // Motion scenes (the GPU engine) render frame-exact off-screen with the preview's own code.
-      if (sceneTargets.length) renderProgress.stage('scenes');
-      const prepared = await renderMotionScenesForExport(graphics, options.compId, assetsRef.current, { signal, onItem, onFrame, onCanvas });
+      const prepared = await prerenderForExport(project, options.compId, assetsRef.current, { signal, onStage: (stage) => renderProgress.stage(stage), onItem, onFrame, onCanvas });
       if (signal.aborted) throw new Error('export cancelled');
       const jobId = await api.exportStart(prepared, options);
       renderProgress.encoding(jobId);
@@ -1392,7 +1390,9 @@ export default function App() {
     const path = await saveDialog({ title: 'Export frame', defaultPath: `${base ? `${base}\\` : ''}${safeFileName(comp.name)} ${timecode(at, fps).replace(/:/g, '-')}.png`, filters: [{ name: 'PNG image', extensions: ['png'] }] });
     if (!path) return;
     try {
-      const written = await api.exportFrame(history.current(), comp.id, at, path.toLowerCase().endsWith('.png') ? path : `${path}.png`);
+      // The frame's motion scenes and graphics are rendered first, or the PNG would leave them out.
+      const prepared = await prerenderStill(history.current(), comp.id, at, assetsRef.current);
+      const written = await api.exportFrame(prepared, comp.id, at, path.toLowerCase().endsWith('.png') ? path : `${path}.png`);
       toast({ tone: 'success', title: 'Frame exported', body: written.split(/[\\/]/).pop(), actions: [{ label: 'Open', run: () => void api.openPath(written) }, { label: 'Show in folder', run: () => void api.revealPath(written) }] });
     } catch (error) {
       toast({ tone: 'error', title: 'Could not export the frame', body: errorText(error) });
