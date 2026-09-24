@@ -39,6 +39,21 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// The absolute ceiling for one turn, however talkative.
 const HARD_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
+/// The ceiling for a turn that runs Helios' tools over MCP. The whole agent loop is that one
+/// process, and a single tool call may run for 30 minutes (ask_user for a day), so only a runaway
+/// hits this; Stop is the user's control.
+const MCP_HARD_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// How often a silent CLI is re-checked against its idle budget.
+const IDLE_TICK: Duration = Duration::from_secs(5);
+
+/// Whether a silent CLI is hung: nothing in flight on its MCP server, and both its last output
+/// line and its server's last tool activity older than `budget`. An agent waiting on a long tool
+/// prints nothing, so its silence alone proves nothing. Pure + tested.
+fn is_hung(silent_for: Duration, tools_idle_for: Option<Duration>, in_flight: usize, budget: Duration) -> bool {
+    in_flight == 0 && silent_for >= budget && tools_idle_for.is_none_or(|idle| idle >= budget)
+}
+
 /// The path [`CliProvider::argv_for`] substitutes for `{prompt_file}` in tests.
 const STAND_IN_PROMPT_FILE: &str = "<prompt-file>";
 
@@ -136,6 +151,8 @@ fn gemini_settings(server: &McpServer) -> serde_json::Value {
                 "command": server.command.to_string_lossy(),
                 "args": args,
                 "trust": true,
+                // Milliseconds; Gemini's own 10-minute default would cut a 30-minute tool short.
+                "timeout": 1_860_000,
             },
         },
         "modelConfigs": { "overrides": [{ "match": {"model":"$HELIOS_GEMINI_MODEL"}, "modelConfig": {"generateContentConfig":{"thinkingConfig":{"thinkingLevel":"$HELIOS_GEMINI_THINKING"}}}}] },
@@ -225,7 +242,8 @@ fn mcp_flag_args(spec: &ProviderSpec, req: &CompletionRequest, config_file: &Pat
                 format!("{}=[{args}]", key("args")),
                 format!("{}=\"approve\"", key("default_tools_approval_mode")),
                 format!("{}=30", key("startup_timeout_sec")),
-                format!("{}=120", key("tool_timeout_sec")),
+                // Helios' own per-call limit is 30 minutes; Codex must not give up first.
+                format!("{}=1860", key("tool_timeout_sec")),
             ]
             .into_iter()
             .flat_map(|pair| [OsString::from("-c"), OsString::from(pair)])
@@ -578,6 +596,8 @@ impl Provider for CliProvider {
         // A small buffer: back-pressure keeps a fast vendor from outrunning the UI.
         let (tx, rx) = mpsc::channel::<Result<Delta>>(64);
         let idle_budget = IDLE_TIMEOUT.max(req.timeout);
+        let hard_timeout = if server.is_some() { MCP_HARD_TIMEOUT } else { HARD_TIMEOUT };
+        let activity = req.activity.clone().filter(|_| server.is_some());
 
         if spec.prompt_via_stdin {
             let Some(mut sink) = child.stdin.take() else {
@@ -643,32 +663,48 @@ impl Provider for CliProvider {
             let mut lines = BufReader::new(stdout).lines();
             let mut failure: Option<String> = None;
             let started = tokio::time::Instant::now();
+            let mut last_line = started;
 
             loop {
-                let remaining = HARD_TIMEOUT.saturating_sub(started.elapsed());
+                let remaining = hard_timeout.saturating_sub(started.elapsed());
                 if remaining.is_zero() {
                     failure = Some(format!(
                         "ran for over {} minutes without finishing",
-                        HARD_TIMEOUT.as_secs() / 60
+                        hard_timeout.as_secs() / 60
                     ));
                     break;
                 }
-                let next =
-                    tokio::time::timeout(idle_budget.min(remaining), lines.next_line()).await;
+                // Short ticks rather than one long wait, so silence is judged against the tool
+                // activity as it stands now. `next_line` is cancel safe.
+                let next = tokio::time::timeout(IDLE_TICK.min(remaining), lines.next_line()).await;
                 let line = match next {
                     Err(_elapsed) => {
-                        failure = Some(format!(
-                            "timed out after {}s with no output",
-                            idle_budget.as_secs()
-                        ));
-                        break;
+                        if tx.is_closed() {
+                            // The receiver went away: the turn was stopped.
+                            let _ignored = child.start_kill();
+                            return;
+                        }
+                        let (in_flight, tools_idle_for) = activity
+                            .as_deref()
+                            .map_or((0, None), |activity| (activity.in_flight(), activity.since_last()));
+                        if is_hung(last_line.elapsed(), tools_idle_for, in_flight, idle_budget) {
+                            failure = Some(format!(
+                                "timed out after {}s with no output",
+                                idle_budget.as_secs()
+                            ));
+                            break;
+                        }
+                        continue;
                     }
                     Ok(Err(error)) => {
                         failure = Some(format!("could not read its output: {error}"));
                         break;
                     }
                     Ok(Ok(None)) => break,
-                    Ok(Ok(Some(line))) => line,
+                    Ok(Ok(Some(line))) => {
+                        last_line = tokio::time::Instant::now();
+                        line
+                    }
                 };
                 for event in reader.push_line(&line) {
                     if hide_step(&event, server_name.as_deref(), &mut hidden) {
@@ -809,7 +845,7 @@ async fn forward(tx: &mpsc::Sender<Result<Delta>>, event: TranscriptEvent) -> Op
 #[cfg(test)]
 mod tests {
     use super::{
-        gemini_settings, hide_step, mcp_config_file, normalize_claude_model,
+        gemini_settings, hide_step, is_hung, mcp_config_file, normalize_claude_model,
         normalize_opencode_model, spawn_reason, toml_string, CliProvider,
     };
     use crate::catalog::{spec, McpWiring, ProviderSpec, CATALOG};
@@ -817,6 +853,7 @@ mod tests {
     use crate::transcript::{ToolKind, TranscriptEvent};
     use std::collections::HashSet;
     use std::path::Path;
+    use std::time::Duration;
 
     fn server() -> McpServer {
         McpServer {
@@ -919,6 +956,7 @@ mod tests {
         assert!(overrides.contains(&r#"mcp_servers.helios.command="C:\\Program Files\\Helios's\\helios.exe""#), "{overrides:?}");
         assert!(overrides.contains(&r#"mcp_servers.helios.args=["--mcp-bridge","50123","tok-1"]"#), "{overrides:?}");
         assert!(overrides.contains(&r#"mcp_servers.helios.default_tools_approval_mode="approve""#));
+        assert!(overrides.contains(&"mcp_servers.helios.tool_timeout_sec=1860"), "{overrides:?}");
         assert_eq!(argv.first().map(String::as_str), Some("exec"));
         assert!(mcp_config_file(McpWiring::CodexOverrides, &server()).is_none());
         assert_eq!(toml_string("a\"b\\c\nd"), r#""a\"b\\c\nd""#);
@@ -931,6 +969,7 @@ mod tests {
         let settings = gemini_settings(&server());
         let entry = &settings["mcpServers"]["helios"];
         assert_eq!(entry["trust"], true);
+        assert_eq!(entry["timeout"], 1_860_000, "a 30-minute tool call outlives Gemini's default");
         assert_eq!(entry["args"], serde_json::json!(["$HELIOS_MCP_ARG_0", "$HELIOS_MCP_ARG_1", "$HELIOS_MCP_ARG_2"]));
         assert!(!settings.to_string().contains("tok-1"), "no per-turn value is written to disk");
         assert!(settings.get("tools").is_none());
@@ -995,6 +1034,20 @@ mod tests {
         assert_eq!(normalize_claude_model("claude-sonnet-5"), "claude-sonnet-5");
         assert_eq!(normalize_opencode_model("Big Pickle"), "opencode/big-pickle");
         assert_eq!(normalize_opencode_model("zai/glm-4.6"), "zai/glm-4.6");
+    }
+
+    /// An agent waiting on a long Helios tool prints nothing; that silence is work, not a hang.
+    #[test]
+    fn a_silent_cli_is_hung_only_when_no_tool_is_working_either() {
+        let budget = Duration::from_secs(1200);
+        let long = Duration::from_secs(1500);
+        let short = Duration::from_secs(30);
+        assert!(is_hung(long, Some(long), 0, budget));
+        assert!(is_hung(long, None, 0, budget), "no tool ever ran: the silence alone decides");
+        assert!(!is_hung(long, Some(long), 1, budget), "a tool call is still running");
+        assert!(!is_hung(long, Some(short), 0, budget), "a tool call just finished");
+        assert!(!is_hung(short, Some(long), 0, budget), "it spoke recently");
+        assert!(!is_hung(short, None, 0, budget));
     }
 
     #[test]

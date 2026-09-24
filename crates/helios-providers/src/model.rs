@@ -3,7 +3,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Whether a backend can answer right now, and if not, why.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -76,6 +78,11 @@ pub struct Message {
     pub tool_calls: Vec<ToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_result: Option<ToolResult>,
+    /// An assistant turn's thinking blocks, exactly as the vendor streamed them (signature and
+    /// all). Anthropic needs them back, unchanged and first, when the turn continues after its
+    /// tool calls; other vendors ignore them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thinking_blocks: Vec<serde_json::Value>,
 }
 
 impl Message {
@@ -87,6 +94,7 @@ impl Message {
             content,
             tool_calls: Vec::new(),
             tool_result: None,
+            thinking_blocks: Vec::new(),
         }
     }
 
@@ -98,6 +106,7 @@ impl Message {
             content,
             tool_calls: Vec::new(),
             tool_result: None,
+            thinking_blocks: Vec::new(),
         }
     }
 
@@ -110,6 +119,7 @@ impl Message {
             content,
             tool_calls,
             tool_result: None,
+            thinking_blocks: Vec::new(),
         }
     }
 
@@ -126,6 +136,7 @@ impl Message {
                 name: call.name.clone(),
                 is_error,
             }),
+            thinking_blocks: Vec::new(),
         }
     }
 }
@@ -138,6 +149,50 @@ pub struct McpServer {
     pub name: String,
     pub command: std::path::PathBuf,
     pub args: Vec<String>,
+}
+
+/// What an agent's tool calls are doing right now, shared between the executor that runs them
+/// and the CLI adapter that must not mistake a long tool call for a hung agent.
+#[derive(Debug, Default)]
+pub struct ToolActivity {
+    in_flight: AtomicUsize,
+    /// Milliseconds since the Unix epoch at the last call's start or end; 0 before any call.
+    last: AtomicU64,
+}
+
+impl ToolActivity {
+    fn stamp(&self) {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        self.last.store(u64::try_from(now.as_millis()).unwrap_or(u64::MAX), Ordering::Relaxed);
+    }
+
+    /// A call started.
+    pub fn begin(&self) {
+        self.in_flight.fetch_add(1, Ordering::Relaxed);
+        self.stamp();
+    }
+
+    /// A call finished, however it went.
+    pub fn end(&self) {
+        let _ignored = self.in_flight.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| count.checked_sub(1));
+        self.stamp();
+    }
+
+    #[must_use]
+    pub fn in_flight(&self) -> usize {
+        self.in_flight.load(Ordering::Relaxed)
+    }
+
+    /// How long since a call last started or ended; `None` before the first call.
+    #[must_use]
+    pub fn since_last(&self) -> Option<Duration> {
+        let last = self.last.load(Ordering::Relaxed);
+        if last == 0 {
+            return None;
+        }
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        Some(now.saturating_sub(Duration::from_millis(last)))
+    }
 }
 
 /// One inference call.
@@ -158,6 +213,8 @@ pub struct CompletionRequest {
     pub tools: Vec<ToolSpec>,
     /// The MCP server a CLI agent loads for this turn. HTTP backends ignore it.
     pub mcp: Option<McpServer>,
+    /// The activity of `mcp`'s tool calls, so a CLI waiting on a long tool is not judged hung.
+    pub activity: Option<Arc<ToolActivity>>,
 }
 
 impl CompletionRequest {
@@ -173,6 +230,7 @@ impl CompletionRequest {
             model: None,
             tools: Vec::new(),
             mcp: None,
+            activity: None,
         }
     }
 
@@ -199,6 +257,12 @@ pub enum Delta {
     },
     Thinking {
         delta: String,
+    },
+    /// A whole thinking (or redacted thinking) block once it closes, signature included, for
+    /// the caller to hand back unchanged on the next tool round. Never shown: its words already
+    /// streamed as `Thinking`.
+    ThinkingBlock {
+        block: serde_json::Value,
     },
     /// One step the backend ran (a CLI agent reading a file, running a command…), as the
     /// backend itself named it.
