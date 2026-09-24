@@ -302,6 +302,10 @@ export class EditWorkflow {
   private closedPhase: 'plan' | 'gather' | null = null;
   /** How many timeline actions had run when the last frame-QA pass was taken; -1 = never. */
   private qaAtAction = -1;
+  /** What the last frame-QA pass reported: verify needs each fixed, or waived with a reason. */
+  private qaIssues: { kind: string; a: string; b: string }[] = [];
+  /** The waivers the pending verify_edit_workflow call carries (verify itself only sees the project). */
+  private pendingWaivers: unknown[] = [];
   constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false) {
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
@@ -353,6 +357,25 @@ export class EditWorkflow {
     return this.comp(project)?.production?.phase ?? null;
   }
   private comp(project: Project) { return project.comps.find(c => c.id === this.compId); }
+  /**
+   * The workflow comp and every comp nested in it at any depth — the layered "[Motion]" comps and
+   * precomps a scene opens into are part of the edit, and their layer clips are edited in place.
+   */
+  private scopeComps(project: Project): Comp[] {
+    const byId = new Map(project.comps.map(c => [c.id, c]));
+    const seen = new Set<string>();
+    const walk = (id: string) => {
+      const comp = byId.get(id);
+      if (!comp || seen.has(id)) return;
+      seen.add(id);
+      for (const clip of comp.clips) if (clip.source.type === 'comp') walk(clip.source.compId);
+    };
+    walk(this.compId);
+    return [...seen].map(id => byId.get(id)!);
+  }
+  private outOfScope(comp: Comp): string {
+    return `This turn edits "${comp.name}" and the comps nested in it; for a motion comp use update_motion_scene {"clipId":"<its holder clip id>"} or open_comp {"compId":"${this.compId}"}. Another composition needs a turn of its own.`;
+  }
   status(project: Project) {
     const comp = this.comp(project);
     const pendingSpeech = [...new Set(this.sources.filter(s => s.speech && !this.transcripts.has(s.assetId)).map(s => s.clipId))];
@@ -387,17 +410,22 @@ export class EditWorkflow {
     // A hard switch, not a phase gate: checked before the quick-mode bypass so a one-off Quick
     // edit turn cannot route around the setting either.
     if (this.disableLocalGeneration && name === 'generate_local_media' && LOCAL_GENERATION_TASKS.has(String(args.task))) return LOCAL_GENERATION_OFF;
+    if (name === 'verify_edit_workflow') this.pendingWaivers = Array.isArray(args.acceptedQaIssues) ? args.acceptedQaIssues : [];
     if (this.mode === 'quick') return null;
     if (name === 'editing_workflow_status' || name === 'verify_edit_workflow') return null;
     const comp = this.comp(project);
     if (!comp) return 'The workflow composition no longer exists. Start a new turn for another composition.';
-    if (typeof args.compId === 'string' && ![this.compId, comp.name].includes(args.compId)) return 'This full-edit workflow is bound to its initial composition. Start another turn to edit another composition.';
+    // Reads are never refused over which comp they look at.
+    const scope = ALWAYS_TOOLS.has(name) ? null : this.scopeComps(project);
+    if (scope && typeof args.compId === 'string' && !scope.some(c => c.id === args.compId || c.name === args.compId)) return this.outOfScope(comp);
     const gate = this.phaseGate(name, args, comp);
     if (gate) return gate;
     if (preparation.has(name)) return null;
     if (project.activeCompId !== this.compId) return 'Return to the workflow composition before editing. This turn cannot silently edit a different active timeline.';
     const clipIds = [args.clipId, ...(Array.isArray(args.clipIds) ? args.clipIds : [])].filter((id): id is string => typeof id === 'string');
-    if (clipIds.some(id => !comp.clips.some(c => c.id === id))) return 'All edited clips must belong to the workflow composition.';
+    // A clip of a nested comp, or a nested comp's own id (update_motion_scene takes either as clipId).
+    const inScope = (id: string) => (scope ?? this.scopeComps(project)).some(c => c.id === id || c.clips.some(clip => clip.id === id));
+    if (clipIds.some(id => !inScope(id))) return this.outOfScope(comp);
     const state = this.status(project);
     if (!state.timelineRead) return 'Read the current timeline with get_comp before editing or planning. Timing changed or has not been inspected.';
     if (this.producing(comp)) {
@@ -527,7 +555,12 @@ export class EditWorkflow {
     if (name === 'local_media_capabilities') this.capabilities = true;
     if ((name === 'save_storyboard' || name === 'save_video_blueprint') && comp.production?.phase === 'plan-ready') this.closedPhase = 'plan';
     if (name === 'finish_gathering' && comp.production?.phase === 'gathered') this.closedPhase = 'gather';
-    if (name === 'run_frame_qa') this.qaAtAction = this.actions.length;
+    if (name === 'run_frame_qa') {
+      this.qaAtAction = this.actions.length;
+      this.qaIssues = Array.isArray(result.issues)
+        ? (result.issues as { kind?: unknown; a?: unknown; b?: unknown }[]).map(issue => ({ kind: String(issue?.kind ?? ''), a: String(issue?.a ?? ''), b: String(issue?.b ?? '') }))
+        : [];
+    }
     if (name === 'save_storyboard') {
       this.planned = timing(comp);
       const scenes = Array.isArray(args.scenes) ? (args.scenes as StoryboardSceneInput[]) : [];
@@ -585,10 +618,12 @@ export class EditWorkflow {
     if (name === 'add_text_behind_subject' || name === 'add_media_behind_subject') this.proVisual = true;
     // Motion graphics: titles, kinetic typography, lower-thirds, shape layers, and transitions
     if (name === 'add_text' || name === 'create_item' || name === 'add_transition') this.proVisual = true;
-    if (name === 'apply_recipe' && ['hook', 'punch-ins', 'pro-chunk-edit', 'captions'].includes(String(args.name || ''))) this.proVisual = true;
+    // A recipe earns a receipt only for what it lays down, and a preview lays down nothing.
+    const recipe = name === 'apply_recipe' && args.preview !== true ? String(args.name || '') : '';
+    if (['hook', 'punch-ins', 'captions'].includes(recipe)) this.proVisual = true;
     // Designed sound counts: shaped music/SFX automation or built-in accents.
     if (name === 'score_audio_clip' || name === 'add_sound_effect' || name === 'generate_selection_sound') this.soundPass = true;
-    if (name === 'apply_recipe' && ['music-bed', 'pro-chunk-edit'].includes(String(args.name || ''))) this.soundPass = true;
+    if (recipe === 'music-bed') this.soundPass = true;
     const audioTracks = comp.tracks.filter(t => t.kind === 'audio');
     if (audioTracks.length > 1 && comp.clips.some(c => c.enabled && comp.tracks.find(t => t.id === c.trackId)?.kind === 'audio' && c.trackId !== audioTracks[0].id)) {
       this.soundPass = true;
@@ -605,6 +640,17 @@ export class EditWorkflow {
     const phase = this.phase(project);
     if (phase === 'plan-ready' || phase === 'gathering' || phase === 'gathered') return { ok: false, error: `Nothing to verify yet: the production is in the ${phase} phase. verify_edit_workflow belongs to the end of the editing phase, after the user has pressed Start editing and the timeline is assembled.` };
     if (this.mode === 'full' && (phase === 'editing' || phase === 'polishing') && !status.qaCurrent) return { ok: false, error: `Polish pass missing: call run_frame_qa after your last edit (it reports every graphic or caption overlapping the subject or another graphic, with contact sheets), fix what it finds, run it again until it is clear, then verify. ${JSON.stringify({ phase, actions: status.successfulActions.length })}` };
+    // The QA pass must also have come back clear. Geometry flags some intended designs (a title set
+    // behind the subject, a reveal), so each such issue can be waived with a reason — never a blank frame.
+    const waivers = this.pendingWaivers.flatMap(raw => {
+      const w = (raw && typeof raw === 'object' ? raw : {}) as Args;
+      return typeof w.kind === 'string' && typeof w.a === 'string' && typeof w.reason === 'string' && w.reason.trim() && w.kind !== 'blank-frame'
+        ? [{ kind: w.kind, a: w.a, reason: w.reason.trim() }] : [];
+    });
+    const waived = (issue: { kind: string; a: string }) => waivers.find(w => w.kind === issue.kind && w.a === issue.a);
+    const open = this.mode === 'full' && status.qaCurrent ? this.qaIssues.filter(issue => !waived(issue)) : [];
+    if (open.length) return { ok: false, error: `Frame QA is not clear: ${open.slice(0, 8).map(issue => `${issue.kind} "${issue.a}"${issue.b ? ` vs "${issue.b}"` : ''}`).join('; ')}${open.length > 8 ? ` (+${open.length - 8} more)` : ''}. Fix them and run run_frame_qa again, or pass acceptedQaIssues with a reason for each intentional one${open.some(issue => issue.kind === 'blank-frame') ? ' (a blank frame cannot be waived)' : ''}.` };
+    const accepted = this.mode === 'full' && status.qaCurrent ? waivers.filter(w => this.qaIssues.some(issue => issue.kind === w.kind && issue.a === w.a)) : [];
     if (status.blueprintActive) return { ok: false, error: `Workflow incomplete: blueprint saved but not executed. Gather all assets, call execute_blueprint, then assemble. ${JSON.stringify(status)}` };
     const producing = this.producing(comp);
     const planOk = status.storyboardCurrent || status.blueprintExecuted || status.blueprintPlan || (producing && !!comp?.storyboard?.length);
@@ -629,6 +675,7 @@ export class EditWorkflow {
     if (uncovered.length) return { ok: false, error: `Black frame edges: ${describeUncovered(uncovered, comp, project, assets)} Fix them, then verify again.` };
     this.finished = true;
     this.verifiedSnapshot = JSON.stringify(comp);
-    return { ok: true, summary: 'Workflow receipts and timeline structure checked. This does not verify rendered frames, matte quality, music quality or unsupported model features.', workflow: this.status(project) };
+    const waiverNote = accepted.length ? ` Frame QA issues accepted as intended: ${accepted.map(w => `${w.kind} "${w.a}" (${w.reason})`).join('; ')}.` : '';
+    return { ok: true, summary: `Workflow receipts and timeline structure checked.${waiverNote} This does not verify rendered frames, matte quality, music quality or unsupported model features.`, workflow: this.status(project), ...(accepted.length ? { acceptedQaIssues: accepted } : {}) };
   }
 }

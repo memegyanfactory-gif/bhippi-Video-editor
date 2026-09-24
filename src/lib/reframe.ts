@@ -217,17 +217,19 @@ function unionBox(boxes: FaceBox[]): FaceBox {
 }
 
 /**
- * The punch-in for `subject` at `aspect` (width/height, e.g. 16/9 or 9/16).
+ * The punch-in for `subject` at `aspect` (the comp's width/height, e.g. 16/9 or
+ * 9/16) on footage of `sourceAspect` (default: the same as the comp).
  *
  * The window keeps the comp's aspect, centres the subject with headroom above
- * and a thirds bias, clamps inside the frame, and never zooms past `maxZoom`.
+ * and a thirds bias, clamps inside the source, and never zooms past `maxZoom`.
  * Returns null when even the widest legal window cannot hold the subject —
  * then the caller stays wide.
  */
-export function frameFor(subject: FaceBox, aspect: number, opts: { maxZoom?: number; headroom?: number; pad?: number } = {}): Reframe | null {
+export function frameFor(subject: FaceBox, aspect: number, opts: { maxZoom?: number; headroom?: number; pad?: number; sourceAspect?: number } = {}): Reframe | null {
   const maxZoom = opts.maxZoom ?? PLAN_DEFAULTS.maxZoom;
   const headroom = opts.headroom ?? PLAN_DEFAULTS.headroom;
   const pad = opts.pad ?? 1.35;
+  const sourceAspect = opts.sourceAspect ?? aspect;
   // Faces are the top of heads: air above, chins out of the gutter. When the
   // subject is too tall for the aspect (a close-up in a wide frame), shrink the
   // padding before giving up — but never crop into the face itself.
@@ -240,25 +242,41 @@ export function frameFor(subject: FaceBox, aspect: number, opts: { maxZoom?: num
       width: subject.width * p,
       height: subject.height * (p + h),
     };
-    const framed = fitWindow(tall, aspect, maxZoom);
+    const framed = fitWindow(tall, aspect, sourceAspect, maxZoom);
     if (framed) return framed;
   }
   return null;
 }
 
-function fitWindow(tall: FaceBox, aspect: number, maxZoom: number): Reframe | null {
-  let w = Math.min(1, tall.width);
-  let h = w / aspect;
+/**
+ * The window onto the source, in source units (0..1 on both axes), that shows
+ * `tall` at the comp's aspect. The comp sees a window whose width/height in
+ * source units is `aspect / sourceAspect`; at scale 100 a fitted ('fit') source
+ * spans `min(1, sourceAspect / aspect)` of the comp's width, so a window `w`
+ * wide needs a zoom of 1 / (w × that).
+ */
+function fitWindow(tall: FaceBox, aspect: number, sourceAspect: number, maxZoom: number): Reframe | null {
+  const eps = 1e-6;
+  const r = aspect / sourceAspect;
+  const wMax = Math.min(1, r);
+  const hMax = Math.min(1, 1 / r);
+  const pw0 = Math.min(1, sourceAspect / aspect);
+  let w = Math.min(wMax, tall.width);
+  let h = w / r;
   if (h < tall.height) {
-    h = Math.min(1, tall.height);
-    w = h * aspect;
+    h = Math.min(hMax, tall.height);
+    w = h * r;
   }
-  if (w < 1e-3 || h < 1e-3 || w > 1 + 1e-6) return null;
-  if (1 / w > maxZoom + 1e-9) {
-    // Too far: widen to the zoom cap and check the subject still fits.
-    w = 1 / maxZoom;
-    h = w / aspect;
-    if (w < tall.width - 1e-6 || h < tall.height - 1e-6) return null;
+  // A window past the source's edges shows bands; one smaller than the subject crops it.
+  if (w < 1e-3 || h < 1e-3 || w > wMax + eps || h > hMax + eps) return null;
+  if (w < tall.width - eps || h < tall.height - eps) return null;
+  let zoom = 1 / (w * pw0);
+  if (zoom > maxZoom + 1e-9) {
+    // Too far: widen to the zoom cap and check the window still fits the source and the subject.
+    zoom = maxZoom;
+    w = 1 / (zoom * pw0);
+    h = w / r;
+    if (w > wMax + eps || h > hMax + eps) return null;
   }
   const cx = clamp01(tall.x + tall.width / 2);
   // Thirds bias: faces sit a touch above centre, the way an operator frames.
@@ -267,17 +285,17 @@ function fitWindow(tall: FaceBox, aspect: number, maxZoom: number): Reframe | nu
   const top = Math.min(Math.max(cy - h / 2, 0), Math.max(0, 1 - h));
   const centreX = left + w / 2;
   const centreY = top + h / 2;
-  // Clip transform semantics (see placement in editor.ts): scale 100 shows the
-  // whole frame; the picture's centre lands at 0.5 + offset.
+  // Clip transform semantics (see placement in editor.ts): the offset is a
+  // fraction of the comp, and the window's centre lands on the comp's centre.
   return {
     x: Math.round(((0.5 - centreX) / w) * 10000) / 10000,
     y: Math.round(((0.5 - centreY) / h) * 10000) / 10000,
-    scale: Math.round((100 / w) * 100) / 100,
+    scale: Math.round(100 * zoom * 100) / 100,
   };
 }
 
 /** The wide: everybody in, or the full frame when nobody is found. */
-export function wideFrame(people: FaceBox[], aspect: number, opts: { maxZoom?: number; headroom?: number } = {}): Reframe {
+export function wideFrame(people: FaceBox[], aspect: number, opts: { maxZoom?: number; headroom?: number; sourceAspect?: number } = {}): Reframe {
   if (!people.length) return { x: 0, y: 0, scale: 100 };
   return frameFor(unionBox(people), aspect, { ...opts, pad: 1.2 }) ?? { x: 0, y: 0, scale: 100 };
 }
@@ -498,6 +516,8 @@ export type ApplyOptions = {
   mode?: 'cut' | 'move';
   maxZoom?: number;
   headroom?: number;
+  /** The footage's width/height; the comp's aspect when left out. */
+  sourceAspect?: number;
   /** Name lower-thirds on first appearances (needs labels on the tracks). */
   nameTags?: boolean;
 };
@@ -528,6 +548,7 @@ export function applyPodcastCut(
   const aspect = comp.width / Math.max(1, comp.height);
   const maxZoom = opts.maxZoom ?? PLAN_DEFAULTS.maxZoom;
   const headroom = opts.headroom ?? PLAN_DEFAULTS.headroom;
+  const sourceAspect = opts.sourceAspect ?? aspect;
   const labels = new Map(tracks.map((track) => [track.id, track.label ?? track.id]));
   const inSpan = (shot: Shot) => shot.end > clip.start && shot.start < clipEnd(clip);
 
@@ -544,7 +565,7 @@ export function applyPodcastCut(
     const subject = shot.kind === 'wide'
       ? unionBox(tracks.map((track) => trackAt(track, t)).filter((box): box is FaceBox => !!box))
       : unionBox(boxes);
-    return frameFor(subject, aspect, { maxZoom, headroom }) ?? { x: 0, y: 0, scale: 100 };
+    return frameFor(subject, aspect, { maxZoom, headroom, sourceAspect }) ?? { x: 0, y: 0, scale: 100 };
   };
 
   const markersFor = (): Marker[] => {
@@ -581,8 +602,9 @@ export function applyPodcastCut(
       comp: {
         ...comp,
         markers: [...comp.markers, ...markers],
+        // The windows are worked out for a fitted picture.
         clips: comp.clips.map((item) => (item.id === clip.id
-          ? { ...item, keyframes: { ...item.keyframes, x: keys.x, y: keys.y, scale: keys.scale } }
+          ? { ...item, transform: { ...item.transform, fit: 'fit' as const }, keyframes: { ...item.keyframes, x: keys.x, y: keys.y, scale: keys.scale } }
           : item)),
       },
       markers,
@@ -620,7 +642,7 @@ export function applyPodcastCut(
     const frame = shot ? reframeFor(shot) : { x: 0, y: 0, scale: 100 };
     return {
       ...item,
-      transform: { ...item.transform, x: frame.x, y: frame.y, scale: frame.scale },
+      transform: { ...item.transform, fit: 'fit' as const, x: frame.x, y: frame.y, scale: frame.scale },
       // A stale keyframed punch-in would fight the static frame — it goes.
       keyframes: { ...item.keyframes, x: [], y: [], scale: [], rotation: [], opacity: [] },
     };

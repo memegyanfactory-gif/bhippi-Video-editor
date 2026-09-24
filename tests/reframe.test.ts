@@ -12,6 +12,7 @@ import {
   type PersonTrack,
 } from '../src/lib/reframe';
 import { clipEnd, newClip, newComp } from '../src/lib/timeline';
+import { DEFAULT_TRANSFORM, placement } from '../src/lib/editor';
 
 const word = (text: string, start: number, end: number, speaker?: number): TranscriptWord =>
   speaker === undefined ? { text, start, end } : { text, start, end, speaker };
@@ -104,6 +105,52 @@ describe('framing geometry', () => {
     expect(wideFrame([], 16 / 9)).toEqual({ x: 0, y: 0, scale: 100 });
     const wide = wideFrame([box, { x: 0.7, y: 0.3, width: 0.13, height: 0.3 }], 16 / 9);
     expect(wide.scale).toBeGreaterThanOrEqual(100);
+  });
+});
+
+describe('framing geometry, as the editor places it', () => {
+  /** The part of the source the comp shows (0..1 source fractions), through the real placement(). */
+  function visible(frame: { x: number; y: number; scale: number }, source: [number, number], stage: [number, number]) {
+    const p = placement({ ...DEFAULT_TRANSFORM, fit: 'fit', x: frame.x, y: frame.y, scale: frame.scale }, source[0], source[1], stage[0], stage[1]);
+    return { left: -p.left / p.width, right: (stage[0] - p.left) / p.width, top: -p.top / p.height, bottom: (stage[1] - p.top) / p.height };
+  }
+  function expectHolds(subject: { x: number; y: number; width: number; height: number }, source: [number, number], stage: [number, number]) {
+    const frame = frameFor(subject, stage[0] / stage[1], { sourceAspect: source[0] / source[1] });
+    expect(frame).not.toBeNull();
+    const win = visible(frame!, source, stage);
+    // No bands: the window never runs past the source's edges.
+    expect(win.left).toBeGreaterThanOrEqual(-1e-3);
+    expect(win.top).toBeGreaterThanOrEqual(-1e-3);
+    expect(win.right).toBeLessThanOrEqual(1 + 1e-3);
+    expect(win.bottom).toBeLessThanOrEqual(1 + 1e-3);
+    // No cropped heads: the subject (padded where the frame has room) is inside it.
+    expect(win.left).toBeLessThanOrEqual(Math.max(0, subject.x - subject.width * 0.1) + 1e-3);
+    expect(win.right).toBeGreaterThanOrEqual(Math.min(1, subject.x + subject.width * 1.1) - 1e-3);
+    expect(win.top).toBeLessThanOrEqual(Math.max(0, subject.y - subject.height * 0.1) + 1e-3);
+    expect(win.bottom).toBeGreaterThanOrEqual(Math.min(1, subject.y + subject.height * 1.1) - 1e-3);
+    expect(frame!.scale).toBeGreaterThan(100);
+    return frame!;
+  }
+
+  it('16:9 footage in a 16:9 comp: a punch-in, not black bands', () => {
+    expectHolds({ x: 0.1, y: 0.3, width: 0.13, height: 0.3 }, [1920, 1080], [1920, 1080]);
+    expectHolds({ x: 0.1, y: 0.05, width: 0.13, height: 0.25 }, [1920, 1080], [1920, 1080]);
+  });
+
+  it('9:16 footage in a 9:16 comp keeps the forehead', () => {
+    expectHolds({ x: 0.3, y: 0.2, width: 0.3, height: 0.2 }, [1080, 1920], [1080, 1920]);
+  });
+
+  it('16:9 footage in a 9:16 comp stays wide when the cover would pass maxZoom', () => {
+    expect(frameFor({ x: 0.1, y: 0.3, width: 0.13, height: 0.3 }, 9 / 16, { sourceAspect: 16 / 9 })).toBeNull();
+    // With room to zoom, the cover fills the portrait frame edge to edge.
+    const frame = frameFor({ x: 0.4, y: 0.3, width: 0.13, height: 0.3 }, 9 / 16, { sourceAspect: 16 / 9, maxZoom: 5 });
+    expect(frame).not.toBeNull();
+    const win = visible(frame!, [1920, 1080], [1080, 1920]);
+    expect(win.top).toBeGreaterThanOrEqual(-1e-3);
+    expect(win.bottom).toBeLessThanOrEqual(1 + 1e-3);
+    expect(win.left).toBeGreaterThanOrEqual(-1e-3);
+    expect(win.right).toBeLessThanOrEqual(1 + 1e-3);
   });
 });
 

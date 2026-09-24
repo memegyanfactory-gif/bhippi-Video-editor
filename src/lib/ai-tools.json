@@ -12,10 +12,45 @@
     },
     {
       "name": "verify_edit_workflow",
-      "description": "Final check of the editing phase: requires a current timeline read, a plan, no pending jobs or unplaced generations, a pro visual pass, a sound pass, and a clear run_frame_qa after the last edit. Marks the production done. Does not certify render, matte or music quality — say what still needs eyes.",
+      "description": "Final check of the editing phase: requires a current timeline read, a plan, no pending jobs or unplaced generations, a pro visual pass, a sound pass, and a run_frame_qa after the last edit that came back clear — or whose remaining issues are intentional designs (a title behind the subject, a reveal) each waived in acceptedQaIssues with a reason. Blank frames can never be waived. Marks the production done. Does not certify render, matte or music quality — say what still needs eyes.",
       "input_schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "acceptedQaIssues": {
+            "type": "array",
+            "description": "Issues from the last run_frame_qa that are intended, one per issue: its kind and a (the graphic's name, as reported) and why it is right. Anything not waived here must be fixed first. blank-frame cannot be waived.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "covers-subject",
+                    "graphic-overlap",
+                    "outside-safe",
+                    "off-frame",
+                    "caption-collision",
+                    "black-edges"
+                  ]
+                },
+                "a": {
+                  "type": "string",
+                  "description": "The issue's `a` exactly as run_frame_qa reported it."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why this is the intended design."
+                }
+              },
+              "required": [
+                "kind",
+                "a",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
         "additionalProperties": false
       }
     },
@@ -82,7 +117,7 @@
     },
     {
       "name": "scrape_web_page",
-      "description": "Scrape and extract clean readable text, article content, and media links (images, videos) from a specific web URL. Use to analyze an article, extract script references, or find image/video URLs to download into the project.",
+      "description": "Scrape and extract clean readable text, article content, and media links from a specific web URL: the result's `imageUrls` and `videos` are absolute URLs. Use to analyze an article, extract script references, or find image/video URLs to download into the project (download_online_media).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -156,69 +191,6 @@
         },
         "required": [
           "url"
-        ],
-        "additionalProperties": false
-      }
-    },
-    {
-      "name": "typed_decision",
-      "description": "Evaluate an accurate, fast, and calibrated typed decision using the Laya System One decision architecture (choice, score, or noul). Eliminates LLM prompt-and-parse hallucinations for action routing, b-roll candidate ranking, quality verification, and editorial choices.",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "state": {
-            "description": "Application state, scene description, transcript, or context object to evaluate."
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "choice",
-              "score",
-              "noul"
-            ],
-            "description": "Decision primitive: 'choice' (picks best among options), 'score' (rubric scoring), or 'noul' (probability of proposition)."
-          },
-          "instructions": {
-            "type": "string",
-            "description": "Question instructions or decision objective."
-          },
-          "criteria": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Named options for 'choice' questions."
-          },
-          "proposition": {
-            "type": "string",
-            "description": "Condition or proposition string for 'noul' questions."
-          },
-          "levels": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "level": {
-                  "type": "number"
-                },
-                "label": {
-                  "type": "string"
-                },
-                "description": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "level",
-                "label"
-              ]
-            },
-            "description": "Ordered rubric levels for 'score' questions."
-          }
-        },
-        "required": [
-          "state",
-          "type"
         ],
         "additionalProperties": false
       }
@@ -586,7 +558,7 @@
     },
     {
       "name": "save_storyboard",
-      "description": "PLAN phase (existing footage). Saves the production plan for the footage on the timeline in 5–12 s beats, then the turn ENDS and the user presses Start generating. Each scene needs intent (≥20 chars), visual (≥120 chars of improvement thinking: what changes vs raw footage, which graphic/roto/layout, where), audio (≥40 chars of sound design), evidence (transcript quote or frame observation), plus the production fields: title, shots (every text-to-video/image/download shot this beat needs — 5–7 s each with its own script and prompt), mogrt (the Crimson template + layout for the beat), transition, sfx, framing. Plan-level: script (the narration/spine), research (sources + facts), music, brief. All scene problems come back in one message. Times are timeline seconds.",
+      "description": "PLAN phase (existing footage). Saves the production plan for the footage on the timeline in 5–12 s beats, then the turn ENDS and the user presses Start generating. Each scene needs intent (≥20 chars), visual (≥120 chars of improvement thinking: what changes vs raw footage, which graphic/roto/layout, where), audio (≥40 chars of sound design), evidence (transcript quote or frame observation), plus the production fields: title, shots (every text-to-video/image/download shot this beat needs — 5–7 s each with its own script and prompt), mogrt (the beat's graphic — a brand-*/engine template (create_motion_scene) or a Crimson HTML template (create_motion_graphic) — and its layout), transition, sfx, framing. Plan-level: script (the narration/spine), research (sources + facts), music, brief. All scene problems come back in one message. Times are timeline seconds.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -684,7 +656,7 @@
                     "object",
                     "null"
                   ],
-                  "description": "The Crimson motion graphic for this beat, or null for none. Templates: hook-promise, ribbon-title, teaching-card, side-panel, connected-map, numbered-lanes, editorial-quote, comparison, stat-chart, timeline-roadmap, cursor-demo, chapter-marker, caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news.",
+                  "description": "The motion graphic for this beat, or null for none: a brand-*/engine template id (create_motion_scene; brand-* first when a brand kit is active), or a Crimson HTML template (create_motion_graphic): hook-promise, ribbon-title, teaching-card, side-panel, connected-map, numbered-lanes, editorial-quote, comparison, stat-chart, timeline-roadmap, cursor-demo, chapter-marker, caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news.",
                   "properties": {
                     "template": {
                       "type": "string"
@@ -875,7 +847,7 @@
     },
     {
       "name": "save_video_blueprint",
-      "description": "PLAN phase (from scratch). Saves the complete production plan WITHOUT generating or editing: the full narration script, timed 5–12 s scenes with narration + visual direction + audio design, and for every scene the shots to gather (each text-to-video shot 5–7 s with its own script and prompt; downloads/scrapes with url or query), the Crimson motion graphic (template + layout + copy), transition, sfx and framing; plus research (sources + facts), music, narrator voice and style. Then the turn ENDS and the user presses Start generating. All scene problems come back in one message.",
+      "description": "PLAN phase (from scratch). Saves the complete production plan WITHOUT generating or editing: the full narration script, timed 5–12 s scenes with narration + visual direction + audio design, and for every scene the shots to gather (each text-to-video shot 5–7 s with its own script and prompt; downloads/scrapes with url or query), the motion graphic (a brand-*/engine template (create_motion_scene) or a Crimson HTML template (create_motion_graphic), with layout + copy), transition, sfx and framing; plus research (sources + facts), music, narrator voice and style. Then the turn ENDS and the user presses Start generating. All scene problems come back in one message.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1008,7 +980,7 @@
                     "object",
                     "null"
                   ],
-                  "description": "The Crimson motion graphic for this beat, or null for none. Templates: hook-promise, ribbon-title, teaching-card, side-panel, connected-map, numbered-lanes, editorial-quote, comparison, stat-chart, timeline-roadmap, cursor-demo, chapter-marker, caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news.",
+                  "description": "The motion graphic for this beat, or null for none: a brand-*/engine template id (create_motion_scene; brand-* first when a brand kit is active), or a Crimson HTML template (create_motion_graphic): hook-promise, ribbon-title, teaching-card, side-panel, connected-map, numbered-lanes, editorial-quote, comparison, stat-chart, timeline-roadmap, cursor-demo, chapter-marker, caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news.",
                   "properties": {
                     "template": {
                       "type": "string"
@@ -3842,7 +3814,7 @@
           },
           "metric": {
             "type": "string",
-            "description": "Big numeric stat for 'stat-callout' (e.g. '+340%', '$1.2M', '99.9%')."
+            "description": "Big numeric stat, exactly as a verified source states it (e.g. '$1.2M', '99.9%'). Required for 'stat-callout'; never invent one."
           },
           "badge": {
             "type": "string",
@@ -4919,7 +4891,7 @@
     },
     {
       "name": "snap_cuts_to_beats",
-      "description": "Moves every video cut and overlay entrance within `tolerance` seconds onto the nearest music beat (media clips are trimmed, overlays moved; nothing overlaps). Uses the plan's analysed music placed on the timeline, or explicit beats in timeline seconds.",
+      "description": "Moves every video cut and overlay entrance within `tolerance` seconds onto the nearest music beat. A cut between two clips is rolled (the outgoing end and the incoming start move together; linked audio stays, so it becomes a J/L split), so no gaps are created; an edge beside a gap is trimmed and overlays are moved; nothing overlaps. Uses the plan's analysed music placed on the timeline, or explicit beats in timeline seconds.",
       "input_schema": {
         "type": "object",
         "properties": {
