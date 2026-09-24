@@ -512,11 +512,21 @@ function Layer(props: LayerProps) {
       // the scene (they move the layer about its own centre), so the box itself stays put.
       const layer = isLayerClip(clip);
       const scene = standaloneScene(project, clip) ?? clip.source.scene;
-      const moved = layer ? '' : `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})`;
+      // Placed, cropped, masked and flipped as the export places the scene's frames (exportFrames
+      // `restingClip` for a layer clip): fitted into the comp like any picture.
+      const shown = layer ? { ...transform, x: 0, y: 0, scale: 100, rotation: 0 } : transform;
+      const place = placement(shown, scene.width, scene.height, stageW, stageH);
+      const box: CSSProperties = { left: place.left, top: place.top, width: place.width, height: place.height, clipPath: place.clip, transformOrigin: `${place.originX}px ${place.originY}px`, transform: `${transition.style.transform ?? ''} rotate(${shown.rotation}deg)${appliedTransform}` };
+      const inner: CSSProperties = transition.style.clipPath ? { clipPath: transition.style.clipPath } : {};
+      const { transform: _ignored, clipPath: _clip, ...rest } = transition.style;
+      void _ignored;
+      void _clip;
+      const picture = visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={scene} time={sceneTime} playing={playing} rate={rate} stageW={place.width} stageH={place.height} quality={props.quality} assets={assets} fps={comp.fps} /></ErrorBoundary>;
       return (
         <div className="layer motion-layer" data-clip-id={depth === 0 ? clip.id : undefined}
-          style={{ inset: 0, opacity: layer ? (typeof transition.style.opacity === 'number' ? transition.style.opacity : 1) : opacity, zIndex, transform: `${moved}${appliedTransform}` || undefined, filter, ...transition.style, ...hidden }}>
-          {visible && <ErrorBoundary scope="Motion scene"><MotionLayer scene={scene} time={sceneTime} playing={playing} rate={rate} stageW={stageW} stageH={stageH} quality={props.quality} assets={assets} fps={comp.fps} /></ErrorBoundary>}
+          style={{ ...box, ...rest, opacity: layer ? (typeof transition.style.opacity === 'number' ? transition.style.opacity : 1) : opacity, zIndex, ...hidden }}>
+          <div className="layer-inner" style={{ ...inner, filter, ...maskStyle(clip.mask, place.width, place.height, stageH) }}>{flip ? <div className="layer-fill" style={{ transform: flip }}>{picture}</div> : picture}</div>
+          {transition.dip && <div className="layer-dip" style={{ background: transition.dip.color, opacity: transition.dip.opacity }} />}
         </div>
       );
     }

@@ -31,9 +31,10 @@ vi.mock('../src/lib/ipc', () => ({ api: { mogrtFramesBegin: async (id: string) =
 
 import React from 'react';
 import { renderToString } from 'react-dom/server';
+import { CompLayers } from '../src/editor/Compositor';
 import { HtmlMotionLayer } from '../src/editor/HtmlMotionLayer';
 import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
-import { newClip, newProject, tracksOf } from '../src/lib/timeline';
+import { newClip, newComp, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
 import { identity } from '../src/motion/math';
 import { MediaBank } from '../src/motion/sources';
@@ -246,5 +247,36 @@ describe('HTML graphic placement', () => {
     const style = canvasStyle(1920, 1080);
     expect(style).toContain('top:0');
     expect(style).toContain('scale(1)');
+  });
+});
+
+describe('motion clip placement', () => {
+  /** The program's layers for one motion clip in a comp of the given size, as markup. */
+  function program(width: number, height: number, fields: Partial<Clip>, scene: MotionScene) {
+    const comp = newComp({ name: 'c', width, height });
+    const v1 = tracksOf(comp, 'video')[0].id;
+    comp.clips = [newClip({ trackId: v1, start: 0, duration: 4, source: { type: 'motion', scene } as Clip['source'], ...fields })];
+    const project = { ...newProject(), comps: [comp] };
+    return renderToString(React.createElement(CompLayers, { project, assets: new Map(), offline: new Set<string>(), playing: false, rate: 1, quality: 1, comp, time: 1, stageW: width, stageH: height, depth: 0 }));
+  }
+  const boxOf = (html: string) => /class="layer motion-layer"[^>]*style="([^"]*)"/.exec(html)?.[1] ?? '';
+
+  it('fits a landscape scene into a tall comp, centred, as the export places its frames', () => {
+    const style = boxOf(program(1080, 1920, {}, emptyScene()));
+    expect(style).toContain('left:0');
+    expect(style).toContain('top:656.25px');
+    expect(style).toContain('width:1080px');
+    expect(style).toContain('height:607.5px');
+  });
+
+  it('masks, crops and flips a layer clip drawing on its own', () => {
+    const scene = { width: 1080, height: 1920, duration: 4, stack: { id: 's', own: ['a'] }, layers: [{ id: 'a', type: 'solid', color: '#fff' }] } as unknown as MotionScene;
+    const mask = { shape: 'rectangle', x: 0.1, y: 0.1, width: 0.5, height: 0.5, points: [], feather: 0, inverted: false };
+    const html = program(1080, 1920, { mask: mask as unknown as Clip['mask'], effects: { ...newClip({ trackId: 't', start: 0, duration: 1, source: { type: 'motion', scene } as Clip['source'] }).effects, flipH: true } }, scene);
+    const style = boxOf(html);
+    expect(style).toContain('clip-path:inset(');
+    expect(style).toContain('width:1080px');
+    expect(html).toMatch(/class="layer-inner" style="[^"]*mask-image:url/);
+    expect(html).toMatch(/class="layer-fill" style="transform:scale\(-1, 1\)"/);
   });
 });
