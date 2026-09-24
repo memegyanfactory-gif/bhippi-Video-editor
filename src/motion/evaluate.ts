@@ -117,6 +117,7 @@ export function defaultSize(scene: Pick<MotionScene, 'width' | 'height'>, layer:
   switch (layer.type) {
     case 'footage':
     case 'solid':
+    case 'particles':
     case 'procedural': {
       const size = layer.size;
       return size ? [size[0], size[1]] : [scene.width, scene.height];

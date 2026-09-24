@@ -33,7 +33,7 @@ const opaque = (color: string | null | undefined) => !!color && parseColor(color
 
 /** Whether a layer's content is opaque over its whole rectangle: a solid, a procedural field, or a filled square-cornered rect. */
 const paintsRect = (layer: Layer) => layer.type === 'solid' ? opaque(layer.color)
-  : layer.type === 'procedural' ? layer.kind !== 'light-leak' // the one field drawn with alpha
+  : layer.type === 'procedural' ? layer.kind !== 'light-leak' && !(layer.kind === 'light-shafts' && !layer.params?.bg) // fields drawn with alpha
     // Only a square-cornered rect fills its bounds; an ellipse or rounded card leaves the corners.
     : layer.type === 'shape' ? layer.shape.shape === 'rect' && !layer.shape.radius && (layer.shape.gradient ? layer.shape.gradient.stops.every(([, color]) => opaque(color)) : opaque(layer.shape.fill))
       : false;

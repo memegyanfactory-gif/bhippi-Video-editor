@@ -610,11 +610,47 @@ void main() {
     vec2 g = fract(px / uP.x) - 0.5;
     float dot1 = smoothstep(uP.y / uP.x, uP.y / uP.x - 0.05, length(g));
     col = mix(uC1.rgb, uC2.rgb, dot1 * uC2.a);
-  } else { // aurora: bands of uC2/uC3 over uC1, speed uP.x
+  } else if (uKind == 9) { // aurora: bands of uC2/uC3 over uC1, speed uP.x
     float t = uTime * uP.x;
     float band = sin(uv.x * 3.0 + fbm(uv * 3.0 + t) * 4.0 + t) * 0.5 + 0.5;
     float y = smoothstep(0.9, 0.2, abs(uv.y - 0.45 - 0.15 * sin(uv.x * 2.0 + t)) * 2.5);
     col = uC1.rgb + mix(uC2.rgb, uC3.rgb, band) * y * 0.8;
+  } else if (uKind == 10) { // mesh gradient: four drifting blobs uC1 uC2 uC3 uQ.rgb, speed uP.x, softness uP.y
+    float t = uTime * uP.x;
+    vec2 p = vec2(uv.x * aspect, uv.y);
+    vec2 c1 = vec2((0.2 + 0.15 * sin(t * 0.9)) * aspect, 0.25 + 0.15 * cos(t * 0.7));
+    vec2 c2 = vec2((0.8 + 0.12 * cos(t * 0.8)) * aspect, 0.3 + 0.18 * sin(t * 0.6));
+    vec2 c3 = vec2((0.3 + 0.18 * cos(t * 0.5)) * aspect, 0.8 + 0.1 * sin(t * 0.9));
+    vec2 c4 = vec2((0.75 + 0.15 * sin(t * 0.4)) * aspect, 0.78 + 0.12 * cos(t * 0.75));
+    float s = max(uP.y, 0.05);
+    float w1 = exp(-dot(p - c1, p - c1) / s), w2 = exp(-dot(p - c2, p - c2) / s), w3 = exp(-dot(p - c3, p - c3) / s), w4 = exp(-dot(p - c4, p - c4) / s);
+    col = (uC1.rgb * w1 + uC2.rgb * w2 + uC3.rgb * w3 + uQ.rgb * w4) / max(w1 + w2 + w3 + w4, 1e-4);
+    col += (fbm(px / 400.0 + t * 0.1) - 0.5) * 0.04;
+  } else if (uKind == 11) { // light shafts: bg uC1 (alpha 0 = overlay), rays uC2 from uP.xy (uv), count uP.z, intensity uP.w, spread uQ.x, speed uQ.y
+    vec2 d = (uv - uP.xy) * vec2(aspect, 1.0);
+    float ang = atan(d.y, d.x);
+    float r = length(d);
+    float t = uTime * uQ.y;
+    float rays = 0.0;
+    rays += pow(0.5 + 0.5 * sin(ang * uP.z + t + fbm(vec2(ang * 3.0, t * 0.3)) * 2.0), 6.0);
+    rays += 0.6 * pow(0.5 + 0.5 * sin(ang * uP.z * 1.7 - t * 0.7 + 1.3), 8.0);
+    float fall = exp(-r * (1.0 / max(uQ.x, 0.05))) * smoothstep(0.0, 0.05, r);
+    float k = clamp(rays * fall * uP.w, 0.0, 1.0);
+    if (uC1.a < 0.01) { col = uC2.rgb; alpha = k; } else col = mix(uC1.rgb, uC2.rgb, k);
+  } else { // dot wave: dots uC2 on uC1, spacing uP.x, amplitude uP.y, speed uP.z, radius uP.w, frequency uQ.x
+    col = uC1.rgb;
+    float sp = max(uP.x, 6.0);
+    float cx = (floor(px.x / sp) + 0.5) * sp;
+    float best = 0.0;
+    for (float k = -2.0; k <= 2.0; k += 1.0) {
+      float j = floor(px.y / sp) + k;
+      float wave = sin(cx * uQ.x * 0.01 + uTime * uP.z + j * 0.35) * cos(cx * uQ.x * 0.004 - uTime * uP.z * 0.6);
+      vec2 c = vec2(cx, (j + 0.5) * sp + wave * uP.y);
+      float rad = uP.w * (0.6 + 0.6 * (wave * 0.5 + 0.5));
+      float dot1 = smoothstep(rad, rad - 1.2, length(px - c));
+      best = max(best, dot1 * (0.35 + 0.65 * (wave * 0.5 + 0.5)));
+    }
+    col = mix(uC1.rgb, uC2.rgb, best * uC2.a);
   }
   // dither against banding in 8-bit gradients
   col += (hash12(vUv * uResolution + uTime) - 0.5) / 255.0;

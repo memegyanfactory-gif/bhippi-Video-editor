@@ -9,6 +9,7 @@
 // · A layer's `position` defaults to the canvas centre and its `anchor` to its own centre.
 // · Any animatable value (`Prop`) is a literal, `{ k: keys }` or `{ expr: '…' }` — see anim.ts.
 import type { MotionBrand } from '../lib/brandKit/motionBrand';
+import type { ParticleData } from './particles';
 
 export type Vec = number[];
 
@@ -296,7 +297,7 @@ export type ShapeItem = {
   opacity?: Prop<number>;
 };
 
-export type ProceduralKind = 'crimson-stage' | 'radial-glow' | 'linear-gradient' | 'hex-field' | 'grid' | 'light-rails' | 'noise' | 'light-leak' | 'dots' | 'aurora';
+export type ProceduralKind = 'crimson-stage' | 'radial-glow' | 'linear-gradient' | 'hex-field' | 'grid' | 'light-rails' | 'noise' | 'light-leak' | 'dots' | 'aurora' | 'mesh-gradient' | 'light-shafts' | 'dot-wave';
 
 export type FootageSource = {
   /** A project asset id (resolved by the host) or an absolute path. */
@@ -381,6 +382,8 @@ export type Layer = LayerCommon & (
   | { type: 'footage'; source: FootageSource; fit?: 'cover' | 'contain' | 'none'; /** Layer size when fitted; defaults to the canvas. */ size?: Vec }
   | { type: 'solid'; color: string; size?: Vec }
   | { type: 'procedural'; kind: ProceduralKind; params?: Record<string, unknown>; size?: Vec }
+  /** Confetti, sparkles, dust, bokeh, speed lines, snow, embers, bursts (src/motion/particles.ts); the layer is the scene size unless `size`. */
+  | { type: 'particles'; particles: ParticleData; size?: Vec }
   | { type: 'shape'; shape: ShapeData }
   | { type: 'text'; text: TextLayerData }
   | { type: 'null' }

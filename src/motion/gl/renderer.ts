@@ -15,6 +15,7 @@ import { CanvasCache, rasterMasks, rasterShape, rasterText, textFrame } from './
 import { isStaticShape } from '../vector/shapes';
 import * as S from './shaders';
 import { proceduralUniforms } from './procedural';
+import { drawParticles, particlesAt } from '../particles';
 
 export type RenderOptions = {
   /** Output pixels per scene pixel (preview resolution); 1 for export. */
@@ -213,6 +214,14 @@ export class MotionRenderer {
         pad = shapePad;
         if (still) this.shapeRasters.set(key, { data: layer.shape, density, size: [canvas.width, canvas.height], pad });
         else this.shapeRasters.delete(key);
+        break;
+      }
+      case 'particles': {
+        const key = `p:${layer.id}`;
+        const { canvas, ctx } = this.canvases.get(key, w * density, h * density);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawParticles(ctx, particlesAt(layer.particles, [w, h], L.time), density);
+        target = this.fromTexture(this.upload(key, canvas), canvas.width, canvas.height);
         break;
       }
       case 'precomp': {

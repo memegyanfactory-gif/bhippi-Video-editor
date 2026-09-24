@@ -3,9 +3,10 @@
 import { isAnimated, isExpression } from './anim';
 import { checkExpression } from './expr';
 import { parseSvgPath } from './vector/path';
+import { PARTICLE_PRESETS } from './particles';
 import type { EffectType, Layer, MotionScene, ShapeItem } from './types';
 
-const LAYER_TYPES = new Set(['footage', 'solid', 'procedural', 'shape', 'text', 'null', 'camera', 'precomp']);
+const LAYER_TYPES = new Set(['footage', 'solid', 'procedural', 'particles', 'shape', 'text', 'null', 'camera', 'precomp']);
 export const EFFECT_TYPES: EffectType[] = [
   'glow', 'gaussian-blur', 'directional-blur', 'zoom-blur', 'lens-blur', 'chromatic-aberration', 'vignette', 'grain', 'tint', 'duotone', 'black-white',
   'brightness-contrast', 'hue-saturation', 'levels', 'exposure', 'invert', 'fill', 'drop-shadow', 'stroke', 'halation', 'mosaic', 'pixel-sort',
@@ -13,7 +14,7 @@ export const EFFECT_TYPES: EffectType[] = [
   'subject-reveal', 'matte-fill', 'matte-edge-glow', 'inner-shadow', 'inner-glow', 'bevel', 'gradient-overlay',
 ];
 const EFFECTS = new Set<string>(EFFECT_TYPES);
-const PROCEDURALS = new Set(['crimson-stage', 'radial-glow', 'linear-gradient', 'hex-field', 'grid', 'light-rails', 'noise', 'light-leak', 'dots', 'aurora']);
+const PROCEDURALS = new Set(['crimson-stage', 'radial-glow', 'linear-gradient', 'hex-field', 'grid', 'light-rails', 'noise', 'light-leak', 'dots', 'aurora', 'mesh-gradient', 'light-shafts', 'dot-wave']);
 const BLENDS = new Set(['normal', 'add', 'screen', 'multiply', 'overlay', 'soft-light', 'hard-light', 'color-dodge', 'color-burn', 'lighten', 'darken', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity']);
 
 const ITEM_KINDS = new Set(['path', 'rect', 'ellipse', 'polygon', 'star', 'group', 'icon', 'array']);
@@ -67,6 +68,7 @@ export function validateScene(scene: unknown, depth = 0): string[] {
     if (typeof layer.in === 'number' && layer.in >= s.duration) problems.push(`${name}: in must be before the scene's end.`);
     for (const effect of layer.effects ?? []) if (!EFFECTS.has(effect?.type)) problems.push(`${name}: unknown effect "${String(effect?.type)}" (known: ${EFFECT_TYPES.join(', ')}).`);
     if (layer.type === 'procedural' && !PROCEDURALS.has(layer.kind)) problems.push(`${name}: unknown procedural kind "${layer.kind}".`);
+    if (layer.type === 'particles' && !(PARTICLE_PRESETS as readonly string[]).includes(layer.particles?.preset)) problems.push(`${name}: particles need a preset (${PARTICLE_PRESETS.join(', ')}).`);
     if (layer.type === 'footage' && !layer.source?.asset && !layer.source?.path && !layer.source?.sequence) problems.push(`${name}: footage needs source.asset (a project asset id), source.path or source.sequence.`);
     if (layer.type === 'footage' && layer.source?.sequence) {
       const q = layer.source.sequence;

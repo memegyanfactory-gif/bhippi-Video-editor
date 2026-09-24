@@ -111,10 +111,10 @@ export const PLAYBOOKS: Playbook[] = [
     look: ['Black → navy → lavender → white; the hero object\'s material and colour lead every act.', 'Star glints, lens rings, echo trails, white-outs.'],
     timing: [...COMMON_TIMING, 'Big world changes land on 4-bar phrase lines (all three in aflow within 2 frames).', 'Cut on the 16th pickup before the beat; motion accents land on the beat.', 'White-out 7–13 f; a 12 f black breath before a drop.'],
     rules: ['Only the hero object and one accent colour carry across acts.', 'Let the logo arrive last and small; the world does the talking.'],
-    tools: ['create_motion_scene', 'render_3d_scene', 'list_3d_presets', 'analyze_music_beats', 'snap_cuts_to_beats', 'get_brand_kit'],
+    tools: ['create_motion_scene', 'create_motion_sequence', 'add_fx', 'render_3d_scene', 'list_3d_presets', 'analyze_music_beats', 'snap_cuts_to_beats', 'get_brand_kit'],
     eases: ['rise', 'house', 'expo-in'],
     features: ['shape.groups', 'effects.bevel', 'effects.glow', 'camera.aperture'],
-    gaps: ['Blender is optional: when list_3d_presets says it is not installed, fake orbs with radial-gradient ellipses + bevel + glow. 3D card rings with UI decals and sphere bouquets come in the full Blender pass (plan C3); build them from raw render_3d_scene objects meanwhile.', 'Echo trails and star glints are plan P5 effects; use glow + directional blur meanwhile.'],
+    gaps: ['Blender is optional: when list_3d_presets says it is not installed, fake orbs with radial-gradient ellipses + bevel + glow. 3D card rings with UI decals and sphere bouquets come in the full Blender pass (plan C3); build them from raw render_3d_scene objects meanwhile.'],
   },
   {
     id: 'kinetic-type',

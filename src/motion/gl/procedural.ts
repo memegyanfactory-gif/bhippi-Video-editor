@@ -3,7 +3,7 @@ import type { ProceduralKind } from '../types';
 import { parseColor } from './color';
 import type { Uniforms } from './core';
 
-const KINDS: ProceduralKind[] = ['crimson-stage', 'radial-glow', 'linear-gradient', 'hex-field', 'grid', 'light-rails', 'noise', 'light-leak', 'dots', 'aurora'];
+const KINDS: ProceduralKind[] = ['crimson-stage', 'radial-glow', 'linear-gradient', 'hex-field', 'grid', 'light-rails', 'noise', 'light-leak', 'dots', 'aurora', 'mesh-gradient', 'light-shafts', 'dot-wave'];
 
 const num = (params: Record<string, unknown>, key: string, fallback: number) => (typeof params[key] === 'number' ? (params[key] as number) : fallback);
 const col = (params: Record<string, unknown>, key: string, fallback: string) => parseColor(typeof params[key] === 'string' ? (params[key] as string) : fallback);
@@ -51,6 +51,16 @@ export function proceduralUniforms(kind: ProceduralKind, params: Record<string, 
       return { ...base, uC1: col(params, 'bg', '#0a0204'), uC2: col(params, 'color', '#ff4a6455'), uP: [num(params, 'spacing', 36), num(params, 'radius', 2), 0, 0] };
     case 'aurora':
       return { ...base, uC1: col(params, 'bg', '#050108'), uC2: col(params, 'a', '#c2182f'), uC3: col(params, 'b', '#ff7a3d'), uP: [num(params, 'speed', 0.15), 0, 0, 0] };
+    case 'mesh-gradient': {
+      const c4 = col(params, 'd', '#ffd6e8');
+      return { ...base, uC1: col(params, 'a', '#c7d2fe'), uC2: col(params, 'b', '#fbcfe8'), uC3: col(params, 'c', '#a5f3fc'), uQ: [c4[0], c4[1], c4[2], 1], uP: [num(params, 'speed', 0.25), num(params, 'softness', 0.18), 0, 0] };
+    }
+    case 'light-shafts': {
+      const o = vec(params, 'origin', [0.5, -0.1]);
+      return { ...base, uC1: col(params, 'bg', '#00000000'), uC2: col(params, 'color', '#ffffff'), uP: [o[0], o[1], num(params, 'count', 9), num(params, 'intensity', 0.55)], uQ: [num(params, 'reach', 0.9), num(params, 'speed', 0.25), 0, 0] };
+    }
+    case 'dot-wave':
+      return { ...base, uC1: col(params, 'bg', '#05060c'), uC2: col(params, 'color', '#7b8cff'), uP: [num(params, 'spacing', 26), num(params, 'amplitude', 26), num(params, 'speed', 0.8), num(params, 'radius', 3)], uQ: [num(params, 'frequency', 1.2), 0, 0, 0] };
     default:
       return base;
   }

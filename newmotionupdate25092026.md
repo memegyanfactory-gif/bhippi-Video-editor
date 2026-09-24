@@ -3,7 +3,7 @@
 This is a live record of what's done and what's left in the plan in
 [docs/REFERENCE-FILMS-PLAN.md](docs/REFERENCE-FILMS-PLAN.md). It is updated after every item.
 
-**Overall: study, plan, Phase 0 and Phase A are done ✅. Phase B is in progress (B1 living UI screens ✅, B2 camera director + transitions ✅; B3 particles + light FX next). Phases C–D have not started.**
+**Overall: study, plan, Phase 0 and Phase A are done ✅. Phase B is in progress (B1 living UI screens ✅, B2 camera director + transitions ✅, B3 particles + FX ✅; B4 reference worker + pacing QA next). Phases C–D have not started.**
 
 | Stage | Status |
 |---|---|
@@ -11,7 +11,7 @@ This is a live record of what's done and what's left in the plan in
 | Blender headless proofs (2 rounds) | ✅ Done |
 | **Phase 0: quick fixes** | ✅ Done (6 of 6), all tests green |
 | **Phase A: foundations** | ✅ Done (6 of 6), all tests green |
-| **Phase B: the SaaS unlock** | 🟡 2 of 4 done (B1, B2) |
+| **Phase B: the SaaS unlock** | 🟡 3 of 4 done (B1–B3) |
 | Phase C: 2.5D, characters, full Blender | ⬜ Not started |
 | Phase D: beyond | ⬜ Not started |
 
@@ -214,11 +214,22 @@ This is a live record of what's done and what's left in the plan in
     - the diagonal wipe left a strip uncovered;
     - the noise matte was dark red instead of black-to-white;
     - the whip's blur was too short to see.
+- B3 ✅ **Particles, light and drawn FX.**
+  - **A new `particles` layer** with 10 presets: confetti (falling with flutter and 3D-ish flips), confetti-burst, sparkle (twinkling four-point stars), dust, bokeh, speed lines, snow, embers, burst lines, ripple rings.
+    - Every particle is a **closed-form function of seed and time** (drag, gravity, flutter, spin, twinkle), so any frame (preview, scrub, export) is identical.
+    - Continuous presets keep a steady population; bursts fire once.
+  - **3 new shader procedurals:** `mesh-gradient` (4 drifting colour blobs), `light-shafts` (god rays; a transparent overlay by default), `dot-wave` (a dot-lattice wave terrain).
+  - **`add_fx`, 18 one-call accents:** confetti pop and rain, sparkles, burst, ripple, **star glint** (an 8-spike lens star), glow ring, speed lines, comic "!" marks, a **moving gradient border** around any layer, an **echo trail** (built on B2's links), plus ambient dust, bokeh, snow, embers, light shafts, mesh gradient, dot wave.
+    - It drops into an existing scene (`clipId`), or onto the timeline as its own overlay; the overlay form gets its sound (pop, shimmer, glass, chime, whoosh).
+  - Files: new `src/motion/particles.ts`, `src/motion/fx.ts`; `types.ts`, `evaluate.ts`, `gl/renderer.ts`, `gl/shaders.ts`, `gl/procedural.ts`, `validate.ts`, `safeArea.ts`, `polish.ts`, `coverage.ts`, `MotionInspector.tsx`, `motionTools.ts`, `council.ts`, `motionDirection.ts`, `ai-tools.json`, `copilot.md`, `MOTION-ENGINE.md`.
+  - Tests: `tests/motionParticlesFx.test.ts` (9: determinism, population, gravity, validation, shader ids, every FX kind valid, echo links, the tool end to end). **Full suite: 1,212 TypeScript tests pass.**
+  - **Checked on the GPU:** all 14 FX groups rendered.
+  - **Fixed along the way:** the star glint drew only one spike, because leaf shapes don't rotate on their own; each spike is now a group.
+  - *Still to do from P5 (later):* smear, painterly (Kuwahara), flakes that disintegrate a layer.
 
 ## ⏳ Remaining
 
 ### Phase B: the SaaS unlock (weeks 4–7)
-- B3 ⬜ Particles (confetti, twinkles, flakes) + light effects (glints, echo, god rays, glow rings, gradient border).
 - B4 ⬜ Reference-analysis worker + pacing QA against the measured timings.
 
 ### Phase C: depth and characters (weeks 6–14)

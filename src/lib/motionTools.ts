@@ -12,6 +12,9 @@ import { svgToShape } from '../motion/vector/svg';
 import { playbook, playbookIndex } from './motionDirection';
 import { PRESETS_3D, renderScene, scene3dRequest, type Render3DResult } from './blender3d';
 import { buildUiScene, runUiScreenTool } from './uiScreenTools';
+import { FX_HELP, FX_KINDS, fxLayers, type FxKind, type FxOptions } from '../motion/fx';
+import { evaluateMeasured } from '../motion/measure';
+import { entryBounds } from '../motion/evaluate';
 import { compileSequence, TRANSITION_HELP, TRANSITION_KINDS, type SeqBeat, type SeqTransition, type TransitionKind } from '../motion/sequence';
 import { keyTimes } from '../motion/anim';
 import { clamp, SFX_LENGTH, timecode } from './editor';
@@ -26,7 +29,7 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx']);
 /** Read-only / planning motion tools, allowed in any production phase. */
 export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets', 'list_ui_kinds', 'list_transitions']);
 
@@ -527,6 +530,35 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'list_ui_kinds':
     case 'capture_product_ui':
       return runUiScreenTool(name, args, ctx, runMotionTool);
+
+    case 'add_fx': {
+      const kind = str(args, 'kind') as FxKind | undefined;
+      if (!kind || !FX_KINDS.includes(kind)) return done(`Give a kind. FX: ${FX_KINDS.map((k) => `${k} (${FX_HELP[k]})`).join('; ')}.`, { kinds: FX_KINDS.map((k) => ({ kind: k, does: FX_HELP[k] })) });
+      const options = { ...args, kind } as unknown as FxOptions;
+      const clipId = str(args, 'clipId');
+      if (clipId) {
+        const got = await runMotionTool('get_motion_scene', { clipId, full: true }, ctx);
+        const scene = (got as { scene?: MotionScene }).scene;
+        if (!got.ok || !scene) return fail(`${clipId} is not a motion scene; leave clipId out to lay the FX over the timeline at "start".`);
+        const bounds = (layerId: string, t: number) => {
+          const entry = evaluateMeasured(scene, t).layers.find((l) => l.layer.id === layerId);
+          return entry ? entryBounds(entry.matrix, entry.size) : null;
+        };
+        const made = fxLayers(options, scene, bounds);
+        if (typeof made === 'string') return fail(made);
+        const updated = await runMotionTool('update_motion_scene', { clipId, addLayers: made.layers, fit: false }, ctx);
+        if (!updated.ok) return updated;
+        return done(`Added ${kind} (${made.layers.map((l) => l.layer.id).join(', ')}) to the scene at ${num(args, 't') ?? 0} s.${made.cues.length ? ` Sound it with add_sound_effect ${made.cues.map((c) => c.sound).join(', ')} on the timeline at the scene start + ${made.cues[0].at} s.` : ''}`, { ...updated, layers: made.layers.map((l) => l.layer.id) });
+      }
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('There is no composition to place the FX in.');
+      const base: MotionScene = { version: 1, width: comp.width, height: comp.height, duration: 1, layers: [] };
+      const made = fxLayers({ ...options, t: 0 }, base);
+      if (typeof made === 'string') return fail(made);
+      const longest = Math.max(0.5, ...made.layers.map((l) => (typeof l.layer.out === 'number' ? l.layer.out : num(args, 'duration') ?? 4)));
+      const scene: MotionScene = { ...base, duration: longest, layers: made.layers.map((l) => l.layer), ...(made.cues.length ? { cues: made.cues } : {}) };
+      return runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start: num(args, 'start') ?? 0, title: str(args, 'title') ?? kind, duration: longest, fit: false, useBrand: false, sfx: args.sfx !== false }, ctx);
+    }
 
     case 'list_transitions':
       return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition). Give {kind, duration?, direction?, glyph?, mode?, at?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });

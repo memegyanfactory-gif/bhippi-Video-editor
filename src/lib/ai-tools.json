@@ -5163,6 +5163,110 @@
       }
     },
     {
+      "name": "add_fx",
+      "description": "Drops a motion accent into a motion scene (clipId, at scene time t) or over the timeline as its own overlay (start): confetti-pop (a burst that falls), confetti-rain, sparkles, burst (lines from a point), ripple (rings), star-glint (a lens star, for glass, logos and product edges), glow-ring, speed-lines, exclaim (comic \"!\" marks), gradient-border (a moving gradient outline around a target layer or box), echo (trailing copies of a moving target layer), and ambient dust, bokeh, snow, embers, light-shafts, mesh-gradient or dot-wave. Call it with no kind to list them.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "confetti-pop",
+              "confetti-rain",
+              "sparkles",
+              "burst",
+              "ripple",
+              "star-glint",
+              "glow-ring",
+              "speed-lines",
+              "exclaim",
+              "gradient-border",
+              "echo",
+              "dust",
+              "bokeh",
+              "snow",
+              "embers",
+              "light-shafts",
+              "mesh-gradient",
+              "dot-wave"
+            ]
+          },
+          "clipId": {
+            "type": "string",
+            "description": "A motion scene / [Motion] comp to add into; leave out to place an overlay on the timeline."
+          },
+          "t": {
+            "type": "number",
+            "description": "Scene seconds (with clipId)."
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds (without clipId)."
+          },
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Frame point [x, y] px."
+          },
+          "duration": {
+            "type": "number"
+          },
+          "color": {
+            "type": "string"
+          },
+          "colors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "size": {
+            "type": "number",
+            "description": "px (glint, ring, burst reach, sparkle radius) or a multiplier for particles."
+          },
+          "count": {
+            "type": "number"
+          },
+          "target": {
+            "type": "string",
+            "description": "gradient-border / echo: the layer id."
+          },
+          "box": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "gradient-border without a target: [x, y, w, h]."
+          },
+          "copies": {
+            "type": "number"
+          },
+          "delay": {
+            "type": "number"
+          },
+          "decay": {
+            "type": "number"
+          },
+          "direction": {
+            "type": "number",
+            "description": "speed-lines: degrees the streaks travel (0 = right, 180 = left)."
+          },
+          "compId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sfx": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "list_transitions",
       "description": "Lists the motion-design transitions create_motion_sequence joins beats with (whip, zoom-through, blur-bridge, z-recede, card-zoom-reveal, shape wipes, eyelids, swap-when-hidden, snaps, world trucks…) and what each does.",
       "input_schema": {
