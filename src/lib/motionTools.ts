@@ -11,7 +11,8 @@ import { expandIcons, searchIcons, unknownIcons } from '../motion/vector/icons';
 import { svgToShape } from '../motion/vector/svg';
 import { playbook, playbookIndex } from './motionDirection';
 import { PRESETS_3D, renderScene, scene3dRequest, type Render3DResult } from './blender3d';
-import { runUiScreenTool } from './uiScreenTools';
+import { buildUiScene, runUiScreenTool } from './uiScreenTools';
+import { compileSequence, TRANSITION_HELP, TRANSITION_KINDS, type SeqBeat, type SeqTransition, type TransitionKind } from '../motion/sequence';
 import { keyTimes } from '../motion/anim';
 import { clamp, SFX_LENGTH, timecode } from './editor';
 import { api, errorText, fileSrc, type Transcript, type TranscriptWord } from './ipc';
@@ -25,9 +26,9 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions']);
 /** Read-only / planning motion tools, allowed in any production phase. */
-export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets', 'list_ui_kinds']);
+export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets', 'list_ui_kinds', 'list_transitions']);
 
 export type MotionToolContext = {
   project: Project;
@@ -526,6 +527,65 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'list_ui_kinds':
     case 'capture_product_ui':
       return runUiScreenTool(name, args, ctx, runMotionTool);
+
+    case 'list_transitions':
+      return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition). Give {kind, duration?, direction?, glyph?, mode?, at?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });
+
+    case 'create_motion_sequence': {
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('There is no composition to place the sequence in.');
+      const list = Array.isArray(args.beats) ? (args.beats as Args[]) : [];
+      if (list.length < 1 || list.length > 24) return fail('Give 1–24 beats: each {template, params} (list_motion_templates), {ui: {…create_ui_screen args}}, {scene}, or {clipId} of an existing motion clip.');
+      const start = Math.max(0, num(args, 'start') ?? 0);
+      const brand = args.useBrand === false ? null : ctx.brand ?? null;
+      const background = typeof args.background === 'string' ? args.background : null;
+      const beats: SeqBeat[] = [];
+      for (const [i, beat] of list.entries()) {
+        let scene: MotionScene | null = null;
+        const templateId = str(beat, 'template');
+        try {
+          if (templateId) {
+            const spec = findTemplate(templateId);
+            if (!spec) return fail(`beats[${i}]: no motion template "${templateId}".`);
+            const raw = obj(beat, 'params') ?? {};
+            const params = resolveParams(raw, ctx, start);
+            // Over the sequence's own background the beats draw no stage of their own.
+            if (background && 'background' in spec.params && raw.background === undefined) params.background = 'none';
+            const kit: KitContext = { width: comp.width, height: comp.height, ...(brand ? { brand, font: brand.fonts.display } : {}) };
+            scene = buildInBrand(spec, kit, params, brand);
+          } else if (obj(beat, 'ui')) {
+            const built = await buildUiScene(obj(beat, 'ui')!, ctx, comp);
+            if (typeof built === 'string') return fail(`beats[${i}] (ui): ${built}`);
+            scene = built;
+          } else if (obj(beat, 'scene')) {
+            scene = { version: 1, width: comp.width, height: comp.height, ...(obj(beat, 'scene') as object) } as MotionScene;
+            if (brand) scene = brandifyScene(scene, brand);
+          } else if (str(beat, 'clipId')) {
+            const got = await runMotionTool('get_motion_scene', { clipId: str(beat, 'clipId'), full: true }, ctx);
+            scene = (got as { scene?: MotionScene }).scene ?? null;
+            if (!scene) return fail(`beats[${i}]: ${str(beat, 'clipId')} is not a motion scene.`);
+          } else return fail(`beats[${i}] needs template, ui, scene or clipId.`);
+        } catch (error) {
+          return fail(`beats[${i}] could not be built: ${errorText(error)}`);
+        }
+        scene = await expandIcons(scene);
+        const problems = validateScene(scene);
+        if (problems.length) return fail(`beats[${i}] is not valid: ${problems.slice(0, 5).join(' ')}`);
+        const hold = num(beat, 'hold') ?? num(beat, 'duration');
+        if (hold && hold > scene.duration) scene = { ...scene, duration: hold };
+        beats.push({ scene, name: str(beat, 'name') ?? str(beat, 'title') ?? (templateId ? findTemplate(templateId)?.label : obj(beat, 'ui') ? 'UI screen' : undefined), ...(hold ? { hold } : {}) });
+      }
+      const transitions = Array.isArray(args.transitions) ? (args.transitions as (SeqTransition | TransitionKind)[]) : [];
+      const bad = transitions.map((t) => (typeof t === 'string' ? t : t?.kind)).filter((k) => !TRANSITION_KINDS.includes(k as TransitionKind));
+      if (bad.length) return fail(`Unknown transition${bad.length > 1 ? 's' : ''}: ${bad.join(', ')}. See list_transitions.`);
+      const layout = args.layout === 'world' ? 'world' : 'cuts';
+      const guide = obj(args, 'guide') as Parameters<typeof compileSequence>[0]['guide'] | undefined;
+      const compiled = compileSequence({ width: comp.width, height: comp.height, beats, transitions, layout, world: obj(args, 'world') as never, background, guide, sfx: args.sfx !== false });
+      const title = str(args, 'title') ?? 'Motion sequence';
+      const placed = await runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene: compiled.scene, start, title, duration: compiled.duration, fit: false, useBrand: false, sfx: args.sfx !== false }, ctx);
+      if (!placed.ok) return placed;
+      return done(`${placed.summary} ${beats.length} beat${beats.length === 1 ? '' : 's'} in one ${layout === 'world' ? 'world (the camera trucks between them; the background never cuts)' : 'scene'}; beats start at ${compiled.starts.map((t) => (start + t).toFixed(2)).join(', ')} s (timeline) and cut at ${compiled.cuts.map((t) => (start + t).toFixed(2)).join(', ')} s.`, { ...placed, starts: compiled.starts.map((t) => Math.round((start + t) * 1000) / 1000), cuts: compiled.cuts.map((t) => Math.round((start + t) * 1000) / 1000) });
+    }
 
     case 'list_3d_presets': {
       let status: Awaited<ReturnType<typeof api.blenderStatus>> | null = null;

@@ -54,6 +54,7 @@ const READS = new Set([
   'motion_guide',
   'list_3d_presets',
   'list_ui_kinds',
+  'list_transitions',
 ]);
 
 /** Tools that throw something away, which only Full access may do. */

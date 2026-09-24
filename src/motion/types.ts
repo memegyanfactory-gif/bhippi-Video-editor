@@ -347,6 +347,13 @@ type LayerCommon = {
   backdrop?: { blur: Prop<number>; saturation?: number; brightness?: number };
   /** Makes the layer an adjustment layer: its effects apply to everything below, cut by its alpha. */
   adjustment?: boolean;
+  /**
+   * Cross-layer links (plan P4): this layer's property follows another layer's, `delay` seconds
+   * behind — a trail after a moving dot, echo copies, a label riding a card. Position adds
+   * `offset` ([x, y]); scale, rotation and opacity multiply by `multiply` and add `offset`.
+   * The source's own keyed value is read (not its parent chain).
+   */
+  link?: { prop: 'position' | 'scale' | 'rotation' | 'opacity'; from: string; delay?: number; offset?: number | Vec; multiply?: number }[];
   /** Free-form notes the AI can use to explain intent. */
   note?: string;
   /**

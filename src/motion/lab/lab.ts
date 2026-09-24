@@ -5,6 +5,7 @@ import { rasterizeUi } from '../ui/raster';
 import { compileUi } from '../ui/compile';
 import type { UiScreenSpec } from '../ui/spec';
 import { DEMO_UI } from '../ui/demo';
+import { compileSequence, type SequenceSpec } from '../sequence';
 import { expandIcons } from '../vector/icons';
 import '../../fonts/bundled.css';
 import { MotionRenderer } from '../gl/renderer';
@@ -113,5 +114,12 @@ async function ui(spec: UiScreenSpec = DEMO_UI, name = 'ui', stage = '#e9ecf5') 
   return { duration: built.duration, cues: built.cues, parts: raster.states.map((s) => ({ state: s.id, parts: s.parts.map((p) => ({ id: p.id, box: p.box, parent: p.parent, text: p.text })) })) };
 }
 
-Object.assign(window, { lab: { ui, loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
+/** Compiles a motion sequence (src/motion/sequence.ts) as scene `name`. */
+function seq(spec: SequenceSpec, name = 'seq') {
+  const built = compileSequence(spec);
+  LAB_SCENES[name] = () => built.scene;
+  return { duration: built.duration, starts: built.starts, cuts: built.cuts, layers: built.scene.layers.map((l) => l.id) };
+}
+
+Object.assign(window, { lab: { ui, seq, loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
 document.title = 'Motion Lab ready';

@@ -6,7 +6,8 @@
 // Timing is the SaaS films' (docs/REFERENCE-FILMS-PLAN.md §2.1): the house ease, a glide of about
 // 14 frames, hover-lift 9 f in / 19 f hold / 8 f out at ×1.088 with the rest dimmed to 32 %, typing
 // at 30 cps in fields.
-import type { Effect, Ease, Key, Layer, MotionScene, Prop, ShapeItem, Vec } from '../types';
+import type { Effect, Ease, Layer, MotionScene, ShapeItem, Vec } from '../types';
+import { round, Track } from '../keys';
 import type { UiAction, UiRaster, UiRasterPart, UiRasterState, UiScreenSpec } from './spec';
 
 type Cue = NonNullable<MotionScene['cues']>[number];
@@ -15,30 +16,6 @@ export type UiCompiled = { layer: Layer; scene: MotionScene; cues: Cue[]; durati
 const F = 1 / 30;
 const HOUSE: Ease = 'house';
 
-/** Keyframes for one property, gathered from many actions and sorted at the end. */
-class Track<T extends number | Vec> {
-  keys: Key<T>[] = [];
-  constructor(public base: T) {}
-  key(t: number, v: T, ease?: Ease) { this.keys.push({ t: Math.max(0, round(t)), v: (typeof v === 'number' ? round(v) : (v as number[]).map(round)) as T, ...(ease ? { ease } : {}) }); return this; }
-  /** base → peak (in), hold, → base (out). */
-  pulse(t: number, peak: T, inS: number, hold: number, outS: number, easeIn: Ease = HOUSE, easeOut: Ease = HOUSE) {
-    return this.key(t, this.base, easeIn).key(t + inS, peak).key(t + inS + hold, peak, easeOut).key(t + inS + hold + outS, this.base);
-  }
-  move(t: number, dur: number, from: T, to: T, ease: Ease = HOUSE) { return this.key(t, from, ease).key(t + dur, to); }
-  prop(): Prop<T> {
-    if (!this.keys.length) return this.base;
-    const sorted = [...this.keys].sort((a, b) => a.t - b.t);
-    const out: Key<T>[] = [];
-    for (const key of sorted) {
-      const last = out[out.length - 1];
-      if (last && Math.abs(last.t - key.t) < 1e-4) out[out.length - 1] = key.ease || !last.ease ? key : { ...key, ease: last.ease };
-      else out.push(key);
-    }
-    return { k: out } as Prop<T>;
-  }
-}
-
-const round = (n: number) => Math.round(n * 1e4) / 1e4;
 const slug = (s: string) => s.replace(/[^a-zA-Z0-9_-]+/g, '_');
 
 /** Device chrome around the screen, in CSS px: canvas size and where the screen's top-left sits. */

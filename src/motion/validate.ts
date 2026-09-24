@@ -89,6 +89,10 @@ export function validateScene(scene: unknown, depth = 0): string[] {
   }
   for (const layer of s.layers as Layer[]) {
     if (layer?.parent && !ids.has(layer.parent)) problems.push(`${where} layer "${layer.id}": parent "${layer.parent}" does not exist.`);
+    for (const link of layer?.link ?? []) {
+      if (!['position', 'scale', 'rotation', 'opacity'].includes(link?.prop)) problems.push(`${where} layer "${layer.id}": link prop must be position, scale, rotation or opacity.`);
+      else if (!ids.has(link.from) || link.from === layer.id) problems.push(`${where} layer "${layer.id}": link from "${link.from}" must be another layer of this scene.`);
+    }
     if (layer?.matte && !ids.has(layer.matte.layer)) problems.push(`${where} layer "${layer.id}": matte layer "${layer.matte.layer}" does not exist.`);
   }
   return problems;

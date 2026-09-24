@@ -5163,6 +5163,74 @@
       }
     },
     {
+      "name": "list_transitions",
+      "description": "Lists the motion-design transitions create_motion_sequence joins beats with (whip, zoom-through, blur-bridge, z-recede, card-zoom-reveal, shape wipes, eyelids, swap-when-hidden, snaps, world trucks…) and what each does.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_motion_sequence",
+      "description": "Builds several beats into ONE motion scene joined by motion-design transitions, the way SaaS and brand films flow instead of cutting between clips. A beat is {template, params} (list_motion_templates), {ui: {…create_ui_screen arguments}}, {scene} (a raw scene) or {clipId} (an existing motion clip), each with optional hold (seconds it owns the frame) and name. layout \"cuts\" replaces beats in place through the transitions; \"world\" lays them out on one canvas and trucks a camera between them, so the background never cuts. A guide (dot, orb, sparkle or ring) can travel from beat to beat as the continuity object. Beats' sound cues move with them, and each transition adds its whoosh, swish or impact. Places one layered [Motion] comp; returns each beat's start and each cut in timeline seconds.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "[{template, params, hold?, name?} | {ui:{kind, content, actions, …}, hold?} | {scene, hold?} | {clipId, hold?}]"
+          },
+          "transitions": {
+            "type": "array",
+            "items": {},
+            "description": "One per join: a kind or {kind, duration?, direction?: left|right|up|down, glyph?: circle|square|rounded|star|diamond, mode?: out|in, at?: [x,y], color?, twist?}. Kinds: cut, dissolve, push, slide, whip, zoom-through, blur-bridge, z-recede, card-zoom-reveal, shape-wipe, iris, diagonal-wipe, noise-dissolve, white-out, black-breath, palette-swap-cut, eyelid, scale-cut, snap-punch, snap-zoom-out, snap-press, swap-when-hidden, collapse-into, spin, glitch, light-leak, truck."
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "cuts",
+              "world"
+            ]
+          },
+          "world": {
+            "type": "object",
+            "description": "{path?: row|column|zigzag|grid, gap?: px, columns?}"
+          },
+          "guide": {
+            "type": "object",
+            "description": "{shape?: dot|orb|sparkle|ring, color?, size?, stops: [{beat: index, at: [x,y] frame px, t?: seconds into the beat, size?}], end?: fade|stay}"
+          },
+          "background": {
+            "type": "string",
+            "description": "A colour under everything that never cuts; templates then draw no stage of their own."
+          },
+          "start": {
+            "type": "number"
+          },
+          "compId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sfx": {
+            "type": "boolean"
+          },
+          "useBrand": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "beats"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "capture_product_ui",
       "description": "Screenshots the user's real product (a web page or web app URL) in a headless browser at 2×, and shows it to you with a 100 px grid. Then animate it with create_ui_screen {screenshot, width, height, parts:[{id, box:[x,y,w,h], radius?, text?}], actions}: the parts are cut out of the screenshot and can be clicked, lifted, typed into (give text for fields), counted, dragged and zoomed into like any UI screen.",
       "input_schema": {

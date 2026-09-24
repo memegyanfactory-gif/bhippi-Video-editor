@@ -3,7 +3,7 @@
 This is a live record of what's done and what's left in the plan in
 [docs/REFERENCE-FILMS-PLAN.md](docs/REFERENCE-FILMS-PLAN.md). It is updated after every item.
 
-**Overall: study, plan, Phase 0 and Phase A are done ✅. Phase B is in progress (B1 living UI screens ✅; B2 camera director next). Phases C–D have not started.**
+**Overall: study, plan, Phase 0 and Phase A are done ✅. Phase B is in progress (B1 living UI screens ✅, B2 camera director + transitions ✅; B3 particles + light FX next). Phases C–D have not started.**
 
 | Stage | Status |
 |---|---|
@@ -11,7 +11,7 @@ This is a live record of what's done and what's left in the plan in
 | Blender headless proofs (2 rounds) | ✅ Done |
 | **Phase 0: quick fixes** | ✅ Done (6 of 6), all tests green |
 | **Phase A: foundations** | ✅ Done (6 of 6), all tests green |
-| **Phase B: the SaaS unlock** | 🟡 1 of 4 done (B1) |
+| **Phase B: the SaaS unlock** | 🟡 2 of 4 done (B1, B2) |
 | Phase C: 2.5D, characters, full Blender | ⬜ Not started |
 | Phase D: beyond | ⬜ Not started |
 
@@ -193,11 +193,31 @@ This is a live record of what's done and what's left in the plan in
     - a real capture of linear.app, animated from marked parts. The push centres the target exactly.
   - Rasterising takes 85–250 ms per screen.
   - **Fixed along the way:** a hover-lift now dims only the lifted item's list neighbours, not every part.
+- B2 ✅ **Camera director and motion transitions.** A whole film flows as ONE scene instead of cutting between clips.
+  - **`create_motion_sequence`** builds beats into one layered comp. A beat is a template, a UI screen (`ui`), a raw scene or an existing motion clip.
+  - **27 transitions** (`list_transitions`), with the films' measured timings:
+    - cut, dissolve, push, slide, whip (motion-blurred, cut at the peak), zoom-through;
+    - **blur-bridge** (1 f on, cut 3 f later, 7 f back), **z-recede** (0.65 + blur; the new beat pops and rises in 13 f), card-zoom-reveal;
+    - shape-wipe (circle, square, rounded, star, diamond; `mode:"in"` = logo resolve), iris, diagonal wipe, noise dissolve;
+    - white-out (7–13 f), black-breath (12 f), palette-swap cut, eyelids;
+    - scale-cut, snap punch, snap zoom-out, snap press, swap-when-hidden (edge-on with a twist), collapse-into a point, spin, glitch, light leak;
+    - truck.
+  - **World layout:** the beats sit on one canvas (row, column, zigzag or grid) and a camera trucks between them on the house ease, so **the background never cuts** (the SaaS rule).
+  - **Continuity guide:** a dot, orb, sparkle or ring travels from beat to beat (Workly, Virgil, aflow), and can stay as the logo dot.
+  - Beats' sound cues move with them, and each transition adds its whoosh, swish, shimmer, impact or sub.
+  - **Cross-layer links** (engine): `link: [{prop, from, delay, offset, multiply}]` makes a layer follow another layer's position, scale, rotation or opacity, `delay` behind. Uses: trails, echoes, followers. Links survive layered comps.
+  - Files: new `src/motion/sequence.ts`, `src/motion/keys.ts` (shared key tracks); `motionTools.ts`, `uiScreenTools.ts` (`buildUiScene`), `evaluate.ts` (`linkedTransform`), `types.ts`, `validate.ts`, `motionStack.ts`, `permissions.ts`, `editWorkflow.ts`, `council.ts`, `motionDirection.ts`, `ai-tools.json`, `copilot.md`, `MOTION-ENGINE.md`, Motion Lab (`lab.seq()`).
+  - Tests: `tests/motionTransitions.test.ts` (10: every kind valid, timing, blur-bridge frames, persistent wipe mattes, world camera, guide, the tool end to end, links). **Full suite: 1,203 TypeScript tests pass.**
+  - **Checked on the GPU:** all 16 transitions mid-flight, the wipes (a star growing out, a circle "in" logo resolve, diagonal), and a zigzag world with an orb guide.
+  - **Fixed along the way** (found on the GPU):
+    - wipe mattes ended with their transition, so the beat vanished afterwards; they now persist;
+    - the diagonal wipe left a strip uncovered;
+    - the noise matte was dark red instead of black-to-white;
+    - the whip's blur was too short to see.
 
 ## ⏳ Remaining
 
 ### Phase B: the SaaS unlock (weeks 4–7)
-- B2 ⬜ Camera director: continuity object (dot/orb/sparkle), cross-layer links, no-cut world layout, 20+ transitions.
 - B3 ⬜ Particles (confetti, twinkles, flakes) + light effects (glints, echo, god rays, glow rings, gradient border).
 - B4 ⬜ Reference-analysis worker + pacing QA against the measured timings.
 

@@ -107,6 +107,14 @@ async function build(spec: UiScreenSpec, comp: { width: number; height: number }
   return { scene, raster };
 }
 
+/** A UI screen as a scene (for a sequence beat), from create_ui_screen's arguments. */
+export async function buildUiScene(args: Args, ctx: MotionToolContext, comp: { width: number; height: number }): Promise<MotionScene | string> {
+  const spec = specFrom(args, ctx);
+  if (typeof spec === 'string') return spec;
+  const made = await build(spec, comp, str(args, 'title') ?? 'UI screen', str(args, 'stage'));
+  return typeof made === 'string' ? made : made.scene;
+}
+
 export async function runUiScreenTool(name: string, args: Args, ctx: MotionToolContext, run: Run): Promise<ToolResult> {
   switch (name) {
     case 'list_ui_kinds':

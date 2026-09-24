@@ -150,8 +150,33 @@ export function defaultSize(scene: Pick<MotionScene, 'width' | 'height'>, layer:
 
 type Local = { matrix: Mat4; opacity: number; is3D: boolean };
 
-function localTransform(layer: Layer, size: [number, number], scene: MotionScene, t: number, ctx: ExprContext, anchorOf?: AnchorOf): Local {
+/** The layer's transform with its cross-layer links resolved to plain values at `t`. */
+function linkedTransform(layer: Layer, scene: MotionScene, t: number, ctx: ExprContext): NonNullable<Layer['transform']> {
   const tr = layer.transform ?? {};
+  if (!layer.link?.length) return tr;
+  const out = { ...tr };
+  for (const link of layer.link) {
+    const source = scene.layers.find((l) => l.id === link.from);
+    if (!source || source === layer) continue;
+    const st = source.transform ?? {};
+    const at = t - (link.delay ?? 0);
+    const mul = link.multiply ?? 1;
+    const add = typeof link.offset === 'number' ? link.offset : 0;
+    if (link.prop === 'position') {
+      const v = vec(st.position, at, source.parent ? [0, 0, 0] : [scene.width / 2, scene.height / 2, 0], ctx);
+      const o = Array.isArray(link.offset) ? link.offset : [0, 0, 0];
+      out.position = [v[0] + (o[0] ?? 0), v[1] + (o[1] ?? 0), (v[2] ?? 0) + (o[2] ?? 0)];
+    } else if (link.prop === 'scale') {
+      const v = valueOf<number | Vec>(st.scale, at, 100, ctx);
+      out.scale = (typeof v === 'number' ? v : v[0] ?? 100) * mul + add;
+    } else if (link.prop === 'rotation') out.rotation = num(st.rotation, at, 0, ctx) * mul + add;
+    else out.opacity = num(st.opacity, at, 100, ctx) * mul + add;
+  }
+  return out;
+}
+
+function localTransform(layer: Layer, size: [number, number], scene: MotionScene, t: number, ctx: ExprContext, anchorOf?: AnchorOf): Local {
+  const tr = linkedTransform(layer, scene, t, ctx);
   const is3D = !!layer.threeD;
   const fallbackAnchor = (tr.anchor === undefined && anchorOf?.(layer, size, t)) || [size[0] / 2, size[1] / 2, 0];
   const anchor = vec(tr.anchor, t, [fallbackAnchor[0], fallbackAnchor[1], fallbackAnchor[2] ?? 0], ctx);

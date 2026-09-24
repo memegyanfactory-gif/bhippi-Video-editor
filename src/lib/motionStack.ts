@@ -38,7 +38,7 @@ export function layerTitle(layer: Layer): string {
 
 const LABEL: Partial<Record<Layer['type'], LabelColor>> = { text: 'lavender', shape: 'cerulean', footage: 'iris', procedural: 'forest', solid: 'forest', precomp: 'mango', null: 'tan', camera: 'tan' };
 
-/** The layers `layer` needs beside it to draw right on its own: its parents, its matte (and theirs), the camera when it is 3D. */
+/** The layers `layer` needs beside it to draw right on its own: its parents, its matte, the layers it links to (and theirs), the camera when it is 3D. */
 function supportIds(scene: MotionScene, layer: Layer): Set<string> {
   const byId = new Map(scene.layers.map((entry) => [entry.id, entry]));
   const out = new Set<string>();
@@ -49,9 +49,11 @@ function supportIds(scene: MotionScene, layer: Layer): Set<string> {
     out.add(id);
     add(found.parent);
     add(found.matte?.layer);
+    for (const link of found.link ?? []) add(link.from);
   };
   add(layer.parent);
   add(layer.matte?.layer);
+  for (const link of layer.link ?? []) add(link.from);
   if (layer.threeD || [...out].some((id) => byId.get(id)?.threeD)) for (const entry of scene.layers) if (entry.type === 'camera') add(entry.id);
   return out;
 }
@@ -492,6 +494,7 @@ function fuse(project: Project, comp: Comp, run: { trackIds: string[]; clips: La
       id,
       ...(layer.parent ? { parent: named(stack, layer.parent) } : {}),
       ...(layer.matte ? { matte: { ...layer.matte, layer: named(stack, layer.matte.layer) } } : {}),
+      ...(layer.link ? { link: layer.link.map((link) => ({ ...link, from: named(stack, link.from) })) } : {}),
     });
     const mine = new Set(ownLayers(scene).map((layer) => layer.id));
     const startTime = clip.start - clip.in / clip.speed;
