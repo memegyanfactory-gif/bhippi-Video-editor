@@ -7,7 +7,7 @@
 use crate::tools::Tools;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const LIBRARY_EVENT: &str = "helios://library";
 
@@ -267,11 +267,32 @@ pub fn derived_ok(path: &Option<String>) -> bool {
 }
 
 /// Whether an asset still needs its background derivation work: either it is
-/// waiting on a preview proxy, or a video/still has no usable thumbnail file
-/// (never generated, or the recorded file went missing since).
+/// waiting on a preview proxy, a video/still has no usable thumbnail file
+/// (never generated, or the recorded file went missing since), or media with
+/// sound has no waveform peaks yet.
 /// Pure so the startup backfill and the tests share one rule.
 pub fn needs_derive(asset: &Asset) -> bool {
-    asset.preview == "pending" || (asset.kind != AssetKind::Audio && !derived_ok(&asset.thumbnail))
+    asset.preview == "pending"
+        || (asset.kind != AssetKind::Audio && !derived_ok(&asset.thumbnail))
+        || (asset.has_audio && asset.peaks.is_none())
+}
+
+/// Where an asset's preview proxy goes, and the part file it is encoded into first.
+fn proxy_files(proxies: &Path, id: &str, kind: AssetKind) -> (PathBuf, PathBuf) {
+    let ext = if kind == AssetKind::Audio { "m4a" } else { "mp4" };
+    (proxies.join(format!("{id}.{ext}")), proxies.join(format!("{id}.part.{ext}")))
+}
+
+/// Moves a finished proxy encode from its part file onto the proxy's real name. The encode never
+/// writes the real name itself, so an interrupted or overlapping run cannot leave a broken proxy
+/// that `derived_ok` would accept. Answers with the proxy's path, or `None` (part file removed,
+/// any earlier proxy left as it was) when the encode failed or left nothing usable.
+fn publish_proxy(encoded: bool, part: &Path, target: &Path) -> Option<String> {
+    let usable = encoded && derived_ok(&Some(part.display().to_string())) && std::fs::rename(part, target).is_ok();
+    if !usable {
+        let _ignored = std::fs::remove_file(part);
+    }
+    usable.then(|| target.display().to_string())
 }
 
 /// Produces thumbnail, filmstrip, waveform and (when needed) a preview proxy for `asset`.
@@ -284,8 +305,9 @@ pub async fn derive(
     report: impl Fn(f64, &str) + Send,
 ) -> Asset {
     let mut out = asset.clone();
+    // FFmpeg may simply not be resolved yet (it is found in the background at launch): a pending
+    // preview stays pending for the startup backfill rather than being marked failed.
     let Ok(ffmpeg) = tools.ffmpeg() else {
-        out.preview = if asset.preview == "native" { "native".to_owned() } else { "failed".to_owned() };
         return out;
     };
     let source = asset.path.as_str();
@@ -346,30 +368,28 @@ pub async fn derive(
 
     if asset.preview != "native" {
         report(0.65, "Preview proxy");
-        let (file, args): (String, Vec<String>) = if asset.kind == AssetKind::Audio {
-            let target = proxies.join(format!("{id}.m4a")).display().to_string();
-            (target.clone(), vec!["-vn".into(), "-c:a".into(), "aac".into(), "-b:a".into(), "160k".into(), target])
+        let (target, part) = proxy_files(proxies, id, asset.kind);
+        let part_text = part.display().to_string();
+        let args: Vec<String> = if asset.kind == AssetKind::Audio {
+            vec!["-vn".into(), "-c:a".into(), "aac".into(), "-b:a".into(), "160k".into(), part_text]
         } else {
-            let target = proxies.join(format!("{id}.mp4")).display().to_string();
             let encoder = if tools.status.x264 { "libx264" } else { "mpeg4" };
-            (
-                target.clone(),
-                vec![
-                    "-vf".into(), "scale=-2:'min(720,ih)',format=yuv420p".into(),
-                    "-c:v".into(), encoder.into(), "-preset".into(), "veryfast".into(), "-crf".into(), "26".into(),
-                    "-g".into(), "30".into(), "-c:a".into(), "aac".into(), "-b:a".into(), "128k".into(),
-                    "-movflags".into(), "+faststart".into(), target,
-                ],
-            )
+            vec![
+                "-vf".into(), "scale=-2:'min(720,ih)',format=yuv420p".into(),
+                "-c:v".into(), encoder.into(), "-preset".into(), "veryfast".into(), "-crf".into(), "26".into(),
+                "-g".into(), "30".into(), "-c:a".into(), "aac".into(), "-b:a".into(), "128k".into(),
+                "-movflags".into(), "+faststart".into(), part_text,
+            ]
         };
         let mut full: Vec<&str> = vec!["-hide_banner", "-loglevel", "error", "-y", "-i", source];
         full.extend(args.iter().map(String::as_str));
-        match crate::tools::run(ffmpeg, &full, None).await {
-            Ok(_) if derived_ok(&Some(file.clone())) => {
+        let encoded = crate::tools::run(ffmpeg, &full, None).await.is_ok();
+        match publish_proxy(encoded, &part, &target) {
+            Some(file) => {
                 out.proxy = Some(file);
                 out.preview = "ready".to_owned();
             }
-            Ok(_) | Err(_) => out.preview = "failed".to_owned(),
+            None => out.preview = "failed".to_owned(),
         }
     }
     report(1.0, "Ready");
@@ -509,7 +529,7 @@ async fn audio_peaks(ffmpeg: &Path, source: &str, duration: f64) -> Option<Vec<u
 
 #[cfg(test)]
 mod tests {
-    use super::{derived_ok, needs_derive, parse_probe, plays_natively, Asset, AssetKind};
+    use super::{derived_ok, needs_derive, parse_probe, plays_natively, proxy_files, publish_proxy, Asset, AssetKind};
 
     const H264_MP4: &str = r#"{"streams":[
         {"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"pix_fmt":"yuv420p","avg_frame_rate":"30000/1001"},
@@ -564,11 +584,44 @@ mod tests {
         let mut stale = blank_asset(AssetKind::Video);
         stale.thumbnail = Some("/definitely/not/here.jpg".to_owned());
         assert!(needs_derive(&stale));
-        // Audio never needs a thumbnail; only a pending proxy pulls it back in.
-        assert!(!needs_derive(&blank_asset(AssetKind::Audio)));
-        let mut pending = blank_asset(AssetKind::Audio);
+        // Audio never needs a thumbnail; only a pending proxy or missing peaks pull it back in.
+        let mut done = blank_asset(AssetKind::Audio);
+        done.peaks = Some("C:/thumbs/a-peaks.bin".to_owned());
+        assert!(!needs_derive(&done));
+        let mut pending = done.clone();
         pending.preview = "pending".to_owned();
         assert!(needs_derive(&pending));
+    }
+
+    #[test]
+    fn media_with_sound_but_no_peaks_is_derived_by_the_startup_backfill() {
+        let mut silent = blank_asset(AssetKind::Audio);
+        silent.has_audio = false;
+        assert!(!needs_derive(&silent));
+        assert!(needs_derive(&blank_asset(AssetKind::Audio)));
+    }
+
+    #[test]
+    fn a_proxy_is_encoded_into_a_part_file_and_only_a_good_one_replaces_it() {
+        let dir = std::env::temp_dir().join(format!("helios-proxy-{}", crate::store::new_id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let (target, part) = proxy_files(&dir, "a1", AssetKind::Video);
+        assert_eq!((target.clone(), part.clone()), (dir.join("a1.mp4"), dir.join("a1.part.mp4")));
+        assert_eq!(proxy_files(&dir, "a1", AssetKind::Audio).1, dir.join("a1.part.m4a"));
+        std::fs::write(&target, b"earlier proxy").expect("earlier");
+        // A failed or empty encode leaves the earlier proxy alone and clears its part file.
+        std::fs::write(&part, b"half written").expect("part");
+        assert_eq!(publish_proxy(false, &part, &target), None);
+        std::fs::write(&part, []).expect("empty part");
+        assert_eq!(publish_proxy(true, &part, &target), None);
+        assert!(!part.exists());
+        assert_eq!(std::fs::read(&target).expect("target"), b"earlier proxy");
+        // A good one takes the real name.
+        std::fs::write(&part, b"new proxy").expect("part");
+        assert_eq!(publish_proxy(true, &part, &target), Some(target.display().to_string()));
+        assert!(!part.exists());
+        assert_eq!(std::fs::read(&target).expect("target"), b"new proxy");
+        let _ignored = std::fs::remove_dir_all(dir);
     }
 
     #[test]
