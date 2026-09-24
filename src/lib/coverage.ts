@@ -9,10 +9,10 @@ import { placement } from './editor';
 import { animated } from './keyframes';
 import { clipEnd, sourceInfo, sourceTimeAt, tracksOf, transitionWindow, type AssetMap } from './timeline';
 import type { Clip, Comp, Project } from './types';
-import { entryBounds } from '../motion/evaluate';
 import { parseColor } from '../motion/gl/color';
+import { transformPoint, type Mat4 } from '../motion/math';
 import { evaluateMeasured } from '../motion/measure';
-import type { MotionScene } from '../motion/types';
+import type { Layer, MotionScene } from '../motion/types';
 
 /** A stretch of the comp where some picture is on screen but no layer fills the frame. */
 export type UncoveredSpan = {
@@ -31,6 +31,30 @@ type Picture = { clip: Clip; trackIndex: number; covers: boolean };
 
 const opaque = (color: string | null | undefined) => !!color && parseColor(color)[3] >= 0.995;
 
+/** Whether a layer's content is opaque over its whole rectangle: a solid, a procedural field, or a filled square-cornered rect. */
+const paintsRect = (layer: Layer) => layer.type === 'solid' ? opaque(layer.color)
+  : layer.type === 'procedural' ? layer.kind !== 'light-leak' // the one field drawn with alpha
+    // Only a square-cornered rect fills its bounds; an ellipse or rounded card leaves the corners.
+    : layer.type === 'shape' ? layer.shape.shape === 'rect' && !layer.shape.radius && (layer.shape.gradient ? layer.shape.gradient.stops.every(([, color]) => opaque(color)) : opaque(layer.shape.fill))
+      : false;
+
+/** Whether content of `size` placed by `matrix` covers the `width`×`height` canvas (within EDGE), rotated or not. */
+function coversCanvas(matrix: Mat4, size: [number, number], width: number, height: number): boolean {
+  const [w, h] = size;
+  const quad = [[0, 0], [w, 0], [w, h], [0, h]].map(([x, y]) => transformPoint(matrix, x, y, 0));
+  if (quad.some((p) => p[3] <= 1e-6)) return false;
+  const points = quad.map((p) => [p[0] / p[3], p[1] / p[3]]);
+  // Signed area gives the winding; a canvas corner is inside when it is on the inner side of every edge.
+  const area = points.reduce((sum, [x, y], i) => { const [nx, ny] = points[(i + 1) % 4]; return sum + x * ny - nx * y; }, 0);
+  if (Math.abs(area) < 1e-6) return false;
+  const sign = Math.sign(area);
+  return [[0, 0], [width, 0], [width, height], [0, height]].every(([cx, cy]) => points.every(([ax, ay], i) => {
+    const [bx, by] = points[(i + 1) % 4];
+    const length = Math.hypot(bx - ax, by - ay);
+    return length > 0 && (sign * ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax))) / length >= -EDGE;
+  }));
+}
+
 /**
  * Whether a motion scene at scene time `t` paints every pixel of its own canvas: an opaque
  * background colour, or an opaque full-canvas stage (a solid, a procedural field, or a filled
@@ -39,6 +63,8 @@ const opaque = (color: string | null | undefined) => !!color && parseColor(color
 function sceneFillsCanvas(scene: MotionScene, t: number, fps: number): boolean {
   if (opaque(scene.background)) return true;
   const own = scene.stack ? new Set(scene.stack.own) : null;
+  // Evaluating the scene lays out its text; skip it when no layer could fill the canvas anyway.
+  if (!scene.layers.some((layer) => (!own || own.has(layer.id)) && paintsRect(layer))) return false;
   const matteSources = new Set(scene.layers.map((layer) => layer.matte?.layer).filter(Boolean));
   const frame = evaluateMeasured(scene, Math.max(0, Math.min(scene.duration - 1e-3, t)), fps);
   return frame.layers.some((entry) => {
@@ -46,14 +72,7 @@ function sceneFillsCanvas(scene: MotionScene, t: number, fps: number): boolean {
     if (own && !own.has(layer.id)) return false;
     if (!entry.active || layer.hidden || layer.ref || layer.adjustment || layer.threeD || layer.matte || entry.masks.length || matteSources.has(layer.id)) return false;
     if ((layer.blend ?? 'normal') !== 'normal' || entry.opacity < 0.995) return false;
-    const paints = layer.type === 'solid' ? opaque(layer.color)
-      : layer.type === 'procedural' ? layer.kind !== 'light-leak' // the one field drawn with alpha
-        // Only a square-cornered rect fills its bounds; an ellipse or rounded card leaves the corners.
-        : layer.type === 'shape' ? layer.shape.shape === 'rect' && !layer.shape.radius && (layer.shape.gradient ? layer.shape.gradient.stops.every(([, color]) => opaque(color)) : opaque(layer.shape.fill))
-          : false;
-    if (!paints) return false;
-    const box = entryBounds(entry.matrix, entry.size);
-    return !!box && box.x <= EDGE && box.y <= EDGE && box.x + box.width >= scene.width - EDGE && box.y + box.height >= scene.height - EDGE;
+    return paintsRect(layer) && coversCanvas(entry.matrix, entry.size, scene.width, scene.height);
   });
 }
 
@@ -193,7 +212,8 @@ export function describeUncovered(spans: UncoveredSpan[], comp: Comp, project?: 
     const source = clip.source;
     if (source.type === 'comp') {
       const child = project?.comps.find((entry) => entry.id === source.compId);
-      const shown = child?.clips.filter((entry) => entry.enabled && entry.source.type !== 'sfx') ?? [];
+      const video = new Set(child ? tracksOf(child, 'video').filter((track) => !track.hidden).map((track) => track.id) : []);
+      const shown = child?.clips.filter((entry) => entry.enabled && video.has(entry.trackId) && entry.source.type !== 'sfx') ?? [];
       return depth < MAX_DEPTH && shown.length > 0 && shown.every((entry) => overlay(entry, depth + 1));
     }
     return source.type === 'text' || source.type === 'html' || source.type === 'shape' || source.type === 'motion';

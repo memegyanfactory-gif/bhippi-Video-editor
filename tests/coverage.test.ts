@@ -106,6 +106,17 @@ describe('which frames the picture does not fill', () => {
     expect(uncoveredSpans(project, assets, comp)).toEqual([]);
   });
 
+  it('a stage rotated inside the scene leaves the frame corners uncovered', () => {
+    const { project, assets, comp } = setup();
+    const scene = { ...brandTitle(), background: null };
+    comp.clips = [newClip({ trackId: tracksOf(comp, 'video')[0].id, start: 0, duration: scene.duration, source: { type: 'motion', scene } })];
+    expect(uncoveredSpans(project, assets, comp)).toEqual([]);
+    // Tilted 5°, the stage's bounding box still spans the canvas but its corners do not.
+    const tilted = { ...scene, layers: scene.layers.map((layer) => (layer.type === 'text' ? layer : { ...layer, transform: { ...layer.transform, rotation: 5 } })) };
+    comp.clips[0] = { ...comp.clips[0], source: { type: 'motion', scene: tilted } };
+    expect(uncoveredSpans(project, assets, comp)).toHaveLength(1);
+  });
+
   it('says a title over an empty frame is graphics over nothing, not a scaled picture', () => {
     const { project, assets, comp } = setup();
     comp.clips = [newClip({ trackId: tracksOf(comp, 'video')[0].id, start: 0, duration: 5, source: { type: 'text', preset: 'title', text: 'Hi', subtitle: '', color: '#fff', style: null } as never })];

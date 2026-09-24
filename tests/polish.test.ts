@@ -52,6 +52,20 @@ describe('frame QA of HTML graphics and captions', () => {
     const layers = await collectQaLayers(project, new Map(), comp, [0.5], noRoto);
     expect(layers.map((layer) => [layer.box.x, layer.box.y].map((n) => Math.round(n * 100) / 100))).toEqual([[0.6, 0.65], [0.2, 0.15]]);
   });
+  it('judges a [MOGRT] graphic opened into layers once, not once per layer', async () => {
+    const { project, comp, track } = scratch();
+    const child = { ...newProject().comps[0], name: '[MOGRT] card' };
+    const childTrack = tracksOf(child, 'video')[0].id;
+    // Every layer clip of an opened graphic carries the whole graphic's box; this card crosses the safe margin.
+    const layer = (id: string) => ({ ...graphic(childTrack, `Layer ${id}`, { x: 0.01, y: 0.4, width: 0.3, height: 0.2 }, 'teaching-card'), source: { type: 'html' as const, html: '<div></div>', css: `/* helios-layers stack=s1 layer=${id} of=3 */
+`, box: { x: 0.01, y: 0.4, width: 0.3, height: 0.2 }, template: 'teaching-card' } });
+    child.clips.push(layer('0'), layer('1'), layer('2'));
+    project.comps.push(child);
+    comp.clips.push(newClip({ trackId: track, start: 0, duration: 3, name: 'Card', source: { type: 'comp', compId: child.id } }));
+    const layers = await collectQaLayers(project, new Map(), comp, [0.5], noRoto);
+    expect(layers).toHaveLength(1);
+    expect((await qa(project, comp)).filter((issue) => issue.kind === 'outside-safe').map((issue) => issue.a)).toEqual(['Card', 'Card', 'Card']);
+  });
   it('places a styled caption at its style position', async () => {
     const collides = async (box: Box) => {
       const { project, comp, track } = scratch();

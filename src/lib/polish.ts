@@ -34,6 +34,13 @@ function holderMap(clip: Clip, t: number): (box: Box) => Box {
 
 const FRAME: Box = { x: 0, y: 0, width: 1, height: 1 };
 
+/** The smallest box holding both. */
+const unite = (a: Box, b: Box): Box => {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, width: Math.max(a.x + a.width, b.x + b.width) - x, height: Math.max(a.y + a.height, b.y + b.height) - y };
+};
+
 /** The part of a comp shaped like `frame` that an HTML graphic's canvas covers: all of it, or the band a fixed 1920×1080 canvas fits into. */
 const canvasOf = (source: { template?: string | null }, frame: { width: number; height: number }): Box => (usesCompCanvas(source.template) ? FRAME : fittedBand(frame));
 
@@ -150,14 +157,27 @@ export async function collectQaLayers(project: Project, assets: AssetMap, comp: 
       const childVisible = new Set(tracksOf(child, 'video').filter((track) => !track.hidden).map((track) => track.id));
       const htmls = child.clips.filter((c) => c.enabled && childVisible.has(c.trackId) && c.source.type === 'html');
       if (htmls.length) {
+        // The layer clips of one opened graphic draw one graphic: judged once, where they sit together.
+        const graphics = new Map<string, Clip[]>();
+        for (const html of htmls) {
+          const key = (html.source.type === 'html' && htmlLayerInfo(html.source)?.stack) || html.id;
+          graphics.set(key, [...(graphics.get(key) ?? []), html]);
+        }
         for (const t of times) {
           if (t < from || t >= to) continue;
           const childTime = sourceTimeAt(clip, t);
           const map = holderMap(clip, t);
-          for (const html of htmls) {
-            if (html.source.type !== 'html' || !html.source.box || childTime < html.start || childTime >= clipEnd(html)) continue;
-            const box = judged(map(holderMap(html, childTime)(html.source.box)), canvasOf(html.source, child));
-            if (box) layers.push({ clipId: clip.id, name: htmls.length > 1 ? `${html.name ?? html.id} (${name})` : name, kind: 'graphic', box, from: t, to: t + 1e-3 });
+          for (const members of graphics.values()) {
+            let placed: Box | null = null;
+            for (const html of members) {
+              if (html.source.type !== 'html' || !html.source.box || childTime < html.start || childTime >= clipEnd(html)) continue;
+              const box = map(holderMap(html, childTime)(html.source.box));
+              placed = placed ? unite(placed, box) : box;
+            }
+            const first = members[0];
+            const box = first.source.type === 'html' ? judged(placed, canvasOf(first.source, child)) : null;
+            const label = members.length > 1 ? child.name : first.name ?? first.id;
+            if (box) layers.push({ clipId: clip.id, name: graphics.size > 1 ? `${label} (${name})` : name, kind: 'graphic', box, from: t, to: t + 1e-3 });
           }
         }
         continue;
