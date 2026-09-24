@@ -10,7 +10,65 @@ import { actionLogger } from './actionLogger';
 const LIMIT = 300;
 
 type Entry = { project: Project; label: string };
-type State = { past: Entry[]; present: Project; presentLabel: string; future: Entry[]; pending: Project | null };
+export type HistoryState = { past: Entry[]; present: Project; presentLabel: string; future: Entry[]; pending: Project | null };
+type State = HistoryState;
+/** A gesture step: from the present, or from `start` — where the gesture began, with any edit made since. */
+type Step = Project | ((present: Project, start: Project) => Project);
+
+export const historyStart = (project: Project): State => ({ past: [], present: project, presentLabel: 'Open', future: [], pending: null });
+
+/**
+ * A finished edit: becomes one undo step.
+ *
+ * Healed on the way in. This is the one place every finished edit passes through, whoever
+ * made it — a drag, a tool call, the assistant — so it is the only place that can promise
+ * the project on screen is one the backend will accept. Without that promise a single bad
+ * edit stops every autosave from then on.
+ *
+ * During a gesture the edit is rebased instead of ending it: it applies to where the gesture
+ * started and to what it shows now, and becomes its own undo step under the gesture's. A
+ * gesture that rebuilds each step from its start (`preview`'s second argument) then keeps the
+ * edit — the assistant's work is not lost to a drag that happened to be in flight.
+ */
+export function commitStep(current: State, next: Project | ((current: Project) => Project), label: string): State {
+  const change = (project: Project) => healProject(typeof next === 'function' ? next(project) : next);
+  if (current.pending) {
+    const pending = change(current.pending);
+    const present = change(current.present);
+    if (pending === current.pending && present === current.present) return current;
+    return { past: [...current.past, { project: current.pending, label: current.presentLabel }].slice(-LIMIT), present, presentLabel: label, future: [], pending };
+  }
+  const value = change(current.present);
+  if (value === current.present) return current;
+  return { past: [...current.past, { project: current.present, label: current.presentLabel }].slice(-LIMIT), present: value, presentLabel: label, future: [], pending: null };
+}
+
+/** A step inside a gesture: shows immediately, undoes together with the gesture's settle. */
+export function previewStep(current: State, next: Step): State {
+  const value = typeof next === 'function' ? next(current.present, current.pending ?? current.present) : next;
+  if (value === current.present) return current;
+  return { ...current, present: value, pending: current.pending ?? current.present };
+}
+
+/** Ends a gesture started with `preview`. */
+export function settleStep(current: State, label: string): State {
+  if (!current.pending || current.pending === current.present) return { ...current, pending: null };
+  const present = healProject(current.present);
+  return { past: [...current.past, { project: current.pending, label: current.presentLabel }].slice(-LIMIT), present, presentLabel: label, future: [], pending: null };
+}
+
+export function undoStep(current: State): State {
+  const base = current.pending ?? current.present;
+  if (current.past.length === 0) return current.pending ? { ...current, present: base, pending: null } : current;
+  const previous = current.past[current.past.length - 1];
+  return {
+    past: current.past.slice(0, -1),
+    present: withView(previous.project, current.present),
+    presentLabel: previous.label,
+    future: [{ project: base, label: current.presentLabel }, ...current.future],
+    pending: null,
+  };
+}
 
 /** Keeps the open tabs of `view` on `project`, as far as those comps still exist. */
 function withView(project: Project, view: Project): Project {
@@ -22,48 +80,25 @@ function withView(project: Project, view: Project): Project {
 }
 
 export function useHistory(initial: Project) {
-  const [state, setState] = useState<State>({ past: [], present: initial, presentLabel: 'Open', future: [], pending: null });
+  const [state, setState] = useState<State>(() => historyStart(initial));
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  /** A finished edit: becomes one undo step.
-   *
-   * Healed on the way in. This is the one place every finished edit passes through, whoever
-   * made it — a drag, a tool call, the assistant — so it is the only place that can promise
-   * the project on screen is one the backend will accept. Without that promise a single bad
-   * edit stops every autosave from then on. A gesture in flight is left alone: `preview` can
-   * overlap freely, and `settle` is where it has to be true again. */
+  /** A finished edit: becomes one undo step (see `commitStep`). */
   const commit = useCallback((next: Project | ((current: Project) => Project), label = 'Edit') => {
     actionLogger.log(
       label.startsWith('AI: ') ? 'ai' : 'user',
       'info',
       label.startsWith('AI: ') ? label : `User Edit: ${label}`
     );
-    setState((current) => {
-      const value = healProject(typeof next === 'function' ? next(current.present) : next);
-      if (value === current.present) return current.pending ? { ...current, pending: null } : current;
-      const base = current.pending ?? current.present;
-      return { past: [...current.past, { project: base, label: current.presentLabel }].slice(-LIMIT), present: value, presentLabel: label, future: [], pending: null };
-    });
+    setState((current) => commitStep(current, next, label));
   }, []);
 
   /** A step inside a gesture: shows immediately, undoes together with the gesture's settle. */
-  const preview = useCallback((next: Project | ((current: Project) => Project)) => {
-    setState((current) => {
-      const value = typeof next === 'function' ? next(current.present) : next;
-      if (value === current.present) return current;
-      return { ...current, present: value, pending: current.pending ?? current.present };
-    });
-  }, []);
+  const preview = useCallback((next: Step) => setState((current) => previewStep(current, next)), []);
 
   /** Ends a gesture started with `preview`. */
-  const settle = useCallback((label = 'Edit') => {
-    setState((current) => {
-      if (!current.pending || current.pending === current.present) return { ...current, pending: null };
-      const present = healProject(current.present);
-      return { past: [...current.past, { project: current.pending, label: current.presentLabel }].slice(-LIMIT), present, presentLabel: label, future: [], pending: null };
-    });
-  }, []);
+  const settle = useCallback((label = 'Edit') => setState((current) => settleStep(current, label)), []);
 
   /** Abandons a gesture: back to how it started. */
   const cancel = useCallback(() => {
@@ -81,20 +116,7 @@ export function useHistory(initial: Project) {
     [],
   );
 
-  const undo = useCallback(() => {
-    setState((current) => {
-      const base = current.pending ?? current.present;
-      if (current.past.length === 0) return current.pending ? { ...current, present: base, pending: null } : current;
-      const previous = current.past[current.past.length - 1];
-      return {
-        past: current.past.slice(0, -1),
-        present: withView(previous.project, current.present),
-        presentLabel: previous.label,
-        future: [{ project: base, label: current.presentLabel }, ...current.future],
-        pending: null,
-      };
-    });
-  }, []);
+  const undo = useCallback(() => setState(undoStep), []);
 
   const redo = useCallback(() => {
     setState((current) => {

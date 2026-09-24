@@ -708,6 +708,13 @@ export function moveClips(comp: Comp, ids: string[], dt: number, shift: { video:
   return { comp: tidy({ ...result, transitions: [...result.transitions, ...moved] }), ids: placed.map((clip) => clip.id) };
 }
 
+/** Properties › Start: the clip and its linked and grouped partners moved to `start`, overwriting what they land on, as a drag would. */
+export function moveClipTo(comp: Comp, clipId: string, start: number): Comp | null {
+  const clip = comp.clips.find((item) => item.id === clipId);
+  if (!clip) return null;
+  return moveClips(comp, withLinked(comp, [clipId]), start - clip.start, { video: 0, audio: 0 }, 'overwrite')?.comp ?? null;
+}
+
 /** A copied clip with the kind and index of the track it was copied from. */
 export type ClipboardEntry = { clip: Clip; kind: TrackKind; index: number };
 

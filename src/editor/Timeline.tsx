@@ -346,7 +346,12 @@ export function Timeline(props: Props) {
   const locked = (trackId: string) => !!comp.tracks.find((track) => track.id === trackId)?.locked;
   const limit = (clip: Clip) => sourceLimit(project, assets, clip);
   const setComp = (change: (current: Comp) => Comp, label: string) => history.commit((current) => updateComp(current, comp.id, change), label);
-  const previewComp = (next: Comp) => history.preview((current) => updateComp(current, comp.id, () => next));
+  // Each drag step is rebuilt from where the gesture started — as history has it, so an edit
+  // the assistant commits mid-drag is part of that start and survives the drag.
+  const previewComp = (make: (base: Comp) => Comp) => history.preview((present, start) => {
+    const base = start.comps.find((item) => item.id === comp.id);
+    return base ? updateComp(present, comp.id, () => make(base)) : present;
+  });
   const snapped = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }) => {
     const on = snapping !== !!event?.shiftKey && tool !== 'hand';
     if (!on) return toFrame(value, fps);
@@ -556,16 +561,16 @@ export function Timeline(props: Props) {
       }
       case 'trim': {
         const target = snapped(at, new Set([active.clipId]), event);
-        previewComp(trimEdge(active.base, active.clipId, active.edge, target, active.mode, limit, { minDuration: frame, alone: active.alone || event.altKey && active.mode !== 'stretch' }));
+        previewComp((base) => trimEdge(base, active.clipId, active.edge, target, active.mode, limit, { minDuration: frame, alone: active.alone || event.altKey && active.mode !== 'stretch' }));
         return;
       }
       case 'slip': {
         const clip = active.base.clips.find((item) => item.id === active.clipId);
-        if (clip) previewComp(slipClip(active.base, active.clipId, toFrame(-((event.clientX - active.startX) / zoom) * clip.speed, fps), limit));
+        if (clip) previewComp((base) => slipClip(base, active.clipId, toFrame(-((event.clientX - active.startX) / zoom) * clip.speed, fps), limit));
         return;
       }
       case 'slide':
-        previewComp(slideClip(active.base, active.clipId, toFrame((event.clientX - active.startX) / zoom, fps), limit, frame));
+        previewComp((base) => slideClip(base, active.clipId, toFrame((event.clientX - active.startX) / zoom, fps), limit, frame));
         return;
       case 'marquee': {
         const rect = node?.getBoundingClientRect();
@@ -592,7 +597,7 @@ export function Timeline(props: Props) {
         const value = active.property === 'opacity'
           ? clamp(Math.round(active.startValue - deltaFraction * 100), 0, 100)
           : volumeFromY(volumeY(active.startValue) + deltaFraction);
-        previewComp(updateClipIn(active.base, clip.id, (item) => {
+        previewComp((base) => updateClipIn(base, clip.id, (item) => {
           const keys = item.keyframes[active.property];
           if (active.index === null) {
             if (keys.length) {
@@ -614,7 +619,7 @@ export function Timeline(props: Props) {
         const dx = (event.clientX - active.startX) / zoom;
         const factor = transition.alignment === 'center' ? 2 : 1;
         const duration = Math.max(frame, toFrame(transition.duration + (active.edge === 'out' ? dx : -dx) * factor, fps));
-        previewComp({ ...active.base, transitions: active.base.transitions.map((item) => (item.id === active.id ? { ...item, duration } : item)) });
+        previewComp((base) => ({ ...base, transitions: base.transitions.map((item) => (item.id === active.id ? { ...item, duration } : item)) }));
         return;
       }
       case 'resize': {
