@@ -153,6 +153,26 @@ describe('motion tools', () => {
     expect(h.get().comps[0].clips.find((c) => c.id === holder.id)).toEqual(holder);
   });
 
+  it('moves and trims a layer clip when a patch changes its in or out, and refuses a window that ends before it starts', async () => {
+    const h = harness(newProject());
+    const scene: MotionScene = { ...raw, duration: 5, layers: [raw.layers[0], { ...raw.layers[1], in: 0, out: 2 }], cues: [] };
+    const made = await runMotionTool('create_motion_scene', { scene, start: 0, sfx: false, fit: false }, h.ctx);
+    expect(made.ok).toBe(true);
+    const motionComp = () => h.get().comps.find((c) => c.id === made.compId)!;
+    const titleClip = () => motionComp().clips.find((c) => c.source.type === 'motion' && c.source.scene.stack?.own.includes('title'));
+    expect(titleClip()).toMatchObject({ start: 0, in: 0, duration: 2 });
+    const later = await runMotionTool('update_motion_scene', { compId: made.compId, patches: [{ layer: 'title', path: 'in', value: 1 }] }, h.ctx);
+    expect(later.ok).toBe(true);
+    expect(titleClip()).toMatchObject({ start: 1, in: 1 });
+    expect(titleClip()!.duration).toBeCloseTo(1, 6);
+    const tracks = motionComp().tracks.length;
+    const bad = await runMotionTool('update_motion_scene', { compId: made.compId, patches: [{ layer: 'title', path: 'in', value: 3 }] }, h.ctx);
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain('out must be after in');
+    expect(titleClip()).toMatchObject({ start: 1, in: 1 });
+    expect(motionComp().tracks).toHaveLength(tracks);
+  });
+
   it('says what a precomp leaves out of a timeline edit inside its comp', async () => {
     const h = harness(newProject());
     const made = await runMotionTool('create_motion_scene', { template: 'subject-reveal', params: { subject: { path: 'talk.mp4', matte: 'm' }, plate: { path: 'plate.png', kind: 'image' }, title: ['YOU MADE', 'IT HERE'], cardAt: 3 }, start: 0, sfx: false }, h.ctx);

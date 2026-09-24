@@ -439,7 +439,7 @@ function updateStack(comp: Comp, args: Args, ctx: MotionToolContext): ToolResult
   if ('error' in edit) return fail(edit.error);
   const timing = edit.rebuilt || edit.retime ? 'scene' : 'keep';
   ctx.commit((current) => {
-    const restacked = restack(current, comp.id, edit.scene, timing);
+    const restacked = restack(current, comp.id, edit.scene, timing, 0, base);
     const after = restacked.comps.find((c) => c.id === comp.id);
     // A scene that got longer or shorter takes the clips that hold it along.
     return after && Math.abs(edit.scene.duration - base.duration) > 1e-3 ? syncHolders(restacked, after, compDuration(after)) : restacked;

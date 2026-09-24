@@ -185,9 +185,11 @@ export function logicalScene(project: Project, comp: Comp, depth = 0): MotionSce
  * track (lock, visibility, name, place in the stack); `timing: 'keep'` also keeps where the clip
  * sits and how long it is, `'scene'` re-times clips nobody moved to the scene's in/out. New layers
  * get a track right above the layer below them; layers gone lose their clip and, when empty,
- * their track. Precomp layers write into the comps they already have.
+ * their track. Precomp layers write into the comps they already have. Under `'keep'`, a layer
+ * whose in or out point differs from `before` (the logical scene the edit started from) was
+ * re-timed on purpose: its clip moves and trims to the new window.
  */
-export function restack(project: Project, compId: string, scene: MotionScene, timing: 'keep' | 'scene', depth = 0): Project {
+export function restack(project: Project, compId: string, scene: MotionScene, timing: 'keep' | 'scene', depth = 0, before?: MotionScene): Project {
   const comp = project.comps.find((entry) => entry.id === compId);
   if (!comp || depth > 6) return project;
   const fresh = explodeScene(scene, { name: comp.name, fps: comp.fps, width: comp.width, height: comp.height });
@@ -202,8 +204,12 @@ export function restack(project: Project, compId: string, scene: MotionScene, ti
   const added: { track: Comp['tracks'][number]; below: string | null }[] = [];
   let below: string | null = null;
   const dropNested = new Set<string>();
+  const frame = 1 / Math.max(1, comp.fps);
+  const written = new Set<string>();
   for (const freshClip of fresh.comp.clips as LayerClip[]) {
     const layerId = freshClip.source.scene.stack!.own[0];
+    written.add(layerId);
+    const prev = before?.layers.find((layer) => layer.id === layerId);
     let clipScene: MotionScene = { ...freshClip.source.scene, stack: { id: stackId, own: [layerId] } };
     const olds = byLayer.get(layerId) ?? [];
     // A precomp that already has its comp writes into it; the comp explode just made is dropped.
@@ -211,7 +217,7 @@ export function restack(project: Project, compId: string, scene: MotionScene, ti
     const oldPrecomp = olds.map((clip) => ownLayers(clip.source.scene)[0]).find((layer) => layer?.type === 'precomp' && layer.comp && next.comps.some((entry) => entry.id === layer.comp));
     if (ownFresh?.type === 'precomp' && ownFresh.comp && oldPrecomp?.type === 'precomp' && oldPrecomp.comp) {
       dropNested.add(ownFresh.comp);
-      next = restack(next, oldPrecomp.comp, ownFresh.scene, timing, depth + 1);
+      next = restack(next, oldPrecomp.comp, ownFresh.scene, timing, depth + 1, prev?.type === 'precomp' ? prev.scene : undefined);
       const target = oldPrecomp.comp;
       clipScene = { ...clipScene, layers: clipScene.layers.map((layer) => (layer.id === layerId && layer.type === 'precomp' ? { ...layer, comp: target } : layer)) };
     }
@@ -222,6 +228,10 @@ export function restack(project: Project, compId: string, scene: MotionScene, ti
       below = track.id;
       continue;
     }
+    // An in or out point patched on purpose (the raw values: explode clamps them) moves and trims the clip.
+    const want = scene.layers.find((layer) => layer.id === layerId);
+    const span = timing === 'keep' && before && prev && want ? { from: prev.in ?? 0, to: prev.out ?? before.duration, in: want.in ?? 0, out: want.out ?? scene.duration } : null;
+    const repoint = span && (Math.abs(span.in - span.from) > 1e-6 || Math.abs(span.out - span.to) > 1e-6) ? span : null;
     olds.forEach((old, index) => {
       keptTracks.add(old.trackId);
       const untouched = old.start === old.in && old.speed === 1;
@@ -231,9 +241,18 @@ export function restack(project: Project, compId: string, scene: MotionScene, ti
         source: { ...old.source, scene: clipScene, title: freshClip.source.title, frames: undefined },
         name: freshClip.name,
         ...(retime ? { start: freshClip.start, in: freshClip.in, duration: freshClip.duration } : {}),
+        ...(repoint && index === 0 ? { start: Math.max(0, old.start + (repoint.in - repoint.from) / old.speed), in: repoint.in, duration: Math.max(frame, (repoint.out - repoint.in) / old.speed) } : {}),
       });
     });
     below = olds[olds.length - 1].trackId;
+  }
+  // A layer still in the scene that explode dropped (its window came out shorter than a frame) keeps its clips as they were.
+  for (const [layerId, olds] of byLayer) {
+    if (written.has(layerId) || !scene.layers.some((layer) => layer.id === layerId)) continue;
+    for (const old of olds) {
+      keptTracks.add(old.trackId);
+      if (!clips.some((clip) => clip.id === old.id)) clips.push(old);
+    }
   }
   // Tracks: the old order, less the tracks that emptied, with each new layer's track above the layer below it.
   const gone = new Set(oldClips.map((clip) => clip.trackId).filter((id) => !keptTracks.has(id) && !clips.some((clip) => clip.trackId === id)));
