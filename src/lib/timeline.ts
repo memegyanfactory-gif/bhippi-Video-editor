@@ -623,8 +623,11 @@ export function removeRange(comp: Comp, start: number, end: number, mode: 'lift'
   let markers = comp.markers;
   if (mode === 'extract') {
     const gap = end - start;
-    const moving = new Set([...targets, ...syncIds(comp)]);
-    clips = clips.map((clip) => (moving.has(clip.trackId) && clip.start >= end - EPS ? { ...clip, start: clip.start - gap } : clip));
+    // A sync-locked track the range was not cleared on still holds whatever sits inside it: it
+    // stays put, or its later clips would slide onto that.
+    const occupied = new Set(clips.filter((clip) => clip.start < end - EPS && clipEnd(clip) > start + EPS).map((clip) => clip.trackId));
+    const moving = new Set([...targets, ...[...syncIds(comp)].filter((id) => !occupied.has(id))]);
+    clips = rippleTracks(clips, end, -gap, moving);
     markers = markers.filter((marker) => marker.time < start || marker.time >= end).map((marker) => (marker.time >= end ? { ...marker, time: marker.time - gap } : marker));
   }
   return tidy({ ...comp, clips, markers, inPoint: null, outPoint: null }, ctx);
@@ -854,6 +857,24 @@ export function trimEdge(comp: Comp, clipId: string, edge: 'in' | 'out', target:
     clips = [...others, ...clips.filter((item) => groupIds.has(item.id))];
   }
   return tidy({ ...comp, clips });
+}
+
+/**
+ * Q and W (ripple) or Shift+Q and Shift+W: trims each of `trackIds` to the playhead. Inside a
+ * clip, 'previous' takes off its head (back to the edit before the playhead) and 'next' its tail;
+ * in a gap, 'previous' pulls the tail of the clip before up to it and 'next' the head of the one after.
+ */
+export function trimToPlayhead(comp: Comp, trackIds: string[], at: number, side: 'previous' | 'next', ripple: boolean, limit: (clip: Clip) => number, frame: number): Comp {
+  let next = comp;
+  for (const trackId of trackIds) {
+    const clips = clipsOn(next, trackId);
+    const inside = clips.find((clip) => clip.start < at - EPS && clipEnd(clip) > at + EPS);
+    const target = inside ?? (side === 'previous' ? [...clips].reverse().find((clip) => clip.start < at - EPS) : clips.find((clip) => clipEnd(clip) > at + EPS));
+    if (!target) continue;
+    const edge = inside ? (side === 'previous' ? 'in' : 'out') : side === 'previous' ? 'out' : 'in';
+    next = trimEdge(next, target.id, edge, at, ripple ? 'ripple' : 'normal', limit, { minDuration: frame });
+  }
+  return next;
 }
 
 /** Slip: same position and length, different part of the source. */
@@ -1202,8 +1223,14 @@ export function nestClips(project: Project, compId: string, ids: string[], name:
   const source: ClipSource = { type: 'comp', compId: childComp.id };
   const linkId = lowestVideo !== null && lowestAudio !== null ? uid() : null;
   const placed: Clip[] = [];
-  if (lowestVideo !== null) placed.push(newClip({ trackId: tracksOf(nextParent, 'video')[lowestVideo].id, start, duration: end - start, source, linkId }));
-  if (lowestAudio !== null) placed.push(newClip({ trackId: tracksOf(nextParent, 'audio')[lowestAudio].id, start, duration: end - start, source, linkId }));
+  // Clips left between the chosen ones (nesting A and C around B) keep their place: the nest
+  // goes on the lowest track that is free over the whole span.
+  for (const [kind, lowest] of [['video', lowestVideo], ['audio', lowestAudio]] as const) {
+    if (lowest === null) continue;
+    const free = freeTrack(nextParent, kind, start, end, lowest);
+    nextParent = free.comp;
+    placed.push(newClip({ trackId: free.track.id, start, duration: end - start, source, linkId }));
+  }
   nextParent = placeClips(nextParent, placed, 'overwrite');
   return {
     project: { ...project, comps: [...project.comps.map((comp) => (comp.id === compId ? nextParent : comp)), childComp] },

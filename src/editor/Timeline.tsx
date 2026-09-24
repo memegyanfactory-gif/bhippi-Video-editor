@@ -78,7 +78,7 @@ type Props = {
   onOpenInSource: (assetId: string, range: { in: number; out: number }) => void;
   onClipMenu: (event: ReactPointerEvent | React.MouseEvent, clipId: string, time: number) => void;
   onTrackMenu: (event: React.MouseEvent, trackId: string) => void;
-  onEmptyMenu: (event: React.MouseEvent, trackId: string | null, time: number) => void;
+  onEmptyMenu: (event: React.MouseEvent, trackId: string | null, time: number, transitionId?: string) => void;
   onMarkerEdit: (markerId: string) => void;
   onAddMarker: () => void;
   onVoiceOver: (trackId: string) => void;
@@ -867,7 +867,7 @@ export function Timeline(props: Props) {
           event.preventDefault();
           event.stopPropagation();
           props.onSelectTransition(transition.id);
-          props.onEmptyMenu(event, transition.trackId, window.at);
+          props.onEmptyMenu(event, transition.trackId, window.at, transition.id);
         }}
       >
         <span className="transition-name">{transitionLabel(transition.kind)}</span>

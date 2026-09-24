@@ -58,9 +58,9 @@ import { StickFigureDialog } from './components/StickFigureDialog';
 import { generateSelectionSound } from './lib/generateSound';
 import { registerSfx } from './lib/sfx';
 import {
-  addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
+  addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, closeGap, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, gapAt, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
   newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, pasteClips, placeClips, razor, removeAttributes, removeClips, removeRange, replaceSource, setGrouped, setLinked, setSpeed, sourceInfo,
-  sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, trackOf, tracksOf, transitionsOnSelection, trimEdge, updateComp, updateTrack, withLinked, wouldCycle,
+  sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, trackOf, tracksOf, transitionsOnSelection, trimToPlayhead, updateComp, updateTrack, withLinked, wouldCycle,
   type AssetMap, type ClipboardEntry,
 } from './lib/timeline';
 import { isLayeredComp, splitMotionComps } from './lib/motionStack';
@@ -1128,13 +1128,16 @@ export default function App() {
     });
   };
 
+  const deleteTransition = (id: string) => {
+    editComp((current) => ({ ...current, transitions: current.transitions.filter((item) => item.id !== id) }), 'Delete Transition');
+    setTransitionSelection(null);
+  };
+
   const deleteSelection = (ripple: boolean) => {
-    if (!comp || !selection.length) return;
-    if (transitionSelection) {
-      editComp((current) => ({ ...current, transitions: current.transitions.filter((item) => item.id !== transitionSelection) }), 'Delete Transition');
-      setTransitionSelection(null);
-      return;
-    }
+    if (!comp) return;
+    // A selected transition goes first: selecting one does not always clear the clip selection.
+    if (transitionSelection) return deleteTransition(transitionSelection);
+    if (!selection.length) return;
     editComp((current) => removeClips(current, linkedSelection ? withLinked(current, selection) : selection, ripple), ripple ? 'Ripple Delete' : 'Clear');
     setSelection([]);
   };
@@ -1201,18 +1204,16 @@ export default function App() {
     }
   };
 
-  const trimToPlayhead = (side: 'previous' | 'next', ripple: boolean) => {
+  const trimAtPlayhead = (side: 'previous' | 'next', ripple: boolean) => {
     if (!comp) return;
     const at = playhead.get();
     const tracks = targetedTracks();
-    let next = comp;
-    for (const trackId of tracks) {
-      const clips = next.clips.filter((clip) => clip.trackId === trackId).sort((a, b) => a.start - b.start);
-      const target = side === 'previous' ? [...clips].reverse().find((clip) => clip.start < at - 1e-4) : clips.find((clip) => clipEnd(clip) > at + 1e-4);
-      if (!target) continue;
-      next = trimEdge(next, target.id, side === 'previous' ? 'out' : 'in', at, ripple ? 'ripple' : 'normal', limit, { minDuration: frame });
+    editComp((current) => trimToPlayhead(current, tracks, at, side, ripple, limit, frame), ripple ? 'Ripple Trim to Playhead' : 'Extend Edit to Playhead');
+    // Q takes off the head of the clip under the playhead: what was shown there now starts at its old start.
+    if (side === 'previous' && ripple) {
+      const starts = comp.clips.filter((clip) => tracks.includes(clip.trackId) && clip.start < at - 1e-4 && clipEnd(clip) > at + 1e-4).map((clip) => clip.start);
+      if (starts.length) playhead.seek(Math.min(...starts));
     }
-    editComp(() => next, ripple ? 'Ripple Trim to Playhead' : 'Extend Edit to Playhead');
   };
 
   const clipVolume = (deltaDb: number) => {
@@ -1782,16 +1783,14 @@ export default function App() {
     ]);
   };
 
-  const emptyMenu = (event: React.MouseEvent, trackId: string | null, at: number) => {
+  const emptyMenu = (event: React.MouseEvent, trackId: string | null, at: number, transitionId?: string) => {
     if (!comp) return;
     showMenu(event, [
+      ...(transitionId ? [{ label: 'Clear', shortcut: 'Delete', onSelect: () => deleteTransition(transitionId) }, { separator: true } as MenuItem] : []),
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: !clipboard.current, onSelect: () => paste(false) },
       { label: 'Paste Insert', shortcut: 'Ctrl+Shift+V', disabled: !clipboard.current, onSelect: () => paste(true) },
       { separator: true },
-      { label: 'Ripple Delete', disabled: !trackId, onSelect: () => trackId && editComp((current) => {
-        const gapTrack = current.clips.some((clip) => clip.trackId === trackId) ? trackId : null;
-        return gapTrack ? removeRange(current, at, at, 'extract') : current;
-      }, 'Ripple Delete') },
+      { label: 'Ripple Delete', disabled: !trackId || !gapAt(comp, trackId, at), onSelect: () => trackId && editComp((current) => closeGap(current, trackId, at), 'Ripple Delete') },
       { label: 'Add Marker', shortcut: 'M', onSelect: addMarker },
       { separator: true },
       { label: 'Zoom to Sequence', shortcut: '\\', onSelect: () => timelineApi.current?.fit() },
@@ -1984,8 +1983,8 @@ export default function App() {
       { label: 'Copy', shortcut: 'Ctrl+C', disabled: !selection.length, onSelect: () => copySelection(false) },
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: !clipboard.current, onSelect: () => paste(false) },
       { label: 'Paste Insert', shortcut: 'Ctrl+Shift+V', disabled: !clipboard.current, onSelect: () => paste(true) },
-      { label: 'Clear', shortcut: 'Delete', disabled: !selection.length, onSelect: () => deleteSelection(false) },
-      { label: 'Ripple Delete', shortcut: 'Shift+Delete', disabled: !selection.length, onSelect: () => deleteSelection(true) },
+      { label: 'Clear', shortcut: 'Delete', disabled: !selection.length && !transitionSelection, onSelect: () => deleteSelection(false) },
+      { label: 'Ripple Delete', shortcut: 'Shift+Delete', disabled: !selection.length && !transitionSelection, onSelect: () => deleteSelection(true) },
       { label: 'Duplicate', shortcut: 'Ctrl+Shift+/', disabled: !selection.length, onSelect: () => {
         if (!comp) return;
         const result = moveClips(comp, linkedSelection ? withLinked(comp, selection) : selection, Math.max(...selectedClips.map(clipEnd)) - Math.min(...selectedClips.map((clip) => clip.start)), { video: 0, audio: 0 }, 'overwrite', true);
@@ -2040,10 +2039,10 @@ export default function App() {
       { label: 'Add Edit', shortcut: 'Ctrl+K', disabled: !hasClips, onSelect: () => addEdit(false) },
       { label: 'Add Edit to All Tracks', shortcut: 'Ctrl+Shift+K', disabled: !hasClips, onSelect: () => addEdit(true) },
       { label: 'Trim Edit', submenu: [
-        { label: 'Ripple Trim Previous Edit to Playhead', shortcut: 'Q', onSelect: () => trimToPlayhead('previous', true) },
-        { label: 'Ripple Trim Next Edit to Playhead', shortcut: 'W', onSelect: () => trimToPlayhead('next', true) },
-        { label: 'Extend Previous Edit to Playhead', shortcut: 'Shift+Q', onSelect: () => trimToPlayhead('previous', false) },
-        { label: 'Extend Next Edit to Playhead', shortcut: 'Shift+W', onSelect: () => trimToPlayhead('next', false) },
+        { label: 'Ripple Trim Previous Edit to Playhead', shortcut: 'Q', onSelect: () => trimAtPlayhead('previous', true) },
+        { label: 'Ripple Trim Next Edit to Playhead', shortcut: 'W', onSelect: () => trimAtPlayhead('next', true) },
+        { label: 'Extend Previous Edit to Playhead', shortcut: 'Shift+Q', onSelect: () => trimAtPlayhead('previous', false) },
+        { label: 'Extend Next Edit to Playhead', shortcut: 'Shift+W', onSelect: () => trimAtPlayhead('next', false) },
       ] },
       { separator: true },
       { label: 'Apply Video Transition', shortcut: 'Ctrl+D', disabled: !selection.length, onSelect: () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition') },
@@ -2345,11 +2344,11 @@ export default function App() {
       case 'l':
         return run(() => programApi.current?.shuttle(1));
       case 'q':
-        return run(() => trimToPlayhead('previous', !shift));
+        return run(() => trimAtPlayhead('previous', !shift));
       case 'w':
-        return run(() => trimToPlayhead('next', !shift));
+        return run(() => trimAtPlayhead('next', !shift));
       case 'e':
-        return run(() => (shift ? editComp((current) => ({ ...current, clips: current.clips.map((clip) => (selection.includes(clip.id) ? { ...clip, enabled: !selectedClips.every((item) => item.enabled) } : clip)) }), 'Enable') : trimToPlayhead('next', false)));
+        return run(() => (shift ? editComp((current) => ({ ...current, clips: current.clips.map((clip) => (selection.includes(clip.id) ? { ...clip, enabled: !selectedClips.every((item) => item.enabled) } : clip)) }), 'Enable') : trimAtPlayhead('next', false)));
       case 'f':
         return run(matchFrame);
       case 'r':

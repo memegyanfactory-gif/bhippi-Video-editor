@@ -3,7 +3,7 @@ import { cssFilter, DEFAULT_TRANSFORM, parseCaptions, parseTimecode, placement, 
 import { setKey, shiftKeys, valueAt } from '../src/lib/keyframes';
 import {
   addFrameHold, addTracks, addTransition, clearRange, clipEnd, clipsForSource, compDuration, deleteTracks, editPoints, gapAt, closeGap, loadProject, moveClips, nestClips, newClip, newComp,
-  newProject, placeClips, razor, removeClips, removeRange, resolveTrack, setLinked, setSpeed, slideClip, slipClip, sourceTimeAt, tracksOf, trackLabel, trimEdge, usage, withLinked, wouldCycle, freeTrack,
+  newProject, placeClips, razor, removeClips, removeRange, resolveTrack, setLinked, setSpeed, slideClip, slipClip, sourceTimeAt, tracksOf, trackLabel, trimEdge, trimToPlayhead, usage, withLinked, wouldCycle, freeTrack,
 } from '../src/lib/timeline';
 import type { Asset, Clip, Comp, Project } from '../src/lib/types';
 
@@ -139,6 +139,16 @@ describe('delete, lift and extract', () => {
     expect(on(removeRange(comp, 3, 5, 'lift'), v1)).toEqual([[0, 3, 0], [5, 5, 6]]);
   });
 
+  it('extract on chosen tracks leaves a sync-locked track alone where it still holds something in the range', () => {
+    const { comp, v1, v2 } = setup();
+    const long = newClip({ trackId: v1, start: 5, duration: 20, source: media });
+    const early = newClip({ trackId: v2, start: 12, duration: 2, source: media });
+    const late = newClip({ trackId: v2, start: 22, duration: 2, source: media });
+    const next = removeRange({ ...comp, clips: [long, early, late] }, 10, 20, 'extract', [v1]);
+    expect(on(next, v1)).toEqual([[5, 5, 0], [10, 5, 15]]);
+    expect(on(next, v2)).toEqual([[12, 2, 0], [22, 2, 0]]);
+  });
+
   it('finds and closes gaps', () => {
     const { comp, v1, first } = twoPairs();
     const holey = removeClips(comp, withLinked(comp, [first[0].id]), false);
@@ -265,6 +275,25 @@ describe('razor, speed, holds, links, nest', () => {
     expect(parent.clips.filter((clip) => clip.source.type === 'comp').map((clip) => [clip.start, clip.duration])).toEqual([[4, 6], [4, 6]]);
     expect(wouldCycle(nested!.project, nested!.compId, comp.id)).toBe(true);
     expect(usage(nested!.project).get(nested!.compId)).toBe(1);
+  });
+
+  it('nesting clips around another leaves the one between them in place', () => {
+    const { comp, v1 } = setup();
+    const [a, b, c] = [0, 2, 4].map((start) => newClip({ trackId: v1, start, duration: 2, source: media }));
+    const nested = nestClips(project({ ...comp, clips: [a, b, c] }), comp.id, [a.id, c.id], 'Nested');
+    const parent = nested!.project.comps.find((item) => item.id === comp.id) as Comp;
+    expect(parent.clips.find((clip) => clip.id === b.id)).toMatchObject({ trackId: v1, start: 2, duration: 2 });
+    const nest = parent.clips.find((clip) => clip.source.type === 'comp') as Clip;
+    expect([nest.start, nest.duration, trackLabel(parent, nest.trackId)]).toEqual([0, 6, 'V2']);
+  });
+
+  it('Q and W trim the clip under the playhead from its head and from its tail', () => {
+    const { comp, v1 } = setup();
+    const clip = newClip({ trackId: v1, start: 2, duration: 8, source: media });
+    const base = { ...comp, clips: [clip] };
+    expect(on(trimToPlayhead(base, [v1], 6, 'previous', true, limit, 1 / 30), v1)).toEqual([[2, 4, 4]]);
+    expect(on(trimToPlayhead(base, [v1], 6, 'next', true, limit, 1 / 30), v1)).toEqual([[2, 4, 0]]);
+    expect(on(trimToPlayhead(base, [v1], 6, 'next', false, limit, 1 / 30), v1)).toEqual([[2, 4, 0]]);
   });
 
   it('transitions follow a razor cut and disappear when their cut goes away', () => {
