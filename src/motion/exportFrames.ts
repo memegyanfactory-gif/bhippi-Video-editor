@@ -43,6 +43,7 @@ export async function renderMotionClipFrames(source: MotionSource, clip: Clip, c
   const frames = Math.max(1, Math.round(clip.duration * fps));
   const dir = await api.mogrtFramesBegin(clip.id);
   const renderer = options.renderer ?? exportRenderer(assets);
+  renderer.bank.fps = fps;
   const scene = source.scene;
   const preview = previewSurface();
   const cancelled = () => { if (options.signal?.aborted) throw new Error('export cancelled'); };

@@ -376,6 +376,7 @@ export class MotionRenderer {
     if (this.gl.lost) { this.incomplete = 1; return; }
     const scale = options.scale ?? 1;
     this.incomplete = 0;
+    this.bank.fps = options.fps ?? 30;
     const target = this.renderScene(scene, t, scale, 0, options);
     const canvas = this.canvas;
     if (canvas.width !== target.w || canvas.height !== target.h) { canvas.width = target.w; canvas.height = target.h; }
@@ -390,6 +391,7 @@ export class MotionRenderer {
     const lost = () => { if (this.gl.lost || this.gl.gl.isContextLost()) throw new Error('GPU context lost while rendering motion frames; export again'); };
     lost();
     this.incomplete = 0;
+    this.bank.fps = options.fps ?? 30;
     const target = this.renderScene(scene, t, options.scale ?? 1, 0, options);
     const straight = this.gl.acquire(target.w, target.h);
     this.gl.pass('unpremul', UNPREMUL_FS, straight, { uTex: target.tex });

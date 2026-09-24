@@ -165,6 +165,8 @@ export function MotionLayer({ scene, time, playing, rate, stageW, quality, asset
   }, [scene, time, playing, rate, stageW, quality, assets, tick, error, fps]);
 
   useEffect(() => { if (shared && !playing) shared.bank.pauseAll(); }, [playing]);
+  // Leaving the screen: its videos stop once no other clip on screen has used them for a moment.
+  useEffect(() => () => { window.setTimeout(() => shared?.bank.pauseIdle(250), 300); }, []);
 
   return (
     <>

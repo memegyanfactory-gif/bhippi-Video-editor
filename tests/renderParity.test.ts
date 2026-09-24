@@ -31,6 +31,7 @@ import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/ex
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
 import { identity } from '../src/motion/math';
+import { MediaBank } from '../src/motion/sources';
 import type { ResolvedLayer } from '../src/motion/evaluate';
 import type { Layer, MotionScene } from '../src/motion/types';
 
@@ -81,6 +82,7 @@ describe('WebGL context lifecycle', () => {
     let lost = false;
     Object.assign(renderer, {
       renderScene: () => ({ w: 1, h: 1, tex: null }),
+      bank: { fps: 30 },
       gl: { lost: false, gl: { isContextLost: () => lost }, acquire: () => ({ w: 1, h: 1 }), pass: () => undefined, read: () => { lost = true; return new Uint8Array(4); }, releaseAll: () => undefined },
     });
     expect(() => renderer.pixels(emptyScene(), 0)).toThrow('GPU context lost');
@@ -131,5 +133,92 @@ describe('text texture cache', () => {
     draw(renderer, dark);
     draw(renderer, { ...dark, stroke: { color: '#fff', width: 4 } });
     expect(rasters.text).toBe(2);
+  });
+});
+
+/** Just enough of a <video> for the media bank: seeks land a tick later, play/pause flip `paused`. */
+class FakeVideo {
+  muted = false; playsInline = false; preload = ''; crossOrigin = ''; src = '';
+  readyState = 4; videoWidth = 1920; videoHeight = 1080; duration = 100;
+  paused = true; seeking = false; playbackRate = 1;
+  private time = 0;
+  private listeners = new Map<string, Set<() => void>>();
+  get currentTime() { return this.time; }
+  set currentTime(value: number) {
+    this.time = value;
+    this.seeking = true;
+    setTimeout(() => { this.seeking = false; this.emit('seeked'); }, 0);
+  }
+  play() { this.paused = false; return Promise.resolve(); }
+  pause() { this.paused = true; }
+  addEventListener(type: string, listener: () => void) { if (!this.listeners.has(type)) this.listeners.set(type, new Set()); this.listeners.get(type)!.add(listener); }
+  removeEventListener(type: string, listener: () => void) { this.listeners.get(type)?.delete(listener); }
+  removeAttribute() {}
+  load() {}
+  emit(type: string) { for (const listener of [...(this.listeners.get(type) ?? [])]) listener(); }
+}
+
+describe('media bank', () => {
+  let videos: FakeVideo[] = [];
+  beforeEach(() => {
+    videos = [];
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    vi.stubGlobal('document', { createElement: () => { const video = new FakeVideo(); videos.push(video); return video; } });
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const bank = () => new MediaBank({ resolve: (source) => ({ url: `media/${(source as { asset: string }).asset}.mp4`, kind: 'video' }), matte: async () => null });
+  /** One file cut in two and rippled closed: plate 0–5 s reads source 0–5, plate~2 5–9 s reads source 6–10. */
+  const razored = { width: 1920, height: 1080, duration: 9, layers: [
+    { id: 'plate', type: 'footage', in: 0, out: 5, source: { asset: 'a', in: 0 } },
+    { id: 'plate~2', type: 'footage', in: 5, out: 9, startTime: -1, source: { asset: 'a', in: 0 } },
+  ] } as unknown as MotionScene;
+
+  it('leaves a shared video on the frame the layer on screen needs, not the next piece', async () => {
+    const b = bank();
+    const ready = b.prepareExact(razored, 4.7, { presented: false });
+    await vi.advanceTimersByTimeAsync(10);
+    await ready;
+    expect(videos).toHaveLength(1);
+    expect(videos[0].currentTime).toBeCloseTo(4.7, 6);
+    expect(b.frame({ asset: 'a' } as never, 4.7)).not.toBeNull();
+    // Past the cut the second piece is on screen and takes the video.
+    const later = b.prepareExact(razored, 5.2, { presented: false });
+    await vi.advanceTimersByTimeAsync(10);
+    await later;
+    expect(videos[0].currentTime).toBeCloseTo(6.2, 6);
+  });
+
+  it('gives no frame for a moment the video is not on', async () => {
+    const b = bank();
+    const ready = b.prepareExact(razored, 2, { presented: false });
+    await vi.advanceTimersByTimeAsync(10);
+    await ready;
+    expect(b.frame({ asset: 'a' } as never, 2)).not.toBeNull();
+    expect(b.frame({ asset: 'a' } as never, 2.5)).toBeNull();
+    videos[0].currentTime = 3;
+    expect(b.frame({ asset: 'a' } as never, 3)).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(b.frame({ asset: 'a' } as never, 3)).not.toBeNull();
+  });
+
+  it('pauses videos no one asked for lately', () => {
+    const b = bank();
+    b.syncPreview(razored, 1, true, 1);
+    expect(videos[0].paused).toBe(false);
+    vi.advanceTimersByTime(200);
+    b.pauseIdle(500);
+    expect(videos[0].paused).toBe(false);
+    vi.advanceTimersByTime(400);
+    b.pauseIdle(500);
+    expect(videos[0].paused).toBe(true);
+  });
+
+  it('gives up on footage that never loads', async () => {
+    const b = bank();
+    vi.stubGlobal('document', { createElement: () => { const video = new FakeVideo(); video.readyState = 0; videos.push(video); return video; } });
+    const ready = expect(b.prepareExact(razored, 1)).rejects.toThrow('footage media/a.mp4 did not load in 20 s');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await ready;
   });
 });
