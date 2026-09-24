@@ -384,6 +384,10 @@ export const api = {
    * its result carries `dir` (PNG sequence 00001.png…, alpha), `frames`, `fps`, `step`, `camera`
    * (camera.json) and `objects2d` (objects2d.json).
    */
+  /** Saves one rasterised UI-screen picture (PNG bytes) under Generated/UI screens/<screen>/<name>; returns its path. */
+  uiScreenSave: (screen: string, name: string, png: Uint8Array) => invoke<string>('ui_screen_save', png, { headers: { 'x-screen': screen, 'x-name': name } }),
+  /** Screenshots a web page at 2× in a headless Edge/Chrome for a UI screen; returns the PNG path and CSS size. */
+  uiCapture: (url: string, width?: number, height?: number, dark?: boolean) => invoke<{ path: string; width: number; height: number; scale: number }>('ui_capture', { url, width: width ?? null, height: height ?? null, dark: dark ?? null }),
   blenderRenderStart: (request: unknown, name?: string) => invoke<string>('blender_render_start', { request, name: name ?? null }),
   /** Whether a TypeSafe key is present, so a judgment can be offered at all. */
   typesafeReady: () => invoke<boolean>('typesafe_ready'),

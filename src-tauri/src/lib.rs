@@ -51,6 +51,7 @@ mod watchdog;
 mod bundle;
 mod cutout;
 mod blender;
+mod ui_screen;
 #[cfg(windows)]
 mod window_icon;
 
@@ -3196,6 +3197,8 @@ pub fn run() {
             cutout::roto_stitch,
             blender::blender_status,
             blender::blender_render_start,
+            ui_screen::ui_screen_save,
+            ui_screen::ui_capture,
             hardware_info,
             resource_usage,
             learning_load,

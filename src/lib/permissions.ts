@@ -18,6 +18,7 @@ export const DEFAULT_PERMISSION: PermissionMode = 'edit';
 const READS = new Set([
   'online_research',
   'scrape_web_page',
+  'capture_product_ui',
   'web_search',
   'web_fetch',
   'read_file',
@@ -52,6 +53,7 @@ const READS = new Set([
   'svg_to_shape',
   'motion_guide',
   'list_3d_presets',
+  'list_ui_kinds',
 ]);
 
 /** Tools that throw something away, which only Full access may do. */

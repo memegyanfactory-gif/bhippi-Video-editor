@@ -29,7 +29,7 @@ export type RenderedFrames = { dir: string; fps: number; frames: number; width: 
 const nextPaint = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
 /** Properties worth carrying into the snapshot; the whole computed style is ~350 entries, most inert. */
-const COPIED = [
+export const COPIED = [
   'position', 'inset', 'top', 'left', 'right', 'bottom', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'margin', 'padding',
   'display', 'flex', 'flex-direction', 'flex-wrap', 'align-items', 'justify-content', 'gap', 'grid-template-columns', 'grid-template-rows', 'z-index', 'overflow',
   'box-sizing', 'border', 'border-radius', 'border-top', 'border-left', 'border-right', 'border-bottom', 'outline', 'background', 'background-color', 'background-image', 'box-shadow',
@@ -45,7 +45,7 @@ const COPIED = [
 ];
 
 /** Copies the computed style of `live` (and its ::before/::after) onto `clone`. */
-function freezeStyles(live: Element, clone: Element, pseudoRules: string[], counter: { n: number }) {
+export function freezeStyles(live: Element, clone: Element, pseudoRules: string[], counter: { n: number }) {
   const computed = getComputedStyle(live);
   const target = clone as HTMLElement | SVGElement;
   const parts: string[] = [];

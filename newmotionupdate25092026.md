@@ -3,7 +3,7 @@
 This is a live record of what's done and what's left in the plan in
 [docs/REFERENCE-FILMS-PLAN.md](docs/REFERENCE-FILMS-PLAN.md). It is updated after every item.
 
-**Overall: study, plan, Phase 0 and Phase A are done ✅ (Helios now renders real 3D in headless Blender). Phase B (the SaaS unlock) is next. Phases B–D have not started.**
+**Overall: study, plan, Phase 0 and Phase A are done ✅. Phase B is in progress (B1 living UI screens ✅; B2 camera director next). Phases C–D have not started.**
 
 | Stage | Status |
 |---|---|
@@ -11,7 +11,7 @@ This is a live record of what's done and what's left in the plan in
 | Blender headless proofs (2 rounds) | ✅ Done |
 | **Phase 0: quick fixes** | ✅ Done (6 of 6), all tests green |
 | **Phase A: foundations** | ✅ Done (6 of 6), all tests green |
-| Phase B: the SaaS unlock | ⬜ Not started |
+| **Phase B: the SaaS unlock** | 🟡 1 of 4 done (B1) |
 | Phase C: 2.5D, characters, full Blender | ⬜ Not started |
 | Phase D: beyond | ⬜ Not started |
 
@@ -164,10 +164,39 @@ This is a live record of what's done and what's left in the plan in
     - a light-less shadow-only floor darkened the whole horizon (it now uses a top light and a tighter fade).
 - **Phase A: complete ✅** (A1–A6).
 
+### Phase B: the SaaS unlock
+- B1 ✅ **Living UI screens.** The AI builds a product screen and acts on it the way the SaaS films do.
+  - **Where screens come from:**
+    - **8 ready-made kinds:** search, chat, dashboard, table, form, phone lock-screen notifications, kanban, pricing. They use the brand's accent and font, in light or dark.
+    - **The AI's own HTML:** any element marked `data-part="name"` becomes a moving part.
+    - **The user's real product:** `capture_product_ui {url}` screenshots it in headless Edge or Chrome at 2× and shows the AI the picture with a grid; the AI marks the parts. Any screenshot in the library works too.
+  - **What the screen can do (14 actions):**
+    - type into fields (30 cps, with the placeholder until the first key), retype scripts;
+    - click (a press dip and a ripple), hover, hover-lift (×1.088, 9/19/8 frames, list neighbours dim to 32%), sweep a list;
+    - select, highlight, pulse, focus;
+    - count a number in its own format ($12,400 → $48,250), tooltips, notifications;
+    - assemble (parts fly in nearest the centre first), drag, page states (cut, fade or slide);
+    - zoom (a camera push into any part, and back out).
+  - A cursor glides between targets on the house ease; clicks, ticks, typing beds, blips and whooshes are laid automatically (or `sfx:"none"` for music-only films).
+  - Frames: browser (with address bar), phone, laptop, glass card, or none; a tilted 3D plane with `place.tilt`; rise, scale or fade entrance.
+  - **How it works:** the HTML is rasterised once in the webview at 2× (the bundled fonts are inlined): the screen without its parts, one picture per part, and a part map of boxes, nesting, list groups and text styles. The actions compile to plain engine keyframes in one precomp, so preview and export match and it opens as a layered `[Motion]` comp. `update_ui_screen` recompiles new actions instantly and only re-renders pictures when the look changes.
+  - Files:
+    - new `src/motion/ui/` (`spec.ts`, `compile.ts`, `raster.ts`, `kinds.ts`, `demo.ts`), `src/lib/uiScreenTools.ts`, `src-tauri/src/ui_screen.rs` (`ui_screen_save`, `ui_capture`);
+    - `fonts.ts` (`embeddedFontCss`), `htmlFrames.ts`, `motionTools.ts`, `ipc.ts`, `lib.rs`, `permissions.ts`, `editWorkflow.ts`, `council.ts`, `motionDirection.ts` (SaaS playbook), `ai-tools.json`, `copilot.md`, `MOTION-ENGINE.md`, the Motion Lab (`lab.ui()`).
+  - Tests:
+    - `tests/uiScreen.test.ts` (16: compiler timing and keys, states, devices, number formats, every kind, create and update through the tool);
+    - Rust `ui_screen` (3, including a real Edge capture).
+    - **Full suite: 1,193 TypeScript and 292 Rust tests pass.**
+  - **Checked on the GPU** in the Motion Lab:
+    - the dashboard demo: typing, counting, a row sweep, a click with a tooltip, a push into a card and back;
+    - all 8 kinds, including a dark tilted dashboard, the phone lock screen and a kanban drag;
+    - a real capture of linear.app, animated from marked parts. The push centres the target exactly.
+  - Rasterising takes 85–250 ms per screen.
+  - **Fixed along the way:** a hover-lift now dims only the lifted item's list neighbours, not every part.
+
 ## ⏳ Remaining
 
 ### Phase B: the SaaS unlock (weeks 4–7)
-- B1 ⬜ UI-screen layer: product UI the AI can type into, click, lift rows in, zoom into; `create_ui_screen`, `capture_product_ui`.
 - B2 ⬜ Camera director: continuity object (dot/orb/sparkle), cross-layer links, no-cut world layout, 20+ transitions.
 - B3 ⬜ Particles (confetti, twinkles, flakes) + light effects (glints, echo, god rays, glow rings, gradient border).
 - B4 ⬜ Reference-analysis worker + pacing QA against the measured timings.

@@ -5163,6 +5163,291 @@
       }
     },
     {
+      "name": "capture_product_ui",
+      "description": "Screenshots the user's real product (a web page or web app URL) in a headless browser at 2×, and shows it to you with a 100 px grid. Then animate it with create_ui_screen {screenshot, width, height, parts:[{id, box:[x,y,w,h], radius?, text?}], actions}: the parts are cut out of the screenshot and can be clicked, lifted, typed into (give text for fields), counted, dragged and zoomed into like any UI screen.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number",
+            "description": "Viewport CSS px (default 1440)."
+          },
+          "height": {
+            "type": "number",
+            "description": "Viewport CSS px (default 900)."
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ],
+            "description": "Ask the page for its dark scheme."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_ui_kinds",
+      "description": "Lists the ready-made UI screens for create_ui_screen (search, chat, dashboard, table, form, phone notifications, kanban, pricing) with their content fields and part names, and the action types.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_ui_screen",
+      "description": "A living product UI for SaaS / app explainers: a screen (ready-made kind, or your own HTML) in a browser, phone or laptop frame that the scene types into, clicks, hover-lifts, sweeps, counts, highlights, drags, switches pages on and zooms into, with a gliding cursor and UI sounds. Rendered once to crisp pictures (2×) and animated by the GPU motion engine, so preview and export match; it opens as a layered [Motion] comp. Time actions to the voice-over (typing lands with the words). Returns the part names.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "A ready-made screen (list_ui_kinds): search, chat, dashboard, table, form, notifications, kanban, pricing."
+          },
+          "content": {
+            "type": "object",
+            "description": "The kind's content, e.g. dashboard {app, nav, stats:[{label,value}], rows:[{title,status}], cta}."
+          },
+          "html": {
+            "type": "string",
+            "description": "Your own screen HTML (static, no script). Put data-part=\"name\" on every element an action targets or that should move on its own; parts may nest. Give parts their own background so a lifted part looks solid."
+          },
+          "css": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number",
+            "description": "Screen CSS px (default 1440; a phone 390)."
+          },
+          "height": {
+            "type": "number",
+            "description": "Screen CSS px (default 900; a phone 844)."
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ]
+          },
+          "accent": {
+            "type": "string",
+            "description": "Selection, outline, ripple and caret colour (default the brand accent)."
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "More pages: [{id, html}], switched to by a state action."
+          },
+          "device": {
+            "type": "string",
+            "enum": [
+              "browser",
+              "phone",
+              "laptop",
+              "glass-card",
+              "none"
+            ],
+            "description": "Frame around the screen (default browser)."
+          },
+          "url": {
+            "type": "string",
+            "description": "Address shown in the browser frame."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Timed actions, seconds from the scene start: {t,type:'type',target,text,cps?} (clicks into the field, types at 30 cps; the field's own text is the placeholder) · {t,type:'type-script',target,script:[{type},{wait},{backspace}]} · {t,type:'click',target} (glide, press, ripple) · {t,type:'hover'|'cursor',target|[x,y]} · {t,type:'hover-lift',target,scale?,dimOthers?} (lift ×1.088, others dim) · {t,type:'sweep',targets:[…],every?} · {t,type:'select',target} · {t,type:'highlight'|'pulse'|'focus',target} · {t,type:'count',target,to,from?,duration?} (the part's number counts, format kept) · {t,type:'tooltip',target,text} · {t,type:'notify',text} · {t,type:'assemble'} (every part flies into place) · {t,type:'drag',target,to} · {t,type:'state',to,transition?:'cut'|'fade'|'slide'} · {t,type:'zoom',target?,zoom?} (push into a part; no target = back out)."
+          },
+          "cursor": {
+            "description": "false for no cursor, or {style:'arrow'|'hand'|'dot', size?, color?, from?:[x,y], hideAfter?}."
+          },
+          "sfx": {
+            "type": "string",
+            "enum": [
+              "ticks",
+              "none"
+            ],
+            "description": "ticks (default): clicks, ticks and typing under the UI (voice-over films); none: silent UI (music-only films)."
+          },
+          "place": {
+            "type": "object",
+            "description": "{width?: share of comp width (0.72), position?: [x,y], tilt?: [rotX, rotY] for a tilted UI plane, enter?: 'rise'|'scale'|'fade'|'none', enterAt?, exitAt?}."
+          },
+          "stage": {
+            "type": "string",
+            "description": "Background colour behind the screen, or 'none' (default) to sit over the timeline."
+          },
+          "duration": {
+            "type": "number"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds."
+          },
+          "compId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "screenshot": {
+            "type": "string",
+            "description": "Instead of html: a screenshot path (capture_product_ui, or any picture) with parts marked by box."
+          },
+          "assetId": {
+            "type": "string",
+            "description": "An image in the media library to use as the screenshot."
+          },
+          "screenshotScale": {
+            "type": "number",
+            "description": "Screenshot pixels per CSS px (captures are 2)."
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "With a screenshot: [{id, box:[x,y,w,h] in CSS px, parent?, radius?, text?:{value, size, color, weight, align}}] — text only on fields typed into or numbers counted."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_ui_screen",
+      "description": "Changes a UI screen made by create_ui_screen: new actions, placement, device, sounds or cursor recompile instantly; new html/css/kind/content/theme re-render its pictures. Fields not given keep their values (actions replace the whole list).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "A ready-made screen (list_ui_kinds): search, chat, dashboard, table, form, notifications, kanban, pricing."
+          },
+          "content": {
+            "type": "object",
+            "description": "The kind's content, e.g. dashboard {app, nav, stats:[{label,value}], rows:[{title,status}], cta}."
+          },
+          "html": {
+            "type": "string",
+            "description": "Your own screen HTML (static, no script). Put data-part=\"name\" on every element an action targets or that should move on its own; parts may nest. Give parts their own background so a lifted part looks solid."
+          },
+          "css": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number",
+            "description": "Screen CSS px (default 1440; a phone 390)."
+          },
+          "height": {
+            "type": "number",
+            "description": "Screen CSS px (default 900; a phone 844)."
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ]
+          },
+          "accent": {
+            "type": "string",
+            "description": "Selection, outline, ripple and caret colour (default the brand accent)."
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "More pages: [{id, html}], switched to by a state action."
+          },
+          "device": {
+            "type": "string",
+            "enum": [
+              "browser",
+              "phone",
+              "laptop",
+              "glass-card",
+              "none"
+            ],
+            "description": "Frame around the screen (default browser)."
+          },
+          "url": {
+            "type": "string",
+            "description": "Address shown in the browser frame."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Timed actions, seconds from the scene start: {t,type:'type',target,text,cps?} (clicks into the field, types at 30 cps; the field's own text is the placeholder) · {t,type:'type-script',target,script:[{type},{wait},{backspace}]} · {t,type:'click',target} (glide, press, ripple) · {t,type:'hover'|'cursor',target|[x,y]} · {t,type:'hover-lift',target,scale?,dimOthers?} (lift ×1.088, others dim) · {t,type:'sweep',targets:[…],every?} · {t,type:'select',target} · {t,type:'highlight'|'pulse'|'focus',target} · {t,type:'count',target,to,from?,duration?} (the part's number counts, format kept) · {t,type:'tooltip',target,text} · {t,type:'notify',text} · {t,type:'assemble'} (every part flies into place) · {t,type:'drag',target,to} · {t,type:'state',to,transition?:'cut'|'fade'|'slide'} · {t,type:'zoom',target?,zoom?} (push into a part; no target = back out)."
+          },
+          "cursor": {
+            "description": "false for no cursor, or {style:'arrow'|'hand'|'dot', size?, color?, from?:[x,y], hideAfter?}."
+          },
+          "sfx": {
+            "type": "string",
+            "enum": [
+              "ticks",
+              "none"
+            ],
+            "description": "ticks (default): clicks, ticks and typing under the UI (voice-over films); none: silent UI (music-only films)."
+          },
+          "place": {
+            "type": "object",
+            "description": "{width?: share of comp width (0.72), position?: [x,y], tilt?: [rotX, rotY] for a tilted UI plane, enter?: 'rise'|'scale'|'fade'|'none', enterAt?, exitAt?}."
+          },
+          "stage": {
+            "type": "string",
+            "description": "Background colour behind the screen, or 'none' (default) to sit over the timeline."
+          },
+          "duration": {
+            "type": "number"
+          },
+          "screenshot": {
+            "type": "string",
+            "description": "Instead of html: a screenshot path (capture_product_ui, or any picture) with parts marked by box."
+          },
+          "assetId": {
+            "type": "string",
+            "description": "An image in the media library to use as the screenshot."
+          },
+          "screenshotScale": {
+            "type": "number",
+            "description": "Screenshot pixels per CSS px (captures are 2)."
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "With a screenshot: [{id, box:[x,y,w,h] in CSS px, parent?, radius?, text?:{value, size, color, weight, align}}] — text only on fields typed into or numbers counted."
+          }
+        },
+        "required": [
+          "clipId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "list_3d_presets",
       "description": "Lists the headless-Blender 3D presets (glossy pearl orb, crystal lit by a gradient world, device hero, extruded logo word, letters dropping) and whether Blender is installed on this machine. Call before render_3d_scene.",
       "input_schema": {

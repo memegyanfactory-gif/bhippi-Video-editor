@@ -129,7 +129,7 @@ export const isCouncilRole = (value: unknown): value is CouncilRole => typeof va
 /** The tools each seat leads — the avatar's costume and the council chip follow these. */
 export const SEAT_TOOLS: Record<CouncilRole, ReadonlySet<string>> = {
   researcher: new Set([
-    'online_research', 'scrape_web_page', 'scrape_videos', 'download_online_media', 'find_free_media', 'extract_brand_from_url', 'query_frame_atlas',
+    'online_research', 'scrape_web_page', 'scrape_videos', 'download_online_media', 'find_free_media', 'extract_brand_from_url', 'query_frame_atlas', 'capture_product_ui',
     'analyze_reference_video', 'remotion_kit',
   ]),
   audio: new Set([
@@ -137,7 +137,7 @@ export const SEAT_TOOLS: Record<CouncilRole, ReadonlySet<string>> = {
     'synthesize_speech_voiceover', 'analyze_clip_speech', 'podcast_cut', 'search_sfx', 'place_sfx',
   ]),
   animator: new Set([
-    'create_motion_scene', 'update_motion_scene', 'render_3d_scene', 'create_motion_graphic', 'set_keyframes', 'add_text', 'reveal_subject',
+    'create_motion_scene', 'update_motion_scene', 'render_3d_scene', 'create_ui_screen', 'update_ui_screen', 'create_motion_graphic', 'set_keyframes', 'add_text', 'reveal_subject',
     'add_text_behind_subject', 'add_media_behind_subject', 'rotoscope_clip', 'erase_subject_clip', 'nest_motion_scenes', 'react_bits', 'add_captions',
     'cutout_image', 'detect_faces', 'key_green_screen',
   ]),

@@ -1,6 +1,11 @@
 // Dev-only harness (motion-lab.html): renders motion scenes in a plain browser so the engine can
 // be checked frame by frame with Playwright, outside the desktop app. Media comes from a local
 // CORS file server given by ?media=http://127.0.0.1:8765.
+import { rasterizeUi } from '../ui/raster';
+import { compileUi } from '../ui/compile';
+import type { UiScreenSpec } from '../ui/spec';
+import { DEMO_UI } from '../ui/demo';
+import { expandIcons } from '../vector/icons';
 import '../../fonts/bundled.css';
 import { MotionRenderer } from '../gl/renderer';
 import type { MediaHost } from '../sources';
@@ -14,7 +19,7 @@ const host: MediaHost = {
   resolve(source) {
     const path = source.path ?? source.asset ?? '';
     if (!path) return null;
-    const url = /^https?:/.test(path) ? path : `${media}/${path}`;
+    const url = /^(https?|data|blob):/.test(path) ? path : `${media}/${path}`;
     return { url, kind: source.kind ?? (/\.(png|jpe?g|webp)$/i.test(path) ? 'image' : 'video') };
   },
   async matte(path) {
@@ -99,5 +104,14 @@ async function loadUser(url: string) {
   return list.map((entry, i) => `user-${i}: ${entry.title}`);
 }
 
-Object.assign(window, { lab: { loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
+/** Builds a UI screen (src/motion/ui) the way create_ui_screen does, pictures as blob URLs, as scene `name`. */
+async function ui(spec: UiScreenSpec = DEMO_UI, name = 'ui', stage = '#e9ecf5') {
+  const raster = await rasterizeUi(spec, async (bytes) => URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' })));
+  const built = compileUi(spec, raster, { width: 1920, height: 1080 });
+  const scene = await expandIcons({ version: 1, width: 1920, height: 1080, duration: built.duration, background: stage, layers: [built.layer], cues: built.cues });
+  LAB_SCENES[name] = () => scene;
+  return { duration: built.duration, cues: built.cues, parts: raster.states.map((s) => ({ state: s.id, parts: s.parts.map((p) => ({ id: p.id, box: p.box, parent: p.parent, text: p.text })) })) };
+}
+
+Object.assign(window, { lab: { ui, loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
 document.title = 'Motion Lab ready';

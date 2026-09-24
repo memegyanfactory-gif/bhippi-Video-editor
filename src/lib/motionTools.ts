@@ -11,6 +11,7 @@ import { expandIcons, searchIcons, unknownIcons } from '../motion/vector/icons';
 import { svgToShape } from '../motion/vector/svg';
 import { playbook, playbookIndex } from './motionDirection';
 import { PRESETS_3D, renderScene, scene3dRequest, type Render3DResult } from './blender3d';
+import { runUiScreenTool } from './uiScreenTools';
 import { keyTimes } from '../motion/anim';
 import { clamp, SFX_LENGTH, timecode } from './editor';
 import { api, errorText, fileSrc, type Transcript, type TranscriptWord } from './ipc';
@@ -24,9 +25,9 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui']);
 /** Read-only / planning motion tools, allowed in any production phase. */
-export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets']);
+export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets', 'list_ui_kinds']);
 
 export type MotionToolContext = {
   project: Project;
@@ -519,6 +520,12 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const data = part && part in book ? { [part]: book[part as keyof typeof book] } : book;
       return done(`${book.title} — ${book.use} Follow its beats, timing and rules; use the eases and features it names.`, data as Record<string, unknown>);
     }
+
+    case 'create_ui_screen':
+    case 'update_ui_screen':
+    case 'list_ui_kinds':
+    case 'capture_product_ui':
+      return runUiScreenTool(name, args, ctx, runMotionTool);
 
     case 'list_3d_presets': {
       let status: Awaited<ReturnType<typeof api.blenderStatus>> | null = null;

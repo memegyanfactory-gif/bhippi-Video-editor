@@ -46,8 +46,8 @@ export const PLAYBOOKS: Playbook[] = [
       { name: 'Hook', seconds: [0, 4], what: 'The pain in miniature: a pile of chat bubbles, a search that types and retypes, a list being rejected.', how: 'shape groups (rounded rect pills) popping on `house`, a continuity dot hopping between them; text.type with script backspace/retype cycles' },
       { name: 'Question', seconds: [4, 7], what: 'One headline ("Can\'t keep up?") in open space; tracking breathe or a 6 f invert flash.', how: 'text with tracking animator, lineSpacing, gradient-overlay colour front' },
       { name: 'Meet', seconds: [7, 11], what: '"Meet your new …" types; the phrases split and the product mark or hero UI object is born in the gap.', how: 'text.type + split via two text layers; array/morph or icon for the object; blur-bridge (defocus → hidden cut) into the app' },
-      { name: 'Features ×3–5', seconds: [11, 24], what: 'Each feature is the real UI acted on: typing in fields, a click, a row lifting, a chart drawing on, a counter landing on the spoken number.', how: 'UI screens as layers (tilted 3D planes, camera push onto the part), cursor path, text.counter at {word, mode:"land"}, trim draw-on' },
-      { name: 'Proof', seconds: [24, 27], what: 'Notifications, a face-pile, a stat constellation drifting in depth.', how: 'shape cards with inner-shadow/inner-glow, camera aperture for depth, parallax drift' },
+      { name: 'Features ×3–5', seconds: [11, 24], what: 'Each feature is the real UI acted on: typing in fields, a click, a row lifting, a chart drawing on, a counter landing on the spoken number.', how: 'create_ui_screen (a kind or your HTML with data-part names): type, click, hover-lift, sweep, count, zoom into the part, place.tilt for a tilted plane; time each action to the spoken word' },
+      { name: 'Proof', seconds: [24, 27], what: 'Notifications, a face-pile, a stat constellation drifting in depth.', how: 'create_ui_screen kind notifications (phone) with assemble + notify; shape cards with inner-shadow/inner-glow, camera aperture for depth, parallax drift' },
       { name: 'Logo', seconds: [27, 30], what: 'The continuity dot becomes the logo dot; the wordmark slides out from behind the mark (10–11 f).', how: 'shape groups for the mark (svg_to_shape), mask-slide on `rise`, tick + glass cue' },
     ],
     look: [
@@ -62,10 +62,10 @@ export const PLAYBOOKS: Playbook[] = [
       'Never show a static UI: something is always being typed, clicked, lifted, drawn or pushed into.',
       'Keep type on safe area unless it is meant to bleed (bleed: true).',
     ],
-    tools: ['create_motion_scene', 'update_motion_scene', 'search_icons', 'svg_to_shape', 'add_sound_effect', 'analyze_music_beats', 'snap_cuts_to_beats', 'run_frame_qa'],
+    tools: ['create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'create_motion_scene', 'update_motion_scene', 'search_icons', 'svg_to_shape', 'add_sound_effect', 'analyze_music_beats', 'snap_cuts_to_beats', 'run_frame_qa'],
     eases: ['house', 'emphasized', 'push', 'rise', 'expo-in'],
     features: ['shape.groups', 'text.type', 'text.retype', 'text.counter', 'effects.gradient-overlay', 'effects.inner-shadow', 'camera.aperture', 'bleed'],
-    gaps: ['UI screens as living, targetable layers (click/hover-lift/assemble by name) are coming (plan P3); meanwhile build UI from shape groups + icons, or place a screenshot as footage on a 3D plane and animate parts as separate shape layers.'],
+    gaps: ['Capturing the user’s own live product UI (capture_product_ui) is coming; meanwhile rebuild the screen in HTML from a screenshot, or use a kind.', 'A continuity object that carries across beats (plan P4) is coming; meanwhile hand a dot shape layer from scene to scene at the same position.'],
   },
   {
     id: 'ai-launch',

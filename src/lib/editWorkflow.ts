@@ -98,6 +98,7 @@ export function videoBlueprintContentError(scenes: VideoBlueprintSceneInput[], k
 const preparation = new Set([
   'online_research',
   'scrape_web_page',
+  'capture_product_ui',
   'web_search',
   'web_fetch',
   'read_file',
@@ -130,6 +131,7 @@ const preparation = new Set([
   'svg_to_shape',
   'motion_guide',
   'list_3d_presets',
+  'list_ui_kinds',
   'get_motion_scene',
   'analyze_reference_video',
   'save_style_profile',
@@ -235,6 +237,7 @@ const ALWAYS_TOOLS = new Set([
   'svg_to_shape',
   'motion_guide',
   'list_3d_presets',
+  'list_ui_kinds',
   'get_motion_scene',
   'editing_workflow_status',
   'verify_edit_workflow',
