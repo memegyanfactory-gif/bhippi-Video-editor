@@ -7,6 +7,8 @@
 // browser. Mutations return a new comp; nothing here touches history.
 import type { Box } from './layout';
 import { frameOf, safeArea } from './layout';
+import { findStyle } from './captionStyles';
+import { parseRbStyle } from './reactbits';
 import type { Clip, Comp, Production, ProductionBeat, ProductionPhase, ProductionShot, StoryboardScene, VideoBlueprintScene } from './types';
 
 export const PHASES: ProductionPhase[] = ['planning', 'plan-ready', 'gathering', 'gathered', 'editing', 'polishing', 'done'];
@@ -153,10 +155,26 @@ const intersection = (a: Box, b: Box): number => {
   return w > 0 && h > 0 ? w * h : 0;
 };
 
-/** Where a text clip draws, as a fraction of the frame, from its preset and transform. */
+/**
+ * Where a text clip draws, as a fraction of the frame, from its preset (or its caption style)
+ * and transform. Scale is about the box's own centre, as the export scales text at its anchor.
+ */
 export function textBox(clip: Clip, comp: Comp): Box | null {
   if (clip.source.type !== 'text') return null;
   const scale = clip.transform.scale / 100;
+  // A styled caption is drawn centred at the style's posY, `size`% of the frame height per line,
+  // wrapped at `maxWidth` of the frame width (Overlay's .cap-anchor, caption_styles.rs).
+  const style = clip.source.preset === 'caption' ? findStyle(parseRbStyle(clip.source.style).base ?? clip.source.style) : undefined;
+  if (style) {
+    const size = style.size / 100;
+    const perLine = Math.max(1, Math.floor((style.maxWidth * comp.width) / (size * comp.height * 0.55)));
+    const lines = clip.source.text.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / perLine)), 0);
+    const width = style.maxWidth * scale;
+    const height = size * 1.18 * lines * scale;
+    const cx = 0.5 + clip.transform.x;
+    const cy = style.posY / 100 + clip.transform.y;
+    return { x: cx - width / 2, y: cy - height / 2, width, height };
+  }
   const base: Box = clip.source.preset === 'lower-third'
     ? { x: 0.05, y: 0.72, width: 0.45, height: 0.16 }
     : clip.source.preset === 'caption'
