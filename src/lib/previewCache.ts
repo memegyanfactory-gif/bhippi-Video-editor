@@ -352,6 +352,14 @@ function publish(soon = false) {
 }
 
 function getRenderer(): MotionRenderer | null {
+  if (renderer?.gl.lost) {
+    // The context is gone (driver reset, the context cap): start over on a fresh one.
+    try { renderer.dispose(); } catch { /* already gone with its context */ }
+    renderer = null;
+    store.clear();
+    attempts.clear();
+    publish();
+  }
   if (renderer || rendererFailed) return renderer;
   try {
     const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : document.createElement('canvas');
@@ -429,11 +437,17 @@ function roomFor(scene: MotionScene, scale: number, compFrame: number, head: num
 async function keep(r: MotionRenderer, key: string, frame: number, scale: number, began: number, prepared: number): Promise<boolean> {
   const id = FrameStore.id(key, frame);
   const tries = (attempts.get(id) ?? 0) + 1;
-  // A frame whose footage or matte did not arrive is tried again later — after a few tries it
-  // is kept as is (the media is missing, and the live render would miss it just the same).
-  if (r.incomplete > 0 && tries < 3) { attempts.set(id, tries); return false; }
+  // A frame whose footage or matte did not arrive (or whose context was lost) is never kept: it
+  // is tried again later, and after a few tries the live render shows that moment instead.
+  if (r.incomplete > 0) { attempts.set(id, tries); return false; }
   const canvas = r.canvas;
-  const bitmap = 'transferToImageBitmap' in canvas ? (canvas as OffscreenCanvas).transferToImageBitmap() : await createImageBitmap(canvas);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = 'transferToImageBitmap' in canvas ? (canvas as OffscreenCanvas).transferToImageBitmap() : await createImageBitmap(canvas);
+  } catch {
+    attempts.set(id, tries);
+    return false;
+  }
   attempts.delete(id);
   store.put({ key, frame, bitmap, width: bitmap.width, height: bitmap.height, bytes: bitmap.width * bitmap.height * 4, scale, lastUsed: performance.now() });
   stats.rendered++;

@@ -13,12 +13,20 @@ import { previewCache } from '../lib/previewCache';
 
 let shared: MotionRenderer | null = null;
 let sharedError: string | null = null;
+/** Bumped when a lost renderer is replaced, so every clip listens to the new one's bank. */
+let rendererGeneration = 0;
 /** The asset map the shared renderer resolves against (the latest the editor rendered with). */
 let currentAssets = new Map<string, Asset>();
 
 /** The one preview renderer. */
 function previewRenderer(assets: Map<string, Asset>): MotionRenderer | null {
   currentAssets = assets;
+  if (shared?.gl.lost) {
+    // The GPU took the context back (driver reset, the context cap): a fresh renderer takes over.
+    try { shared.dispose(); } catch { /* already gone with its context */ }
+    shared = null;
+    rendererGeneration++;
+  }
   if (sharedError) return null;
   if (!shared) {
     try {
@@ -100,7 +108,8 @@ export function MotionLayer({ scene, time, playing, rate, stageW, quality, asset
       queued = true;
       requestAnimationFrame(() => { queued = false; setTick((n) => n + 1); });
     });
-  }, [assets]);
+    // A replaced renderer (its context was lost) has a new bank to listen to.
+  }, [assets, rendererGeneration]);
 
   useEffect(() => { shown.current = false; }, [scene]);
 

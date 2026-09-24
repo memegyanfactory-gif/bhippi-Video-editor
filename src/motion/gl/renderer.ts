@@ -370,7 +370,8 @@ export class MotionRenderer {
 
   /** Renders and shows the frame on the renderer's own canvas (the preview). */
   draw(scene: MotionScene, t: number, options: RenderOptions = {}) {
-    if (this.gl.lost) return;
+    // Nothing can be drawn on a lost context: the picture counts as incomplete, so no one keeps it.
+    if (this.gl.lost) { this.incomplete = 1; return; }
     const scale = options.scale ?? 1;
     this.incomplete = 0;
     const target = this.renderScene(scene, t, scale, 0, options);
@@ -383,11 +384,15 @@ export class MotionRenderer {
 
   /** Renders the frame and returns straight-alpha RGBA pixels, rows top-first (for PNG). */
   pixels(scene: MotionScene, t: number, options: RenderOptions = {}): { width: number; height: number; data: Uint8ClampedArray } {
+    // A lost context reads back zeros: a transparent frame that would export silently.
+    const lost = () => { if (this.gl.lost || this.gl.gl.isContextLost()) throw new Error('GPU context lost while rendering motion frames; export again'); };
+    lost();
     this.incomplete = 0;
     const target = this.renderScene(scene, t, options.scale ?? 1, 0, options);
     const straight = this.gl.acquire(target.w, target.h);
     this.gl.pass('unpremul', UNPREMUL_FS, straight, { uTex: target.tex });
     const data = this.gl.read(straight);
+    lost();
     const out = { width: target.w, height: target.h, data: new Uint8ClampedArray(data.buffer) };
     this.gl.releaseAll();
     return out;
