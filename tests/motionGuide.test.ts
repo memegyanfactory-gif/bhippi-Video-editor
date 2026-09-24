@@ -3,6 +3,7 @@ import { CRIMSON, CRIMSON_BASE_CSS, CRIMSON_RULEBOOK, CRIMSON_TEMPLATES, buildCr
 import { buildMotionGraphic, createMotionGraphicComp, mogrtCanvas } from '../src/lib/motionGraphics';
 import { htmlClipsForExport } from '../src/lib/htmlFrames';
 import { newProject } from '../src/lib/timeline';
+import { frameQa, type QaLayer } from '../src/lib/production';
 
 describe('Crimson motion system', () => {
   it('builds every template in the catalogue with a box inside the frame', () => {
@@ -82,5 +83,62 @@ describe('motion graphic builder with Crimson templates', () => {
     expect(targets).toHaveLength(1);
     expect(targets[0].clip.id).toBe(inner.id);
     expect(targets[0].comp.id).toBe(mogrt.id);
+  });
+});
+
+describe('Crimson templates on 9:16 and 1:1 canvases', () => {
+  const PARAMS = { title: 'Design the frame', subtitle: 'Then give it motion', kicker: 'PILLAR ONE', rows: ['Contrast — make it unmistakable', 'Hierarchy — first, second, third', 'Balance — leave space'], values: [20, 45, 80], metric: '3', accentWord: 'frame' };
+  // Full-bleed by design: the tile wall covers the frame (QA skips it) and the news bar spans the width.
+  const BLEED = new Set(['cubes-reveal', 'breaking-news']);
+  const canvases = [{ width: 1080, height: 1920 }, { width: 1920, height: 1920 }];
+
+  it('returns a box inside the safe area of the canvas', () => {
+    for (const canvas of canvases) {
+      const comp = { ...newProject().comps[0], width: canvas.width, height: canvas.height };
+      for (const spec of CRIMSON_TEMPLATES) {
+        if (BLEED.has(spec.id)) continue;
+        const layouts = spec.box.length ? [undefined, 'side-panel-left', 'side-panel-right', 'top-left', 'top-right'] as const : [undefined] as const;
+        for (const layout of layouts) {
+          const built = buildCrimsonTemplate({ template: spec.id, ...PARAMS, layout, canvas })!;
+          const layers: QaLayer[] = [{ clipId: 'g', name: `${spec.id} ${layout ?? ''}`, kind: 'graphic', box: built.box, from: 0, to: 1 }];
+          expect(frameQa(comp, layers, [0.5]), `${spec.id} ${layout ?? ''} ${canvas.width}x${canvas.height}`).toEqual([]);
+        }
+      }
+    }
+  });
+  it('keeps banded templates in a centred 16:9 band and says so in the box', () => {
+    for (const canvas of canvases) {
+      const band = Math.min(1, (1080 * canvas.width) / 1920 / canvas.height);
+      for (const spec of CRIMSON_TEMPLATES) {
+        const built = buildCrimsonTemplate({ template: spec.id, ...PARAMS, canvas })!;
+        if (!built.html.includes('class="x stage"')) continue;
+        expect(built.box.height, spec.id).toBeLessThanOrEqual(band + 1e-9);
+        expect(built.box.y, spec.id).toBeGreaterThanOrEqual(0.5 - band / 2 - 1e-9);
+        expect(built.box.y + built.box.height, spec.id).toBeLessThanOrEqual(0.5 + band / 2 + 1e-9);
+      }
+    }
+    const lanes = buildCrimsonTemplate({ template: 'connected-map', ...PARAMS, canvas: { width: 1080, height: 1920 } })!;
+    expect(lanes.html).toContain('class="x stage"');
+    expect(lanes.css).toContain('.mgc .stage{position:absolute;left:0;right:0;top:calc(50% - 540px*var(--u));height:calc(1080px*var(--u))}');
+  });
+  it('lays a portrait side panel as a card above the platform UI and a chapter marker below the top UI', () => {
+    const panel = buildCrimsonTemplate({ template: 'side-panel', ...PARAMS, canvas: { width: 1080, height: 1920 } })!;
+    expect(panel.html).toContain('bottom:18%;max-height:45%');
+    expect(panel.box.y + panel.box.height).toBeCloseTo(0.82, 5);
+    const chart = buildCrimsonTemplate({ template: 'stat-chart', ...PARAMS, layout: 'side-panel-left', canvas: { width: 1080, height: 1920 } })!;
+    expect(chart.box).toEqual(panel.box);
+    const marker = buildCrimsonTemplate({ template: 'chapter-marker', ...PARAMS, canvas: { width: 1080, height: 1920 } })!;
+    expect(marker.html).toContain('top:12%');
+    expect(marker.box.y).toBeCloseTo(0.12, 5);
+  });
+  it('leaves the 16:9 layout as it was: the band is the whole frame and boxes are the spec boxes', () => {
+    for (const spec of CRIMSON_TEMPLATES) {
+      const built = buildCrimsonTemplate({ template: spec.id, ...PARAMS })!;
+      const layout = spec.wantsSplit ? 'side-panel-right' : spec.fullFrame ? 'fullscreen' : 'centre-card';
+      expect(built.box, spec.id).toEqual(spec.box(layout));
+    }
+    expect(buildCrimsonTemplate({ template: 'crimson-lower-third', ...PARAMS })!.html).toContain('bottom:calc(120px * var(--u))');
+    expect(buildCrimsonTemplate({ template: 'chapter-marker', ...PARAMS })!.html).toContain('top:calc(74px * var(--u));right:calc(96px * var(--u))');
+    expect(buildCrimsonTemplate({ template: 'side-panel', ...PARAMS })!.html).toContain('right:calc(96px * var(--u));top:calc(110px * var(--u))');
   });
 });

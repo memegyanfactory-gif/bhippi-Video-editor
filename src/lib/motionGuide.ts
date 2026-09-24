@@ -51,6 +51,7 @@ export const CRIMSON_BASE_CSS = `
 .mgc .bg{position:absolute;inset:-4%;background:radial-gradient(ellipse 65% 48% at 50% 110%,#c94548 0%,#941d1f 34%,transparent 76%),radial-gradient(ellipse 32% 35% at 101% 91%,#bc5152 0%,transparent 80%),linear-gradient(180deg,#1c0000 8%,#250707 59%,#5d1416 100%)}
 .mgc .bg.soft{opacity:.92}
 .mgc .vig{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 calc(210px*var(--u)) calc(36px*var(--u)) #08000065}
+.mgc .stage{position:absolute;left:0;right:0;top:calc(50% - 540px*var(--u));height:calc(1080px*var(--u))}
 .mgc .glass{position:absolute;border:calc(2px*var(--u)) solid #ffd8d35c;border-radius:calc(24px*var(--u));background:linear-gradient(135deg,#fff0e917 0%,#ffffff05 44%,#9a172e48 100%),linear-gradient(180deg,#1a0407d9,#12030aeb);box-shadow:inset 0 1px 1px #fff7,inset 0 0 calc(30px*var(--u)) #f8c1be12,0 0 calc(10px*var(--u)) #ffd0c047,0 calc(20px*var(--u)) calc(70px*var(--u)) #1200004d}
 .mgc .glass:before{content:"";position:absolute;inset:calc(6px*var(--u));pointer-events:none;border-radius:calc(18px*var(--u));border:1px solid #fff1}
 .mgc .kicker{font-size:calc(${CRIMSON.type.kicker}px*var(--u));letter-spacing:.16em;text-transform:uppercase;opacity:.74;font-weight:500}
@@ -109,7 +110,7 @@ export type TemplateSpec = {
   params: string[];
   /** Default length in seconds (the reading hold included). */
   seconds: number;
-  /** Where it draws (fraction of the frame) for the given layout; used by frame QA. */
+  /** Where it draws (fraction of the frame) for the given layout on a 16:9 canvas; `buildCrimsonTemplate` maps it onto other canvases. Used by frame QA. */
   box: (layout: MogrtLayout) => { x: number; y: number; width: number; height: number };
   /** True when the graphic wants the footage reframed beside it (layout_clip side-panel). */
   wantsSplit?: boolean;
@@ -122,6 +123,8 @@ const centre = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
 const sideBox = (layout: MogrtLayout) => (layout === 'side-panel-left' ? { x: 0.05, y: 0.1, width: 0.35, height: 0.8 } : { x: 0.6, y: 0.1, width: 0.35, height: 0.8 });
 const cornerBox = (layout: MogrtLayout) => (layout === 'top-left' ? { x: 0.05, y: 0.07, width: 0.32, height: 0.18 } : { x: 0.63, y: 0.07, width: 0.32, height: 0.18 });
 const lowerBox = () => ({ x: 0.05, y: 0.74, width: 0.5, height: 0.16 });
+/** A side panel on a portrait canvas: one card across the lower half, above the bottom 18% of platform UI. */
+const portraitPanel = { x: 0.05, y: 0.37, width: 0.9, height: 0.45 };
 const full = () => ({ x: 0, y: 0, width: 1, height: 1 });
 
 export const CRIMSON_TEMPLATES: TemplateSpec[] = [
@@ -196,7 +199,16 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
   const cam = params.cameraMove === 'push-in' ? 'cam push-in' : '';
   const canvas = params.canvas ?? { width: 1920, height: 1080 };
   const portrait = canvas.height > canvas.width;
-  const box = spec.box(layout);
+  // Templates laid out for 1920×1080 keep that layout in a 16:9 band (.stage) centred on a taller
+  // canvas; `band` is its share of the canvas height (1 on 16:9, .316 on 9:16, .5625 on 1:1).
+  const band = Math.min(1, (1080 * canvas.width) / 1920 / canvas.height);
+  let box = spec.box(layout);
+  let banded = false;
+  /** An offset from the top or bottom edge: `n` design units on 16:9, `social`% on portrait, the same share of the height as on 16:9 otherwise. */
+  const edge = (n: number, social: number) => (portrait ? `${social}%` : band < 1 ? `${Math.round(n / 10.8)}%` : px(n));
+  const edgeShare = (n: number, social: number) => (portrait ? social / 100 : Math.round(n / 10.8) / 100);
+  /** `b` drawn `bottom` (share of the height) above the foot of a taller canvas, at the band's type size. */
+  const above = (b: typeof box, bottom: number) => ({ ...b, y: 1 - bottom - b.height * band, height: b.height * band });
   const wrap = (inner: string, extra = '') => `<div class="mgc" style="--mg-accent:${accent};--u:${(canvas.width / 1920).toFixed(4)}${extra}">${inner}</div>`;
   const bgPlate = spec.fullFrame && layout === 'fullscreen' ? '<div class="bg a fade" style="--alpha:.96"></div><div class="vig"></div>' : '';
   let html = '';
@@ -232,15 +244,19 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const active = Math.min(rows.length - 1, Math.max(0, params.activeIndex ?? rows.length - 1));
       const isSide = spec.id === 'side-panel' || layout.startsWith('side-panel');
       const geometry = isSide
-        ? `${side}:${px(96)};top:${px(110)};width:${px(672)};bottom:${px(110)};padding:${px(48)} ${px(50)}`
+        ? portrait
+          ? `left:${px(96)};right:${px(96)};bottom:18%;max-height:45%;padding:${px(48)} ${px(50)}`
+          : `${side}:${px(96)};top:${px(110)};width:${px(672)};bottom:${px(110)};padding:${px(48)} ${px(50)}`
         : `left:${px(445)};top:${px(226)};width:${px(1030)};min-height:${px(600)};padding:${px(54)} ${px(62)}`;
+      if (isSide && portrait) box = portraitPanel;
+      banded = !isSide;
       const list = rows.map((row, i) => {
         const [head, ...rest] = row.split(/\s[—–-]\s/);
         return `<div class="a rise" style="${d(1.05 + i * 0.22)};margin-bottom:${px(22)};opacity:${i === active ? 1 : 0.55}">
           <div style="display:flex;gap:${px(22)};align-items:baseline"><span class="small num" style="min-width:${px(56)};color:var(--accent)">${String(i + 1).padStart(2, '0')}</span><span class="row">${esc(head)}</span></div>
           ${rest.length ? `<div class="small" style="margin-left:${px(78)};margin-top:${px(4)}">${esc(rest.join(' — '))}</div>` : ''}</div>`;
       }).join('');
-      html = wrap(`<div class="x" style="position:absolute;inset:0"><div class="glass a panel-in" style="${geometry};${d(0.05)}">
+      html = wrap(`${banded ? '<div class="x stage">' : '<div class="x" style="position:absolute;inset:0">'}<div class="glass a panel-in" style="${geometry};${d(0.05)}">
         <div class="num" style="position:absolute;right:${px(56)};top:${px(40)};font-size:${px(114)};font-weight:700;letter-spacing:-.05em;opacity:.13">${esc(kicker ? kicker.replace(/\D/g, '').slice(0, 2) || '01' : '01')}</div>
         ${kicker ? `<div class="kicker a fade" style="${d(0.45)}">${esc(kicker)}</div>` : ''}
         <div class="heading a rise" style="margin-top:${px(12)};margin-bottom:${px(38)};font-size:${px(isSide ? 58 : 65)};${d(0.5)}">${esc(title)}</div>
@@ -265,7 +281,8 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
         const mx = (hub.x + tx) / 2;
         return `<path class="a draw" pathLength="1" d="M${hub.x},${hub.y} C${mx},${hub.y} ${mx},${spot.y} ${tx},${spot.y}" style="${d(0.7 + i * 0.9)}"/><circle class="a fade" cx="${tx}" cy="${spot.y}" r="7" fill="#ffded7" style="${d(1.3 + i * 0.9)}"/>`;
       }).join('');
-      html = wrap(`${bgPlate}<div class="x" style="position:absolute;inset:0">
+      banded = true;
+      html = wrap(`${bgPlate}<div class="x stage">
         <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${esc(kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${esc(title)}</div></div>
         <svg viewBox="0 0 1920 1080" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:#f4dad5aa;stroke-width:2;stroke-linecap:round">${paths}</svg>
         <div class="glass a panel-in" style="left:${px(hub.x - 95)};top:${px(hub.y - 92)};width:${px(190)};height:${px(185)};border-radius:${px(22)};display:flex;align-items:center;justify-content:center;${d(0.3)}"><div class="heading" style="font-size:${px(40)}">${esc(kicker ? kicker.slice(0, 6) : '●')}</div></div>
@@ -283,7 +300,8 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
           <div class="num" style="position:absolute;top:${px(470)};font-size:${px(Math.min(254, laneW * 0.86))};line-height:1;font-weight:700;letter-spacing:-.07em;transform:scaleY(-1);opacity:.12;filter:blur(${px(5)});mask-image:linear-gradient(0deg,#000,transparent 73%);-webkit-mask-image:linear-gradient(0deg,#000,transparent 73%)">${i + 1}</div>
           <div class="a fade" style="position:absolute;left:${px(-7)};bottom:${px(-7)};width:${px(12)};height:${px(12)};background:#fff3ea;transform:rotate(45deg);box-shadow:0 0 ${px(14)} #ffe2c5;${d(0.9)}"></div>
         </div>`).join('');
-      html = wrap(`${bgPlate}<div class="x" style="position:absolute;inset:0">
+      banded = true;
+      html = wrap(`${bgPlate}<div class="x stage">
         <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${esc(kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${esc(title)}</div></div>
         <div class="cam" style="position:absolute;inset:0;--travel:${px(travel)};animation-name:mg-travel;animation-duration:1.1s;animation-timing-function:var(--ei);animation-delay:calc(var(--t) + 1.5s)">
           <div class="rule a grow" style="position:absolute;left:${px(100)};right:${px(100)};top:${px(807)};transform-origin:center;box-shadow:0 0 ${px(10)} ${px(3)} #e8877a6b;background:#e9c6bc;${d(0.1)}"></div>
@@ -309,7 +327,8 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
           <div class="kicker">${i === 0 ? 'A' : 'B'}</div><div class="heading a rise" style="margin-top:${px(18)};font-size:${px(60)};${d(0.9 + i * 0.12)}">${esc(head)}</div>
           ${rest.length ? `<div class="body a rise" style="margin-top:${px(22)};color:var(--muted);${d(1.15 + i * 0.12)}">${esc(rest.join(' — '))}</div>` : ''}</div>`;
       }).join('');
-      html = wrap(`${bgPlate}<div class="x" style="position:absolute;inset:0">
+      banded = true;
+      html = wrap(`${bgPlate}<div class="x stage">
         <div style="position:absolute;left:${px(120)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${esc(kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${esc(title)}</div></div>
         <div style="position:absolute;left:${px(120)};right:${px(120)};top:${px(300)};display:flex;gap:${px(48)}">${cards}</div></div>`);
       break;
@@ -320,7 +339,11 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const max = Math.max(1, ...values);
       const active = Math.min(rows.length - 1, Math.max(0, params.activeIndex ?? values.indexOf(max)));
       const isSide = layout.startsWith('side-panel');
-      const geometry = isSide ? `${side}:${px(70)};top:${px(110)};width:${px(760)};bottom:${px(110)}` : `left:${px(230)};top:${px(150)};width:${px(1460)};height:${px(780)}`;
+      const geometry = isSide
+        ? portrait ? `left:${px(96)};right:${px(96)};bottom:18%;height:45%` : `${side}:${px(70)};top:${px(110)};width:${px(760)};bottom:${px(110)}`
+        : `left:${px(230)};top:${px(150)};width:${px(1460)};height:${px(780)}`;
+      if (isSide && portrait) box = portraitPanel;
+      banded = !isSide;
       const bars = rows.map((label, i) => {
         const h = Math.round((values[i] / max) * 100);
         return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:${px(14)}">
@@ -328,7 +351,7 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
           <div style="width:${px(isSide ? 72 : 110)};height:${h}%;border-radius:${px(10)} ${px(10)} ${px(4)} ${px(4)};background:${i === active ? 'linear-gradient(180deg,var(--accent),#7a1622)' : 'linear-gradient(180deg,#9a4a52aa,#4a141aaa)'};box-shadow:${i === active ? `0 0 ${px(24)} #d34b5566` : 'none'};transform-origin:bottom;animation:mg-bar .8s var(--eo) both paused;animation-delay:calc(var(--t) + ${(0.5 + i * 0.14).toFixed(2)}s)"></div>
           <div class="small" style="font-size:${px(isSide ? 24 : 28)};${i === active ? 'color:var(--white)' : ''}">${esc(label)}</div></div>`;
       }).join('');
-      html = wrap(`<div class="x" style="position:absolute;inset:0"><div class="glass a panel-in" style="${geometry};padding:${px(48)} ${px(56)};display:flex;flex-direction:column;${d(0.05)}">
+      html = wrap(`${banded ? '<div class="x stage">' : '<div class="x" style="position:absolute;inset:0">'}<div class="glass a panel-in" style="${geometry};padding:${px(48)} ${px(56)};display:flex;flex-direction:column;${d(0.05)}">
         ${kicker ? `<div class="kicker a fade" style="${d(0.4)}">${esc(kicker)}</div>` : ''}
         <div class="heading a rise" style="margin-top:${px(10)};font-size:${px(isSide ? 52 : 64)};${d(0.45)}">${esc(title)}</div>
         <div style="flex:1;display:flex;align-items:flex-end;gap:${px(24)};margin-top:${px(40)};border-bottom:${px(2)} solid #ffd8d366;padding-bottom:${px(14)}">${bars}</div>
@@ -347,7 +370,8 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
           <div class="heading num a rise" style="font-size:${px(56)};${d(0.75 + i * 0.25)}">${esc(when)}</div>
           ${rest.length ? `<div class="small a rise" style="margin-top:${px(8)};${d(0.95 + i * 0.25)}">${esc(rest.join(' '))}</div>` : ''}</div>`;
       }).join('');
-      html = wrap(`${bgPlate}<div class="x" style="position:absolute;inset:0">
+      banded = true;
+      html = wrap(`${bgPlate}<div class="x stage">
         <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${esc(kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${esc(title)}</div></div>
         <div class="cam" style="position:absolute;inset:0;--travel:${px(travel)};animation-name:mg-travel;animation-duration:1.2s;animation-timing-function:var(--ei);animation-delay:calc(var(--t) + 1.4s)">
           <div class="rule a grow" style="position:absolute;left:${px(160)};width:${px(1600)};top:${px(508)};background:#e9c6bc;box-shadow:0 0 ${px(10)} ${px(3)} #e8877a6b;${d(0.2)}"></div>${marks}
@@ -356,7 +380,8 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
     }
     case 'cursor-demo': {
       const rows = rowsOf(params.rows, ['Prompt typed', 'Result ready']).slice(0, 3);
-      html = wrap(`${bgPlate}<div class="x" style="position:absolute;inset:0">
+      banded = true;
+      html = wrap(`${bgPlate}<div class="x stage">
         <div class="a fade" style="position:absolute;left:50%;top:50%;width:${px(26)};height:${px(26)};margin:${px(-13)};border-radius:50%;background:#ffded7;box-shadow:0 0 ${px(24)} var(--accent);${d(0.1)};animation-name:mg-fade"></div>
         <div class="glass a panel-in" style="left:${px(560)};top:${px(300)};width:${px(800)};height:${px(480)};padding:${px(44)} ${px(52)};${d(0.75)}">
           ${kicker ? `<div class="kicker a fade" style="${d(1.2)}">${esc(kicker)}</div>` : ''}
@@ -372,21 +397,25 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       break;
     }
     case 'chapter-marker': {
-      const corner = side === 'left' ? `left:${px(96)}` : `right:${px(96)}`;
-      html = wrap(`<div class="x" style="position:absolute;top:${px(74)};${corner};text-align:${side}">
+      const inset = portrait ? '7%' : px(96);
+      const corner = side === 'left' ? `left:${inset}` : `right:${inset}`;
+      if (band < 1) box = { ...box, x: portrait ? (side === 'left' ? 0.07 : 0.61) : box.x, y: edgeShare(74, 12), height: box.height * band };
+      html = wrap(`<div class="x" style="position:absolute;top:${edge(74, 12)};${corner};text-align:${side}">
         <div class="kicker a push" style="${d(0.05)}">${esc(kicker || 'CHAPTER')}</div>
         <div class="heading a rise" style="font-size:${px(40)};margin-top:${px(8)};${d(0.2)}">${esc(title)}</div>
         <div class="rule a grow" style="width:${px(90)};margin-top:${px(12)};background:var(--accent);${side === 'right' ? 'margin-left:auto;transform-origin:right' : ''};${d(0.45)}"></div></div>`);
       break;
     }
     case 'caption-phrase': {
-      html = wrap(`<div class="x" style="position:absolute;left:${px(210)};right:${px(210)};bottom:${portrait ? '18%' : px(112)};text-align:center">
+      if (band < 1) box = above(box, edgeShare(112, 18));
+      html = wrap(`<div class="x" style="position:absolute;left:${px(210)};right:${px(210)};bottom:${edge(112, 18)};text-align:center">
         <div class="cap words" style="display:inline-block;padding:${px(10)} ${px(26)};border-radius:${px(12)};background:#0c000466">${accentWords(title, params.accentWord, 0.05)}</div>
       </div>`);
       break;
     }
     case 'crimson-lower-third': {
-      html = wrap(`<div class="x" style="position:absolute;left:${px(96)};bottom:${portrait ? '20%' : px(120)}">
+      if (band < 1) box = above(box, edgeShare(120, 20));
+      html = wrap(`<div class="x" style="position:absolute;left:${px(96)};bottom:${edge(120, 20)}">
         <div class="rule a grow" style="width:${px(6)};height:${px(120)};position:absolute;left:0;top:${px(4)};background:var(--accent);transform-origin:top;${d(0.05)}"></div>
         <div style="padding-left:${px(30)}">
           <div class="heading a push" style="font-size:${px(58)};${d(0.15)}">${esc(title)}</div>
@@ -409,11 +438,13 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const from = Math.max(1, Math.min(99, parseInt(params.metric ?? '5', 10) || 5));
       const digits = Array.from({ length: from }, (_, i) => from - i).map((n, i) => `<div class="hero num a rise" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:${px(360)};${d(i * 1)};animation-name:mg-count-step">${n}</div>`).join('');
       css = `@keyframes mg-count-step{0%{opacity:0;transform:scale(.7)}12%{opacity:1;transform:scale(1)}88%{opacity:1;transform:scale(1.04)}100%{opacity:0;transform:scale(1.1)}}.mgc .a[style*="mg-count-step"]{animation-duration:1s;animation-timing-function:var(--ei)}`;
-      html = wrap(`<div class="x" style="position:absolute;inset:0">${digits}${title ? `<div class="kicker a fade" style="position:absolute;left:0;right:0;bottom:${px(160)};text-align:center;${d(0.1)}">${esc(title)}</div>` : ''}</div>`);
+      banded = true;
+      html = wrap(`<div class="x stage">${digits}${title ? `<div class="kicker a fade" style="position:absolute;left:0;right:0;bottom:${px(160)};text-align:center;${d(0.1)}">${esc(title)}</div>` : ''}</div>`);
       break;
     }
     case 'breaking-news': {
-      html = wrap(`<div class="x" style="position:absolute;left:0;right:0;bottom:${portrait ? '16%' : px(70)}">
+      if (band < 1) box = above(box, edgeShare(70, 18));
+      html = wrap(`<div class="x" style="position:absolute;left:0;right:0;bottom:${edge(70, 18)}">
         <div class="a push" style="display:inline-block;padding:${px(10)} ${px(26)};background:var(--accent);color:#fff;font-weight:700;letter-spacing:.14em;font-size:${px(26)};${d(0.05)}">${esc(params.badge || 'BREAKING')}</div>
         <div class="a grow" style="background:linear-gradient(90deg,#1a0407f2,#12030aeb);border-top:${px(2)} solid #ffd8d35c;padding:${px(24)} ${px(60)};transform-origin:left;${d(0.15)}">
           <div class="heading" style="font-size:${px(54)}">${esc(title)}</div>${subtitle ? `<div class="small" style="margin-top:${px(6)}">${esc(subtitle)}</div>` : ''}
@@ -421,6 +452,7 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       break;
     }
   }
+  if (banded) box = { ...box, y: 0.5 - band / 2 + box.y * band, height: box.height * band };
   return { html, css: CRIMSON_BASE_CSS + css, box, seconds };
 }
 
