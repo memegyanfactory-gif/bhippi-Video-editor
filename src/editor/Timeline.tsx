@@ -431,9 +431,8 @@ export function Timeline(props: Props) {
     }
     if (tool === 'slip') return capture(event, { kind: 'slip', clipId: clip.id, base: comp, startX: event.clientX });
     if (tool === 'slide') return capture(event, { kind: 'slide', clipId: clip.id, base: comp, startX: event.clientX });
-    if (event.ctrlKey && display.keyframes && !event.shiftKey) return onRubberDown(event, clip, null);
     if (tool === 'select' && picked) {
-      capture(event, { kind: 'move', ids: picked, grab: clip, startX: event.clientX, startRow: rowIndex(clip.trackId), duplicate: event.altKey, moved: false, dt: 0, shift: 0, ctrl: false });
+      capture(event, { kind: 'move', ids: picked, grab: clip, startX: event.clientX, startRow: rowIndex(clip.trackId), duplicate: event.altKey, moved: false, dt: 0, shift: 0, ctrl: event.ctrlKey });
     }
   };
 
@@ -545,8 +544,12 @@ export function Timeline(props: Props) {
         active.dt = Math.max(dt, -earliest);
         const grabKind = comp.tracks.find((track) => track.id === active.grab.trackId)?.kind ?? 'video';
         const target = dropTarget(event.clientX, event.clientY);
+        // Over the other kind's rows the grabbed clip stops at the track nearest them (V1 or A1).
+        // Video and audio shift together, so no moving clip may go below its V1/A1 either —
+        // moveClips would refuse the whole move and the horizontal part would be lost with it.
         if (target && target.kind === grabKind) active.shift = target.index - active.startRow;
-        else if (target) active.shift = grabKind === 'video' ? -active.startRow : tracksOf(comp, 'audio').length - active.startRow;
+        else if (target) active.shift = -active.startRow;
+        active.shift = Math.max(active.shift, ...moving.map((clip) => -trackIndex(comp, clip.trackId)));
         active.ctrl = event.ctrlKey;
         redraw((value) => value + 1);
         return;

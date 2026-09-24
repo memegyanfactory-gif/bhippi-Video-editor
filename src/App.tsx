@@ -85,6 +85,7 @@ import { rewritePaths, storyboardDocs } from './lib/projectDocs';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
 import { isSetUp } from './settings/ProvidersSettings';
 import { SHORTCUTS } from './lib/shortcuts';
+import { APP_CHORDS, chordAction, type Chord } from './lib/chords';
 import { FXConsoleModal } from './components/FXConsoleModal';
 import { loadFxSettings, loadFxSnapshots, saveFxSnapshots } from './lib/fxConsole';
 import { getLiveMousePos } from './lib/mouseTracker';
@@ -2165,61 +2166,8 @@ export default function App() {
       if (event.key === 'Escape' && menu) setMenu(null);
       return;
     }
-    // File and app-wide
-    if (ctrl && alt && key === 'n') return run(newProjectNow);
-    if (ctrl && !alt && key === 'n') return run(newCompDialog);
-    if (ctrl && key === 'o') return run(() => void openProject());
-    if (ctrl && alt && key === 's') return run(() => void saveAs(false));
-    if (ctrl && shift && key === 's') return run(() => void saveAs());
-    if (ctrl && key === 's') return run(() => void saveProject());
-    if (ctrl && key === 'i') return run(() => void pickFiles());
-    if (ctrl && shift && key === 'e') return run(() => void exportFrame());
-    if (ctrl && key === 'm') return run(() => hasClips && setExportOpen(true));
-    if (ctrl && key === 'q') return run(() => void getCurrentWindow().close());
-    if (ctrl && key === '/') return run(newFolder);
-    if (ctrl && alt && key === 'k') return run(() => setShortcutsOpen(true));
-    if (ctrl && alt && key === 'l') return run(() => setPanelVisible('chat', hidden('chat')));
-    if (ctrl && key === ',') return run(() => setSettingsTab('providers'));
-    if (ctrl && key === 'f') return run(() => { showPanel('project', 'project'); (document.querySelector('[data-role="bin-search"]') as HTMLInputElement | null)?.focus(); });
-    if (ctrl && (key === ' ' || event.code === 'Space')) {
-      return run(() => {
-        setFxConsoleAnchor(getLiveMousePos());
-        setFxConsoleOpen((curr) => !curr);
-      });
-    }
-    if (mode === 'home') return;
-    // Edit
-    if (ctrl && key === 'z') return run(() => (shift ? history.redo() : history.undo()));
-    if (ctrl && key === 'y') return run(history.redo);
-    if (ctrl && alt && key === 'v') return run(() => selectedClips[0] && clipMenu({ clientX: 200, clientY: 200 }, selectedClips[0].id, playhead.get()));
-    if (ctrl && shift && key === 'v') return run(() => paste(true));
-    if (ctrl && key === 'v') return run(() => paste(false));
-    // Selected prose (chat, settings, anywhere else text is selectable) wants a plain clipboard
-    // copy, not the timeline's clip-copy — this used to preventDefault and hijack Ctrl+C/X even
-    // when nothing in the timeline was selected, so copying chat text silently did nothing.
-    const selectedText = window.getSelection();
-    const hasTextSelection = !!selectedText && !selectedText.isCollapsed && selectedText.toString().length > 0;
-    if (ctrl && key === 'c') { if (hasTextSelection) return; return run(() => copySelection(false)); }
-    if (ctrl && key === 'x') { if (hasTextSelection) return; return run(() => copySelection(true)); }
-    if (ctrl && shift && key === 'a') return run(() => { setSelection([]); setTransitionSelection(null); });
-    if (ctrl && key === 'a') return run(() => comp && setSelection(comp.clips.map((clip) => clip.id)));
-    if (ctrl && key === 'e') return run(() => {
-      const clip = selectedClips[0];
-      if (clip?.source.type === 'media') void api.openPath(assetMap.get(clip.source.assetId)?.path ?? '');
-    });
-    // Clip and comp
-    if (ctrl && key === 'r') return run(() => selectedClips[0] && speedDialog(selectedClips[0], selection));
-    if (ctrl && shift && key === 'g') return run(() => editComp((current) => setGrouped(current, selection, false), 'Ungroup'));
-    if (ctrl && key === 'g') return run(() => editComp((current) => setGrouped(current, selection, true), 'Group'));
-    if (ctrl && key === 'l') return run(() => editComp((current) => setLinked(current, selection, !selectedClips.some((clip) => clip.linkId)), 'Link'));
-    if (ctrl && shift && key === 'k') return run(() => addEdit(true));
-    if (ctrl && key === 'k') return run(() => addEdit(false));
-    if (ctrl && shift && key === 'd') return run(() => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition'));
-    if (ctrl && key === 'd') return run(() => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition'));
-    if (ctrl && key === 't') return run(() => addText('title'));
-    if (ctrl && alt && key === 'r') return run(() => setTool('rectangle'));
-    if (ctrl && alt && key === 'e') return run(() => setTool('ellipse'));
-    if (ctrl && shift && key === '/') return run(() => {
+    const chord = chordAction(event);
+    const duplicate = () => {
       if (!comp || !selection.length) return;
       const span = Math.max(...selectedClips.map(clipEnd)) - Math.min(...selectedClips.map((clip) => clip.start));
       const result = moveClips(comp, linkedSelection ? withLinked(comp, selection) : selection, span, { video: 0, audio: 0 }, 'overwrite', true);
@@ -2227,25 +2175,83 @@ export default function App() {
         editComp(() => result.comp, 'Duplicate');
         setSelection(result.ids);
       }
-    });
-    // Markers
-    if (ctrl && shift && key === 'i') return run(() => editComp((current) => ({ ...current, inPoint: null }), 'Clear In'));
-    if (ctrl && shift && key === 'o') return run(() => editComp((current) => ({ ...current, outPoint: null }), 'Clear Out'));
-    if (ctrl && shift && key === 'x') return run(clearInOut);
-    if (ctrl && alt && shift && key === 'm') return run(() => editComp((current) => ({ ...current, markers: [] }), 'Clear All Markers'));
-    if (ctrl && alt && key === 'm') return run(() => editComp((current) => toggleMarker(current, playhead.get()), 'Clear Marker'));
-    if (ctrl && shift && key === 'm') return run(() => { const target = nextPoint(comp?.markers.map((marker) => marker.time) ?? [], playhead.get(), -1); if (target !== null) playhead.seek(target); });
-    // Track heights and panels
-    if (ctrl && (key === '=' || key === '+')) return run(() => trackHeights('video', 16));
-    if (ctrl && key === '-') return run(() => trackHeights('video', -16));
-    if (alt && (key === '=' || key === '+')) return run(() => trackHeights('audio', 16));
-    if (alt && key === '-') return run(() => trackHeights('audio', -16));
-    if (shift && (key === '=' || key === '+')) return run(() => trackHeights('all', 40));
-    if (shift && key === '_') return run(() => trackHeights('all', -40));
-    if (shift && ['1', '2', '3', '4', '5', '6', '7', '8'].includes(event.key)) {
-      const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools', 'transcript'];
-      return run(() => showPanel(panels[Number(event.key) - 1]));
+    };
+    const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools', 'transcript'];
+    const perform = (name: Chord): (() => void) => {
+      switch (name) {
+        // File and app-wide
+        case 'newProject': return newProjectNow;
+        case 'newComp': return newCompDialog;
+        case 'open': return () => void openProject();
+        case 'saveCopy': return () => void saveAs(false);
+        case 'saveAs': return () => void saveAs();
+        case 'save': return () => void saveProject();
+        case 'import': return () => void pickFiles();
+        case 'exportFrame': return () => void exportFrame();
+        case 'export': return () => hasClips && setExportOpen(true);
+        case 'quit': return () => void getCurrentWindow().close();
+        case 'newFolder': return newFolder;
+        case 'shortcuts': return () => setShortcutsOpen(true);
+        case 'toggleChat': return () => setPanelVisible('chat', hidden('chat'));
+        case 'settings': return () => setSettingsTab('providers');
+        case 'find': return () => { showPanel('project', 'project'); (document.querySelector('[data-role="bin-search"]') as HTMLInputElement | null)?.focus(); };
+        case 'fxConsole': return () => {
+          setFxConsoleAnchor(getLiveMousePos());
+          setFxConsoleOpen((curr) => !curr);
+        };
+        // Edit
+        case 'undo': return history.undo;
+        case 'redo': return history.redo;
+        case 'pasteAttributes': return () => selectedClips[0] && clipMenu({ clientX: 200, clientY: 200 }, selectedClips[0].id, playhead.get());
+        case 'pasteInsert': return () => paste(true);
+        case 'paste': return () => paste(false);
+        case 'copy': return () => copySelection(false);
+        case 'cut': return () => copySelection(true);
+        case 'deselectAll': return () => { setSelection([]); setTransitionSelection(null); };
+        case 'selectAll': return () => comp && setSelection(comp.clips.map((clip) => clip.id));
+        case 'editOriginal': return () => {
+          const clip = selectedClips[0];
+          if (clip?.source.type === 'media') void api.openPath(assetMap.get(clip.source.assetId)?.path ?? '');
+        };
+        case 'duplicate': return duplicate;
+        // Clip and comp
+        case 'speed': return () => selectedClips[0] && speedDialog(selectedClips[0], selection);
+        case 'ungroup': return () => editComp((current) => setGrouped(current, selection, false), 'Ungroup');
+        case 'group': return () => editComp((current) => setGrouped(current, selection, true), 'Group');
+        case 'link': return () => editComp((current) => setLinked(current, selection, !selectedClips.some((clip) => clip.linkId)), 'Link');
+        case 'addEditAll': return () => addEdit(true);
+        case 'addEdit': return () => addEdit(false);
+        case 'applyTransition': return () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition');
+        case 'newTitle': return () => addText('title');
+        case 'rectangle': return () => setTool('rectangle');
+        case 'ellipse': return () => setTool('ellipse');
+        // Markers
+        case 'clearIn': return () => editComp((current) => ({ ...current, inPoint: null }), 'Clear In');
+        case 'clearOut': return () => editComp((current) => ({ ...current, outPoint: null }), 'Clear Out');
+        case 'clearInOut': return clearInOut;
+        case 'clearAllMarkers': return () => editComp((current) => ({ ...current, markers: [] }), 'Clear All Markers');
+        case 'clearMarker': return () => editComp((current) => toggleMarker(current, playhead.get()), 'Clear Marker');
+        case 'previousMarker': return () => { const target = nextPoint(comp?.markers.map((marker) => marker.time) ?? [], playhead.get(), -1); if (target !== null) playhead.seek(target); };
+        // Track heights and panels
+        case 'videoTaller': return () => trackHeights('video', 16);
+        case 'videoShorter': return () => trackHeights('video', -16);
+        case 'audioTaller': return () => trackHeights('audio', 16);
+        case 'audioShorter': return () => trackHeights('audio', -16);
+        case 'allTaller': return () => trackHeights('all', 40);
+        case 'allShorter': return () => trackHeights('all', -40);
+        default: return () => showPanel(panels[Number(name.slice(5)) - 1]);
+      }
+    };
+    if (chord && APP_CHORDS.has(chord)) return run(perform(chord));
+    if (mode === 'home') return;
+    if (chord === 'copy' || chord === 'cut') {
+      // Selected prose (chat, settings, anywhere else text is selectable) wants a plain clipboard
+      // copy, not the timeline's clip-copy — this used to preventDefault and hijack Ctrl+C/X even
+      // when nothing in the timeline was selected, so copying chat text silently did nothing.
+      const selectedText = window.getSelection();
+      if (selectedText && !selectedText.isCollapsed && selectedText.toString().length > 0) return;
     }
+    if (chord) return run(perform(chord));
     if (ctrl) return;
     const sourceFocused = focused === 'source' && !!sourceAsset;
     // Transport and navigation
