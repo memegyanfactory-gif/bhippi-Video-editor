@@ -2,8 +2,9 @@
   "version": "0.2.0",
   "configurations": [
     {
-      // Default F5: Closes running instance, builds the UI, compiles, and opens the Helios desktop window.
-      // Works natively in Cursor and VS Code without needing MSVC cpptools or proprietary debuggers.
+      // PRESS F5 FOR THIS. Closes any running instance, builds the UI, compiles,
+      // and opens the Helios desktop window. Needs nothing installed beyond
+      // Node + Rust + the repo's npm packages. Works in Cursor and VS Code.
       "name": "Helios",
       "type": "node",
       "request": "launch",
@@ -12,7 +13,8 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      // Desktop window with UI hot reload (tauri dev)
+      // Desktop window with UI hot reload (tauri dev). Same stock requirements
+      // as above; pick this when iterating on frontend code.
       "name": "Helios (Hot Reload)",
       "type": "node-terminal",
       "request": "launch",
@@ -20,8 +22,11 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      // Native debugger (when using standard Visual Studio Code with C/C++ extension)
-      "name": "Helios (Native Debugger)",
+      // Rust breakpoints. ONLY this entry needs an extra install: Microsoft's
+      // "C/C++" extension (ms-vscode.cpptools), which provides the cppvsdbg
+      // debugger. Without it, VS Code/Cursor reports "debug type not supported"
+      // and the app will not start — use the plain "Helios" entry instead.
+      "name": "Helios (Native Debugger — needs C/C++ extension)",
       "type": "cppvsdbg",
       "request": "launch",
       "preLaunchTask": "helios: build app",
