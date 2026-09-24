@@ -74,6 +74,22 @@ describe('frame writer deadlines', () => {
     await writer.close();
   });
 
+  it('restarts the worker that timed out, even after another could not be replaced', async () => {
+    reply = { mode: 'never', delay: 0 };
+    ipc.mogrtFrameWrite.mockResolvedValue(undefined);
+    const writer = await openFrameWriter('dir');
+    // No fresh workers from here on: a restarted slot is dropped and the others move up.
+    vi.stubGlobal('Worker', class { constructor() { throw new Error('no workers'); } });
+    await writer.pixels(0, 1, 1, px());
+    await vi.advanceTimersByTimeAsync(1);
+    await writer.pixels(1, 1, 1, px());
+    const finished = expect(writer.finish()).rejects.toThrow('frame 0: PNG encoder gave no answer');
+    await vi.advanceTimersByTimeAsync(30_000);
+    await finished;
+    expect(spawned.map((worker) => worker.terminated)).toEqual([true, true, false, false]);
+    await writer.close();
+  });
+
   it('fails the frames of a worker whose reply cannot be read', async () => {
     reply = { mode: 'messageerror', delay: 10 };
     ipc.mogrtFrameWrite.mockResolvedValue(undefined);
@@ -151,6 +167,29 @@ describe('render window stall watchdog', () => {
     expect(JSON.parse(ipc.frontendCrash.mock.calls[0][1])).toMatchObject({ stage: 'motion 3/15 "Channel avatar bug"', frame: 13 });
     renderProgress.frame(13);
     expect(renderProgress.get().stall).toBeNull();
+  });
+
+  it('names no frame while the FFmpeg encode is stuck', async () => {
+    renderProgress.start(['scenes', 'encoding'], 100, null);
+    renderProgress.frame(100);
+    renderProgress.inflight([{ index: 99, stage: 'write' }]);
+    renderProgress.encoding('job');
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(renderProgress.get().stall).toBe('No progress for 20 s: waiting on the FFmpeg encode');
+  });
+
+  it('keeps a render closed after Cancel from ending the next export', async () => {
+    renderProgress.start(['scenes', 'encoding'], 100, null);
+    renderProgress.cancel();
+    await vi.advanceTimersByTimeAsync(6_000);
+    renderProgress.close();
+    renderProgress.start(['scenes', 'encoding'], 50, null);
+    // The first render finally gives up: the new one keeps running.
+    renderProgress.finish('cancelled');
+    expect(renderProgress.get()).toMatchObject({ open: true, status: 'running', totalFrames: 50 });
+    renderProgress.cancel();
+    renderProgress.finish('cancelled');
+    expect(renderProgress.get()).toMatchObject({ open: true, status: 'cancelled' });
   });
 
   it('lets a cancelled render that does not stop be closed after 6 s', async () => {

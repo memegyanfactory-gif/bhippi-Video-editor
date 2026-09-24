@@ -9,9 +9,9 @@
 import { api } from './ipc';
 
 type Pending = { resolve: (png: Uint8Array) => void; reject: (error: Error) => void; worker: Worker };
-/** One queued encode: the worker that has it (-1: the main thread) and how many jobs it holds. */
-type Encoding = { png: Promise<Uint8Array>; worker: number; queued: number };
-type Pool = { encode: (message: Record<string, unknown>, transfer: Transferable[]) => Encoding; restart: (worker: number) => void; size: number; close: () => void };
+/** One queued encode: the worker that has it (its slot, -1: the main thread) and how many jobs it holds. */
+type Encoding = { png: Promise<Uint8Array>; worker: number; queued: number; handle?: Worker };
+type Pool = { encode: (message: Record<string, unknown>, transfer: Transferable[]) => Encoding; restart: (worker: Worker) => void; size: number; close: () => void };
 
 /** A frame on its way to disk, for the render window's stall report. */
 export type InflightFrame = { index: number; stage: 'encode' | 'write' };
@@ -97,12 +97,15 @@ async function openPool(size: number): Promise<Pool | null> {
         pending.set(id, { resolve, reject, worker });
         worker.postMessage({ ...message, id }, transfer);
       });
-      return { png, worker: k, queued };
+      return { png, worker: k, queued, handle: worker };
     },
-    /** A worker that stopped answering: its jobs fail and a fresh one takes its place. */
-    restart: (k) => {
-      const stuck = workers[k];
-      if (!stuck) return;
+    /**
+     * A worker that stopped answering: its jobs fail and a fresh one takes its place. Named by
+     * the worker itself, not its slot: a slot may hold a fresh worker (or another one) by now.
+     */
+    restart: (stuck) => {
+      const k = workers.indexOf(stuck);
+      if (k < 0) return;
       stuck.terminate();
       fail(stuck, 'PNG encoder restarted');
       load.delete(stuck);
@@ -176,7 +179,7 @@ export async function openFrameWriter(dir: string, onWritten?: (done: number) =>
   };
   const track = (index: number, encoding: Encoding) => {
     const where = encoding.worker >= 0 ? `worker ${encoding.worker}` : 'main thread';
-    const restart = () => { if (encoding.worker >= 0) pool?.restart(encoding.worker); };
+    const restart = () => { if (encoding.handle) pool?.restart(encoding.handle); };
     stage(index, 'encode');
     const job = withTimeout(encoding.png, ENCODE_TIMEOUT_MS, `frame ${index}: PNG encoder gave no answer in 30 s (${where}, ${encoding.queued} queued)`, restart)
       .then((bytes) => {

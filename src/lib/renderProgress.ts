@@ -71,6 +71,11 @@ let lastProgressAt = 0;
 let inflightFrames: InflightFrame[] = [];
 let watchdog: ReturnType<typeof setInterval> | null = null;
 let stallLogged = false;
+/** Renders let go while still running (closed after Cancel, or replaced): each will still finish once. */
+let orphans = 0;
+
+/** Pre-rendering in an open window: whoever runs it will still report how it ended (the encode is the job's to report). */
+const prerendering = () => state.open && state.status === 'running' && state.stage !== 'encoding';
 
 /** What is rendering, for the stall report: `motion 3/15 "Channel avatar bug"`. */
 export function stageLabel(s: RenderState): string {
@@ -95,10 +100,12 @@ function watch() {
   if (state.status !== 'running' || !state.open) return stopWatch();
   const stalled = performance.now() - lastProgressAt;
   if (stalled < STALL_MS) return;
-  const waiting = [...inflightFrames].sort((a, b) => a.index - b.index)[0];
+  const waiting = state.stage === 'encoding' ? undefined : [...inflightFrames].sort((a, b) => a.index - b.index)[0];
   const frame = waiting?.index ?? state.frame;
   const what = waiting ? (waiting.stage === 'encode' ? ' (PNG encode)' : ' (disk write)') : '';
-  state = { ...state, stall: `No progress for ${Math.floor(stalled / 1000)} s: waiting on ${stageLabel(state)} for frame ${frame}${what}` };
+  // The encode has no frame of ours to name: FFmpeg reports its own progress.
+  const at = state.stage === 'encoding' ? '' : ` for frame ${frame}${what}`;
+  state = { ...state, stall: `No progress for ${Math.floor(stalled / 1000)} s: waiting on ${stageLabel(state)}${at}` };
   publish();
   if (stallLogged) return;
   stallLogged = true;
@@ -114,6 +121,7 @@ export const renderProgress = {
   },
   /** Opens the window for a new export; returns the signal pre-rendering must honour. */
   start(stages: RenderStage[], totalFrames: number, output: string | null): AbortSignal {
+    if (prerendering()) orphans++;
     controller?.abort();
     controller = new AbortController();
     if (state.preview) URL.revokeObjectURL(state.preview);
@@ -185,7 +193,9 @@ export const renderProgress = {
   },
   finish(status: RenderStatus, detail: { output?: string | null; error?: string | null } = {}) {
     // Closed while still running (a cancel that did not stop in time): it stays closed.
-    if (!state.open) return;
+    if (!state.open) { orphans = Math.max(0, orphans - 1); return; }
+    // Such a render that ends only after a new export opened the window: its 'cancelled' is not this one's.
+    if (status === 'cancelled' && orphans > 0 && !controller?.signal.aborted) { orphans--; return; }
     stopWatch();
     state = { ...state, status, output: detail.output ?? state.output, error: detail.error ?? null, encode: status === 'done' ? 1 : state.encode, open: true };
     publish();
@@ -208,6 +218,7 @@ export const renderProgress = {
     publish();
   },
   close() {
+    if (prerendering()) orphans++;
     stopWatch();
     if (state.preview) URL.revokeObjectURL(state.preview);
     state = { ...initial };
