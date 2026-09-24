@@ -183,7 +183,7 @@ export class MediaBank {
       waits.push(loaded(entry.ready, resolved.url).then(() => loaded(seekExact(entry.el, time, options.presented ?? true), resolved.url)));
       if (layer.source.matte) {
         const path = layer.source.matte;
-        waits.push((async () => {
+        waits.push(loaded((async () => {
           if (!this.mattes.has(path)) this.matteSequence(path);
           const meta = await this.mattes.get(path)!;
           this.matteMeta.set(path, meta);
@@ -191,7 +191,7 @@ export class MediaBank {
           const index = this.matteIndex(meta, time);
           await this.image(meta.frameUrl(index), this.matteFrames).ready;
           this.trimMattes();
-        })());
+        })(), path));
       }
     }
     await Promise.all(waits);

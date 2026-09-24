@@ -232,6 +232,14 @@ describe('media bank', () => {
     await vi.advanceTimersByTimeAsync(20_000);
     await ready;
   });
+
+  it('gives up on a roto matte that never arrives', async () => {
+    const b = new MediaBank({ resolve: () => ({ url: 'media/a.mp4', kind: 'video' }), matte: () => new Promise(() => undefined) });
+    const matted = { width: 1920, height: 1080, duration: 4, layers: [{ id: 'plate', type: 'footage', source: { asset: 'a', matte: 'roto/a' } }] } as unknown as MotionScene;
+    const ready = expect(b.prepareExact(matted, 1, { presented: false })).rejects.toThrow('roto/a did not load in 20 s');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await ready;
+  });
 });
 
 describe('HTML graphic placement', () => {

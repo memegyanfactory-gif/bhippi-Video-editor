@@ -211,6 +211,7 @@ export async function renderMotionStill(project: Project, compId: string, times:
       const indices = [...new Set((clocks.get(target.comp.id) ?? []).filter((at) => at >= clip.start && at < clipEnd(clip)).map((at) => Math.max(0, Math.round((at - clip.start) * fps))))];
       if (!indices.length) continue;
       renderer ??= exportRenderer(assets);
+      renderer.bank.fps = fps;
       const scene = target.source.scene;
       const dir = await api.mogrtFramesBegin(`${clip.id}-still`);
       const writer = await openFrameWriter(dir, () => undefined);
