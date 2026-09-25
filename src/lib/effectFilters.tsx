@@ -411,7 +411,7 @@ export function computeAppliedEffects(
   for (const fx of appliedEffects) {
     if (!fx.enabled) continue;
 
-    const filterId = `helios-fx-${clipId}-${fx.id}`;
+    const filterId = `bhippi-fx-${clipId}-${fx.id}`;
     const p = fx.params;
 
     switch (fx.effectId) {

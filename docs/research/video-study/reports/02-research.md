@@ -22,9 +22,9 @@ machine. It also surveys the state of the art. It changes nothing in the plan or
 | Question | Finding |
 |---|---|
 | Can a proprietary app launch the unmodified official `blender.exe` as a separate process? | **Yes.** The GPL FAQ treats programs that talk through exec, pipes or command-line arguments as separate programs forming an *aggregate*. The exception is when "the semantics of the communication are intimate enough, exchanging complex internal data structures" ([GPL FAQ, MereAggregation](https://www.gnu.org/licenses/gpl-faq.html#MereAggregation)). Blender's FAQ: full freedom exists if your product "operates outside of Blender" and "uses no Blender source code or API calls (including Python API)" ([Blender FAQ](https://www.blender.org/support/faq/)). A JSON request file plus a PNG sequence back is arm's-length. |
-| **But: the bridge script** | `blender_bridge.py` calls `bpy`. Blender: scripts using the Python API "have to be made available licensed as GNU GPL" when shared or published ([Blender FAQ](https://www.blender.org/support/faq/); [License](https://www.blender.org/about/license/)). The GPL FAQ reasons the same way: an interpreted program that uses an interpreter's *bindings* to GPL facilities "must be released in a GPL-compatible way" ([GPL FAQ, IfInterpreterIsGPL](https://www.gnu.org/licenses/gpl-faq.html#IfInterpreterIsGPL)). **Helios ships this script, so it must carry a GPL-compatible licence** (e.g. `SPDX-License-Identifier: GPL-3.0-or-later`). It must never import proprietary Helios modules. The plan misses this. |
-| In-app download of the official portable zip | **Fine.** If Helios fetches it straight from `download.blender.org`, Helios is not distributing Blender at all. If Helios ever mirrors it, then for official releases "it's sufficient to provide information that forwards to the sources at blender.org" ([Blender FAQ](https://www.blender.org/support/faq/)). The current file is `blender-5.2.2-windows-x64.zip`, **404 MB**, published 2026-09-15, with a published `.sha256` ([release dir](https://download.blender.org/release/Blender5.2/), [sha256](https://download.blender.org/release/Blender5.2/blender-5.2.2.sha256)). Verify the hash after download. |
-| Trademark | You may say "Requires Blender" or "Rendered with Blender". **Do not put the Blender logo in Helios UI without permission**: "Only in exceptional cases permission will be granted to use the logo on commercial products" ([Blender logo policy](https://www.blender.org/about/logo/)). |
+| **But: the bridge script** | `blender_bridge.py` calls `bpy`. Blender: scripts using the Python API "have to be made available licensed as GNU GPL" when shared or published ([Blender FAQ](https://www.blender.org/support/faq/); [License](https://www.blender.org/about/license/)). The GPL FAQ reasons the same way: an interpreted program that uses an interpreter's *bindings* to GPL facilities "must be released in a GPL-compatible way" ([GPL FAQ, IfInterpreterIsGPL](https://www.gnu.org/licenses/gpl-faq.html#IfInterpreterIsGPL)). **Bhippi ships this script, so it must carry a GPL-compatible licence** (e.g. `SPDX-License-Identifier: GPL-3.0-or-later`). It must never import proprietary Bhippi modules. The plan misses this. |
+| In-app download of the official portable zip | **Fine.** If Bhippi fetches it straight from `download.blender.org`, Bhippi is not distributing Blender at all. If Bhippi ever mirrors it, then for official releases "it's sufficient to provide information that forwards to the sources at blender.org" ([Blender FAQ](https://www.blender.org/support/faq/)). The current file is `blender-5.2.2-windows-x64.zip`, **404 MB**, published 2026-09-15, with a published `.sha256` ([release dir](https://download.blender.org/release/Blender5.2/), [sha256](https://download.blender.org/release/Blender5.2/blender-5.2.2.sha256)). Verify the hash after download. |
+| Trademark | You may say "Requires Blender" or "Rendered with Blender". **Do not put the Blender logo in Bhippi UI without permission**: "Only in exceptional cases permission will be granted to use the logo on commercial products" ([Blender logo policy](https://www.blender.org/about/logo/)). |
 
 ### 1.2 Lucide (ISC, and not only ISC)
 - The LICENSE file holds **two** licences. The main one is ISC ("Copyright (c) 2026 Lucide Icons and Contributors"). Icons derived from Feather are **MIT** ("Copyright (c) 2013-present Cole Bemis") ([LICENSE](https://github.com/lucide-icons/lucide/blob/main/LICENSE)). Ship both notices.
@@ -115,13 +115,13 @@ From the `google/fonts` `METADATA.pb` files, and **[measured]** latin-subset var
 
 **RECOMMENDATION (1).**
 - **Blender.** Keep "separate process, official unmodified build, download from blender.org, verify SHA-256". Add three things:
-  - license `blender_bridge.py` GPL-3.0-or-later and keep it free of Helios imports;
+  - license `blender_bridge.py` GPL-3.0-or-later and keep it free of Bhippi imports;
   - no Blender logo in the UI;
   - keep the request protocol a documented JSON schema.
 - **Rhubarb.** Make it an **optional 70 MB download**, not a bundled binary. Show its NOTICE list in About › Licences.
 - **Fonts.** Ship the eight OFL families. **Add one `wdth` family** (Mona Sans, or Archivo for more range) so "breathe" can use width. Generate **static TTF instances for libass**.
 - **Lucide.** Show the ISC and MIT notices.
-- **Poly Haven.** Show "Powered by Poly Haven" wherever API results appear, and send a `User-Agent: Helios/<ver>`.
+- **Poly Haven.** Show "Powered by Poly Haven" wherever API results appear, and send a `User-Agent: Bhippi/<ver>`.
 - **Illustration packs.** Source from the original CC0 downloads only, never from Blush.
 - **Lottie.** No LottieFiles search or bundling. Offer Noto Animated Emoji (CC BY) as the bundled Lottie set.
 
@@ -157,7 +157,7 @@ From the `google/fonts` `METADATA.pb` files, and **[measured]** latin-subset var
   - time remap, slots;
   - trim, repeater, offset path, pucker-bloat, round corners, zigzag.
 - **Effects.** v1.0 added GaussianBlur, DropShadow, Stroke, Fill, Tint and Tritone layer effects ([v1.0 post](https://www.thorvg.org/post/thorvg-v1-0-a-new-generation-released)).
-- **Expressions without JS eval.** They run in **JerryScript compiled into the WASM** ([source tree](https://github.com/thorvg/thorvg/tree/main/src/loaders/lottie/jerryscript)), with about 75% expression coverage (wiki). **[measured]** The `@thorvg/lottie-player` and `@thorvg/webcanvas` JS glue contains no `eval(` and no `new Function`. Only `'wasm-unsafe-eval'` is needed, and Helios's CSP already has it ([01-architecture-map §I3](01-architecture-map.md)).
+- **Expressions without JS eval.** They run in **JerryScript compiled into the WASM** ([source tree](https://github.com/thorvg/thorvg/tree/main/src/loaders/lottie/jerryscript)), with about 75% expression coverage (wiki). **[measured]** The `@thorvg/lottie-player` and `@thorvg/webcanvas` JS glue contains no `eval(` and no `new Function`. Only `'wasm-unsafe-eval'` is needed, and Bhippi's CSP already has it ([01-architecture-map §I3](01-architecture-map.md)).
 - **Gaps.** **[measured, source]** `tvgLottieParser.cpp` logs "MergePath(mm) is not supported yet" and "Twist(tw) is not supported yet" ([parser](https://github.com/thorvg/thorvg/blob/main/src/loaders/lottie/tvgLottieParser.cpp)). 3D layers and cameras are not supported.
 - **Presets** ([README](https://www.npmjs.com/package/@thorvg/lottie-player)):
   - `sw`, `gl`, `wg`: full, with expressions, jpg/png/webp and fonts, about 600–650 KB;
@@ -259,7 +259,7 @@ Sources: the [Lottie docs: values](https://lottiefiles.github.io/lottie-docs/val
 - **Driver floor.** "The minimum driver version for OptiX is now **575**" in 5.2 ([5.2 Cycles](https://developer.blender.org/docs/release_notes/5.2/cycles/)). Detect this, and fall back to CUDA plus OIDN.
 - **Flicker.** Per-frame denoising (OptiX or OIDN) processes each frame alone and can **flicker** in animation ([artisticrender](https://artisticrender.com/how-to-denoise-an-animation-in-blender-using-temporal-denoising/)).
   - **[measured]** `bpy.ops.cycles.denoise_animation` exists in 5.2. It needs vector passes plus stored denoising data (`view_layer.cycles.denoising_store_passes`), and temporal denoising is OptiX-based ([BlenderNation](https://www.blendernation.com/2022/01/10/optix-temporal-denoising-support-added-to-blender-3-1-alpha/)).
-  - A cheaper mitigation for the short motion-graphics shots Helios renders: more samples with adaptive sampling, plus `denoising_use_gpu` (OIDN on GPU).
+  - A cheaper mitigation for the short motion-graphics shots Bhippi renders: more samples with adaptive sampling, plus `denoising_use_gpu` (OIDN on GPU).
 - **Persistent data.** `render.use_persistent_data = True` keeps the BVH and textures between animation frames ([commit](https://projects.blender.org/blender/blender/commit/50782df42)). It is a cheap speedup for the "final" tier.
 
 ### 3.3 Command line (from the installed 5.2 `--help`) **[measured]**
@@ -318,7 +318,7 @@ Sources: the [Lottie docs: values](https://lottiefiles.github.io/lottie-docs/val
 
 ### 4.1 Skeletal and mesh runtimes
 
-| Runtime | Licence | Fit for Helios |
+| Runtime | Licence | Fit for Bhippi |
 |---|---|---|
 | Spine runtimes (`@esotericsoftware/spine-webgl` 4.3.13) | Spine Runtimes Licence: integration requires a Spine Editor licence, and products must require "each user… obtain their own Spine Editor license" ([licence](https://en.esotericsoftware.com/spine-runtimes-license)) | **Red flag. Don't use** |
 | Live2D Cubism Web | Proprietary SDK licence (repo is not OSI) ([repo](https://github.com/Live2D/CubismWebFramework)) | Don't use |
@@ -341,9 +341,9 @@ Sources: the [Lottie docs: values](https://lottiefiles.github.io/lottie-docs/val
 | **Meta AnimatedDrawings** | Detects, segments and rigs a drawn figure, then retargets BVH motion. "code, model weights, and Amateur Drawings dataset is released under the MIT license" ([repo](https://github.com/facebookresearch/AnimatedDrawings)) | **Yes.** The best licence-safe base for "animate a drawing" (P8 stage 2) |
 | **ToonCrafter** (SIGGRAPH Asia 2024) | Generative cartoon interpolation. Apache-2.0. 512×320, up to 16 frames, about 24–27 GB VRAM; community fp16 about 10–12 GB ([repo](https://github.com/Doubiiu/ToonCrafter)) | Runs on a 10–12 GB GPU in fp16; low resolution. Research track only |
 | **ToonComposer** (2025) | Keyframe sketches → cartoon video on Wan 2.1-I2V-14B. Weights MIT. **About 57 GB VRAM** for 480p × 61 frames ([repo](https://github.com/TencentARC/ToonComposer)) | **Not local** on consumer GPUs |
-| **LTX-2** (the local LTX pipeline) | Multi-keyframe conditioning. LTX-2 Community Licence: entities with **≥ $10M revenue need a paid licence**. Derivatives must carry the licence ([LICENSE](https://huggingface.co/Lightricks/LTX-2/blob/main/LICENSE)) | OK for small users. **Flag in the UI** if Helios downloads the weights |
+| **LTX-2** (the local LTX pipeline) | Multi-keyframe conditioning. LTX-2 Community Licence: entities with **≥ $10M revenue need a paid licence**. Derivatives must carry the licence ([LICENSE](https://huggingface.co/Lightricks/LTX-2/blob/main/LICENSE)) | OK for small users. **Flag in the UI** if Bhippi downloads the weights |
 | **OmniLottie** (CVPR 2026) | Text/image/video → Lottie JSON. Code Apache-2.0; 4B weights 8.46 GB built on **Qwen2.5-VL-3B (`qwen-research` licence)**. Its **MMLottie-2M** training set is **CC BY-NC-SA** and was "collected from… LottieFiles, IconScout, Flaticon, Iconfont, and Icons8" ([repo](https://github.com/OpenVGLab/OmniLottie), [dataset](https://huggingface.co/datasets/OmniLottie/MMLottie-2M), [Qwen card](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct)) | **No.** Non-commercial base model plus scraped NC data. Read the ideas only |
-| Keyframer (Apple), LogoMotion, MoVer | LLM → CSS/JS animation for SVG ([Keyframer](https://machinelearning.apple.com/research/keyframer)). Visually grounded code synthesis for logos ([LogoMotion](https://arxiv.org/abs/2405.07065)). A first-order-logic **motion verification DSL** in an LLM generate-and-check loop ([MoVer, ACM TOG 2025](https://doi.org/10.1145/3731209)) | Ideas, not dependencies. MoVer is the closest research to Helios's pacing QA |
+| Keyframer (Apple), LogoMotion, MoVer | LLM → CSS/JS animation for SVG ([Keyframer](https://machinelearning.apple.com/research/keyframer)). Visually grounded code synthesis for logos ([LogoMotion](https://arxiv.org/abs/2405.07065)). A first-order-logic **motion verification DSL** in an LLM generate-and-check loop ([MoVer, ACM TOG 2025](https://doi.org/10.1145/3731209)) | Ideas, not dependencies. MoVer is the closest research to Bhippi's pacing QA |
 | Products | Vyond Go (prompt → editable character explainer; 4,000-char prompts, about 2 min output) ([Vyond](https://www.vyond.com/product/vyond-go/)). Rive's in-editor AI agent writes keyframes and Luau scripts ([rivemasterclass](https://www.rivemasterclass.com/blog/build-dynamic-particles-system-scripting-ai-agent-rive)). Adobe Animate went into **maintenance mode** on 2026-02-04 after a cancelled shutdown ([TechCrunch](https://techcrunch.com/2026/02/04/after-backlash-adobe-cancels-adobe-animate-shutdown-and-puts-app-on-maintenance-mode)) | Competitive context |
 
 A curated index of in-betweening papers is kept at [Awesome-2D-Animation](https://github.com/MarkMoHR/Awesome-2D-Animation).
@@ -353,7 +353,7 @@ A curated index of in-betweening papers is kept at [Awesome-2D-Animation](https:
 - **Stage 2 "animate a drawing":** AnimatedDrawings (MIT) as a Python worker, with vtracer to vectorise the result.
 - **In-betweening:** ToonCrafter fp16 as an opt-in research worker only.
 - **Never** Spine, Live2D, OmniLottie weights or LottieFiles-trained models.
-- **Rhubarb only for non-TTS audio.** Helios TTS already has phoneme timings. Pass the transcript with `-d`.
+- **Rhubarb only for non-TTS audio.** Bhippi TTS already has phoneme timings. Pass the transcript with `-d`.
 
 ---
 
@@ -364,10 +364,10 @@ A curated index of in-betweening papers is kept at [Awesome-2D-Animation](https:
 | Booleans + offset, polygons | **Clipper2** (`clipper2-js` 1.2.4) | **BSL-1.0** (permissive) | 69.9 KB min / **19.5 KB gz** | One library does union/diff/intersect/xor, **offsetting** (`InflatePaths`, round/miter joins) and simplification ([npm](https://www.npmjs.com/package/clipper2-js), [Clipper2](https://github.com/AngusJohnson/Clipper2)). Pure TS, so it runs in vitest |
 | Booleans, polygons | polygon-clipping 0.15.7 | MIT | 29 KB / 9.3 KB gz | No offsetting; last release 2023. Successor [polyclip-ts](https://github.com/luizbarboza/polyclip-ts) (MIT, 2024) |
 | Booleans that **keep beziers**, stroke-to-path, dash, trim | **Skia PathKit** (`pathkit-wasm` 1.0.0) | BSD-3 | WASM 324 KB / **135 KB gz** (glue has no eval) | Skia's PathOps: `op`, `simplify`, `stroke`, `dash`, `trim`, `transform` ([docs](https://skia.org/docs/user/modules/pathkit/)). The npm build is stale (2022), though the Skia code is maintained |
-| Everything Skia | CanvasKit 0.42.0 | BSD-3 | WASM 7.3 MB / **2.9 MB gz** | **Not worth bundling for path ops.** Only worth it if Helios swapped its whole Canvas2D rasteriser ([npm](https://www.npmjs.com/package/canvaskit-wasm)) |
+| Everything Skia | CanvasKit 0.42.0 | BSD-3 | WASM 7.3 MB / **2.9 MB gz** | **Not worth bundling for path ops.** Only worth it if Bhippi swapped its whole Canvas2D rasteriser ([npm](https://www.npmjs.com/package/canvaskit-wasm)) |
 | Booleans on curves | Paper.js core 0.12.18 | MIT | 208 KB / 70 KB gz | Known robustness failures on small or near-degenerate beziers ([#1074](https://github.com/paperjs/paper.js/issues/1074)); global scope |
 | Morphs | flubber 0.4.2 | MIT | 53.5 KB / 18.3 KB gz | 2018. The algorithm (arc-length resample + rotation alignment) is about 200 lines. Reimplement it in `src/motion/vector/`, as the plan implies |
-| Morphs (avoid) | GSAP MorphSVG | GSAP "Standard" licence | — | **Prohibited use:** tools "that allow users to build visual animations without code" competing with Webflow ([GSAP licence](https://gsap.com/community/standard-license/)). **Red flag for Helios** |
+| Morphs (avoid) | GSAP MorphSVG | GSAP "Standard" licence | — | **Prohibited use:** tools "that allow users to build visual animations without code" competing with Webflow ([GSAP licence](https://gsap.com/community/standard-license/)). **Red flag for Bhippi** |
 | Path parse / normalise | svgpath 2.6.0 | MIT | 13.6 KB / 5 KB gz | `abs()`, `unarc()`, `unshort()`, transforms ([repo](https://github.com/fontello/svgpath)) |
 | Arc length / resample | svg-path-properties 2.1.0; bezier-js 6.1.4 | ISC; MIT | 8.2 KB gz; 8.4 KB gz | `getPointAtLength`; `length()`, `getLUT()`, `offset()` ([svg-path-properties](https://github.com/rveciana/svg-path-properties), [bezier-js](https://github.com/Pomax/bezierjs)) |
 | SVG import normalisation | **usvg** 0.48.1 (Rust) | Apache-2.0 OR MIT | — | Resolves CSS, `<use>`, transforms and gradients into a simple path tree ([crate](https://crates.io/crates/usvg)). It fits `import_media` in Rust. The JS alternative is SVGO 4.1.0 (MIT): 805 KB / 195 KB gz browser build ([repo](https://github.com/svg/svgo)) |
@@ -441,7 +441,7 @@ A curated index of in-betweening papers is kept at [Awesome-2D-Animation](https:
 - **AppLaunchFlow** and **Rotato**: 3D device mockups with motion presets ([AppLaunchFlow](https://www.applaunchflow.com/3d-mockup-animation-generator), [Rotato](https://rotato.app/)).
 - Generative video makes the camera cinematic, but UI text and layout are not controllable frame to frame.
 
-### 7.2 Where Helios can leap ahead
+### 7.2 Where Bhippi can leap ahead
 1. **The real product DOM as a targetable scene** (P3 `capture_product_ui` with part maps). None of the four camps drives camera, cursor and z-lift from DOM boxes of the user's own app. MG-Gen's image → layered-HTML step is a good fallback for plain screenshots.
 2. **Measured pacing as a checkable contract.** The §2.1 tokens plus pacing QA are what MoVer shows in research: generate, verify predicates, refine ([MoVer](https://doi.org/10.1145/3731209)). No shipping product verifies timing against a reference profile.
 3. **One timeline for footage, 2D motion, UI, characters and Blender 3D**, local, offline and brand-kit-aware. Code-first tools render only; design tools have no NLE.
@@ -449,7 +449,7 @@ A curated index of in-betweening papers is kept at [Awesome-2D-Animation](https:
 5. **Reference-film analysis → style profile** (P10). No surveyed product ingests a reference film to set its defaults.
 
 **RECOMMENDATION (7).**
-- **Position Helios against Hera, Remotion and Figma Motion on continuity and pacing verification**, not on "prompt → video".
+- **Position Bhippi against Hera, Remotion and Figma Motion on continuity and pacing verification**, not on "prompt → video".
 - **Borrow MoVer's idea.** Express pacing and spatial checks as predicates over the scene JSON, so the council gets pass/fail facts.
 
 ---
@@ -525,7 +525,7 @@ Also:
 | §4 P2 Variable fonts | Implies Canvas2D can animate axes directly | wght: yes, continuously via `ctx.font`. wdth: `fontStretch` is **keyword-only**. `ctx.fontVariationSettings` doesn't exist. Use cached `FontFace({variationSettings})` (Chrome 140+) or harfbuzzjs glyph paths |
 | §4 P2 libass | "written to a fonts dir that libass/FFmpeg captions can see" (the variable WOFF2 files) | libass ignores variable axes and needs a Brotli FreeType for WOFF2. Write **static TTF instances** (fontTools instancer) |
 | §4 P7.2 Worker | Maps easing via `action.fcurves` (the proof's first branch) | That API was removed in 5.0. Use `bpy_extras.anim_utils` channelbags. Also: `scene.node_tree` → `compositing_node_group`; set `media_type='MULTI_LAYER_IMAGE'` before EXR; passes renamed (`Z` → `Depth`) |
-| §4 P7.2 / §7 Licences | Blender row: "Fine: run as a separate program" | Also: **`blender_bridge.py` must be GPL-licensed** (it uses bpy and Helios distributes it). No Blender logo without permission |
+| §4 P7.2 / §7 Licences | Blender row: "Fine: run as a separate program" | Also: **`blender_bridge.py` must be GPL-licensed** (it uses bpy and Bhippi distributes it). No Blender logo without permission |
 | §4 P7.3 | "one-click download of the official portable zip" | Add: 404 MB, verify the published SHA-256, pin 5.2 LTS (5.2.2 is current), and run `blender -b` only from the interactive session (EEVEE: "not supported on headless Windows systems") |
 | §4 P7.3 Command | `run_program(blender, ["-b","--factory-startup","-P",script,"--",req])` | Add `--python-exit-code 1`. Keep argument order (options before `-P`). Allow `--gpu-backend opengl` as a retry |
 | §4 P7.5 / §5 | Final tier "Cycles OptiX … OptiX denoiser" | OptiX needs **driver ≥575** (5.2); fall back to CUDA. Per-frame denoise can flicker, so prefer OIDN-GPU with adaptive sampling, and `denoise_animation` (temporal) when needed. Enable `use_persistent_data` |

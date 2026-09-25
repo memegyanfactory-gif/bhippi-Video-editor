@@ -199,7 +199,7 @@ pub async fn transcribe(
         }
     }
 
-    // Deepgram first when a key is saved. It is what the user asked Helios to use, it answers in
+    // Deepgram first when a key is saved. It is what the user asked Bhippi to use, it answers in
     // seconds, and its multilingual model does not fall apart on Hinglish. If it fails — no
     // credit, no network — the machine's own model is still here, so this is a try, not a commit.
     if !only_local {
@@ -734,7 +734,7 @@ mod tests {
           "result": {"language": "hi"},
           "transcription": [{
             "offsets": {"from": 0, "to": 2000},
-            "text": " Helios नमस्ते",
+            "text": " Bhippi नमस्ते",
             "tokens": [
               {"text": "[_BEG_]", "offsets": {"from": 0, "to": 0}},
               {"text": " Hel", "offsets": {"from": 0, "to": 300}},
@@ -746,7 +746,7 @@ mod tests {
         }"#;
         let parsed = parse_local(body, "a1", "Whisper", "hi").expect("tokens");
         let words: Vec<&str> = parsed.words.iter().map(|word| word.text.as_str()).collect();
-        assert_eq!(words, vec!["Helios", "नमस्ते"]);
+        assert_eq!(words, vec!["Bhippi", "नमस्ते"]);
         // Offsets are milliseconds in the file, seconds in a transcript.
         assert!((parsed.words[0].start - 0.0).abs() < 1e-9);
         assert!((parsed.words[0].end - 0.6).abs() < 1e-9);

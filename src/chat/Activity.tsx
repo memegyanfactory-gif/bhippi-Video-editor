@@ -1,7 +1,7 @@
 // What the assistant actually did during a turn, folded into one quiet line per stretch of work.
 //
 // Two streams arrive while a turn runs: the steps the model announces ("Reading the comp", "Cutting
-// the top") and the tool calls Helios runs on its behalf. They are merged into one list, in the
+// the top") and the tool calls Bhippi runs on its behalf. They are merged into one list, in the
 // order things happened, each row carrying its own state — a call that is still running must never
 // look like one that has finished.
 //
@@ -11,8 +11,8 @@
 // "Worked for 3.1s · 13 steps · 1 failed" — and, while it is live, that line names the step that
 // is running right now. Opening it shows a small timeline; any row opens again for what was asked
 // and what came back. Nothing is thrown away, it is only folded.
-import { Check, ChevronRight, CircleSlash, LoaderCircle, TriangleAlert } from 'lucide-react';
-import { Fragment, useState, type ReactNode } from 'react';
+import { Brain, Check, ChevronRight, CircleSlash, Download, Eye, FileText, Film, Music, Pencil, Scissors, Search, Sparkles, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 
 /** A tool call, from the moment it starts rather than when it finishes. */
 export type ToolRun = {
@@ -126,24 +126,34 @@ export function groupRows(items: Item[]): Row[] {
 }
 
 /** What a stretch of the turn was: some words, or some work. */
+/** A message the user sent while the turn was working (src/chat/steer.ts). */
+export type Interjection = { id: string; text: string; at: number; state: 'waiting' | 'delivered' | 'next' };
+
 export type Block =
   | { kind: 'text'; key: string; text: string }
-  | { kind: 'work'; key: string; steps: Step[]; runs: ToolRun[] };
+  | { kind: 'work'; key: string; steps: Step[]; runs: ToolRun[] }
+  | { kind: 'steer'; key: string; steer: Interjection };
 
 /**
  * Puts the answer's words and the work between them in the order they happened. A step or call
  * that started at the same moment as a stretch of words goes first: the words were split *because*
  * that work had started.
  */
-export function toTimeline(segments: TextSegment[], steps: Step[], runs: ToolRun[]): Block[] {
-  type Event = { at: number; order: number } & ({ kind: 'text'; segment: TextSegment } | { kind: 'step'; step: Step } | { kind: 'run'; run: ToolRun });
+export function toTimeline(segments: TextSegment[], steps: Step[], runs: ToolRun[], steers: Interjection[] = []): Block[] {
+  type Event = { at: number; order: number } & ({ kind: 'text'; segment: TextSegment } | { kind: 'step'; step: Step } | { kind: 'run'; run: ToolRun } | { kind: 'steer'; steer: Interjection });
   const events: Event[] = [
     ...steps.map((step, index): Event => ({ kind: 'step', step, at: when(step.at, index), order: 0 })),
     ...runs.map((run, index): Event => ({ kind: 'run', run, at: when(run.at, steps.length + index), order: 0 })),
     ...segments.map((segment): Event => ({ kind: 'text', segment, at: segment.at, order: 1 })),
+    // Where the model read it, which is where it starts to show in the answer.
+    ...steers.map((steer): Event => ({ kind: 'steer', steer, at: steer.at, order: 2 })),
   ].sort((one, two) => one.at - two.at || one.order - two.order);
   const blocks: Block[] = [];
   for (const event of events) {
+    if (event.kind === 'steer') {
+      blocks.push({ kind: 'steer', key: `s-${event.steer.id}`, steer: event.steer });
+      continue;
+    }
     if (event.kind === 'text') {
       if (event.segment.text.trim()) blocks.push({ kind: 'text', key: `x-${blocks.length}-${event.at}`, text: event.segment.text });
       continue;
@@ -198,12 +208,42 @@ export function renderDetail(detail: unknown): ReactNode {
   );
 }
 
-const icon = (state: string) => {
-  if (state === 'running') return <LoaderCircle size={11} className="spin" />;
+/** A small picture of what kind of work a row was, read off its label: reading, editing, cutting… */
+const KINDS: [RegExp, LucideIcon][] = [
+  [/\b(think|plan|decid|reason|consider)/i, Brain],
+  [/\b(search|research|find|look ?up|query|browse)/i, Search],
+  [/\b(inspect|watch|look|view|preview|check|review|verify|analy[sz])/i, Eye],
+  [/\b(read|open|load|list|get|scan|transcri)/i, FileText],
+  [/\b(cut|trim|split|ripple|splice|slice)/i, Scissors],
+  [/\b(render|export|encode|frame)/i, Film],
+  [/\b(audio|music|sound|sfx|voice|beat)/i, Music],
+  [/\b(generat|creat|make|design|animat|compose)/i, Sparkles],
+  [/\b(download|fetch|gather|import|pull)/i, Download],
+  [/\b(edit|writ|updat|set|add|apply|change|move|insert|replace|fix|save|remov|delet)/i, Pencil],
+];
+export const kindIcon = (label: string): LucideIcon => KINDS.find(([pattern]) => pattern.test(label))?.[1] ?? Wrench;
+
+/** The dot on a row: a pulse while it runs, a warning or a stop sign when it did not work, otherwise what kind of work it was. */
+const icon = (state: string, label: string) => {
+  if (state === 'running') return <span className="wk-pulse" />;
   if (state === 'failed') return <TriangleAlert size={10} strokeWidth={2.4} />;
   if (state === 'denied') return <CircleSlash size={10} strokeWidth={2.4} />;
-  return <Check size={10} strokeWidth={2.5} />;
+  const Kind = kindIcon(label);
+  return <Kind size={10} strokeWidth={2.2} />;
 };
+
+/** Seconds since `from`, ticking once a second while `on`. */
+function useElapsed(from: number, on: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [on]);
+  // Old saves carry list positions, not clock times; those never tick.
+  return on && from > 1e12 ? Math.max(0, now - from) : 0;
+}
 
 const tone = (item: Item) => (item.kind === 'step' ? (item.done ? 'done' : 'running') : item.status);
 
@@ -248,7 +288,7 @@ function RowView({ row, expanded, toggle }: { row: Row; expanded: Set<string>; t
   const ms = members.reduce((sum, item) => sum + (item.kind === 'tool' ? item.ms ?? 0 : 0), 0);
   return (
     <li className={`wk-row ${state}${isOpen ? ' open' : ''}`}>
-      <span className="wk-dot" aria-hidden="true">{icon(state)}</span>
+      <span className="wk-dot" aria-hidden="true">{icon(state, lead.label)}</span>
       <div className="wk-row-main">
         <button
           type="button"
@@ -284,11 +324,15 @@ function RowView({ row, expanded, toggle }: { row: Row; expanded: Set<string>; t
 export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: ToolRun[]; streaming: boolean }) {
   const items = toItems(steps, runs);
   const [open, setOpen] = useState(false);
+  // Once opened the list stays mounted, so closing it can slide shut instead of vanishing.
+  const [seen, setSeen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const running = items.filter((item) => !isOver(item)).length;
+  const live = streaming && running > 0;
+  const elapsed = useElapsed(items[0]?.at ?? 0, live);
   if (items.length === 0) return null;
 
-  const { count, failed, running, headline, tally } = summarize(items, runs, steps);
-  const live = streaming && running > 0;
+  const { count, failed, headline, tally } = summarize(items, runs, steps);
   const current = live ? [...items].reverse().find((item) => !isOver(item)) : undefined;
   const toggle = (key: string) =>
     setExpanded((keys) => {
@@ -300,15 +344,20 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
 
   return (
     <div className={`work${live ? ' live' : ''}${open ? ' open' : ''}${failed ? ' has-failed' : ''}`}>
-      <button type="button" className="wk-head" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      <button type="button" className="wk-head" aria-expanded={open} onClick={() => { setSeen(true); setOpen((value) => !value); }}>
         <span className="wk-head-icon" aria-hidden="true">
-          {live ? <LoaderCircle size={12} className="spin" /> : failed ? <TriangleAlert size={11} strokeWidth={2.2} /> : <Check size={11} strokeWidth={2.5} />}
+          {live ? <span className="wk-orbit" /> : failed ? <TriangleAlert size={11} strokeWidth={2.2} /> : <Check size={11} strokeWidth={2.5} />}
         </span>
         {current ? (
           <>
-            <span className="wk-now">{current.label}</span>
-            {current.detail && <span className="wk-now-detail">{current.detail}</span>}
-            <span className="wk-head-meta">{count - running} of {count}</span>
+            <span key={current.key} className="wk-now-wrap">
+              <span className="wk-now">{current.label}</span>
+              {current.detail && <span className="wk-now-detail">{current.detail}</span>}
+            </span>
+            <span className="wk-head-meta">
+              {count > 1 && <>{count - running} of {count}</>}
+              {elapsed >= 1000 && <>{count > 1 ? ' · ' : ''}{duration(elapsed)}</>}
+            </span>
           </>
         ) : (
           <>
@@ -319,13 +368,18 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
         )}
         <ChevronRight size={12} className={`wk-chevron${open ? ' rotate-90' : ''}`} />
       </button>
-      {open && (
-        <ul className="wk-list">
-          {groupRows(items).map((row) => (
-            <RowView key={row.key} row={row} expanded={expanded} toggle={toggle} />
-          ))}
-        </ul>
-      )}
+      {live && <span className="wk-progress" aria-hidden="true" />}
+      <div className="wk-collapse" aria-hidden={!open}>
+        <div className="wk-collapse-inner">
+          {(open || seen) && (
+            <ul className="wk-list">
+              {groupRows(items).map((row) => (
+                <RowView key={row.key} row={row} expanded={expanded} toggle={toggle} />
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -23,14 +23,14 @@ describe('ProjectSettingsDialog', () => {
       React.createElement(ProjectSettingsDialog, {
         project,
         comp,
-        filePath: 'D:\\videos\\launch.helios',
+        filePath: 'D:\\videos\\launch.bhippi',
         onClose: () => undefined,
         onSubmit: () => undefined,
       }),
     );
     expect(html).toContain('Project Settings');
     expect(html).toContain('Launch Cut');
-    expect(html).toContain('launch.helios');
+    expect(html).toContain('launch.bhippi');
     expect(html).toContain(`${comp.width}`);
     expect(html).toContain('Comp 1');
     expect(html).toContain('Frame rate');

@@ -1,8 +1,10 @@
 // The meme brain's tools (docs/FUNNY-MODE-PLAN.md §3.3): find a meme by what a beat says and
-// means, refresh what is trending, save a meme once its meaning is written from a source, and
-// fetch a meme's clip into the project. The library, the search, the providers and the downloads
-// live in Rust (src-tauri/src/memes.rs); this side checks arguments, imports the file and records
-// where it came from.
+// means — in the library, or on the internet as the video's viewers' own internet would answer —
+// refresh what is trending, save a meme once its meaning is written from a source, and fetch a
+// meme's clip into the project. The library, the search, the providers and the downloads live in
+// Rust (src-tauri/src/memes.rs); this side checks arguments, imports the file and records where it
+// came from.
+import { AUDIENCE_HINT, audienceArg, audienceLabel, compAudience, type Audience } from './audience';
 import { invoke } from '@tauri-apps/api/core';
 import { rightsOf, withProvenance } from '../council';
 import type { ToolResult } from '../types';
@@ -20,9 +22,9 @@ import {
 
 type Args = Record<string, unknown>;
 
-export const MEME_TOOLS = new Set(['search_memes', 'refresh_meme_trends', 'save_meme', 'get_meme_media']);
+export const MEME_TOOLS = new Set(['search_memes', 'find_memes_online', 'refresh_meme_trends', 'save_meme', 'get_meme_media']);
 /** Meme tools that change nothing in the project (save_meme writes only the meme library). */
-export const MEME_READ_TOOLS = new Set(['search_memes', 'refresh_meme_trends', 'save_meme']);
+export const MEME_READ_TOOLS = new Set(['search_memes', 'find_memes_online', 'refresh_meme_trends', 'save_meme']);
 
 export const MEME_FORMAT_TYPES: readonly MemeFormatType[] = ['clip', 'image', 'template', 'sound', 'sticker', 'gif'];
 const ORIGIN_KINDS = ['film', 'tv', 'creator', 'viral', 'game', 'ad', 'news', 'cartoon', 'other'] as const;
@@ -35,8 +37,10 @@ export type MemeSearchRequest = {
   echo?: string[];
   intent?: string;
   emotion?: string;
-  /** IN · global · any; unset: IN first when the words look Hinglish or Devanagari. */
+  /** global · a country code · any; unset: the audience's, else IN when the words look Hinglish or Devanagari. */
   region?: string;
+  /** Who the video is for: nobody gets another country's local meme that did not cross over. */
+  audience?: Audience;
   format?: string;
   limit?: number;
   includeUnverified?: boolean;
@@ -54,7 +58,19 @@ export type TrendReport = {
   cached: boolean;
 };
 
-export type MemeFetchRequest = { id: string; format?: number; formatType?: string; in?: number; out?: number; force?: boolean };
+/** A search of the internet for one beat's meme, or one the user named (Rust `OnlineRequest`). */
+export type OnlineMemeRequest = {
+  query: string;
+  /** The same idea in the viewers' language, when it is not English. */
+  localQuery?: string;
+  echo?: string[];
+  /** The user asked for this exact meme. */
+  named?: boolean;
+  audience?: Audience;
+  limit?: number;
+};
+
+export type MemeFetchRequest ={ id: string; format?: number; formatType?: string; in?: number; out?: number; force?: boolean };
 
 export type FetchedMemeMedia = {
   path: string;
@@ -89,7 +105,8 @@ export type MemeStats = {
 
 export const memesApi = {
   search: (request: MemeSearchRequest) => invoke<MemeHit[]>('memes_search', { request }),
-  refresh: (force = false, queries?: string[]) => invoke<TrendReport>('memes_refresh', { force, queries: queries?.length ? queries : null }),
+  findOnline: (request: OnlineMemeRequest) => invoke<TrendReport>('memes_find_online', { request }),
+  refresh: (force = false, queries?: string[], audience?: Audience | null) => invoke<TrendReport>('memes_refresh', { force, queries: queries?.length ? queries : null, audience: audience ?? null }),
   save: (entry: MemeEntry) => invoke<MemeEntry>('memes_save', { entry }),
   get: (id: string) => invoke<MemeEntry | null>('memes_get', { id }),
   fetchMedia: (request: MemeFetchRequest) => invoke<FetchedMemeMedia>('memes_fetch_media', { request }),
@@ -187,6 +204,9 @@ export function memeEntryFrom(args: Args, today = new Date().toISOString().slice
   const kind = origin && str(origin, 'kind');
   const safety = obj(raw.safety) ?? {};
   const verified = bool(raw, 'verified') ?? true;
+  // global, or the country the meme is local to; anything unreadable is treated as global.
+  const asked = audienceArg(raw.region);
+  const region = asked && asked !== 'auto' && asked !== 'bad' ? asked : 'global';
   const entry: MemeEntry = {
     id: str(raw, 'id') ?? memeIdFrom(name),
     name,
@@ -203,14 +223,15 @@ export function memeEntryFrom(args: Args, today = new Date().toISOString().slice
     emotion: stringList(raw.emotion),
     intent: stringList(raw.intent) as ComicIntent[],
     formats: formatsFrom(raw.formats),
-    region: str(raw, 'region')?.toUpperCase() === 'IN' ? 'IN' : 'global',
+    region,
+    ...(raw.crossover === true && region !== 'global' ? { crossover: true } : {}),
     trendScore: clamp(num(raw, 'trendScore') ?? 0.5, 0, 1),
     sources: sourcesFrom(raw.sources),
     safety: Object.fromEntries(['nsfw', 'political', 'religious', 'profanity'].filter((key) => typeof safety[key] === 'boolean').map((key) => [key, safety[key]])),
     verified,
   };
   const language = str(raw, 'language');
-  if (language === 'hi' || language === 'en' || language === 'hinglish' || language === 'none') entry.language = language;
+  if (language && /^(?:[a-z]{2,3}|hinglish|none)$/.test(language.toLowerCase())) entry.language = language.toLowerCase();
   const firstSeen = str(raw, 'firstSeen');
   if (firstSeen) entry.firstSeen = firstSeen;
   entry.lastVerified = str(raw, 'lastVerified') ?? (verified ? today : undefined);
@@ -233,6 +254,7 @@ function compactHit(hit: MemeHit) {
     intent: entry.intent,
     emotion: entry.emotion,
     region: entry.region,
+    ...(entry.crossover ? { crossover: true } : {}),
     origin: entry.origin.title,
     verified: entry.verified,
     trendScore: entry.trendScore,
@@ -252,6 +274,18 @@ function compactHit(hit: MemeHit) {
 export const TREND_INSTRUCTION =
   'These are trending candidates, not library memes. Before using one: read its explainer (or open its url — for a candidate with no explainer, find its Know Your Meme or Wikipedia page), write meaning, useWhen and dontUseWhen from that source, then call save_meme with the source url in sources and at least one format. Only saved memes may be placed. A candidate you cannot explain from a source stays unsaved — it is never auto-placed. libraryHits are library memes trending right now; search_memes already ranks them up.';
 
+export const ONLINE_INSTRUCTION =
+  'These are search results, not library memes. Pick the one that says what the beat needs AND that these viewers know (their own country\'s meme, or a global one). Read its explainer, or open its url with scrape_web_page (for a result with no explainer, find its Know Your Meme or Wikipedia page), write meaning, useWhen and dontUseWhen from that source, then save_meme with the source url, region (global, or the country it is local to) and at least one format (the video url, or a yt-dlp query), and fetch it with get_meme_media. A result you cannot explain from a source is never placed.';
+
+/** The audience a meme tool works for: its `audience` argument, else the comp's (null when unknown). */
+function audienceFor(args: Args, ctx: RoastToolContext): Audience | null | 'bad' {
+  const asked = audienceArg(args.audience);
+  if (asked === 'bad') return 'bad';
+  if (asked && asked !== 'auto') return asked;
+  const comp = ctx.pickComp(ctx.current(), args);
+  return comp ? compAudience(comp) : null;
+}
+
 const round = (value: number | undefined) => (value === undefined ? undefined : Math.round(value * 100) / 100);
 
 // ─── Tools ────────────────────────────────────────────────────────────────────────────────────
@@ -265,14 +299,20 @@ export async function runMemeTool(name: string, args: Args, ctx: RoastToolContex
       if (intent && !isIntent(intent)) return fail(`Unknown intent "${intent}". Use one of: ${COMIC_INTENTS.join(', ')}.`);
       const format = str(args, 'format');
       if (format && format !== 'any' && !MEME_FORMAT_TYPES.includes(format as MemeFormatType)) return fail(`format must be one of ${MEME_FORMAT_TYPES.join(', ')} (or any).`);
-      const region = str(args, 'region');
-      if (region && !['in', 'global', 'any'].includes(region.toLowerCase())) return fail('region must be IN, global or any.');
+      const regionArg = str(args, 'region');
+      const regionAsked = regionArg?.toLowerCase() === 'any' ? 'any' : audienceArg(regionArg);
+      if (regionAsked === 'bad' || regionAsked === 'auto') return fail('region must be global, a two-letter country code (IN, BR…) or any.');
+      const region = regionAsked ?? undefined;
+      // Who the video is for decides which memes exist for it at all (lib/roast/audience.ts).
+      const audience = audienceFor(args, ctx);
+      if (audience === 'bad') return fail(AUDIENCE_HINT);
       const request: MemeSearchRequest = {
         query,
         echo,
         ...(intent ? { intent } : {}),
         ...(str(args, 'emotion') ? { emotion: str(args, 'emotion') } : {}),
         ...(region ? { region } : {}),
+        ...(audience ? { audience } : {}),
         ...(format ? { format } : {}),
         limit: clamp(Math.round(num(args, 'limit') ?? 8), 1, 30),
         includeUnverified: bool(args, 'includeUnverified') ?? false,
@@ -284,11 +324,53 @@ export async function runMemeTool(name: string, args: Args, ctx: RoastToolContex
         return fail(`The meme library did not answer: ${message(error)}`);
       }
       const asked = [query && `"${query}"`, echo.length && `echo ${echo.map((word) => `"${word}"`).join(', ')}`, intent && `intent ${intent}`].filter(Boolean).join(', ') || 'everything';
-      if (!hits.length) return done(`No library meme matches ${asked}. Try other echo words or an intent, refresh_meme_trends for new ones, or includeUnverified.`, { hits: [] });
+      const forWhom = audience ? ` For ${audienceLabel(audience)}: other countries' local memes that never crossed over are left out${audience === 'global' ? '' : ', their own come first'}.` : '';
+      if (!hits.length) return done(`No library meme matches ${asked}.${forWhom} The library only holds memes already explained: search the internet for this beat with find_memes_online.`, { hits: [], audience });
       const top = hits.slice(0, 3).map((hit) => `${hit.entry.name} (${hit.score}: ${hit.reasons.slice(0, 2).join('; ')})`).join(' · ');
       return done(
-        `${hits.length} meme(s) for ${asked}. Top: ${top}. Check each one's dontUseWhen against the beat and write a one-line why before placing it; fetch it with get_meme_media {"memeId":"…"}.`,
-        { hits: hits.map(compactHit) },
+        `${hits.length} meme(s) for ${asked}. Top: ${top}.${forWhom} Check each one's dontUseWhen against the beat and write a one-line why before placing it; fetch it with get_meme_media {"memeId":"…"}. None fits the beat well? find_memes_online searches the internet for it.`,
+        { hits: hits.map(compactHit), audience },
+      );
+    }
+
+    case 'find_memes_online': {
+      if (ctx.signal?.aborted) return fail('Stopped.');
+      const query = str(args, 'query');
+      if (!query) return fail('Supply query: what the beat is about in a few words, or the meme\'s name (with named:true).');
+      const audience = audienceFor(args, ctx);
+      if (audience === 'bad') return fail(AUDIENCE_HINT);
+      const named = bool(args, 'named') ?? false;
+      const localQuery = str(args, 'localQuery');
+      const request: OnlineMemeRequest = {
+        query,
+        ...(localQuery ? { localQuery } : {}),
+        echo: stringList(args.echo),
+        named,
+        ...(audience ? { audience } : {}),
+        limit: clamp(Math.round(num(args, 'limit') ?? 20), 1, 40),
+      };
+      let report: TrendReport;
+      try {
+        report = await memesApi.findOnline(request);
+      } catch (error) {
+        return fail(`The online meme search failed: ${message(error)}`);
+      }
+      const counts = Object.entries(report.counts).map(([source, count]) => `${source} ${count}`).join(', ');
+      const where = audience && audience !== 'global' ? ` as ${audienceLabel(audience)} would search` : '';
+      const summary = report.candidates.length
+        ? `${report.candidates.length} candidate(s) online for ${named ? `the meme "${query}"` : `"${query}"`}${localQuery ? ` / "${localQuery}"` : ''}${where}${counts ? ` — ${counts}` : ''}. Top: ${report.candidates.slice(0, 4).map((candidate) => `${candidate.name} (${candidate.provider})`).join(' · ')}.`
+        : `Nothing found online for "${query}"${where}.${named ? ' Check the spelling, or ask the user where the meme is from.' : ' Try the idea in other words, or in the viewers\' language (localQuery).'}`;
+      return done(
+        `${summary}${report.problems.length ? ` Problems: ${report.problems.join('; ')}.` : ''}${report.libraryHits.length ? ` Already in the library: ${report.libraryHits.join(', ')} (search_memes has them).` : ''}`,
+        {
+          audience,
+          named,
+          counts: report.counts,
+          problems: report.problems,
+          libraryHits: report.libraryHits,
+          candidates: report.candidates.map((candidate) => ({ ...candidate, score: round(candidate.score) })),
+          instruction: ONLINE_INSTRUCTION + (named ? ' The user asked for this meme by name: use it (not a look-alike) unless it cannot be explained or found; then say so.' : ''),
+        },
       );
     }
 
@@ -297,8 +379,10 @@ export async function runMemeTool(name: string, args: Args, ctx: RoastToolContex
       const force = bool(args, 'force') ?? false;
       const queries = stringList(args.queries).slice(0, 4);
       let report: TrendReport;
+      const audience = audienceFor(args, ctx);
+      if (audience === 'bad') return fail(AUDIENCE_HINT);
       try {
-        report = await memesApi.refresh(force, queries);
+        report = await memesApi.refresh(force, queries, audience);
       } catch (error) {
         return fail(`Trend refresh failed: ${message(error)}`);
       }
@@ -311,7 +395,7 @@ export async function runMemeTool(name: string, args: Args, ctx: RoastToolContex
       const klipy = report.candidates.some((candidate) => candidate.provider.startsWith('klipy'));
       const when = report.cached ? ` (cached from ${report.fetchedAt}; force:true refetches)` : '';
       return done(
-        `${report.candidates.length} trending candidate(s)${when}${counts ? ` — ${counts}` : ''}.${filter || provider ? ` ${matching.length} match the filter.` : ''}${report.problems.length ? ` Problems: ${report.problems.join('; ')}.` : ''}`,
+        `${report.candidates.length} trending candidate(s)${audience ? ` for ${audienceLabel(audience)} (other countries' local ones left out)` : ''}${when}${counts ? ` — ${counts}` : ''}.${filter || provider ? ` ${matching.length} match the filter.` : ''}${report.problems.length ? ` Problems: ${report.problems.join('; ')}.` : ''}`,
         {
           fetchedAt: report.fetchedAt,
           cached: report.cached,
@@ -368,7 +452,7 @@ export async function runMemeTool(name: string, args: Args, ctx: RoastToolContex
       try {
         [asset] = await ctx.importFiles([media.path], 'Memes');
       } catch (error) {
-        return fail(`Fetched ${media.path}, but Helios could not import it: ${message(error)}. Try another format or get_meme_media with force:true.`);
+        return fail(`Fetched ${media.path}, but Bhippi could not import it: ${message(error)}. Try another format or get_meme_media with force:true.`);
       }
       if (!asset) return fail(`Fetched ${media.path}, but it could not be imported.`);
       // Meme clips are short commentary use; the rights tier still comes from where the file lives.

@@ -8,7 +8,7 @@
 // has started since the last one opens a new segment and a new paragraph.
 import type { Step, TextSegment, ToolRun } from './Activity';
 
-type Words = { content: string; segments?: TextSegment[]; steps: Step[] };
+type Words = { content: string; segments?: TextSegment[]; steps: Step[]; steers?: { at: number; state: string }[] };
 
 /** The newlines needed between `before` and `after` for them to read as separate paragraphs. */
 export function paragraphBreak(before: string, after: string): string {
@@ -23,7 +23,9 @@ export function paragraphBreak(before: string, after: string): string {
 export function appendText(message: Words, piece: string, runs: ToolRun[], now: number): { content: string; segments: TextSegment[] } {
   const segments = message.segments ?? (message.content ? [{ at: 0, end: 0, text: message.content }] : []);
   const last = segments[segments.length - 1];
-  const workSince = !!last && (runs.some((run) => run.at > last.end) || message.steps.some((step) => step.at > last.end));
+  // A message from the user that reached the turn splits the words too: what follows answers it.
+  const workSince = !!last && (runs.some((run) => run.at > last.end) || message.steps.some((step) => step.at > last.end)
+    || (message.steers ?? []).some((item) => item.state === 'delivered' && item.at > last.end));
   if (last && !workSince) {
     return { content: message.content + piece, segments: [...segments.slice(0, -1), { ...last, end: now, text: last.text + piece }] };
   }

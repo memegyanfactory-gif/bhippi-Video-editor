@@ -319,7 +319,7 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
         ) : (
           <div className="bk-empty">
             <strong>No brand kit yet.</strong>
-            <span>Click any style below to start one — it is used by this project right away. Or ask Helios AI: “make a brand kit from https://my-product.com”.</span>
+            <span>Click any style below to start one — it is used by this project right away. Or ask Bhippi AI: “make a brand kit from https://my-product.com”.</span>
           </div>
         )}
         {ARCHETYPE_GROUPS.map(({ group, label, hint }) => (
@@ -383,7 +383,7 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
 }
 
 const ARCHETYPE_GROUPS: { group: BrandArchetype['group']; label: string; hint: string }[] = [
-  { group: 'house', label: 'House', hint: 'The Helios look — click to use it' },
+  { group: 'house', label: 'House', hint: 'The Bhippi look — click to use it' },
   { group: 'archetype', label: 'Style archetypes', hint: 'Click to start (or open) a kit in that style · hover shows its motion' },
   { group: 'reference', label: 'Reference kits', hint: 'Rebuilt from public brand boards · click to use' },
 ];

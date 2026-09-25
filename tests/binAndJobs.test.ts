@@ -8,14 +8,14 @@ const asset = (id: string, name: string, path: string, over: Partial<Asset> = {}
   id, name, path, kind: 'video', duration: 30, width: 1920, height: 1080, fps: 30, hasAudio: true, videoCodec: 'h264', audioCodec: 'aac',
   size: 1, importedAt: '', thumbnail: null, filmstrip: null, waveform: null, peaks: null, proxy: null, preview: 'native', missing: false, ...over,
 });
-const APP = 'C:\\Users\\me\\AppData\\Roaming\\studio.helios.desktop';
+const APP = 'C:\\Users\\me\\AppData\\Roaming\\com.bhippi.videoeditor';
 
 describe('what goes in which folder', () => {
   const project = newProject();
   it('keeps camera footage in the user\'s own Downloads folder as Footage, not B-roll', () => {
     expect(mediaCategory(project, asset('a', 'what I do.mp4', 'C:\\Users\\me\\Downloads\\Video\\what I do.mp4'))).toBe('Footage');
   });
-  it('files clips Helios downloaded, or that sit in a b-roll folder, as B-roll', () => {
+  it('files clips Bhippi downloaded, or that sit in a b-roll folder, as B-roll', () => {
     expect(mediaCategory(project, asset('a', 'coding.mp4', `${APP}\\downloads\\coding.mp4`))).toBe('B-roll');
     expect(mediaCategory(project, asset('a', 'yb-day28.mp4', 'C:\\Users\\me\\Downloads\\Video\\channel-broll\\yb-day28.mp4'))).toBe('B-roll');
   });

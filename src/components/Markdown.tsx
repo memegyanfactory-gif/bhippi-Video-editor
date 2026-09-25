@@ -1,4 +1,4 @@
-// Model markdown rendered as sanitized HTML with copyable code blocks (adapted from Bhippi).
+// Model markdown rendered as sanitized HTML with copyable code blocks (adapted from the Bhippi desktop app).
 //
 // Code the AI writes sits in its own small window — a fixed height that scrolls inside, so a long
 // file never pushes the words around it apart. While the answer streams the window follows the

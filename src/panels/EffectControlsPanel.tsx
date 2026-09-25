@@ -1,5 +1,5 @@
 import { cleanLegacy } from '../lib/effectState';
-// Effect Controls / Effects Side Panel for Helios.
+// Effect Controls / Effects Side Panel for Bhippi.
 // Displays all applied effects on the selected clip or adjustment layer, with
 // interactive parameter controls (sliders, scrubbers, options, colors), bypass toggles,
 // reset, reorder, delete, and quick effect addition from all effect categories.
@@ -7,8 +7,6 @@ import { cleanLegacy } from '../lib/effectState';
 import {
   ChevronDown,
   ChevronRight,
-  Eye,
-  EyeOff,
   Layers,
   Plus,
   RotateCcw,
@@ -151,14 +149,14 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
     <div className="props fx-controls-panel">
       {/* Header with layer summary */}
       <div className="props-head fx-head">
-        {isAdjustment ? <SlidersHorizontal size={14} style={{ color: '#00e5ff' }} /> : <Layers size={14} />}
+        {isAdjustment ? <SlidersHorizontal size={14} /> : <Layers size={14} />}
         <div className="fx-title-block">
           <span className="props-name">{clipName(project, assets, clip)}</span>
           {isAdjustment && <span className="fx-adj-badge">Adjustment Layer</span>}
         </div>
         <button
           type="button"
-          className="btn btn-primary btn-small fx-add-btn"
+          className="btn btn-small fx-add-btn"
           onClick={() => setAddModalOpen(true)}
           title="Add new effect to this layer"
         >
@@ -174,6 +172,7 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
       {maskableClip(clip, assets, comp) && <MagicMaskSection comp={comp} clip={clip} assets={assets} history={history} />}
 
       {/* Applied effects list */}
+      {appliedEffects.length > 0 && <div className="fx-section-label">Video Effects</div>}
       <div className="fx-stack-container">
         {appliedEffects.length === 0 ? (
           <div className="fx-stack-empty">
@@ -232,16 +231,6 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
                     {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                   </button>
 
-                  {/* Eye visibility toggle (Helios style) */}
-                  <button
-                    type="button"
-                    className={`fx-eye-btn${fx.enabled ? ' active' : ' muted'}`}
-                    onClick={() => toggleEffect(fx.id)}
-                    title={fx.enabled ? 'Turn off effect (Disable)' : 'Turn on effect (Enable)'}
-                  >
-                    {fx.enabled ? <Eye size={13} /> : <EyeOff size={13} />}
-                  </button>
-
                   <button
                     type="button"
                     className={`fx-power-btn${fx.enabled ? ' on' : ''}`}
@@ -251,8 +240,7 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
                     <span className="fx-badge-text">fx</span>
                   </button>
 
-                  <span className="fx-card-title">{fx.name}</span>
-                  <span className="fx-card-cat">{fx.category}</span>
+                  <span className="fx-card-title" title={fx.category}>{fx.name}</span>
 
                   <div className="fx-card-actions">
                     <button
@@ -349,13 +337,13 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
                           <div key={param.id} className="fx-param-row">
                             <span className="fx-param-label">{param.name}</span>
                             <div className="fx-param-control" style={{ gap: 6 }}>
+                              <span className="fx-color-value">{String(val)}</span>
                               <input
                                 type="color"
+                                className="fx-color-input"
                                 value={String(val)}
                                 onChange={(e) => updateParam(fx.id, param.id, e.target.value, true)}
-                                style={{ width: 26, height: 22, border: 'none', background: 'transparent', cursor: 'pointer' }}
                               />
-                              <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#cbd5e1' }}>{String(val)}</span>
                             </div>
                           </div>
                         );
@@ -365,17 +353,13 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
                         return (
                           <div key={param.id} className="fx-param-row">
                             <span className="fx-param-label">{param.name}</span>
-                            <div className="fx-param-control" style={{ justifyContent: 'flex-start', paddingLeft: 2 }}>
-                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                            <div className="fx-param-control">
+                              <label className="fx-check">
                                 <input
                                   type="checkbox"
                                   checked={!!val}
                                   onChange={(e) => updateParam(fx.id, param.id, e.target.checked, true)}
-                                  style={{ cursor: 'pointer', width: 14, height: 14, accentColor: '#00e5ff' }}
                                 />
-                                <span style={{ fontSize: 11, color: val ? '#00e5ff' : '#94a3b8' }}>
-                                  {val ? 'Enabled' : 'Disabled'}
-                                </span>
                               </label>
                             </div>
                           </div>
@@ -406,11 +390,11 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
 
             {/* Search row */}
             <div className="fx-add-search-row">
-              <Search size={14} style={{ color: '#00e5ff' }} />
+              <Search size={14} style={{ color: 'var(--text-faint)' }} />
               <input
                 autoFocus
                 className="fx-add-search-input"
-                placeholder="Search all Helios effects..."
+                placeholder="Search all Bhippi effects..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />

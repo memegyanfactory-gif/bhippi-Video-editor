@@ -9,10 +9,10 @@ numbers instead of adjectives:
   · FOREGROUND SWAPS: the content changes while the background and palette stay (the SaaS films'
     "the background never cuts");
   · moves: bursts of motion with a cubic-bezier ease FITTED to their progress curve and the nearest
-    named Helios ease;
+    named Bhippi ease;
   · a camera track (pan / zoom per 0.1 s) and how much of the film the camera moves;
   · ones vs twos: whether moving passages hold every other frame (character animation on twos);
-  · the audio as waveform peaks in Helios's own format (peaks.bin: [peak, rms] bytes at 100 per
+  · the audio as waveform peaks in Bhippi's own format (peaks.bin: [peak, rms] bytes at 100 per
     second), so the app's tempo code (beats.ts) finds the tempo grid.
 Progress lines are {"progress", "message"} JSON; the result is <out>/profile.json.
 """
@@ -210,7 +210,7 @@ for idx, m in enumerate(metrics):
 camera_share = float(np.mean((cam_speed > 3) | (np.abs(np.array([m["zoom"] for m in metrics]) - 1) > 0.002)))
 say(0.8, "audio")
 
-# ---------------------------------------------------------------- audio → Helios peaks (100 buckets/s, [peak, rms])
+# ---------------------------------------------------------------- audio → Bhippi peaks (100 buckets/s, [peak, rms])
 peaks_path = os.path.join(out, "peaks.bin")
 duration = N / fps
 try:

@@ -1,6 +1,6 @@
 //! The media library: files the user imported, probed once, referenced in place.
 //!
-//! Media is never copied — a 4 GB recording stays where it is. Helios keeps what it derives
+//! Media is never copied — a 4 GB recording stays where it is. Bhippi keeps what it derives
 //! (thumbnail, filmstrip, waveform, and a preview proxy for codecs the webview cannot play)
 //! in its own data directory.
 
@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const LIBRARY_EVENT: &str = "helios://library";
+pub const LIBRARY_EVENT: &str = "bhippi://library";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -543,7 +543,7 @@ mod tests {
     fn derived_files_count_only_when_present_and_nonempty() {
         assert!(!derived_ok(&None));
         assert!(!derived_ok(&Some("/definitely/not/here.jpg".to_owned())));
-        let dir = std::env::temp_dir().join(format!("helios-derived-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-derived-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let empty = dir.join("empty.jpg");
         std::fs::write(&empty, []).expect("empty");
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn a_proxy_is_encoded_into_a_part_file_and_only_a_good_one_replaces_it() {
-        let dir = std::env::temp_dir().join(format!("helios-proxy-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-proxy-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let (target, part) = proxy_files(&dir, "a1", AssetKind::Video);
         assert_eq!((target.clone(), part.clone()), (dir.join("a1.mp4"), dir.join("a1.part.mp4")));
@@ -682,7 +682,7 @@ mod tests {
             eprintln!("FFmpeg not installed; skipping");
             return;
         };
-        let dir = std::env::temp_dir().join(format!("helios-peaks-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-peaks-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let tone = dir.join("tone.wav");
         let tone_text = tone.display().to_string();
@@ -728,7 +728,7 @@ mod tests {
             eprintln!("FFmpeg not installed; skipping");
             return;
         };
-        let dir = std::env::temp_dir().join(format!("helios-palette-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-palette-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let clip = dir.join("red.mp4");
         let clip_text = clip.display().to_string();

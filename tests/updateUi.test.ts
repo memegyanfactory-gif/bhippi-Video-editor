@@ -82,9 +82,9 @@ describe('updateView', () => {
 
   it('names and tones each state', () => {
     expect(updateTitle({ kind: 'current', rechecking: false }, '1.0.1')).toBe('You’re on the latest version');
-    expect(updateTitle({ kind: 'available' }, '1.0.2')).toBe('Helios 1.0.2 is available');
-    expect(updateTitle({ kind: 'downloading', percent: 3 }, '1.0.2')).toBe('Downloading Helios 1.0.2');
-    expect(updateTitle({ kind: 'ready' }, null)).toBe('A new Helios is ready');
+    expect(updateTitle({ kind: 'available' }, '1.0.2')).toBe('Bhippi 1.0.2 is available');
+    expect(updateTitle({ kind: 'downloading', percent: 3 }, '1.0.2')).toBe('Downloading Bhippi 1.0.2');
+    expect(updateTitle({ kind: 'ready' }, null)).toBe('A new Bhippi is ready');
     expect(updateTone({ kind: 'current', rechecking: false })).toBe('good');
     expect(updateTone({ kind: 'downloading', percent: null })).toBe('new');
     expect(updateTone({ kind: 'error', retry: 'check' })).toBe('bad');
@@ -98,14 +98,14 @@ describe('UpdatePanel', () => {
   it('says you are on the latest version, with Check again', () => {
     const out = text(render(state('current', { info: info({ available: false, latest: '1.0.1' }) })));
     expect(out).toContain('You’re on the latest version');
-    expect(out).toContain('Helios 1.0.1');
+    expect(out).toContain('Bhippi 1.0.1');
     expect(out).toContain('Check again');
     expect(out).toContain('Details');
   });
 
   it('offers the new version with its size and one Download button', () => {
     const html = render(state('available', { info: info() }));
-    expect(text(html)).toContain('Helios 1.0.2 is available');
+    expect(text(html)).toContain('Bhippi 1.0.2 is available');
     expect(text(html)).toContain('You have 1.0.1 · 84.0 MB');
     expect(html.match(/btn-primary/g)).toHaveLength(1);
     expect(text(html)).toContain('Download');
@@ -113,7 +113,7 @@ describe('UpdatePanel', () => {
 
   it('shows the download bar with bytes and percent', () => {
     const html = render(state('downloading', { info: info(), progress: { received: 21 * MB, total: 84 * MB } }));
-    expect(text(html)).toContain('Downloading Helios 1.0.2');
+    expect(text(html)).toContain('Downloading Bhippi 1.0.2');
     expect(html).toContain('role="progressbar"');
     expect(html).toContain('aria-valuenow="25"');
     expect(text(html)).toContain('21.0 MB of 84.0 MB');
@@ -124,7 +124,7 @@ describe('UpdatePanel', () => {
 
   it('asks to restart once the installer is in', () => {
     const out = text(render(state('ready', { info: info({ ready: 'C:/update.exe' }) })));
-    expect(out).toContain('Helios 1.0.2 is ready');
+    expect(out).toContain('Bhippi 1.0.2 is ready');
     expect(out).toContain('Restart and install');
     expect(out).toContain('Your project is saved first');
   });

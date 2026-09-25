@@ -1,5 +1,5 @@
 // The render queue: every export this session, live — Premiere's render queue
-// without leaving Helios. Running renders show progress and cancel; queued
+// without leaving Bhippi. Running renders show progress and cancel; queued
 // ones wait for a render slot; finished ones reveal or open their file.
 import { CheckCircle2, Clapperboard, CircleAlert, Film, LoaderCircle, Plus, X } from 'lucide-react';
 import { Modal } from '../components/ui';

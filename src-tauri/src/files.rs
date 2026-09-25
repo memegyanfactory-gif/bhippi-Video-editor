@@ -1,4 +1,4 @@
-//! `.helios` project files, media relinking, voice-over recordings, and the two analysis passes
+//! `.bhippi` project files, media relinking, voice-over recordings, and the two analysis passes
 //! the editor asks FFmpeg for: Scene Edit Detection and audio peak levels.
 
 use crate::library::Asset;
@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 
 /// Project files are JSON; anything larger than this is not one of ours.
 const MAX_DOCUMENT: u64 = 256 * 1024 * 1024;
-pub const EXTENSION: &str = "helios";
+pub const EXTENSION: &str = "bhippi";
 
-/// What a `.helios` file holds: the project plus the media it references, so another session on
+/// What a `.bhippi` file holds: the project plus the media it references, so another session on
 /// this machine can relink it.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,7 +33,7 @@ pub(crate) fn check_extension(path: &Path) -> Result<(), String> {
     if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case(EXTENSION)) {
         Ok(())
     } else {
-        Err(format!("Helios projects are .{EXTENSION} files"))
+        Err(format!("Bhippi projects are .{EXTENSION} files"))
     }
 }
 
@@ -42,12 +42,12 @@ pub fn read_document(path: &Path) -> Result<Document, String> {
     check_extension(path)?;
     let size = std::fs::metadata(path).map_err(|error| format!("cannot open {}: {error}", path.display()))?.len();
     if size > MAX_DOCUMENT {
-        return Err("that file is too large to be a Helios project".to_owned());
+        return Err("that file is too large to be a Bhippi project".to_owned());
     }
     let text = std::fs::read_to_string(path).map_err(|error| format!("cannot read it: {error}"))?;
-    let mut document: Document = serde_json::from_str(&text).map_err(|error| format!("that is not a Helios project: {error}"))?;
-    if document.format != "helios" {
-        return Err("that JSON file is not a Helios project".to_owned());
+    let mut document: Document = serde_json::from_str(&text).map_err(|error| format!("that is not a Bhippi project: {error}"))?;
+    if document.format != "bhippi" {
+        return Err("that JSON file is not a Bhippi project".to_owned());
     }
     document.project.sanitize();
     document.project.validate_shape()?;
@@ -292,19 +292,19 @@ mod tests {
 
     #[test]
     fn a_project_file_round_trips_and_other_files_are_refused() {
-        let dir = std::env::temp_dir().join(format!("helios-doc-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-doc-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
-        let path = dir.join("My Story.helios");
-        let document = Document { format: "helios".to_owned(), version: 3, saved_at: "now".to_owned(), project: Project::default(), assets: Vec::new(), extras: None };
+        let path = dir.join("My Story.bhippi");
+        let document = Document { format: "bhippi".to_owned(), version: 3, saved_at: "now".to_owned(), project: Project::default(), assets: Vec::new(), extras: None };
         write_document(&path, &document).expect("write");
         let read = read_document(&path).expect("read");
         assert_eq!(read.project.name, Project::default().name);
 
         let wrong = dir.join("notes.txt");
         std::fs::write(&wrong, "hi").expect("write");
-        assert!(read_document(&wrong).expect_err("refused").contains(".helios"));
+        assert!(read_document(&wrong).expect_err("refused").contains(".bhippi"));
 
-        let bogus = dir.join("Other.helios");
+        let bogus = dir.join("Other.bhippi");
         std::fs::write(&bogus, r#"{"format":"premiere","version":1,"project":{}}"#).expect("write");
         assert!(read_document(&bogus).is_err());
         let _ignored = std::fs::remove_dir_all(dir);
@@ -318,7 +318,7 @@ mod tests {
             eprintln!("FFmpeg not installed; skipping");
             return;
         };
-        let dir = std::env::temp_dir().join(format!("helios-analysis-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-analysis-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let clip = dir.join("cuts.mp4");
         // Three one-second blocks of very different colour: two cuts in the middle.
@@ -354,7 +354,7 @@ mod tests {
             eprintln!("FFmpeg not installed; skipping");
             return;
         };
-        let dir = std::env::temp_dir().join(format!("helios-loudness-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-loudness-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let tone = dir.join("tone.wav");
         let status = std::process::Command::new(ffmpeg)

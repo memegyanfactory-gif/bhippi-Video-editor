@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn numbered_references_come_back_in_order_and_the_next_number_is_free() {
-        let root = std::env::temp_dir().join(format!("helios-refs-{}", crate::store::new_id()));
+        let root = std::env::temp_dir().join(format!("bhippi-refs-{}", crate::store::new_id()));
         std::fs::create_dir_all(&root).expect("dir");
 
         write(&root, &sample("a", "2")).expect("write");

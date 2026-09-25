@@ -4,7 +4,7 @@
 // sprite moves across the screen smoothly; its drawing changes in steps). Poses only move hands,
 // feet, eyes and mouth — sprite.ts draws whatever they describe.
 
-import { CX, FEET_Y, REST, TORSO_Y, type Gear, type Pose, type Prop } from './sprite';
+import { CX, FEET_Y, REST, TORSO_Y, type Character, type Gear, type Pose, type Prop } from './sprite';
 
 export type AnimName =
   | 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'land' | 'dizzy'
@@ -16,6 +16,8 @@ export type AnimOptions = {
   gear?: Gear[];
   /** Colour of the clip being carried or placed. */
   color?: string;
+  /** Who plays it (Settings › Avatar); Heli when unset. */
+  character?: Character;
 };
 
 export const FPS = 12;
@@ -24,6 +26,7 @@ const cyc = (t: number, rate: number, n: number) => Math.floor(t * rate) % n;
 const make = (over: Partial<Pose>, options: AnimOptions, own: Gear[] = []): Pose => ({
   ...REST,
   ...over,
+  character: options.character,
   gear: [...new Set([...own, ...(options.gear ?? []), ...(over.gear ?? [])])],
 });
 

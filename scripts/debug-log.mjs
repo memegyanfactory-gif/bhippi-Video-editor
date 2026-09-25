@@ -1,15 +1,15 @@
-// Prints the tail of Helios' logs from %APPDATA%/studio.helios.desktop.
+// Prints the tail of Bhippi's logs from %APPDATA%/com.bhippi.videoeditor.
 //
 //   npm run debug:log             last 60 lines of each log
 //   npm run debug:log -- 200      last 200
-//   npm run debug:log -- -f       follow helios.log live (Ctrl+C to stop)
+//   npm run debug:log -- -f       follow bhippi.log live (Ctrl+C to stop)
 import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { join } from 'node:path';
 
-const dir = join(process.env.APPDATA ?? '', 'studio.helios.desktop');
+const dir = join(process.env.APPDATA ?? '', 'com.bhippi.videoeditor');
 const logs = [
-  ['helios.log (this run)', join(dir, 'logs', 'helios.log')],
-  ['helios.previous.log', join(dir, 'logs', 'helios.previous.log')],
+  ['bhippi.log (this run)', join(dir, 'logs', 'bhippi.log')],
+  ['bhippi.previous.log', join(dir, 'logs', 'bhippi.previous.log')],
   ['hang.log (UI watchdog)', join(dir, 'logs', 'hang.log')],
   ['crash.log (panics + frontend crashes)', join(dir, 'crash.log')],
 ];

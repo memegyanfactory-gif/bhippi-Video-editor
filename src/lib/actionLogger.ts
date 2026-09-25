@@ -1,4 +1,4 @@
-// Centralized action and telemetry logger for Helios.
+// Centralized action and telemetry logger for Bhippi.
 // Records every single action performed by the user, the AI copilot, subagents, and the system runtime.
 
 export type LogCategory = 'ai' | 'user' | 'system' | 'error';
@@ -43,7 +43,7 @@ class ActionLogger {
     }
 
     // Initial system log
-    this.system('Helios Action Logger initialized', {
+    this.system('Bhippi Action Logger initialized', {
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'desktop',
       timestamp: new Date().toISOString(),
     });

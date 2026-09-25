@@ -11,7 +11,7 @@ import { fileSrc } from '../ipc';
 const cache = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
 
-/** A `data:` URL for a local image Helios imported; cached per path. */
+/** A `data:` URL for a local image Bhippi imported; cached per path. */
 export function assetDataUrl(path: string): Promise<string> {
   const hit = cache.get(path);
   if (hit) return Promise.resolve(hit);
@@ -35,7 +35,7 @@ export function assetDataUrl(path: string): Promise<string> {
   return task;
 }
 
-/** The text of a local file Helios imported (SVG logos are inlined as markup). */
+/** The text of a local file Bhippi imported (SVG logos are inlined as markup). */
 export async function assetText(path: string): Promise<string> {
   const response = await fetch(fileSrc(path));
   if (!response.ok) throw new Error(`could not read ${path}`);

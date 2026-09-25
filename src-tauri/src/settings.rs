@@ -36,7 +36,7 @@ pub struct SpeechPrefs {
     pub transcribe_engine: Option<String>,
     /// The catalogue id of the offline Whisper model to run.
     pub transcribe_model: Option<String>,
-    /// Explicit whisper.cpp program, when it is not one Helios downloaded.
+    /// Explicit whisper.cpp program, when it is not one Bhippi downloaded.
     pub whisper_path: Option<String>,
     /// Explicit Piper program.
     pub piper_path: Option<String>,
@@ -61,7 +61,7 @@ pub struct Settings {
     pub local_media_models: std::collections::HashMap<String, String>,
     /// When true the AI does not call local image/video generation on its own.
     pub disable_local_generation: Option<bool>,
-    /// Where project folders are made; `Documents/Helios` when unset (see storage.rs).
+    /// Where project folders are made; `Documents/Bhippi` when unset (see storage.rs).
     pub storage_root: Option<String>,
     /// Copy imported media into the project's Footage folder instead of referencing it in place.
     pub copy_imports: Option<bool>,
@@ -87,7 +87,7 @@ pub struct Settings {
     pub timeline_zoom: Option<f64>,
     /// The chat's animated look; surface only.
     pub awesome_look: Option<bool>,
-    /// MCP servers Helios connects out to; their tools join what the assistant may call.
+    /// MCP servers Bhippi connects out to; their tools join what the assistant may call.
     #[serde(default)]
     pub mcp_servers: Vec<crate::mcp_client::Server>,
     /// Transcription and voice: which engine, which model, which voice.
@@ -97,27 +97,31 @@ pub struct Settings {
     pub layout: Option<serde_json::Value>,
     /// The user's brand kits and the default one (see src/lib/brandKit); the UI owns the shape.
     pub brand_kits: Option<serde_json::Value>,
-    /// Recently opened `.helios` files, newest first.
+    /// Recently opened `.bhippi` files, newest first.
     pub recent_projects: Vec<String>,
     /// The file the session project belongs to, when it has been saved.
     pub project_path: Option<String>,
-    /// Color theme: `minimal` selects the flat minimalist theme, anything else is default.
+    /// Color theme id (see `THEMES` in src/lib/theme.ts); unknown ids fall back to the default theme.
     pub theme: Option<String>,
+    /// Theme customisation (the Glass backdrop, tint, blur and opacity); the UI owns the shape.
+    pub appearance: Option<serde_json::Value>,
     /// Path to the IdeaGraph `ig` binary; `ig` on PATH when unset.
     pub ideagraph_bin: Option<String>,
     /// IdeaGraph brain repo path; the engine default (~/ideagraph-brain) when unset.
     pub ideagraph_brain: Option<String>,
-    /// Record Helios AI turn outcomes into the brain when true.
+    /// Record Bhippi AI turn outcomes into the brain when true.
     pub ideagraph_record: Option<bool>,
     /// The Program monitor's RAM preview cache; on when unset.
     pub preview_cache_enabled: Option<bool>,
     /// Its RAM budget in megabytes; the UI's default (1536) when unset.
     pub preview_cache_mb: Option<u32>,
-    /// The pixel avatar that acts out what Helios AI is doing; on when unset.
+    /// The pixel avatar that acts out what Bhippi AI is doing; on when unset.
     pub avatar: Option<bool>,
+    /// Who the avatar is (`heli`, `cat`, `woman`, `genie`, `puppy`, `senior`); Heli when unset.
+    pub avatar_character: Option<String>,
 }
 
-const KEYCHAIN_SERVICE: &str = "helios-studio";
+const KEYCHAIN_SERVICE: &str = "bhippi-studio";
 
 fn entry(provider_id: &str) -> Result<keyring::Entry, String> {
     if provider_id.is_empty() || !provider_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
@@ -137,8 +141,21 @@ pub fn set_api_key(provider_id: &str, key: &str) -> Result<(), String> {
         .map_err(|error| format!("cannot save the key: {error}"))
 }
 
+/// Where keys were filed before the app was renamed from Helios; read once, then moved.
+const LEGACY_KEYCHAIN_SERVICE: &str = "helios-studio";
+
 pub fn get_api_key(provider_id: &str) -> Option<String> {
-    entry(provider_id).ok()?.get_password().ok()
+    let current = entry(provider_id).ok()?;
+    if let Ok(key) = current.get_password() {
+        return Some(key);
+    }
+    // A key saved under the old name still counts: move it across so the next read is direct.
+    let legacy = keyring::Entry::new(LEGACY_KEYCHAIN_SERVICE, &format!("api-key:{provider_id}")).ok()?;
+    let key = legacy.get_password().ok().filter(|key| !key.trim().is_empty())?;
+    if current.set_password(&key).is_ok() {
+        let _ = legacy.delete_credential();
+    }
+    Some(key)
 }
 
 pub fn delete_api_key(provider_id: &str) -> Result<(), String> {

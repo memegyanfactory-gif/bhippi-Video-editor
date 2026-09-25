@@ -66,8 +66,44 @@ describe('meme tool arguments', () => {
     const { ctx } = fixture();
     expect((await runMemeTool('search_memes', { intent: 'laugh' }, ctx)).ok).toBe(false);
     expect((await runMemeTool('search_memes', { format: 'video' }, ctx)).ok).toBe(false);
-    expect((await runMemeTool('search_memes', { region: 'US' }, ctx)).ok).toBe(false);
+    expect((await runMemeTool('search_memes', { region: 'Narnia' }, ctx)).ok).toBe(false);
+    expect((await runMemeTool('search_memes', { audience: 'the whole galaxy' }, ctx)).ok).toBe(false);
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('find_memes_online searches as the audience would and says to explain before placing', async () => {
+    const { ctx } = fixture();
+    invoke.mockResolvedValue({
+      fetchedAt: '2026-09-25T10:00:00Z', cached: false, counts: { web: 2, youtube: 1 }, problems: ['reddit search "x": HTTP 429'], libraryHits: [],
+      candidates: [
+        { name: 'Cadê o Pix', provider: 'kym', url: 'https://knowyourmeme.com/memes/cade-o-pix', explainer: 'A Brazilian meme asking where the payment is.', score: 0.9512 },
+        { name: 'cadê o pix meme', provider: 'youtube', url: 'https://www.youtube.com/watch?v=abc' },
+      ],
+    });
+    const result = await runMemeTool('find_memes_online', { query: 'someone never pays you back', localQuery: 'cadê o pix', echo: 'pix, dinheiro', audience: 'brazil' }, ctx);
+    expect(invoke).toHaveBeenCalledWith('memes_find_online', {
+      request: { query: 'someone never pays you back', localQuery: 'cadê o pix', echo: ['pix', 'dinheiro'], named: false, audience: 'BR', limit: 20 },
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.summary).toContain('viewers in Brazil');
+    expect(result.summary).toContain('HTTP 429');
+    expect((result.candidates as { score?: number }[])[0].score).toBe(0.95);
+    expect(result.instruction).toContain('save_meme');
+    // A meme the user named is looked up as that meme, not a look-alike.
+    const named = await runMemeTool('find_memes_online', { query: 'Distracted Boyfriend', named: true, audience: 'global' }, ctx);
+    if (!named.ok) throw new Error(named.error);
+    expect(named.instruction).toContain('by name');
+    // It needs a query, and a real audience.
+    invoke.mockClear();
+    expect((await runMemeTool('find_memes_online', {}, ctx)).ok).toBe(false);
+    expect((await runMemeTool('find_memes_online', { query: 'x', audience: 'mars' }, ctx)).ok).toBe(false);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('save_meme keeps any country as the region', () => {
+    expect(memeEntryFrom({ name: 'Cadê o Pix', region: 'br', crossover: true, language: 'PT' })).toMatchObject({ region: 'BR', crossover: true, language: 'pt' });
+    expect(memeEntryFrom({ name: 'This Is Fine', region: 'nowhere', crossover: true })).toMatchObject({ region: 'global' });
+    expect(memeEntryFrom({ name: 'This Is Fine', region: 'nowhere', crossover: true }).crossover).toBeUndefined();
   });
 
   it('refresh_meme_trends passes force and queries, filters, and says to save before use', async () => {
@@ -80,7 +116,7 @@ describe('meme tool arguments', () => {
       ],
     });
     const result = await runMemeTool('refresh_meme_trends', { force: true, queries: ['Dhurandhar meme'], provider: 'kym' }, ctx);
-    expect(invoke).toHaveBeenCalledWith('memes_refresh', { force: true, queries: ['Dhurandhar meme'] });
+    expect(invoke).toHaveBeenCalledWith('memes_refresh', { force: true, queries: ['Dhurandhar meme'], audience: null });
     if (!result.ok) throw new Error(result.error);
     expect(result.candidates).toEqual([{ name: 'Abuse Goblin', provider: 'kym', url: 'https://knowyourmeme.com/memes/abuse-goblin', explainer: 'A webcomic goblin.', score: 0.95 }]);
     expect(result.total).toBe(2);

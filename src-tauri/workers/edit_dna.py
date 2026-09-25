@@ -18,7 +18,7 @@ Audio (optional; needs Demucs, installed on demand into the media Python, see `i
   needs no librosa/numba. Without Demucs the audio fields come back null with a note: the
   numbers are never guessed.
 
-Run by Helios (receipts.rs `edit_dna_file`):  python edit_dna.py request.json
+Run by Bhippi (receipts.rs `edit_dna_file`):  python edit_dna.py request.json
   request: {"action": "measure" | "install", "path", "ffmpeg", "ffprobe", "output",
             "audio": true, "install_audio": false, "gpu": true}
   Progress goes to stdout as {"progress", "message"} lines; the result is written to `output`.

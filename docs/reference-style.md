@@ -37,14 +37,14 @@ rather than as a block; and the reveal is one continuous scale, not a cut.
 - **Hexagons.** A honeycomb motif for the roadmap sections, also used as icon containers.
 - **Numbers.** Occasionally enormous — *1 2 3* on a perspective floor, *12917 AED*.
 
-## Layout, which is the part Helios gets wrong today
+## Layout, which is the part Bhippi gets wrong today
 
 Nothing in that film ever lands on top of anything else. Type sits **beside** the speaker, on the
 side he is not occupying; when a card owns the middle, the type moves to the edge; when two things
 must share the frame, one becomes small and goes to a corner. The frame is treated as a set of
 slots with one occupant each.
 
-Helios currently places graphics at whatever position it is told, with no notion of what is
+Bhippi currently places graphics at whatever position it is told, with no notion of what is
 already there — which is how a title and three caption styles ended up stacked on the same pixels.
 That is the first thing to fix, and it is what `src/lib/layout.ts` is for.
 
@@ -79,7 +79,7 @@ Everything is carried by material and light.
 - **One warm accent.** An orange orb against all that blue, used perhaps three times in 46 s.
 - **Palette.** Near-black `#05060F` → royal blue `#3B4FE0` → lavender → white.
 
-## What this means for Helios
+## What this means for Bhippi
 
 Two packs now exist in `src/lib/stylePacks.ts`, each with its palette, type scale, materials,
 curves and the scenes it uses. `crimson-brief` is for explainers with a speaker in them;

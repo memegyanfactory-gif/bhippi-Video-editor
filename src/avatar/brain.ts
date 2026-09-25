@@ -1,4 +1,4 @@
-// What the avatar should act out, decided from what Helios AI is doing. Pure functions, so the
+// What the avatar should act out, decided from what Bhippi AI is doing. Pure functions, so the
 // mapping and the timeline diff are tested without a DOM (tests/avatar.test.ts).
 
 import { roleForTool, type CouncilRole } from '../lib/council';

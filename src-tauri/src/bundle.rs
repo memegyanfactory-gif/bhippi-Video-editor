@@ -1,13 +1,13 @@
 //! Saving gathers a project's files into its folder.
 //!
-//! A `.helios` owns a folder ([`storage::saved_folder`]). On save every file the project uses
+//! A `.bhippi` owns a folder ([`storage::saved_folder`]). On save every file the project uses
 //! that lives outside it — AI downloads, generated images/video/audio, voice-overs, roto runs,
 //! tracking passes, storyboard pictures, the AI's guidelines and notes — is copied into the
 //! matching category folder (moved, when it sits in the app's scratch places or in the unsaved
 //! project's own folder), and the project is pointed there. Imported originals stay where they
 //! are unless Settings › Storage › "Copy imported media into the project" is on.
 //!
-//! Inside the file, paths under the folder are stored relative to the `.helios`
+//! Inside the file, paths under the folder are stored relative to the `.bhippi`
 //! (`extras.relativePaths` lists which), so the whole folder can be moved or zipped and still
 //! opens with its media read straight from it.
 
@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Emitted when a guideline, plan or note changes, so the Project panel lists it again.
-pub const DOCS_EVENT: &str = "helios://docs";
+pub const DOCS_EVENT: &str = "bhippi://docs";
 const DOC_EXTENSIONS: &[&str] = &["md", "markdown", "txt"];
 const VIDEO: &[&str] = &["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "ts", "mts", "m2ts", "mpg", "mpeg", "3gp", "gif", "ogv"];
 const AUDIO: &[&str] = &["mp3", "wav", "m4a", "aac", "flac", "ogg", "oga", "opus", "wma", "aif", "aiff"];
@@ -81,15 +81,15 @@ fn slash_join(path: &Path) -> String {
     path.components().map(|component| component.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/")
 }
 
-/// How a path is written into a `.helios` in `helios_dir` whose project folder is `project`:
+/// How a path is written into a `.bhippi` in `bhippi_dir` whose project folder is `project`:
 /// relative (with `/`) when it is beside the file or inside the project folder — which may be
-/// the file's parent (`<folder>/Project/x.helios` → `../Downloads/clip.mp4`) — otherwise `None`.
-pub fn relative_text(path: &Path, helios_dir: &Path, project: &Path) -> Option<String> {
-    if let Some(rel) = relative_path(path, helios_dir).filter(|rel| rel.components().next().is_some()) {
+/// the file's parent (`<folder>/Project/x.bhippi` → `../Downloads/clip.mp4`) — otherwise `None`.
+pub fn relative_text(path: &Path, bhippi_dir: &Path, project: &Path) -> Option<String> {
+    if let Some(rel) = relative_path(path, bhippi_dir).filter(|rel| rel.components().next().is_some()) {
         return Some(slash_join(&rel));
     }
     if within(path, project) {
-        let parent = helios_dir.parent()?;
+        let parent = bhippi_dir.parent()?;
         let rel = relative_path(path, parent).filter(|rel| rel.components().next().is_some())?;
         return Some(format!("../{}", slash_join(&rel)));
     }
@@ -102,9 +102,9 @@ pub fn is_relative_text(text: &str) -> bool {
 }
 
 /// A relative stored path back to an absolute one.
-pub fn resolve_text(text: &str, helios_dir: &Path) -> PathBuf {
+pub fn resolve_text(text: &str, bhippi_dir: &Path) -> PathBuf {
     let native: String = if cfg!(windows) { text.replace('/', "\\") } else { text.to_owned() };
-    normalize(&helios_dir.join(native))
+    normalize(&bhippi_dir.join(native))
 }
 
 // ───────────────────────────── what the project uses ─────────────────────────────
@@ -254,7 +254,7 @@ pub enum Op {
 /// Where things are, for deciding what happens to each file.
 #[derive(Clone, Debug)]
 pub struct Ctx {
-    /// The folder the saved `.helios` owns.
+    /// The folder the saved `.bhippi` owns.
     pub project: PathBuf,
     /// The folder the project used before this save, when that is another one.
     pub previous: Option<PathBuf>,
@@ -282,7 +282,12 @@ pub enum Decision {
 }
 
 fn is_category_folder(name: &str) -> bool {
-    Category::ALL.iter().any(|category| category.relative().split('/').next().is_some_and(|top| top.eq_ignore_ascii_case(name)))
+    Category::ALL.iter().any(|category| {
+        [Some(category.relative()), category.legacy_relative()]
+            .into_iter()
+            .flatten()
+            .any(|relative| relative.split('/').next().is_some_and(|top| top.eq_ignore_ascii_case(name)))
+    })
 }
 
 /// What happens to one file (or run folder) the project uses.
@@ -640,14 +645,14 @@ pub fn execute(steps: &[Step], report: &mut dyn FnMut(u64, u64, &str)) -> Outcom
 
 // ───────────────────────────── the file ─────────────────────────────
 
-/// Paths under the project folder become relative to the `.helios`; `extras.relativePaths`
+/// Paths under the project folder become relative to the `.bhippi`; `extras.relativePaths`
 /// records which, so opening resolves exactly those and nothing that merely looks like a path.
-pub fn relativize(value: &mut Value, helios_dir: &Path, project: &Path) {
+pub fn relativize(value: &mut Value, bhippi_dir: &Path, project: &Path) {
     let mut refs = asset_refs(value.get("assets").unwrap_or(&Value::Null));
     refs.extend(project_refs(value.get("project").unwrap_or(&Value::Null), "/project"));
     let mut pointers = Vec::new();
     for reference in refs {
-        let Some(rel) = relative_text(&reference.path, helios_dir, project) else { continue };
+        let Some(rel) = relative_text(&reference.path, bhippi_dir, project) else { continue };
         if let Some(slot) = value.pointer_mut(&reference.pointer) {
             *slot = Value::String(rel);
             pointers.push(Value::String(reference.pointer));
@@ -663,8 +668,8 @@ pub fn relativize(value: &mut Value, helios_dir: &Path, project: &Path) {
     }
 }
 
-/// The reverse of [`relativize`], against the folder the `.helios` was opened from.
-pub fn resolve(value: &mut Value, helios_dir: &Path) {
+/// The reverse of [`relativize`], against the folder the `.bhippi` was opened from.
+pub fn resolve(value: &mut Value, bhippi_dir: &Path) {
     let mut pointers: Vec<String> = value
         .pointer("/extras/relativePaths")
         .and_then(Value::as_array)
@@ -680,32 +685,32 @@ pub fn resolve(value: &mut Value, helios_dir: &Path) {
     for pointer in pointers {
         if let Some(slot) = value.pointer_mut(&pointer) {
             if let Some(text) = slot.as_str().filter(|text| is_relative_text(text)) {
-                *slot = Value::String(resolve_text(text, helios_dir).display().to_string());
+                *slot = Value::String(resolve_text(text, bhippi_dir).display().to_string());
             }
         }
     }
 }
 
-/// Opens a `.helios`, with its relative paths made absolute again.
+/// Opens a `.bhippi`, with its relative paths made absolute again.
 pub fn read(path: &Path) -> Result<Document, String> {
     let document = crate::files::read_document(path)?;
-    let helios_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let bhippi_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let mut value = serde_json::to_value(&document).map_err(|error| error.to_string())?;
-    resolve(&mut value, &helios_dir);
-    serde_json::from_value(value).map_err(|error| format!("that is not a Helios project: {error}"))
+    resolve(&mut value, &bhippi_dir);
+    serde_json::from_value(value).map_err(|error| format!("that is not a Bhippi project: {error}"))
 }
 
-/// Writes a `.helios` with the paths inside its project folder stored relative to it.
+/// Writes a `.bhippi` with the paths inside its project folder stored relative to it.
 pub fn write(path: &Path, document: &Document, project: &Path) -> Result<(), String> {
     crate::files::check_extension(path)?;
     let mut doc = document.clone();
     doc.project.sanitize();
     doc.project.validate_shape()?;
     let mut value = serde_json::to_value(&doc).map_err(|error| error.to_string())?;
-    let helios_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-    relativize(&mut value, &helios_dir, project);
-    if !helios_dir.as_os_str().is_empty() {
-        std::fs::create_dir_all(&helios_dir).map_err(|error| format!("cannot create {}: {error}", helios_dir.display()))?;
+    let bhippi_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    relativize(&mut value, &bhippi_dir, project);
+    if !bhippi_dir.as_os_str().is_empty() {
+        std::fs::create_dir_all(&bhippi_dir).map_err(|error| format!("cannot create {}: {error}", bhippi_dir.display()))?;
     }
     crate::store::write_json(path, &value)
 }
@@ -736,10 +741,22 @@ pub fn agent_path(state: &AppState, path: &str) -> String {
     map_todo(&storage::project_dir(state), path).map_or_else(|| path.to_owned(), |mapped| mapped.display().to_string())
 }
 
-/// The same for reading: a note written before notes moved into projects is still found.
+/// The same for reading: a note written before notes moved into projects (or before they moved
+/// under `Documents/`) is still found.
 pub fn agent_path_existing(state: &AppState, path: &str) -> String {
     let mapped = agent_path(state, path);
-    if mapped != path && !Path::new(&mapped).exists() && Path::new(path).exists() {
+    if mapped == path || Path::new(&mapped).exists() {
+        return mapped;
+    }
+    let project = storage::project_dir(state);
+    let older = Category::Guidelines.legacy_relative().zip(Path::new(&mapped).strip_prefix(storage::category_dir(&project, Category::Guidelines)).ok());
+    if let Some((legacy, rest)) = older {
+        let old = project.join(legacy).join(rest);
+        if old.exists() {
+            return old.display().to_string();
+        }
+    }
+    if Path::new(path).exists() {
         return path.to_owned();
     }
     mapped
@@ -772,7 +789,7 @@ const DOC_CATEGORIES: [Category; 3] = [Category::Guidelines, Category::Storyboar
 pub struct DocEntry {
     name: String,
     path: String,
-    /// "Guidelines", "Storyboard", "Research" — or "Workspace notes" for older notes.
+    /// "Documents/Guidelines", "Documents/Storyboard", "Documents/Research" — or "Workspace notes".
     folder: String,
     /// Under the project folder, `/`-separated (the file name for older notes).
     relative: String,
@@ -935,12 +952,12 @@ pub struct SaveReport {
     failures: Vec<String>,
 }
 
-/// Whether a folder holds a saved project (a `.helios` in `Project/` that is not the autosave).
+/// Whether a folder holds a saved project (a `.bhippi` in `Project/` that is not the autosave).
 fn holds_saved_project(folder: &Path) -> bool {
     let Ok(entries) = std::fs::read_dir(storage::category_dir(folder, Category::Project)) else { return false };
     entries.flatten().any(|entry| {
         let name = entry.file_name().to_string_lossy().to_lowercase();
-        name.ends_with(".helios") && !name.ends_with("(autosave).helios")
+        name.ends_with(".bhippi") && !name.ends_with("(autosave).bhippi")
     })
 }
 
@@ -1031,9 +1048,9 @@ fn check_document(file: &Path, document: &Document) -> Result<(), String> {
     probe.validate_shape()
 }
 
-/// Save / Save As: gathers every file the project uses into the folder the `.helios` owns,
+/// Save / Save As: gathers every file the project uses into the folder the `.bhippi` owns,
 /// points the project (and, for Save / Save As, the library) at the gathered copies, files the
-/// UI's documents, and writes the `.helios` with relative paths. `keep_path` is false for "Save
+/// UI's documents, and writes the `.bhippi` with relative paths. `keep_path` is false for "Save
 /// a copy", which copies only and leaves the open session as it was.
 #[tauri::command]
 pub async fn project_file_save(
@@ -1185,7 +1202,7 @@ mod tests {
     use serde_json::json;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("helios-bundle-{name}-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-bundle-{name}-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         dir
     }
@@ -1198,20 +1215,20 @@ mod tests {
     #[test]
     fn bundle_paths_relativise_beside_the_file_and_one_level_up() {
         let base = temp("rel");
-        // <folder>/Project/x.helios: the media is one level up.
+        // <folder>/Project/x.bhippi: the media is one level up.
         let folder = base.join("Launch");
-        let helios_dir = folder.join("Project");
+        let bhippi_dir = folder.join("Project");
         let clip = folder.join("Downloads").join("clip one.mp4");
-        assert_eq!(relative_text(&clip, &helios_dir, &folder).as_deref(), Some("../Downloads/clip one.mp4"));
-        assert_eq!(resolve_text("../Downloads/clip one.mp4", &helios_dir), normalize(&clip));
-        // <dir>/film.helios with "film Files" beside it.
+        assert_eq!(relative_text(&clip, &bhippi_dir, &folder).as_deref(), Some("../Downloads/clip one.mp4"));
+        assert_eq!(resolve_text("../Downloads/clip one.mp4", &bhippi_dir), normalize(&clip));
+        // <dir>/film.bhippi with "film Files" beside it.
         let files = base.join("film Files");
         let image = files.join("Generated").join("Images").join("a.png");
         assert_eq!(relative_text(&image, &base, &files).as_deref(), Some("film Files/Generated/Images/a.png"));
         assert_eq!(resolve_text("film Files/Generated/Images/a.png", &base), normalize(&image));
         // Outside both: stays absolute.
         let elsewhere = std::env::temp_dir().join("elsewhere.mp4");
-        assert_eq!(relative_text(&elsewhere, &helios_dir, &folder), None);
+        assert_eq!(relative_text(&elsewhere, &bhippi_dir, &folder), None);
         assert!(is_relative_text("../a.mp4") && is_relative_text("film Files/a.png"));
         assert!(!is_relative_text("C:\\a.mp4") && !is_relative_text("/a.mp4") && !is_relative_text("\\\\server\\a.mp4"));
         assert!(within(&clip, &folder) && !within(&folder, &clip));
@@ -1222,16 +1239,16 @@ mod tests {
     fn bundle_documents_round_trip_through_relative_paths() {
         let base = temp("doc");
         let folder = base.join("Launch");
-        let helios_dir = folder.join("Project");
+        let bhippi_dir = folder.join("Project");
         let clip = folder.join("Downloads").join("clip.mp4");
         let matte = folder.join("Roto").join("run1").join("matte.mp4");
         let outside = base.join("camera.mp4");
         let mut value = json!({
-            "format": "helios",
+            "format": "bhippi",
             "assets": [{ "id": "a", "kind": "video", "path": clip.display().to_string() }, { "id": "b", "kind": "video", "path": outside.display().to_string() }],
             "project": { "comps": [{ "clips": [{ "rotoMatte": matte.display().to_string(), "source": { "type": "text", "text": clip.display().to_string() } }] }] }
         });
-        relativize(&mut value, &helios_dir, &folder);
+        relativize(&mut value, &bhippi_dir, &folder);
         assert_eq!(value["assets"][0]["path"], "../Downloads/clip.mp4");
         assert_eq!(value["assets"][1]["path"], outside.display().to_string());
         assert_eq!(value["project"]["comps"][0]["clips"][0]["rotoMatte"], "../Roto/run1/matte.mp4");
@@ -1290,13 +1307,13 @@ mod tests {
         assert_eq!(decide(&c, &base.join("Root/Raw/b.mp4"), Hint::Video), Decision::Leave);
         // Scratch moves; other app data copies; built-ins stay.
         assert_eq!(decide(&c, &base.join("AppData/work/j1/out.mp4"), Hint::Video), transfer("Generated/Video/out.mp4", Op::Move));
-        assert_eq!(decide(&c, &base.join("AppData/storyboard/s.png"), Hint::Storyboard), transfer("Storyboard/s.png", Op::Copy));
+        assert_eq!(decide(&c, &base.join("AppData/storyboard/s.png"), Hint::Storyboard), transfer("Documents/Storyboard/s.png", Op::Copy));
         assert_eq!(decide(&c, &base.join("AppData/roto/run1"), Hint::Roto), transfer("Roto/run1", Op::Copy));
         assert_eq!(decide(&c, &base.join("AppData/sfx/whoosh.wav"), Hint::Audio), Decision::Leave);
         // Imported originals follow "copy imports"; AI notes are always gathered.
         assert_eq!(decide(&c, &base.join("Videos/camera.mp4"), Hint::Video), Decision::Leave);
         assert_eq!(decide(&Ctx { copy_imports: true, ..c.clone() }, &base.join("Videos/camera.mp4"), Hint::Video), transfer("Footage/camera.mp4", Op::Copy));
-        assert_eq!(decide(&c, &base.join("repo/todos/todo-plan.md"), Hint::Note), transfer("Guidelines/todo-plan.md", Op::Copy));
+        assert_eq!(decide(&c, &base.join("repo/todos/todo-plan.md"), Hint::Note), transfer("Documents/Guidelines/todo-plan.md", Op::Copy));
         // "Save a copy" never moves.
         assert_eq!(decide(&Ctx { allow_move: false, ..c.clone() }, &base.join("AppData/work/j1/out.mp4"), Hint::Video), transfer("Generated/Video/out.mp4", Op::Copy));
         let _ignored = std::fs::remove_dir_all(base);
@@ -1377,7 +1394,7 @@ mod tests {
         let folder = base.join("Launch");
         let clip = folder.join("Downloads").join("clip.mp4");
         put(&clip, b"x");
-        let mut document = Document { format: "helios".to_owned(), version: 3, saved_at: "now".to_owned(), project: crate::project::Project::default(), assets: Vec::new(), extras: None };
+        let mut document = Document { format: "bhippi".to_owned(), version: 3, saved_at: "now".to_owned(), project: crate::project::Project::default(), assets: Vec::new(), extras: None };
         let asset: crate::library::Asset = serde_json::from_value(json!({
             "id": "a1", "name": "clip.mp4", "path": clip.display().to_string(), "kind": "video", "duration": 1.0, "width": 16, "height": 9,
             "fps": 30.0, "hasAudio": false, "videoCodec": null, "audioCodec": null, "size": 1, "importedAt": "2026-01-01T00:00:00Z",
@@ -1385,7 +1402,7 @@ mod tests {
         }))
         .expect("asset");
         document.assets.push(asset);
-        let file = folder.join("Project").join("Launch.helios");
+        let file = folder.join("Project").join("Launch.bhippi");
         write(&file, &document, &folder).expect("write");
         let text = std::fs::read_to_string(&file).expect("read");
         assert!(text.contains("../Downloads/clip.mp4"), "{text}");
@@ -1402,8 +1419,8 @@ mod tests {
         put(&planted, b"png");
         let mut bad = clip("c1", "v1", 0.0, 2.0, crate::project::ClipSource::Media { asset_id: "a1".to_owned() });
         bad.transform.scale = 1e9;
-        let mut document = Document { format: "helios".to_owned(), version: 3, saved_at: "now".to_owned(), project: project(vec![comp("main", vec![bad])]), assets: Vec::new(), extras: None };
-        let file = base.join("Launch").join("Launch.helios");
+        let mut document = Document { format: "bhippi".to_owned(), version: 3, saved_at: "now".to_owned(), project: project(vec![comp("main", vec![bad])]), assets: Vec::new(), extras: None };
+        let file = base.join("Launch").join("Launch.bhippi");
         assert!(check_document(&file, &document).expect_err("out of range").contains("transform"));
         assert!(planted.is_file(), "nothing was moved");
         assert!(!base.join("Launch").exists(), "nothing was created");
@@ -1415,8 +1432,8 @@ mod tests {
     #[test]
     fn bundle_files_the_assistants_todos_in_guidelines() {
         let project = Path::new("/p");
-        assert_eq!(map_todo(project, "todos/todo-plan.md"), Some(project.join("Guidelines").join("todo-plan.md")));
-        assert_eq!(map_todo(project, "./todos/sub/x.md"), Some(project.join("Guidelines").join("sub").join("x.md")));
+        assert_eq!(map_todo(project, "todos/todo-plan.md"), Some(project.join("Documents").join("Guidelines").join("todo-plan.md")));
+        assert_eq!(map_todo(project, "./todos/sub/x.md"), Some(project.join("Documents").join("Guidelines").join("sub").join("x.md")));
         assert_eq!(map_todo(project, "notes/x.md"), None);
         assert_eq!(map_todo(project, "todos/../secret.md"), None);
         assert_eq!(map_todo(project, "/abs/todos/x.md"), None);

@@ -5,6 +5,10 @@
     "input_schema": {
       "type": "object",
       "properties": {
+        "audience": {
+          "type": "string",
+          "description": "Who the video is for, which decides the memes: \"global\" (the English-speaking internet at large) or the viewers' country as a two-letter code (IN for Hindi/Hinglish, BR, MX, JP, KR, PH, US, GB…). Default auto: detected from the beats' words (Devanagari/Hinglish → IN, Hangul → KR, Japanese → JP, Thai → TH, otherwise global) unless the user already set it. Set it when the user says who the video is for, or when the speech is clearly another country's (Brazilian Portuguese → BR, Mexican Spanish → MX)."
+        },
         "compId": { "type": "string" },
         "beats": {
           "type": "array",

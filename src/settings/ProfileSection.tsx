@@ -1,4 +1,4 @@
-// About › Profile: the Google account, its Helios key, and the PCs using the key's slots.
+// About › Profile: the Google account, its Bhippi key, and the PCs using the key's slots.
 import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, LoaderCircle, LogOut, MonitorSmartphone, RefreshCw, WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useToast } from '../components/ui';
@@ -43,7 +43,7 @@ export function ProfileSection() {
       <div className="profile-card profile-signed-out">
         <div className="profile-copy">
           <strong>Not signed in</strong>
-          <span className="muted">This is a dev build running without a license. Sign in to see how Helios looks to your customers.</span>
+          <span className="muted">This is a dev build running without a license. Sign in to see how Bhippi looks to your customers.</span>
         </div>
         <SignIn compact />
       </div>
@@ -115,7 +115,7 @@ export function ProfileSection() {
           </ul>
         </>
       ) : (
-        <p className="muted">This account has no Helios key.</p>
+        <p className="muted">This account has no Bhippi key.</p>
       )}
 
       <div className="profile-actions">
@@ -130,7 +130,7 @@ export function ProfileSection() {
           className="btn btn-small btn-ghost"
           disabled={busy !== null}
           onClick={() => {
-            if (window.confirm('Sign out of Helios on this PC? You’ll need to sign in with Google again to keep using it. This PC keeps its slot until you free it.')) {
+            if (window.confirm('Sign out of Bhippi on this PC? You’ll need to sign in with Google again to keep using it. This PC keeps its slot until you free it.')) {
               void run('signout', () => licenseStore.signOut());
             }
           }}

@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 
 root = Path(__file__).resolve().parents[1] / 'work' / 'roto-benchmark'
 candidate = root / 'run-1'
-model_path = Path.home() / 'AppData/Roaming/studio.helios.desktop/models/matte/rvm_mobilenetv3_fp32.onnx'
+model_path = Path.home() / 'AppData/Roaming/com.bhippi.videoeditor/models/matte/rvm_mobilenetv3_fp32.onnx'
 session = ort.InferenceSession(str(model_path), providers=['CPUExecutionProvider'])
 state = {f'r{i}i': np.zeros((1,1,1,1),np.float32) for i in range(1,5)}
 started = time.perf_counter()

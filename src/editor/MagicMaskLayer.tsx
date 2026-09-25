@@ -9,7 +9,7 @@ import { ensureLumaFilter, loadMask, maskUrl, readRun, runOf } from './RotoPrevi
 type Scoped = { fx: AppliedEffect; mask: MagicMask; outside: boolean; filter: string };
 
 /** The SVG filter that turns a matte frame into a mask: luma → alpha, grown or shrunk, softened, inverted. */
-const maskFilterId = (clipId: string, mask: MagicMask, invert: boolean) => `helios-mm-${clipId}-${mask.id}-${invert ? 'i' : 'n'}`;
+const maskFilterId = (clipId: string, mask: MagicMask, invert: boolean) => `bhippi-mm-${clipId}-${mask.id}-${invert ? 'i' : 'n'}`;
 
 function MaskFilter({ id, mask, invert, height }: { id: string; mask: MagicMask; invert: boolean; height: number }) {
   // Sized like the export: px at 1080 of the picture's own height.

@@ -1,17 +1,17 @@
-# React Bits library for Helios AI — plan
+# React Bits library for Bhippi AI — plan
 
 Date: 2026-09-22. Status: implemented in this pass (see `docs/REACT-BITS-LIBRARY.md` for the reference).
 
 ## Why
 
 React Bits (reactbits.dev) is a catalogue of 205 animated UI pieces: 32 text animations, 38 animations,
-45 components, 33 micro-interactions and 57 backgrounds. Helios had a thin translation of it
+45 components, 33 micro-interactions and 57 backgrounds. Bhippi had a thin translation of it
 (`src/lib/reactbits.ts`): entrance keyframes for text clips (`add_text style:"rb-*"`), ambient gradient
 backgrounds for colour mattes, and six card treatments. The AI could name a few ids in `add_text`, but it
 could not browse the library, could not place a React Bits piece as a real motion graphic, and most of the
 catalogue (components, micro-interactions, the newer text and background pieces) did not exist at all.
 
-The goal: the whole React Bits catalogue, basic to advanced, translated into things Helios can render
+The goal: the whole React Bits catalogue, basic to advanced, translated into things Bhippi can render
 deterministically (preview and export show the same frame for the same time), discoverable and usable by
 the AI through its tools, and documented in the system prompt.
 
@@ -39,7 +39,7 @@ the AI through its tools, and documented in the system prompt.
      for scramble/decrypt/ASCII/shuffle), prop readers, SVG helpers.
    - `text.ts` (32), `animations.ts` (38), `components.ts` (45), `micro.ts` (33), `backgrounds.ts` (57):
      one builder per official React Bits entry, each with id, name, level (basic / intermediate /
-     advanced), what it does on the web, how Helios renders it for video, when to use it, typed props with
+     advanced), what it does on the web, how Bhippi renders it for video, when to use it, typed props with
      defaults, an example, a default length and layout.
    - `index.ts` — registry, `findBit` (accepts `split-text`, `rb-split`, `Split Text`), `listBits`
      (category / level / query), `describeBit` (props + a ready-to-copy `create_motion_graphic` call),

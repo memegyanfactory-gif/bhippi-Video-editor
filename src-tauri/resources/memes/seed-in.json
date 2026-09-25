@@ -4557,7 +4557,8 @@
       }
     ],
     "safety": {},
-    "verified": true
+    "verified": true,
+    "crossover": true
   },
   {
     "id": "in-bhupendra-jogi",
@@ -4665,10 +4666,15 @@
       {
         "url": "https://en.wikipedia.org/wiki/Bhuban_Badyakar",
         "title": "Wikipedia: Bhuban Badyakar"
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Kacha_Badam",
+        "title": "Wikipedia: Kacha Badam (an international TikTok dance trend)"
       }
     ],
     "safety": {},
-    "verified": true
+    "verified": true,
+    "crossover": true
   },
   {
     "id": "in-binod",
@@ -4910,7 +4916,7 @@
       "year": 2021,
       "detail": "Haryanvi creator Joginder's boastful self-intro; first memes on Reddit on 17 Jul 2021 (HumorNama)."
     },
-    "meaning": "Mocking a loud boaster.",
+    "meaning": "Haryanvi YouTuber Joginder's loud, boastful self-introduction (\"thara bhai Joginder\"), used to mock someone who hypes themselves up with fake-tough 'bhai' energy.",
     "useWhen": [
       "A creator hypes himself up loudly",
       "Self-proclaimed 'bhai' energy",
@@ -5022,7 +5028,7 @@
       "year": 2023,
       "detail": "A young boy accuses another of being a 'gaddar' (traitor) in a village fight; earliest upload 12 Mar 2023, exploded on r/IndianDankMemes and Twitter in Apr 2023."
     },
-    "meaning": "Calling out a traitor friend.",
+    "meaning": "A village boy furiously accuses another of gaddari (betrayal) in a viral kids' fight; used to call out a friend or creator who switched sides.",
     "useWhen": [
       "A creator switches sides or collabs with the enemy",
       "Friend betrays the group",
@@ -5813,5 +5819,457 @@
     ],
     "safety": {},
     "verified": true
+  },
+  {
+    "id": "in-tunak-tunak-tun",
+    "name": "Tunak Tunak Tun (Daler Mehndi)",
+    "aliases": [
+      "tunak tunak tun",
+      "tunak",
+      "daler mehndi",
+      "tunak tunak",
+      "four daler mehndis",
+      "ਤੁਨਕ ਤੁਨਕ ਤੁਨ"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "\"Tunak Tunak Tun\" music video by Daler Mehndi",
+      "year": 1998,
+      "detail": "Four CGI clones of Mehndi dancing; parodied internationally from 2001 (Dan Gomiller) and in World of Warcraft Draenei dance videos (2007)."
+    },
+    "meaning": "Daler Mehndi's 1998 bhangra-pop video with four CGI clones of himself dancing. One of the first Indian videos to become a global internet meme, used for goofy celebration and cloned-dance edits.",
+    "useWhen": [
+      "A goofy celebration or victory dance",
+      "Multiple copies of the same person agreeing",
+      "An absurdly confident, over-the-top moment"
+    ],
+    "dontUseWhen": [
+      "Mocking Sikh or Punjabi identity rather than the dance"
+    ],
+    "emotion": [
+      "joyful",
+      "goofy",
+      "hype"
+    ],
+    "intent": [
+      "dance",
+      "victory",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:daler mehndi tunak tunak tun official video",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:tunak tunak tun",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2001",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/tunak-tunak-tun-dance",
+        "title": "Know Your Meme: \"Tunak Tunak Tun\" Dance"
+      }
+    ],
+    "safety": {},
+    "verified": true,
+    "crossover": true
+  },
+  {
+    "id": "in-why-this-kolaveri-di",
+    "name": "Why This Kolaveri Di",
+    "aliases": [
+      "why this kolaveri di",
+      "kolaveri",
+      "kolaveri di",
+      "dhanush kolaveri",
+      "வை திஸ் கொலவெறி டி"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "3 (Tamil film) — song by Dhanush, music Anirudh Ravichander",
+      "year": 2011,
+      "detail": "Promo released 16 Nov 2011; covered by BBC and Time, named CNN's top YouTube song of 2011."
+    },
+    "meaning": "Dhanush's \"Tanglish\" (Tamil-English) soup song whose title means \"Why this murderous rage, girl?\". Used for heartbreak or asking why someone is so angry.",
+    "useWhen": [
+      "The target is irrationally furious (\"why this kolaveri?\")",
+      "A comic heartbreak or rejection moment",
+      "Mocking a dramatic, sad-boy rant"
+    ],
+    "dontUseWhen": [
+      "Real relationship violence"
+    ],
+    "emotion": [
+      "heartbroken",
+      "playful",
+      "exasperated"
+    ],
+    "intent": [
+      "fake-sad",
+      "rage",
+      "confusion"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:why this kolaveri di official video dhanush",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Why this kolaveri kolaveri kolaveri di?"
+      }
+    ],
+    "region": "IN",
+    "language": "en",
+    "firstSeen": "2011-11-16",
+    "trendScore": 0.35,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/why-this-kolaveri-di",
+        "title": "Know Your Meme: Why this kolaveri di"
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Why_This_Kolaveri_Di",
+        "title": "Wikipedia: Why This Kolaveri Di (BBC, Time, CNN coverage)"
+      },
+      {
+        "url": "https://www.huffingtonpost.com/2011/11/28/why-this-kolaveri-di_n_1117726.html",
+        "title": "HuffPost: 'Why This Kolaveri Di': India's Latest Viral Hit"
+      }
+    ],
+    "safety": {},
+    "verified": true,
+    "crossover": true
+  },
+  {
+    "id": "in-kala-chashma-dance",
+    "name": "Kala Chashma Dance (Quick Style)",
+    "aliases": [
+      "kala chashma",
+      "kala chashma dance",
+      "quick style",
+      "the quick style wedding",
+      "kala chashma fall",
+      "काला चश्मा"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "The Quick Style (Norwegian dance crew) at a wedding",
+      "year": 2022,
+      "detail": "TikTok posted 6 Jun 2022 (4M+ views), full YouTube video 19 Jun 2022 (53M+ views); song from Baar Baar Dekho (2016)."
+    },
+    "meaning": "Norwegian dance crew The Quick Style's wedding performance to Bollywood's \"Kala Chashma\" went global in 2022; the fake-out drop to the floor became the trend.",
+    "useWhen": [
+      "A sudden fake-out or drop moment",
+      "A victory or hype celebration",
+      "The target tries too hard to be cool"
+    ],
+    "dontUseWhen": [
+      "Serious topics"
+    ],
+    "emotion": [
+      "hype",
+      "playful",
+      "energetic"
+    ],
+    "intent": [
+      "dance",
+      "hype",
+      "plot-twist"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:quick style kala chashma wedding dance",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2022-06-06",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/kala-chashma-dance",
+        "title": "Know Your Meme: Kala Chashma Dance"
+      }
+    ],
+    "safety": {},
+    "verified": true,
+    "crossover": true
+  },
+  {
+    "id": "in-naatu-naatu",
+    "name": "Naatu Naatu (RRR)",
+    "aliases": [
+      "naatu naatu",
+      "rrr dance",
+      "naatu naatu step",
+      "nacho nacho",
+      "నాటు నాటు"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "RRR (S.S. Rajamouli)",
+      "year": 2022,
+      "detail": "Released 10 Nov 2021; won Best Original Song at the 2023 Golden Globes and the Oscars; hook step recreated worldwide."
+    },
+    "meaning": "The high-energy dance number from RRR, famous worldwide for its synchronized, ever-faster hook step and its Oscar win. Used for dance-offs and outdoing a rival.",
+    "useWhen": [
+      "A dance-off or one-upping competition",
+      "The host and a guest in sync",
+      "An escalating show-off moment"
+    ],
+    "dontUseWhen": [
+      "Political readings of the film"
+    ],
+    "emotion": [
+      "hype",
+      "competitive",
+      "joyful"
+    ],
+    "intent": [
+      "dance",
+      "flex",
+      "victory"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:naatu naatu full video song rrr",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2021-11-10",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/naatu-naatu",
+        "title": "Know Your Meme: Naatu Naatu"
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Naatu_Naatu",
+        "title": "Wikipedia: Naatu Naatu"
+      }
+    ],
+    "safety": {},
+    "verified": true,
+    "crossover": true
+  },
+  {
+    "id": "in-jimmy-jimmy-aaja",
+    "name": "Jimmy Jimmy Aaja Aaja (\"Jie Mi\")",
+    "aliases": [
+      "jimmy jimmy",
+      "jimmy jimmy aaja aaja",
+      "jie mi jie mi",
+      "give me rice",
+      "disco dancer",
+      "bappi lahiri"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Disco Dancer (1982) — song by Bappi Lahiri",
+      "year": 2022,
+      "detail": "In Oct–Nov 2022 people in China lip-synced it on Douyin with empty rice cookers, because \"Jimmy, Jimmy\" sounds like \"jie mi\" (\"give me rice\") in Mandarin."
+    },
+    "meaning": "Bappi Lahiri's 1982 disco hit, which became a Douyin lockdown-protest meme in China because \"Jimmy Jimmy\" sounds like \"jie mi\" (\"give me rice\"). Used for comic desperation for food or money.",
+    "useWhen": [
+      "The host is broke or hungry (\"give me rice\")",
+      "A retro disco hype moment",
+      "Begging for something comically"
+    ],
+    "dontUseWhen": [
+      "Any edit mocking China's lockdown victims or politics"
+    ],
+    "emotion": [
+      "retro",
+      "desperate",
+      "playful"
+    ],
+    "intent": [
+      "money",
+      "dance",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:jimmy jimmy aaja aaja disco dancer song",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2022-10",
+    "trendScore": 0.3,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://scroll.in/video/1036338/give-me-rice-bappi-lahiris-jimmy-jimmy-song-has-become-a-lockdown-anthem-in-china",
+        "title": "Scroll.in: 'Give me rice': Jimmy Jimmy becomes a lockdown anthem in China"
+      },
+      {
+        "url": "http://henryjenkins.org/blog/2023/3/28/the-sound-of-protest-bollywoods-jimmy-jimmy-and-covid-unrest-in-china",
+        "title": "Henry Jenkins: The Sound of Protest: Bollywood's Jimmy Jimmy and COVID unrest in China"
+      }
+    ],
+    "safety": {
+      "political": true
+    },
+    "verified": true,
+    "crossover": true
+  },
+  {
+    "id": "in-mundian-to-bach-ke",
+    "name": "Mundian To Bach Ke (Extremely Loud Indian Music)",
+    "aliases": [
+      "mundian to bach ke",
+      "extreme loud indian music",
+      "loud indian music",
+      "panjabi mc",
+      "beware of the boys",
+      "ਮੁੰਡਿਆਂ ਤੋਂ ਬਚ ਕੇ"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "\"Mundian To Bach Ke\" by Panjabi MC",
+      "year": 1998,
+      "detail": "Charted in Europe in 2002 (Jay-Z remix 2003); the bass-boosted \"EXTREME LOUD INDIAN MUSIC!\" upload peaked in 2019 and spread on TikTok."
+    },
+    "meaning": "Panjabi MC's bhangra track, memed worldwide as \"EXTREMELY LOUD INDIAN MUSIC\": a bass-boosted blast that erupts at an unexpected moment.",
+    "useWhen": [
+      "Something erupts suddenly and loudly",
+      "A dramatic entrance or turn-up moment",
+      "The host goes feral with excitement"
+    ],
+    "dontUseWhen": [
+      "Framing it as a joke about Indian people being loud"
+    ],
+    "emotion": [
+      "chaotic",
+      "hype",
+      "loud"
+    ],
+    "intent": [
+      "hype",
+      "shock",
+      "crazy"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:extreme loud indian music mundian to bach ke bass boosted",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:panjabi mc mundian to bach ke official video",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "none",
+    "firstSeen": "2019",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/editorials/guides/what-is-the-extremely-loud-indian-meme-song-how-mundian-to-bach-ke-became-a-viral-international-meme",
+        "title": "Know Your Meme: How 'Mundian To Bach Ke' became a viral international meme"
+      },
+      {
+        "url": "https://knowyourmeme.com/memes/mundian-to-bach-ke-indian-meme-song",
+        "title": "Know Your Meme: Mundian To Bach Ke / Indian Meme Song"
+      }
+    ],
+    "safety": {},
+    "verified": true,
+    "crossover": true
+  },
+  {
+    "id": "in-malhari-dance-bollywood-entrance",
+    "name": "Malhari Dance / Bollywood Entrance",
+    "aliases": [
+      "malhari",
+      "malhari dance",
+      "bollywood entrance",
+      "ranveer singh dance",
+      "bollywood soldier dance",
+      "bajirao mastani dance"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Bajirao Mastani — \"Malhari\"",
+      "year": 2015,
+      "detail": "Ranveer Singh walks through his army then bursts into dance (~1:25); reaction GIF from Oct 2016, big on r/Bitcoin (2017) and r/dankmemes (Mar 2020)."
+    },
+    "meaning": "Ranveer Singh walks through armoured soldiers and bursts into an intense dance in Bajirao Mastani's \"Malhari\". Used worldwide as a GIF for hype, excitement and triumphant entrances.",
+    "useWhen": [
+      "A triumphant entrance or \"I'm back\" moment",
+      "Wild celebration when something goes the host's way",
+      "Hype over gains (money, views, wins)"
+    ],
+    "dontUseWhen": [
+      "Serious or sad beats"
+    ],
+    "emotion": [
+      "hype",
+      "triumphant",
+      "ecstatic"
+    ],
+    "intent": [
+      "hype",
+      "victory",
+      "dance"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:malhari full video bajirao mastani ranveer singh",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "gif",
+        "query": "ytsearch3:malhari dance gif bollywood entrance",
+        "hasAudio": false,
+        "provider": "youtube"
+      }
+    ],
+    "region": "IN",
+    "language": "hi",
+    "firstSeen": "2016-10",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/malhari-dance-bollywood-entrance",
+        "title": "Know Your Meme: Malhari Dance / Bollywood Entrance"
+      }
+    ],
+    "safety": {},
+    "verified": true,
+    "crossover": true
   }
 ]

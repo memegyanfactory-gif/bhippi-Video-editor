@@ -150,7 +150,7 @@ describe('search_sfx and place_sfx', () => {
   });
 
   it('place_sfx fetches a library sample, imports it into the SFX bin once, and places it', async () => {
-    const path = 'C:\\Users\\me\\Documents\\Helios\\SFX\\cache\\fs-534387.wav';
+    const path = 'C:\\Users\\me\\Documents\\Bhippi\\SFX\\cache\\fs-534387.wav';
     const fetched = entry({ id: 'fs-534387', name: 'Bruh Sound Effect #1', provider: 'freesound', license: 'CC0', credit: '"Bruh" by someone (freesound.org, CC0)', tags: ['meme'], localPath: path, duration: 0.7 });
     invokeMock.mockImplementation(async (command) => (command === 'sfx_library_fetch' ? fetched : { hits: [], notes: [] }));
     const { ctx, importFiles, comp, commits } = fixture();
@@ -230,7 +230,7 @@ describe('resolveSfxCues (before the move executor)', () => {
   const event = (id: string, extra: Partial<RoastEvent>): RoastEvent => ({ id, at: 1, duration: 1, why: 'test', move: 'emoji_pop', emoji: '😂', ...extra } as RoastEvent);
 
   it('fetches and imports each library sample once, maps built-in ids to kinds, and leaves the rest', async () => {
-    const path = 'C:/Users/me/Documents/Helios/SFX/cache/sfx-vine-boom.wav';
+    const path = 'C:/Users/me/Documents/Bhippi/SFX/cache/sfx-vine-boom.wav';
     invokeMock.mockImplementation(async (command, args) => {
       if (command !== 'sfx_library_fetch') throw new Error(`unexpected ${command}`);
       const id = (args as { id: string }).id;

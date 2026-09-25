@@ -564,7 +564,7 @@ export type SpeechPrefs = {
   transcribeEngine: 'auto' | 'local' | 'cloud' | null;
   /** Catalogue id of the offline Whisper model to run. */
   transcribeModel: string | null;
-  /** Explicit whisper.cpp / Piper programs, when they are not ones Helios downloaded. */
+  /** Explicit whisper.cpp / Piper programs, when they are not ones Bhippi downloaded. */
   whisperPath: string | null;
   piperPath: string | null;
   /** `piper:<id>` · `elevenlabs:<id>` · `openai:<name>`. */
@@ -574,6 +574,26 @@ export type SpeechPrefs = {
   voiceMode: VoiceMode | null;
   /** 0.5 – 2.0, where 1.0 is the voice's own pace. */
   speed: number | null;
+};
+
+/** How the Glass theme is dressed: what shows through the panes, and how the panes sit on it. */
+export type GlassPrefs = {
+  /** A gradient preset, one of the bundled pictures, or the user's own picture. */
+  source: 'gradient' | 'image' | 'custom';
+  /** GLASS_GRADIENTS id (lib/theme.ts). */
+  gradient: string;
+  /** GLASS_IMAGES id (lib/theme.ts). */
+  image: string;
+  /** The user's picture, copied into the app data folder. */
+  customImage: string | null;
+  /** Hex colour washed over the backdrop and the panes. */
+  tint: string;
+  /** 0–100: how strongly the tint shows. */
+  tintAmount: number;
+  /** 0–40 px of blur on the backdrop. */
+  blur: number;
+  /** 0–100: how solid the panes are over the backdrop. */
+  opacity: number;
 };
 
 export type Settings = {
@@ -586,7 +606,7 @@ export type Settings = {
    * topics with none to find) instead of generating images/video with local models. Local
    * generation stays reachable — this only turns off the AI calling it automatically. */
   disableLocalGeneration?: boolean | null;
-  /** Where project folders are made (see src/lib/storage.ts); Documents/Helios when unset. */
+  /** Where project folders are made (see src/lib/storage.ts); Documents/Bhippi when unset. */
   storageRoot?: string | null;
   /** Copy imported media into the project's Footage folder instead of referencing it in place. */
   copyImports?: boolean | null;
@@ -598,7 +618,7 @@ export type Settings = {
   providerId: string | null;
   model: string | null;
   effort: string | null;
-  /** How much of the project Helios AI may change on its own; see lib/permissions.ts. */
+  /** How much of the project Bhippi AI may change on its own; see lib/permissions.ts. */
   permission: string | null;
   /** The chat's animated look. Surface only — it changes nothing about what the AI does. */
   awesomeLook: boolean | null;
@@ -617,25 +637,30 @@ export type Settings = {
   brandKits?: BrandKitDoc | null;
   /** Most recent first. */
   recentProjects: string[];
-  /** Color theme: 'minimal' selects the flat minimalist theme, anything else is default. */
+  /** Color theme id from lib/theme.ts THEMES (default, minimal, midnight, obsidian, aurora, ember, glass); unknown ids fall back to default. */
   theme: string | null;
+  /** Theme customisation — the Glass backdrop, tint, blur and opacity (see lib/theme.ts GlassPrefs),
+   * and `motion`: whether gradient backdrops drift and pulse (on when unset). */
+  appearance?: { glass?: Partial<GlassPrefs>; motion?: boolean } | null;
   /** Path to the IdeaGraph `ig` binary; `ig` on PATH when unset. */
   ideagraphBin: string | null;
   /** IdeaGraph brain repo path; the engine default (~/ideagraph-brain) when unset. */
   ideagraphBrain: string | null;
-  /** Record Helios AI turn outcomes into the brain when true. */
+  /** Record Bhippi AI turn outcomes into the brain when true. */
   ideagraphRecord: boolean | null;
-  /** The .helios file the session project belongs to, when it has been saved. */
+  /** The .bhippi file the session project belongs to, when it has been saved. */
   projectPath: string | null;
   /** The Program monitor's RAM preview cache (lib/previewCache.ts); on when unset. */
   previewCacheEnabled?: boolean | null;
   /** Its RAM budget in megabytes; 1536 when unset. */
   previewCacheMb?: number | null;
-  /** The pixel avatar that acts out what Helios AI is doing (src/avatar); on when unset. */
+  /** The pixel avatar that acts out what Bhippi AI is doing (src/avatar); on when unset. */
   avatar?: boolean | null;
+  /** Who the avatar is: 'heli', 'cat', 'woman', 'genie', 'puppy' or 'senior'; Heli when unset. */
+  avatarCharacter?: string | null;
 };
 
-export type PanelId = 'chat' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools';
+export type PanelId = 'chat' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools' | 'plugins';
 
 export type MeterPrefs = {
   range: 120 | 96 | 72 | 60 | 48 | 24;
@@ -652,6 +677,8 @@ export type WorkspaceLayout = {
   sourceWidth: number;
   propertiesWidth: number;
   projectWidth: number;
+  /** The Plugins panel at the right edge (src/plugins). Absent in layouts saved before it existed. */
+  pluginsWidth?: number;
   hidden: PanelId[];
   meters?: MeterPrefs;
 };
@@ -701,26 +728,26 @@ export type Tool =
   | 'pen' | 'rectangle' | 'ellipse' | 'polygon' | 'mask-rectangle' | 'mask-ellipse' | 'mask-pen' | 'roto' | 'magic-mask'
   | 'hand' | 'zoom' | 'type' | 'vertical-type';
 
-/** A `.helios` project file. */
-export type HeliosDocument = {
-  format: 'helios';
+/** A `.bhippi` project file. */
+export type BhippiDocument = {
+  format: 'bhippi';
   version: 3;
   savedAt: string;
   project: Project;
   /** The media the project references, so it can be relinked on another session. */
   assets: Asset[];
   /** What else the project needs to open complete elsewhere; absent in older files. */
-  extras?: HeliosExtras;
+  extras?: BhippiExtras;
 };
 
-export type HeliosExtras = {
+export type BhippiExtras = {
   /** The project's brand kit, so it opens with its look on a machine that never had the kit. */
   brandKit?: BrandKit | null;
   /** The chat transcript at save time. */
   chat?: unknown[];
   /** The project folder the files were organised into when it was saved. */
   projectFolder?: string | null;
-  /** JSON pointers of the paths stored relative to the .helios (resolved by the backend on open). */
+  /** JSON pointers of the paths stored relative to the .bhippi (resolved by the backend on open). */
   relativePaths?: string[];
 };
 

@@ -1,9 +1,9 @@
-//! Offline speech models: the catalogue Helios can fetch, what is already on this machine,
+//! Offline speech models: the catalogue Bhippi can fetch, what is already on this machine,
 //! and the download itself.
 //!
 //! Transcription and voice each need two things — a small runtime binary (whisper.cpp, Piper)
-//! and the weights. Neither ships with Helios: together they are gigabytes and most people
-//! only ever want one language. So both are listed here, downloaded on demand into the Helios
+//! and the weights. Neither ships with Bhippi: together they are gigabytes and most people
+//! only ever want one language. So both are listed here, downloaded on demand into the Bhippi
 //! data folder, and detected wherever the user already has them.
 
 use crate::jobs::JobHandle;
@@ -12,7 +12,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
-pub const MODELS_EVENT: &str = "helios://models";
+pub const MODELS_EVENT: &str = "bhippi://models";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -42,7 +42,7 @@ struct Entry {
     kind: Kind,
     label: &'static str,
     detail: &'static str,
-    /// BCP-47-ish tags the UI filters on; `hinglish` is a Helios label, not a language code.
+    /// BCP-47-ish tags the UI filters on; `hinglish` is a Bhippi label, not a language code.
     languages: &'static [&'static str],
     size_mb: u32,
     files: &'static [Source],
@@ -198,7 +198,7 @@ const CATALOG: &[Entry] = &[
     ),
     // SAM 2.1 and ViTMatte use the live Local Media installer and CUDA worker.
     // Do not duplicate them here as non-downloadable research candidates.
-    Entry { id: "sam3.1", kind: Kind::MatteCandidate, label: "SAM 3.1 (evaluation only)", detail: "Separate evaluation slot. Helios will not enable this model until its runtime, checkpoint terms and commercial license are verified.", languages: &["restricted"], size_mb: 0, files: &[], archive: false, marker: "candidates/sam3.1", recommended: false, license: "License/runtime review required before commercial use" },
+    Entry { id: "sam3.1", kind: Kind::MatteCandidate, label: "SAM 3.1 (evaluation only)", detail: "Separate evaluation slot. Bhippi will not enable this model until its runtime, checkpoint terms and commercial license are verified.", languages: &["restricted"], size_mb: 0, files: &[], archive: false, marker: "candidates/sam3.1", recommended: false, license: "License/runtime review required before commercial use" },
     Entry { id: "matanyone2", kind: Kind::MatteCandidate, label: "MatAnyone2 (restricted candidate)", detail: "Restricted research candidate. Kept visible for review only; never downloaded or enabled automatically.", languages: &["restricted"], size_mb: 0, files: &[], archive: false, marker: "candidates/matanyone2", recommended: false, license: "Commercial-use permission required" },
     Entry { id: "videomama", kind: Kind::MatteCandidate, label: "VideoMaMa (restricted candidate)", detail: "Restricted research candidate. Kept visible for review only; never downloaded or enabled automatically.", languages: &["restricted"], size_mb: 0, files: &[], archive: false, marker: "candidates/videomama", recommended: false, license: "Commercial-use permission required" },
     Entry { id: "corridorkey", kind: Kind::MatteCandidate, label: "CorridorKey (review required)", detail: "Separate commercial integration review required before any runtime or checkpoint can be used.", languages: &["review"], size_mb: 0, files: &[], archive: false, marker: "candidates/corridorkey", recommended: false, license: "Commercial integration review required" },
@@ -212,7 +212,7 @@ const CATALOG: &[Entry] = &[
         "Large-v3 accuracy several times faster, and it keeps up with Hindi, English and code-switched Hinglish.",
         574,
         &["en", "hi", "hinglish"],
-        false
+        true
     ),
     whisper_model!(
         "whisper-large-v3-q5",
@@ -230,7 +230,7 @@ const CATALOG: &[Entry] = &[
         "Full precision 3 GB model — the highest accuracy offline transcription for English, Hindi and Hinglish.",
         3100,
         &["en", "hi", "hinglish"],
-        true
+        false
     ),
     Entry {
         id: "piper-runtime",
@@ -407,7 +407,7 @@ fn on_path(names: &[String]) -> Option<PathBuf> {
         .find_map(|name| dirs.iter().map(|dir| dir.join(name)).find(|candidate| candidate.is_file()))
 }
 
-/// Where a runtime is: the explicit setting first, then Helios' own download, then PATH.
+/// Where a runtime is: the explicit setting first, then Bhippi's own download, then PATH.
 fn locate(root: &Path, folder: &str, names: &[&str], explicit: Option<&str>) -> RuntimeStatus {
     let names = exe_names(names);
     if let Some(given) = explicit.map(str::trim).filter(|value| !value.is_empty()) {
@@ -512,12 +512,12 @@ fn human(bytes: u64) -> String {
 
 /// Streams one file to disk through a `.part` sibling, so a cancelled or crashed download
 /// never looks installed. Reports 0–1 within `span`, offset by `base`.
-async fn fetch(url: &str, target: &Path, job: &JobHandle, base: f64, span: f64, label: &str) -> Result<(), String> {
+pub(crate) async fn fetch(url: &str, target: &Path, job: &JobHandle, base: f64, span: f64, label: &str) -> Result<(), String> {
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     }
     let response = reqwest::Client::builder()
-        .user_agent(concat!("Helios/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Bhippi/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| format!("cannot start the download: {error}"))?
         .get(url)
@@ -574,9 +574,9 @@ fn tar_program() -> PathBuf {
     PathBuf::from("tar")
 }
 
-/// Unpacks a zip or a tar.gz, keeping a whole archive crate (and its build) out of Helios.
+/// Unpacks a zip or a tar.gz, keeping a whole archive crate (and its build) out of Bhippi.
 /// PowerShell is the second try on Windows, for the builds where `tar.exe` is missing.
-async fn unpack(archive: &Path, into: &Path) -> Result<(), String> {
+pub(crate) async fn unpack(archive: &Path, into: &Path) -> Result<(), String> {
     std::fs::create_dir_all(into).map_err(|error| format!("cannot create {}: {error}", into.display()))?;
     let (from, to) = (archive.display().to_string(), into.display().to_string());
     let first = crate::tools::run(&tar_program(), &["-xf", &from, "-C", &to], None).await;
@@ -634,7 +634,7 @@ pub async fn download(root: &Path, id: &str, job: &JobHandle) -> Result<String, 
     match installed_path(root, item) {
         Some(path) => Ok(path.display().to_string()),
         None => Err(format!(
-            "{} downloaded, but Helios could not find {} inside it. Press Locate… in Settings › Speech & voice to point at it.",
+            "{} downloaded, but Bhippi could not find {} inside it. Press Locate… in Settings › Speech & voice to point at it.",
             item.label,
             if item.archive { "the program" } else { "the file" }
         )),
@@ -696,7 +696,7 @@ mod tests {
 
     #[test]
     fn a_model_counts_as_installed_only_once_its_file_is_renamed_into_place() {
-        let root = std::env::temp_dir().join(format!("helios-models-{}", crate::store::new_id()));
+        let root = std::env::temp_dir().join(format!("bhippi-models-{}", crate::store::new_id()));
         let item = entry("whisper-base").expect("catalogue entry");
         assert!(installed_path(&root, item).is_none());
         let target = root.join(item.marker);
@@ -713,7 +713,7 @@ mod tests {
     fn the_first_name_wins_even_when_a_later_one_sorts_ahead_of_it() {
         // whisper.cpp ships `main.exe` beside `whisper-cli.exe`; `main` only prints a notice
         // telling you to use the other one, and `main` sorts first.
-        let root = std::env::temp_dir().join(format!("helios-order-{}", crate::store::new_id()));
+        let root = std::env::temp_dir().join(format!("bhippi-order-{}", crate::store::new_id()));
         let dir = root.join("Release");
         std::fs::create_dir_all(&dir).expect("dirs");
         let stub = dir.join(exe("main"));
@@ -730,7 +730,7 @@ mod tests {
 
     #[test]
     fn a_program_is_found_however_the_archive_nested_it() {
-        let root = std::env::temp_dir().join(format!("helios-find-{}", crate::store::new_id()));
+        let root = std::env::temp_dir().join(format!("bhippi-find-{}", crate::store::new_id()));
         let nested = root.join("Release").join("inner");
         std::fs::create_dir_all(&nested).expect("dirs");
         let wanted = nested.join(exe("piper"));

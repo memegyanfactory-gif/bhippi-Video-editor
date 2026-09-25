@@ -3,7 +3,7 @@
 // React Bits (reactbits.dev) is a catalogue of 205 animated pieces for the web: text animations,
 // animations, components, micro-interactions and backgrounds. None of them can run in a video export
 // as written — they want a DOM, a pointer, requestAnimationFrame and often WebGL. This folder is the
-// catalogue rebuilt for Helios: every piece becomes a deterministic HTML/CSS choreography that the
+// catalogue rebuilt for Bhippi: every piece becomes a deterministic HTML/CSS choreography that the
 // preview scrubs with `--elapsed` and the frame renderer (src/lib/htmlFrames.ts) rasterises frame by
 // frame, so preview and export show the same picture for the same time.
 //
@@ -64,7 +64,7 @@ export type Bit = {
   level: BitLevel;
   /** What the web component does. */
   about: string;
-  /** How Helios renders it for video. */
+  /** How Bhippi renders it for video. */
   video: string;
   /** When the model should reach for it. */
   use: string;

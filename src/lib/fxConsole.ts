@@ -4,8 +4,8 @@
 import type { FxConsoleSettings, FxEffectOverride, FxSnapshot } from './types';
 import { AVAILABLE_EFFECTS as ALL_EFFECTS, type EffectDefinition } from './effectsCatalog';
 
-const SETTINGS_KEY = 'helios_fx_console_settings';
-const SNAPSHOTS_KEY = 'helios_fx_console_snapshots';
+const SETTINGS_KEY = 'bhippi_fx_console_settings';
+const SNAPSHOTS_KEY = 'bhippi_fx_console_snapshots';
 
 export const DEFAULT_FX_SETTINGS: FxConsoleSettings = {
   hotkey: 'Ctrl+Space',
@@ -82,7 +82,7 @@ export function exportFxSettingsFile(settings: FxConsoleSettings): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `helios-fx-console-settings-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `bhippi-fx-console-settings-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }

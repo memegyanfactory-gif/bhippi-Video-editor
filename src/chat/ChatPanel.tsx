@@ -1,18 +1,18 @@
 import { modelVariants, variantModel } from '../lib/modelVariants';
 import { speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Laugh, Paperclip, RotateCcw, Wand2, X } from 'lucide-react';
+import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Laugh, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { ModelPicker } from '../components/ModelPicker';
-import { ProviderLogo } from '../components/ProviderLogo';
 import { useToast } from '../components/ui';
-import { type Effort, type PermissionMode } from '../lib/permissions';
+import { permissionBrief, type Effort, type PermissionMode } from '../lib/permissions';
 import { PermissionMenu, ThinkingSlider } from './ComposerControls';
 import { ChatStatusBar, type AgentRun, type Connection } from './ChatStatusBar';
 import { UsageMeter } from './UsageMeter';
 import * as usage from '../lib/usage';
-import { type Step, type TextSegment, type ToolRun } from './Activity';
+import { type Interjection, type Step, type TextSegment, type ToolRun } from './Activity';
+import { steer } from './steer';
 import { AnswerBody } from './AnswerBody';
 import { appendText, settleText } from './segments';
 import { CommandPanel, panelOrder } from './CommandPanel';
@@ -44,6 +44,8 @@ export type ChatMessage =
        * order with that work. Absent on turns saved before this existed.
        */
       segments?: TextSegment[];
+      /** What the user sent while this turn worked, and whether it has reached the model yet. */
+      steers?: Interjection[];
       thinking: string;
       steps: Step[];
       status: 'streaming' | 'done' | 'stopped' | 'error';
@@ -76,7 +78,7 @@ type MentionHit = { kind: 'style'; style: StyleDef } | { kind: 'reference'; ref:
  * The hidden note a retry sends with the prompt again. A turn that got somewhere is continued, not
  * restarted: the transcript already holds every completed edit, so resending the bare prompt
  * redoes the whole pipeline and stalls in the same place — the note points at the first
- * unfinished step. A turn that never got going (Helios could not prepare it, or it was refused
+ * unfinished step. A turn that never got going (Bhippi could not prepare it, or it was refused
  * before a word) is simply sent again; telling the model work was done would have it skip parts
  * of a request it never started.
  */
@@ -105,7 +107,7 @@ export function workflowInstruction(status: WorkflowPhaseStatus): string {
   return `Call editing_workflow_status first. The production is in the ${phase} phase: finish this phase and end your turn — the user presses ${next} to move on. Do not edit the timeline in this turn.`;
 }
 
-export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .helios that carries one). */ load: (messages: unknown[]) => void };
+export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void };
 
 type Props = {
   apiRef: RefObject<ChatApi | null>;
@@ -158,8 +160,18 @@ type Props = {
   canRevert: (turnId: string) => boolean;
   /** The production phase dock, docked low right above the composer rather than the transcript. */
   productionBar?: ReactNode;
-  /** The polish pass (frame QA and fixes over the whole timeline, or the in/out selection); absent when there is nothing to polish. */
-  onPolish?: () => void;
+  /**
+   * A chat with its own conversation — the Plugin Maker's. `logScope` keeps its transcript apart
+   * from the main chat's, `persona` leads the system prompt of every turn, `lockedMode` fixes the
+   * editing workflow (and hides its picker), and `instruction` replaces the workflow's standing
+   * instruction.
+   */
+  logScope?: string;
+  persona?: string;
+  lockedMode?: 'full' | 'quick';
+  instruction?: string;
+  placeholder?: string;
+  label?: string;
 };
 
 
@@ -251,6 +263,9 @@ export function ChatPanel(props: Props) {
       const ratio=window.devicePixelRatio||1,point=event.payload.position;
       const box=rootRef.current?.getBoundingClientRect();
       if(!box||point.x/ratio<box.left||point.x/ratio>box.right||point.y/ratio<box.top||point.y/ratio>box.bottom)return;
+      // Another chat (the Plugin Maker's) may be drawn over this one; the drop is for the one on top.
+      const hit=document.elementFromPoint(point.x/ratio,point.y/ratio);
+      if(hit&&!rootRef.current?.contains(hit))return;
       if(event.payload.paths.length+imagesRef.current.length>4){toast({tone:'error',title:'Too many images',body:'Attach at most four images.'});return;}
       void api.chatReadImages(event.payload.paths).then(urls=>setImages(current=>[...current,...urls].slice(0,4))).catch(error=>toast({tone:'error',title:'Image attachment',body:errorText(error)}));
     });return()=>{void pending.then(off=>off()).catch(()=>undefined);};
@@ -273,11 +288,11 @@ export function ChatPanel(props: Props) {
   const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  /** Replaces the transcript with one a .helios file carried, and makes it the saved chat log. */
+  /** Replaces the transcript with one a .bhippi file carried, and makes it the saved chat log. */
   const loadTranscript = (saved: unknown[]) => {
     const valid = (saved as ChatMessage[]).filter((item) => item && (item.role === 'user' || item.role === 'assistant'));
     setMessages(valid.map((item) => (item.role === 'assistant' && item.status === 'streaming' ? { ...item, status: 'stopped' } : item)));
-    void api.chatLogSave(valid).catch(() => undefined);
+    void api.chatLogSave(valid, props.logScope).catch(() => undefined);
   };
   useImperativeHandle(props.apiRef, () => ({
     clear: () => {
@@ -286,7 +301,7 @@ export function ChatPanel(props: Props) {
       setImages([]);
       setQueued(null);
       setAttached(null);
-      void api.chatLogSave([]).catch(() => undefined);
+      void api.chatLogSave([], props.logScope).catch(() => undefined);
     },
     focus: () => {
       inputRef.current?.focus();
@@ -313,7 +328,7 @@ export function ChatPanel(props: Props) {
   /** The chosen model's sizes (Flash-Lite · Flash · Pro…), for the speed rail. */
   const speeds = speedSteps(active?.models ?? [], props.model);
 
-  // Filed references, including the ones that ship with Helios. Re-read whenever the composer is
+  // Filed references, including the ones that ship with Bhippi. Re-read whenever the composer is
   // about to offer them, so a renamed or deleted reference is never still on the menu.
   const loadReferences = useCallback(() => {
     void api.refsList().then(setReferences).catch(() => undefined);
@@ -321,7 +336,7 @@ export function ChatPanel(props: Props) {
   useEffect(() => loadReferences(), [loadReferences]);
 
   // The steps come from the backend's own table, so the control cannot offer a level that would
-  // not reach the model (src-tauri `effort_levels`, crates/helios-providers/src/effort.rs).
+  // not reach the model (src-tauri `effort_levels`, crates/bhippi-providers/src/effort.rs).
   useEffect(() => {
     if (!props.providerId) {
       levelsRef.current = [];
@@ -348,7 +363,7 @@ export function ChatPanel(props: Props) {
   }, [props.providerId, props.model, active?.models]);
 
   useEffect(() => {
-    api.chatLogLoad()
+    api.chatLogLoad(props.logScope)
       .then((saved) => {
         const valid = (saved as ChatMessage[]).filter((item) => item && (item.role === 'user' || item.role === 'assistant'));
         setMessages(valid.map((item) => (item.role === 'assistant' && item.status === 'streaming' ? { ...item, status: 'stopped' } : item)));
@@ -373,7 +388,7 @@ export function ChatPanel(props: Props) {
 
   useEffect(() => {
     if (!loaded || streaming) return;
-    const handle = window.setTimeout(() => void api.chatLogSave(messages).catch(() => undefined), 300);
+    const handle = window.setTimeout(() => void api.chatLogSave(messages, propsRef.current.logScope).catch(() => undefined), 300);
     return () => window.clearTimeout(handle);
   }, [messages, loaded, streaming]);
 
@@ -422,6 +437,29 @@ export function ChatPanel(props: Props) {
   }, []);
 
   /**
+   * A turn that ended before reading what the user sent it: those messages go as the next one, in
+   * the order they were written, and the notes in the old turn say so.
+   */
+  const flushSteers = useCallback((turnId: string) => {
+    const left = steer.take(turnId);
+    if (!left.length) return;
+    const ids = new Set(left.map((item) => item.id));
+    patch(turnId, (message) => ({ ...message, steers: (message.steers ?? []).map((item) => (ids.has(item.id) ? { ...item, state: 'next' } : item)) }));
+    setQueued((current) => [current, ...left.map((item) => item.text)].filter(Boolean).join('\n\n'));
+  }, [patch]);
+
+  // A message reached the running turn with a tool result (App.tsx): it now sits where it was read.
+  useEffect(() => steer.onDelivered((turnId, ids) => {
+    const now = Date.now();
+    patch(turnId, (message) => ({ ...message, steers: (message.steers ?? []).map((item) => (ids.includes(item.id) ? { ...item, state: 'delivered', at: now } : item)) }));
+  }), [patch]);
+
+  const dropSteer = (turnId: string, id: string) => {
+    steer.drop(turnId, id);
+    patch(turnId, (message) => ({ ...message, steers: (message.steers ?? []).filter((item) => item.id !== id) }));
+  };
+
+  /**
    * Closes a turn the backend is no longer running.
    *
    * A turn leaves the writing state only when its closing event arrives, and that event is the
@@ -449,7 +487,10 @@ export function ChatPanel(props: Props) {
             missing.current = new Set(absent.map((item) => item.turnId));
             if (lost.size === 0) return items;
             // The avatar stops with the transcript (telling it twice is harmless).
-            for (const turnId of lost) avatarBus.turn(turnId, false, 'failed');
+            for (const turnId of lost) {
+              avatarBus.turn(turnId, false, 'failed');
+              flushSteers(turnId);
+            }
             return items.map((item) =>
               item.role === 'assistant' && lost.has(item.turnId)
                 ? {
@@ -553,16 +594,16 @@ export function ChatPanel(props: Props) {
             ...message,
             ...settleText(message, event.reply),
             status: event.stopped ? 'stopped' : event.fault ? 'error' : 'done',
-            notes: [...event.notes, ...(propsRef.current.workflowStatus(event.turnId)?.mode === 'full'
-              ? [propsRef.current.workflowStatus(event.turnId)?.structurallyVerified
-                ? 'Workflow receipts and timeline structure verified at completion; visual/audio quality is not certified.'
-                : 'Full workflow incomplete or not verified. Completion text does not prove all stages ran.'] : [])],
+            // The workflow's own state is shown under the answer (AssistantMessage); repeating it here printed it twice.
+            notes: event.notes,
             fault: event.fault,
             usage: event.usage,
             elapsedMs: event.elapsedMs,
             steps: message.steps.map((step) => ({ ...step, done: true })),
           };
         });
+        // Whatever the user sent that the turn never read (it made no more tool calls) goes next.
+        flushSteers(event.turnId);
         // One outcome per finished turn for the IdeaGraph brain; failures to record never disturb chat.
         const meta = turnMeta.current.get(event.turnId);
         turnMeta.current.delete(event.turnId);
@@ -597,7 +638,8 @@ export function ChatPanel(props: Props) {
    */
   const liftOff = (text: string) => {
     const message = text.trim();
-    if (!message || !propsRef.current.awesome) return;
+    // Mid-turn, the message goes into the running answer, not up to a bubble of its own.
+    if (!message || !propsRef.current.awesome || streaming) return;
     const root = rootRef.current;
     const form = formRef.current;
     const pad = form ? form.offsetHeight + 16 : 104;
@@ -607,7 +649,8 @@ export function ChatPanel(props: Props) {
     // the next frame and the flight begins then.
     requestAnimationFrame(() => {
       const list = listRef.current;
-      const bubble = list?.querySelector<HTMLElement>('.msg-user:last-of-type');
+      const bubbles = list?.querySelectorAll<HTMLElement>('.msg-user');
+      const bubble = bubbles?.[bubbles.length - 1];
       const rootBox = root?.getBoundingClientRect();
       let rise = root ? Math.max(90, root.clientHeight - pad - 76) : 220;
       let drift = 0;
@@ -629,14 +672,24 @@ export function ChatPanel(props: Props) {
   }, [launch]);
 
   const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick') => {
-    const mode = modeOverride ?? workflowMode;
+    const mode = propsRef.current.lockedMode ?? modeOverride ?? workflowMode;
     const sentImages=[...imagesRef.current];
     const message = text.trim() || (sentImages.length ? 'Please inspect the attached images.' : '');
     if (!message) return;
     if (streaming) {
       if(sentImages.length){toast({tone:'info',title:'Images ready',body:'Send these images after the current response finishes.'});return;}
-      // Claude Code's behaviour: a second message waits its turn instead of being dropped.
-      setQueued(message);
+      // The Claude app's behaviour: a message typed while it works goes into the running turn and
+      // the model folds it into what it is doing (src/chat/steer.ts), rather than waiting for the end.
+      const running = [...messages].reverse().find((item): item is Assistant => item.role === 'assistant' && item.status === 'streaming');
+      if (running) {
+        const id = uid();
+        steer.push(running.turnId, { id, text: message });
+        patch(running.turnId, (item) => ({ ...item, steers: [...(item.steers ?? []), { id, text: message, at: Date.now(), state: 'waiting' }] }));
+        actionLogger.user(`Chat Steer: "${message.length > 80 ? message.slice(0, 77) + '...' : message}"`, { turnId: running.turnId });
+      } else {
+        setQueued((current) => [current, message].filter(Boolean).join('\n\n'));
+      }
+      pinned.current = true;
       setDraft('');
       return;
     }
@@ -654,20 +707,20 @@ export function ChatPanel(props: Props) {
     // nobody to hand over from and starts clean.
     const handoff = handoffFor(messages, providerId, model);
     const provider = propsRef.current.providers.find((item) => item.id === providerId);
-    turnMeta.current.set(turnId, { provider: provider?.label ?? 'Helios', model, prompt: message });
+    turnMeta.current.set(turnId, { provider: provider?.label ?? 'Bhippi', model, prompt: message });
     const assistant: Assistant = {
-      id: uid(), role: 'assistant', turnId, providerId: providerId ?? 'helios', providerLabel: provider?.label ?? 'Helios', model,
+      id: uid(), role: 'assistant', turnId, providerId: providerId ?? 'bhippi', providerLabel: provider?.label ?? 'Bhippi', model,
       content: '', thinking: '', steps: [], status: 'streaming', notes: [], fault: null, usage: null, elapsedMs: null, limit: null,
     };
     pinned.current = true;
     setMessages((items) => [...items, { id: uid(), role: 'user', content: message, at: Date.now(), images: sentImages }, assistant]);
     setDraft('');
-    actionLogger.user(`Chat Prompt: "${message.length > 80 ? message.slice(0, 77) + '...' : message}"`, { turnId, provider: provider?.label ?? 'Helios', model, images: sentImages.length });
+    actionLogger.user(`Chat Prompt: "${message.length > 80 ? message.slice(0, 77) + '...' : message}"`, { turnId, provider: provider?.label ?? 'Bhippi', model, images: sentImages.length });
     try {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
-      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), editingWorkflow: mode, workflowInstruction: workflowInstruction(propsRef.current.workflowStatus(turnId)) } });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, workflowInstruction: propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId)) }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}) });
       setImages([]);
     } catch (error) {
       actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
@@ -678,7 +731,7 @@ export function ChatPanel(props: Props) {
         ...item,
         status: 'error',
         fault: ours
-          ? { kind: 'unknown', title: 'Helios could not prepare this message', summary: errorText(error), fix: 'This is a Helios problem, not the provider, so switching providers will not help. Try again; if it repeats, copy the details and report it.', remedy: 'retry', actionLabel: 'Try again', resetsAt: null, provider: item.providerLabel, providerId: item.providerId, detail: error.stack ?? '' }
+          ? { kind: 'unknown', title: 'Bhippi could not prepare this message', summary: errorText(error), fix: 'This is a Bhippi problem, not the provider, so switching providers will not help. Try again; if it repeats, copy the details and report it.', remedy: 'retry', actionLabel: 'Try again', resetsAt: null, provider: item.providerLabel, providerId: item.providerId, detail: error.stack ?? '' }
           : { kind: 'unknown', title: 'Could not start', summary: errorText(error), fix: 'Pick another provider or refresh providers in Settings.', remedy: 'switch_provider', actionLabel: 'Switch provider', resetsAt: null, provider: item.providerLabel, providerId: item.providerId, detail: '' },
       }));
     }
@@ -727,6 +780,7 @@ export function ChatPanel(props: Props) {
       void api.chatStop(message.turnId).catch(() => undefined);
       // The avatar stops the moment the user does, not when (or if) the backend's closing event arrives.
       avatarBus.turn(message.turnId, false, 'stopped');
+      flushSteers(message.turnId);
     }
     setMessages((items) =>
       items.map((item) =>
@@ -743,6 +797,7 @@ export function ChatPanel(props: Props) {
     // Nothing is being carried over, so the next turn is a first turn: no handover note, and the
     // queued message from the old conversation does not arrive in the new one.
     setQueued(null);
+    for (const item of messages) if (item.role === 'assistant') steer.take(item.turnId);
     missing.current.clear();
     // A fresh conversation is a fresh task: the production dock from the old one used to stay
     // docked above the composer because it lives on the comp, not in the transcript.
@@ -777,10 +832,10 @@ export function ChatPanel(props: Props) {
     sendRef.current(text);
   }, [streaming, queued]);
 
-  /** Writes a message into the transcript from Helios itself, without calling a provider. */
+  /** Writes a message into the transcript from Bhippi itself, without calling a provider. */
   const say = (text: string) => {
     setMessages((items) => [...items, {
-      id: uid(), role: 'assistant', turnId: uid(), providerId: 'helios', providerLabel: 'Helios', model: null,
+      id: uid(), role: 'assistant', turnId: uid(), providerId: 'bhippi', providerLabel: 'Bhippi', model: null,
       content: text, thinking: '', steps: [], status: 'done', notes: [], fault: null, usage: null, elapsedMs: null, limit: null,
     }]);
   };
@@ -803,7 +858,7 @@ export function ChatPanel(props: Props) {
         ...asks.slice(-8),
       ].join('\n');
       return [{
-        id: uid(), role: 'assistant', turnId: uid(), providerId: 'helios', providerLabel: 'Helios', model: null,
+        id: uid(), role: 'assistant', turnId: uid(), providerId: 'bhippi', providerLabel: 'Bhippi', model: null,
         content: recap, thinking: '', steps: [], status: 'done', notes: ['Compacted'], fault: null, usage: null, elapsedMs: null, limit: null,
       } as ChatMessage, ...keep];
     });
@@ -822,7 +877,9 @@ export function ChatPanel(props: Props) {
 
   const allRuns = messages.flatMap((item) => (item.role === 'assistant' ? props.tools[item.turnId] ?? [] : []));
 
-  const lastTurn = [...messages].reverse().find((item): item is Assistant => item.role === 'assistant' && item.providerId !== 'helios');
+  const lastTurn = [...messages].reverse().find((item): item is Assistant => item.role === 'assistant' && item.providerId !== 'bhippi');
+  /** The newest answer keeps its actions showing, the way ChatGPT's does; older ones show them on hover. */
+  const lastAnswerId = messages.length && messages[messages.length - 1].role === 'assistant' ? messages[messages.length - 1].id : null;
 
   const commandContext: CommandContext = {
     clear,
@@ -943,41 +1000,56 @@ export function ChatPanel(props: Props) {
   };
 
   return (
-    <div ref={rootRef} className={`chat${props.awesome ? ' awesome' : ''}${streaming ? ' working' : ''}`} aria-label="Helios AI">
+    <div ref={rootRef} className={`chat${props.awesome ? ' awesome' : ''}${streaming ? ' working' : ''}`} aria-label={props.label ?? 'Bhippi AI'}>
 
       <div className="chat-list" ref={listRef}>
         {messages.length === 0 && (
           // An empty chat says nothing: the mark and name, barely there, and room to start typing.
-          <div className="chat-empty" aria-hidden="true"><div><img src="/helios.svg" alt="" /><span>Helios</span></div></div>
+          <div className="chat-empty" aria-hidden="true"><div><img src="/bhippi.png" alt="" /><span>Bhippi</span></div></div>
         )}
         {messages.map((message) =>
           message.role === 'user' ? (
-            <div key={message.id} className="msg msg-user">
-              {message.content}
-              <div className="chat-images">{message.images?.map((src,index)=><img key={index} src={src} alt={"Attached image "+(index+1)} />)}</div>
-              <button
-                type="button"
-                className="msg-copy"
-                title="Copy this message"
-                onClick={(event) => {
-                  const button = event.currentTarget;
-                  void copyText(message.content).then((done) => {
-                    if (!done) {
-                      toast({ tone: 'error', title: 'Copy failed', body: 'Select the text and press Ctrl+C instead.' });
-                      return;
-                    }
-                    button.classList.add('copied');
-                    window.setTimeout(() => button.classList.remove('copied'), 1100);
-                  });
-                }}
-              >
-                <Copy size={11} />
-              </button>
+            <div key={message.id} className="msg-user-row">
+              <div className="msg msg-user">
+                {message.content}
+                {!!message.images?.length && <div className="chat-images">{message.images.map((src,index)=><img key={index} src={src} alt={"Attached image "+(index+1)} />)}</div>}
+              </div>
+              <div className="msg-actions">
+                <button
+                  type="button"
+                  className="msg-action"
+                  title="Edit — put this message back in the composer"
+                  aria-label="Edit message"
+                  onClick={() => {
+                    setDraft(message.content);
+                    requestAnimationFrame(() => {
+                      const input = inputRef.current;
+                      if (!input) return;
+                      input.focus();
+                      input.setSelectionRange(input.value.length, input.value.length);
+                    });
+                  }}
+                >
+                  <Pencil size={13} />
+                </button>
+                <CopyAction text={message.content} label="Copy message" />
+                <button
+                  type="button"
+                  className="msg-action"
+                  title={streaming ? 'Send this again into the running turn' : 'Send this again'}
+                  aria-label="Send again"
+                  onClick={() => void send(message.content)}
+                >
+                  <SendHorizontal size={13} />
+                </button>
+              </div>
             </div>
           ) : (
             <AssistantMessage
               key={message.id}
               message={message}
+              latest={message.id === lastAnswerId}
+              onDropSteer={(id) => dropSteer(message.turnId, id)}
               workflow={props.workflowStatus(message.turnId)}
               tools={props.tools[message.turnId] ?? []}
               canRevert={props.canRevert(message.turnId)}
@@ -998,7 +1070,7 @@ export function ChatPanel(props: Props) {
         <div className="ask-card" key={props.ask.question}>
           <div className="ask-head">
             <CircleHelp size={12} />
-            <span>Helios AI is asking</span>
+            <span>Bhippi AI is asking</span>
             {props.askCount > 1 && <span className="ask-count">1 of {props.askCount}</span>}
           </div>
           <p className="ask-question">{props.ask.question}</p>
@@ -1007,7 +1079,7 @@ export function ChatPanel(props: Props) {
             <div className="ask-options">
               {props.ask.options.map((option, index) => (
                 <button
-                  key={option}
+                  key={`${index}:${option}`}
                   type="button"
                   className="ask-option"
                   style={{ animationDelay: `${index * 40}ms` }}
@@ -1216,12 +1288,11 @@ export function ChatPanel(props: Props) {
             }
             if (event.key === 'Escape') (event.target as HTMLTextAreaElement).blur();
           }}
-          placeholder={active?.kind === 'builtin' ? 'Try: add title "My Story" at 1s' : 'Ask for an edit or an idea…'}
+          placeholder={streaming ? 'Add to what Bhippi is doing — it reads this at its next step…' : props.placeholder ?? (active?.kind === 'builtin' ? 'Try: add title "My Story" at 1s' : 'Ask for an edit or an idea…')}
           rows={2}
-          aria-label="Message Helios AI"
+          aria-label="Message Bhippi AI"
         />
         <div className="composer-bar"><button type="button" className="icon-btn" aria-label="Attach images" title="Attach images" onClick={()=>imageInput.current?.click()}><Paperclip size={15}/></button>
-          {props.onPolish && <button type="button" className="icon-btn" aria-label="Polish the edit" title="Polish — check every frame (off-frame panels, blank or white frames, black edges, overlaps) and fix it: the whole timeline, or the in/out selection when one is set" disabled={streaming} onClick={props.onPolish}><Wand2 size={15}/></button>}
           <ModelPicker
             providers={props.providers.filter((provider) => provider.usable && provider.enabled)}
             providerId={props.providerId}
@@ -1244,13 +1315,17 @@ export function ChatPanel(props: Props) {
               onSpeed={(next) => props.providerId && chooseModel(props.providerId, next)}
             />
           )}
-          <select className="composer-select" aria-label="Editing workflow" title="Full workflow enforces transcript, every-frame review and a timed storyboard. Quick edit is for a targeted change." value={workflowMode} onChange={e => setWorkflowMode(e.target.value as 'full' | 'quick')} disabled={streaming}>
+          {!props.lockedMode && <select className="composer-select" aria-label="Editing workflow" title="Full workflow enforces transcript, every-frame review and a timed storyboard. Quick edit is for a targeted change." value={workflowMode} onChange={e => setWorkflowMode(e.target.value as 'full' | 'quick')} disabled={streaming}>
             <option value="full">Full workflow</option><option value="quick">Quick edit</option>
-          </select>
+          </select>}
           <PermissionMenu mode={props.permission} onSelect={props.onPermission} />
           </div>
           {streaming ? (
-            <button type="button" className="send-btn stop" onClick={() => stop()} title="Stop"><CircleStop size={16} /></button>
+            <>
+              {/* Typed while it works: this goes into the running turn rather than waiting for it. */}
+              {draft.trim() && <button type="submit" className="send-btn" title="Add to the running task (Enter)"><ArrowUp size={16} /></button>}
+              <button type="button" className="send-btn stop" onClick={() => stop()} title="Stop"><CircleStop size={16} /></button>
+            </>
           ) : (
             <button type="submit" className="send-btn" disabled={!draft.trim() && !images.length} title="Send (Enter)"><ArrowUp size={16} /></button>
           )}
@@ -1296,41 +1371,66 @@ function continuePrompt(status: WorkflowPhaseStatus): string {
   return `Continue the EDIT/POLISH phase only. ${shared} Work just the next unfinished 5–12s batch — cuts, levels, beats, transitions, roto/erase, motion graphics, sound — run run_frame_qa until it is clear, then get_comp + verify_edit_workflow. Do not redo batches already on the timeline.`;
 }
 
-function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRemedy, onContinue }: { message: Assistant; workflow: { mode: string; structurallyVerified: boolean; phase?: string | null; nextUserAction?: string | null; phaseClosedThisTurn?: string | null } | null; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void }) {
-  const [thinkingOpen, setThinkingOpen] = useState(false);
+/** A copy button that says it worked. */
+function CopyAction({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
   const toast = useToast();
+  return (
+    <button
+      type="button"
+      className={`msg-action${copied ? ' copied' : ''}`}
+      title={copied ? 'Copied' : label}
+      aria-label={label}
+      disabled={!text.trim()}
+      onClick={() => {
+        void copyText(text).then((done) => {
+          if (!done) {
+            toast({ tone: 'error', title: 'Copy failed', body: 'Select the text and press Ctrl+C instead.' });
+            return;
+          }
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1100);
+        });
+      }}
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+    </button>
+  );
+}
+
+type WorkflowView = { mode: string; structurallyVerified: boolean; phase?: string | null; nextUserAction?: string | null; phaseClosedThisTurn?: string | null } | null;
+
+/** Where a full-workflow turn left the edit, in one line — or nothing, for a turn that did no work (a greeting, a question). */
+function workflowLine(workflow: WorkflowView, worked: boolean): { tone: 'ok' | 'next' | 'warn'; text: string } | null {
+  if (workflow?.mode !== 'full' || (!worked && !workflow.nextUserAction)) return null;
+  if (workflow.structurallyVerified) return { tone: 'ok', text: 'Workflow steps and timeline structure verified. Render, matte and audio quality still need review.' };
+  if (workflow.nextUserAction === 'start-generating') return { tone: 'next', text: 'Plan saved. Review it above, then press Start generating.' };
+  if (workflow.nextUserAction === 'start-editing') return { tone: 'next', text: 'Everything is gathered. Press Start editing when you are ready.' };
+  if (workflow.phase === 'gathering') return { tone: 'next', text: 'Gathering in progress. The assistant closes this phase with finish_gathering.' };
+  return { tone: 'warn', text: 'The workflow is not finished — some stages have not run or could not be verified.' };
+}
+
+function AssistantMessage({ message, latest, workflow, tools, canRevert, onRevert, onRemedy, onContinue, onDropSteer }: { message: Assistant; latest: boolean; workflow: WorkflowView; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void; onDropSteer: (id: string) => void }) {
+  const [thinkingOpen, setThinkingOpen] = useState(false);
   const visible = message.content;
   const seconds = message.elapsedMs !== null ? `${(message.elapsedMs / 1000).toFixed(1)}s` : null;
-  const copyAnswer = () => {
-    if (!visible.trim()) return;
-    void copyText(visible).then((done) => {
-      if (!done) {
-        toast({ tone: 'error', title: 'Copy failed', body: 'Select the text and press Ctrl+C instead.' });
-        return;
-      }
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1100);
-    });
-  };
+  const streaming = message.status === 'streaming';
+  // Every answer is Bhippi's; which provider wrote it stays out of the header.
+  const changes = tools.filter((run) => run.status === 'done' && run.changedProject).length;
+  const line = streaming ? null : workflowLine(workflow, tools.length > 0);
+  const meta = [message.model, seconds].filter(Boolean).join(' · ');
   return (
-    <div className={`msg msg-assistant status-${message.status}`}>
+    <div className={`msg msg-assistant status-${message.status}${latest ? ' latest' : ''}`}>
       <div className="msg-meta">
-        <span className="msg-avatar"><ProviderLogo id={message.providerId} size={13} /></span>
-        <span className="msg-who">{message.providerLabel}</span>
-        {message.model && <span className="muted">· {message.model}</span>}
-        {seconds && <span className="muted">· {seconds}</span>}
-        {message.status === 'stopped' && <span className="muted">· stopped</span>}
-        {visible.trim() ? (
-          <button type="button" className={`msg-copy meta${copied ? ' copied' : ''}`} title="Copy this answer" onClick={copyAnswer}>
-            {copied ? <Check size={11} /> : <Copy size={11} />}
-          </button>
-        ) : null}
+        <span className="msg-avatar bhippi"><img src="/bhippi.png" alt="" /></span>
+        <span className="msg-who">Bhippi</span>
+        {message.status === 'stopped' && <span className="msg-flag">Stopped</span>}
       </div>
       {message.thinking && (
-        <button type="button" className="thinking" onClick={() => setThinkingOpen((value) => !value)} aria-expanded={thinkingOpen}>
-          <Brain size={12} /> {message.status === 'streaming' && !visible ? 'Thinking…' : 'Thought process'}
-          <ChevronRight size={12} className={thinkingOpen ? 'rotate-90' : ''} />
+        <button type="button" className={`thinking${streaming && !visible ? ' live' : ''}`} onClick={() => setThinkingOpen((value) => !value)} aria-expanded={thinkingOpen}>
+          <Brain size={12} className="thinking-icon" />
+          <span className="thinking-label">{streaming && !visible ? 'Thinking' : 'Thought process'}</span>
+          <ChevronRight size={12} className={`thinking-chevron${thinkingOpen ? ' rotate-90' : ''}`} />
         </button>
       )}
       {thinkingOpen && <div className="thinking-body">{message.thinking}</div>}
@@ -1339,36 +1439,25 @@ function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRem
         segments={message.segments}
         steps={message.steps}
         runs={tools}
-        streaming={message.status === 'streaming'}
+        steers={message.steers}
+        streaming={streaming}
         thinking={!!message.thinking}
+        onDropSteer={onDropSteer}
       />
-      {workflow?.mode === 'full' && message.status !== 'streaming' && (
-        <div className="notes" role="status" style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
-          <div>{workflow.structurallyVerified
-            ? 'Workflow steps and timeline structure verified. Render, matte and audio quality still need review.'
-            : workflow.nextUserAction === 'start-generating'
-              ? 'Plan saved. Review it above, then press Start generating.'
-              : workflow.nextUserAction === 'start-editing'
-                ? 'Everything is gathered. Press Start editing when you are ready.'
-                : workflow.phase === 'gathering'
-                  ? 'Gathering in progress. The assistant closes this phase with finish_gathering.'
-                  : 'Full workflow incomplete or not verified. The assistant’s completion text is not proof that all steps ran.'}</div>
-          {!workflow.structurallyVerified && !workflow.nextUserAction && onContinue && (
-            <button
-              type="button"
-              className="btn btn-small"
-              style={{ padding: '4px 10px', fontSize: '0.85em', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-              onClick={onContinue}
-            >
-              ▶ Continue Workflow
+      {line && (
+        <div className={`workflow-note ${line.tone}`} role="status">
+          <span>{line.text}</span>
+          {line.tone === 'warn' && onContinue && (
+            <button type="button" className="workflow-continue" onClick={onContinue}>
+              <Play size={10} /> Continue
             </button>
           )}
         </div>
       )}
-      {tools.some((run) => run.status === 'done' && run.changedProject) && message.status !== 'streaming' && (
+      {changes > 0 && !streaming && (
         <div className="edits-card">
           <div className="edits-head">
-            <Check size={13} /> {tools.filter((run) => run.status === 'done' && run.changedProject).length} project change{tools.filter((run) => run.status === 'done' && run.changedProject).length === 1 ? '' : 's'} applied
+            <Check size={13} /> {changes} project change{changes === 1 ? '' : 's'} applied
             {canRevert && <button type="button" className="btn btn-small btn-ghost" onClick={onRevert}><RotateCcw size={12} /> Revert</button>}
           </div>
         </div>
@@ -1378,6 +1467,12 @@ function AssistantMessage({ message, workflow, tools, canRevert, onRevert, onRem
         <div className="limit-note">{message.providerLabel} plan usage at {Math.round(message.limit.used * 100)}%</div>
       )}
       {message.fault && <FaultCard fault={message.fault} onAct={onRemedy} />}
+      {!streaming && visible.trim() && (
+        <div className="msg-actions">
+          <CopyAction text={visible} label="Copy answer" />
+          {meta && <span className="msg-actions-meta">{meta}</span>}
+        </div>
+      )}
     </div>
   );
 }

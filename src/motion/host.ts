@@ -1,4 +1,4 @@
-// The Helios editor as a MediaHost: project assets by id (proxy in the preview, the original for
+// The Bhippi editor as a MediaHost: project assets by id (proxy in the preview, the original for
 // export) and roto mattes as the numbered PNGs the Roto tool writes beside `matte.mkv`.
 import { api, fileSrc } from '../lib/ipc';
 import type { Asset } from '../lib/types';

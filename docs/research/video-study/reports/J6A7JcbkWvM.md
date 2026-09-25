@@ -110,12 +110,12 @@ world**, so the style pack has to cover both.
 
 ## 3. Technique catalogue
 
-"Helios today" is judged against `src/motion/types.ts` and the kit as they stand:
+"Bhippi today" is judged against `src/motion/types.ts` and the kit as they stand:
 - **Yes**: buildable with today's scene JSON.
 - **Partly**: buildable by hand-keying, or with a gap.
 - **No**: not buildable.
 
-| # | Frames | Technique | AE build | Helios today | Pillar |
+| # | Frames | Technique | AE build | Bhippi today | Pillar |
 |---|---|---|---|---|---|
 | T1 | f1–90 | **Typing with a feathered bright band and a 1-frame snap to white.** Block caret (4 f on / 4 f off); the line scales down to hold its width as words arrive | Text animators: an opacity range selector (ramp shape, smoothness 3) sweeping by index + a fill-colour range with offset (the band); hold keys for the snap; a scale key per word; the caret as a shape with a blink expression | **Partly.** Animators with `smoothness` and `fillColor`/`fillAmount` can build the feather and the band by hand. There is no caret, no snap preset and no fit-to-width | P2 |
 | T2 | f91–100 | **Type-through transition.** The new line (2.3× → 1×, purple) slides through a feathered window while the old line is wiped from its left in step (10 f) | Two feathered rect masks keyed together; a scale key | **Yes** by hand (masks with `feather` + keys); no preset | P4 (NEW `type-through`) |
@@ -333,7 +333,7 @@ The colours are sampled from the verified frames (medians of the most saturated 
 | Headline word pops (f389–405, 4 f apart) | 2 of 5 within 2 f | — | — | A 4 f stagger can't follow a 13.4 f beat |
 | Stacked UI events (chat, notifications) | Cadence ≈ 16 f | — | — | About 1.2 beats: **deliberately off-grid** |
 
-**Rules for Helios.**
+**Rules for Bhippi.**
 - For a music-only SaaS launch, the music sets the *mood and the breaks*, not the cut grid.
 - Snap only the **world switches** to phrase points:
   - the cut to the dark map (f908, 1.1 f from an onset);
@@ -345,7 +345,7 @@ The colours are sampled from the verified frames (medians of the most saturated 
 
 ---
 
-## 7. What Helios needs
+## 7. What Bhippi needs
 
 ### 7.1 Already in the plan: build as written
 

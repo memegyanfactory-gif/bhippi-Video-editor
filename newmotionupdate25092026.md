@@ -64,7 +64,7 @@ This is a live record of what's done and what's left in the plan in
   - It composites like any footage: 3D, mattes, effects, blend modes.
   - Preview prefetches the next frames and shows the nearest one while loading; export waits for the exact frame; memory is capped at 160 frames.
   - Files: `src/motion/types.ts`, `sources.ts` (`sequenceIndex`, `sequenceFile`), `host.ts`, `validate.ts`, `lab/lab.ts`, `editor/MotionLayer.tsx`, `lib/previewCache.ts`.
-  - Tests: `tests/motionSequence.test.ts` (4 pass). **Checked on the GPU:** our transparent Blender Cycles render composites over a Helios background with type on top, and frames advance.
+  - Tests: `tests/motionSequence.test.ts` (4 pass). **Checked on the GPU:** our transparent Blender Cycles render composites over a Bhippi background with type on top, and frames advance.
 - A2a ✅ **Vector engine core: shape trees.** `shape.groups` = AE-style shape groups:
   - SVG path data (M L H V C S Q T A Z, relative and absolute; arcs become beziers), rect/ellipse/polygon/star and nested groups;
   - per-group transform (anchor, position, scale, rotation, opacity); fill/stroke inheritance;
@@ -136,12 +136,12 @@ This is a live record of what's done and what's left in the plan in
   - A test checks that every tool, ease, effect and feature a playbook cites exists.
   - The prompt tells the AI to call it before planning.
   - Files: new `src/lib/motionDirection.ts`, `motionTools.ts`, `permissions.ts`, `editWorkflow.ts`, `ai-tools.json`, `copilot.md`. Tests: `tests/motionDirection.test.ts` (3).
-- A6 ✅ **Blender MVP: Helios runs Blender headless.**
+- A6 ✅ **Blender MVP: Bhippi runs Blender headless.**
   - **Bridge worker** `src-tauri/workers/blender_bridge.py` (GPL; it runs inside the user's own Blender as a separate program). It builds a scene from JSON:
     - objects: box, rounded box, sphere, icosphere, torus, cylinder, cone, capsule, faceted crystal, extruded 3D text, floor, and parenting;
     - 9 material presets: plastic, glass, frosted, pearl, metal, gem, clay, emission, flat;
     - a colour world or a **hand-made gradient environment** (the Modern Motion crystal trick), studio lights, a keyed camera with depth of field.
-  - **Keys use Helios's own eases**, mapped 1:1 onto Blender bezier handles.
+  - **Keys use Bhippi's own eases**, mapped 1:1 onto Blender bezier handles.
   - The worker writes PNG frames with alpha, plus `camera.json` (the camera per frame in motion-engine pixels) and `objects2d.json` (each object's screen box per frame, so 2D glints and callouts can track it).
   - Floor shadows: a shadow catcher in Cycles; in EEVEE a shadow-only floor (EEVEE has no catcher).
   - **Rust** `src-tauri/src/blender.rs`:
@@ -230,7 +230,7 @@ This is a live record of what's done and what's left in the plan in
   - **`analyze_reference_video` measures motion** with a new worker (`reference_motion.py`, on the media Python):
     - cuts and **hidden cuts** (blur-bridge, white-out, black, whip);
     - **foreground swaps** (the content changes while the background stays);
-    - moves with **cubic-bezier eases fitted** to their progress and matched to Helios's named eases;
+    - moves with **cubic-bezier eases fitted** to their progress and matched to Bhippi's named eases;
     - the camera track and how much the camera moves;
     - animation on twos;
     - the audio, run through the app's own fixed tempo code, with **cuts on the beat compared with chance**.
@@ -321,7 +321,7 @@ This is a live record of what's done and what's left in the plan in
   - **Checked side by side against lottie-web on the GPU:** the converted test file matches it frame for frame. The only leftover differences are anti-aliased edges.
     - Two fixes made the trimmed square match: rectangles and ellipses start and run the same way Lottie draws them, and missing `d` values follow lottie-web's direction rule.
     - A morph file correctly falls back to rendered frames.
-  - **Licence rule:** user files only. Helios never searches or bundles LottieFiles content (their licence forbids it); the prompt tells the AI so.
+  - **Licence rule:** user files only. Bhippi never searches or bundles LottieFiles content (their licence forbids it); the prompt tells the AI so.
   - Files: new `src/motion/lottie/` (`convert.ts`, `render.ts`, a type shim), `src/lib/lottieTools.ts`; `motionTools.ts`, `council.ts`, `ai-tools.json`, `copilot.md`, `MOTION-ENGINE.md`; `package.json` (+`lottie-web`, +`fflate`).
   - Tests: `tests/lottie.test.ts` (6), with two hand-made fixtures (no third-party files).
 - **Phase C: complete ✅** (C1–C4).

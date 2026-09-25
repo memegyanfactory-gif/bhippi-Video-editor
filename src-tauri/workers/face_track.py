@@ -8,7 +8,7 @@ allowance so a blink of missed detection does not split a track. InsightFace is 
 used: its models are non-commercial.
 
 Request (JSON file named on the command line):
-  folder     holds frames/00001.jpg … (Helios pulls them at `fps`)
+  folder     holds frames/00001.jpg … (Bhippi pulls them at `fps`)
   from       source seconds of the first frame
   fps        frames per second of the sequence
   model      path to face_detection_yunet_2023mar.onnx (downloaded here on first use)
@@ -50,7 +50,7 @@ def ensure_model(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     emit(0.02, "Downloading the YuNet face model (once, 230 KB)")
     try:
-        request = urllib.request.Request(MODEL_URL, headers={"User-Agent": "Helios face tracker"})
+        request = urllib.request.Request(MODEL_URL, headers={"User-Agent": "Bhippi face tracker"})
         with urllib.request.urlopen(request, timeout=60) as response:
             data = response.read()
     except (urllib.error.URLError, OSError) as error:

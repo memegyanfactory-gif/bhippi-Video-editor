@@ -56,13 +56,16 @@ export function summarizeTurnOutcome(outcome: TurnOutcome): string {
           ? 'workflow unverified'
           : 'done';
   return [
-    `Helios AI turn (${outcome.provider}${outcome.model ? `/${outcome.model}` : ''}, ${Math.round(outcome.elapsedMs)}ms): ${clip(outcome.prompt.trim() || '(empty prompt)', 200)}`,
+    `Bhippi AI turn (${outcome.provider}${outcome.model ? `/${outcome.model}` : ''}, ${Math.round(outcome.elapsedMs)}ms): ${clip(outcome.prompt.trim() || '(empty prompt)', 200)}`,
     `Tools: ${tools}.`,
     `Result: ${result}.`,
   ].join(' ');
 }
 
-/** Records one turn outcome into the IdeaGraph brain (source `helios-turns`). */
-export async function recordTurnOutcome(outcome: TurnOutcome): Promise<string> {
-  return api.ideagraphIngest(summarizeTurnOutcome(outcome), 'helios-turns');
+/**
+ * Records one turn outcome in the native brain, which links it to its tools, topics and skills
+ * and leaves nudges for the next turn. The note also goes to IdeaGraph when an `ig` is configured.
+ */
+export async function recordTurnOutcome(outcome: TurnOutcome) {
+  return api.brainRecordTurn(outcome, summarizeTurnOutcome(outcome));
 }

@@ -45,7 +45,7 @@ pub struct FreeMedia {
 }
 
 /// Wikimedia asks API clients to name themselves; the other two accept it too.
-const USER_AGENT: &str = "Helios/1.0 (https://bhippi.com/helios; video editor research tool)";
+const USER_AGENT: &str = "Bhippi/1.0 (https://bhippi.com/helios; video editor research tool)";
 
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()

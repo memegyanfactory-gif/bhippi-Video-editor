@@ -3,6 +3,8 @@
 // entries are in specs/plan.json. Like the other tool modules (motionTools.ts) the handlers call
 // library functions and commit once; every edit is one undo step.
 
+import { AUDIENCE_HINT, audienceArg, audienceLabel, compAudience, detectAudience, memeAudienceErrors, type AudienceSetting } from './audience';
+import { memesApi } from './memes';
 import { clipEnd, type AssetMap } from '../timeline';
 import type { Comp, ToolResult } from '../types';
 import { beatCounts, normalizeBeatSheet, type Word } from './beatSheet';
@@ -100,6 +102,11 @@ async function withSounds(edl: RoastEdl, ctx: RoastToolContext): Promise<{ edl: 
   return { edl: { ...edl, events }, assets: merged, problems };
 }
 
+/** Every meme id a plan places (its events and their provenance). */
+function edlMemeIds(edl: RoastEdl): string[] {
+  return edl.events.flatMap((event) => [...('memeId' in event && typeof event.memeId === 'string' ? [event.memeId] : []), ...(event.provenance ?? []).flatMap((source) => (source.memeId ? [source.memeId] : []))]);
+}
+
 export async function runPlanTool(name: string, args: Args, ctx: RoastToolContext): Promise<ToolResult> {
   const project = ctx.current();
   const comp = ctx.pickComp(project, args);
@@ -109,7 +116,15 @@ export async function runPlanTool(name: string, args: Args, ctx: RoastToolContex
       const words = wordsOf(args.words);
       const checked = normalizeBeatSheet({ beats: args.beats }, comp.id, words);
       if (!checked.sheet.beats.length) return fail(`No usable beats. ${checked.errors.join(' ')}`.trim(), { errors: checked.errors });
-      ctx.editComp(comp, (current) => ({ ...current, roast: { ...current.roast, beatSheet: checked.sheet } }));
+      // Who the video is for, read from what is said (or as the user set it): it decides the memes.
+      const asked = audienceArg(args.audience);
+      if (asked === 'bad') return fail(AUDIENCE_HINT);
+      const reading = detectAudience(checked.sheet.beats.map((beat) => beat.text));
+      const kept = comp.roast?.audience?.source === 'user' && asked !== 'auto' ? comp.roast.audience : null;
+      const audience: AudienceSetting = asked && asked !== 'auto'
+        ? { audience: asked, confidence: 1, signals: ['set by the user'], source: 'user' }
+        : kept ?? { ...reading, source: 'detected' };
+      ctx.editComp(comp, (current) => ({ ...current, roast: { ...current.roast, beatSheet: checked.sheet, audience } }));
       const counts = beatCounts(checked.sheet);
       const profanity = checked.sheet.beats.flatMap((beat) => (beat.profanity ?? []).map((span) => ({ beatId: beat.id, ...span })));
       const punchlines = checked.sheet.beats.filter((beat) => beat.kinds.includes('punchline'));
@@ -117,8 +132,9 @@ export async function runPlanTool(name: string, args: Args, ctx: RoastToolContex
         `Saved ${checked.sheet.beats.length} beats on "${comp.name}": ${Object.entries(counts).map(([kind, count]) => `${count} ${kind}`).join(', ')}.`
         + `${punchlines.length ? ` Punchlines land at ${punchlines.slice(0, 8).map((beat) => `${round(beat.punchAt ?? beat.end)}s`).join(', ')}${punchlines.length > 8 ? '…' : ''}.` : ''}`
         + `${profanity.length ? ` ${profanity.length} profane word${profanity.length === 1 ? '' : 's'} found (bleep candidates): ${profanity.slice(0, 6).map((span) => `"${span.word}" ${round(span.start)}–${round(span.end)}s`).join(', ')}.` : ''}`
-        + `${checked.errors.length ? ` Dropped: ${checked.errors.join(' ')}` : ''}${checked.warnings.length ? ` Notes: ${checked.warnings.slice(0, 6).join(' ')}` : ''}`,
-        { beats: checked.sheet.beats.length, counts, profanity, errors: checked.errors, warnings: checked.warnings },
+        + `${checked.errors.length ? ` Dropped: ${checked.errors.join(' ')}` : ''}${checked.warnings.length ? ` Notes: ${checked.warnings.slice(0, 6).join(' ')}` : ''}`
+        + ` Audience: ${audience.audience === 'global' ? 'global (global memes only, plus local ones that crossed over; English echo words)' : `${audienceLabel(audience.audience)} (their own memes first, global ones welcome; search in their language)`}, ${audience.source === 'user' ? 'as set' : `detected: ${audience.signals.join('; ')}`}. Pass audience "global" or the viewers' country code (IN, US, BR, MX, JP…) to override — set it whenever the speech is plainly one country's.`,
+        { beats: checked.sheet.beats.length, counts, profanity, errors: checked.errors, warnings: checked.warnings, audience },
       );
     }
 
@@ -143,7 +159,8 @@ export async function runPlanTool(name: string, args: Args, ctx: RoastToolContex
 
     case 'validate_roast_edl': {
       const replace = args.replace === true;
-      const { edl, errors } = edlFrom(comp, args, ctx, replace);
+      const { edl, errors: read } = edlFrom(comp, args, ctx, replace);
+      const errors = [...read, ...(await memeAudienceErrors(edlMemeIds(edl), compAudience(comp), memesApi.get))];
       const report = validateEdl(comp, project, ctx.assets, edl, { ...beatGrid(comp, args), replace });
       const all: EdlReport = { ...report, ok: report.ok && !errors.length, errors: [...errors, ...report.errors] };
       const findings = compareDna(all.dna, FUNNY_BAND);
@@ -153,7 +170,7 @@ export async function runPlanTool(name: string, args: Args, ctx: RoastToolContex
     case 'apply_roast_edl': {
       const replace = args.replace === true;
       const read = edlFrom(comp, args, ctx, replace);
-      const errors = read.errors;
+      const errors = [...read.errors, ...(await memeAudienceErrors(edlMemeIds(read.edl), compAudience(comp), memesApi.get))];
       if (!read.edl.events.length && !replace) return fail(errors.join(' ') || 'events is required.');
       const options = { ...beatGrid(comp, args), replace };
       const { edl, assets, problems } = await withSounds(read.edl, ctx);

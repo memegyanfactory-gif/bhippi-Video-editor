@@ -4,7 +4,7 @@
 import type { Layer, MotionScene } from './types';
 import { fontString } from './text';
 
-/** Families that ship with Helios (variable weight; Archivo also varies in width). */
+/** Families that ship with Bhippi (variable weight; Archivo also varies in width). */
 export const BUNDLED_FONTS = ['Inter', 'Manrope', 'Plus Jakarta Sans', 'Sora', 'Outfit', 'Montserrat', 'Fraunces', 'Caveat', 'Archivo'];
 
 const loaded = new Set<string>();

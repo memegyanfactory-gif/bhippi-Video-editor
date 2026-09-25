@@ -1,7 +1,7 @@
 // Building, merging, reading and rendering brand kits.
 //
 // A kit starts from an archetype (the house look, a style, or a reference kit) plus whatever the
-// user or the AI supplies, and every other part of Helios reads it through the small functions
+// user or the AI supplies, and every other part of Bhippi reads it through the small functions
 // here: a React Bits theme, the Crimson accent and type stack, generation prompt rules, CSS
 // variables, a compact context object for the system prompt, and the brand board graphic the
 // Settings panel previews and the AI can place on the timeline.
@@ -297,7 +297,7 @@ export function mergeBrandKit(kit: BrandKit, section: BrandKitSection | 'all', p
     return { ...kit, guideline: refineGuideline(kit, isRecord(value) ? value : {}, source), updatedAt: now() };
   }
   const allowed = section === 'all' ? null : new Set<string>(SECTION_KEYS[section] as string[]);
-  // A guideline an older Helios saved whole is cut to its refinements against the kit before this
+  // A guideline an older Bhippi saved whole is cut to its refinements against the kit before this
   // edit, the one it was derived from, so the edit reaches everything nobody refined.
   let next: BrandKit = { ...compactGuideline(kit) };
   for (const [key, value] of Object.entries(patch)) {

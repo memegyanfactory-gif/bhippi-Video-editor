@@ -1,6 +1,6 @@
-// Settings › Storage: where Helios keeps each project's files, and the folders inside one.
+// Settings › Storage: where Bhippi keeps each project's files, and the folders inside one.
 //
-// Every project gets a folder under the storage root (Documents/Helios by default), sorted into
+// Every project gets a folder under the storage root (Documents/Bhippi by default), sorted into
 // categories — Downloads, Generated, Audio/Voice-overs, Roto, Exports… — so whatever the AI
 // gathered or made is somewhere a person can find it. See src-tauri/src/storage.rs.
 import { FolderOpen, FolderTree, HardDrive, LoaderCircle, RotateCcw } from 'lucide-react';
@@ -14,7 +14,7 @@ type Props = { settings: Settings; onSettings: (settings: Settings) => void };
 
 /** Picks a new storage root and makes it the setting; answers the new info, or null if cancelled. */
 export async function chooseStorageRoot(current: string | null): Promise<StorageInfo | null> {
-  const picked = await api.pickFolder('Choose where Helios keeps your projects', current);
+  const picked = await api.pickFolder('Choose where Bhippi keeps your projects', current);
   if (!picked) return null;
   const info = await api.storageSetRoot(picked);
   registerStorageRoot(info.root);
@@ -76,7 +76,7 @@ export function StorageSettings({ settings, onSettings }: Props) {
       <div className="settings-intro">
         <div>
           <h3>Storage</h3>
-          <p>Each project gets its own folder, sorted by kind — everything Helios downloads, generates, records or exports lands in it. Settings, the media library, previews and models stay in the Helios data folder.</p>
+          <p>Each project gets its own folder, sorted by kind — everything Bhippi downloads, generates, records or exports lands in it. Settings, the media library, previews and models stay in the Bhippi data folder.</p>
         </div>
       </div>
 
@@ -91,7 +91,7 @@ export function StorageSettings({ settings, onSettings }: Props) {
         <div className="storage-card-actions">
           <button type="button" className="btn btn-primary" onClick={() => void change()} disabled={busy}>{busy ? <LoaderCircle size={14} className="spin" /> : <FolderOpen size={14} />} Change…</button>
           <button type="button" className="btn" onClick={() => open('root')}><FolderOpen size={14} /> Open</button>
-          {info?.custom && <button type="button" className="btn btn-ghost" onClick={() => void reset()} disabled={busy} title={info.defaultRoot}><RotateCcw size={14} /> Use Documents\Helios</button>}
+          {info?.custom && <button type="button" className="btn btn-ghost" onClick={() => void reset()} disabled={busy} title={info.defaultRoot}><RotateCcw size={14} /> Use Documents\Bhippi</button>}
         </div>
       </section>
 

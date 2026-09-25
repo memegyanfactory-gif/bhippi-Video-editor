@@ -1,8 +1,8 @@
-//! System and developer tools for Helios AI: file reading/writing/editing, directory listing,
+//! System and developer tools for Bhippi AI: file reading/writing/editing, directory listing,
 //! glob/grep search, and terminal command execution.
 //!
 //! These tools provide parity with the toolsets of Claude Code and Codex, allowing any AI
-//! model inside Helios (API, local, or CLI) to inspect projects, write code/scripts/assets,
+//! model inside Bhippi (API, local, or CLI) to inspect projects, write code/scripts/assets,
 //! and run terminal commands.
 
 use serde::{Deserialize, Serialize};
@@ -662,7 +662,7 @@ mod tests {
     /// With no range, a long file comes back one window at a time, saying where it stopped.
     #[test]
     fn read_file_without_a_range_stops_at_the_default_window() {
-        let path = std::env::temp_dir().join(format!("helios-read-{}.log", std::process::id()));
+        let path = std::env::temp_dir().join(format!("bhippi-read-{}.log", std::process::id()));
         let text: String = (1..=5000).map(|line| format!("line {line}
 ")).collect();
         std::fs::write(&path, text).unwrap();
@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn read_file_without_a_range_stops_at_32_kb() {
-        let path = std::env::temp_dir().join(format!("helios-read-wide-{}.txt", std::process::id()));
+        let path = std::env::temp_dir().join(format!("bhippi-read-wide-{}.txt", std::process::id()));
         let text: String = (0..300).map(|_| format!("{}
 ", "w".repeat(1000))).collect();
         std::fs::write(&path, text).unwrap();
@@ -694,7 +694,7 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn a_timed_out_command_is_stopped_with_its_children() {
-        let marker = format!("helios-timeout-{}", std::process::id());
+        let marker = format!("bhippi-timeout-{}", std::process::id());
         let command = format!("powershell -NoProfile -NonInteractive -Command 'Start-Sleep 30 # {marker}'; Start-Sleep 30");
         let started = std::time::Instant::now();
         let error = run_command(&command, None, Some(2)).await.expect_err("times out");
@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn glob_search_finds_nested_files_and_skips_heavy_dirs() {
-        let root = std::env::temp_dir().join(format!("helios-glob-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("bhippi-glob-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("a/b")).unwrap();
         std::fs::create_dir_all(root.join("node_modules/x")).unwrap();

@@ -74,7 +74,7 @@ Status 2026-09-23: implemented — see `docs/BRAND-KIT.md` and `docs/REACT-BITS-
 ### Persistence
 - `Settings.brandKits: BrandKitDoc | null` (TS) + `brand_kits: Option<serde_json::Value>` (Rust). Merged
   in `App.tsx` startup and saved with the settings pattern.
-- `Project.activeBrandKitId: string | null` — travels with the `.helios` file; resolves as
+- `Project.activeBrandKitId: string | null` — travels with the `.bhippi` file; resolves as
   `project.activeBrandKitId ?? settings.brandKits.activeId`.
 
 ### Settings UI (`src/settings/BrandKitSettings.tsx`, tab "Brand kit")

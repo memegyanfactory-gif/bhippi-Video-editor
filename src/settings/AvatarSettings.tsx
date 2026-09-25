@@ -1,5 +1,6 @@
-// Settings › Avatar: Heli, the pixel producer who acts out what Helios AI is doing, and the four
-// council seats it dresses up as. The switch is Settings.avatar (on when unset); the stage plays
+// Settings › Avatar: Heli, the pixel producer who acts out what Bhippi AI is doing (or one of the
+// other characters — Settings.avatarCharacter), and the council seats it dresses up as. The switch
+// is Settings.avatar (on when unset); the stage plays
 // the same poses the editor's avatar uses (src/avatar/poses.ts), so what you see here is what
 // walks around the timeline.
 
@@ -7,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Toggle } from '../components/ui';
 import { COUNCIL, type CouncilRole } from '../lib/council';
 import { poseAt, type AnimName } from '../avatar/poses';
-import { ART_H, ART_W, paint } from '../avatar/sprite';
+import { ART_H, ART_W, CHARACTERS, paint, type Character } from '../avatar/sprite';
 import type { Settings } from '../lib/types';
 import '../styles/avatar.css';
 
@@ -24,8 +25,8 @@ const MOVES: Move[] = [
   { anim: 'mix', label: 'Mix', when: 'Headphones on at a mixer, nodding on the beat — levels, music, sound effects.' },
   { anim: 'direct', label: 'Direct', when: 'Beret on, framing the shot and slating it — layout, transitions, the plan.' },
   { anim: 'polish', label: 'Polish', when: 'Wipes the timeline down with a cloth — frame QA, the brand check, the council review.' },
-  { anim: 'talk', label: 'Reply', when: 'Turns to the chat and talks with its hands while Helios AI writes its answer.' },
-  { anim: 'ask', label: 'Question', when: 'Hand up, waiting on you, when Helios AI asks you something in the chat.' },
+  { anim: 'talk', label: 'Reply', when: 'Turns to the chat and talks with its hands while Bhippi AI writes its answer.' },
+  { anim: 'ask', label: 'Question', when: 'Hand up, waiting on you, when Bhippi AI asks you something in the chat.' },
   { anim: 'dangle', label: 'Picked up', when: 'Grab Heli with the mouse: AHAHAHA — it wriggles to get loose until you let go, then lands where you drop it.' },
   { anim: 'slap', label: 'No no no', when: 'Touch a clip, a layer or a setting while the AI is working and Heli slaps your cursor away: no no no.' },
   { anim: 'celebrate', label: 'Done', when: 'A fist pump and a thumbs-up when the turn finishes.' },
@@ -37,7 +38,7 @@ const SEAT_ANIM: Record<CouncilRole, AnimName> = { researcher: 'research', anima
 /** One-shot moves loop on their own length so they keep playing on the stage. */
 const LOOP: Partial<Record<AnimName, number>> = { slap: 1.6, kick: 1.6, place: 1.6, celebrate: 2.6, land: 1 };
 
-function PixelStage({ anim, scale, color, className }: { anim: AnimName; scale: number; color?: string; className?: string }) {
+function PixelStage({ anim, scale, color, character, className }: { anim: AnimName; scale: number; color?: string; character?: Character; className?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const ctx = canvas.current?.getContext('2d');
@@ -52,11 +53,11 @@ function PixelStage({ anim, scale, color, className }: { anim: AnimName; scale: 
       const key = `${Math.floor(local * 12)}`;
       if (key === last) return;
       last = key;
-      paint(ctx, poseAt(anim, local, { color }));
+      paint(ctx, poseAt(anim, local, { color, character }));
     };
     frame();
     return () => cancelAnimationFrame(raf);
-  }, [anim, color]);
+  }, [anim, color, character]);
   return <canvas ref={canvas} className={className} width={ART_W} height={ART_H} style={{ width: ART_W * scale, height: ART_H * scale }} />;
 }
 
@@ -65,31 +66,45 @@ export function AvatarSettings({ settings, onSettings }: Props) {
   const [move, setMove] = useState<Move>(MOVES[0]);
   const [seat, setSeat] = useState<CouncilRole | null>(null);
   const member = COUNCIL.find((entry) => entry.id === seat);
+  const who = CHARACTERS.find((entry) => entry.id === settings.avatarCharacter) ?? CHARACTERS[0];
+  const name = who.name;
 
   return (
     <div className="avatar-settings">
       <div className="settings-intro">
         <div>
           <h3>Avatar</h3>
-          <p>Heli is a little pixel producer who lives on your timeline and mirrors the chat: whatever Helios AI is doing right now — a tool, a search, writing its reply, thinking — Heli does, and when you press Stop, Heli stops too.</p>
+          <p>{name} lives on your timeline and mirrors the chat: whatever Bhippi AI is doing right now — a tool, a search, writing its reply, thinking — {name} does, and when you press Stop, {name} stops too.</p>
         </div>
       </div>
 
       <div className="avatar-switch">
         <div className="avatar-switch-copy">
-          <strong>Show Heli in the editor</strong>
-          <span>{on ? 'On — Heli walks the timeline while Helios AI works.' : 'Off — nothing is drawn and nothing runs.'}</span>
+          <strong>Show {name} in the editor</strong>
+          <span>{on ? `On — ${name} walks the timeline while Bhippi AI works.` : 'Off — nothing is drawn and nothing runs.'}</span>
         </div>
         <Toggle checked={on} onChange={(next) => onSettings({ ...settings, avatar: next })} label="Show the avatar" />
+      </div>
+
+      <h4>Character</h4>
+      <div className="avatar-characters" role="radiogroup" aria-label="Choose the avatar">
+        {CHARACTERS.map((entry) => (
+          <button key={entry.id} type="button" role="radio" aria-checked={entry.id === who.id} className={`avatar-character${entry.id === who.id ? ' active' : ''}`}
+            title={entry.title} onClick={() => onSettings({ ...settings, avatarCharacter: entry.id })}>
+            <PixelStage anim={entry.id === who.id ? 'wave' : 'idle'} character={entry.id} scale={1.5} />
+            <strong>{entry.name}</strong>
+            <span>{entry.title}</span>
+          </button>
+        ))}
       </div>
 
       <div className="avatar-stage-row">
         <div className="avatar-stage">
           <span className="avatar-stage-caption">{member ? `${member.name} — “${member.motto}”` : move.when}</span>
-          <PixelStage anim={member ? SEAT_ANIM[member.id] : move.anim} color={move.color} scale={3} />
+          <PixelStage anim={member ? SEAT_ANIM[member.id] : move.anim} color={move.color} character={who.id} scale={3} />
         </div>
         <div className="avatar-moves-col">
-          <h4>What Heli does</h4>
+          <h4>What {name} does</h4>
           <div className="avatar-moves" role="group" aria-label="Preview a move">
             {MOVES.map((entry) => (
               <button key={entry.anim} type="button" className={`btn btn-small${!member && entry.anim === move.anim ? ' active' : ''}`} onClick={() => { setMove(entry); setSeat(null); }}>
@@ -98,21 +113,21 @@ export function AvatarSettings({ settings, onSettings }: Props) {
             ))}
           </div>
           <ul className="avatar-tips">
-            <li><strong>Drag Heli</strong> anywhere: it laughs and wriggles to get loose, falls where you let go and makes that its new spot.</li>
-            <li><strong>Click Heli</strong> for a giggle.</li>
-            <li><strong>Hands off while it works:</strong> clips, layers and settings are Heli’s until Helios AI finishes. Playing, scrolling and zooming are fine.</li>
+            <li><strong>Drag {name}</strong> anywhere: it laughs and wriggles to get loose, falls where you let go and makes that its new spot.</li>
+            <li><strong>Click {name}</strong> for a giggle.</li>
+            <li><strong>Hands off while it works:</strong> clips, layers and settings are {name}’s until Bhippi AI finishes. Playing, scrolling and zooming are fine.</li>
           </ul>
         </div>
       </div>
 
       <h4>The council</h4>
       <p className="muted small avatar-council-intro">
-        Five specialists hold every video to their craft. When one of their tools runs — or Helios AI spawns one as a worker — Heli puts on that seat’s gear and its name tag.
+        Five specialists hold every video to their craft. When one of their tools runs — or Bhippi AI spawns one as a worker — {name} puts on that seat’s gear and its name tag.
       </p>
       <div className="avatar-council">
         {COUNCIL.map((entry) => (
           <button key={entry.id} type="button" className={`avatar-seat${seat === entry.id ? ' active' : ''}`} style={{ ['--seat' as string]: entry.color }} onClick={() => setSeat(entry.id)}>
-            <PixelStage anim={SEAT_ANIM[entry.id]} scale={1} />
+            <PixelStage anim={SEAT_ANIM[entry.id]} character={who.id} scale={1} />
             <div>
               <strong>{entry.name}</strong>
               <span>{entry.title}</span>

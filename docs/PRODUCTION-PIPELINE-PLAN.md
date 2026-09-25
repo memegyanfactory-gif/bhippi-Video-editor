@@ -1,6 +1,6 @@
-# Helios production pipeline — plan and status
+# Bhippi production pipeline — plan and status
 
-Written 2026-09-22. This is the plan for making Helios AI behave like a producer
+Written 2026-09-22. This is the plan for making Bhippi AI behave like a producer
 and an editor: plan first, gather second, edit third, polish last, with the user
 pressing a button between each phase. It also covers the Crimson motion-graphic
 system, the magic eraser, beat-aware sound, and the rebuilt system monitor.
@@ -9,7 +9,7 @@ system, the magic eraser, beat-aware sound, and the rebuilt system monitor.
 
 | Finding | Where | Effect on the user |
 |---|---|---|
-| Every tool call except three timed out at 60 s on the Rust side | `src-tauri/src/ai_tools.rs` `CALL_TIMEOUT` | Video generation (waits up to 6 min) and `ask_user` (waits for a human) failed with "Helios did not respond" while the frontend kept working. The model then improvised. |
+| Every tool call except three timed out at 60 s on the Rust side | `src-tauri/src/ai_tools.rs` `CALL_TIMEOUT` | Video generation (waits up to 6 min) and `ask_user` (waits for a human) failed with "Bhippi did not respond" while the frontend kept working. The model then improvised. |
 | Generation and download tools were always allowed | `src/lib/editWorkflow.ts` `preparation` set | The model generated media during planning, before any script or shot list existed. |
 | Blueprint asset status never advanced | nothing writes `status: 'ready'` | The "0/N assets ready" badge was permanently 0; the user could not see progress. |
 | HTML motion graphics export as one static white title | `project.rs` `Graphic::from_clip`, `video.rs` `role()` | Every animated card, chart or panel became a centred white line of text in the MP4. |
@@ -110,8 +110,8 @@ PLAN ──[Start generating]──▶ GATHER ──[Start editing]──▶ EDI
 | `npx vitest run` | 51 files, 342 tests pass (1 skipped) |
 | `npx tsc -b` | clean |
 | `npx eslint` on every changed file | clean |
-| `cargo check -p helios` | clean |
-| `cargo test -p helios --lib` | 142 pass, 2 ignored (live provider tests) |
+| `cargo check -p bhippi` | clean |
+| `cargo test -p bhippi --lib` | 142 pass, 2 ignored (live provider tests) |
 | `cargo clippy --all-targets -D warnings` | fails on **pre-existing** dead-code lints in `mcp_client.rs`, `render.rs`, `roto.rs`, `web_media.rs`, `subagent.rs`; nothing new from this work |
 
 ## Known limits (say these to the user, do not hide them)

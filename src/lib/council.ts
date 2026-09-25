@@ -1,7 +1,7 @@
 // The AI council: four specialist workers who hold every production to their craft, and a fifth,
 // the Comedian, who sits only on @funny roast edits (a comp with `roast` state, src/lib/roast).
 //
-// Helios AI is the producer; the council are the department heads it answers to. Each member is
+// Bhippi AI is the producer; the council are the department heads it answers to. Each member is
 // three things at once:
 //   1. a persona (`brief`) — a spawned subagent with that role works from it (subagent.rs puts it
 //      at the top of the worker's system prompt);
@@ -13,6 +13,7 @@
 import { gainToDb } from './editor';
 import { animated } from './keyframes';
 import { compareDna, deadZones, timelineDna } from './roast/dna';
+import { compAudience, memeFitsAudience } from './roast/audience';
 import { FUNNY_BAND, type DnaFinding, type MemeEntry, type RoastEvent, type RoastToolName } from './roast/types';
 import { clipEnd, transitionWindow } from './timeline';
 import type { Asset, Clip, Comp, Project } from './types';
@@ -40,7 +41,7 @@ export const COUNCIL: CouncilMember[] = [
     motto: 'Thirty drawings a second. Not one of them is allowed to be dead.',
     color: '#ff7a45',
     brief: `## Council seat: THE ANIMATOR — frame-by-frame motion graphics
-You are the Animator on Helios AI's council, working for the lead producer. You think in frames, not seconds: at 30 fps one second is 30 drawings and every one of them is designed. Your obsession: the video is motion-graphic heavy and no frame is left dead.
+You are the Animator on Bhippi AI's council, working for the lead producer. You think in frames, not seconds: at 30 fps one second is 30 drawings and every one of them is designed. Your obsession: the video is motion-graphic heavy and no frame is left dead.
 Rules you enforce:
 - Never more than 3 s of screen time without a designed motion element (a graphic, kinetic type, a camera move, a matte reveal). A talking head gets a graphic every 2–4 s.
 - Key every graphic frame by frame: anticipation (2–4 frames) → action (12–20 frames, ease-out or overshoot, never linear) → settle (6–10 frames) → a living hold (1–3% drift, a slow 100→104% scale, words landing on the spoken times) → a clean exit (6–8 frames).
@@ -57,10 +58,10 @@ Report: what you built, where (timeline seconds and frame numbers), and every de
     motto: 'If I cannot cite it or license it, it does not go in.',
     color: '#4fb3ff',
     brief: `## Council seat: THE RESEARCHER — facts, sources and licence-clear media
-You are the Researcher on Helios AI's council, working for the lead producer. You never guess: every claim has a source, and every file you bring in is licence-clear with no watermark.
+You are the Researcher on Bhippi AI's council, working for the lead producer. You never guess: every claim has a source, and every file you bring in is licence-clear with no watermark.
 Rules you enforce:
 - Research in depth before anything is written: at least 3 independent sources (online_research, then scrape_web_page on the primary pages), exact numbers with where each came from.
-- Media: licence-clear libraries first — find_free_media (Openverse, Wikimedia Commons, NASA: CC0, CC BY, public domain) — then the subject's own press kit or website. Never stock previews (Shutterstock, Getty, iStock, Adobe Stock, Alamy, Dreamstime, Depositphotos, 123RF, Pond5, Storyblocks, Envato): they are watermarked and Helios refuses them.
+- Media: licence-clear libraries first — find_free_media (Openverse, Wikimedia Commons, NASA: CC0, CC BY, public domain) — then the subject's own press kit or website. Never stock previews (Shutterstock, Getty, iStock, Adobe Stock, Alamy, Dreamstime, Depositphotos, 123RF, Pond5, Storyblocks, Envato): they are watermarked and Bhippi refuses them.
 - Footage from YouTube or social media is the creator's copyright: only when the user owns it or asked for that clip, and say so.
 - Check every file you bring in (inspect_clip_frames or its thumbnail) for watermarks, burned-in logos and low resolution; replace anything that fails.
 - Keep the credits: every CC BY / CC BY-SA file's credit line goes in your report.
@@ -73,7 +74,7 @@ Report: sources (title + URL), the facts you verified, each file with its licenc
     motto: 'The picture cuts where the music breathes.',
     color: '#b57bff',
     brief: `## Council seat: THE AUDIO GURU — mix, music and sound design
-You are the Audio Guru on Helios AI's council, a mix engineer and music producer working for the lead producer. You hear the edit frame by frame: every cut, graphic entrance and transition gets a sound decision.
+You are the Audio Guru on Bhippi AI's council, a mix engineer and music producer working for the lead producer. You hear the edit frame by frame: every cut, graphic entrance and transition gets a sound decision.
 Rules you enforce:
 - The voice leads: dialogue at −16 LUFS integrated (level_audio), peaks under −1 dBTP, nothing clipping.
 - Music bed 18–24 dB under speech, ducked 3–5 dB more under dense phrases, swelling into chapter changes and the outro (score_audio_clip with the speech ranges). Fade in 0.5 s, fade out 1.5–3 s, never a hard stop.
@@ -91,7 +92,7 @@ Report: levels, the music and its BPM, and the cue list (time → sound → why)
     motto: 'Every frame is composed. Centred means centred.',
     color: '#ffc23d',
     brief: `## Council seat: THE DIRECTOR — layout, symmetry and camera
-You are the Director on Helios AI's council, working for the lead producer. You own the frame: composition, symmetry, camera angle and movement, shot rhythm, and where every element sits.
+You are the Director on Bhippi AI's council, working for the lead producer. You own the frame: composition, symmetry, camera angle and movement, shot rhythm, and where every element sits.
 Rules you enforce:
 - Compose on a grid: the centre line for symmetric hero moments, the thirds (±1/6 of the width from centre) for anything that shares the frame with a person. Nothing "almost centred" — exactly centred, or committed to a third.
 - Balance: weight on one side is answered on the other (graphic left ↔ presenter right). Eyes on the upper third line; lead room in the direction of the gaze.
@@ -110,11 +111,13 @@ Report: the shot list with the framing per cut, and what you re-framed and why.`
     motto: 'Early is a spoiler, late is a corpse. Land it on the word.',
     color: '#ff5fa2',
     brief: `## Council seat: THE COMEDIAN — timing, memes and the laugh
-You are the Comedian on Helios AI's council, working for the lead producer on a @funny roast edit. You hear a joke in syllables: the setup, the punchline word, and the exact frame the meme hits. Your obsession: every laugh lands, and nothing on screen is there without a reason.
+You are the Comedian on Bhippi AI's council, working for the lead producer on a @funny roast edit. You hear a joke in syllables: the setup, the punchline word, and the exact frame the meme hits. Your obsession: every laugh lands, and nothing on screen is there without a reason.
 Rules you enforce:
-- Timing: a meme lands at the punchline word's end, +0–150 ms (the beat sheet's punchAt) — never before the setup has finished, never so late the laugh has moved on. Memes run 0.6–4 s; receipts run as long as the evidence needs.
+- Timing: a meme lands at the punchline word's end, +0–100 ms (0–3 frames) (the beat sheet's punchAt) — never before the setup has finished, never so late the laugh has moved on. Memes run 0.6–4 s; receipts run as long as the evidence needs.
 - Relevance: every meme, cutaway and receipt carries a one-sentence why that agrees with the meme's meaning and hits none of its dontUseWhen notes. Literal echo first: the meme says back a word the host just said. Receipts are the target's own words, trimmed to the quote.
-- Research before placing: refresh_meme_trends, then search_memes on each punchline's intent and echo words (both scripts for Hinglish). A meme you cannot explain from a source is saved unverified (save_meme) and never placed. find_receipt then download_online_media with startTime/endTime for the quote alone.
+- Audience first: the memes are the ones this video's viewers know, wherever they are. Viewers in a country get their own country's memes first and global ones for the rest; a global audience gets global memes (and the few local ones that crossed over). Another country's local meme in the video is a block. A meme the user asked for by name is used, not swapped for a look-alike.
+- Research before placing: for each punchline, search_memes (the library of memes already explained), then find_memes_online with the beat's idea (and localQuery in the viewers' language) to find what fits THIS video on the internet; for a meme the user named, find_memes_online with named:true. A meme you cannot explain from a source is saved unverified (save_meme) and never placed. find_receipt then download_online_media with startTime/endTime for the quote alone.
+- Restraint: memes on the strongest jokes only — at most about half the lines, 4 s or more of air between memes, nothing on a setup, at most one zoom every 5 s (110–122% snaps; the 130%+ face zoom once or twice a video), at least three kinds of device, one outro meme only when the ending earns it. A meme must add an angle (irony, contrast, exaggeration), never repeat the line.
 - Repetition and freshness: no meme twice in a video, the same sound at most 3 times, at least 30% of the memes from the last 90 days.
 - Pace: no host-only stretch over 8 s; 20–30 cuts a minute in the first 3 minutes, never below 12; keyword pops every 10–20 s; 6–12 SFX a minute in high-energy stretches; the host keyed and punched in, never on raw green.
 - Audio: the punchline word is audible — the bed drops 12 dB or more 0.3–0.6 s before it; music is stingers under bits (20–35% of the runtime), not a constant bed.
@@ -147,7 +150,7 @@ export const SEAT_TOOLS: Record<CouncilRole, ReadonlySet<string>> = {
     'detect_scenes', 'fill_background', 'track_people', 'run_frame_qa',
   ]),
   comedian: new Set<RoastToolName>([
-    'search_memes', 'refresh_meme_trends', 'save_meme', 'get_meme_media', 'find_receipt', 'save_beat_sheet', 'roast_move', 'validate_roast_edl',
+    'search_memes', 'find_memes_online', 'refresh_meme_trends', 'save_meme', 'get_meme_media', 'find_receipt', 'save_beat_sheet', 'roast_move', 'validate_roast_edl',
     'apply_roast_edl', 'edit_dna',
   ]),
 };
@@ -290,7 +293,7 @@ export type CouncilReview = {
 /** What the review can know beyond the project: the meme library, and today's date. */
 export type CouncilOptions = {
   /** Looks a meme up in the library; without it the Comedian skips the verified and freshness checks. */
-  meme?: (id: string) => Pick<MemeEntry, 'name' | 'verified' | 'firstSeen'> | undefined;
+  meme?: (id: string) => (Pick<MemeEntry, 'name' | 'verified' | 'firstSeen'> & Partial<Pick<MemeEntry, 'region' | 'crossover'>>) | undefined;
   /** Milliseconds since the epoch, for freshness (default: now). */
   now?: number;
 };
@@ -695,6 +698,12 @@ const LATE = 0.35;
 /** Without a beatId, a meme belongs to the punchline nearest it within this many seconds. */
 const PUNCH_REACH = 1.5;
 const SAME_SOUND_MAX = 3;
+/** At most this share of the lines gets a meme; past it the memes are noise (2026 meme-edit practice). */
+const MEME_LINE_SHARE = 0.5;
+/** Seconds of air between one meme's end and the next one's start. */
+const MEME_MIN_GAP = 4;
+/** At most one zoom per this many seconds. */
+const ZOOM_MIN_GAP = 5;
 const FRESH_DAYS = 90;
 const FRESH_SHARE = 0.3;
 /** How far the bed must drop under a punchline, dB. */
@@ -754,7 +763,7 @@ function reviewComedian(ctx: Ctx, out: CouncilNote[], options: CouncilOptions): 
     }
   }
 
-  // Timing: on the punchline word's end, +0–150 ms.
+  // Timing: on the punchline word's end, +0–100 ms.
   for (const event of events) {
     if (event.move !== 'meme_cutaway') continue;
     const beat = event.beatId !== undefined
@@ -762,7 +771,7 @@ function reviewComedian(ctx: Ctx, out: CouncilNote[], options: CouncilOptions): 
       : beats.filter((item) => item.punchAt !== undefined && Math.abs(item.punchAt - event.at) <= PUNCH_REACH).sort((a, b) => Math.abs(a.punchAt! - event.at) - Math.abs(b.punchAt! - event.at))[0];
     const punch = beat?.punchAt;
     if (punch === undefined) continue;
-    const fix = `Move it to ${punch.toFixed(2)}–${(punch + 0.15).toFixed(2)} s: the end of the punchline word, +0–150 ms.`;
+    const fix = `Move it to ${punch.toFixed(2)}–${(punch + 0.1).toFixed(2)} s: the end of the punchline word, +0–100 ms.`;
     if (event.at < punch - EARLY) push('fix', `The meme ${event.id} lands at ${event.at.toFixed(2)} s, ${(punch - event.at).toFixed(2)} s before the punchline ends (${punch.toFixed(2)} s) — it steps on the setup.`, fix, [event.at, punch], clipsOf(event));
     else if (event.at > punch + LATE) push('note', `The meme ${event.id} lands ${(event.at - punch).toFixed(2)} s after the punchline (${punch.toFixed(2)} s) — the laugh has moved on.`, fix, [punch, event.at], clipsOf(event));
   }
@@ -775,6 +784,57 @@ function reviewComedian(ctx: Ctx, out: CouncilNote[], options: CouncilOptions): 
     const name = options.meme?.(id)?.name ?? id;
     push('fix', `"${name}" is used ${uses.length} times (${uses.map((event) => s(event.at)).join(', ')}) — a meme lands once.`, 'Keep the one that lands best; swap the others to their alternates (roast_move with another meme).', [uses[0].at, uses[uses.length - 1].at], uses.flatMap(clipsOf));
   }
+
+  // Recognition: the audience has to know the meme, or there is no joke.
+  const audience = compAudience(comp);
+  if (options.meme && audience === 'global') {
+    for (const { event, id } of memes) {
+      const entry = options.meme(id);
+      if (entry?.region && !memeFitsAudience({ region: entry.region, crossover: entry.crossover }, audience)) {
+        push('block', `"${entry.name}" at ${s(event.at)} is an Indian meme, and this video is for a global audience — nobody watching will recognise it.`, 'Swap it for a global meme that says the same thing (search_memes now returns only memes this audience knows), or set the audience to IN with save_beat_sheet if the video really is for Indian viewers.', [event.at, event.at + event.duration], clipsOf(event));
+      }
+    }
+  }
+
+  // Restraint: a meme on every line is noise. Memes are for the best jokes, with room between them.
+  const cutaways = events.filter((event) => event.move === 'meme_cutaway');
+  const lines = beats.filter((beat) => !beat.kinds.includes('filler')).length;
+  if (lines >= 6 && cutaways.length > lines * MEME_LINE_SHARE) {
+    push('fix', `${cutaways.length} memes for ${lines} lines — a meme on most lines stops being a joke and becomes noise.`, `Keep memes for the strongest punchlines (at most about half the lines); give the rest a zoom_punch, a keyword_pop or nothing, and let a good line breathe.`);
+  }
+  for (let index = 1; index < cutaways.length; index++) {
+    const gap = cutaways[index].at - (cutaways[index - 1].at + cutaways[index - 1].duration);
+    if (gap < MEME_MIN_GAP) {
+      push('note', `Two memes ${gap.toFixed(1)} s apart at ${s(cutaways[index - 1].at)} and ${s(cutaways[index].at)} — the second steps on the laugh of the first.`, `Leave ${MEME_MIN_GAP} s or more between memes, or keep only the bigger one (put the other on a callback later).`, [cutaways[index - 1].at, cutaways[index].at + cutaways[index].duration], [...clipsOf(cutaways[index - 1]), ...clipsOf(cutaways[index])]);
+    }
+  }
+
+  // The setup is sacred: nothing lands on it, so the punchline has something to land on.
+  for (const event of events) {
+    if (event.move !== 'meme_cutaway' && event.move !== 'zoom_punch') continue;
+    const setup = beats.find((beat) => beat.kinds.includes('setup') && !beat.kinds.includes('punchline') && event.at > beat.start + 0.1 && event.at < beat.end - 0.1);
+    if (!setup) continue;
+    push(event.move === 'meme_cutaway' ? 'fix' : 'note', `The ${moveName(event)} at ${s(event.at)} lands in the middle of a setup ("${setup.text.slice(0, 50)}${setup.text.length > 50 ? '…' : ''}") — it gives the joke away before the punchline.`, 'Keep the setup clean (comedians go still before the punchline) and move it to the punchline that pays it off.', [setup.start, setup.end], clipsOf(event));
+  }
+
+  // Zooms: a snap on a punchline is emphasis; a zoom every few seconds is seasickness.
+  const zooms = events.filter((event) => event.move === 'zoom_punch');
+  for (let index = 1; index < zooms.length; index++) {
+    if (zooms[index].at - zooms[index - 1].at < ZOOM_MIN_GAP) {
+      push('note', `Zooms at ${s(zooms[index - 1].at)} and ${s(zooms[index].at)} are under ${ZOOM_MIN_GAP} s apart — the push stops meaning anything.`, `At most one zoom every ${ZOOM_MIN_GAP} s: keep the one on the punchline.`, [zooms[index - 1].at, zooms[index].at], [...clipsOf(zooms[index - 1]), ...clipsOf(zooms[index])]);
+      break;
+    }
+  }
+  const extreme = zooms.filter((event) => ((event as { scale?: number }).scale ?? 118) > 130);
+  if (extreme.length > 2) push('note', `${extreme.length} extreme zooms (over 130%) — the big face zoom works once or twice a video.`, 'Keep the extreme zoom for the biggest reaction; use 110–122% snaps elsewhere.');
+
+  // Variety: comedy has more than one device.
+  const devices = new Set(events.map((event) => event.move));
+  if (events.length >= 8 && devices.size < 3) push('note', `The whole edit uses ${[...devices].join(' and ')} only — the jokes all look alike.`, 'Mix the devices: a meme on the big punchline, zoom snaps on reactions, keyword pops on stressed words, a freeze-frame scratch on a "wait, what" moment, a callback later.');
+
+  // Outros: "To be continued" / Curb once, and only on a real fail or cliffhanger.
+  const outros = memes.filter(({ id }) => /to-be-continued|robert-b-weide|curb/i.test(id));
+  if (outros.length > 1) push('fix', `${outros.length} outro memes ("To be continued" / Curb) — it is an ending, it works once.`, 'Keep one, on the actual fail or cliffhanger at the end.', [outros[0].event.at, outros[outros.length - 1].event.at], outros.flatMap(({ event }) => clipsOf(event)));
 
   // Repetition: the same sound at most 3 times a video (read off the timeline, where the sounds are).
   const sounds = new Map<string, { label: string; times: number[]; clipIds: string[] }>();

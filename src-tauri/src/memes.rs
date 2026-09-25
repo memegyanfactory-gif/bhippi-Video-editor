@@ -3,7 +3,7 @@
 //! refresh from the web, and a cache of the meme clips themselves.
 //!
 //! ```text
-//! <storage root>/Memes/          default: Documents/Helios/Memes
+//! <storage root>/Memes/          default: Documents/Bhippi/Memes
 //!   library.json                 entries the AI saved (and overrides of seed entries, by id)
 //!                                plus the index of fetched media
 //!   trends.json                  the last trend refresh: candidates, per-provider counts, problems
@@ -134,7 +134,7 @@ pub struct MemeEntry {
     pub intent: Vec<String>,
     #[serde(default)]
     pub formats: Vec<MemeFormat>,
-    /// `IN` or `global`.
+    /// `global` (the whole internet knows it) or the ISO 3166 country it is known in: `IN`, `BR`, `JP`…
     #[serde(default = "global_region")]
     pub region: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -152,6 +152,9 @@ pub struct MemeEntry {
     /// False until the meaning was checked against a source; unverified memes are never auto-placed.
     #[serde(default)]
     pub verified: bool,
+    /// A local meme the wider internet knows too ("Moye Moye", "Binod"): usable for any audience.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub crossover: bool,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, Value>,
 }
@@ -178,6 +181,18 @@ pub struct TrendCandidate {
     pub seen_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score: Option<f64>,
+    /// `IN` when it came from an Indian feed or is written in Devanagari; unset when unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+}
+
+/// Where a trend candidate is from, when its feed or script says: Indian subreddits, the
+/// "…India" YouTube search, Devanagari titles.
+fn candidate_region(candidate: &TrendCandidate) -> Option<String> {
+    let provider = candidate.provider.to_lowercase();
+    let about = candidate.explainer.as_deref().unwrap_or_default().to_lowercase();
+    let devanagari = candidate.name.chars().any(|c| ('\u{0900}'..='\u{097F}').contains(&c));
+    (provider.contains("indian") || about.contains("meme india\"") || devanagari).then(|| "IN".to_owned())
 }
 
 /// What `memes_refresh` answers, and what trends.json holds.
@@ -368,8 +383,8 @@ pub fn validate(entry: &MemeEntry) -> Result<(), String> {
     if !unknown.is_empty() {
         problems.push(format!("unknown intent(s) {} — use COMIC_INTENTS: {}", unknown.join(", "), COMIC_INTENTS.join(", ")));
     }
-    if entry.region != "IN" && entry.region != "global" {
-        problems.push(format!("region \"{}\" must be IN or global", entry.region));
+    if !is_region(&entry.region) {
+        problems.push(format!("region \"{}\" must be global or a two-letter country code (IN, US, BR, JP…)", entry.region));
     }
     if !entry.origin.kind.is_empty() && !ORIGIN_KINDS.contains(&entry.origin.kind.as_str()) {
         problems.push(format!("origin.kind \"{}\" must be one of {}", entry.origin.kind, ORIGIN_KINDS.join(", ")));
@@ -655,8 +670,11 @@ pub struct SearchRequest {
     pub echo: Vec<String>,
     pub intent: Option<String>,
     pub emotion: Option<String>,
-    /// IN · global; unset: IN first when the words look Hinglish or Devanagari.
+    /// global, a country code, or any; unset: the audience's, else IN when the words look Hinglish.
     pub region: Option<String>,
+    /// Who the video is for: `global` or a country code (`IN`, `BR`, `US`…). Nobody gets another
+    /// country's local meme unless it crossed over: an in-joke nobody watching recognises is not a joke.
+    pub audience: Option<String>,
     /// A format type the meme must have (clip, image, sound…).
     pub format: Option<String>,
     pub limit: Option<usize>,
@@ -847,22 +865,39 @@ fn score_entry(entry: &MemeEntry, request: &SearchRequest, prefer_region: Option
     Some((round2(score), reasons))
 }
 
+/// `global`, or an upper-case ISO 3166 alpha-2 country code.
+pub fn is_region(region: &str) -> bool {
+    region == "global" || (region.len() == 2 && region.chars().all(|c| c.is_ascii_uppercase()))
+}
+
+/// Whether a meme suits an audience (`global` or a country code): global memes and memes that
+/// crossed over suit everyone; a local meme suits only viewers from its own country.
+pub fn audience_fits(entry: &MemeEntry, audience: &str) -> bool {
+    entry.region.eq_ignore_ascii_case("global") || entry.crossover || entry.region.eq_ignore_ascii_case(audience.trim())
+}
+
 /// Ranks `entries` for a search: best first, ties by id, so the same search answers the same.
 pub fn search(entries: &[MemeEntry], request: &SearchRequest, trending: &HashSet<String>) -> Vec<MemeHit> {
+    let audience = request.audience.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(region_code);
     let prefer_region = match request.region.as_deref().map(str::trim) {
-        Some(region) if region.eq_ignore_ascii_case("in") => Some("IN"),
-        Some(region) if region.eq_ignore_ascii_case("global") => Some("global"),
         Some(region) if region.eq_ignore_ascii_case("any") => None,
+        Some(region) if !region.is_empty() => Some(region_code(region)),
+        _ if audience.is_some() => audience.clone(),
         _ => {
             let words = format!("{} {}", request.query, request.echo.join(" "));
-            looks_hinglish(&words).then_some("IN")
+            looks_hinglish(&words).then(|| "IN".to_owned())
         }
     };
     let mut hits: Vec<MemeHit> = entries
         .iter()
         .filter(|entry| entry.verified || request.include_unverified)
+        // Viewers do not know another country's local memes, however well they match.
+        .filter(|entry| audience.as_deref().is_none_or(|audience| audience_fits(entry, audience)))
         .filter_map(|entry| {
-            let (score, mut reasons) = score_entry(entry, request, prefer_region, trending)?;
+            let (score, mut reasons) = score_entry(entry, request, prefer_region.as_deref(), trending)?;
+            if entry.crossover && audience.as_deref().is_some_and(|audience| !entry.region.eq_ignore_ascii_case(audience)) {
+                reasons.push(format!("{} meme known worldwide", entry.region));
+            }
             if !entry.verified {
                 reasons.push("unverified — do not auto-place".to_owned());
             }
@@ -1151,7 +1186,7 @@ async fn kym(client: &reqwest::Client) -> Outcome {
                 explainer: page.explainer.or_else(|| (!fallback.is_empty()).then(|| clip_text(&fallback, 800))),
                 media_urls: media,
                 seen_at: item.published,
-                score: Some(round2(1.0 - rank as f64 / count * 0.5)),
+                score: Some(round2(1.0 - rank as f64 / count * 0.5)), region: None
             }
         })
         .collect();
@@ -1177,7 +1212,7 @@ fn parse_imgflip(json: &Value, limit: usize) -> Vec<TrendCandidate> {
                 explainer: None,
                 media_urls: media,
                 seen_at: None,
-                score: Some(round2(1.0 - rank as f64 / count * 0.5)),
+                score: Some(round2(1.0 - rank as f64 / count * 0.5)), region: None
             })
         })
         .collect()
@@ -1228,7 +1263,7 @@ fn parse_reddit_atom(xml: &str, fallback: &str) -> Vec<TrendCandidate> {
                 explainer: None,
                 media_urls: media,
                 seen_at: tag_text(entry, "published"),
-                score: Some(round2(1.0 - rank as f64 / count * 0.5)),
+                score: Some(round2(1.0 - rank as f64 / count * 0.5)), region: None
             })
         })
         .collect()
@@ -1237,9 +1272,13 @@ fn parse_reddit_atom(xml: &str, fallback: &str) -> Vec<TrendCandidate> {
 /// One weekly-top feed. A 429 whose window resets within `max_wait` seconds is waited out once; a
 /// longer one is reported (the next refresh gets it).
 async fn reddit_feed(client: &reqwest::Client, subs: &str, limit: u32, max_wait: f64) -> CommandResult<Vec<TrendCandidate>> {
-    let url = format!("https://www.reddit.com/r/{subs}/top/.rss?t=week&limit={limit}");
+    reddit_get(client, &format!("https://www.reddit.com/r/{subs}/top/.rss?t=week&limit={limit}"), subs, max_wait).await
+}
+
+/// Any Reddit Atom feed (a subreddit's top, a search), with the 429 handling of [`reddit_feed`].
+async fn reddit_get(client: &reqwest::Client, url: &str, subs: &str, max_wait: f64) -> CommandResult<Vec<TrendCandidate>> {
     for attempt in 0..2 {
-        let response = client.get(&url).send().await.map_err(|error| format!("{error}"))?;
+        let response = client.get(url).send().await.map_err(|error| format!("{error}"))?;
         let status = response.status();
         if status.as_u16() == 429 {
             let reset = response.headers().get("x-ratelimit-reset").and_then(|value| value.to_str().ok()).and_then(|value| value.trim().parse::<f64>().ok()).unwrap_or(60.0);
@@ -1321,7 +1360,7 @@ fn parse_youtube(entries: &[Value], query: &str) -> Vec<TrendCandidate> {
                 explainer: Some(about),
                 media_urls: media,
                 seen_at: None,
-                score: entry.get("view_count").and_then(Value::as_f64).map(|views| round2(views / top)),
+                score: entry.get("view_count").and_then(Value::as_f64).map(|views| round2(views / top)), region: None
             })
         })
         .collect()
@@ -1397,7 +1436,7 @@ fn parse_klipy(json: &Value, kind: &str) -> Vec<TrendCandidate> {
                 explainer: None,
                 media_urls: media,
                 seen_at: None,
-                score: Some(round2(1.0 - rank as f64 / count * 0.5)),
+                score: Some(round2(1.0 - rank as f64 / count * 0.5)), region: None
             })
         })
         .collect()
@@ -1408,7 +1447,7 @@ async fn klipy(client: &reqwest::Client, key: Option<&str>) -> Outcome {
     let mut found = Vec::new();
     let mut problems = Vec::new();
     for kind in ["clips", "gifs", "static-memes", "stickers"] {
-        let url = format!("https://api.klipy.com/api/v1/{key}/{kind}/trending?page=1&per_page=20&customer_id=helios-desktop&locale=in&content_filter=medium");
+        let url = format!("https://api.klipy.com/api/v1/{key}/{kind}/trending?page=1&per_page=20&customer_id=bhippi-desktop&locale=in&content_filter=medium");
         match get_json(client, &url).await {
             Ok(json) if json.get("result").and_then(Value::as_bool) == Some(false) => problems.push(format!("klipy {kind}: the key was refused")),
             Ok(json) => found.extend(parse_klipy(&json, kind)),
@@ -1442,7 +1481,7 @@ fn parse_giphy(json: &Value) -> Vec<TrendCandidate> {
                 explainer: None,
                 media_urls: media,
                 seen_at: item.get("trending_datetime").and_then(Value::as_str).filter(|date| !date.starts_with("0000")).map(str::to_owned),
-                score: Some(round2(1.0 - rank as f64 / count * 0.5)),
+                score: Some(round2(1.0 - rank as f64 / count * 0.5)), region: None
             })
         })
         .collect()
@@ -1484,6 +1523,10 @@ fn assemble(outcomes: Vec<(&str, Outcome)>, library: &[MemeEntry], fetched_at: S
                     }
                 }
                 None => {
+                    let mut candidate = candidate;
+                    if candidate.region.is_none() {
+                        candidate.region = candidate_region(&candidate);
+                    }
                     index.insert(key, report.candidates.len());
                     report.candidates.push(candidate);
                 }
@@ -1994,23 +2037,373 @@ pub async fn memes_search(state: State<'_, Arc<AppState>>, request: SearchReques
 /// Trending memes from KYM, Imgflip, Reddit, YouTube (and KLIPY / GIPHY with a key). Answers
 /// trends.json when the last refresh is under 6 hours old, unless `force`.
 #[tauri::command]
-pub async fn memes_refresh(state: State<'_, Arc<AppState>>, force: Option<bool>, queries: Option<Vec<String>>) -> CommandResult<TrendReport> {
+pub async fn memes_refresh(state: State<'_, Arc<AppState>>, force: Option<bool>, queries: Option<Vec<String>>, audience: Option<String>) -> CommandResult<TrendReport> {
     let dir = memes_dir(&state);
+    let for_audience = |report: TrendReport| for_audience(report, audience.as_deref(), &library_entries(&dir));
     if !force.unwrap_or(false) {
         if let Some(mut cached) = load_trends(&dir).filter(|report| age_hours(&report.fetched_at).is_some_and(|hours| (0..TREND_TTL_HOURS).contains(&hours))) {
             cached.cached = true;
-            return Ok(cached);
+            return Ok(for_audience(cached));
         }
     }
-    // The keyed providers read their keys from the OS credential store (Settings › Memes).
+    // The keyed providers read their keys from the OS credential store, when one was saved.
     let keys = TrendKeys { klipy: key_of(crate::settings::get_api_key("klipy").as_deref()), giphy: key_of(crate::settings::get_api_key("giphy").as_deref()) };
     let ytdlp = crate::tools::find_tool("yt-dlp", None);
     let library = library_entries(&dir);
     let report = refresh_online(ytdlp.as_deref(), &keys, &queries.unwrap_or_default(), &library).await;
     std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
     crate::store::write_json(&dir.join("trends.json"), &report)?;
-    Ok(report)
+    Ok(for_audience(report))
 }
+
+/// The trends a video's audience can use: no candidates from another country's feeds and no
+/// library hits that are local to another country. The saved trends.json keeps everything.
+pub fn for_audience(mut report: TrendReport, audience: Option<&str>, library: &[MemeEntry]) -> TrendReport {
+    let Some(audience) = audience.map(str::trim).filter(|value| !value.is_empty()).map(region_code) else {
+        return report;
+    };
+    report.candidates.retain(|candidate| candidate.region.as_deref().is_none_or(|region| region == "global" || region == audience));
+    report.library_hits.retain(|id| library.iter().find(|entry| &entry.id == id).is_none_or(|entry| audience_fits(entry, &audience)));
+    report
+}
+
+/// `global`, or an upper-cased country code ("in" → "IN").
+fn region_code(value: &str) -> String {
+    if value.eq_ignore_ascii_case("global") { "global".to_owned() } else { value.to_ascii_uppercase() }
+}
+
+// ─────────────────────────────── online search ───────────────────────────────
+// The meme for one beat, found on the web when the edit needs it: what fits this video's words and
+// context, as its viewers' own internet would answer (their country's search results, in their
+// language), or a meme the user asked for by name. The library only keeps what was checked.
+
+/// How a country searches for memes: DuckDuckGo's `kl` region, the Accept-Language it sends, and
+/// the word its internet uses for "meme".
+struct Locale {
+    country: &'static str,
+    kl: &'static str,
+    accept_language: &'static str,
+    meme_word: &'static str,
+}
+
+const LOCALES: &[Locale] = &[
+    Locale { country: "US", kl: "us-en", accept_language: "en-US,en;q=0.9", meme_word: "meme" },
+    Locale { country: "GB", kl: "uk-en", accept_language: "en-GB,en;q=0.9", meme_word: "meme" },
+    Locale { country: "CA", kl: "ca-en", accept_language: "en-CA,en;q=0.9,fr-CA;q=0.6", meme_word: "meme" },
+    Locale { country: "AU", kl: "au-en", accept_language: "en-AU,en;q=0.9", meme_word: "meme" },
+    Locale { country: "NZ", kl: "nz-en", accept_language: "en-NZ,en;q=0.9", meme_word: "meme" },
+    Locale { country: "IE", kl: "ie-en", accept_language: "en-IE,en;q=0.9", meme_word: "meme" },
+    Locale { country: "IN", kl: "in-en", accept_language: "hi-IN,en-IN;q=0.9,en;q=0.8", meme_word: "meme" },
+    Locale { country: "PK", kl: "pk-en", accept_language: "ur-PK,en;q=0.8", meme_word: "meme" },
+    Locale { country: "PH", kl: "ph-en", accept_language: "en-PH,fil;q=0.9,en;q=0.8", meme_word: "meme" },
+    Locale { country: "SG", kl: "sg-en", accept_language: "en-SG,en;q=0.9", meme_word: "meme" },
+    Locale { country: "MY", kl: "my-en", accept_language: "ms-MY,en;q=0.8", meme_word: "meme" },
+    Locale { country: "ID", kl: "id-id", accept_language: "id-ID,id;q=0.9,en;q=0.6", meme_word: "meme" },
+    Locale { country: "VN", kl: "vn-vi", accept_language: "vi-VN,vi;q=0.9,en;q=0.6", meme_word: "meme" },
+    Locale { country: "TH", kl: "th-th", accept_language: "th-TH,th;q=0.9,en;q=0.6", meme_word: "มีม" },
+    Locale { country: "JP", kl: "jp-jp", accept_language: "ja-JP,ja;q=0.9,en;q=0.5", meme_word: "ミーム" },
+    Locale { country: "KR", kl: "kr-kr", accept_language: "ko-KR,ko;q=0.9,en;q=0.5", meme_word: "밈" },
+    Locale { country: "CN", kl: "cn-zh", accept_language: "zh-CN,zh;q=0.9,en;q=0.5", meme_word: "梗" },
+    Locale { country: "TW", kl: "tw-tzh", accept_language: "zh-TW,zh;q=0.9,en;q=0.5", meme_word: "梗" },
+    Locale { country: "HK", kl: "hk-tzh", accept_language: "zh-HK,zh;q=0.9,en;q=0.7", meme_word: "梗" },
+    Locale { country: "BR", kl: "br-pt", accept_language: "pt-BR,pt;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "PT", kl: "pt-pt", accept_language: "pt-PT,pt;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "MX", kl: "mx-es", accept_language: "es-MX,es;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "ES", kl: "es-es", accept_language: "es-ES,es;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "AR", kl: "ar-es", accept_language: "es-AR,es;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "CO", kl: "co-es", accept_language: "es-CO,es;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "CL", kl: "cl-es", accept_language: "es-CL,es;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "PE", kl: "pe-es", accept_language: "es-PE,es;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "FR", kl: "fr-fr", accept_language: "fr-FR,fr;q=0.9,en;q=0.5", meme_word: "mème" },
+    Locale { country: "BE", kl: "be-fr", accept_language: "fr-BE,nl-BE;q=0.9,en;q=0.5", meme_word: "mème" },
+    Locale { country: "DE", kl: "de-de", accept_language: "de-DE,de;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "AT", kl: "at-de", accept_language: "de-AT,de;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "CH", kl: "ch-de", accept_language: "de-CH,fr-CH;q=0.8,en;q=0.5", meme_word: "meme" },
+    Locale { country: "IT", kl: "it-it", accept_language: "it-IT,it;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "NL", kl: "nl-nl", accept_language: "nl-NL,nl;q=0.9,en;q=0.6", meme_word: "meme" },
+    Locale { country: "PL", kl: "pl-pl", accept_language: "pl-PL,pl;q=0.9,en;q=0.5", meme_word: "mem" },
+    Locale { country: "SE", kl: "se-sv", accept_language: "sv-SE,sv;q=0.9,en;q=0.6", meme_word: "meme" },
+    Locale { country: "NO", kl: "no-no", accept_language: "nb-NO,no;q=0.9,en;q=0.6", meme_word: "meme" },
+    Locale { country: "DK", kl: "dk-da", accept_language: "da-DK,da;q=0.9,en;q=0.6", meme_word: "meme" },
+    Locale { country: "FI", kl: "fi-fi", accept_language: "fi-FI,fi;q=0.9,en;q=0.6", meme_word: "meemi" },
+    Locale { country: "RU", kl: "ru-ru", accept_language: "ru-RU,ru;q=0.9,en;q=0.5", meme_word: "мем" },
+    Locale { country: "UA", kl: "ua-uk", accept_language: "uk-UA,uk;q=0.9,en;q=0.5", meme_word: "мем" },
+    Locale { country: "TR", kl: "tr-tr", accept_language: "tr-TR,tr;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "GR", kl: "gr-el", accept_language: "el-GR,el;q=0.9,en;q=0.5", meme_word: "meme" },
+    Locale { country: "IL", kl: "il-he", accept_language: "he-IL,he;q=0.9,en;q=0.6", meme_word: "מם" },
+    Locale { country: "SA", kl: "xa-ar", accept_language: "ar-SA,ar;q=0.9,en;q=0.5", meme_word: "ميمز" },
+    Locale { country: "AE", kl: "xa-ar", accept_language: "ar-AE,en;q=0.8", meme_word: "ميمز" },
+    Locale { country: "EG", kl: "xa-ar", accept_language: "ar-EG,ar;q=0.9,en;q=0.5", meme_word: "ميمز" },
+    Locale { country: "ZA", kl: "za-en", accept_language: "en-ZA,en;q=0.9", meme_word: "meme" },
+    Locale { country: "NG", kl: "wt-wt", accept_language: "en-NG,en;q=0.9", meme_word: "meme" },
+    Locale { country: "KE", kl: "wt-wt", accept_language: "en-KE,en;q=0.9,sw;q=0.8", meme_word: "meme" },
+];
+
+fn locale_of(audience: Option<&str>) -> Option<&'static Locale> {
+    let audience = audience?.trim();
+    LOCALES.iter().find(|locale| locale.country.eq_ignore_ascii_case(audience))
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OnlineRequest {
+    /// What the beat is about in a few words, or the meme's name when `named`.
+    pub query: String,
+    /// Concrete words from the beat a meme could repeat back.
+    pub echo: Vec<String>,
+    /// `global` or the viewers' country code (`US`, `BR`, `JP`…): search as their internet would.
+    pub audience: Option<String>,
+    /// The same query in the viewers' language, when it is not English ("cara de pau", "草").
+    pub local_query: Option<String>,
+    /// The user asked for this exact meme: find it and its explainer, nothing like it.
+    pub named: bool,
+    pub limit: Option<usize>,
+}
+
+/// The searches one request becomes.
+#[derive(Debug, PartialEq)]
+struct OnlinePlan {
+    /// Know Your Meme's own search: the explained memes.
+    kym: Vec<String>,
+    web: Vec<String>,
+    youtube: Vec<String>,
+    reddit: String,
+}
+
+fn online_plan(request: &OnlineRequest, locale: Option<&Locale>) -> OnlinePlan {
+    let query = request.query.trim();
+    let local = request.local_query.as_deref().map(str::trim).filter(|local| !local.is_empty() && !local.eq_ignore_ascii_case(query));
+    let meme_word = locale.map_or("meme", |locale| locale.meme_word);
+    let echo = request.echo.iter().map(|word| word.trim()).filter(|word| !word.is_empty()).take(3).collect::<Vec<_>>().join(" ");
+    let mut kym = Vec::new();
+    let mut web = Vec::new();
+    let mut youtube = Vec::new();
+    if request.named {
+        kym.push(query.to_owned());
+        web.push(format!("\"{query}\" meme"));
+        youtube.push(format!("{query} meme original"));
+        if let Some(local) = local {
+            kym.push(local.to_owned());
+            web.push(format!("\"{local}\" {meme_word}"));
+        }
+    } else {
+        // The viewers' own language first: that is where their memes are.
+        if let Some(local) = local {
+            kym.push(local.to_owned());
+            web.push(format!("{local} {meme_word}"));
+            youtube.push(format!("{local} {meme_word}"));
+        }
+        kym.push(query.to_owned());
+        web.push(format!("{query} meme"));
+        youtube.push(format!("{query} meme"));
+        if !echo.is_empty() && !query.to_lowercase().contains(&echo.to_lowercase()) {
+            kym.push(echo.clone());
+            web.push(format!("{echo} meme"));
+        }
+    }
+    kym.dedup();
+    kym.truncate(3);
+    web.dedup();
+    web.truncate(3);
+    youtube.dedup();
+    youtube.truncate(2);
+    OnlinePlan { kym, web, youtube, reddit: format!("{} meme", local.unwrap_or(query)) }
+}
+
+fn is_kym_meme(url: &str) -> bool {
+    // Events, people, sites and subcultures have pages too, but they are not memes to place.
+    url.contains("knowyourmeme.com/memes/")
+        && !["/photos", "/videos", "/memes/events/", "/memes/people/", "/memes/sites/", "/memes/subcultures/"].iter().any(|part| url.contains(part))
+}
+
+/// Know Your Meme's search page: each result is an `<a class="item" data-title="…" href="/memes/…">`
+/// in the results gallery, its `alt` a one-line description.
+fn parse_kym_search(html: &str, query: &str, max: usize) -> Vec<TrendCandidate> {
+    let Some(start) = html.find("<section class=\"gallery\"") else {
+        return Vec::new();
+    };
+    let gallery = &html[start..html[start..].find("</section>").map_or(html.len(), |end| start + end)];
+    let mut found: Vec<TrendCandidate> = Vec::new();
+    let mut rest = gallery;
+    while let Some(at) = rest.find("<a class=\"item\"") {
+        let tag = &rest[at..at + rest[at..].find('>').unwrap_or(rest.len() - at)];
+        rest = &rest[at + tag.len()..];
+        let (Some(href), Some(title)) = (attr(tag, "href"), attr(tag, "data-title")) else {
+            continue;
+        };
+        let url = if href.starts_with('/') { format!("https://knowyourmeme.com{href}") } else { href };
+        if !is_kym_meme(&url) || found.iter().any(|candidate| candidate.url == url) {
+            continue;
+        }
+        let about = attr(tag, "alt").filter(|alt| !alt.trim().is_empty());
+        found.push(TrendCandidate {
+            name: decode_entities(&title),
+            provider: "kym".to_owned(),
+            url,
+            explainer: about.map(|alt| format!("Know Your Meme search \"{query}\": {}", decode_entities(&alt))),
+            ..TrendCandidate::default()
+        });
+        if found.len() >= max {
+            break;
+        }
+    }
+    let count = found.len().max(1) as f64;
+    for (rank, candidate) in found.iter_mut().enumerate() {
+        candidate.score = Some(round2(1.0 - rank as f64 / count * 0.5));
+    }
+    found
+}
+
+async fn online_web(client: &reqwest::Client, plan: &OnlinePlan, locale: Option<&Locale>) -> Outcome {
+    let kym_searches = futures_util::future::join_all(plan.kym.iter().map(|query| async move {
+        let url = reqwest::Url::parse_with_params("https://knowyourmeme.com/search", &[("q", query.as_str())]).map_err(|error| error.to_string());
+        let page = match url {
+            Ok(url) => get_text(client, url.as_str()).await,
+            Err(error) => Err(error),
+        };
+        (query.clone(), page)
+    }));
+    let web_searches = futures_util::future::join_all(plan.web.iter().map(|query| async move {
+        (query.clone(), crate::web_media::web_search_localized(query, 8, locale.map(|l| l.kl), locale.map(|l| l.accept_language)).await)
+    }));
+    let (kym_searches, searches) = tokio::join!(kym_searches, web_searches);
+    let mut found = Vec::new();
+    let mut problems = Vec::new();
+    let mut kym_urls: Vec<String> = Vec::new();
+    for (query, page) in kym_searches {
+        match page {
+            Ok(html) => {
+                for candidate in parse_kym_search(&html, &query, 6) {
+                    push_unique(&mut kym_urls, Some(candidate.url.clone()));
+                    found.push(candidate);
+                }
+            }
+            Err(error) => problems.push(format!("kym search \"{query}\": {error}")),
+        }
+    }
+    let mut web_answered = false;
+    for (query, result) in searches {
+        match result {
+            Ok(results) => {
+                let count = results.len().max(1) as f64;
+                for (rank, result) in results.into_iter().enumerate() {
+                    // When DuckDuckGo refuses, web_search answers from Wikipedia: an article, not a meme.
+                    if result.url.contains("wikipedia.org") {
+                        continue;
+                    }
+                    web_answered = true;
+                    let kym = is_kym_meme(&result.url);
+                    if kym {
+                        push_unique(&mut kym_urls, Some(result.url.clone()));
+                    }
+                    found.push(TrendCandidate {
+                        name: result.title.trim_end_matches(" | Know Your Meme").trim().to_owned(),
+                        provider: if kym { "kym" } else { "web" }.to_owned(),
+                        url: result.url,
+                        explainer: (!result.snippet.is_empty()).then(|| format!("web search \"{query}\": {}", result.snippet)),
+                        media_urls: Vec::new(),
+                        seen_at: None,
+                        score: Some(round2(1.0 - rank as f64 / count * 0.5)),
+                        region: None,
+                    });
+                }
+            }
+            Err(error) => problems.push(format!("web \"{query}\": {error}")),
+        }
+    }
+    if !web_answered && !plan.web.is_empty() {
+        problems.push("web: DuckDuckGo gave no results (it refuses automated searches from some networks); Know Your Meme and YouTube still answered".to_owned());
+    }
+    // The first few Know Your Meme pages, read for their About / Origin text and image.
+    let pages = futures_util::future::join_all(kym_urls.iter().take(3).map(|url| async move { (url.clone(), get_text(client, url).await) })).await;
+    for (url, page) in pages {
+        match page {
+            Ok(html) => {
+                let page = parse_kym_page(&html, 900);
+                if let Some(candidate) = found.iter_mut().find(|candidate| candidate.url == url) {
+                    if let Some(name) = page.name {
+                        candidate.name = name;
+                    }
+                    if page.explainer.is_some() {
+                        candidate.explainer = page.explainer;
+                    }
+                    push_unique(&mut candidate.media_urls, page.image);
+                }
+            }
+            Err(error) => problems.push(format!("kym {url}: {error}")),
+        }
+    }
+    // Explained pages first: a Know Your Meme entry, then anything with an explainer.
+    found.sort_by_key(|candidate| (candidate.provider != "kym", candidate.explainer.is_none()));
+    (found, problems)
+}
+
+async fn online_reddit(client: &reqwest::Client, query: &str) -> Outcome {
+    let Ok(url) = reqwest::Url::parse_with_params("https://www.reddit.com/search.rss", &[("q", query), ("sort", "relevance"), ("t", "year"), ("limit", "15")]) else {
+        return (Vec::new(), vec!["reddit: bad query".to_owned()]);
+    };
+    match reddit_get(client, url.as_str(), "search", 10.0).await {
+        Ok(found) => (found, Vec::new()),
+        Err(error) => (Vec::new(), vec![format!("reddit search \"{query}\": {error}")]),
+    }
+}
+
+async fn online_youtube(ytdlp: Option<&Path>, queries: &[String]) -> Outcome {
+    let Some(ytdlp) = ytdlp else {
+        return (Vec::new(), vec!["youtube: yt-dlp is not installed (winget install yt-dlp)".to_owned()]);
+    };
+    let searches = futures_util::future::join_all(queries.iter().map(|query| async move { (query.clone(), ytdlp_search(ytdlp, &format!("ytsearch6:{query}")).await) })).await;
+    let mut found = Vec::new();
+    let mut problems = Vec::new();
+    for (query, result) in searches {
+        match result {
+            Ok(entries) => found.extend(parse_youtube(&entries, &query)),
+            Err(error) => problems.push(format!("youtube \"{query}\": {error}")),
+        }
+    }
+    (found, problems)
+}
+
+/// Searches the web, Know Your Meme, Reddit and YouTube for one request, as the audience's own
+/// internet would answer it. Candidates are not library memes until they are explained and saved.
+pub async fn find_online(ytdlp: Option<&Path>, request: &OnlineRequest, library: &[MemeEntry]) -> TrendReport {
+    let fetched_at = chrono::Utc::now().to_rfc3339();
+    let client = match http() {
+        Ok(client) => client,
+        Err(error) => return TrendReport { fetched_at, problems: vec![error], ..TrendReport::default() },
+    };
+    let locale = locale_of(request.audience.as_deref());
+    let plan = online_plan(request, locale);
+    let (web, reddit, youtube) = tokio::join!(online_web(&client, &plan, locale), online_reddit(&client, &plan.reddit), online_youtube(ytdlp, &plan.youtube));
+    let mut report = assemble(vec![("web", web), ("reddit", reddit), ("youtube", youtube)], library, fetched_at);
+    report.candidates = interleave(std::mem::take(&mut report.candidates));
+    report.candidates.truncate(request.limit.unwrap_or(20).clamp(1, 40));
+    report
+}
+
+/// Takes the best of each provider in turn (kym, youtube, web, reddit…), each keeping its own
+/// order, so a limit never leaves one source out.
+fn interleave(candidates: Vec<TrendCandidate>) -> Vec<TrendCandidate> {
+    let family = |candidate: &TrendCandidate| candidate.provider.split(' ').next().unwrap_or_default().to_owned();
+    let mut groups: Vec<(String, std::collections::VecDeque<TrendCandidate>)> = Vec::new();
+    for candidate in candidates {
+        let key = family(&candidate);
+        match groups.iter_mut().find(|(name, _)| *name == key) {
+            Some((_, group)) => group.push_back(candidate),
+            None => groups.push((key, std::collections::VecDeque::from([candidate]))),
+        }
+    }
+    let mut out = Vec::new();
+    while groups.iter().any(|(_, group)| !group.is_empty()) {
+        for (_, group) in &mut groups {
+            if let Some(candidate) = group.pop_front() {
+                out.push(candidate);
+            }
+        }
+    }
+    out
+}
+
 
 /// Validates and saves an entry (new, or replacing one with the same id).
 #[tauri::command]
@@ -2040,7 +2433,19 @@ pub async fn memes_fetch_media(state: State<'_, Arc<AppState>>, request: FetchRe
     fetch_media(&dir, &tools, &request).await
 }
 
-/// Library counts and the last refresh, for Settings › Memes.
+/// Finds memes for one beat (or one the user named) on the web, as the audience's internet would.
+#[tauri::command]
+pub async fn memes_find_online(state: State<'_, Arc<AppState>>, request: OnlineRequest) -> CommandResult<TrendReport> {
+    if request.query.trim().is_empty() {
+        return Err("query is empty: say what the beat is about, or the meme's name".to_owned());
+    }
+    let dir = memes_dir(&state);
+    let ytdlp = crate::tools::find_tool("yt-dlp", None);
+    let library = library_entries(&dir);
+    Ok(find_online(ytdlp.as_deref(), &request, &library).await)
+}
+
+/// Library counts and the last refresh.
 #[tauri::command]
 pub async fn memes_stats(state: State<'_, Arc<AppState>>) -> CommandResult<MemeStats> {
     let dir = memes_dir(&state);
@@ -2071,6 +2476,7 @@ mod tests {
             sources: vec![MemeSource { url: "https://knowyourmeme.com/memes/x".to_owned(), title: None }],
             safety: MemeSafety::default(),
             verified: true,
+            crossover: false,
             extra: serde_json::Map::new(),
         }
     }
@@ -2186,6 +2592,124 @@ mod tests {
     }
 
     #[test]
+    fn a_global_audience_never_gets_an_indian_meme_unless_it_crossed_over() {
+        let mut lib = library();
+        let none = HashSet::new();
+        // The poisoned-kheer meme matches "poison" perfectly, but a global viewer has never seen it.
+        let poison = SearchRequest { intent: Some("poison".to_owned()), audience: Some("global".to_owned()), ..SearchRequest::default() };
+        assert!(search(&lib, &poison, &none).is_empty());
+        // For an Indian audience it is the first hit, as before.
+        let indian = SearchRequest { audience: Some("IN".to_owned()), ..poison.clone() };
+        assert_eq!(ids(&search(&lib, &indian, &none)), vec!["amitabh-zeher-death"]);
+        // Even Hinglish words in the query do not bring it back for a global audience.
+        let hinglish = SearchRequest { query: "zeher bhai".to_owned(), ..poison.clone() };
+        assert!(!ids(&search(&lib, &hinglish, &none)).contains(&"amitabh-zeher-death"));
+        // An Indian meme the world knows is allowed, and says why.
+        lib.iter_mut().find(|entry| entry.id == "amitabh-zeher-death").unwrap().crossover = true;
+        let hits = search(&lib, &poison, &none);
+        assert_eq!(ids(&hits), vec!["amitabh-zeher-death"]);
+        assert!(hits[0].reasons.iter().any(|reason| reason == "IN meme known worldwide"));
+    }
+
+    #[test]
+    fn trend_candidates_carry_their_region_and_a_global_audience_sees_only_its_own() {
+        let candidate = |name: &str, provider: &str, explainer: Option<&str>| TrendCandidate { name: name.to_owned(), provider: provider.to_owned(), url: format!("https://x/{name}"), explainer: explainer.map(str::to_owned), ..TrendCandidate::default() };
+        assert_eq!(candidate_region(&candidate("x", "reddit r/IndianDankMemes", None)).as_deref(), Some("IN"));
+        assert_eq!(candidate_region(&candidate("x", "youtube", Some("YouTube, \"viral meme India\" · chan"))).as_deref(), Some("IN"));
+        assert_eq!(candidate_region(&candidate("मोये मोये", "klipy clips", None)).as_deref(), Some("IN"));
+        assert_eq!(candidate_region(&candidate("chill guy", "reddit r/memes", None)), None);
+        let lib = library();
+        let report = TrendReport {
+            candidates: vec![TrendCandidate { region: Some("IN".to_owned()), ..candidate("desi", "reddit r/IndianDankMemes", None) }, candidate("global", "kym", None)],
+            library_hits: vec!["amitabh-zeher-death".to_owned(), "dancing-husky".to_owned()],
+            ..TrendReport::default()
+        };
+        let global = for_audience(report.clone(), Some("global"), &lib);
+        assert_eq!(global.candidates.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["global"]);
+        assert_eq!(global.library_hits, vec!["dancing-husky".to_owned()]);
+        assert_eq!(for_audience(report.clone(), Some("IN"), &lib).candidates.len(), 2);
+        assert_eq!(for_audience(report, None, &lib).library_hits.len(), 2);
+    }
+
+    #[test]
+    fn a_countrys_local_memes_reach_only_its_own_viewers() {
+        let none = HashSet::new();
+        let mut lib = library();
+        let mut brazil = entry("br-cade-o-pix", "Cadê o Pix");
+        brazil.region = "BR".to_owned();
+        brazil.intent = vec!["poison".to_owned()];
+        lib.push(brazil);
+        let poison = |audience: &str| SearchRequest { intent: Some("poison".to_owned()), audience: Some(audience.to_owned()), ..SearchRequest::default() };
+        // Brazilian viewers get the Brazilian meme and not the Indian one; Indian viewers the reverse.
+        assert_eq!(ids(&search(&lib, &poison("BR"), &none)), vec!["br-cade-o-pix"]);
+        assert_eq!(ids(&search(&lib, &poison("in"), &none)), vec!["amitabh-zeher-death"]);
+        assert!(search(&lib, &poison("global"), &none).is_empty());
+        // Country codes are valid regions; anything else is not.
+        assert!(is_region("BR") && is_region("global") && !is_region("br") && !is_region("Brazil"));
+        let report = TrendReport {
+            candidates: vec![
+                TrendCandidate { name: "br".to_owned(), url: "https://x/br".to_owned(), region: Some("BR".to_owned()), ..TrendCandidate::default() },
+                TrendCandidate { name: "in".to_owned(), url: "https://x/in".to_owned(), region: Some("IN".to_owned()), ..TrendCandidate::default() },
+                TrendCandidate { name: "any".to_owned(), url: "https://x/any".to_owned(), ..TrendCandidate::default() },
+            ],
+            ..TrendReport::default()
+        };
+        let names = |report: TrendReport| report.candidates.into_iter().map(|c| c.name).collect::<Vec<_>>();
+        assert_eq!(names(for_audience(report.clone(), Some("br"), &lib)), vec!["br", "any"]);
+        assert_eq!(names(for_audience(report, Some("global"), &lib)), vec!["any"]);
+    }
+
+    #[test]
+    fn online_search_asks_as_the_audience_would() {
+        let request = OnlineRequest {
+            query: "someone pretends not to know".to_owned(),
+            local_query: Some("se fazendo de sonso".to_owned()),
+            echo: vec!["sonso".to_owned()],
+            audience: Some("br".to_owned()),
+            ..OnlineRequest::default()
+        };
+        let locale = locale_of(request.audience.as_deref());
+        assert_eq!(locale.map(|l| l.kl), Some("br-pt"));
+        let plan = online_plan(&request, locale);
+        // The viewers' own language comes first, then the English internet and Know Your Meme.
+        assert_eq!(plan.web, vec!["se fazendo de sonso meme".to_owned(), "someone pretends not to know meme".to_owned(), "sonso meme".to_owned()]);
+        assert_eq!(plan.kym, vec!["se fazendo de sonso".to_owned(), "someone pretends not to know".to_owned(), "sonso".to_owned()]);
+        assert_eq!(plan.youtube, vec!["se fazendo de sonso meme".to_owned(), "someone pretends not to know meme".to_owned()]);
+        assert_eq!(plan.reddit, "se fazendo de sonso meme");
+        // Japanese viewers search with their own word for meme.
+        let jp = OnlineRequest { query: "cat".to_owned(), local_query: Some("猫".to_owned()), audience: Some("JP".to_owned()), ..OnlineRequest::default() };
+        assert_eq!(online_plan(&jp, locale_of(Some("JP"))).web[0], "猫 ミーム");
+        // A meme the user named is looked up by its exact name.
+        let named = OnlineRequest { query: "Distracted Boyfriend".to_owned(), named: true, ..OnlineRequest::default() };
+        let plan = online_plan(&named, None);
+        assert_eq!(plan.web, vec!["\"Distracted Boyfriend\" meme".to_owned()]);
+        assert_eq!(plan.kym, vec!["Distracted Boyfriend".to_owned()]);
+        assert_eq!(plan.youtube, vec!["Distracted Boyfriend meme original".to_owned()]);
+        assert!(locale_of(Some("global")).is_none());
+        assert!(is_kym_meme("https://knowyourmeme.com/memes/distracted-boyfriend") && !is_kym_meme("https://knowyourmeme.com/memes/distracted-boyfriend/photos"));
+    }
+
+    #[test]
+    fn online_search_reads_know_your_meme_results_and_mixes_sources() {
+        let html = r#"<aside><a href="/memes/big-chungus">Big Chungus</a></aside>
+            <section class="gallery" data-page="1"><div class="groups">
+            <a class="item" data-data-entry-id="entry_id" alt="Distracted Boyfriend Template of the original stock photo" data-title="Distracted Boyfriend" href="/memes/distracted-boyfriend"><h3>Distracted Boyfriend</h3></a>
+            <a class="item" data-title="Distracted Boyfriend" href="/memes/distracted-boyfriend/photos/1234"></a>
+            <a class="item" alt="" data-title="Girl Crying Next to a Kissing Couple" href="/memes/girl-crying-next-to-a-kissing-couple"></a>
+            </div></section><footer><a class="item" data-title="Footer" href="/memes/footer"></a></footer>"#;
+        let found = parse_kym_search(html, "distracted boyfriend", 6);
+        assert_eq!(found.iter().map(|c| c.url.as_str()).collect::<Vec<_>>(), vec!["https://knowyourmeme.com/memes/distracted-boyfriend", "https://knowyourmeme.com/memes/girl-crying-next-to-a-kissing-couple"]);
+        assert_eq!(found[0].name, "Distracted Boyfriend");
+        assert!(found[0].explainer.as_deref().unwrap_or_default().contains("original stock photo"));
+        assert!(found[1].explainer.is_none());
+        assert!(parse_kym_search("<html>no results</html>", "x", 6).is_empty());
+
+        let candidate = |name: &str, provider: &str| TrendCandidate { name: name.to_owned(), provider: provider.to_owned(), ..TrendCandidate::default() };
+        let mixed = interleave(vec![candidate("k1", "kym"), candidate("k2", "kym"), candidate("k3", "kym"), candidate("y1", "youtube"), candidate("r1", "reddit r/memes"), candidate("y2", "youtube"), candidate("r2", "reddit r/brasil")]);
+        assert_eq!(mixed.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["k1", "y1", "r1", "k2", "y2", "r2", "k3"]);
+    }
+
+    #[test]
     fn memes_search_hides_unverified_and_is_deterministic() {
         let lib = library();
         let none = HashSet::new();
@@ -2211,7 +2735,7 @@ mod tests {
         bad.use_when = vec![" ".to_owned()];
         bad.sources = Vec::new();
         bad.intent = vec!["poison".to_owned(), "laugh".to_owned()];
-        bad.region = "US".to_owned();
+        bad.region = "usa".to_owned();
         bad.formats = vec![MemeFormat { kind: "video".to_owned(), ..MemeFormat::default() }];
         let error = validate(&bad).err().unwrap_or_default();
         for expected in ["kebab-case", "name is empty", "30 characters", "useWhen", "sources", "laugh", "region", "formats[0].type", "url or a yt-dlp query"] {
@@ -2237,6 +2761,12 @@ mod tests {
             }
         }
         assert_eq!(seed().len(), seen.len());
+        // Every shipped meme meets the bar a saved one must: sourced meaning, formats, a known region.
+        for entry in seed() {
+            validate(entry).unwrap_or_else(|error| panic!("seed {}: {error}", entry.id));
+        }
+        // Crossover marks only local memes.
+        assert!(seed().iter().all(|entry| !entry.crossover || entry.region != "global"));
     }
 
     #[test]
@@ -2248,7 +2778,7 @@ mod tests {
 
     #[test]
     fn memes_library_saves_merges_and_keeps_unknown_fields() {
-        let dir = std::env::temp_dir().join(format!("helios-memes-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-memes-{}", crate::store::new_id()));
         let mut saved = entry("my-meme", "My meme");
         saved.extra.insert("futureField".to_owned(), Value::from(7));
         saved.formats = vec![MemeFormat { kind: "clip".to_owned(), url: Some("https://youtu.be/abc".to_owned()), local_path: Some("C:/ignored.mp4".to_owned()), ..MemeFormat::default() }];
@@ -2401,13 +2931,13 @@ mod tests {
         assert_eq!(meta_property(r#"<meta name="x"><meta property="og:image" content="https://i/x.jpg">"#, "og:image").as_deref(), Some("https://i/x.jpg"));
     }
 
-    /// Live: every keyless provider (plus keyed ones when HELIOS_KLIPY_KEY / HELIOS_GIPHY_KEY are
-    /// set). `cargo test -p helios memes_live_refresh -- --ignored --nocapture`
+    /// Live: every keyless provider (plus keyed ones when BHIPPI_KLIPY_KEY / BHIPPI_GIPHY_KEY are
+    /// set). `cargo test -p bhippi memes_live_refresh -- --ignored --nocapture`
     #[test]
     #[ignore = "network"]
     fn memes_live_refresh() {
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("runtime");
-        let keys = TrendKeys { klipy: std::env::var("HELIOS_KLIPY_KEY").ok(), giphy: std::env::var("HELIOS_GIPHY_KEY").ok() };
+        let keys = TrendKeys { klipy: std::env::var("BHIPPI_KLIPY_KEY").ok(), giphy: std::env::var("BHIPPI_GIPHY_KEY").ok() };
         let ytdlp = crate::tools::find_tool("yt-dlp", None);
         let report = runtime.block_on(refresh_online(ytdlp.as_deref(), &keys, &[], seed()));
         println!("candidates: {}", report.candidates.len());
@@ -2420,13 +2950,37 @@ mod tests {
         assert!(!report.candidates.is_empty());
     }
 
+    /// Live: searches the internet for a beat's meme as Brazilian and as global viewers would, and
+    /// for a meme by name. `cargo test -p bhippi memes_live_find_online -- --ignored --nocapture`
+    #[test]
+    #[ignore = "network"]
+    fn memes_live_find_online() {
+        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("runtime");
+        let ytdlp = crate::tools::find_tool("yt-dlp", None);
+        let requests = [
+            OnlineRequest { query: "pretending everything is fine".to_owned(), audience: Some("global".to_owned()), ..OnlineRequest::default() },
+            OnlineRequest { query: "someone never pays you back".to_owned(), local_query: Some("cadê o pix".to_owned()), audience: Some("BR".to_owned()), ..OnlineRequest::default() },
+            OnlineRequest { query: "Distracted Boyfriend".to_owned(), named: true, ..OnlineRequest::default() },
+        ];
+        for request in requests {
+            let report = runtime.block_on(find_online(ytdlp.as_deref(), &request, seed()));
+            println!("\n== {:?} / {:?} ({:?}): {} candidates, counts {:?}", request.query, request.local_query, request.audience, report.candidates.len(), report.counts);
+            println!("problems: {:?}", report.problems);
+            println!("library hits: {:?}", report.library_hits);
+            for candidate in report.candidates.iter().take(6) {
+                println!("- [{}] {} <{}> — {}", candidate.provider, candidate.name, candidate.url, candidate.explainer.as_deref().map(|text| clip_text(text, 140)).unwrap_or_default());
+            }
+            assert!(!report.candidates.is_empty(), "nothing found for {:?}", request.query);
+        }
+    }
+
     /// Live: fetches a trimmed YouTube-search clip and probes it.
-    /// `cargo test -p helios memes_live_fetch_media -- --ignored --nocapture`
+    /// `cargo test -p bhippi memes_live_fetch_media -- --ignored --nocapture`
     #[test]
     #[ignore = "network"]
     fn memes_live_fetch_media() {
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("runtime");
-        let dir = std::env::temp_dir().join(format!("helios-memes-live-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-memes-live-{}", crate::store::new_id()));
         let mut meme = entry("oggy-jack-juice-live", "Oggy Jack juice");
         meme.formats = vec![MemeFormat { kind: "clip".to_owned(), query: Some("ytsearch3:oggy jack juice meme".to_owned()), start: Some(1.0), end: Some(4.5), ..MemeFormat::default() }];
         save_entry(&dir, meme).expect("save");
@@ -2445,7 +2999,7 @@ mod tests {
         println!("folder: {}", dir.display());
     }
 
-    /// The real seed against the report's queries. `cargo test -p helios memes_live_seed_search -- --ignored --nocapture`
+    /// The real seed against the report's queries. `cargo test -p bhippi memes_live_seed_search -- --ignored --nocapture`
     #[test]
     #[ignore = "report"]
     fn memes_live_seed_search() {

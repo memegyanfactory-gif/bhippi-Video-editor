@@ -1,5 +1,5 @@
 //! The real thing: one export of a comp that uses every source kind, driven through the FFmpeg
-//! installed on this machine. Set `HELIOS_KEEP_EXPORT` to keep the working directory (its path is
+//! installed on this machine. Set `BHIPPI_KEEP_EXPORT` to keep the working directory (its path is
 //! printed) and look at the frames it leaves behind.
 
 use super::{plan, write_fontconfig, ExportOptions, Output};
@@ -19,7 +19,7 @@ const HEIGHT: u32 = 852;
 async fn roto_master_and_frame_local_corrections_export_real_pixels() {
     let tools = tools::resolve(None).await;
     let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
-    let dir = std::env::temp_dir().join(format!("helios-roto-test-{}", crate::store::new_id()));
+    let dir = std::env::temp_dir().join(format!("bhippi-roto-test-{}", crate::store::new_id()));
     let run_id = "run-1";
     let cache = crate::roto::dir(&dir, run_id);
     std::fs::create_dir_all(cache.join("mattes")).unwrap();
@@ -52,7 +52,7 @@ async fn roto_master_and_frame_local_corrections_export_real_pixels() {
 async fn magic_mask_limits_an_effect_to_inside_or_outside_the_mask() {
     let tools = tools::resolve(None).await;
     let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
-    let dir = std::env::temp_dir().join(format!("helios-magic-mask-test-{}", crate::store::new_id()));
+    let dir = std::env::temp_dir().join(format!("bhippi-magic-mask-test-{}", crate::store::new_id()));
     let run_id = "run-1";
     let cache = crate::roto::dir(&dir, run_id);
     std::fs::create_dir_all(cache.join("mattes")).unwrap();
@@ -95,7 +95,7 @@ async fn every_format_encodes_and_reads_back() {
     let tools = tools::resolve(None).await;
     let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
     let ffprobe = tools.ffprobe().expect("FFprobe required").to_path_buf();
-    let dir = std::env::temp_dir().join(format!("helios-formats-test-{}", crate::store::new_id()));
+    let dir = std::env::temp_dir().join(format!("bhippi-formats-test-{}", crate::store::new_id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut layer = clip("red", "v1", 0.0, 1.0, ClipSource::Item { item_id: "red".into() });
     layer.transform.opacity = 100.0;
@@ -261,7 +261,7 @@ fn build(video: &Asset, photo: &Asset) -> Project {
     adjust.effects.saturation = 0.0;
 
     // V4: a title, a styled caption with its own transform, and a nested comp.
-    let title = clip("title", "v4", 0.2, 1.8, text("Helios", "multi-track export", Preset::Title, "#FFC53D", None));
+    let title = clip("title", "v4", 0.2, 1.8, text("Bhippi", "multi-track export", Preset::Title, "#FFC53D", None));
     let mut caption = clip("caption", "v4", 2.0, 2.0, text("make it pop", "", Preset::Caption, "#FFFFFF", Some("hormozi")));
     caption.transform = Transform { y: -0.08, scale: 90.0, rotation: -3.0, opacity: 90.0, ..Transform::default() };
     let mut nest = clip("nest", "v4", 4.0, 3.0, ClipSource::Comp { comp_id: "child".to_owned() });
@@ -352,9 +352,9 @@ async fn a_comp_of_everything_exports_through_the_real_ffmpeg() {
         eprintln!("skipped: FFmpeg is not installed on this machine");
         return;
     };
-    let dir = std::env::temp_dir().join(format!("helios-export-{}", crate::store::new_id()));
+    let dir = std::env::temp_dir().join(format!("bhippi-export-{}", crate::store::new_id()));
     std::fs::create_dir_all(&dir).expect("a working directory");
-    let keep = std::env::var_os("HELIOS_KEEP_EXPORT").is_some();
+    let keep = std::env::var_os("BHIPPI_KEEP_EXPORT").is_some();
 
     // Fixtures: a take with sound, and a still.
     let source = dir.join("take.mp4");
@@ -541,7 +541,7 @@ async fn every_remaining_option_renders_without_upsetting_ffmpeg() {
         eprintln!("skipped: FFmpeg is not installed on this machine");
         return;
     };
-    let dir = std::env::temp_dir().join(format!("helios-odds-{}", crate::store::new_id()));
+    let dir = std::env::temp_dir().join(format!("bhippi-odds-{}", crate::store::new_id()));
     std::fs::create_dir_all(&dir).expect("a working directory");
     let source = dir.join("take.mp4");
     let encoder = if tools.status.x264 { "libx264" } else { "mpeg4" };
@@ -588,7 +588,7 @@ async fn every_remaining_option_renders_without_upsetting_ffmpeg() {
     if let Err(error) = tools::run_ffmpeg_with_progress(&ffmpeg, &still.args, Some(&dir), &env, still.duration, cancel, |_| ()).await {
         panic!("the still failed: {error}\n\nkept in {}", dir.display());
     }
-    if std::env::var_os("HELIOS_KEEP_EXPORT").is_some() {
+    if std::env::var_os("BHIPPI_KEEP_EXPORT").is_some() {
         run(&ffmpeg, &["-i", &output.display().to_string(), &dir.join("odds-%02d.png").display().to_string()]).await;
         println!("odds and ends kept in {}", dir.display());
     } else {
@@ -605,7 +605,7 @@ async fn a_long_edit_of_one_recording_renders_from_a_graph_file() {
         eprintln!("skipped: FFmpeg is not installed on this machine");
         return;
     };
-    let dir = std::env::temp_dir().join(format!("helios-cuts-{}", crate::store::new_id()));
+    let dir = std::env::temp_dir().join(format!("bhippi-cuts-{}", crate::store::new_id()));
     std::fs::create_dir_all(&dir).expect("a working directory");
     let source = dir.join("take.mp4");
     let encoder = if tools.status.x264 { "libx264" } else { "mpeg4" };
@@ -657,7 +657,7 @@ async fn a_long_edit_of_one_recording_renders_from_a_graph_file() {
 async fn applied_color_effects_change_pixels_and_bypass_restores_them() {
     let tools=tools::resolve(None).await;
     let ffmpeg=tools.ffmpeg().expect("FFmpeg required for effect regression").to_path_buf();
-    let dir=std::env::temp_dir().join(format!("helios-effect-check-{}",crate::store::new_id()));
+    let dir=std::env::temp_dir().join(format!("bhippi-effect-check-{}",crate::store::new_id()));
     std::fs::create_dir_all(&dir).expect("test folder");
     let invert_table:Vec<String>=(0..256).map(|i|format!("{}",1.0-f64::from(i)/255.0)).collect();
     let cases=vec![
@@ -687,20 +687,20 @@ async fn applied_color_effects_change_pixels_and_bypass_restores_them() {
         let actual=pixel(&ffmpeg,&dir,&output,0.0,64,64).await;
         for c in 0..3{assert!((i32::from(actual[c])-expected[c]).abs()<=3,"{name}: {actual:?} expected {expected:?}");}
     }
-    if std::env::var_os("HELIOS_KEEP_EXPORT").is_some(){println!("Effect regression frames: {}",dir.display());}else{let _ignored=std::fs::remove_dir_all(dir);}
+    if std::env::var_os("BHIPPI_KEEP_EXPORT").is_some(){println!("Effect regression frames: {}",dir.display());}else{let _ignored=std::fs::remove_dir_all(dir);}
 }
 
 #[tokio::test]
-#[ignore = "renders an explicitly generated demonstration project; requires HELIOS_EXAMPLES_DIR"]
+#[ignore = "renders an explicitly generated demonstration project; requires BHIPPI_EXAMPLES_DIR"]
 async fn render_generated_native_demonstration() {
-    let dir=std::path::PathBuf::from(std::env::var("HELIOS_EXAMPLES_DIR").expect("example directory"));
+    let dir=std::path::PathBuf::from(std::env::var("BHIPPI_EXAMPLES_DIR").expect("example directory"));
     let project:Project=serde_json::from_str(&std::fs::read_to_string(dir.join("demo-render-input.json")).expect("generated project")).expect("project schema");
     project.validate_shape().expect("valid editable project");
     let tools=tools::resolve(None).await;let ffmpeg=tools.ffmpeg().expect("FFmpeg").to_path_buf();
     let work=dir.join("render-work");std::fs::create_dir_all(&work).unwrap();sfx::ensure_all(&work).unwrap();
     let env=tools::FfmpegEnv{fontconfig_file:write_fontconfig(&work)};
     let started=std::time::Instant::now();
-    for(still,name)in[(false,"Helios-demo.mp4"),(true,"Helios-demo.png")] {
+    for(still,name)in[(false,"Bhippi-demo.mp4"),(true,"Bhippi-demo.png")] {
         let output=dir.join(name);let options=ExportOptions{output:output.display().to_string(),comp_id:project.active_comp_id.clone().unwrap(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false,format:"mp4".to_owned(),encoder:None,..Default::default()};
         let plan=plan(&project,&HashMap::new(),&options,|kind|sfx::path_for(&work,kind).display().to_string(),tools.status.x264,if still{Output::Still}else{Output::Video},1.0).expect("native render plan");
         std::fs::write(work.join("demo-args.json"),serde_json::to_string(&plan.args).unwrap()).unwrap();
@@ -713,7 +713,7 @@ async fn render_generated_native_demonstration() {
 }
 
 /// CPU (x264) against the detected GPU encoder on the user's own autosaved project, first
-/// `HELIOS_BENCH_SECONDS` (default 20) seconds. Run by hand:
+/// `BHIPPI_BENCH_SECONDS` (default 20) seconds. Run by hand:
 /// `cargo test render::e2e::bench_encoders_on_the_user_project -- --ignored --nocapture`.
 #[tokio::test]
 #[ignore = "benchmark on the local user project"]
@@ -721,14 +721,14 @@ async fn bench_encoders_on_the_user_project() {
     use super::{plan_with_encoder, VideoEncoder};
     let tools = tools::resolve(None).await;
     let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
-    let root = Path::new(&std::env::var("APPDATA").expect("APPDATA")).join("studio.helios.desktop");
+    let root = Path::new(&std::env::var("APPDATA").expect("APPDATA")).join("com.bhippi.videoeditor");
     let mut project: Project = serde_json::from_str(&std::fs::read_to_string(root.join("projects/current.json")).expect("project")).expect("project parses");
     let assets: Vec<Asset> = serde_json::from_str(&std::fs::read_to_string(root.join("library.json")).expect("library")).expect("library parses");
     let assets: HashMap<String, Asset> = assets.into_iter().map(|asset| (asset.id.clone(), asset)).collect();
-    let seconds: f64 = std::env::var("HELIOS_BENCH_SECONDS").ok().and_then(|value| value.parse().ok()).unwrap_or(20.0);
+    let seconds: f64 = std::env::var("BHIPPI_BENCH_SECONDS").ok().and_then(|value| value.parse().ok()).unwrap_or(20.0);
     let comp_id = project.active_comp_id.clone().unwrap_or_else(|| project.comps[0].id.clone());
     for comp in &mut project.comps { if comp.id == comp_id { comp.in_point = Some(0.0); comp.out_point = Some(seconds); } }
-    let dir = std::env::temp_dir().join(format!("helios-bench-{}", crate::store::new_id()));
+    let dir = std::env::temp_dir().join(format!("bhippi-bench-{}", crate::store::new_id()));
     std::fs::create_dir_all(&dir).unwrap();
     sfx::ensure_all(&dir).expect("the sound effects");
     let env = tools::FfmpegEnv { fontconfig_file: write_fontconfig(&dir) };
@@ -755,9 +755,9 @@ async fn bench_encoders_on_the_user_project() {
 }
 
 /// The export half of the preview/export parity harness (export-parity.html is the preview half).
-/// `HELIOS_PARITY` names a JSON file `{ "out": dir, "assets": [...], "cases": [{ "name", "project",
+/// `BHIPPI_PARITY` names a JSON file `{ "out": dir, "assets": [...], "cases": [{ "name", "project",
 /// "compId", "time" }] }`; each case's frame is exported to `<out>/<name>-export.png`. Run by hand:
-/// `HELIOS_PARITY=cases.json cargo test render::e2e::parity_frames -- --ignored --nocapture`.
+/// `BHIPPI_PARITY=cases.json cargo test render::e2e::parity_frames -- --ignored --nocapture`.
 #[tokio::test]
 #[ignore = "driven by the parity harness"]
 async fn parity_frames() {
@@ -766,7 +766,7 @@ async fn parity_frames() {
     struct Case { name: String, project: Project, comp_id: String, time: f64 }
     #[derive(serde::Deserialize)]
     struct Cases { out: String, assets: Vec<Asset>, cases: Vec<Case> }
-    let Some(file) = std::env::var_os("HELIOS_PARITY") else { return };
+    let Some(file) = std::env::var_os("BHIPPI_PARITY") else { return };
     let cases: Cases = serde_json::from_str(&std::fs::read_to_string(file).expect("the cases")).expect("cases parse");
     let tools = tools::resolve(None).await;
     let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
@@ -794,10 +794,10 @@ async fn parity_frames() {
 
 /// A whole export of a project as the app hands it over (graphics and scenes already rendered to
 /// frames, e.g. by the parity harness's `parity.prepare`), through the same plan and encoder choice
-/// `export_start` makes. `HELIOS_EXPORT` names a JSON file `{ "project", "assets", "compId" }`;
-/// `HELIOS_EXPORT_OUT` the output file; `HELIOS_EXPORT_FORMAT` / `_QUALITY` / `_ENCODER` default to
+/// `export_start` makes. `BHIPPI_EXPORT` names a JSON file `{ "project", "assets", "compId" }`;
+/// `BHIPPI_EXPORT_OUT` the output file; `BHIPPI_EXPORT_FORMAT` / `_QUALITY` / `_ENCODER` default to
 /// mov / high / cpu. Run by hand:
-/// `HELIOS_EXPORT=prepared.json HELIOS_EXPORT_OUT=out.mov cargo test render::e2e::export_prepared -- --ignored --nocapture`.
+/// `BHIPPI_EXPORT=prepared.json BHIPPI_EXPORT_OUT=out.mov cargo test render::e2e::export_prepared -- --ignored --nocapture`.
 #[tokio::test]
 #[ignore = "driven by hand on a prepared project"]
 async fn export_prepared() {
@@ -805,9 +805,9 @@ async fn export_prepared() {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Prepared { project: Project, assets: Vec<Asset>, comp_id: String }
-    let Some(file) = std::env::var_os("HELIOS_EXPORT") else { return };
+    let Some(file) = std::env::var_os("BHIPPI_EXPORT") else { return };
     let prepared: Prepared = serde_json::from_str(&std::fs::read_to_string(file).expect("the project")).expect("project parses");
-    let output = std::env::var("HELIOS_EXPORT_OUT").expect("HELIOS_EXPORT_OUT");
+    let output = std::env::var("BHIPPI_EXPORT_OUT").expect("BHIPPI_EXPORT_OUT");
     let var = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.to_owned());
     let tools = tools::resolve(None).await;
     let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
@@ -816,15 +816,15 @@ async fn export_prepared() {
     std::fs::create_dir_all(&work).unwrap();
     sfx::ensure_all(&work).expect("the sound effects");
     let env = tools::FfmpegEnv { fontconfig_file: write_fontconfig(&work) };
-    let format = var("HELIOS_EXPORT_FORMAT", "mov");
-    let mut options = ExportOptions { output: output.clone(), comp_id: prepared.comp_id, resolution: std::env::var("HELIOS_EXPORT_RESOLUTION").ok().and_then(|v| v.parse().ok()), fps: None, quality: var("HELIOS_EXPORT_QUALITY", "high"), in_to_out: false, format: format.clone(), encoder: None, ..Default::default() };
-    // `HELIOS_EXPORT_OPTIONS`: more settings as the Export dialog sends them (camelCase JSON).
-    if let Ok(extra) = std::env::var("HELIOS_EXPORT_OPTIONS") {
+    let format = var("BHIPPI_EXPORT_FORMAT", "mov");
+    let mut options = ExportOptions { output: output.clone(), comp_id: prepared.comp_id, resolution: std::env::var("BHIPPI_EXPORT_RESOLUTION").ok().and_then(|v| v.parse().ok()), fps: None, quality: var("BHIPPI_EXPORT_QUALITY", "high"), in_to_out: false, format: format.clone(), encoder: None, ..Default::default() };
+    // `BHIPPI_EXPORT_OPTIONS`: more settings as the Export dialog sends them (camelCase JSON).
+    if let Ok(extra) = std::env::var("BHIPPI_EXPORT_OPTIONS") {
         let mut merged = serde_json::to_value(&options).unwrap();
         for (key, value) in serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&extra).expect("options JSON") { merged[key] = value; }
         options = serde_json::from_value(merged).expect("options");
     }
-    let encoder = VideoEncoder::choose(Some(&var("HELIOS_EXPORT_ENCODER", "cpu")), tools.status.x264, tools.status.gpu_encoder.as_deref());
+    let encoder = VideoEncoder::choose(Some(&var("BHIPPI_EXPORT_ENCODER", "cpu")), tools.status.x264, tools.status.gpu_encoder.as_deref());
     let codecs = super::Codecs { h264: encoder, gpu_hevc: encoder.is_gpu() && tools.status.gpu_hevc, gpu_av1: encoder.is_gpu() && tools.status.gpu_av1 };
     let kind = if super::is_audio_only(&options.format) { Output::Audio } else { Output::Video };
     let sfx_for = |kind| sfx::path_for(&work, kind).display().to_string();

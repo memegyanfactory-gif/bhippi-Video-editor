@@ -1,4 +1,4 @@
-# Helios — World-Class Plan
+# Bhippi — World-Class Plan
 
 *Chief architect's synthesis, 2026-09-24. Branch `feat/motion-engine`. Inputs: 7 subsystem audits (export, agent, motion, timeline, playback, visual QA, craft, platform). Every bug below survived adversarial verification. The severity shown is the **verified** severity. Claims that were refuted are listed in §8 so nobody chases them.*
 
@@ -6,11 +6,11 @@
 
 ## 1. Executive summary
 
-### Where Helios stands
+### Where Bhippi stands
 
 No other shipping product combines these three things:
 
-- a bring-your-own-model agent (Claude CLI/API, OpenAI-compatible, Gemini, Ollama, plus Helios as an MCP server);
+- a bring-your-own-model agent (Claude CLI/API, OpenAI-compatible, Gemini, Ollama, plus Bhippi as an MCP server);
 - a real Premiere-style NLE with transactional edit programs;
 - an After-Effects-class WebGL2 motion engine that uses the same code for preview, export and a render-and-measure QA pass.
 
@@ -20,7 +20,7 @@ The weak points are at the seams, not the core:
 
 - The export pre-render can hang silently and can **delete the user's source footage**.
 - Preview and export disagree in at least six concrete ways.
-- A shared `.helios` file can **run arbitrary PowerShell** on open.
+- A shared `.bhippi` file can **run arbitrary PowerShell** on open.
 - The Anthropic API provider fails on every tool turn.
 - The QA loop measures boxes that were guessed instead of pixels that were drawn, and the model never actually sees its contact frames.
 
@@ -40,7 +40,7 @@ The weak points are at the seams, not the core:
    - Guard it with an **eval harness** so craft regressions fail CI.
 5. **Table stakes plus moat inventions.**
    - Table stakes: transcript editing with filler/retake removal (**Word Anchors**), neural speech enhancement, semantic media search, localization.
-   - Moat, only Helios can do these: **Point & Say**, the **negative-space layout solver**, **signal expressions**, **linked multi-aspect masters**, and the **motion critic**.
+   - Moat, only Bhippi can do these: **Point & Say**, the **negative-space layout solver**, **signal expressions**, **linked multi-aspect masters**, and the **motion critic**.
 
 ### The export complaint, "make sure it actually exports what is in preview"
 
@@ -92,7 +92,7 @@ Format for each entry: **Problem → Root cause → Fix → Verify → Effort.**
   - `lib.rs:2158-2161` deletes whatever sits at the output path on failure.
 - **Fix.**
   - Canonicalize the output and every `-i` input in the plan (compare case-insensitively on Windows) and refuse on a match.
-  - Render to `<stem>.helios-part.<ext>` and rename it over the target on success.
+  - Render to `<stem>.bhippi-part.<ext>` and rename it over the target on success.
   - On failure, delete only the part file.
 - **Verify.** Rust unit test: a plan whose input equals the output is refused. Integration: a failed export leaves an existing file at the target byte-identical.
 - **Effort.** S.
@@ -110,7 +110,7 @@ Format for each entry: **Problem → Root cause → Fix → Verify → Effort.**
 
 **E4. Concurrent derive storms corrupt preview proxies** *(high; P6)*
 - **Problem.**
-  - `library_list`, which runs on every `helios://library` event, re-spawns `prepare_media` for every asset with audio and no peaks.
+  - `library_list`, which runs on every `bhippi://library` event, re-spawns `prepare_media` for every asset with audio and no peaks.
   - Each import therefore runs 3 derives at once, and 3 libx264 encodes write the same `proxies/{id}.mp4`. This was verified: the result was corrupt, with 30 of 900 frames decodable.
   - `derived_ok` passes because the file is non-empty. The preview plays garbage while the export uses the original.
   - When peaks can never be produced, the derive loops forever.
@@ -163,7 +163,7 @@ Format for each entry: **Problem → Root cause → Fix → Verify → Effort.**
 
 ### 2.2 Security and data integrity
 
-**S1. Script inside an HTML graphic runs with full IPC, so opening a shared `.helios` file is RCE** *(critical)*
+**S1. Script inside an HTML graphic runs with full IPC, so opening a shared `.bhippi` file is RCE** *(critical)*
 - **Problem.** `source.js` runs via `new Function` in the main webview (preview `HtmlMotionLayer.tsx:63`, export `htmlFrames.ts:116`). It can call `fs_run_command` (pwsh, no checks), `fs_write_file`, `open_path`, and read any file through the unscoped `asset` protocol.
 - **Fix now (P7 + P6).**
   - In `openProjectFile` (the only path for external files: double-click, drag-drop, Open, Recent), move every non-empty `html.js` to `quarantinedJs`.
@@ -181,7 +181,7 @@ Format for each entry: **Problem → Root cause → Fix → Verify → Effort.**
 **S2. `settings_save` replaces all settings and erases backend writes** *(medium, cheap; P6 + P7)*
 - **Problem.** Disabled providers come back on and the speech program path is lost.
 - **Fix.**
-  - Rust: hold the lock across write and store, and emit `helios://settings` after backend-side writes.
+  - Rust: hold the lock across write and store, and emit `bhippi://settings` after backend-side writes.
   - Frontend: refresh from `api.settingsGet()` after `providerSetEnabled` and `speechLocate`.
   - Phase 1: a `settings_patch` merge model (§4D).
 - **Verify.** Disable a provider, then zoom the timeline, then refresh providers: it stays disabled.
@@ -189,7 +189,7 @@ Format for each entry: **Problem → Root cause → Fix → Verify → Effort.**
 
 **S3. Child processes survive timeout, cancel and exit** *(medium; P5)*
 - **Fix now.** `run_command` uses `kill_on_drop(true)` and, on timeout, `taskkill /T /F /PID` before returning "timed out and was stopped".
-- **Phase 1.** A Job Object for tool children only (NOT the Helios process: the updater installer must be allowed to break away).
+- **Phase 1.** A Job Object for tool children only (NOT the Bhippi process: the updater installer must be allowed to break away).
 - **Effort.** S.
 
 **S4. `web_scrape` panics on non-ASCII pages, and the invoke never settles, so the AI turn hangs** *(high; P5)*
@@ -480,13 +480,13 @@ Format for each entry: **Problem → Root cause → Fix → Verify → Effort.**
 |---|---|---|---|---|---|
 | 1.1 Land the seven fix-now packages | See §9 | disjoint sets | `npx tsc -b --pretty false` clean; every package's tests green; parity harness export of the user's 15-target project completes | — | — |
 | 1.2 Loopback frame sink (step 1 of §4A) | `mogrt_frames_begin` starts a tokio `TcpListener` on 127.0.0.1:0 with a per-export token and returns `{url, token}`. `openFrameWriter` PUTs `${url}/${index}` with `AbortSignal.timeout(30000)`. Keep `mogrt_frame_write` as a fallback for one release. | lib.rs, pngEncoder.ts, ipc.ts, parity.tsx | 3 consecutive exports of the 15-target project with no stall; harness and app use the same path | M | P1, P6 |
-| 1.3 `export_log` command and export telemetry | Async `export_log(level,msg,data)` writes to helios.log through tracing. The export start/item/stall table is logged. | lib.rs, pngEncoder.ts, App.tsx | a forced stall writes a stage table to helios.log | S | P1 |
+| 1.3 `export_log` command and export telemetry | Async `export_log(level,msg,data)` writes to bhippi.log through tracing. The export start/item/stall table is logged. | lib.rs, pngEncoder.ts, App.tsx | a forced stall writes a stage table to bhippi.log | S | P1 |
 | 1.4 Graphics sandbox and capability tokens (§4B) | iframe `sandbox="allow-scripts"` srcdoc with a gsap bootstrap; postMessage seek/snapshot; part bounding boxes for picking; a per-turn token checked in `fs_run_command`, `fs_write_file`, `fs_edit_file` and `open_path`; asset allow-list (library paths, storage root, app data, project folder); remove `'unsafe-eval'` | HtmlMotionLayer.tsx, htmlFrames.ts, lib.rs, safe_asset.rs, system_tools.rs, tauri.conf.json | the malicious-project test writes no marker even after consent; the HTML parity harness is unchanged (SSIM ≥ 0.99) | L | S1 stopgap |
 | 1.5 `export_check` preflight | Rust `plan()` runs with placeholder `HtmlFrames`, plus output folder and extension checks, before `renderProgress.start` | lib.rs, render.rs, App.tsx | a bad effect or missing media is reported in under 1 s | S | — |
 | 1.6 Frame-folder cleanup | Remove the `HtmlFrames.dir` folders after the job ends (done, error or cancel), and the `-still` dirs after `export_frame` | lib.rs, aiTools.ts | `work/mogrt` is empty after an export | S | E2 |
 | 1.7 Durable JSON | `write_json`: write, `sync_all`, rename, keep `.bak`. `read_json` falls back to `.bak` and emits a warning. Apply to roto.json, ref.json and `project_doc_write`. | store.rs, refs.rs, bundle.rs | kill -9 during a write leaves a valid file | S | — |
-| 1.8 Settings patch model (§4D) | `settings_patch(patch)` merges under the lock and emits `helios://settings`; App listens | lib.rs, settings.rs, App.tsx, ipc.ts, settings panels | the S2 scenarios pass without refresh hacks | M | S2 |
-| 1.9 Job Object supervisor | A kill-on-close job for tool children (ffmpeg, python, yt-dlp, whisper, MCP). The updater installer is spawned outside it (`CREATE_BREAKAWAY_FROM_JOB`). | tools.rs, local_media.rs, mcp_client.rs, updater.rs, Cargo.toml (windows-sys JobObjects) | closing Helios mid-export leaves no ffmpeg.exe; in-app update still installs | M | S3 |
+| 1.8 Settings patch model (§4D) | `settings_patch(patch)` merges under the lock and emits `bhippi://settings`; App listens | lib.rs, settings.rs, App.tsx, ipc.ts, settings panels | the S2 scenarios pass without refresh hacks | M | S2 |
+| 1.9 Job Object supervisor | A kill-on-close job for tool children (ffmpeg, python, yt-dlp, whisper, MCP). The updater installer is spawned outside it (`CREATE_BREAKAWAY_FROM_JOB`). | tools.rs, local_media.rs, mcp_client.rs, updater.rs, Cargo.toml (windows-sys JobObjects) | closing Bhippi mid-export leaves no ffmpeg.exe; in-app update still installs | M | S3 |
 | 1.10 Project format contract | `#[serde(flatten)] extra` on Project, Comp, Clip and Track. A TS fixture writer plus a Rust round-trip test. Resolve `scene3d` (add the variant or delete it). | project.rs, types.ts, tests | the fixture round-trips byte-equal as a `Value` | S | — |
 | 1.11 `validateProject` in the frontend | Port `validate_comp` and the `nests()` checks. `healComp` repairs what can be repaired; autosave errors show a persistent banner, not a single toast. | timeline.ts, history.ts, App.tsx | a random-op fuzz never yields a project that `project_save` rejects | M | T1 |
 | 1.12 Matte razor pieces | `LayerCommon.pieceOf`, set in `fuse`; the renderer, safeArea, polish and MotionLayer resolve the active piece | types.ts (motion), motionStack.ts, renderer.ts, safeArea.ts, polish.ts, MotionLayer.tsx | a razor on the matte clip keeps the title matted after the cut | M | P1, P2, P3 merged |
@@ -554,7 +554,7 @@ Effort: L.
 
 **2.5 Remaining medium bugs** (§6 checklist): undo scoping, reversed/held layer keyframes, a HTML `clip.in` length field, the black-edge check for opaque motion stages, a keymap table.
 
-### Phase 3: inventions that make Helios #1
+### Phase 3: inventions that make Bhippi #1
 
 These were chosen from the study and merged with the subsystem proposals. Each item gives the mechanism, files, acceptance criteria, effort and dependencies.
 
@@ -621,7 +621,7 @@ These were chosen from the study and merged with the subsystem proposals. Each i
    - Files: history.ts, actionLogger.ts, ideagraph.ts, learning.ts, LearningWorkspace.tsx, aiTools.ts.
    - Acceptance: after 5 simulated sessions of the same correction, the agent's defaults match the correction.
    - Effort: M.
-10. **Table stakes, delivered as Helios-grade features**
+10. **Table stakes, delivered as Bhippi-grade features**
     - **Neural speech enhancement:** a DeepFilterNet or Resemble-Enhance worker in the Python job harness, exposed as a rendered effect.
     - **Semantic media search:** a local CLIP/SigLIP frame-embedding index, a transcript index and an audio-tag index, with a `search_media` tool.
     - **Reflowing localization:** translate captions and text layers, dub via speech.rs, time-fit with Word Anchors, and re-typeset with the solver. Indian languages first.
@@ -770,7 +770,7 @@ Deferred to Phase 1/2 (not in the packages):
 - Replay thinking blocks unchanged and append-only. Never edit earlier turns, because preserved thinking rejects edited history for new accounts.
 
 **Processes**
-- **Do not put the Helios process itself in a kill-on-close Job Object.** It kills the update installer 600 ms after launch. Put tool children in the job and give the installer breakaway.
+- **Do not put the Bhippi process itself in a kill-on-close Job Object.** It kills the update installer 600 ms after launch. Put tool children in the job and give the installer breakaway.
 
 **QA and workflow**
 - **Do not make verify demand zero QA issues without waivers.** The geometric QA flags intended designs, such as behind-subject titles and the cube reveal. `blank-frame` stays unwaivable.
@@ -844,7 +844,7 @@ Public signatures that must not change:
 
 ### Landscape
 
-State of AI video editing, September 2026. Research done 2026-09-24; Helios capabilities checked in D:\Helios on branch feat/motion-engine.
+State of AI video editing, September 2026. Research done 2026-09-24; Bhippi capabilities checked in D:\Bhippi Video editor on branch feat/motion-engine.
 
 1) AI agents are now built into every major editor, but they mostly run existing features. Examples:
 - Descript Underlord runs whole workflows (rough cut, filler removal, B-roll, Studio Sound, Eye Contact, translation and dubbing, video from slides) from one prompt, and works on the transcript rather than the timeline (descript.com/blog/article/descript-season-6-meet-underlord; help.descript.com Underlord beta).
@@ -871,15 +871,15 @@ State of AI video editing, September 2026. Research done 2026-09-24; Helios capa
 
 5) Agent tooling around NLEs:
 - MCP bridges let Claude or Codex drive Premiere, Resolve, FCP and Avid: Jumper, premiere-pro-mcp, a 1,027-tool AdobePremiereProMCP, and Cutback Selects (getjumper.io/ai-agents; github.com/ayushozha/AdobePremiereProMCP).
-- HeyGen HyperFrames (Apache-2.0) renders agent-written HTML deterministically to MP4 through headless Chrome and FFmpeg (github.com/heygen-com/hyperframes). Helios' own editProgram.ts cites it.
+- HeyGen HyperFrames (Apache-2.0) renders agent-written HTML deterministically to MP4 through headless Chrome and FFmpeg (github.com/heygen-com/hyperframes). Bhippi's own editProgram.ts cites it.
 
 6) Research:
 - AgenticVBench (arXiv 2605.27705) has 100 real post-production tasks written by 20 experts. The best agent stack barely passes 30%, and the harness choice changes scores and failure modes a lot.
 - Other work: EditDuet (SIGGRAPH 2025, a two-agent NLE editor), LAVE (IUI 2024), "Unified Agentic Video Editing Across Levels of Complexity and Creativity" (arXiv 2609.12769), a unified VideoAgent framework (June 2026), and the CineAgents benchmark (2026).
 - The common message is that planning and tool calls are no longer the bottleneck. Seeing and checking what was rendered is.
 
-Where this leaves Helios. No shipping product combines:
-- an agent from any provider (Claude CLI or API, OpenAI-compatible, Gemini, Ollama, plus Helios' own MCP server in src-tauri/src/mcp.rs);
+Where this leaves Bhippi. No shipping product combines:
+- an agent from any provider (Claude CLI or API, OpenAI-compatible, Gemini, Ollama, plus Bhippi's own MCP server in src-tauri/src/mcp.rs);
 - a real Premiere-style NLE with transactional edit programs (src/lib/editProgram.ts);
 - an After Effects-class WebGL2 engine with expressions, 3D camera, mattes and 34 effects that export identically (src/motion; MOTION-ENGINE.md reports 47 dB PSNR between preview and export);
 - local roto, depth, eraser, LTX/Wan/SDXL generation and person tracking (src-tauri/workers);
@@ -887,7 +887,7 @@ Where this leaves Helios. No shipping product combines:
 
 Adobe's and Blackmagic's assistants stop at project housekeeping. Descript, Captions and Riverside have agents but shallow motion design. Runway and CapCut own pixel generation but not structured, editable edits.
 
-Helios is weak on table stakes:
+Bhippi is weak on table stakes:
 - no text-based or filler editing (src/panels/TranscriptPanel.tsx is read-only);
 - no neural speech enhancement (project.rs:525 is an FFmpeg high-pass, denoise and compression chain);
 - no semantic library search;
@@ -897,7 +897,7 @@ Helios is weak on table stakes:
 
 ### Gap analysis
 
-| Priority | Capability | Who has it | Helios today |
+| Priority | Capability | Who has it | Bhippi today |
 |---|---|---|---|
 | must | Editing by the transcript: delete words to cut; one action removes fillers, pauses and retakes | Descript (core + Underlord), Premiere text-based editing, Resolve 21 IntelliScript, Riverside, Captions/Mirage, Kapwing, Veed | Missing. TranscriptPanel.tsx only reads, copies and jumps. No filler, silence or retake recipe exists in src/lib/recipes.ts; the recipes are tighten, punch-ins, captions, hook, music-bed, vertical and pro-chunk-edit. The AI has to work out remove_range spans itself from analyze_clip_speech word timestamps. |
 | must | Neural speech enhancement and voice isolation (Studio Sound, Enhance Speech) | Adobe Enhance Speech (Premiere and Firefly video editor), Descript Studio Sound, Resolve Voice Isolation, Captions AI Denoise, Riverside | DSP only. The speech-cleanup filter is high-pass, denoise and compression in FFmpeg (src-tauri/src/project.rs:525). No neural model among the local workers, although DeepFilterNet or Resemble-Enhance would fit the existing Python job harness. |
@@ -911,20 +911,20 @@ Helios is weak on table stakes:
 | could | Eye-contact correction and face retouching | Descript Eye Contact, Captions eye contact, Resolve 21 Face Reshaper, Blemish Removal and Age Transformer | Missing. |
 | should | Multicam sync and switching | Premiere, Resolve, FCP (all with audio sync); Riverside | Menu item disabled (src/App.tsx:1596). podcast_cut switches framing within one wide shot, but there is no sync of multiple angles by audio. |
 | should | Assembly from a script: match takes to screenplay lines | Resolve 21 IntelliScript, Jumper and Cutback Selects over MCP | Partial. save_storyboard and save_video_blueprint plan from a script, but there is no tool that aligns transcribed takes to script lines and picks the best take. |
-| could | Lottie and OGraf graphics interchange | Resolve 21 (OGraf and Lottie), AE plug-ins | Missing. Graphics come in only as Helios motion JSON or HTML templates, so Lottie files from the design world cannot be dropped in. |
+| could | Lottie and OGraf graphics interchange | Resolve 21 (OGraf and Lottie), AE plug-ins | Missing. Graphics come in only as Bhippi motion JSON or HTML templates, so Lottie files from the design world cannot be dropped in. |
 | could | Review and approval: frame-accurate comments and shareable review links | Frame.io (Premiere and Resolve), Descript, Kapwing, Canva | Missing (desktop only, single user). |
 | could | Publishing and scheduling with social copy | OpusClip, Riverside Co-Creator, Descript, Captions | Missing. Export only. |
 | could | Avatars and lip-sync presenters | Google Vids (Veo 3.1 avatars), Captions AI twin, HeyGen, Synthesia | Missing. |
 | could | Video-to-video restyle and object replacement across a shot | Runway Aleph 2.0, CapCut Seedance, Firefly | Partial. The SDXL inpaint and image-edit and the LaMa eraser (magic_erase.py) work on stills and plates. There is no temporally consistent video-to-video restyle. |
-| must | UNIQUE to Helios, a strength: bring-your-own-model agent driving a full NLE AND an After Effects-class engine, both as native tools and as an MCP server | Nobody combines all three. Adobe's assistant does housekeeping; MCP bridges drive Premiere with no motion engine; HyperFrames renders HTML with no NLE. | Built: src-tauri/src/mcp.rs (per-turn token bridge); crates/helios-providers (Claude CLI and API, OpenAI-compatible, Ollama, Gemini); src/motion (WebGL2 engine: expressions in expr.ts, 3D camera, mattes, 34 effects); editProgram.ts transactional edits. |
-| must | UNIQUE to Helios, a strength: QA against rendered frames, plus phase gates | No shipping competitor renders its own output and checks the geometry before declaring an edit done. | Built: run_frame_qa (aiTools.ts:2867) renders stills through api.exportFrame and checks off-frame, safe-area, overlap, subject-cover, blank-frame and black-edge problems (polish.ts, production.ts frameQa, coverage.ts). The plan, gather, edit and polish phases with user buttons live in production.ts. verify_edit_workflow requires the QA receipt. |
-| must | UNIQUE to Helios, a strength: local-first matte, depth, eraser, tracking and generation | Resolve has some of this locally; everyone else is cloud-metered. | Built: SAM2 with ViTMatte, Depth Anything 3, a LaMa clean plate, RF-DETR with ByteTrack, Lucas-Kanade tracking, LTX 2.3, Wan, SDXL and Stable Audio Open (src-tauri/workers, lib.rs local_media_status). No per-credit cost. |
+| must | UNIQUE to Bhippi, a strength: bring-your-own-model agent driving a full NLE AND an After Effects-class engine, both as native tools and as an MCP server | Nobody combines all three. Adobe's assistant does housekeeping; MCP bridges drive Premiere with no motion engine; HyperFrames renders HTML with no NLE. | Built: src-tauri/src/mcp.rs (per-turn token bridge); crates/bhippi-providers (Claude CLI and API, OpenAI-compatible, Ollama, Gemini); src/motion (WebGL2 engine: expressions in expr.ts, 3D camera, mattes, 34 effects); editProgram.ts transactional edits. |
+| must | UNIQUE to Bhippi, a strength: QA against rendered frames, plus phase gates | No shipping competitor renders its own output and checks the geometry before declaring an edit done. | Built: run_frame_qa (aiTools.ts:2867) renders stills through api.exportFrame and checks off-frame, safe-area, overlap, subject-cover, blank-frame and black-edge problems (polish.ts, production.ts frameQa, coverage.ts). The plan, gather, edit and polish phases with user buttons live in production.ts. verify_edit_workflow requires the QA receipt. |
+| must | UNIQUE to Bhippi, a strength: local-first matte, depth, eraser, tracking and generation | Resolve has some of this locally; everyone else is cloud-metered. | Built: SAM2 with ViTMatte, Depth Anything 3, a LaMa clean plate, RF-DETR with ByteTrack, Lucas-Kanade tracking, LTX 2.3, Wan, SDXL and Stable Audio Open (src-tauri/workers, lib.rs local_media_status). No per-credit cost. |
 
 ### Every invention proposed
 
 #### Export Certificate (parity oracle with automatic bisection) (M)
 
-Every export ships with proof that the MP4 matches the preview frame for frame. When it does not, Helios names the clip at fault and fixes it before the user ever sees a bad file.
+Every export ships with proof that the MP4 matches the preview frame for frame. When it does not, Bhippi names the clip at fault and fixes it before the user ever sees a bad file.
 
 - **Mechanism:** After render.rs finishes, Rust decodes K frames from the output file (ffmpeg -ss t -frames:v 1) at the qaTimes of the comp, every clip boundary and the midpoint of every motion stack group. The frontend renders the same times through the Program monitor compositor path. The code already exists as the dev-only src/editor/parity/parity.tsx harness; move it into an off-screen in-app route, or capture a hidden WebView2 with ICoreWebView2::CapturePreview. SSIM is computed per 32 px tile. Tiles below threshold are mapped to the clips covering them, using editor.placement boxes, stackGroups from motionStack.ts and previewCache.planComp. Suspects are then bisected by calling api.exportFrame on the prepared export copy with each suspect clip switched off, which gives a report such as "[Motion] Lower third, group of 5 layers, missing in export 12.4–15.0 s: frame folder empty". It is exposed as a verify_export tool and as a green or red certificate in the export dialog. The AI must get a pass before it reports the export as done.
 - **Builds on:** src/editor/parity/parity.tsx, src-tauri/src/render/e2e.rs (parity_frames), src-tauri/src/render.rs, src/motion/exportFrames.ts, src/lib/htmlFrames.ts, src/lib/motionStack.ts (stackGroups), src/lib/previewCache.ts (planComp), src/lib/polish.ts (frameStats), api.exportFrame (lib.rs:2171)
@@ -944,7 +944,7 @@ Delete a sentence in the transcript and the footage cuts. Every caption, kinetic
 
 - **Mechanism:** Add an optional anchor to Clip and to motion Layer: {assetId, wordIndex, edge:'start'|'end', offset}. Whisper word timestamps come from transcribe.rs. Add editProgram ops: cut_words(range), remove_fillers(set), remove_pauses(>ms), and remove_retakes, which detects repeated n-grams within 20 s using word-level edit distance and keeps the last take. The ops produce remove_range spans on the source-to-timeline map (timeline.ts sourceTimeAt). After the cut, a resolver re-derives every anchored clip's start and duration and every word-timed cascade in motion/text.ts from the new word times, all in the same atomic program commit. TranscriptPanel.tsx becomes editable: select, strike and restore.
 - **Builds on:** src-tauri/src/transcribe.rs, src/lib/transcriptText.ts, src/lib/editProgram.ts, src/lib/timeline.ts (removeRange, sourceTimeAt), src/motion/text.ts (word cascades), src/lib/subtitlesEngine.ts, src/panels/TranscriptPanel.tsx
-- **Why it matters:** It closes the biggest must-have gap (Descript-style text editing and filler removal) and goes further: in Descript, graphics are not word-anchored After Effects scenes. Talking-head and podcast creators, the largest editing market, could move over without losing Helios' motion edge.
+- **Why it matters:** It closes the biggest must-have gap (Descript-style text editing and filler removal) and goes further: in Descript, graphics are not word-anchored After Effects scenes. Talking-head and podcast creators, the largest editing market, could move over without losing Bhippi's motion edge.
 
 #### Signal expressions: beat, loudness, word and speaker inside the expression language (M)
 
@@ -979,7 +979,7 @@ Reported through run_frame_qa as new issue kinds, with a suggested fix for each 
 
 #### Edit DNA: a measured distance to a reference style (L)
 
-"Make it like this video" becomes a number: Helios measures how far your cut is from the reference on 12 axes and keeps editing until the distance is small.
+"Make it like this video" becomes a number: Bhippi measures how far your cut is from the reference on 12 axes and keeps editing until the distance is small.
 
 - **Mechanism:** Extend refs.rs ingest, which already measures cuts, cut_every and palette, into a feature vector:
 - shot-length histogram;
@@ -1008,7 +1008,7 @@ A per-second viewer-risk curve under the timeline, calibrated on your own channe
 - face presence (person tracks);
 - loudness dips (the audio envelope);
 - hook events in the first 3 s.
-The first model is a transparent weighted sum. Calibration: import the YouTube Studio audience-retention CSV for past videos whose Helios projects still exist, align features to the real retention curve, and fit a local logistic regression per creator (the weights are stored in the storage folder). It is drawn as a lane like CacheBar.tsx. A retention_forecast tool returns the dips with suggested recipes (punch-ins, B-roll, SFX, cut).
+The first model is a transparent weighted sum. Calibration: import the YouTube Studio audience-retention CSV for past videos whose Bhippi projects still exist, align features to the real retention curve, and fit a local logistic regression per creator (the weights are stored in the storage folder). It is drawn as a lane like CacheBar.tsx. A retention_forecast tool returns the dips with suggested recipes (punch-ins, B-roll, SFX, cut).
 - **Builds on:** src/editor/CacheBar.tsx, src/lib/previewCache.ts, src/lib/audioEnvelope.ts, src/lib/personTracks.ts, src-tauri/src/transcribe.rs, src/lib/recipes.ts, src/lib/storage.ts
 - **Why it matters:** OpusClip scores whole clips for virality. Nobody forecasts retention second by second on an editable timeline and closes the loop with fixes and per-creator calibration. Retention is what creators get paid on. It is honest because it starts as a transparent heuristic and says how well it is calibrated.
 
@@ -1016,13 +1016,13 @@ The first model is a transparent weighted sum. Calibration: import the YouTube S
 
 Ask for three hooks and two pacing styles. Six subagents build six real, editable cuts in parallel, and you compare their first 5 seconds side by side, or export all of them for A/B tests.
 
-- **Mechanism:** A fork_variants tool duplicates the comp N times (create_comp plus a deep copy with new ids). It spawns subagents (subagent.rs), each scoped to one variant comp. Today subagents share one ToolExecutor and undo stack, so this needs a comp-scope guard in ToolExecutor (refuse writes outside the assigned comp) and one undo group per variant. Each subagent works through apply_edit, whose editProgram already runs against a copy and commits atomically. Helios then renders the first 5 s of each variant as a contact reel (renderMotionStill, renderHtmlStill, exportFrame) and shows a grid. Picking one promotes it; 'export all' batches the renders with suffixed names for YouTube Test & Compare or Meta A/B tests.
+- **Mechanism:** A fork_variants tool duplicates the comp N times (create_comp plus a deep copy with new ids). It spawns subagents (subagent.rs), each scoped to one variant comp. Today subagents share one ToolExecutor and undo stack, so this needs a comp-scope guard in ToolExecutor (refuse writes outside the assigned comp) and one undo group per variant. Each subagent works through apply_edit, whose editProgram already runs against a copy and commits atomically. Bhippi then renders the first 5 s of each variant as a contact reel (renderMotionStill, renderHtmlStill, exportFrame) and shows a grid. Picking one promotes it; 'export all' batches the renders with suffixed names for YouTube Test & Compare or Meta A/B tests.
 - **Builds on:** src-tauri/src/subagent.rs, src-tauri/src/ai_tools.rs (ToolExecutor), src/lib/editProgram.ts, src/lib/history.ts, create_comp in src/lib/aiTools.ts, src/motion/exportFrames.ts, src/lib/exportPresets.ts
 - **Why it matters:** Creators already A/B test thumbnails and titles. Testing the edit itself is the next lever, and only an agent that drives a real NLE can produce many structurally different cuts cheaply and locally.
 
 #### Taste memory from implicit feedback (M)
 
-Helios learns your taste from what you undo and tweak, not from settings. After a week it stops adding whooshes you always delete and makes titles last as long as you keep trimming them to.
+Bhippi learns your taste from what you undo and tweak, not from settings. After a week it stops adding whooshes you always delete and makes titles last as long as you keep trimming them to.
 
 - **Mechanism:** Tag every AI-committed op in history.ts with the turn id, tool and arguments; actionLogger.ts already records AI and user actions. Detectors:
 - undo within 30 s of an AI commit;
@@ -1030,7 +1030,7 @@ Helios learns your taste from what you undo and tweak, not from settings. After 
 - deletion of AI-added clips.
 Aggregate per tool and parameter into local priors (the median corrected value with a confidence count). Inject a short 'your preferences' block into the system prompt, and apply the priors as defaults for omitted arguments in aiTools.ts. Explicit reviewed skills stay in learning.ts; this is the implicit layer beside them. The priors are shown and editable in LearningWorkspace.tsx.
 - **Builds on:** src/lib/history.ts, src/lib/actionLogger.ts, src/lib/ideagraph.ts (TurnOutcome), src/lib/learning.ts, src/panels/LearningWorkspace.tsx, src/lib/aiTools.ts
-- **Why it matters:** Every agent editor forgets your corrections. Personalisation that stays on the machine, with no training, is a strong retention moat: the longer you use Helios, the more it edits like you, and switching loses that.
+- **Why it matters:** Every agent editor forgets your corrections. Personalisation that stays on the machine, with no training, is a strong retention moat: the longer you use Bhippi, the more it edits like you, and switching loses that.
 
 #### Motion cloning by analysis-by-synthesis (XL)
 
@@ -1042,11 +1042,11 @@ Point at any motion graphic in a reference video and get an editable, brandable 
 4. It minimises perceptual distance (SSIM plus an edge loss at 256 px) between renderMotionStill frames and the reference frames at matched times.
 The engine is deterministic and off-screen, so hundreds of low-res evaluations a second are realistic on WebGL2. Output: a native scene with named parameters that brandify.ts can restyle. Limits: flat 2D, typographic and shape motion; photoreal content is out of scope, and rights are recorded as in learning.ts (the rights field).
 - **Builds on:** src/motion/evaluate.ts, src/motion/gl/renderer.ts, src/motion/exportFrames.ts (renderMotionStill), src/motion/kit/*, src/lib/remotionKit, src/motion/kit/brandify.ts, src-tauri/src/refs.rs, src/lib/learning.ts
-- **Why it matters:** Motion designers spend hours rebuilding looks they have seen. No tool turns a video of a graphic back into an editable After Effects-style graphic. Only possible because Helios owns a deterministic GPU engine that can be scored.
+- **Why it matters:** Motion designers spend hours rebuilding looks they have seen. No tool turns a video of a graphic back into an editable After Effects-style graphic. Only possible because Bhippi owns a deterministic GPU engine that can be scored.
 
 #### Recipe by demonstration (L)
 
-Edit one chapter by hand, then say "do what I just did to every chapter". Helios generalises your actions into a reusable, parameterised tool and proves it reproduces your edit before using it.
+Edit one chapter by hand, then say "do what I just did to every chapter". Bhippi generalises your actions into a reusable, parameterised tool and proves it reproduces your edit before using it.
 
 - **Mechanism:** 1. Capture the session's user actions (actionLogger.ts) and project diffs (history.ts) over a marked range.
 2. The LLM synthesises a steps or ops custom tool (customTools.ts). Absolute times are replaced by anchors: transcript words (Word Anchors), beats (beats.ts), face-track events and scene cuts (detect_scenes).
@@ -1084,7 +1084,7 @@ The user's edits on a derived comp are stored as patches keyed by clip id and pr
 
 #### Continuity Guard for jump cuts (M)
 
-Every talking-head cut is measured. Where the head jumps, Helios hides it with a punch-in of the right size, B-roll or a seamless push, and proves the fix by re-measuring the rendered frames.
+Every talking-head cut is measured. Where the head jumps, Bhippi hides it with a punch-in of the right size, B-roll or a seamless push, and proves the fix by re-measuring the rendered frames.
 
 - **Mechanism:** At each cut between segments of the same source, sample person-track face boxes (personTracks.trackAt) on both sides and compute displacement and scale ratio. Above threshold, choose one fix:
 - a punch-in where the scale change is at least 12% and the face stays in the safe area (reframe.ts frameFor);
@@ -1096,7 +1096,7 @@ Verify by rendering the frames on either side of the cut (exportFrame) and re-me
 
 #### Idle polish daemon: spellcheck for video (S)
 
-While you edit by hand, Helios checks what changed in the background and puts warning ticks on the timeline ruler. The agent can fix them all with one "clean up".
+While you edit by hand, Bhippi checks what changed in the background and puts warning ticks on the timeline ruler. The agent can fix them all with one "clean up".
 
 - **Mechanism:** After each history.ts commit, diff the comp before and after to get the dirty time spans. In idle time, the same scheduling previewCache.ts uses for warm frames, run frameQa (production.ts), uncoveredSpans (coverage.ts), the motion critic, and blankFinding on low-res stills for the dirty spans only. Findings are cached by clip hash, so unchanged spans are never checked twice. Ticks are drawn on the Timeline ruler. A fix_warnings tool hands the list to the agent with a range.
 - **Builds on:** src/lib/previewCache.ts, src/lib/history.ts, src/lib/production.ts, src/lib/polish.ts, src/lib/coverage.ts, src/editor/Timeline.tsx, src/editor/CacheBar.tsx
@@ -1104,7 +1104,7 @@ While you edit by hand, Helios checks what changed in the background and puts wa
 
 ### Positioning
 
-Helios should not claim to be \"an editor with an AI assistant\". Adobe, Descript, CapCut and Riverside all say that, and their assistants mostly run existing features (Adobe's assistant in Premiere sorts bins and adds markers). Helios' claim: the only editor where an AI of your choice runs the whole studio, a Premiere-style NLE plus an After Effects-class GPU motion engine, on your own machine, and has to prove its work by rendering and measuring the frames it will ship.
+Bhippi should not claim to be \"an editor with an AI assistant\". Adobe, Descript, CapCut and Riverside all say that, and their assistants mostly run existing features (Adobe's assistant in Premiere sorts bins and adds markers). Bhippi's claim: the only editor where an AI of your choice runs the whole studio, a Premiere-style NLE plus an After Effects-class GPU motion engine, on your own machine, and has to prove its work by rendering and measuring the frames it will ship.
 
 The moat is architectural. One deterministic render stack serves three purposes:
 - preview;
@@ -1114,8 +1114,8 @@ The moat is architectural. One deterministic render stack serves three purposes:
 That makes closed-loop features possible that cloud generators and legacy NLEs cannot copy quickly: the export certificate, the motion critic, Edit DNA distance, analysis-by-synthesis motion cloning, the layout solver, and taste memory from undo. Research backs the bet. AgenticVBench's best agent passes barely 30% of real post-production tasks, and the harness changes outcomes a lot, so the winner is whoever gives agents eyes, measurements and guarantees, not whoever has the most tools.
 
 Secondary moats:
-- Bring your own model (Claude CLI or API, OpenAI-compatible, Gemini, Ollama), and Helios is itself an MCP server, so it rides every frontier model release.
+- Bring your own model (Claude CLI or API, OpenAI-compatible, Gemini, Ollama), and Bhippi is itself an MCP server, so it rides every frontier model release.
 - Local-first roto, depth, eraser, tracking and generation: no credits, and private footage.
 - Structured, editable output (layers, keyframes, expressions, word anchors), where Runway and Seedance return pixels.
 
-Honest caveat: Helios will not win on the moat alone while table stakes are missing. The next quarter should ship editing by the transcript with filler and retake removal (Word Anchors), neural speech enhancement, semantic media search, translation and dubbing, and real stabilisation and colour match. At the same time it should ship the export certificate, which fixes the owner's open export-parity complaint and becomes the trust headline: \"What you see is what ships — certified.\"
+Honest caveat: Bhippi will not win on the moat alone while table stakes are missing. The next quarter should ship editing by the transcript with filler and retake removal (Word Anchors), neural speech enhancement, semantic media search, translation and dubbing, and real stabilisation and colour match. At the same time it should ship the export certificate, which fixes the owner's open export-parity complaint and becomes the trust headline: \"What you see is what ships — certified.\"

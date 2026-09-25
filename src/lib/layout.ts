@@ -1,6 +1,6 @@
 // Where a graphic goes, and what stops two of them landing on the same pixels.
 //
-// Helios used to place whatever it was told wherever it was told, which is how a title and three
+// Bhippi used to place whatever it was told wherever it was told, which is how a title and three
 // caption samples ended up stacked on top of each other. The reference film never does that: the
 // frame is a set of slots, each slot holds one thing, type sits beside the speaker rather than
 // over him, and when a card takes the middle the words move to an edge.

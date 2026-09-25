@@ -8,7 +8,7 @@ import urllib.request
 from huggingface_hub import model_info, hf_hub_url
 
 repo = 'stabilityai/stable-diffusion-xl-base-1.0'
-target = Path.home() / 'AppData/Roaming/studio.helios.desktop/models/generation/image'
+target = Path.home() / 'AppData/Roaming/com.bhippi.videoeditor/models/generation/image'
 info = model_info(repo, files_metadata=True)
 chunk = 16 * 1024 * 1024
 parts = Path(__file__).resolve().parents[1] / 'work/model-download'
@@ -64,5 +64,5 @@ for file in info.siblings:
     temporary.replace(destination)
     for path in paths: path.unlink()
     print(f'Verified {file.rfilename}', flush=True)
-(target / 'helios-install.json').write_text(json.dumps({'repo': repo, 'revision': info.sha, 'license': info.card_data.get('license'), 'weightsVerified': True}, indent=2))
+(target / 'bhippi-install.json').write_text(json.dumps({'repo': repo, 'revision': info.sha, 'license': info.card_data.get('license'), 'weightsVerified': True}, indent=2))
 print('SDXL safetensors verified and installed', flush=True)

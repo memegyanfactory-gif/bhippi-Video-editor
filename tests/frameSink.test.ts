@@ -50,7 +50,7 @@ describe('the export frame sink', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('http://127.0.0.1:5123/frame/clip_7-abc/3');
-    expect(init).toMatchObject({ method: 'PUT', headers: { 'x-helios-token': 'secret' } });
+    expect(init).toMatchObject({ method: 'PUT', headers: { 'x-bhippi-token': 'secret' } });
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(ipc.mogrtFrameWrite).not.toHaveBeenCalled();
   });

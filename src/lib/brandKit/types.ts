@@ -3,7 +3,7 @@
 // A brand kit is what a design studio hands over with a logo: the marks and how to place them, the
 // colour tokens and gradients, the type pairing and scale, the voice, the way things move, the look
 // of the imagery, where things sit in the frame, what it sounds like, and how it behaves on each
-// platform. Helios keeps kits at user level (Settings), points a project at one, and reads it
+// platform. Bhippi keeps kits at user level (Settings), points a project at one, and reads it
 // everywhere a look is decided: Crimson templates, React Bits themes, text clips, caption styles,
 // generation prompts, voice-over voice and the system prompt the copilot works from.
 //

@@ -1,6 +1,6 @@
 # The animated UI library (React Bits and friends), rebuilt for video
 
-Helios AI can place any of these as a motion graphic that animates in the preview and exports as
+Bhippi AI can place any of these as a motion graphic that animates in the preview and exports as
 rendered frames. Every piece is deterministic HTML/CSS: paused animations scrubbed by time, seeded
 randomness, no WebGL, no backdrop-filter, no external files. Code: `src/lib/rbx/`.
 

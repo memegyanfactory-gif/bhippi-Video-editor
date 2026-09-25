@@ -61,8 +61,8 @@ describe('Lottie → motion scene', () => {
 
   it('reads .lottie zips as well as .json', () => {
     const zip = zipSync({ 'manifest.json': strToU8('{}'), 'animations/a.json': strToU8(JSON.stringify(morph)) });
-    expect(readLottie(zip).nm).toBe('Helios test: morph');
-    expect(readLottie(strToU8(JSON.stringify(native))).nm).toBe('Helios test: native');
+    expect(readLottie(zip).nm).toBe('Bhippi test: morph');
+    expect(readLottie(strToU8(JSON.stringify(native))).nm).toBe('Bhippi test: native');
   });
 });
 

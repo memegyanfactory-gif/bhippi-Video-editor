@@ -1,6 +1,6 @@
 // Draws a posed character with Canvas2D: flat fills, rubber-hose limbs bent by two-bone IK, a
 // face of replacement drawings (almond or googly eyes with lids and a star catchlight, mouths by
-// viseme and expression). The three base characters are original designs for Helios.
+// viseme and expression). The three base characters are original designs for Bhippi.
 import type { Vec } from '../types';
 import { PALETTES, RIGS, type Rig } from './pose';
 import { CHARACTER_FEET, type CharacterKind, type CharacterPalette, type Expression, type Mouth, type Pose } from './types';

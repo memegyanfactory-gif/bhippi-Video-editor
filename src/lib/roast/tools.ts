@@ -35,7 +35,7 @@ export const ROAST_GATHER_TOOLS: ReadonlySet<RoastToolName> = new Set<RoastToolN
 
 /** Roast tools that plan or look without touching the timeline (allowed before the edit phase). */
 export const ROAST_PREPARATION_TOOLS: ReadonlySet<RoastToolName> = new Set<RoastToolName>([
-  'search_memes', 'refresh_meme_trends', 'save_meme', 'get_meme_media', 'find_receipt', 'search_sfx',
+  'search_memes', 'find_memes_online', 'refresh_meme_trends', 'save_meme', 'get_meme_media', 'find_receipt', 'search_sfx',
   'cutout_image', 'detect_faces', 'save_beat_sheet', 'validate_roast_edl', 'edit_dna',
 ]);
 
@@ -49,12 +49,14 @@ export async function runRoastTool(name: string, args: Args, ctx: RoastToolConte
 
 // ─── The meme cache for the Comedian ──────────────────────────────────────────────────────────
 
-type MemeFacts = Pick<MemeEntry, 'name' | 'verified' | 'firstSeen'>;
+type MemeFacts = Pick<MemeEntry, 'name' | 'verified' | 'firstSeen'> & Partial<Pick<MemeEntry, 'region' | 'crossover'>>;
 const memeFacts = new Map<string, MemeFacts>();
 
 const remember = (entry: unknown) => {
   const e = entry as Partial<MemeEntry> | null;
-  if (e && typeof e.id === 'string' && typeof e.name === 'string') memeFacts.set(e.id, { name: e.name, verified: e.verified === true, firstSeen: e.firstSeen });
+  if (e && typeof e.id === 'string' && typeof e.name === 'string') {
+    memeFacts.set(e.id, { name: e.name, verified: e.verified === true, firstSeen: e.firstSeen, ...(e.region ? { region: e.region } : {}), ...(e.crossover ? { crossover: true } : {}) });
+  }
 };
 
 /** Keep what a meme tool just returned (search hits, a saved or fetched entry). */

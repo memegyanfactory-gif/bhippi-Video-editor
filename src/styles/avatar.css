@@ -40,7 +40,7 @@
 
 /* Settings › Avatar */
 .avatar-settings { display: grid; gap: 16px; }
-.avatar-settings .avatar-switch { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line, #3d3d3d); border-radius: 8px; background: rgba(255, 255, 255, 0.02); }
+.avatar-settings .avatar-switch { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line, var(--line-strong)); border-radius: 8px; background: rgba(255, 255, 255, 0.02); }
 .avatar-settings .avatar-switch-copy { display: grid; gap: 2px; flex: 1; }
 .avatar-settings .avatar-switch-copy strong { font-size: 13px; }
 .avatar-settings .avatar-switch-copy span { font-size: 12px; color: var(--text-dim); }
@@ -49,15 +49,22 @@
 .avatar-stage {
   position: relative; display: grid; place-items: end center; height: 300px; border-radius: 8px; overflow: hidden;
   background: linear-gradient(#20222b 0 80%, #2c2f3b 80% 81%, #191a20 81%);
-  border: 1px solid var(--line, #3d3d3d);
+  border: 1px solid var(--line, var(--line-strong));
 }
 .avatar-stage canvas { image-rendering: pixelated; margin-bottom: 26px; }
 .avatar-stage-caption { position: absolute; left: 10px; top: 8px; right: 10px; font-size: 11.5px; line-height: 1.4; color: #cfd3de; }
 .avatar-moves { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
 .avatar-moves button { font-size: 12px; }
 .avatar-moves button.active { border-color: var(--blue, #2d8ceb); color: #fff; }
+.avatar-characters { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+.avatar-character { display: grid; justify-items: center; gap: 4px; padding: 8px 8px 10px; border: 1px solid var(--line, var(--line-strong)); border-radius: 8px; background: rgba(255, 255, 255, 0.02); cursor: pointer; color: inherit; font: inherit; text-align: center; }
+.avatar-character:hover { border-color: #666; }
+.avatar-character.active { border-color: var(--blue, #2d8ceb); background: color-mix(in srgb, var(--blue) 8%, transparent); }
+.avatar-character canvas { image-rendering: pixelated; }
+.avatar-character strong { font-size: 12.5px; }
+.avatar-character span { font-size: 11px; line-height: 1.35; color: var(--text-dim); }
 .avatar-council { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
-.avatar-seat { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line, #3d3d3d); border-radius: 8px; background: rgba(255, 255, 255, 0.02); cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.avatar-seat { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line, var(--line-strong)); border-radius: 8px; background: rgba(255, 255, 255, 0.02); cursor: pointer; text-align: left; color: inherit; font: inherit; }
 .avatar-seat:hover, .avatar-seat.active { border-color: var(--seat, #888); }
 .avatar-seat canvas { image-rendering: pixelated; }
 .avatar-seat strong { display: block; font-size: 12.5px; color: var(--seat, #fff); }

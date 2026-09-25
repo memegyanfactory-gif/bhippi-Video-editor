@@ -126,7 +126,7 @@ describe('brand guideline', () => {
     expect(faster.summary).toBe('Calm launch.');
   });
 
-  it('loads a guideline an older Helios saved whole, and lets the kit reach it again from the next edit', () => {
+  it('loads a guideline an older Bhippi saved whole, and lets the kit reach it again from the next edit', () => {
     const kit = saasKit();
     // What was saved: the whole guideline with the refinements merged in, keys sorted by the backend.
     const sorted = (v: unknown): unknown =>
@@ -164,7 +164,7 @@ describe('brand guideline', () => {
     expect(g.motion).toMatchObject({ distance: base.distance, blur: base.blur, fps: base.fps, principles: ['One move at a time.'] });
     expect(motionBrandFromKit(patched)).toMatchObject({ enter: base.timing.enter, distance: base.distance });
 
-    // A bad value an older Helios stored as it came is ignored on read too.
+    // A bad value an older Bhippi stored as it came is ignored on read too.
     const stored = { ...kit, guideline: { ...deriveGuideline(kit), source: 'ai', motion: { ...base, timing: { ...base.timing, enter: '0.4s' }, distance: null, easing: { ...base.easing, enter: 5 } } } as unknown as BrandGuideline };
     expect(guidelineOf(stored).motion).toMatchObject({ timing: base.timing, distance: base.distance, easing: base.easing });
     expect(() => motionBrandFromKit(stored)).not.toThrow();
@@ -320,7 +320,7 @@ describe('brand from a website', () => {
     expect(found.colors.background).toBe('#0b1020');
     expect(found.colors.text).toBe('#f8fafc');
     expect(found.fonts.googleFonts).toContain('Plus Jakarta Sans');
-    // Plus Jakarta Sans ships with Helios (bundled OFL fonts), so the site's own face is kept.
+    // Plus Jakarta Sans ships with Bhippi (bundled OFL fonts), so the site's own face is kept.
     expect(found.fonts.display).toBe('Plus Jakarta Sans');
     expect(found.logos.some((l) => l.kind === 'svg')).toBe(true);
     expect(found.logos.some((l) => l.url === 'https://flowbase.io/img/logo.png')).toBe(true);

@@ -4,19 +4,19 @@ import { api, type LicenseStatus } from '../lib/ipc';
 
 type Snapshot = {
   status: LicenseStatus | null;
-  /** Dev builds started with HELIOS_DEV_NO_LICENSE=1 only: the person chose to use Helios without signing in. */
+  /** Dev builds started with BHIPPI_DEV_NO_LICENSE=1 only: the person chose to use Bhippi without signing in. */
   devBypass: boolean;
   /** The gate is covering the app: nothing behind it may be used. */
   blocked: boolean;
   /**
-   * The last definite answer was "active": a lost connection right after it keeps Helios open (the
+   * The last definite answer was "active": a lost connection right after it keeps Bhippi open (the
    * session was licensed; Rust already returns active+offline while a certificate holds). Any blocking
    * answer (signed out, no key, revoked, slots full) clears it, so going offline cannot lift a gate.
    */
   offlineGrace: boolean;
 };
 
-const BYPASS_KEY = 'helios.license.devBypass';
+const BYPASS_KEY = 'bhippi.license.devBypass';
 
 function storedBypass(): boolean {
   try {
@@ -41,7 +41,7 @@ export const licenseStore = {
     return () => listeners.delete(listener);
   },
   setStatus(status: LicenseStatus) {
-    // The dev bypass only exists in a debug build started with HELIOS_DEV_NO_LICENSE=1; never in a release.
+    // The dev bypass only exists in a debug build started with BHIPPI_DEV_NO_LICENSE=1; never in a release.
     const offlineGrace = status.state === 'active' ? true : status.state === 'unreachable' ? snapshot.offlineGrace : false;
     publish({ status, devBypass: snapshot.devBypass && status.devBypassAllowed, offlineGrace });
   },

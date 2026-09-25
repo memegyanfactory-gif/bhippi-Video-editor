@@ -11,7 +11,7 @@ type Props = {
 };
 type State = { error: Error | null; info: string };
 
-const LAST_CRASH = 'helios.lastCrash';
+const LAST_CRASH = 'bhippi.lastCrash';
 
 /** The crash the previous session hit, if any (read once, then forgotten). */
 export function takeLastCrash(): { at: string; message: string; scope: string } | null {
@@ -40,7 +40,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     // The console entry is what shows up in the webview's log and in bug reports.
-    console.error('Helios hit an error', error, info.componentStack);
+    console.error('Bhippi hit an error', error, info.componentStack);
     record(error, info.componentStack ?? '', this.props.scope ?? '');
     this.setState({ info: (info.componentStack ?? '').split('\n').slice(0, 6).join('\n') });
   }
@@ -59,13 +59,13 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="crash">
         <div className="crash-card">
-          <h1><img src="/helios.svg" alt="" width={22} height={22} /> Helios hit an error</h1>
-          <p>Your project is autosaved, so nothing is lost. Try again — the details are saved to crash.log in the Helios data folder.</p>
+          <h1><img src="/bhippi.png" alt="" width={22} height={22} /> Bhippi hit an error</h1>
+          <p>Your project is autosaved, so nothing is lost. Try again — the details are saved to crash.log in the Bhippi data folder.</p>
           <pre>{error.message}{info ? `\n${info}` : ''}</pre>
           <div className="crash-actions">
             <button type="button" className="btn btn-primary" onClick={() => this.setState({ error: null, info: '' })}>Try again</button>
             <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(`${error.message}\n${error.stack ?? ''}\n${info}`)}>Copy details</button>
-            <button type="button" className="btn" onClick={() => window.location.reload()}>Reload Helios</button>
+            <button type="button" className="btn" onClick={() => window.location.reload()}>Reload Bhippi</button>
           </div>
         </div>
       </div>

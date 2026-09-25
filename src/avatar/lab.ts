@@ -1,8 +1,8 @@
 // Avatar Lab (avatar-lab.html): every animation playing side by side at 4×, for tuning the art.
 // `?stage` swaps to a stand-in workspace that drives the real engine (stageLab.ts); `?settings`
-// opens the real Settings modal on the Avatar tab (settingsLab.tsx).
+// opens the real Settings modal on the Avatar tab (settingsLab.tsx); `?who=cat` plays another character.
 import { ANIMS, poseAt, type AnimName } from './poses';
-import { ART_H, ART_W, paint } from './sprite';
+import { ART_H, ART_W, paint, type Character } from './sprite';
 
 const params = new URLSearchParams(location.search);
 
@@ -15,6 +15,7 @@ if (params.has('stage')) {
   const scale = Number(params.get('scale') ?? 4);
   const only = params.get('only')?.split(',');
   const frozen = params.get('t');
+  const character = (params.get('who') ?? 'heli') as Character;
   const cells = (Object.keys(ANIMS) as AnimName[]).filter((name) => !only || only.includes(name)).map((name) => {
     const cell = document.createElement('div');
     cell.className = 'cell';
@@ -32,7 +33,7 @@ if (params.has('stage')) {
   const start = performance.now();
   const frame = () => {
     const t = frozen !== null ? Number(frozen) : (performance.now() - start) / 1000;
-    for (const { name, ctx } of cells) paint(ctx, poseAt(name, ['kick', 'slap', 'place', 'land'].includes(name) ? t % 1.6 : name === 'celebrate' ? t % 2.6 : t, { color: '#6fa8ff' }));
+    for (const { name, ctx } of cells) paint(ctx, poseAt(name, ['kick', 'slap', 'place', 'land'].includes(name) ? t % 1.6 : name === 'celebrate' ? t % 2.6 : t, { color: '#6fa8ff', character }));
     requestAnimationFrame(frame);
   };
   frame();

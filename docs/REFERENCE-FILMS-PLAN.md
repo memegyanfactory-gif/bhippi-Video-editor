@@ -1,11 +1,11 @@
-# Reference films → Helios: the plan
+# Reference films → Bhippi: the plan
 
 *2026-09-25, revision 2. Built from a frame-by-frame study of nine reference films the user picked, the
 nine per-film reports, an online research report and two headless-Blender proofs run on this machine.
 Companion to [WORLD-CLASS-PLAN.md](WORLD-CLASS-PLAN.md), which stays binding (especially §7, what NOT to
 do), and to [MOTION-ENGINE.md](MOTION-ENGINE.md).*
 
-**The goal.** From chat alone, a user can make any of these nine films in Helios:
+**The goal.** From chat alone, a user can make any of these nine films in Bhippi:
 
 - If the timeline has footage, the AI builds on it.
 - If it doesn't (a SaaS explainer, a launch film, a brand film), the AI builds everything from vector shapes,
@@ -14,7 +14,7 @@ do), and to [MOTION-ENGINE.md](MOTION-ENGINE.md).*
 
 **The per-film reports** are in [docs/research/video-study/reports/](research/video-study/reports/). Each
 one has a beat-by-beat breakdown, a technique catalogue with the After Effects build, measured motion
-grammar, the design system, sound, what Helios needs, a recreate recipe and a top-10 list. This plan is
+grammar, the design system, sound, what Bhippi needs, a recreate recipe and a top-10 list. This plan is
 the synthesis. Where it and a report disagree, the report has the frame-level evidence.
 
 ---
@@ -32,7 +32,7 @@ the synthesis. Where it and a report disagree, the report has the frame-level ev
 | 2D that reads as 3D | Motion Tricks (P0Ns0rphILY) |
 | Stylised 3D, modelled in Blender and rendered in AE's Advanced 3D | Modern Motion (2Fc9sGYFj1I) |
 
-**What Helios lacks, in order of impact:**
+**What Bhippi lacks, in order of impact:**
 
 1. **UI mock-ups as living, targetable scenes.** In every SaaS film the product UI is the hero, and it is
    always acted on: typed into, clicked, rows lifted, assembled, zoomed into one part, tilted in 3D with depth
@@ -60,7 +60,7 @@ the synthesis. Where it and a report disagree, the report has the frame-level ev
    - a face kit and lip sync;
    - light mattes and socket parenting.
 
-   Helios has a stick figure today.
+   Bhippi has a stick figure today.
 7. **Soft 2.5D "form" objects** (Motion Tricks): rim-lit analytic shapes traced with camera rays, card
    decals, swap-when-hidden, depth-band blur.
 8. **Music structure.** Find the 16th-note grid first. World changes land on phrase lines; cuts go on the
@@ -196,9 +196,9 @@ Curves are cubic-bezier.
 | Motion Tricks (2.5D) | Flat pastel pink `#f8d2d6` | **Rim-bright** soft forms with a 4-colour hue field; card-decal faces; depth-band blur | Rounded heavy geometric sans with per-letter gradients, bevel and inner glow | Googly-eye shape characters; tutorial overlays (boxes, bezier handles, dotted motion paths) |
 | Modern Motion (stylised 3D) | Painted cyclorama, window gobo, haze, strong DOF | Glossy plastic, frosted glass, kintsugi; the crystal is lit by a **hand-made gradient environment** | Montserrat ExtraBold supers; flat 2D lockups | Animated gradient frame border, hard diagonal wipes, grid of loops |
 
-### 2.3 Recurring techniques, and Helios today
+### 2.3 Recurring techniques, and Bhippi today
 
-| # | Technique | Seen in | Helios today | Pillar |
+| # | Technique | Seen in | Bhippi today | Pillar |
 |---|---|---|---|---|
 | T1 | **Continuity object** (dot, orb or sparkle) carries the eye and becomes cursor, caret or logo | 6 of 9 films | No | P4 |
 | T2 | **Type ↔ UI match** (line snaps into a pill or field; field text collapses into an orb) | Solair, Virgil | No | P2, P4 |
@@ -223,7 +223,7 @@ Curves are cubic-bezier.
 
 ## 3. Film by film
 
-A short version of each report: what the film is, what Helios needs, and the golden beat. NEW marks a tool
+A short version of each report: what the film is, what Bhippi needs, and the golden beat. NEW marks a tool
 or field this plan adds. The full recreate recipes, with tool calls and scene JSON, are in each report's §8.
 
 ### 3.1 Workly: SaaS explainer, light (YMWbH7xrTHk, Solair, 28 s)
@@ -463,7 +463,7 @@ reach and what they don't.
 - The crystal's iridescent facets come from a **hand-made gradient environment** reflected by a glossy
   faceted mesh.
 
-**In Helios,** Blender does both the building (primitives, glTF, SVG and text extrusion) and the rendering.
+**In Bhippi,** Blender does both the building (primitives, glTF, SVG and text extrusion) and the rendering.
 Proof 2 reproduced the crystal in both engines (§5).
 
 **The look.**
@@ -806,7 +806,7 @@ compile. Keep one Blender alive per session and feed it jobs.
 Titles such as `letters-drop` are **keyed drop-bounces**, never live rigid bodies (§5).
 
 **Limits:**
-- Glass rendered on transparent film can't refract the Helios background it's composited over. Either render
+- Glass rendered on transparent film can't refract the Bhippi background it's composited over. Either render
   a background plate into Blender, or accept the tint.
 - A constant thin-film thickness gives a flat tint. Vary it with noise or facing angle for real iridescence.
 
@@ -863,7 +863,7 @@ type CharacterAsset = {
 - blink: 4 f with an overshoot opening, and a 2 f snap blink.
 
 **Lip sync.**
-- **Helios's TTS returns audio only, with no phoneme timings.** Use **Rhubarb (MIT)** as an optional 70 MB
+- **Bhippi's TTS returns audio only, with no phoneme timings.** Use **Rhubarb (MIT)** as an optional 70 MB
   download: a 28 s voice-over takes 2.5 s with the phonetic recogniser, passing the transcript with `-d`.
 - Or map whisper word timings to visemes.
 - Write the result as baked mouth keys.
@@ -939,7 +939,7 @@ cel. For the rest:
 
   The Animator seat of the council gets the numbers.
 - **Positioning** (research): no competitor, whether Hera, Remotion agents, Figma Motion or the
-  screen-recording tools, does continuity camera direction or measured pacing checks. That is Helios's lane.
+  screen-recording tools, does continuity camera direction or measured pacing checks. That is Bhippi's lane.
 
 ### P11. Lottie import (M)
 
@@ -1120,7 +1120,7 @@ produce a 10–15 s piece that:
 | What | Where |
 |---|---|
 | Per-film reports (9) | [reports/](research/video-study/reports/): `YMWbH7xrTHk.md` Workly · `b1GDr86JW3M.md` Virgil · `lhG6p7xtkPE.md` Limelight · `luoDI5Bo0w0.md` Solair · `J6A7JcbkWvM.md` WasteProtection · `xBZzVNi_4Xw.md` aflow · `HO3VEhvobCQ.md` MDS · `P0Ns0rphILY.md` Motion Tricks · `2Fc9sGYFj1I.md` Modern Motion |
-| Capability brief, architecture map, research | [00-helios-brief.md](research/video-study/reports/00-helios-brief.md) · [01-architecture-map.md](research/video-study/reports/01-architecture-map.md) · [02-research.md](research/video-study/reports/02-research.md) |
+| Capability brief, architecture map, research | [00-bhippi-brief.md](research/video-study/reports/00-bhippi-brief.md) · [01-architecture-map.md](research/video-study/reports/01-architecture-map.md) · [02-research.md](research/video-study/reports/02-research.md) |
 | Study kit | [analyze.py](research/video-study/analyze.py). Known issues: colour-jump-only cuts, tempo alias, whole-frame exposure |
 | Blender proofs | [blender_bridge_proof.py](research/video-study/blender_proof/blender_bridge_proof.py), [proof2.py](research/video-study/blender_proof/proof2.py), [request.json](research/video-study/blender_proof/request.json). Sheets and renders are local |
 | Films, frames, notes, measurement scripts | `docs/research/video-study/{src,out}/` (**local only**, git-ignored) |

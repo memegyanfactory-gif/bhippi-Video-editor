@@ -216,7 +216,7 @@ fn default_format() -> String {
     "mp4".to_owned()
 }
 
-/// The container/codec sets Helios writes, Premiere-style: one video master
+/// The container/codec sets Bhippi writes, Premiere-style: one video master
 /// each for sharing (MP4), editing (MOV) and transparency (MOV ProRes 4444
 /// with alpha), plus AVI and audio-only MP3.
 pub fn is_supported_format(format: &str) -> bool {
@@ -325,7 +325,7 @@ pub fn plan_with_codecs(
             let valid = fx["params"]["_exportTables"].as_str()
                 .and_then(|raw| serde_json::from_str::<Vec<Vec<String>>>(raw).ok())
                 .is_some_and(|tables| (3..=4).contains(&tables.len()) && tables.iter().all(|channel| channel.len()==256 && channel.iter().all(|value| value.parse::<f64>().is_ok_and(|n| n.is_finite() && (0.0..=1.0).contains(&n)))));
-            if !valid { return Err(format!("Effect {id} needs valid prepared color tables. Export through Helios.")); }
+            if !valid { return Err(format!("Effect {id} needs valid prepared color tables. Export through Bhippi.")); }
         }
     }}}
 
@@ -418,14 +418,14 @@ pub fn plan_with_codecs(
     // the export reads what made it, from what, and where its chapters are.
     let clean = |text: &str| text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>().trim().to_owned();
     let chapters = comp.markers.iter().map(|marker| format!("{}@{:.1}s", if marker.name.trim().is_empty() { "Marker" } else { marker.name.trim() }, marker.time)).collect::<Vec<_>>().join("; ");
-    let mut comment = format!("Made with Helios {} · {} · {}x{}@{} · {} clips", env!("CARGO_PKG_VERSION"), comp.name, width, height, rate.text(), comp.clips.len());
+    let mut comment = format!("Made with Bhippi {} · {} · {}x{}@{} · {} clips", env!("CARGO_PKG_VERSION"), comp.name, width, height, rate.text(), comp.clips.len());
     if !chapters.is_empty() {
         comment.push_str(&format!(" · chapters: {chapters}"));
     }
     let file_metadata: Vec<String> = vec![
         "-metadata".into(), format!("title={}", clean(&comp.name)),
         "-metadata".into(), format!("comment={}", clean(&comment.chars().take(500).collect::<String>())),
-        "-metadata".into(), format!("encoder=Helios {}", env!("CARGO_PKG_VERSION")),
+        "-metadata".into(), format!("encoder=Bhippi {}", env!("CARGO_PKG_VERSION")),
     ];
     // The soundtrack is identical for picture and audio-only exports. Stills
     // build no audio at all: an unmapped filter output fails the render.
@@ -474,7 +474,7 @@ pub fn plan_with_codecs(
                 bit_depth,
                 gop: options.keyframe_interval.map(|seconds| (seconds * rate.fps()).round().max(1.0) as u32),
                 alpha,
-                passlog: options.two_pass.then_some("helios-pass"),
+                passlog: options.two_pass.then_some("bhippi-pass"),
             };
             let video = codec::video(family, codecs, &settings)?;
             gpu = video.gpu;

@@ -13,7 +13,7 @@ from huggingface_hub.errors import GatedRepoError
 
 task = sys.argv[1]
 repo = {'video': 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers', 'audio': 'stabilityai/stable-audio-open-1.0', 'depth': 'depth-anything/DA3-SMALL'}[task]
-root = Path.home() / 'AppData/Roaming/studio.helios.desktop/models/generation' / task
+root = Path.home() / 'AppData/Roaming/com.bhippi.videoeditor/models/generation' / task
 root.mkdir(parents=True, exist_ok=True)
 parts = Path(__file__).resolve().parents[1] / 'work/model-download' / task
 parts.mkdir(parents=True, exist_ok=True)
@@ -25,9 +25,9 @@ def publish():
     with lock:
         state['updatedAt'] = time.time()
         state['progress'] = min(1, state['downloadedBytes'] / state['totalBytes']) if state['totalBytes'] else 0
-        temp = root / 'helios-download.tmp'
+        temp = root / 'bhippi-download.tmp'
         temp.write_text(json.dumps(state), encoding='utf-8')
-        temp.replace(root / 'helios-download.json')
+        temp.replace(root / 'bhippi-download.json')
 
 def heartbeat():
     while not finished.wait(5): publish()
@@ -94,7 +94,7 @@ try:
         if digest.hexdigest() != expected: raise RuntimeError('Checkpoint checksum failed')
         temp.replace(destination)
         for part in paths: part.unlink()
-    (root / 'helios-install.json').write_text(json.dumps({'repo': repo, 'revision': info.sha, 'license': info.card_data.get('license') if info.card_data else None, 'weightsVerified': True}, indent=2), encoding='utf-8')
+    (root / 'bhippi-install.json').write_text(json.dumps({'repo': repo, 'revision': info.sha, 'license': info.card_data.get('license') if info.card_data else None, 'weightsVerified': True}, indent=2), encoding='utf-8')
     state.update(status='done', message='Model installed; inference testing is still required', downloadedBytes=state['totalBytes'])
 except GatedRepoError:
     state.update(status='error', message='Hugging Face access required: accept this model’s access terms and sign in with an authorized Hugging Face account. Download can then resume.')

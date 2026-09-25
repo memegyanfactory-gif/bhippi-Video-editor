@@ -1,8 +1,9 @@
-//! IdeaGraph brain bridge: records Helios turn outcomes as episodic nodes and
-//! reads back status, coverage gaps and pending suggestions through the `ig` CLI.
+//! The brain's commands. The native brain (brain.rs) needs no install and backs every
+//! command below the IdeaGraph section; the optional IdeaGraph bridge records Bhippi turn
+//! outcomes as episodic nodes and reads back status, gaps and suggestions through `ig`.
 //!
 //! The engine lives vendored in `tools/ideagraph-live` (MIT, SaltKing0) and is
-//! never imported as Python: Helios shells out to its `ig` entry point, so a
+//! never imported as Python: Bhippi shells out to its `ig` entry point, so a
 //! missing or broken Python install degrades to a setup hint in
 //! Settings → Brain instead of a crash.
 
@@ -110,7 +111,7 @@ pub(crate) async fn ideagraph_ingest(
     }
     let source = source.trim();
     let source = if source.is_empty() {
-        "helios-turns"
+        "bhippi-turns"
     } else {
         source
     };
@@ -122,6 +123,107 @@ pub(crate) async fn ideagraph_ingest(
 pub(crate) async fn ideagraph_init(state: State<'_, Arc<AppState>>) -> CommandResult<String> {
     let settings = state.settings();
     run_ig(&settings, &["init"], None).await
+}
+
+// ---------------------------------------------------------------------------------------------
+// The native brain (brain.rs): always available, no install.
+
+use tauri::{AppHandle, Emitter};
+
+pub(crate) fn brain_dir(state: &AppState) -> PathBuf {
+    state.paths.root.join("brain")
+}
+
+/// Whether turns feed the brain and the brain briefs turns; on unless the user turned it off.
+pub(crate) fn learning_on(settings: &Settings) -> bool {
+    settings.ideagraph_record != Some(false)
+}
+
+fn changed(app: &AppHandle, reason: &str) {
+    let _ignored = app.emit(crate::brain::CHANGED_EVENT, serde_json::json!({ "reason": reason }));
+}
+
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work).await.map_err(|error| format!("the brain stopped: {error}"))
+}
+
+#[tauri::command]
+pub(crate) async fn brain_graph(state: State<'_, Arc<AppState>>) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    let learning = learning_on(&state.settings());
+    let mut graph = blocking(move || crate::brain::snapshot(&dir)).await?;
+    graph["learning"] = serde_json::json!(learning);
+    Ok(graph)
+}
+
+#[tauri::command]
+pub(crate) async fn brain_node(state: State<'_, Arc<AppState>>, id: String) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    blocking(move || crate::brain::node(&dir, &id)).await?
+}
+
+/// Records one finished turn natively, and mirrors it to IdeaGraph when an `ig` is configured.
+#[tauri::command]
+pub(crate) async fn brain_record_turn(app: AppHandle, state: State<'_, Arc<AppState>>, outcome: crate::brain::TurnOutcome, note: Option<String>) -> CommandResult<serde_json::Value> {
+    let settings = state.settings();
+    if !learning_on(&settings) {
+        return Ok(serde_json::json!({ "skipped": "learning is off" }));
+    }
+    let dir = brain_dir(&state);
+    let result = blocking(move || crate::brain::record_turn(&dir, &outcome)).await??;
+    changed(&app, "turn");
+    if settings.ideagraph_bin.as_deref().is_some_and(|bin| !bin.trim().is_empty()) {
+        if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
+            let _mirrored = run_ig(&settings, &["ingest", "-", "--source", "bhippi-turns"], Some(&note)).await;
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) async fn brain_remember(app: AppHandle, state: State<'_, Arc<AppState>>, kind: String, text: String) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    let result = blocking(move || crate::brain::remember(&dir, &kind, &text)).await??;
+    changed(&app, "remember");
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) async fn brain_forget(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    let result = blocking(move || crate::brain::forget(&dir, &id)).await??;
+    changed(&app, "forget");
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) async fn brain_recall(state: State<'_, Arc<AppState>>, query: String, limit: Option<usize>, kinds: Option<Vec<String>>) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    blocking(move || crate::brain::recall(&dir, &query, limit.unwrap_or(6), &kinds.unwrap_or_default())).await
+}
+
+#[tauri::command]
+pub(crate) async fn brain_save_skill(app: AppHandle, state: State<'_, Arc<AppState>>, request: crate::brain::SkillRequest) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    let result = blocking(move || crate::brain::save_skill(&dir, &request)).await??;
+    changed(&app, "skill");
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) async fn brain_load_skill(app: AppHandle, state: State<'_, Arc<AppState>>, name: String) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    let result = blocking(move || crate::brain::load_skill(&dir, &name)).await??;
+    changed(&app, "skill-used");
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) async fn brain_dream(app: AppHandle, state: State<'_, Arc<AppState>>) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    let result = blocking(move || crate::brain::dream(&dir)).await??;
+    changed(&app, "dream");
+    Ok(result)
 }
 
 #[cfg(test)]

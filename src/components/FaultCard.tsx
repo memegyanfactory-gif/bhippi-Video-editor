@@ -1,4 +1,4 @@
-// A failed turn, explained, with the one button that fixes it (adapted from Bhippi).
+// A failed turn, explained, with the one button that fixes it (adapted from the Bhippi desktop app).
 import { AlertTriangle, ChevronDown, Clock, Download, KeyRound, RefreshCw, Repeat, Shrink } from 'lucide-react';
 import { useState } from 'react';
 import type { TurnFault } from '../lib/types';

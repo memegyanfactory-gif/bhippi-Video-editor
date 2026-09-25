@@ -1,4 +1,4 @@
-// After Effects Curves Color Grading Component for Helios
+// After Effects Curves Color Grading Component for Bhippi
 // Provides authentic AE-style channel selection (RGB, R, G, B, A), 4x4 coordinate grid,
 // monotone cubic spline interpolation, draggable control points, presets (Linear, Invert, S-Curve),
 // Smooth/Pencil modes, Auto, and Reset. Generates lookup table values for SVG feComponentTransfer.
@@ -402,7 +402,7 @@ export function CurvesEditor({ params, onChange, onCommit, allowAlpha=true }: Pr
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `helios-curves-${channel}-${Date.now()}.json`;
+    a.download = `bhippi-curves-${channel}-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -550,7 +550,7 @@ export function CurvesEditor({ params, onChange, onCommit, allowAlpha=true }: Pr
                   width="8"
                   height="8"
                   fill="#1b1e26"
-                  stroke={isSelected ? '#00e5ff' : channelColor}
+                  stroke={isSelected ? '#ffffff' : channelColor}
                   strokeWidth={isSelected ? 2 : 1.5}
                   style={{ cursor: 'ns-resize' }}
                 />
@@ -564,7 +564,7 @@ export function CurvesEditor({ params, onChange, onCommit, allowAlpha=true }: Pr
                   cy={sc.y}
                   r="5"
                   fill="#1b1e26"
-                  stroke={isSelected ? '#00e5ff' : channelColor}
+                  stroke={isSelected ? '#ffffff' : channelColor}
                   strokeWidth={isSelected ? 2.5 : 1.5}
                   style={{ cursor: 'grab' }}
                 />
@@ -574,7 +574,7 @@ export function CurvesEditor({ params, onChange, onCommit, allowAlpha=true }: Pr
                     cy={sc.y}
                     r="8"
                     fill="none"
-                    stroke="#00e5ff"
+                    stroke="#ffffff"
                     strokeWidth="1"
                     strokeDasharray="2,2"
                   />

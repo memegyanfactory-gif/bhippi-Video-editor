@@ -433,7 +433,7 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
     }
 
     default:
-      return fail(`Helios has no brand kit tool called ${name}`);
+      return fail(`Bhippi has no brand kit tool called ${name}`);
   }
 }
 

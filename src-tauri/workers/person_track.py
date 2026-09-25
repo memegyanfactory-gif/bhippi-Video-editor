@@ -154,7 +154,7 @@ def install_tracker(request, emit):
     model.predict(blank, threshold=0.9)
     output = Path(request["output"])
     output.mkdir(parents=True, exist_ok=True)
-    (output / "helios-install.json").write_text(json.dumps({
+    (output / "bhippi-install.json").write_text(json.dumps({
         "model": "rf-detr-nano",
         "packages": list(PACKAGES),
         "license": "Apache-2.0 (detector weights and code) · MIT (tracker)",

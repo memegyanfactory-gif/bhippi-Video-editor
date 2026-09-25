@@ -1,4 +1,4 @@
-// A model or checkpoint download's progress, wherever Helios reports one — a Whisper model, a
+// A model or checkpoint download's progress, wherever Bhippi reports one — a Whisper model, a
 // Piper voice, a matting checkpoint, a video model. One component so a progress bar looks and
 // behaves the same in every settings tab, instead of every tab inventing its own bar (or, worse,
 // falling back to the browser's unstyled native <progress>).

@@ -1,9 +1,9 @@
-// Closes a running Helios so the next build can replace the binary. A running app is the usual
+// Closes a running Bhippi so the next build can replace the binary. A running app is the usual
 // reason `cargo build` fails with "Access is denied" (os error 5) in the middle of F5.
 //
 // The subtlety is that asking is not the same as it being gone. `taskkill` returns as soon as it
 // has asked Windows to terminate, and a terminating process keeps its image file locked for a
-// moment after that — long enough for the link step to collide with it. Worse, Helios holds a
+// moment after that — long enough for the link step to collide with it. Worse, Bhippi holds a
 // single-instance lock: a second copy started while one is up (two runners, an IDE task and a
 // terminal, say) hands its arguments to the first and can sit there as a windowless process,
 // still holding the binary. So every helper here waits for the thing it asked for.
@@ -16,22 +16,22 @@ const isWindows = process.platform === 'win32';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 export const BINARY = isWindows
-  ? join(root, 'target', 'debug', 'helios.exe')
-  : join(root, 'target', 'debug', 'helios');
+  ? join(root, 'target', 'debug', 'bhippi.exe')
+  : join(root, 'target', 'debug', 'bhippi');
 
 const sleep = (ms) => {
   // Synchronous on purpose: these run between build steps, not inside an event loop.
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 };
 
-/** How many copies of Helios are running, counting windowless and child processes. */
+/** How many copies of Bhippi are running, counting windowless and child processes. */
 export function running() {
   try {
     if (isWindows) {
-      const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq helios.exe', '/NH'], { encoding: 'utf8' });
-      return (out.match(/helios\.exe/gi) ?? []).length;
+      const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq bhippi.exe', '/NH'], { encoding: 'utf8' });
+      return (out.match(/bhippi\.exe/gi) ?? []).length;
     }
-    const out = execFileSync('pgrep', ['-f', 'target/debug/helios'], { encoding: 'utf8' });
+    const out = execFileSync('pgrep', ['-f', 'target/debug/bhippi'], { encoding: 'utf8' });
     return out.split('\n').filter((line) => line.trim()).length;
   } catch {
     // Neither tool is an error when nothing matches; both exit non-zero to say "none".
@@ -58,18 +58,18 @@ export function replaceable() {
 }
 
 /**
- * Closes every running Helios and waits until the binary is actually free.
+ * Closes every running Bhippi and waits until the binary is actually free.
  *
  * Returns what happened so the caller can say something useful rather than failing later with a
  * linker error that does not name the cause.
  */
-export function stopHelios({ timeoutMs = 10_000 } = {}) {
+export function stopBhippi({ timeoutMs = 10_000 } = {}) {
   const found = running();
   try {
-    // `/T` takes the children with it: the MCP bridge Helios starts is this same binary, and it
+    // `/T` takes the children with it: the MCP bridge Bhippi starts is this same binary, and it
     // holds the file just as firmly as the window does.
-    if (isWindows) execFileSync('taskkill', ['/F', '/T', '/IM', 'helios.exe'], { stdio: 'ignore' });
-    else execFileSync('pkill', ['-f', 'target/debug/helios'], { stdio: 'ignore' });
+    if (isWindows) execFileSync('taskkill', ['/F', '/T', '/IM', 'bhippi.exe'], { stdio: 'ignore' });
+    else execFileSync('pkill', ['-f', 'target/debug/bhippi'], { stdio: 'ignore' });
   } catch {
     // Nothing was running, which is the normal case.
   }
@@ -86,13 +86,13 @@ export function stopHelios({ timeoutMs = 10_000 } = {}) {
 
 const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (invokedDirectly) {
-  const result = stopHelios();
+  const result = stopBhippi();
   if (!result.freed) {
     console.error(
-      `Could not close Helios: ${result.stillRunning} process(es) are still holding ${BINARY}.\n` +
+      `Could not close Bhippi: ${result.stillRunning} process(es) are still holding ${BINARY}.\n` +
         'Something is restarting it — check for another runner (an IDE "run app" task, or a second terminal).',
     );
     process.exit(1);
   }
-  console.log(result.closed > 0 ? `Closed Helios (${result.closed} process${result.closed === 1 ? '' : 'es'}).` : 'Helios was not running.');
+  console.log(result.closed > 0 ? `Closed Bhippi (${result.closed} process${result.closed === 1 ? '' : 'es'}).` : 'Bhippi was not running.');
 }

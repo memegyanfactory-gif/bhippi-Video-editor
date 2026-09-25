@@ -282,7 +282,7 @@ export function SynchronizeDialog({ onClose, onSubmit }: { onClose: () => void; 
         <label className="check radio"><input type="radio" checked={value === 'start'} onChange={() => setValue('start')} /> Clip Start</label>
         <label className="check radio"><input type="radio" checked={value === 'end'} onChange={() => setValue('end')} /> Clip End</label>
         <label className="check radio"><input type="radio" checked={value === 'source'} onChange={() => setValue('source')} /> Source Timecode (line up the same moment of each source)</label>
-        <p className="dialog-note">The clip on the lowest track stays put; the others move to line up with it. Audio-waveform sync needs an analysis pass Helios does not have yet.</p>
+        <p className="dialog-note">The clip on the lowest track stays put; the others move to line up with it. Audio-waveform sync needs an analysis pass Bhippi does not have yet.</p>
       </div>
     </Modal>
   );

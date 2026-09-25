@@ -105,6 +105,16 @@ fn exe(name: &str) -> String {
     }
 }
 
+/// The installer's own tools folder (FFmpeg, FFprobe, yt-dlp; see bundled.rs), set once at startup.
+static BUNDLED_BIN: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Puts the installer's tools folder in the search, after an explicit path and BHIPPI_FFMPEG but
+/// before PATH: the bundled FFmpeg has every encoder the export formats need, whatever else is
+/// installed on the machine.
+pub fn set_bundled_bin(dir: PathBuf) {
+    let _ignored = BUNDLED_BIN.set(dir);
+}
+
 /// Every directory worth looking in, most specific first.
 fn candidate_dirs(explicit: Option<&str>) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
@@ -119,13 +129,16 @@ fn candidate_dirs(explicit: Option<&str>) -> Vec<PathBuf> {
             dirs.push(path);
         }
     }
-    if let Some(env) = std::env::var_os("HELIOS_FFMPEG") {
+    if let Some(env) = std::env::var_os("BHIPPI_FFMPEG") {
         let path = PathBuf::from(env);
         dirs.push(if path.is_file() {
             path.parent().map(Path::to_path_buf).unwrap_or_default()
         } else {
             path
         });
+    }
+    if let Some(bundled) = BUNDLED_BIN.get() {
+        dirs.push(bundled.clone());
     }
     if let Some(path) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&path));

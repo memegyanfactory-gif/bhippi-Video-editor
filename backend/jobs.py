@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 class Jobs:
     def __init__(self, workers: int = 2, capacity: int = 8):
-        self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="helios")
+        self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="bhippi")
         self.slots = threading.BoundedSemaphore(capacity)
         self.lock = threading.RLock()
         self.items = {}

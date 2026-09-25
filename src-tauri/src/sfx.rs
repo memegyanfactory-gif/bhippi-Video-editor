@@ -667,12 +667,12 @@ mod tests {
         assert!(jumps >= 4, "glitch jumps {jumps}");
     }
 
-    /// `HELIOS_SFX_OUT=<folder> cargo test -p helios render_every_effect -- --ignored` writes every
+    /// `BHIPPI_SFX_OUT=<folder> cargo test -p bhippi render_every_effect -- --ignored` writes every
     /// effect there, to listen to or plot.
     #[test]
     #[ignore = "writes WAV files for listening"]
     fn render_every_effect_to_a_folder() {
-        let Ok(folder) = std::env::var("HELIOS_SFX_OUT") else { return };
+        let Ok(folder) = std::env::var("BHIPPI_SFX_OUT") else { return };
         std::fs::create_dir_all(&folder).unwrap();
         for kind in SfxKind::ALL {
             std::fs::write(std::path::Path::new(&folder).join(format!("{}.wav", kind.as_str())), wav_bytes(&samples(kind))).unwrap();

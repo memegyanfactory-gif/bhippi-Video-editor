@@ -1,6 +1,8 @@
-# Helios
+# Bhippi Video Editor
 
-A desktop video editor with an AI producer built in. Helios looks and cuts like a professional NLE (multi-track timeline, ripple and roll edits, keyframes, nested comps, audio meters) and ships with a co-pilot that plans, gathers, edits and polishes a video through real tools on your timeline. Everything runs on your machine: the models, the media, the render.
+Version 1.0.1
+
+Bhippi Video Editor is a desktop video editor with an AI producer built in. Bhippi looks and cuts like a professional NLE (multi-track timeline, ripple and roll edits, keyframes, nested comps, audio meters) and ships with a co-pilot that plans, gathers, edits and polishes a video through real tools on your timeline. Everything runs on your machine: the models, the media, the render.
 
 Built with Tauri v2 + Rust, React 19 + TypeScript, FFmpeg. MIT licensed.
 
@@ -28,11 +30,11 @@ Built with Tauri v2 + Rust, React 19 + TypeScript, FFmpeg. MIT licensed.
 
 ## How it compares
 
-Helios combines four kinds of tools in one app: an editor, a motion-graphics tool, an AI producer and a local media generator. Most tools cover one or two of these. The tables below compare it with the tools people usually pair together to get the same result.
+Bhippi combines four kinds of tools in one app: an editor, a motion-graphics tool, an AI producer and a local media generator. Most tools cover one or two of these. The tables below compare it with the tools people usually pair together to get the same result.
 
 **Editing and production**
 
-| | Helios | Premiere Pro | DaVinci Resolve | CapCut | Runway |
+| | Bhippi | Premiere Pro | DaVinci Resolve | CapCut | Runway |
 | --- | :---: | :---: | :---: | :---: | :---: |
 | Multi-track NLE (ripple, roll, slip, slide, nesting) | ✅ | ✅ | ✅ | Basic | — |
 | AI that edits the timeline through undoable tools | ✅ | Assistive features | Assistive features | Assistive features | — |
@@ -44,7 +46,7 @@ Helios combines four kinds of tools in one app: an editor, a motion-graphics too
 
 **Motion graphics and 3D**
 
-| | Helios | After Effects | Resolve (Fusion) | Remotion | Runway |
+| | Bhippi | After Effects | Resolve (Fusion) | Remotion | Runway |
 | --- | :---: | :---: | :---: | :---: | :---: |
 | Keyframed layers, masks, mattes, blend modes | ✅ | ✅ | ✅ (nodes) | In code | — |
 | 2.5D layers and camera with depth of field | ✅ | ✅ | ✅ | In code | — |
@@ -56,7 +58,7 @@ Helios combines four kinds of tools in one app: an editor, a motion-graphics too
 
 **Privacy and cost**
 
-| | Helios | Premiere Pro / After Effects | DaVinci Resolve | CapCut | Runway |
+| | Bhippi | Premiere Pro / After Effects | DaVinci Resolve | CapCut | Runway |
 | --- | :---: | :---: | :---: | :---: | :---: |
 | Footage stays on your machine | ✅ | Partly (cloud AI features) | ✅ | — | — |
 | Local text-to-video and images | ✅ | Cloud (Firefly) | — | Cloud | Cloud |
@@ -64,11 +66,11 @@ Helios combines four kinds of tools in one app: an editor, a motion-graphics too
 | Local voice-over | ✅ | — | — | Cloud | Cloud |
 | Price | Free | Subscription | Free / Studio one-time | Free + Pro subscription | Credits |
 
-✅ means built in; "—" means not offered. The other tools' columns describe their public feature sets at the time of writing and change often; check each vendor's site for current features and plans. Helios uses Blender only when it is installed on the user's machine, and runs it as a separate program.
+✅ means built in; "—" means not offered. The other tools' columns describe their public feature sets at the time of writing and change often; check each vendor's site for current features and plans. Bhippi uses Blender only when it is installed on the user's machine, and runs it as a separate program.
 
 ## How the AI works
 
-The co-pilot is any model you connect: Claude, OpenAI-compatible APIs, local servers, or coding-agent CLIs (Claude Code, Codex, Gemini). It edits only through Helios tools (about 150 of them), so every change is a real, undoable timeline operation. A workflow guard keeps the phases honest: no media generation while planning, no timeline edits before the plan is saved.
+The co-pilot is any model you connect: Claude, OpenAI-compatible APIs, local servers, or coding-agent CLIs (Claude Code, Codex, Gemini). It edits only through Bhippi tools (about 150 of them), so every change is a real, undoable timeline operation. A workflow guard keeps the phases honest: no media generation while planning, no timeline edits before the plan is saved.
 
 Useful tools to know about:
 
@@ -85,11 +87,11 @@ Useful tools to know about:
 
 ## Quick start
 
-Requirements: Node.js 20 or 22, Rust 1.85+, FFmpeg on your PATH. Optional: `yt-dlp` for downloads, [Blender](https://www.blender.org) 4.2+ for 3D renders, Python 3.10+ with PyTorch for the local models (Helios installs model weights from Settings → Local media).
+Requirements: Node.js 20 or 22, Rust 1.85+, FFmpeg on your PATH. Optional: `yt-dlp` for downloads, [Blender](https://www.blender.org) 4.2+ for 3D renders, Python 3.10+ with PyTorch for the local models (Bhippi installs model weights from Settings → Local media).
 
 ```bash
-git clone https://github.com/memegyanfactory-gif/Helios.git
-cd Helios
+git clone https://github.com/memegyanfactory-gif/Bhippi.git
+cd Bhippi
 npm install
 npm run dev        # Tauri desktop app with hot reload
 npm run dev:web    # browser-only preview of the UI

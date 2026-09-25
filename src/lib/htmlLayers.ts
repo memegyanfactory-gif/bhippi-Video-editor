@@ -17,8 +17,8 @@ import type { Clip, Comp, Project } from './types';
 
 type HtmlSource = Extract<Clip['source'], { type: 'html' }>;
 
-const MARK = /^\/\* helios-layers stack=(\S+) layer=(\S+) of=(\d+) \*\/\r?\n/;
-const RULES = '/* helios-layers rules */';
+const MARK = /^\/\* bhippi-layers stack=(\S+) layer=(\S+) of=(\d+) \*\/\r?\n/;
+const RULES = '/* bhippi-layers rules */';
 
 export type HtmlLayerInfo = { stack: string; layer: string; of: number };
 
@@ -50,7 +50,7 @@ export function layerCss(css: string | undefined, stack: string, layer: string, 
         // A part inside this one (a card's rows) is a layer of its own.
         `${scope} [data-hl="${layer}"] [data-hl], ${scope} [data-hl="${layer}"] [data-hl] * { visibility: hidden !important; }`,
       ].join('\n');
-  return `/* helios-layers stack=${stack} layer=${layer} of=${of} */\n${baseCss(css)}\n${RULES}\n${rules}\n`;
+  return `/* bhippi-layers stack=${stack} layer=${layer} of=${of} */\n${baseCss(css)}\n${RULES}\n${rules}\n`;
 }
 
 /** Whether a declaration block paints: a fill, a background image, a visible border or outline, a shadow, generated content. */

@@ -1,6 +1,6 @@
 # @funny — the roast / meme edit mode
 
-Plan written 2026-09-24. It comes from taking two finished roast videos apart frame by frame, measuring them, and comparing what they do with what Helios can do today.
+Plan written 2026-09-24. It comes from taking two finished roast videos apart frame by frame, measuring them, and comparing what they do with what Bhippi can do today.
 
 - **A: Meme Gyan, "The Unbelievable Reason Behind Dhruv Rathee's Controversy"** (youtu.be/Q8n797PcA4Q; 10:43, 1080p50). The user recorded it on green screen and an editor did the rest.
 - **B: Thugesh, "Anjali Arora's Ramayan Is a Joke!"** (youtu.be/DqpJrA0EAXo; 12:00, 1080p50, about 790K views in a day). This is the professional bar.
@@ -144,9 +144,9 @@ This is how Thugesh uses alpha and cutouts, adds text and effects, and times it 
 
 ---
 
-## 2. What Helios has today, and the gaps
+## 2. What Bhippi has today, and the gaps
 
-Helios already has most of the pieces:
+Bhippi already has most of the pieces:
 - **Transcription:** word-level (`src-tauri/src/transcribe.rs`: Deepgram, then whisper.cpp, then Groq, then OpenAI).
 - **Web research and download:** `web_media.rs` (yt-dlp, scraping, trimming, cropping), plus `find_free_media` (Openverse, Commons, NASA).
 - **Mattes and keying:**
@@ -257,7 +257,7 @@ Each gets entities and a "comic intent": betrayal, exposed, chase, clueless, fak
 
 ### 3.3 The meme brain: research recent memes, and use them for what they mean
 
-The database is `Documents/Helios/Memes/memes.db` (SQLite plus media files). Each entry has:
+The database is `Documents/Bhippi/Memes/memes.db` (SQLite plus media files). Each entry has:
 - **Identity:** `name`, `aliases` (English, Hinglish, Devanagari).
 - **Origin:** film/show/creator plus the timestamp.
 - **Meaning:** `meaning`, `use_when`, `dont_use_when`.
@@ -281,7 +281,7 @@ The database is `Documents/Helios/Memes/memes.db` (SQLite plus media files). Eac
 - GIPHY trending stickers (optional key).
 - Myinstants India trending, for sound names (it refuses bots, so treat it as best-effort).
 
-**Learning a new meme's meaning** (what "uses them according to their references" means). For each new candidate, the researcher reads its KYM, wiki or Reddit explainer and writes `meaning / use_when / dont_use_when`. It downloads one or two canonical formats and **transcribes the clip**. That is how Helios knows "mera juice kahan gaya" is *said* in the Oggy clip's meme dub. Anything it cannot explain from a source is marked `unverified` and never auto-placed.
+**Learning a new meme's meaning** (what "uses them according to their references" means). For each new candidate, the researcher reads its KYM, wiki or Reddit explainer and writes `meaning / use_when / dont_use_when`. It downloads one or two canonical formats and **transcribes the clip**. That is how Bhippi knows "mera juice kahan gaya" is *said* in the Oggy clip's meme dub. Anything it cannot explain from a source is marked `unverified` and never auto-placed.
 
 **Matching a beat to a meme:**
 1. Retrieve the top 10 by embedding (beat intent + words).
@@ -331,7 +331,7 @@ Each move is deterministic, with defaults taken from §1. Every move has a built
 
 ### 3.6 Sound
 
-**SFX library.** `Documents/Helios/SFX`, as a sampled library alongside `sfx.rs` procedural sounds.
+**SFX library.** `Documents/Bhippi/SFX`, as a sampled library alongside `sfx.rs` procedural sounds.
 - About 150 tagged sounds, curated once from **Freesound CC0**: vine boom, bruh, record scratch, dun-dun-dunnn, sad violin, anime wow, airhorn, laugh, crickets, cash register, ding, swish/whoosh, pop, glitch, and similar.
 - A `search_sfx` tool with an optional user Freesound key, CC0 filter.
 - Myinstants-style names are used as search aliases only. Those files are user uploads of copyrighted audio, so they are not shipped.
@@ -350,7 +350,7 @@ Each move is deterministic, with defaults taken from §1. Every move has a built
 
 A new `edit_dna` analyser. It ports this study's scripts: scene cuts, Demucs stems, transient SFX count, music coverage, beat-cut alignment, green-screen share, and longest dead zone. It runs on:
 - (a) any reference the user drops in, to add it as a target band;
-- (b) Helios's own `@funny` output, before it is handed back.
+- (b) Bhippi's own `@funny` output, before it is handed back.
 
 The Comedian seat reads its report.
 
@@ -390,7 +390,7 @@ Packages 1, 3 and 4 do not depend on each other and can run in parallel after 0.
 
 ## 6. Status: built 2026-09-25
 
-Everything in §3 and §4 is built and wired. §2 describes Helios before this work.
+Everything in §3 and §4 is built and wired. §2 describes Bhippi before this work.
 
 **How to use it.** Type `@funny` in the chat (or pick it from the `@` list, or `/style funny`). A chip shows the style is on; `/style off` or its × turns it off. The AI then follows `src-tauri/prompts/styles/funny.md`, and so do the workers it spawns. The five-seat council includes the Comedian, which blocks the finish on a meme with no reason, an unverified meme, or a dead zone over 8 s.
 
@@ -417,7 +417,7 @@ Everything in §3 and §4 is built and wired. §2 describes Helios before this w
 **Not yet exercised, or limited**
 - **In the app:** the whole pipeline is tested in vitest and cargo, and its parts were run on real media. A complete `@funny` edit has not yet been run inside the app with a provider.
 - **Long roto:** chunked `rotoscopeLong` is unit-tested but has not run in the webview. RVM there is single-threaded, so a 10-minute host shot may take tens of minutes.
-- **KLIPY and GIPHY:** built against their docs and untested live (no keys). Keys go in Settings › Memes and are stored in the OS credential store.
+- **KLIPY and GIPHY:** built against their docs and untested live (no keys). Keys are read from the OS credential store (the Settings › Memes panel that set them has been removed).
 - **Myinstants:** sounds download through the system `curl`, because the site refuses the app's HTTP client. Its files are copyrighted uploads, so they are tagged and skipped unless `allowCopyrighted` is set.
 - **Emoji on export:** colour emoji export only through the HTML sticker (`emoji_pop`, the bleep's mouth cover). Emoji typed into an ordinary text clip export as flat outlines (libass).
 

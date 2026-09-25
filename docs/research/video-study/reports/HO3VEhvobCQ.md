@@ -2,8 +2,8 @@
 
 *Video study, 2026-09-25. 73 s, 24 fps, 1920×1080, 1,752 frames, 27 shots. This report builds on the earlier
 frame-by-frame pass (`out/HO3VEhvobCQ/notes.md`, all 110 sheets) and the whole-frame ones/twos pass
-(`ones_twos.txt`). It adds character-only measurements; the scripts are listed in §4.0. The film is Helios's
-character-animation reference. Helios has no character system today (only `create_stick_figure`), so
+(`ones_twos.txt`). It adds character-only measurements; the scripts are listed in §4.0. The film is Bhippi's
+character-animation reference. Bhippi has no character system today (only `create_stick_figure`), so
 §7 is the main deliverable: a corrected design for plan P8.*
 
 ---
@@ -32,7 +32,7 @@ not a rig, and five things show it:
 - palette-swap cuts, gradient colour cycling and god rays;
 - the logo write-on.
 
-**Why it matters for Helios.** The film sets the bar for *timing and acting*. That means:
+**Why it matters for Bhippi.** The film sets the bar for *timing and acting*. That means:
 - anticipation that scales with mass;
 - extreme 1-frame stretches;
 - holds, then fast moves;
@@ -70,11 +70,11 @@ only (§4.1).
 
 "Built" means how the film did it (cel = frame-by-frame drawing). "AE rig route" means how a rig-based studio
 would get the same effect in After Effects (Duik Angela, RubberHose 3, Joysticks 'n Sliders, the Puppet tool).
-"Helios" is the status today, followed by the pillar that covers the gap.
+"Bhippi" is the status today, followed by the pillar that covers the gap.
 
 ### 3.1 Character construction
 
-| Technique | Frames | Description | Built / AE rig route | Helios |
+| Technique | Frames | Description | Built / AE rig route | Bhippi |
 |---|---|---|---|---|
 | **Flat-dome head** | f1, f1488 | A wide lens or "mushroom cap", w:h ≈ 2.3:1, no outline, no hair, no nose. Ears are small ellipses at the long axis, with a darker underside crescent and a short dark line | Cel. AE: a shape layer with a Joysticks 'n Sliders head (features slide over the dome) | No (P8) |
 | **Almond eyes** | f1–12, f1009 | Pointed almond whites, w:h ≈ 1.9:1. The black round pupil is about 0.45 of the almond's width and carries a **4-point star catchlight** (plus an optional dot). The lids are a flat line cutting the almond | Cel. AE: the white as a matte for the pupil, the lid as a mask shape, Duik "Blink" | No |
@@ -90,7 +90,7 @@ would get the same effect in After Effects (Duik Angela, RubberHose 3, Joysticks
 
 ### 3.2 Principles as used (with the measured numbers from §4)
 
-| Principle | Where | How it is used | AE rig route | Helios |
+| Principle | Where | How it is used | AE rig route | Bhippi |
 |---|---|---|---|---|
 | **Anticipation** | f28, f209, f386, f1242, f1277 | **Scales with mass:** 2 f (hop), 3 f (leap), a 1 f dip + 6 f wind-up (CU gesture), about 6 f (heavy strike), 12 f + a 4 f hold (giant take-off) | Keyed poses | No |
 | **Squash & stretch** | f220, f389, f398–405, f1297–1305 | Fall stretch **1.24×** (hop) to **~1.7×** (leap), width about 0.6× so area is roughly kept. Take-off smear elongation 5.5. Landing squash 0.83×, then 0.55× height | Duik Squash & Stretch; RubberHose "stretch" | No |
@@ -108,7 +108,7 @@ would get the same effect in After Effects (Duik Angela, RubberHose 3, Joysticks
 
 ### 3.3 Cycles, face, light, transitions, drawn FX
 
-| Technique | Frames | Description | Built / AE rig route | Helios |
+| Technique | Frames | Description | Built / AE rig route | Bhippi |
 |---|---|---|---|---|
 | Idle loop (background cast) | f1247–1290 | Pill creature: **13 f loop, 4 drawings on threes** | Cel loop / Duik walk-and-loop tools | No |
 | Idle (hero) | f241–256, f1105–1163 | **Dead holds** of 16–20 f with 2–3-drawing bursts on twos. There is no sine-wave "breathing" | Holds + short keyed bursts | — |
@@ -312,11 +312,11 @@ The earlier figure of "action 78–97% on ones" measured the world, not the char
     is f1512 (0.32), when the box opens. The logo is 0.04.
 
   The audio was analysed numerically, not listened to, so the split between score and SFX is not verified.
-- **For Helios:** in character films, put SFX on **action accents** (take-off, contact, flicker, splash). The
+- **For Bhippi:** in character films, put SFX on **action accents** (take-off, contact, flicker, splash). The
   action library should emit cue events for this. Use music for the emotional arc and duck it under quiet
   acting. Do not snap cuts to beats in narrative mode.
 
-## 7. The Helios character system (corrected P8)
+## 7. The Bhippi character system (corrected P8)
 
 ### 7.1 Review of plan §4 P8 as a character TD
 
@@ -353,7 +353,7 @@ The earlier figure of "action 78–97% on ones" measured the world, not the char
    forearm need springs. They must be seekable and deterministic (§7.3).
 9. **Styles are missing.** flat, outline and silhouette must be keyable (palette-swap cut, flicker).
    `style.lightMatte` as a single string cannot express the film's rule. It needs *inside style / outside
-   style from a layer's alpha*, and **must not consume** the beam layer: in Helios a matte source is not drawn,
+   style from a layer's alpha*, and **must not consume** the beam layer: in Bhippi a matte source is not drawn,
    yet the beam must be visible.
 10. **Nothing connects the character to other layers.**
     - **Props and sockets:** a flashlight in the hand, with the beam layer parented to `torch.tip`; a cube held
@@ -371,7 +371,7 @@ The earlier figure of "action 78–97% on ones" measured the world, not the char
     perspective scale.
 15. **Detail lines.** Pencil-textured interior strokes clipped to their part, plus an optional boil. The film
     does **not** boil its holds.
-16. **Lip-sync source is wrong.** "Helios's own TTS knows [phoneme timings]" is not true: `speech.rs` returns
+16. **Lip-sync source is wrong.** "Bhippi's own TTS knows [phoneme timings]" is not true: `speech.rs` returns
     audio bytes only (Piper, ElevenLabs). The sources are listed in §7.4.
 17. **The base-character naming carries IP risk.** `mds-bean`, if modelled on the MDS hero (pink bald dome,
     blue hoodie, yellow drawstrings, salmon culottes), copies their mascot. Ship an original `dome-kid` with
@@ -528,7 +528,7 @@ Each phase declares its accent flag and its cue (for SFX).
 | `float` | On 3s and 4s; fingers wiggle on 2s and 3s; expression drift | — | — | S4 |
 | `head-turn` | 3 keys on twos (3/4 → front-down → profile); dome roll ≤ 70° + surface slide | — | to | f1507–1515 |
 | `turn-body` | View swap **on a frame where a hand occludes the face**, on twos | — | to view | f503–511 |
-| `look` | Pupils to the target, then the head follows (Helios convention; the eye lead was not measured) | — | at | f645–660 |
+| `look` | Pupils to the target, then the head follows (Bhippi convention; the eye lead was not measured) | — | at | f645–660 |
 | `take` | Stop, upright, arms up, hold 3 | — | — | f419–421 |
 | Gestures | `facepalm`, `breathe`, `shield-eyes`, `reach-catch`, `hug-object`, `point-at`, `duck`, `scream`, `flinch` | — | at | S5, S11, S12 |
 
@@ -602,7 +602,7 @@ The film has no dialogue, but explainers will.
 - occluded view swaps;
 - particles from the character's alpha, for flakes.
 
-**The quality bar.** Helios can reach **MDS's own rigged-tutorial level**: Duik/RubberHose explainer
+**The quality bar.** Bhippi can reach **MDS's own rigged-tutorial level**: Duik/RubberHose explainer
 characters with principled timing on twos, the flat-grain look and light mattes. It cannot reach this film's
 hand-drawn frames. My estimate of what a rig reproduces at "looks intended" quality is a judgement, not a
 measurement:

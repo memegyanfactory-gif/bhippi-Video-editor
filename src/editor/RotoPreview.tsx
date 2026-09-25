@@ -4,7 +4,7 @@ import { correctedAlpha } from '../lib/rotoCorrections';
 import type { RotoCorrection } from '../lib/types';
 import { canvasImage } from '../lib/canvasImage';
 
-const LUMA_FILTER_ID = 'helios-roto-luma-alpha';
+const LUMA_FILTER_ID = 'bhippi-roto-luma-alpha';
 
 /**
  * One hidden SVG filter, mounted once: alpha ← red, colour ← black. Drawn through `ctx.filter`

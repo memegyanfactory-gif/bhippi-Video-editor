@@ -9,7 +9,7 @@ use std::collections::HashMap;
 /// An asset the renderer can plan against: `validate_media` insists the file is really there.
 fn asset(id: &str, kind: AssetKind, duration: f64) -> Asset {
     // A stable name: the plan only needs the file to exist, and temp should not fill up.
-    let path = std::env::temp_dir().join(format!("helios-plan-stand-in.{}", if kind == AssetKind::Image { "png" } else { "mp4" }));
+    let path = std::env::temp_dir().join(format!("bhippi-plan-stand-in.{}", if kind == AssetKind::Image { "png" } else { "mp4" }));
     std::fs::write(&path, b"not really media").expect("write the stand-in file");
     Asset {
         id: id.to_owned(),
@@ -539,7 +539,7 @@ fn a_rendered_sequence_holds_its_first_frame_while_a_transition_shows_it_early()
 }
 
 #[test]
-fn every_export_is_stamped_with_helios_provenance_and_marker_chapters() {
+fn every_export_is_stamped_with_bhippi_provenance_and_marker_chapters() {
     let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
     let mut named = comp("c", vec![clip("a", "v1", 0.0, 2.0, media("m"))]);
     named.name = "Goa reel".to_owned();
@@ -552,8 +552,8 @@ fn every_export_is_stamped_with_helios_provenance_and_marker_chapters() {
     let title = plan.args.iter().position(|arg| arg == "title=Goa reel").expect("title metadata");
     assert_eq!(plan.args[title - 1], "-metadata");
     let comment = plan.args.iter().find(|arg| arg.starts_with("comment=")).expect("comment metadata");
-    assert!(comment.contains("Made with Helios"), "{comment}");
+    assert!(comment.contains("Made with Bhippi"), "{comment}");
     assert!(comment.contains("Hook@0.5s"), "named chapter: {comment}");
     assert!(comment.contains("Marker@1.5s"), "unnamed chapters still listed: {comment}");
-    assert!(plan.args.iter().any(|arg| arg.starts_with("encoder=Helios")), "{:?}", plan.args);
+    assert!(plan.args.iter().any(|arg| arg.starts_with("encoder=Bhippi")), "{:?}", plan.args);
 }

@@ -1,0 +1,92 @@
+/* Plugins: the Plugins panel, plugin frames, and the Plugin Maker workspace (src/plugins). */
+
+.ws-plugins { display: flex; flex-direction: column; min-width: 240px; }
+.plugins-body { position: relative; width: 100%; height: 100%; display: flex; }
+.plugin-frame { flex: 1; width: 100%; height: 100%; border: 0; display: block; background: var(--panel); }
+.plugin-frame-empty { margin: auto; padding: 16px; color: var(--text-dim); text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.plugins-background { position: fixed; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+
+.plugins-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px; text-align: center; color: var(--text-dim); }
+.plugins-empty p { margin: 0; max-width: 260px; line-height: 1.5; }
+.plugins-empty strong { color: var(--text); }
+.plugins-empty-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 6px; }
+.plugins-empty-list > span { width: 100%; font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
+
+.btn-danger { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+.btn.on { border-color: var(--blue-line); background: var(--blue-soft); }
+
+/* ── Plugin Maker ─────────────────────────────────────────────────────── */
+.plugin-maker { position: fixed; inset: 0; z-index: 900; display: flex; flex-direction: column; background: var(--app); color: var(--text); }
+.pm-header { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-bottom: 1px solid var(--seam); background: var(--panel); flex-shrink: 0; }
+.pm-header h2 { margin: 0 8px 0 4px; font-size: 14px; font-weight: 600; }
+.pm-header select { max-width: 240px; }
+.pm-header-note { margin-left: auto; color: var(--text-faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pm-error { margin: 0; padding: 6px 12px; background: var(--red-soft); color: var(--red); display: flex; gap: 8px; align-items: center; }
+.pm-error button { margin-left: auto; background: none; border: 0; color: inherit; font-size: 16px; cursor: pointer; }
+
+.pm-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(436px, 460px) 1fr 320px; }
+.pm-chat { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--seam); background: var(--panel); }
+.pm-chat > .chat { flex: 1; min-height: 0; }
+
+.pm-stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--seam); }
+.pm-stage-bar { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; background: var(--panel-2); border-bottom: 1px solid var(--seam); }
+.pm-grow { flex: 1; min-width: 0; }
+.pm-dim { color: var(--text-faint); font-size: 11px; }
+.pm-seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.pm-seg button { background: var(--panel-3); border: 0; color: var(--text-dim); padding: 3px 9px; font: inherit; cursor: pointer; }
+.pm-seg button + button { border-left: 1px solid var(--line-strong); }
+.pm-seg button.on { background: var(--blue-soft); color: var(--text); }
+
+.pm-preview { flex: 1; min-height: 0; display: flex; justify-content: center; padding: 16px; overflow: auto; }
+.pm-preview-frame { max-width: 100%; height: 100%; min-height: 240px; display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--panel); box-shadow: var(--lift); }
+
+.pm-starters { max-width: 720px; margin: auto; text-align: center; }
+.pm-starters h3 { font-size: 18px; margin: 0 0 8px; }
+.pm-starters p { color: var(--text-dim); line-height: 1.55; margin: 0 auto 18px; max-width: 560px; }
+.pm-starter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; text-align: left; }
+.pm-starter { display: flex; flex-direction: column; gap: 6px; padding: 12px; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); font: inherit; cursor: pointer; }
+.pm-starter:hover { border-color: var(--blue-line); background: var(--panel-3); }
+.pm-starter span { color: var(--text-dim); font-size: 11px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
+.pm-console { height: 180px; flex-shrink: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line-strong); background: var(--field); }
+.pm-console-bar { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: var(--panel-2); font-weight: 600; }
+.pm-console-lines { flex: 1; overflow: auto; padding: 4px 10px; font: 11px/1.5 var(--mono); }
+.pm-log { white-space: pre-wrap; word-break: break-word; }
+.pm-log time { color: var(--text-faint); margin-right: 8px; }
+.pm-log.warn { color: var(--amber); }
+.pm-log.error { color: var(--red); }
+.pm-log.call { color: var(--blue-hi); }
+
+.pm-inspector { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--seam); background: var(--panel); }
+.pm-tabs { display: flex; border-bottom: 1px solid var(--seam); background: var(--panel-2); }
+.pm-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 9px 4px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-dim); font: inherit; cursor: pointer; }
+.pm-tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.pm-tab-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+.pm-form { display: flex; flex-direction: column; gap: 10px; }
+.pm-form label { display: flex; flex-direction: column; gap: 4px; color: var(--text-dim); font-size: 11px; }
+.pm-form input, .pm-form textarea, .pm-form select { background: var(--field); border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); padding: 5px 7px; font: inherit; font-size: 12px; }
+.pm-form h4 { margin: 6px 0 0; font-size: 12px; }
+.pm-row { display: flex; gap: 8px; align-items: flex-end; }
+.pm-row.pm-grow, .pm-row .pm-grow { flex: 1; }
+.pm-icon input { width: 48px; text-align: center; font-size: 16px; }
+.pm-toggle { flex-direction: row !important; align-items: flex-start; gap: 8px !important; cursor: pointer; }
+.pm-toggle input { margin-top: 2px; }
+.pm-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.pm-toggle strong { color: var(--text); font-size: 12px; font-weight: 500; }
+.pm-toggle em { font-style: normal; color: var(--text-faint); }
+.pm-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.pm-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: 12px; font: 11px var(--mono); }
+.pm-chip.warn { border-color: var(--amber); color: var(--amber); }
+.pm-chip button { background: none; border: 0; color: var(--text-faint); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 3px; }
+.pm-code { height: 100%; }
+.pm-code textarea { flex: 1; min-height: 360px; font: 11px/1.5 var(--mono); white-space: pre; tab-size: 2; resize: none; }
+.pm-version { display: flex; gap: 8px; align-items: center; padding: 8px; background: var(--panel-2); border-radius: var(--radius); }
+.pm-version span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.pm-version em { font-style: normal; color: var(--text-faint); font-size: 11px; }
+.pm-inspector-empty { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.pm-inspector-empty > p { margin: 0 0 4px; color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.pm-plugin-row { display: grid; grid-template-columns: 22px 1fr; gap: 2px 6px; padding: 8px; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); font: inherit; cursor: pointer; }
+.pm-plugin-row:hover { border-color: var(--blue-line); }
+.pm-plugin-row em { grid-column: 2; font-style: normal; color: var(--text-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 1200px) { .pm-body { grid-template-columns: 436px 1fr 280px; } .pm-header-note { display: none; } }

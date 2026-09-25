@@ -57,7 +57,7 @@ Only a few shots use genuine 3D projection:
 - the cylinders of the exploded view;
 - the slab tunnel (AE 3D layers and a camera flying through, with a vanishing point).
 
-**What this means for Helios.** A `solid2_5d` engine should reproduce *this cheat vocabulary*. It
+**What this means for Bhippi.** A `solid2_5d` engine should reproduce *this cheat vocabulary*. It
 should not be a physically correct mini-renderer, which would look *different* from the reference
 (§7).
 
@@ -97,7 +97,7 @@ the matching words by 0–1.4 s:
 ## 3. Technique catalogue: every fake-3D trick
 
 Each entry gives the **frames**, **what it is**, the **AE build** (the most likely one, inferred
-from the pixels), **the math**, and the **Helios status** today. "NEW" marks something this report
+from the pixels), **the math**, and the **Bhippi status** today. "NEW" marks something this report
 proposes.
 
 ### T1 · Checker hemisphere spin (f9–f32)
@@ -140,7 +140,7 @@ in the image plane:
   - The prior analyst's area-only fit is (0.73, 0.21, 0.52, 0.96), ending at 156° by f29.7, with an
     rms of 4°.
 
-**Helios status.** Not possible today: there is no sphere projection and no spherical texture
+**Bhippi status.** Not possible today: there is no sphere projection and no spherical texture
 mapping. `solid2_5d` surface decals (§7) would cover it.
 
 ### T2 · Sphere → torus "O" (f29–f31, f37–f41)
@@ -156,7 +156,7 @@ edge. Alternatively, a swap to the letter O hidden behind the growing hole.
 when R = 0. The hole appears when R > ρ, i.e. **hole radius = R − ρ = 2R − 1**. Animating R from 0
 to R_O gives exactly this "hole from the centre".
 
-**Helios status.** Only a flat version is possible, with an animated ellipse mask in subtract mode
+**Bhippi status.** Only a flat version is possible, with an animated ellipse mask in subtract mode
 plus a feather. The shading of the inner wall is missing. An SDF torus would cover it.
 
 ### T3 · Soft rim-lit sphere shading (every sphere; measured at f105)
@@ -205,7 +205,7 @@ L*(n) = 40.9 + 35.4·√(1 − n_z) − 7.5·n_x + 20.0·n_y
 - **Back-glow profile (L*):** 97.5 at 1.05 r, 96.5 at 1.2 r, 94.9 at 1.4 r, 91 at 1.9 r, then the
   background (89) at about 2.5 r.
 
-**Helios status.** Only as a stack of about 5 shape layers: a radial-gradient ellipse, a blurred
+**Bhippi status.** Only as a stack of about 5 shape layers: a radial-gradient ellipse, a blurred
 core, a blurred spec and a `glow`. That breaks "one layer, not forty" (fact 10) and cannot rotate. It
 is the `look:'soft-rim'` of the new primitive (§7.3).
 
@@ -237,7 +237,7 @@ to the path distance for the roll. The body layer is untouched.
 - The measured f127 point (y = −0.21 r at cos φ = 0.58) gives **a ≈ 0.26**.
 - Roll: **θ_z = s/r**, with s the arc length travelled.
 
-**Helios status.** Possible today as 2D keyframes: position.y = −a·r·sin φ and scale.y = cos φ, or a
+**Bhippi status.** Possible today as 2D keyframes: position.y = −a·r·sin φ and scale.y = cos φ, or a
 `threeD` layer with rotationX and an anchor z. There is no helper, so the AI would have to derive
 this. It becomes the `decals[].mode:'card'` of §7.
 
@@ -258,7 +258,7 @@ this. It becomes the `decals[].mode:'card'` of §7.
 same ease as the settle. The swap time is chosen where the **decal visibility cos φ = 0**, so the
 silhouettes of both kinds are "blank".
 
-**Helios status.** Swapping two layers is possible. There is no twist deformer on shapes, although
+**Bhippi status.** Swapping two layers is possible. There is no twist deformer on shapes, although
 `wave-warp` and `displacement` exist.
 
 ### T6 · Jelly cube tumble (f158–f176)
@@ -291,7 +291,7 @@ The band positions give **≈360° in 16 f (f160 → f176, 1.07 s, ≈22°/f ≈
 moments near f160, f164, f169 and f173–176. At the same time the cube falls down its arc and recedes
 **2.8×** (silhouette height 725 → 257 px).
 
-**Helios status.** It can be faked with 2–3 shape layers and masks. There is no rounded-box
+**Bhippi status.** It can be faked with 2–3 shape layers and masks. There is no rounded-box
 primitive with per-face tones.
 
 ### T7 · Motion-path arcs, auto-orient and rolling (f153–f215)
@@ -316,7 +316,7 @@ for the cube.
 - Auto-orient: rot = atan2(P′(u).y, P′(u).x) + offset.
 - Roll: θ_z = s_total/r.
 
-**Helios status.** Not possible: there are no spatial tangents on position (map A6) and no
+**Bhippi status.** Not possible: there are no spatial tangents on position (map A6) and no
 auto-orient. Plan P1 adds both.
 
 ### T8 · Squash-and-stretch pops (f92–96, f103–110, f216–228, f407–412)
@@ -333,7 +333,7 @@ deformer.
 
 **AE build.** Scale keyframes, and CC Bend It or a Bezier Warp for the trapezoid.
 
-**Helios status.** Scale keys are possible. There is no bend deformer.
+**Bhippi status.** Scale keys are possible. There is no bend deformer.
 
 ### T9 · Rubber-hose character, body flex, run loop (f239–f307)
 
@@ -352,7 +352,7 @@ f275, f287 and f299 (`run_cycle.py`). The body dips once per step, so there are 
 **AE build.** A rubber-hose rig (Duik/RubberHose) with `loopOut('cycle')`, and CC Bend It on the
 body.
 
-**Helios status.** Not possible. There is only `create_stick_figure`, and no rubber-hose limbs
+**Bhippi status.** Not possible. There is only `create_stick_figure`, and no rubber-hose limbs
 (plan P8).
 
 ### T10 · Depth fly-bys with a focus *band* (f257–f292; also the UI shots and the end card)
@@ -386,7 +386,7 @@ sharp band:
 
 Since screen scale ∝ 1/z, z_n/z is just s/s_n. The thin lens is the special case z_n = z_f.
 
-**Helios status.** **Not possible.** The camera layer has `focus` and `aperture` (`types.ts:262`),
+**Bhippi status.** **Not possible.** The camera layer has `focus` and `aperture` (`types.ts:262`),
 and `cameraAt` evaluates them (`evaluate.ts:193`), but **no renderer code reads them.** Camera DOF
 is a no-op today. Blur can be keyed by hand with `gaussian-blur`, and kit templates already do that
 (`overlayTemplates.ts:350`).
@@ -412,7 +412,7 @@ gradient ramp along the axis. The z-scatter is done with 3D layers and a camera 
 - The visible cap is the one with a_z > 0.
 - Silhouette (orthographic) = the convex hull of both cap ellipses, i.e. the two outer tangent lines.
 
-**Helios status.** Can be faked with shapes, but the hull must be computed by hand. The primitive
+**Bhippi status.** Can be faked with shapes, but the hull must be computed by hand. The primitive
 covers it.
 
 ### T12 · Extruded timeline slabs, keyframe prisms, hyperspace (f353–f406; full res at f387, f401)
@@ -434,7 +434,7 @@ solids per box), a 3D camera fly-through, and motion blur.
 whose normals face the camera. The per-face tone is fixed, plus an edge glow. **An orthographic
 ray-cast inside a layer quad cannot produce these converging wedges** (§7.1).
 
-**Helios status.** Each face could be a `threeD` solid layer (6 per slab, which breaks fact 10), and
+**Bhippi status.** Each face could be a `threeD` solid layer (6 per slab, which breaks fact 10), and
 there is no per-face shading. Plan P7 (Blender) or a perspective `solid2_5d` would cover it.
 
 ### T13 · Through-the-O portal (f414–f446)
@@ -456,7 +456,7 @@ glyph's inner contour). The precomp's scale is keyed to 0. The text layer's scal
   0.0027 in scale-% space. It starts at full speed and lands with a long settle.
 - The prior analyst's camera-z fit is (0.61, 0.72, 0.55, 1.02), rmse 0.0023.
 
-**Helios status.** Possible by hand, with a circle mask on a precomp, keyframed scale and a track
+**Bhippi status.** Possible by hand, with a circle mask on a precomp, keyframed scale and a track
 matte. There is no "glyph counter as a matte" helper (plan P4 `through-the-letter-counter`).
 
 ### T14 · Inflated gradient type with hue drift (f1–f64, f424–f460; full res at f45)
@@ -489,7 +489,7 @@ Shadow**, and a light-centre radial background.
 
 §7.4 gives the exact pass list.
 
-**Helios status.** Only the drop shadow (the `drop-shadow` effect with a colour) and a solid fill or
+**Bhippi status.** Only the drop shadow (the `drop-shadow` effect with a colour) and a solid fill or
 `fillColor` animator exist. There are no layer styles, no gradient text fill and no bevel. The
 `liquid-glass` effect already derives a normal from blurred alpha (`gl/shaders.ts:405–426`), which
 is the closest code to reuse.
@@ -513,7 +513,7 @@ is the closest code to reuse.
 - In 30 fps terms: ×1.18 per frame.
 - As a 12-frame exit it is about cubic-bezier (0.52, 0.04, 0.80, 0.16).
 
-**Helios status.** Possible with a keyed camera or scale and `cubic-bezier` eases. Rack focus is only
+**Bhippi status.** Possible with a keyed camera or scale and `cubic-bezier` eases. Rack focus is only
 possible as keyed blur.
 
 ### T16 · Tutorial overlays (f65–f160, f321–f368)
@@ -531,7 +531,7 @@ possible as keyed blur.
 **The math.** The wireframe cube is the 8 corners **projected with the same camera/rotation as the
 object**, which is why it "rotates" in sync with the fake-3D content.
 
-**Helios status.** Shapes and the `dock-cursor` template exist. There is no helper that attaches
+**Bhippi status.** Shapes and the `dock-cursor` template exist. There is no helper that attaches
 overlays to a target layer (NEW `tutorial_overlay`).
 
 ### T17 · Faceted two-tone prisms (the title decoration, the timeline world)
@@ -545,7 +545,7 @@ An hourglass is two triangles, `#778ce4` over `#5554e2`.
 
 **The math.** Flat shading, with facet tone = step(n·l > 0). Only the facets with n_z > 0 are drawn.
 
-**Helios status.** Possible as polygons today, but they don't rotate. As `kind:'octahedron'|'bicone'`
+**Bhippi status.** Possible as polygons today, but they don't rotate. As `kind:'octahedron'|'bicone'`
 with `look:'flat-two-tone'` they would.
 
 ### T18 · Minor devices
@@ -657,12 +657,12 @@ The prior analyst's `fits.json` and `m*.json` sit alongside.
 - **No clearly separable SFX layer.** There are spectral-flux peaks near the whip (3.38 s), the cube
   entrance (10.40 s) and the tunnel (26.23 s). But at 15 fps chance sync is 69–90% (plan §1), so no
   sync claim is made.
-- **For a Helios recreation:** soft pops on the squash hits, a whoosh on the whip and the swap, a
+- **For a Bhippi recreation:** soft pops on the squash hits, a whoosh on the whip and the swap, a
   riser into the portal, UI clicks under the cursor beats, and the −10 dB/s fade under the end card.
 
 ---
 
-## 7. What Helios needs
+## 7. What Bhippi needs
 
 ### 7.1 Corrections to REFERENCE-FILMS-PLAN §3.8 and §4 P6
 

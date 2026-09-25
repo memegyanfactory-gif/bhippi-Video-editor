@@ -88,7 +88,7 @@ describe('the @funny brief (src-tauri/prompts/styles/funny.md)', () => {
   it('walks the pipeline in order with the real tool names', () => {
     const known = new Set<string>([...catalogue.tools.map((tool: { name: string }) => tool.name), ...ROAST_TOOL_NAMES]);
     const pipeline = [
-      'key_green_screen', 'rotoscope_clip', 'analyze_clip_speech', 'save_beat_sheet', 'refresh_meme_trends', 'search_memes', 'save_meme', 'get_meme_media',
+      'key_green_screen', 'rotoscope_clip', 'analyze_clip_speech', 'save_beat_sheet', 'search_memes', 'find_memes_online', 'save_meme', 'get_meme_media',
       'find_receipt', 'download_online_media', 'online_research', 'scrape_web_page', 'cutout_image', 'search_sfx', 'validate_roast_edl', 'apply_roast_edl',
       'analyze_music_beats', 'snap_cuts_to_beats', 'edit_dna', 'consult_council', 'verify_edit_workflow',
     ];
@@ -116,7 +116,7 @@ describe('the @funny brief (src-tauri/prompts/styles/funny.md)', () => {
     expect(brief).toContain('20–35 %');
     expect(brief).toContain('60 % or more');
     expect(brief).toMatch(/## Never do this[\s\S]*1\. Leave the green screen unkeyed[\s\S]*6\. Run a music bed under everything/);
-    for (const rule of ['plus 0–150 ms', 'dontUseWhen', 'At least 30 %', 'at most 3 times', '−20 LU', '0.3–0.6 s before each punchline', 'keep, bleep, or mute', 'Devanagari', 'provenance']) {
+    for (const rule of ['plus 0–100 ms', 'dontUseWhen', 'At least 30 %', 'at most 3 times', '−20 LU', '0.3–0.6 s before each punchline', 'keep, bleep, or mute', 'Devanagari', 'provenance']) {
       expect(brief, rule).toContain(rule);
     }
   });

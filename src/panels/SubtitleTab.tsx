@@ -1,4 +1,4 @@
-// Subtitle Panel Tab for Helios: Project scanning, subtitle layer generation,
+// Subtitle Panel Tab for Bhippi: Project scanning, subtitle layer generation,
 // and WatchFIWN style library browser.
 import {
   Languages,

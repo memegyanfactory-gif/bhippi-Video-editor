@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Helios <-> Blender bridge. This file uses Blender's Python API (bpy) and is licensed under the
+# Bhippi <-> Blender bridge. This file uses Blender's Python API (bpy) and is licensed under the
 # GPL; it runs inside the user's own, unmodified Blender as a separate program:
 #
 #   blender -b --factory-startup --python-exit-code 1 -P blender_bridge.py -- request.json
 #
-# The request is a small 3D scene the Helios AI writes (objects, material presets, a studio or
+# The request is a small 3D scene the Bhippi AI writes (objects, material presets, a studio or
 # gradient-lit world, a camera with keyframes). Keys carry CSS-style cubic-bezier eases, the motion
 # engine's own `Ease`; a CSS cubic-bezier is exactly a bezier F-curve segment in (time, value), so
 # the handles map 1:1. Output, in request["out"]:
@@ -12,7 +12,7 @@
 #   camera.json      per frame: position, point of interest, zoom (motion-engine axes and pixels)
 #   objects2d.json   per frame: each object's screen centre and box (2D glints and callouts track them)
 #   result.json      frames, fps, size, timings
-# Progress is printed as {"progress": p, "message": m} JSON lines (Helios' worker protocol).
+# Progress is printed as {"progress": p, "message": m} JSON lines (Bhippi's worker protocol).
 # Measured on this design (docs/REFERENCE-FILMS-PLAN.md §5): EEVEE 0.6–0.7 s and Cycles 2.2–3.5 s
 # per 1080p frame on an RTX 3080; EEVEE glass needs raytraced refraction; EEVEE has no shadow
 # catcher (a Shader-to-RGB shadow-only floor stands in); rigid bodies are not repeatable across
@@ -298,7 +298,7 @@ def build(o):
         ob = crystal(o)
     elif kind == "text":
         cu = bpy.data.curves.new(o["id"], "FONT")
-        cu.body = o.get("text", "Helios")
+        cu.body = o.get("text", "Bhippi")
         cu.align_x, cu.align_y = "CENTER", "CENTER"
         cu.extrude = o.get("extrude", 0.08)
         cu.bevel_depth = o.get("bevel", 0.015)
@@ -401,7 +401,7 @@ if wspec.get("gradient"):
     horizon = 1.0 - np.clip(np.abs(v - 0.5) * 2.0, 0, 1) ** 1.5 * wspec.get("poleFade", 0.6)
     img = np.ones((eh, ew, 4))
     img[:, :, :3] = cols[None, :, :] * horizon[:, :, None]
-    image = bpy.data.images.new("helios-gradient-env", ew, eh, float_buffer=True)
+    image = bpy.data.images.new("bhippi-gradient-env", ew, eh, float_buffer=True)
     image.pixels.foreach_set(img.astype(np.float32).ravel())
     env = wnt.nodes.new("ShaderNodeTexEnvironment")
     env.image = image

@@ -18,7 +18,7 @@ measurements and a beat-grid analysis of `audio.wav`. Companion to
 **Units.**
 - f = frame at 29.97 fps. Frame 1 is t = 0.
 - px are at 1080p.
-- σ is a gaussian sigma. Helios' `gaussian-blur` `blurriness` is **2σ** (`gl/effects.ts:119` passes
+- σ is a gaussian sigma. Bhippi's `gaussian-blur` `blurriness` is **2σ** (`gl/effects.ts:119` passes
   0.5 × blurriness to `blur(sigma)`).
 
 ---
@@ -102,7 +102,7 @@ measurements and a beat-grid analysis of `audio.wav`. Companion to
 
 ## 3. Technique catalogue
 
-**Helios status key.**
+**Bhippi status key.**
 - **Today**: works with an existing field.
 - **By hand**: possible with keyframes and effects, but there is no helper and the AI would have to derive every key.
 - **Partial**: some of it works.
@@ -110,7 +110,7 @@ measurements and a beat-grid analysis of `audio.wav`. Companion to
 
 The pillar in brackets is the plan's home for the fix.
 
-| ID | Technique | Frames | Description | AE build | Helios status |
+| ID | Technique | Frames | Description | AE build | Bhippi status |
 |---|---|---|---|---|---|
 | V1 | Per-char cascade in, **reverse** per-char exit | 9–48 | 1 char per 2 f in, from +0.5 cap-height, slight rotation and blur. Exit right → left about 6 f per char | Text animator Position/Rotation/Opacity/Blur, range selector Offset keyed; a second animator for the exit with the range reversed | **Partial.** `cascade` in: yes. Reverse-order exit: no (P2 `exit.order`) |
 | V2 | **Zoom-through hidden cut** | 44–58 | Old: ease-in shrink ×0.40 in 4–5 f + fade; per-frame height ratios 0.96, 0.91, 0.88, 0.84, 0.61 [N]. New: arrives from the lens ≈2.5× → 1.0; 50% in 2 f, 95% in 10 f [M]; heavy blur. **No overlap frame**: the switch is a cut at f50 | Scale keys with exponential ease-in; cut; new layer Scale 250 → 100 easy-ease-out; Camera Lens Blur keyed | **By hand** (scale + `gaussian-blur` keys). P4 `zoom-through` |
@@ -130,7 +130,7 @@ The pillar in brackets is the plan's home for the fix.
 | V16 | Dark **glass-bezel pill** whip-in with roll overshoot | 315–331 | Roll 13.3° → −1.8° (21.8% overshoot at +5 f) → 0.9° [R]; y 95% in 2 f; x (0.261, 0.825, 0.586, 0.977) rmse 0.001 [M] | Two rotation keys (overshoot key + settle key) | **By hand.** P3 `ui` dark-glass search |
 | V17 | **Drop into field** (UI match-move) | 349–356 | The floating bar lands exactly on the chat input and becomes it | Parent to the window, keyed to match the input box | **No helper.** P3 UiAction lacks `drop-into` (**NEW**) |
 | V18 | Focus-ring / selection-ring glow pulse | 357–372, 657–664 | Lavender `#DCE2F9` ring (about 12 px) grows and fades; pale-blue ring on the dropped row | Stroke + Glow on a shape matching the element | **By hand.** P3 `highlight/pulse` |
-| V19 | **Tracking collapse into a point → object** | 372–385 | Width 787 → 54 px, **centre-anchored**, (0.676, −0.102, 0.845, 0.744) rmse 0.004 [M]; flat for the first 3 f; the orb is born on the last frame | Tracking animator (centre-aligned text collapses to centre), then the orb appears | **Partial.** The Helios tracking animator is **left-anchored and in px** (`text.ts:271`), while layer `tracking` is in 1/100 em (`text.ts:118`). It needs a compensating `position` animator of (n−1)/2 × tracking. P2 preset `collapse-to-point`, P4 `collapse-into` |
+| V19 | **Tracking collapse into a point → object** | 372–385 | Width 787 → 54 px, **centre-anchored**, (0.676, −0.102, 0.845, 0.744) rmse 0.004 [M]; flat for the first 3 f; the orb is born on the last frame | Tracking animator (centre-aligned text collapses to centre), then the orb appears | **Partial.** The Bhippi tracking animator is **left-anchored and in px** (`text.ts:271`), while layer `tracking` is in 1/100 em (`text.ts:118`). It needs a compensating `position` animator of (n−1)/2 × tracking. P2 preset `collapse-to-point`, P4 `collapse-into` |
 | V20 | **Glass orb continuity object** | 384–584 | A teal refractive sphere whose environment reflections change as it moves; later a dark-teal glass "S" coin | Element 3D or a C4D render, or a CC Sphere fake | **No.** P6 `solid2_5d` glass/coin, or P7 `glass-orb` |
 | V21 | Trim-path lines with dot heads, parallax | 401–448 | 1 px white lines draw on; dot caps; one yellow `#F2C94C` dot | Shape strokes, Trim End keyed, dot as a separate ellipse | **Today** (`shape` line + `trimEnd` + `ellipse`) |
 | V22 | **Orb on an S path with a trailing ribbon** | 401–467 | A soft pale-blue `#D3E5FD` ribbon, thicker near the camera (tapered), whose trim end = the orb | Stroke along the motion path (Trapcode 3D Stroke or Trim Paths), orb on Auto-Orient | **No.** There is no follow-path and no taper; expressions cannot see other layers. P4 `guide.path/trail`, P1 `taper` |
@@ -161,9 +161,9 @@ The pillar in brackets is the plan's home for the fix.
 
 - Eases are CSS cubic-beziers over the stated window. A curve with a parameter pinned to a bound is not
   quoted as a curve.
-- "Helios ease" is the best built-in `EaseName` (`src/motion/anim.ts`) with its rmse.
+- "Bhippi ease" is the best built-in `EaseName` (`src/motion/anim.ts`) with its rmse.
 
-| Move | Frames (dur) | From → to | Curve | rmse | Helios ease | Tag |
+| Move | Frames (dur) | From → to | Curve | rmse | Bhippi ease | Tag |
 |---|---|---|---|---|---|---|
 | Old item recedes (zoom-through) | 44–49 (5 f) | height ×1 → ×0.40, fading | Accelerating: per-frame ×0.96, 0.91, 0.88, 0.84, 0.61 | — | `expo-in` | [N] |
 | New item from the lens (zoom-through) | 50–62 (12 f) | ≈2.5× → 1.0 (bar shadow y 810 → 668 px) | (0.098, 0.657, 0.168, 0.843); 50% at 2 f, 95% at 10 f | 0.005 | `expo-out` | [M] |
@@ -213,7 +213,7 @@ These are Virgil's defaults.
    - The dark bar's roll overshoots 22%, and the card tilt 2.5%.
    - Scales never overshoot, except the "Approved" pop.
 4. **Focus pulls are linear in σ over 10–20 f.** The "cut in defocused" variant does 55% in the first frame.
-   - Peak σ is 3–13 px at 1080p, i.e. `gaussian-blur` `blurriness` 7–26 in Helios.
+   - Peak σ is 3–13 px at 1080p, i.e. `gaussian-blur` `blurriness` 7–26 in Bhippi.
 5. **Accelerating exits and whips run 10–14 f, ease-in, with defocus to σ ≈ 4.** The next shot enters already
    rotated and blurred: hidden cuts at f50, f127 and f171.
 6. **Typing runs at 1 char/f (30 cps).**
@@ -339,7 +339,7 @@ chance.
 **Move starts inside shots are loose.** They fall within ±2.5 f of a beat or an 8th about as often as chance
 (64% on an 8th grid of 7.8 f). Don't teach move-level beat sync.
 
-### 6.3 For Helios
+### 6.3 For Bhippi
 
 - This film argues for a **`sfx: 'music-only'` style-pack mode**, the opposite of P9's "every UI action
   emits a cue".
@@ -347,7 +347,7 @@ chance.
 
 ---
 
-## 7. What Helios needs
+## 7. What Bhippi needs
 
 ### 7.1 Already covered by the plan
 

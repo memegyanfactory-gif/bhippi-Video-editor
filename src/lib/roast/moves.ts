@@ -638,7 +638,8 @@ function zoomPunch(w: Work, payload: Extract<MovePayload, { move: 'zoom_punch' }
     return;
   }
   const base = valueAt(host.keyframes.scale, a) ?? host.transform.scale;
-  const target = base * (clamp(payload.scale ?? 125, 101, 200) / 100);
+  // 110–122% reads as emphasis; past ~130% it is the once-a-video extreme face zoom.
+  const target = base * (clamp(payload.scale ?? 118, 101, 200) / 100);
   const f = frame(w.comp);
   const keys: Keyframe[] = payload.ease === 'slow'
     // A slow dramatic push over the beat, back on the next frame after it.

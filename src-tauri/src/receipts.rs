@@ -998,7 +998,7 @@ pub async fn edit_dna_install(state: State<'_, Arc<AppState>>) -> Result<String,
     std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
     let worker = work.join("edit_dna.py");
     std::fs::write(&worker, include_str!("../workers/edit_dna.py")).map_err(|error| error.to_string())?;
-    let output = state.paths.models.join("generation").join("demucs").join("helios-install.json");
+    let output = state.paths.models.join("generation").join("demucs").join("bhippi-install.json");
     let input = work.join("request.json");
     crate::store::write_json(&input, &serde_json::json!({ "action": "install", "ffmpeg": ffmpeg, "output": output }))?;
     tauri::async_runtime::spawn(async move {
@@ -1178,7 +1178,7 @@ mod tests {
 
     /// The real search, on the network (never in the default suite):
     /// `RECEIPT_QUERY=… RECEIPT_QUOTE=… [RECEIPT_CHANNEL=…] [RECEIPT_CACHE=dir]
-    ///  cargo test -p helios receipts::tests::live -- --ignored --nocapture`
+    ///  cargo test -p bhippi receipts::tests::live -- --ignored --nocapture`
     #[tokio::test]
     #[ignore = "network: searches YouTube and fetches captions"]
     async fn live() {
@@ -1186,7 +1186,7 @@ mod tests {
         let query = var("RECEIPT_QUERY").unwrap_or_else(|| "KK Create Dhruv Rathee podcast".into());
         let quote = var("RECEIPT_QUOTE").unwrap_or_else(|| "Modi se achcha ek gadha better hai".into());
         let videos = var("RECEIPT_VIDEOS").and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_VIDEOS);
-        let cache = var("RECEIPT_CACHE").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join("helios-receipts"));
+        let cache = var("RECEIPT_CACHE").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join("bhippi-receipts"));
         let started = std::time::Instant::now();
         let result = find(&cache, &query, &quote, videos, var("RECEIPT_CHANNEL").as_deref(), var("RECEIPT_LANG").as_deref()).await.unwrap();
         println!("{}", serde_json::to_string_pretty(&result).unwrap());

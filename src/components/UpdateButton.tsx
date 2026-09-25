@@ -1,5 +1,5 @@
 // The title bar's download button, left of the Settings gear. Always there; a small amber dot when a
-// newer Helios is waiting, a ring that fills while it downloads. Clicking opens a small panel that
+// newer Bhippi is waiting, a ring that fills while it downloads. Clicking opens a small panel that
 // says one thing: you're on the latest version, or here is the new one — download it / install it.
 // Settings › About (UpdateSection) has the same state with the release notes and the auto switch.
 import { ChevronRight, PackageCheck, RefreshCw, RotateCw, X } from 'lucide-react';
@@ -157,10 +157,10 @@ export function UpdatePanel({ state, run = (action) => action(), onDetails }: {
   switch (view.kind) {
     case 'idle':
     case 'checking':
-      sub = current ? `Helios ${current}` : null;
+      sub = current ? `Bhippi ${current}` : null;
       break;
     case 'current':
-      sub = current ? `Helios ${current}` : null;
+      sub = current ? `Bhippi ${current}` : null;
       aside = (
         <button type="button" className="upd-text-btn" disabled={view.rechecking} onClick={() => run(() => void updater.check())}>
           <RefreshCw size={12} className={view.rechecking ? 'upd-spin' : undefined} aria-hidden="true" />
@@ -197,7 +197,7 @@ export function UpdatePanel({ state, run = (action) => action(), onDetails }: {
       );
       break;
     case 'installing':
-      sub = 'Helios will close and reopen';
+      sub = 'Bhippi will close and reopen';
       break;
     case 'error': {
       const retry = view.retry === 'install' ? () => updater.install() : view.retry === 'download' ? () => updater.download() : () => updater.check();

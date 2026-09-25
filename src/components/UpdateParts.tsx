@@ -53,13 +53,13 @@ export function updateTone(view: UpdateView): UpdateTone {
 
 /** The headline for a state; `latest` is the version bhippi.com offers. */
 export function updateTitle(view: UpdateView, latest: string | null | undefined): string {
-  const next = latest ? `Helios ${latest}` : 'A new Helios';
+  const next = latest ? `Bhippi ${latest}` : 'A new Bhippi';
   switch (view.kind) {
-    case 'idle': return 'Check for a newer Helios';
+    case 'idle': return 'Check for a newer Bhippi';
     case 'checking': return 'Checking for updates…';
     case 'current': return 'You’re on the latest version';
     case 'available': return `${next} is available`;
-    case 'downloading': return `Downloading ${latest ? `Helios ${latest}` : 'the update'}`;
+    case 'downloading': return `Downloading ${latest ? `Bhippi ${latest}` : 'the update'}`;
     case 'ready': return `${next} is ready`;
     case 'installing': return 'Starting the installer…';
     case 'error':
@@ -93,7 +93,7 @@ export function UpdateProgress({ progress, version }: { progress: UpdateSnapshot
       <div
         className={`upd-bar${percent == null ? ' indeterminate' : ''}`}
         role="progressbar"
-        aria-label={version ? `Downloading Helios ${version}` : 'Downloading the update'}
+        aria-label={version ? `Downloading Bhippi ${version}` : 'Downloading the update'}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent ?? undefined}

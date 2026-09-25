@@ -2,7 +2,7 @@
 //
 // find_receipt finds the exact moment someone said something in a YouTube video through the
 // video's captions, without downloading it: yt-dlp searches, the captions are fetched once and
-// cached (Documents/Helios/Receipts/captions), and the quote is matched across Roman and
+// cached (Documents/Bhippi/Receipts/captions), and the quote is matched across Roman and
 // Devanagari (src-tauri/src/receipts.rs). The AI then downloads just that section with
 // download_online_media.
 //

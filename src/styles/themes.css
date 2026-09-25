@@ -1,0 +1,453 @@
+/* Bhippi themes. Every theme is a token set on `:root[data-theme=…]`; nothing here changes layout.
+
+   The window is four layers, back to front: the backdrop (--app-bg), the chrome that sits on it
+   (menubar, header, the chat column), the editing slab (.ws-main), and the panel frames on the
+   slab. A solid theme paints all four opaque. A layered theme (gradient or glass, marked with
+   `data-surface="layered"` by lib/theme.ts) lets the backdrop glow through each layer, so the
+   gradient reads everywhere without a single panel losing its contrast.
+
+   Two rules hold in every theme:
+   - Content stays solid. Timeline lanes, bins, fields and sticky headers never go see-through —
+     glass belongs to the navigation layer, the way macOS and Fluent use it, so edits stay legible.
+   - The monitor stays neutral. A tinted surround shifts how the picture's colours are judged, so
+     every theme keeps the viewer on a near-black grey. */
+
+/* ── the layers: wired to tokens once, for every theme ──────────────────── */
+:root {
+  --monitor: var(--deep);
+  --home-bg: radial-gradient(circle at 20% 0%, #26303f, #151515 60%);
+  --home-card: rgba(35, 35, 35, 0.9);
+  --bubble: #2f3b4d;
+  --bubble-line: #3c4d66;
+  --scroll: #3b3b3b;
+  --scroll-hi: #4a4a4a;
+  --on-accent: #fff;
+}
+
+.app { background: var(--app-bg); }
+.menubar, .headerbar, .workspace { background: var(--chrome); }
+.ws-main { background: var(--slab); }
+.panel-frame { background: var(--frame); }
+.monitor-frame { background: var(--monitor); }
+.home { background: var(--home-bg); }
+.home-card { background: var(--home-card); }
+.msg-user { background: var(--bubble); border-color: var(--bubble-line); }
+
+/* Default theme: the editing panels (project, monitors, timeline, properties, effects, tools,
+   meters) share one near-black surface; only the chat column keeps the lighter chrome grey. */
+:root[data-theme="default"] .ws-main .panel-frame:not(.panel-chat),
+:root[data-theme="default"] .ws-main .tools-panel,
+:root[data-theme="default"] .ws-main .meters {
+  --panel: #161616;
+  --frame: #161616;
+  --well: #161616;
+  --monitor: #161616;
+}
+::-webkit-scrollbar-thumb { background-color: var(--scroll); }
+::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-hi); }
+
+/* The accent can be a gradient: primary actions and "on" states wear it. In the solid themes
+   it is the plain accent colour, so nothing changes there. */
+.btn-primary { background: var(--accent-grad); color: var(--on-accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-grad-hi); }
+.segmented button.active, .chip.active, .toggle.on { background: var(--accent-grad); color: var(--on-accent); }
+
+/* Layered themes: the chat column and the gaps around the slab stop repainting the chrome, and
+   the slab's own seams go clear, so each pixel carries exactly one tint over the backdrop. */
+:root[data-surface="layered"] .ws-left > .panel-chat,
+:root[data-surface="layered"] .ws-left + .splitter.vertical,
+:root[data-surface="layered"] .ws-side + .splitter.vertical,
+:root[data-surface="layered"] .ws-main .splitter { background: transparent; }
+:root[data-surface="layered"] .ws-left + .splitter.vertical:hover,
+:root[data-surface="layered"] .ws-side + .splitter.vertical:hover,
+:root[data-surface="layered"] .ws-main .splitter:hover { background: color-mix(in srgb, var(--blue) 30%, transparent); }
+:root[data-surface="layered"] .btn-primary,
+:root[data-surface="layered"] .segmented button.active,
+:root[data-surface="layered"] .chip.active,
+:root[data-surface="layered"] .toggle.on { border-color: transparent; box-shadow: 0 2px 12px -4px color-mix(in srgb, var(--blue) 70%, transparent); }
+
+/* ── Minimalist: the new surface tokens for the existing flat theme (app.css) ── */
+:root[data-theme="minimal"] {
+  --well: #222222;
+  --deep: #1d1d1d;
+  --edge: #262626;
+  --overlay: #2a2a2a;
+  --modal: #262626;
+  --lane-a: #232323;
+  --line-hi: #444444;
+  --timecode: #6cabe6;
+  --home-bg: #202020;
+}
+
+/* ── Midnight: solid, deep navy, a periwinkle accent ───────────────────── */
+:root[data-theme="midnight"] {
+  --app: #0b1020;
+  --seam: #070b17;
+  --panel: #111a2e;
+  --panel-2: #152038;
+  --panel-3: #1b2845;
+  --panel-4: #243255;
+  --field: #0c1324;
+  --line: #1b2641;
+  --line-strong: #293a5d;
+  --line-hi: #3a4f79;
+  --text: #dde6f7;
+  --text-dim: #9fb0d0;
+  --text-faint: #6a7ba1;
+  --blue: #4f7cff;
+  --blue-hi: #7c9dff;
+  --accent: #4f7cff;
+  --timecode: #7aa2ff;
+  --well: #0e1629;
+  --deep: #0a1122;
+  --edge: #080d1b;
+  --overlay: #172240;
+  --modal: #131c34;
+  --lane-a: #0f182c;
+  --scroll: #26355a;
+  --scroll-hi: #34477a;
+  --monitor: #0d0f14;
+  --home-bg: radial-gradient(circle at 20% 0%, #1c2b52, #0a1020 62%);
+  --home-card: rgba(19, 28, 52, 0.9);
+  --bubble: #1f3266;
+  --bubble-line: #2e4a8f;
+  --accent-grad: linear-gradient(135deg, #4f7cff, #7a5cff);
+  --accent-grad-hi: linear-gradient(135deg, #6a91ff, #9277ff);
+  --lift: 0 14px 40px rgba(0, 4, 16, 0.65);
+}
+
+/* ── Obsidian: solid, true black for OLED panels, violet → magenta accent ─ */
+:root[data-theme="obsidian"] {
+  --app: #050505;
+  --seam: #000000;
+  --panel: #0c0c0e;
+  --panel-2: #111114;
+  --panel-3: #18181c;
+  --panel-4: #232329;
+  --field: #08080a;
+  --line: #19191e;
+  --line-strong: #2a2a31;
+  --line-hi: #3b3b45;
+  --text: #ececf1;
+  --text-dim: #a1a1aa;
+  --text-faint: #71717a;
+  --blue: #8b5cf6;
+  --blue-hi: #a78bfa;
+  --accent: #8b5cf6;
+  --timecode: #b69cff;
+  --well: #0a0a0c;
+  --deep: #060607;
+  --edge: #000000;
+  --overlay: #141418;
+  --modal: #101013;
+  --lane-a: #0a0a0c;
+  --scroll: #26262d;
+  --scroll-hi: #36363f;
+  --monitor: #000000;
+  --home-bg: radial-gradient(circle at 20% 0%, #1d1433, #000 60%);
+  --home-card: rgba(14, 14, 18, 0.92);
+  --bubble: #2a1d4d;
+  --bubble-line: #45308a;
+  --accent-grad: linear-gradient(135deg, #7c3aed, #c026d3);
+  --accent-grad-hi: linear-gradient(135deg, #8b5cf6, #d946ef);
+  --lift: 0 14px 40px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Aurora: gradient — teal, indigo and violet light behind a night-sky glass ── */
+:root[data-theme="aurora"] {
+  --app: #070b14;
+  --seam: #060a12;
+  --panel: #0f1624;
+  --panel-2: #131c2d;
+  --panel-3: #1a2539;
+  --panel-4: #223049;
+  --field: #0b111d;
+  --line: #1b2638;
+  --line-strong: #2a3a52;
+  --line-hi: #3a4e6c;
+  --text: #e2ecf5;
+  --text-dim: #a3b3c6;
+  --text-faint: #6f8197;
+  --blue: #6366f1;
+  --blue-hi: #818cf8;
+  --accent: #6366f1;
+  --timecode: #5eead4;
+  --well: #0d1421;
+  --deep: #0a101b;
+  --edge: #080d17;
+  --overlay: #151e31;
+  --modal: #121a2b;
+  --lane-a: #0e1522;
+  --scroll: #253349;
+  --scroll-hi: #324562;
+  --monitor: #0c0e12;
+  --home-bg: transparent;
+  --home-card: rgba(15, 22, 36, 0.72);
+  --bubble: color-mix(in srgb, #6366f1 30%, #131c2d);
+  --bubble-line: color-mix(in srgb, #6366f1 50%, #1a2539);
+  --app-bg:
+    radial-gradient(1100px 700px at 0% 0%, rgba(20, 184, 166, 0.5), transparent 60%),
+    radial-gradient(1000px 700px at 100% 0%, rgba(139, 92, 246, 0.55), transparent 60%),
+    radial-gradient(900px 650px at 65% 110%, rgba(59, 130, 246, 0.42), transparent 60%),
+    #070b14;
+  --chrome: rgba(8, 13, 24, 0.3);
+  --slab: rgba(4, 8, 16, 0.34);
+  --frame: rgba(13, 19, 32, 0.58);
+  --accent-grad: linear-gradient(135deg, #0d9488, #6366f1 55%, #9333ea);
+  --accent-grad-hi: linear-gradient(135deg, #14b8a6, #818cf8 55%, #a855f7);
+  --lift: 0 14px 40px rgba(0, 4, 12, 0.65);
+}
+
+/* ── Ember: gradient — rose and orange light over warm charcoal ────────── */
+:root[data-theme="ember"] {
+  --app: #0f0a0c;
+  --seam: #0c0809;
+  --panel: #1a1315;
+  --panel-2: #201719;
+  --panel-3: #2a1e21;
+  --panel-4: #36272b;
+  --field: #140e10;
+  --line: #2a1f22;
+  --line-strong: #3d2c30;
+  --line-hi: #543c41;
+  --text: #f3e6e4;
+  --text-dim: #c4aba8;
+  --text-faint: #8f7773;
+  --blue: #e11d48;
+  --blue-hi: #fb7185;
+  --accent: #e11d48;
+  --timecode: #fb923c;
+  --well: #171012;
+  --deep: #110b0d;
+  --edge: #0e090a;
+  --overlay: #251a1d;
+  --modal: #1f1618;
+  --lane-a: #181113;
+  --scroll: #3d2c30;
+  --scroll-hi: #543c41;
+  --monitor: #0f0e0e;
+  --home-bg: transparent;
+  --home-card: rgba(26, 19, 21, 0.72);
+  --bubble: color-mix(in srgb, #e11d48 26%, #201719);
+  --bubble-line: color-mix(in srgb, #f97316 45%, #2a1e21);
+  --app-bg:
+    radial-gradient(1100px 700px at 0% 0%, rgba(244, 63, 94, 0.4), transparent 60%),
+    radial-gradient(1000px 700px at 100% 5%, rgba(249, 115, 22, 0.36), transparent 60%),
+    radial-gradient(900px 650px at 50% 115%, rgba(168, 85, 247, 0.28), transparent 60%),
+    #0f0a0c;
+  --chrome: rgba(20, 12, 14, 0.3);
+  --slab: rgba(12, 7, 9, 0.34);
+  --frame: rgba(26, 18, 21, 0.6);
+  --accent-grad: linear-gradient(135deg, #e11d48, #f97316);
+  --accent-grad-hi: linear-gradient(135deg, #f43f5e, #fb923c);
+  --lift: 0 14px 40px rgba(10, 0, 4, 0.65);
+}
+
+/* ── Glass: frosted panes over a vivid mesh ─────────────────────────────
+   The chrome and frames are clear tints over a static backdrop (blurring a smooth gradient
+   changes nothing, so they skip the blur and cost nothing to paint). Only what floats over live
+   content — menus, popovers, toasts, modals — pays for a real backdrop blur, and only while open. */
+:root[data-theme="glass"] {
+  --app: #0c0a1f;
+  --seam: #0a0818;
+  --panel: #1a1733;
+  --panel-2: #201c3d;
+  --panel-3: #2a254c;
+  --panel-4: #352f5d;
+  --field: rgba(8, 6, 22, 0.45);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --line-hi: rgba(255, 255, 255, 0.24);
+  --text: #f1efff;
+  --text-dim: #bdb7e0;
+  --text-faint: #8c86b5;
+  --blue: #7c5cff;
+  --blue-hi: #a18bff;
+  --accent: #7c5cff;
+  --timecode: #67e8f9;
+  --well: #17142e;
+  --deep: #110f26;
+  --edge: rgba(0, 0, 0, 0.28);
+  --overlay: rgba(30, 26, 62, 0.62);
+  --modal: rgba(24, 21, 52, 0.7);
+  --lane-a: #181530;
+  --scroll: rgba(255, 255, 255, 0.16);
+  --scroll-hi: rgba(255, 255, 255, 0.26);
+  --monitor: #0d0d11;
+  --home-bg: transparent;
+  --home-card: rgba(255, 255, 255, 0.06);
+  --bubble: rgba(124, 92, 255, 0.28);
+  --bubble-line: rgba(161, 139, 255, 0.45);
+  /* The backdrop is its own layer (.app::before) so a picture can be blurred and tinted; these
+     are the stock values, and lib/theme.ts replaces them with the user's choices. */
+  --app-bg: #0c0a1f;
+  --glass-backdrop:
+    radial-gradient(900px 650px at 8% 5%, rgba(124, 58, 237, 0.85), transparent 60%),
+    radial-gradient(850px 600px at 95% 0%, rgba(14, 165, 233, 0.7), transparent 55%),
+    radial-gradient(900px 700px at 88% 100%, rgba(219, 39, 119, 0.7), transparent 55%),
+    radial-gradient(750px 600px at 0% 100%, rgba(13, 148, 136, 0.65), transparent 55%),
+    linear-gradient(160deg, #1e1b4b, #0c0a1f);
+  --glass-blur: 16px;
+  --glass-tint: #7c5cff;
+  --glass-tint-amount: 0;
+  --chrome: rgba(14, 10, 36, 0.16);
+  --slab: rgba(10, 8, 28, 0.14);
+  --frame: rgba(22, 18, 48, 0.34);
+  /* Frosted fill for sticky headers that clips and rows scroll under. */
+  --frost: rgba(24, 20, 52, 0.55);
+  --accent-grad: linear-gradient(135deg, #7c5cff, #ec4899);
+  --accent-grad-hi: linear-gradient(135deg, #9477ff, #f472b6);
+  --lift: 0 18px 50px rgba(6, 2, 24, 0.55);
+  --ring: 0 0 0 2px rgba(161, 139, 255, 0.55);
+}
+
+/* The backdrop, then the tint over it, both behind everything the window draws. The layer bleeds
+   past the edges by twice the blur so a blurred picture never fades in at the window's border. */
+:root[data-theme="glass"] .app { position: relative; isolation: isolate; }
+:root[data-theme="glass"] .app::before,
+:root[data-theme="glass"] .app::after { content: ''; position: fixed; z-index: -1; pointer-events: none; }
+:root[data-theme="glass"] .app::before { inset: calc(var(--glass-blur) * -2); background: var(--glass-backdrop); filter: blur(var(--glass-blur)); }
+:root[data-theme="glass"] .app::after { inset: 0; background: var(--glass-tint); opacity: var(--glass-tint-amount); }
+
+/* Aurora and Ember draw their gradient on the same kind of layer, so it can move too. */
+:root[data-surface="layered"]:not([data-theme="glass"]) .app { position: relative; isolation: isolate; background: var(--app); }
+:root[data-surface="layered"]:not([data-theme="glass"]) .app::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--app-bg); }
+
+/* A moving backdrop: the glows drift, turn a little and breathe, over about forty seconds. The
+   layer is oversized so its edges never come into view, and a gradient needs no blur (it is
+   already smooth), so each frame is a composite of one cached texture — no repaint. */
+:root[data-backdrop="moving"] .app::before {
+  inset: -14%;
+  filter: none;
+  will-change: transform, opacity;
+  animation: backdrop-drift 42s ease-in-out infinite, backdrop-breathe 11s ease-in-out infinite;
+}
+@keyframes backdrop-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1) rotate(0deg); }
+  25% { transform: translate3d(-4%, 2.5%, 0) scale(1.07) rotate(2.5deg); }
+  50% { transform: translate3d(3%, 4%, 0) scale(1.12) rotate(-1.5deg); }
+  75% { transform: translate3d(4%, -3%, 0) scale(1.05) rotate(-3deg); }
+}
+@keyframes backdrop-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.78; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-backdrop="moving"] .app::before { animation: none; }
+}
+
+/* Each pane catches light along its top edge, like a sheet of glass. */
+:root[data-theme="glass"] .panel-frame {
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme="glass"] .panel-frame.focused { border-color: var(--blue-line); }
+:root[data-theme="glass"] .ws-left > .panel-chat { box-shadow: none; }
+:root[data-theme="glass"] .menubar,
+:root[data-theme="glass"] .headerbar { box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05); }
+
+/* The timeline and bins are the one place Glass lets content go clear: lanes become faint tints
+   on the pane, and every sticky header that rows scroll under is frosted, so a clip passing
+   beneath the track heads or the ruler blurs instead of colliding with their labels. */
+:root[data-theme="glass"] .tl-scroll,
+:root[data-theme="glass"] .tl-below { background: rgba(8, 6, 24, 0.24); }
+:root[data-theme="glass"] .tl-lane.video { background: rgba(255, 255, 255, 0.035); }
+:root[data-theme="glass"] .tl-lane.audio { background: rgba(255, 255, 255, 0.018); }
+:root[data-theme="glass"] .tl-divider,
+:root[data-theme="glass"] .tl-head-divider { background: rgba(0, 0, 0, 0.3); }
+:root[data-theme="glass"] .tl-tabs { background: rgba(0, 0, 0, 0.16); }
+:root[data-theme="glass"] .tl-tab { background: rgba(255, 255, 255, 0.04); }
+:root[data-theme="glass"] .tl-head { background: rgba(255, 255, 255, 0.03); }
+:root[data-theme="glass"] .tl-head.locked { background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0 6px, rgba(255, 255, 255, 0.08) 6px 12px); }
+:root[data-theme="glass"] .bin-body { background: rgba(0, 0, 0, 0.16); }
+:root[data-theme="glass"] .tl-heads,
+:root[data-theme="glass"] .tl-ruler,
+:root[data-theme="glass"] .ruler-corner,
+:root[data-theme="glass"] .bin-list th,
+:root[data-theme="glass"] .bin-foot {
+  background: var(--frost);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* What floats over live content is real frosted glass. */
+:root[data-theme="glass"] .menu-list,
+:root[data-theme="glass"] .popover,
+:root[data-theme="glass"] .chip-popover,
+:root[data-theme="glass"] .bar-popover,
+:root[data-theme="glass"] .rm-popover,
+:root[data-theme="glass"] .upd-pop,
+:root[data-theme="glass"] .cmd-panel,
+:root[data-theme="glass"] .toast,
+:root[data-theme="glass"] .render-pill {
+  background: var(--overlay);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), var(--lift);
+  backdrop-filter: blur(22px) saturate(170%);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+}
+:root[data-theme="glass"] .modal {
+  background: var(--modal);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), var(--lift);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+}
+:root[data-theme="glass"] .modal-backdrop {
+  background: rgba(6, 4, 20, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+:root[data-theme="glass"] .home-card { border-color: rgba(255, 255, 255, 0.12); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+
+/* Someone who asked the system for less transparency gets the same theme, solid. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-surface="layered"] {
+    --chrome: var(--panel);
+    --slab: var(--seam);
+    --frame: var(--panel);
+    --overlay: var(--panel-3);
+    --modal: var(--panel-2);
+  }
+  :root[data-theme="glass"] * { backdrop-filter: none !important; }
+}
+
+/* ── the switch itself: one soft cross-fade when the theme changes ─────── */
+:root.theme-switching,
+:root.theme-switching * {
+  transition: background-color 280ms ease, border-color 280ms ease, color 280ms ease !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root.theme-switching, :root.theme-switching * { transition: none !important; }
+}
+
+/* ── the picker in Settings → Appearance ────────────────────────────────── */
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 6px; }
+.theme-tile { position: relative; display: flex; flex-direction: column; gap: 0; padding: 0; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel-2); color: inherit; text-align: left; overflow: hidden; cursor: pointer; transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease; }
+.theme-tile:hover { border-color: var(--line-hi); transform: translateY(-1px); box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.6); }
+.theme-tile.selected { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue), 0 8px 24px -10px color-mix(in srgb, var(--blue) 60%, transparent); }
+.theme-tile input { position: absolute; opacity: 0; pointer-events: none; }
+.theme-tile:has(input:focus-visible) { box-shadow: var(--ring); }
+.theme-tile-copy { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px 11px; }
+.theme-tile-head { display: flex; align-items: center; gap: 6px; }
+.theme-tile-name { font-weight: 600; font-size: 12.5px; }
+.theme-tile-kind { margin-left: auto; padding: 1px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-dim); background: var(--panel-4); }
+.theme-tile-kind.kind-gradient { color: #fff; background: linear-gradient(135deg, #f43f5e, #f97316); }
+.theme-tile-kind.kind-glass { color: #fff; background: linear-gradient(135deg, rgba(124, 92, 255, 0.9), rgba(236, 72, 153, 0.9)); }
+.theme-tile-detail { color: var(--text-dim); font-size: 11px; line-height: 1.4; }
+.theme-tile-check { position: absolute; top: 8px; right: 8px; z-index: 1; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--blue); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45); }
+
+/* A miniature of the window drawn in the theme's own colours: backdrop, header, chat, slab. */
+.theme-mini { position: relative; height: 92px; padding: 8px; display: grid; grid-template-columns: 34% 1fr; grid-template-rows: 12px 1fr; gap: 5px; background: var(--m-bg); border-bottom: 1px solid var(--line); }
+.theme-mini-bar { grid-column: 1 / -1; border-radius: 3px; background: var(--m-chrome); display: flex; align-items: center; gap: 3px; padding: 0 4px; }
+.theme-mini-bar i { width: 14px; height: 4px; border-radius: 2px; background: var(--m-text); opacity: 0.55; }
+.theme-mini-bar i:first-child { width: 6px; background: var(--m-accent); opacity: 1; }
+.theme-mini-chat { border-radius: 4px; background: var(--m-chrome); display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; padding: 5px; }
+.theme-mini-chat i { height: 5px; border-radius: 3px; background: var(--m-text); opacity: 0.3; }
+.theme-mini-chat i:nth-child(2) { width: 70%; align-self: flex-end; background: var(--m-accent); opacity: 0.9; }
+.theme-mini-slab { border-radius: 6px 0 0 6px; background: var(--m-slab); padding: 4px; display: grid; grid-template-rows: 1.2fr 1fr; gap: 3px; }
+.theme-mini-pane { border-radius: 3px; background: var(--m-panel); border: 1px solid var(--m-edge); }
+.theme-mini-pane.track { display: flex; align-items: center; gap: 3px; padding: 0 4px; }
+.theme-mini-pane.track i { height: 7px; flex: 1; border-radius: 2px; background: var(--m-accent); opacity: 0.85; }
+.theme-mini-pane.track i:nth-child(2) { flex: 0.6; opacity: 0.45; }
+.theme-mini.glass .theme-mini-pane, .theme-mini.glass .theme-mini-chat { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18); }

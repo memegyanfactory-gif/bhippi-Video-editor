@@ -16,7 +16,7 @@ fn main() {
         };
         eprintln!("[FATAL PANIC] at {location}: {payload}");
         if let Ok(appdata) = std::env::var("APPDATA") {
-            let dir = std::path::PathBuf::from(appdata).join("studio.helios.desktop");
+            let dir = std::path::PathBuf::from(appdata).join("com.bhippi.videoeditor");
             let _ = std::fs::create_dir_all(&dir);
             let log_path = dir.join("crash.log");
             let backtrace = std::backtrace::Backtrace::force_capture();
@@ -35,12 +35,12 @@ fn main() {
         }
     }));
 
-    // A CLI agent starts this binary as Helios' MCP server. That must be decided before
+    // A CLI agent starts this binary as Bhippi's MCP server. That must be decided before
     // `run()`: the single-instance plugin would otherwise forward the call to the running app
     // and exit, and the agent would be left talking to nobody.
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some(helios_lib::MCP_BRIDGE_FLAG) {
-        std::process::exit(helios_lib::run_mcp_bridge(&args[1..]));
+    if args.first().map(String::as_str) == Some(bhippi_lib::MCP_BRIDGE_FLAG) {
+        std::process::exit(bhippi_lib::run_mcp_bridge(&args[1..]));
     }
-    helios_lib::run();
+    bhippi_lib::run();
 }

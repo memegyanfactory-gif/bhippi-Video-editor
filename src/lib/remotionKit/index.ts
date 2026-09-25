@@ -3,7 +3,7 @@
 // presets.json is refreshed by scripts/import-remotion-kit.mjs. Each preset carries its design
 // spec — category, look (tags), copy, palette, fonts and timing as parameter defaults, format and
 // preview links — but not its Remotion source, which the marketplace does not publish. So a preset
-// is a brief: `rebuildPlan` names the Helios template that recreates it and fills that template's
+// is a brief: `rebuildPlan` names the Bhippi template that recreates it and fills that template's
 // arguments from the preset's defaults, and the AI adapts copy and colours to the edit.
 import data from './presets.json';
 
@@ -91,7 +91,7 @@ export function remotionKitCounts(): Record<string, number> {
 
 const has = (p: RemotionKitPreset, ...words: string[]) => words.some((w) => p.tags.includes(w) || norm(`${p.name} ${p.description}`).includes(w));
 
-/** The Helios template that recreates a preset, from its category and look. */
+/** The Bhippi template that recreates a preset, from its category and look. */
 export function helioTemplateFor(p: RemotionKitPreset): { template: string; bit?: string; background?: string; why: string } {
   if (has(p, 'quote')) return { template: 'editorial-quote', why: 'a pull quote' };
   if (has(p, 'countdown')) return { template: 'countdown', why: 'a countdown' };
@@ -148,7 +148,7 @@ export function describePreset(p: RemotionKitPreset) {
     previewVideoUrl: p.previewVideoUrl,
     thumbnailUrl: p.thumbnailUrl,
     rebuild: {
-      why: `Remotion Kit ships no source, so rebuild it in Helios: ${pick.why}.`,
+      why: `Remotion Kit ships no source, so rebuild it in Bhippi: ${pick.why}.`,
       example: { tool: 'create_motion_graphic', args },
       notes: [
         'Replace the placeholder copy with lines from the transcript/script; keep the preset\'s pacing and look.',

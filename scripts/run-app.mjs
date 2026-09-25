@@ -1,11 +1,11 @@
-// Launches Helios on desktop: closes the previous instance, builds the UI, and runs the app.
+// Launches Bhippi on desktop: closes the previous instance, builds the UI, and runs the app.
 // This is what F5 runs (.vscode/launch.json), so it has to work every time, not most times.
 //
 // Cross-platform without shell separator (&&) issues on Windows PowerShell.
 import { execSync, spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BINARY, replaceable, running, stopHelios } from './stop-app.mjs';
+import { BINARY, replaceable, running, stopBhippi } from './stop-app.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const isWindows = process.platform === 'win32';
@@ -20,21 +20,21 @@ const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
  *
  * Called twice: once before the UI build and again right before the compile. The second call is
  * the one that matters. The UI build takes long enough that a copy started in the meantime — by
- * another runner, or by a file association opening a .helios project — would own the binary by
+ * another runner, or by a file association opening a .bhippi project — would own the binary by
  * the time the linker reached for it, and the failure that follows ("Access is denied") names
  * the file rather than the cause, which is what makes this so confusing to hit.
  */
 function clearTheWay(stage) {
   if (replaceable() && running() === 0) return true;
-  const result = stopHelios();
+  const result = stopBhippi();
   if (result.freed) {
-    if (result.closed > 0) console.log(`Closed a running Helios before ${stage}.`);
+    if (result.closed > 0) console.log(`Closed a running Bhippi before ${stage}.`);
     return true;
   }
   console.error(
-    `\nCannot start ${stage}: ${result.stillRunning} Helios process(es) still hold ${BINARY}.\n` +
+    `\nCannot start ${stage}: ${result.stillRunning} Bhippi process(es) still hold ${BINARY}.\n` +
       'Windows locks a running binary, so the build cannot replace it.\n\n' +
-      'Something is restarting Helios faster than this script can close it. Look for a second\n' +
+      'Something is restarting Bhippi faster than this script can close it. Look for a second\n' +
       'runner — an IDE "run the app" task on a loop, a watch task, or another terminal — and stop\n' +
       'it, then press F5 again.',
   );
@@ -45,7 +45,7 @@ function clearTheWay(stage) {
 if (!clearTheWay('the build')) process.exit(1);
 
 // 2. Build UI bundle
-console.log('Building Helios UI (tsc & vite)...');
+console.log('Building Bhippi UI (tsc & vite)...');
 try {
   execSync('npm run build', { cwd: root, stdio: 'inherit', shell: true });
 } catch (err) {
@@ -58,35 +58,35 @@ try {
 // Kept separate from `cargo run` so that a binary grabbed in the last second is a retry here
 // rather than a hard failure: one more sweep and one more attempt is enough for the case this
 // keeps happening in, where a second copy appeared while the UI was building.
-console.log('Compiling Helios...');
+console.log('Compiling Bhippi...');
 let compiled = false;
 for (let attempt = 1; attempt <= 2 && !compiled; attempt++) {
   if (!clearTheWay('the compile')) process.exit(1);
   try {
-    execSync('cargo build -p helios', { cwd: root, stdio: 'inherit', shell: true });
+    execSync('cargo build -p bhippi', { cwd: root, stdio: 'inherit', shell: true });
     compiled = true;
   } catch (err) {
     const locked = isWindows && !replaceable();
     if (attempt === 2 || !locked) {
-      console.error('\nCompile failed.', locked ? 'The binary is still locked by a running Helios.' : err.message);
+      console.error('\nCompile failed.', locked ? 'The binary is still locked by a running Bhippi.' : err.message);
       process.exit(1);
     }
-    console.warn('\nA Helios started while the UI was building and took the binary. Closing it and trying once more...');
+    console.warn('\nA Bhippi started while the UI was building and took the binary. Closing it and trying once more...');
     sleep(500);
   }
 }
 
 // 4. Launch the desktop app
 if (buildOnly) {
-  console.log('Helios is built and the binary is free.');
+  console.log('Bhippi is built and the binary is free.');
   process.exit(0);
 }
 
-console.log('Launching Helios desktop app...');
+console.log('Launching Bhippi desktop app...');
 const appProcess = spawn(BINARY, [], { cwd: root, stdio: 'inherit' });
 
 appProcess.on('error', (err) => {
-  console.error('Failed to start Helios:', err);
+  console.error('Failed to start Bhippi:', err);
   process.exit(1);
 });
 
@@ -95,9 +95,9 @@ appProcess.on('exit', (code, signal) => {
   // otherwise the window simply vanishes and F5 looks like it failed for no reason.
   if (signal || (isWindows && code === 1)) {
     console.error(
-      '\nHelios was closed from outside this session' +
+      '\nBhippi was closed from outside this session' +
         (signal ? ` (${signal})` : '') +
-        '. If you did not close the window, something else is running `taskkill /IM helios.exe` —\n' +
+        '. If you did not close the window, something else is running `taskkill /IM bhippi.exe` —\n' +
         'check for another "run the app" task.',
     );
   }

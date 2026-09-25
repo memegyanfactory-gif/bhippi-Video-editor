@@ -73,12 +73,12 @@ f165, f545, f584, f782 and f1005) hide behind an ease-in exit of 3–8 f on the 
 
 ## 3. Technique catalogue
 
-"Helios today" is judged against `src/motion/types.ts` and the kit as they stand:
+"Bhippi today" is judged against `src/motion/types.ts` and the kit as they stand:
 - **Yes**: buildable with today's scene JSON.
 - **Partly**: buildable by hand-keying, or with a gap.
 - **No**: not buildable.
 
-| # | Frames | Technique | AE build | Helios today | Pillar |
+| # | Frames | Technique | AE build | Bhippi today | Pillar |
 |---|---|---|---|---|---|
 | T1 | f2–16 | **Echo-ghost word slam.** The word enters dim purple and defocused, then whips into place with discrete ghost copies. The line pans per word | Text per word; position keys with a strong ease; CC Force Motion Blur or Echo (about 12 echoes, decay 0.8); a camera null pans | **Partly.** `scene.motionBlur {samples: 12–16, shutter: 540–720}` already gives discrete ghosts (the shutter is clamped at 720°, `evaluate.ts:250`). There is no echo *decay* and no per-word colour settle | P5 `echo`, P2 `wake` |
 | T2 | f17→18 | **1-frame zoom-out punch** to ≈0.3× (estimated from the cap-height ratio), revealing the ring world; zoom-blur on the new frame | Scale hold keys; CC Radial Fast Blur on one frame | **Yes** (hold keys + `zoom-blur` keyed for 1–2 f). No preset | P4 (`type-to-ui` sibling) |
@@ -261,7 +261,7 @@ empty frame.
 | **Brand name** | Wordmark on "Solair" (−0.4); the end card is the exception at +11.6 | **On the word** |
 | **Click** | Tiles land on the click SFX, not on VO words (tile 1 is −4.4 f before "grab") | **Click = SFX frame** |
 
-## 7. What Helios needs
+## 7. What Bhippi needs
 
 ### 7.1 Already in the plan: build as written
 

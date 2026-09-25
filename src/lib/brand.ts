@@ -92,7 +92,7 @@ function vivid(value: string): string {
 }
 
 export const DEFAULT_BRAND: Brand = {
-  name: 'Helios House',
+  name: 'Bhippi House',
   voice: 'Deep, near-black field with one hot accent and white type. Cards with soft shadows, words that land one at a time.',
   palette: {
     accent: '#E11D2E',

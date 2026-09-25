@@ -1,7 +1,7 @@
 //! TypeSafe judgments: one narrow question, one typed answer.
 //!
 //! TypeSafe's System One models answer a defined question about some state and return the answer
-//! with its probabilities, rather than prose to parse. Helios uses it where code needs a piece of
+//! with its probabilities, rather than prose to parse. Bhippi uses it where code needs a piece of
 //! common sense it cannot compute — which caption style suits a video, which tool a request means.
 //!
 //! The key stays on this side: the request is made from Rust with the key from the OS credential

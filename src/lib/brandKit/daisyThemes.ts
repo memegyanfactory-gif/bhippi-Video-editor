@@ -1,6 +1,6 @@
 // DaisyUI's theme catalogue as brand-kit colour presets.
 //
-// The 35 built-in DaisyUI v5 themes, hardcoded as hex so the rest of Helios (Crimson templates,
+// The 35 built-in DaisyUI v5 themes, hardcoded as hex so the rest of Bhippi (Crimson templates,
 // React Bits themes, caption styles, generation prompts) can read them without a colour library.
 //
 // Source: https://github.com/saadeghi/daisyui — packages/daisyui/src/themes/<id>.css on master

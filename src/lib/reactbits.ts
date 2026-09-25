@@ -1,8 +1,8 @@
-// React Bits motion engine for Helios.
+// React Bits motion engine for Bhippi.
 //
 // React Bits (reactbits.dev) is a catalogue of animated text, backgrounds, cursor
 // interactions and cards for the web. None of it runs in a video export — it needs
-// a DOM, a pointer and rAF — so this file is a Helios-native translation of the
+// a DOM, a pointer and rAF — so this file is a Bhippi-native translation of the
 // whole catalogue into primitives the engine already understands:
 //
 //   TEXT       -> per-word / per-letter entrance keyframes (`rb-*`), scrub-safe the

@@ -4334,5 +4334,2165 @@
     ],
     "safety": {},
     "verified": true
+  },
+  {
+    "id": "gl-yakety-sax-benny-hill",
+    "name": "Yakety Sax (Benny Hill Theme)",
+    "aliases": [
+      "yakety sax",
+      "benny hill theme",
+      "benny hill chase",
+      "chase music",
+      "benny hill music"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "The Benny Hill Show",
+      "year": 1969,
+      "detail": "\"Yakety Sax\" (Boots Randolph, 1963) became the show's chase-sketch theme; \"Anything + Benny Hill Theme = Funny\" thread on Something Awful, 2002."
+    },
+    "meaning": "The frantic saxophone theme from The Benny Hill Show's sped-up slapstick chase sketches. Laid over any footage, it turns a chaotic scramble or chase into a silly farce.",
+    "useWhen": [
+      "The target runs away, scrambles or panics in a messy sequence (speed the clip up)",
+      "A chaotic sequence of mistakes that snowballs",
+      "Someone being chased or chasing after a trend"
+    ],
+    "dontUseWhen": [
+      "Real accidents where someone got hurt",
+      "Serious police chases or violence"
+    ],
+    "emotion": [
+      "chaotic",
+      "silly",
+      "frantic"
+    ],
+    "intent": [
+      "chase",
+      "fail",
+      "crazy"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:yakety sax benny hill theme",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:benny hill chase scene yakety sax",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2002",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/yakety-sax-the-benny-hill-theme",
+        "title": "Know Your Meme: Yakety Sax (The Benny Hill Theme)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-homer-backs-into-bushes",
+    "name": "Homer Simpson Backs Into Bushes",
+    "aliases": [
+      "homer bushes",
+      "homer disappears",
+      "homer backs into hedge",
+      "homer simpson hedge",
+      "homer fade into bushes"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "The Simpsons — \"Homer Loves Flanders\"",
+      "year": 1994,
+      "detail": "Aired 17 Mar 1994: Homer pops out of a hedge to invite the Flanders over, they decline, and he silently backs into the bushes. Reaction GIF from Dec 2010."
+    },
+    "meaning": "Homer quietly backs into a hedge until he vanishes. Used to express embarrassment and a wish to quietly withdraw from an awkward situation.",
+    "useWhen": [
+      "The target realises they are wrong and goes quiet",
+      "The host exits a conversation after an awkward reveal",
+      "Someone gets called out and tries to disappear"
+    ],
+    "dontUseWhen": [
+      "When the target is loudly doubling down (use a denial meme)"
+    ],
+    "emotion": [
+      "embarrassed",
+      "sheepish",
+      "awkward"
+    ],
+    "intent": [
+      "awkward",
+      "bye",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:homer simpson backs into bushes original clip",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "gif",
+        "query": "ytsearch3:homer backs into bushes gif",
+        "hasAudio": false,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2010-12-08",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/homer-simpson-backs-into-bushes",
+        "title": "Know Your Meme: Homer Simpson Backs Into Bushes"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-gta-wasted",
+    "name": "Wasted (GTA Death Screen)",
+    "aliases": [
+      "wasted",
+      "gta wasted",
+      "wasted meme",
+      "gta death screen",
+      "wasted sound"
+    ],
+    "origin": {
+      "kind": "game",
+      "title": "Grand Theft Auto series (Rockstar)",
+      "year": 1997,
+      "detail": "The death screen since the first GTA: slow-mo, desaturation and the \"WASTED\" title; edited onto real-life fails."
+    },
+    "meaning": "The Grand Theft Auto death screen edited onto real or fictional clips of people failing, falling or getting wrecked, treating the mishap like a video-game death.",
+    "useWhen": [
+      "The target's argument or plan completely collapses",
+      "A physical fall or wipe-out in the footage",
+      "Someone gets destroyed in a debate or roast"
+    ],
+    "dontUseWhen": [
+      "Real serious injuries, crashes or deaths",
+      "Addiction or drunkenness topics (\"wasted\" double meaning)"
+    ],
+    "emotion": [
+      "mocking",
+      "dramatic",
+      "defeated"
+    ],
+    "intent": [
+      "fail",
+      "dead"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:gta wasted effect sound green screen",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:gta 5 wasted sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "1997",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/wasted",
+        "title": "Know Your Meme: Wasted"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-womp-womp-sad-trombone",
+    "name": "Womp Womp (Sad Trombone)",
+    "aliases": [
+      "womp womp",
+      "sad trombone",
+      "wah wah wah",
+      "wamp wamp",
+      "fail trombone",
+      "price is right fail"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "Game-show / vaudeville failure sting",
+      "detail": "Descending trombone sting used on game shows; SadTrombone.com registered March 2008; YouTube upload 5 May 2010 with 1.5M+ views."
+    },
+    "meaning": "The descending \"wah wah wah waaah\" trombone sting that marks a failure or letdown. As slang, \"womp womp\" is a mocking, unsympathetic response to someone's misfortune.",
+    "useWhen": [
+      "A reveal that falls flat or a joke that bombs",
+      "The target's big announcement turns out to be a letdown",
+      "Mock sympathy for a small, self-inflicted failure"
+    ],
+    "dontUseWhen": [
+      "Genuine tragedies or someone's real hardship"
+    ],
+    "emotion": [
+      "disappointed",
+      "mocking",
+      "deflated"
+    ],
+    "intent": [
+      "fail",
+      "fake-sad",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:sad trombone sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2008-03",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/womp-womp-slang",
+        "title": "Know Your Meme: Womp Womp (Slang)"
+      },
+      {
+        "url": "https://knowyourmeme.com/editorials/guides/what-does-womp-womp-mean-the-sad-trombone-sound-effect-meme-and-slang-term-explained",
+        "title": "Know Your Meme: What does 'Womp Womp' mean?"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-why-you-always-lying",
+    "name": "Why You Always Lying (Nicholas Fraser)",
+    "aliases": [
+      "why you always lying",
+      "why you always lyin",
+      "nicholas fraser",
+      "why the f you lyin",
+      "stop lying song"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Nicholas Fraser Vine",
+      "year": 2015,
+      "detail": "Posted 29 Aug 2015: after someone tells a lie, Fraser dances in his backyard singing to the tune of Next's \"Too Close\"."
+    },
+    "meaning": "Viner Nicholas Fraser dances and sings \"Why you always lyin'?\" to call out someone telling an obvious lie. Used to mock liars and exaggerated claims.",
+    "useWhen": [
+      "The target makes an obviously false claim",
+      "Cutting from a claim to the receipts that disprove it",
+      "The target's story changes between videos"
+    ],
+    "dontUseWhen": [
+      "Kid-friendly edits unless the clean version is used (the original swears)",
+      "When the claim is actually true"
+    ],
+    "emotion": [
+      "mocking",
+      "playful",
+      "accusing"
+    ],
+    "intent": [
+      "lie",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:why you always lying original vine nicholas fraser",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Why the fuck you lyin'? Why you always lyin'? Mmm, oh my God, stop fuckin' lyin'."
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2015-08-29",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/why-the-fuck-you-lyin",
+        "title": "Know Your Meme: Why The Fuck You Lyin'"
+      },
+      {
+        "url": "https://knowyourmeme.com/editorials/interviews/nicholas-fraser-revisits-his-classic-vine-and-meme-why-you-always-lyin-as-we-catch-up-with-him-six-years-later",
+        "title": "Know Your Meme interview: Nicholas Fraser"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "gl-press-x-to-doubt",
+    "name": "Press X to Doubt (L.A. Noire)",
+    "aliases": [
+      "press x to doubt",
+      "x doubt",
+      "doubt",
+      "la noire doubt",
+      "cole phelps doubt"
+    ],
+    "origin": {
+      "kind": "game",
+      "title": "L.A. Noire (Rockstar Games)",
+      "year": 2011,
+      "detail": "Interrogation choices Truth / Doubt / Lie; detective Cole Phelps' skeptical face with the \"(X) Doubt\" prompt, first posted to FunnyJunk 4 Dec 2012."
+    },
+    "meaning": "Detective Cole Phelps' disbelieving face with the \"X Doubt\" prompt from L.A. Noire's interrogations. A reaction that says: I don't believe what you just said.",
+    "useWhen": [
+      "The target makes a dubious claim (\"I'm not mad\", \"it wasn't staged\")",
+      "Suspicious statistics or too-good-to-be-true numbers",
+      "The host visibly doubts a promise"
+    ],
+    "dontUseWhen": [
+      "When the host has proof (use an exposed meme)"
+    ],
+    "emotion": [
+      "skeptical",
+      "unconvinced",
+      "deadpan"
+    ],
+    "intent": [
+      "lie",
+      "disagree",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "image",
+        "query": "ytsearch3:press x to doubt la noire meme",
+        "hasAudio": false,
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:la noire doubt meme original cole phelps",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2012-12-04",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/la-noire-doubt-press-x-to-doubt",
+        "title": "Know Your Meme: L.A. Noire \"Doubt\" / Press X To Doubt"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-its-a-trap",
+    "name": "It's a Trap! (Admiral Ackbar)",
+    "aliases": [
+      "its a trap",
+      "it's a trap",
+      "admiral ackbar",
+      "ackbar trap"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Star Wars: Episode VI – Return of the Jedi",
+      "year": 1983,
+      "detail": "Admiral Ackbar realises the Death Star attack is an ambush. Image macro on Something Awful early 2000s; YTMND soundbites from 2004."
+    },
+    "meaning": "Admiral Ackbar shouting \"It's a trap!\" in Return of the Jedi. Used to warn of a bait-and-switch, a scam or a too-good-to-be-true offer.",
+    "useWhen": [
+      "The target promotes a deal, giveaway or course that is obviously bait",
+      "A friendly question that is clearly a setup",
+      "Just before the target walks into the host's trap"
+    ],
+    "dontUseWhen": [
+      "Real scams where viewers lost money, unless the tone is right"
+    ],
+    "emotion": [
+      "alarmed",
+      "warning",
+      "dramatic"
+    ],
+    "intent": [
+      "suspense",
+      "betrayal",
+      "scared"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:admiral ackbar it's a trap scene",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "It's a trap!"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:it's a trap sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2002",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/its-a-trap",
+        "title": "Know Your Meme: It's A Trap!"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-they-had-us-in-the-first-half",
+    "name": "They Had Us in the First Half",
+    "aliases": [
+      "they had us in the first half",
+      "not gonna lie",
+      "they had us",
+      "apollos hester",
+      "had us in the first half"
+    ],
+    "origin": {
+      "kind": "news",
+      "title": "TWC News Austin post-game interview with Apollos Hester (East View Patriots)",
+      "year": 2014,
+      "detail": "Recorded 21 Sep 2014 after a 42–41 comeback; became a caption format from 8–10 Oct 2014."
+    },
+    "meaning": "High-school running back Apollos Hester's excited post-game interview: \"They had us in the first half, not gonna lie.\" Used when something starts good and turns bad halfway, or a comeback twist.",
+    "useWhen": [
+      "The target's statement starts reasonable then takes a terrible turn",
+      "A plot twist halfway through a story",
+      "The host nearly believed the target, then didn't"
+    ],
+    "dontUseWhen": [
+      "Mocking a real athlete's loss"
+    ],
+    "emotion": [
+      "amused",
+      "relieved",
+      "surprised"
+    ],
+    "intent": [
+      "plot-twist",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:they had us in the first half not gonna lie apollos hester interview",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "They had us the first half, not gonna lie."
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2014-10-08",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/they-had-us-in-the-first-half",
+        "title": "Know Your Meme: They Had Us In the First Half"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-vader-noooo",
+    "name": "Darth Vader's \"Noooo!\"",
+    "aliases": [
+      "vader noooo",
+      "darth vader no",
+      "nooooo",
+      "star wars noooo",
+      "vader scream"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Star Wars: Episode III – Revenge of the Sith",
+      "year": 2005,
+      "detail": "Vader screams after learning Padmé is dead; YTMND \"NOOOOOOOOOOOOOOOOOO!!!\" on 20 May 2005."
+    },
+    "meaning": "Darth Vader's over-the-top scream of \"Noooo!\" in Revenge of the Sith, widely mocked as melodramatic. Used as an overblown reaction to minor bad news.",
+    "useWhen": [
+      "The target overreacts to trivial criticism",
+      "The host's reaction when the target ruins something small",
+      "A dramatic refusal to accept an outcome"
+    ],
+    "dontUseWhen": [
+      "Real grief or deaths (the scene is about a death)"
+    ],
+    "emotion": [
+      "melodramatic",
+      "anguished",
+      "ironic"
+    ],
+    "intent": [
+      "overreact",
+      "denial",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:darth vader noooo revenge of the sith",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Noooooooo!"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:darth vader noooo sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2005-05-20",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/darth-vaders-noooo",
+        "title": "Know Your Meme: Darth Vader's \"Noooo!\""
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-wheres-the-lamb-sauce",
+    "name": "Where's the Lamb Sauce? (Gordon Ramsay)",
+    "aliases": [
+      "where's the lamb sauce",
+      "lamb sauce",
+      "gordon ramsay lamb sauce",
+      "lamb sauce located",
+      "gordon ramsay yelling"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Hell's Kitchen",
+      "year": 2006,
+      "detail": "Ramsay furiously berates a cook, demanding to know where the lamb sauce is; the meme took off on r/dankmemes Dec 2016 and Ramsay acknowledged it in Jan 2017."
+    },
+    "meaning": "Chef Gordon Ramsay furiously demanding \"Where's the lamb sauce?\" on Hell's Kitchen. Used for exaggerated rage over something missing or a demand to know where something went.",
+    "useWhen": [
+      "The target's promised feature, proof or product is missing",
+      "The host angrily asks where the substance is in a video",
+      "Anything cooking, food or recipe related"
+    ],
+    "dontUseWhen": [
+      "Clean edits unless the bleeped version is used"
+    ],
+    "emotion": [
+      "furious",
+      "exasperated",
+      "comic"
+    ],
+    "intent": [
+      "rage",
+      "overreact"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:gordon ramsay where's the lamb sauce hell's kitchen",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Where's the lamb sauce?"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2015-12-18",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/gordon-ramsays-lamb-sauce",
+        "title": "Know Your Meme: Gordon Ramsay's Lamb Sauce"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "gl-objection-ace-attorney",
+    "name": "Objection! (Phoenix Wright)",
+    "aliases": [
+      "objection",
+      "objection!",
+      "phoenix wright",
+      "ace attorney",
+      "objection.lol",
+      "hold it"
+    ],
+    "origin": {
+      "kind": "game",
+      "title": "Phoenix Wright: Ace Attorney (Capcom)",
+      "year": 2001,
+      "detail": "Phoenix points and shouts \"Objection!\" in court; 4chan usage from 2008; objection.lol animator launched 12 Apr 2019."
+    },
+    "meaning": "Lawyer Phoenix Wright slams the desk, points and shouts \"Objection!\" with the stylised speech bubble. Used to interrupt and contradict a false claim.",
+    "useWhen": [
+      "Cutting in on the target's claim just before the counter-evidence",
+      "The host disagrees strongly with a point",
+      "Courtroom-style breakdowns of a controversy"
+    ],
+    "dontUseWhen": [
+      "When the host has nothing to back the objection"
+    ],
+    "emotion": [
+      "assertive",
+      "dramatic",
+      "triumphant"
+    ],
+    "intent": [
+      "disagree",
+      "exposed"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:phoenix wright objection sound effect",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Objection!"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:objection ace attorney meme",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2008",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/objection",
+        "title": "Know Your Meme: Objection!"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-oh-no-anyway",
+    "name": "Oh No! Anyway (Jeremy Clarkson)",
+    "aliases": [
+      "oh no anyway",
+      "oh no! anyway",
+      "jeremy clarkson oh no",
+      "clarkson anyway"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Top Gear (series 11, episode 2)",
+      "year": 2008,
+      "detail": "Aired 29 Jun 2008: James May announces a car launch is delayed; Clarkson says \"Oh no!\" and immediately moves on."
+    },
+    "meaning": "Jeremy Clarkson feigns concern with \"Oh no!\" and immediately moves on with \"Anyway...\". Expresses a total lack of sympathy.",
+    "useWhen": [
+      "The target complains about a self-inflicted problem",
+      "Brushing off the target's fake outrage",
+      "Moving to the next topic after a minor bad-news beat"
+    ],
+    "dontUseWhen": [
+      "Real tragedies or suffering"
+    ],
+    "emotion": [
+      "indifferent",
+      "deadpan",
+      "sarcastic"
+    ],
+    "intent": [
+      "ignore",
+      "sarcasm",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:jeremy clarkson oh no anyway top gear",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Oh no! ... Anyway."
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2008-06-29",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/oh-no-anyway",
+        "title": "Know Your Meme: Oh No! Anyway"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-fbi-open-up",
+    "name": "FBI Open Up!",
+    "aliases": [
+      "fbi open up",
+      "fbi",
+      "fbi raid meme",
+      "fbi door breach",
+      "open up fbi"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "FBI surveillance jokes",
+      "detail": "Jokes that the FBI watches every user and raids homes over suspicious searches; the \"FBI OPEN UP!\" door-breach sound and clip are used in edits."
+    },
+    "meaning": "A door-breaking \"FBI, open up!\" shout used after someone says or searches something suspicious, joking that the FBI is about to raid them.",
+    "useWhen": [
+      "The target says something creepy or deeply suspicious",
+      "A wildly questionable search history or confession",
+      "Right after a sus remark"
+    ],
+    "dontUseWhen": [
+      "Real crimes, especially involving minors",
+      "Actual law-enforcement stories"
+    ],
+    "emotion": [
+      "alarmed",
+      "mocking",
+      "absurd"
+    ],
+    "intent": [
+      "exposed",
+      "cringe",
+      "scared"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:fbi open up sound effect",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "FBI! Open up!"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:fbi open up meme door breach",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/people/fbi",
+        "title": "Know Your Meme: FBI"
+      },
+      {
+        "url": "https://knowyourmeme.com/videos/204436-fbi",
+        "title": "Know Your Meme: FBI OPEN UP! (Sound Effect)"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-among-us-sus",
+    "name": "Sus / Emergency Meeting (Among Us)",
+    "aliases": [
+      "sus",
+      "among us",
+      "emergency meeting",
+      "impostor",
+      "imposter is sus",
+      "when the imposter is sus",
+      "sussy baka"
+    ],
+    "origin": {
+      "kind": "game",
+      "title": "Among Us (Innersloth)",
+      "year": 2020,
+      "detail": "\"Sus\" (suspicious) exploded with the game's second wave in Aug–Sep 2020; \"you're looking kinda sus\" tweet 6 Sep 2020."
+    },
+    "meaning": "Short for \"suspicious\", popularised by Among Us players calling out suspected impostors. The Emergency Meeting sound and \"sus\" are used when someone acts suspiciously.",
+    "useWhen": [
+      "The target's behaviour or excuse is suspicious",
+      "Calling an \"emergency meeting\" to expose someone",
+      "Pointing at the likely culprit"
+    ],
+    "dontUseWhen": [
+      "Heavy repetition (2020-era; can read as dated)"
+    ],
+    "emotion": [
+      "suspicious",
+      "accusing",
+      "playful"
+    ],
+    "intent": [
+      "suspense",
+      "exposed",
+      "lie"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:among us emergency meeting sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:among us emergency meeting meme",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2020-09-06",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/sus",
+        "title": "Know Your Meme: Sus"
+      },
+      {
+        "url": "https://knowyourmeme.com/memes/subcultures/among-us",
+        "title": "Know Your Meme: Among Us"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-huh-cat",
+    "name": "Huh? Cat",
+    "aliases": [
+      "huh cat",
+      "huh",
+      "confused cat",
+      "ben cat",
+      "huh meme"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "TikTok cat video with a \"huh?\" sound",
+      "year": 2022,
+      "detail": "Ben Cat (@planetvenus500); earliest meme 8 Dec 2022 by @21pamix, viral again 11 May 2023."
+    },
+    "meaning": "A confused, wide-eyed cat with a \"huh?\" sound dubbed over it. Used to show being lost or baffled by what someone just said.",
+    "useWhen": [
+      "The target says something that makes no sense",
+      "The host doesn't understand the target's logic",
+      "A sudden non-sequitur or bizarre product"
+    ],
+    "dontUseWhen": [
+      "More than once or twice a video"
+    ],
+    "emotion": [
+      "confused",
+      "baffled",
+      "silly"
+    ],
+    "intent": [
+      "confusion",
+      "clueless"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:huh cat meme original sound",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Huh?"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:huh cat sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2022-12-08",
+    "trendScore": 0.7,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/huh-cat",
+        "title": "Know Your Meme: Huh? Cat"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-owen-wilson-wow",
+    "name": "Owen Wilson's \"Wow\"",
+    "aliases": [
+      "wow",
+      "owen wilson wow",
+      "owen wilson",
+      "wow owen wilson"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Owen Wilson films (supercut)",
+      "year": 2015,
+      "detail": "May 2015 supercut of Wilson saying \"wow\" across his films; WowOwen site July 2017."
+    },
+    "meaning": "Owen Wilson's distinctive drawn-out \"wow\". Used for mock amazement at something the target said or did, sincerely or sarcastically.",
+    "useWhen": [
+      "The target reveals something absurd or impressive",
+      "Sarcastic amazement at a terrible take",
+      "A shocking number or statistic"
+    ],
+    "dontUseWhen": [
+      "Stacking it with other shock sounds in the same beat"
+    ],
+    "emotion": [
+      "amazed",
+      "sarcastic",
+      "impressed"
+    ],
+    "intent": [
+      "shock",
+      "sarcasm"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:owen wilson wow sound effect",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Wow."
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:owen wilson wow supercut",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2015-05",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/owen-wilsons-wow",
+        "title": "Know Your Meme: Owen Wilson's \"Wow\""
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-metal-gear-alert",
+    "name": "Metal Gear Solid Alert (!)",
+    "aliases": [
+      "metal gear alert",
+      "mgs alert",
+      "exclamation mark sound",
+      "metal gear !",
+      "snake alert",
+      "spotted sound"
+    ],
+    "origin": {
+      "kind": "game",
+      "title": "Metal Gear Solid (Konami)",
+      "year": 1998,
+      "detail": "When an enemy spots Snake, an alarm sting plays and a red \"!\" appears over their head."
+    },
+    "meaning": "The alarm sting and red exclamation mark when an enemy spots the player in Metal Gear Solid. Used when someone is caught or suddenly notices something.",
+    "useWhen": [
+      "The target gets caught mid-lie or mid-act",
+      "The host spots a detail in the footage (freeze-frame + \"!\")",
+      "Someone notices they have been found out"
+    ],
+    "dontUseWhen": [
+      "When nothing was actually noticed"
+    ],
+    "emotion": [
+      "startled",
+      "caught",
+      "alert"
+    ],
+    "intent": [
+      "exposed",
+      "suspense",
+      "scared"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:metal gear solid alert sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "1998-09-03",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/metal-gear-solid-enemy-alert",
+        "title": "Know Your Meme: Metal Gear Solid Enemy Alert"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-jonah-jameson-laugh",
+    "name": "J. Jonah Jameson Laughing",
+    "aliases": [
+      "jonah jameson laugh",
+      "jj jameson laughing",
+      "jameson laugh",
+      "spider-man boss laugh",
+      "you serious laugh"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Spider-Man 3 (Sam Raimi)",
+      "year": 2007,
+      "detail": "J.K. Simmons as Jameson bursts out laughing (\"You serious?\") when Peter asks to be paid in advance; also the \"Aww Yea Guy\" drawing."
+    },
+    "meaning": "J. Jonah Jameson (J.K. Simmons) laughing hysterically at Peter Parker's request. Used to mock a ridiculous demand or claim.",
+    "useWhen": [
+      "The target makes an absurd demand or asks for money",
+      "The host laughs off a ridiculous claim",
+      "Mocking someone's overconfidence"
+    ],
+    "dontUseWhen": [
+      "Laughing at genuine hardship"
+    ],
+    "emotion": [
+      "mocking",
+      "amused",
+      "dismissive"
+    ],
+    "intent": [
+      "sarcasm",
+      "disagree"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:j jonah jameson laughing spider-man 3 you serious",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Hahaha... you serious?"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2007",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/people/j-jonah-jameson",
+        "title": "Know Your Meme: J. Jonah Jameson"
+      },
+      {
+        "url": "https://knowyourmeme.com/videos/267845-spider-man",
+        "title": "Know Your Meme: J. Jonah Jameson laughs uncontrollably"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-el-risitas-laughing",
+    "name": "Spanish Laughing Guy (El Risitas)",
+    "aliases": [
+      "el risitas",
+      "spanish laughing guy",
+      "risitas",
+      "laughing spanish man",
+      "juan joya borja"
+    ],
+    "origin": {
+      "kind": "tv",
+      "title": "Ratones Coloraos interview (Spain)",
+      "year": 2007,
+      "detail": "Juan Joya Borja bursts into uncontrollable laughter telling a story about losing paella pans; later subtitled as a CEO mocking customers."
+    },
+    "meaning": "Spanish comedian Juan Joya Borja's uncontrollable laughing fit, re-subtitled so he appears to be an executive or villain gleefully mocking someone else's misfortune.",
+    "useWhen": [
+      "The host laughs uncontrollably at the target's failure",
+      "The target's scheme or business openly ripping off people",
+      "A company laughing at its own customers"
+    ],
+    "dontUseWhen": [
+      "Laughing at victims of real harm",
+      "Jokes about his death (he died in 2021)"
+    ],
+    "emotion": [
+      "hysterical",
+      "mocking",
+      "gleeful"
+    ],
+    "intent": [
+      "sarcasm",
+      "fail"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:el risitas laughing original interview",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2007-06",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/people/spanish-laughing-guy-el-risitas-interview-parodies",
+        "title": "Know Your Meme: Spanish Laughing Guy / \"El Risitas\" Interview Parodies"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-pointing-rick-dalton",
+    "name": "Pointing Rick Dalton (Leonardo DiCaprio Pointing)",
+    "aliases": [
+      "leo pointing",
+      "leonardo dicaprio pointing",
+      "rick dalton pointing",
+      "dicaprio pointing",
+      "hey that's me"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Once Upon a Time in Hollywood",
+      "year": 2019,
+      "detail": "Rick Dalton (DiCaprio) points excitedly at the TV when he sees himself on the show F.B.I."
+    },
+    "meaning": "Leonardo DiCaprio excitedly pointing at a TV in Once Upon a Time in Hollywood. Used for excited recognition of a reference, callback or relatable moment.",
+    "useWhen": [
+      "The target makes a reference the audience will recognise",
+      "A callback to an earlier moment in the video",
+      "The host agrees and relates: \"that's literally me\""
+    ],
+    "dontUseWhen": [
+      "When the reference is obscure"
+    ],
+    "emotion": [
+      "excited",
+      "recognition",
+      "delighted"
+    ],
+    "intent": [
+      "agree",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:leonardo dicaprio pointing once upon a time in hollywood tv scene",
+        "hasAudio": false,
+        "provider": "youtube"
+      },
+      {
+        "type": "image",
+        "query": "ytsearch3:leonardo dicaprio pointing meme template",
+        "hasAudio": false,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2019-07-26",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/pointing-rick-dalton",
+        "title": "Know Your Meme: Pointing Rick Dalton"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-roblox-oof",
+    "name": "OOF (Roblox Death Sound)",
+    "aliases": [
+      "oof",
+      "roblox oof",
+      "roblox death sound",
+      "uuhhh",
+      "oof sound"
+    ],
+    "origin": {
+      "kind": "game",
+      "title": "Roblox",
+      "year": 2005,
+      "detail": "The one-second death sound (file \"uuhhh\") from Roblox's 2005 beta; remix wave from late 2016; removed from Roblox in July 2022 over licensing."
+    },
+    "meaning": "Roblox's short \"oof\" death sound, used to punctuate a small failure, painful moment or awkward loss.",
+    "useWhen": [
+      "The target makes a small, cringe mistake",
+      "A painful comeback lands on the target",
+      "Someone \"dies\" socially in a comment section"
+    ],
+    "dontUseWhen": [
+      "Real injuries or deaths"
+    ],
+    "emotion": [
+      "pained",
+      "sympathetic",
+      "mocking"
+    ],
+    "intent": [
+      "fail",
+      "dead",
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:roblox oof death sound",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2016",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/oof-roblox-death-sound",
+        "title": "Know Your Meme: OOF / Roblox Death Sound"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-its-over-9000",
+    "name": "It's Over 9000!",
+    "aliases": [
+      "over 9000",
+      "it's over 9000",
+      "vegeta 9000",
+      "what 9000",
+      "power level over 9000"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Dragon Ball Z (English dub)",
+      "year": 1997,
+      "detail": "Vegeta crushes his scouter shouting \"It's over nine thousand!\"; the YouTube upload by Kajetokun in Oct 2006 went viral via 4chan and YTMND."
+    },
+    "meaning": "Vegeta crushing his scouter while screaming \"It's over nine thousand!\" about Goku's power level. Used for absurdly high numbers or someone's overwhelming power.",
+    "useWhen": [
+      "A ridiculously high number (views, price, followers, damage)",
+      "The target's ego or claimed skill level",
+      "An overreaction to a big stat"
+    ],
+    "dontUseWhen": [
+      "Audiences unfamiliar with anime or 2000s memes"
+    ],
+    "emotion": [
+      "shocked",
+      "hyped",
+      "exaggerated"
+    ],
+    "intent": [
+      "overreact",
+      "shock",
+      "flex"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:vegeta it's over 9000 original dub",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "It's over nine thousand!"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:its over 9000 sound",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2006-10",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/its-over-9000",
+        "title": "Know Your Meme: It's Over 9000!"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-thug-life",
+    "name": "Thug Life",
+    "aliases": [
+      "thug life",
+      "unexpected thug life",
+      "deal with it glasses",
+      "thug life glasses",
+      "thug life music"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "YouTube / r/UnexpectedThugLife remixes",
+      "year": 2014,
+      "detail": "Freeze-frame, pixel sunglasses and a rap beat drop; r/UnexpectedThugLife launched Oct 2014, peaked Feb 2015."
+    },
+    "meaning": "Remix format where someone delivers a savage line or bold move, then the video freezes, pixel sunglasses drop on their face and a hip-hop beat plays. Celebrates a boss-like comeback.",
+    "useWhen": [
+      "The target (or a kid, grandma, animal) delivers a savage comeback",
+      "Someone does something unexpectedly bold",
+      "The host's own mic-drop moment"
+    ],
+    "dontUseWhen": [
+      "Violence, drugs or weapons in the original clip",
+      "Overuse; reads as a 2015 throwback"
+    ],
+    "emotion": [
+      "cocky",
+      "savage",
+      "triumphant"
+    ],
+    "intent": [
+      "flex",
+      "victory",
+      "proud"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:thug life meme template sunglasses green screen",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:thug life beat meme sound",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2014-10",
+    "trendScore": 0.4,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/thug-life",
+        "title": "Know Your Meme: Thug Life"
+      }
+    ],
+    "safety": {
+      "profanity": true
+    },
+    "verified": true
+  },
+  {
+    "id": "gl-skibidi-toilet",
+    "name": "Skibidi Toilet",
+    "aliases": [
+      "skibidi",
+      "skibidi toilet",
+      "skibidi dop dop yes yes",
+      "toilet head",
+      "skibidi brainrot"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "DaFuq!?Boom! (YouTube Shorts)",
+      "year": 2023,
+      "detail": "Source Filmmaker shorts of singing toilet-heads fighting CameraHeads, set to a \"Give It To Me\" / \"Dom Dom Yes Yes\" remix; first episode Feb 2023."
+    },
+    "meaning": "A Source Filmmaker YouTube Shorts series of heads singing out of toilets. The byword for Gen Alpha brainrot; \"skibidi\" is used as a nonsense insult or filler.",
+    "useWhen": [
+      "Mocking brainrot content or a kid audience",
+      "Something absurd, chaotic or low-effort",
+      "The target's content is aimed at 10-year-olds"
+    ],
+    "dontUseWhen": [
+      "Older audiences that won't know it",
+      "More than one use per video"
+    ],
+    "emotion": [
+      "absurd",
+      "chaotic",
+      "ironic"
+    ],
+    "intent": [
+      "crazy",
+      "cringe"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:skibidi toilet episode 1 original dafuq boom",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:skibidi dop dop yes yes sound",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2023-02",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/subcultures/skibidi-toilet",
+        "title": "Know Your Meme: Skibidi Toilet"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-tung-tung-tung-sahur",
+    "name": "Tung Tung Tung Sahur",
+    "aliases": [
+      "tung tung tung sahur",
+      "tung tung sahur",
+      "triple t",
+      "italian brainrot",
+      "tung tung"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "AI brainrot TikToks (Indonesian origin)",
+      "year": 2025,
+      "detail": "AI-generated wooden kentongan creature with a bat; earliest known post by @noxaasht on 28 Feb 2025; part of the \"Italian brainrot\" wave with Tralalero Tralala and Bombardiro Crocodilo."
+    },
+    "meaning": "An AI-generated wooden creature with a bat, from Indonesian brainrot TikToks; the legend says it comes for you if you ignore the sahur (pre-dawn Ramadan meal) call three times. Used as absurd brainrot or a comic threat.",
+    "useWhen": [
+      "A comic threat: \"if you skip this, he's coming\"",
+      "Mocking brainrot/AI slop culture",
+      "Someone ignores repeated warnings"
+    ],
+    "dontUseWhen": [
+      "Anything mocking Ramadan or the religious practice itself",
+      "Older audiences"
+    ],
+    "emotion": [
+      "absurd",
+      "ominous",
+      "silly"
+    ],
+    "intent": [
+      "crazy",
+      "scared"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:tung tung tung sahur original tiktok",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:tung tung tung sahur sound",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2025-02-28",
+    "trendScore": 0.75,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/tung-tung-tung-sahur",
+        "title": "Know Your Meme: Tung Tung Tung Sahur"
+      }
+    ],
+    "safety": {
+      "religious": true
+    },
+    "verified": true
+  },
+  {
+    "id": "gl-pedro-raccoon",
+    "name": "Pedro Pedro Pedro (Raccoon Dancing in a Circle)",
+    "aliases": [
+      "pedro pedro pedro",
+      "pedro raccoon",
+      "raccoon dancing",
+      "dancing raccoon",
+      "raccoon spinning"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "TikTok raccoon video + Raffaella Carrà's \"Pedro\" (remix)",
+      "year": 2024,
+      "detail": "Raccoon clip posted by @fleksa30 in Sept 2023; paired with the EDM \"Pedro\" remix by @malykha2114 on 8 Mar 2024."
+    },
+    "meaning": "A baby raccoon spinning in a circle to an EDM remix of Raffaella Carrà's \"Pedro\". Used for goofy, vibing celebration.",
+    "useWhen": [
+      "The target celebrates something small too hard",
+      "A happy, silly victory beat",
+      "Someone vibing without a care"
+    ],
+    "dontUseWhen": [
+      "Serious or sad moments"
+    ],
+    "emotion": [
+      "goofy",
+      "joyful",
+      "vibing"
+    ],
+    "intent": [
+      "dance",
+      "victory",
+      "wholesome"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:raccoon dancing pedro pedro pedro original",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:pedro pedro pedro remix raccoon",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2024-03-08",
+    "trendScore": 0.65,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/raccoon-dancing-in-a-circle-pedro-pedro-pedro",
+        "title": "Know Your Meme: Raccoon Dancing in a Circle / \"Pedro Pedro Pedro\""
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-bombastic-side-eye",
+    "name": "Bombastic Side Eye",
+    "aliases": [
+      "bombastic side eye",
+      "criminal offensive side eye",
+      "side eye",
+      "side eye sound"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "TikTok audio (@cynthiammasi, remixed by @lmfaomal)",
+      "year": 2023,
+      "detail": "\"Bombastic side eye, criminal offensive side eye\" remix in Jan 2023; with a Vine boom added in Feb 2023 it spawned 366k+ videos."
+    },
+    "meaning": "A TikTok audio: \"Bombastic side eye... criminal offensive side eye\". A dramatic, judgmental sideways glance at someone's questionable words or behaviour.",
+    "useWhen": [
+      "The target says something questionable or suspicious",
+      "Judging the target's outfit, choice or claim",
+      "A silent, disapproving reaction from the host"
+    ],
+    "dontUseWhen": [
+      "When the host needs to argue a point (it is a silent judgment)"
+    ],
+    "emotion": [
+      "judgmental",
+      "suspicious",
+      "sassy"
+    ],
+    "intent": [
+      "sarcasm",
+      "disgust",
+      "suspense"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:bombastic side eye criminal offensive side eye sound",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Bombastic side eye. Criminal offensive side eye."
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2023-01",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/bombastic-side-eye-side-eye-tiktok-trend",
+        "title": "Know Your Meme: Bombastic Side Eye / Side Eye TikTok Trend"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-metal-pipe-falling",
+    "name": "Metal Pipe Falling Sound Effect",
+    "aliases": [
+      "metal pipe",
+      "metal pipe falling",
+      "metal pipe sound",
+      "pipe clang",
+      "metal bar falling"
+    ],
+    "origin": {
+      "kind": "viral",
+      "title": "Sound file Destruction_Metal_Pole_L_Wave_2_0_0.wav",
+      "year": 2020,
+      "detail": "First used on YouTube in 2020 by Jixaw; later a Twitch soundboard staple (xQc, Pokelawls)."
+    },
+    "meaning": "A deafening clang of a long metal pipe hitting the ground, dropped in as a random, jarring punchline in ironic memes.",
+    "useWhen": [
+      "A dumb statement lands with a thud",
+      "Someone falls or something drops in the footage",
+      "An absurd, anticlimactic ending"
+    ],
+    "dontUseWhen": [
+      "More than once per video",
+      "Viewers wearing headphones: level it down"
+    ],
+    "emotion": [
+      "jarring",
+      "absurd",
+      "loud"
+    ],
+    "intent": [
+      "shock",
+      "fail",
+      "crazy"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:metal pipe falling sound effect",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2020",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/metal-pipe-falling-sound-effect",
+        "title": "Know Your Meme: Metal Pipe Falling Sound Effect"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-you-were-the-chosen-one",
+    "name": "You Were the Chosen One!",
+    "aliases": [
+      "you were the chosen one",
+      "chosen one",
+      "obi-wan chosen one",
+      "you were my brother",
+      "obi wan disappointed"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Star Wars: Episode III – Revenge of the Sith",
+      "year": 2005,
+      "detail": "Obi-Wan's cry to Anakin after their duel: \"You were the chosen one! It was said that you would destroy the Sith, not join them!\""
+    },
+    "meaning": "Obi-Wan Kenobi's anguished line to Anakin after he turns to the dark side. Used to express disappointment in someone once seen as promising who betrayed their promise.",
+    "useWhen": [
+      "A creator or brand the audience loved sells out",
+      "The target abandons the values they preached",
+      "A former ally joins the other side"
+    ],
+    "dontUseWhen": [
+      "Trivial disappointments that don't involve a turn or betrayal"
+    ],
+    "emotion": [
+      "disappointed",
+      "betrayed",
+      "anguished"
+    ],
+    "intent": [
+      "betrayal",
+      "hypocrisy",
+      "fake-sad"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:you were the chosen one obi wan scene revenge of the sith",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "You were the chosen one! It was said that you would destroy the Sith, not join them!"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2007-01-22",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/you-were-the-chosen-one",
+        "title": "Know Your Meme: You Were The Chosen One!"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-am-i-so-out-of-touch",
+    "name": "Am I So Out of Touch? (Principal Skinner)",
+    "aliases": [
+      "am i so out of touch",
+      "out of touch",
+      "no it's the children who are wrong",
+      "skinner out of touch",
+      "principal skinner"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "The Simpsons — \"The Boy Who Knew Too Much\" (S5E20)",
+      "year": 1994,
+      "detail": "Aired 5 May 1994: Skinner asks \"Am I so out of touch?\" then decides \"No. It's the children who are wrong.\""
+    },
+    "meaning": "Principal Skinner considers he might be out of touch, then decides \"No, it's the children who are wrong.\" Used to mock someone who refuses to admit fault and blames everyone else.",
+    "useWhen": [
+      "The target blames the audience or haters for their own flop",
+      "A brand or boomer take out of touch with its audience",
+      "The target refuses to accept obvious feedback"
+    ],
+    "dontUseWhen": [
+      "When the target actually admits the mistake"
+    ],
+    "emotion": [
+      "smug",
+      "oblivious",
+      "deluded"
+    ],
+    "intent": [
+      "denial",
+      "hypocrisy",
+      "clueless"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:principal skinner am i so out of touch no it's the children who are wrong",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Am I so out of touch? No. It's the children who are wrong."
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2013",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/am-i-so-out-of-touch",
+        "title": "Know Your Meme: Am I So Out Of Touch?"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-low-taper-fade-still-massive",
+    "name": "The Low Taper Fade Meme Is Still Massive",
+    "aliases": [
+      "low taper fade",
+      "still massive",
+      "it's still massive",
+      "ninja low taper fade",
+      "you know what else is massive",
+      "massive"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "Ninja's Twitch stream / ericdoa freestyle",
+      "year": 2024,
+      "detail": "ericdoa's \"Imagine if Ninja got a low taper fade\" (Jan 2024); Ninja insisting the meme \"is still massive\" went viral from 30 Jan 2024."
+    },
+    "meaning": "Streamer Ninja insists the \"low taper fade\" meme \"is still massive\" long after its peak. Used to mock someone hyping a dead trend, or as the setup \"you know what else is massive?\".",
+    "useWhen": [
+      "The target keeps pushing an old trend or catchphrase",
+      "Overhyping something that is clearly over",
+      "A \"you know what else is massive?\" callback to a big number"
+    ],
+    "dontUseWhen": [
+      "Older audiences who don't know streamer culture"
+    ],
+    "emotion": [
+      "ironic",
+      "hype",
+      "cringe"
+    ],
+    "intent": [
+      "cringe",
+      "denial",
+      "overreact"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:ninja low taper fade still massive original clip",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "You know what's crazy? That low taper fade meme is still massive."
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2024-01-30",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/the-low-taper-fade-meme-is-still-massive",
+        "title": "Know Your Meme: The Low Taper Fade Meme Is Still Massive"
+      },
+      {
+        "url": "https://knowyourmeme.com/memes/ninjas-massive-you-know-what-else-is-massive",
+        "title": "Know Your Meme: Ninja's \"Massive\" / You Know What Else Is Massive?"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-luke-i-am-your-father",
+    "name": "I Am Your Father (Darth Vader)",
+    "aliases": [
+      "i am your father",
+      "luke i am your father",
+      "no i am your father",
+      "vader reveal",
+      "star wars twist"
+    ],
+    "origin": {
+      "kind": "film",
+      "title": "Star Wars: Episode V – The Empire Strikes Back",
+      "year": 1980,
+      "detail": "Vader reveals he is Luke's father (actual line \"No, I am your father\"; the popular misquote is a famous Mandela Effect example)."
+    },
+    "meaning": "Darth Vader's twist that he is Luke Skywalker's father, followed by Luke's \"Nooo!\". The template for a shocking reveal of a hidden connection.",
+    "useWhen": [
+      "A reveal that the target is secretly connected to who they criticised",
+      "The host reveals a twist about the target's identity or sponsor",
+      "A shocking origin reveal"
+    ],
+    "dontUseWhen": [
+      "Real family secrets or paternity disputes"
+    ],
+    "emotion": [
+      "shocked",
+      "dramatic",
+      "ironic"
+    ],
+    "intent": [
+      "plot-twist",
+      "shock"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:empire strikes back no i am your father scene",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "No, I am your father."
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "1980",
+    "trendScore": 0.5,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/luke-i-am-your-father",
+        "title": "Know Your Meme: Luke, I am Your Father"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-omae-wa-mou-shindeiru",
+    "name": "Omae Wa Mou Shindeiru / NANI?!",
+    "aliases": [
+      "omae wa mou shindeiru",
+      "you are already dead",
+      "nani",
+      "nani?!",
+      "kenshiro",
+      "fist of the north star"
+    ],
+    "origin": {
+      "kind": "cartoon",
+      "title": "Fist of the North Star (Hokuto no Ken)",
+      "year": 1984,
+      "detail": "Kenshiro tells foes \"You are already dead\" before they explode; the victim's \"NANI?!\" remix wave peaked on YouTube in summer 2017."
+    },
+    "meaning": "Kenshiro calmly telling an enemy \"Omae wa mou shindeiru\" (\"You are already dead\"), answered with \"NANI?!\". Used when someone's defeat is already sealed before they realise it.",
+    "useWhen": [
+      "The host pre-empts the target's argument before it lands",
+      "The target doesn't realise they have already lost",
+      "A one-hit knockout comeback"
+    ],
+    "dontUseWhen": [
+      "Real violence or threats"
+    ],
+    "emotion": [
+      "smug",
+      "dramatic",
+      "shocked"
+    ],
+    "intent": [
+      "dead",
+      "plot-twist",
+      "flex"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:omae wa mou shindeiru nani original",
+        "hasAudio": true,
+        "provider": "youtube",
+        "transcript": "Omae wa mou shindeiru. — NANI?!"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:omae wa mou shindeiru nani sound",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2017",
+    "trendScore": 0.45,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/you-are-already-dead-omae-wa-mou-shindeiru",
+        "title": "Know Your Meme: \"You Are Already Dead\" / \"Omae Wa Mou Shindeiru\""
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-sigma-sigma-boy",
+    "name": "Sigma Sigma Boy",
+    "aliases": [
+      "sigma boy",
+      "sigma sigma boy",
+      "сигма бой",
+      "betsy sigma boy",
+      "sigma song"
+    ],
+    "origin": {
+      "kind": "other",
+      "title": "\"Sigma Boy\" by Betsy & Maria Yankovskaya (Russian EDM)",
+      "year": 2024,
+      "detail": "Released 3 Oct 2024; viral on TikTok from late Nov 2024 for ironic edits and football-player highlight edits."
+    },
+    "meaning": "A Russian EDM song by two young singers repeating \"sigma sigma boy\", riffing on \"sigma male\" slang. Used ironically for someone acting like a lone-wolf alpha, or for hype edits.",
+    "useWhen": [
+      "The target poses as a self-made \"sigma\" grindset guy",
+      "An ironic hype montage of the host or target",
+      "Someone acts cool and unbothered"
+    ],
+    "dontUseWhen": [
+      "Anything implying political support (the song's Russian origin draws debate)"
+    ],
+    "emotion": [
+      "ironic",
+      "cocky",
+      "catchy"
+    ],
+    "intent": [
+      "flex",
+      "dance",
+      "hype"
+    ],
+    "formats": [
+      {
+        "type": "sound",
+        "query": "ytsearch3:sigma boy betsy maria yankovskaya song",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "clip",
+        "query": "ytsearch3:sigma sigma boy meme edit",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "none",
+    "firstSeen": "2024-11",
+    "trendScore": 0.6,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/sigma-sigma-boy",
+        "title": "Know Your Meme: Sigma Sigma Boy"
+      }
+    ],
+    "safety": {},
+    "verified": true
+  },
+  {
+    "id": "gl-caught-in-4k",
+    "name": "Caught in 4K",
+    "aliases": [
+      "caught in 4k",
+      "caught in 4k meme",
+      "4k",
+      "caught you in 4k",
+      "rdcworld caught in 4k"
+    ],
+    "origin": {
+      "kind": "creator",
+      "title": "RDCworld1 sketch",
+      "year": 2019,
+      "detail": "7 Aug 2019 sketch: a lawyer tells a rapper the footage of his crimes is in 4K; slang use went viral in Aug–Dec 2020."
+    },
+    "meaning": "Getting caught in the act with clear evidence, typically screenshots or footage. From an RDCworld1 sketch in which a lawyer says his client's crimes were filmed \"in 4K\".",
+    "useWhen": [
+      "Showing the target's deleted tweet or old clip as a receipt",
+      "The target denies something that's on camera",
+      "A zoom into the evidence"
+    ],
+    "dontUseWhen": [
+      "Doxxing, private messages or illegally obtained material"
+    ],
+    "emotion": [
+      "gotcha",
+      "smug",
+      "accusing"
+    ],
+    "intent": [
+      "exposed",
+      "lie"
+    ],
+    "formats": [
+      {
+        "type": "clip",
+        "query": "ytsearch3:rdcworld1 caught in 4k sketch",
+        "hasAudio": true,
+        "provider": "youtube"
+      },
+      {
+        "type": "sound",
+        "query": "ytsearch3:camera shutter caught in 4k meme sound",
+        "hasAudio": true,
+        "provider": "youtube"
+      }
+    ],
+    "region": "global",
+    "language": "en",
+    "firstSeen": "2020-08-24",
+    "trendScore": 0.55,
+    "lastVerified": "2026-09-25",
+    "sources": [
+      {
+        "url": "https://knowyourmeme.com/memes/caught-in-4k",
+        "title": "Know Your Meme: Caught in 4K"
+      }
+    ],
+    "safety": {},
+    "verified": true
   }
 ]

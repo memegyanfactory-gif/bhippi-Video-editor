@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 
-pub const JOB_EVENT: &str = "helios://job";
+pub const JOB_EVENT: &str = "bhippi://job";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

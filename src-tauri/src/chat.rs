@@ -1,16 +1,16 @@
 //! Chat turns: pick the provider, build the prompt from the project context, stream deltas to
-//! the UI, and let the model edit the project through Helios' tools.
+//! the UI, and let the model edit the project through Bhippi's tools.
 //!
-//! Orchestration follows Bhippi's chat engine: detection rows decide what is usable, a turn
+//! Orchestration follows the Bhippi desktop app's chat engine: detection rows decide what is usable, a turn
 //! resolves exactly the backend the user picked (never a silent swap), provider failures are
 //! classified into a fault card with one fixing action, and stopping a turn drops the stream,
 //! which kills a CLI child.
 //!
 //! Every backend edits through the same tools, reached three ways. HTTP APIs call them
 //! natively, round after round, until the model answers without calling one. CLI agents that
-//! can load an MCP server get Helios' bridge and run their own loop. Everything else — a CLI
+//! can load an MCP server get Bhippi's bridge and run their own loop. Everything else — a CLI
 //! with no MCP wiring (Antigravity, Grok) and a local model that turns tools down — writes a
-//! `helios-tools` block instead; Helios runs that block's calls, then feeds their real results
+//! `bhippi-tools` block instead; Bhippi runs that block's calls, then feeds their real results
 //! back as the next round's prompt and asks again, round after round just like the native path,
 //! so a CLI stuck on this protocol still gets to see what a generation job or a phase guard
 //! actually answered before deciding what to do next, instead of committing to an entire plan
@@ -20,10 +20,10 @@ use crate::ai_tools::{self, FenceFilter, ToolExecutor};
 use crate::mcp::{McpHub, BRIDGE_FLAG, SERVER_NAME};
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
-use helios_providers::catalog::{Api, BUILTIN_ID};
-use helios_providers::detect::{resolve_key, ApiKeys};
-use helios_providers::model::ToolActivity;
-use helios_providers::{
+use bhippi_providers::catalog::{Api, BUILTIN_ID};
+use bhippi_providers::detect::{resolve_key, ApiKeys};
+use bhippi_providers::model::ToolActivity;
+use bhippi_providers::{
     AnthropicProvider, CliProvider, CompletionRequest, Delta, McpServer, Message, OllamaProvider,
     OpenAiCompatProvider, Provider, ProviderInfo, ProviderKind, StopReason, ToolCall,
 };
@@ -37,7 +37,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
 
-pub const CHAT_EVENT: &str = "helios://chat";
+pub const CHAT_EVENT: &str = "bhippi://chat";
 const PROMPT: &str = include_str!("../prompts/copilot.md");
 const FALLBACK_PROMPT: &str = include_str!("../prompts/tools-fallback.md");
 /// The @funny edit style's brief (src/lib/styles.ts), put in the prompt while the style is on.
@@ -93,7 +93,7 @@ fn edit_style(req: &ChatRequest) -> Option<String> {
     None
 }
 
-/// The brief Helios has for a style id; none for a style it does not know.
+/// The brief Bhippi has for a style id; none for a style it does not know.
 fn style_brief(style: &str) -> Option<&'static str> {
     match style {
         "funny" => Some(FUNNY_BRIEF),
@@ -221,7 +221,7 @@ pub enum ChatEvent {
     SubagentUpdate(crate::subagent::SubagentStatus),
 }
 
-/// Where CLI agents find Helios' MCP server: the running hub, and the binary that bridges to it.
+/// Where CLI agents find Bhippi's MCP server: the running hub, and the binary that bridges to it.
 #[derive(Clone)]
 pub struct McpLink {
     pub hub: Arc<McpHub>,
@@ -242,9 +242,9 @@ pub struct TurnContext {
 enum ToolMode {
     /// Tool specs in the request; calls come back as `Delta::ToolCall`.
     Native,
-    /// A CLI agent loads Helios' MCP bridge and runs its own tool loop.
+    /// A CLI agent loads Bhippi's MCP bridge and runs its own tool loop.
     Mcp,
-    /// A `helios-tools` block at the end of the reply.
+    /// A `bhippi-tools` block at the end of the reply.
     Text,
 }
 
@@ -255,10 +255,10 @@ pub fn resolve_row(rows: &[ProviderInfo], wanted: Option<&str>) -> Result<Provid
     let row = rows
         .iter()
         .find(|row| row.id == wanted)
-        .ok_or_else(|| format!("{wanted} is not a provider Helios knows"))?;
+        .ok_or_else(|| format!("{wanted} is not a provider Bhippi knows"))?;
     if !row.usable {
         let why = match &row.health {
-            helios_providers::Health::Unavailable { reason } | helios_providers::Health::Degraded { reason } => reason.clone(),
+            bhippi_providers::Health::Unavailable { reason } | bhippi_providers::Health::Degraded { reason } => reason.clone(),
             _ => "it is not set up".to_owned(),
         };
         return Err(format!("{} is not available: {why}", row.label));
@@ -267,7 +267,7 @@ pub fn resolve_row(rows: &[ProviderInfo], wanted: Option<&str>) -> Result<Provid
 }
 
 fn adapter(row: &ProviderInfo, keys: &ApiKeys) -> Result<Arc<dyn Provider>, String> {
-    let spec = helios_providers::spec(&row.id).ok_or_else(|| format!("{} has no adapter", row.label))?;
+    let spec = bhippi_providers::spec(&row.id).ok_or_else(|| format!("{} has no adapter", row.label))?;
     let first_model = row.models.first().cloned().unwrap_or_default();
     let port = row.detected_port.or(spec.port).unwrap_or(0);
     Ok(match spec.api {
@@ -292,7 +292,7 @@ fn adapter(row: &ProviderInfo, keys: &ApiKeys) -> Result<Arc<dyn Provider>, Stri
 fn mode_for(row: &ProviderInfo, mcp: Option<&McpLink>) -> ToolMode {
     match row.kind {
         ProviderKind::Cli => {
-            let wired = helios_providers::spec(&row.id).is_some_and(|spec| spec.mcp.is_some());
+            let wired = bhippi_providers::spec(&row.id).is_some_and(|spec| spec.mcp.is_some());
             if wired && mcp.is_some() {
                 ToolMode::Mcp
             } else {
@@ -377,7 +377,7 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
                 let speaker = if item.role == "user" {
                     "User".to_owned()
                 } else {
-                    item.speaker.clone().unwrap_or_else(|| "Helios AI".to_owned())
+                    item.speaker.clone().unwrap_or_else(|| "Bhippi AI".to_owned())
                 };
                 system.push_str(&format!("\n**{speaker}:** {}\n", item.content.trim()));
             }
@@ -398,6 +398,9 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     let mut request = CompletionRequest::new(system, messages)
         .with_model(req.model.clone())
         .with_effort(req.effort.clone());
+    // Plan only (the composer's permission, sent in the context): the Bhippi tools are already
+    // refused in the app; this takes a CLI agent's own shell and file writes away too.
+    request.read_only = req.context.pointer("/permission/mode").and_then(Value::as_str) == Some("plan");
     if mode == ToolMode::Native {
         request.tools = ai_tools::specs().to_vec();
         request.max_tokens = output_cap(row, request.model.as_deref());
@@ -406,7 +409,7 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     // judged hung if it produces no output line at all for this long, not if the whole round runs
     // longer. It used to be the same 600s for every backend, which meant a CLI that thinks quietly
     // for more than 10 minutes before its first line — plausible for a model composing a large
-    // storyboard or tool-call batch — got killed by Helios itself well inside the CLI's own
+    // storyboard or tool-call batch — got killed by Bhippi itself well inside the CLI's own
     // 20-minute allowance (`HARD_TIMEOUT`, and e.g. Antigravity's own `--print-timeout 20m`),
     // which showed up as the turn just stopping partway through for no visible reason. A CLI now
     // gets the same 20 minutes to stay silent that it is already allowed to run for. For an HTTP
@@ -426,7 +429,7 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
 /// above what the model can output, so the old Claude 3 models keep theirs; only Anthropic, Ollama
 /// and local servers send the cap at all.
 fn output_cap(row: &ProviderInfo, model: Option<&str>) -> u32 {
-    let anthropic = helios_providers::spec(&row.id).is_some_and(|spec| spec.api == Api::Anthropic);
+    let anthropic = bhippi_providers::spec(&row.id).is_some_and(|spec| spec.api == Api::Anthropic);
     if !anthropic {
         return 16_000;
     }
@@ -442,7 +445,8 @@ fn output_cap(row: &ProviderInfo, model: Option<&str>) -> u32 {
 
 /// Shortens a tool result the model would otherwise carry for the rest of the turn: when it is
 /// over [`RESULT_BUDGET`], every string longer than [`LONG_STRING`] keeps its head and tail with
-/// the size of the cut in between. The fields the model steers by stay whole.
+/// the size of the cut in between. The fields the model steers by stay whole, and so does a message
+/// the user sent mid-turn (src/chat/steer.ts).
 fn shorten_result(result: &mut Value) {
     fn walk(value: &mut Value) {
         match value {
@@ -461,7 +465,7 @@ fn shorten_result(result: &mut Value) {
             Value::Array(items) => items.iter_mut().for_each(walk),
             Value::Object(map) => {
                 for (key, item) in map.iter_mut() {
-                    if !matches!(key.as_str(), "ok" | "summary" | "error" | "id") {
+                    if !matches!(key.as_str(), "ok" | "summary" | "error" | "id" | "userMessage") {
                         walk(item);
                     }
                 }
@@ -475,17 +479,17 @@ fn shorten_result(result: &mut Value) {
 }
 
 fn fault_for(row: &ProviderInfo, reason: &str) -> TurnFault {
-    let advice = helios_providers::spec(&row.id).map_or_else(
-        || helios_providers::fault::Advice {
-            kind: helios_providers::FaultKind::Unknown,
+    let advice = bhippi_providers::spec(&row.id).map_or_else(
+        || bhippi_providers::fault::Advice {
+            kind: bhippi_providers::FaultKind::Unknown,
             title: format!("{} failed", row.label),
             summary: reason.chars().take(300).collect(),
             fix: "Try again, or pick another provider from the model menu.".to_owned(),
-            remedy: helios_providers::Remedy::Retry,
+            remedy: bhippi_providers::Remedy::Retry,
             action_label: Some("Try again".to_owned()),
             resets_at: None,
         },
-        |spec| helios_providers::advise(spec, reason),
+        |spec| bhippi_providers::advise(spec, reason),
     );
     TurnFault {
         kind: advice.kind.id().to_owned(),
@@ -684,7 +688,7 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                     };
                     self.show(&visible, &mut spoke);
                 }
-                // Helios draws tool rows from its own tool-call events, never from deltas.
+                // Bhippi draws tool rows from its own tool-call events, never from deltas.
                 Some(Ok(Delta::ToolCall { id, name, arguments })) => calls.push(ToolCall { id, name, arguments }),
                 Some(Ok(Delta::Usage { input_tokens, output_tokens })) => {
                     let usage = self.progress.usage.get_or_insert_with(Usage::default);
@@ -727,7 +731,7 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
             let cut_off = stop_reason == StopReason::MaxTokens;
             if calls.is_empty() {
                 if cut_off {
-                    self.progress.notes.push("The reply was cut off at the model's output limit. Ask Helios AI to continue.".to_owned());
+                    self.progress.notes.push("The reply was cut off at the model's output limit. Ask Bhippi AI to continue.".to_owned());
                 }
                 return;
             }
@@ -757,10 +761,10 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                 return;
             }
         }
-        self.progress.notes.push(format!("Helios AI paused after {MAX_ROUNDS} rounds. Your timeline and storyboard are saved — ask to continue from the next unfinished 5–12s batch and finish with get_comp + verify_edit_workflow."));
+        self.progress.notes.push(format!("Bhippi AI paused after {MAX_ROUNDS} rounds. Your timeline and storyboard are saved — ask to continue from the next unfinished 5–12s batch and finish with get_comp + verify_edit_workflow."));
     }
 
-    /// A CLI agent with Helios' MCP server: the agent runs the loop; Helios streams and serves.
+    /// A CLI agent with Bhippi's MCP server: the agent runs the loop; Bhippi streams and serves.
     async fn mcp(&mut self, provider: &dyn Provider, req: &ChatRequest, executor: Arc<dyn ToolExecutor>, link: &McpLink) {
         let calls = Arc::new(AtomicUsize::new(0));
         let activity = Arc::new(ToolActivity::default());
@@ -851,7 +855,7 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
             request.messages.push(Message::assistant(raw));
             request.messages.push(Message::user(text_round_feedback(&results)));
         }
-        self.progress.notes.push(format!("Helios AI paused after {MAX_ROUNDS} rounds. Your timeline and storyboard are saved — ask to continue from the next unfinished 5–12s batch and finish with get_comp + verify_edit_workflow."));
+        self.progress.notes.push(format!("Bhippi AI paused after {MAX_ROUNDS} rounds. Your timeline and storyboard are saved — ask to continue from the next unfinished 5–12s batch and finish with get_comp + verify_edit_workflow."));
     }
 }
 
@@ -864,7 +868,7 @@ fn text_round_feedback(results: &[(String, Value)]) -> String {
     let _ = writeln!(out, "\n{}", ai_tools::RESULTS_HEADING);
     let _ = writeln!(
         out,
-        "{} — do not assume a call succeeded, or that its id/asset matches what you expected, until you see it here. Helios writes this section after it runs your block; never write it yourself.",
+        "{} — do not assume a call succeeded, or that its id/asset matches what you expected, until you see it here. Bhippi writes this section after it runs your block; never write it yourself.",
         ai_tools::RESULTS_LEAD
     );
     for (name, result) in results {
@@ -882,7 +886,7 @@ fn text_round_feedback(results: &[(String, Value)]) -> String {
          other independent work now and check it again later with generation_job or \
          import_generated_media once it has had time to finish; it also auto-imports into the \
          Generated folder on its own. Now continue: if the task is fully done, answer with no \
-         `helios-tools` block. Otherwise reply with only the next `helios-tools` block that makes \
+         `bhippi-tools` block. Otherwise reply with only the next `bhippi-tools` block that makes \
          sense given the real results above.\n",
     );
     out
@@ -949,7 +953,7 @@ mod tests {
     use crate::ai_tools::testing::FakeExecutor;
     use async_trait::async_trait;
     use futures_util::StreamExt;
-    use helios_providers::{CompletionRequest, Delta, DeltaStream, Health, Message, Provider, ProviderError, ProviderInfo, ProviderKind, Role, StopReason};
+    use bhippi_providers::{CompletionRequest, Delta, DeltaStream, Health, Message, Provider, ProviderError, ProviderInfo, ProviderKind, Role, StopReason};
     use serde_json::json;
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
@@ -997,11 +1001,11 @@ mod tests {
 
     #[test]
     fn the_picked_provider_is_resolved_or_refused_never_swapped() {
-        let rows = vec![row("claude", true), row("codex", false), row("helios", true)];
+        let rows = vec![row("claude", true), row("codex", false), row("bhippi", true)];
         assert_eq!(resolve_row(&rows, Some("claude")).expect("usable").id, "claude");
         let refused = resolve_row(&rows, Some("codex")).expect_err("unusable");
         assert!(refused.contains("not installed"), "{refused}");
-        assert_eq!(resolve_row(&rows, None).expect("builtin").id, "helios");
+        assert_eq!(resolve_row(&rows, None).expect("builtin").id, "bhippi");
     }
 
     /// A provider that answers each request with the next scripted round, and remembers
@@ -1027,7 +1031,7 @@ mod tests {
             "scripted"
         }
 
-        async fn complete(&self, req: CompletionRequest) -> helios_providers::Result<DeltaStream> {
+        async fn complete(&self, req: CompletionRequest) -> bhippi_providers::Result<DeltaStream> {
             self.seen.lock().expect("seen").push(req);
             match self.rounds.lock().expect("rounds").pop_front() {
                 Some(Ok(deltas)) => Ok(futures_util::stream::iter(deltas.into_iter().map(Ok)).boxed()),
@@ -1114,7 +1118,7 @@ mod tests {
         let provider = Scripted::new(vec![
             Err("Ollama answered HTTP 400: {\"error\":\"registry.ollama.ai/library/gemma3:4b does not support tools\"}".to_owned()),
             Ok(vec![
-                text("Adding a whoosh.\n\n```helios"),
+                text("Adding a whoosh.\n\n```bhippi"),
                 text("-tools\n[{\"tool\": \"add_sound_effect\", \"args\": {\"kind\": \"whoosh\", \"start\": 2}},"),
                 text(" {\"tool\": \"split_clips\", \"args\": {\"time\": 3}}]\n```"),
             ]),
@@ -1137,13 +1141,13 @@ mod tests {
 
         assert_eq!(executor.names(), vec!["add_sound_effect", "split_clips"]);
         assert_eq!(progress.reply.trim(), "Adding a whoosh.\n\n\n\nDone — the whoosh landed but there was nothing to cut.");
-        assert!(!streamed(&events).contains("helios-tools"), "{}", streamed(&events));
+        assert!(!streamed(&events).contains("bhippi-tools"), "{}", streamed(&events));
         assert!(progress.fault.is_none());
         assert_eq!(progress.notes, vec!["1 of 2 edits did not apply — split_clips: nothing under the playhead"]);
         let seen = provider.seen();
         assert_eq!(seen.len(), 3, "refusal, first block, then a round that sees the real results");
         assert!(seen[1].tools.is_empty());
-        assert!(seen[1].system.contains("```helios-tools"), "the fallback prompt is appended");
+        assert!(seen[1].system.contains("```bhippi-tools"), "the fallback prompt is appended");
         // The third round is where the fix lives: the model reads back what actually happened —
         // real results, not a guess — before deciding there is nothing left to do.
         let third = &seen[2].messages;
@@ -1160,7 +1164,7 @@ mod tests {
     async fn a_guard_refusal_stops_the_rest_of_that_replys_batch() {
         let provider = Scripted::new(vec![
             Ok(vec![text(
-                "```helios-tools\n[{\"tool\": \"add_tracks\", \"args\": {}}, {\"tool\": \"layout_clip\", \"args\": {}}, {\"tool\": \"place_clip\", \"args\": {}}]\n```",
+                "```bhippi-tools\n[{\"tool\": \"add_tracks\", \"args\": {}}, {\"tool\": \"layout_clip\", \"args\": {}}, {\"tool\": \"place_clip\", \"args\": {}}]\n```",
             )]),
             Ok(vec![text("Understood, gathering first.")]),
         ]);
@@ -1395,8 +1399,8 @@ mod tests {
         let sink = events.clone();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
         let context = super::TurnContext {
-            row: row_of("helios", ProviderKind::Builtin, true),
-            keys: helios_providers::ApiKeys::new(),
+            row: row_of("bhippi", ProviderKind::Builtin, true),
+            keys: bhippi_providers::ApiKeys::new(),
             executor: executor.clone(),
             mcp: None,
         };
@@ -1413,7 +1417,7 @@ mod tests {
 
     #[tokio::test]
     async fn each_backend_reaches_the_tools_its_own_way() {
-        let link = McpLink { hub: crate::mcp::start_hub(), bridge: "helios.exe".into() };
+        let link = McpLink { hub: crate::mcp::start_hub(), bridge: "bhippi.exe".into() };
         assert_eq!(mode_for(&row("claude", true), Some(&link)), ToolMode::Mcp);
         assert_eq!(mode_for(&row("claude", true), None), ToolMode::Text);
         assert_eq!(mode_for(&row("grok", true), Some(&link)), ToolMode::Text);
@@ -1430,9 +1434,9 @@ mod tests {
             assert!(!request.system.contains("{{"), "every placeholder is filled");
             assert!(request.system.contains("\"playhead\": 1.5"), "the context is in the prompt");
         }
-        assert!(text.system.contains("`add_text`(") && !native.system.contains("```helios-tools"));
+        assert!(text.system.contains("`add_text`(") && !native.system.contains("```bhippi-tools"));
         assert!(
-            text.system.find("helios-tools") < text.system.find("## The user's new message"),
+            text.system.find("bhippi-tools") < text.system.find("## The user's new message"),
             "the fallback rules come before the message"
         );
     }
@@ -1444,9 +1448,9 @@ mod tests {
 Only licence-clear media.".to_owned());
         let built = build_request(&req, &row("claude", true), ToolMode::Mcp);
         assert!(built.system.starts_with("## Council seat: Researcher"), "the seat comes first");
-        assert!(built.system.contains("You are **Helios AI**"), "the house prompt still follows");
+        assert!(built.system.contains("You are **Bhippi AI**"), "the house prompt still follows");
         let plain = build_request(&request("hi"), &row("claude", true), ToolMode::Mcp);
-        assert!(plain.system.starts_with("You are **Helios AI**"));
+        assert!(plain.system.starts_with("You are **Bhippi AI**"));
     }
 
     /// A line only the @funny brief has, so its presence proves the brief is in the prompt.
@@ -1463,10 +1467,10 @@ Only licence-clear media.".to_owned());
             let system = &built.system;
             assert!(system.contains(FUNNY_MARKER), "the brief is in the {mode:?} prompt");
             assert!(system.contains("## ACTIVE EDIT STYLE: @funny") && system.contains("## END OF THE @funny STYLE"), "it is fenced");
-            assert!(system.starts_with("You are Helios AI in roast-editor mode"), "with no seat, the style's persona leads");
+            assert!(system.starts_with("You are Bhippi AI in roast-editor mode"), "with no seat, the style's persona leads");
             assert_eq!(system.matches("in roast-editor mode").count(), 1, "the persona line is not repeated inside the brief");
             let fence = system.find("## ACTIVE EDIT STYLE").expect("fence");
-            assert!(system.find("You are **Helios AI**").expect("house prompt") < fence, "after the house rules");
+            assert!(system.find("You are **Bhippi AI**").expect("house prompt") < fence, "after the house rules");
             assert!(fence < system.find("## Project summary").expect("summary"), "before the project summary");
             assert!(!system.contains("{{") && system.contains("\"playhead\": 1.5"));
         }
@@ -1518,29 +1522,29 @@ Only licence-clear media.".to_owned());
         assert!(super::PROMPT.contains("todos/todo-"), "the todo file path convention exists");
         assert!(super::PROMPT.contains("- [ ]") && super::PROMPT.contains("- [x]"), "the checkbox discipline exists");
         let todo_at = super::PROMPT.find("## Todo list first").expect("rule");
-        let workflow_at = super::PROMPT.find("## How Helios works").expect("workflow");
+        let workflow_at = super::PROMPT.find("## How Bhippi works").expect("workflow");
         assert!(todo_at < workflow_at, "the todo rule comes first");
     }
 
     /// A real CLI agent turn, end to end through the MCP bridge:
     ///
     /// ```text
-    /// CARGO_TARGET_DIR=target/agent-ai cargo build -p helios
-    /// HELIOS_LIVE=claude HELIOS_BRIDGE_EXE=target/agent-ai/debug/helios.exe cargo test -p helios live_ -- --ignored --nocapture
+    /// CARGO_TARGET_DIR=target/agent-ai cargo build -p bhippi
+    /// BHIPPI_LIVE=claude BHIPPI_BRIDGE_EXE=target/agent-ai/debug/bhippi.exe cargo test -p bhippi live_ -- --ignored --nocapture
     /// ```
     ///
-    /// `HELIOS_LIVE` names the provider (claude · opencode · gemini · codex); the stub executor
+    /// `BHIPPI_LIVE` names the provider (claude · codex · opencode · grok · antigravity); the stub executor
     /// answers `get_project`/`get_comp` with a tiny fake project and records every call.
     #[tokio::test(flavor = "multi_thread")]
-    #[ignore = "runs a real CLI agent turn; needs HELIOS_LIVE=<provider> and HELIOS_BRIDGE_EXE"]
+    #[ignore = "runs a real CLI agent turn; needs BHIPPI_LIVE=<provider> and BHIPPI_BRIDGE_EXE"]
     async fn live_cli_turn_edits_through_the_mcp_bridge() {
-        let Ok(provider) = std::env::var("HELIOS_LIVE") else {
-            eprintln!("HELIOS_LIVE names no provider; skipping");
+        let Ok(provider) = std::env::var("BHIPPI_LIVE") else {
+            eprintln!("BHIPPI_LIVE names no provider; skipping");
             return;
         };
-        let bridge = std::env::var("HELIOS_BRIDGE_EXE").expect("HELIOS_BRIDGE_EXE names the helios binary built into target/agent-ai");
-        let workspace = std::env::temp_dir().join(format!("helios-live-{}", ulid::Ulid::new()));
-        helios_providers::set_agent_workspace(workspace);
+        let bridge = std::env::var("BHIPPI_BRIDGE_EXE").expect("BHIPPI_BRIDGE_EXE names the bhippi binary built into target/agent-ai");
+        let workspace = std::env::temp_dir().join(format!("bhippi-live-{}", ulid::Ulid::new()));
+        bhippi_providers::set_agent_workspace(workspace);
         let executor = Arc::new(FakeExecutor::new(|name, _| match name {
             "get_project" => json!({"ok": true, "summary": "1 comp", "activeCompId": "comp1", "playhead": 0,
                 "comps": [{"id": "comp1", "name": "Goa reel", "width": 1080, "height": 1920, "fps": 30, "duration": 12, "videoTracks": 1, "audioTracks": 1}],
@@ -1554,13 +1558,13 @@ Only licence-clear media.".to_owned());
         let events = Arc::new(Mutex::new(Vec::new()));
         let sink = events.clone();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let ask = std::env::var("HELIOS_LIVE_MESSAGE")
+        let ask = std::env::var("BHIPPI_LIVE_MESSAGE")
             .unwrap_or_else(|_| "Add a big title that says \"Goa Diaries\" at 1 second for 3 seconds.".to_owned());
         let mut req = request(&ask);
-        req.model = std::env::var("HELIOS_LIVE_MODEL").ok();
+        req.model = std::env::var("BHIPPI_LIVE_MODEL").ok();
         let context = super::TurnContext {
             row: row(&provider, true),
-            keys: helios_providers::ApiKeys::new(),
+            keys: bhippi_providers::ApiKeys::new(),
             executor: executor.clone(),
             mcp: Some(McpLink { hub: crate::mcp::start_hub(), bridge: bridge.into() }),
         };
@@ -1577,6 +1581,6 @@ Only licence-clear media.".to_owned());
         println!("reply: {reply}\nnotes: {notes:?}\nfault: {fault:?}");
         assert!(fault.is_none(), "{fault:?}");
         assert!(calls.iter().any(|(name, args)| name == "add_text" && args.to_string().contains("Goa Diaries")), "{calls:?}");
-        assert!(!events.iter().any(|event| matches!(event, ChatEvent::Delta { delta: Delta::Step { title, .. }, .. } if title.contains("helios"))));
+        assert!(!events.iter().any(|event| matches!(event, ChatEvent::Delta { delta: Delta::Step { title, .. }, .. } if title.contains("bhippi"))));
     }
 }

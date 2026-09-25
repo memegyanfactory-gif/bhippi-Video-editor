@@ -1,5 +1,5 @@
 // The two choices that sit under the message box: how hard the model should think, and what it
-// may change without asking. Both are ported from Bhippi's composer — the effort slider with its
+// may change without asking. Both are ported from the Bhippi desktop app's composer — the effort slider with its
 // animated rail, and the permission list where each posture says what it actually does.
 import { Check, ChevronDown, Gauge, Hand, ShieldAlert, Sparkles, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -70,7 +70,7 @@ const hint = (id: Effort) => EFFORTS.find((item) => item.id === id)?.hint ?? '';
 
 /**
  * The rail's steps. `levels` is what the backend says this provider *and this model* honour
- * (crates/helios-providers/src/effort.rs, read through the `effort_levels` command), so the
+ * (crates/bhippi-providers/src/effort.rs, read through the `effort_levels` command), so the
  * control can never offer a level that would not reach the model. The last step is the one that
  * gets the busy rail.
  */
@@ -282,7 +282,7 @@ export function ThinkingSlider({ effort, levels, awesome, onAwesome, onSelect, s
             aria-checked={awesome}
             className={`awesome-switch${awesome ? ' on' : ''}`}
             onClick={() => onAwesome(!awesome)}
-            title="Animate the chat while Helios AI writes. Looks only — nothing else changes."
+            title="Animate the chat while Bhippi AI writes. Looks only — nothing else changes."
           >
             <Sparkles size={12} />
             <span className="awesome-label">Awesome look</span>
@@ -348,9 +348,9 @@ export function PermissionMenu({ mode, onSelect }: { mode: PermissionMode; onSel
       </button>
 
       {open && (
-        <Portal><div ref={floating} className="chip-popover permission-popover" style={placement(trigger.current, 264)} role="dialog" aria-label="What Helios AI may change">
+        <Portal><div ref={floating} className="chip-popover permission-popover" style={placement(trigger.current, 264)} role="dialog" aria-label="What Bhippi AI may change">
           <div className="popover-head">Permission</div>
-          <div className="popover-rows" role="radiogroup" aria-label="What Helios AI may change" ref={list} onKeyDown={move}>
+          <div className="popover-rows" role="radiogroup" aria-label="What Bhippi AI may change" ref={list} onKeyDown={move}>
             {PERMISSION_MODES.map((item) => {
               const chosen = item.id === mode;
               return (

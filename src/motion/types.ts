@@ -1,4 +1,4 @@
-// The Helios motion engine's scene model: an After Effects-style composition that the GPU
+// The Bhippi motion engine's scene model: an After Effects-style composition that the GPU
 // executor (src/motion/gl) draws identically in the preview and in the export.
 //
 // Conventions (all of them AE's, so a motion designer or the AI can think in AE terms):
@@ -29,7 +29,7 @@ export type EaseName =
   | 'house' | 'settle' | 'emphasized' | 'rise' | 'push' | 'creep' | 'snap-settle' | 'resolve' | 'card-zoom';
 export type Ease = EaseName | [number, number, number, number];
 
-/** A keyframe. `ease` shapes the segment that *starts* at this key (Helios' existing convention). */
+/** A keyframe. `ease` shapes the segment that *starts* at this key (Bhippi's existing convention). */
 export type Key<T = number | Vec> = { t: number; v: T; ease?: Ease };
 
 export type Animated<T = number | Vec> = { k: Key<T>[] };

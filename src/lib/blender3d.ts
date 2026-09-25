@@ -122,7 +122,7 @@ export const PRESETS_3D: Preset3D[] = [
     params: { text: 'the word (≤ 24 characters)', material: 'glass | metal | plastic | pearl (default metal)', color: '#hex' },
     seconds: 3,
     build: (p, f) => {
-      const text = str(p, 'text', 'Helios').slice(0, 24);
+      const text = str(p, 'text', 'Bhippi').slice(0, 24);
       const land = Math.min(1.3, f.duration * 0.55);
       return {
         world: { gradient: [[0, '#6a5cff'], [0.33, '#ffffff'], [0.66, '#29d3ff']], strength: 1.1 },

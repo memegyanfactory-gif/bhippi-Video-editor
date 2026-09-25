@@ -1,13 +1,13 @@
-// Imports WatchFIWN's caption style presets into Helios.
+// Imports WatchFIWN's caption style presets into Bhippi.
 //
 // READ-ONLY with respect to FIWN: this reads `public/editor-app/js/editor/subtitles.js` from the
-// FIWN checkout and writes `src/lib/caption-styles.json` inside Helios. Nothing in FIWN is touched.
+// FIWN checkout and writes `src/lib/caption-styles.json` inside Bhippi. Nothing in FIWN is touched.
 //
 //   node scripts/import-fiwn-caption-styles.mjs [path-to-FIWN]
 //
 // FIWN's "dynamic layout" and "motion graphics" presets are canvas engines rather than data, so
 // only the data-driven presets (colour, outline, box, glow, word highlight, entrance animation)
-// are imported. Fonts are mapped to families that ship with Windows, because Helios renders
+// are imported. Fonts are mapped to families that ship with Windows, because Bhippi renders
 // offline and the export (libass) must use the same face as the preview.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

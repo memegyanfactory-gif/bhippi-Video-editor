@@ -1,13 +1,13 @@
-//! The tools Helios AI edits the project with, and the one way every transport runs them.
+//! The tools Bhippi AI edits the project with, and the one way every transport runs them.
 //!
 //! The catalogue (`src/lib/ai-tools.json`) is shared with the UI, which executes each call
 //! against the live project with undo. Rust never edits the project itself: a native tool
 //! call, an MCP call from a CLI agent, a call read out of a text reply and an offline command
-//! all go through a [`ToolExecutor`]. In the app that executor emits `helios://tool-call` and
+//! all go through a [`ToolExecutor`]. In the app that executor emits `bhippi://tool-call` and
 //! waits for `chat_tool_result`; tests plug in a fake.
 
 use futures_util::future::BoxFuture;
-use helios_providers::ToolSpec;
+use bhippi_providers::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -18,13 +18,13 @@ use tokio::sync::{oneshot, watch};
 
 const CATALOGUE: &str = include_str!("../../src/lib/ai-tools.json");
 
-pub const TOOL_CALL_EVENT: &str = "helios://tool-call";
+pub const TOOL_CALL_EVENT: &str = "bhippi://tool-call";
 
-/// How long Helios may take to run one call before the model is told it did not answer.
+/// How long Bhippi may take to run one call before the model is told it did not answer.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The fence a model without native tools ends its reply with.
-pub const FENCE: &str = "helios-tools";
+pub const FENCE: &str = "bhippi-tools";
 
 #[derive(Deserialize)]
 struct Catalogue {
@@ -79,10 +79,10 @@ pub fn is_guard_blocked(result: &Value) -> bool {
     result.get("guardBlocked").and_then(Value::as_bool).unwrap_or(false)
 }
 
-/// Runs a call a model made, refusing what cannot be a Helios call before it reaches the UI.
+/// Runs a call a model made, refusing what cannot be a Bhippi call before it reaches the UI.
 pub async fn run_call(executor: &dyn ToolExecutor, name: &str, args: Value) -> Value {
     if !is_known(name) {
-        return failure(format!("{name} is not a Helios tool"));
+        return failure(format!("{name} is not a Bhippi tool"));
     }
     if !args.is_object() {
         return failure(format!("the arguments for {name} must be a JSON object"));
@@ -100,7 +100,7 @@ fn normalize_result(result: Value) -> Value {
             }
             Value::Object(map)
         }
-        _ => failure("Helios answered with something that is not a result"),
+        _ => failure("Bhippi answered with something that is not a result"),
     }
 }
 
@@ -190,7 +190,7 @@ impl ToolExecutor for EventExecutor {
         let mut stop = self.stop.clone();
         // A tool waits as long as the work it stands for. Generation, downloads, matting and the
         // eraser run for minutes; `ask_user` waits for a human; a 60 s cap on those made the model
-        // hear "Helios did not respond" while the frontend was still working, and improvise.
+        // hear "Bhippi did not respond" while the frontend was still working, and improvise.
         let timeout = match name.as_str() {
             "ask_user" => self.timeout.max(Duration::from_secs(24 * 3600)),
             "rotoscope_clip" | "depth_occlusion_clip" | "analyze_clip_speech" | "generate_local_media" | "import_generated_media" | "generation_job"
@@ -209,8 +209,8 @@ impl ToolExecutor for EventExecutor {
             let answer = pending.register(&turn_id, &call_id);
             emit(ToolCallEvent { turn_id: turn_id.clone(), call_id: call_id.clone(), name: name.clone(), args });
             let result = tokio::select! {
-                answer = answer => answer.unwrap_or_else(|_| failure(format!("Helios did not respond to {name}"))),
-                () = tokio::time::sleep(timeout) => failure(format!("Helios did not respond to {name}")),
+                answer = answer => answer.unwrap_or_else(|_| failure(format!("Bhippi did not respond to {name}"))),
+                () = tokio::time::sleep(timeout) => failure(format!("Bhippi did not respond to {name}")),
                 () = stopped(&mut stop) => failure("the turn was stopped"),
             };
             pending.forget(&turn_id, &call_id);
@@ -228,7 +228,7 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
 
 // ───────────────────────────── the text protocol ─────────────────────────────
 
-/// The heading Helios puts over a round's real results (chat.rs `text_round_feedback`).
+/// The heading Bhippi puts over a round's real results (chat.rs `text_round_feedback`).
 pub const RESULTS_HEADING: &str = "## What your last reply's calls actually returned";
 /// The line under it.
 pub const RESULTS_LEAD: &str = "Use the ids and values below instead of ones you guessed";
@@ -239,7 +239,7 @@ pub const RESULTS_LEAD: &str = "Use the ids and values below instead of ones you
 /// the user as words nor go back to the model as fact.
 const ECHOES: [&str; 2] = [RESULTS_HEADING, RESULTS_LEAD];
 
-/// Hides a `helios-tools` block from streamed text as it arrives, and an echoed results section:
+/// Hides a `bhippi-tools` block from streamed text as it arrives, and an echoed results section:
 /// up to the next block when no block came before it, else for the rest of the round (the same
 /// cut as `without_echo`).
 ///
@@ -334,7 +334,7 @@ fn held_back(text: &str, markers: &[&str]) -> usize {
 }
 
 /// A finished text-protocol reply with any results section the model wrote itself cut out, so
-/// the next round's prompt holds only results Helios really produced. Before the model's first
+/// the next round's prompt holds only results Bhippi really produced. Before the model's first
 /// block the section is cut up to the next block — it restated results it really saw. After a
 /// block of its own it is cut from its first line to the end of the reply, and nothing after it
 /// runs: those later blocks were planned from results it invented. Blocks are kept as written.
@@ -373,7 +373,7 @@ pub struct TextCall {
 }
 
 /// Splits a finished reply into the words shown to the user and the calls its
-/// `helios-tools` blocks carried, with a note for any block that could not be read.
+/// `bhippi-tools` blocks carried, with a note for any block that could not be read.
 pub fn extract_calls(reply: &str) -> (String, Vec<TextCall>, Vec<String>) {
     let opener = format!("```{FENCE}");
     let mut visible = String::new();
@@ -538,7 +538,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn calls_that_cannot_be_helios_calls_never_reach_the_ui() {
+    async fn calls_that_cannot_be_bhippi_calls_never_reach_the_ui() {
         let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
         let unknown = run_call(&executor, "format_disk", json!({})).await;
         assert_eq!(unknown["ok"], false);
@@ -591,7 +591,7 @@ mod tests {
         let pending = Arc::new(PendingCalls::default());
         let (executor, _seen, stop) = event_executor(&pending, Duration::from_millis(30));
         let result = executor.call("get_comp".to_owned(), json!({})).await;
-        assert_eq!(result, json!({"ok": false, "error": "Helios did not respond to get_comp"}));
+        assert_eq!(result, json!({"ok": false, "error": "Bhippi did not respond to get_comp"}));
 
         let (executor, seen, stop_turn) = event_executor(&pending, Duration::from_secs(30));
         let waiting = tokio::spawn(executor.call("get_comp".to_owned(), json!({})));
@@ -608,7 +608,7 @@ mod tests {
     fn a_block_is_hidden_while_it_streams_even_split_mid_fence() {
         let mut filter = FenceFilter::default();
         let mut shown = String::new();
-        for piece in ["Added a title.\n\n``", "`helios-to", "ols\n[{\"tool\":\"add_text\",", "\"args\":{}}]\n``", "`\nEnjoy"] {
+        for piece in ["Added a title.\n\n``", "`bhippi-to", "ols\n[{\"tool\":\"add_text\",", "\"args\":{}}]\n``", "`\nEnjoy"] {
             shown.push_str(&filter.push(piece));
         }
         shown.push_str(&filter.finish());
@@ -635,9 +635,9 @@ mod tests {
 
     #[test]
     fn a_results_section_the_model_writes_after_its_block_ends_the_round() {
-        // The model's own words, its block, then an invented copy of Helios' results — split
+        // The model's own words, its block, then an invented copy of Bhippi's results — split
         // mid-heading — and a second block planned from them, with a made-up id.
-        let reply = "Updating the kit.\n```helios-tools\n[{\"tool\":\"undo\"}]\n```\n## What your last reply's calls actually returned\nUse the ids and values below instead of ones you guessed.\n- `edit_file` -> {\"ok\":true,\"assetId\":\"a_12\"}\n```helios-tools\n[{\"tool\":\"get_comp\"}]\n```\nDone.";
+        let reply = "Updating the kit.\n```bhippi-tools\n[{\"tool\":\"undo\"}]\n```\n## What your last reply's calls actually returned\nUse the ids and values below instead of ones you guessed.\n- `edit_file` -> {\"ok\":true,\"assetId\":\"a_12\"}\n```bhippi-tools\n[{\"tool\":\"get_comp\"}]\n```\nDone.";
         for size in [1, 7, 13] {
             assert_eq!(streamed(reply, size), "Updating the kit.\n\n", "{size}-char chunks");
         }
@@ -662,7 +662,7 @@ mod tests {
     fn real_results_restated_before_any_block_are_hidden_and_the_block_after_them_runs() {
         // The model first repeats the results it was just given, then plans from them; anything
         // it writes as results after that block of its own is invented again and ends the round.
-        let reply = "Got it.\n## What your last reply's calls actually returned\n- `add_clip` → {\"ok\":true,\"clipId\":\"c_9\"}\n```helios-tools\n[{\"tool\":\"get_comp\"}]\n```\nChecking the cut.\n## What your last reply's calls actually returned\n- `get_comp` → {}\n```helios-tools\n[{\"tool\":\"delete_clip\"}]\n```";
+        let reply = "Got it.\n## What your last reply's calls actually returned\n- `add_clip` → {\"ok\":true,\"clipId\":\"c_9\"}\n```bhippi-tools\n[{\"tool\":\"get_comp\"}]\n```\nChecking the cut.\n## What your last reply's calls actually returned\n- `get_comp` → {}\n```bhippi-tools\n[{\"tool\":\"delete_clip\"}]\n```";
         for size in [1, 7, 13] {
             assert_eq!(streamed(reply, size), "Got it.\n\nChecking the cut.\n", "{size}-char chunks");
         }
@@ -691,7 +691,7 @@ mod tests {
 
     #[test]
     fn calls_are_read_from_the_block_and_the_block_never_reaches_the_reply() {
-        let reply = "Done!\n```helios-tools\n[{\"tool\":\"add_text\",\"args\":{\"text\":\"Goa\"}},{\"tool\":\"undo\"}]\n```";
+        let reply = "Done!\n```bhippi-tools\n[{\"tool\":\"add_text\",\"args\":{\"text\":\"Goa\"}},{\"tool\":\"undo\"}]\n```";
         let (visible, calls, notes) = extract_calls(reply);
         assert_eq!(visible, "Done!");
         assert_eq!(calls.len(), 2);
@@ -699,13 +699,13 @@ mod tests {
         assert_eq!(calls[1].args, json!({}));
         assert!(notes.is_empty());
 
-        let (visible, calls, notes) = extract_calls("Sure\n```helios-tools\n[{\"tool\": \"undo\", \"args\": {");
+        let (visible, calls, notes) = extract_calls("Sure\n```bhippi-tools\n[{\"tool\": \"undo\", \"args\": {");
         assert_eq!(visible, "Sure");
         assert!(calls.is_empty());
         assert_eq!(notes.len(), 1, "a truncated block is reported, not silently dropped");
 
         let (visible, calls, _) = extract_calls("Example:\n```json\n{\"tool\":\"undo\"}\n```");
         assert!(calls.is_empty());
-        assert!(visible.contains("```json"), "only the helios-tools fence is protocol");
+        assert!(visible.contains("```json"), "only the bhippi-tools fence is protocol");
     }
 }

@@ -1,4 +1,4 @@
-/* Terminal Panel & Action Drawer — built from the same tokens as the rest of Helios
+/* Terminal Panel & Action Drawer — built from the same tokens as the rest of Bhippi
    (see app.css's :root) so it reads as part of the app, not a bolted-on dev console.
    Category colours borrow the meaning already established elsewhere: --busy (violet) is
    "the AI is doing something" everywhere in the chat panel, so it means the same thing here;

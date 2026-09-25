@@ -227,8 +227,8 @@ mod tests {
     #[test]
     fn every_preset_renders_its_text() {
         for preset in [Preset::Title, Preset::LowerThird, Preset::Caption] {
-            let script = build_ass(&[graphic(preset, "Hello Helios")], 1920, 1080);
-            assert!(script.contains("Hello Helios"), "{preset:?}");
+            let script = build_ass(&[graphic(preset, "Hello Bhippi")], 1920, 1080);
+            assert!(script.contains("Hello Bhippi"), "{preset:?}");
         }
     }
 

@@ -1,19 +1,19 @@
 [package]
-name = "helios"
-description = "Helios — local-first video & motion studio with an AI editing copilot."
+name = "bhippi"
+description = "Bhippi — local-first video & motion studio with an AI editing copilot."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-default-run = "helios"
+default-run = "bhippi"
 
 [lib]
-name = "helios_lib"
+name = "bhippi_lib"
 crate-type = ["lib"]
 
 [[bin]]
-name = "helios"
+name = "bhippi"
 path = "src/main.rs"
 
 [lints]
@@ -23,7 +23,7 @@ workspace = true
 base64 = "0.22"
 chrono = { workspace = true }
 futures-util = { workspace = true }
-helios-providers = { path = "../crates/helios-providers" }
+bhippi-providers = { path = "../crates/bhippi-providers" }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

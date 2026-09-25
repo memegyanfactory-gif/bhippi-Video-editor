@@ -16,7 +16,7 @@ import type { AvatarEvent, Ghost, TurnOutcome } from './bus';
 import { ChatMirror, type Desire } from './mirror';
 import { GLYPH_H, drawText, textWidth, wrap } from './pixelFont';
 import { FPS, poseAt, type AnimName, type AnimOptions } from './poses';
-import { ART_H, ART_W, CX, FEET_Y, HAIR_TOP, TORSO_Y, handPoint, paint, type Gear } from './sprite';
+import { ART_H, ART_W, CHARACTERS, CX, FEET_Y, HAIR_TOP, TORSO_Y, handPoint, paint, type Character, type Gear } from './sprite';
 
 /** Screen pixels per art pixel. */
 export const SCALE = 2;
@@ -143,6 +143,8 @@ export class AvatarEngine {
   private anim: AnimName = 'idle';
   private animT0 = performance.now();
   private opts: AnimOptions = {};
+  /** Who is on screen (Settings › Avatar). */
+  private character: Character;
   private lastKey = '';
   private sitting = false;
   private homeOverride: Vec | null = null;
@@ -166,8 +168,9 @@ export class AvatarEngine {
   private fxDirty = false;
   private timers: number[] = [];
 
-  constructor(layer: HTMLElement) {
+  constructor(layer: HTMLElement, character: Character = 'heli') {
     this.layer = layer;
+    this.character = character;
     this.fx = this.el('canvas', 'avatar-fx') as HTMLCanvasElement;
     this.fxCtx = this.fx.getContext('2d')!;
     this.shadow = this.el('div', 'avatar-shadow');
@@ -185,7 +188,7 @@ export class AvatarEngine {
     this.hitbox = document.createElement('div');
     this.hitbox.className = 'avatar-hitbox';
     Object.assign(this.hitbox.style, { left: `${(CX - 14) * S}px`, top: `${(HAIR_TOP + 3) * S}px`, width: `${28 * S}px`, height: `${(FEET_Y - HAIR_TOP - 3) * S}px` });
-    this.hitbox.title = 'Heli — drag me, poke me';
+    this.hitbox.title = `${this.name} — drag me, poke me`;
     this.body.append(this.sprite, this.hitbox);
     this.tagEl = this.el('canvas', 'avatar-tag') as HTMLCanvasElement;
     this.bubbleEl = this.el('canvas', 'avatar-bubble') as HTMLCanvasElement;
@@ -201,9 +204,21 @@ export class AvatarEngine {
     window.addEventListener('resize', this.onResize);
 
     let greeted = false;
-    try { greeted = sessionStorage.getItem('helios-avatar-greeted') === '1'; sessionStorage.setItem('helios-avatar-greeted', '1'); } catch { /* private mode */ }
-    if (!greeted) this.react(this.makeJob('wave', { line: "Hi! I'm Heli", minMs: 1600 }));
+    try { greeted = sessionStorage.getItem('bhippi-avatar-greeted') === '1'; sessionStorage.setItem('bhippi-avatar-greeted', '1'); } catch { /* private mode */ }
+    if (!greeted) this.react(this.makeJob('wave', { line: `Hi! I'm ${this.name}`, minMs: 1600 }));
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  private get name() {
+    return CHARACTERS.find((entry) => entry.id === this.character)?.name ?? 'Heli';
+  }
+
+  /** Swaps who is on screen, mid-animation; the next frame draws the new character. */
+  setCharacter(character: Character) {
+    if (character === this.character) return;
+    this.character = character;
+    this.hitbox.title = `${this.name} — drag me, poke me`;
+    this.lastKey = '';
   }
 
   destroy() {
@@ -264,7 +279,7 @@ export class AvatarEngine {
     this.react(this.makeJob('celebrate', { line: pick(LINES.done), minMs: 2300 }));
   }
 
-  /** Whether Helios AI is at work (the chat's turns and its council workers). */
+  /** Whether Bhippi AI is at work (the chat's turns and its council workers). */
   private busy(now = performance.now()) {
     return this.mirror.busy(now);
   }
@@ -1085,7 +1100,7 @@ export class AvatarEngine {
     const key = `${this.anim}|${Math.floor(t * FPS)}|${JSON.stringify(this.opts)}`;
     if (key !== this.lastKey) {
       this.lastKey = key;
-      paint(this.spriteCtx, poseAt(this.anim, t, this.opts));
+      paint(this.spriteCtx, poseAt(this.anim, t, { ...this.opts, character: this.character }));
     }
     const left = Math.round(this.pos.x - CX * S);
     const top = Math.round(this.pos.y - FEET_Y * S);

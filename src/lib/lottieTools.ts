@@ -2,7 +2,7 @@
 // placed as a motion scene. The common subset converts into real, editable layers
 // (src/motion/lottie/convert.ts); files that use anything else render frame by frame into a PNG
 // sequence instead (render.ts), so every file plays. User-supplied files only: LottieFiles has no
-// sanctioned API and forbids redistribution, so Helios neither searches nor bundles them.
+// sanctioned API and forbids redistribution, so Bhippi neither searches nor bundles them.
 import { unzipSync, strFromU8 } from 'fflate';
 import { lottieToScene } from '../motion/lottie/convert';
 import type { Layer, MotionScene, Vec } from '../motion/types';
@@ -36,7 +36,7 @@ export async function runLottieTool(args: Args, ctx: MotionToolContext, run: Run
   let path = str(args, 'path');
   const assetId = str(args, 'assetId');
   if (!path && assetId) path = ctx.assets.get(assetId)?.path;
-  if (!path) return fail('Give the Lottie file the user supplied: a .json or .lottie path or its assetId. (Helios cannot fetch from LottieFiles: download it there and import the file.)');
+  if (!path) return fail('Give the Lottie file the user supplied: a .json or .lottie path or its assetId. (Bhippi cannot fetch from LottieFiles: download it there and import the file.)');
   let json: J;
   try {
     json = readLottie(new Uint8Array(await (await fetch(fileSrc(path))).arrayBuffer()));

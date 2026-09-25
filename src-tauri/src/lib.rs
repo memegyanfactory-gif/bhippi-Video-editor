@@ -1,4 +1,4 @@
-//! Helios desktop app: Tauri shell, commands, and the state they share.
+//! Bhippi desktop app: Tauri shell, commands, and the state they share.
 
 #![cfg_attr(
     test,
@@ -6,9 +6,12 @@
     doc = "Tests may panic on purpose: a panic there is a failing test, not a crashed app."
 )]
 
+mod brain;
 mod hardware;
 mod ideagraph;
 mod local_media;
+mod ai_pack;
+mod bundled;
 mod magic_mask;
 mod ai_tools;
 mod caption_styles;
@@ -22,6 +25,7 @@ mod mcp_client;
 mod models;
 mod offline;
 mod person;
+mod plugins;
 mod point_track;
 mod project;mod ref_guides;
 mod provider_cache;
@@ -61,7 +65,10 @@ use crate::ai_tools::{EventExecutor, PendingCalls, ToolCallEvent, TOOL_CALL_EVEN
 use crate::chat::{ChatEvent, ChatRequest, McpLink, TurnContext, CHAT_EVENT};
 use crate::jobs::{Job, Jobs};
 use crate::files::Document;
-use crate::ideagraph::{ideagraph_init, ideagraph_ingest, ideagraph_status};
+use crate::ideagraph::{
+    brain_dream, brain_forget, brain_graph, brain_load_skill, brain_node, brain_recall, brain_record_turn, brain_remember, brain_save_skill,
+    ideagraph_init, ideagraph_ingest, ideagraph_status,
+};
 use crate::library::{Asset, LIBRARY_EVENT};
 use crate::mcp::McpHub;
 use crate::project::{Project, SfxKind};
@@ -69,17 +76,17 @@ use crate::render::ExportOptions;
 use crate::settings::Settings;
 use crate::store::Paths;
 use crate::tools::{ToolStatus, Tools};
-use helios_providers::detect::ApiKeys;
-use helios_providers::{ProviderInfo, ProviderKind, CATALOG};
+use bhippi_providers::detect::ApiKeys;
+use bhippi_providers::{ProviderInfo, ProviderKind, CATALOG};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-const PROVIDERS_EVENT: &str = "helios://providers";
+const PROVIDERS_EVENT: &str = "bhippi://providers";
 /// Settings the backend changed itself, so the UI's copy never saves an older one over them.
-const SETTINGS_EVENT: &str = "helios://settings";
+pub(crate) const SETTINGS_EVENT: &str = "bhippi://settings";
 
 /// A chat turn that is still running: how to stop it, and the provider and model it answers
 /// with, which its subagents use too.
@@ -133,7 +140,7 @@ pub struct AppState {
     tool_calls: Arc<PendingCalls>,
     /// The loopback listener CLI agents' MCP bridges connect to; `None` if it could not bind.
     mcp: Option<Arc<McpHub>>,
-    /// Servers Helios itself connects out to, and the tools they lend the assistant.
+    /// Servers Bhippi itself connects out to, and the tools they lend the assistant.
     mcp_out: Arc<mcp_client::Hub>,
     jobs: Jobs,
     fontconfig: Option<PathBuf>,
@@ -147,7 +154,7 @@ pub struct AppState {
 type CommandResult<T> = Result<T, String>;
 
 fn lock_error<T>(_: T) -> String {
-    "internal state is unavailable; restart Helios".to_owned()
+    "internal state is unavailable; restart Bhippi".to_owned()
 }
 
 impl AppState {
@@ -192,7 +199,7 @@ impl AppState {
     }
 }
 
-/// Lets the webview load a file through the asset protocol. Only files Helios itself
+/// Lets the webview load a file through the asset protocol. Only files Bhippi itself
 /// imported or produced are ever allowed.
 fn allow_asset(app: &AppHandle, asset: &Asset) {
     let scope = app.asset_protocol_scope();
@@ -530,7 +537,7 @@ fn library_remove(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -
     Ok(())
 }
 
-// ───────────────────────────── MCP servers Helios connects to ─────────────────────────────
+// ───────────────────────────── MCP servers Bhippi connects to ─────────────────────────────
 
 /// Every server in settings, with what it is lending us right now.
 #[tauri::command]
@@ -568,7 +575,7 @@ async fn mcp_add(app: AppHandle, state: State<'_, Arc<AppState>>, server: mcp_cl
     let status = tauri::async_runtime::spawn_blocking(move || hub.connect(&server))
         .await
         .map_err(|error| format!("could not start that server: {error}"))?;
-    let _ignored = app.emit("helios://connections", ());
+    let _ignored = app.emit("bhippi://connections", ());
     Ok(status)
 }
 
@@ -577,7 +584,7 @@ fn mcp_remove(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> Co
     let saved = state.update_settings(|settings| settings.mcp_servers.retain(|item| item.id != id))?;
     let _ignored = app.emit(SETTINGS_EVENT, &saved);
     state.mcp_out.disconnect(&id);
-    let _ignored = app.emit("helios://connections", ());
+    let _ignored = app.emit("bhippi://connections", ());
     Ok(())
 }
 
@@ -657,7 +664,7 @@ async fn pick_open_path(
 
 // ───────────────────────────── references ─────────────────────────────
 
-/// Every reference on this machine. The two that ship with Helios are filed on first use, so a
+/// Every reference on this machine. The two that ship with Bhippi are filed on first use, so a
 /// fresh install already knows the films its guidelines were written from.
 #[tauri::command]
 async fn refs_list(state: State<'_, Arc<AppState>>) -> CommandResult<Vec<refs::Reference>> {
@@ -733,7 +740,7 @@ async fn refs_ingest(
         Ok(reference) => {
             let _ignored=app.asset_protocol_scope().allow_file(&reference.source);
             job.done(format!("Reference {}", reference.name), None);
-            let _ignored = app.emit("helios://refs", ());
+            let _ignored = app.emit("bhippi://refs", ());
             Ok(reference)
         }
         Err(error) => {
@@ -987,7 +994,7 @@ fn local_media_status(state: State<'_, Arc<AppState>>) -> serde_json::Value {
     ].iter().map(|(task, label)| {
         let model_key = if task.starts_with("image") { "image" } else { *task };
         let checkpoint = media_checkpoint(&prefs, &state.paths, model_key);
-        let index = if ["sam2", "vitmatte", "depth"].contains(task) { "config.json" } else if ["person-track", "erase"].contains(task) { "helios-install.json" } else { "model_index.json" };
+        let index = if ["sam2", "vitmatte", "depth"].contains(task) { "config.json" } else if ["person-track", "erase"].contains(task) { "bhippi-install.json" } else { "model_index.json" };
         let installed = checkpoint.as_ref().is_some_and(|p| {
             let path = Path::new(p);
             if path.is_file() {
@@ -1087,12 +1094,12 @@ fn media_checkpoint(prefs: &Settings, paths: &Paths, task: &str) -> Option<Strin
     }
     prefs.local_media_models.get(task).cloned().or_else(|| {
         let folder = paths.models.join("generation").join(task);
-        (folder.join("model_index.json").is_file() || folder.join("config.json").is_file() || folder.join("helios-install.json").is_file()).then(|| folder.display().to_string())
+        (folder.join("model_index.json").is_file() || folder.join("config.json").is_file() || folder.join("bhippi-install.json").is_file()).then(|| folder.display().to_string())
     })
 }
 
 fn external_media_download(paths: &Paths, task: &str) -> Option<serde_json::Value> {
-    let bytes = std::fs::read(paths.models.join("generation").join(task).join("helios-download.json")).ok()?;
+    let bytes = std::fs::read(paths.models.join("generation").join(task).join("bhippi-download.json")).ok()?;
     let mut value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs_f64();
     if value["status"] == "running" && now - value["updatedAt"].as_f64().unwrap_or(0.0) > 300.0 {
@@ -1224,19 +1231,14 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
     Ok(id)
 }
 
-#[tauri::command]
-fn local_media_install(app: AppHandle, state: State<'_, Arc<AppState>>, task: String, hf_token: Option<String>) -> CommandResult<String> {
-    if !["image", "video", "video-ltx", "video-wan", "audio", "sam2", "vitmatte", "depth", "person-track", "erase"].contains(&task.as_str()) { return Err("Unknown model adapter".into()); }
-    if external_media_download(&state.paths, &task).is_some_and(|v| v["status"] == "running") { return Err("This model is already downloading. Follow its progress in Local Media settings.".into()); }
-    let prefs = state.settings();
-    let python = PathBuf::from(prefs.local_media_python.ok_or("Choose the local media Python environment first")?);
-    if !python.is_file() { return Err("The configured Python executable is missing".into()); }
-    let lease = local_media::acquire_download(&task)?;
-    let job = state.jobs.start("model", format!("Installing local {task} model"), true);
-    let id = job.id().to_owned();
-    let work = state.paths.work.join(&id);
-    let output = state.paths.models.join("generation").join(&task);
-    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+/// The local-media tasks a checkpoint install exists for.
+pub(crate) const LOCAL_INSTALL_TASKS: [&str; 10] = ["image", "video", "video-ltx", "video-wan", "audio", "sam2", "vitmatte", "depth", "person-track", "erase"];
+
+/// Writes the worker and its request for installing `task`'s checkpoint into `work`; returns the
+/// worker, the request and where the checkpoint lands.
+pub(crate) fn local_install_files(paths: &Paths, work: &Path, task: &str, hf_token: Option<String>) -> CommandResult<(PathBuf, PathBuf, PathBuf)> {
+    let output = paths.models.join("generation").join(task);
+    std::fs::create_dir_all(work).map_err(|e| e.to_string())?;
     let worker = work.join("worker.py");
     std::fs::write(&worker, include_str!("../workers/local_media.py")).map_err(|e| e.to_string())?;
     // The person tracker's installer lives in its own module, which the worker imports.
@@ -1245,28 +1247,40 @@ fn local_media_install(app: AppHandle, state: State<'_, Arc<AppState>>, task: St
     }
     let input = work.join("request.json");
     store::write_json(&input, &serde_json::json!({ "action": "install", "task": task, "output": output, "hf_token": hf_token }))?;
+    Ok((worker, input, output))
+}
+
+/// Records an installed checkpoint in Settings and tells the UI.
+pub(crate) fn remember_local_install(app: &AppHandle, state: &AppState, task: &str, output: &Path) -> CommandResult<()> {
+    let prefs = state.update_settings(|prefs| {
+        prefs.local_media_models.insert(task.to_owned(), output.display().to_string());
+        if task == "video-ltx" || task == "video" {
+            prefs.local_video_model = Some("ltx".into());
+        } else if task == "video-wan" {
+            prefs.local_video_model = Some("wan".into());
+        }
+    })?;
+    let _ignored = app.emit(SETTINGS_EVENT, &prefs);
+    Ok(())
+}
+
+#[tauri::command]
+fn local_media_install(app: AppHandle, state: State<'_, Arc<AppState>>, task: String, hf_token: Option<String>) -> CommandResult<String> {
+    if !LOCAL_INSTALL_TASKS.contains(&task.as_str()) { return Err("Unknown model adapter".into()); }
+    if external_media_download(&state.paths, &task).is_some_and(|v| v["status"] == "running") { return Err("This model is already downloading. Follow its progress in Local Media settings.".into()); }
+    let prefs = state.settings();
+    let python = PathBuf::from(prefs.local_media_python.ok_or("Choose the local media Python environment first")?);
+    if !python.is_file() { return Err("The configured Python executable is missing".into()); }
+    let lease = local_media::acquire_download(&task)?;
+    let job = state.jobs.start("model", format!("Installing local {task} model"), true);
+    let id = job.id().to_owned();
+    let (worker, input, output) = local_install_files(&state.paths, &state.paths.work.join(&id), &task, hf_token)?;
     let shared = state.inner().clone();
     tauri::async_runtime::spawn(async move {
         let _lease = lease;
         let result = local_media::run(&python, &worker, &input, &job).await;
-        match result {
-            Ok(()) => {
-                let saved = shared.update_settings(|prefs| {
-                    prefs.local_media_models.insert(task.clone(), output.display().to_string());
-                    if task == "video-ltx" || task == "video" {
-                        prefs.local_video_model = Some("ltx".into());
-                    } else if task == "video-wan" {
-                        prefs.local_video_model = Some("wan".into());
-                    }
-                });
-                match saved {
-                    Ok(prefs) => {
-                        let _ignored = app.emit(SETTINGS_EVENT, &prefs);
-                        job.done("Model installed; refresh Local Media settings", Some(serde_json::json!({ "path": output, "task": task })));
-                    }
-                    Err(error) => job.fail(error),
-                }
-            }
+        match result.and_then(|()| remember_local_install(&app, &shared, &task, &output)) {
+            Ok(()) => job.done("Model installed; refresh Local Media settings", Some(serde_json::json!({ "path": output, "task": task }))),
             Err(error) => job.fail(error),
         }
     });
@@ -1496,7 +1510,7 @@ async fn roto_frames(
     Ok(serde_json::json!({ "folder": folder.display().to_string(), "frames": count, "runId": run_id, "fps": effective_fps }))
 }
 
-/// One frame's alpha, straight from the model: `alpha` is one byte a pixel, row by row. Helios
+/// One frame's alpha, straight from the model: `alpha` is one byte a pixel, row by row. Bhippi
 /// writes the PNG and works out where the subject is, so the webview only has to do inference.
 #[tauri::command]
 fn roto_matte_frame(
@@ -1551,7 +1565,7 @@ async fn roto_finish(
     std::fs::write(folder.join("roto.json"), text).map_err(|error| format!("cannot write the roto: {error}"))?;
     // The frames were only ever scratch; the matte and the boxes are what is kept.
     let _ignored = std::fs::remove_dir_all(folder.join("frames"));
-    let _ignored = app.emit("helios://roto", &id);
+    let _ignored = app.emit("bhippi://roto", &id);
     Ok(result)
 }
 
@@ -1604,7 +1618,7 @@ fn erase_start(
     if !python.is_file() { return Err("The configured Python executable is missing".into()); }
     let lama = media_checkpoint(&prefs, &state.paths, "erase")
         .map(PathBuf::from)
-        .filter(|dir| dir.join("helios-install.json").is_file() && dir.join("big-lama.pt").is_file())
+        .filter(|dir| dir.join("bhippi-install.json").is_file() && dir.join("big-lama.pt").is_file())
         .ok_or("Install the Magic eraser model in Settings › Local media first")?;
     let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
     let lease = local_media::acquire()?;
@@ -1727,7 +1741,7 @@ fn service_set_key(id: String, key: String) -> CommandResult<Vec<ServiceKey>> {
     let known = SERVICE_KEYS
         .iter()
         .find(|(name, _, _)| *name == id)
-        .ok_or_else(|| format!("{id} is not a service Helios keeps a key for"))?;
+        .ok_or_else(|| format!("{id} is not a service Bhippi keeps a key for"))?;
     settings::set_api_key(known.0, &key)?;
     Ok(service_key_rows())
 }
@@ -1758,10 +1772,10 @@ async fn typesafe_choose(
 }
 
 /// The thinking levels this provider and model actually honour, so the composer's control can
-/// only offer steps that reach the backend. `helios_providers::effort` is the one table.
+/// only offer steps that reach the backend. `bhippi_providers::effort` is the one table.
 #[tauri::command]
 fn effort_levels(provider_id: String, model: Option<String>) -> Vec<String> {
-    helios_providers::effort::levels(&provider_id, model.as_deref())
+    bhippi_providers::effort::levels(&provider_id, model.as_deref())
         .iter()
         .map(|level| level.as_str().to_owned())
         .collect()
@@ -1833,8 +1847,8 @@ fn speech_status(state: State<'_, Arc<AppState>>) -> models::SpeechStatus {
     speech_status_of(state.inner())
 }
 
-/// Starts a download and hands back its job id. Progress arrives on `helios://job`, and
-/// `helios://models` fires once it has landed, so the panel can refresh itself.
+/// Starts a download and hands back its job id. Progress arrives on `bhippi://job`, and
+/// `bhippi://models` fires once it has landed, so the panel can refresh itself.
 #[tauri::command]
 fn model_download(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> CommandResult<String> {
     let label = models::label_of(&id).ok_or_else(|| format!("no such model: {id}"))?;
@@ -1866,8 +1880,8 @@ fn model_delete(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> 
     Ok(speech_status_of(state.inner()))
 }
 
-/// Points Helios at a whisper.cpp or Piper program the user installed themselves. An empty
-/// path goes back to looking for Helios' own download and then PATH.
+/// Points Bhippi at a whisper.cpp or Piper program the user installed themselves. An empty
+/// path goes back to looking for Bhippi's own download and then PATH.
 #[tauri::command]
 async fn speech_locate(app: AppHandle, state: State<'_, Arc<AppState>>, runtime: String, path: Option<String>) -> CommandResult<models::SpeechStatus> {
     let chosen = path.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
@@ -2024,7 +2038,7 @@ async fn project_save(state: State<'_, Arc<AppState>>, mut project: Project) -> 
     .await
 }
 
-/// Opens a `.helios` file, its relative paths made absolute against where it now is (so a
+/// Opens a `.bhippi` file, its relative paths made absolute against where it now is (so a
 /// moved project folder reads its media from itself). The UI migrates and sanitises the rest.
 #[tauri::command]
 async fn project_file_read(app: AppHandle, path: String) -> CommandResult<Document> {
@@ -2065,10 +2079,10 @@ Components:
         .map_err(|error| error.to_string())
 }
 
-/// A project file passed on the command line (double-clicking a `.helios` file).
+/// A project file passed on the command line (double-clicking a `.bhippi` file).
 #[tauri::command]
 fn startup_file() -> Option<String> {
-    std::env::args().skip(1).find(|argument| argument.to_ascii_lowercase().ends_with(".helios") && Path::new(argument).is_file())
+    std::env::args().skip(1).find(|argument| argument.to_ascii_lowercase().ends_with(".bhippi") && Path::new(argument).is_file())
 }
 
 /// Scene Edit Detection: source times where the picture cuts.
@@ -2213,18 +2227,31 @@ fn custom_tools_save(state: State<'_, Arc<AppState>>, tools: serde_json::Value) 
 }
 
 #[tauri::command]
-fn chat_log_load(state: State<'_, Arc<AppState>>) -> serde_json::Value {
-    let value: serde_json::Value = store::read_json(&state.paths.chat_file());
+fn chat_log_load(state: State<'_, Arc<AppState>>, scope: Option<String>) -> serde_json::Value {
+    let Ok(path) = chat_log_path(&state, scope.as_deref()) else { return serde_json::Value::Array(Vec::new()) };
+    let value: serde_json::Value = store::read_json(&path);
     if value.is_array() { value } else { serde_json::Value::Array(Vec::new()) }
 }
 
 #[tauri::command]
-fn chat_log_save(state: State<'_, Arc<AppState>>, messages: serde_json::Value) -> CommandResult<()> {
+fn chat_log_save(state: State<'_, Arc<AppState>>, messages: serde_json::Value, scope: Option<String>) -> CommandResult<()> {
     let Some(items) = messages.as_array() else {
         return Err("chat log must be a list".to_owned());
     };
     let recent: Vec<_> = items.iter().rev().take(200).rev().cloned().collect();
-    store::write_json(&state.paths.chat_file(), &recent)
+    store::write_json(&chat_log_path(&state, scope.as_deref())?, &recent)
+}
+
+/// The main chat's log, or a separate one for a workspace with its own conversation (the
+/// Plugin Maker's is `chat-plugins.json`), so the two transcripts never overwrite each other.
+fn chat_log_path(state: &AppState, scope: Option<&str>) -> CommandResult<std::path::PathBuf> {
+    match scope.filter(|scope| !scope.is_empty()) {
+        None => Ok(state.paths.chat_file()),
+        Some(scope) if scope.len() <= 32 && scope.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
+            Ok(state.paths.projects.join(format!("chat-{scope}.json")))
+        }
+        Some(scope) => Err(format!("“{scope}” is not a chat log scope")),
+    }
 }
 
 // ───────────────────────────── export & jobs ─────────────────────────────
@@ -2234,7 +2261,7 @@ fn chat_log_save(state: State<'_, Arc<AppState>>, messages: serde_json::Value) -
 fn export_part_path(output: &Path) -> PathBuf {
     let stem = output.file_stem().map_or_else(|| "export".into(), |stem| stem.to_string_lossy());
     let ext = output.extension().map_or_else(|| "mp4".into(), |ext| ext.to_string_lossy());
-    output.with_file_name(format!("{stem}.helios-part.{ext}"))
+    output.with_file_name(format!("{stem}.bhippi-part.{ext}"))
 }
 
 /// A path the way the file system compares it: canonical where the file (or, for one not written
@@ -2408,7 +2435,7 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
                 // The same render on the CPU when the hardware encoder fails mid-way (a driver
                 // reset, a session limit, a frame size the card refuses).
                 Err(reason) if gpu && !*job.cancel.borrow() => {
-                    eprintln!("helios: GPU export failed, retrying with the CPU encoder: {reason}");
+                    eprintln!("bhippi: GPU export failed, retrying with the CPU encoder: {reason}");
                     job.progress(base, "GPU encoder failed — rendering again on the CPU");
                     let fallback = render::plan_with_codecs(&project, &assets, &rendering, &sfx_for, codecs.without_gpu(x264), kind, 0.0)?;
                     encode(fallback, cpu).await
@@ -2594,7 +2621,7 @@ async fn detect_providers(app: &AppHandle, state: &AppState) -> Vec<ProviderInfo
     let _guard = state.detecting.lock().await;
     let disabled = state.settings().disabled_providers;
     let keys = tauri::async_runtime::spawn_blocking(keychain_keys).await.unwrap_or_default();
-    let mut rows = helios_providers::detect(CATALOG, &disabled, &keys).await;
+    let mut rows = bhippi_providers::detect(CATALOG, &disabled, &keys).await;
     // A provider whose listing failed this sweep keeps the models it listed last time.
     let cache_file = provider_cache::file(&state.paths.root);
     let mut cache: provider_cache::ModelCache = store::read_json(&cache_file);
@@ -2646,7 +2673,7 @@ fn provider_set_enabled(app: AppHandle, state: State<'_, Arc<AppState>>, id: Str
 
 #[tauri::command]
 async fn provider_set_key(app: AppHandle, state: State<'_, Arc<AppState>>, id: String, key: String) -> CommandResult<Vec<ProviderInfo>> {
-    let spec = helios_providers::spec(&id).filter(|spec| spec.kind == ProviderKind::CloudApi).ok_or("only cloud APIs take a key")?;
+    let spec = bhippi_providers::spec(&id).filter(|spec| spec.kind == ProviderKind::CloudApi).ok_or("only cloud APIs take a key")?;
     let owned_key = key.clone();
     tauri::async_runtime::spawn_blocking(move || settings::set_api_key(spec.id, &owned_key))
         .await
@@ -2665,8 +2692,8 @@ async fn provider_update(app: AppHandle, state: State<'_, Arc<AppState>>, id: St
 }
 
 fn start_provider_maintenance(app: AppHandle, state: Arc<AppState>, id: String, update: bool) -> CommandResult<String> {
-    let spec = helios_providers::spec(&id).ok_or("unknown provider")?;
-    let recipe = spec.install.ok_or_else(|| format!("{} cannot be installed from Helios", spec.label))?;
+    let spec = bhippi_providers::spec(&id).ok_or("unknown provider")?;
+    let recipe = spec.install.ok_or_else(|| format!("{} cannot be installed from Bhippi", spec.label))?;
     let mut maintenance = state.provider_maintenance.lock().map_err(lock_error)?;
     if *maintenance { return Err("Another provider installation or update is running. Try again when it finishes.".into()); }
     if !state.turns.lock().map_err(lock_error)?.is_empty() { return Err("Wait for the current AI request to finish before updating providers.".into()); }
@@ -2678,7 +2705,7 @@ fn start_provider_maintenance(app: AppHandle, state: Arc<AppState>, id: String, 
     let job_id = job.id().to_owned();
     tauri::async_runtime::spawn(async move {
         job.progress(0.1, recipe.display());
-        match helios_providers::run_recipe(&recipe).await {
+        match bhippi_providers::run_recipe(&recipe).await {
             Ok(tail) => {
                 job.done(if tail.is_empty() { "Installed".to_owned() } else { tail }, None);
                 detect_providers(&app, &state).await;
@@ -2709,7 +2736,7 @@ fn chat_read_images(paths: Vec<String>) -> CommandResult<Vec<String>> {
 }
 
 #[tauri::command]
-fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, request: ChatRequest) -> CommandResult<()> {
+fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, mut request: ChatRequest) -> CommandResult<()> {
     let maintenance = state.provider_maintenance.lock().map_err(lock_error)?;
     if *maintenance { return Err("A provider update is running. Send your message when it finishes.".into()); }
     if request.message.trim().is_empty() {
@@ -2720,7 +2747,7 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, request: ChatReque
     }
     let rows = state.providers.read().map_err(lock_error)?.clone();
     // Before the first detection finishes, only the builtin can answer.
-    let row = if rows.is_empty() && request.provider_id.as_deref().is_none_or(|id| id == helios_providers::catalog::BUILTIN_ID) {
+    let row = if rows.is_empty() && request.provider_id.as_deref().is_none_or(|id| id == bhippi_providers::catalog::BUILTIN_ID) {
         builtin_row()
     } else {
         chat::resolve_row(&rows, request.provider_id.as_deref())?
@@ -2732,6 +2759,12 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, request: ChatReque
         use base64::Engine;
         let (prefix, encoded) = image.split_once(',').ok_or("Invalid image")?;
         if !matches!(prefix, "data:image/png;base64" | "data:image/jpeg;base64" | "data:image/webp;base64") || encoded.len() > 6 * 1024 * 1024 || base64::engine::general_purpose::STANDARD.decode(encoded).is_err() { return Err("Invalid or oversized image attachment".to_owned()); }
+    }
+    // The brain briefs every turn: curated memory, the user model, skills, recall and nudges.
+    if ideagraph::learning_on(&state.settings()) {
+        if let Some(context) = request.context.as_object_mut() {
+            context.insert("brain".to_owned(), brain::brief(&ideagraph::brain_dir(&state), &request.message));
+        }
     }
     let (stop_sender, stop) = tokio::sync::watch::channel(false);
     let handle = TurnHandle { stop: stop_sender, row: row.clone(), model: request.model.clone() };
@@ -2773,11 +2806,11 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, request: ChatReque
 
 fn builtin_row() -> ProviderInfo {
     ProviderInfo {
-        id: helios_providers::catalog::BUILTIN_ID.to_owned(),
-        label: "Helios (offline)".to_owned(),
+        id: bhippi_providers::catalog::BUILTIN_ID.to_owned(),
+        label: "Bhippi (offline)".to_owned(),
         kind: ProviderKind::Builtin,
         models: vec!["command-parser".to_owned()],
-        health: helios_providers::Health::Healthy { latency_ms: 0 },
+        health: bhippi_providers::Health::Healthy { latency_ms: 0 },
         offered: false,
         detected_at: chrono::Utc::now(),
         installed: true,
@@ -2793,7 +2826,7 @@ fn builtin_row() -> ProviderInfo {
     }
 }
 
-/// The UI's answer to a `helios://tool-call`. False when no call was waiting for it — it
+/// The UI's answer to a `bhippi://tool-call`. False when no call was waiting for it — it
 /// arrived after the call timed out or the turn was stopped.
 #[tauri::command]
 fn chat_tool_result(state: State<'_, Arc<AppState>>, turn_id: String, call_id: String, result: serde_json::Value) -> bool {
@@ -2937,13 +2970,29 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let root = app.path().app_data_dir()?;
     let default_storage = storage::default_root(app.handle(), &root);
     let paths = Paths::new(root)?;
+    // What the installer ships (FFmpeg, yt-dlp, the speech engines, Roto): tools first in the
+    // search, models copied into the models folder where missing — off the startup path.
+    if let Some(bundled) = bundled::locate(app.handle()) {
+        tools::set_bundled_bin(bundled.join("bin"));
+        let models = paths.models.clone();
+        std::thread::spawn(move || match bundled::seed_models(&bundled, &models) {
+            Ok(0) => {}
+            Ok(count) => tracing::info!(count, "copied bundled models into place"),
+            Err(error) => tracing::warn!(%error, "bundled models could not be copied"),
+        });
+    }
     watchdog::start(app.handle().clone(), paths.root.join("logs").join("hang.log"));
-    helios_providers::set_agent_workspace(paths.agent_workspace.clone());
+    bhippi_providers::set_agent_workspace(paths.agent_workspace.clone());
     if let Err(error) = sfx::ensure_all(&paths.sfx) {
         tracing::warn!(%error, "sound effects unavailable");
     }
     let mut settings: Settings = store::read_json(&paths.settings_file());
     // The source checkout's isolated specialist environment is a development default only.
+    // The AI pack's own Python (ai_pack.rs), once it is installed.
+    if settings.local_media_python.is_none() {
+        let pack = ai_pack::python_exe(&paths.models);
+        if pack.is_file() { settings.local_media_python = Some(pack.display().to_string()); }
+    }
     #[cfg(debug_assertions)]
     if settings.local_media_python.is_none() {
         let candidate = Path::new(env!("CARGO_MANIFEST_DIR")).parent().map(|root| root.join(".media-venv/Scripts/python.exe"));
@@ -2951,7 +3000,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     }
     for task in ["image", "video", "video-ltx", "video-wan", "audio", "sam2", "vitmatte"] {
         let folder = paths.models.join("generation").join(task);
-        if !settings.local_media_models.contains_key(task) && (folder.join("helios-install.json").is_file() || folder.join("model_index.json").is_file()) {
+        if !settings.local_media_models.contains_key(task) && (folder.join("bhippi-install.json").is_file() || folder.join("model_index.json").is_file()) {
             settings.local_media_models.insert(task.into(), folder.display().to_string());
         }
     }
@@ -2969,7 +3018,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let _ignored = scope.allow_directory(&paths.sfx, false);
     let _ignored = scope.allow_directory(&paths.thumbnails, false);
     let _ignored = scope.allow_directory(&paths.root.join("generated"), false);
-    // Everything under the storage root (the project folders) is Helios' own output.
+    // Everything under the storage root (the project folders) is Bhippi's own output.
     let storage_root = settings.storage_root.clone().filter(|path| !path.trim().is_empty()).map(PathBuf::from).unwrap_or_else(|| default_storage.clone());
     storage::allow_root(&handle, &storage_root);
     let _ignored = scope.allow_directory(storyboard::storyboard_dir(&paths), true);
@@ -3018,7 +3067,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         if let Ok(mut slot) = background.tools.write() {
             *slot = tools;
         }
-        let _ignored = handle.emit("helios://tools", background.tools().status);
+        let _ignored = handle.emit("bhippi://tools", background.tools().status);
         // Media imported while FFmpeg was missing gets its previews now — as does
         // anything whose recorded thumbnail file went missing since (stale path
         // in the saved library) and media with sound that has no peaks yet. Runs
@@ -3068,20 +3117,20 @@ fn watched<R: tauri::Runtime>(
 
 pub use crate::mcp::{run_bridge as run_mcp_bridge, BRIDGE_FLAG as MCP_BRIDGE_FLAG};
 
-/// `%APPDATA%/studio.helios.desktop/logs/helios.log`: every tracing line also lands here, so a
+/// `%APPDATA%/com.bhippi.videoeditor/logs/bhippi.log`: every tracing line also lands here, so a
 /// session can be read back after the fact (and by a coding agent) — stderr is gone once the
-/// window closes. The previous run's log is kept as `helios.previous.log`.
+/// window closes. The previous run's log is kept as `bhippi.previous.log`.
 fn open_log_file() -> Option<std::fs::File> {
-    let dir = PathBuf::from(std::env::var_os("APPDATA")?).join("studio.helios.desktop").join("logs");
+    let dir = PathBuf::from(std::env::var_os("APPDATA")?).join("com.bhippi.videoeditor").join("logs");
     std::fs::create_dir_all(&dir).ok()?;
-    let log = dir.join("helios.log");
-    let _ignored = std::fs::rename(&log, dir.join("helios.previous.log"));
+    let log = dir.join("bhippi.log");
+    let _ignored = std::fs::rename(&log, dir.join("bhippi.previous.log"));
     std::fs::File::create(log).ok()
 }
 
 pub fn run() {
     use tracing_subscriber::fmt::writer::MakeWriterExt;
-    let filter = || tracing_subscriber::EnvFilter::try_from_env("HELIOS_LOG").unwrap_or_else(|_| "info".into());
+    let filter = || tracing_subscriber::EnvFilter::try_from_env("BHIPPI_LOG").unwrap_or_else(|_| "info".into());
     let _ignored = match open_log_file() {
         Some(file) => tracing_subscriber::fmt()
             .with_env_filter(filter())
@@ -3115,9 +3164,9 @@ pub fn run() {
                 let _ignored = window.unminimize();
                 let _ignored = window.set_focus();
             }
-            // Opening a .helios file while Helios runs loads it in the window that is already up.
-            if let Some(file) = args.iter().skip(1).find(|argument| argument.to_ascii_lowercase().ends_with(".helios")) {
-                let _ignored = app.emit("helios://open-file", file);
+            // Opening a .bhippi file while Bhippi runs loads it in the window that is already up.
+            if let Some(file) = args.iter().skip(1).find(|argument| argument.to_ascii_lowercase().ends_with(".bhippi")) {
+                let _ignored = app.emit("bhippi://open-file", file);
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -3154,12 +3203,23 @@ pub fn run() {
             ideagraph_status,
             ideagraph_ingest,
             ideagraph_init,
+            brain_graph,
+            brain_node,
+            brain_record_turn,
+            brain_remember,
+            brain_forget,
+            brain_recall,
+            brain_save_skill,
+            brain_load_skill,
+            brain_dream,
             local_media_status,
             depth_start,
             local_media_generate,
             local_media_install,
             roto_track_start,
             magic_mask::magic_mask_frame,
+            ai_pack::ai_pack_status,
+            ai_pack::ai_pack_install,
             magic_mask::magic_mask_release,
             magic_mask::magic_mask_track_start,
             person_track_start,
@@ -3199,6 +3259,7 @@ pub fn run() {
             free_media_search,
             memes::memes_search,
             memes::memes_refresh,
+            memes::memes_find_online,
             memes::memes_save,
             memes::memes_get,
             memes::memes_fetch_media,
@@ -3250,6 +3311,7 @@ pub fn run() {
             frame_sink,
             storyboard::storyboard_image_save,
             storyboard::storyboard_image_import,
+            storyboard::appearance_image_import,
             cutout::cutout_image,
             cutout::detect_faces,
             cutout::detect_green_screen,
@@ -3269,6 +3331,12 @@ pub fn run() {
             custom_tools_save,
             chat_log_load,
             chat_log_save,
+            plugins::plugins_load,
+            plugins::plugins_save,
+            plugins::plugin_page_write,
+            plugins::plugin_files_remove,
+            plugins::plugin_storage_load,
+            plugins::plugin_storage_save,
             export_start,
             export_preview,
             export_frame,
@@ -3297,7 +3365,7 @@ pub fn run() {
         ]))
         .run(tauri::generate_context!());
     if let Err(error) = result {
-        eprintln!("Helios could not start: {error}");
+        eprintln!("Bhippi could not start: {error}");
         std::process::exit(1);
     }
 }
@@ -3349,7 +3417,7 @@ mod safety_tests {
     use std::sync::{Arc, Mutex};
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("helios-{name}-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-{name}-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
     }
@@ -3386,7 +3454,7 @@ mod safety_tests {
         let dir = scratch("export-finish");
         let output = dir.join("Final cut.mp4");
         let part = export_part_path(&output);
-        assert_eq!(part, dir.join("Final cut.helios-part.mp4"));
+        assert_eq!(part, dir.join("Final cut.bhippi-part.mp4"));
         std::fs::write(&output, b"the user's earlier file").expect("target");
         std::fs::write(&part, b"half a render").expect("part");
         assert!(finish_export(&part, &output, Err("ffmpeg failed".to_owned())).is_err());

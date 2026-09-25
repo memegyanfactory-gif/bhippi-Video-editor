@@ -52,10 +52,10 @@ beforeEach(() => {
   clearCustomToolsCache();
   vi.mocked(api.customToolsLoad).mockResolvedValue([]);
   vi.mocked(api.customToolsSave).mockResolvedValue(undefined);
-  setCustomToolEnv({ workDir: 'C:\\Helios\\agent-workspace', ffmpeg: 'C:\\ffmpeg\\bin\\ffmpeg.exe', windows: true });
+  setCustomToolEnv({ workDir: 'C:\\Bhippi\\agent-workspace', ffmpeg: 'C:\\ffmpeg\\bin\\ffmpeg.exe', windows: true });
 });
 
-describe('steps tools: building what Helios does not have', () => {
+describe('steps tools: building what Bhippi does not have', () => {
   it('quotes values for PowerShell and sh', () => {
     expect(shellQuote("it's here", 'powershell')).toBe("'it''s here'");
     expect(shellQuote("it's here", 'sh')).toBe(`'it'\\''s here'`);
@@ -72,16 +72,16 @@ describe('steps tools: building what Helios does not have', () => {
         note: 'run ${runId} in ${workDir}',
         keep: '$steps.missing.path',
       },
-      { input: "D:\\clips\\bob's take.mp4", seconds: 4, out: 'C:\\Helios\\agent-workspace\\x.mp4' },
+      { input: "D:\\clips\\bob's take.mp4", seconds: 4, out: 'C:\\Bhippi\\agent-workspace\\x.mp4' },
       null,
       results,
       'r1',
     );
-    expect(filled.command).toBe("& 'C:\\ffmpeg\\bin\\ffmpeg.exe' -i 'D:\\clips\\bob''s take.mp4' -t 4 'C:\\Helios\\agent-workspace\\x.mp4'");
+    expect(filled.command).toBe("& 'C:\\ffmpeg\\bin\\ffmpeg.exe' -i 'D:\\clips\\bob''s take.mp4' -t 4 'C:\\Bhippi\\agent-workspace\\x.mp4'");
     // A whole-value reference keeps its type: "3.25" from stdout becomes the number 3.25.
     expect(filled.at).toBe(3.25);
     expect(filled.asset).toBe('a1');
-    expect(filled.note).toBe('run r1 in C:\\Helios\\agent-workspace');
+    expect(filled.note).toBe('run r1 in C:\\Bhippi\\agent-workspace');
     // An unknown reference is left as written, so the mistake is visible rather than silently empty.
     expect(filled.keep).toBe('$steps.missing.path');
   });
@@ -90,7 +90,7 @@ describe('steps tools: building what Helios does not have', () => {
     const known = new Set(['run_command', 'import_media', 'call_custom_tool', 'create_custom_tool']);
     expect(validateSteps([{ tool: 'run_command', args: {} }], known, 'x')).toBeNull();
     expect(validateSteps([], known, 'x')).toMatch(/non-empty/);
-    expect(validateSteps([{ tool: 'teleport' }], known, 'x')).toMatch(/not a Helios tool/);
+    expect(validateSteps([{ tool: 'teleport' }], known, 'x')).toMatch(/not a Bhippi tool/);
     expect(validateSteps([{ tool: 'create_custom_tool' }], known, 'x')).toMatch(/cannot create, change or delete/);
     expect(validateSteps([{ tool: 'call_custom_tool', args: { name: 'X' } }], known, 'x')).toMatch(/itself/);
     expect(validateSteps([{ tool: 'run_command', as: 'a' }, { tool: 'run_command', as: 'a' }], known, 'x')).toMatch(/reuses/);
@@ -118,10 +118,10 @@ describe('steps tools: building what Helios does not have', () => {
     const back = updateCustomTool('switcher', { opsTemplate: [{ op: 'razor', at: 2 }] }, [toSteps], known).tool as CustomTool;
     expect(back.steps).toBeUndefined();
     expect(back.opsTemplate).toHaveLength(1);
-    expect(updateCustomTool('switcher', { steps: [{ tool: 'nope' }] }, [ops], known).error).toMatch(/not a Helios tool/);
+    expect(updateCustomTool('switcher', { steps: [{ tool: 'nope' }] }, [ops], known).error).toMatch(/not a Bhippi tool/);
   });
 
-  it('every step tool the catalogue offers is one Helios executes', () => {
+  it('every step tool the catalogue offers is one Bhippi executes', () => {
     expect(KNOWN_TOOLS.has('run_command')).toBe(true);
     expect(KNOWN_TOOLS.has('import_media')).toBe(true);
     expect(KNOWN_TOOLS.has('create_custom_tool')).toBe(true);
@@ -160,11 +160,11 @@ describe('create → save → list on every turn → call, through runTool', () 
     expect(missing.ok).toBe(false);
     expect(api.fsRunCommand).not.toHaveBeenCalled();
 
-    const out = 'C:\\Helios\\agent-workspace\\card.mp4';
+    const out = 'C:\\Bhippi\\agent-workspace\\card.mp4';
     const preview = await runTool(host, 'call_custom_tool', { name: 'make_title_card', preview: true, args: { out, color: 'red' } });
     expect(preview.ok).toBe(true);
     expect(api.fsRunCommand).not.toHaveBeenCalled();
-    expect((preview as unknown as { planned: { args: { command: string } }[] }).planned[0].args.command).toContain("color=c=red:s=1920x1080:d=2 'C:\\Helios\\agent-workspace\\card.mp4'");
+    expect((preview as unknown as { planned: { args: { command: string } }[] }).planned[0].args.command).toContain("color=c=red:s=1920x1080:d=2 'C:\\Bhippi\\agent-workspace\\card.mp4'");
 
     vi.mocked(api.fsRunCommand).mockResolvedValue(run(`${out}\n`) as never);
     const ran = await runTool(host, 'call_custom_tool', { name: 'make_title_card', args: { out, color: 'red' } });
@@ -215,7 +215,7 @@ describe('create → save → list on every turn → call, through runTool', () 
     expect(record).toHaveBeenCalledWith('run_command', { command: 'echo ok' }, expect.objectContaining({ ok: true }));
   });
 
-  it('refuses to save a steps tool that calls a tool Helios does not have', async () => {
+  it('refuses to save a steps tool that calls a tool Bhippi does not have', async () => {
     const { host } = fixture();
     const made = await runTool(host, 'create_custom_tool', { name: 'magic', description: 'Does magic things', steps: [{ tool: 'do_magic', args: {} }] });
     expect(made.ok).toBe(false);
@@ -236,9 +236,9 @@ describe('create → save → list on every turn → call, through runTool', () 
     vi.mocked(api.customToolsLoad).mockResolvedValue([
       { version: 1, id: 't', name: 'from_disk', description: 'Saved earlier', params: [], opsTemplate: [], steps: [{ tool: 'run_command', args: {} }], author: 'ai', createdAt: '', updatedAt: '', usageCount: 3 },
     ] as never);
-    await warmCustomTools({ dataDir: 'C:\\Users\\x\\AppData\\Roaming\\studio.helios.desktop', ffmpeg: null });
+    await warmCustomTools({ dataDir: 'C:\\Users\\x\\AppData\\Roaming\\com.bhippi.videoeditor', ffmpeg: null });
     expect(customToolsBrief().map((tool) => tool.name)).toEqual(['from_disk']);
     const filled = substituteStepArgs({ dir: '$workDir' }, {}, null, { byName: {}, prev: null }, 'r');
-    expect(filled.dir).toBe('C:\\Users\\x\\AppData\\Roaming\\studio.helios.desktop\\agent-workspace');
+    expect(filled.dir).toBe('C:\\Users\\x\\AppData\\Roaming\\com.bhippi.videoeditor\\agent-workspace');
   });
 });

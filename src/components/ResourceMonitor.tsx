@@ -1,7 +1,7 @@
 // What the machine is doing, in the header.
 //
 // A chip with three small meters — RAM, GPU, storage on the models drive — and a drop-down with
-// the detail: the same three as cards with a bar each, then whatever Helios itself is running
+// the detail: the same three as cards with a bar each, then whatever Bhippi itself is running
 // (tools mid-call, background jobs) and the memory its own processes take. The numbers come from
 // the `resource_usage` command every three seconds while the window is visible; a failed poll
 // keeps the last reading on screen, dimmed and marked stale, rather than blanking the chip.
@@ -248,7 +248,7 @@ export function ResourceMonitor({
   const otherDrives = drives.filter((drive) => drive !== models);
   const storageUsedGb = models ? Math.max(0, models.totalGb - models.freeGb) : 0;
   const storagePercent = models ? percentOf(storageUsedGb, models.totalGb) : null;
-  const heliosGb = useMemo(() => (usage?.processes ?? []).reduce((sum, process) => sum + process.ramGb, 0), [usage]);
+  const bhippiGb = useMemo(() => (usage?.processes ?? []).reduce((sum, process) => sum + process.ramGb, 0), [usage]);
   const groups = useMemo(() => groupProcesses(usage?.processes ?? []), [usage]);
   const visibleGroups = allProcesses ? groups : groups.slice(0, TOP_PROCESSES);
 
@@ -257,7 +257,7 @@ export function ResourceMonitor({
     : `${formatGb(usage.ramUsedGb)} · ${gpuPercent == null ? 'GPU —' : `${Math.round(gpuPercent)}%`} · ${models ? `${formatGb(models.freeGb)} free` : '—'}`;
   const chipTitle = usage
     ? `RAM ${Math.round(ramPercent ?? 0)}% · GPU ${gpuPercent == null ? '—' : `${Math.round(gpuPercent)}%`} · ${models ? `${models.letter}: ${Math.round(storagePercent ?? 0)}% used` : ''}${stale ? ' · stale' : ''}`
-    : 'System usage and Helios activity';
+    : 'System usage and Bhippi activity';
   const agoSeconds = readAt ? Math.max(0, Math.round((now - readAt) / 1000)) : null;
 
   const vramPercent = gpu && gpu.vramUsedMb != null && gpu.vramTotalMb != null ? percentOf(gpu.vramUsedMb, gpu.vramTotalMb) : null;
@@ -297,10 +297,10 @@ export function ResourceMonitor({
       {open && (
         <>
           <div className="bar-scrim" onPointerDown={() => setOpen(false)} aria-hidden="true" />
-          <div className="bar-popover rm-popover" role="dialog" aria-label="System and Helios activity">
+          <div className="bar-popover rm-popover" role="dialog" aria-label="System and Bhippi activity">
             <div className="rm-head">
               <span className={`rm-live${stale ? ' stale' : ''}`} aria-hidden="true" />
-              <span className="rm-title">System &amp; Helios</span>
+              <span className="rm-title">System &amp; Bhippi</span>
               <span className="rm-meta">
                 {stale ? 'stale · ' : ''}
                 {agoSeconds == null ? 'waiting for the first reading' : `updated ${agoSeconds} s ago`} · every {INTERVAL_MS / 1000} s
@@ -315,7 +315,7 @@ export function ResourceMonitor({
                 <div className="rm-card-head"><MemoryStick size={13} /><span className="rm-card-label">RAM</span></div>
                 <div className="rm-card-value">{usage ? <>{formatGb(usage.ramUsedGb, false)} / {formatGb(usage.ramTotalGb)}</> : '—'}</div>
                 <Bar percent={ramPercent} />
-                <div className="rm-card-sub">{usage ? `Helios processes use ${formatGb(heliosGb)}` : 'Reading…'}</div>
+                <div className="rm-card-sub">{usage ? `Bhippi processes use ${formatGb(bhippiGb)}` : 'Reading…'}</div>
                 <div className="rm-card-line">
                   <Cpu size={11} />
                   <span>CPU</span>
@@ -474,8 +474,8 @@ export function ResourceMonitor({
               <div className="rm-section">
                 <button type="button" className="rm-procs-toggle" onClick={() => setShowProcesses(!showProcesses)} aria-expanded={showProcesses}>
                   {showProcesses ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                  <span>Helios processes</span>
-                  <span className="rm-procs-summary">{usage.processes.length} {usage.processes.length === 1 ? 'process' : 'processes'} · {formatGb(heliosGb)}</span>
+                  <span>Bhippi processes</span>
+                  <span className="rm-procs-summary">{usage.processes.length} {usage.processes.length === 1 ? 'process' : 'processes'} · {formatGb(bhippiGb)}</span>
                 </button>
                 {showProcesses && (
                   <div className="rm-procs">

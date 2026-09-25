@@ -39,9 +39,9 @@ from .whisper_engine import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-store = Store(ROOT / ".helios")
+store = Store(ROOT / ".bhippi")
 jobs = Jobs()
-app = FastAPI(title="Helios", version="0.1.0", docs_url=None, redoc_url=None)
+app = FastAPI(title="Bhippi", version="0.1.0", docs_url=None, redoc_url=None)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https?://(127\.0\.0\.1|localhost|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d{1,5})?",
@@ -145,7 +145,7 @@ def answer_chat(body: ChatRequest) -> dict:
     memory = store.read("memory.json", [])
     memory_text = "\n".join(f"- {item['text']}" for item in memory[-20:])
     system = (
-        "You are Helios, a local video editing copilot. You may answer in English, Hindi, or Hinglish. "
+        "You are Bhippi, a local video editing copilot. You may answer in English, Hindi, or Hinglish. "
         "When the user asks for an edit, respond with a JSON object {reply, actions} where actions is a list limited to these shapes: "
         '{"type":"add_graphic","text":"...","preset":"title|kinetic|caption|lower-third","time":number,"duration":number,"color":"#RRGGBB"} '
         '{"type":"split","time":number} {"type":"add_sfx","kind":"whoosh|impact|chime","time":number} {"type":"set_aspect","aspect":"16:9|9:16|1:1"}. '
@@ -306,7 +306,7 @@ def export_file(job_id: str):
     path = store.root / "exports" / f"{job_id}.mp4"
     if not path.is_file():
         raise HTTPException(404, "Export not found")
-    return FileResponse(path, media_type="video/mp4", filename=f"helios-{job_id[:8]}.mp4")
+    return FileResponse(path, media_type="video/mp4", filename=f"bhippi-{job_id[:8]}.mp4")
 
 
 @app.post("/api/hooks")

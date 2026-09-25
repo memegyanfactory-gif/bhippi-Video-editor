@@ -5,7 +5,7 @@
 //   source monitor element ──────────────────────────────→ source bus ──┼→ master → speakers
 //                                                                       └→ L/R analysers
 //
-// Media from Helios' asset protocol carries CORS headers, which is what lets Web Audio read it.
+// Media from Bhippi's asset protocol carries CORS headers, which is what lets Web Audio read it.
 import type { Channels } from './types';
 
 type Bus = {
@@ -29,7 +29,8 @@ function getBus(): Bus | null {
     const splitter = ctx.createChannelSplitter(2);
     const left = ctx.createAnalyser();
     const right = ctx.createAnalyser();
-    left.fftSize = right.fftSize = 2048;
+    // A short window (about 20 ms) so the meters fall the moment playback stops.
+    left.fftSize = right.fftSize = 1024;
     // Always two channels: a mono source (a voice recording, a tone) is spread to both before the
     // L/R split, as the speakers play it. Left to follow its input, a mono mix stayed one channel
     // and the right meter read −∞ while the right speaker played it.

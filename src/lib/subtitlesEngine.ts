@@ -1,4 +1,4 @@
-// WatchFIWN subtitle generation & cue management engine for Helios.
+// WatchFIWN subtitle generation & cue management engine for Bhippi.
 // Integrates transcription, cue chunking algorithms, and layer positioning from WatchFIWN.
 import { addTracks, audible, clipEnd, newClip, textSource, tracksOf } from './timeline';
 import type { TranscriptWord } from './ipc';

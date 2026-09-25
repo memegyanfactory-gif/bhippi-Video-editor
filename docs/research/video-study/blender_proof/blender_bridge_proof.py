@@ -1,10 +1,10 @@
-"""Proof of the Helios <-> Blender headless bridge.
+"""Proof of the Bhippi <-> Blender headless bridge.
 
 blender -b --factory-startup -P blender_bridge_proof.py -- request.json
 
-The request is the kind of JSON the Helios AI would write: objects from primitives, extruded text,
+The request is the kind of JSON the Bhippi AI would write: objects from primitives, extruded text,
 material presets, lights, and a camera whose keyframes carry CSS-style cubic-bezier eases (the
-motion engine's own `Ease` form). Prints `{"progress", "message"}` JSON lines like every Helios
+motion engine's own `Ease` form). Prints `{"progress", "message"}` JSON lines like every Bhippi
 worker, renders PNG RGBA frames, and writes camera.json (per-frame camera for 2D compositing) plus
 result.json.
 """

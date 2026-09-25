@@ -37,14 +37,14 @@ const BROLL = /(^|[^a-z])(b-?roll|broll|stock|cutaway|scene\d*)([^a-z]|$)/i;
 const norm = (path: string) => path.replace(/\\/g, '/').toLowerCase();
 
 /**
- * Which of Helios's own folders a file is in, if any: the project folders under the storage root
- * (Documents/Helios/<project>/Downloads, Generated, Audio/Voice-overs…) or, for files made before
- * those existed, the app data folder (studio.helios.desktop). Only those say where a file came
+ * Which of Bhippi's own folders a file is in, if any: the project folders under the storage root
+ * (Documents/Bhippi/<project>/Downloads, Generated, Audio/Voice-overs…) or, for files made before
+ * those existed, the app data folder (com.bhippi.videoeditor). Only those say where a file came
  * from — "downloads" alone would also match the user's own Windows Downloads folder, where their
  * camera footage often lives.
  */
-function heliosFolder(path: string): StorageKind | null {
-  const match = /\/studio\.helios\.desktop\/(downloads|generated|voice-overs|sfx)\//.exec(norm(path));
+function bhippiFolder(path: string): StorageKind | null {
+  const match = /\/com\.bhippi\.videoeditor\/(downloads|generated|voice-overs|sfx)\//.exec(norm(path));
   return (match?.[1] as StorageKind | undefined) ?? storageKind(path);
 }
 
@@ -69,7 +69,7 @@ function audioUse(project: Project, assetId: string): 'music' | 'sfx' | 'dialogu
 
 /** The folder a media asset belongs in. */
 export function mediaCategory(project: Project, asset: Asset): Category {
-  const from = heliosFolder(asset.path);
+  const from = bhippiFolder(asset.path);
   // The folders a file sits in say what it is as often as its name does ("channel-broll/…").
   const dirs = norm(asset.path).split('/').slice(0, -1).join('/');
   const name = `${asset.name.replace(/\.[^.]+$/, '')} ${dirs}`;

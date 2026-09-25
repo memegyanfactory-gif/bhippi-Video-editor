@@ -6,7 +6,7 @@ const run: ToolRun = { callId: 'c1', name: 'add_text', request: 'req', summary: 
 
 describe('retryNote', () => {
   it('sends the prompt plainly when the turn failed before anything happened', () => {
-    // Helios could not prepare the message: no provider ever saw it.
+    // Bhippi could not prepare the message: no provider ever saw it.
     expect(retryNote({ content: '', steps: [] }, [])).toBeUndefined();
     expect(retryNote({ content: '  \n', steps: [] }, [])).toBeUndefined();
   });

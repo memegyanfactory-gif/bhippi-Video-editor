@@ -1,4 +1,4 @@
-// How much Helios AI is allowed to do to the project without being asked.
+// How much Bhippi AI is allowed to do to the project without being asked.
 //
 // The assistant edits the timeline directly, so the mode is a real safety control, not a label:
 // "Plan only" lets it look and suggest, "Auto-edit" lets it build, and "Full access" also lets it
@@ -13,6 +13,25 @@ export const PERMISSION_MODES: { id: PermissionMode; label: string; hint: string
 ];
 
 export const DEFAULT_PERMISSION: PermissionMode = 'edit';
+
+/** The mode as the model reads it in the turn's context: what it may do and when to ask. */
+export function permissionBrief(mode: PermissionMode) {
+  const rules: Record<PermissionMode, { may: string; questions: string }> = {
+    plan: {
+      may: 'Plan only: read the project, research and propose. Do not change the project or any file; describe the edit you would make.',
+      questions: 'Ask with ask_user (with options) only when the answer changes the plan and you cannot sensibly choose yourself.',
+    },
+    edit: {
+      may: 'Auto-edit: add and change clips, text, effects and media freely. Do not delete clips, tracks, comps or media.',
+      questions: 'Ask with ask_user (with options) only when the answer changes the edit and you cannot sensibly choose yourself; otherwise decide and say what you chose.',
+    },
+    full: {
+      may: 'Full access: every tool, deletions included.',
+      questions: 'Do not ask the user anything: choose the best option yourself, carry on, and say what you chose in your reply.',
+    },
+  };
+  return { mode, label: PERMISSION_MODES.find((item) => item.id === mode)?.label ?? mode, ...rules[mode] };
+}
 
 /** Tools that only look at the project. Always allowed. */
 const READS = new Set([
@@ -30,6 +49,12 @@ const READS = new Set([
   'list_effects',
   'list_learned_skills',
   'list_custom_tools',
+  // The brain is the assistant's own memory, never the project.
+  'brain_remember',
+  'brain_recall',
+  'brain_forget',
+  'brain_save_skill',
+  'brain_load_skill',
   'get_project',
   'get_comp',
   'open_comp',
@@ -41,6 +66,7 @@ const READS = new Set([
   // @funny research and measuring: they read the meme and sound libraries, captions and the timeline.
   // save_meme writes only the user's meme library, never the project.
   'search_memes',
+  'find_memes_online',
   'refresh_meme_trends',
   'save_meme',
   'find_receipt',
@@ -57,6 +83,11 @@ const READS = new Set([
   'list_transitions',
   'check_pacing',
   'list_character_actions',
+  // Plugins: reading the library and a plugin's console.
+  'plugin_sdk_reference',
+  'list_plugins',
+  'get_plugin',
+  'plugin_logs',
 ]);
 
 /** Tools that throw something away, which only Full access may do. */
@@ -66,15 +97,23 @@ const DESTRUCTIVE = new Set([
   'delete_clips',
   'remove_range',
   'remove_transitions',
+  'delete_plugin',
 ]);
 
+/** Whether a tool only looks — allowed in every mode, and to every plugin without asking. */
+export const isReadTool = (name: string) =>
+  READS.has(name) || ['editing_workflow_status', 'verify_edit_workflow', 'analyze_clip_speech', 'inspect_clip_frames', 'inspect_source_frames'].includes(name);
+
+/** Whether a tool throws work away (Full access only). */
+export const isDestructiveTool = (name: string) => DESTRUCTIVE.has(name);
+
 export const allowTool = (mode: PermissionMode, name: string): { ok: true } | { ok: false; reason: string } => {
-  if (READS.has(name) || ['editing_workflow_status', 'verify_edit_workflow', 'analyze_clip_speech', 'inspect_clip_frames', 'inspect_source_frames'].includes(name)) return { ok: true };
+  if (isReadTool(name)) return { ok: true };
   if (mode === 'plan') {
-    return { ok: false, reason: 'Helios AI is in Plan only mode, so it cannot change the project. Describe the edit you would make, or ask the user to switch to Auto-edit.' };
+    return { ok: false, reason: 'Bhippi AI is in Plan only mode, so it cannot change the project. Describe the edit you would make, or ask the user to switch to Auto-edit.' };
   }
   if (mode === 'edit' && DESTRUCTIVE.has(name)) {
-    return { ok: false, reason: 'Helios AI is in Auto-edit mode, which does not delete anything. Say what you would remove and ask the user to switch to Full access, or achieve it without deleting.' };
+    return { ok: false, reason: 'Bhippi AI is in Auto-edit mode, which does not delete anything. Say what you would remove and ask the user to switch to Full access, or achieve it without deleting.' };
   }
   return { ok: true };
 };

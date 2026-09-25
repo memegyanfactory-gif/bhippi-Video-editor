@@ -29,9 +29,9 @@ export function HomeScreen(props: Props) {
     <div className="home">
       <div className="home-inner">
         <div className="home-hero">
-          <img src="/helios.svg" alt="" width={64} height={64} />
+          <img src="/bhippi.png" alt="" width={64} height={64} />
           <div>
-            <h1>Welcome to Helios</h1>
+            <h1>Welcome to Bhippi</h1>
             <p>A local-first video studio with Premiere-style editing and an AI editor that makes real edits.</p>
           </div>
         </div>
@@ -45,7 +45,7 @@ export function HomeScreen(props: Props) {
           <button type="button" className="home-card" onClick={props.onOpen}>
             <FolderOpen size={22} />
             <strong>Open project</strong>
-            <span>A .helios project file</span>
+            <span>A .bhippi project file</span>
           </button>
           <button type="button" className="home-card" onClick={props.onImport}>
             <Upload size={22} />

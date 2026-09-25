@@ -1,4 +1,4 @@
-// Premiere Pro's default Windows keyboard layout, as Helios implements it. Shown in the
+// Premiere Pro's default Windows keyboard layout, as Bhippi implements it. Shown in the
 // Keyboard Shortcuts dialog; the handler lives in App.tsx.
 export const SHORTCUTS: [string, string, string][] = [
   ['Ctrl+Alt+N', 'New project', 'File'],
@@ -97,7 +97,7 @@ export const SHORTCUTS: [string, string, string][] = [
   ['Shift + wheel', 'Scroll sideways', 'Timeline'],
 
   ['Shift+1…Shift+7', 'Project · Source · Timeline · Program · Properties · Meters · Tools', 'Panels'],
-  ['Ctrl+Alt+L', 'Show or hide Helios AI', 'Panels'],
+  ['Ctrl+Alt+L', 'Show or hide Bhippi AI', 'Panels'],
   ['`', 'Maximize the panel under the cursor (or focused panel)', 'Panels'],
   ['Escape', 'Deselect and go back to the Selection tool', 'Panels'],
 ];

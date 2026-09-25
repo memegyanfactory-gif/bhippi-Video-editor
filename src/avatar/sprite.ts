@@ -10,6 +10,11 @@
 // upper left), a teal headband, big glossy eyes, a lab coat over a teal shirt, a navy backpack and
 // teal-soled trainers. Round glasses, headphones, a beret or an animator's visor go on for the
 // council seat that is working.
+//
+// The same skeleton wears five other looks (CHARACTERS): a tabby cat, a woman with long auburn
+// hair, a genie out of a lamp floating on a wisp of smoke, a floppy-eared puppy and a bearded
+// senior dev in a hoodie. Each is a palette swap (LOOKS) plus its own head, hair and torso, so
+// every animation plays for all of them.
 
 export const ART_W = 64;
 /** Rows below the ground line leave room for legs dangling over an edge. */
@@ -77,9 +82,72 @@ export const PALETTE = {
   steel: '#c9d2e3',
   steelDark: '#8792a8',
   frame: '#1c1f40',
+  /** The band just short of the hand on each arm. */
+  cuff: '#cdd4e4',
+  /** Fur for the animals; the genie's smoke; unused by Heli. */
+  fur: '#ffab2e',
+  furLight: '#ffd052',
+  furShadow: '#ee8420',
+  /** A character's own detail colour: ears, stripes, trim, a lanyard. */
+  accent: '#2fb9b1',
+  accentLight: '#78e3d7',
+  accentDark: '#1b7d85',
+  nose: '#ff7f9a',
 } as const;
 
-const C = Object.fromEntries(Object.entries(PALETTE).map(([key, hex]) => [key, rgb(hex)])) as Record<keyof typeof PALETTE, number>;
+export type Character = 'heli' | 'cat' | 'woman' | 'genie' | 'puppy' | 'senior';
+
+export const CHARACTERS: { id: Character; name: string; title: string }[] = [
+  { id: 'heli', name: 'Heli', title: 'The pixel producer — flame hair, lab coat, backpack.' },
+  { id: 'cat', name: 'Miso', title: 'A tabby cat with a bell on its collar and a curly tail.' },
+  { id: 'woman', name: 'Nova', title: 'Long auburn hair, a flower clip and a pink dress.' },
+  { id: 'genie', name: 'Jinn', title: 'A genie out of the lamp, floating on a wisp of smoke.' },
+  { id: 'puppy', name: 'Biscuit', title: 'A floppy-eared puppy with a wagging tail.' },
+  { id: 'senior', name: 'Sudo', title: 'A bearded senior dev: browline glasses, hoodie, lanyard.' },
+];
+
+/** Each character's palette, over Heli's. */
+const LOOKS: Record<Character, Partial<Record<keyof typeof PALETTE, string>>> = {
+  heli: {},
+  cat: {
+    hairOutline: '#5a2e12', skin: '#fff1dc', skinShadow: '#f1d9bb',
+    fur: '#f5a54a', furLight: '#ffc877', furShadow: '#d9822e', accentDark: '#b8611f', accent: '#ff9fb2',
+    sleeve: '#f5a54a', cuff: '#d9822e', pants: '#f5a54a', pantsShadow: '#d9822e',
+    shoe: '#fff1dc', shoeLight: '#ffffff', sole: '#f1d9bb', band: '#e5484d', bandDark: '#a82a35', nose: '#ff7f9a',
+  },
+  woman: {
+    hairOutline: '#2a1210', hair: '#8a3f2c', hairLight: '#b35a3c', hairShine: '#e39a74', hairShadow: '#6a2c20', hairDeep: '#461b14',
+    coat: '#e8628f', coatShadow: '#bf4470', sleeve: '#f07aa2', cuff: '#bf4470', shirt: '#e8628f',
+    pants: '#3b2a4a', pantsShadow: '#2a1d36', shoe: '#bf4470', shoeLight: '#ff9cbd', sole: '#7a2446',
+    mouth: '#b8325a', accent: '#ffd166', accentLight: '#fff1b8', accentDark: '#e0a82e',
+  },
+  genie: {
+    hairOutline: '#1d1840', hair: '#262040', hairLight: '#3f3868', hairShine: '#6d63a8', hairShadow: '#1b1732', hairDeep: '#110e22',
+    skin: '#5fb0f0', skinShadow: '#3f8ed6', blush: '#b58cff',
+    coat: '#d8344a', coatShadow: '#a3223a', sleeve: '#5fb0f0', cuff: '#ffc23d',
+    fur: '#d4ebff', furLight: '#f4faff', furShadow: '#9cc4ee', accent: '#8a4fd8', accentLight: '#b98cff', accentDark: '#5e2fa8',
+  },
+  puppy: {
+    hairOutline: '#4a2c16', skin: '#fff3e2', skinShadow: '#f2dcc0',
+    fur: '#e8b77a', furLight: '#f7d4a0', furShadow: '#c98f52', accent: '#8a5a36', accentLight: '#a8744a', accentDark: '#5f3b20',
+    sleeve: '#e8b77a', cuff: '#c98f52', pants: '#e8b77a', pantsShadow: '#c98f52',
+    shoe: '#fff3e2', shoeLight: '#ffffff', sole: '#f2dcc0', band: '#3c7be0', bandDark: '#23519e', nose: '#2a1d1d',
+  },
+  senior: {
+    hairOutline: '#3e4250', hair: '#b9bcc6', hairLight: '#d9dce4', hairShine: '#f2f3f7', hairShadow: '#8f94a2', hairDeep: '#6b7080',
+    skin: '#f3c9a6', skinShadow: '#e0a883',
+    coat: '#434b5e', coatShadow: '#2f3545', sleeve: '#4b5468', cuff: '#2f3545',
+    pants: '#3e5f8a', pantsShadow: '#2e4868', shoe: '#e8ebf2', shoeLight: '#ffffff', sole: '#9aa3b5',
+    accent: '#e5484d', accentLight: '#ffffff', accentDark: '#2d7fd3',
+  },
+};
+
+type Colours = Record<keyof typeof PALETTE, number>;
+const COLOURS = Object.fromEntries((Object.keys(LOOKS) as Character[]).map((id) => [
+  id, Object.fromEntries(Object.entries({ ...PALETTE, ...LOOKS[id] }).map(([key, hex]) => [key, rgb(hex)])),
+])) as Record<Character, Colours>;
+/** The palette of the character being drawn right now (renderPose picks it). */
+let C: Colours = COLOURS.heli;
 const colour = (hex: string) => rgb(hex);
 
 export type Eyes = 'open' | 'blink' | 'happy' | 'squeeze' | 'angry' | 'wide' | 'down' | 'up' | 'sleep' | 'dizzy' | 'wink' | 'focus';
@@ -129,6 +197,8 @@ export type Pose = {
   blush?: boolean;
   gear?: Gear[];
   props?: Prop[];
+  /** Who is wearing the pose; Heli when unset. */
+  character?: Character;
 };
 
 export const REST: Pose = {
@@ -396,7 +466,7 @@ function eyeBox(ox: number, oy: number, eyes: Eyes, look: -1 | 0 | 1, right: boo
 function drawFace(hx: number, hy: number, pose: Pose) {
   const x0 = Math.round(hx);
   const eyeY = Math.round(hy - 2);
-  if (pose.blush) for (const x of [x0 - 9, x0 - 8, x0 + 7, x0 + 8]) main.set(x, hy + 4, C.blush);
+  if (pose.blush && pose.character !== 'senior') for (const x of [x0 - 9, x0 - 8, x0 + 7, x0 + 8]) main.set(x, hy + 4, C.blush);
   eyeBox(x0 - 7, eyeY, pose.eyes, pose.look, false);
   eyeBox(x0 + 3, eyeY, pose.eyes, pose.look, true);
   const m = (x: number, y: number, c: number = C.mouth) => main.set(x0 + x, Math.round(hy) + 5 + y, c);
@@ -572,7 +642,7 @@ function drawArm(shoulderX: number, shoulderY: number, [dx, dy]: [number, number
     b.line(shoulderX, shoulderY, hx, hy, C.sleeve, 3.4);
     // The cuff, a shade darker, just short of the hand.
     const len = Math.hypot(dx, dy) || 1;
-    b.ellipse(hx - (dx / len) * 1.8, hy - (dy / len) * 1.8, 1.5, 1.5, C.coatShadow);
+    b.ellipse(hx - (dx / len) * 1.8, hy - (dy / len) * 1.8, 1.5, 1.5, C.cuff);
     b.ellipse(hx, hy, 2.1, 2.1, C.skin);
     if (finger) { b.set(hx, hy - 2, C.skin); b.set(hx, hy - 3, C.skin); b.set(hx, hy - 4, C.skin); }
     if (thumb) { b.set(hx - side, hy - 2, C.skin); b.set(hx - side, hy - 3, C.skin); b.set(hx - side, hy - 4, C.skin); }
@@ -628,7 +698,7 @@ function drawProp(prop: Prop, hands: { l: readonly [number, number]; r: readonly
         b.rect(bx - 7, base - 9, 14, 9, colour('#c3cad8'));
         b.rect(bx - 7, base - 9, 14, 1, colour('#e6eaf2'));
         b.rect(bx + 5, base - 8, 2, 8, colour('#a3abbd'));
-        // The Helios sun on the lid, brighter while a page loads.
+        // The Bhippi sun on the lid, brighter while a page loads.
         const glow = prop.glow > 0.5 ? C.hairShine : C.hairLight;
         b.rect(bx - 2, base - 6, 3, 3, glow);
         for (const [dx, dy] of [[-2, -1], [2, -1], [0, -3], [0, 1]] as const) b.set(bx - 1 + dx, base - 5 + dy, glow);
@@ -704,11 +774,351 @@ function drawProp(prop: Prop, hands: { l: readonly [number, number]; r: readonly
   }
 }
 
+// ── the other characters ───────────────────────────────────────────────────
+
+/** Lights the upper left of a round mass and shades its far side, the way the mane is lit. */
+function shade(b: Buf, base: number, light: number, dark: number, cx: number, cy: number, rx: number, ry: number) {
+  b.recolour(base, light, (x, y) => {
+    const ox = (x + 0.5 - cx) / rx;
+    const oy = (y + 0.5 - cy) / ry;
+    return ox * LIGHT.x + oy * LIGHT.y > 0.45 && ox * ox + oy * oy < 0.75;
+  });
+  b.recolour(base, dark, (x, y) => ((x + 0.5 - cx) / rx) * -LIGHT.x + ((y + 0.5 - cy) / ry) * -LIGHT.y > 0.6);
+}
+
+/** A stroke along a quadratic curve whose radius goes from r0 to r1 (tails, a topknot, smoke). */
+function strand(b: Buf, x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, r0: number, r1: number, c: number) {
+  for (let i = 0; i <= 28; i++) {
+    const t = i / 28;
+    const r = r0 + (r1 - r0) * t;
+    b.ellipse((1 - t) ** 2 * x0 + 2 * (1 - t) * t * x1 + t * t * x2, (1 - t) ** 2 * y0 + 2 * (1 - t) * t * y1 + t * t * y2, r, r, c);
+  }
+}
+
+/** Skin just under hair takes a shadow, and hair just over skin darkens, as on Heli's brow. */
+function browShadow(b: Buf) {
+  for (let y = 0; y < ART_H; y++) {
+    for (let x = 0; x < ART_W; x++) {
+      if (b.at(x, y) === C.skin && (b.at(x, y - 1) === C.hair || b.at(x, y - 1) === C.hairShadow)) b.set(x, y, C.skinShadow);
+    }
+  }
+}
+
+/** The cat: pointed ears with pink insides, cheek fluff, tabby stripes and a cream muzzle. */
+function drawCatHead(b: Buf, hx: number, hy: number, sway: number) {
+  const tip = Math.round(sway);
+  b.tri(hx - 10.5, hy - 2, hx - 2.5, hy - 7.5, hx - 8.5 + tip, hy - 15, C.fur);
+  b.tri(hx + 10.5, hy - 2, hx + 2.5, hy - 7.5, hx + 8.5 + tip, hy - 15, C.fur);
+  b.ellipse(hx, hy + 0.5, 10.5, 8.5, C.fur);
+  b.tri(hx - 9, hy + 1, hx - 7, hy + 6, hx - 12.5, hy + 5, C.fur);
+  b.tri(hx + 9, hy + 1, hx + 7, hy + 6, hx + 12.5, hy + 5, C.fur);
+  shade(b, C.fur, C.furLight, C.furShadow, hx, hy, 11, 9);
+  b.tri(hx - 8.5, hy - 5.5, hx - 4.5, hy - 7.5, hx - 7.8 + tip, hy - 12, C.accent);
+  b.tri(hx + 8.5, hy - 5.5, hx + 4.5, hy - 7.5, hx + 7.8 + tip, hy - 12, C.accent);
+  for (const x of [hx - 4, hx - 1, hx + 2]) { b.set(x, hy - 7, C.accentDark); b.set(x, hy - 6, C.accentDark); }
+  b.set(hx - 1, hy - 5, C.accentDark);
+  for (const x of [hx - 10, hx - 9, hx + 8, hx + 9]) b.set(x, hy + 1, C.accentDark);
+  b.ellipse(hx, hy + 5.5, 4.5, 2.8, C.skin);
+}
+
+/** The puppy: a round tan head with a tuft on top and a cream muzzle; the ears come after. */
+function drawPuppyHead(b: Buf, hx: number, hy: number) {
+  b.ellipse(hx, hy + 0.5, 10, 8.5, C.fur);
+  b.tri(hx - 2.5, hy - 7, hx + 2.5, hy - 7, hx - 1, hy - 11.5, C.fur);
+  shade(b, C.fur, C.furLight, C.furShadow, hx, hy, 10, 9);
+  b.ellipse(hx, hy + 5.5, 5, 3, C.skin);
+}
+
+/** Floppy ears hanging over the sides of the head, swinging with the motion. */
+function drawPuppyEars(hx: number, hy: number, sway: number) {
+  part((b) => {
+    for (const s of [-1, 1]) {
+      b.ellipse(hx + s * 8.5, hy - 5.5, 3.2, 2.5, C.accent);
+      b.ellipse(hx + s * 10.5 + sway, hy + 1.5, 3, 6.5, C.accent);
+      b.ellipse(hx + s * 10 + sway, hy + 0.5, 1.1, 3.8, C.accentLight);
+    }
+  }, C.hairOutline);
+}
+
+/** A tail behind the body: the cat's long curl with a dark tip, the puppy's short wagging one. */
+function drawTail(pose: Pose, bx: number, ty: number, kind: 'cat' | 'puppy') {
+  const wag = Math.abs(Math.round(pose.legL[0] + pose.armR[1] + pose.headY)) % 2 ? 1 : -1;
+  part((b) => {
+    if (kind === 'cat') {
+      strand(b, bx + 5, ty + 9, bx + 15, ty + 9, bx + 12 + wag, ty - 2, 1.5, 1.2, C.fur);
+      b.ellipse(bx + 12 + wag, ty - 2, 1.5, 1.5, C.accentDark);
+      b.set(bx + 13 + wag, ty + 4, C.accentDark);
+      b.set(bx + 14, ty + 7, C.accentDark);
+    } else {
+      strand(b, bx + 4, ty + 8, bx + 11, ty + 8, bx + 10 + wag * 2, ty + 1, 1.8, 1.1, C.fur);
+      b.ellipse(bx + 10 + wag * 2, ty + 1, 1.3, 1.3, C.skin);
+    }
+  }, C.hairOutline);
+}
+
+/** A round body in fur, a cream belly, and a collar with a gold bell or tag. */
+function drawFurBody(bx: number, ty: number) {
+  part((b) => {
+    b.rect(bx - 3, ty - 2, 6, 3, C.fur);
+    COAT.forEach((h, r) => {
+      b.rect(bx - h + 1, ty + r, (h - 1) * 2, 1, C.fur);
+      if (r > 0) b.set(bx + h - 2, ty + r, C.furShadow);
+    });
+    b.ellipse(bx, ty + 6.5, 3.5, 4, C.skin);
+    b.rect(bx - 4, ty, 8, 1, C.band);
+    b.rect(bx - 1, ty + 1, 2, 2, C.badge);
+    b.set(bx - 1, ty + 1, C.hairShine);
+    b.set(bx, ty + 2, C.bandDark);
+  });
+}
+
+/** Nova's long hair, behind the head and shoulders, drifting with the motion. */
+function drawLongHair(hx: number, hy: number, sway: number) {
+  part((b) => {
+    b.ellipse(hx, hy - 3, 12, 10, C.hair);
+    const drift = (t: number) => Math.round(-sway * t * 2.5);
+    for (let y = hy; y <= hy + 17; y++) {
+      const t = (y - hy) / 17;
+      const half = Math.round(12 - t * 2);
+      b.rect(hx - half + drift(t), y, half * 2, 1, C.hair);
+    }
+    for (const x of [-10, -7, 4, 7]) b.tri(hx + x + drift(1), hy + 18, hx + x + 3 + drift(1), hy + 18, hx + x + 1.5 + drift(1), hy + 20.5, C.hair);
+    b.recolour(C.hair, C.hairShadow, (x) => x + 0.5 > hx + 7);
+    for (const x of [hx - 9, hx + 8]) b.line(x, hy + 4, x + drift(1), hy + 17, C.hairDeep);
+  }, C.hairOutline);
+}
+
+/** Nova's face under a rounded crown, a fringe with a few longer strands and locks framing the jaw. */
+function drawWomanHead(b: Buf, hx: number, hy: number) {
+  b.ellipse(hx, hy + 0.5, 9, 7, C.skin);
+  b.ellipse(hx, hy + 3.2, 7.4, 6, C.skin);
+  for (let y = hy - 15; y <= hy - 3; y++) {
+    for (let x = hx - 12; x < hx + 12; x++) {
+      const dx = x + 0.5 - hx;
+      const fringe = hy - 4 + ([-6, -5, 1, 2].includes(x - hx) ? 1 : 0);
+      if ((dx / 11.5) ** 2 + ((y + 0.5 - (hy - 5)) / 8.5) ** 2 <= 1 && y <= fringe) b.set(x, y, C.hair);
+    }
+  }
+  b.rect(hx - 11, hy - 5, 3, 11, C.hair);
+  b.rect(hx + 8, hy - 5, 3, 11, C.hair);
+  b.tri(hx - 11, hy + 6, hx - 8, hy + 6, hx - 10, hy + 9, C.hair);
+  b.tri(hx + 8, hy + 6, hx + 11, hy + 6, hx + 10, hy + 9, C.hair);
+  browShadow(b);
+  shade(b, C.hair, C.hairLight, C.hairShadow, hx, hy - 5, 11.5, 8.5);
+  for (let dx = -7; dx <= -2; dx++) {
+    const y = hy - 11 + (dx < -5 ? 1 : 0);
+    if (b.at(hx + dx, y)) b.set(hx + dx, y, C.hairShine);
+  }
+}
+
+/** A white flower with a gold heart, clipped into Nova's hair. */
+function drawFlower(hx: number, hy: number) {
+  part((b) => {
+    b.ellipse(hx + 7, hy - 8, 2.3, 2.3, colour('#fff6fb'));
+    b.rect(hx + 6, hy - 9, 2, 2, C.accent);
+    b.set(hx + 6, hy - 9, C.accentLight);
+  }, C.hairOutline);
+}
+
+/** A dress: fitted top, gold belt, flared skirt with pleats, and a pendant at the neckline. */
+function drawDress(bx: number, ty: number) {
+  part((b) => {
+    b.rect(bx - 2, ty - 2, 4, 3, C.skin);
+    b.rect(bx - 2, ty - 2, 4, 1, C.skinShadow);
+    const rows = [5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10];
+    rows.forEach((h, r) => {
+      b.rect(bx - h, ty + r, h * 2, 1, r === 6 ? C.accent : r === rows.length - 1 ? C.coatShadow : C.coat);
+      if (r > 0 && r !== 6) b.set(bx + h - 1, ty + r, C.coatShadow);
+    });
+    b.rect(bx - 2, ty, 4, 1, C.skin);
+    b.rect(bx - 1, ty + 1, 2, 1, C.skin);
+    b.set(bx, ty + 2, C.accent);
+    b.rect(bx - 1, ty + 6, 2, 1, C.accentLight);
+    for (const x of [-5, -2, 1, 4]) for (let r = 8; r < 12; r++) b.set(bx + x + (r > 9 ? Math.sign(x + 0.5) : 0), ty + r, C.coatShadow);
+  });
+}
+
+/** The genie: a bald blue dome, pointed ears, a floating topknot and a little goatee. */
+function drawGenieHead(b: Buf, hx: number, hy: number, sway: number) {
+  b.tri(hx - 8.5, hy - 1, hx - 8.5, hy + 3.5, hx - 13, hy - 3, C.skin);
+  b.tri(hx + 8.5, hy - 1, hx + 8.5, hy + 3.5, hx + 13, hy - 3, C.skin);
+  b.ellipse(hx, hy - 0.5, 9, 8.5, C.skin);
+  b.ellipse(hx, hy + 3.2, 7.4, 6, C.skin);
+  b.recolour(C.skin, C.skinShadow, (x, y) => ((x + 0.5 - hx) / 9) * -LIGHT.x + ((y + 0.5 - hy) / 9) * -LIGHT.y > 0.78);
+  b.ellipse(hx, hy - 9.5, 3, 2.2, C.hair);
+  strand(b, hx, hy - 10, hx + 5 - sway * 2, hy - 16, hx + 7 - sway * 3, hy - 12, 2, 0.8, C.hair);
+  b.set(hx - 1, hy - 11, C.hairShine);
+  b.set(hx + 2, hy - 13, C.hairLight);
+  b.rect(hx - 2, hy - 8, 4, 1, C.cuff);
+  b.tri(hx - 2.5, hy + 8.5, hx + 2.5, hy + 8.5, hx, hy + 12.5, C.hair);
+  for (const [dx, dy] of [[-5, -4], [-4, -5], [-3, -6], [-2, -6]] as const) b.set(hx + dx, hy + dy, colour('#bfe3ff'));
+}
+
+/** A red vest open over a bare blue chest, gold trim, and a purple sash knotted at the hip. */
+function drawVest(bx: number, ty: number) {
+  part((b) => {
+    b.rect(bx - 2, ty - 2, 4, 3, C.skin);
+    b.rect(bx - 2, ty - 2, 4, 1, C.skinShadow);
+    COAT.forEach((h, r) => {
+      b.rect(bx - h, ty + r, h * 2, 1, r >= 8 ? C.accent : C.coat);
+      if (r >= 8) return;
+      const open = r < 2 ? 2 : 3;
+      b.rect(bx - open, ty + r, open * 2, 1, C.skin);
+      b.set(bx + open - 1, ty + r, C.skinShadow);
+      b.set(bx - open - 1, ty + r, C.cuff);
+      b.set(bx + open, ty + r, C.cuff);
+      b.set(bx + h - 1, ty + r, C.coatShadow);
+    });
+    b.rect(bx - 8, ty + 8, 16, 1, C.accentLight);
+    b.rect(bx + 3, ty + 9, 2, 4, C.accentDark);
+    b.set(bx + 5, ty + 12, C.accentDark);
+  });
+}
+
+/** Below the sash the genie is a wisp of smoke, pouring out of the spout of a gold lamp. */
+function drawSmoke(pose: Pose, torsoY: number) {
+  const hip = torsoY + 9;
+  const bx = CX + pose.lean;
+  if (pose.sit) {
+    // Sitting, the smoke pools under it (on the floor) or trails over the edge.
+    part((b) => {
+      if (pose.sit === 'floor') {
+        b.ellipse(bx, hip + 3, 11.5, 3, C.fur);
+        b.ellipse(bx + 5, hip + 3.5, 4, 1.6, C.furShadow);
+        b.ellipse(bx - 5, hip + 2, 4, 1.2, C.furLight);
+      } else {
+        strand(b, bx, hip + 1, bx + 3, hip + 6, bx - 1 + pose.legL[0], hip + 10, 6, 1.2, C.fur);
+        b.recolour(C.fur, C.furShadow, (x) => x + 0.5 > bx + 3);
+      }
+    });
+    return;
+  }
+  const lift = Math.max(pose.legL[1], pose.legR[1]);
+  const foot = FEET_Y - 1 - lift + Math.min(0, pose.y);
+  const lx = bx - 1 + Math.round((pose.legL[0] - pose.legR[0]) * 0.8);
+  const spout: [number, number] = [lx + 8, foot - 5];
+  part((b) => {
+    strand(b, spout[0], spout[1], bx + 14, (spout[1] + hip) / 2 - 1, bx + 1, hip + 1, 1, 6, C.fur);
+    b.recolour(C.fur, C.furShadow, (x, y) => x + 0.5 > bx + 3 + (y - hip) * 0.3);
+    b.recolour(C.fur, C.furLight, (x, y) => x + 0.5 < bx - 2 && y < hip + 5);
+    for (const [dx, dy] of [[4, 5], [5, 6], [6, 7], [-2, 3], [-1, 4]] as const) if (b.at(bx + dx, hip + dy)) b.set(bx + dx, hip + dy, C.furLight);
+  });
+  const gold = colour('#ffc23d');
+  const goldLight = colour('#ffe58a');
+  const goldDark = colour('#c98a1a');
+  part((b) => {
+    b.ellipse(lx, foot - 2, 5, 2.2, gold);
+    b.rect(lx - 2, foot, 4, 1, goldDark);
+    b.line(lx + 4, foot - 2, spout[0], spout[1], gold, 1.6);
+    b.ring(lx - 6, foot - 3, 2, 2, gold);
+    b.rect(lx - 2, foot - 5, 4, 1, goldLight);
+    b.set(lx - 1, foot - 6, goldLight);
+    b.rect(lx - 4, foot - 3, 2, 1, goldLight);
+    b.rect(lx - 3, foot - 1, 7, 1, goldDark);
+  });
+}
+
+/** Sudo: short grey hair receding at the temples, a few messy tufts, a full grey beard. */
+function drawSeniorHead(b: Buf, hx: number, hy: number) {
+  b.ellipse(hx, hy + 0.5, 9, 7, C.skin);
+  b.ellipse(hx, hy + 3.2, 7.4, 6, C.skin);
+  // The beard: jaw and chin below the cheeks, a little fuller than the face, sideburns up the sides.
+  b.ellipse(hx, hy + 7, 7, 4.8, C.skin);
+  b.recolour(C.skin, C.hair, (x, y) => {
+    const dy = y + 0.5 - hy;
+    const dx = Math.abs(x + 0.5 - hx);
+    return dy >= 5 || (dx >= 7.5 && dy >= 0) || (dy >= 4 && dx >= 4.5);
+  });
+  b.recolour(C.hair, C.hairShadow, (x, y) => y + 0.5 - hy >= 9.5 || (x + 0.5 > hx + 4.5 && y + 0.5 - hy >= 4));
+  b.ellipse(hx - 9.5, hy + 1, 1.8, 2.4, C.skin);
+  b.ellipse(hx + 9.5, hy + 1, 1.8, 2.4, C.skin);
+  b.set(hx - 10, hy + 1, C.skinShadow);
+  b.set(hx + 9, hy + 1, C.skinShadow);
+  for (let y = hy - 12; y <= hy - 4; y++) {
+    for (let x = hx - 11; x < hx + 11; x++) {
+      const dx = Math.abs(x + 0.5 - hx);
+      const receding = y >= hy - 5 && dx > 2.5 && dx < 7.5;
+      if ((dx / 10) ** 2 + ((y + 0.5 - (hy - 4)) / 6.5) ** 2 <= 1 && !receding) b.set(x, y, C.hair);
+    }
+  }
+  b.rect(hx - 10, hy - 5, 2, 5, C.hair);
+  b.rect(hx + 8, hy - 5, 2, 5, C.hair);
+  b.ellipse(hx - 2, hy - 10, 4, 1.8, C.hair);
+  browShadow(b);
+  shade(b, C.hair, C.hairLight, C.hairShadow, hx, hy - 6, 10, 6.5);
+}
+
+/** A slate hoodie with the hood bunched at the neck, a kangaroo pocket and a lanyard badge. */
+function drawHoodie(bx: number, ty: number) {
+  part((b) => {
+    b.rect(bx - 2, ty - 2, 4, 3, C.skin);
+    b.rect(bx - 2, ty - 2, 4, 1, C.skinShadow);
+    COAT.forEach((h, r) => {
+      b.rect(bx - h, ty + r, h * 2, 1, r === COAT.length - 1 ? C.coatShadow : C.coat);
+      if (r > 1) b.set(bx + h - 1, ty + r, C.coatShadow);
+    });
+    b.rect(bx - 6, ty - 1, 3, 2, C.sleeve);
+    b.rect(bx + 3, ty - 1, 3, 2, C.sleeve);
+    b.rect(bx - 3, ty, 6, 1, C.sleeve);
+    b.rect(bx - 1, ty, 2, 1, C.skin);
+    b.rect(bx - 5, ty + 7, 10, 3, C.coatShadow);
+    b.rect(bx - 4, ty + 7, 8, 1, C.sleeve);
+    b.line(bx - 4, ty + 1, bx - 2, ty + 3, C.accent);
+    b.line(bx + 3, ty + 1, bx + 1, ty + 3, C.accent);
+    b.rect(bx - 2, ty + 3, 4, 3, C.accentLight);
+    b.rect(bx - 2, ty + 3, 4, 1, C.accentDark);
+    b.set(bx - 2, ty + 5, C.steelDark);
+  });
+}
+
+/** What goes on the face after the eyes and mouth: noses, whiskers, lashes, brows, glasses. */
+function drawFaceExtras(who: Character, hx: number, hy: number, eyes: Eyes) {
+  const x0 = Math.round(hx);
+  const y0 = Math.round(hy);
+  const eyeY = Math.round(hy - 2);
+  const set = (x: number, y: number, c: number) => main.set(x0 + x, y0 + y, c);
+  switch (who) {
+    case 'cat':
+      for (let x = -2; x <= 1; x++) set(x, 2, C.nose);
+      set(-1, 3, C.nose); set(0, 3, C.nose);
+      for (const s of [-1, 1]) {
+        const at = (k: number) => (s < 0 ? -9 - k : 8 + k);
+        for (let k = 0; k < 4; k++) { set(at(k), 3 - (k > 1 ? 1 : 0), C.hairOutline); set(at(k), 5 + (k > 1 ? 1 : 0), C.hairOutline); }
+      }
+      break;
+    case 'puppy':
+      for (let x = -2; x <= 1; x++) set(x, 2, C.nose);
+      set(-1, 3, C.nose); set(0, 3, C.nose);
+      set(-1, 2, colour('#7a6a70'));
+      break;
+    case 'woman':
+      if (!['blink', 'sleep', 'happy', 'squeeze', 'dizzy'].includes(eyes)) { main.set(x0 - 8, eyeY, C.pupil); main.set(x0 + 7, eyeY, C.pupil); }
+      break;
+    case 'genie':
+      if (eyes !== 'angry' && eyes !== 'focus') for (let x = 0; x <= 4; x++) { main.set(x0 - 8 + x, eyeY - 2, C.hair); main.set(x0 + 3 + x, eyeY - 2, C.hair); }
+      for (const [x, y] of [[-12, 2], [-13, 3], [-12, 4], [-11, 3]] as const) set(x, y, C.cuff);
+      break;
+    case 'senior': {
+      // Browline glasses: a heavy top bar, a thin grey rim underneath.
+      const rim = colour('#8792a8');
+      for (const [a, b] of [[-9, -2], [2, 8]] as const) {
+        for (let x = a; x <= b; x++) { main.set(x0 + x, eyeY - 1, C.frame); main.set(x0 + x, eyeY + 6, rim); }
+        for (let y = 0; y <= 5; y++) { main.set(x0 + a, eyeY + y, rim); main.set(x0 + b, eyeY + y, rim); }
+        main.set(x0 + b - 1, eyeY, colour('#d8f1ff'));
+      }
+      main.set(x0 - 1, eyeY, C.frame); main.set(x0, eyeY, C.frame);
+      break;
+    }
+  }
+}
+
 /** Props drawn between the torso and the hands (held in front, hands on top). */
 const MID_PROPS = new Set<Prop['kind']>(['laptop', 'mixer', 'flipbook', 'clip']);
 
 /** Renders a pose into the shared buffer and returns its pixels (RGBA, ART_W×ART_H). */
 export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
+  const who = pose.character ?? 'heli';
+  C = COLOURS[who];
   main.clear();
   const drop = pose.sit ? SIT_DROP[pose.sit] : 0;
   const ty = TORSO_Y + pose.y + drop;
@@ -725,16 +1135,44 @@ export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
   const arm = (which: 'L' | 'R') => which === 'L'
     ? drawArm(shoulderL[0], shoulderL[1], pose.armL, fingerL, pose.thumb === 'L', -1)
     : drawArm(shoulderR[0], shoulderR[1], pose.armR, fingerR, pose.thumb === 'R', 1);
-  drawPack(bx, ty);
+  const sway = pose.sway ?? 0;
+  // Behind the body: Heli's backpack, a tail, or Nova's long hair.
+  if (who === 'heli') drawPack(bx, ty);
+  else if (who === 'cat' || who === 'puppy') drawTail(pose, bx, ty, who);
+  else if (who === 'woman') drawLongHair(hx, hy, sway);
   if (pose.armLBack) arm('L');
   if (pose.armRBack) arm('R');
-  drawLegs(pose, ty);
-  drawTorso(bx, ty);
-  part((b) => drawHair(b, hx, hy, pose.sway ?? 0), C.hairOutline);
-  part((b) => drawHead(b, hx, hy), C.hairOutline);
-  drawBand(hx, hy);
+  if (who === 'genie') drawSmoke(pose, ty);
+  else drawLegs(pose, ty);
+  switch (who) {
+    case 'heli': drawTorso(bx, ty); break;
+    case 'cat': case 'puppy': drawFurBody(bx, ty); break;
+    case 'woman': drawDress(bx, ty); break;
+    case 'genie': drawVest(bx, ty); break;
+    case 'senior': drawHoodie(bx, ty); break;
+  }
+  switch (who) {
+    case 'heli':
+      part((b) => drawHair(b, hx, hy, sway), C.hairOutline);
+      part((b) => drawHead(b, hx, hy), C.hairOutline);
+      drawBand(hx, hy);
+      break;
+    case 'cat': part((b) => drawCatHead(b, hx, hy, sway), C.hairOutline); break;
+    case 'puppy':
+      part((b) => drawPuppyHead(b, hx, hy), C.hairOutline);
+      drawPuppyEars(hx, hy, sway);
+      break;
+    case 'woman':
+      part((b) => drawWomanHead(b, hx, hy), C.hairOutline);
+      drawFlower(hx, hy);
+      break;
+    case 'genie': part((b) => drawGenieHead(b, hx, hy, sway), C.hairOutline); break;
+    case 'senior': part((b) => drawSeniorHead(b, hx, hy), C.hairOutline); break;
+  }
   drawFace(hx, hy, pose);
-  drawGear(hx, hy, pose.gear ?? []);
+  drawFaceExtras(who, hx, hy, pose.eyes);
+  // Sudo's own glasses stay on; the round research pair would sit on top of them.
+  drawGear(hx, hy, (pose.gear ?? []).filter((gear) => !(who === 'senior' && gear === 'glasses')));
   for (const prop of props) if (MID_PROPS.has(prop.kind)) drawProp(prop, hands, bx);
   if (!pose.armLBack) arm('L');
   if (!pose.armRBack) arm('R');

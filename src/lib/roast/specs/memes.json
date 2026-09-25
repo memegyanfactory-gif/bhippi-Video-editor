@@ -1,10 +1,11 @@
 [
   {
     "name": "search_memes",
-    "description": "@funny meme brain: searches the local meme library (a curated Indian + global seed plus every meme saved with save_meme) for a beat. Pass the punchline's concrete words as `echo` — the literal echo (the meme says or names the word the host just said: \"zeher\", \"juice\", \"German shepherd\") is the strongest match and the device that makes a meme land. Also matches names and aliases in English, Hinglish and Devanagari (ज़हर finds zeher/zahar), the meme's meaning, what is said in its clip, the comic intent, emotion, trend score and region (Indian memes first when the words look Hinglish). Every hit carries reasons, meaning, useWhen, dontUseWhen and its formats. Unverified memes are hidden unless includeUnverified. Read-only; any phase. Before placing a hit, check its dontUseWhen against the beat and write a one-line why; then fetch it with get_meme_media.",
+    "description": "@funny meme brain: searches the local meme library (memes already explained and saved: a shipped seed plus every meme saved with save_meme) for a beat. It is a cache, not the whole internet: when nothing here fits the beat, or the user named a meme that is not here, use find_memes_online. Pass the punchline's concrete words as `echo` — the literal echo (the meme says or names the word the host just said: \"zeher\", \"juice\", \"German shepherd\") is the strongest match and the device that makes a meme land. Also matches names and aliases in English, Hinglish and Devanagari (ज़हर finds zeher/zahar), the meme's meaning, what is said in its clip, the comic intent, emotion, trend score and region. The video's audience decides which memes exist at all: viewers never get another country's local meme unless it crossed over, and their own country's memes come first. Every hit carries reasons, meaning, useWhen, dontUseWhen and its formats. Unverified memes are hidden unless includeUnverified. Read-only; any phase. Before placing a hit, check its dontUseWhen against the beat and write a one-line why; then fetch it with get_meme_media.",
     "input_schema": {
       "type": "object",
       "properties": {
+        "audience": { "type": "string", "description": "Who the video is for: \"global\" (the English-speaking internet at large) or the viewers' country as a two-letter code (IN, US, GB, BR, MX, JP, KR, PH, NG, DE…). Default: the comp's audience (set on save_beat_sheet). Another country's local memes are left out unless they crossed over; the audience's own come first. \"auto\" uses the comp's." },
         "query": { "type": "string", "description": "Free text: a meme name, a topic or the beat's words (any script)." },
         "echo": { "type": "array", "items": { "type": "string" }, "description": "Concrete words or short phrases from the beat a meme could repeat back (from the beat sheet's echo list), e.g. [\"zeher\"] or [\"German shepherd\"]." },
         "intent": {
@@ -13,7 +14,7 @@
           "description": "The beat's comic intent."
         },
         "emotion": { "type": "string", "description": "The emotion to hit (shock, sad, flex, cringe…)." },
-        "region": { "type": "string", "enum": ["IN", "global", "any"], "description": "Prefer Indian or global memes. Default: IN first when the words look Hinglish or Devanagari." },
+        "region": { "type": "string", "description": "Prefer memes from this region: global, a country code (IN, BR…) or any. Default: the audience's." },
         "format": { "type": "string", "enum": ["clip", "image", "template", "sound", "sticker", "gif", "any"], "description": "Prefer memes that have this format (e.g. clip for a cutaway with its own audio)." },
         "limit": { "type": "integer", "description": "Hits to return (default 8, max 30)." },
         "includeUnverified": { "type": "boolean", "description": "Also return memes whose meaning has not been checked against a source (never auto-place those)." }
@@ -22,11 +23,34 @@
     }
   },
   {
-    "name": "refresh_meme_trends",
-    "description": "@funny meme brain: what is trending right now, from Know Your Meme (newsfeed, with each entry's About/Origin text as `explainer`), Imgflip top templates, Reddit weekly top (r/IndianDankMemes, r/IndianMeyMeys, r/dankmemes, r/memes), YouTube searches via yt-dlp, and KLIPY / GIPHY trending when their keys are set in Settings › Memes. Answers the cached refresh when it is under 6 hours old (force:true refetches). Run it at the start of every @funny edit. Returns candidates (name, provider, url, explainer, mediaUrls), per-provider counts, problems (a failing provider never fails the call) and libraryHits (library memes trending now). Candidates are NOT library memes: to use one, write meaning / useWhen / dontUseWhen from its explainer or source page and call save_meme first.",
+    "name": "find_memes_online",
+    "description": "@funny meme brain: searches the internet for memes that fit THIS video — one beat's context, or a meme the user asked for by name — as the video's viewers' own internet would answer: DuckDuckGo results for their country and language, Know Your Meme (each hit's About/Origin text read as `explainer`), Reddit search and YouTube via yt-dlp. Use it for every punchline beat worth a meme (search_memes first only as a cache of memes already explained), and always for a meme the user named (`named` true). For a non-English audience pass `localQuery`: the beat's idea in the viewers' language, the way their meme pages would say it. Returns candidates (name, provider, url, explainer, mediaUrls), problems (a failing source never fails the call) and libraryHits (library memes that match). Candidates are NOT library memes: read the explainer or page (scrape_web_page), check that the meme means what the beat needs and that this audience knows it, then save_meme (region: global or the country it is from) and get_meme_media. Read-only; any phase.",
     "input_schema": {
       "type": "object",
       "properties": {
+        "query": { "type": "string", "description": "What the beat is about as a meme would say it, in a few English words (\"pretending everything is fine\", \"caught lying on camera\"), or the meme's exact name when named is true (\"Distracted Boyfriend\")." },
+        "localQuery": { "type": "string", "description": "The same idea in the audience's language, when that is not English (\"se fazendo de sonso\", \"ばれた\", \"zeher de diya\"). Searched first: that is where the local memes are." },
+        "echo": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Concrete words from the beat a meme could say back (from the beat sheet's echo list)."
+        },
+        "named": { "type": "boolean", "description": "True when the user asked for this meme by name: find that exact meme and its explainer, not something like it." },
+        "audience": { "type": "string", "description": "Who the video is for: \"global\" (the English-speaking internet at large) or the viewers' country as a two-letter code (IN, US, GB, BR, MX, JP, KR, PH, NG, DE…). Default: the comp's audience (set on save_beat_sheet). Decides the search region and language." },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 40, "description": "Most candidates to return (default 20)." },
+        "compId": { "type": "string", "description": "The comp whose audience to use (default: the open one)." }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "refresh_meme_trends",
+    "description": "@funny meme brain: what is trending right now, from Know Your Meme (newsfeed, with each entry's About/Origin text as `explainer`), Imgflip top templates, Reddit weekly top (r/IndianDankMemes, r/IndianMeyMeys, r/dankmemes, r/memes), YouTube searches via yt-dlp, and KLIPY / GIPHY trending when their keys are in the credential store. Answers the cached refresh when it is under 6 hours old (force:true refetches). It says what is trending in general, not what fits a beat: for that use find_memes_online. Returns candidates (name, provider, url, explainer, mediaUrls), per-provider counts, problems (a failing provider never fails the call) and libraryHits (library memes trending now). Candidates are NOT library memes: to use one, write meaning / useWhen / dontUseWhen from its explainer or source page and call save_meme first.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "audience": { "type": "string", "description": "Who the video is for: \"global\" (the English-speaking internet at large) or the viewers' country as a two-letter code (IN, US, GB, BR, MX, JP, KR, PH, NG, DE…). Default: the comp's audience (set on save_beat_sheet). Candidates and library hits local to another country are left out." },
         "force": { "type": "boolean", "description": "Refetch even when the last refresh is under 6 hours old." },
         "queries": { "type": "array", "items": { "type": "string" }, "description": "Extra YouTube searches for this video's topic (at most 4), e.g. [\"Dhurandhar meme\"]; only used when the refresh goes online." },
         "query": { "type": "string", "description": "Only return candidates whose name or explainer contains this text." },
@@ -38,10 +62,11 @@
   },
   {
     "name": "save_meme",
-    "description": "@funny meme brain: saves a meme into the library (new, or replacing the entry with the same id), so search_memes can find it and get_meme_media can fetch it. Write meaning, useWhen and dontUseWhen from a real source (the explainer or page from refresh_meme_trends, Know Your Meme, Wikipedia, a Reddit explainer) and list that source in sources — a meme you cannot explain from a source must not be saved as verified. Rules: id kebab-case (derived from the name when omitted); meaning at least 30 characters; at least one useWhen; at least one source url; intent only from the comic intents; each format needs a url (page, video or file) or a yt-dlp query (\"ytsearch3:oggy jack juice meme\"), with in/out in source seconds for the usable moment and a transcript of what is said in it when there is speech. Writes only the meme library (Documents/Helios/Memes), not the project.",
+    "description": "@funny meme brain: saves a meme into the library (new, or replacing the entry with the same id), so search_memes can find it and get_meme_media can fetch it. Write meaning, useWhen and dontUseWhen from a real source (the explainer or page from refresh_meme_trends, Know Your Meme, Wikipedia, a Reddit explainer) and list that source in sources — a meme you cannot explain from a source must not be saved as verified. Rules: id kebab-case (derived from the name when omitted); meaning at least 30 characters; at least one useWhen; at least one source url; intent only from the comic intents; each format needs a url (page, video or file) or a yt-dlp query (\"ytsearch3:oggy jack juice meme\"), with in/out in source seconds for the usable moment and a transcript of what is said in it when there is speech. Writes only the meme library (Documents/Bhippi/Memes), not the project.",
     "input_schema": {
       "type": "object",
       "properties": {
+        "crossover": { "type": "boolean", "description": "For a local (country) meme only: true when it is known well outside its country too (Tunak Tunak Tun, Kacha Badam, Caramelldansen). Needs a source showing its international spread. Crossover memes may be used for any audience." },
         "id": { "type": "string", "description": "Kebab-case id, e.g. \"oggy-jack-juice\". Default: from the name." },
         "name": { "type": "string", "description": "The meme's common name." },
         "aliases": { "type": "array", "items": { "type": "string" }, "description": "Other names people use, in English, Hinglish (Roman) and Devanagari." },
@@ -83,8 +108,8 @@
             "additionalProperties": false
           }
         },
-        "region": { "type": "string", "enum": ["IN", "global"] },
-        "language": { "type": "string", "enum": ["hi", "en", "hinglish", "none"] },
+        "region": { "type": "string", "description": "global when the English-speaking internet at large knows it; otherwise the two-letter code of the country whose internet it comes from (IN, BR, MX, JP, KR, PH, NG…). A local meme is only offered to that country's viewers." },
+        "language": { "type": "string", "description": "What is said in it: an ISO 639-1 code (en, hi, pt, es, ja, ko, tl…), hinglish, or none (no speech)." },
         "firstSeen": { "type": "string", "description": "ISO date it first trended, when known." },
         "trendScore": { "type": "number", "description": "0–1; how hot it is now (default 0.5)." },
         "sources": {
@@ -105,7 +130,7 @@
   },
   {
     "name": "get_meme_media",
-    "description": "@funny meme brain: fetches one format of a library meme — a direct download, or yt-dlp for a page/video URL or a search query — cut to its moment (in/out, source seconds; keyframes forced at the cuts), caches it under Documents/Helios/Memes/media, and imports it into the project's \"Memes\" folder with commentary provenance. Returns assetId, and in/out within the imported file (already cut, so in is 0) plus hasAudio, ready for place_clip or a meme_cutaway move. The same format and cut come from the cache on the next call. Keep meme clips short (0.6–4 s is typical; at most 120 s). GATHER phase.",
+    "description": "@funny meme brain: fetches one format of a library meme — a direct download, or yt-dlp for a page/video URL or a search query — cut to its moment (in/out, source seconds; keyframes forced at the cuts), caches it under Documents/Bhippi/Memes/media, and imports it into the project's \"Memes\" folder with commentary provenance. Returns assetId, and in/out within the imported file (already cut, so in is 0) plus hasAudio, ready for place_clip or a meme_cutaway move. The same format and cut come from the cache on the next call. Keep meme clips short (0.6–4 s is typical; at most 120 s). GATHER phase.",
     "input_schema": {
       "type": "object",
       "properties": {

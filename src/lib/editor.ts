@@ -156,7 +156,7 @@ export function cssFilter(effects: Effects, stageH: number): string | undefined 
   return parts.join(' ');
 }
 
-export const safeFileName = (name: string) => name.replace(/[<>:"/\\|?*]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'helios-export';
+export const safeFileName = (name: string) => name.replace(/[<>:"/\\|?*]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'bhippi-export';
 
 export type Cue = { start: number; end: number; text: string };
 

@@ -4,6 +4,7 @@ import { Box, Check, Cpu, Download, Eraser, Film, FolderOpen, Image, Layers, Mus
 import { DownloadProgress, type DownloadJob } from './DownloadProgress';
 import { Toggle } from '../components/ui';
 import { api, errorText } from '../lib/ipc';
+import { AI_PACK_FEATURES, aiPackApi, aiPackReady, type AiPackStatus } from '../lib/aiPack';
 import type { Settings } from '../lib/types';
 
 type Task = NonNullable<Awaited<ReturnType<typeof api.localMediaStatus>>>['tasks'][number];
@@ -31,13 +32,21 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [hfToken, setHfToken] = useState('');
+  const [pack, setPack] = useState<AiPackStatus | null>(null);
+  const installPack = async () => {
+    try { const id = await aiPackApi.install(); setMessage(`AI pack install started. Follow progress or cancel in Jobs (${id}).`); }
+    catch (e) { setError(errorText(e)); }
+  };
   const install = async (task: string) => {
     try { const id = await api.localMediaInstall(task, task === 'audio' && hfToken.trim() ? hfToken.trim() : undefined); setMessage(`Download started. Follow progress or cancel in Jobs (${id}).`); }
     catch (e) { setError(errorText(e)); }
   };
   useEffect(() => {
     let stopped = false;
-    const refresh = () => void api.localMediaStatus().then(value => { if (!stopped) setStatus(value); }).catch(e => { if (!stopped) setError(errorText(e)); });
+    const refresh = () => {
+      void api.localMediaStatus().then(value => { if (!stopped) setStatus(value); }).catch(e => { if (!stopped) setError(errorText(e)); });
+      void aiPackApi.status().then(value => { if (!stopped) setPack(value); }).catch(() => undefined);
+    };
     refresh();
     const interval = window.setInterval(refresh, 2000);
     return () => { stopped = true; window.clearInterval(interval); };
@@ -92,10 +101,24 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
 
     <section className="provider-group">
       <h4><Cpu size={14} /> GPU runtime</h4>
+      {pack && (
+        <div className={`tool-card${aiPackReady(pack) ? ' ok' : ' missing'}`}>
+          {aiPackReady(pack) ? <Check size={18} /> : <Download size={18} />}
+          <div>
+            <strong>{aiPackReady(pack) ? 'AI pack installed' : 'AI pack — one click'}</strong>
+            <span>{AI_PACK_FEATURES}. Installs its own Python, PyTorch{pack.cuda ? ' with CUDA for your NVIDIA GPU' : ' (CPU build — no NVIDIA GPU found)'} and the models. Text-to-image and text-to-video models are not included.</span>
+            {!aiPackReady(pack) && <span>About {(pack.remainingMb / 1000).toFixed(1)} GB to download{pack.python || pack.libraries || pack.tasks.some(([, done]) => done) ? ' — resumes where it stopped' : ''}.</span>}
+          </div>
+          <div className="provider-actions">
+            {!aiPackReady(pack) && <button type="button" className="btn btn-small" onClick={() => void installPack()}><Download size={12} /> Install AI pack</button>}
+          </div>
+        </div>
+      )}
       <div className={`tool-card${pythonReady ? ' ok' : ' missing'}`}>
         {pythonReady ? <Check size={18} /> : <TriangleAlert size={18} />}
         <div>
           <strong>{pythonReady ? 'Python environment set' : 'No Python environment set yet'}</strong>
+          {!pythonReady && <span>Install the AI pack above, or choose your own Python environment.</span>}
           <span>{settings.localMediaPython || 'Every task below needs one Python environment with CUDA PyTorch, Diffusers, Transformers, Accelerate, Pillow, SoundFile and imageio-ffmpeg.'}</span>
           {!pythonReady && <span className="warn">Choose it first — every Download button below stays disabled until this is set.</span>}
         </div>

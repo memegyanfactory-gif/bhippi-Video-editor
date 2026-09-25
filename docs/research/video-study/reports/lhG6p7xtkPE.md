@@ -11,7 +11,7 @@
 **Conventions.**
 - f is the 1-based frame number, and t = (f − 1)/25.
 - Pixels are at 1080p. The kit's frames are 720p, scaled ×1.5.
-- Angles use Helios's sign convention and its default 50 mm camera (`DEFAULT_ZOOM_RATIO`, `src/motion/evaluate.ts:48`).
+- Angles use Bhippi's sign convention and its default 50 mm camera (`DEFAULT_ZOOM_RATIO`, `src/motion/evaluate.ts:48`).
 - The top-left "Video Created by burnwe" badge was masked out of every measurement.
 
 **What matters most**
@@ -104,12 +104,12 @@ The VO column paraphrases the caption words.
 
 ## 3 Technique catalogue
 
-**How to read the Helios status column:**
+**How to read the Bhippi status column:**
 - **Today**: a template or tool covers it.
 - **By hand**: the engine can express it in a raw `create_motion_scene`, but no template or guide teaches it, and the AI doesn't know to do it.
 - **NEW**: it needs something the engine doesn't have. The pillar it belongs to is given in brackets.
 
-| # | Technique | Frames | What it is (measured) | AE build | Helios status |
+| # | Technique | Frames | What it is (measured) | AE build | Bhippi status |
 |---|---|---|---|---|---|
 | L1 | Continuous lavender world | all | Vertical gradient `#e9ecf5` → `#cdd4f0`, a periwinkle radial glow at the bottom, and soft diagonal window-light shafts (about 60°) drifting slowly. It never cuts, and fades to white at the end | Gradient solid, radial glow, and 3–5 heavily blurred white strips at 60° with slow position wiggle, at 20–40% opacity | Gradient and glow **today** (`linear-gradient`, `radial-glow`). Shafts are **NEW**: procedural `light-shafts` (P5, S) |
 | L2 | Card rise + focus pull + fade | 1–35 | Rise 373 px, `cubic-bezier(0.149, 0.844, 0.113, 0.98)`. Opacity 0 → 100 in about 5 f. Gaussian σ 24 → 0 px, halving about every 2.5 f | Position keys with an expo-out graph; Camera Lens Blur keyed; opacity | **By hand** (keys + `gaussian-blur` `blurriness` 48 → 0). The curve isn't a token (P10) |
@@ -159,7 +159,7 @@ Each fit keeps x1 and x2 in [0, 1]. The rmse is on normalised progress.
 - **Curve:** `(0.149, 0.844, 0.113, 0.980)`. Free-start fit from f1: `(0.182, 0.852, 0.086, 0.982)`.
 - **rmse:** 0.0009 (free-start 0.0008).
 - **How the travel builds:** 60% by f6, 75% by f8, 90% by f13, 95% by f17.
-- **Blur:** σ 24/18/15/10.5/10.5/7.5/6/4.5/3/2.2/1.5 px on f2–f12, and 0 by f16. In Helios that's `blurriness` 2σ.
+- **Blur:** σ 24/18/15/10.5/10.5/7.5/6/4.5/3/2.2/1.5 px on f2–f12, and 0 by f16. In Bhippi that's `blurriness` 2σ.
 - **Opacity:** 0.39/0.50/0.63/0.65/1.0 on f2–f6.
 
 **M2 · Bracket converge**
@@ -297,7 +297,7 @@ VO times are YouTube ASR word starts, accurate to about ±0.1 s. A positive lead
 
 **Light shafts.** Three to five soft white diagonal bands at about 60°, each 150–300 px wide, peaking about 10% brighter than the background. They drift slowly (about 0.5 px/f) and cross the whole frame behind every beat. They fade out with the glow on the end card.
 
-**Content caution for a Helios recreation.** The film uses **real third-party UIs** (LinkedIn chrome, the Gmail inbox and logo). Helios must generate generic "social post" and "mail" kinds and never reproduce another brand's UI or logo (the §7 licence rule of the plan).
+**Content caution for a Bhippi recreation.** The film uses **real third-party UIs** (LinkedIn chrome, the Gmail inbox and logo). Bhippi must generate generic "social post" and "mail" kinds and never reproduce another brand's UI or logo (the §7 licence rule of the plan).
 
 ---
 
@@ -354,7 +354,7 @@ VO times are YouTube ASR word starts, accurate to about ±0.1 s. A positive lead
 
 ---
 
-## 7 What Helios needs
+## 7 What Bhippi needs
 
 This section reconciles with the pillars and adds only what's missing. It uses the vocabulary of
 `src/motion/types.ts`.

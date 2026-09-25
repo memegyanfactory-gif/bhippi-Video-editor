@@ -718,7 +718,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
     <div className="comp-layers" style={{ width: props.stageW, height: props.stageH }}>
       {allDefs.length > 0 && (
         <svg
-          className="helios-fx-defs"
+          className="bhippi-fx-defs"
           style={{
             position: 'absolute',
             width: 0,

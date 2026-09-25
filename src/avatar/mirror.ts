@@ -87,7 +87,7 @@ export class ChatMirror {
     return wasBusy ? NONE : { type: 'started' };
   }
 
-  /** Whether Helios AI is at work: a call running, or a live turn that spoke recently. */
+  /** Whether Bhippi AI is at work: a call running, or a live turn that spoke recently. */
   busy(now: number): boolean {
     for (const [id, seen] of this.turns) {
       if (now - seen > TURN_STALE_MS && ![...this.calls.values()].some((call) => call.turnId === id)) this.turns.delete(id);

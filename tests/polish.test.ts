@@ -57,7 +57,7 @@ describe('frame QA of HTML graphics and captions', () => {
     const child = { ...newProject().comps[0], name: '[MOGRT] card' };
     const childTrack = tracksOf(child, 'video')[0].id;
     // Every layer clip of an opened graphic carries the whole graphic's box; this card crosses the safe margin.
-    const layer = (id: string) => ({ ...graphic(childTrack, `Layer ${id}`, { x: 0.01, y: 0.4, width: 0.3, height: 0.2 }, 'teaching-card'), source: { type: 'html' as const, html: '<div></div>', css: `/* helios-layers stack=s1 layer=${id} of=3 */
+    const layer = (id: string) => ({ ...graphic(childTrack, `Layer ${id}`, { x: 0.01, y: 0.4, width: 0.3, height: 0.2 }, 'teaching-card'), source: { type: 'html' as const, html: '<div></div>', css: `/* bhippi-layers stack=s1 layer=${id} of=3 */
 `, box: { x: 0.01, y: 0.4, width: 0.3, height: 0.2 }, template: 'teaching-card' } });
     child.clips.push(layer('0'), layer('1'), layer('2'));
     project.comps.push(child);

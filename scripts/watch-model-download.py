@@ -1,4 +1,4 @@
-"""Expose an already-running download in Helios settings without restarting it."""
+"""Expose an already-running download in Bhippi settings without restarting it."""
 import ctypes
 import json
 from pathlib import Path
@@ -7,7 +7,7 @@ import time
 from huggingface_hub import model_info
 
 pid = int(sys.argv[1])
-root = Path.home() / 'AppData/Roaming/studio.helios.desktop/models/generation/image'
+root = Path.home() / 'AppData/Roaming/com.bhippi.videoeditor/models/generation/image'
 parts = Path(__file__).resolve().parents[1] / 'work/model-download'
 info = model_info('stabilityai/stable-diffusion-xl-base-1.0', files_metadata=True)
 weights = [f for f in info.siblings if f.rfilename.endswith('.fp16.safetensors')]
@@ -23,7 +23,7 @@ try:
     while True:
         code = ctypes.c_uint32()
         alive = kernel.GetExitCodeProcess(handle, ctypes.byref(code)) and code.value == 259
-        manifest = root / 'helios-install.json'
+        manifest = root / 'bhippi-install.json'
         installed = manifest.is_file() and json.loads(manifest.read_text()).get('weightsVerified') is True
         completed = 0
         for file in weights:
@@ -34,9 +34,9 @@ try:
                 completed += min(file.size, sum(p.stat().st_size for p in folder.glob('*.part')) if folder.is_dir() else 0)
         status = 'done' if installed else 'running' if alive else 'error'
         marker = {'status': status, 'progress': min(1, completed / total), 'downloadedBytes': completed, 'totalBytes': total, 'updatedAt': time.time(), 'message': 'Downloading and verifying SDXL weights' if alive and not installed else 'SDXL installed' if installed else 'Download stopped; completed chunks are retained', 'external': True}
-        temporary = root / 'helios-download.tmp'
+        temporary = root / 'bhippi-download.tmp'
         temporary.write_text(json.dumps(marker), encoding='utf-8')
-        temporary.replace(root / 'helios-download.json')
+        temporary.replace(root / 'bhippi-download.json')
         if status != 'running': break
         time.sleep(10)
 finally:

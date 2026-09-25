@@ -1,12 +1,12 @@
-// A results section a model wrote into its own answer — Helios' "What your last reply's calls
+// A results section a model wrote into its own answer — Bhippi's "What your last reply's calls
 // actually returned" block copied, or invented, by a CLI on the text protocol. The backend now
 // hides it as it streams (ai_tools.rs FenceFilter); answers saved before that still carry it, so
 // it is folded into one small "tool-results" code window instead of a wall of JSON in the words.
 
 const MARKERS = [/^#{1,6}\s*What your last reply's calls actually returned/, /^Use the ids and values below instead of ones you guessed/];
-/** `- \`edit_file\` → {…}`: one call's result, as Helios lists them. */
+/** `- \`edit_file\` → {…}`: one call's result, as Bhippi lists them. */
 const RESULT = /^\s*[-*•]\s+`[\w.-]+`\s*(→|->)/;
-/** The instructions Helios closes the section with. */
+/** The instructions Bhippi closes the section with. */
 const CLOSING = /^(If a job is still running|Now continue)/;
 
 export function foldToolEcho(text: string): string {

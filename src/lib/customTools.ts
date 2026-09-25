@@ -1,12 +1,12 @@
 // Dynamic AI Custom Tool Management System
-// Enables Helios AI and external models to dynamically invent, persist, improve,
+// Enables Bhippi AI and external models to dynamically invent, persist, improve,
 // and execute reusable editing tools and macro recipes.
 //
 // A tool is one of two kinds:
 //   - ops:   an edit program template (`opsTemplate`), applied to the timeline as one undo step.
-//   - steps: an ordered list of calls to any other Helios tool (`steps`) — run_command for FFmpeg
+//   - steps: an ordered list of calls to any other Bhippi tool (`steps`) — run_command for FFmpeg
 //            or a script, import_media, add_captions, another custom tool… — for what the edit
-//            program cannot express. This is how the AI builds a capability Helios does not have.
+//            program cannot express. This is how the AI builds a capability Bhippi does not have.
 
 import type { Op, Program } from './editProgram';
 import type { Recipe, Context } from './recipes';
@@ -85,7 +85,7 @@ export function valueAtPath(root: unknown, path: string[]): unknown {
   return at;
 }
 
-/** Where steps tools may write files, and the FFmpeg Helios found — set once at startup. */
+/** Where steps tools may write files, and the FFmpeg Bhippi found — set once at startup. */
 const toolEnv: { workDir?: string; ffmpeg?: string; windows?: boolean } = {};
 export function setCustomToolEnv(env: { workDir?: string; ffmpeg?: string | null; windows?: boolean }) {
   toolEnv.workDir = env.workDir;
@@ -212,7 +212,7 @@ export function substituteStepArgs(args: Record<string, unknown> | undefined, pa
 export const STEP_FORBIDDEN = new Set(['create_custom_tool', 'update_custom_tool', 'delete_custom_tool']);
 export const MAX_STEPS = 40;
 
-/** Why a steps list cannot be saved, or null. `known` is every tool name Helios executes. */
+/** Why a steps list cannot be saved, or null. `known` is every tool name Bhippi executes. */
 export function validateSteps(steps: unknown, known: ReadonlySet<string>, selfName: string): string | null {
   if (!Array.isArray(steps) || steps.length === 0) return 'steps must be a non-empty list of { tool, args } calls';
   if (steps.length > MAX_STEPS) return `A steps tool can have at most ${MAX_STEPS} steps`;
@@ -223,7 +223,7 @@ export function validateSteps(steps: unknown, known: ReadonlySet<string>, selfNa
     const step = raw as ToolStep;
     if (typeof step.tool !== 'string' || !step.tool.trim()) return `${at} needs a "tool" name`;
     if (STEP_FORBIDDEN.has(step.tool)) return `${at} calls ${step.tool}; a custom tool cannot create, change or delete custom tools`;
-    if (!known.has(step.tool) && !step.tool.startsWith('mcp__')) return `${at} calls "${step.tool}", which is not a Helios tool. Use one of the listed tools (run_command covers anything a shell can do).`;
+    if (!known.has(step.tool) && !step.tool.startsWith('mcp__')) return `${at} calls "${step.tool}", which is not a Bhippi tool. Use one of the listed tools (run_command covers anything a shell can do).`;
     if (step.tool === 'call_custom_tool' && typeof step.args?.name === 'string' && step.args.name.trim().toLowerCase() === selfName.trim().toLowerCase()) return `${at} calls this tool itself`;
     if (step.args !== undefined && (typeof step.args !== 'object' || step.args === null || Array.isArray(step.args))) return `${at} "args" must be an object`;
     if (step.as !== undefined) {
@@ -249,7 +249,7 @@ export function customToolsBrief(tools: CustomTool[] = cachedTools ?? []) {
   }));
 }
 
-/** Convert a stored CustomTool into an active Helios Recipe */
+/** Convert a stored CustomTool into an active Bhippi Recipe */
 export function customToolToRecipe(tool: CustomTool): Recipe {
   return {
     name: tool.name.toLowerCase().replace(/_/g, '-'),

@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "helios: stop app",
+      "label": "bhippi: stop app",
       "type": "shell",
       "command": "npm run stop",
       "options": {
@@ -14,10 +14,10 @@
         "panel": "shared",
         "showReuseMessage": false
       },
-      "detail": "Closes a running Helios so the build can replace the binary."
+      "detail": "Closes a running Bhippi so the build can replace the binary."
     },
     {
-      "label": "helios: build ui",
+      "label": "bhippi: build ui",
       "type": "shell",
       "command": "npm run build",
       "options": {
@@ -35,7 +35,7 @@
       "detail": "Typecheck, then bundle the UI into dist/, which the desktop binary embeds."
     },
     {
-      "label": "helios: build app",
+      "label": "bhippi: build app",
       "type": "shell",
       "command": "node scripts/run-app.mjs --build-only",
       "options": {
@@ -53,10 +53,10 @@
         "panel": "shared",
         "showReuseMessage": false
       },
-      "detail": "UI first, then the Rust desktop binary. Closes a running Helios and waits for the binary to be free, so the link step cannot collide with it."
+      "detail": "UI first, then the Rust desktop binary. Closes a running Bhippi and waits for the binary to be free, so the link step cannot collide with it."
     },
     {
-      "label": "helios: run app",
+      "label": "bhippi: run app",
       "type": "shell",
       "command": "npm run app",
       "options": {
@@ -71,7 +71,7 @@
       "detail": "Build and launch the desktop app."
     },
     {
-      "label": "helios: dev (hot reload)",
+      "label": "bhippi: dev (hot reload)",
       "type": "shell",
       "command": "npm run dev",
       "options": {
@@ -87,7 +87,7 @@
       "detail": "Desktop window with UI hot reload (tauri dev)."
     },
     {
-      "label": "helios: test everything",
+      "label": "bhippi: test everything",
       "type": "shell",
       "command": "npm test",
       "options": {
@@ -106,7 +106,7 @@
       "detail": "Vitest for the UI, cargo test for the workspace."
     },
     {
-      "label": "helios: dump hang stacks",
+      "label": "bhippi: dump hang stacks",
       "type": "shell",
       "command": "npm run debug:hang",
       "options": {
@@ -121,7 +121,7 @@
       "detail": "Frozen window? Prints the UI thread's stack without stopping the app (full dump in target/hang-reports)."
     },
     {
-      "label": "helios: show logs",
+      "label": "bhippi: show logs",
       "type": "shell",
       "command": "npm run debug:log",
       "options": {
@@ -133,10 +133,10 @@
         "panel": "dedicated",
         "showReuseMessage": false
       },
-      "detail": "Tail helios.log, hang.log and crash.log from %APPDATA%/studio.helios.desktop."
+      "detail": "Tail bhippi.log, hang.log and crash.log from %APPDATA%/com.bhippi.videoeditor."
     },
     {
-      "label": "helios: installer",
+      "label": "bhippi: installer",
       "type": "shell",
       "command": "npm run bundle",
       "options": {

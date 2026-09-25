@@ -103,7 +103,7 @@ const uid = () => `c_${Math.random().toString(36).slice(2, 9)}`;
  */
 export function buildMotionGraphic(params: MotionGraphicParams): MotionGraphicBundle {
   const template = (params.template || 'crimson-lower-third').toLowerCase();
-  const title = params.title || 'HELIOS MOTION';
+  const title = params.title || 'BHIPPI MOTION';
   // Copy the caller did not give is left out, never made up.
   const subtitle = params.subtitle ?? '';
   const metric = params.metric ?? '';
@@ -270,7 +270,7 @@ if (window.gsap && container) {
     { opacity: 1, y: 0, stagger: 0.08, duration: 0.5, ease: "back.out(1.5)" },
     "-=0.4"
   );
-  window.__helios_timeline = tl;
+  window.__bhippi_timeline = tl;
 }
 `.trim(),
       };
@@ -638,7 +638,7 @@ if (window.gsap && container) {
   if (card) {
     const tl = gsap.timeline({ paused: true });
     tl.fromTo(card, { x: -60, opacity: 0 }, { x: 0, opacity: 1, duration: 0.6, ease: "power3.out" });
-    window.__helios_timeline = tl;
+    window.__bhippi_timeline = tl;
   }
 }
 `.trim(),

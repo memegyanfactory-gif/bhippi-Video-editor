@@ -1,6 +1,6 @@
 // What is left on the current provider's plan, in the chat bar.
 //
-// Ported from Bhippi's meter: a ring that fills as the allowance goes and walks green → amber →
+// Ported from the Bhippi desktop app's meter: a ring that fills as the allowance goes and walks green → amber →
 // red on the way, the percentage beside it because colour is never the only signal, and a drop-up
 // with the detail. Above about nine tenths it also raises a banner, which is the moment worth
 // interrupting for.
@@ -138,7 +138,7 @@ export function UsageMeter({ provider, model, onSwitch }: {
             <div className="bar-scrim" onPointerDown={() => setOpen(false)} aria-hidden="true" />
             <div className="bar-popover usage-popover" style={at} role="dialog" aria-label="Plan usage">
               <div className="usage-head">
-                <ProviderLogo id={provider?.id ?? 'helios'} size={14} />
+                <ProviderLogo id={provider?.id ?? 'bhippi'} size={14} />
                 <span className="usage-head-name">{provider?.label ?? 'No provider'}</span>
                 {model && <span className="usage-head-model">{model}</span>}
               </div>
@@ -163,7 +163,7 @@ export function UsageMeter({ provider, model, onSwitch }: {
                 </>
               ) : (
                 <p className="usage-note">
-                  Nothing reported yet. Providers tell Helios where they stand while a turn runs, so this fills in after the first message.
+                  Nothing reported yet. Providers tell Bhippi where they stand while a turn runs, so this fills in after the first message.
                 </p>
               )}
 

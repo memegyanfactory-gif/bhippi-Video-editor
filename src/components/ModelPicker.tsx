@@ -1,4 +1,4 @@
-// Provider + model picker for the chat composer (adapted from Bhippi's UnifiedModelPicker).
+// Provider + model picker for the chat composer (adapted from the Bhippi desktop app's UnifiedModelPicker).
 //
 // The panel is one fixed height whatever the provider lists — OpenCode alone lists nearly four
 // hundred models — and the list scrolls inside it. Families that come in several sizes (Gemini
@@ -15,8 +15,8 @@ import { modelTitle, pickerEntries, type PickerEntry } from '../lib/modelTiers';
 import { ProviderLogo } from './ProviderLogo';
 import '../styles/models.css';
 
-const FAVORITES_KEY = 'helios.favoriteModels.v1';
-const RECENTS_KEY = 'helios.recentModels.v1';
+const FAVORITES_KEY = 'bhippi.favoriteModels.v1';
+const RECENTS_KEY = 'bhippi.recentModels.v1';
 /** A model list older than this is re-read in the background when the picker opens. */
 export const STALE_AFTER_MS = 10 * 60_000;
 /** The panel's height. It never grows with the list; the list scrolls inside it. */
@@ -117,7 +117,7 @@ export function ModelPicker({ providers, providerId, model, onSelect, onManage, 
   }, [open]);
 
   // Opening with an old list re-reads every provider in the background; the rows update in place
-  // when the sweep lands (App listens for `helios://providers`).
+  // when the sweep lands (App listens for `bhippi://providers`).
   useEffect(() => {
     if (open && isStale(providers)) refresh();
   }, [open]);
@@ -264,7 +264,7 @@ export function ModelPicker({ providers, providerId, model, onSelect, onManage, 
   return (
     <div ref={anchor} className="picker-anchor">
       <button type="button" className={`picker-trigger${open ? ' active' : ''}`} onClick={() => onOpenChange(!open)} title={`${current?.label ?? 'Provider'} · ${model ?? 'default'}`}>
-        <ProviderLogo id={providerId ?? 'helios'} size={16} />
+        <ProviderLogo id={providerId ?? 'bhippi'} size={16} />
         <span className="picker-provider">{current?.label ?? 'Choose provider'}</span>
         <span className="picker-model">{label}</span>
         <ChevronDown size={12} />

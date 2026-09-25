@@ -50,7 +50,7 @@ async function writeFrame(dir: string, index: number, png: Uint8Array, signal: A
     const leaf = dir.split(/[\\/]/).filter(Boolean).pop() ?? '';
     try {
       const response = await fetch(`${sink.url}/frame/${encodeURIComponent(leaf)}/${index}`, {
-        method: 'PUT', headers: { 'x-helios-token': sink.token }, body: png as BodyInit, signal,
+        method: 'PUT', headers: { 'x-bhippi-token': sink.token }, body: png as BodyInit, signal,
       });
       if (response.ok) return;
       throw new Error(`frame ${index}: the frame sink answered ${response.status}`);

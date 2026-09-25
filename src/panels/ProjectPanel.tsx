@@ -2,7 +2,7 @@
 // list views — plus the Effects, Graphics and Audio tabs you drag onto the timeline.
 import { renderHtmlCompStill } from '../lib/htmlFrames';
 import {
-  AudioLines, Captions, ChevronDown, ChevronRight, Clapperboard, FileText, Folder, FolderOpen, Grid2x2, Image as ImageIcon, LayoutTemplate, List, LoaderCircle, Play, Plus, RotateCw, Search, SlidersHorizontal, Trash2,
+  AudioLines, Captions, ChevronRight, Clapperboard, Folder, FolderOpen, Grid2x2, Image as ImageIcon, LayoutTemplate, List, LoaderCircle, Play, Plus, RotateCw, Search, SlidersHorizontal, Trash2,
   TriangleAlert, Type, Upload, Video,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
@@ -11,9 +11,7 @@ import { StyledCaptionText } from '../editor/StyledCaption';
 import { CAPTION_STYLES, STYLE_CATEGORIES, type CaptionStyle } from '../lib/captionStyles';
 import { bytes, capitalize, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
-import { api, events, fileSrc, type ProjectDoc } from '../lib/ipc';
-import { groupDocs } from '../lib/projectDocs';
-import { DocViewer } from './DocViewer';
+import { api, fileSrc } from '../lib/ipc';
 import { playSfx } from '../lib/sfx';
 import { compDuration, ITEM_LABEL, tracksOf, usage } from '../lib/timeline';
 import type { Asset, ClipSource, Comp, FxSnapshot, ItemKind, Preset, Project, ProjectItem, SfxKind, TransitionKind } from '../lib/types';
@@ -118,10 +116,6 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
   const [size, setSize] = useState(132);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [posters, setPosters] = useState<Record<string, string>>({});
-  const [notes, setNotes] = useState<ProjectDoc[] | null>(null);
-  const [notesOpen, setNotesOpen] = useState(true);
-  const [olderOpen, setOlderOpen] = useState(false);
-  const [viewing, setViewing] = useState<ProjectDoc | null>(null);
   const posterDone = useRef<Set<string>>(new Set());
   const counts = useMemo(() => usage(project), [project]);
   const assetMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
@@ -193,34 +187,12 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
       .catch(() => undefined);
   };
 
-  // The project folder's documents — the AI's guidelines, plans and todo lists, storyboards and
-  // research notes — so nothing the assistant writes is invisible. They follow the disk: the AI
-  // writing one, a save filing one, or the user deleting one in Explorer (seen on focus).
-  const refreshNotes = () => {
-    void api.projectDocs()
-      .then((found) => setNotes(found))
-      .catch(() => setNotes([]));
-  };
-  const deleteDoc = (doc: ProjectDoc) => {
-    void api.projectDocDelete(doc.path).then(refreshNotes).catch(() => undefined);
-    setViewing((current) => (current?.path === doc.path ? null : current));
-  };
   useEffect(() => {
-    const pending = events.docs(refreshNotes);
-    window.addEventListener('focus', refreshNotes);
-    return () => {
-      window.removeEventListener('focus', refreshNotes);
-      void pending.then((unlisten) => unlisten());
-    };
-  }, []);
-
-  useEffect(() => {
-    refreshNotes();
     for (const item of project.comps) {
       if (!posterDone.current.has(item.id) && compDuration(item) > 0) refreshPoster(item.id);
     }
-    // Posters follow comp identity, notes follow the folder: both refresh when
-    // the project (and only then) is swapped or rebuilt.
+    // Posters follow comp identity: they refresh when the project (and only
+    // then) is swapped or rebuilt.
   }, [project.comps.length, project.name]);
 
   // Delete and Ctrl+A work on the visible bin entries when the panel has
@@ -228,11 +200,7 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
   // timeline clips and Ctrl+A never also selects them.
   const deleteSelection = () => {
     if (!selection.length) return;
-    const docPaths = selection.filter((id) => id.startsWith('doc:')).map((id) => id.slice(4));
-    const rest = selection.filter((id) => !id.startsWith('doc:'));
-    if (docPaths.length) void Promise.all(docPaths.map((path) => api.projectDocDelete(path).catch(() => undefined))).then(refreshNotes);
-    if (rest.length) onDelete(rest);
-    else onSelect([]);
+    onDelete(selection);
   };
   const onBinKeyDown = (event: React.KeyboardEvent) => {
     const target = event.target as HTMLElement;
@@ -352,71 +320,6 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
             </tbody>
           </table>
         )}
-        {(notes === null || notes.length > 0) && (
-          <div className="bin-notes">
-            <div className="bin-notes-toggle" role="button" tabIndex={0}
-              onClick={() => setNotesOpen((prev) => !prev)}
-              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setNotesOpen((prev) => !prev); } }}
-              title={notesOpen ? 'Collapse documents' : 'Expand documents'}>
-              {notesOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <span className="bin-notes-title">Documents</span>
-              <span className="muted">{notes === null ? 'reading…' : `${notes.filter((doc) => !doc.legacy).length} in the project folder`}</span>
-              <span className="bin-notes-spacer" />
-              <button type="button" className="icon-btn small" title="Open the Guidelines folder"
-                onClick={(event) => { event.stopPropagation(); void api.storageOpen('guidelines').catch(() => undefined); }}>
-                <FolderOpen size={11} />
-              </button>
-              <button type="button" className="icon-btn small" title="Refresh documents"
-                onClick={(event) => { event.stopPropagation(); refreshNotes(); }}>
-                <RotateCw size={11} />
-              </button>
-            </div>
-            {notesOpen && (
-              <div className="bin-notes-list">
-                {groupDocs(notes ?? []).map((group) => {
-                  const open = !group.legacy || olderOpen;
-                  return (
-                    <div key={group.folder}>
-                      <button type="button" className="bin-docs-group" onClick={() => group.legacy && setOlderOpen((prev) => !prev)}
-                        title={group.legacy ? 'Notes written before documents were kept in each project folder' : `${group.folder} folder`}>
-                        {group.legacy && (olderOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />)}
-                        {group.folder} · {group.docs.length}
-                      </button>
-                      {open && group.docs.map((doc) => {
-                        const id = `doc:${doc.path}`;
-                        return (
-                          <div key={doc.path} className={`bin-doc${selection.includes(id) ? ' picked' : ''}`}
-                            onPointerDown={(event) => {
-                              if (event.shiftKey || event.ctrlKey) onSelect(selection.includes(id) ? selection.filter((entry) => entry !== id) : [...selection, id]);
-                              else onSelect([id]);
-                            }}
-                            onClick={(event) => { if (!event.shiftKey && !event.ctrlKey) setViewing(doc); }}
-                            title={`${doc.relative}\n${doc.path}`}>
-                            <FileText size={13} className="bin-doc-icon" />
-                            <span className="bin-doc-name">{doc.name.replace(/\.(md|markdown|txt)$/i, '')}</span>
-                            <span className="muted">{(doc.size / 1024).toFixed(1)} KB</span>
-                            <button type="button" className="icon-btn small" title="Show in folder"
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onClick={(event) => { event.stopPropagation(); void api.revealPath(doc.path); }}>
-                              <FolderOpen size={12} />
-                            </button>
-                            <button type="button" className="icon-btn small danger" title="Delete this document"
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onClick={(event) => { event.stopPropagation(); deleteDoc(doc); }}>
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-                {notes !== null && notes.length === 0 && <p className="muted">No documents yet — the assistant files its guidelines and plans here as it works.</p>}
-              </div>
-            )}
-          </div>
-        )}
-        {viewing && <DocViewer doc={viewing} onClose={() => setViewing(null)} onDelete={deleteDoc} />}
       </div>
       <div className="bin-foot">
         <button type="button" className={`icon-btn small${view === 'list' ? ' active' : ''}`} onClick={() => setView('list')} title="List View"><List size={14} /></button>
@@ -598,7 +501,7 @@ function GraphicsTab({ project, assets, history, clipSelection, onAddText, onCap
           <input ref={fileInput} type="file" accept=".srt,.vtt" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportCaptions(file); event.target.value = ''; }} />
         </div>
         <div className="style-current">
-          {selectedCaption ? 'Selected caption' : 'Default for new captions'}: <strong>{CAPTION_STYLES.find((style) => style.id === current)?.label ?? 'Helios basic'}</strong>
+          {selectedCaption ? 'Selected caption' : 'Default for new captions'}: <strong>{CAPTION_STYLES.find((style) => style.id === current)?.label ?? 'Bhippi basic'}</strong>
           {captionClips.length > 0 && current && (
             <button type="button" className="btn btn-small btn-ghost" onClick={() => {
               const style = CAPTION_STYLES.find((item) => item.id === current);

@@ -1,5 +1,5 @@
 // The editor shell: the Premiere workspace, its menus and keymap, the context menus, the dialogs,
-// project files, and the bridge between Helios AI's tool calls and the project.
+// project files, and the bridge between Bhippi AI's tool calls and the project.
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
@@ -21,6 +21,7 @@ import { RENDERED_EFFECTS } from './lib/effectSupport';
 import { LearningWorkspace } from './panels/LearningWorkspace';
 import { ChatPanel, type ChatApi, type ToolRun } from './chat/ChatPanel';
 import { StoryboardViewer } from './chat/StoryboardViewer';
+import { steer } from './chat/steer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ResourceMonitor } from './components/ResourceMonitor';
 import { GenerationJobsMenu } from './components/GenerationJobsMenu';
@@ -37,13 +38,13 @@ import { MenuList, Panel, Splitter, type MenuItem } from './components/workspace
 import { CompAudio } from './editor/Compositor';
 import { ProgramMonitor, type ProgramApi } from './editor/ProgramMonitor';
 import { SourceMonitor, type SourceApi, type SourceRange } from './editor/SourceMonitor';
-import { DEFAULT_DISPLAY, dropClips, LABELS, Timeline, type DisplaySettings, type IncomingDrag, type TimelineApi } from './editor/Timeline';
+import { DEFAULT_DISPLAY, dropClips, dropIntoEmpty, LABELS, Timeline, type DisplaySettings, type IncomingDrag, type TimelineApi } from './editor/Timeline';
 import { AudioMeters, DEFAULT_METERS, ToolsPanel, TOOL_LABEL } from './editor/ToolsAndMeters';
 import { aiContext, generatedFolderId, runTool, TOOL_SPECS, warmCustomTools } from './lib/aiTools';
 import { customToolsBrief } from './lib/customTools';
 import { brandKitContext, resolveActiveKit } from './lib/brandKit';
 import { recordTurnOutcome, type TurnOutcome } from './lib/ideagraph';
-import { applyTheme, resolveTheme } from './lib/theme';
+import { applyTheme, resolveGlass, resolveMotion, resolveTheme } from './lib/theme';
 import { allowTool, DEFAULT_EFFORT, DEFAULT_PERMISSION, type Effort, type PermissionMode } from './lib/permissions';
 import { rotoscope } from './lib/roto';
 import type { AgentRun, Connection } from './chat/ChatStatusBar';
@@ -66,7 +67,7 @@ import {
 } from './lib/timeline';
 import { isLayeredComp, splitMotionComps } from './lib/motionStack';
 import { isHtmlLayered, splitHtmlComp } from './lib/htmlLayers';
-import type { AppInfo, Asset, Clip, Comp, ExportOptions, HeliosDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase } from './lib/types';
+import type { AppInfo, Asset, Clip, ClipSource, Comp, ExportOptions, BhippiDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase } from './lib/types';
 import { ProjectPanel, type DragPayload, type EffectPreset, type ProjectTab } from './panels/ProjectPanel';
 import { PropertiesPanel } from './panels/PropertiesPanel';
 import { EffectControlsPanel } from './panels/EffectControlsPanel';
@@ -98,6 +99,13 @@ import { setBrandKitDoc } from './lib/brandKit/activeStore';
 import { licenseStore, useLicense } from './license/licenseStore';
 import { Avatar } from './avatar/Avatar';
 import { avatarBus } from './avatar/bus';
+import { KNOWN_TOOLS } from './lib/aiTools';
+import { pluginEvents, setPluginEditor } from './plugins/bridge';
+import { PLUGIN_MAKER_PERSONA } from './plugins/brief';
+import { PluginMaker } from './plugins/PluginMaker';
+import { BackgroundPlugins, panelPlugins, pluginGlyph, PluginsPanelBody } from './plugins/PluginsPanel';
+import { loadPlugins, patchPlugin, pluginsBrief, usePlugins } from './plugins/store';
+import { selectedPlugin } from './plugins/aiTools';
 
 /**
  * How narrow each panel may be dragged.
@@ -107,9 +115,9 @@ import { avatarBus } from './avatar/bus';
  * contents spill over the panel beside it. The chat's floor is set by its composer row — model,
  * thinking, permission and send, side by side without wrapping.
  */
-const PANEL_MIN = { chat: 436, transcript: 240, source: 260, properties: 260, project: 260, top: 220 } as const;
+const PANEL_MIN = { chat: 436, transcript: 240, source: 260, properties: 260, project: 260, plugins: 240, top: 220 } as const;
 
-const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, transcriptWidth: 320, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, hidden: [], meters: DEFAULT_METERS };
+const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, transcriptWidth: 320, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, pluginsWidth: 360, hidden: [], meters: DEFAULT_METERS };
 const EMPTY_SETTINGS: Settings = {
   disabledProviders: [], providerId: null, model: null, effort: null, permission: null, awesomeLook: false, ffmpegPath: null, chatOpen: true, timelineHeight: null, timelineZoom: null,
   disableLocalGeneration: true,
@@ -119,7 +127,7 @@ const EMPTY_SETTINGS: Settings = {
 };
 
 /** When the saved choice is unusable, prefer agents the user is signed in to, then local, then cloud. */
-const PREFERENCE = ['claude', 'codex', 'gemini', 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', 'openrouter', 'groq', 'xai', 'deepseek', 'mistral', 'moonshot', 'opencode', 'grok', 'antigravity', 'helios'];
+const PREFERENCE = ['claude', 'codex', 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', 'openrouter', 'groq', 'xai', 'deepseek', 'mistral', 'moonshot', 'opencode', 'grok', 'antigravity', 'bhippi'];
 
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || (target.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes((target as HTMLInputElement).type)));
@@ -146,16 +154,30 @@ function describeArgs(args: Record<string, unknown>): string {
     .join(' · ');
 }
 
+/** Whether a screen point is over a timeline panel — geometry, since a drag overlay may cover it. */
+const overTimeline = (x: number, y: number) => [...document.querySelectorAll<HTMLElement>('.timeline')].some((node) => {
+  const rect = node.getBoundingClientRect();
+  return rect.width > 0 && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+});
+
 export default function App() {
   const toast = useToast();
   // A crash the last session hit (the error boundary kept it): say so once, with the message.
   useEffect(() => {
     const crash = takeLastCrash();
-    if (crash) toast({ tone: 'error', title: 'Helios recovered from an error', body: `${crash.message} — details are in crash.log in the Helios data folder.`, timeout: 12000 });
+    if (crash) toast({ tone: 'error', title: 'Bhippi recovered from an error', body: `${crash.message} — details are in crash.log in the Bhippi data folder.`, timeout: 12000 });
   }, [toast]);
   const history = useHistory(newProject());
   const { project } = history;
   const [learningOpen, setLearningOpen] = useState(false);
+  /** The Plugin Maker workspace, and the plugin it has open (null: a new one). */
+  const [makerOpen, setMakerOpen] = useState(false);
+  const [makerPlugin, setMakerPlugin] = useState<string | null>(null);
+  const [pluginTab, setPluginTab] = useState<string | null>(null);
+  const makerChatApi = useRef<ChatApi | null>(null);
+  /** The Plugins panel was asked for while it has no plugin tabs, so it shows its empty state. */
+  const [pluginsInvited, setPluginsInvited] = useState(false);
+  const { plugins } = usePlugins();
   const [loaded, setLoaded] = useState(false);
   const [savedProject, setSavedProject] = useState<Project | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -179,14 +201,14 @@ export default function App() {
 
   const isPlaying = usePlaying();
   // The tool-call listener is registered once, so it reads the current mode through a ref.
-  // What the chat can reach. Helios' own tools are always there; MCP servers join as they connect.
+  // What the chat can reach. Bhippi's own tools are always there; MCP servers join as they connect.
   const [mcpServers, setMcpServers] = useState<McpStatus[]>([]);
   const refreshConnections = useCallback(() => {
     void api.mcpServers().then(setMcpServers).catch(() => setMcpServers([]));
   }, []);
   useEffect(() => refreshConnections(), [refreshConnections]);
   const connections: Connection[] = [
-    { id: 'helios', label: 'Helios project tools', kind: 'builtin', state: 'ready', detail: 'built in', tools: TOOL_SPECS.length },
+    { id: 'bhippi', label: 'Bhippi project tools', kind: 'builtin', state: 'ready', detail: 'built in', tools: TOOL_SPECS.length },
     ...mcpServers.map((server) => ({
       id: server.id,
       label: server.label,
@@ -332,6 +354,7 @@ export default function App() {
           sourceWidth: Math.max(PANEL_MIN.source, saved.sourceWidth),
           propertiesWidth: Math.max(PANEL_MIN.properties, saved.propertiesWidth),
           projectWidth: Math.max(PANEL_MIN.project, saved.projectWidth),
+          pluginsWidth: Math.max(PANEL_MIN.plugins, saved.pluginsWidth ?? DEFAULT_LAYOUT.pluginsWidth!),
           topHeight: Math.max(PANEL_MIN.top, saved.topHeight),
         });
       }
@@ -346,7 +369,7 @@ export default function App() {
       setLoaded(true);
       api.providersList().then(setProviders).catch(() => undefined);
       if (startup) void openProjectFile(startup);
-    })().catch((error) => toast({ tone: 'error', title: 'Helios could not load your project', body: errorText(error) }));
+    })().catch((error) => toast({ tone: 'error', title: 'Bhippi could not load your project', body: errorText(error) }));
     return () => {
       cancelled = true;
     };
@@ -368,7 +391,7 @@ export default function App() {
       }),
       events.openFile((path) => {
         actionLogger.user(`Open File: ${path}`, { path });
-        // Behind the license gate a double-clicked project waits until Helios is unlocked.
+        // Behind the license gate a double-clicked project waits until Bhippi is unlocked.
         if (licenseStore.get().blocked) {
           const unsubscribe = licenseStore.subscribe(() => {
             if (licenseStore.get().blocked) return;
@@ -433,10 +456,18 @@ export default function App() {
     assets: () => assetMap,
     selection: () => selection,
     setSelection,
-    ask: (question: { question: string; options: string[]; context: string | null }) =>
+    permission: () => permissionRef.current,
+    ask: (question: { question: string; options: string[]; context: string | null }, signal?: AbortSignal) =>
       new Promise<string>((resolve) => {
-        // The turn is waiting on this, so the card stays until it is answered or skipped.
-        setPendingAsks((current) => [...current, { ...question, answer: resolve }]);
+        // The turn is waiting on this, so the card stays until it is answered or skipped — or the
+        // turn ends (Stop, an error), when nobody is left to read the answer and the card goes.
+        const entry = { ...question, answer: resolve };
+        if (signal?.aborted) return resolve('The turn ended before the editor answered.');
+        signal?.addEventListener('abort', () => {
+          setPendingAsks((current) => current.filter((item) => item !== entry));
+          resolve('The turn ended before the editor answered.');
+        }, { once: true });
+        setPendingAsks((current) => [...current, entry]);
       }),
     importMedia: async (paths: string[], targetFolderId?: string | null) => {
       const result = await api.libraryImport(paths);
@@ -564,6 +595,39 @@ export default function App() {
 
   const hostRef = useRef(toolHost);
   hostRef.current = toolHost;
+
+  // Plugins (src/plugins): the bridge runs their calls against the same host and rules as the AI's.
+  useEffect(() => {
+    void loadPlugins();
+    setPluginEditor({
+      host: () => {
+        const host = hostRef.current;
+        return { ...host, history: { ...host.history,
+          commit: (...args: Parameters<typeof host.history.commit>) => flushSync(() => host.history.commit(...args)),
+          view: (...args: Parameters<typeof host.history.view>) => flushSync(() => host.history.view(...args)),
+          undo: () => flushSync(() => host.history.undo()),
+        } };
+      },
+      runTool: (host, name, args) => runTool(host, name, args),
+      known: KNOWN_TOOLS,
+      toolSpecs: () => TOOL_SPECS,
+      permission: () => permissionRef.current,
+      disableLocalGeneration: () => settingsRef.current.disableLocalGeneration ?? true,
+      toast: (tone, title, body) => toast({ tone, title, body }),
+      chat: (message) => chatApi.current?.send(message),
+    });
+  }, [toast]);
+  useEffect(() => pluginEvents.project(), [project]);
+  useEffect(() => pluginEvents.selection(selection), [selection]);
+  useEffect(() => {
+    let last = 0;
+    return playhead.subscribe(() => {
+      const now = performance.now();
+      if (now - last < 200) return;
+      last = now;
+      pluginEvents.playhead(playhead.get());
+    });
+  }, []);
   const toolAborts = useRef(new Map<string, { turnId: string; controller: AbortController }>());
   useEffect(() => {
     const pending = events.chat(event => {
@@ -714,7 +778,8 @@ export default function App() {
           [call.turnId]: (current[call.turnId] ?? []).map((run) => (run.callId === call.callId ? { ...run, summary, status, ms, changedProject } : run)),
         }));
       }
-      await api.chatToolResult(call.turnId, call.callId, result).catch(() => undefined);
+      // Anything the user typed while this turn works goes back with this result, so the model reads it now.
+      await api.chatToolResult(call.turnId, call.callId, steer.attach(call.turnId, result)).catch(() => undefined);
     });
     return () => void pending.then((unlisten) => unlisten());
   }, []);
@@ -823,22 +888,23 @@ export default function App() {
 
   // The color theme is surface only: Minimalist flattens the chrome, nothing else changes.
   useEffect(() => {
-    applyTheme(resolveTheme(settings));
+    applyTheme(resolveTheme(settings), resolveGlass(settings), resolveMotion(settings));
+    pluginEvents.theme();
   }, [settings]);
 
   // ── project files ──────────────────────────────────────────────────────
   /**
-   * Everything a .helios needs to open complete: the project, its media, and in `extras` the
+   * Everything a .bhippi needs to open complete: the project, its media, and in `extras` the
    * brand kit (so it opens with its look on a machine that never had the kit), the chat
    * transcript and the project folder its files were sorted into.
    */
-  const documentFor = async (value: Project): Promise<HeliosDocument> => {
+  const documentFor = async (value: Project): Promise<BhippiDocument> => {
     const [chat, projectFolder] = await Promise.all([
       api.chatLogLoad().catch(() => [] as unknown[]),
       api.storageProjectDir().catch(() => null),
     ]);
     return {
-      format: 'helios', version: 3, savedAt: new Date().toISOString(), project: value,
+      format: 'bhippi', version: 3, savedAt: new Date().toISOString(), project: value,
       assets: assets.filter((asset) => value.media.some((ref) => ref.assetId === asset.id)),
       extras: { brandKit: resolveActiveKit(settingsRef.current.brandKits, value), chat, projectFolder },
     };
@@ -850,11 +916,11 @@ export default function App() {
   };
 
   const writeProject = async (path: string, keepPath: boolean): Promise<boolean> => {
-    const target = path.toLowerCase().endsWith('.helios') ? path : `${path}.helios`;
+    const target = path.toLowerCase().endsWith('.bhippi') ? path : `${path}.bhippi`;
     try {
       // The save gathers every file the project uses (AI downloads, generated media, voice-overs,
-      // roto runs, storyboard pictures, the AI's guidelines…) into the folder the .helios owns and
-      // files each comp's plan under Storyboard/ — see src-tauri/src/bundle.rs.
+      // roto runs, storyboard pictures, the AI's guidelines…) into the folder the .bhippi owns and
+      // files each comp's plan under Documents/Storyboard/ — see src-tauri/src/bundle.rs.
       const base = history.current();
       const report = await api.projectFileSave(target, await documentFor(base), keepPath, storyboardDocs(base));
       if (keepPath) {
@@ -891,7 +957,7 @@ export default function App() {
     // Unsaved projects are offered their own project folder (<storage root>/<name>/Project).
     await api.storageSetProject(project.name).catch(() => undefined);
     const folder = await api.storageDir('project').catch(() => null);
-    const path = await api.pickSavePath(keepPath ? 'Save project as' : 'Save a copy', `${safeFileName(project.name)}.helios`, 'Helios project', ['helios'], folder);
+    const path = await api.pickSavePath(keepPath ? 'Save project as' : 'Save a copy', `${safeFileName(project.name)}.bhippi`, 'Bhippi project', ['bhippi'], folder);
     if (!path) return false;
     return writeProject(path, keepPath);
   };
@@ -900,7 +966,7 @@ export default function App() {
 
   const openProjectFile = async (path: string) => {
     try {
-      const raw = (await api.projectFileRead(path)) as HeliosDocument;
+      const raw = (await api.projectFileRead(path)) as BhippiDocument;
       const bundled = Array.isArray(raw.assets) ? raw.assets : [];
       if (bundled.length) {
         await api.libraryAdopt(bundled).catch(() => ({}));
@@ -980,7 +1046,7 @@ export default function App() {
 
   const openProject = () =>
     guardUnsaved(async () => {
-      const picked = await api.pickOpenPath('Open project', 'Helios project', ['helios']);
+      const picked = await api.pickOpenPath('Open project', 'Bhippi project', ['bhippi']);
       if (picked) await openProjectFile(picked);
     }, 'Open another project');
 
@@ -1013,7 +1079,7 @@ export default function App() {
       event.preventDefault();
       setDialog(
         <ConfirmDialog
-          title="Close Helios"
+          title="Close Bhippi"
           top
           body={`Save changes to “${history.current().name}” before closing?`}
           confirmLabel="Save and close"
@@ -1028,7 +1094,7 @@ export default function App() {
   }, [savedProject, history]);
 
   // Updates from bhippi.com (lib/updater.ts): checked in the background once the project is in.
-  // Installing closes Helios, so the work is saved first. A project with a file is saved to it when
+  // Installing closes Bhippi, so the work is saved first. A project with a file is saved to it when
   // it has changes, as closing the window does. Every project is also flushed to the autosave that
   // reopens it, so an edit still in the autosave's half-second wait is not lost; for the session
   // project (no file) that is its only copy, so the install waits for it rather than asking where
@@ -1063,17 +1129,27 @@ export default function App() {
     announced.current = updateNews;
     toast(
       phase === 'ready'
-        ? { tone: 'success', title: `Helios ${version} is ready`, body: 'Install it now, or any time from Settings › About. Your project is saved first.', timeout: 15000, actions: [{ label: 'Restart and install', run: () => void updater.install() }] }
-        : { tone: 'info', title: `Helios ${version} is available`, body: 'Download it from Settings › About.', timeout: 10000, actions: [{ label: 'Open', run: () => setSettingsTab('about') }] },
+        ? { tone: 'success', title: `Bhippi ${version} is ready`, body: 'Install it now, or any time from Settings › About. Your project is saved first.', timeout: 15000, actions: [{ label: 'Restart and install', run: () => void updater.install() }] }
+        : { tone: 'info', title: `Bhippi ${version} is available`, body: 'Download it from Settings › About.', timeout: 10000, actions: [{ label: 'Open', run: () => setSettingsTab('about') }] },
     );
   }, [updateNews, toast]);
 
   // ── layout ─────────────────────────────────────────────────────────────
   const hidden = (panel: PanelId) => layout.hidden.includes(panel);
+  // The Plugins panel shows when it has plugin tabs, or when the user asked for it (its empty state invites building one).
+  const shownPlugins = panelPlugins(plugins);
+  const showPlugins = !hidden('plugins') && (shownPlugins.length > 0 || pluginsInvited);
   const setPanelVisible = (panel: PanelId, visible: boolean) => {
     setLayout((current) => ({ ...current, hidden: visible ? current.hidden.filter((id) => id !== panel) : [...new Set([...current.hidden, panel])] }));
     if (!visible && maximized === panel) setMaximized(null);
   };
+  // A question from Bhippi AI is answered in the chat, and the turn waits on it: bring the chat
+  // back (and out from under a maximized panel) so the card and its options are never hidden.
+  useEffect(() => {
+    if (!pendingAsks.length) return;
+    setLayout((current) => (current.hidden.includes('chat') ? { ...current, hidden: current.hidden.filter((id) => id !== 'chat') } : current));
+    setMaximized((current) => (current && current !== 'chat' ? null : current));
+  }, [pendingAsks.length]);
   const showPanel = (panel: PanelId, tab?: ProjectTab) => {
     setPanelVisible(panel, true);
     setFocused(panel);
@@ -1094,29 +1170,63 @@ export default function App() {
   const limit = useCallback((clip: Clip) => sourceLimit(history.current(), assetMap, clip), [history, assetMap]);
   const targetedTracks = () => (comp ? comp.tracks.filter((track) => track.targeted && !track.locked).map((track) => track.id) : []);
 
+  const showPanelRef = useRef(showPanel);
+  showPanelRef.current = showPanel;
+
+  /** After a drop lands: select it and, when it made or filled an empty comp, show it from the start. */
+  const landDrop = useCallback(({ compId, clips }: { compId: string; clips: Clip[] }) => {
+    if (!clips.length) return;
+    setSelection(clips.map((clip) => clip.id));
+    if (clips.some((clip) => clip.start > 0.001)) return;
+    playhead.seek(0);
+    showPanelRef.current('timeline');
+    // Fit once the new comp has rendered, so the whole drop is on screen.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (history.current().activeCompId === compId) timelineApi.current?.fit();
+    }));
+  }, [history]);
+
   const importFiles = useCallback(async (paths: string[], drop?: { x: number; y: number }) => {
     if (!paths.length) return;
     try {
       const result = await api.libraryImport(paths);
-      await refreshAssets();
       const all = [...result.imported, ...result.existing];
+      // The drop places clips from what the import just returned — the asset list in state doesn't
+      // hold new files yet, and reading them from it placed picture-only clips with no sound.
+      const map = new Map(assets.map((item) => [item.id, item])) as AssetMap;
+      for (const asset of all) map.set(asset.id, asset);
+      if (result.imported.length) setAssets((current) => [...current, ...result.imported.filter((asset) => !current.some((item) => item.id === asset.id))]);
+      void refreshAssets();
       if (all.length) {
+        let placed: { compId: string; clips: Clip[] } | null = null;
         history.commit((current) => {
           let next = { ...current, media: [...current.media, ...all.filter((asset) => !current.media.some((ref) => ref.assetId === asset.id)).map((asset) => ({ assetId: asset.id, folderId: binFolder, offline: false }))] };
-          const target = drop ? timelineApi.current?.dropTarget(drop.x, drop.y) : null;
-          const active = next.comps.find((item) => item.id === next.activeCompId);
+          if (!drop) return next;
+          const active = next.comps.find((item) => item.id === next.activeCompId) ?? null;
+          if (overTimeline(drop.x, drop.y) && (!active || !active.clips.length)) {
+            const made = dropIntoEmpty(next, map, active, all.map((asset) => ({ source: { type: 'media', assetId: asset.id } as ClipSource, label: asset.name })), nestComps);
+            if (made) {
+              placed = { compId: made.compId, clips: made.clips };
+              return made.project;
+            }
+          }
+          const target = timelineApi.current?.dropTarget(drop.x, drop.y);
           if (target && active) {
             let cursor = target.time;
             let build = active;
+            const clips: Clip[] = [];
             for (const asset of all) {
-              const result_ = dropClips(next, new Map(assets.map((item) => [item.id, item])) as AssetMap, build, { kind: 'source', source: { type: 'media', assetId: asset.id }, label: asset.name, x: 0, y: 0, ctrl: false }, { ...target, time: cursor }, nestComps);
+              const result_ = dropClips(next, map, build, { kind: 'source', source: { type: 'media', assetId: asset.id }, label: asset.name, x: 0, y: 0, ctrl: false }, { ...target, time: cursor }, nestComps);
               build = placeClips(result_.comp, result_.clips, 'overwrite');
+              clips.push(...result_.clips);
               cursor += result_.clips[0]?.duration ?? STILL_DEFAULT;
             }
             next = updateComp(next, active.id, () => build);
+            placed = { compId: active.id, clips };
           }
           return next;
         }, 'Import');
+        if (placed) landDrop(placed);
       }
       if (result.imported.length) toast({ tone: 'success', title: `Imported ${result.imported.length} file${result.imported.length === 1 ? '' : 's'}`, body: result.imported.map((asset) => asset.name).join(', ').slice(0, 160) });
       for (const failure of result.failed.slice(0, 3)) toast({ tone: 'error', title: `Skipped ${failure.path.split(/[\\/]/).pop()}`, body: failure.reason });
@@ -1124,7 +1234,7 @@ export default function App() {
       toast({ tone: 'error', title: 'Import failed', body: errorText(error) });
       if (errorText(error).includes('FFmpeg')) setSettingsTab('media');
     }
-  }, [assets, binFolder, history, nestComps, refreshAssets, toast]);
+  }, [assets, binFolder, history, landDrop, nestComps, refreshAssets, toast]);
 
   const pickFiles = useCallback(async () => {
     const extensions = info?.extensions ?? ['mp4', 'mov', 'mkv', 'webm', 'mp3', 'wav', 'm4a', 'png', 'jpg'];
@@ -1526,6 +1636,16 @@ export default function App() {
   };
 
   const dropPayload = (payload: DragPayload, event: PointerEvent) => {
+    // Onto a timeline with nothing on it: the comp is made (or fitted) to the source, as with files.
+    if (payload.kind === 'source' && (!comp || !comp.clips.length) && overTimeline(event.clientX, event.clientY)) {
+      if (!comp && payload.source.type === 'comp') return openComp(payload.source.compId);
+      if (comp && payload.source.type === 'comp' && wouldCycle(project, comp.id, payload.source.compId)) return;
+      const made = dropIntoEmpty(project, assetMap, comp ?? null, [{ source: payload.source, label: payload.label }], nestComps);
+      if (!made) return;
+      history.commit(() => made.project, comp ? 'Drop' : 'New Comp from Clip');
+      landDrop({ compId: made.compId, clips: made.clips });
+      return;
+    }
     if (!comp) return;
     const target = timelineApi.current?.dropTarget(event.clientX, event.clientY);
     if (payload.kind === 'transition') {
@@ -1562,8 +1682,8 @@ export default function App() {
         const ratio = window.devicePixelRatio || 1;
         const point = { x: payload.position.x / ratio, y: payload.position.y / ratio };
         if (document.elementFromPoint(point.x, point.y)?.closest('.chat, .sketch-editor')) return;
-        const heliosFile = payload.paths.find((path) => path.toLowerCase().endsWith('.helios'));
-        if (heliosFile) void openProjectFile(heliosFile);
+        const bhippiFile = payload.paths.find((path) => path.toLowerCase().endsWith('.bhippi'));
+        if (bhippiFile) void openProjectFile(bhippiFile);
         else void importFiles(payload.paths, point);
       }
     });
@@ -2043,7 +2163,7 @@ export default function App() {
       { label: 'Project Settings…', onSelect: projectSettings },
       { label: 'Enable Graphic Scripts', disabled: !hasHeldScripts, onSelect: enableScripts },
       { label: 'Open Project Folder', onSelect: () => void api.storageOpen(null).catch((error) => toast({ tone: 'error', title: 'Could not open the project folder', body: errorText(error) })) },
-      { label: 'Reveal Helios Data Folder', onSelect: () => info && void api.openPath(info.dataDir) },
+      { label: 'Reveal Bhippi Data Folder', onSelect: () => info && void api.openPath(info.dataDir) },
       { separator: true },
       { label: 'Exit', shortcut: 'Ctrl+Q', onSelect: () => void getCurrentWindow().close() },
     ] },
@@ -2071,7 +2191,7 @@ export default function App() {
       { label: 'Find…', shortcut: 'Ctrl+F', onSelect: () => { showPanel('project', 'project'); (document.querySelector('[data-role="bin-search"]') as HTMLInputElement | null)?.focus(); } },
       { separator: true },
       { label: 'Keyboard Shortcuts…', shortcut: 'Ctrl+Alt+K', onSelect: () => setShortcutsOpen(true) },
-      { label: 'Settings…', shortcut: 'Ctrl+,', onSelect: () => setSettingsTab('providers') },
+      { label: 'Settings…', shortcut: 'Ctrl+,', onSelect: () => setSettingsTab('general') },
     ] },
     { label: 'Clip', items: [
       { label: 'Generate Sound for Selection', disabled: !selectedClips.length, submenu: soundSelectionMenu(selection) },
@@ -2182,10 +2302,27 @@ export default function App() {
       { label: 'Minimize All Tracks', shortcut: 'Shift+-', onSelect: () => trackHeights('all', -40) },
     ] },
     { label: 'Learning', items: [{label:'Reference learning workspace…',onSelect:()=>setLearningOpen(true)}] },
+    { label: 'Plugins', items: [
+      { label: 'Custom Plugin…', onSelect: () => { setMakerPlugin(null); setMakerOpen(true); } },
+      { label: 'Plugin Maker', onSelect: () => setMakerOpen(true) },
+      { label: 'Show Plugins Panel', checked: showPlugins, onSelect: () => { setPanelVisible('plugins', !showPlugins); setPluginsInvited(!showPlugins); } },
+      ...(plugins.length ? [{ separator: true } as MenuItem] : []),
+      ...plugins.map((item) => ({
+        label: `${pluginGlyph(item)} ${item.name}`,
+        submenu: [
+          { label: 'Show as Panel', checked: item.enabled && item.panel, onSelect: () => { void patchPlugin(item.id, { panel: !(item.enabled && item.panel), enabled: true }); if (!(item.enabled && item.panel)) { setPanelVisible('plugins', true); setPluginTab(item.id); } } },
+          { label: 'Run in Background', checked: item.background, onSelect: () => void patchPlugin(item.id, { background: !item.background }) },
+          { label: 'Enabled', checked: item.enabled, onSelect: () => void patchPlugin(item.id, { enabled: !item.enabled }) },
+          { separator: true } as MenuItem,
+          { label: 'Edit in Plugin Maker…', onSelect: () => { setMakerPlugin(item.id); setMakerOpen(true); } },
+        ] as MenuItem[],
+      })),
+    ] },
     { label: 'Window', items: [
-      ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['transcript', 'Storyboard & Transcription', 'Shift+8'], ['chat', 'Helios AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
+      ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['transcript', 'Storyboard & Transcription', 'Shift+8'], ['chat', 'Bhippi AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
         label, shortcut, checked: !hidden(id), onSelect: () => setPanelVisible(id, hidden(id)),
       })),
+      { label: 'Plugins', checked: showPlugins, onSelect: () => { setPanelVisible('plugins', !showPlugins); setPluginsInvited(!showPlugins); } },
       { separator: true },
       { label: maximized ? 'Restore Panel Size' : 'Maximize Panel Under Cursor', shortcut: '`', onSelect: () => toggleMax(maximized ?? focused) },
       { label: 'Reset Workspace', onSelect: () => { setLayout(DEFAULT_LAYOUT); setMaximized(null); } },
@@ -2195,7 +2332,7 @@ export default function App() {
       { label: 'AI Providers…', onSelect: () => setSettingsTab('providers') },
       { label: 'Speech & Voice…', onSelect: () => setSettingsTab('speech') },
       { label: 'FFmpeg & Media…', onSelect: () => setSettingsTab('media') },
-      { label: 'About Helios', onSelect: () => setSettingsTab('about') },
+      { label: 'About Bhippi Video Editor', onSelect: () => setSettingsTab('about') },
     ] },
   ];
 
@@ -2264,7 +2401,7 @@ export default function App() {
         case 'newFolder': return newFolder;
         case 'shortcuts': return () => setShortcutsOpen(true);
         case 'toggleChat': return () => setPanelVisible('chat', hidden('chat'));
-        case 'settings': return () => setSettingsTab('providers');
+        case 'settings': return () => setSettingsTab('general');
         case 'find': return () => { showPanel('project', 'project'); (document.querySelector('[data-role="bin-search"]') as HTMLInputElement | null)?.focus(); };
         case 'fxConsole': return () => {
           setFxConsoleAnchor(getLiveMousePos());
@@ -2496,7 +2633,7 @@ export default function App() {
   const chatProviders = providers.filter((row) => row.usable && row.enabled);
   const providerId = useMemo(() => {
     if (settings.providerId && chatProviders.some((row) => row.id === settings.providerId)) return settings.providerId;
-    return PREFERENCE.find((id) => chatProviders.some((row) => row.id === id)) ?? 'helios';
+    return PREFERENCE.find((id) => chatProviders.some((row) => row.id === id)) ?? 'bhippi';
   }, [settings.providerId, chatProviders]);
   const model = providerId === settings.providerId ? settings.model : null;
 
@@ -2511,7 +2648,7 @@ export default function App() {
         const sep = projectDir.includes('\\') ? '\\' : '/';
         return `${projectDir}${sep}Storyboard${sep}${name}`;
       }
-      if (!info) throw new Error('Helios is still starting up');
+      if (!info) throw new Error('Bhippi is still starting up');
       const sep = info.dataDir.includes('\\') ? '\\' : '/';
       return `${info.dataDir}${sep}thumbnails${sep}${name}`;
     },
@@ -2530,7 +2667,23 @@ export default function App() {
     </Panel>
   );
 
-  const chatPanel = panel('chat', [{ id: 'chat', label: 'Helios AI' }, { id: 'providers', label: 'Providers' }], chatTab, (
+  // The Plugins panel: one tab per plugin shown as a panel, or an invitation to build one.
+  const activePlugin = shownPlugins.find((item) => item.id === pluginTab)?.id ?? shownPlugins[0]?.id ?? 'plugins';
+  const openMaker = (id: string | null) => { setMakerPlugin(id); setMakerOpen(true); };
+  const pluginsPanel = panel('plugins', shownPlugins.length ? shownPlugins.map((item) => ({ id: item.id, label: <span title={item.description}>{pluginGlyph(item)} {item.name}</span> })) : [{ id: 'plugins', label: 'Plugins' }], activePlugin, (
+    <PluginsPanelBody active={activePlugin} skip={makerOpen ? makerPlugin : null} onMaker={() => openMaker(null)} onOpenInMaker={openMaker} />
+  ), {
+    onTab: setPluginTab,
+    menu: [
+      { label: 'Custom Plugin…', onSelect: () => openMaker(null) },
+      ...(shownPlugins.some((item) => item.id === activePlugin) ? [
+        { label: 'Edit in Plugin Maker…', onSelect: () => openMaker(activePlugin) },
+        { label: 'Remove from Panel', onSelect: () => void patchPlugin(activePlugin, { panel: false }) },
+      ] : []),
+    ],
+  });
+
+  const chatPanel = panel('chat', [{ id: 'chat', label: 'Bhippi AI' }, { id: 'providers', label: 'Providers' }], chatTab, (
     <>
       <div className="chat-host" style={{ display: chatTab === 'chat' ? undefined : 'none' }}>
         {(!!comp?.storyboard?.length || !!comp?.videoBlueprint?.scenes?.length) && (
@@ -2556,7 +2709,6 @@ export default function App() {
             plan for the next task starts a fresh production (see parseProduction), which
             brings the dock back. */}
         <ChatPanel apiRef={chatApi} providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
-          onPolish={comp?.clips.length && !(comp.production && ['planning', 'plan-ready', 'gathering', 'gathered'].includes(comp.production.phase)) ? polishEdit : undefined}
           productionBar={comp?.production && comp.production.phase !== 'done' && (
             <ProductionBar
               comp={comp}
@@ -2577,10 +2729,10 @@ export default function App() {
             setPendingAsks(rest);
           }}
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
+          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), plugins: pluginsBrief(), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
-            // The brain learns every turn's tool outcomes; recording never disturbs the chat.
-            if (!settingsRef.current.ideagraphRecord || !outcome.tools.length) return;
+            // The brain learns from every turn (on unless turned off); recording never disturbs the chat.
+            if (settingsRef.current.ideagraphRecord === false) return;
             void recordTurnOutcome(outcome).catch(() => undefined);
           }}
           onStartWorkflow={(turnId, mode) => editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true))}
@@ -2620,7 +2772,7 @@ export default function App() {
           isPlaying={isPlaying}
         />
       ) : (
-        <div className="transcript-empty"><span>No storyboard for this comp yet. Ask Helios AI to plan the video — each scene then shows here with its frame.</span></div>
+        <div className="transcript-empty"><span>No storyboard for this comp yet. Ask Bhippi AI to plan the video — each scene then shows here with its frame.</span></div>
       )
     ) : (
       <TranscriptPanel project={project} comp={comp} assets={assetMap} refreshKey={transcriptRefresh} />
@@ -2739,19 +2891,48 @@ export default function App() {
     }
   }, [toast]);
 
-  const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, transcript: transcriptPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null };
+  const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, transcript: transcriptPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null, plugins: pluginsPanel };
   const maximizedPanel = maximized && maximizedContent[maximized] ? maximized : null;
 
   return (
     <div className="app">
       <MenuBar menus={menus} />
+      <BackgroundPlugins panelShown={showPlugins && (!maximizedPanel || maximizedPanel === 'plugins')} skip={makerOpen ? makerPlugin : null} />
+      {makerOpen && (
+        <PluginMaker
+          selected={makerPlugin}
+          onSelect={setMakerPlugin}
+          onPrompt={(text) => makerChatApi.current?.send(text)}
+          onClose={() => setMakerOpen(false)}
+          known={KNOWN_TOOLS}
+          chat={
+            <ChatPanel apiRef={makerChatApi} logScope="plugins" persona={PLUGIN_MAKER_PERSONA} lockedMode="quick" label="Plugin Maker chat"
+              instruction="You are in the Plugin Maker: build or change the plugin the user describes with save_plugin, then check it with plugin_logs. Do not call editing_workflow_status or verify_edit_workflow."
+              placeholder="Describe the plugin you want…"
+              providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
+              effort={effort} onEffort={(value) => saveSettings({ effort: value })}
+              permission={permission} onPermission={(value) => saveSettings({ permission: value })}
+              awesome={awesome} onAwesome={(value) => saveSettings({ awesomeLook: value })} onUndo={history.undo}
+              onReference={setReferenceId} editStyle={null} onStyle={() => undefined}
+              ask={pendingAsks[0] ?? null} askCount={pendingAsks.length}
+              onAnswer={(value) => { const [head, ...rest] = pendingAsks; head?.answer(value); setPendingAsks(rest); }}
+              connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
+              onManageProviders={() => setSettingsTab('providers')}
+              getContext={() => ({ ...(aiContext(history.current(), assetMap, selection) as object), customTools: customToolsBrief(), plugins: pluginsBrief(), pluginMaker: { openPluginId: selectedPlugin(), note: selectedPlugin() ? `The user has the "${selectedPlugin()}" plugin open: change THAT plugin (save_plugin with its id) unless they ask for a new one.` : 'No plugin is open: save_plugin creates a new one.' } })}
+              tools={toolRuns}
+              onStartWorkflow={(turnId, mode) => editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true))}
+              workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
+              onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)} />
+          }
+        />
+      )}
       {learningOpen && <LiveJobs>{(live) => <LearningWorkspace project={project} assets={assetMap} history={history} jobs={live} onClose={() => setLearningOpen(false)} />}</LiveJobs>}
       <HeaderBar
         resourceMonitor={<LiveJobs>{(live) => <ResourceMonitor jobs={live} runs={Object.values(toolRuns).flat()} onCancelJob={cancelJob} onDeleteJob={deleteJob} />}</LiveJobs>}
         mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }} onQueue={() => setQueueOpen(true)}
         exportDisabled={!hasClips} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}
-        onSettings={() => setSettingsTab('providers')} onUpdates={() => setSettingsTab('about')} providerBadge={<ProviderLogo id={providerId} size={24} />}
+        onSettings={() => setSettingsTab('general')} onUpdates={() => setSettingsTab('about')} providerBadge={<ProviderLogo id={providerId} size={24} />}
       />
 
       {mode === 'home' && (
@@ -2804,6 +2985,12 @@ export default function App() {
                 {!hidden('meters') && <AudioMeters prefs={layout.meters ?? DEFAULT_METERS} onPrefs={(meters) => setLayout((current) => ({ ...current, meters }))} mutes={mutes} onMutes={setMuteState} />}
               </div>
             </div>
+            {showPlugins && (
+              <>
+                <Splitter direction="vertical" onDrag={resize('pluginsWidth', PANEL_MIN.plugins, 900, -1)} onStart={beginResize} />
+                <div className="ws-side ws-plugins" style={{ width: layout.pluginsWidth ?? DEFAULT_LAYOUT.pluginsWidth }}>{pluginsPanel}</div>
+              </>
+            )}
           </>
         )}
       </main>
@@ -2865,7 +3052,7 @@ export default function App() {
         <div className="toolbar-spacer" />
         <span className="status-item muted">{TOOL_LABEL[tool] ?? 'Selection'}</span>
         <button type="button" className="status-item" onClick={() => setSettingsTab('providers')} title="AI providers">
-          <ProviderLogo id={providerId} size={12} /> {providers.find((row) => row.id === providerId)?.label ?? 'Helios'}
+          <ProviderLogo id={providerId} size={12} /> {providers.find((row) => row.id === providerId)?.label ?? 'Bhippi'}
           {providers.length === 0 && <LoaderCircle size={11} className="spin" />}
         </button>
         <span className="status-item muted">v{info?.version}</span>
@@ -2899,7 +3086,7 @@ export default function App() {
         onExportFrame={() => void exportFrame()}
         onReimportSnapshot={(snap) => void reimportSnapshot(snap)}
       />
-      <Avatar enabled={loaded && mode === 'edit' && settings.avatar !== false} />
+      <Avatar enabled={loaded && mode === 'edit' && settings.avatar !== false} character={settings.avatarCharacter} />
       {/* The program's sound keeps playing while a panel is maximized or Home is open. */}
       {mode === 'home' && comp && <div hidden><CompAudio project={project} assets={assetMap} offline={offline} playing={false} rate={1} comp={comp} time={playhead.get()} quality={1} /></div>}
     </div>

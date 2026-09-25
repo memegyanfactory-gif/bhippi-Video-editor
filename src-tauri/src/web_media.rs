@@ -1,4 +1,4 @@
-//! Online research, web scraping, and media downloading for Helios.
+//! Online research, web scraping, and media downloading for Bhippi.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -68,19 +68,29 @@ fn strip_tags(html: &str) -> String {
 
 /// Search DuckDuckGo HTML for snippets and links.
 pub async fn web_search(query: &str, limit: usize) -> Result<Vec<SearchResult>, String> {
+    web_search_localized(query, limit, None, None).await
+}
+
+/// [`web_search`] as someone in one country would see it: `region` is DuckDuckGo's `kl` code
+/// ("br-pt", "jp-jp", "us-en") and `language` the Accept-Language header ("pt-BR,pt;q=0.9").
+pub async fn web_search_localized(query: &str, limit: usize, region: Option<&str>, language: Option<&str>) -> Result<Vec<SearchResult>, String> {
     let query_clean = query.trim();
     if query_clean.is_empty() {
         return Ok(Vec::new());
     }
 
     let client = http_client()?;
-    let ddg_url = reqwest::Url::parse_with_params("https://html.duckduckgo.com/html/", &[("q", query_clean)])
+    let mut params = vec![("q", query_clean)];
+    if let Some(region) = region.filter(|region| !region.is_empty()) {
+        params.push(("kl", region));
+    }
+    let ddg_url = reqwest::Url::parse_with_params("https://html.duckduckgo.com/html/", &params)
         .map_err(|e| e.to_string())?;
 
     let response = client
         .get(ddg_url)
         .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-        .header("Accept-Language", "en-US,en;q=0.9")
+        .header("Accept-Language", language.unwrap_or("en-US,en;q=0.9"))
         .send()
         .await;
 
@@ -1427,7 +1437,7 @@ mod tests {
 
     #[test]
     fn finds_downloaded_file_matching_criteria() {
-        let temp_dir = std::env::temp_dir().join(format!("helios_test_{}", ulid::Ulid::new()));
+        let temp_dir = std::env::temp_dir().join(format!("bhippi_test_{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let file_a = temp_dir.join("video_123.part");
         let file_b = temp_dir.join("video_123.mp4");

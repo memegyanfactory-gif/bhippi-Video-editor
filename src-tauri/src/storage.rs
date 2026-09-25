@@ -1,20 +1,20 @@
 //! Where a project's files live on disk, sorted so a person can find them:
 //!
 //! ```text
-//! <storage root>/                 default: Documents/Helios, changeable in Settings › Storage
+//! <storage root>/                 default: Documents/Bhippi, changeable in Settings › Storage
 //!   <Project name>/
-//!     Project/                    the .helios file and its autosave
+//!     Project/                    the .bhippi file and its autosave
 //!     Footage/                    imported media, when "copy into the project" is on
 //!     Downloads/                  media the AI fetched from the web
 //!     Generated/Images|Video|Audio  what the local models made
 //!     Audio/Voice-overs|Recordings|SFX
 //!     Roto/  Tracking/  Clean plates/
-//!     Renders/  Exports/  Storyboard/  Research/
-//!     Guidelines/                 guidelines, plans and todo lists the AI writes (Markdown)
+//!     Renders/  Exports/
+//!     Documents/Guidelines|Storyboard|Research  what the AI writes: plans, todo lists, storyboards
 //!     3D renders/                 headless-Blender frame sequences (blender.rs)
 //! ```
 //!
-//! A `.helios` saved inside a `Project/` folder owns that folder's parent; saved anywhere else
+//! A `.bhippi` saved inside a `Project/` folder owns that folder's parent; saved anywhere else
 //! it owns `<file stem> Files/` beside it. Saving gathers everything the project uses into that
 //! folder (see `bundle.rs`).
 //!
@@ -108,10 +108,21 @@ impl Category {
             Category::CleanPlates => "Clean plates",
             Category::Renders => "Renders",
             Category::Exports => "Exports",
-            Category::Storyboard => "Storyboard",
-            Category::Research => "Research",
-            Category::Guidelines => "Guidelines",
+            Category::Storyboard => "Documents/Storyboard",
+            Category::Research => "Documents/Research",
+            Category::Guidelines => "Documents/Guidelines",
             Category::ThreeD => "3D renders",
+        }
+    }
+
+    /// Where the category sat before the AI's documents were gathered under `Documents/`, so
+    /// older project folders are still recognised and their notes still found.
+    pub fn legacy_relative(self) -> Option<&'static str> {
+        match self {
+            Category::Storyboard => Some("Storyboard"),
+            Category::Research => Some("Research"),
+            Category::Guidelines => Some("Guidelines"),
+            _ => None,
         }
     }
 
@@ -134,9 +145,9 @@ impl Storage {
     }
 }
 
-/// `Documents/Helios`, or `<app data>/Helios` on a machine without a Documents folder.
+/// `Documents/Bhippi`, or `<app data>/Bhippi` on a machine without a Documents folder.
 pub fn default_root(app: &AppHandle, app_data: &Path) -> PathBuf {
-    app.path().document_dir().map(|documents| documents.join("Helios")).unwrap_or_else(|_| app_data.join("Helios"))
+    app.path().document_dir().map(|documents| documents.join("Bhippi")).unwrap_or_else(|_| app_data.join("Bhippi"))
 }
 
 /// A project name made safe to be a folder name on every OS: no separators or reserved
@@ -165,7 +176,7 @@ pub fn sanitize(name: &str) -> String {
     }
 }
 
-/// The folder a `.helios` at `file` owns: `<folder>` for `<folder>/Project/<name>.helios`, and
+/// The folder a `.bhippi` at `file` owns: `<folder>` for `<folder>/Project/<name>.bhippi`, and
 /// `<dir>/<stem> Files` for a file saved anywhere else, so its media sits right beside it.
 pub fn saved_folder(file: &Path) -> Option<PathBuf> {
     let parent = file.parent().filter(|parent| !parent.as_os_str().is_empty())?;
@@ -177,7 +188,7 @@ pub fn saved_folder(file: &Path) -> Option<PathBuf> {
     Some(parent.join(format!("{} Files", sanitize(stem))))
 }
 
-/// The project folder: the one a saved `.helios` owns ([`saved_folder`]), so renaming a saved
+/// The project folder: the one a saved `.bhippi` owns ([`saved_folder`]), so renaming a saved
 /// project does not scatter its files; otherwise `<root>/<sanitised name>`.
 pub fn project_dir_for(root: &Path, name: &str, saved_file: Option<&str>) -> PathBuf {
     saved_file.map(Path::new).and_then(saved_folder).unwrap_or_else(|| root.join(sanitize(name)))
@@ -260,7 +271,7 @@ pub fn unique_path(dir: &Path, file_name: &str) -> PathBuf {
     (2..10_000).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(first)
 }
 
-/// Keeps `Project/<name> (autosave).helios` — a complete, openable project file with its media
+/// Keeps `Project/<name> (autosave).bhippi` — a complete, openable project file with its media
 /// list — at most once a minute. An empty project writes nothing, so a fresh start does not
 /// leave an "Untitled project" folder behind.
 pub fn autosave_backup(state: &AppState, project: &crate::project::Project) {
@@ -280,7 +291,7 @@ pub fn autosave_backup(state: &AppState, project: &crate::project::Project) {
         .map(|items| items.iter().filter(|asset| project.media.iter().any(|entry| entry.asset_id == asset.id)).cloned().collect())
         .unwrap_or_default();
     let document = crate::files::Document {
-        format: "helios".to_owned(),
+        format: "bhippi".to_owned(),
         version: 3,
         saved_at: chrono::Utc::now().to_rfc3339(),
         project: project.clone(),
@@ -288,7 +299,7 @@ pub fn autosave_backup(state: &AppState, project: &crate::project::Project) {
         extras: None,
     };
     let Ok(folder) = dir(state, Category::Project) else { return };
-    let path = folder.join(format!("{} (autosave).helios", sanitize(&project.name)));
+    let path = folder.join(format!("{} (autosave).bhippi", sanitize(&project.name)));
     if let Err(error) = crate::files::write_document(&path, &document) {
         tracing::warn!(%error, "project autosave copy failed");
     }
@@ -436,8 +447,8 @@ pub fn storage_set_root(app: AppHandle, state: State<'_, std::sync::Arc<AppState
         return Err("choose a full folder path".to_owned());
     }
     std::fs::create_dir_all(&target).map_err(|error| format!("cannot use {}: {error}", target.display()))?;
-    let probe = target.join(format!(".helios-write-test-{}", crate::store::new_id()));
-    std::fs::write(&probe, b"ok").map_err(|error| format!("Helios cannot write to {}: {error}", target.display()))?;
+    let probe = target.join(format!(".bhippi-write-test-{}", crate::store::new_id()));
+    std::fs::write(&probe, b"ok").map_err(|error| format!("Bhippi cannot write to {}: {error}", target.display()))?;
     let _ignored = std::fs::remove_file(&probe);
     {
         let mut settings = state.settings.lock().map_err(crate::lock_error)?;
@@ -526,14 +537,14 @@ mod tests {
 
     #[test]
     fn storage_project_dir_follows_the_saved_file_or_the_name() {
-        let root = Path::new("/docs/Helios");
+        let root = Path::new("/docs/Bhippi");
         assert_eq!(project_dir_for(root, "My: Film", None), root.join("My Film"));
-        let saved = Path::new("/elsewhere/Launch").join("Project").join("Launch.helios");
+        let saved = Path::new("/elsewhere/Launch").join("Project").join("Launch.bhippi");
         assert_eq!(project_dir_for(root, "Renamed", saved.to_str()), Path::new("/elsewhere/Launch"));
         // A file saved anywhere else keeps its media in "<stem> Files" beside it.
-        let loose = Path::new("/desktop").join("film.helios");
+        let loose = Path::new("/desktop").join("film.bhippi");
         assert_eq!(project_dir_for(root, "Film", loose.to_str()), Path::new("/desktop").join("film Files"));
-        assert_eq!(saved_folder(Path::new("/desktop").join("a*b.helios").as_path()), Some(Path::new("/desktop").join("a b Files")));
+        assert_eq!(saved_folder(Path::new("/desktop").join("a*b.bhippi").as_path()), Some(Path::new("/desktop").join("a b Files")));
     }
 
     #[test]
@@ -550,7 +561,7 @@ mod tests {
 
     #[test]
     fn storage_unique_path_and_readable_names() {
-        let dir = std::env::temp_dir().join(format!("helios-storage-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-storage-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         assert_eq!(unique_path(&dir, "a.mp4"), dir.join("a.mp4"));
         std::fs::write(dir.join("a.mp4"), b"x").expect("write");

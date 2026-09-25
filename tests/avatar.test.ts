@@ -5,7 +5,7 @@ import { ACTED_TOOLS, activityForStep, activityForTool, clipIdsIn, diffTimeline 
 import type { AvatarEvent } from '../src/avatar/bus';
 import { ChatMirror, TURN_STALE_MS, WRITING_MS } from '../src/avatar/mirror';
 import { ANIMS, poseAt, type AnimName } from '../src/avatar/poses';
-import { ART_H, ART_W, FEET_Y, HAIR_TOP, REST, renderPose, type Pose } from '../src/avatar/sprite';
+import { ART_H, ART_W, CHARACTERS, FEET_Y, HAIR_TOP, REST, renderPose, type Pose } from '../src/avatar/sprite';
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
 
@@ -28,7 +28,7 @@ describe('what the avatar acts out', () => {
     expect(activityForTool('delete_clips')).toBeNull();
   });
 
-  it('only names tools Helios AI really has', () => {
+  it('only names tools Bhippi AI really has', () => {
     const named = [...ACTED_TOOLS, ...Object.values(SEAT_TOOLS).flatMap((set) => [...set])];
     expect(named.filter((name) => !toolNames.has(name))).toEqual([]);
   });
@@ -204,5 +204,29 @@ describe('the pixel character', () => {
         expect(drawn.slice(FEET_Y + 12).some(Boolean), `${name} at ${t}s`).toBe(false);
       }
     }
+  });
+
+  it('plays every animation as every character, standing on the same ground line', () => {
+    const heli = renderPose(REST);
+    for (const { id } of CHARACTERS) {
+      const standing = renderPose({ ...REST, character: id });
+      const drawn = rows(standing);
+      expect(drawn[FEET_Y - 1], id).toBe(true);
+      expect(drawn.slice(FEET_Y + 1).some(Boolean), id).toBe(false);
+      if (id !== 'heli') expect(standing.join() === heli.join(), `${id} looks like Heli`).toBe(false);
+      for (const name of Object.keys(ANIMS) as AnimName[]) {
+        for (const t of [0, 0.5, 2.5, 9.8]) {
+          const frame = rows(renderPose(poseAt(name, t, { gear: ['glasses'], color: '#4fb3ff', character: id })));
+          expect(frame.some(Boolean), `${id} ${name} at ${t}s`).toBe(true);
+          expect(frame.slice(FEET_Y + 12).some(Boolean), `${id} ${name} at ${t}s`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('draws Heli the same after another character was drawn', () => {
+    const before = renderPose(REST).join();
+    renderPose({ ...REST, character: 'genie' });
+    expect(renderPose(REST).join()).toBe(before);
   });
 });

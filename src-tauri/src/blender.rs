@@ -2,7 +2,7 @@
 //! objects with material presets, studio or gradient light, a keyed camera — and the user's own
 //! Blender renders it in the background to a PNG sequence with alpha, which the motion engine
 //! composites as `source.sequence` footage. Blender runs as a separate program with
-//! `workers/blender_bridge.py` (GPL, like everything that imports bpy); Helios never links it.
+//! `workers/blender_bridge.py` (GPL, like everything that imports bpy); Bhippi never links it.
 //!
 //! Output folder (the project's `3D renders/<name> <job>`): `00001.png …`, `camera.json` (the
 //! camera per frame in motion-engine pixels, so 2D layers can ride the same move), `objects2d.json`
@@ -327,7 +327,7 @@ mod tests {
     #[ignore = "needs Blender installed; run with --ignored"]
     fn the_bridge_renders_a_frame_with_alpha_and_camera_tracks() {
         let Some(blender) = find_blender(None) else { return };
-        let dir = std::env::temp_dir().join(format!("helios-blender-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-blender-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut request, _) = check_request(json!({ "width": 320, "height": 180, "duration": 0.5, "frames": [1], "samples": 4,
             "objects": [{ "id": "floor", "kind": "floor" }, { "id": "gem", "kind": "crystal", "material": { "preset": "gem" } }] })).unwrap();

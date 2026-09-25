@@ -315,7 +315,7 @@ export async function runSfxTool(name: string, args: Args, ctx: RoastToolContext
         start: where.start,
         duration: where.duration,
         db: where.db,
-        license: kind ? 'Helios built-in' : entry?.license ?? null,
+        license: kind ? 'Bhippi built-in' : entry?.license ?? null,
         credit: kind ? null : entry?.credit ?? null,
         provider: kind ? 'builtin' : entry?.provider ?? null,
       });

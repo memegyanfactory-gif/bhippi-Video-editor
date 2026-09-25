@@ -1,7 +1,7 @@
 // Refreshes src/lib/remotionKit/presets.json from the public Remotion Kit marketplace
 // (https://remotion-kit.com/marketplace). The marketplace is a Convex app; its public
 // `presets:listMarketplace` query returns every published preset with its parameter schema.
-// The presets' Remotion source is not public, so Helios keeps the design spec (copy, palette,
+// The presets' Remotion source is not public, so Bhippi keeps the design spec (copy, palette,
 // fonts, timing, format, preview links) and the AI rebuilds a preset with its own templates.
 //
 //   node scripts/import-remotion-kit.mjs

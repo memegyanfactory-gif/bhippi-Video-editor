@@ -239,7 +239,7 @@ describe('React Bits through the motion graphic builder and tools', () => {
 
   it('places a composed graphic as an html clip the export can find', () => {
     const project = newProject();
-    const result = createMotionGraphicComp(project, { template: 'react-bits', title: 'Intro', background: 'galaxy', layers: [{ bit: 'particle-text', props: { text: 'Helios' } }], targetCompId: project.comps[0].id, start: 1 });
+    const result = createMotionGraphicComp(project, { template: 'react-bits', title: 'Intro', background: 'galaxy', layers: [{ bit: 'particle-text', props: { text: 'Bhippi' } }], targetCompId: project.comps[0].id, start: 1 });
     const clips = htmlClipsForExport(result.project, project.comps[0].id);
     expect(clips.length).toBe(1);
     expect(clips[0].source.template).toBe('react-bits');

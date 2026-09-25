@@ -193,7 +193,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
           const notes = await api.workspaceNotes().catch(() => []);
           actionLogger.system('Checking crash diagnostics...', {
             notes,
-            crashLocation: '%APPDATA%\\studio.helios.desktop\\crash.log',
+            crashLocation: '%APPDATA%\\com.bhippi.videoeditor\\crash.log',
           });
         } catch (err) {
           actionLogger.error('Failed to check crash log', err);
@@ -375,7 +375,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
       <div className="terminal-body" ref={scrollRef}>
         {filteredLogs.length === 0 ? (
           <div className="terminal-empty">
-            <span className="muted">No actions recorded yet. Interact with Helios or ask the AI copilot to see live actions here.</span>
+            <span className="muted">No actions recorded yet. Interact with Bhippi or ask the AI copilot to see live actions here.</span>
           </div>
         ) : (
           filteredLogs.map((item) => {

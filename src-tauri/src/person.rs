@@ -4,7 +4,7 @@
 //! needs more: *how many* people are here, *which* box is which person a minute
 //! later, and boxes that survive someone walking behind a chair. That is person
 //! detection (RF-DETR Nano, Apache 2.0) plus multi-object tracking (ByteTrack,
-//! MIT) in `workers/person_track.py`; this module is the Helios side — frame
+//! MIT) in `workers/person_track.py`; this module is the Bhippi side — frame
 //! extraction, the run cache, and reading the tracks back.
 //!
 //! What comes out is cached beside the asset under `tracking/<asset_id>`:

@@ -1,6 +1,5 @@
-// Video Copilot FX Console inspired floating HUD search bar for Helios.
-// Appears at the mouse cursor position. Features the classic search bar with "Fx" placeholder,
-// camera snapshot, snapshot gallery, export frame, settings, and the signature cyan Helios emblem.
+// Floating FX Console search bar. Appears at the mouse cursor with effect search,
+// snapshot capture, snapshot gallery, frame export, and quick-slot settings.
 
 import {
   Camera,
@@ -11,7 +10,6 @@ import {
   Plus,
   Search,
   Settings,
-  Sparkles,
   Upload,
 } from 'lucide-react';
 import {
@@ -36,49 +34,6 @@ import {
 import { timecode } from '../lib/editor';
 import { getLiveMousePos } from '../lib/mouseTracker';
 import type { Comp, FxConsoleSettings, FxSnapshot } from '../lib/types';
-
-// Signature Helios cyan emblem matching the Video Copilot FX Console brand corner
-function HeliosLogoMark({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ filter: 'drop-shadow(0 0 5px rgba(0, 229, 255, 0.7))', flexShrink: 0 }}
-    >
-      <title>Helios Video Studio</title>
-      {/* Outer faceted cyan triangle / prism */}
-      <path
-        d="M12 2.5L21.5 19H2.5L12 2.5Z"
-        fill="url(#helios-cyan-grad)"
-        stroke="#00e5ff"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      {/* Inner dark hexagonal aperture */}
-      <polygon
-        points="12,9.5 15.5,11.5 15.5,15.5 12,17.5 8.5,15.5 8.5,11.5"
-        fill="#0e1117"
-        stroke="#00e5ff"
-        strokeWidth="1.1"
-      />
-      {/* Interior geometric rays */}
-      <path d="M12 2.5L12 9.5" stroke="#38bdf8" strokeWidth="1" strokeLinecap="round" />
-      <path d="M2.5 19L8.5 15.5" stroke="#38bdf8" strokeWidth="1" strokeLinecap="round" />
-      <path d="M21.5 19L15.5 15.5" stroke="#38bdf8" strokeWidth="1" strokeLinecap="round" />
-      <circle cx="12" cy="13.5" r="1.4" fill="#00e5ff" />
-      <defs>
-        <linearGradient id="helios-cyan-grad" x1="12" y1="2.5" x2="12" y2="19" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#38bdf8" />
-          <stop offset="50%" stopColor="#00e5ff" />
-          <stop offset="100%" stopColor="#0284c7" />
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
 
 type Props = {
   open: boolean;
@@ -136,8 +91,8 @@ export function FXConsoleModal({
       const mouseX = anchorPos && anchorPos.x > 0 ? anchorPos.x : live.x;
       const mouseY = anchorPos && anchorPos.y > 0 ? anchorPos.y : live.y;
 
-      const barWidth = 490;
-      const barHeight = 38;
+      const barWidth = 400;
+      const barHeight = 42;
       const targetX = mouseX - Math.round(barWidth / 2);
       const targetY = mouseY - Math.round(barHeight / 2);
 
@@ -294,17 +249,17 @@ export function FXConsoleModal({
         style={{ left: pos.x, top: pos.y }}
         onKeyDown={handleKeyDown}
       >
-        {/* ── Main Horizontal Bar (Matches Video Copilot FX Console design) ── */}
+        {/* ── Main search bar ── */}
         <div className="fx-console-main-bar">
           {/* Left: Search Magnifying Glass Icon */}
-          <Search size={16} className="fx-bar-search-icon" />
+          <Search size={15} className="fx-bar-search-icon" />
 
-          {/* Search Input with blinking cursor and "Fx" placeholder */}
+          {/* Search input */}
           <input
             ref={inputRef}
             type="text"
             className="fx-bar-input"
-            placeholder="Fx"
+            placeholder="Search effects…"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -313,12 +268,6 @@ export function FXConsoleModal({
             }}
             spellCheck={false}
             autoFocus
-            style={{
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              boxShadow: 'none',
-            }}
           />
 
           {/* Toast feedback pill inside the bar */}
@@ -369,23 +318,6 @@ export function FXConsoleModal({
             >
               <Settings size={15} />
             </button>
-
-            {/* Subtle Divider */}
-            <div className="fx-bar-divider" />
-
-            {/* 5. Signature Cyan Helios Logo on the far right */}
-            <div
-              className="fx-bar-logo"
-              title="Helios FX Console (Press Ctrl+Space anytime)"
-              onClick={() => {
-                setQuery('');
-                setCategory('All');
-                setActiveDrawer('none');
-                inputRef.current?.focus();
-              }}
-            >
-              <HeliosLogoMark size={20} />
-            </div>
           </div>
         </div>
 
@@ -396,12 +328,11 @@ export function FXConsoleModal({
             {activeDrawer === 'gallery' && (
               <div className="fx-drawer-content">
                 <div className="fx-drawer-head">
-                  <span>SNAPSHOT GALLERY ({snapshots.length})</span>
+                  <span>Snapshots ({snapshots.length})</span>
                   <button
                     type="button"
                     className="btn btn-small"
                     onClick={handleCaptureSnapshot}
-                    style={{ fontSize: 10.5 }}
                   >
                     <Camera size={11} /> New Snapshot
                   </button>
@@ -410,7 +341,7 @@ export function FXConsoleModal({
                 {snapshots.length === 0 ? (
                   <div className="fx-empty-state">
                     <ImageIcon size={24} style={{ opacity: 0.4 }} />
-                    <span>No snapshots captured yet. Click the camera icon above!</span>
+                    <span>No snapshots yet. Use the camera button to capture one.</span>
                   </div>
                 ) : (
                   <div className="fx-gallery-grid">
@@ -463,8 +394,8 @@ export function FXConsoleModal({
             {activeDrawer === 'settings' && (
               <div className="fx-drawer-content">
                 <div className="fx-drawer-head">
-                  <span>QUICK SHORTCUT SLOTS (Keys 1–9)</span>
-                  <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>Press 1-9 in FX Console to run</span>
+                  <span>Quick slots</span>
+                  <span style={{ fontWeight: 400, color: 'var(--text-faint)' }}>Press 1–9 to apply</span>
                 </div>
 
                 <div className="fx-shortcuts-list">
@@ -545,7 +476,7 @@ export function FXConsoleModal({
                         setSelectedIndex(0);
                       }}
                     >
-                      {cat === 'Favorites' ? <Heart size={10} style={{ display: 'inline', marginRight: 3 }} /> : null}
+                      {cat === 'Favorites' ? <Heart size={10} /> : null}
                       {cat}
                     </button>
                   ))}
@@ -555,7 +486,7 @@ export function FXConsoleModal({
                 <div className="fx-results-list" ref={resultsListRef}>
                   {results.length === 0 ? (
                     <div className="fx-empty-state">
-                      <span>No effects found matching "{query}"</span>
+                      <span>No effects match “{query}”</span>
                     </div>
                   ) : (
                     results.map((eff, index) => {
@@ -571,10 +502,6 @@ export function FXConsoleModal({
                           onClick={() => apply(eff)}
                           onMouseEnter={() => setSelectedIndex(index)}
                         >
-                          <div className="fx-item-sparkle">
-                            <Sparkles size={12} />
-                          </div>
-
                           <div className="fx-item-body">
                             <div className="fx-item-title">
                               <span className="fx-item-name">{eff.label}</span>
@@ -588,7 +515,7 @@ export function FXConsoleModal({
                             <button
                               type="button"
                               className={`fav-btn${isFav ? ' active' : ''}`}
-                              title={isFav ? 'Remove from favorites' : 'Star favorite'}
+                              title={isFav ? 'Remove from favorites' : 'Add to favorites'}
                               onClick={(e) => toggleFavorite(eff.id, e)}
                             >
                               <Heart size={12} fill={isFav ? 'currentColor' : 'none'} />
@@ -602,9 +529,11 @@ export function FXConsoleModal({
 
                 {/* Footer hint */}
                 <div className="fx-dropdown-footer">
-                  <span>↑↓ Navigate • Enter Apply • 1-9 Quick Slot • Esc Close</span>
+                  <span><kbd>↑↓</kbd>Navigate</span>
+                  <span><kbd>Enter</kbd>Apply</span>
+                  <span><kbd>Esc</kbd>Close</span>
                   {selectedClipIds.length > 0 && (
-                    <span style={{ color: '#10b981', marginLeft: 'auto' }}>
+                    <span className="fx-footer-target">
                       Target: {selectedClipIds.length} clip{selectedClipIds.length > 1 ? 's' : ''}
                     </span>
                   )}

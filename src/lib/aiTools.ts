@@ -1,3 +1,4 @@
+import type { PermissionMode } from './permissions';
 import { makeStickFigure } from './stickFigure';
 import { describeUncovered, newlyUncovered, uncoveredSpans } from './coverage';
 import { fillBackground } from './fillBackground';
@@ -25,7 +26,7 @@ import { loadPeaks } from './peaks';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
 import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilRole, type Provenance } from './council';
-// Runs Helios AI's tool calls against the live project. Every tool is one undo step labelled
+// Runs Bhippi AI's tool calls against the live project. Every tool is one undo step labelled
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
 import catalog from './ai-tools.json';
@@ -61,6 +62,7 @@ import {
 import { SFX_KINDS } from './types';
 import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
 import { playbook } from './motionDirection';
+import { PLUGIN_TOOLS, runPluginAiTool } from '../plugins/aiTools';
 import { GENERIC_TARGET, pacingReport } from './pacing';
 
 /** Tells the model a file search stopped at its budget, so "0 found" is not "not there". */
@@ -89,8 +91,10 @@ export type ToolHost = {
   importMedia: (paths: string[], targetFolderId?: string | null) => Promise<Asset[]>;
   /** Reads a script aloud, imports the take and returns it. */
   speak: (text: string, voice: string | null, mode: string, name?: string) => Promise<Asset>;
-  /** Puts a question to the editor and waits for the answer. */
-  ask: (question: { question: string; options: string[]; context: string | null }) => Promise<string>;
+  /** Puts a question to the editor and waits for the answer; the card goes away if `signal` aborts. */
+  ask: (question: { question: string; options: string[]; context: string | null }, signal?: AbortSignal) => Promise<string>;
+  /** The assistant's permission mode; Full access answers its own questions. */
+  permission?: () => PermissionMode;
   /** Sets the active project reference guideline. */
   setReference?: (id: string | null) => void;
   /** The current app settings (brand kits live there) and how to persist a change to them. */
@@ -144,6 +148,43 @@ const str = (args: Args, key: string): string | undefined => {
 };
 const bool = (args: Args, key: string): boolean | undefined => (typeof args[key] === 'boolean' ? (args[key] as boolean) : undefined);
 const list = (args: Args, key: string): string[] => (Array.isArray(args[key]) ? (args[key] as unknown[]).filter((item): item is string => typeof item === 'string') : []);
+/**
+ * The answers an ask_user offers, however the model sent them: an array of strings or of
+ * `{label}` objects, a JSON array in a string, or one string with an answer per line (or split by
+ * `|`, `;` or commas). Bullets and numbering are dropped; at most six, no repeats.
+ */
+export function askOptions(value: unknown): string[] {
+  let items: unknown[] = [];
+  if (Array.isArray(value)) items = value;
+  else if (typeof value === 'string') {
+    const text = value.trim();
+    if (text.startsWith('[')) {
+      try {
+        const parsed: unknown = JSON.parse(text);
+        if (Array.isArray(parsed)) items = parsed;
+      } catch {
+        // Not JSON after all; split it as text below.
+      }
+    }
+    if (!items.length && text) {
+      const lines = text.split(/\r?\n/);
+      const split = lines.length > 1 ? lines : text.split(/\s*[|;]\s*/);
+      const commas = text.split(/\s*,\s*/);
+      items = split.length > 1 ? split : commas.length > 1 && commas.length <= 6 && commas.every((part) => part.length <= 40) ? commas : [text];
+    }
+  }
+  const labels = items.map((item) => {
+    if (typeof item === 'string' || typeof item === 'number') return String(item);
+    if (item && typeof item === 'object') {
+      const found = ['label', 'text', 'value', 'title', 'option', 'answer'].map((key) => (item as Args)[key]).find((field) => typeof field === 'string' || typeof field === 'number');
+      return found === undefined ? '' : String(found);
+    }
+    return '';
+  });
+  const clean = labels.map((label) => label.replace(/^\s*(?:[-*•]|\d+[.)]|[a-f][.)])\s+/i, '').trim()).filter(Boolean);
+  return [...new Set(clean)].slice(0, 6);
+}
+
 const record = (args: Args, key: string): Args | undefined => (args[key] && typeof args[key] === 'object' && !Array.isArray(args[key]) ? (args[key] as Args) : undefined);
 
 // ───────────────────────────── what the model sees ─────────────────────────────
@@ -572,7 +613,7 @@ function attachGathered(host: ToolHost, name: string, args: Args, result: ToolRe
 
 // ── custom tools ───────────────────────────────────────────────────────────
 
-/** Every tool name Helios executes: what a steps tool may call. */
+/** Every tool name Bhippi executes: what a steps tool may call. */
 export const KNOWN_TOOLS: ReadonlySet<string> = new Set((catalog as unknown as { tools: { name: string }[] }).tools.map((tool) => tool.name));
 
 /** Only ops tools become recipes; a steps tool has no edit program to build. */
@@ -702,7 +743,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
   const limit = (clip: Clip) => sourceLimit(project, assets, clip);
   const fps = (comp: Comp) => comp.fps;
 
-  // A tool from an MCP server Helios is connected to: hand it straight back to that server.
+  // A tool from an MCP server Bhippi is connected to: hand it straight back to that server.
   if (name.startsWith('mcp__')) {
     try {
       const result = await api.mcpCall(name, args);
@@ -725,6 +766,9 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       importFiles: (paths, folder) => host.importMedia(paths, folder ? findOrCreateFolder(host.history.current(), commit, folder) : null),
     });
   }
+
+  // Plugins: the Plugin Maker's tools (src/plugins). They change the plugin library, never the project.
+  if (PLUGIN_TOOLS.has(name)) return runPluginAiTool(name, args, KNOWN_TOOLS);
 
   // Brand kits: read in any phase, written through the host's settings callbacks.
   if (BRAND_KIT_TOOLS.has(name)) {
@@ -1689,11 +1733,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
         try {
           imported = await host.importMedia([downloaded.path], targetFolderId);
         } catch (importError) {
-          return fail(`Downloaded to ${downloaded.path}, but Helios could not import it: ${errorText(importError)}. The source probably served a page or a stub instead of the media — try another URL or source.`);
+          return fail(`Downloaded to ${downloaded.path}, but Bhippi could not import it: ${errorText(importError)}. The source probably served a page or a stub instead of the media — try another URL or source.`);
         }
         const asset = imported[0];
         if (!asset) {
-          return fail(`Media was downloaded to ${downloaded.path} but could not be imported into Helios.`);
+          return fail(`Media was downloaded to ${downloaded.path} but could not be imported into Bhippi.`);
         }
 
         let referenceResult = null;
@@ -1768,7 +1812,7 @@ ${templateCatalogue()}`;
           host.setReference(ref.id);
         }
         const brief = await api.refsBrief(ref.id);
-        // The guideline is also a document in the project folder (Guidelines/), which the user
+        // The guideline is also a document in the project folder (Documents/Guidelines/), which the user
         // opens from the Project panel and finds in Explorer.
         const paletteLine = palette?.length ? `
 
@@ -2150,6 +2194,44 @@ ${notes.trim()}${paletteLine}
       return done('Applied reviewed skill as an editable composition',{compId:comp.id});
     }
 
+    // The long-term brain (brain.rs): memory, the user model, recall and self-written skills.
+    case 'brain_remember': {
+      const kind = str(args, 'kind');
+      const text = str(args, 'text');
+      if (!kind || !text) return fail('brain_remember needs kind ("user" or "memory") and text');
+      try {
+        const saved = await api.brainRemember(kind, text);
+        return done(saved.updated ? 'Updated a brain entry' : 'Remembered', saved);
+      } catch (error) { return fail(errorText(error)); }
+    }
+    case 'brain_recall': {
+      const query = str(args, 'query');
+      if (!query) return fail('brain_recall needs a query');
+      const kinds = Array.isArray(args.kinds) ? args.kinds.filter((k): k is string => typeof k === 'string') : undefined;
+      try {
+        const hits = await api.brainRecall(query, num(args, 'limit'), kinds);
+        return done(hits.length ? `Recalled ${hits.length} entr${hits.length === 1 ? 'y' : 'ies'}` : 'Nothing in the brain matches that yet', { hits });
+      } catch (error) { return fail(errorText(error)); }
+    }
+    case 'brain_forget': {
+      const id = str(args, 'id');
+      if (!id) return fail('brain_forget needs the entry id (from brain_recall)');
+      try { return done('Forgotten', await api.brainForget(id)); } catch (error) { return fail(errorText(error)); }
+    }
+    case 'brain_save_skill': {
+      const name = str(args, 'name');
+      if (!name) return fail('brain_save_skill needs a name');
+      try {
+        const saved = await api.brainSaveSkill({ name, description: str(args, 'description'), body: str(args, 'body'), mode: str(args, 'mode'), old: str(args, 'old'), new: str(args, 'new') });
+        return done(`Skill ${saved.name} saved (v${saved.version})`, saved);
+      } catch (error) { return fail(errorText(error)); }
+    }
+    case 'brain_load_skill': {
+      const name = str(args, 'name');
+      if (!name) return fail('brain_load_skill needs the skill name');
+      try { return done('Skill loaded: follow its procedure', await api.brainLoadSkill(name)); } catch (error) { return fail(errorText(error)); }
+    }
+
     case 'create_custom_tool': {
       const name = str(args, 'name');
       const description = str(args, 'description');
@@ -2254,8 +2336,14 @@ ${notes.trim()}${paletteLine}
     case 'ask_user': {
       const question = str(args, 'question');
       if (!question) return fail('ask_user needs a question');
-      const options = list(args, 'options').slice(0, 6);
-      const answer = await host.ask({ question, options, context: str(args, 'context') ?? null });
+      const options = askOptions(args.options);
+      if (host.permission?.() === 'full') {
+        return done(`decided without asking (Full access): ${question.slice(0, 60)}`, {
+          answer: 'The editor is in Full access mode and does not want to be asked. Choose the best option yourself, carry on, and say what you chose in your reply.',
+          autoDecided: true,
+        });
+      }
+      const answer = await host.ask({ question, options, context: str(args, 'context') ?? null }, signal);
       return done(`asked: ${question.slice(0, 60)}`, { answer });
     }
 
@@ -3385,7 +3473,7 @@ ${notes.trim()}${paletteLine}
       const asset = assets.get(clip.source.assetId);
       if (!asset || asset.kind !== 'video') return fail('The clip is not a video.');
       const runId = clip.rotoMatte.replace(/[\\/]+matte\.[a-z0-9]+$/i, '').split(/[\\/]/).pop() ?? '';
-      if (!runId) return fail('The matte path is not a Helios roto run.');
+      if (!runId) return fail('The matte path is not a Bhippi roto run.');
       const start = Math.max(0, clip.in);
       const end = start + clip.duration * clip.speed;
       const mode = str(args, 'mode') === 'per-frame' ? 'per-frame' : 'clean-plate';
@@ -3513,7 +3601,7 @@ ${notes.trim()}${paletteLine}
       if (!comp) return fail('No composition found.');
       // The house lower third, not the legacy one, when the model names no template.
       const template = str(args, 'template') || 'crimson-lower-third';
-      const title = str(args, 'title') || 'HELIOS MOTION';
+      const title = str(args, 'title') || 'BHIPPI MOTION';
       const subtitle = str(args, 'subtitle') || '';
       // Crimson and React Bits keep their own accent when none is given; the legacy set falls back to sky in the builder.
       const accentColor = str(args, 'accentColor') || undefined;
@@ -3616,7 +3704,7 @@ ${notes.trim()}${paletteLine}
     }
 
     default:
-      return fail(`Helios has no tool called ${name}`);
+      return fail(`Bhippi has no tool called ${name}`);
   }
 }
 

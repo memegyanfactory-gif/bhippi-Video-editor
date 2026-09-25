@@ -12,7 +12,7 @@ import type { History } from '../lib/history';
 import { api } from '../lib/ipc';
 import { removeKey, setKey, valueAt } from '../lib/keyframes';
 import { playhead, usePlayhead } from '../lib/playhead';
-import { clipEnd, clipName, COMP_PRESETS, FRAME_RATES, ITEM_LABEL, moveClipTo, slipClip, sourceInfo, sourceLimit, trackLabel, transitionLabel, transitionWindow, updateComp, type AssetMap } from '../lib/timeline';
+import { clipEnd, clipName, COMP_PRESETS, focusClip, FRAME_RATES, ITEM_LABEL, moveClipTo, slipClip, sourceInfo, sourceLimit, trackLabel, transitionLabel, transitionWindow, updateComp, type AssetMap } from '../lib/timeline';
 import type { Clip, Comp, Effects, Keyframe, KeyframedProperty as Property, Mask, Project, Transform, Transition } from '../lib/types';
 
 type Props = {
@@ -56,8 +56,9 @@ export function PropertiesPanel(props: Props) {
     if (found) return <TransitionProperties {...props} comp={comp} transition={found} />;
   }
   if (comp) {
+    const focus = focusClip(comp, selection);
+    if (focus) return <ClipProperties {...props} comp={comp} clip={focus} />;
     const clips = comp.clips.filter((clip) => selection.includes(clip.id));
-    if (clips.length === 1) return <ClipProperties {...props} comp={comp} clip={clips[0]} />;
     if (clips.length > 1) return <ManyClips {...props} comp={comp} clips={clips} />;
   }
   return comp ? <CompProperties {...props} comp={comp} /> : <div className="props"><div className="props-note">Open a comp to see its properties.</div></div>;
@@ -280,7 +281,7 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
           {source.preset === 'caption' && (
             <Row label="Caption style">
               <select className="prop-select" value={source.style ?? ''} disabled={disabled} onChange={(event) => setSource({ style: event.target.value || null })}>
-                <option value="">Helios basic</option>
+                <option value="">Bhippi basic</option>
                 {CAPTION_STYLES.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}
               </select>
               <button type="button" className="btn btn-small btn-ghost" onClick={onOpenGraphics}>Browse…</button>
@@ -455,7 +456,7 @@ function CompProperties({ project, comp, history }: Omit<Props, 'comp'> & { comp
       <Section title="Captions" defaultOpen={false}>
         <Row label="Default style">
           <select className="prop-select" value={project.captionStyle ?? ''} onChange={(event) => { const style = event.target.value || null; history.commit((current) => ({ ...current, captionStyle: style }), 'Caption Style'); }}>
-            <option value="">Helios basic</option>
+            <option value="">Bhippi basic</option>
             {CAPTION_STYLES.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}
           </select>
         </Row>

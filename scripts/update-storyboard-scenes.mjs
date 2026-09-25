@@ -1,6 +1,6 @@
 import fs from 'fs';
 
-const path = 'C:/Users/aayus/AppData/Roaming/studio.helios.desktop/projects/current.json';
+const path = 'C:/Users/aayus/AppData/Roaming/com.bhippi.videoeditor/projects/current.json';
 const proj = JSON.parse(fs.readFileSync(path, 'utf8'));
 const comp = proj.comps[0];
 

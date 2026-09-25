@@ -8,4 +8,4 @@
 - [x] Cube reveal timing + zoom-out to 78% over red, text stays full size
 - [x] Sound on reveal / front line / zoom
 - [x] run_frame_qa until clear (only intentional behind-subject/reveal flags), get_comp
-- [ ] verify_edit_workflow — BLOCKED on storyboardRefs (Helios-side, image generation off)
+- [ ] verify_edit_workflow — BLOCKED on storyboardRefs (Bhippi-side, image generation off)

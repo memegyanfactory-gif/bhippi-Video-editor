@@ -4,7 +4,7 @@ the sticker look (a white stroke and a soft drop shadow) is baked into the PNG.
 BiRefNet (Zheng Peng et al., MIT licence, weights on Hugging Face) is a high-resolution
 dichotomous segmentation model: one image in, one soft alpha out. Two snapshots are used:
 `general` (ZhengPeng7/BiRefNet) for anything, `portrait` (ZhengPeng7/BiRefNet-portrait) for
-people with hair. Each is downloaded on first use into the Helios models folder, from a pinned
+people with hair. Each is downloaded on first use into the Bhippi models folder, from a pinned
 revision, and every file is checked against its SHA-256 before the model code is imported.
 RMBG-2.0 is deliberately not used: its licence is non-commercial.
 
@@ -16,7 +16,7 @@ What happens to the alpha after the model:
   · on a green screen the picture is despilled (green limited by max(red, blue)).
 
 Request (JSON file named on the command line):
-  input      image to cut out (Helios pulls a video frame to PNG first)
+  input      image to cut out (Bhippi pulls a video frame to PNG first)
   output     RGBA PNG to write
   result     JSON file to write the answer to
   modelDir   folder of the BiRefNet snapshot (downloaded here on first use)
@@ -116,7 +116,7 @@ def download(url, target, low, high, label):
 
     part = target.with_name(target.name + ".part")
     existing = part.stat().st_size if part.is_file() else 0
-    headers = {"User-Agent": "Helios cutout installer"}
+    headers = {"User-Agent": "Bhippi cutout installer"}
     if existing:
         headers["Range"] = f"bytes={existing}-"
     try:
@@ -157,7 +157,7 @@ def ensure_model(model_dir, variant):
     """Downloads the pinned snapshot on first use and checks every file's SHA-256."""
     repo, revision, files = VARIANTS[variant]
     model_dir.mkdir(parents=True, exist_ok=True)
-    receipt = model_dir / "helios-install.json"
+    receipt = model_dir / "bhippi-install.json"
     if receipt.is_file():
         try:
             if json.loads(receipt.read_text(encoding="utf-8")).get("revision") == revision and all((model_dir / name).is_file() for name in files):
@@ -204,7 +204,7 @@ def load_model(model_dir, variant, device):
     for name in ("birefnet.py", "BiRefNet_config.py"):
         if sha256(model_dir / name) != files[name]:
             raise RuntimeError(f"{name} in {model_dir} was modified; delete the folder and run the cutout again.")
-    package = f"helios_birefnet_{variant}"
+    package = f"bhippi_birefnet_{variant}"
     module = types.ModuleType(package)
     module.__path__ = [str(model_dir)]
     sys.modules[package] = module

@@ -33,7 +33,7 @@ def test_import_export_roundtrip(tmp_path):
         "name": "pytest",
         "aspect": "16:9",
         "clips": [{"id": "c1", "assetId": assets[0]["id"], "in": 0.2, "out": 1.8, "volume": 1}],
-        "graphics": [{"id": "g1", "text": "HELIOS", "subtitle": "test", "start": 0.3, "duration": 1.0, "preset": "title", "color": "#FFC53D"}],
+        "graphics": [{"id": "g1", "text": "BHIPPI", "subtitle": "test", "start": 0.3, "duration": 1.0, "preset": "title", "color": "#FFC53D"}],
         "sounds": [{"id": "s1", "kind": "whoosh", "start": 0.2, "volume": 0.5}],
         "transcripts": [],
     }

@@ -7,6 +7,6 @@
 - [x] Build a reusable fast-frame-scan custom tool (fast_contact_sheet) — blocked by the same gate this turn
 - [x] Check local models: SDXL + LTX installed but local generation switched OFF; SAM2/ViTMatte/Depth ready; Stable Audio + LaMa missing
 - [x] Root cause of the stalls: transcript gate demanded the instrumental music bed be transcribed → every tool refused
-- [x] Patched D:\Helios\src\lib\editWorkflow.ts (music-named audio exempt; failed "no engine" transcription stops blocking); tsc clean
-- [ ] User: restart Helios so the patch loads; turn ON local generation (Settings → Local Media)
+- [x] Patched D:\Bhippi Video editor\src\lib\editWorkflow.ts (music-named audio exempt; failed "no engine" transcription stops blocking); tsc clean
+- [ ] User: restart Bhippi so the patch loads; turn ON local generation (Settings → Local Media)
 - [ ] Next run: save_storyboard from todos/plan-masterpiece-rebuild.md (10 batches) and end the turn for Start generating

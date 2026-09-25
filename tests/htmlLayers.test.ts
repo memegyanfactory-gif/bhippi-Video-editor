@@ -27,7 +27,7 @@ describe('HTML graphic layers', () => {
 
   it('scopes every rule to its own copy of the graphic', () => {
     const css = layerCss(graphic.css, 'abc', '1', 3);
-    const rules = css.split('/* helios-layers rules */')[1];
+    const rules = css.split('/* bhippi-layers rules */')[1];
     for (const line of rules.trim().split('\n')) expect(line.startsWith('[data-hl-show="abc-1"]')).toBe(true);
     expect(layerCss(graphic.css, 'abc', 'rest', 3)).toContain('[data-hl-show="abc-rest"] [data-hl]');
   });

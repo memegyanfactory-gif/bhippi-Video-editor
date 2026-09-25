@@ -1,8 +1,8 @@
-//! Helios as an MCP server for CLI agents.
+//! Bhippi as an MCP server for CLI agents.
 //!
-//! A CLI agent (Claude Code, Codex, Gemini CLI, OpenCode) starts its MCP servers itself, as
-//! child processes speaking JSON-RPC on stdio. Helios cannot be that child — the app is
-//! already running — so the agent starts `helios.exe --mcp-bridge <port> <token>` instead: a
+//! A CLI agent (Claude Code, Codex, OpenCode) starts its MCP servers itself, as
+//! child processes speaking JSON-RPC on stdio. Bhippi cannot be that child — the app is
+//! already running — so the agent starts `bhippi.exe --mcp-bridge <port> <token>` instead: a
 //! small bridge that answers the protocol and forwards each tool call over loopback TCP to the
 //! running app, which runs it through the turn's [`ToolExecutor`] exactly like a native call.
 //!
@@ -17,18 +17,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
-/// The first argument that turns the helios binary into a bridge.
+/// The first argument that turns the bhippi binary into a bridge.
 pub const BRIDGE_FLAG: &str = "--mcp-bridge";
 
-/// The server name agents see, and fold into tool names (`mcp__helios__add_text`).
-pub const SERVER_NAME: &str = "helios";
+/// The server name agents see, and fold into tool names (`mcp__bhippi__add_text`).
+pub const SERVER_NAME: &str = "bhippi";
 
 const PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const DEFAULT_PROTOCOL: &str = "2025-06-18";
 
 /// Longer than the app's longest per-call timeout (ask_user waits up to 24 h; generation, roto
 /// and transcription up to 30 min), so the app's answer — a result, its own timeout, or
-/// "stopped" — always wins the race. Giving up first would report the turn over while Helios is
+/// "stopped" — always wins the race. Giving up first would report the turn over while Bhippi is
 /// still running the call, and a retry would run it twice.
 const BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60 + 60);
 
@@ -108,7 +108,7 @@ pub fn handle_line(line: &str) -> Step {
     }
 }
 
-/// The `tools/call` answer for a Helios result: the result JSON as text, flagged as an error
+/// The `tools/call` answer for a Bhippi result: the result JSON as text, flagged as an error
 /// when the edit did not happen so the agent reads it as a failure rather than a success.
 pub fn call_reply(id: Value, result: &Value) -> Value {
     let mut text_result = result.clone();
@@ -151,7 +151,7 @@ struct AppLink {
 impl AppLink {
     fn connect(&mut self) -> Result<(), String> {
         let stream = std::net::TcpStream::connect(("127.0.0.1", self.port))
-            .map_err(|error| format!("Helios is not reachable: {error}"))?;
+            .map_err(|error| format!("Bhippi is not reachable: {error}"))?;
         stream.set_read_timeout(Some(BRIDGE_READ_TIMEOUT)).map_err(|error| error.to_string())?;
         let mut writer = stream.try_clone().map_err(|error| error.to_string())?;
         let mut reader = BufReader::new(stream);
@@ -163,7 +163,7 @@ impl AppLink {
             return Err(answer
                 .get("error")
                 .and_then(Value::as_str)
-                .unwrap_or("Helios refused the connection")
+                .unwrap_or("Bhippi refused the connection")
                 .to_owned());
         }
         self.connection = Some((reader, writer));
@@ -177,7 +177,7 @@ impl AppLink {
             }
         }
         let Some((reader, writer)) = self.connection.as_mut() else {
-            return ai_tools::failure("Helios is not connected");
+            return ai_tools::failure("Bhippi is not connected");
         };
         self.next_id += 1;
         let id = self.next_id;
@@ -188,22 +188,22 @@ impl AppLink {
             Ok(count) if count > 0 => serde_json::from_str::<Value>(&line)
                 .ok()
                 .and_then(|answer| answer.get("result").cloned())
-                .unwrap_or_else(|| ai_tools::failure("Helios sent an unreadable answer")),
+                .unwrap_or_else(|| ai_tools::failure("Bhippi sent an unreadable answer")),
             _ => {
-                // The app closed the line — the turn ended or Helios quit. A later call may
+                // The app closed the line — the turn ended or Bhippi quit. A later call may
                 // reconnect and be refused with the reason.
                 self.connection = None;
-                ai_tools::failure("Helios closed the connection; this chat turn is over")
+                ai_tools::failure("Bhippi closed the connection; this chat turn is over")
             }
         }
     }
 }
 
-/// `helios --mcp-bridge <port> <token>`: serves MCP on stdio until the agent closes stdin.
+/// `bhippi --mcp-bridge <port> <token>`: serves MCP on stdio until the agent closes stdin.
 /// Returns the process exit code. Only logs go to stderr — stdout is the protocol.
 pub fn run_bridge(args: &[String]) -> i32 {
     let (Some(port), Some(token)) = (args.first().and_then(|port| port.parse::<u16>().ok()), args.get(1)) else {
-        eprintln!("usage: helios {BRIDGE_FLAG} <port> <token>");
+        eprintln!("usage: bhippi {BRIDGE_FLAG} <port> <token>");
         return 2;
     };
     let mut link = AppLink { port, token: token.clone(), connection: None, next_id: 0 };
@@ -329,7 +329,7 @@ impl McpHub {
             .and_then(|hello| hello.get("token").and_then(Value::as_str).map(str::to_owned))
             .unwrap_or_default();
         let Some((turn_id, _)) = self.executor_for(&token) else {
-            let refusal = json!({ "ok": false, "error": "Helios does not recognise this chat turn" });
+            let refusal = json!({ "ok": false, "error": "Bhippi does not recognise this chat turn" });
             let _ignored = write.write_all(format!("{refusal}\n").as_bytes()).await;
             return;
         };
@@ -384,7 +384,7 @@ mod tests {
         assert_eq!(known["id"], 0);
         assert_eq!(known["result"]["protocolVersion"], "2025-11-25");
         assert_eq!(known["result"]["capabilities"], json!({"tools": {}}));
-        assert_eq!(known["result"]["serverInfo"]["name"], "helios");
+        assert_eq!(known["result"]["serverInfo"]["name"], "bhippi");
         let future = reply(r#"{"jsonrpc":"2.0","id":"a","method":"initialize","params":{"protocolVersion":"2031-01-01"}}"#);
         assert_eq!(future["result"]["protocolVersion"], "2025-06-18");
         assert_eq!(future["id"], "a");

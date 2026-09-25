@@ -5,7 +5,7 @@ src-tauri/gen/
 *.tsbuildinfo
 test-results/
 # Legacy Python prototype data
-.helios/
+.bhippi/
 .venv/
 __pycache__/
 .pytest_cache/
@@ -21,3 +21,7 @@ scratch/
 
 # Playwright MCP screenshots and logs
 .playwright-mcp/
+
+# Installer payload, downloaded by scripts/fetch-bundle.mjs
+src-tauri/bundled/*
+!src-tauri/bundled/README.md

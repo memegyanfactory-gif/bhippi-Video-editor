@@ -1,9 +1,9 @@
-# Helios motion design master plan
+# Bhippi motion design master plan
 
-Written 2026-09-23. This plan makes Helios edit at the level of the reference
+Written 2026-09-23. This plan makes Bhippi edit at the level of the reference
 video *"If You ONLY Watch One Motion Design Video, Make It This…"* (11:44,
 1280×720, 29.97 fps; local copy in `~/Downloads`). That video was cut and
-animated in After Effects. The goal is that Helios, driven by its AI, produces
+animated in After Effects. The goal is that Bhippi, driven by its AI, produces
 that kind of edit from a user's own footage, and exports exactly what the
 preview shows.
 
@@ -71,7 +71,7 @@ This is the shot the user called out. At 29.97 fps:
 3. Typography in depth between the plate and the subject.
 4. A camera move, blur, glow and grade.
 
-Every system has its own easing, and each one ends as the next begins. Helios
+Every system has its own easing, and each one ends as the next begins. Bhippi
 today can do each piece roughly on its own (RVM roto, LaMa clean plate,
 text-behind-subject, a tile-grid `cubes-reveal`). It cannot make the matte
 itself animate. It also has no glow, motion blur or 3D in export, and the pieces
@@ -85,9 +85,9 @@ and resolves to the fine matte.
 
 ### 1.2 Technique catalogue (with timestamps)
 
-Every technique below needs a first-class Helios feature.
+Every technique below needs a first-class Bhippi feature.
 
-| # | Technique | Where | AE recipe | Helios today |
+| # | Technique | Where | AE recipe | Bhippi today |
 |---|---|---|---|---|
 | T1 | Clean plate + subject sandwich | 0:00, 0:32 "45 Sec", 5:32 "FIRST BATCH", 10:32 "12917 AED", 11:10 "2026" | Content-Aware Fill or plate; roto; text between | Partial: `erase_subject_clip`, `add_text_behind_subject` |
 | T2 | Matte-driven mosaic reveal (cells seeded at the face, flowing top to bottom, red tint that cools off) | 0:00.1–0:00.7 | Mosaic + Fill + Glow on the matte, cell delay from distance | **No.** `cubes-reveal` is a frame-wide tile wipe. |
@@ -144,7 +144,7 @@ the whooshes, clicks and risers against graphic events (see Phase 0).
 
 ## 2. The gap, in one table
 
-| Capability | Needed for | Helios now (file) |
+| Capability | Needed for | Bhippi now (file) |
 |---|---|---|
 | One renderer for preview **and** export | Everything; today many effects are preview-only | DOM/CSS preview (`src/editor/Compositor.tsx`) and FFmpeg `filter_complex` export (`src-tauri/src/render.rs`). Only 15 effects export (`src/lib/effectSupport.ts`). |
 | Blend modes | T18, glows, light leaks | None |
@@ -337,7 +337,7 @@ favour of "everything in the catalogue renders".
 - SAM2 and MediaPipe are Apache-2.0. LaMa is Apache-2.0.
 - RAFT is BSD. RIFE is MIT. BiRefNet is MIT.
 
-All of these are verified at install time. If Helios is sold, the
+All of these are verified at install time. If Bhippi is sold, the
 non-commercial models stay as **user-installed optional models**, downloaded by
 `install_local_model` with the licence shown, never bundled. Commercial-safe
 defaults are SAM2+ViTMatte, LaMa, RAFT and RIFE.

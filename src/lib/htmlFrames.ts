@@ -121,7 +121,7 @@ function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'wi
       runner(stage, gsap, tl, 0, duration, 0);
       if (tl.getChildren().length > 0) timeline = tl;
     } catch (error) {
-      console.warn('Helios motion graphic script failed while rendering frames:', error);
+      console.warn('Bhippi motion graphic script failed while rendering frames:', error);
     }
   }
 

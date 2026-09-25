@@ -96,6 +96,13 @@ export function videoBlueprintContentError(scenes: VideoBlueprintSceneInput[], k
   return problems.length > 5 ? `${shown} Plus ${problems.length - 5} more scene(s) with missing detail — fix all scenes in one re-save.` : shown;
 }
 const preparation = new Set([
+  // The plugin library, not the project: fine in any phase (call_plugin_action is gated like an edit).
+  'plugin_sdk_reference',
+  'list_plugins',
+  'get_plugin',
+  'save_plugin',
+  'plugin_logs',
+  'show_plugin',
   'online_research',
   'scrape_web_page',
   'capture_product_ui',
@@ -170,6 +177,12 @@ const preparation = new Set([
   'delete_brand_kit',
   'set_active_brand_kit',
   'import_brand_logo',
+  // The brain is the assistant's own memory: usable in every phase.
+  'brain_remember',
+  'brain_recall',
+  'brain_forget',
+  'brain_save_skill',
+  'brain_load_skill',
   'import_brand_kit',
   'list_learned_skills',
   'list_custom_tools',
@@ -189,6 +202,7 @@ const preparation = new Set([
   // media, so the phase gate still holds them to GATHER.
   'save_beat_sheet',
   'search_memes',
+  'find_memes_online',
   'refresh_meme_trends',
   'save_meme',
   'get_meme_media',
@@ -235,6 +249,13 @@ const LOCAL_GENERATION_OFF =
 
 /** Reads and bookkeeping that are fine in any phase, including after a phase has just closed. */
 const ALWAYS_TOOLS = new Set([
+  // The plugin library, not the project: fine in any phase (call_plugin_action is gated like an edit).
+  'plugin_sdk_reference',
+  'list_plugins',
+  'get_plugin',
+  'save_plugin',
+  'plugin_logs',
+  'show_plugin',
   'list_motion_templates',
   'search_icons',
   'svg_to_shape',
@@ -268,6 +289,12 @@ const ALWAYS_TOOLS = new Set([
   'check_brand_compliance',
   'list_brand_archetypes',
   'brand_kit_prompt',
+  // The brain is the assistant's own memory: usable in every phase.
+  'brain_remember',
+  'brain_recall',
+  'brain_forget',
+  'brain_save_skill',
+  'brain_load_skill',
   'export_brand_kit',
   'list_learned_skills',
   'list_custom_tools',

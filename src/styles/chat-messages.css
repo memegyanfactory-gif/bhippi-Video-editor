@@ -4,13 +4,51 @@
    loads before app.css — so every rule here is scoped under `.msg-assistant` (or uses class
    names app.css does not have) to win on specificity rather than on order. */
 
-/* Header: a round provider mark, the name, the model — no rule running down the side. */
+/* Header: the Bhippi mark and name on every answer — no provider tag, no rule running down the side. */
 .chat-list .msg-assistant { gap: 8px; }
-.msg-assistant .msg-meta { gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--text); min-height: 20px; }
+.chat-list > .msg-assistant + .msg-user-row, .chat-list > .msg-user-row + .msg-assistant { margin-top: 6px; }
+.msg-assistant .msg-meta { gap: 7px; font-size: 12px; font-weight: 600; color: var(--text); min-height: 20px; }
 .msg-assistant .msg-meta .muted { color: var(--text-faint); font-weight: 400; }
-.msg-assistant .msg-avatar { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; overflow: hidden; background: var(--panel-3); box-shadow: 0 0 0 1px var(--line-strong); }
+.msg-assistant .msg-avatar { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--panel-3); box-shadow: 0 0 0 1px var(--line-strong); }
 .msg-assistant .msg-avatar > * { border-radius: 50%; }
+.msg-assistant .msg-avatar.bhippi img { width: 20px; height: 20px; object-fit: cover; display: block; }
 .msg-assistant .msg-who { letter-spacing: 0.01em; }
+.msg-assistant .msg-flag { padding: 1px 6px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); font-size: 10px; font-weight: 600; }
+
+/* ── Your own messages: a soft rounded bubble, its actions underneath on hover ── */
+.chat-list .msg-user-row { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 86%; min-width: 0; }
+.chat-list .msg-user-row .msg-user { align-self: auto; max-width: 100%; padding: 8px 13px; border: 0; border-radius: 16px 16px 4px 16px; background: var(--bubble, #2f3b4d); font-size: 13px; line-height: 1.5; }
+.chat-list .msg-user-row .msg-user .chat-images { margin: 6px 0 2px; }
+
+/* The action row: edit · copy · send again under a message, copy and details under an answer.
+   Hidden until the message is hovered; the newest answer keeps its row showing. */
+.msg-actions { display: flex; align-items: center; gap: 2px; min-height: 26px; opacity: 0; transition: opacity 0.14s ease; }
+.msg-user-row:hover .msg-actions, .msg-assistant:hover > .msg-actions, .msg-assistant.latest > .msg-actions, .msg-actions:focus-within { opacity: 1; }
+.msg-assistant > .msg-actions { margin: -2px 0 0 20px; }
+.msg-action { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; color: var(--text-faint); cursor: pointer; transition: background-color 0.12s ease, color 0.12s ease; }
+.msg-action:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); color: var(--text); }
+.msg-action:focus-visible { outline: 1px solid var(--blue-line); outline-offset: 0; color: var(--text); }
+.msg-action:disabled { opacity: 0.4; cursor: default; }
+.msg-action.copied { color: var(--green, #6cc26c); }
+.msg-actions-meta { margin-left: 6px; color: var(--text-faint); font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Where a full-workflow turn left the edit: one line, with Continue when it is unfinished. */
+.msg-assistant .workflow-note { display: flex; align-items: center; gap: 10px; margin-left: 26px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); color: var(--text-dim); font-size: 11.5px; line-height: 1.45; }
+.msg-assistant .workflow-note > span { flex: 1; min-width: 0; }
+.msg-assistant .workflow-note.ok { border-color: rgba(63, 185, 80, 0.28); }
+.msg-assistant .workflow-note.next { border-color: var(--blue-line); }
+.msg-assistant .workflow-note.warn { border-color: rgba(227, 163, 60, 0.3); }
+.workflow-continue { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 0; border-radius: 999px; background: var(--text); color: var(--deep, #111); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.workflow-continue:hover { opacity: 0.88; }
+
+/* A message sent while the turn worked: your words, right-aligned inside the answer, and where they stand. */
+.steer-note { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 86%; margin: 2px 0; animation: wk-in 220ms ease both; }
+.steer-bubble { padding: 7px 12px; border-radius: 14px 14px 4px 14px; background: var(--bubble, #2f3b4d); color: var(--text); font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.steer-note.waiting .steer-bubble { opacity: 0.72; outline: 1px dashed var(--line-strong); outline-offset: -1px; background: transparent; }
+.steer-state { display: flex; align-items: center; gap: 4px; color: var(--text-faint); font-size: 10.5px; }
+.steer-note.delivered .steer-state { color: var(--green, #6cc26c); }
+.steer-state button { margin-left: 4px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; }
+.steer-state button:hover { background: rgba(255, 255, 255, 0.07); color: var(--text); }
 
 /* The streaming edge light is replaced by the ring around the mark (app.css, awesome mode) and the
    live step in the work line: the purple bar down the whole turn read as a border, not motion. */
@@ -22,7 +60,11 @@
 .msg-assistant .answer { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-left: 26px; }
 .msg-assistant .answer:empty { display: none; }
 .msg-assistant .answer-seg { min-width: 0; }
-.msg-assistant .answer .typing { padding: 2px 0; }
+.msg-assistant .answer .typing { display: flex; align-items: center; gap: 4px; height: 20px; padding: 0; animation: wk-in 240ms ease both; }
+.msg-assistant .answer .typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--text-dim); opacity: 0.3; animation: typing-wave 1.3s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+.msg-assistant .answer .typing span:nth-child(2) { animation-delay: 0.16s; }
+.msg-assistant .answer .typing span:nth-child(3) { animation-delay: 0.32s; }
+@keyframes typing-wave { 0%, 60%, 100% { opacity: 0.28; transform: translateY(0); } 30% { opacity: 0.95; transform: translateY(-3px); } }
 
 /* ── Prose ── */
 .msg-assistant .markdown { max-width: 72ch; font-size: 13px; line-height: 1.62; color: var(--text); letter-spacing: 0.003em; }
@@ -48,23 +90,46 @@
 .msg-assistant .markdown table { border-collapse: collapse; margin: 0 0 0.75em; font-size: 12px; }
 .msg-assistant .markdown th, .msg-assistant .markdown td { border: 1px solid var(--line-strong); padding: 4px 8px; text-align: left; }
 .msg-assistant .markdown th { background: var(--panel-2); font-weight: 600; }
-.msg-assistant .markdown .md-code { margin: 0.2em 0 0.85em; border: 1px solid var(--line-strong); border-radius: 7px; background: #161616; }
+.msg-assistant .markdown .md-code { margin: 0.2em 0 0.85em; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--deep); }
 .msg-assistant .markdown .md-code-bar { padding: 4px 10px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; }
 .msg-assistant .markdown .md-code-copy, .msg-assistant .markdown .md-code-toggle { border-radius: 4px; padding: 1px 6px; cursor: pointer; }
 .msg-assistant .markdown .md-code-copy:hover, .msg-assistant .markdown .md-code-toggle:hover { background: var(--panel-4); color: var(--text); }
 .msg-assistant .markdown .md-code pre { padding: 10px 12px; font-size: 11.5px; line-height: 1.55; }
 .msg-assistant .markdown .md-code pre code { font-family: var(--mono); }
 
-/* Thinking toggle: same quiet chip family as the work line. */
-.msg-assistant .thinking { margin-left: 26px; padding: 3px 8px; border-radius: 6px; background: transparent; color: var(--text-faint); cursor: pointer; }
+/* Thinking toggle: same quiet chip family as the work line. While the model is still thinking the
+   word carries a slow sheen and the mark breathes; afterwards it settles to plain text. */
+.msg-assistant .thinking { display: inline-flex; align-items: center; gap: 6px; margin-left: 18px; padding: 4px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-faint); font: inherit; font-size: 12px; cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease; }
 .msg-assistant .thinking:hover { background: rgba(255, 255, 255, 0.045); color: var(--text-dim); }
-.msg-assistant .thinking-body { margin-left: 26px; font-size: 12px; line-height: 1.55; }
+.msg-assistant .thinking-chevron { transition: transform 0.18s ease; opacity: 0.7; }
+.msg-assistant .thinking.live { color: var(--text-dim); }
+.msg-assistant .thinking.live .thinking-icon { color: var(--blue-hi); animation: think-breathe 1.8s ease-in-out infinite; }
+.msg-assistant .thinking.live .thinking-label { font-weight: 550; background: linear-gradient(90deg, var(--text-faint) 0%, var(--text-faint) 35%, var(--text) 50%, var(--text-faint) 65%, var(--text-faint) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: wk-shimmer 2.2s linear infinite; }
+.msg-assistant .thinking-body { margin-left: 26px; padding: 2px 0 2px 12px; border-left: 2px solid var(--line-strong); color: var(--text-faint); font-size: 12px; line-height: 1.6; animation: wk-in 200ms ease both; }
+@keyframes think-breathe { 0%, 100% { opacity: 0.55; transform: scale(0.94); } 50% { opacity: 1; transform: scale(1.06); } }
 .msg-assistant .notes, .msg-assistant .limit-note, .msg-assistant .edits-card, .msg-assistant .fault-card { margin-left: 26px; }
 .msg-assistant .edits-card { border-radius: 7px; }
 .msg-assistant .fault-card { border-radius: 7px; }
 
 /* ── A stretch of work, folded ── */
-.work { align-self: stretch; min-width: 0; border: 1px solid transparent; border-radius: 8px; margin: 0 -8px; transition: background-color 0.15s ease, border-color 0.15s ease; }
+.work { position: relative; align-self: stretch; min-width: 0; border: 1px solid transparent; border-radius: 8px; margin: 0 -8px; transition: background-color 0.2s ease, border-color 0.2s ease; animation: wk-in 220ms ease both; }
+.work.live { border-color: var(--line); background: rgba(255, 255, 255, 0.022); overflow: hidden; }
+/* A hairline of light sliding along the bottom edge while the stretch is live. */
+.wk-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; overflow: hidden; pointer-events: none; }
+.wk-progress::after { content: ''; position: absolute; top: 0; bottom: 0; width: 38%; background: linear-gradient(90deg, transparent, var(--blue-hi), transparent); animation: wk-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+@keyframes wk-sweep { from { left: -40%; } to { left: 100%; } }
+/* Opening and closing the list slides rather than jumps. */
+.wk-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.work.open > .wk-collapse { grid-template-rows: 1fr; }
+.wk-collapse-inner { min-height: 0; overflow: hidden; }
+/* The live mark: a thin ring turning around a steady centre. */
+.wk-orbit { position: relative; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--blue-hi) 25%, transparent); border-top-color: var(--blue-hi); animation: spin 0.85s linear infinite; }
+.wk-now-wrap { flex: 1; display: flex; align-items: baseline; gap: 7px; min-width: 0; animation: wk-swap 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes wk-swap { from { opacity: 0; transform: translateY(4px); filter: blur(2px); } }
+/* A running row: a soft dot that pulses outward. */
+.wk-pulse { position: relative; width: 6px; height: 6px; border-radius: 50%; background: var(--blue-hi); }
+.wk-pulse::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--blue-hi); animation: wk-ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite; }
+@keyframes wk-ping { 0% { transform: scale(1); opacity: 0.6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
 .work.open { border-color: var(--line); background: rgba(255, 255, 255, 0.018); }
 .wk-head { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-dim); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .wk-head:hover { background: rgba(255, 255, 255, 0.04); color: var(--text); }
@@ -82,7 +147,7 @@
 .wk-chevron { flex: none; color: var(--text-faint); transition: transform 0.15s ease; }
 
 /* The step running right now, with a light passing over its name. */
-.wk-now { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); background: linear-gradient(90deg, var(--text-dim) 0%, var(--text-dim) 35%, #ffffff 50%, var(--text-dim) 65%, var(--text-dim) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: wk-shimmer 1.9s linear infinite; }
+.wk-now { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); background: linear-gradient(90deg, var(--text-dim) 0%, var(--text-dim) 35%, #ffffff 50%, var(--text-dim) 65%, var(--text-dim) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: wk-shimmer 1.9s linear infinite; }
 .wk-now-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
 @keyframes wk-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 
@@ -95,7 +160,8 @@
 .wk-row::before { content: ''; position: absolute; left: 7.5px; top: 18px; bottom: -4px; width: 1px; background: var(--line-strong); }
 .wk-row:last-child::before { display: none; }
 .wk-dot { position: relative; z-index: 1; flex: none; display: grid; place-items: center; width: 16px; height: 16px; margin-top: 3px; border-radius: 50%; background: var(--panel); box-shadow: 0 0 0 1px var(--line-strong); color: var(--text-faint); }
-.wk-row.done > .wk-dot { color: var(--green); }
+.wk-row.done > .wk-dot { color: var(--text-dim); }
+.wk-row.done:hover > .wk-dot { color: var(--text); }
 .wk-row.running > .wk-dot { color: var(--blue-hi); box-shadow: 0 0 0 1px var(--blue-line); }
 .wk-row.failed > .wk-dot { color: var(--amber); background: #2a2419; box-shadow: 0 0 0 1px rgba(227, 163, 60, 0.45); }
 .wk-row.denied > .wk-dot { color: var(--text-dim); }
@@ -127,6 +193,9 @@
 @keyframes wk-in { from { opacity: 0; transform: translateY(-2px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .wk-row { animation: none; }
-  .wk-now { animation: none; -webkit-text-fill-color: currentColor; background: none; }
+  .wk-row, .work, .wk-now-wrap, .thinking-body, .msg-assistant .answer .typing { animation: none; }
+  .wk-now, .msg-assistant .thinking.live .thinking-label { animation: none; -webkit-text-fill-color: currentColor; background: none; }
+  .wk-pulse::after, .wk-progress { display: none; }
+  .wk-orbit, .msg-assistant .thinking.live .thinking-icon { animation: none; }
+  .wk-collapse { transition: none; }
 }

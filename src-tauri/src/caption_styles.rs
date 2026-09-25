@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn every_style_renders_without_panicking() {
         for style in all() {
-            let lines = events(&caption("Helios makes captions pop", &style.id), style, 1080, 1920);
+            let lines = events(&caption("Bhippi makes captions pop", &style.id), style, 1080, 1920);
             assert!(!lines.is_empty(), "{} rendered nothing", style.id);
         }
     }

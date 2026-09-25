@@ -317,6 +317,19 @@ export const compDuration = (comp: Comp) => comp.clips.reduce((end, clip) => Mat
 export const clipsOn = (comp: Comp, trackId: string) => comp.clips.filter((clip) => clip.trackId === trackId).sort((a, b) => a.start - b.start);
 
 /** `ids` plus every clip linked or grouped with one of them. */
+/**
+ * The one clip the inspectors should show. Clicking a linked clip selects its partners too, so a
+ * video with its audio arrives as two ids (a group, as many) — still one click to the user. When the
+ * whole selection is the first clip plus its links and group, that clicked clip (first in the selection) is
+ * the focus; a genuine multi-clip selection has none.
+ */
+export function focusClip(comp: Comp, selection: string[]): Clip | undefined {
+  const first = comp.clips.find((clip) => clip.id === selection[0]);
+  if (!first) return undefined;
+  const unit = new Set(withLinked(comp, [first.id]));
+  return selection.every((id) => unit.has(id)) ? first : undefined;
+}
+
 export function withLinked(comp: Comp, ids: Iterable<string>, groups = true): string[] {
   const chosen = new Set(ids);
   const picked = comp.clips.filter((clip) => chosen.has(clip.id));
@@ -1352,7 +1365,7 @@ type Legacy = {
 const LEGACY_SIZE: Record<string, [number, number]> = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350] };
 const finite = (value: unknown, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 
-/** The single-track projects of Helios 0.2: V1 clips back to back, text on V2+, effects on A2+. */
+/** The single-track projects of Bhippi 0.2: V1 clips back to back, text on V2+, effects on A2+. */
 function migrateLegacy(value: Legacy, assets: AssetMap): Project {
   const [width, height] = LEGACY_SIZE[value.aspect ?? '16:9'] ?? LEGACY_SIZE['16:9'];
   const project = newProject(value.name?.trim() || 'Untitled project');
@@ -1449,7 +1462,7 @@ function sanitize(value: Project): Project {
   };
 }
 
-/** Any project Helios has saved, in the current shape. */
+/** Any project Bhippi has saved, in the current shape. */
 export function loadProject(value: unknown, assets: AssetMap): Project {
   if (!value || typeof value !== 'object') {
     const fresh = newProject();

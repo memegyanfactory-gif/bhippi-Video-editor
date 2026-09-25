@@ -42,7 +42,20 @@ describe('the turn timeline', () => {
       [],
       [run('a', 'write_file', 10), run('b', 'glob_search', 50), run('c', 'online_research', 130)],
     );
-    expect(blocks.map((block) => (block.kind === 'text' ? block.text : block.runs.map((item) => item.callId).join('+')))).toEqual(['First.', 'a+b', 'Then.', 'c']);
+    expect(blocks.map((block) => (block.kind === 'text' ? block.text : block.kind === 'work' ? block.runs.map((item) => item.callId).join('+') : block.steer.text))).toEqual(['First.', 'a+b', 'Then.', 'c']);
+  });
+
+  it('puts a message the user sent mid-turn where the model read it, and splits the words after it', () => {
+    const blocks = toTimeline(
+      [{ at: 0, end: 5, text: 'Cutting the intro.' }, { at: 60, end: 70, text: 'Using the second clip instead.' }],
+      [],
+      [run('a', 'cut_clip', 10)],
+      [{ id: 's', text: 'use the second clip', at: 40, state: 'delivered' }],
+    );
+    expect(blocks.map((block) => block.kind)).toEqual(['text', 'work', 'steer', 'text']);
+    let message = { content: 'Working.', segments: [{ at: 0, end: 5, text: 'Working.' }], steps: [], steers: [{ at: 8, state: 'delivered' }] };
+    message = { ...message, ...appendText(message, 'Switching clips.', [], 10) };
+    expect(message.segments).toHaveLength(2);
   });
 
   it('shows old turns without segments as work first, then the answer', () => {

@@ -5,8 +5,8 @@
 // what the last one looked like. A per-frame model — even a better one — produces an edge that
 // crawls, and a crawling edge is what makes roto look cheap.
 //
-// The run is: Helios pulls the frames with FFmpeg, this walks them in order carrying that state,
-// and each alpha plane goes straight back to Helios, which writes it and works out where the
+// The run is: Bhippi pulls the frames with FFmpeg, this walks them in order carrying that state,
+// and each alpha plane goes straight back to Bhippi, which writes it and works out where the
 // subject is. Nothing is held in memory but the current frame.
 import * as ort from 'onnxruntime-web';
 import { invoke } from '@tauri-apps/api/core';
@@ -88,7 +88,7 @@ function toTensor(image: ImageData): ort.Tensor {
 
 const draw = (source: HTMLImageElement, canvas: HTMLCanvasElement): ImageData => {
   const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) throw new Error('this machine cannot give Helios a 2D canvas');
+  if (!context) throw new Error('this machine cannot give Bhippi a 2D canvas');
   context.drawImage(source, 0, 0, canvas.width, canvas.height);
   return context.getImageData(0, 0, canvas.width, canvas.height);
 };

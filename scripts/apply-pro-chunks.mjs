@@ -1,6 +1,6 @@
 import fs from 'fs';
 
-const projectPath = 'C:/Users/aayus/AppData/Roaming/studio.helios.desktop/projects/current.json';
+const projectPath = 'C:/Users/aayus/AppData/Roaming/com.bhippi.videoeditor/projects/current.json';
 const proj = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
 const comp = proj.comps[0];
 
@@ -11,7 +11,7 @@ const a1TrackId = 'c0e8e87f7cf14ceca4b7';
 const a2TrackId = '9145243b7b6b4e198e93';
 
 const assetId = '01m2wbwcvwtyee09ehhvap7zkj';
-const rotoMattePath = 'C:\\Users\\aayus\\AppData\\Roaming\\studio.helios.desktop\\roto\\run-1789845945578103200\\matte.mkv';
+const rotoMattePath = 'C:\\Users\\aayus\\AppData\\Roaming\\com.bhippi.videoeditor\\roto\\run-1789845945578103200\\matte.mkv';
 
 // 1. Define the 9 professional 5-12s narrative chunks
 const chunks = [

@@ -4,7 +4,7 @@
 // practice and the ui8 Brandkit design-system structure (researched and contrast-validated into
 // archetypes.json, see docs/research/brand-kit-references.md); and sixteen reference kits rebuilt
 // from public "full branding kit" shots on Dribbble — palettes read from the boards, type expressed
-// with system-safe families because Helios resolves fonts by installed name only. Everything here
+// with system-safe families because Bhippi resolves fonts by installed name only. Everything here
 // is data: the AI and the Settings panel turn one of these plus the user's details into a full kit.
 
 import research from './archetypes.json';
@@ -93,7 +93,7 @@ const corner = (v: string): Corner => ((['top-left', 'top-right', 'bottom-left',
 const lowerThird = (v: string): BrandLayout['lowerThird'] => ((['bottom-left', 'bottom-right', 'bottom-center'] as const).find((c) => c === v) ?? 'bottom-left');
 const captions = (v: string): BrandLayout['captions'] => ((['bottom-center', 'top-center', 'center', 'lower-third-side'] as const).find((c) => c === v) ?? 'bottom-center');
 const hex = (v: string, fallback: string) => (/^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : fallback);
-/** Families Helios resolves by installed name; research names are mapped onto them. */
+/** Families Bhippi resolves by installed name; research names are mapped onto them. */
 const FAMILY_ALIASES: Record<string, string> = { palatino: 'Palatino Linotype', 'palatino linotype': 'Palatino Linotype', times: 'Times New Roman', 'times new roman': 'Times New Roman', courier: 'Courier New', 'courier new': 'Courier New', helvetica: 'Helvetica', 'helvetica neue': 'Helvetica', 'segoe ui': 'Segoe UI', 'arial black': 'Arial Black', 'trebuchet ms': 'Trebuchet MS', 'jetbrains mono': 'JetBrains Mono', 'cascadia code': 'Cascadia Code', 'segoe ui black': 'Segoe UI Black' };
 const KNOWN = ['Inter', 'Segoe UI', 'Arial', 'Helvetica', 'Arial Black', 'Impact', 'Trebuchet MS', 'Verdana', 'Tahoma', 'Calibri', 'Candara', 'Georgia', 'Cambria', 'Palatino Linotype', 'Garamond', 'Times New Roman', 'Consolas', 'Courier New', 'Cascadia Code', 'JetBrains Mono', 'Segoe UI Black'];
 const family = (v: string): string => KNOWN.includes(v) ? v : FAMILY_ALIASES[v.trim().toLowerCase()] ?? 'Inter';

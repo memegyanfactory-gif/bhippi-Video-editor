@@ -26,14 +26,7 @@ export function MagicMaskSection({ comp, clip, assets, history }: { comp: Comp; 
   const fps = clipFps(clip, assets, comp);
   const tracking = !!view.busy?.startsWith('Tracking');
 
-  if (!masks.length) {
-    return (
-      <div className="magic-mask-section empty">
-        <Crosshair size={13} />
-        <span>Magic Mask: pick the Magic Mask tool, click an object in the Program monitor, then limit any effect to it.</span>
-      </div>
-    );
-  }
+  if (!masks.length) return null;
 
   const change = (mask: MagicMask, patch: Partial<MagicMask>, label: string) => history.commit((current) => patchMask(current, comp.id, clip.id, mask.id, (entry) => ({ ...entry, ...patch })), label);
   const remove = (mask: MagicMask) => history.commit((current) => patchMask(current, comp.id, clip.id, mask.id, () => null), `Delete ${mask.name}`);

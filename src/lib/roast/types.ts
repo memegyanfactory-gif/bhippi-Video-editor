@@ -31,7 +31,7 @@ export const ROAST_SFX_KINDS = ['boom', 'scratch', 'bleep', 'swish', 'ding', 'gl
 /** Every AI tool the @funny build adds. The catalogue (ai-tools.json) and dispatcher use these names. */
 export const ROAST_TOOL_NAMES = [
   // meme brain
-  'search_memes', 'refresh_meme_trends', 'save_meme', 'get_meme_media',
+  'search_memes', 'find_memes_online', 'refresh_meme_trends', 'save_meme', 'get_meme_media',
   // sound
   'search_sfx', 'place_sfx',
   // receipts
@@ -182,6 +182,8 @@ export type RoastEdl = { version: 1; compId: string; style: 'funny'; events: Roa
 
 /** What the roast planner keeps on the comp (Comp.roast; mirrored as raw JSON in project.rs). */
 export type RoastState = {
+  /** Who the edit is for (lib/roast/audience.ts): decides which memes it may use. */
+  audience?: import('./audience').AudienceSetting;
   beatSheet?: BeatSheet;
   edl?: RoastEdl;
   /** Ids of the events already applied, and the clip ids each one produced. */
@@ -300,8 +302,10 @@ export type MemeEntry = {
   emotion: string[];
   intent: ComicIntent[];
   formats: MemeFormat[];
-  region: 'IN' | 'global';
-  language?: 'hi' | 'en' | 'hinglish' | 'none';
+  /** `global` (the English-speaking internet at large knows it) or the country it is local to (`IN`, `BR`, `JP`…). */
+  region: string;
+  /** What is said in it: an ISO 639-1 code (`en`, `hi`, `pt`…), `hinglish`, or `none`. */
+  language?: string;
   /** ISO date first seen trending, when known. */
   firstSeen?: string;
   /** 0–1, decays with age; refreshed by refresh_meme_trends. */
@@ -311,13 +315,15 @@ export type MemeEntry = {
   safety: { nsfw?: boolean; political?: boolean; religious?: boolean; profanity?: boolean };
   /** False until its meaning has been checked against a source; unverified memes are never auto-placed. */
   verified: boolean;
+  /** A local meme the wider internet knows too (Tunak Tunak Tun, Kacha Badam): fine for any audience. */
+  crossover?: boolean;
 };
 
 /** A search hit: the entry, its score and why it matched (echo word, intent, alias…). */
 export type MemeHit = { entry: MemeEntry; score: number; reasons: string[] };
 
 /** A trending candidate found online, not yet in the library (the AI writes its meaning with save_meme). */
-export type TrendCandidate = { name: string; provider: string; url: string; explainer?: string; mediaUrls?: string[]; seenAt?: string; score?: number };
+export type TrendCandidate = { name: string; provider: string; url: string; explainer?: string; mediaUrls?: string[]; seenAt?: string; score?: number; /** IN when from an Indian feed or in Devanagari. */ region?: string };
 
 export type SfxEntry = {
   id: string;

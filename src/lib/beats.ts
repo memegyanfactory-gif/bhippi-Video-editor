@@ -1,4 +1,4 @@
-// Beat detection from the waveform peaks Helios already keeps per asset (see peaks.ts): an onset
+// Beat detection from the waveform peaks Bhippi already keeps per asset (see peaks.ts): an onset
 // envelope from the per-bucket levels, tempo by autocorrelation with a log-Gaussian prior around
 // 120 BPM, then a beat grid phase-locked to the strongest transients. Everything is plain,
 // deterministic arithmetic — no audio decoding, no dependencies — so it runs instantly in the

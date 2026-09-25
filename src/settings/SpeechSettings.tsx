@@ -1,8 +1,8 @@
 // Settings › Speech & voice: downloading the offline speech models, pointing at ones already
 // installed, and choosing the voice a script is read in.
 //
-// Helios ships no speech model — between them they are gigabytes, and most people only want
-// one language. Everything here is fetched on demand into the Helios data folder, or detected
+// Bhippi ships no speech model — between them they are gigabytes, and most people only want
+// one language. Everything here is fetched on demand into the Bhippi data folder, or detected
 // wherever the user already keeps it.
 import { HardwareSummary } from './HardwareSummary';
 import { LocalMediaSettings } from './LocalMediaSettings';
@@ -34,7 +34,7 @@ const MODES: { id: VoiceMode; label: string; blurb: string }[] = [
 const SAMPLES: Record<VoiceMode, string> = {
   auto: 'This is how your voice-over will sound.',
   hinglish: 'Yaar ye transition bahut smooth hai, dekho.',
-  'hindi-roman': 'Namaste, main Helios hoon.',
+  'hindi-roman': 'Namaste, main Bhippi hoon.',
   en: 'This is how your voice-over will sound.',
   hi: 'नमस्ते, मैं हीलियोस हूँ।',
 };
@@ -97,7 +97,7 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
     };
   }, [refresh]);
 
-  // A finished download is announced on helios://models, but a failed one is only a job — so
+  // A finished download is announced on bhippi://models, but a failed one is only a job — so
   // watch the jobs too and re-read once none are running.
   const downloading = useMemo(() => {
     const running: Record<string, { progress: number; message: string }> = {};
@@ -193,7 +193,7 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
           <h3>Model Center</h3>
           <p>
             Transcription and voice-over can both run on this computer — nothing is uploaded, nothing is metered,
-            and there is no length limit. Helios ships neither model, so download the ones you need, or point it at
+            and there is no length limit. Bhippi ships neither model, so download the ones you need, or point it at
             copies you already have.
           </p>
         </div>
@@ -223,7 +223,7 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
       <HardwareSummary />
       <section className="provider-group"><h4>Matting and roto</h4><p className="group-blurb">Robust Video Matting remains the working fallback. Segmentation masks are never treated as production alpha automatically: candidates require trimap refinement, edge review, color-management checks and a benchmark on your footage.</p>{models.filter(model=>model.kind==='matte').map(model=><ModelRow key={model.id} model={model} job={downloading[model.label]} busy={busy===model.id} onDownload={()=>void download(model)} onRemove={()=>void remove(model)}/>)}</section>
       <LocalMediaSettings settings={settings} onSettings={onSettings} rotoOnly />
-      <details className="provider-group"><summary>Other Roto engines · not integrated</summary><p className="group-blurb">These engines do not yet have working Helios adapters. Their runtime and model terms still need checking before an integration is offered. Use the downloadable SAM + ViTMatte engine above.</p>{models.filter(model=>model.kind==='matte-candidate' && !['sam2.1', 'vitmatte'].includes(model.id)).map(model=><ModelRow key={model.id} model={model} job={downloading[model.label]} busy={busy===model.id} onDownload={()=>void download(model)} onRemove={()=>void remove(model)}/>)}</details>
+      <details className="provider-group"><summary>Other Roto engines · not integrated</summary><p className="group-blurb">These engines do not yet have working Bhippi adapters. Their runtime and model terms still need checking before an integration is offered. Use the downloadable SAM + ViTMatte engine above.</p>{models.filter(model=>model.kind==='matte-candidate' && !['sam2.1', 'vitmatte'].includes(model.id)).map(model=><ModelRow key={model.id} model={model} job={downloading[model.label]} busy={busy===model.id} onDownload={()=>void download(model)} onRemove={()=>void remove(model)}/>)}</details>
       {/* ── transcription ─────────────────────────────────────────── */}
       <section className="provider-group">
         <h4><Mic size={14} /> Transcription</h4>
@@ -380,7 +380,7 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
           />
         ))}
         <p className="muted small">
-          For Hinglish, download one Hindi voice and one English voice. Helios sends each word to whichever of the two
+          For Hinglish, download one Hindi voice and one English voice. Bhippi sends each word to whichever of the two
           fits it, then joins the pieces into a single take.
         </p>
       </section>
@@ -458,7 +458,7 @@ function RuntimeCard(props: {
   onDownload: () => void;
   onLocate: () => void;
 }) {
-  const where = props.source === 'downloaded' ? 'downloaded by Helios' : props.source === 'custom' ? 'you pointed at it' : 'found on this computer';
+  const where = props.source === 'downloaded' ? 'downloaded by Bhippi' : props.source === 'custom' ? 'you pointed at it' : 'found on this computer';
   return (
     <div className={`tool-card${props.found ? ' ok' : ' missing'}`}>
       {props.found ? <Check size={18} /> : <TriangleAlert size={18} />}

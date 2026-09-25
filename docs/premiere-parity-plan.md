@@ -1,4 +1,4 @@
-# Helios → Premiere Pro parity plan
+# Bhippi → Premiere Pro parity plan
 
 Status legend: [x] done · [~] in progress · [ ] to do · (off) shown but disabled, with the reason, the way Premiere greys items that don't apply.
 
@@ -73,13 +73,13 @@ Status legend: [x] done · [~] in progress · [ ] to do · (off) shown but disab
 - [ ] Premiere's default Windows keymap (tools, transport, marking, editing, trimming, nudging, track heights, panels), searchable shortcuts dialog
 
 ## 11. File
-- [ ] New Project · New Comp · Open Project… · Open Recent › · Close Project · Save (Ctrl+S) · Save As… · Save a Copy… (`.helios`) · Revert · Import · Export › Media / Frame · unsaved-changes prompt on close · `.helios` file association
+- [ ] New Project · New Comp · Open Project… · Open Recent › · Close Project · Save (Ctrl+S) · Save As… · Save a Copy… (`.bhippi`) · Revert · Import · Export › Media / Frame · unsaved-changes prompt on close · `.bhippi` file association
 
 ## 12. Export
 - [ ] Export page like Premiere: file name and location, preset, format, resolution, frame rate, quality, range (entire / In to Out), summary, queue progress
 - [~] Renderer: multi-track, nested comps, items, effects, adjustment layers, text transforms, shapes, masks, keyframes, transitions, reverse, holds, audio channels, Enhance Speech (helper agent)
 
-## 13. Helios AI
+## 13. Bhippi AI
 - [~] Real tool calling for every provider: native tools for Anthropic / OpenAI-compatible / Ollama, MCP server for Claude Code / Codex / Gemini / OpenCode, text fallback for Grok / Antigravity, offline parser (helper agent)
 - [ ] Frontend executor for every tool; turn-level Revert; tool rows in chat
 - [ ] Tool catalogue additions for transitions, keyframes, masks, shapes, frame holds, reverse, labels, groups, audio gain/normalize, scene detection, Enhance Speech
@@ -146,7 +146,7 @@ build (mostly by driving the webview over its debugging port); `[~]` means partl
       that hides its overflow gets `min-height: 0`, and a `<button>` grid item that hides its
       overflow reports no intrinsic height in Chromium, so every card collapsed to its borders.
 - [x] **Generate Subtitles now transcribes for real.** It used to write `Subtitle line 1`,
-      `Subtitle line 2`… and, with no media, three invented lines about Helios. It now sends each
+      `Subtitle line 2`… and, with no media, three invented lines about Bhippi. It now sends each
       sounding file once to Whisper on the user's own Groq or OpenAI key (FFmpeg cuts it to 16 kHz
       mono MP3 first), caches the transcript beside the asset, maps word timings through each
       clip's in-point and speed so captions follow their pictures through cuts, and chunks them
@@ -158,11 +158,11 @@ build (mostly by driving the webview over its debugging port); `[~]` means partl
 ## 18. Chat
 - [x] The double focus ring is gone: the frame around the composer is the only focus cue.
 - [x] A thinking-level control, shown only for the providers whose backend passes a level through
-      (Claude Code, Codex, Grok) and offering only the steps each one honours. Ported from Bhippi's
+      (Claude Code, Codex, Grok) and offering only the steps each one honours. Ported from the Bhippi desktop app's
       composer: a popover with a drag-and-arrow-key rail, and at the top step the drifting particle
       field that says "this will take a while". The chip's label sits in a slot as wide as its
       widest word, so sliding it never shoves its neighbours sideways.
-- [x] A permission mode — Plan only / Auto-edit / Full access — with Bhippi's list where each
+- [x] A permission mode — Plan only / Auto-edit / Full access — with the Bhippi desktop app's list where each
       posture states what it actually does, and enforced where tool calls arrive rather than merely
       displayed: Plan only refuses every edit, Auto-edit refuses the five destructive tools, and the
       assistant is told why so it can ask.
@@ -172,7 +172,7 @@ build (mostly by driving the webview over its debugging port); `[~]` means partl
       suggestions deal themselves out, a finished tool row flashes once and then stays still, the
       send button springs, and a streaming turn runs the same particle field as a hairline above
       the composer. All of it stops under `prefers-reduced-motion`.
-- [ ] Per-provider model lists in the picker could show context and cost, as Bhippi's did.
+- [ ] Per-provider model lists in the picker could show context and cost, as the Bhippi desktop app's did.
 
 ## 20. TypeSafe
 - [ ] Blocked: writing the integration needs the live API contract from docs.typesafe.ai, and
@@ -182,12 +182,12 @@ build (mostly by driving the webview over its debugging port); `[~]` means partl
       stored anywhere yet; it was shared in plain text and should be rotated.
 
 ## 19. Notes
-- Peak files and filmstrips are derived data: they live in Helios' own directory and are deleted
+- Peak files and filmstrips are derived data: they live in Bhippi's own directory and are deleted
   with the asset. `FILMSTRIP_FRAMES` in Timeline.tsx must match `tile=12x1` in library.rs.
 
 ## 21. Chat commands, honest effort, and the look switch
 
-1. **One table decides what "effort" means.** A new `effort.rs` in `helios-providers` is the single
+1. **One table decides what "effort" means.** A new `effort.rs` in `bhippi-providers` is the single
    source of truth: `levels(provider, model)` returns the steps that provider *and that model*
    actually honour, and the same table drives the CLI flag, the API request bodies and the UI. A
    provider with nothing to offer returns an empty list and the control disappears rather than
@@ -228,7 +228,7 @@ One row, like ChatGPT's: what this chat can reach and what it is doing right now
       what it cost.
 
 ### 22.3 An MCP client, so it can reach anything
-Helios is an MCP *server* today (CLI agents call into it). It needs to be a client too.
+Bhippi is an MCP *server* today (CLI agents call into it). It needs to be a client too.
 - [ ] Connect to a stdio or HTTP MCP server: initialize, `tools/list`, `tools/call`.
 - [ ] The server list lives in settings, with its tools merged into what the assistant may call
       (the CLI agents wire their own MCP servers themselves, so this is for the API providers).
@@ -291,7 +291,7 @@ choosing the recipe and filling parameters, which is the part it is good at.
 ## 24. Layout, brand and looks
 
 The frame the user showed — a title with three caption samples stacked on the same pixels — was not
-a rendering bug. Helios placed each graphic exactly where it was told and had no idea anything was
+a rendering bug. Bhippi placed each graphic exactly where it was told and had no idea anything was
 already there. Neither reference film ever does that, so the first work is the part that makes it
 impossible.
 
@@ -322,7 +322,7 @@ impossible.
 
 ## 25. Subject detection and roto
 
-After Effects mattes a clip once and then lets you use it everywhere. Helios now does the same, and
+After Effects mattes a clip once and then lets you use it everywhere. Bhippi now does the same, and
 the useful half of it — knowing where the person is — arrives even before the matte is applied.
 
 **The model is Robust Video Matting**, not a photo matting model. What decides it is not edge

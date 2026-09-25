@@ -1,4 +1,4 @@
-//! The guidelines that ship with Helios.
+//! The guidelines that ship with Bhippi.
 //!
 //! A reference is worth keeping only if what was learned from watching it is written down. These
 //! are the two films taken apart frame by frame — the opening at four frames a second, then one

@@ -11,7 +11,7 @@ use serde_json::{json, Map, Value};
 /// One thing a command asks for.
 #[derive(Clone, Debug, PartialEq)]
 enum Step {
-    /// A tool call, with the line to show when Helios returns no summary of its own.
+    /// A tool call, with the line to show when Bhippi returns no summary of its own.
     Call { name: &'static str, args: Value, label: String },
     /// A sound effect just before every cut on the active comp — needs the timeline first.
     SoundAtCuts { kind: &'static str },
@@ -82,7 +82,7 @@ pub async fn run(message: &str, context: &Value, executor: &dyn ToolExecutor) ->
     lines.iter().map(|line| format!("- {line}")).collect::<Vec<_>>().join("\n")
 }
 
-/// One edit's line: Helios' own summary when it gave one, the reason when it failed.
+/// One edit's line: Bhippi's own summary when it gave one, the reason when it failed.
 async fn outcome(executor: &dyn ToolExecutor, name: &str, args: Value, label: &str) -> String {
     let result = ai_tools::run_call(executor, name, args).await;
     if ai_tools::is_ok(&result) {
@@ -290,7 +290,7 @@ fn plan(message: &str, context: &Value) -> Plan {
     let greeting = ["hi", "hello", "hey", "namaste", "hola", "yo", "hii", "helo"];
     if greeting.contains(&lowered.trim_matches(|c: char| !c.is_alphanumeric())) {
         return Plan::Reply(
-            "Namaste! I'm the built-in Helios assistant — I work offline and understand direct edit commands. \
+            "Namaste! I'm the built-in Bhippi assistant — I work offline and understand direct edit commands. \
              Try:\n\n- `add title \"My Story\" at 1s`\n- `add whoosh at 2.5s`\n- `split at 4s`\n- `make it vertical`\n\n\
              For open-ended help (\"make this reel punchier\"), pick Claude, Codex, Gemini, Ollama or another provider from the model menu below."
                 .to_owned(),
@@ -465,8 +465,8 @@ const COMMAND_LIST: &str = "- `add title \"Text\" at 1s for 3s` (also: kinetic, 
 - `rename \"Goa trip\"`\n\
 - `caption style Hormozi` (any style from Graphics › Caption styles)";
 
-const FUNNY: &str = "That's a job for **@funny**, Helios' roast / meme edit style. Type `@funny` in the chat (or `/style funny`) and \
-Helios AI edits your recording like a roast channel: it keys your green screen, reads the transcript for setups and punchlines, \
+const FUNNY: &str = "That's a job for **@funny**, Bhippi's roast / meme edit style. Type `@funny` in the chat (or `/style funny`) and \
+Bhippi AI edits your recording like a roast channel: it keys your green screen, reads the transcript for setups and punchlines, \
 finds memes that echo your words and the target's own clips as receipts, lands each one on the punchline with keyword text, \
 cut-outs, stickers and a sound on every entry, then checks the pacing against a professional roast edit.\n\n\
 Planning the jokes and researching the memes needs an AI model, so pick a provider (Claude, Codex, Gemini, Ollama or another) \

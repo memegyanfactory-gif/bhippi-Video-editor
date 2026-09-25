@@ -39,3 +39,17 @@ describe('the turn activity list', () => {
     expect(states).toEqual(['running', 'denied', 'done']);
   });
 });
+
+describe('step kind icons', () => {
+  it('reads the kind of work off the label, with a wrench for anything else', async () => {
+    const { kindIcon } = await import('../src/chat/Activity');
+    const { Brain, Eye, FileText, Pencil, Scissors, Search, Wrench } = await import('lucide-react');
+    expect(kindIcon('Thinking')).toBe(Brain);
+    expect(kindIcon('Online research')).toBe(Search);
+    expect(kindIcon('Inspect clip frames')).toBe(Eye);
+    expect(kindIcon('Read project')).toBe(FileText);
+    expect(kindIcon('Cut clip')).toBe(Scissors);
+    expect(kindIcon('Edit captions')).toBe(Pencil);
+    expect(kindIcon('Zzz')).toBe(Wrench);
+  });
+});

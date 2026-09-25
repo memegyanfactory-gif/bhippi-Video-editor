@@ -47,7 +47,7 @@
 - The 3D shots are the "drop" worlds, the big moments. The 2D/2.5D shots carry the identity: the orb, the lens, the pen, the drop and the logo.
 - Every 3D shot has **2D light work layered on top** (star glints, lens rings, echo trails and bloom).
 
-**Why it matters for Helios.** This is the template for a **brand identity film generator**. A brand kit gains a *hero object*. A music track sets the phrase structure. A fixed act grammar (birth, rise, drop-world, product, platform, resolve, logo) is filled with 2D templates and headless-Blender presets. §7 specifies it.
+**Why it matters for Bhippi.** This is the template for a **brand identity film generator**. A brand kit gains a *hero object*. A music track sets the phrase structure. A fixed act grammar (birth, rise, drop-world, product, platform, resolve, logo) is filled with 2D templates and headless-Blender presets. §7 specifies it.
 
 ---
 
@@ -90,13 +90,13 @@
 ## 3. Technique catalogue
 
 **Status key:**
-- ✓ = Helios can do it today.
+- ✓ = Bhippi can do it today.
 - ◐ = partly, or by hand.
 - ✗ = missing.
 
 Pillars refer to REFERENCE-FILMS-PLAN §4. **NEW** marks something this report proposes.
 
-| ID | Technique | Frames | Description | AE / C4D / Blender build | Helios status |
+| ID | Technique | Frames | Description | AE / C4D / Blender build | Bhippi status |
 |---|---|---|---|---|---|
 | A1 | **Vesica "eye" by chasing trim** | 1–17 draw, 55–67 erase | Two circles (r ≈ 345 px) whose overlap frames the orb. Trim start and end both move, so the stroke *sweeps* instead of growing from a point. 2 px stroke with an RGB fringe. On exit the lines erase and the eye rotates. | AE: 2 ellipse shape layers, Trim Paths (start/end/offset keyed, easy-ease), Channel Offset/RGB split. | ✓ (`trimStart/End/Offset`, `chromatic-aberration`) |
 | A2 | **Iris orb: sliding spherical decals** | 3–68 | Flat decals slide across the sphere and **foreshorten at the limb** (the pill at f64). A rim crescent grows as the "light" swings. There is no shading on the decals: a flat, graphic 3D. | AE: CC Sphere on a precomp of flat decals (Rotation Y keyed) + a rim/inner-shadow layer. C4D: sphere + toon/flat texture. | ✗. P6 `solid2_5d` sphere with `decals` (in the plan). Needs `look:'flat-glossy'` and an animatable light (NEW detail) |
@@ -176,7 +176,7 @@ Sources:
 
 ---
 
-## 5. Design system, and how it maps to a Helios brand kit
+## 5. Design system, and how it maps to a Bhippi brand kit
 
 **Palette tokens** (from the kit's per-shot palettes plus the notes):
 
@@ -216,7 +216,7 @@ Sources:
   - The hero *never stops moving*.
   - The UI never bounces.
 
-**Mapping to the Helios brand kit (NEW: `BrandKit.hero`).** Today `BrandKit` has logos, colours, typography, `motionGuide` and `guideline`, but nothing that *acts*. Proposed type:
+**Mapping to the Bhippi brand kit (NEW: `BrandKit.hero`).** Today `BrandKit` has logos, colours, typography, `motionGuide` and `guideline`, but nothing that *acts*. Proposed type:
 
 ```ts
 // src/lib/brandKit/types.ts (NEW)
@@ -241,7 +241,7 @@ type BrandHero = {
 };
 ```
 
-**How Helios uses it:**
+**How Bhippi uses it:**
 - `brandify.ts` maps `hero.colors` to every 2D hero layer and to the Blender material presets. `worlds` gives each act its background.
 - The hero is the continuity object every template can carry. The plan's T1 needs exactly this, and `dock-cursor` already has a cursor to swap for it.
 - `binding.logo:'dot'` tells the end-card template to land the hero on the wordmark's full stop.
@@ -254,7 +254,7 @@ type BrandHero = {
 ## 6. Sound design and beat grid
 
 **No sound design.** The film has no SFX: every "hit" is a musical event, with no whooshes on the zooms or impacts on the drop.
-- Helios's template grammar ("a sound cue on every event") must be **off by default** for brand films.
+- Bhippi's template grammar ("a sound cue on every event") must be **off by default** for brand films.
 - A NEW `genre:'brand-film'` flag should set `sfx:false` in `create_motion_scene`.
 
 **Method.**
@@ -269,7 +269,7 @@ type BrandHero = {
 
 So the track is **90.0 BPM in 4/4**, with 16ths of 5 f, beats of 20 f, bars of 80 f and 4-bar phrases of 320 f.
 - The **percussion figure** falls on 16th slots **1.3, 2.2, 3.1, 3.4, 4.3** (the "&" of 1, "e" of 2, beat 3, "a" of 3, "&" of 4). That is a dotted-8th **3-3-3-3-4 figure**.
-- This figure is why both `analyze.py` and (almost certainly) Helios's `analyze_music_beats` report **120 BPM**: 3 tatums = 0.5 s, and the 120-BPM log-Gaussian prior in `src/lib/beats.ts` (`PRIOR_BPM = 120`) tips the choice. The full-band ACF is 0.80 at 0.5 s against 0.76 at 0.667 s, and the prior weight at 90 BPM is 0.92.
+- This figure is why both `analyze.py` and (almost certainly) Bhippi's `analyze_music_beats` report **120 BPM**: 3 tatums = 0.5 s, and the 120-BPM log-Gaussian prior in `src/lib/beats.ts` (`PRIOR_BPM = 120`) tips the choice. The full-band ACF is 0.80 at 0.5 s against 0.76 at 0.667 s, and the prior weight at 90 BPM is 0.92.
 - A 120-BPM grid lines up with the bar lines only once every 3 bars. `snap_cuts_to_beats` on that grid would pull phrase-line cuts off their downbeats.
 
 **Structure** (the RMS column is loudness per 0.1 s):
@@ -354,7 +354,7 @@ So the track is **90.0 BPM in 4/4**, with 16ths of 5 f, beats of 20 f, bars of 8
 5. **The tunnel is tempo-matched but free-running.** Panel passes come about every 10.3 f (8th = 10 f), but the phase coherence is only R = 0.36. The rotation speed was chosen to *feel* like 8ths.
 6. **The logo lands on a free-time final hit after a break.** The cut is +1.4 f after the transient, which is standard for a hit that should feel *caused*.
 
-**What Helios's beat tools need** (NEW; details in §7.4):
+**What Bhippi's beat tools need** (NEW; details in §7.4):
 - **tatum-first tempo:**
   1. find the 16th;
   2. choose the beat = 4 tatums unless the kick/bar periodicity says 3;
@@ -364,7 +364,7 @@ So the track is **90.0 BPM in 4/4**, with 16ths of 5 f, beats of 20 f, bars of 8
 
 ---
 
-## 7. What Helios needs
+## 7. What Bhippi needs
 
 ### 7.1 A brand identity film generator (NEW, L): `create_brand_film`
 
@@ -421,7 +421,7 @@ So the track is **90.0 BPM in 4/4**, with 16ths of 5 f, beats of 20 f, bars of 8
 
 | Addition | Spec |
 |---|---|
-| `world.gradientEnv` | Helios renders the shot's background gradient to a 2:1 equirect PNG; Blender lights the scene with it and shows it as the background. **Glass presets render full-frame**: on transparent film, Cycles glass refracts only the Blender world, so it cannot refract the Helios background (the proof's orb is milky on the checker). |
+| `world.gradientEnv` | Bhippi renders the shot's background gradient to a 2:1 equirect PNG; Blender lights the scene with it and shows it as the background. **Glass presets render full-frame**: on transparent film, Cycles glass refracts only the Blender world, so it cannot refract the Bhippi background (the proof's orb is milky on the checker). |
 | `objectsJson` | Per frame, each tagged object's **projected centre, radius and depth** (px, matching `camera.json`), so the 2D glints, echo, smear and light column track the 3D orb. |
 | `camera.json` gains `focusDistance`, `aperture` and `shutter` | So `threeD` 2D overlays get the same defocus and blur. |
 | `view_transform: "Standard"` for brand-colour objects | AgX (the proof's default) desaturates `#2a4de1`/`#3a5cf0` emission toward white. Alternatively, keep AgX and compensate the colour in the preset. |
@@ -709,11 +709,11 @@ All of these come from `analyze_music_beats` after the §7.4 fix. Nothing in S1�
 
 | # | Improvement | Why (this film) | Size |
 |---|---|---|---|
-| 1 | **Fix tempo detection** (tatum-first, bar and phrase phase from the kick + RMS steps). Return bars, phrases, drops, breaks and the final hit. Add a regression test on this track. | Helios would read this track as 120 BPM (a triplet alias), and every beat-driven tool would then be wrong | S |
-| 2 | **`BrandKit.hero`** (shape, states, colours, 3D material, motion, motifs, worlds, logo binding) + brandify support + a continuity planner for exit → entry | The whole film is one hero object; Helios has nowhere to store it | M |
+| 1 | **Fix tempo detection** (tatum-first, bar and phrase phase from the kick + RMS steps). Return bars, phrases, drops, breaks and the final hit. Add a regression test on this track. | Bhippi would read this track as 120 BPM (a triplet alias), and every beat-driven tool would then be wrong | S |
+| 2 | **`BrandKit.hero`** (shape, states, colours, 3D material, motion, motifs, worlds, logo binding) + brandify support + a continuity planner for exit → entry | The whole film is one hero object; Bhippi has nowhere to store it | M |
 | 3 | **`portal-accelerando` template** (re-trimmed constant-speed dolly, 3-3-2-2-2-1-1-1 on the 16th grid, flash frames, nested rings) | The signature transition; every engine feature it needs exists except the grid | S |
 | 4 | **P5 subset: `echo`, `smear`, `star-glint`, `god-rays`, `light-cone`** | The hero's personality (echo ×3, smear ×3) and the light vocabulary | M |
-| 5 | **Blender `glass-orb` (pearl-core) + `thin-film-bubble`** with `gradientEnv`, full-frame glass rendering, the Standard view transform for brand colours, **`objects.json`**, and DOF/shutter in `camera.json` | The §5 proof's glass on alpha cannot refract Helios backgrounds; AgX shifts brand blue; 2D glints need 3D object positions | M |
+| 5 | **Blender `glass-orb` (pearl-core) + `thin-film-bubble`** with `gradientEnv`, full-frame glass rendering, the Standard view transform for brand colours, **`objects.json`**, and DOF/shutter in `camera.json` | The §5 proof's glass on alpha cannot refract Bhippi backgrounds; AgX shifts brand blue; 2D glints need 3D object positions | M |
 | 6 | **P6 `solid2_5d` sphere** with sliding decals, an animatable light, and a `shading 0→1` flat→shaded morph; plus a `wireframe-box` helper | Act 1's iris orb and the flat→3D match transform, both 2.5D | M |
 | 7 | **`orb-horizon-ring` + `ui-card-ring`** (one scene, crane from edge-on rim to ¾ view, lift-off stagger), with the 2.5D motion-engine version as the instant draft | Drop-2 phrase; the cards are planes, so a 2.5D draft works today | L |
 | 8 | **`panel-tunnel`, `sphere-bouquet`, `device-light-fountain`, `floating-shapes`** presets | The 27 % of the film that needs a renderer | L |
@@ -764,7 +764,7 @@ All of these come from `analyze_music_beats` after the §7.4 fix. Nothing in S1�
   - orbit-mode camera keys.
 
 **§5:**
-- The "Glass/thin-film: Correct" row omits that glass on transparent film refracts only Blender's world, not the Helios background it will be composited over.
+- The "Glass/thin-film: Correct" row omits that glass on transparent film refracts only Blender's world, not the Bhippi background it will be composited over.
 - The proof's constant 420 nm film gives a flat tint.
 - AgX shifts saturated brand colours.
 - `keyframe()` crashes on a key whose `ease` is null.

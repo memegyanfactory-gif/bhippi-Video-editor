@@ -1,4 +1,4 @@
-//! Where Helios keeps its files, and the one way JSON reaches disk (atomically).
+//! Where Bhippi keeps its files, and the one way JSON reaches disk (atomically).
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn json_round_trips_and_a_corrupt_file_is_kept_aside() {
-        let dir = std::env::temp_dir().join(format!("helios-store-{}", super::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-store-{}", super::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let path = dir.join("value.json");
         write_json(&path, &vec![1, 2, 3]).expect("write");

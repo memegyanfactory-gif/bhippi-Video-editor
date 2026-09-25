@@ -95,7 +95,7 @@ against frames.
 ## 3. Technique catalogue
 
 Each technique gives the frames, what happens at the frame level, how an After Effects artist would
-build it, and what Helios can do today.
+build it, and what Bhippi can do today.
 
 **T1. Tilted pill pop-in** (f8–61)
 - **What happens:** a pill appears at 25–40% scale, 50–60% opacity and −15 to −25° tilt. It reaches
@@ -103,14 +103,14 @@ build it, and what Helios can do today.
   also squashes along x for 2 f (reads as a slight Y-turn).
 - **AE build:** a shape layer (rounded rect, roundness = h/2) with its text parented to it. Scale keys at
   0/3/4 f; rotation keys with a small overshoot key; anchor at the pill's lower-left so it "hinges".
-- **Helios today:** yes, by hand (`shape` rect with radius, `text` parented, keys). There is no template.
+- **Bhippi today:** yes, by hand (`shape` rect with radius, `text` parented, keys). There is no template.
 
 **T2. Pile with world scroll** (f1–147)
 - **What happens:** pills stack and overlap. The whole stack drifts down 2–3 px/f and then accelerates
   off the bottom as the camera tilts up to the headline. Bubble E lands at an angle, like a physics object.
 - **AE build:** all pills under a null. The null's y is keyed with an ease-in into an ease-out for the
   headline; the pills are keyed individually.
-- **Helios today:** partly. It is possible with a `null` parent and keys. However, `safeArea.ts` would pull
+- **Bhippi today:** partly. It is possible with a `null` parent and keys. However, `safeArea.ts` would pull
   the deliberately bleeding pills back inside the safe area: "type never bleeds" (safeArea.ts:137), so
   today it needs `fit:false` for the whole scene.
 
@@ -119,13 +119,13 @@ build it, and what Helios can do today.
   the flash it is white and **squashed** (about 1.2 : 0.8, f153). It exits left at f157–163.
 - **AE build:** a separate-dimensions arc: x linear, y ease-out up then ease-in down. Scale keys give the
   squash on landing, with the anchor at the bottom.
-- **Helios today:** partly. It works by hand with the `dock-cursor` "separate dimensions" trick; there are
+- **Bhippi today:** partly. It works by hand with the `dock-cursor` "separate dimensions" trick; there are
   no spatial tangents and no "land on layer X" helper.
 
 **T4. Background colour cross-fade as a scene change** (f124–128)
 - **What happens:** `#ededed` → `#ffffff` in 5 f while the headline scrolls in.
 - **AE build:** two solids, opacity keys.
-- **Helios today:** yes. `solid.color` is not animatable, so it takes two solids.
+- **Bhippi today:** yes. `solid.color` is not animatable, so it takes two solids.
 
 **T5. Invert flash in a music stop** (f147–157)
 - **What happens:**
@@ -135,7 +135,7 @@ build it, and what Helios can do today.
   - It sits inside a 1 s music drop-out, with accent transients on the on and off frames.
 - **AE build:** a solid plus a duplicate white text layer trimmed to 6 f, with three weight duplicates
   trimmed to 2 f each (or a variable font's weight axis on hold keys). Tracking comes from a Text Animator.
-- **Helios today:** yes, by hand. Three `text` layers with different `weight` values and `in`/`out`; a
+- **Bhippi today:** yes, by hand. Three `text` layers with different `weight` values and `in`/`out`; a
   tracking animator.
 
 **T6. Breathe: tracking closes, then scale** (f157–203)
@@ -144,14 +144,14 @@ build it, and what Helios can do today.
   - Then the line scales ×1.18 over 14 f, with its peak velocity in the middle.
   - **The weight does not change here** (measured).
 - **AE build:** a Text Animator tracking key and a scale key.
-- **Helios today:** yes. A tracking animator plus `transform.scale` keys. **No variable-font axis is needed
+- **Bhippi today:** yes. A tracking animator plus `transform.scale` keys. **No variable-font axis is needed
   for Workly.**
 
 **T7. Shrink-swap** (f204–208)
 - **What happens:** the line goes to 0.72× in 3 f and is hard-swapped for the next word on the next frame.
   The audio hit is on the swap.
 - **AE build:** scale keys (ease-in) and a layer trim.
-- **Helios today:** yes.
+- **Bhippi today:** yes.
 
 **T8. Typewriter on a drifting layer** (f208–217, f429–440)
 - **What happens:**
@@ -159,7 +159,7 @@ build it, and what Helios can do today.
   - The layer drifts right about 15 px/f while typing, so the final two-phrase line lands centred.
   - "Business analytics" runs at about 1–1.5 char/f, with each new char fading grey → black over 2 f.
 - **AE build:** Source Text keys or a Text Animator (opacity 0, range end keyed); position keys on the layer.
-- **Helios today:** yes. `reveal` keys, or `cascade {by:'char', stagger:1/30, duration:2/30, from:{opacity:0}}`.
+- **Bhippi today:** yes. `reveal` keys, or `cascade {by:'char', stagger:1/30, duration:2/30, from:{opacity:0}}`.
 
 **T9. Colour front with hand-off** (f210–267, measured)
 - **What happens:**
@@ -175,7 +175,7 @@ build it, and what Helios can do today.
 - **AE build:** duplicate the text layer, fill it light blue, and reveal the duplicate with a feathered
   rectangle mask (or a Gradient Ramp through a track matte). Keying the mask's left and right edges gives
   the fill, the snap-off, the relight and the recede.
-- **Helios today:** partly. A `fillColor` animator with keyed `start`/`end` and `smoothness` does it **per
+- **Bhippi today:** partly. A `fillColor` animator with keyed `start`/`end` and `smoothness` does it **per
   glyph** (text.ts:259–270 mixes each glyph's colour). There is no per-pixel edge inside a glyph. A masked
   duplicate text layer, filled blue, with a rect mask whose `box` and `feather` are keyed, does it per pixel
   **today**.
@@ -184,7 +184,7 @@ build it, and what Helios can do today.
 - **What happens:** the second phrase appears with a 2 f fade, then the gap closes over 27 f on the house
   ease and the whole line re-centres.
 - **AE build:** position keys.
-- **Helios today:** yes.
+- **Bhippi today:** yes.
 
 **T11. Split with an object born in the gap** (f258–282)
 - **What happens:**
@@ -195,7 +195,7 @@ build it, and what Helios can do today.
   - The right phrase is pushed off-frame and fades.
 - **AE build:** a rectangle's Size keys (width and height on separate curves), the folder precomp masked
   to the rectangle, and position keys on the phrases.
-- **Helios today:** partly. Shape `size` keys work and the folder parts are shapes with `backdrop`.
+- **Bhippi today:** partly. Shape `size` keys work and the folder parts are shapes with `backdrop`.
   **Icons are missing** (chat-bubble, thumbs-up, gear): there are no vector icons (P1).
 
 **T12. Glass folder hero** (f282–351)
@@ -207,14 +207,14 @@ build it, and what Helios can do today.
   - Docs peek out (80 px lift) and drop back. A press shrinks the folder 6.7%.
 - **AE build:** a precomp. The pocket is a shape with CC Frosted Glass or a blurred copy of the docs used
   as a track matte; the docs are keyed.
-- **Helios today:** partly. `backdrop` blur, gradient shapes, masks and parenting all exist. The icons and
+- **Bhippi today:** partly. `backdrop` blur, gradient shapes, masks and parenting all exist. The icons and
   bezier corners do not.
 
 **T13. Outlined hand cursor** (f272–391)
 - **What happens:** a white-filled hand with a `#022da6` stroke. It rises from the bottom edge in 9 f
   (ease-out), sits on the label, presses, and "grabs" for the drag.
 - **AE build:** a vector cursor with position keys and a scale press.
-- **Helios today:** partly. There is an arrow `path` cursor (`dock-cursor`); **no hand glyph** exists
+- **Bhippi today:** partly. There is an arrow `path` cursor (`dock-cursor`); **no hand glyph** exists
   (straight-segment paths only).
 
 **T14. Blur-bridge match cut** (f352–373, measured)
@@ -227,9 +227,9 @@ build it, and what Helios can do today.
   - All of this happens inside a music drop-out.
   - It reads as a violent pull-back, but it is a cut.
 - **AE build:** two precomps. Precomp A's position is keyed on expo-in, with a Gaussian Blur of about 20
-  (Helios `blurriness` 20 = σ 10) keyed on at one frame. Precomp B has the same blur, held, then keyed off.
+  (Bhippi `blurriness` 20 = σ 10) keyed on at one frame. Precomp B has the same blur, held, then keyed off.
   Precomp B's position continues A's velocity and then eases out. Cut on a blurred frame.
-- **Helios today:** yes, by hand: two `precomp` layers, `gaussian-blur` keys, `in`/`out`. There is **no
+- **Bhippi today:** yes, by hand: two `precomp` layers, `gaussian-blur` keys, `in`/`out`. There is **no
   named transition**, and the P4 list lacks it.
 
 **T15. Perspective app window with a drop-zone state swap** (f366–403)
@@ -239,20 +239,20 @@ build it, and what Helios can do today.
   - A BankDash sidebar and a dashed drop zone. The folder drops in and the zone swaps its content.
   - The window tilts further away on the exit.
 - **AE build:** a 3D layer (a precomp of the UI) and a camera; the zone content swaps by opacity.
-- **Helios today:** partly. `threeD`, `rotationX` and `camera` exist. The UI content is not native: it
+- **Bhippi today:** partly. `threeD`, `rotationX` and `camera` exist. The UI content is not native: it
   needs HTML (`create_motion_graphic`) or a screenshot. This is P3.
 
 **T16. Inner-glow "accepted" pulse** (f386–402)
 - **What happens:** a periwinkle glow blooms inwards from the window edges while the centre stays white:
   6 f up, 4 f hold, 6 f down. It lands on the music re-entry.
 - **AE build:** Inner Glow as a layer style, or a feathered inverted mask on a periwinkle solid.
-- **Helios today:** partly. A `radial-glow` procedural (inner `#faf9fe`, outer `#c4d2fd`) masked to the
+- **Bhippi today:** partly. A `radial-glow` procedural (inner `#faf9fe`, outer `#c4d2fd`) masked to the
   window with opacity keys works. There is no inner-glow layer style (P1 has it).
 
 **T17. Scale slam, pull-out and scale-to-zero** (f403–427)
 - **What happens:** 1.29 → 1.07 → 1.0 over 2 f; a slow drift to 0.74× over 19 f; out in 3 f.
 - **AE build:** scale keys.
-- **Helios today:** the slam yes; the gradient fill **no**.
+- **Bhippi today:** the slam yes; the gradient fill **no**.
 
 **T18. Gradient type** (f403–470, f640–681)
 - **What happens:**
@@ -261,14 +261,14 @@ build it, and what Helios can do today.
   - "No more" has a band `#104d7a` → `#1c7dc4` → `#104d7a`.
   - "Workly" fades and saturates lavender `#b4b8f0` → `#0023ff`.
 - **AE build:** Gradient Ramp plus Set Matte, or a Gradient Overlay layer style.
-- **Helios today:** **no** for a per-pixel gradient. It can be approximated per glyph with `fillColor`
+- **Bhippi today:** **no** for a per-pixel gradient. It can be approximated per glyph with `fillColor`
   animators. The Workly saturation is **yes** (`tint` or `hue-saturation` keys, or `fillColor`).
 
 **T19. Dashboard rise with parallax satellites** (f453–504)
 - **What happens:** a 20 f slide-up with 65% of the travel in 6 f. Satellite cards sit in 2–3 depth layers
   with soft shadows and move at their own speeds. The dashboard scales up about 3% during the hold.
 - **AE build:** a UI precomp; each satellite card on its own position curve (or a 3D camera push).
-- **Helios today:** partly. It works with image planes, but there is no generated dashboard (P3) and no
+- **Bhippi today:** partly. It works with image planes, but there is no generated dashboard (P3) and no
   parallax helper (P4).
 
 **T20. Sparkle-star grow and zoom wipe, handed off to a 3D ribbon** (f469–528)
@@ -279,7 +279,7 @@ build it, and what Helios can do today.
     and completes the cover. This is a colour-matched 2D → 3D hand-off.
 - **AE build:** a shape star with Pucker/Bloat set to concave, scale on expo-in; the 3D render cut in
   underneath on a frame where the ribbon fills the lens.
-- **Helios today:** partly. The `star` shape has straight edges only; concave sides need beziers (P1).
+- **Bhippi today:** partly. The `star` shape has straight edges only; concave sides need beziers (P1).
   Exponential scale works with keys or `{expr}`. The ribbon needs Blender (P7).
 
 **T21. Real-3D phone with satin ribbons** (f520–600)
@@ -287,14 +287,14 @@ build it, and what Helios can do today.
   `#0035b6` with a satin highlight and a white back, unfurl, wave and retract. Large gradient spheres
   `#3f93f4` → `#91c1f6` sit in a grey studio `#ebecef`; the camera orbits slowly.
 - **AE build:** made in C4D or Blender (not AE); the screen UI is comped or projected.
-- **Helios today:** **no**. This needs P7 `device-hero` with ribbons.
+- **Bhippi today:** **no**. This needs P7 `device-hero` with ribbons.
 
 **T22. Staircase lines, then leading collapse** (f591–640)
 - **What happens:** three lines slide in from the left with a 2 f stagger, about 10 f each, grey → black,
   resting 2% from the left edge (a deliberate bleed). Out: line spacing → 0 in 3 f, then a hard swap.
 - **AE build:** a Text Animator by line (position and opacity) with an offset; Line Spacing keyed for the
   collapse.
-- **Helios today:** the entrance yes (`cascade {by:'line', stagger:2/30}`). The collapse **no**
+- **Bhippi today:** the entrance yes (`cascade {by:'line', stagger:2/30}`). The collapse **no**
   (`lineHeight` is static); it can be faked with three by-line animators with y deltas. The safe-area fit
   would move the lines.
 
@@ -303,7 +303,7 @@ build it, and what Helios can do today.
   camera pulls back.
 - **AE build:** ellipse strokes with Gradient Stroke (or a trim with a feathered mask); a camera or null
   scale.
-- **Helios today:** partly. Ellipse strokes and trim exist; **gradient strokes** do not (P1).
+- **Bhippi today:** partly. Ellipse strokes and trim exist; **gradient strokes** do not (P1).
 
 **T24. Notification constellation with depth of field** (f660–733)
 - **What happens:**
@@ -312,25 +312,25 @@ build it, and what Helios can do today.
   - A frosted translucent card with grain.
   - Blurred dashboards behind, defocus about 6–8 px; slow parallax.
 - **AE build:** 3D layers with camera depth of field, or per-layer Camera Lens Blur.
-- **Helios today:** partly. Per-layer `gaussian-blur` works. The bell icon is missing (P1), and blur is not
+- **Bhippi today:** partly. Per-layer `gaussian-blur` works. The bell icon is missing (P1), and blur is not
   driven by depth (P4).
 
 **T25. Expo-in whip to an empty frame** (f729–744)
 - **What happens:** 15 f of acceleration, reaching 164 px/f on the last frame, no visible motion blur, then
   a cut to an empty frame.
 - **AE build:** a null's position on an expo-in curve.
-- **Helios today:** yes.
+- **Bhippi today:** yes.
 
 **T26. Wordmark rise with fade-saturate, then a word-stagger tagline and a dip to black** (f745–837)
 - **Numbers:** the rise and saturation are as §4; the tagline staggers 1 f per word; the dip is 10 f.
 - **AE build:** position keys, a fill/tint key, a Text Animator by word, and a black solid.
-- **Helios today:** yes.
+- **Bhippi today:** yes.
 
 **T27. Soft mesh background** (f404 onward)
 - **What happens:** a `#eeeeef` base with blue-grey blobs `#c2d2e8`–`#b6cce7` in the corners, drifting
   slowly.
 - **AE build:** 4-Colour Gradient, or blurred ellipses.
-- **Helios today:** partly. `aurora` and `radial-glow` exist; there is no multi-blob mesh procedural.
+- **Bhippi today:** partly. `aurora` and `radial-glow` exist; there is no multi-blob mesh procedural.
 
 ---
 
@@ -452,7 +452,7 @@ This is inference from RMS; nothing was isolated.
 
 ---
 
-## 7. What Helios needs
+## 7. What Bhippi needs
 
 The plan's pillars already cover most of this film. The items below reconcile it and add only what
 the plan lacks.

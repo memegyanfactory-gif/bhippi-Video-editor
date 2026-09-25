@@ -3,9 +3,9 @@
   "configurations": [
     {
       // PRESS F5 FOR THIS. Closes any running instance, builds the UI, compiles,
-      // and opens the Helios desktop window. Needs nothing installed beyond
+      // and opens the Bhippi desktop window. Needs nothing installed beyond
       // Node + Rust + the repo's npm packages. Works in Cursor and VS Code.
-      "name": "Helios",
+      "name": "Bhippi",
       "type": "node",
       "request": "launch",
       "program": "${workspaceFolder}/scripts/run-app.mjs",
@@ -15,7 +15,7 @@
     {
       // Desktop window with UI hot reload (tauri dev). Same stock requirements
       // as above; pick this when iterating on frontend code.
-      "name": "Helios (Hot Reload)",
+      "name": "Bhippi (Hot Reload)",
       "type": "node-terminal",
       "request": "launch",
       "command": "npm run dev",
@@ -25,22 +25,22 @@
       // Rust breakpoints. ONLY this entry needs an extra install: Microsoft's
       // "C/C++" extension (ms-vscode.cpptools), which provides the cppvsdbg
       // debugger. Without it, VS Code/Cursor reports "debug type not supported"
-      // and the app will not start — use the plain "Helios" entry instead.
-      "name": "Helios (Native Debugger — needs C/C++ extension)",
+      // and the app will not start — use the plain "Bhippi" entry instead.
+      "name": "Bhippi (Native Debugger — needs C/C++ extension)",
       "type": "cppvsdbg",
       "request": "launch",
-      "preLaunchTask": "helios: build app",
-      "program": "${workspaceFolder}\\target\\debug\\helios.exe",
+      "preLaunchTask": "bhippi: build app",
+      "program": "${workspaceFolder}\\target\\debug\\bhippi.exe",
       "args": [],
       "cwd": "${workspaceFolder}",
       "console": "internalConsole",
       "environment": [{ "name": "RUST_BACKTRACE", "value": "1" }]
     },
     {
-      // Attach to a Helios that is already running (or frozen): pick helios.exe — not the
+      // Attach to a Bhippi that is already running (or frozen): pick bhippi.exe — not the
       // `--mcp-bridge` one — then press Pause and open the "main" thread in Call Stack.
-      // Needs the debug build (target/debug/helios.pdb). Detach leaves the app running.
-      "name": "Helios (Attach to running)",
+      // Needs the debug build (target/debug/bhippi.pdb). Detach leaves the app running.
+      "name": "Bhippi (Attach to running)",
       "type": "cppvsdbg",
       "request": "attach",
       "processId": "${command:pickProcess}",

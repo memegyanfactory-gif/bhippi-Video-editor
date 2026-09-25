@@ -1,11 +1,11 @@
 //! In-app updates from bhippi.com.
 //!
 //! `app/release` names the newest version (public); `app/download` streams its installer to a
-//! licensed copy of Helios, proven by the Google sign-in's token or the pasted key (license.rs).
+//! licensed copy of Bhippi, proven by the Google sign-in's token or the pasted key (license.rs).
 //! The installer lands in the data folder's `updates` and is kept only when it is a newer version,
 //! a Windows program, and matches the SHA-256 (and size) the site published; without a published
 //! checksum nothing is kept. It runs only when the user says so: the NSIS installer in passive
-//! update mode (`/P /UPDATE /R`) replaces this install and starts the new version, while Helios
+//! update mode (`/P /UPDATE /R`) replaces this install and starts the new version, while Bhippi
 //! exits so nothing holds its files.
 use crate::license;
 use serde::Serialize;
@@ -22,7 +22,7 @@ use tokio::sync::watch;
 type CommandResult<T> = Result<T, String>;
 
 /// Download progress and how it ended, for the About card and the title-bar badge.
-pub const UPDATE_EVENT: &str = "helios://update";
+pub const UPDATE_EVENT: &str = "bhippi://update";
 
 /// What `update_download` rejects with once `update_cancel` stopped it.
 const CANCELLED: &str = "The download was cancelled.";
@@ -160,12 +160,12 @@ fn updates_dir(app: &AppHandle) -> CommandResult<PathBuf> {
 
 fn installer_name(version: &str) -> String {
     let safe: String = version.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-')).collect();
-    format!("Helios-{safe}-setup.exe")
+    format!("Bhippi-{safe}-setup.exe")
 }
 
 /// The version in a name `installer_name` wrote, or in its partial download's.
 fn installer_version(name: &str) -> Option<&str> {
-    name.strip_suffix(".part").unwrap_or(name).strip_prefix("Helios-")?.strip_suffix("-setup.exe")
+    name.strip_suffix(".part").unwrap_or(name).strip_prefix("Bhippi-")?.strip_suffix("-setup.exe")
 }
 
 /// The published checksum when it is one: 64 hex digits, in lower case.
@@ -214,7 +214,7 @@ fn file_sha256(path: &Path) -> std::io::Result<String> {
 }
 
 fn client(timeout: Option<Duration>) -> reqwest::Client {
-    let mut builder = reqwest::Client::builder().connect_timeout(Duration::from_secs(12)).user_agent(concat!("Helios/", env!("CARGO_PKG_VERSION")));
+    let mut builder = reqwest::Client::builder().connect_timeout(Duration::from_secs(12)).user_agent(concat!("Bhippi/", env!("CARGO_PKG_VERSION")));
     if let Some(timeout) = timeout {
         builder = builder.timeout(timeout);
     }
@@ -353,7 +353,7 @@ async fn unless_stopped<T>(cancel: &mut watch::Receiver<bool>, idle: Duration, s
 async fn download(app: &AppHandle, cancel: &mut watch::Receiver<bool>) -> CommandResult<String> {
     let (token, key) = license::credentials();
     if token.is_none() && key.is_none() {
-        return Err("Sign in to Helios to download updates.".to_owned());
+        return Err("Sign in to Bhippi to download updates.".to_owned());
     }
     let mut request = client(None).post(format!("{}/app/download", license::api_base())).json(&json!({ "key": key, "device": license::device(app) }));
     if let Some(token) = &token {
@@ -369,7 +369,7 @@ async fn download(app: &AppHandle, cancel: &mut watch::Receiver<bool>) -> Comman
     let version = header("x-helios-version").ok_or("bhippi.com didn’t say which version it sent.")?;
     let current = app.package_info().version.to_string();
     if !newer(&version, &current) {
-        return Err(format!("bhippi.com sent version {version}, which isn’t newer than this copy of Helios ({current})."));
+        return Err(format!("bhippi.com sent version {version}, which isn’t newer than this copy of Bhippi ({current})."));
     }
     // Fail closed: without the published checksum nothing proves these bytes are the release.
     let expected_sha = checksum(header("x-helios-sha256").as_deref()).ok_or("bhippi.com didn’t send the update’s checksum, so it wasn’t downloaded. Try again later.")?;
@@ -457,7 +457,7 @@ fn remove_other_installers(dir: &Path, keep: &Path) {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        if path != keep && name.starts_with("Helios-") && (name.ends_with("-setup.exe") || name.ends_with(".part")) {
+        if path != keep && name.starts_with("Bhippi-") && (name.ends_with("-setup.exe") || name.ends_with(".part")) {
             let _ignored = std::fs::remove_file(path);
         }
     }
@@ -475,17 +475,17 @@ fn remove_old_installers(dir: &Path, current: &str) {
     }
 }
 
-/// Runs a downloaded installer and closes Helios so it can replace the app. The frontend saves
+/// Runs a downloaded installer and closes Bhippi so it can replace the app. The frontend saves
 /// the project first; the installer starts the new version when it is done.
 #[tauri::command]
 pub fn update_install(app: AppHandle, path: String) -> CommandResult<()> {
     let dir = updates_dir(&app)?;
     // Only an installer this updater downloaded and verified, never an arbitrary program: the file
     // and the updates folder must both resolve, and the one must sit directly in the other.
-    let not_ours = || "That isn’t a downloaded Helios update.".to_owned();
+    let not_ours = || "That isn’t a downloaded Bhippi update.".to_owned();
     let (Ok(file), Ok(canonical_dir)) = (Path::new(&path).canonicalize(), dir.canonicalize()) else { return Err(not_ours()) };
     let name = file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-    if file.parent() != Some(canonical_dir.as_path()) || !name.starts_with("Helios-") || !name.ends_with("-setup.exe") || !file.is_file() {
+    if file.parent() != Some(canonical_dir.as_path()) || !name.starts_with("Bhippi-") || !name.ends_with("-setup.exe") || !file.is_file() {
         return Err(not_ours());
     }
     // Started by its name in the updates folder: the file that was checked, as a plain path the
@@ -533,15 +533,15 @@ mod tests {
 
     #[test]
     fn an_installer_name_keeps_only_safe_characters() {
-        assert_eq!(installer_name("0.3.0"), "Helios-0.3.0-setup.exe");
-        assert_eq!(installer_name("../../evil 1.0"), "Helios-....evil1.0-setup.exe");
+        assert_eq!(installer_name("0.3.0"), "Bhippi-0.3.0-setup.exe");
+        assert_eq!(installer_name("../../evil 1.0"), "Bhippi-....evil1.0-setup.exe");
     }
 
     #[test]
     fn an_installer_name_gives_back_its_version() {
-        assert_eq!(installer_version("Helios-1.0.2-setup.exe"), Some("1.0.2"));
-        assert_eq!(installer_version("Helios-1.1.0-beta.10-setup.exe.part"), Some("1.1.0-beta.10"));
-        assert_eq!(installer_version("Helios-1.0.2-setup.msi"), None);
+        assert_eq!(installer_version("Bhippi-1.0.2-setup.exe"), Some("1.0.2"));
+        assert_eq!(installer_version("Bhippi-1.1.0-beta.10-setup.exe.part"), Some("1.1.0-beta.10"));
+        assert_eq!(installer_version("Bhippi-1.0.2-setup.msi"), None);
         assert_eq!(installer_version("notes.txt"), None);
     }
 
@@ -566,27 +566,27 @@ mod tests {
 
     #[test]
     fn the_served_name_must_be_an_exe() {
-        let exe = served_name("attachment; filename=\"Helios 1.0.2 Setup.exe\"; filename*=UTF-8''Helios%201.0.2%20Setup.exe");
-        assert_eq!(exe.as_deref(), Some("Helios 1.0.2 Setup.exe"));
+        let exe = served_name("attachment; filename=\"Bhippi 1.0.2 Setup.exe\"; filename*=UTF-8''Bhippi%201.0.2%20Setup.exe");
+        assert_eq!(exe.as_deref(), Some("Bhippi 1.0.2 Setup.exe"));
         assert!(exe.is_some_and(|name| is_installer_name(&name)));
-        let msi = served_name("attachment; filename=\"Helios 1.0.2 Setup.msi\"; filename*=UTF-8''Helios%201.0.2%20Setup.msi");
+        let msi = served_name("attachment; filename=\"Bhippi 1.0.2 Setup.msi\"; filename*=UTF-8''Bhippi%201.0.2%20Setup.msi");
         assert!(!msi.is_some_and(|name| is_installer_name(&name)));
-        assert_eq!(served_name("attachment; filename=Helios.EXE").as_deref(), Some("Helios.EXE"));
-        assert!(is_installer_name("Helios.EXE"));
+        assert_eq!(served_name("attachment; filename=Bhippi.EXE").as_deref(), Some("Bhippi.EXE"));
+        assert!(is_installer_name("Bhippi.EXE"));
         assert_eq!(served_name("attachment"), None);
     }
 
     #[test]
     fn a_check_removes_installers_that_are_not_newer_than_the_running_copy() {
-        let dir = std::env::temp_dir().join(format!("helios-updates-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-updates-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for name in ["Helios-1.0.0-setup.exe", "Helios-1.0.1-setup.exe", "Helios-1.0.1-setup.exe.part", "Helios-1.0.2-setup.exe", "Helios-1.0.3-setup.exe.part", "keep.txt"] {
+        for name in ["Bhippi-1.0.0-setup.exe", "Bhippi-1.0.1-setup.exe", "Bhippi-1.0.1-setup.exe.part", "Bhippi-1.0.2-setup.exe", "Bhippi-1.0.3-setup.exe.part", "keep.txt"] {
             std::fs::write(dir.join(name), b"MZ").unwrap();
         }
         remove_old_installers(&dir, "1.0.1");
         let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
         left.sort();
-        assert_eq!(left, ["Helios-1.0.2-setup.exe", "Helios-1.0.3-setup.exe.part", "keep.txt"]);
+        assert_eq!(left, ["Bhippi-1.0.2-setup.exe", "Bhippi-1.0.3-setup.exe.part", "keep.txt"]);
         let _ignored = std::fs::remove_dir_all(dir);
     }
 
@@ -609,8 +609,8 @@ mod tests {
     async fn a_second_caller_shares_the_running_download() {
         let (done, result) = watch::channel(None);
         let waiting = tokio::spawn(joined(result.clone()));
-        done.send_replace(Some(Ok("C:\\updates\\Helios-1.0.2-setup.exe".to_owned())));
-        assert_eq!(waiting.await.unwrap(), Ok("C:\\updates\\Helios-1.0.2-setup.exe".to_owned()));
+        done.send_replace(Some(Ok("C:\\updates\\Bhippi-1.0.2-setup.exe".to_owned())));
+        assert_eq!(waiting.await.unwrap(), Ok("C:\\updates\\Bhippi-1.0.2-setup.exe".to_owned()));
         let (done, result) = watch::channel::<Option<Result<String, String>>>(None);
         drop(done);
         assert_eq!(joined(result).await, Err("The download stopped.".to_owned()), "a download that died without an answer");

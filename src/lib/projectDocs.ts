@@ -2,9 +2,9 @@
 //
 // On save the backend gathers every file the project uses into the project folder and answers
 // with old → new paths; `rewritePaths` points the open project at them. `storyboardDocs` turns
-// each comp's plan into Markdown filed under Storyboard/, so the plan can be read (and deleted)
+// each comp's plan into Markdown filed under Documents/Storyboard/, so the plan can be read (and deleted)
 // from Explorer like everything else. Pure, so tests can pin them.
-import type { ProjectDoc, ProjectDocFile } from './ipc';
+import type { ProjectDocFile } from './ipc';
 import type { Comp, Project, ProductionBeat } from './types';
 
 /** Fields that hold words, never paths — mirrors TEXT_KEYS in bundle.rs. */
@@ -118,7 +118,7 @@ export function storyboardMarkdown(comp: Comp): string | null {
   return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`;
 }
 
-/** Every comp's plan, as documents for the save to file under Storyboard/. */
+/** Every comp's plan, as documents for the save to file under Documents/Storyboard/. */
 export function storyboardDocs(project: Project): ProjectDocFile[] {
   const docs: ProjectDocFile[] = [];
   const used = new Set<string>();
@@ -131,26 +131,4 @@ export function storyboardDocs(project: Project): ProjectDocFile[] {
     docs.push({ category: 'storyboard', name, content });
   }
   return docs;
-}
-
-/** Task-list boxes as glyphs: the Markdown renderer strips form inputs. */
-export function checklistGlyphs(markdown: string): string {
-  return markdown.replace(/^(\s*[-*+]\s+)\[( |x|X)\]\s/gm, (_match, bullet: string, mark: string) => `${bullet}${mark === ' ' ? '☐' : '☑'} `);
-}
-
-/** Documents grouped by folder, in the order the backend listed them (Guidelines first). */
-export function groupDocs(docs: ProjectDoc[]): { folder: string; legacy: boolean; docs: ProjectDoc[] }[] {
-  const groups: { folder: string; legacy: boolean; docs: ProjectDoc[] }[] = [];
-  for (const doc of docs) {
-    const group = groups.find((entry) => entry.folder === doc.folder);
-    if (group) group.docs.push(doc);
-    else groups.push({ folder: doc.folder, legacy: doc.legacy, docs: [doc] });
-  }
-  return groups;
-}
-
-/** A document's title: its first heading, else its file name without the extension. */
-export function docTitle(doc: Pick<ProjectDoc, 'name'>, text?: string | null): string {
-  const heading = text ? /^#\s+(.+)$/m.exec(text)?.[1]?.trim() : null;
-  return heading || doc.name.replace(/\.(md|markdown|txt)$/i, '');
 }

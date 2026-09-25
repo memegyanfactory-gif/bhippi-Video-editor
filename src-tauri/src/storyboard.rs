@@ -23,7 +23,7 @@ fn picture_dir(state: &AppState) -> PathBuf {
 }
 
 /// The file extension for an image, from its first bytes; None when it is not an image we take.
-fn image_extension(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn image_extension(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("png")
     } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
@@ -83,6 +83,27 @@ pub fn storyboard_image_import(app: AppHandle, state: State<'_, Arc<AppState>>, 
     }
     let bytes = std::fs::read(&source).map_err(|error| format!("cannot read {source}: {error}"))?;
     write_picture(&app, &picture_dir(&state), &comp_id, scene, &bytes)
+}
+
+/// Copies a picture the user chose as the Glass theme's backdrop into the app data folder, so
+/// the look survives the original being moved or deleted, and returns the copy's path.
+#[tauri::command]
+pub fn appearance_image_import(app: AppHandle, state: State<'_, Arc<AppState>>, source: String) -> Result<String, String> {
+    let meta = std::fs::metadata(&source).map_err(|error| format!("cannot read {source}: {error}"))?;
+    if !meta.is_file() {
+        return Err(format!("{source} is not a file"));
+    }
+    if meta.len() > 64 * 1024 * 1024 {
+        return Err("that picture is larger than 64 MB".to_owned());
+    }
+    let bytes = std::fs::read(&source).map_err(|error| format!("cannot read {source}: {error}"))?;
+    let extension = image_extension(&bytes).ok_or_else(|| "that file is not a PNG, JPEG, WebP, GIF or BMP image".to_owned())?;
+    let dir = state.paths.root.join("backgrounds");
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let path = dir.join(format!("background-{}.{extension}", crate::store::new_id()));
+    std::fs::write(&path, &bytes).map_err(|error| error.to_string())?;
+    let _ignored = app.asset_protocol_scope().allow_file(&path);
+    Ok(path.display().to_string())
 }
 
 #[cfg(test)]

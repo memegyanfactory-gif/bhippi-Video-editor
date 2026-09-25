@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { checklistGlyphs, docTitle, groupDocs, rewritePaths, storyboardDocs, storyboardMarkdown } from '../src/lib/projectDocs';
+import { rewritePaths, storyboardDocs, storyboardMarkdown } from '../src/lib/projectDocs';
 import type { Comp, Project } from '../src/lib/types';
 
 const comp = (patch: Partial<Comp>): Comp => ({ id: 'c1', name: 'Launch', width: 1080, height: 1920, fps: 30, tracks: [], clips: [], markers: [], transitions: [], inPoint: null, outPoint: null, ...patch } as unknown as Comp);
 
 describe('rewritePaths', () => {
-  const from = 'C:\Users\me\AppData\helios\work\j1\shot.mp4';
+  const from = 'C:\Users\me\AppData\bhippi\work\j1\shot.mp4';
   const to = 'D:\Films\Launch\Generated\Video\shot.mp4';
 
   it('points path fields at their new location and keeps untouched branches', () => {
@@ -33,14 +33,14 @@ describe('storyboard documents', () => {
         brief: { goal: 'Launch the app', targetSeconds: 30 },
         research: { sources: [{ title: 'Docs', url: 'https://example.com' }], facts: ['It is fast'] },
       },
-      storyboard: [{ start: 0, end: 5, intent: 'Hook the viewer', visual: 'Logo slam', audio: 'Whoosh', evidence: '', mogrt: { template: 'title-slam', headline: 'HELIOS' }, shots: [{ kind: 'image', prompt: 'a sunrise', status: 'ready' }] }],
+      storyboard: [{ start: 0, end: 5, intent: 'Hook the viewer', visual: 'Logo slam', audio: 'Whoosh', evidence: '', mogrt: { template: 'title-slam', headline: 'BHIPPI' }, shots: [{ kind: 'image', prompt: 'a sunrise', status: 'ready' }] }],
     });
     const text = storyboardMarkdown(planned)!;
     expect(text).toContain('# Launch — storyboard');
     expect(text).toContain('**Goal:** Launch the app');
     expect(text).toContain('## Script');
     expect(text).toContain('### 1. Hook the viewer (0:00–0:05)');
-    expect(text).toContain('**Motion graphic:** title-slam · HELIOS');
+    expect(text).toContain('**Motion graphic:** title-slam · BHIPPI');
     expect(text).toContain('**Shot (image) — ready:** a sunrise');
     expect(text).toContain('- [Docs](https://example.com)');
     expect(storyboardMarkdown(comp({}))).toBeNull();
@@ -49,16 +49,5 @@ describe('storyboard documents', () => {
     const docs = storyboardDocs(project);
     expect(docs.map((doc) => doc.name)).toEqual(['Launch storyboard', 'Launch storyboard (2)']);
     expect(docs.every((doc) => doc.category === 'storyboard')).toBe(true);
-  });
-});
-
-describe('document helpers', () => {
-  it('shows task lists as glyphs, titles docs and groups them by folder', () => {
-    expect(checklistGlyphs('# Todo\n- [ ] cut\n- [x] gather\n  * [X] nested')).toBe('# Todo\n- ☐ cut\n- ☑ gather\n  * ☑ nested');
-    expect(docTitle({ name: 'todo-plan.md' }, '# Todo: launch video\n- [ ] a')).toBe('Todo: launch video');
-    expect(docTitle({ name: 'todo-plan.md' }, 'no heading')).toBe('todo-plan');
-    const doc = (folder: string, name: string, legacy = false) => ({ name, path: `/${folder}/${name}`, folder, relative: name, size: 1, modified: 0, legacy });
-    const groups = groupDocs([doc('Guidelines', 'a.md'), doc('Guidelines', 'b.md'), doc('Storyboard', 'c.md'), doc('Workspace notes', 'd.md', true)]);
-    expect(groups.map((group) => [group.folder, group.docs.length, group.legacy])).toEqual([['Guidelines', 2, false], ['Storyboard', 1, false], ['Workspace notes', 1, true]]);
   });
 });

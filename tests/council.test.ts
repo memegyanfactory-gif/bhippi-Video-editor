@@ -195,6 +195,42 @@ describe('the Comedian', () => {
     expect(notesOf(councilReview(project, assets, comp, ['comedian']), 'comedian').some((note) => note.text.includes('unverified'))).toBe(false);
   });
 
+  it('blocks an Indian meme in a video for a global audience, unless it crossed over', () => {
+    const { project, assets, comp } = setup(20);
+    roast(comp, [meme('e1', 5.1, 'death', 'He says poison; the death scene says it back.', 'b1'), meme('e2', 12, 'wow', 'The ad is over the top; "just looking like a wow".')], { audience: { audience: 'global', confidence: 0.9, signals: [], source: 'detected' } });
+    const facts: Record<string, { name: string; verified: boolean; region: 'IN' | 'global'; crossover?: boolean }> = {
+      death: { name: 'Amitabh death scene', verified: true, region: 'IN' },
+      wow: { name: 'Just looking like a wow', verified: true, region: 'IN', crossover: true },
+    };
+    const notes = notesOf(councilReview(project, assets, comp, ['comedian'], { meme: (id) => facts[id] }), 'comedian');
+    expect(notes.find((note) => note.text.includes('"Amitabh death scene" at 5.1 s is an Indian meme'))?.severity).toBe('block');
+    expect(notes.some((note) => note.text.includes('Just looking like a wow') && note.text.includes('Indian meme'))).toBe(false);
+    // The same plan for an Indian audience is fine.
+    comp.roast!.audience = { audience: 'IN', confidence: 1, signals: [], source: 'user' };
+    expect(notesOf(councilReview(project, assets, comp, ['comedian'], { meme: (id) => facts[id] }), 'comedian').some((note) => note.text.includes('is an Indian meme'))).toBe(false);
+  });
+
+  it('asks for restraint: memes on most lines, memes back to back, a meme on the setup, zooms every second', () => {
+    const { project, assets, comp } = setup(60);
+    const beats = Array.from({ length: 8 }, (_, i) => ({ id: `l${i}`, start: i * 6, end: i * 6 + 5, text: `line ${i}`, kinds: ['punchline' as const], punchAt: i * 6 + 5 }));
+    comp.roast = {
+      beatSheet: { version: 1, compId: comp.id, beats: [{ id: 's', start: 50, end: 55, text: 'so here is the thing about my landlord', kinds: ['setup'] }, ...beats] },
+      edl: { version: 1, compId: comp.id, style: 'funny', events: [
+        ...beats.slice(0, 6).map((beat, i) => meme(`m${i}`, beat.punchAt, `meme${i}`, 'the joke', beat.id)),
+        meme('late', 52, 'setupmeme', 'the joke'),
+        meme('crowd', 36.8, 'crowdmeme', 'the joke'),
+        { id: 'z1', move: 'zoom_punch', at: 10, duration: 0.3, why: '' },
+        { id: 'z2', move: 'zoom_punch', at: 12, duration: 0.3, why: '' },
+      ] },
+    };
+    const notes = notesOf(councilReview(project, assets, comp, ['comedian']), 'comedian');
+    expect(notes.find((note) => note.text.includes('memes for 9 lines'))?.severity).toBe('fix');
+    expect(notes.some((note) => note.text.includes('Two memes 0.3 s apart'))).toBe(true);
+    expect(notes.find((note) => note.text.includes('lands in the middle of a setup'))?.severity).toBe('fix');
+    expect(notes.some((note) => note.text.includes('Zooms at 10.0 s and 12.0 s'))).toBe(true);
+    expect(notes.some((note) => note.text.includes('Two memes') && note.text.includes('apart'))).toBe(true);
+  });
+
   it('finds a meme\'s punchline by time when it has no beat id, and lets one on the word pass', () => {
     const { project, assets, comp } = setup(20);
     roast(comp, [meme('e1', 5.1, 'husky', 'German shepherd → the dancing husky.'), meme('e2', 4.5, 'death', 'zeher → the death scene.')]);

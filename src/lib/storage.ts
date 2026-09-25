@@ -2,10 +2,10 @@
 //
 //   <storage root>/<Project name>/{Project, Footage, Downloads, Generated, Audio/…, Roto, …}
 //
-// A saved project owns the folder its .helios sits in (…/<folder>/Project/x.helios → <folder>),
-// or "<name> Files" beside a .helios saved anywhere else; saving gathers its files there.
+// A saved project owns the folder its .bhippi sits in (…/<folder>/Project/x.bhippi → <folder>),
+// or "<name> Files" beside a .bhippi saved anywhere else; saving gathers its files there.
 //
-// The root is Documents/Helios unless Settings › Storage names another folder. These helpers are
+// The root is Documents/Bhippi unless Settings › Storage names another folder. These helpers are
 // pure so the bin organiser and the Storage tab can share them (and tests can pin them).
 
 export type StorageCategoryId =
@@ -16,7 +16,7 @@ export type StorageCategory = { id: StorageCategoryId; folder: string; label: st
 
 /** Mirrors `Category` in storage.rs — same ids, same folders, same order. */
 export const STORAGE_CATEGORIES: readonly StorageCategory[] = [
-  { id: 'project', folder: 'Project', label: 'Project', blurb: 'The .helios file and its autosave copy' },
+  { id: 'project', folder: 'Project', label: 'Project', blurb: 'The .bhippi file and its autosave copy' },
   { id: 'footage', folder: 'Footage', label: 'Footage', blurb: 'Imported media, when copying into the project is on' },
   { id: 'downloads', folder: 'Downloads', label: 'Downloads', blurb: 'Clips and audio the AI fetched from the web' },
   { id: 'generated', folder: 'Generated', label: 'Generated', blurb: 'Images, video and audio from local models' },
@@ -28,9 +28,9 @@ export const STORAGE_CATEGORIES: readonly StorageCategory[] = [
   { id: 'clean-plates', folder: 'Clean plates', label: 'Clean plates', blurb: 'Magic eraser clips and background plates' },
   { id: 'renders', folder: 'Renders', label: 'Renders', blurb: 'Pre-rendered motion graphics' },
   { id: 'exports', folder: 'Exports', label: 'Exports', blurb: 'Finished videos — the default export folder' },
-  { id: 'storyboard', folder: 'Storyboard', label: 'Storyboard', blurb: 'Storyboard frames' },
-  { id: 'research', folder: 'Research', label: 'Research', blurb: 'References and pages gathered while planning' },
-  { id: 'guidelines', folder: 'Guidelines', label: 'Guidelines', blurb: 'Guidelines, plans and todo lists the AI writes' },
+  { id: 'storyboard', folder: 'Documents/Storyboard', label: 'Storyboard', blurb: 'Storyboard frames' },
+  { id: 'research', folder: 'Documents/Research', label: 'Research', blurb: 'References and pages gathered while planning' },
+  { id: 'guidelines', folder: 'Documents/Guidelines', label: 'Guidelines', blurb: 'Guidelines, plans and todo lists the AI writes' },
   { id: '3d-renders', folder: '3D renders', label: '3D renders', blurb: 'Frames rendered in headless Blender' },
 ];
 
@@ -69,7 +69,7 @@ const KIND_BY_FOLDER: [string, StorageKind][] = [
 
 /**
  * What a file inside a project folder is, from the category folder it sits in — `null` for
- * anything not under the storage root. Without a registered root the default `…/Helios/<project>/`
+ * anything not under the storage root. Without a registered root the default `…/Bhippi/<project>/`
  * shape is recognised, so a file in the user's own Downloads is never mistaken for one.
  */
 export function storageKind(path: string, root: string | null = registeredRoot): StorageKind | null {
@@ -78,7 +78,7 @@ export function storageKind(path: string, root: string | null = registeredRoot):
   if (root) {
     if (file.startsWith(`${norm(root)}/`)) rest = file.slice(norm(root).length + 1);
   } else {
-    const match = /\/helios\/(.+)$/.exec(file);
+    const match = /\/bhippi\/(.+)$/.exec(file);
     if (match) rest = match[1];
   }
   if (!rest) return null;

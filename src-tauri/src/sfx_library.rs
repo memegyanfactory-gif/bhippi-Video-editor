@@ -1,8 +1,8 @@
 //! The sampled SFX library for @funny (docs/FUNNY-MODE-PLAN.md §3.6).
 //!
 //! ```text
-//! Documents/Helios/SFX/          (the storage root, see storage.rs)
-//!   index.json                   sounds the user added or Helios fetched, with provenance
+//! Documents/Bhippi/SFX/          (the storage root, see storage.rs)
+//!   index.json                   sounds the user added or Bhippi fetched, with provenance
 //!   cache/<id>.wav               fetched sounds: silence trimmed, loudness-normalised
 //! ```
 //!
@@ -29,7 +29,7 @@ use tauri::State;
 
 const SEED: &str = include_str!("../resources/sfx/seed.json");
 /// Openverse and Freesound ask clients to name themselves.
-const HELIOS_AGENT: &str = "Helios/1.0 (https://bhippi.com/helios; video editor research tool)";
+const BHIPPI_AGENT: &str = "Bhippi/1.0 (https://bhippi.com/helios; video editor research tool)";
 /// Myinstants turns away obvious bots.
 const BROWSER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
 /// Loudness every fetched sound is normalised to (EBU R128 integrated), and its true-peak ceiling.
@@ -152,7 +152,7 @@ pub fn procedural_entries() -> Vec<SfxEntry> {
                 kind: EntryKind::Procedural,
                 procedural_kind: Some(kind.as_str().to_owned()),
                 provider: Some("builtin".to_owned()),
-                license: Some("Helios built-in (royalty-free)".to_owned()),
+                license: Some("Bhippi built-in (royalty-free)".to_owned()),
                 duration: Some(kind.length()),
                 ..SfxEntry::default()
             }
@@ -815,15 +815,15 @@ pub async fn sfx_library_search(state: State<'_, Arc<AppState>>, query: String, 
     let mut notes = Vec::new();
     if online.unwrap_or(false) && !query.trim().is_empty() {
         let key = crate::settings::get_api_key("freesound").filter(|key| !key.trim().is_empty());
-        let helios = client(HELIOS_AGENT)?;
+        let bhippi = client(BHIPPI_AGENT)?;
         let query = query.trim();
         let freesound_search = async {
             match &key {
-                Some(key) => Some(freesound(&helios, key.trim(), query, limit).await),
+                Some(key) => Some(freesound(&bhippi, key.trim(), query, limit).await),
                 None => None,
             }
         };
-        let (from_freesound, from_openverse, from_myinstants) = tokio::join!(freesound_search, openverse(&helios, query, limit), myinstants(query, limit));
+        let (from_freesound, from_openverse, from_myinstants) = tokio::join!(freesound_search, openverse(&bhippi, query, limit), myinstants(query, limit));
         match from_freesound {
             None => notes.push("Freesound skipped: no API key (Settings › freesound key); Openverse still covers much of Freesound's CC catalogue.".to_owned()),
             Some(Err(error)) => notes.push(format!("Freesound failed: {error}")),
@@ -885,7 +885,7 @@ async fn curl_file(url: &str, path: &Path) -> Result<(), String> {
 
 async fn download(entry: &SfxEntry, folder: &Path) -> Result<PathBuf, String> {
     let from_myinstants = entry.provider.as_deref() == Some("myinstants");
-    match fetch_http(entry, folder, if from_myinstants { BROWSER_AGENT } else { HELIOS_AGENT }).await {
+    match fetch_http(entry, folder, if from_myinstants { BROWSER_AGENT } else { BHIPPI_AGENT }).await {
         Ok(path) => Ok(path),
         Err(first) if from_myinstants => {
             let url = entry.url.as_deref().unwrap_or_default();
@@ -1268,19 +1268,19 @@ mod tests {
         assert_eq!(safe_name("mi-vine boom/..\\x"), "mi-vine_boom____x");
     }
 
-    /// `HELIOS_SFX_OUT=<folder> cargo test -p helios live_search_and_fetch -- --ignored --nocapture`:
+    /// `BHIPPI_SFX_OUT=<folder> cargo test -p bhippi live_search_and_fetch -- --ignored --nocapture`:
     /// asks Openverse and Myinstants for "vine boom" and "bruh", then fetches and normalises the
     /// best CC0 boom and the top Myinstants bruh into the folder.
     #[tokio::test]
     #[ignore = "network: live provider search and fetch"]
     async fn live_search_and_fetch() {
-        let Ok(folder) = std::env::var("HELIOS_SFX_OUT") else { return };
+        let Ok(folder) = std::env::var("BHIPPI_SFX_OUT") else { return };
         let folder = PathBuf::from(folder);
         std::fs::create_dir_all(&folder).unwrap();
-        let helios = client(HELIOS_AGENT).unwrap();
+        let bhippi = client(BHIPPI_AGENT).unwrap();
         let mut picks = Vec::new();
         for query in ["vine boom", "bruh"] {
-            let (from_openverse, from_myinstants) = tokio::join!(openverse(&helios, query, 8), myinstants(query, 8));
+            let (from_openverse, from_myinstants) = tokio::join!(openverse(&bhippi, query, 8), myinstants(query, 8));
             println!("== {query}: Openverse {} / Myinstants {}", from_openverse.as_ref().map_or_else(|e| e.clone(), |v| format!("{} hits", v.len())), from_myinstants.as_ref().map_or_else(|e| e.clone(), |v| format!("{} hits", v.len())));
             let mut hits = score_online(&from_openverse.clone().unwrap_or_default(), query, &[], "Openverse");
             hits.extend(score_online(&from_myinstants.clone().unwrap_or_default(), query, &[], "Myinstants"));
@@ -1292,7 +1292,7 @@ mod tests {
                 // Openverse has no "vine boom" by that name; its plain "boom" CC0 hits stand in.
                 let found = match cc0(from_openverse.unwrap_or_default()) {
                     Some(found) => Some(found),
-                    None => cc0(openverse(&helios, "bass boom", 8).await.unwrap_or_default()),
+                    None => cc0(openverse(&bhippi, "bass boom", 8).await.unwrap_or_default()),
                 };
                 picks.extend(found);
             }

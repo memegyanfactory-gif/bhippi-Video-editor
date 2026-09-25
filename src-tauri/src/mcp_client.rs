@@ -1,9 +1,9 @@
-//! Helios as an MCP *client*: connecting out to other people's servers.
+//! Bhippi as an MCP *client*: connecting out to other people's servers.
 //!
-//! `mcp.rs` is the other direction — Helios serving its own tools to CLI agents. This module lets
+//! `mcp.rs` is the other direction — Bhippi serving its own tools to CLI agents. This module lets
 //! the chat reach anything with an MCP server: a stdio process it starts, or an HTTP endpoint.
 //! A server's tools join the catalogue the assistant may call, under `mcp__<server>__<tool>` so
-//! they can never collide with Helios' own.
+//! they can never collide with Bhippi's own.
 //!
 //! A server that fails stays in the list, marked failed with the reason. Dropping it silently
 //! would leave the assistant being told it has tools that are not there.
@@ -23,7 +23,7 @@ pub struct Server {
     /// Short, stable, `[a-z0-9-]`: it becomes part of every tool name.
     pub id: String,
     pub label: String,
-    /// `stdio` (a process Helios starts) or `http`.
+    /// `stdio` (a process Bhippi starts) or `http`.
     pub transport: String,
     #[serde(default)]
     pub command: Option<String>,
@@ -170,7 +170,7 @@ impl Hub {
         let hello = serde_json::json!({
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": { "name": "helios", "version": env!("CARGO_PKG_VERSION") },
+            "clientInfo": { "name": "bhippi", "version": env!("CARGO_PKG_VERSION") },
         });
         if let Err(error) = rpc(&mut session, "initialize", hello, Duration::from_secs(20)) {
             status.detail = error;
@@ -305,33 +305,33 @@ mod tests {
         assert!(hub.tools().is_empty());
     }
 
-    /// The real handshake, against Helios' own MCP bridge — the one server always to hand.
+    /// The real handshake, against Bhippi's own MCP bridge — the one server always to hand.
     #[test]
-    fn helios_own_bridge_answers_the_handshake() {
+    fn bhippi_own_bridge_answers_the_handshake() {
         let Ok(exe) = std::env::current_exe() else {
             eprintln!("no test binary path; skipping");
             return;
         };
         // The bridge lives in the app binary, beside the test binary in target/debug.
-        let app = exe.parent().and_then(|dir| dir.parent()).map(|dir| dir.join(if cfg!(windows) { "helios.exe" } else { "helios" }));
+        let app = exe.parent().and_then(|dir| dir.parent()).map(|dir| dir.join(if cfg!(windows) { "bhippi.exe" } else { "bhippi" }));
         let Some(app) = app.filter(|path| path.is_file()) else {
-            eprintln!("helios binary not built; skipping");
+            eprintln!("bhippi binary not built; skipping");
             return;
         };
         let hub = Hub::default();
         // A bridge with no hub to reach still answers initialize and tools/list.
-        let status = hub.connect(&server("helios-self", &app.display().to_string(), &["--mcp-bridge", "0", "none"]));
+        let status = hub.connect(&server("bhippi-self", &app.display().to_string(), &["--mcp-bridge", "0", "none"]));
         if status.state != "ready" {
             eprintln!("bridge said: {}; skipping", status.detail);
             return;
         }
-        assert!(!status.tools.is_empty(), "the bridge should list Helios' tools");
+        assert!(!status.tools.is_empty(), "the bridge should list Bhippi's tools");
         for tool in &status.tools {
             assert!(tool.name.starts_with(PREFIX), "{} should be namespaced", tool.name);
-            assert!(tool.name.contains("helios-self__"));
+            assert!(tool.name.contains("bhippi-self__"));
         }
         assert_eq!(hub.tools().len(), status.tools.len());
-        hub.disconnect("helios-self");
+        hub.disconnect("bhippi-self");
         assert!(hub.tools().is_empty());
     }
 }

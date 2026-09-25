@@ -6,7 +6,7 @@
 //! provider until the next refresh. So every sweep writes what it learned, and a row that came
 //! back with nothing (or only the offline fallback) is filled from the last answer instead.
 
-use helios_providers::{Health, ProviderInfo, ProviderKind};
+use bhippi_providers::{Health, ProviderInfo, ProviderKind};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -69,7 +69,7 @@ pub fn remember(rows: &[ProviderInfo], cache: &mut ModelCache) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{fill, remember, ModelCache};
-    use helios_providers::{Health, ProviderInfo, ProviderKind};
+    use bhippi_providers::{Health, ProviderInfo, ProviderKind};
 
     fn row(id: &str, kind: ProviderKind, models: &[&str], health: Health) -> ProviderInfo {
         ProviderInfo {

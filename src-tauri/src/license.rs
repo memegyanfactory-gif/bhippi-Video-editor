@@ -1,4 +1,4 @@
-//! Helios licensing through bhippi.com.
+//! Bhippi licensing through bhippi.com.
 //!
 //! Signing in: the app asks bhippi.com for a short code, opens the browser on
 //! `bhippi.com/helios/link?code=…`, the person signs in with Google and approves, and the app
@@ -10,7 +10,7 @@
 //! Activation: on every start the app sends its device id (a SHA-256 of the machine id) and gets
 //! back either a signed certificate (`active`) or why not (`no_license`, `slots_full`, `revoked`).
 //! One key per Google account, two PCs per key — both enforced by the server. The certificate is
-//! Ed25519-signed and bound to this PC, so Helios keeps working offline until it expires (14 days).
+//! Ed25519-signed and bound to this PC, so Bhippi keeps working offline until it expires (14 days).
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ use tauri::{AppHandle, Manager};
 const API: &str = "https://bhippi.com/api/helios";
 /// Raw Ed25519 public key matching the site's LICENSE_SIGNING_KEY secret.
 const PUBLIC_KEY: &str = "tH9YFNtee3HWyeoAVj/8oWylOch7vcYHzJCKnoBkCaA=";
-const KEYCHAIN_SERVICE: &str = "helios-studio";
+const KEYCHAIN_SERVICE: &str = "bhippi-studio";
 const SESSION_ENTRY: &str = "license:session";
 const CERT_ENTRY: &str = "license:certificate";
 const KEY_ENTRY: &str = "license:key";
@@ -36,7 +36,7 @@ type CommandResult<T> = Result<T, String>;
 pub(crate) fn api_base() -> String {
     // Debug builds can point at `wrangler pages dev` for testing; release builds always use bhippi.com.
     if cfg!(debug_assertions) {
-        if let Ok(base) = std::env::var("HELIOS_ACCOUNT_API") {
+        if let Ok(base) = std::env::var("BHIPPI_ACCOUNT_API") {
             return base.trim_end_matches('/').to_owned();
         }
     }
@@ -215,7 +215,7 @@ pub struct LicenseStatus {
     /// True when `active` rests on the offline certificate because bhippi.com didn't answer.
     offline: bool,
     dev_build: bool,
-    /// Debug builds started with HELIOS_DEV_NO_LICENSE=1 may skip the gate; never a release build.
+    /// Debug builds started with BHIPPI_DEV_NO_LICENSE=1 may skip the gate; never a release build.
     dev_bypass_allowed: bool,
     /// The server's account view: `{ user, license, devices }`.
     account: Option<Value>,
@@ -230,7 +230,7 @@ impl LicenseStatus {
             state: state.to_owned(),
             offline: false,
             dev_build: cfg!(debug_assertions),
-            dev_bypass_allowed: cfg!(debug_assertions) && std::env::var("HELIOS_DEV_NO_LICENSE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            dev_bypass_allowed: cfg!(debug_assertions) && std::env::var("BHIPPI_DEV_NO_LICENSE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
             account: None,
             expires_at: None,
             message: None,
@@ -246,7 +246,7 @@ impl LicenseStatus {
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(12))
-        .user_agent(concat!("Helios/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Bhippi/", env!("CARGO_PKG_VERSION")))
         .build()
         .unwrap_or_default()
 }

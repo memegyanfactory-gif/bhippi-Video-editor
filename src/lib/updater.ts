@@ -1,8 +1,8 @@
 // Updates from bhippi.com: one state that Settings › About and the title-bar download button both read.
 //
-// Helios checks shortly after it opens and every few hours after. A newer version downloads on its
+// Bhippi checks shortly after it opens and every few hours after. A newer version downloads on its
 // own (Settings › About can turn that off; development builds never do) and waits: installing
-// closes Helios, so that is always the user's click, after the project is saved.
+// closes Bhippi, so that is always the user's click, after the project is saved.
 import { useSyncExternalStore } from 'react';
 import { api, errorText, events, type UpdateInfo, type UpdateProgress } from './ipc';
 
@@ -35,7 +35,7 @@ let listening = false;
 let downloads = 0;
 /** The download() whose update_download call is still out: that call settles it, not the events. */
 let awaiting = 0;
-/** How many downloads ended on `helios://update`, and the last end, so one that ends while we ask about it is not missed. */
+/** How many downloads ended on `bhippi://update`, and the last end, so one that ends while we ask about it is not missed. */
 let ends = 0;
 let lastEnd: UpdateProgress | null = null;
 
@@ -199,7 +199,7 @@ export const updater = {
     }
   },
 
-  /** What must happen before Helios closes for the installer — the app saves the open project. */
+  /** What must happen before Bhippi closes for the installer — the app saves the open project. */
   setBeforeInstall(hook: () => Promise<boolean>) {
     beforeInstall = hook;
   },

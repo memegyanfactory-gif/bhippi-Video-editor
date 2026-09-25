@@ -1,5 +1,5 @@
 /** Provider marks are inline vectors so they stay sharp at every DPI and work offline.
-    Adapted from Bhippi's ProviderLogo. */
+    Adapted from the Bhippi desktop app's ProviderLogo. */
 
 type LogoProps = { id: string; size?: number; transparent?: boolean; className?: string };
 
@@ -147,16 +147,16 @@ export function ProviderLogo({ id, size = 20, transparent = false, className }: 
     );
   }
 
-  // Helios itself: the app's own mark (public/helios.svg), silver and amber on a dark tile.
-  if (normalized === "helios") {
+  // Bhippi itself: the app's own mark (public/bhippi.png), the orange ring and B on a dark tile.
+  if (normalized === "bhippi") {
     return (
       <span
         className={`provider-logo provider-logo-vector${className ? ` ${className}` : ""}`}
         style={{ width: size, height: size, background: transparent ? "transparent" : "#16161b" }}
         aria-hidden="true"
-        title="Helios"
+        title="Bhippi"
       >
-        <img src="/helios.svg" alt="" style={{ width: "72%", height: "72%" }} />
+        <img src="/bhippi.png" alt="" style={{ width: "72%", height: "72%" }} />
       </span>
     );
   }

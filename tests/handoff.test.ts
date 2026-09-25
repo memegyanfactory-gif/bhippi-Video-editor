@@ -42,9 +42,9 @@ describe('handing a conversation to another provider', () => {
     expect(lastSpeaker([])).toBeNull();
   });
 
-  it('does not hand over from Helios talking to itself', () => {
+  it('does not hand over from Bhippi talking to itself', () => {
     // `/compact` recaps and offline command replies are written by the builtin, not by a provider.
-    const chat = [user('hi'), said('helios', 'Helios', null, 'Put the project back.')];
+    const chat = [user('hi'), said('bhippi', 'Bhippi', null, 'Put the project back.')];
     expect(handoffFor(chat, 'gemini', 'gemini-3.8-flash')).toBeNull();
   });
 

@@ -12,7 +12,7 @@ export function MenuBar({ menus }: { menus: MenuGroup[] }) {
   const win = getCurrentWindow();
   return (
     <div className="menubar" data-tauri-drag-region>
-      <img src="/helios.svg" alt="" width={16} height={16} className="menubar-logo" data-tauri-drag-region />
+      <img src="/bhippi.png" alt="" width={16} height={16} className="menubar-logo" data-tauri-drag-region />
       {menus.map((menu, index) => (
         <button
           key={menu.label}
@@ -76,7 +76,7 @@ export function HeaderBar(props: HeaderProps) {
           type="button"
           className={`header-dock${props.chatOpen ? ' active' : ''}`}
           onClick={props.onToggleChat}
-          title={`${props.chatOpen ? 'Hide' : 'Show'} Helios AI (Ctrl+L)`}
+          title={`${props.chatOpen ? 'Hide' : 'Show'} Bhippi AI (Ctrl+L)`}
           aria-pressed={props.chatOpen}
         >
           <PanelLeft size={19} />

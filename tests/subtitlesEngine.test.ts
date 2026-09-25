@@ -61,7 +61,7 @@ describe('subtitlesEngine: WatchFIWN Cue Builder', () => {
     const words: TimedWord[] = [
       { start: 0.1, end: 0.4, word: 'Welcome' },
       { start: 0.5, end: 0.8, word: 'to' },
-      { start: 0.9, end: 1.4, word: 'Helios' },
+      { start: 0.9, end: 1.4, word: 'Bhippi' },
       { start: 1.5, end: 2.1, word: 'Studio.' },
       { start: 2.8, end: 3.2, word: 'Next' },
       { start: 3.3, end: 3.7, word: 'sentence' },

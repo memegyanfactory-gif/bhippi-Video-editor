@@ -3,7 +3,7 @@
 //! The hard part is not the synthesis, it is Hinglish. A single sentence like
 //! "yaar ye transition bahut smooth hai" is two languages in one line, and handing all of it
 //! to one voice gets it wrong either way: an English voice reads `yaar` as "yar", a Hindi
-//! voice reads `transition` as "ट्रांसिशन". So Helios splits the line word by word, sends the
+//! voice reads `transition` as "ट्रांसिशन". So Bhippi splits the line word by word, sends the
 //! Hindi words (in either script) to a Hindi voice and the rest to an English one, and joins
 //! the pieces back into one take. [`plan`] is that split, and it is what the tests pin down.
 
@@ -74,7 +74,7 @@ fn is_devanagari(character: char) -> bool {
     ('\u{0900}'..='\u{097F}').contains(&character)
 }
 
-/// The romanised Hindi Helios knows by sight, spelled the way Devanagari wants it. Rules alone
+/// The romanised Hindi Bhippi knows by sight, spelled the way Devanagari wants it. Rules alone
 /// get these wrong often enough to be worth the table: `nahi` is नहीं, not नहि.
 const HINDI_WORDS: &[(&str, &str)] = &[
     ("aadmi", "आदमी"), ("aage", "आगे"), ("aaj", "आज"), ("aana", "आना"), ("aap", "आप"), ("aapka", "आपका"),
@@ -561,7 +561,7 @@ async fn post_audio(url: &str, headers: &[(&str, &str)], body: &serde_json::Valu
 }
 
 /// Every part ends up 48 kHz, mono, 16-bit — the format [`join`] can stitch byte for byte and
-/// the one Helios already records voice-overs in.
+/// the one Bhippi already records voice-overs in.
 async fn normalise(tools: &Tools, raw: &Path, out: &Path) -> Result<(), String> {
     let ffmpeg = tools.ffmpeg()?;
     crate::tools::run(
@@ -719,7 +719,7 @@ mod tests {
         assert_eq!(devanagari("aap"), "आप");
         assert_eq!(devanagari("bahut"), "बहुत");
         // Whole-line romanised Hindi reads in one Hindi run.
-        let runs = plan("mera naam Helios", Mode::HindiRoman);
+        let runs = plan("mera naam Bhippi", Mode::HindiRoman);
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].lang, Lang::Hindi);
         assert!(runs[0].text.starts_with("मेर"));
@@ -732,7 +732,7 @@ mod tests {
 
     #[test]
     fn parts_are_stitched_through_the_data_chunk_not_a_fixed_header() {
-        let dir = std::env::temp_dir().join(format!("helios-speech-{}", crate::store::new_id()));
+        let dir = std::env::temp_dir().join(format!("bhippi-speech-{}", crate::store::new_id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let write = |name: &str, samples: &[u8], extra: bool| {
             let mut file = Vec::new();

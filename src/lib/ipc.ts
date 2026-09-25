@@ -18,6 +18,8 @@ export type ChatRequest = {
   handoff?: { fromLabel: string; fromModel: string | null } | null;
   /** The project summary the model sees, built by `aiContext`. */
   context: unknown;
+  /** A brief that leads the system prompt for this turn (a council seat, or the Plugin Maker). */
+  persona?: string;
 };
 
 /** A document filed into the project folder on save. */
@@ -170,7 +172,7 @@ export type RunCommandResult = {
   durationMs: number;
 };
 
-/** An MCP server Helios connects out to. */
+/** An MCP server Bhippi connects out to. */
 export type McpServer = {
   id: string;
   label: string;
@@ -250,7 +252,7 @@ export type Transcript = {
   diarized?: boolean;
 };
 
-/** A key Helios keeps for a service that is not a chat provider. The key itself never comes back. */
+/** A key Bhippi keeps for a service that is not a chat provider. The key itself never comes back. */
 export type ServiceKey = { id: string; label: string; blurb: string; saved: boolean };
 
 export type StorageInfo = {
@@ -263,7 +265,7 @@ export type StorageInfo = {
   categories: { id: StorageCategoryId; folder: string; path: string; exists: boolean; bytes: number }[];
 };
 
-/** The bhippi.com account behind this copy of Helios (see src-tauri/src/license.rs). */
+/** The bhippi.com account behind this copy of Bhippi (see src-tauri/src/license.rs). */
 export type LicenseKind = 'paid' | 'tester' | 'admin';
 export type AccountDevice = { id: string; name: string | null; os: string | null; version: string | null; dev: boolean; firstSeen: number; lastSeen: number; current: boolean };
 export type AccountView = {
@@ -277,7 +279,7 @@ export type LicenseStatus = {
   /** Active on the offline certificate because bhippi.com didn't answer. */
   offline: boolean;
   devBuild: boolean;
-  /** A debug build started with HELIOS_DEV_NO_LICENSE=1: the gate offers to continue without a license. */
+  /** A debug build started with BHIPPI_DEV_NO_LICENSE=1: the gate offers to continue without a license. */
   devBypassAllowed: boolean;
   account: AccountView | null;
   expiresAt: number | null;
@@ -299,7 +301,7 @@ export type UpdateInfo = {
 };
 
 /**
- * A download on `helios://update`: 'downloading' as bytes arrive, then one end — 'done' (`path`
+ * A download on `bhippi://update`: 'downloading' as bytes arrive, then one end — 'done' (`path`
  * set), 'failed' (`error` set) or 'cancelled'.
  */
 export type UpdateProgress = {
@@ -314,6 +316,25 @@ export type UpdateProgress = {
 /** The download running in updater.rs right now (`downloading` false when none). */
 export type UpdateStatus = { downloading: boolean; version: string | null; received: number; total: number | null };
 
+export type BrainNodeKind = 'memory' | 'user' | 'skill' | 'tool' | 'topic' | 'episode' | 'provider';
+export type BrainNode = { id: string; kind: BrainNodeKind; title: string; weight: number; uses: number; wins: number; fails: number; created: string; updated: string };
+export type BrainEdge = { a: string; b: string; kind: string; w: number };
+export type BrainGraph = {
+  dir: string;
+  nodes: BrainNode[];
+  edges: BrainEdge[];
+  stats: { memories: number; userFacts: number; skills: number; tools: number; topics: number; episodes: number; providers: number; edges: number };
+  nudges: string[];
+  lastDream: string | null;
+  learning: boolean;
+};
+export type BrainNodeDetail = {
+  node: BrainNode & { body: string; meta: Record<string, unknown> | null };
+  neighbours: { id: string; kind: BrainNodeKind; title: string; edge: string }[];
+  procedure: string | null;
+};
+export type BrainHit = { id: string; kind: BrainNodeKind; title: string; text: string; score: number; when: string };
+
 export const api = {
   appInfo: () => invoke<AppInfo>('app_info'),
   settingsGet: () => invoke<Settings>('settings_get'),
@@ -321,6 +342,15 @@ export const api = {
   ideagraphStatus: () => invoke<{ status: string; gaps: { total: number; areas: { name: string; count: number }[]; gaps: string[]; unclassified: number } | null; pending: string }>('ideagraph_status'),
   ideagraphIngest: (text: string, source: string) => invoke<string>('ideagraph_ingest', { text, source }),
   ideagraphInit: () => invoke<string>('ideagraph_init'),
+  brainGraph: () => invoke<BrainGraph>('brain_graph'),
+  brainNode: (id: string) => invoke<BrainNodeDetail>('brain_node', { id }),
+  brainRecordTurn: (outcome: unknown, note?: string) => invoke<{ episode?: string; learned?: string[]; skipped?: string }>('brain_record_turn', { outcome, note }),
+  brainRemember: (kind: string, text: string) => invoke<{ id: string; updated: boolean; evicted: string[]; budget: string }>('brain_remember', { kind, text }),
+  brainForget: (id: string) => invoke<{ forgot: string; kind: string }>('brain_forget', { id }),
+  brainRecall: (query: string, limit?: number, kinds?: string[]) => invoke<BrainHit[]>('brain_recall', { query, limit, kinds }),
+  brainSaveSkill: (request: { name: string; description?: string; body?: string; mode?: string; old?: string; new?: string }) => invoke<{ name: string; version: string; mode: string; file: string }>('brain_save_skill', { request }),
+  brainLoadSkill: (name: string) => invoke<{ name: string; description: string; version: string; procedure: string; record: string }>('brain_load_skill', { name }),
+  brainDream: () => invoke<{ merged: number; pruned: number; topicsDissolved: number }>('brain_dream'),
   ffmpegRefresh: () => invoke<ToolStatus>('ffmpeg_refresh'),
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   openPath: (path: string) => invoke<void>('open_path', { path }),
@@ -334,19 +364,19 @@ export const api = {
   licenseSignOut: () => invoke<LicenseStatus>('license_sign_out'),
   /** Asks bhippi.com for the newest version (updater.rs). */
   updateCheck: () => invoke<UpdateInfo>('update_check'),
-  /** Downloads and verifies the newest installer; resolves to its path. Progress on `helios://update`. */
+  /** Downloads and verifies the newest installer; resolves to its path. Progress on `bhippi://update`. */
   updateDownload: () => invoke<string>('update_download'),
   /** The download under way, so a reloaded window can show it again. */
   updateStatus: () => invoke<UpdateStatus>('update_status'),
   /** Stops the download under way (nothing when there is none); its `updateDownload` rejects. */
   updateCancel: () => invoke<void>('update_cancel'),
-  /** Runs a downloaded installer and closes Helios; the installer starts the new version. */
+  /** Runs a downloaded installer and closes Bhippi; the installer starts the new version. */
   updateInstall: (path: string) => invoke<void>('update_install', { path }),
-  /** A file path passed on the command line (double-clicking a .helios file). */
+  /** A file path passed on the command line (double-clicking a .bhippi file). */
   startupFile: () => invoke<string | null>('startup_file'),
 
   libraryList: () => invoke<Asset[]>('library_list'),
-  /** MCP servers Helios connects out to, with what each is lending right now. */
+  /** MCP servers Bhippi connects out to, with what each is lending right now. */
   mcpServers: () => invoke<McpStatus[]>('mcp_servers'),
   /** Adds or replaces a server and connects to it. */
   mcpAdd: (server: McpServer) => invoke<McpStatus>('mcp_add', { server }),
@@ -370,12 +400,12 @@ export const api = {
   /** Pulls the frames a matting pass will look at. */
   rotoFrames: (id: string, from: number, seconds: number, fps: number | null) =>
     invoke<{ folder: string; frames: number; runId: string; fps: number }>('roto_frames', { id, from, seconds, fps }),
-  /** Hands one frame's alpha back; Helios writes it and says where the subject was. */
+  /** Hands one frame's alpha back; Bhippi writes it and says where the subject was. */
   rotoMatteFrame: (id: string, index: number, width: number, height: number, at: number, alpha: Uint16Array) =>
     invoke<SubjectBox>('roto_matte_frame', { id, index, width, height, at, alpha: Array.from(alpha) }),
   rotoFinish: (id: string, model: string, fps: number, subjects: SubjectBox[]) =>
     invoke<RotoCache>('roto_finish', { id, model, fps, subjects }),
-  /** Tracks every person across a shot; returns the job id, result on `helios://job` / jobs_list. */
+  /** Tracks every person across a shot; returns the job id, result on `bhippi://job` / jobs_list. */
   personTrackStart: (id: string, from: number, seconds: number, fps: number) =>
     invoke<string>('person_track_start', { id, from, seconds, fps }),
   /**
@@ -421,10 +451,10 @@ export const api = {
 
   /** The offline speech catalogue, what is downloaded, and whether the runtimes were found. */
   speechStatus: () => invoke<SpeechStatus>('speech_status'),
-  /** Starts a download; returns its job id and reports on `helios://job`. */
+  /** Starts a download; returns its job id and reports on `bhippi://job`. */
   modelDownload: (id: string) => invoke<string>('model_download', { id }),
   modelDelete: (id: string) => invoke<SpeechStatus>('model_delete', { id }),
-  /** Points Helios at a whisper.cpp or Piper program installed by hand; null goes back to auto. */
+  /** Points Bhippi at a whisper.cpp or Piper program installed by hand; null goes back to auto. */
   speechLocate: (runtime: 'whisper' | 'piper', path: string | null) => invoke<SpeechStatus>('speech_locate', { runtime, path }),
   /** Every voice usable right now: offline ones, plus cloud voices when a key is saved. */
   speechVoices: () => invoke<Voice[]>('speech_voices'),
@@ -499,7 +529,7 @@ export const api = {
   pickFolder: (title: string, directory?: string | null) => invoke<string | null>('pick_folder', { title, directory: directory ?? null }),
   /** Where project files go: the root, the open project's folder, and each category folder. */
   storageInfo: () => invoke<StorageInfo>('storage_info'),
-  /** Moves the storage root (null returns to Documents/Helios); refuses a folder it cannot write. */
+  /** Moves the storage root (null returns to Documents/Bhippi); refuses a folder it cannot write. */
   storageSetRoot: (path: string | null) => invoke<StorageInfo>('storage_set_root', { path }),
   /** Which project new files belong to (autosave also sets it). */
   storageSetProject: (name: string) => invoke<void>('storage_set_project', { name }),
@@ -511,12 +541,12 @@ export const api = {
   storageOpen: (category?: StorageCategoryId | 'root' | null) => invoke<void>('storage_open', { category: category ?? null }),
   pickOpenPath: (title: string, filterName: string, extensions: string[]) =>
     invoke<string | null>('pick_open_path', { title, filterName, extensions }),
-  /** Reads and writes `.helios` project files. */
+  /** Reads and writes `.bhippi` project files. */
   projectFileRead: (path: string) => invoke<unknown>('project_file_read', { path }),
   projectFileWrite: (path: string, document: unknown) => invoke<void>('project_file_write', { path, document }),
   /**
    * Save / Save As (keepPath) or Save a copy: gathers every file the project uses into the folder
-   * the .helios owns, files `docs` there, and writes the .helios with relative paths (bundle.rs).
+   * the .bhippi owns, files `docs` there, and writes the .bhippi with relative paths (bundle.rs).
    */
   projectFileSave: (path: string, document: unknown, keepPath: boolean, docs: ProjectDocFile[]) =>
     invoke<ProjectSaveReport>('project_file_save', { path, document, keepPath, docs }),
@@ -532,8 +562,16 @@ export const api = {
   learningSave: (skills: import('./learning').LearningSkill[]) => invoke<void>('learning_save', { skills }),
   customToolsLoad: () => invoke<import('./customTools').CustomTool[]>('custom_tools_load'),
   customToolsSave: (tools: import('./customTools').CustomTool[]) => invoke<void>('custom_tools_save', { tools }),
-  chatLogLoad: () => invoke<unknown[]>('chat_log_load'),
-  chatLogSave: (messages: unknown[]) => invoke<void>('chat_log_save', { messages }),
+  /** `scope` keeps a workspace's own conversation apart from the main chat (Plugin Maker: 'plugins'). */
+  chatLogLoad: (scope?: string) => invoke<unknown[]>('chat_log_load', { scope: scope ?? null }),
+  chatLogSave: (messages: unknown[], scope?: string) => invoke<void>('chat_log_save', { messages, scope: scope ?? null }),
+  pluginsLoad: () => invoke<import('../plugins/types').Plugin[]>('plugins_load'),
+  pluginsSave: (plugins: import('../plugins/types').Plugin[]) => invoke<void>('plugins_save', { plugins }),
+  /** Writes a plugin's composed page and returns its file path (served through the asset protocol). */
+  pluginPageWrite: (id: string, html: string) => invoke<string>('plugin_page_write', { id, html }),
+  pluginFilesRemove: (id: string) => invoke<void>('plugin_files_remove', { id }),
+  pluginStorageLoad: (id: string) => invoke<Record<string, unknown>>('plugin_storage_load', { id }),
+  pluginStorageSave: (id: string, data: Record<string, unknown>) => invoke<void>('plugin_storage_save', { id, data }),
 
   exportStart: (project: Project, options: ExportOptions) => invoke<string>('export_start', { project: prepareEffectExport(project,options.compId), options }),
   /** The newest live-preview frame of a running export (a JPEG path), for the render window. */
@@ -578,6 +616,8 @@ export const api = {
   storyboardImageSave: (compId: string, scene: number, bytes: Uint8Array) => invoke<string>('storyboard_image_save', bytes, { headers: { 'x-comp-id': compId, 'x-scene': String(scene) } }),
   /** Copies a photo from disk into the storyboard folder so the project owns it; returns the copy's path. */
   storyboardImageImport: (compId: string, scene: number, source: string) => invoke<string>('storyboard_image_import', { compId, scene, source }),
+  /** Copies a picture into the app data folder to be the Glass theme's backdrop; returns the copy's path. */
+  appearanceImageImport: (source: string) => invoke<string>('appearance_image_import', { source }),
 
   providersList: () => invoke<ProviderInfo[]>('providers_list'),
   providersRefresh: () => invoke<ProviderInfo[]>('providers_refresh'),
@@ -609,25 +649,27 @@ const on = <T>(name: string) => (handler: (payload: T) => void): Promise<Unliste
   listen<T>(name, (event) => handler(event.payload));
 
 export const events = {
-  job: on<Job>('helios://job'),
-  library: on<null>('helios://library'),
-  providers: on<ProviderInfo[]>('helios://providers'),
-  chat: on<ChatEvent>('helios://chat'),
-  tools: on<ToolStatus>('helios://tools'),
-  toolCall: on<ToolCall>('helios://tool-call'),
-  openFile: on<string>('helios://open-file'),
+  job: on<Job>('bhippi://job'),
+  library: on<null>('bhippi://library'),
+  providers: on<ProviderInfo[]>('bhippi://providers'),
+  chat: on<ChatEvent>('bhippi://chat'),
+  tools: on<ToolStatus>('bhippi://tools'),
+  toolCall: on<ToolCall>('bhippi://tool-call'),
+  openFile: on<string>('bhippi://open-file'),
   /** A model finished downloading or was removed; the Speech panel refreshes itself. */
-  models: on<null>('helios://models'),
+  models: on<null>('bhippi://models'),
   /** A guideline, plan or note in the project folder changed (the AI wrote it, or a save filed it). */
-  docs: on<null>('helios://docs'),
+  docs: on<null>('bhippi://docs'),
   /** An update downloading, and how its download ended (updater.rs). */
-  update: on<UpdateProgress>('helios://update'),
+  update: on<UpdateProgress>('bhippi://update'),
   /** Settings the backend changed itself (a provider switched off, a model installed, a program
    *  located), so the UI's copy is fresh before its next settings save. */
-  settings: on<Settings>('helios://settings'),
+  settings: on<Settings>('bhippi://settings'),
+  /** The brain learned something (a turn, a memory, a skill, a dream); the mind map redraws. */
+  brain: on<{ reason: string }>('bhippi://brain-changed'),
 };
 
-/** A URL the webview can load for a local file Helios imported or produced. */
+/** A URL the webview can load for a local file Bhippi imported or produced. */
 export const fileSrc = (path: string | null | undefined) => (path ? convertFileSrc(path) : '');
 
 /** Error text from a rejected command, whatever shape it arrived in. */

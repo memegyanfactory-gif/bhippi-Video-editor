@@ -1,0 +1,21 @@
+# The AI pack's Python libraries (src-tauri/src/ai_pack.rs), pinned to the versions Bhippi is
+# tested with. PyTorch and torchvision are installed first from the PyTorch index (CUDA 12.8 on an
+# NVIDIA GPU, CPU otherwise). The eraser and person-tracker installers add their own packages
+# (simple-lama-inpainting; rfdetr, supervision). No text-to-image / text-to-video libraries here.
+accelerate==1.15.0
+einops==0.8.2
+huggingface_hub==1.32.0
+imageio==2.37.4
+imageio-ffmpeg==0.6.0
+kornia==0.8.3
+numpy==2.5.3
+onnxruntime==1.30.0
+opencv-python-headless==5.0.0.93
+pillow==12.3.0
+pillow_heif==1.7.0
+safetensors==0.8.0
+scipy==1.18.1
+soundfile==0.14.0
+timm==1.0.30
+tokenizers==0.23.2
+transformers==5.17.0

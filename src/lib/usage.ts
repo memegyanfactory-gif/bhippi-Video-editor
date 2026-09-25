@@ -40,7 +40,7 @@ export type Snapshot = {
 
 export type Standing = 'unknown' | 'ok' | 'warn' | 'high' | 'exhausted';
 
-const KEY = 'helios.usage.v1';
+const KEY = 'bhippi.usage.v1';
 
 /**
  * How long a refusal that named no reset time keeps a provider marked out. Free and shared models

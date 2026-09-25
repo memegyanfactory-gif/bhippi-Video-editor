@@ -1,6 +1,6 @@
 # Brand Kit Research: References, Taxonomy, Archetypes
 
-Research date: 2026-09-22. Purpose: give Helios engineers a complete picture of what a professional brand kit / brand design system contains, what rules each section states (with numbers where sources give them), how each section applies to video, and a catalogue of 16 distinct brand-style archetypes with concrete values that can be hardcoded as presets and used by the AI copilot to generate brand kits. The machine-readable companion is `brand-kit-archetypes.json` (same folder).
+Research date: 2026-09-22. Purpose: give Bhippi engineers a complete picture of what a professional brand kit / brand design system contains, what rules each section states (with numbers where sources give them), how each section applies to video, and a catalogue of 16 distinct brand-style archetypes with concrete values that can be hardcoded as presets and used by the AI copilot to generate brand kits. The machine-readable companion is `brand-kit-archetypes.json` (same folder).
 
 How this maps to the existing code: `src/lib/brand.ts` already has `Brand { palette{accent, ink, surface, text, muted, accentAlt}, fonts{display, body, mono}, type{hook..caption as % of frame height}, radius, shadow, motion{entrance, exit, emphasis, beat}, captionStyle }` with curves from `src/lib/motion.ts` (`entrance`, `exit`, `overshoot`, `standard`) and `TIMING.quick/normal/slow`. The archetype JSON uses the shape requested by the task; the obvious mapping is `colors.bg -> palette.ink`, `colors.accent2 -> palette.accentAlt`, `motion.easing -> a new CurveName or a raw cubic-bezier`, `motion.enter/exit/hold -> beat-derived timings`, `layout.safeMargin -> title-safe inset`.
 
@@ -63,7 +63,7 @@ Contents (Confetti, Frontify, cieden, Typography Master, ui8 BrandKit "Type Syst
 - Weight pairing convention: body 400, subheads 500, headings 600–700.
 - Minimum sizes for packaging/legal text.
 
-Video application: type is measured as % of frame height (Helios already does this in `TypeScale`); WashU's lower third uses up to 77 px name in SemiBold, title in Light at 1080p (~7 % of height). Captions: 64–88 px on 1080×1920 (7–9 % of frame height), bold sans, white or yellow with a 3–4 px dark stroke or box. Never animate character-by-character (Slack), keep text legible at all times, hold on screen long enough to read twice aloud (Adventist Health, Epidemic Sound).
+Video application: type is measured as % of frame height (Bhippi already does this in `TypeScale`); WashU's lower third uses up to 77 px name in SemiBold, title in Light at 1080p (~7 % of height). Captions: 64–88 px on 1080×1920 (7–9 % of frame height), bold sans, white or yellow with a 3–4 px dark stroke or box. Never animate character-by-character (Slack), keep text legible at all times, hold on screen long enough to read twice aloud (Adventist Health, Epidemic Sound).
 
 ### A5. Iconography
 
@@ -99,7 +99,7 @@ Numbers:
 - Personality → motion mapping (Dawn): premium = slower, refined, subtle; playful = bouncy, energetic, exaggerated; calm/wellness = fluid, slow; tech = sharp, fast; corporate = precise, minimal.
 - Prohibitions seen in real guides: no animated gradients, no stretching shapes or type, no motion blur (Klarna); no character-by-character text, no flashy wipes (Slack); no motion behind text, loops stop after a brief time (Indeed); no flashing/strobe, no text filters like drop shadow/glow/stroke on video type (Adventist Health).
 
-Video application: lower thirds on screen 3–6 s (5–7 s for two lines, up to 10 s for facts), fade or subtle slide in/out matched to tone; change what is on screen every 10–15 s (Adventist Health); intro bumper ≤ 3 s or skip it; end card 5–20 s. Helios `motion.entrance/exit/emphasis` + `beat` map directly; the JSON adds `enter/exit/hold/stagger` in seconds.
+Video application: lower thirds on screen 3–6 s (5–7 s for two lines, up to 10 s for facts), fade or subtle slide in/out matched to tone; change what is on screen every 10–15 s (Adventist Health); intro bumper ≤ 3 s or skip it; end card 5–20 s. Bhippi `motion.entrance/exit/emphasis` + `beat` map directly; the JSON adds `enter/exit/hold/stagger` in seconds.
 
 ### A10. Voice & tone
 
@@ -210,9 +210,9 @@ Cross-shot patterns worth hardcoding: every kit shows (1) wordmark + symbol + ap
 ## Part C: 16 brand style archetypes
 
 Conventions used below (and in the JSON):
-- Colour tokens: `bg` (deepest field = Helios `ink`), `surface` (card fill), `text`, `muted`, `primary` (main brand colour), `accent` (emphasis, ~10 %), `accent2` (rare second accent = Helios `accentAlt`). Verified: every `text`/`bg` pair is ≥ 11:1 and every `text`/`surface` pair ≥ 10:1 (WCAG AAA), every `muted`/`bg` pair ≥ 3.29:1. `primary`, `accent` and `accent2` are fill colours (bars, pills, highlights, gradients); on the light archetypes (Playful Pastel, Kids Bright, Wellness Calm, Warm Craft) their contrast against `bg` is below 3:1, so set `text` on top of them rather than using them as text on `bg`. `primary`/`bg` is ≥ 3:1 for every archetype except Playful Pastel (2.04), where `primary` must likewise only be used as a fill.
+- Colour tokens: `bg` (deepest field = Bhippi `ink`), `surface` (card fill), `text`, `muted`, `primary` (main brand colour), `accent` (emphasis, ~10 %), `accent2` (rare second accent = Bhippi `accentAlt`). Verified: every `text`/`bg` pair is ≥ 11:1 and every `text`/`surface` pair ≥ 10:1 (WCAG AAA), every `muted`/`bg` pair ≥ 3.29:1. `primary`, `accent` and `accent2` are fill colours (bars, pills, highlights, gradients); on the light archetypes (Playful Pastel, Kids Bright, Wellness Calm, Warm Craft) their contrast against `bg` is below 3:1, so set `text` on top of them rather than using them as text on `bg`. `primary`/`bg` is ≥ 3:1 for every archetype except Playful Pastel (2.04), where `primary` must likewise only be used as a fill.
 - Fonts are restricted to system-safe families: Inter, Segoe UI, Arial, Helvetica, Georgia, Times New Roman, Trebuchet MS, Verdana, Consolas, Courier New, Impact, Palatino, Garamond, Cambria, Candara.
-- Motion: `enter`/`exit`/`hold` are seconds for a title or lower third; `stagger` is the delay between sibling elements; `intensity` maps to Helios `TIMING.slow/normal/quick`.
+- Motion: `enter`/`exit`/`hold` are seconds for a title or lower third; `stagger` is the delay between sibling elements; `intensity` maps to Bhippi `TIMING.slow/normal/quick`.
 - Layout: `safeMargin` is a fraction of the short side kept clear on all edges (0.05 = title safe 90 %); positions are for 16:9, and for 9:16 the lower third moves to the caption slot and captions move to 65–75 % height.
 - Grade: signed offsets in percent applied to footage (saturation, contrast, warmth), so 0 = leave the footage alone.
 - Audio tempo is a BPM range.

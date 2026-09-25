@@ -151,7 +151,7 @@ const inBeat = (word: Word, beat: Pick<Beat, 'start' | 'end'>) => {
 const TRAILING = /^(ha)+$|^(he)+$|^(hm+|um+|uh+|ah+|haha\w*|lol)$|^\p{P}+$/u;
 
 /**
- * When a punchline lands: the end of the beat's last real word (a meme cuts in 0–150 ms after
+ * When a punchline lands: the end of the beat's last real word (a meme cuts in 0–100 ms after
  * it). Falls back to `punchAt` or the beat's end when no word is known.
  */
 export function punchlineEnd(beat: Pick<Beat, 'start' | 'end'> & { punchAt?: number }, words: Word[]): number {

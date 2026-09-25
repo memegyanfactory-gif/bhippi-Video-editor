@@ -1,6 +1,6 @@
 {
-  "name": "helios",
-  "version": "1.0.2",
+  "name": "bhippi-video-editor",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
     "dev": "node scripts/stop-app.mjs && tauri dev --config src-tauri/tauri.dev.conf.json",
     "dev:web": "vite",
     "build": "tsc -b && vite build",
-    "bundle": "tauri build",
+    "bundle": "node scripts/fetch-bundle.mjs && tauri build",
+    "fetch-bundle": "node scripts/fetch-bundle.mjs",
     "tauri": "tauri",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . && cargo clippy --workspace --all-targets -- -D warnings",

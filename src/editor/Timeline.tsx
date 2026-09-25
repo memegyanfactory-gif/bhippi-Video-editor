@@ -8,13 +8,13 @@ import { Bookmark, Eye, EyeOff, Film, Link2, Lock, Magnet, Mic, Unlock, Wrench, 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { MenuList } from '../components/workspace';
 import { findStyle } from '../lib/captionStyles';
-import { clamp, dbToGain, gainToDb, isIdentityEffects, isIdentityTransform, parseTimecode, snap, timecode, toFrame, uid } from '../lib/editor';
+import { clamp, FPS, dbToGain, gainToDb, isIdentityEffects, isIdentityTransform, parseTimecode, snap, timecode, toFrame, uid } from '../lib/editor';
 import type { History } from '../lib/history';
 import { fileSrc } from '../lib/ipc';
 import { setKey, valueAt } from '../lib/keyframes';
 import { playhead, usePlayhead } from '../lib/playhead';
 import {
-  clipEnd, clipName, clipsForSource, compDuration, freeTrack, moveClips, newClip, placeClips, razor, slideClip, slipClip, snapTargets, sourceInfo, sourceLimit, textSource, trackIndex,
+  clipEnd, clipName, clipsForSource, compDuration, freeTrack, moveClips, newClip, newComp, placeClips, razor, slideClip, slipClip, snapTargets, sourceInfo, sourceLimit, textSource, trackIndex,
   trackLabel, trackSelect, tracksOf, transitionLabel, transitionWindow, trimEdge, updateComp, updateTrack, withLinked, type AssetMap, type TrimMode,
 } from '../lib/timeline';
 import type { Asset, Clip, ClipSource, Comp, Project, Tool, Track, Transition } from '../lib/types';
@@ -339,7 +339,7 @@ export function Timeline(props: Props) {
   if (!comp) {
     return (
       <div className="timeline empty-timeline">
-        <div className="timeline-empty"><Film size={26} /><strong>No comp open</strong><span>Create a comp from the Project panel (right-click › New Comp) or drag media here.</span></div>
+        <div className="timeline-empty"><Film size={26} /><strong>No comp open</strong><span>Drop a video, image or sound here — a comp is made at its size — or right-click the Project panel › New Comp.</span></div>
       </div>
     );
   }
@@ -497,6 +497,10 @@ export function Timeline(props: Props) {
     const rect = scrollRef.current?.getBoundingClientRect();
     const x = event.clientX - (rect?.left ?? 0) + (scrollRef.current?.scrollLeft ?? 0);
     const y = yAt(event.clientY);
+    // A plain click on empty track space deselects straight away, as in Premiere — the marquee
+    // only reselects once the pointer moves, so waiting for it left the old clips selected.
+    const additive = event.shiftKey || event.ctrlKey;
+    if (!additive && selection.length) props.onSelect([]);
     capture(event, { kind: 'marquee', x0: x, y0: y, x1: x, y1: y, additive: event.shiftKey || event.ctrlKey, before: selection });
   };
 
@@ -733,7 +737,9 @@ export function Timeline(props: Props) {
     if (props.incoming?.kind === 'source' && incomingTarget) {
       const info = sourceInfo(project, assets, props.incoming.source);
       const duration = props.incoming.duration ?? (Number.isFinite(info.length) ? info.length - (props.incoming.in ?? 0) : 5);
-      const start = toFrame(incomingTarget.time, fps);
+      // An empty comp takes a drop from zero on V1/A1 (see dropIntoEmpty), so its ghost shows there.
+      const empty = !comp.clips.length;
+      const start = empty ? 0 : toFrame(incomingTarget.time, fps);
       const drawOn = (kind: 'video' | 'audio', index: number) => {
         const row = kind === 'video' ? rows.video[rows.video.length - 1 - index] : rows.audio[index];
         const top = row ? row.top : kind === 'video' ? RULER : rows.height - 60;
@@ -741,8 +747,8 @@ export function Timeline(props: Props) {
       };
       const wantsVideo = info.hasVideo && !props.incoming.audioOnly;
       const wantsAudio = info.hasAudio && !props.incoming.videoOnly;
-      if (wantsVideo) drawOn('video', incomingTarget.kind === 'video' ? incomingTarget.index : 0);
-      if (wantsAudio) drawOn('audio', incomingTarget.kind === 'audio' ? incomingTarget.index : incomingTarget.index);
+      if (wantsVideo) drawOn('video', empty ? 0 : incomingTarget.kind === 'video' ? incomingTarget.index : 0);
+      if (wantsAudio) drawOn('audio', empty ? 0 : incomingTarget.index);
     }
     return ghosts;
   };
@@ -1154,6 +1160,48 @@ export function dropClips(project: Project, assets: AssetMap, comp: Comp, drag: 
     }
   }
   return { comp: next, clips: clipsForSource(project, assets, drag.source, { start, videoTrack, audioTrack, in: drag.in, duration: drag.duration }) };
+}
+
+/**
+ * A drop onto a timeline with nothing on it — no comp open, or an open comp that is still empty —
+ * works like After Effects' and Premiere's "new comp from footage": the comp takes the first
+ * picture's frame size and rate (a new comp, named after it, when none is open) and the sources
+ * land end to end from zero on V1/A1, picture and sound linked. Audio alone keeps the comp's size.
+ */
+export function dropIntoEmpty(project: Project, assets: AssetMap, comp: Comp | null, sources: { source: ClipSource; label: string }[], nestComps: boolean): { project: Project; compId: string; clips: Clip[] } | null {
+  if (!sources.length) return null;
+  const lead = sources.find((entry) => sourceInfo(project, assets, entry.source).hasVideo) ?? sources[0];
+  const info = sourceInfo(project, assets, lead.source);
+  const leadFps = lead.source.type === 'media' ? assets.get(lead.source.assetId)?.fps : lead.source.type === 'comp' ? project.comps.find((item) => item.id === (lead.source as { compId: string }).compId)?.fps : null;
+  const even = (value: number) => Math.max(2, Math.round(value / 2) * 2);
+  const picture = info.hasVideo;
+  const width = picture ? even(info.width) : (comp?.width ?? 1920);
+  const height = picture ? even(info.height) : (comp?.height ?? 1080);
+  const fps = picture && leadFps && Number.isFinite(leadFps) && leadFps > 0 ? clamp(Math.round(leadFps * 1000) / 1000, 1, 240) : (comp?.fps ?? FPS);
+  let build: Comp = trimEmptyTracks(comp ? { ...comp, width, height, fps } : newComp({ name: lead.label.replace(/\.[^.]+$/, '') || 'Comp 1', width, height, fps }));
+  const clips: Clip[] = [];
+  let cursor = 0;
+  for (const entry of sources) {
+    const dropped = dropClips(project, assets, build, { kind: 'source', source: entry.source, label: entry.label, x: 0, y: 0, ctrl: false }, { trackId: null, kind: 'video', index: 0, time: cursor }, nestComps);
+    if (!dropped.clips.length) continue;
+    build = placeClips(dropped.comp, dropped.clips, 'overwrite');
+    clips.push(...dropped.clips);
+    cursor = Math.max(...dropped.clips.map(clipEnd));
+  }
+  if (!clips.length) return null;
+  const next = comp
+    ? updateComp(project, comp.id, () => build)
+    : { ...project, comps: [...project.comps, build], activeCompId: build.id, openCompIds: [...project.openCompIds, build.id] };
+  return { project: next, compId: build.id, clips };
+}
+
+/** An empty comp keeps only its first video and first audio track, so a first drop never leaves spare empty tracks behind. */
+function trimEmptyTracks(comp: Comp): Comp {
+  if (comp.clips.length) return comp;
+  const video = tracksOf(comp, 'video')[0];
+  const audio = tracksOf(comp, 'audio')[0];
+  const tracks = comp.tracks.filter((track) => track === video || track === audio);
+  return { ...comp, tracks, sourceVideo: video?.id ?? null, sourceAudio: audio?.id ?? null };
 }
 
 function ensureTrackFor(comp: Comp, kind: 'video' | 'audio', index: number): { comp: Comp; id: string } {

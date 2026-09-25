@@ -3,14 +3,15 @@
 // Shown once — until Settings.onboarded is true — over the editor. Five short panels: welcome,
 // storage location, a model checklist with sizes and recommended defaults, live download progress
 // (the downloads keep going in the background once the user moves on), done. Every step can be
-// skipped; nothing here is required for Helios to work, it only saves a trip to Settings later.
-import { ArrowLeft, ArrowRight, AudioLines, Check, Eraser, FolderOpen, HardDrive, LoaderCircle, Mic, Scissors, Sparkles, TriangleAlert } from 'lucide-react';
+// skipped; nothing here is required for Bhippi to work, it only saves a trip to Settings later.
+import { ArrowLeft, ArrowRight, AudioLines, Check, Cpu, FolderOpen, HardDrive, LoaderCircle, Mic, Scissors, Sparkles, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { DownloadProgress } from '../settings/DownloadProgress';
 import { chooseStorageRoot } from '../settings/StorageSettings';
 import { api, errorText, type ModelInfo, type StorageInfo } from '../lib/ipc';
 import { jobsStore, useLiveJobs } from '../lib/jobsStore';
 import { registerStorageRoot } from '../lib/storage';
+import { AI_PACK_FEATURES, aiPackApi, aiPackReady, type AiPackStatus } from '../lib/aiPack';
 import type { Job, Settings } from '../lib/types';
 
 type Props = {
@@ -20,7 +21,7 @@ type Props = {
   onDone: () => void;
 };
 
-type ItemId = 'roto' | 'transcribe' | 'voice' | 'eraser';
+type ItemId = 'roto' | 'transcribe' | 'voice' | 'ai';
 
 /** One line of the checklist and the downloads it stands for. */
 type Item = {
@@ -30,8 +31,8 @@ type Item = {
   blurb: string;
   /** Catalogue ids fetched with model_download, in order (runtime first). */
   models: string[];
-  /** Local media task installed with local_media_install, instead of models. */
-  task?: string;
+  /** Installed as the one-click AI pack (ai_pack_install), instead of models. */
+  pack?: boolean;
   sizeMb: number;
   installed: boolean;
   /** Why it cannot be chosen here, if it cannot. */
@@ -51,7 +52,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [python, setPython] = useState<{ configured: boolean; eraser: boolean } | null>(null);
+  const [pack, setPack] = useState<AiPackStatus | null>(null);
   const [whisper, setWhisper] = useState<string>(WHISPER_RECOMMENDED);
   const [voice, setVoice] = useState<string | null>(null);
   const [chosen, setChosen] = useState<Set<ItemId>>(new Set(['roto', 'transcribe']));
@@ -70,10 +71,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
         ?? status.models.find((model) => model.kind === 'tts-voice');
       setVoice(firstVoice?.id ?? null);
     }).catch(() => undefined);
-    void api.localMediaStatus().then((status) => {
-      const erase = status.tasks.find((task) => task.task === 'erase');
-      setPython({ configured: status.pythonConfigured, eraser: !!erase?.verified || !!erase?.configured });
-    }).catch(() => setPython({ configured: false, eraser: false }));
+    void aiPackApi.status().then(setPack).catch(() => setPack(null));
   }, []);
 
   const byId = useMemo(() => new Map(models.map((model) => [model.id, model])), [models]);
@@ -90,14 +88,15 @@ export function Onboarding({ onPatch, onDone }: Props) {
       { id: 'transcribe', icon: Mic, title: 'Transcription · Whisper', blurb: 'Speech to timed words for captions and text-based editing, offline.', models: transcribeIds, sizeMb: mb(transcribeIds), installed: pending(transcribeIds).length === 0 && models.length > 0 },
       { id: 'voice', icon: AudioLines, title: 'Voice · Piper', blurb: 'Reads a script aloud for voice-overs, offline. Optional — cloud voices work with a key.', models: voiceIds, sizeMb: mb(voiceIds), installed: pending(voiceIds).length === 0 && models.length > 0 },
       {
-        id: 'eraser', icon: Eraser, title: 'Magic eraser · LaMa', blurb: 'Paints a clean background plate where a subject was, so graphics can sit behind them.', models: [], task: 'erase', sizeMb: 200,
-        installed: !!python?.eraser,
-        unavailable: python && !python.configured ? 'Needs the local media Python — available later in Settings › Local media.' : undefined,
+        id: 'ai', icon: Cpu, title: `AI pack${pack?.cuda ? ' · uses your NVIDIA GPU' : ''}`, blurb: `${AI_PACK_FEATURES} — the Python runtime, PyTorch and the models, installed in one go. Optional; the rest of Bhippi works without it.`,
+        models: [], pack: true, sizeMb: pack?.remainingMb ?? 4000,
+        installed: aiPackReady(pack),
+        unavailable: pack === null ? 'Could not check the AI pack — install it later in Settings › Local media.' : undefined,
       },
     ];
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [models, whisper, voice, python, byId]);
+  }, [models, whisper, voice, pack, byId]);
 
   const selected = items.filter((item) => chosen.has(item.id) && !item.installed && !item.unavailable);
   const totalMb = selected.reduce((sum, item) => sum + item.sizeMb, 0);
@@ -155,8 +154,8 @@ export function Onboarding({ onPatch, onDone }: Props) {
     const nextFailed: Partial<Record<ItemId, string>> = {};
     for (const item of selected) {
       try {
-        if (item.task) {
-          nextStarted[item.id] = [await api.localMediaInstall(item.task)];
+        if (item.pack) {
+          nextStarted[item.id] = [await aiPackApi.install()];
         } else {
           const ids: string[] = [];
           for (const model of pending(item.models)) ids.push(await startModel(model));
@@ -196,7 +195,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
   });
 
   return (
-    <div className="onboarding" role="dialog" aria-modal="true" aria-label="Welcome to Helios">
+    <div className="onboarding" role="dialog" aria-modal="true" aria-label="Welcome to Bhippi Video Editor">
       <div className="onboarding-card">
         <header className="onboarding-head">
           <ol className="onboarding-steps" aria-label="Setup steps">
@@ -213,8 +212,8 @@ export function Onboarding({ onPatch, onDone }: Props) {
         <div key={step} className={`onboarding-panel from-${direction === 1 ? 'right' : 'left'}`}>
           {step === 0 && (
             <div className="onboarding-welcome">
-              <img src="/helios.svg" alt="" width={56} height={56} />
-              <h2>Welcome to Helios</h2>
+              <img src="/bhippi.png" alt="" width={56} height={56} />
+              <h2>Welcome to Bhippi Video Editor</h2>
               <p className="onboarding-lead">A video and motion studio that runs on your own computer. Two quick choices and you're editing.</p>
               <ul className="onboarding-points">
                 <li><HardDrive size={15} /><span><strong>Every project gets its own folder</strong> — downloads, generated media, voice-overs, mattes and exports, sorted by kind.</span></li>
@@ -227,16 +226,16 @@ export function Onboarding({ onPatch, onDone }: Props) {
           {step === 1 && (
             <div className="onboarding-body">
               <h2>Where should projects live?</h2>
-              <p className="onboarding-lead">Helios makes one folder per project here. You can change this any time in Settings › Storage.</p>
+              <p className="onboarding-lead">Bhippi makes one folder per project here. You can change this any time in Settings › Storage.</p>
               <div className="onboarding-location">
                 <HardDrive size={18} />
-                <code title={storage?.root}>{storage?.root ?? 'Documents\\Helios'}</code>
+                <code title={storage?.root}>{storage?.root ?? 'Documents\\Bhippi'}</code>
                 <button type="button" className="btn" onClick={() => void changeStorage()}><FolderOpen size={14} /> Change…</button>
               </div>
               {storage?.custom && <button type="button" className="btn btn-ghost btn-small onboarding-reset" onClick={() => void resetStorage()}>Use the default ({storage.defaultRoot})</button>}
               {storageError && <p className="onboarding-error"><TriangleAlert size={13} /> {storageError}</p>}
               <div className="onboarding-tree" aria-label="Folder layout">
-                <div className="t0">{storage?.root.split(/[\\/]/).pop() || 'Helios'}</div>
+                <div className="t0">{storage?.root.split(/[\\/]/).pop() || 'Bhippi'}</div>
                 <div className="t1">My project</div>
                 {['Project', 'Footage', 'Downloads', 'Generated', 'Audio · Voice-overs, Recordings, SFX', 'Roto · Tracking · Clean plates', 'Renders · Exports', 'Storyboard · Research'].map((name) => (
                   <div key={name} className="t2">{name}</div>
@@ -328,7 +327,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
             <div className="onboarding-welcome">
               <span className="onboarding-done"><Check size={28} /></span>
               <h2>You're set</h2>
-              <p className="onboarding-lead">Projects are saved in <code>{storage?.root ?? 'Documents\\Helios'}</code>. Save a project and it goes to its own folder there, with everything the AI gathers sorted beside it.</p>
+              <p className="onboarding-lead">Projects are saved in <code>{storage?.root ?? 'Documents\\Bhippi'}</code>. Save a project and it goes to its own folder there, with everything the AI gathers sorted beside it.</p>
               <p className="muted small">Change the location, models or voices any time in Settings.</p>
             </div>
           )}

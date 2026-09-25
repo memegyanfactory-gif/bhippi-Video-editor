@@ -7,5 +7,5 @@
 - [x] Check local model capabilities for generation
 - [x] Write the beat map: cut points, keeps, drops, reorder
 - [x] Write the storyboard file on disk (shots, graphics, text, sfx, music per beat)
-- [x] Save the storyboard into Helios
+- [x] Save the storyboard into Bhippi
 - [x] End turn with the plan summary for the user to press Start generating

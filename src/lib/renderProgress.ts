@@ -109,7 +109,7 @@ function watch() {
   publish();
   if (stallLogged) return;
   stallLogged = true;
-  // Leaves a trace in helios.log / crash.log, which recorded nothing when an export hung.
+  // Leaves a trace in bhippi.log / crash.log, which recorded nothing when an export hung.
   api.frontendCrash('export stall', JSON.stringify({ stage: stageLabel(state), frame, inflight: inflightFrames }), 'export').catch(() => undefined);
 }
 

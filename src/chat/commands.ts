@@ -91,7 +91,7 @@ export const COMMANDS: Command[] = [
   {
     name: '/permission',
     args: 'mode',
-    summary: 'What Helios AI may change on its own',
+    summary: 'What Bhippi AI may change on its own',
     group: 'Settings',
     options: () => PERMISSION_MODES.map((mode) => mode.id),
     run: (context, argument) => {
@@ -153,7 +153,7 @@ export const COMMANDS: Command[] = [
         const lines = context.references.map((item) => `· **${item.name}** — ${item.pack ?? 'no pack'}, a cut every ${item.cutEvery.toFixed(1)}s`);
         context.say(lines.length
           ? `References on this machine:\n\n${lines.join('\n')}\n\nUse \`/ref <name>\` to edit to one, or drop a video on the chat to add another.`
-          : 'There are no references yet. Drop a video on the chat and Helios will read it frame by frame.');
+          : 'There are no references yet. Drop a video on the chat and Bhippi will read it frame by frame.');
         return;
       }
       const found = context.references.find((item) => item.name.toLowerCase() === wanted);

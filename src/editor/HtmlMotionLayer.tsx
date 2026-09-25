@@ -67,14 +67,14 @@ export function HtmlMotionLayer({
         const runner = new Function('container', 'gsap', 'timeline', 'time', 'duration', 'progress', source.js);
         runner(containerRef.current, gsap, tl, elapsed, clipDuration, progress);
 
-        // Check if script populated tl or set window.__helios_timeline
+        // Check if script populated tl or set window.__bhippi_timeline
         if (tl.getChildren().length > 0) {
           timelineRef.current = tl;
-        } else if ((window as unknown as { __helios_timeline?: gsap.core.Timeline }).__helios_timeline) {
-          timelineRef.current = (window as unknown as { __helios_timeline?: gsap.core.Timeline }).__helios_timeline || null;
+        } else if ((window as unknown as { __bhippi_timeline?: gsap.core.Timeline }).__bhippi_timeline) {
+          timelineRef.current = (window as unknown as { __bhippi_timeline?: gsap.core.Timeline }).__bhippi_timeline || null;
         }
       } catch (err) {
-        console.warn('Helios Motion Graphic script error:', err);
+        console.warn('Bhippi Motion Graphic script error:', err);
       }
     }
 
@@ -83,8 +83,8 @@ export function HtmlMotionLayer({
         timelineRef.current.kill();
         timelineRef.current = null;
       }
-      if ((window as unknown as { __helios_timeline?: unknown }).__helios_timeline) {
-        delete (window as unknown as { __helios_timeline?: unknown }).__helios_timeline;
+      if ((window as unknown as { __bhippi_timeline?: unknown }).__bhippi_timeline) {
+        delete (window as unknown as { __bhippi_timeline?: unknown }).__bhippi_timeline;
       }
     };
   }, [source.js, source.html, clipDuration]);

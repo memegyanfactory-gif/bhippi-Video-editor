@@ -1,8 +1,8 @@
-// Nothing opens until this copy of Helios is signed in with Google and holds a key.
+// Nothing opens until this copy of Bhippi is signed in with Google and holds a key.
 //
 // First launch: "Sign in with Google" opens bhippi.com in the browser with a short code; the app
 // polls until the browser approves it. Then the account's key activates this PC (one of two
-// slots) — or, without a key, the person can enter one. After Helios has opened once, the gate
+// slots) — or, without a key, the person can enter one. After Bhippi has opened once, the gate
 // only comes back as an overlay (signing out from About › Profile), so an open project stays put.
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Copy, ExternalLink, KeyRound, LoaderCircle, Minus, MonitorSmartphone, RefreshCw, ShieldAlert, Square, WifiOff, X } from 'lucide-react';
@@ -58,7 +58,7 @@ function GateScreen({ status, error, overlay }: { status: LicenseStatus | null; 
     <div className={`gate${overlay ? ' gate-overlay' : ''}`}>
       <TitleBar />
       <div className="gate-card">
-        <img className="gate-logo" src="/helios.svg" alt="" width={56} height={56} />
+        <img className="gate-logo" src="/bhippi.png" alt="" width={56} height={56} />
         {!status ? (
           error ? <Unreachable message={error} /> : <div className="gate-checking"><LoaderCircle size={18} className="spin" /> Checking your license…</div>
         ) : status.state === 'signed_out' ? (
@@ -74,7 +74,7 @@ function GateScreen({ status, error, overlay }: { status: LicenseStatus | null; 
         )}
         {status?.devBypassAllowed && (
           <button type="button" className="gate-dev" onClick={() => licenseStore.setDevBypass(true)}>
-            Dev build (HELIOS_DEV_NO_LICENSE) — continue without a license
+            Dev build (BHIPPI_DEV_NO_LICENSE) — continue without a license
           </button>
         )}
       </div>
@@ -95,7 +95,7 @@ function TitleBar() {
   }, [window_]);
   return (
     <div className="gate-titlebar" data-tauri-drag-region>
-      <span data-tauri-drag-region><img src="/helios.svg" alt="" width={16} height={16} data-tauri-drag-region /> Helios</span>
+      <span data-tauri-drag-region><img src="/bhippi.png" alt="" width={16} height={16} data-tauri-drag-region /> Bhippi Video Editor</span>
       <button type="button" onClick={() => void window_.minimize()} aria-label="Minimize" title="Minimize"><Minus size={14} /></button>
       <button type="button" onClick={() => void window_.toggleMaximize()} aria-label={maximized ? 'Restore down' : 'Maximize'} title={maximized ? 'Restore down' : 'Maximize'}>
         {maximized ? <Copy size={11} style={{ transform: 'scaleX(-1)' }} /> : <Square size={11} />}
@@ -190,8 +190,8 @@ export function SignIn({ message, compact }: { message?: string | null; compact?
 
   return (
     <div className="gate-body">
-      {!compact && <h2>Welcome to Helios</h2>}
-      {!compact && <p className="gate-lead">{message ?? 'Sign in with the Google account you got Helios with. Your key activates this PC automatically.'}</p>}
+      {!compact && <h2>Welcome to Bhippi Video Editor</h2>}
+      {!compact && <p className="gate-lead">{message ?? 'Sign in with the Google account you got Bhippi with. Your key activates this PC automatically.'}</p>}
       <button type="button" className="gate-google" onClick={() => void start()} disabled={busy}>
         {busy ? <LoaderCircle size={16} className="spin" /> : <GoogleMark />} Sign in with Google
       </button>
@@ -230,7 +230,7 @@ function KeyForm({ autoFocus }: { autoFocus?: boolean }) {
     <>
       <form className="gate-key" onSubmit={(event) => { event.preventDefault(); void redeem(); }}>
         <KeyRound size={15} />
-        <input value={key} onChange={(event) => setKey(event.target.value.toUpperCase())} placeholder="HLS-XXXXX-XXXXX-XXXXX-XXXXX" spellCheck={false} autoFocus={autoFocus} aria-label="Helios key" />
+        <input value={key} onChange={(event) => setKey(event.target.value.toUpperCase())} placeholder="HLS-XXXXX-XXXXX-XXXXX-XXXXX" spellCheck={false} autoFocus={autoFocus} aria-label="Bhippi key" />
         <button type="submit" className="btn btn-primary" disabled={busy || !key.trim()}>{busy ? <LoaderCircle size={14} className="spin" /> : null} Activate</button>
       </form>
       {error && <p className="gate-error">{error}</p>}
@@ -271,11 +271,11 @@ function NoKey({ status }: { status: LicenseStatus }) {
   return (
     <div className="gate-body">
       <Who status={status} />
-      <h2>This account has no Helios key</h2>
+      <h2>This account has no Bhippi key</h2>
       <p className="gate-lead">If you have a key, enter it to link it to this Google account. A key works with one account and up to two PCs.</p>
       <KeyForm autoFocus />
       <div className="gate-actions">
-        <button type="button" className="btn btn-ghost" onClick={() => void api.openUrl('https://bhippi.com/helios')}><ExternalLink size={14} /> Get Helios at bhippi.com</button>
+        <button type="button" className="btn btn-ghost" onClick={() => void api.openUrl('https://bhippi.com/helios')}><ExternalLink size={14} /> Get Bhippi at bhippi.com</button>
         <button type="button" className="btn btn-ghost" onClick={() => void licenseStore.refresh()}><RefreshCw size={14} /> Check again</button>
       </div>
     </div>
@@ -301,7 +301,7 @@ function SlotsFull({ status }: { status: LicenseStatus }) {
     <div className="gate-body">
       <Who status={status} />
       <h2>Your key is in use on {devices.length} PCs</h2>
-      <p className="gate-lead">A key works on {status.account?.license?.maxDevices ?? 2} PCs at a time. Free one to use Helios on <strong>{status.deviceName}</strong>.</p>
+      <p className="gate-lead">A key works on {status.account?.license?.maxDevices ?? 2} PCs at a time. Free one to use Bhippi on <strong>{status.deviceName}</strong>.</p>
       <ul className="gate-devices">
         {devices.map((device) => (
           <li key={device.id}>
@@ -326,7 +326,7 @@ function Revoked({ status }: { status: LicenseStatus }) {
     <div className="gate-body">
       <Who status={status} />
       <h2><ShieldAlert size={18} /> This key has been turned off</h2>
-      <p className="gate-lead">Helios can’t open with this account right now. If you think this is a mistake, write to support@bhippi.com.</p>
+      <p className="gate-lead">Bhippi can’t open with this account right now. If you think this is a mistake, write to support@bhippi.com.</p>
       <div className="gate-actions">
         <button type="button" className="btn btn-ghost" onClick={() => void api.openUrl(ACCOUNT_URL)}><ExternalLink size={14} /> Open my account</button>
         <button type="button" className="btn btn-ghost" onClick={() => void licenseStore.refresh()}><RefreshCw size={14} /> Check again</button>
@@ -340,7 +340,7 @@ function Unreachable({ message }: { message: string | null }) {
   return (
     <div className="gate-body">
       <h2><WifiOff size={18} /> Can’t check your license</h2>
-      <p className="gate-lead">{message ?? 'Helios needs to reach bhippi.com once to activate this PC. After that it works offline for up to 14 days.'}</p>
+      <p className="gate-lead">{message ?? 'Bhippi needs to reach bhippi.com once to activate this PC. After that it works offline for up to 14 days.'}</p>
       <div className="gate-actions">
         <button
           type="button"

@@ -58,7 +58,7 @@ def load_engine(store, model: str, allow_download: bool = False):
                 409,
                 f"Whisper model '{model}' is not downloaded locally. Download it first: "
                 f'POST /api/models/whisper {{"model":"{model}"}} (explicit user request, needs internet once), '
-                "or place the model under .helios/models. Transcription runs fully offline with local_files_only.",
+                "or place the model under .bhippi/models. Transcription runs fully offline with local_files_only.",
             ) from exc
         _models[model] = engine
         return engine

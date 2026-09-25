@@ -1,6 +1,6 @@
 # 01 · Architecture map for the motion-graphics upgrade
 
-Mapped on 2026-09-24 against the working tree of `feat/motion-engine`. Many of the files cited have uncommitted changes (see §I), so line numbers are for the tree as it stands today. It answers one question: **where exactly does each planned upgrade plug in, and what does it have to respect?** Read `00-helios-brief.md` first; it covers what the engine can do.
+Mapped on 2026-09-24 against the working tree of `feat/motion-engine`. Many of the files cited have uncommitted changes (see §I), so line numbers are for the tree as it stands today. It answers one question: **where exactly does each planned upgrade plug in, and what does it have to respect?** Read `00-bhippi-brief.md` first; it covers what the engine can do.
 
 Each section gives file:line references, followed by the constraints that matter. The step lists are at the end, in **Integration recipes**.
 
@@ -389,7 +389,7 @@ Examples are `'character'`, `'lottie'`, `'svg'` and `'sequence'`. Every place th
 | Remotion Kit | 103-107 |
 | Brand kit | 109-117 |
 | Generation prompts | 119-120 |
-| Helios basics, and "a job no tool does" → custom tools | 129-136 |
+| Bhippi basics, and "a job no tool does" → custom tools | 129-136 |
 | `{{CONTEXT}}` | 141-144 |
 
 ### C3. The per-turn context JSON
@@ -464,7 +464,7 @@ The always-on budget per round today is about 163 KB of tools, about 35 KB of pr
 
 ### D3. The job registry (`src-tauri/src/jobs.rs`)
 
-- Event `helios://job` (9). The payload is `Job {id, kind, label, status: running|done|error|cancelled, progress, message, result, cancellable}` (20-33).
+- Event `bhippi://job` (9). The payload is `Job {id, kind, label, status: running|done|error|cancelled, progress, message, result, cancellable}` (20-33).
 - About 50 finished jobs are kept (76-95).
 - `start` (63), `progress` (143, which only moves forward), `done` (151), `fail` (162). Drop marks an unfinished job "Stopped unexpectedly" (185-194).
 - IPC: `jobs_list`, `job_cancel`, `job_delete` (`lib.rs:2486-2496`). `job_delete` also removes outputs (`storage::remove_job_output`, storage.rs:293).
@@ -512,7 +512,7 @@ All of these use `local_media::run`. The scripts are embedded with `include_str!
   - The user picks `python.exe` in `src/settings/LocalMediaSettings.tsx:45-52, 86-99`.
   - The debug-only default is `<repo>/.media-venv/Scripts/python.exe` (`lib.rs:2862-2867`).
   - **No venv is created and no Python is bundled.** Per-feature pip installs happen inside the workers.
-- **FFmpeg:** `tools::resolve` (`tools.rs:154-190`) searches `candidate_dirs` (75-136): the setting, `HELIOS_FFMPEG`, PATH, WinGet, `C:\ffmpeg`, Program Files\ffmpeg, Scoop and Chocolatey. The Settings UI is `SettingsModal.tsx:179-220` (path field plus Detect).
+- **FFmpeg:** `tools::resolve` (`tools.rs:154-190`) searches `candidate_dirs` (75-136): the setting, `BHIPPI_FFMPEG`, PATH, WinGet, `C:\ffmpeg`, Program Files\ffmpeg, Scoop and Chocolatey. The Settings UI is `SettingsModal.tsx:179-220` (path field plus Detect).
 - **Generic lookup:** `tools::find_tool(name, explicit)` (139-151) is used for yt-dlp and curl. **It does not scan `Program Files\Blender Foundation\Blender *`.**
   - A Blender locator needs that scan (newest version wins), a `blenderPath` setting, and a Detect button like FFmpeg's.
 - **whisper.cpp and Piper:** `models::locate` (`models.rs:411-434`).
@@ -524,7 +524,7 @@ All of these use `local_media::run`. The scripts are embedded with `include_str!
 - **Project storage** is `src-tauri/src/storage.rs`:
   - the layout doc is at 1-22;
   - the `Category` enum (33-49) and `relative()` (92-110) map categories to folders: Generated, Roto, Tracking, Clean plates, Renders, Exports and others;
-  - the root comes from `default_root` = `Documents/Helios` (132) or `root()` (185), then `project_dir` (199);
+  - the root comes from `default_root` = `Documents/Bhippi` (132) or `root()` (185), then `project_dir` (199);
   - `dir(state, Category)` (205) creates the folder; `locate` (226) finds existing output; `unique_path` (246) avoids collisions.
 - **Blender output should get a Category, for example `3D`.** Keeping it under the storage root also keeps it inside the asset-protocol allow-list planned in §4B (`storage::allow_root`, `lib.rs:2890`).
 - **App data** (`store.rs:8-45`): `work` (**wiped on every startup**, `lib.rs:2895`), `models`, `proxies`, `sfx` and `agent_workspace`.
@@ -709,7 +709,7 @@ WORLD-CLASS-PLAN Phase 1.10 (`:490`) already says: "*Resolve `scene3d` (add the 
   - Several pieces are SaaS UI (dock, stepper, animated-list, magic-bento, prompt-bar, pill-nav, profile-card, counters). They are the fastest route to UI mock-ups today, but they live outside the motion engine: no 3D camera, no mattes, no shared scene with engine layers.
 - **The `remotion_kit` tool:** schema at `ai-tools.json:4083`, handler at `aiTools.ts:3333-3354`.
   - The presets are in `src/lib/remotionKit/presets.json` (476 KB, loaded on demand), 290 in all: full 105, title 42, chart 31, intro 26, transition 20, map 20, cta 14, social 12, lower-third 12, outro 8.
-  - The preset shape is at `remotionKit/index.ts:21-38`. `helioTemplateFor` (95) maps a preset to a Helios template or piece.
+  - The preset shape is at `remotionKit/index.ts:21-38`. `helioTemplateFor` (95) maps a preset to a Bhippi template or piece.
 
 ### G5. `create_stick_figure`
 
@@ -804,7 +804,7 @@ WORLD-CLASS-PLAN Phase 1.10 (`:490`) already says: "*Resolve `scene3d` (add the 
 - **Rust:**
   - `render::tests::motion_scenes_export_their_rendered_frames_and_nothing_without_them` (`render/tests.rs:347`);
   - the catalogue test (`ai_tools.rs:520-521`);
-  - `render::e2e::parity_frames` (`e2e.rs:648-654`, `#[ignore]`, driven by `HELIOS_PARITY`).
+  - `render::e2e::parity_frames` (`e2e.rs:648-654`, `#[ignore]`, driven by `BHIPPI_PARITY`).
   - Use a scratch `CARGO_TARGET_DIR`, and **never `cargo fmt`**.
 - **Motion Lab** (`motion-lab.html` → `src/motion/lab/lab.ts`):
   - The host (12-24) takes media from `?media=` (a CORS file server). Mattes are written as `"<folder>@<fps>@<frames>"`.
@@ -824,7 +824,7 @@ WORLD-CLASS-PLAN Phase 1.10 (`:490`) already says: "*Resolve `scene3d` (add the 
 ### I1. Rules from WORLD-CLASS-PLAN §7 (`:761-800`) that apply
 
 - **Never `cargo fmt`.** Never start or stop the app, or build into `src-tauri/target/release`. Use a scratch `CARGO_TARGET_DIR` (764).
-- **Do not put Helios itself into a kill-on-close Job Object** (773). Put the tool children (Blender, Python) in a job and give the updater breakaway. Phase 1.9 (`:489`) plans the job supervisor in `tools.rs` and `local_media.rs`, and the Blender runner should be built on it.
+- **Do not put Bhippi itself into a kill-on-close Job Object** (773). Put the tool children (Blender, Python) in a job and give the updater breakaway. Phase 1.9 (`:489`) plans the job supervisor in `tools.rs` and `local_media.rs`, and the Blender runner should be built on it.
 - **Do not fall back to `logicalScene()`** in `compScene`. **Do not demote precomps** to plain comp clips (777).
 - **Do not key MediaBank elements by layer id**; pool by distinct time (782). This is relevant to a sequence loader.
 - **Do not big-bang the WebCodecs/GPU timeline migration** (792).

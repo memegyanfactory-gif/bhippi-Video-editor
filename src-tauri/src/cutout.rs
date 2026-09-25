@@ -57,7 +57,7 @@ pub fn safe_out(out: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
         return Err("out must be an absolute .png path".into());
     }
     if !roots.iter().any(|root| path.starts_with(root)) {
-        return Err("out must be inside the project or the Helios data folder".into());
+        return Err("out must be inside the project or the Bhippi data folder".into());
     }
     Ok(path)
 }
@@ -1050,7 +1050,7 @@ pub async fn roto_stitch(app: AppHandle, state: State<'_, Arc<AppState>>, asset_
     store::write_json(&path, &manifest)?;
     let _ignored = app.asset_protocol_scope().allow_file(&matte);
     let _ignored = app.asset_protocol_scope().allow_directory(folder.join("preview"), false);
-    let _ignored = app.emit("helios://roto", &id);
+    let _ignored = app.emit("bhippi://roto", &id);
     job.done(format!("Stitched {written} frames from {chunks} chunks ({total} planned)"), Some(serde_json::json!({ "runId": id })));
     Ok(result)
 }
@@ -1074,7 +1074,7 @@ mod tests {
 
     #[test]
     fn outputs_stay_inside_the_allowed_roots() {
-        let root = std::env::temp_dir().join("helios-root");
+        let root = std::env::temp_dir().join("bhippi-root");
         let inside = root.join("Generated").join("a.png");
         assert_eq!(safe_out(&inside.display().to_string(), std::slice::from_ref(&root)).unwrap(), inside);
         assert!(safe_out(&root.join("a.jpg").display().to_string(), std::slice::from_ref(&root)).is_err(), "not a PNG");
@@ -1223,16 +1223,16 @@ mod tests {
         assert_eq!(out.iter().map(|p| p[0]).collect::<Vec<_>>(), vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 5, 5]);
     }
 
-    /// Real footage, by hand: HELIOS_GREEN_FILE=… HELIOS_GREEN_FROM=0 HELIOS_GREEN_TO=643
-    /// [HELIOS_GREEN_SAMPLES=96] cargo test -p helios real_green -- --ignored --nocapture
+    /// Real footage, by hand: BHIPPI_GREEN_FILE=… BHIPPI_GREEN_FROM=0 BHIPPI_GREEN_TO=643
+    /// [BHIPPI_GREEN_SAMPLES=96] cargo test -p bhippi real_green -- --ignored --nocapture
     /// (FFmpeg on PATH).
     #[test]
     #[ignore = "needs a real video and FFmpeg on PATH"]
     fn real_green_screen_measurement() {
-        let file = std::env::var("HELIOS_GREEN_FILE").unwrap();
+        let file = std::env::var("BHIPPI_GREEN_FILE").unwrap();
         let env = |key: &str, default: f64| std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
-        let (from, to, count) = (env("HELIOS_GREEN_FROM", 0.0), env("HELIOS_GREEN_TO", 60.0), env("HELIOS_GREEN_SAMPLES", 96.0) as usize);
-        let work = std::env::temp_dir().join(format!("helios-green-{}", std::process::id()));
+        let (from, to, count) = (env("BHIPPI_GREEN_FROM", 0.0), env("BHIPPI_GREEN_TO", 60.0), env("BHIPPI_GREEN_SAMPLES", 96.0) as usize);
+        let work = std::env::temp_dir().join(format!("bhippi-green-{}", std::process::id()));
         std::fs::create_dir_all(&work).unwrap();
         let started = std::time::Instant::now();
         let report = tauri::async_runtime::block_on(measure_green(Path::new("ffmpeg"), Path::new(&file), &sample_times(from, to, count), &work)).unwrap();
@@ -1244,11 +1244,11 @@ mod tests {
 
     /// The stitch through real FFmpeg: two synthetic chunk mattes (black, then white) overlapping
     /// by two frames come out as one 18-frame FFV1 matte with a cross-fade and 18 preview PNGs.
-    /// cargo test -p helios real_stitch -- --ignored (FFmpeg on PATH).
+    /// cargo test -p bhippi real_stitch -- --ignored (FFmpeg on PATH).
     #[test]
     #[ignore = "needs FFmpeg on PATH"]
     fn real_stitch_through_ffmpeg() {
-        let folder = std::env::temp_dir().join(format!("helios-stitch-{}", std::process::id()));
+        let folder = std::env::temp_dir().join(format!("bhippi-stitch-{}", std::process::id()));
         std::fs::create_dir_all(folder.join("preview")).unwrap();
         let ffmpeg = Path::new("ffmpeg");
         let make = |name: &str, color: &str| {

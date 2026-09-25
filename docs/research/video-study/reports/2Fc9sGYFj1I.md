@@ -40,7 +40,7 @@ A 90 s promo for a webinar course. A male voice-over drives the whole thing, ove
 - **The crystal's per-facet iridescence** comes from a hand-made gradient comp, **`Custom_HDRI`**, used as the
   environment light and reflected by a glossy faceted mesh.
 
-**Consequence for Helios:** the look class is **real-time rasteriser + image-based light + soft shadows + DOF + a
+**Consequence for Bhippi:** the look class is **real-time rasteriser + image-based light + soft shadows + DOF + a
 painterly post**, not path tracing. EEVEE is the natural analogue, and proof 2 shows EEVEE can do all of it,
 including the glass.
 
@@ -85,9 +85,9 @@ Tags:
 
 ## 3. Technique catalogue
 
-"Helios status" refers to the engine as described in `00-helios-brief.md` and the pillars in `REFERENCE-FILMS-PLAN.md` §4.
+"Bhippi status" refers to the engine as described in `00-bhippi-brief.md` and the pillars in `REFERENCE-FILMS-PLAN.md` §4.
 
-| # | Technique | Frames | How it is built (AE/Blender) | Helios status |
+| # | Technique | Frames | How it is built (AE/Blender) | Bhippi status |
 |---|---|---|---|---|
 | 1 | **Gradient-environment iridescent crystal** | 1–53, 348–424 | glTF faceted mesh; glossy metallic material; the `Custom_HDRI` gradient comp as the environment light in Advanced 3D | None today. **Reproduced in Blender** by proof 2 (a), with EEVEE and Cycles → P7 preset `crystal-gradient-env` |
 | 2 | Glossy spheres spiralling with true occlusion | 1–53 | Super3D sphere primitives keyed on a spiral in AE 3D | P7 (objects + orbit keys). A 2.5D fake is possible with P6 |
@@ -205,10 +205,10 @@ AE was set to ACES/Raw at 16 bpc (viewer footer, f1002+).
 - **Sync is weaker than it looks.** 16/18 cuts and 31/34 moves start within 2 f of an onset. With 408 onsets in 90 s
   (4.5/s), chance alone gives about 70% for a ±2 f window, so the sync is only modestly above chance. The edit follows
   the **VO phrases** (text leads the words, see §4) more than the beat.
-- **For a Helios rebuild:** a VO-led bed, pops on each letter landing (cue times come from the keyed landing times),
+- **For a Bhippi rebuild:** a VO-led bed, pops on each letter landing (cue times come from the keyed landing times),
   a soft whoosh on card zooms and wipes, and a music-only end card.
 
-## 7. The Helios ↔ Blender pipeline: corrections and additions to plan §4 P7 / §5
+## 7. The Bhippi ↔ Blender pipeline: corrections and additions to plan §4 P7 / §5
 
 Everything below was measured on this machine: Blender 5.2.0 LTS, RTX 3080, OptiX. The GPU was 28–39% busy with other
 processes, so the timings are conservative. The full numbers are in the Appendix and on
@@ -222,7 +222,7 @@ processes, so the timings are conservative. The full numbers are in the Appendix
      → magenta → orange → sky bands running **around the horizon**, tilted 0.35 with elevation.
    - It also has a bright zenith (`#e9fbff`), a **dark ground** (`#18202b`, which is what makes the downward facets
      dark slate as in the reference) and two soft white "softbox" hotspots.
-   - Helios can render this image itself with its `linear-gradient` procedural at 2:1. That is the exact analogue of the
+   - Bhippi can render this image itself with its `linear-gradient` procedural at 2:1. That is the exact analogue of the
      `Custom_HDRI` comp.
    - It can be animated by keying the world Mapping node's Z rotation (supported in proof2.py) or with an image sequence.
 2. **Material.**
@@ -257,7 +257,7 @@ Both engines give the look. EEVEE is final-quality for this preset.
   - A sphere light probe at the orb (b2) adds nothing visible.
   - `BLENDED` glass (b3) and `PROBE` tracing (b4) are noisy and dark. Reject both.
 - **The limit.** Screen-space refraction only sees what is on screen, so glass over empty transparent film refracts the
-  world colour. Set the world to roughly the colour of the Helios background (b6) when the glass sits over empty space.
+  world colour. Set the world to roughly the colour of the Bhippi background (b6) when the glass sits over empty space.
 - **The cost:**
 
   | Resolution | Draft-fix | Proof-1 settings |
@@ -293,7 +293,7 @@ Original `request.json` at 1920×1080. Frames 1/15/30/45; "steady" is the mean o
 - **Recommended tiers:**
   - **Draft:** EEVEE at half resolution, about 0.2 s/f.
   - **Final for opaque, env-lit or screen-space-glass looks** (this whole film): EEVEE at full resolution, 32–64 spp.
-  - **Final for heavy glass, caustics-like refraction or the shadow catcher over a Helios background:** Cycles 32 spp
+  - **Final for heavy glass, caustics-like refraction or the shadow catcher over a Bhippi background:** Cycles 32 spp
     with persistent data.
 - **The film itself ran at 15 fps.** A `fps: 15` "stylised 3D" option halves render cost and matches the look; conform
   to 30 by frame doubling.
@@ -311,7 +311,7 @@ Original `request.json` at 1920×1080. Frames 1/15/30/45; "steady" is the mean o
   substeps and 10 iterations, via `bpy.ops.ptcache.bake_all(bake=True)` in background mode.
 - **It doesn't make a title.** 4–5 of 5 letters **topple** onto their faces, so the word is unreadable (sheet row d).
   The reference letters end **upright in a line**, so its drop is keyed (or simulated, then keyed to a target).
-  **`letters-drop` should be a keyed drop-bounce computed by Helios** (§4 recipe; `req_d_keyed.json`). That is exact
+  **`letters-drop` should be a keyed drop-bounce computed by Bhippi** (§4 recipe; `req_d_keyed.json`). That is exact
   and deterministic. Rigid body stays for "pile" and "explode" chaos (shots 5, 9, 17).
 - **It is not repeatable across processes.** The same request run in separate Blender processes gave **3 divergent
   results in 14 runs**:
@@ -331,7 +331,7 @@ Original `request.json` at 1920×1080. Frames 1/15/30/45; "steady" is the mean o
 **7.7 Passes: multilayer EXR (§4 P7 item 2).**
 - **Blender 5.2 API:** set `image_settings.media_type = 'MULTI_LAYER_IMAGE'` (new in 5.x) **before**
   `file_format = 'OPEN_EXR_MULTILAYER'`.
-- **Multipart output.** The file is written **multipart** (flags 0x1400, one part per pass, long names). Any Helios EXR
+- **Multipart output.** The file is written **multipart** (flags 0x1400, one part per pass, long names). Any Bhippi EXR
   reader must support multipart. Proof 2 ships a pure-Python reader ([exr_peek.py](../blender_proof/p2/exr_peek.py),
   NONE/ZIPS/ZIP) because the venv has no OpenEXR.
 - **Passes by engine:**
@@ -341,7 +341,7 @@ Original `request.json` at 1920×1080. Frames 1/15/30/45; "steady" is the mean o
   - **Use Cryptomatte as the portable per-object matte.** Its manifest is in the header, e.g.
     `{"orb":"e24638c3",…}`.
 - **Enabling Cycles' Shadow Catcher pass removes the shadow from Combined.** Floor alpha went from 71 to 0. Leave it off
-  unless Helios multiplies the pass back in.
+  unless Bhippi multiplies the pass back in.
 - **One render, several files.** Run `bpy.ops.render.render(write_still=False)`, then
   `bpy.data.images['Render Result'].save_render(path, scene=scene)` once per format. Each save costs 0.04–0.26 s, and the
   object pixels are identical to `write_still` (max diff 1/255).
@@ -360,7 +360,7 @@ Original `request.json` at 1920×1080. Frames 1/15/30/45; "steady" is the mean o
 
 **7.8 Camera sync: add per-object projection to camera.json.**
 - `objects2d.json` gives every object's per-frame projected position (`world_to_camera_view` → px, y down, depth in m).
-- It is cheap and lets Helios pin 2D callouts, marker circles (technique 15) and SFX cues to 3D objects without
+- It is cheap and lets Bhippi pin 2D callouts, marker circles (technique 15) and SFX cues to 3D objects without
   rebuilding a 3D camera layer.
 - **Axis mapping to Blender:**
   - `scene3d.ts` is +Y up with the camera looking down −Z, so the bridge maps (x, y, z)ₛ → (x, −z, y) in Blender.
@@ -377,7 +377,7 @@ Original `request.json` at 1920×1080. Frames 1/15/30/45; "steady" is the mean o
   - **Haze** (world Principled Volume, density 0.035) lifts the image but shows no shafts and a faint tile grid, so it
     is **not ready**.
 - Material set `stylised-mix`: plastic, gradient plastic, frosted-stripe glass, kintsugi, checker, wood, stone, clay.
-- The **painterly** look belongs in Helios (P5), not Blender. The film applies it to the whole frame, 2D included.
+- The **painterly** look belongs in Bhippi (P5), not Blender. The film applies it to the whole frame, 2D included.
 
 **7.10 Caching.**
 - Hash the request minus `out`, plus the frame list, and store the renders under `<project>/3D/<hash>/`.
@@ -478,7 +478,7 @@ squash.
 
 | # | Size | Improvement | Why (evidence) |
 |---|---|---|---|
-| 1 | S | **`gradient-env` world + `crystal-gradient-env` preset**: Helios renders a 2:1 azimuth-band PNG (optionally animated); metallic 1 / roughness 0.15 / flat + 1-segment bevel / world ×1.4 | Proof 2 (a) reproduces the film's signature look in both engines at 0.2–0.56 s/f @540p |
+| 1 | S | **`gradient-env` world + `crystal-gradient-env` preset**: Bhippi renders a 2:1 azimuth-band PNG (optionally animated); metallic 1 / roughness 0.15 / flat + 1-segment bevel / world ×1.4 | Proof 2 (a) reproduces the film's signature look in both engines at 0.2–0.56 s/f @540p |
 | 2 | S | **Blender-path defaults**: `Standard` view for stylised looks; EEVEE glass flags whenever transmission > 0; shadow mode auto = Cycles catcher / EEVEE BLENDED shadow-only floor with a radial fade | Proof 2 (a) AgX desaturates; (b) dark glass is one flag; the EEVEE shadow floor works |
 | 3 | M | **`letters-drop` as keyed drop-bounce** computed in TS, with the measured stagger, bounce, righting and squash, plus pops on the landing times | The reference ends upright and readable; rigid body topples (d) |
 | 4 | S | **Physics bake-once rule**: a `-t 1` bake pass, persisted transforms keyed by scene hash, manual freeze to keys; never re-simulate | 3 of 14 multithreaded runs diverged by up to 0.6 m; `-t 1` 17/17 identical; the bake-to-keyframes op fails headless |
@@ -496,14 +496,14 @@ reader. At 1080p a full pass set is about 18 MB/frame.
 
 ## Appendix: proof-2 results and commands
 
-**Commands** (from `D:\Helios\docs\research\video-study\blender_proof\p2`):
+**Commands** (from `D:\Bhippi Video editor\docs\research\video-study\blender_proof\p2`):
 ```
-D:\Helios\.media-venv\Scripts\python.exe gen_requests.py          # env PNGs + every req_*.json
+D:\Bhippi Video editor\.media-venv\Scripts\python.exe gen_requests.py          # env PNGs + every req_*.json
 bash run.sh <name> [...]                                           # = "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"
                                                                    #   -b --factory-startup -P ..\proof2.py -- req_<name>.json
 BLARGS="-t 1" bash run.sh d_rigid_t1a                              # single-threaded variant
-D:\Helios\.media-venv\Scripts\python.exe make_sheet2.py           # ../proof2_sheet.jpg + results.json
-D:\Helios\.media-venv\Scripts\python.exe exr_peek.py out\e_cycles\00030_half_zip.exr
+D:\Bhippi Video editor\.media-venv\Scripts\python.exe make_sheet2.py           # ../proof2_sheet.jpg + results.json
+D:\Bhippi Video editor\.media-venv\Scripts\python.exe exr_peek.py out\e_cycles\00030_half_zip.exr
 ```
 
 - **Logs:** `p2/logs/<name>.txt`.

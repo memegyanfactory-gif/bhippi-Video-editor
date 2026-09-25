@@ -1,4 +1,4 @@
-"""Helios specialist worker. One JSON request, one artifact; no shell or remote code."""
+"""Bhippi specialist worker. One JSON request, one artifact; no shell or remote code."""
 import json
 import os
 import sys
@@ -110,7 +110,7 @@ def _download_lama(target, emit):
     import urllib.error
     part = target.with_name(target.name + '.part')
     existing = part.stat().st_size if part.is_file() else 0
-    headers = {'User-Agent': 'Helios local media installer'}
+    headers = {'User-Agent': 'Bhippi local media installer'}
     if existing:
         headers['Range'] = f'bytes={existing}-'
     try:
@@ -220,7 +220,7 @@ def install_eraser(request, emit):
         emit(0.2, 'Downloading big-lama.pt (once, ~200 MB)')
         _download_lama(target, emit)
     runtime = _lama_smoke_test(target, emit)
-    (output / 'helios-install.json').write_text(json.dumps({
+    (output / 'bhippi-install.json').write_text(json.dumps({
         'model': 'big-lama',
         'license': 'Apache-2.0 (LaMa, Samsung AI Lab)',
         'revision': 'v0.1.0',
@@ -304,7 +304,7 @@ def execute(request):
         root = Path(request['output'])
         if not (root / ('config.json' if request['task'] in ('sam2', 'vitmatte', 'depth') else 'model_index.json')).is_file():
             raise RuntimeError('Incomplete model snapshot')
-        (root / 'helios-install.json').write_text(json.dumps({'repo': repo, 'revision': revision, 'license': getattr(info, 'card_data', {}).get('license') if getattr(info, 'card_data', None) else None}, indent=2), encoding='utf-8')
+        (root / 'bhippi-install.json').write_text(json.dumps({'repo': repo, 'revision': revision, 'license': getattr(info, 'card_data', {}).get('license') if getattr(info, 'card_data', None) else None}, indent=2), encoding='utf-8')
         emit(1, 'Local checkpoint installed; inference verification is still required')
         return
     import torch

@@ -43,7 +43,7 @@ def validate_model(name: str, installed: list[str]) -> str:
         raise HTTPException(422, "Model name contains unsupported characters")
     lowered = name.lower()
     if any(hint in lowered for hint in CLOUD_HINTS):
-        raise HTTPException(422, f"Model '{name}' looks like a cloud service; Helios only uses local Ollama models")
+        raise HTTPException(422, f"Model '{name}' looks like a cloud service; Bhippi only uses local Ollama models")
     base_names = local_model_names(installed)
     short = re.sub(r":.*$", "", name)
     if short not in base_names and name not in installed:

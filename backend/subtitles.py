@@ -70,7 +70,7 @@ def caption_event(graphic, settings: dict) -> str:
     if graphic.subtitle:
         text += f"\\N{escape(graphic.subtitle)}"
     return (
-        f"Dialogue: 0,{event_timestamp(start)},{event_timestamp(end)},Helios-caption,,0,0,0,,"
+        f"Dialogue: 0,{event_timestamp(start)},{event_timestamp(end)},Bhippi-caption,,0,0,0,,"
         f"{{\\fad({int(FADE * 1000)},{int(FADE * 1000)})}}{text}"
     )
 
@@ -88,7 +88,7 @@ def title_events(graphic, settings: dict, width: int, height: int) -> list[str]:
     if graphic.subtitle:
         text += f"\\N{{\\fs{max(8, round(0.045 * height))}}}{escape(graphic.subtitle)}"
     events.append(
-        f"Dialogue: 0,{event_timestamp(start)},{event_timestamp(start + duration)},Helios-title,,0,0,0,,"
+        f"Dialogue: 0,{event_timestamp(start)},{event_timestamp(start + duration)},Bhippi-title,,0,0,0,,"
         f"{{{fade}{base_transform}}}{text}"
     )
     return events
@@ -110,12 +110,12 @@ def kinetic_events(graphic, settings: dict, width: int, height: int) -> list[str
         fade = f"\\fad({int(FADE * 1000)},{int(FADE * 1000)})"
         transform = f"\\fscx55\\fscy55\\t(0,{int(pop_duration * 1000)},\\fscx100\\fscy100)"
         events.append(
-            f"Dialogue: 0,{event_timestamp(word_start)},{event_timestamp(word_end)},Helios-kinetic,,0,0,0,,"
+            f"Dialogue: 0,{event_timestamp(word_start)},{event_timestamp(word_end)},Bhippi-kinetic,,0,0,0,,"
             f"{{{fade}{transform}}}{word}"
         )
     if graphic.subtitle:
         events.append(
-            f"Dialogue: 1,{event_timestamp(start)},{event_timestamp(start + duration)},Helios-caption,,0,0,0,,"
+            f"Dialogue: 1,{event_timestamp(start)},{event_timestamp(start + duration)},Bhippi-caption,,0,0,0,,"
             f"{{\\fad({int(FADE * 1000)},{int(FADE * 1000)})}}{escape(graphic.subtitle)}"
         )
     return events
@@ -133,7 +133,7 @@ def lower_third_event(graphic, settings: dict, width: int, height: int) -> str:
     if graphic.subtitle:
         text += f"\\N{{\\fs{max(8, round(0.035 * height))}}}{escape(graphic.subtitle)}"
     return (
-        f"Dialogue: 0,{event_timestamp(start)},{event_timestamp(start + duration)},Helios-lower-third,,0,0,0,,"
+        f"Dialogue: 0,{event_timestamp(start)},{event_timestamp(start + duration)},Bhippi-lower-third,,0,0,0,,"
         f"{{{fade}{move}}}{text}"
     )
 
@@ -156,7 +156,7 @@ def build_ass(project, width: int, height: int, fps: float) -> str:
     styles = []
     for preset, settings in STYLES.items():
         styles.append(
-            f"Style: Helios-{preset},{FONT},{max(8, round(settings['scale'] * height))},"
+            f"Style: Bhippi-{preset},{FONT},{max(8, round(settings['scale'] * height))},"
             f"&H00FFFFFF,&H00FFFFFF,&HC8000000,&H96000000,0,0,0,0,100,100,0,0,1,"
             f"{settings['outline']},{settings['shadow']},{settings['align']},"
             f"60,60,{settings['marginV']}"

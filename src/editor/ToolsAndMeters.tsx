@@ -3,7 +3,8 @@
 import {
   ArrowLeftRight, Circle, CircleDashed, Hand, MousePointer2, MoveHorizontal, PenLine, PenTool, Pentagon, ScanFace, Slice, Sparkles, UserRoundSearch, Square, SquareArrowLeft, SquareArrowRight, SquareDashed, Type, ZoomIn,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { MenuList, type MenuItem } from '../components/workspace';
 import { levels, type MuteState } from '../lib/audio';
 import type { MeterPrefs, Tool } from '../lib/types';
@@ -24,7 +25,7 @@ const GROUPS: ToolDef[][] = [
     { id: 'ripple', label: 'Ripple Edit Tool', key: 'B', icon: <RippleGlyph /> },
     { id: 'rolling', label: 'Rolling Edit Tool', key: 'N', icon: <RollingGlyph /> },
     { id: 'rate-stretch', label: 'Rate Stretch Tool', key: 'R', icon: <MoveHorizontal size={17} /> },
-    { id: 'remix', label: 'Remix Tool', icon: <Sparkles size={17} />, disabled: 'Remix retimes music with Adobe Sensei, which Helios does not have' },
+    { id: 'remix', label: 'Remix Tool', icon: <Sparkles size={17} />, disabled: 'Remix retimes music with Adobe Sensei, which Bhippi does not have' },
   ],
   [{ id: 'razor', label: 'Razor Tool', key: 'C', icon: <Slice size={17} /> }],
   [
@@ -33,9 +34,9 @@ const GROUPS: ToolDef[][] = [
   ],
   [{ id: 'pen', label: 'Pen Tool', key: 'P', icon: <PenTool size={17} /> }],
   [
-    { id: 'rectangle', label: 'Rectangle Tool', icon: <Square size={17} /> },
-    { id: 'ellipse', label: 'Ellipse Tool', icon: <Circle size={17} /> },
-    { id: 'polygon', label: 'Polygon Tool', icon: <Pentagon size={17} /> },
+    { id: 'rectangle', label: 'Rectangle Tool', icon: <Square size={17} fill="currentColor" /> },
+    { id: 'ellipse', label: 'Ellipse Tool', icon: <Circle size={17} fill="currentColor" /> },
+    { id: 'polygon', label: 'Polygon Tool', icon: <Pentagon size={17} fill="currentColor" /> },
   ],
   [
     { id: 'mask-rectangle', label: 'Rectangle Mask Tool', icon: <SquareDashed size={17} /> },
@@ -76,7 +77,17 @@ export function ToolsPanel({ tool, onTool, onAutoRoto, rotoBusy, rotoProgress }:
     if (index >= 0) setCurrent((value) => ({ ...value, [index]: GROUPS[index].findIndex((item) => item.id === tool) }));
   }, [tool]);
 
-  const open = (group: number, element: HTMLElement) => setFlyout({ group, anchor: element.getBoundingClientRect() });
+  const open = (group: number, element: HTMLElement) => {
+    window.clearTimeout(hold.current);
+    setFlyout({ group, anchor: element.getBoundingClientRect() });
+  };
+  const choose = (item: ToolDef) => {
+    setFlyout(null);
+    if (item.disabled) return;
+    // One slot is an action rather than a mode: it runs on the selection and returns.
+    if (item.id === 'auto-roto') return onAutoRoto();
+    onTool(item.id as Tool);
+  };
 
   return (
     <div className="tools-panel" role="toolbar" aria-orientation="vertical" aria-label="Tools">
@@ -89,27 +100,30 @@ export function ToolsPanel({ tool, onTool, onAutoRoto, rotoBusy, rotoProgress }:
           <button
             key={index}
             type="button"
-            className={`tool-button${active ? ' active' : ''}${group.length > 1 ? ' grouped' : ''}${shown.disabled ? ' unavailable' : ''}${shown.id === 'auto-roto' && rotoBusy ? ' busy' : ''}`}
+            className={`tool-button${active ? ' active' : ''}${group.length > 1 ? ' grouped' : ''}${shown.disabled ? ' unavailable' : ''}${shown.id === 'auto-roto' && rotoBusy ? ' busy' : ''}${flyout?.group === index ? ' open' : ''}`}
             title={shown.id === 'auto-roto' && rotoBusy
               ? ((rotoProgress ?? 'Separating the subject…') + ' · click to cancel')
               : shown.disabled
                 ? `${shown.label} — ${shown.disabled}`
                 : `${shown.label}${shown.key ? ` (${shown.key})` : ''}${group.length > 1 ? ' · hold for more' : ''}`}
             aria-pressed={active}
+            aria-haspopup={group.length > 1 ? 'menu' : undefined}
+            aria-expanded={group.length > 1 ? flyout?.group === index : undefined}
             onPointerDown={(event) => {
               if (group.length < 2 || event.button !== 0) return;
               const element = event.currentTarget;
+              // Pointer capture would pin the release to this button; drop it so dragging onto
+              // the flyout and letting go picks that tool, as in Premiere.
+              if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);
               window.clearTimeout(hold.current);
-              hold.current = window.setTimeout(() => open(index, element), 350);
+              hold.current = window.setTimeout(() => open(index, element), 300);
             }}
             onPointerUp={() => window.clearTimeout(hold.current)}
             onPointerLeave={() => window.clearTimeout(hold.current)}
             onClick={(event) => {
-              if (flyout) return;
+              if (flyout?.group === index) return;
               if (shown.disabled) return group.length > 1 ? open(index, event.currentTarget) : undefined;
-              // One slot is an action rather than a mode: it runs on the selection and returns.
-              if (shown.id === 'auto-roto') return onAutoRoto();
-              onTool(shown.id as Tool);
+              choose(shown);
             }}
             onContextMenu={(event) => {
               event.preventDefault();
@@ -121,19 +135,117 @@ export function ToolsPanel({ tool, onTool, onAutoRoto, rotoBusy, rotoProgress }:
         );
       })}
       {flyout && (
-        <MenuList
-          anchor={new DOMRect(flyout.anchor.right + 2, flyout.anchor.top - 2, 0, 0)}
+        <ToolFlyout
+          anchor={flyout.anchor}
+          items={GROUPS[flyout.group]}
+          tool={tool}
+          onChoose={choose}
           onClose={() => setFlyout(null)}
-          items={GROUPS[flyout.group].map((item): MenuItem => ({
-            label: item.label,
-            shortcut: item.key,
-            checked: item.id === tool,
-            disabled: !!item.disabled,
-            onSelect: () => onTool(item.id as Tool),
-          }))}
         />
       )}
     </div>
+  );
+}
+
+/** Premiere's tool flyout: each tool's icon, name and shortcut, with a marker on the one in use.
+ *  Opens on click-and-hold or right-click; releasing over a tool after a hold picks it. */
+function ToolFlyout({ anchor, items, tool, onChoose, onClose }: {
+  anchor: DOMRect;
+  items: ToolDef[];
+  tool: Tool;
+  onChoose: (item: ToolDef) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: anchor.right + 4, top: anchor.top - 4 });
+  const [focus, setFocus] = useState(() => Math.max(0, items.findIndex((item) => item.id === tool)));
+  const opened = useRef(performance.now());
+  const latest = useRef({ onChoose, onClose });
+  latest.current = { onChoose, onClose };
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const left = Math.max(4, Math.min(anchor.right + 4, window.innerWidth - node.offsetWidth - 4));
+    const top = Math.max(4, Math.min(anchor.top - 4, window.innerHeight - node.offsetHeight - 4));
+    setPosition({ left, top });
+    node.focus({ preventScroll: true });
+  }, [anchor]);
+
+  useEffect(() => {
+    const down = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) latest.current.onClose();
+    };
+    // The release that ends a hold: over a tool it picks that tool; anywhere else the flyout
+    // stays open for an ordinary click.
+    const up = (event: PointerEvent) => {
+      if (event.button !== 0 || performance.now() - opened.current < 120) return;
+      const row = (document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null)?.closest<HTMLElement>('[data-tool-index]');
+      if (!row || !ref.current?.contains(row)) return;
+      const item = items[Number(row.dataset.toolIndex)];
+      if (item && !item.disabled) latest.current.onChoose(item);
+    };
+    const key = (event: KeyboardEvent) => event.key === 'Escape' && latest.current.onClose();
+    const blur = () => latest.current.onClose();
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('keydown', key);
+    window.addEventListener('blur', blur);
+    window.addEventListener('resize', blur);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('blur', blur);
+      window.removeEventListener('resize', blur);
+    };
+  }, [items]);
+
+  const move = (step: number) => {
+    let next = focus;
+    for (let i = 0; i < items.length; i++) {
+      next = (next + step + items.length) % items.length;
+      if (!items[next].disabled) break;
+    }
+    setFocus(next);
+  };
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="tool-flyout"
+      role="menu"
+      tabIndex={-1}
+      style={{ left: position.left, top: position.top }}
+      onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
+        else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
+        else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onChoose(items[focus]); }
+      }}
+    >
+      {items.map((item, index) => (
+        <button
+          key={item.id}
+          type="button"
+          role="menuitemradio"
+          aria-checked={item.id === tool}
+          data-tool-index={index}
+          tabIndex={-1}
+          className={`tool-flyout-item${index === focus ? ' focused' : ''}`}
+          disabled={!!item.disabled}
+          title={item.disabled}
+          onPointerEnter={() => !item.disabled && setFocus(index)}
+          onClick={() => onChoose(item)}
+        >
+          <span className={`tool-flyout-mark${item.id === tool ? ' on' : ''}`} />
+          <span className="tool-flyout-icon">{item.icon}</span>
+          <span className="tool-flyout-label">{item.label}</span>
+          {item.key && <span className="tool-flyout-key">{item.key}</span>}
+        </button>
+      ))}
+    </div>,
+    document.body,
   );
 }
 
@@ -180,102 +292,106 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         ctx.clearRect(0, 0, width, height);
         const reading = levels();
-        // Layout: a peak readout per channel on top, then two narrow LED columns, then the scale.
-        const scaleWidth = 22;
-        const gap = 3;
-        const readoutHeight = 13;
-        const barWidth = Math.max(6, Math.min(14, (width - scaleWidth - 4 - gap) / 2));
-        const barsLeft = Math.max(2, (width - scaleWidth - (barWidth * 2 + gap)) / 2);
-        const top = readoutHeight + 3;
-        const usable = height - top - 2;
+        // Layout, as Premiere draws it: a clip light per channel on top, two black wells side by
+        // side, the scale on the right ending in "dB", and a solo label under each well.
+        const scaleWidth = 24;
+        const gap = 1;
+        const clipHeight = 6;
+        const footHeight = 13;
+        const barWidth = Math.floor(Math.max(6, Math.min(22, (width - scaleWidth - 2 - gap) / 2)));
+        const barsLeft = Math.round(Math.max(1, (width - scaleWidth - (barWidth * 2 + gap)) / 2));
+        const top = clipHeight + 3;
+        const usable = height - top - footHeight;
         const toY = (db: number) => top + ((0 - Math.min(0, Math.max(floor, db))) / (0 - floor)) * usable;
-        const step = range >= 96 ? 12 : range >= 60 ? 6 : 3;
+        const step = range >= 96 ? 12 : range >= 48 ? 6 : 3;
 
-        // The colour of the scale itself: green to -18, yellow to -6, red above — lit where the
-        // level is, faint everywhere else so the empty part of the scale still reads.
+        // Green up to -18, through yellow around -6, red at the top.
         const scale = ctx.createLinearGradient(0, top + usable, 0, top);
-        scale.addColorStop(0, '#1f8a3b');
-        scale.addColorStop(Math.max(0, Math.min(1, (-18 - floor) / -floor)), '#39c75a');
-        scale.addColorStop(Math.max(0, Math.min(1, (-12 - floor) / -floor)), '#a7d63c');
-        scale.addColorStop(Math.max(0, Math.min(1, (-6 - floor) / -floor)), '#f2c230');
-        scale.addColorStop(Math.max(0, Math.min(1, (-3 - floor) / -floor)), '#f38a2e');
-        scale.addColorStop(1, '#ef3f35');
+        const stop = (db: number) => Math.max(0, Math.min(1, (db - floor) / -floor));
+        scale.addColorStop(0, '#2f8f3c');
+        scale.addColorStop(stop(-18), '#48e452');
+        scale.addColorStop(stop(-9), '#b9e23a');
+        scale.addColorStop(stop(-6), '#f2d02e');
+        scale.addColorStop(stop(-3), '#f28a2c');
+        scale.addColorStop(1, '#ea3329');
+
+        // The frame both wells sit in.
+        ctx.fillStyle = '#2b2b2d';
+        ctx.fillRect(barsLeft - 1, top - 1, barWidth * 2 + gap + 2, usable + 2);
 
         for (let channel = 0; channel < 2; channel++) {
           const peak = reading.peak[channel];
-          // Instant attack, 24 dB/s release: fast enough to read transients, calm enough to follow.
-          shown[channel] = peak >= shown[channel] ? peak : Math.max(peak, shown[channel] - 24 * dt);
+          // Instant attack and a fast release; silence (playback stopped) empties the bar at once
+          // instead of letting it drift down.
+          shown[channel] = !Number.isFinite(peak) || peak <= floor
+            ? -Infinity
+            : peak >= shown[channel] ? peak : Math.max(peak, shown[channel] - 150 * dt);
           if (peak >= hold[channel]) {
             hold[channel] = peak;
             holdAt[channel] = now;
-          } else if (peaks === 'dynamic' && now - holdAt[channel] > 1500) {
-            hold[channel] = Math.max(shown[channel], hold[channel] - 12 * dt);
+          } else if (peaks === 'dynamic' && now - holdAt[channel] > 1000) {
+            // After a second the hold snaps to wherever the level is now.
+            hold[channel] = shown[channel];
+            holdAt[channel] = now;
           }
           if (Number.isFinite(reading.valley[channel])) valley[channel] = !Number.isFinite(valley[channel]) || reading.valley[channel] < valley[channel] ? reading.valley[channel] : valley[channel] + 6 * dt;
           if (peak >= -0.1) clipped.current[channel] = true;
           const x = barsLeft + channel * (barWidth + gap);
 
-          // The empty well, then the whole scale faintly over it.
-          ctx.fillStyle = '#0a0a0b';
+          ctx.fillStyle = '#000';
           ctx.fillRect(x, top, barWidth, usable);
-          ctx.globalAlpha = 0.13;
-          ctx.fillStyle = scale;
-          ctx.fillRect(x, top, barWidth, usable);
-          ctx.globalAlpha = 1;
 
-          // The level, lit.
           const level = shown[channel];
           if (Number.isFinite(level) && level > floor) {
-            const y = toY(level);
+            const y = Math.round(toY(level));
             if (colorGradient) {
               ctx.fillStyle = scale;
               ctx.fillRect(x, y, barWidth, top + usable - y);
             } else {
-              const zones: [number, number, string][] = [[floor, -18, '#39c75a'], [-18, -6, '#f2c230'], [-6, 0, '#ef3f35']];
+              const zones: [number, number, string][] = [[floor, -18, '#3fd34b'], [-18, -6, '#f2c230'], [-6, 0, '#ef3f35']];
               for (const [from, to, color] of zones) {
                 if (level <= from) continue;
-                const yTop = toY(Math.min(level, to));
+                const yTop = Math.round(toY(Math.min(level, to)));
                 ctx.fillStyle = color;
-                ctx.fillRect(x, yTop, barWidth, toY(from) - yTop);
+                ctx.fillRect(x, yTop, barWidth, Math.round(toY(from)) - yTop);
               }
             }
           }
-          // LED segments: a hairline of the well every 3 px across lit and unlit alike.
-          ctx.fillStyle = 'rgba(10, 10, 11, 0.85)';
-          for (let y = top + usable - 3; y > top; y -= 3) ctx.fillRect(x, y, barWidth, 1);
 
           if (Number.isFinite(hold[channel]) && hold[channel] > floor) {
-            ctx.fillStyle = hold[channel] > -3 ? '#ff6a5f' : '#f2f2f2';
-            ctx.fillRect(x, toY(hold[channel]) - 1, barWidth, 2);
+            ctx.fillStyle = hold[channel] > -3 ? '#ff5a4f' : '#f2f2f2';
+            ctx.fillRect(x, Math.round(toY(hold[channel])), barWidth, 1);
           }
           if (showValleys && Number.isFinite(valley[channel]) && valley[channel] > floor) {
             ctx.fillStyle = '#4ea3ff';
-            ctx.fillRect(x, toY(valley[channel]) - 1, barWidth, 2);
+            ctx.fillRect(x, Math.round(toY(valley[channel])), barWidth, 1);
           }
 
-          // Peak readout, which is also the clip light: red once the channel has clipped.
-          const over = clipped.current[channel];
-          ctx.fillStyle = over ? '#c9261d' : '#161618';
-          ctx.fillRect(x - 1, 1, barWidth + 2, readoutHeight);
-          ctx.fillStyle = over ? '#fff' : Number.isFinite(hold[channel]) && hold[channel] > -6 ? '#f2c230' : '#c8ccd2';
+          // The clip light: dark until the channel clips, then red until reset.
+          ctx.fillStyle = clipped.current[channel] ? '#e0261c' : '#3a3a3c';
+          ctx.fillRect(x, 1, barWidth, clipHeight);
+
+          // The solo label under the well.
+          ctx.fillStyle = '#8b8f96';
           ctx.font = '600 9px Segoe UI, system-ui, sans-serif';
           ctx.textAlign = 'center';
-          const readout = Number.isFinite(hold[channel]) && hold[channel] > floor ? (hold[channel] >= -0.05 ? '0' : hold[channel].toFixed(hold[channel] > -10 ? 1 : 0)) : '-∞';
-          ctx.fillText(readout.replace('-', '−'), x + barWidth / 2, readoutHeight - 2);
+          ctx.fillText('S', x + barWidth / 2, height - 2);
         }
 
-        // Scale: a tick and a faint line across both columns at each mark, numbers on the right.
-        const scaleX = barsLeft + barWidth * 2 + gap;
+        // Scale: a rule down its left edge, a tick at each mark, numbers right-aligned, and the
+        // bottom mark labelled "dB".
+        const scaleX = barsLeft + barWidth * 2 + gap + 3;
+        ctx.fillStyle = '#4a4c52';
+        ctx.fillRect(scaleX, top, 1, usable);
         ctx.font = '9px Segoe UI, system-ui, sans-serif';
         ctx.textAlign = 'right';
         for (let mark = 0; mark >= floor; mark -= step) {
           const y = Math.round(toY(mark));
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
-          ctx.fillRect(barsLeft, y, scaleX - barsLeft, 1);
-          ctx.fillStyle = '#5c6068';
-          ctx.fillRect(scaleX + 2, y, 3, 1);
-          ctx.fillStyle = mark === 0 ? '#e6e6e6' : '#8b9099';
-          ctx.fillText(mark === 0 ? '0' : `−${-mark}`, width - 1, Math.min(height - 2, Math.max(top + 7, y + 3)));
+          ctx.fillStyle = '#6a6e76';
+          ctx.fillRect(scaleX + 1, y, 3, 1);
+          ctx.fillStyle = '#9a9ea6';
+          const label = mark === floor ? 'dB' : mark === 0 ? '0' : `−${-mark}`;
+          ctx.fillText(label, width - 1, Math.min(height - footHeight + 4, Math.max(top + 3, y + 3)));
         }
       }
       frame = requestAnimationFrame(draw);
@@ -289,14 +405,9 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
   return (
     <div className="meters" onContextMenu={(event) => { event.preventDefault(); setMenu(new DOMRect(event.clientX, event.clientY, 0, 0)); }}>
       <canvas ref={canvas} className="meter-canvas" aria-label="Audio levels" onClick={(event) => {
-        // Clicking the peak readouts (which are the clip lights) resets them, as in Premiere.
-        if (event.nativeEvent.offsetY < 16) reset.current++;
+        // Clicking the clip lights resets them and the peak holds, as in Premiere.
+        if (event.nativeEvent.offsetY < 9) reset.current++;
       }} />
-      <div className="meter-foot">
-        <button type="button" className={`meter-solo${mutes.all ? ' on' : ''}`} onClick={() => onMutes({ ...mutes, all: !mutes.all })} title="Mute All Audio">M</button>
-        <span className="meter-channels"><span>L</span><span>R</span></span>
-        <span className="meter-unit">dB</span>
-      </div>
       {menu && (
         <MenuList anchor={menu} onClose={() => setMenu(null)} items={[
           { label: 'Reset Indicators', onSelect: () => reset.current++ },

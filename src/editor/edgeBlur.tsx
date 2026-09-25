@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 const CSS_BLUR = /blur\(\s*([\d.]+)px\s*\)/g;
 
 /** One filter per radius (to a tenth of a pixel), shared by every clip that blurs by it. */
-export const edgeBlurId = (px: number) => `helios-edge-blur-${Math.round(px * 10)}`;
+export const edgeBlurId = (px: number) => `bhippi-edge-blur-${Math.round(px * 10)}`;
 
 /** `filter` with each CSS `blur(Npx)` swapped for the edge-keeping blur, and the radii those need. */
 export function keepEdges(filter: string | undefined): { filter: string | undefined; radii: number[] } {

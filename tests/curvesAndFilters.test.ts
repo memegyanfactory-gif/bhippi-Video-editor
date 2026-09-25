@@ -63,7 +63,7 @@ describe('Accurate Effect Engine (SVG Filters & CSS Pipeline)', () => {
 
     const visuals = computeAppliedEffects('clip-1', [fx]);
     expect(visuals.cssFilters).toHaveLength(1);
-    expect(visuals.cssFilters[0]).toContain('url(#helios-fx-clip-1-test-curves)');
+    expect(visuals.cssFilters[0]).toContain('url(#bhippi-fx-clip-1-test-curves)');
     expect(visuals.svgDefs).toHaveLength(1);
   });
 
@@ -82,7 +82,7 @@ describe('Accurate Effect Engine (SVG Filters & CSS Pipeline)', () => {
     };
 
     const visuals = computeAppliedEffects('clip-1', [fx]);
-    expect(visuals.cssFilters[0]).toContain('url(#helios-fx-clip-1-test-levels)');
+    expect(visuals.cssFilters[0]).toContain('url(#bhippi-fx-clip-1-test-levels)');
     expect(visuals.svgDefs).toHaveLength(1);
   });
 
@@ -101,7 +101,7 @@ describe('Accurate Effect Engine (SVG Filters & CSS Pipeline)', () => {
     };
 
     const visuals = computeAppliedEffects('clip-1', [fx]);
-    expect(visuals.cssFilters[0]).toContain('url(#helios-fx-clip-1-test-tint)');
+    expect(visuals.cssFilters[0]).toContain('url(#bhippi-fx-clip-1-test-tint)');
     expect(visuals.svgDefs).toHaveLength(1);
   });
 

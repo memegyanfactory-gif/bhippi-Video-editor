@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTurnOutcome, summarizeTurnOutcome, type TurnOutcome } from '../src/lib/ideagraph';
 
-vi.mock('../src/lib/ipc', () => ({ api: { ideagraphIngest: vi.fn(async () => 'Node abc') } }));
+vi.mock('../src/lib/ipc', () => ({ api: { brainRecordTurn: vi.fn(async () => ({ episode: 'ep-1', learned: [] })) } }));
 
 const base: TurnOutcome = {
   provider: 'Claude',
@@ -39,12 +39,12 @@ describe('turn outcome notes for the brain', () => {
     expect(note).toContain('+3 more');
     expect(note.length).toBeLessThan(1500);
   });
-  it('records through the backend ingest command', async () => {
+  it('records the outcome in the native brain with the note for the IdeaGraph mirror', async () => {
     const { api } = await import('../src/lib/ipc');
     await recordTurnOutcome(base);
-    expect(vi.mocked(api.ideagraphIngest)).toHaveBeenCalledOnce();
-    const [text, source] = vi.mocked(api.ideagraphIngest).mock.calls[0];
-    expect(source).toBe('helios-turns');
-    expect(text).toContain('Tighten the talking head cut');
+    expect(vi.mocked(api.brainRecordTurn)).toHaveBeenCalledOnce();
+    const [outcome, note] = vi.mocked(api.brainRecordTurn).mock.calls[0];
+    expect(outcome).toBe(base);
+    expect(note).toContain('Tighten the talking head cut');
   });
 });

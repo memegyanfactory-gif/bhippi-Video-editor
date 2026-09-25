@@ -478,7 +478,7 @@ function unlike(fields: Record<string, unknown>, base: Record<string, unknown>):
 }
 
 /**
- * What a kit keeps refined, or null. A guideline an older Helios saved whole (it has a type scale,
+ * What a kit keeps refined, or null. A guideline an older Bhippi saved whole (it has a type scale,
  * which refinements never carry) is cut down to the parts that differ from the one derived from
  * this kit — the kit it was derived from, as long as nothing has changed since.
  */
@@ -499,7 +499,7 @@ function refinementsOf(kit: BrandKit, derived: BrandGuideline): Refinements | nu
   };
 }
 
-/** The kit with a guideline an older Helios saved whole cut down to its refinements; any other kit as it is. */
+/** The kit with a guideline an older Bhippi saved whole cut down to its refinements; any other kit as it is. */
 export function compactGuideline(kit: BrandKit): BrandKit {
   if (!isObject(kit.guideline) || kit.guideline.source === 'derived' || !Array.isArray(kit.guideline.typeScale)) return kit;
   return { ...kit, guideline: refinementsOf(kit, deriveGuideline(kit)) as unknown as BrandGuideline };

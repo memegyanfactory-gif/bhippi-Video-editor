@@ -8,7 +8,7 @@ import type { UpdateInfo, UpdateProgress, UpdateStatus } from '../src/lib/ipc';
 type Updater = (typeof import('../src/lib/updater'))['updater'];
 
 const MB = 1024 ** 2;
-const PATH = 'C:/updates/Helios-1.0.2-setup.exe';
+const PATH = 'C:/updates/Bhippi-1.0.2-setup.exe';
 const info = (overrides: Partial<UpdateInfo> = {}): UpdateInfo => ({
   current: '1.0.1', latest: '1.0.2', available: true, size: 84 * MB, notes: null, uploadedAt: null, ready: null, dev: false, ...overrides,
 });
@@ -27,7 +27,7 @@ const settle = () => new Promise((done) => setTimeout(done, 0));
 
 /** updater.rs, one answer per command: a value, or a function of the call's arguments. */
 let backend: Record<string, unknown> = {};
-/** `helios://update`, as updater.rs would emit it. */
+/** `bhippi://update`, as updater.rs would emit it. */
 let emit: (payload: UpdateProgress) => void = () => {};
 const calls = (command: string) => invoke.mock.calls.filter(([name]) => name === command);
 
@@ -86,7 +86,7 @@ describe('install', () => {
     backend.update_check = info({ ready: PATH });
     await updater.check();
     // Antivirus took it: updater.rs no longer finds it on disk.
-    backend.update_install = () => { throw 'That isn’t a downloaded Helios update.'; };
+    backend.update_install = () => { throw 'That isn’t a downloaded Bhippi update.'; };
     backend.update_check = info();
     await updater.install();
     expect(updater.get()).toMatchObject({ phase: 'available', error: null, failed: null });
@@ -97,7 +97,7 @@ describe('install', () => {
     const updater = await freshStore();
     backend.update_check = info({ ready: PATH });
     await updater.check();
-    backend.update_install = () => { throw 'That isn’t a downloaded Helios update.'; };
+    backend.update_install = () => { throw 'That isn’t a downloaded Bhippi update.'; };
     backend.update_check = () => { throw 'offline'; };
     await updater.install();
     expect(updater.get().phase).toBe('available');

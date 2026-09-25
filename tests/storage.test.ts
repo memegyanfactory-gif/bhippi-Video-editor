@@ -22,7 +22,7 @@ describe('storage categories', () => {
   });
 
   it('recognises files in a project folder by category', () => {
-    const root = 'C:\\Users\\me\\Documents\\Helios';
+    const root = 'C:\\Users\\me\\Documents\\Bhippi';
     expect(storageKind(`${root}\\Launch\\Downloads\\clip.mp4`, root)).toBe('downloads');
     expect(storageKind(`${root}\\Launch\\Generated\\Images\\01abc\\cat.png`, root)).toBe('generated');
     expect(storageKind(`${root}\\Launch\\Clean plates\\Shot 01abc\\erased.mp4`, root)).toBe('generated');
@@ -32,8 +32,8 @@ describe('storage categories', () => {
     expect(storageKind('C:\\Users\\me\\Downloads\\camera.mp4', root)).toBeNull();
   });
 
-  it('recognises the default Documents/Helios shape without a registered root', () => {
-    expect(storageKind('C:/Users/me/Documents/Helios/Launch/Downloads/clip.mp4', null)).toBe('downloads');
+  it('recognises the default Documents/Bhippi shape without a registered root', () => {
+    expect(storageKind('C:/Users/me/Documents/Bhippi/Launch/Downloads/clip.mp4', null)).toBe('downloads');
     expect(storageKind('C:/Users/me/Downloads/clip.mp4', null)).toBeNull();
   });
 

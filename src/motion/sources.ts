@@ -4,7 +4,7 @@ import type { FootageSource, Layer, MotionScene } from './types';
 import { layerTime, num } from './anim';
 import { ensureFonts } from './fonts';
 
-/** What the host (the Helios editor, a test harness) knows about media. */
+/** What the host (the Bhippi editor, a test harness) knows about media. */
 export type MediaHost = {
   /** URL, kind and natural size of a footage source; null when it cannot be found. */
   resolve(source: FootageSource): { url: string; kind: 'video' | 'image'; width?: number; height?: number } | null;

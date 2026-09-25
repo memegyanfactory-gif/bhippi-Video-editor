@@ -7,8 +7,8 @@
 // which is also what makes a cleared chat start clean without anything having to remember to
 // forget.
 
-/** The builtin offline parser. Its turns are Helios talking to itself, not a provider answering. */
-export const BUILTIN = 'helios';
+/** The builtin offline parser. Its turns are Bhippi talking to itself, not a provider answering. */
+export const BUILTIN = 'bhippi';
 
 /** How many turns of the conversation travel with a request; the backend trims to its own limit. */
 export const HISTORY_TURNS = 12;

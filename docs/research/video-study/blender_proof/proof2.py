@@ -1,15 +1,15 @@
-"""Proof 2 of the Helios <-> Blender headless bridge (extends blender_bridge_proof.py).
+"""Proof 2 of the Bhippi <-> Blender headless bridge (extends blender_bridge_proof.py).
 
 blender -b --factory-startup -P proof2.py -- request.json
 
 Everything the first proof did (primitives, extruded text, material presets, 3-light studio, two-node
 camera with CSS cubic-bezier eases mapped 1:1 to F-curve handles, PNG RGBA, camera.json), plus:
 
-- world: a hex colour, or {"image": equirect.png, "strength", "rotationZ", "rotationKeys"} so Helios can
+- world: a hex colour, or {"image": equirect.png, "strength", "rotationZ", "rotationKeys"} so Bhippi can
   hand Blender a gradient environment it rendered itself (the Modern Motion "Custom_HDRI" trick);
 - object kinds: crystal (faceted hex prism with a slanted tip), icosphere, cyclorama, window gobo,
   letter (one extruded glyph, converted to a mesh so it can take a rigid body);
-- keyed position / rotation / scale with eases, so Helios can precompute a "drop-bounce";
+- keyed position / rotation / scale with eases, so Bhippi can precompute a "drop-bounce";
 - EEVEE glass: per-material raytraced refraction, thickness mode, render method; optional sphere probes;
 - floor shadow modes: catcher (Cycles), shadow-only (EEVEE Shader-to-RGB trick), visible, none;
 - physics: rigid body world, staggered kinematic release, timed bake, per-frame transforms + hash;
@@ -17,7 +17,7 @@ camera with CSS cubic-bezier eases mapped 1:1 to F-curve handles, PNG RGBA, came
 - objects2d.json: each object's projected 2D position per frame (for 2D callouts that track 3D objects);
 - timings: build, bake, first frame (compile) and steady frames, all in result.json.
 
-Prints `{"progress", "message"}` JSON lines like every Helios worker.
+Prints `{"progress", "message"}` JSON lines like every Bhippi worker.
 """
 import hashlib
 import json
@@ -416,7 +416,7 @@ for idx, o in enumerate(req["objects"]):
         keyframe(ob, "rotation_euler", keys, 3)
     if "positionKeys" in o:
         pk = o["positionKeys"]
-        if o.get("keysRelative"):  # offsets from the resting position (Helios precomputes a drop-bounce)
+        if o.get("keysRelative"):  # offsets from the resting position (Bhippi precomputes a drop-bounce)
             pk = [{**k, "v": [base_loc[j] + k["v"][j] for j in range(3)]} for k in pk]
         keyframe(ob, "location", pk, 3)
     if "scaleKeys" in o:

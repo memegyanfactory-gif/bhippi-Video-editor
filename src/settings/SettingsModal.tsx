@@ -1,6 +1,6 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Boxes, Brain, Check, Code2, Cpu, Film, FolderOpen, Gem, HardDrive, Laugh, LoaderCircle, Mic, Palette, RefreshCw, Scissors, ShieldCheck, Smile, Sparkles, TriangleAlert } from 'lucide-react';
-import { useState } from 'react';
+import { Boxes, Brain, Check, Code2, Cpu, Film, FolderOpen, Gem, HardDrive, Info, LoaderCircle, Mic, Palette, RefreshCw, Scissors, Settings2, ShieldCheck, Smile, Sparkles, TriangleAlert, Wand2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { Modal, useToast } from '../components/ui';
 import { SpeechSettings } from './SpeechSettings';
 import { BrainSettings } from './BrainSettings';
@@ -11,12 +11,15 @@ import { ProvidersSettings } from './ProvidersSettings';
 import { ProfileSection } from './ProfileSection';
 import { UpdateSection } from './UpdateSection';
 import { AvatarSettings } from './AvatarSettings';
-import { MemesSettings } from './MemesSettings';
+import { AppearanceSettings } from './AppearanceSettings';
+import { GeneralSettings } from './GeneralSettings';
+import { Row, Section, SettingsHeader } from './SettingsLayout';
 import { api, errorText } from '../lib/ipc';
 import type { AppInfo, Asset, Job, ProviderInfo, Settings, ToolStatus } from '../lib/types';
 import '../styles/about.css';
+import '../styles/settings.css';
 
-export type SettingsTab = 'providers' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'memes' | 'about';
+export type SettingsTab = 'general' | 'providers' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'about';
 
 type Props = {
   tab: SettingsTab;
@@ -36,7 +39,7 @@ type Props = {
   importMedia?: (paths: string[], folderId?: string | null) => Promise<Asset[]>;
 };
 
-// Settings › About: what Helios is built on, and the keyboard shortcuts it lists.
+// Settings › About: what Bhippi is built on, and the keyboard shortcuts it lists.
 const BUILT_ON = [
   { icon: <Cpu size={14} />, name: 'Rust and Tauri', detail: 'The app itself: the window, the project files, the render queue and every command the interface calls.' },
   { icon: <Code2 size={14} />, name: 'React and TypeScript', detail: 'The editor — timeline, monitors, panels — with the editing engine written as pure functions so it can be tested.' },
@@ -44,35 +47,55 @@ const BUILT_ON = [
   { icon: <Scissors size={14} />, name: 'Robust Video Matting', detail: 'Separating a person from their background, frame by frame, on this machine.' },
   { icon: <Mic size={14} />, name: 'Whisper', detail: 'Speech to timed words for captions — offline through whisper.cpp, or on a key you already have.' },
   { icon: <Sparkles size={14} />, name: 'WatchFIWN caption styles', detail: 'The caption library: eighty styles, rendered the same in the preview and in the export.' },
-  { icon: <Boxes size={14} />, name: 'MCP', detail: 'Helios serves its own tools to CLI agents, and connects out to other people’s servers.' },
+  { icon: <Boxes size={14} />, name: 'MCP', detail: 'Bhippi serves its own tools to CLI agents, and connects out to other people’s servers.' },
   { icon: <ShieldCheck size={14} />, name: 'Your own keys', detail: 'Provider keys live in this computer’s credential store, never in the project file.' },
 ];
 
 const SHORTCUTS: [keys: string, action: string][] = [
   ['Space', 'Play / pause'], ['← →', 'Step one frame (Shift: one second)'], ['S', 'Split at playhead'], ['Del', 'Delete selection'],
   ['Ctrl+D', 'Duplicate selection'], ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'], ['Ctrl+I', 'Import media'], ['Ctrl+E', 'Export'],
-  ['Ctrl+L', 'Toggle Helios AI'], ['Ctrl + wheel', 'Zoom timeline'],
+  ['Ctrl+L', 'Toggle Bhippi AI'], ['Ctrl + wheel', 'Zoom timeline'],
 ];
 
 /** Two top-to-bottom halves, so the list reads down each column rather than across. */
 const SHORTCUT_COLUMNS = [SHORTCUTS.slice(0, Math.ceil(SHORTCUTS.length / 2)), SHORTCUTS.slice(Math.ceil(SHORTCUTS.length / 2))];
 
+/** The sidebar: General on top, then the pages grouped by what they are about, About last. */
+const NAV: { title?: string; items: { id: SettingsTab; label: string; icon: ReactNode }[] }[] = [
+  { items: [{ id: 'general', label: 'General', icon: <Settings2 size={15} /> }] },
+  { title: 'Look and feel', items: [
+    { id: 'appearance', label: 'Appearance', icon: <Palette size={15} /> },
+    { id: 'avatar', label: 'Avatar', icon: <Smile size={15} /> },
+  ] },
+  { title: 'AI', items: [
+    { id: 'providers', label: 'AI providers', icon: <Sparkles size={15} /> },
+    { id: 'speech', label: 'Model Center', icon: <Mic size={15} /> },
+    { id: 'local-media', label: 'Local generation', icon: <Wand2 size={15} /> },
+    { id: 'brain', label: 'Brain', icon: <Brain size={15} /> },
+  ] },
+  { title: 'Projects and media', items: [
+    { id: 'brand', label: 'Brand kit', icon: <Gem size={15} /> },
+    { id: 'storage', label: 'Storage', icon: <HardDrive size={15} /> },
+    { id: 'media', label: 'Media & FFmpeg', icon: <Film size={15} /> },
+  ] },
+  { items: [{ id: 'about', label: 'About', icon: <Info size={15} /> }] },
+];
+
 export function SettingsModal(props: Props) {
   return (
     <Modal title="Settings" onClose={props.onClose} width="min(1320px, calc(100vw - 48px))" className="settings-modal">
       <div className="settings">
-        <nav className="settings-nav">
-          <button type="button" className={props.tab === 'local-media' ? 'active' : ''} onClick={() => props.onTab('local-media')}><Film size={14} /> Local media</button>
-          <button type="button" className={props.tab === 'providers' ? 'active' : ''} onClick={() => props.onTab('providers')}><Sparkles size={14} /> AI providers</button>
-          <button type="button" className={props.tab === 'speech' ? 'active' : ''} onClick={() => props.onTab('speech')}><Mic size={14} /> Model Center</button>
-          <button type="button" className={props.tab === 'media' ? 'active' : ''} onClick={() => props.onTab('media')}><FolderOpen size={14} /> Media &amp; FFmpeg</button>
-          <button type="button" className={props.tab === 'storage' ? 'active' : ''} onClick={() => props.onTab('storage')}><HardDrive size={14} /> Storage</button>
-          <button type="button" className={props.tab === 'appearance' ? 'active' : ''} onClick={() => props.onTab('appearance')}><Palette size={14} /> Appearance</button>
-          <button type="button" className={props.tab === 'avatar' ? 'active' : ''} onClick={() => props.onTab('avatar')}><Smile size={14} /> Avatar</button>
-          <button type="button" className={props.tab === 'memes' ? 'active' : ''} onClick={() => props.onTab('memes')}><Laugh size={14} /> Memes</button>
-          <button type="button" className={props.tab === 'brain' ? 'active' : ''} onClick={() => props.onTab('brain')}><Brain size={14} /> Brain</button>
-          <button type="button" className={props.tab === 'brand' ? 'active' : ''} onClick={() => props.onTab('brand')}><Gem size={14} /> Brand kit</button>
-          <button type="button" className={props.tab === 'about' ? 'active' : ''} onClick={() => props.onTab('about')}><Cpu size={14} /> About</button>
+        <nav className="settings-nav" aria-label="Settings">
+          {NAV.map((group, index) => (
+            <div key={index} className="settings-nav-group">
+              {group.title && <span className="settings-nav-label">{group.title}</span>}
+              {group.items.map((item) => (
+                <button key={item.id} type="button" className={props.tab === item.id ? 'active' : ''} aria-current={props.tab === item.id ? 'page' : undefined} onClick={() => props.onTab(item.id)}>
+                  {item.icon} {item.label}
+                </button>
+              ))}
+            </div>
+          ))}
         </nav>
         <div className="settings-body">
           {props.tab === 'brand' && <BrandKitSettings settings={props.settings} onSettings={props.onSettings} projectBrandKitId={props.projectBrandKitId ?? null} onProjectBrandKit={props.onProjectBrandKit ?? (() => undefined)} importMedia={props.importMedia} />}
@@ -81,39 +104,19 @@ export function SettingsModal(props: Props) {
           {props.tab === 'speech' && <SpeechSettings settings={props.settings} onSettings={props.onSettings} jobs={props.jobs} />}
           {props.tab === 'media' && <MediaSettings {...props} />}
           {props.tab === 'storage' && <StorageSettings settings={props.settings} onSettings={props.onSettings} />}
-          {props.tab === 'appearance' && (
-            <div className="appearance-settings">
-              <div className="settings-intro">
-                <div>
-                  <h3>Appearance</h3>
-                  <p>Surface only — the theme changes how Helios looks, never what it does.</p>
-                </div>
-              </div>
-              <div className="theme-pick" role="radiogroup" aria-label="Color theme">
-                {([
-                  { id: 'default', name: 'Default', detail: 'The pro NLE workspace: neutral greys, hairline seams, one blue for focus.' },
-                  { id: 'minimal', name: 'Minimalist', detail: 'Flatter surfaces, quieter seams, calmer chrome — same layout, less noise.' },
-                ] as const).map((theme) => (
-                  <label key={theme.id} className={`theme-card${(props.settings.theme ?? 'default') === theme.id ? ' selected' : ''}`}>
-                    <input type="radio" name="theme" checked={(props.settings.theme ?? 'default') === theme.id} onChange={() => props.onSettings({ ...props.settings, theme: theme.id })} />
-                    <span className="theme-copy"><span className="theme-name">{theme.name}</span><span className="theme-detail">{theme.detail}</span></span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
+          {props.tab === 'general' && <GeneralSettings settings={props.settings} onSettings={props.onSettings} providers={props.providers} info={props.info} onTab={props.onTab} />}
+          {props.tab === 'appearance' && <AppearanceSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'avatar' && <AvatarSettings settings={props.settings} onSettings={props.onSettings} />}
-          {props.tab === 'memes' && <MemesSettings />}
           {props.tab === 'brain' && <BrainSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'about' && (
             // Layout lives in styles/about.css: one container-query grid, so every block shares the
             // same left/right edges and the same midline, and collapses by the panel's own width.
             <div className="about-v2">
               <header className="about-hero">
-                <img className="about-logo" src="/helios.svg" alt="" width={56} height={56} />
+                <img className="about-logo" src="/bhippi.png" alt="" width={56} height={56} />
                 <div className="about-ident">
                   <h3 className="about-title">
-                    Helios
+                    Bhippi Video Editor
                     {props.info?.version && <span className="about-pill">v{props.info.version}</span>}
                   </h3>
                   <p className="about-maker">Made by Aayush Datta</p>
@@ -149,7 +152,7 @@ export function SettingsModal(props: Props) {
                 </ul>
                 <p className="about-credits">
                   AI provider orchestration — the catalogue, detection, CLI streaming and fault advice — is adapted from
-                  Bhippi. Caption styles come from WatchFIWN.
+                  the Bhippi desktop app. Caption styles come from WatchFIWN.
                 </p>
               </section>
 
@@ -199,32 +202,34 @@ function MediaSettings({ info, onTools, settings, onSettings }: Props) {
 
   return (
     <div className="media-settings">
-      <h3>FFmpeg</h3>
-      <p>Helios uses FFmpeg to read media, build previews, and export. It is found automatically on PATH and in WinGet, Scoop, and Chocolatey installs.</p>
-      <div className={`tool-card${ffmpeg?.found ? ' ok' : ' missing'}`}>
-        {ffmpeg?.found ? <Check size={18} /> : <TriangleAlert size={18} />}
-        <div>
-          <strong>{ffmpeg?.found ? `FFmpeg ${ffmpeg.version ?? ''}` : 'FFmpeg not found'}</strong>
-          <span>{ffmpeg?.found ? ffmpeg.path : 'Install it with: winget install Gyan.FFmpeg — then press Detect again.'}</span>
-          {ffmpeg?.found && !ffmpeg.x264 && <span className="warn">This build has no libx264; exports use a slower fallback encoder.</span>}
-          {ffmpeg?.found && <span>{ffmpeg.gpuEncoderLabel ? `GPU export encoder: ${ffmpeg.gpuEncoderLabel} (${ffmpeg.gpuEncoder})` : 'No working GPU export encoder — exports encode on the CPU.'}</span>}
+      <SettingsHeader title="Media &amp; FFmpeg">FFmpeg reads your media, builds previews and writes every export. Bhippi finds it on PATH and in WinGet, Scoop and Chocolatey installs.</SettingsHeader>
+
+      <Section title="FFmpeg">
+        <div className={`set-status${ffmpeg?.found ? ' ok' : ' missing'}`}>
+          {ffmpeg?.found ? <Check size={16} /> : <TriangleAlert size={16} />}
+          <div>
+            <strong>{ffmpeg?.found ? `FFmpeg ${ffmpeg.version ?? ''}` : 'FFmpeg not found'}</strong>
+            <span>{ffmpeg?.found ? ffmpeg.path : 'Install it with: winget install Gyan.FFmpeg — then press Detect.'}</span>
+            {ffmpeg?.found && !ffmpeg.x264 && <span className="warn">This build has no libx264; exports use a slower fallback encoder.</span>}
+            {ffmpeg?.found && <span>{ffmpeg.gpuEncoderLabel ? `GPU export encoder: ${ffmpeg.gpuEncoderLabel} (${ffmpeg.gpuEncoder})` : 'No working GPU export encoder — exports encode on the CPU.'}</span>}
+          </div>
         </div>
-      </div>
-      <label className="field">
-        <span>Custom FFmpeg location (optional)</span>
-        <div className="field-inline">
-          <input value={path} onChange={(event) => setPath(event.target.value)} placeholder="C:\ffmpeg\bin" spellCheck={false} />
-          <button type="button" className="btn" onClick={async () => { const picked = await openDialog({ directory: true, title: 'Folder containing ffmpeg.exe' }); if (typeof picked === 'string') setPath(picked); }}><FolderOpen size={14} /> Browse</button>
-          <button type="button" className="btn btn-primary" onClick={() => void apply(path.trim() || null)} disabled={busy}>{busy ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />} Detect</button>
-        </div>
-      </label>
-      <h3>Library</h3>
-      <p>Imported files are referenced where they are unless Storage › Copy imported media is on. Thumbnails, waveforms, previews and settings live in the Helios data folder; each project's own files live in its project folder (see Storage).</p>
-      <div className="field-inline">
-        <code className="path">{info?.dataDir}</code>
-        <button type="button" className="btn" onClick={() => info && void api.openPath(info.dataDir)}><FolderOpen size={14} /> Open</button>
-      </div>
-      <p className="muted small">Supported: {info?.extensions.join(', ')}</p>
+        <Row stack title="Custom location" hint="Only needed when FFmpeg is somewhere Bhippi does not look.">
+          <div className="field-inline">
+            <input value={path} onChange={(event) => setPath(event.target.value)} placeholder="C:\ffmpeg\bin" spellCheck={false} aria-label="FFmpeg folder" />
+            <button type="button" className="btn" onClick={async () => { const picked = await openDialog({ directory: true, title: 'Folder containing ffmpeg.exe' }); if (typeof picked === 'string') setPath(picked); }}><FolderOpen size={14} /> Browse</button>
+            <button type="button" className="btn btn-primary" onClick={() => void apply(path.trim() || null)} disabled={busy}>{busy ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />} Detect</button>
+          </div>
+        </Row>
+      </Section>
+
+      <Section title="Library">
+        <Row title="Data folder" hint={<code className="set-path" title={info?.dataDir}>{info?.dataDir}</code>}>
+          <button type="button" className="btn" onClick={() => info && void api.openPath(info.dataDir)}><FolderOpen size={14} /> Open</button>
+        </Row>
+        <Row title="How imports are kept" hint="Files are used where they are unless Storage › Copy imported media is on. Thumbnails, waveforms, previews and settings live in the data folder; each project's own files live in its project folder." />
+        <Row title="Supported files" hint={info?.extensions.join(', ')} />
+      </Section>
     </div>
   );
 }

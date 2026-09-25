@@ -231,7 +231,7 @@ export const COMPONENT_BITS: Bit[] = [
     about: 'A nav bar that expands downward into cards.',
     video: 'A slim bar with the brand name slides in; a scripted click on the menu icon drops three cards out beneath it.',
     use: 'Website tours, app demos, "here is what is inside".',
-    props: [P_TEXT, P_ACCENT, P_ROWS], example: { text: 'Helios', rows: ['Features — what it does', 'Pricing — what it costs', 'Docs — how it works'] }, seconds: 5, tags: ['nav', 'cards'],
+    props: [P_TEXT, P_ACCENT, P_ROWS], example: { text: 'Bhippi', rows: ['Features — what it does', 'Pricing — what it costs', 'Docs — how it works'] }, seconds: 5, tags: ['nav', 'cards'],
     build: (p, ctx) => {
       const rows = rowsOf(p, ctx, ['One — a', 'Two — b', 'Three — c']).slice(0, 4);
       const ptr = pointerMoment('cardnav', [{ x: 200, y: 560 }, { x: 990, y: 140 }], 0.4, 0.9, true);
@@ -376,7 +376,7 @@ export const COMPONENT_BITS: Bit[] = [
     about: 'A physics badge on a lanyard you can swing.',
     video: 'A strap drops from the top of the frame and a badge (name, role, brand) swings under it with decaying pendulum motion.',
     use: 'Speaker intros, event passes, "meet the host".',
-    props: [P_TEXT, P_SUBTITLE, P_ACCENT, { name: 'brand', type: 'string', about: 'Small brand line on the badge.' }], example: { text: 'Ana Kapoor', subtitle: 'Speaker', brand: 'HELIOS CONF' }, seconds: 5, layout: 'fullscreen', tags: ['badge', 'physics'],
+    props: [P_TEXT, P_SUBTITLE, P_ACCENT, { name: 'brand', type: 'string', about: 'Small brand line on the badge.' }], example: { text: 'Ana Kapoor', subtitle: 'Speaker', brand: 'BHIPPI CONF' }, seconds: 5, layout: 'fullscreen', tags: ['badge', 'physics'],
     build: (p, ctx) => ({ html: `<div class="x fill" style="${accentStyle(p)}"><div class="lanyard a" style="${d(0.05)}"><div class="strap"></div><div class="badge glass"><div class="kicker">${esc(S(p, 'brand', 'EVENT PASS'))}</div><div class="avatar"></div><div class="heading" style="font-size:${px(48)};margin-top:${px(18)}">${esc(textOf(p, ctx))}</div><div class="small">${esc(S(p, 'subtitle') || ctx.subtitle || 'Guest')}</div></div></div></div>`, css: `.rbx .lanyard{position:absolute;left:50%;top:0;width:0;height:0;transform-origin:0 0;animation-name:rbx-swing;animation-duration:3.2s;animation-timing-function:ease-in-out}.rbx .strap{position:absolute;left:${px(-22)};top:${px(-40)};width:${px(44)};height:${px(430)};background:repeating-linear-gradient(180deg,var(--accent) 0,var(--accent) ${px(40)},var(--accent2) ${px(40)},var(--accent2) ${px(50)})}.rbx .badge{position:absolute;left:${px(-200)};top:${px(380)};width:${px(400)};padding:${px(34)} ${px(36)};text-align:center}.rbx .avatar{width:${px(120)};height:${px(120)};border-radius:50%;margin:${px(18)} auto 0;background:linear-gradient(135deg,var(--accent2),var(--accent));box-shadow:0 ${px(8)} ${px(24)} #0006}@keyframes rbx-swing{0%{transform:translateY(-110%) rotate(-14deg)}18%{transform:translateY(0) rotate(-14deg)}40%{transform:rotate(11deg)}60%{transform:rotate(-7deg)}78%{transform:rotate(4deg)}90%{transform:rotate(-2deg)}100%{transform:rotate(0)}}` }),
   }),
   bit({

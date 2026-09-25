@@ -1,7 +1,7 @@
 // Settings › AI providers.
 //
 // Only what this computer actually has is listed: a CLI on PATH, a model server that answered,
-// an API key that is saved. Everything else Helios knows how to reach waits behind "Add
+// an API key that is saved. Everything else Bhippi knows how to reach waits behind "Add
 // provider", one click away, instead of a wall of "not running" and "needs an API key" rows.
 import { Check, ChevronDown, Cloud, Cpu, Download, ExternalLink, KeyRound, LoaderCircle, Plus, RefreshCw, Sparkles, Terminal, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
@@ -13,7 +13,7 @@ import type { Job, ProviderInfo, ProviderKind, Settings } from '../lib/types';
 import '../styles/models.css';
 
 const GROUPS: { kind: ProviderKind; title: string; icon: typeof Terminal; blurb: string }[] = [
-  { kind: 'cli', title: 'Coding agents', icon: Terminal, blurb: 'CLIs you are already signed in to. Helios runs them per message in an empty workspace — they cannot touch your files.' },
+  { kind: 'cli', title: 'Coding agents', icon: Terminal, blurb: 'CLIs you are already signed in to. Bhippi runs them per message in an empty workspace — they cannot touch your files.' },
   { kind: 'local_server', title: 'Local models', icon: Cpu, blurb: 'Model servers running on this computer. Private and free.' },
   { kind: 'cloud_api', title: 'Cloud APIs', icon: Cloud, blurb: 'Your own keys, stored in the Windows Credential Manager, never in project files.' },
   { kind: 'builtin', title: 'Built in', icon: Sparkles, blurb: 'Always available, works offline.' },
@@ -186,7 +186,7 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
                     {row.kind === 'cli' && row.installed && row.installCommand && <button type="button" className="btn btn-small" disabled={installing.size > 0} onClick={() => void update(row)}>{installing.has(row.label) ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />} Update</button>}
                     {row.kind === 'cloud_api' && <button type="button" className="btn btn-small" disabled={refreshing} onClick={() => void refresh()} title="Re-read this key's model list">Refresh models</button>}
                     {((row.kind === 'cli' && row.installed && !row.installCommand) || row.kind === 'local_server') && row.homepage && <button type="button" className="btn btn-small" onClick={() => void api.openUrl(row.homepage!)}>Open app site</button>}
-                    {row.kind === 'builtin' && <span className="muted">Updates with Helios</span>}
+                    {row.kind === 'builtin' && <span className="muted">Updates with Bhippi</span>}
                     {row.homepage && (
                       <button type="button" className="icon-btn small" onClick={() => void api.openUrl(row.homepage!)} title={row.kind === 'cloud_api' ? 'Manage keys' : 'Website'}><ExternalLink size={13} /></button>
                     )}
@@ -221,7 +221,7 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
                     <div className="provider-title"><strong>{opened.label}</strong></div>
                     {opened.kind === 'cloud_api' && <>{keyForm(opened)}<p className="muted">Its models are read from the API as soon as the key is saved.</p></>}
                     {opened.kind === 'cli' && <div className="provider-detail">{opened.installCommand ? <code>{opened.installCommand}</code> : <span>Install it from its website, then press Refresh.</span>}</div>}
-                    {opened.kind === 'local_server' && <p className="muted">Start {opened.label} and load a model, then press Refresh — Helios finds it on its usual port and reads its models.</p>}
+                    {opened.kind === 'local_server' && <p className="muted">Start {opened.label} and load a model, then press Refresh — Bhippi finds it on its usual port and reads its models.</p>}
                   </div>
                   <div className="provider-actions">
                     {opened.kind === 'cli' && opened.installCommand && (

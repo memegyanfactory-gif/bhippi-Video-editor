@@ -8,7 +8,7 @@
 //! Writes land only in a frame folder `mogrt_frames_begin` made (the same check as
 //! `mogrt_frame_write`), so the sink can never write anywhere else.
 //!
-//! `PUT /frame/<folder name>/<index>` with the PNG as the body and `x-helios-token`; the answer
+//! `PUT /frame/<folder name>/<index>` with the PNG as the body and `x-bhippi-token`; the answer
 //! is 204 once the file is on disk. The webview's preflight (`OPTIONS`) is answered for any
 //! origin: without the token a request can do nothing.
 
@@ -99,7 +99,7 @@ async fn serve(mut stream: TcpStream, work: &Path, token: &str) -> io::Result<()
     // client then sees a network failure instead of the answer.
     let refused = if method != "PUT" {
         Some((405, "Method Not Allowed"))
-    } else if header("x-helios-token").as_deref() != Some(token) {
+    } else if header("x-bhippi-token").as_deref() != Some(token) {
         Some((403, "Forbidden"))
     } else if length.is_none() {
         Some((411, "Length Required"))
@@ -164,7 +164,7 @@ async fn answer(stream: &mut TcpStream, status: u16, reason: &str) -> io::Result
     // 127.0.0.1 is a private address: the preflight has to allow both, the token does the guarding.
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: PUT, OPTIONS\r\n\
-         Access-Control-Allow-Headers: x-helios-token, content-type\r\nAccess-Control-Allow-Private-Network: true\r\n\
+         Access-Control-Allow-Headers: x-bhippi-token, content-type\r\nAccess-Control-Allow-Private-Network: true\r\n\
          Access-Control-Max-Age: 600\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
     );
     stream.write_all(response.as_bytes()).await?;
@@ -186,14 +186,14 @@ mod tests {
     }
 
     fn put(path: &str, token: &str, body: &[u8]) -> Vec<u8> {
-        let mut request = format!("PUT {path} HTTP/1.1\r\nHost: x\r\nx-helios-token: {token}\r\nContent-Length: {}\r\n\r\n", body.len()).into_bytes();
+        let mut request = format!("PUT {path} HTTP/1.1\r\nHost: x\r\nx-bhippi-token: {token}\r\nContent-Length: {}\r\n\r\n", body.len()).into_bytes();
         request.extend_from_slice(body);
         request
     }
 
     #[tokio::test]
     async fn frames_land_in_their_folder_and_nowhere_else() {
-        let work = std::env::temp_dir().join(format!("helios-sink-{}", ulid::Ulid::new()));
+        let work = std::env::temp_dir().join(format!("bhippi-sink-{}", ulid::Ulid::new()));
         let folder = "clip_1-abc";
         std::fs::create_dir_all(work.join("mogrt").join(folder)).expect("folder");
         let sink = start(work.clone()).await.expect("sink");
