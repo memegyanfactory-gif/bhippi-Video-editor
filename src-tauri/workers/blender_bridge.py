@@ -149,6 +149,14 @@ def material(name, spec):
     elif preset == "clay":
         bsdf.inputs["Roughness"].default_value = spec.get("roughness", 0.8)
         bsdf.inputs["Specular IOR Level"].default_value = 0.2
+    elif preset == "image":
+        # A picture on the surface (a UI screen on a device, a poster): lit a little, glowing like a screen.
+        tex = m.node_tree.nodes.new("ShaderNodeTexImage")
+        tex.image = bpy.data.images.load(spec["image"], check_existing=True)
+        m.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        m.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Emission Color"])
+        bsdf.inputs["Emission Strength"].default_value = spec.get("strength", 0.85)
+        bsdf.inputs["Roughness"].default_value = spec.get("roughness", 0.25)
     elif preset in ("emission", "flat"):
         bsdf.inputs["Emission Color"].default_value = col
         bsdf.inputs["Emission Strength"].default_value = spec.get("strength", 6.0 if preset == "emission" else 1.0)
@@ -298,6 +306,19 @@ def build(o):
         cu.size = o.get("size", 0.6)
         ob = bpy.data.objects.new(o["id"], cu)
         scene.collection.objects.link(ob)
+    elif kind == "empty":
+        # An invisible pivot: parent objects to it and key it to spin a group (a ring of cards).
+        ob = bpy.data.objects.new(o["id"], None)
+        scene.collection.objects.link(ob)
+    elif kind == "plane":
+        # A flat card (UV 0–1 across it), standing upright facing the camera by default: size [w, h].
+        bpy.ops.mesh.primitive_plane_add(size=1)
+        ob = bpy.context.active_object
+        w, h = (o.get("size") or [1, 1])[:2]
+        ob.scale = (w, h, 1)
+        bpy.ops.object.transform_apply(scale=True)
+        if "rotation" not in o:
+            o["rotation"] = [90, 0, 0]
     elif kind == "floor":
         bpy.ops.mesh.primitive_plane_add(size=o.get("size", 40))
         ob = bpy.context.active_object
@@ -322,7 +343,7 @@ def build(o):
     if "scale" in o:
         s = o["scale"]
         ob.scale = [s, s, s] if isinstance(s, (int, float)) else s
-    if o.get("material") and kind != "floor":
+    if o.get("material") and kind not in ("floor", "empty"):
         ob.data.materials.append(material(o["id"] + "-mat", o["material"]))
     if o.get("positionKeys"):
         keyed(ob, "location", o["positionKeys"])

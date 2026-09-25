@@ -3,7 +3,7 @@
 This is a live record of what's done and what's left in the plan in
 [docs/REFERENCE-FILMS-PLAN.md](docs/REFERENCE-FILMS-PLAN.md). It is updated after every item.
 
-**Overall: study, plan, Phase 0, Phase A and Phase B are done ✅. Phase C is in progress (C1 soft 2.5D forms ✅, C2 characters ✅ (first version); C3 full Blender next). Phase D has not started.**
+**Overall: study, plan, Phase 0, Phase A and Phase B are done ✅. Phase C is in progress (C1 soft 2.5D forms ✅, C2 characters ✅ (first version), C3 Blender pipeline ✅; C4 Lottie import next). Phase D has not started.**
 
 | Stage | Status |
 |---|---|
@@ -12,7 +12,7 @@ This is a live record of what's done and what's left in the plan in
 | **Phase 0: quick fixes** | ✅ Done (6 of 6), all tests green |
 | **Phase A: foundations** | ✅ Done (6 of 6), all tests green |
 | **Phase B: the SaaS unlock** | ✅ Done (4 of 4), all tests green |
-| **Phase C: 2.5D, characters, full Blender** | 🟡 2 of 4 done (C1, C2 first version) |
+| **Phase C: 2.5D, characters, full Blender** | 🟡 3 of 4 done (C1–C3) |
 | Phase D: beyond | ⬜ Not started |
 
 ---
@@ -300,11 +300,23 @@ This is a live record of what's done and what's left in the plan in
     - light-matte pairs (colour inside a beam, silhouette outside);
     - props in hands (sockets);
     - secondary motion (drawstrings, hair).
+- C3 ✅ **Blender pipeline, round two.**
+  - **Camera sync.** After a render, the motion engine gets a camera that moves exactly like Blender's. `pxPerMetre` is chosen so a 3D layer at the camera target's depth keeps its size.
+    - **Checked with a real orbit render:** a green 3D marker placed at a cube's world position stays locked on the cube for the whole move.
+  - **Object tracks.** `track: ["cube"]` gives a `track-cube` null on the object's screen centre. Labels, rings and glints parented to it follow the 3D object.
+  - **Real product UI in 3D.** Blender objects can now be image-textured `plane`s and invisible `empty` pivots.
+    - `device-hero {screenImage}` puts a UI screen (from `create_ui_screen` or a `capture_product_ui` capture) on a 3D laptop or phone. Checked with the captured linear.app page.
+    - New **`card-ring`**: outward-facing UI cards with solid backs, spinning (the Virgil/aflow carousel).
+    - New **`sphere-bouquet`**: glossy spheres in brand colours that drop in, settle and float (aflow's drop world).
+  - **Settings › Local media › 3D renders (Blender)** shows whether Blender was found and its version, with "Choose Blender" and "Find automatically".
+  - Files: `blender_bridge.py` (image material, plane, empty), `blender.rs` (kinds, image check), `src/lib/blender3d.ts` (presets, `withPxPerMetre`, `cameraLayer`, `trackLayers`), `motionTools.ts`, `LocalMediaSettings.tsx`, `ai-tools.json`, `copilot.md`, `MOTION-ENGINE.md`.
+  - Tests: `tests/blender3d.test.ts` (+3). **Full suite: 1,234 TypeScript and 292 Rust tests pass**, and the real-Blender test passes.
+  - **Fixed along the way:** the card ring's side cards faced inward and showed mirrored UI; they now face outward with solid backs.
+  - *Later:* a persistent Blender worker (no start-up per render), render passes, turning a UI screen into a textured card automatically.
 
 ## ⏳ Remaining
 
 ### Phase C: depth and characters (weeks 6–14)
-- C3 ⬜ Full Blender pipeline: more presets (card rings with UI decals, sphere bouquets, device with a live UI screen), a persistent worker, motion-engine camera auto-synced from `camera.json`, render passes, and a Blender path picker in Settings.
 - C4 ⬜ Lottie import.
 
 ### Phase D (later)

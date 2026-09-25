@@ -5804,13 +5804,13 @@
     },
     {
       "name": "render_3d_scene",
-      "description": "Renders real 3D in the user's own Blender, headless in the background (glass, pearl, metal, gems, extruded type, soft floor shadows, depth of field, motion blur), and places the result as a [Motion] comp: a PNG sequence with alpha that composites like footage (mattes, effects, 2D layers on top). Give a `preset` from list_3d_presets with `params`, or a raw `scene` {objects:[{id,kind,position,rotation,scale,material:{preset,color},positionKeys,rotationKeys,scaleKeys,parent}],world,lights,camera:{position,target,lens,fstop,positionKeys,targetKeys}} in Blender axes (x right, y away from camera, z up, metres; keys {t,v,ease} with named or cubic-bezier eases). Draft quality (EEVEE, about 0.7 s a 1080p frame) while designing; quality \"final\" (Cycles on the GPU, about 3 s a frame) before export. It waits for the render; if the turn ends first, place it later with {jobId}. camera.json and objects2d.json beside the frames give the camera move and each object's screen box per frame for 2D layers that must track it.",
+      "description": "Renders real 3D in the user's own Blender, headless in the background (glass, pearl, metal, gems, extruded type, soft floor shadows, depth of field, motion blur), and places the result as a [Motion] comp: a PNG sequence with alpha that composites like footage (mattes, effects, 2D layers on top). Give a `preset` from list_3d_presets with `params`, or a raw `scene` {objects:[{id,kind,position,rotation,scale,material:{preset,color},positionKeys,rotationKeys,scaleKeys,parent}],world,lights,camera:{position,target,lens,fstop,positionKeys,targetKeys}} in Blender axes (x right, y away from camera, z up, metres; keys {t,v,ease} with named or cubic-bezier eases). Draft quality (EEVEE, about 0.7 s a 1080p frame) while designing; quality \"final\" (Cycles on the GPU, about 3 s a frame) before export. It waits for the render; if the turn ends first, place it later with {jobId}. camera.json and objects2d.json beside the frames give the camera move and each object's screen box per frame for 2D layers that must track it. Objects can carry pictures: material {preset:'image', image:<path>} on a 'plane' (device-hero screenImage and card-ring images put real UI screens from create_ui_screen, or captures, into 3D). An 'empty' is an invisible pivot to parent and spin groups.",
       "input_schema": {
         "type": "object",
         "properties": {
           "preset": {
             "type": "string",
-            "description": "pearl-core-orb | crystal-gradient-env | device-hero | logo-extrude | letters-drop"
+            "description": "pearl-core-orb | crystal-gradient-env | device-hero | logo-extrude | letters-drop | card-ring | sphere-bouquet"
           },
           "params": {
             "type": "object",
@@ -5857,6 +5857,17 @@
           "waitMinutes": {
             "type": "number",
             "description": "How long to wait for the render in this turn (default 20)."
+          },
+          "syncCamera": {
+            "type": "boolean",
+            "description": "Default true: adds a motion-engine camera that moves exactly like Blender's, so layers set threeD sit in the render's space (a 3D layer at the camera target's depth keeps its size)."
+          },
+          "track": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Object ids to follow: each becomes a null 'track-<id>' on its screen centre; parent labels, glints and callouts to it."
           }
         },
         "additionalProperties": false

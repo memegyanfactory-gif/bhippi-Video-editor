@@ -10,7 +10,7 @@ import { EFFECT_TYPES, validateScene } from '../motion/validate';
 import { expandIcons, searchIcons, unknownIcons } from '../motion/vector/icons';
 import { svgToShape } from '../motion/vector/svg';
 import { playbook, playbookIndex } from './motionDirection';
-import { PRESETS_3D, renderScene, scene3dRequest, type Render3DResult } from './blender3d';
+import { cameraLayer, PRESETS_3D, renderScene, scene3dRequest, trackLayers, type CameraFile, type ObjectsFile, type Render3DResult } from './blender3d';
 import { buildUiScene, runUiScreenTool } from './uiScreenTools';
 import { runCharacterTool } from './characterTools';
 import { GENERIC_TARGET, pacingReport, type PacingTarget } from './pacing';
@@ -684,7 +684,13 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
       if (!render?.dir) return fail(`Blender is still rendering (job ${jobId}); place it later with render_3d_scene {"jobId":"${jobId}"}.`);
-      const scene = renderScene(render, comp, title);
+      // Blender's camera as a motion-engine camera (3D layers then sit in the render's space), and nulls on tracked objects.
+      const extras: Layer[] = [];
+      const readJson = async <T,>(path?: string): Promise<T | null> => { if (!path) return null; try { return (await (await fetch(fileSrc(path))).json()) as T; } catch { return null; } };
+      if (args.syncCamera !== false) { const cam = await readJson<CameraFile>(render.camera); if (cam?.frames?.length) extras.push(cameraLayer(cam)); }
+      const track = Array.isArray(args.track) ? (args.track as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+      if (track.length) { const objects = await readJson<ObjectsFile>(render.objects2d); if (objects?.frames?.length) extras.push(...trackLayers(objects, track)); }
+      const scene = renderScene(render, comp, title, extras);
       if (args.place === false) return done(`3D render ready: ${render.frames} frame(s) in ${render.dir}. Add "layer" to any motion scene (update_motion_scene addLayers) to composite it.`, { render, layer: scene.layers[0], jobId });
       const placed = await runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start, title, duration: scene.duration, fit: false, sfx: false, useBrand: false }, ctx);
       if (!placed.ok) return placed;

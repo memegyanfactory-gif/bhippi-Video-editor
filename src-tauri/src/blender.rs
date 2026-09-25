@@ -17,8 +17,8 @@ use tauri::{AppHandle, Manager, State};
 type CommandResult<T> = Result<T, String>;
 
 const ENGINES: [&str; 2] = ["eevee", "cycles"];
-const KINDS: [&str; 11] = ["box", "rounded-box", "sphere", "icosphere", "torus", "cylinder", "cone", "capsule", "crystal", "text", "floor"];
-const MATERIALS: [&str; 9] = ["plastic", "glass", "frosted", "pearl", "metal", "gem", "clay", "emission", "flat"];
+const KINDS: [&str; 13] = ["box", "rounded-box", "sphere", "icosphere", "torus", "cylinder", "cone", "capsule", "crystal", "text", "plane", "empty", "floor"];
+const MATERIALS: [&str; 10] = ["plastic", "glass", "frosted", "pearl", "metal", "gem", "clay", "emission", "flat", "image"];
 
 /// `blender(.exe)` in a Blender install folder.
 fn exe_name() -> &'static str {
@@ -152,6 +152,9 @@ pub fn check_request(mut request: Value) -> Result<(Value, usize), String> {
             if !ids.contains(parent) || parent == id {
                 return Err(format!("Object \"{id}\": parent must be an object listed before it"));
             }
+        }
+        if item.pointer("/material/preset").and_then(Value::as_str) == Some("image") && !item.pointer("/material/image").and_then(Value::as_str).is_some_and(|path| Path::new(path).is_file()) {
+            return Err(format!("Object \"{id}\": an image material needs material.image, a picture file that exists"));
         }
         if kind == "text" && item.get("text").and_then(Value::as_str).is_some_and(|text| text.chars().count() > 80) {
             return Err(format!("Object \"{id}\": 3D text is at most 80 characters"));

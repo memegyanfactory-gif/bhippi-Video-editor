@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Check, Cpu, Download, Eraser, Film, FolderOpen, Image, Layers, Music, RefreshCw, Scissors, TriangleAlert, Users } from 'lucide-react';
+import { Box, Check, Cpu, Download, Eraser, Film, FolderOpen, Image, Layers, Music, RefreshCw, Scissors, TriangleAlert, Users } from 'lucide-react';
 import { DownloadProgress, type DownloadJob } from './DownloadProgress';
 import { Toggle } from '../components/ui';
 import { api, errorText } from '../lib/ipc';
@@ -52,6 +52,13 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
   };
 
   const pythonReady = !!settings.localMediaPython;
+  const chooseBlender = async (clear = false) => {
+    try {
+      const path = clear ? null : await open({ multiple: false, title: 'Select the Blender program (blender.exe)' });
+      if (!clear && typeof path !== 'string') return;
+      onSettings(await api.settingsSave({ ...settings, blenderPath: path }));
+    } catch (e) { setError(errorText(e)); }
+  };
 
   return <section className="provider-group">
     <div className="settings-intro">
@@ -97,6 +104,8 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
         </div>
       </div>
     </section>
+
+    {!rotoOnly && <BlenderCard path={settings.blenderPath ?? null} onChoose={() => void chooseBlender()} onAuto={() => void chooseBlender(true)} />}
 
     {!rotoOnly && (() => {
       const activeKind = settings.localVideoModel ?? (status?.tasks.some(r => r.task === 'video-ltx23' && r.configured) ? 'ltx23' : status?.tasks.some(r => r.task === 'video-wan' && r.configured) ? 'wan' : 'ltx');
@@ -280,5 +289,35 @@ function TaskRow({ row, status, pythonReady, hfToken, onHfToken, onChoose, onIns
         )}
       </div>
     </div>
+  );
+}
+
+/** Headless Blender for the AI's 3D renders (render_3d_scene): found on its own, or chosen here. */
+function BlenderCard({ path, onChoose, onAuto }: { path: string | null; onChoose: () => void; onAuto: () => void }) {
+  const [status, setStatus] = useState<{ found: boolean; path?: string; version?: string | null; hint?: string } | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    setStatus(null);
+    void api.blenderStatus().then((value) => { if (!stopped) setStatus(value); }).catch(() => { if (!stopped) setStatus({ found: false }); });
+    return () => { stopped = true; };
+  }, [path]);
+  const found = !!status?.found;
+  return (
+    <section className="provider-group">
+      <h4><Box size={14} /> 3D renders (Blender)</h4>
+      <p className="group-blurb">The AI renders real 3D (glass, pearl, metal, extruded logos, devices showing your UI) in your own Blender, headless in the background. Blender is free from blender.org; 4.2 or newer.</p>
+      <div className={`tool-card${found ? ' ok' : ' missing'}`}>
+        {found ? <Check size={18} /> : <TriangleAlert size={18} />}
+        <div>
+          <strong>{status === null ? 'Looking for Blender…' : found ? (status.version ?? 'Blender found') : 'Blender not found'}</strong>
+          <span>{found ? status!.path : status?.hint ?? 'Install Blender, or choose its program if it lives somewhere unusual.'}</span>
+          {path && <span>Chosen by hand{found ? '' : ' — that file is missing'}.</span>}
+        </div>
+        <div className="provider-actions">
+          <button type="button" className="btn btn-small" onClick={onChoose}><FolderOpen size={12} /> Choose Blender</button>
+          {path && <button type="button" className="btn btn-small" onClick={onAuto}>Find automatically</button>}
+        </div>
+      </div>
+    </section>
   );
 }

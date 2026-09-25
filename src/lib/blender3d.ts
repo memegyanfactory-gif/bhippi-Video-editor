@@ -10,14 +10,14 @@
 // Scene axes are Blender's: x right, y away from the camera, z up; sizes in metres (1 m ≈ 1000 px
 // at the default framing). Keys: {t: seconds, v: value, ease: [x1,y1,x2,y2] or a named ease}.
 
-import type { MotionScene } from '../motion/types';
+import type { Layer, MotionScene } from '../motion/types';
 
 export type Vec3 = [number, number, number];
 export type Key3 = { t: number; v: Vec3 | number; ease?: string | [number, number, number, number] };
-export type MaterialSpec = { preset: 'plastic' | 'glass' | 'frosted' | 'pearl' | 'metal' | 'gem' | 'clay' | 'emission' | 'flat'; color?: string; roughness?: number; metallic?: number; ior?: number; thinFilm?: number; strength?: number };
+export type MaterialSpec = { preset: 'plastic' | 'glass' | 'frosted' | 'pearl' | 'metal' | 'gem' | 'clay' | 'emission' | 'flat' | 'image'; /** image: the picture on the surface (a UI screen from create_ui_screen, a poster). */ image?: string; color?: string; roughness?: number; metallic?: number; ior?: number; thinFilm?: number; strength?: number };
 export type Object3D = {
   id: string;
-  kind: 'box' | 'rounded-box' | 'sphere' | 'icosphere' | 'torus' | 'cylinder' | 'cone' | 'capsule' | 'crystal' | 'text' | 'floor';
+  kind: 'box' | 'rounded-box' | 'sphere' | 'icosphere' | 'torus' | 'cylinder' | 'cone' | 'capsule' | 'crystal' | 'text' | 'plane' | 'empty' | 'floor';
   position?: Vec3; rotation?: Vec3; scale?: number | Vec3;
   material?: MaterialSpec;
   positionKeys?: Key3[]; rotationKeys?: Key3[]; scaleKeys?: Key3[];
@@ -33,6 +33,8 @@ export type Scene3D = {
   lights?: 'studio' | { id: string; position: Vec3; power?: number; size?: number; color?: string; target?: Vec3; kind?: 'area' | 'point' | 'sun' | 'spot' }[];
   camera?: { position?: Vec3; target?: Vec3; lens?: number; fstop?: number; positionKeys?: Key3[]; targetKeys?: Key3[] };
   objects: Object3D[];
+  /** Scene px per metre in camera.json; chosen so a 2D layer at the camera target's depth keeps its size. */
+  pxPerMetre?: number;
 };
 
 type Frame = { width: number; height: number; fps: number; duration: number };
@@ -92,7 +94,7 @@ export const PRESETS_3D: Preset3D[] = [
     id: 'device-hero',
     label: 'Device hero',
     use: 'A rounded phone or laptop slab that swings from an angle into its hero pose — put the UI on it afterwards as a 2D layer riding camera.json.',
-    params: { device: 'phone | tablet | laptop (default phone)', color: 'body colour (#hex)', screen: 'screen colour (#hex)', from: 'start yaw in degrees (default -35)' },
+    params: { device: 'phone | tablet | laptop (default phone)', color: 'body colour (#hex)', screen: 'screen colour (#hex)', screenImage: 'a picture shown on the screen: a UI screen from create_ui_screen (its screen picture path) or any image file', from: 'start yaw in degrees (default -35)' },
     seconds: 3,
     build: (p, f) => {
       const device = str(p, 'device', 'phone');
@@ -106,7 +108,9 @@ export const PRESETS_3D: Preset3D[] = [
           { id: 'body', kind: 'rounded-box', size, radius: device === 'laptop' ? 0.05 : 0.09, material: { preset: 'plastic', color: str(p, 'color', '#1d1f2b'), roughness: 0.25 },
             rotationKeys: [{ t: 0, v: [8, 0, num(p, 'from', -35)], ease: 'house' }, { t: land, v: [0, 0, 0] }],
             positionKeys: [{ t: 0, v: [0, 0.6, -0.15], ease: 'house' }, { t: land, v: [0, 0, 0] }] },
-          { id: 'screen', kind: 'box', parent: 'body', size: [size[0] * 0.9, 0.01, size[2] * 0.92], position: [0, -size[1] / 2 - 0.006, 0], material: { preset: 'flat', color: str(p, 'screen', '#6a5cff') } },
+          typeof p.screenImage === 'string' && p.screenImage
+            ? { id: 'screen', kind: 'plane', parent: 'body', size: [size[0] * 0.9, size[2] * 0.92], position: [0, -size[1] / 2 - 0.006, 0], material: { preset: 'image', image: p.screenImage } }
+            : { id: 'screen', kind: 'box', parent: 'body', size: [size[0] * 0.9, 0.01, size[2] * 0.92], position: [0, -size[1] / 2 - 0.006, 0], material: { preset: 'flat', color: str(p, 'screen', '#6a5cff') } },
         ],
       };
     },
@@ -166,6 +170,58 @@ export const PRESETS_3D: Preset3D[] = [
       };
     },
   },
+  {
+    id: 'card-ring',
+    label: 'Card ring',
+    use: 'A ring of rounded cards turning around the centre (feature cards, app screens, logos) — the Virgil / aflow 3D card carousel. Give images for real UI on the cards.',
+    params: { count: 'cards (default 8)', images: 'list of picture paths shown on the cards (UI screens, logos); cycles if fewer than cards', color: 'card colour (#hex)', spin: 'degrees the ring turns (default 90)' },
+    seconds: 5,
+    build: (p, f) => {
+      const n = Math.max(3, Math.min(16, Math.round(num(p, 'count', 8))));
+      const images = Array.isArray(p.images) ? (p.images as string[]).filter((x) => typeof x === 'string' && x) : [];
+      const radius = 1.9;
+      const cards: Object3D[] = Array.from({ length: n }, (_, i) => {
+        const a = (i / n) * Math.PI * 2;
+        const position: Vec3 = [Math.sin(a) * radius, -Math.cos(a) * radius, 0];
+        // Each card faces outward from the ring's centre (its yaw follows its angle round the ring).
+        const yaw = (a * 180) / Math.PI;
+        const body: Object3D = { id: `card${i}`, kind: 'rounded-box', parent: 'ring', size: [1.1, 0.03, 0.75], radius: 0.02, position, rotation: [0, 0, yaw], material: { preset: 'plastic', color: str(p, 'color', images.length ? '#1c1e2a' : '#f5f6ff'), roughness: 0.3 } };
+        return images.length ? [body, { id: `face${i}`, kind: 'plane', parent: `card${i}`, size: [1.04, 0.7], position: [0, -0.017, 0], rotation: [90, 0, 0], material: { preset: 'image', image: images[i % images.length] } } as Object3D] : [body];
+      }).flat();
+      return {
+        world: { gradient: [[0, '#1b1d3a'], [0.5, '#3b2f8f'], [1, '#1b1d3a']], strength: 0.9 },
+        camera: { position: [0, -6.2, 1.1], target: [0, 0, 0], lens: 40 },
+        objects: [
+          floor(-0.7),
+          { id: 'ring', kind: 'empty', rotationKeys: [{ t: 0, v: [0, 0, 0], ease: 'linear' }, { t: f.duration, v: [0, 0, num(p, 'spin', 90)] }] },
+          ...cards,
+        ],
+      };
+    },
+  },
+  {
+    id: 'sphere-bouquet',
+    label: 'Sphere bouquet',
+    use: 'A cluster of glossy spheres in the brand colours that settles in and floats — the aflow drop world.',
+    params: { colors: 'list of 3–6 #hex (default violet, pink, lavender, white, blue)', material: 'pearl | plastic | glass (default pearl)' },
+    seconds: 4,
+    build: (p, f) => {
+      const colors = Array.isArray(p.colors) && p.colors.length ? (p.colors as string[]) : ['#7b61ff', '#ff5ab4', '#c7b8ff', '#ffffff', '#4c8dff'];
+      const spots: [number, number, number, number][] = [[0, 0, 0, 0.55], [-0.85, 0.3, 0.35, 0.38], [0.9, 0.2, 0.3, 0.42], [-0.35, -0.2, -0.55, 0.3], [0.45, -0.3, 0.7, 0.26], [0.2, 0.5, -0.6, 0.33], [-0.95, -0.1, -0.45, 0.22], [1.15, -0.2, -0.35, 0.2]];
+      return {
+        world: { gradient: [[0, '#f4f1ff'], [0.35, '#d9ccff'], [0.7, '#ffe3f3']], strength: 1.1 },
+        camera: { position: [0, -5.5, 0.6], target: [0, 0, 0.05], lens: 50, fstop: 2.4 },
+        objects: [
+          floor(-0.8),
+          ...spots.map(([x, y, z, r], i): Object3D => ({
+            id: `s${i}`, kind: 'sphere', radius: r, position: [x, y, z],
+            material: { preset: str(p, 'material', 'pearl') as MaterialSpec['preset'], color: colors[i % colors.length] },
+            positionKeys: [{ t: 0, v: [x * 1.6, y, z + 2.2], ease: 'settle' }, { t: 0.9 + i * 0.07, v: [x, y, z], ease: 'ease-in-out' }, { t: f.duration, v: [x, y, z + 0.08 * ((i % 2) * 2 - 1)] }],
+          })),
+        ],
+      };
+    },
+  },
 ];
 
 export const find3dPreset = (id: string) => PRESETS_3D.find((preset) => preset.id === id);
@@ -177,16 +233,51 @@ export function scene3dRequest(input: { preset?: string; params?: Params; scene?
   if (input.preset) {
     const preset = find3dPreset(input.preset);
     if (!preset) throw new Error(`No 3D preset "${input.preset}". Presets: ${PRESETS_3D.map((p) => p.id).join(', ')}.`);
-    return { ...base, ...frame, ...preset.build(input.params ?? {}, frame), ...(input.scene ?? {}) } as Scene3D;
+    return withPxPerMetre({ ...base, ...frame, ...preset.build(input.params ?? {}, frame), ...(input.scene ?? {}) } as Scene3D);
   }
   if (!input.scene?.objects?.length) throw new Error('Give a preset (list_3d_presets) or a scene with objects.');
-  return { ...base, ...frame, ...input.scene } as Scene3D;
+  return withPxPerMetre({ ...base, ...frame, ...input.scene } as Scene3D);
+}
+
+/** Pixels per metre in camera.json, chosen so a 2D 3D-layer at the camera target's depth shows at its own size (AE zoom = lens / sensor × width). */
+export function withPxPerMetre(scene: Scene3D): Scene3D {
+  if (scene.pxPerMetre) return scene;
+  const cam = scene.camera ?? {};
+  const pos = cam.positionKeys?.[0]?.v ?? cam.position ?? [0, -6, 1.2];
+  const target = cam.targetKeys?.[0]?.v ?? cam.target ?? [0, 0, 0];
+  const d = Array.isArray(pos) && Array.isArray(target) ? Math.hypot(pos[0] - target[0], pos[1] - target[1], pos[2] - target[2]) : 6;
+  const zoom = ((cam.lens ?? 50) / 36) * scene.width;
+  return { ...scene, pxPerMetre: Math.round((zoom / Math.max(0.1, d)) * 100) / 100 };
 }
 
 export type Render3DResult = { dir: string; frames: number; fps: number; step?: number; width: number; height: number; camera?: string; objects2d?: string };
 
+export type CameraFile = { fps: number; width: number; height: number; pxPerMetre: number; frames: { frame: number; t: number; position: number[]; pointOfInterest: number[]; zoom: number }[] };
+export type ObjectsFile = { fps: number; frames: ({ frame: number } & Record<string, { x: number; y: number; box: number[]; behind: boolean } | number>)[] };
+
+/** A motion-engine camera that moves exactly like Blender's, so 3D layers (type, UI, glints set to threeD) sit in the render's space. */
+export function cameraLayer(file: CameraFile, every = 2): Layer {
+  const frames = file.frames.filter((_, i) => i % every === 0 || i === file.frames.length - 1);
+  const keys = (pick: (f: CameraFile['frames'][number]) => number | number[]) => ({ k: frames.map((f) => ({ t: Math.round(f.t * 1e4) / 1e4, v: pick(f), ease: 'linear' as const })) });
+  const still = frames.every((f) => f.position.every((v, i) => Math.abs(v - frames[0].position[i]) < 0.01) && Math.abs(f.zoom - frames[0].zoom) < 0.01);
+  return {
+    id: 'blender-camera', name: 'Camera (from Blender)', type: 'camera',
+    transform: { position: still ? frames[0].position : keys((f) => f.position) as never },
+    pointOfInterest: still ? frames[0].pointOfInterest : keys((f) => f.pointOfInterest) as never,
+    zoom: still ? frames[0].zoom : keys((f) => f.zoom) as never,
+  } as Layer;
+}
+
+/** Nulls that follow objects' screen centres, so 2D labels, glints and callouts can be parented to them. */
+export function trackLayers(file: ObjectsFile, ids: string[], every = 2): Layer[] {
+  return ids.flatMap((id) => {
+    const points = file.frames.filter((f, i) => (i % every === 0 || i === file.frames.length - 1) && typeof f[id] === 'object').map((f) => ({ t: Math.round(((f.frame - 1) / file.fps) * 1e4) / 1e4, v: [(f[id] as { x: number }).x, (f[id] as { y: number }).y] }));
+    return points.length ? [{ id: `track-${id}`, name: `Track · ${id}`, type: 'null', transform: { position: { k: points.map((p) => ({ ...p, ease: 'linear' as const })) } } } as Layer] : [];
+  });
+}
+
 /** The motion scene that plays a finished render: one footage layer reading the PNG sequence. */
-export function renderScene(render: Render3DResult, size: { width: number; height: number }, title = '3D render'): MotionScene {
+export function renderScene(render: Render3DResult, size: { width: number; height: number }, title = '3D render', extras: Layer[] = []): MotionScene {
   const fps = render.fps / Math.max(1, render.step ?? 1);
   const duration = Math.max(1 / render.fps, render.frames / fps);
   return {
@@ -194,6 +285,6 @@ export function renderScene(render: Render3DResult, size: { width: number; heigh
     layers: [{
       id: 'render3d', name: title, type: 'footage', fit: 'contain',
       source: { sequence: { dir: render.dir, fps, frames: render.frames, start: 1, digits: 5, ext: 'png' }, kind: 'image', width: render.width, height: render.height },
-    }],
+    }, ...extras],
   } as MotionScene;
 }
