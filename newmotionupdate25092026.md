@@ -353,5 +353,5 @@ The planned Phases 0, A, B and C are done. What is left is follow-up polish foun
 
 ## Notes
 - Phase 0 and Phase A are pushed to `main` (5acfbcf).
-- B1–C4 are committed on `main` locally (90e2a2b … 1df0359) and **not pushed yet**.
+- B1–C4 are pushed to `main` too (up to edd5a45).
 - Tests are run after each item. The desktop app is never started or stopped, and nothing is built into `target/release`.
