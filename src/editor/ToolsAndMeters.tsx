@@ -42,7 +42,7 @@ const GROUPS: ToolDef[][] = [
     { id: 'mask-ellipse', label: 'Ellipse Mask Tool', icon: <CircleDashed size={17} /> },
     { id: 'mask-pen', label: 'Pen Mask Tool', icon: <PenLine size={17} /> },
     { id: 'roto', label: 'Roto Tool', icon: <UserRoundSearch size={17} /> },
-    { id: 'mask-object', label: 'Object Mask Tool', icon: <ScanFace size={17} />, disabled: 'Object masks track people with Adobe AI, which Helios does not have' },
+    { id: 'magic-mask', label: 'Magic Mask', icon: <ScanFace size={17} /> },
   ],
   [
     { id: 'hand', label: 'Hand Tool', key: 'H', icon: <Hand size={17} /> },

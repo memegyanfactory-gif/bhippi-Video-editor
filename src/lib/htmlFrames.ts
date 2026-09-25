@@ -234,25 +234,27 @@ export async function renderHtmlCompStill(comp: Comp, width = 480): Promise<stri
  */
 export function htmlClipsForExport(project: Project, compId: string): { comp: Comp; clip: Clip; source: HtmlSource; members?: string[] }[] {
   const seen = new Set<string>();
-  const out: { comp: Comp; clip: Clip; source: HtmlSource; members?: string[] }[] = [];
-  const visit = (id: string) => {
+  const out: { comp: Comp; clip: Clip; source: HtmlSource; members?: string[]; at: number }[] = [];
+  // `offset`: where this comp's time 0 falls on the exported timeline, so the list can be put in
+  // the order the graphics appear — the render window then walks the video from start to end.
+  const visit = (id: string, offset: number) => {
     if (seen.has(id)) return;
     seen.add(id);
     const comp = project.comps.find((c) => c.id === id);
     if (!comp) return;
     const whole = wholeGraphics(comp);
     const merged = new Set(whole.flatMap((entry) => entry.members.map((clip) => clip.id)));
-    for (const entry of whole) out.push({ comp, clip: entry.members[0], source: entry.source, members: entry.members.map((clip) => clip.id) });
+    for (const entry of whole) out.push({ comp, clip: entry.members[0], source: entry.source, members: entry.members.map((clip) => clip.id), at: offset + Math.min(...entry.members.map((clip) => clip.start)) });
     for (const clip of comp.clips) {
       if (!clip.enabled) continue;
-      if (clip.source.type === 'comp') visit(clip.source.compId);
-      if (clip.source.type === 'html' && !clip.adjustment && !merged.has(clip.id)) out.push({ comp, clip, source: clip.source });
+      if (clip.source.type === 'comp') visit(clip.source.compId, offset + clip.start - clip.in / Math.max(1e-6, clip.speed));
+      if (clip.source.type === 'html' && !clip.adjustment && !merged.has(clip.id)) out.push({ comp, clip, source: clip.source, at: offset + clip.start });
       const background = rbBackgroundSource(project, clip);
-      if (background && !clip.adjustment) out.push({ comp, clip, source: background });
+      if (background && !clip.adjustment) out.push({ comp, clip, source: background, at: offset + clip.start });
     }
   };
-  visit(compId);
-  return out;
+  visit(compId, 0);
+  return out.sort((a, b) => a.at - b.at);
 }
 
 /**

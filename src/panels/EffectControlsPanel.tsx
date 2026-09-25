@@ -30,6 +30,8 @@ import { timecode } from '../lib/editor';
 import type { History } from '../lib/history';
 import { clipEnd, clipName, trackLabel, updateComp, type AssetMap } from '../lib/timeline';
 import type { AppliedEffect, Comp, Project } from '../lib/types';
+import { EffectMaskRow, MagicMaskSection } from './MagicMaskSection';
+import { maskableClip } from '../editor/MagicMaskBar';
 
 type Props = {
   project: Project;
@@ -169,6 +171,8 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
         {appliedEffects.length > 0 && ` · ${appliedEffects.length} effect${appliedEffects.length > 1 ? 's' : ''}`}
       </div>
 
+      {maskableClip(clip, assets, comp) && <MagicMaskSection comp={comp} clip={clip} assets={assets} history={history} />}
+
       {/* Applied effects list */}
       <div className="fx-stack-container">
         {appliedEffects.length === 0 ? (
@@ -270,6 +274,7 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
                   </div>
                 </div>
 
+                {!isCollapsed && <EffectMaskRow clip={clip} fx={fx} onChange={(patch) => updateClipEffects(appliedEffects.map((item) => (item.id === fx.id ? { ...item, ...patch } : item)), 'Limit effect to mask')} />}
                 {/* Effect Parameters */}
                 {!isCollapsed && !RENDERED_EFFECTS.has(fx.effectId) && <p className="field-hint">This legacy effect has no complete export implementation. Bypass or remove it before exporting.</p>}
                 {!isCollapsed && RENDERED_EFFECTS.has(fx.effectId) && (

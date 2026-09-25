@@ -359,6 +359,14 @@ export const api = {
   rotoRead: (id: string) => invoke<RotoCache | null>('roto_read', { id }),
   depthStart: (id: string, from: number, fps: number, threshold: number, softness: number) => invoke<string>('depth_start', { id, from, fps, threshold, softness }),
   rotoTrackStart: (id: string, from: number, fps: number, points: import('./types').RotoCorrection[]) => invoke<string>('roto_track_start', { id, from, fps, points }),
+  /** Magic Mask on one frame (`at`: source seconds), from the resident SAM 2.1 picker. */
+  magicMaskFrame: (assetId: string, at: number, points: import('./types').RotoCorrection[]) =>
+    invoke<{ png: string; score: number; cover: number; ms: number }>('magic_mask_frame', { assetId, at, points }),
+  /** Tracks Magic Mask clicks (`at`: seconds from the run's first frame) through a Roto frame run. */
+  magicMaskTrackStart: (id: string, from: number, fps: number, points: import('./types').RotoCorrection[], quality: 'fast' | 'better', consistency: number) =>
+    invoke<string>('magic_mask_track_start', { id, from, fps, points, quality, consistency }),
+  /** Stops the resident picker and frees its GPU memory. */
+  magicMaskRelease: () => invoke<void>('magic_mask_release'),
   /** Pulls the frames a matting pass will look at. */
   rotoFrames: (id: string, from: number, seconds: number, fps: number | null) =>
     invoke<{ folder: string; frames: number; runId: string; fps: number }>('roto_frames', { id, from, seconds, fps }),
@@ -528,6 +536,8 @@ export const api = {
   chatLogSave: (messages: unknown[]) => invoke<void>('chat_log_save', { messages }),
 
   exportStart: (project: Project, options: ExportOptions) => invoke<string>('export_start', { project: prepareEffectExport(project,options.compId), options }),
+  /** The newest live-preview frame of a running export (a JPEG path), for the render window. */
+  exportPreview: (jobId: string) => invoke<string | null>('export_preview', { jobId }),
   exportFrame: (project: Project, compId: string, time: number, output: string, shortSide?: number) => invoke<string>('export_frame', { project: prepareEffectExport(project,compId), compId, time, output, shortSide: shortSide ?? null }),
   /** A comp's poster frame: middle of the comp, small, cached by comp id. */
   compPoster: (project: Project, compId: string) => invoke<string>('comp_poster', { project, compId }),

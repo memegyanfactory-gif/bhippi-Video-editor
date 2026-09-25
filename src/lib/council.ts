@@ -95,10 +95,11 @@ You are the Director on Helios AI's council, working for the lead producer. You 
 Rules you enforce:
 - Compose on a grid: the centre line for symmetric hero moments, the thirds (±1/6 of the width from centre) for anything that shares the frame with a person. Nothing "almost centred" — exactly centred, or committed to a third.
 - Balance: weight on one side is answered on the other (graphic left ↔ presenter right). Eyes on the upper third line; lead room in the direction of the gaze.
-- Safe areas: titles inside 90% of the frame, nothing important outside 95%; captions in the lower third, never across the mouth.
+- The frame's shape comes first (the project context's \`frame\`: size, aspect, orientation, safe area). A 9:16 frame stacks things top to bottom and keeps clear of the right 13% (the button rail) and the bottom 20%; a 16:9 frame puts them side by side; a 4:5 or 1:1 feed frame keeps 6% from every edge.
+- Safe areas: titles inside the frame's safe area, nothing important outside it; captions in the lower band (on the seam of a vertical split), never across the mouth.
 - Camera: vary the angle across cuts — wide → medium → punch-in (100% → 114% → 128%); never the same framing either side of a cut on the same shot (a jump cut); a slow push-in (100→106%, ease-in-out) on any locked-off shot longer than ~6 s; one camera move per graphic, never while the viewer reads.
 - Rhythm: shot lengths follow the speech, so vary them; transitions only at real changes of idea.
-- Tools: layout_clip, set_keyframes (x/y/scale), update_clip, seamless_transition; inspect_clip_frames and run_frame_qa to look at the actual frames.
+- Tools: layout_clip, split_screen (two to four pictures at once, stacked or side by side for the frame), update_comp (change the frame's shape: it re-fits footage and rebuilds graphics), set_keyframes (x/y/scale), update_clip, seamless_transition; inspect_clip_frames and run_frame_qa to look at the actual frames.
 - Finish with consult_council {"member":"director"} and fix what it lists.
 Report: the shot list with the framing per cut, and what you re-framed and why.`,
   },
@@ -142,7 +143,7 @@ export const SEAT_TOOLS: Record<CouncilRole, ReadonlySet<string>> = {
     'cutout_image', 'detect_faces', 'key_green_screen',
   ]),
   director: new Set([
-    'save_storyboard', 'save_video_blueprint', 'execute_blueprint', 'layout_clip', 'seamless_transition', 'add_transition', 'inspect_clip_frames',
+    'save_storyboard', 'save_video_blueprint', 'execute_blueprint', 'layout_clip', 'split_screen', 'update_comp', 'seamless_transition', 'add_transition', 'inspect_clip_frames',
     'detect_scenes', 'fill_background', 'track_people', 'run_frame_qa',
   ]),
   comedian: new Set<RoastToolName>([
@@ -525,9 +526,17 @@ function reviewDirector(ctx: Ctx, out: CouncilNote[]) {
   for (const clip of media) {
     const asset = clip.source.type === 'media' ? assets.get(clip.source.assetId) : undefined;
     if (!asset || asset.kind === 'audio' || !asset.width || !asset.height || clip.transform.fit !== 'fit' || clip.transform.scale > 100) continue;
+    // A reduced or cropped picture is a layout (split cell, PiP, panel), not bars; nor is one with
+    // a picture under it the whole time (a blurred fill, a background plate).
+    const t = clip.transform;
+    if (t.scale < 99 || t.cropLeft + t.cropRight + t.cropTop + t.cropBottom > 0) continue;
+    const order = (id: string) => comp.tracks.findIndex((track) => track.id === id);
+    const backed = comp.clips.some((other) => other.id !== clip.id && other.enabled && order(other.trackId) < order(clip.trackId)
+      && comp.tracks[order(other.trackId)]?.kind === 'video' && other.start <= clip.start + 0.05 && clipEnd(other) >= clipEnd(clip) - 0.05);
+    if (backed) continue;
     const ratio = asset.width / asset.height / (comp.width / comp.height);
     if (ratio < 0.9 || ratio > 1.1) {
-      out.push({ member: 'director', severity: 'fix', at: [clip.start, clipEnd(clip)], clipIds: [clip.id], text: `${asset.name} is ${asset.width > asset.height ? 'wide' : 'tall'} in a ${comp.width}×${comp.height} frame — it plays with bars.`, fix: 'Reframe it with layout_clip (fill, or a designed PiP/panel) and fill_background behind it.' });
+      out.push({ member: 'director', severity: 'fix', at: [clip.start, clipEnd(clip)], clipIds: [clip.id], text: `${asset.name} is ${asset.width > asset.height ? 'wide' : 'tall'} in a ${comp.width}×${comp.height} frame — it plays with bars.`, fix: 'Reframe it: update_comp reframe blur (fit over a blurred copy), layout_clip / split_screen (a designed layout), or fill_background behind it.' });
     }
   }
 }

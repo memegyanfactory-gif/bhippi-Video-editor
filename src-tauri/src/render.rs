@@ -20,6 +20,7 @@
 //! parts it must copy.
 
 mod audio;
+pub mod codec;
 mod raster;
 mod text;
 mod video;
@@ -31,6 +32,7 @@ mod tests;
 
 use crate::library::Asset;
 use crate::project::{Comp, Easing, Keyframe, Project, SfxKind};
+pub use codec::{Codecs, Loudness};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -56,9 +58,84 @@ pub struct ExportOptions {
     /// `mp4` · `mov` · `mov-alpha` (ProRes 4444 + alpha) · `avi` · `mp3` (audio only).
     #[serde(default = "default_format")]
     pub format: String,
-    /// `auto` · `gpu` · `cpu`: which H.264 encoder MP4/MOV use. `None` follows Settings.
+    /// `auto` · `gpu` · `cpu`: whether H.264, HEVC and AV1 may use the GPU. `None` follows Settings.
     #[serde(default)]
     pub encoder: Option<String>,
+    /// Mastering profile: ProRes `proxy` · `lt` · `standard` · `hq`; DNxHR `lb` · `sq` · `hq` · `hqx` · `444`.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// `quality` (constant quality, the default) · `vbr` · `cbr`.
+    #[serde(default)]
+    pub rate_control: Option<String>,
+    /// Target bitrate for VBR / CBR, Mbit/s.
+    #[serde(default)]
+    pub bitrate: Option<f64>,
+    /// VBR ceiling, Mbit/s (1.5× the target when absent).
+    #[serde(default)]
+    pub max_bitrate: Option<f64>,
+    /// Two-pass VBR on the CPU encoders (x264, x265, VP9).
+    #[serde(default)]
+    pub two_pass: bool,
+    /// 8 (default) or 10: HEVC and AV1.
+    #[serde(default)]
+    pub bit_depth: Option<u8>,
+    /// Seconds between keyframes; `None` leaves it to the encoder.
+    #[serde(default)]
+    pub keyframe_interval: Option<f64>,
+    /// WebM keeps the comp's transparency (VP9 with alpha).
+    #[serde(default)]
+    pub alpha: bool,
+    /// Lossy audio bitrate, kbit/s; `None` follows the quality ladder (128 · 192 · 320).
+    #[serde(default)]
+    pub audio_bitrate: Option<u32>,
+    /// 44100 · 48000 (default) · 96000.
+    #[serde(default)]
+    pub sample_rate: Option<u32>,
+    /// Loudness normalisation target in LUFS (−14 streaming, −16 podcast, −23 broadcast).
+    #[serde(default)]
+    pub loudness: Option<f64>,
+    /// The soundtrack's measured loudness, filled in by the export job's first pass.
+    #[serde(default)]
+    pub loudness_measured: Option<Loudness>,
+    /// Timeline markers written as chapters (MP4, MOV, WebM, M4A).
+    #[serde(default = "chapters_default")]
+    pub chapters: bool,
+    /// A folder for the render window's live preview JPEGs (set by the export job).
+    #[serde(default)]
+    pub preview_dir: Option<String>,
+}
+
+const fn chapters_default() -> bool {
+    true
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        Self {
+            output: String::new(),
+            comp_id: String::new(),
+            resolution: None,
+            fps: None,
+            quality: default_quality(),
+            in_to_out: false,
+            format: default_format(),
+            encoder: None,
+            profile: None,
+            rate_control: None,
+            bitrate: None,
+            max_bitrate: None,
+            two_pass: false,
+            bit_depth: None,
+            keyframe_interval: None,
+            alpha: false,
+            audio_bitrate: None,
+            sample_rate: None,
+            loudness: None,
+            loudness_measured: None,
+            chapters: true,
+            preview_dir: None,
+        }
+    }
 }
 
 /// The H.264 (or fallback) encoder an MP4/MOV export is written with.
@@ -143,18 +220,17 @@ fn default_format() -> String {
 /// each for sharing (MP4), editing (MOV) and transparency (MOV ProRes 4444
 /// with alpha), plus AVI and audio-only MP3.
 pub fn is_supported_format(format: &str) -> bool {
-    matches!(format, "mp4" | "mov" | "mov-alpha" | "avi" | "mp3")
+    codec::format(format).is_ok()
 }
 
 /// The file extension a format must carry, so `movie.mov` never holds MP4 bytes.
 pub fn expected_extension(format: &str) -> Result<&'static str, String> {
-    match format {
-        "mp4" => Ok("mp4"),
-        "mov" | "mov-alpha" => Ok("mov"),
-        "avi" => Ok("avi"),
-        "mp3" => Ok("mp3"),
-        other => Err(format!("\"{other}\" is not an export format — mp4, mov, mov-alpha, avi or mp3")),
-    }
+    codec::format(format).map(|spec| spec.ext)
+}
+
+/// Whether a format has no picture (MP3, WAV, M4A, FLAC).
+pub fn is_audio_only(format: &str) -> bool {
+    codec::format(format).is_ok_and(|spec| spec.video.is_none())
 }
 
 /// What the graph produces.
@@ -166,6 +242,8 @@ pub enum Output {
     Audio,
     /// One frame as a PNG.
     Still,
+    /// The soundtrack measured for loudness normalisation (`loudnorm` JSON on stderr, no file).
+    Loudness,
 }
 
 /// Everything FFmpeg needs, built without touching the disk so it can be tested.
@@ -178,6 +256,10 @@ pub struct RenderPlan {
     pub width: u32,
     pub height: u32,
     pub duration: f64,
+    /// Two-pass encodes: the statistics pass, run first in the same working directory.
+    pub first_pass: Option<Vec<String>>,
+    /// Whether the picture is encoded on the GPU (a CPU render is kept ready as a fallback).
+    pub gpu: bool,
 }
 
 pub const RESOLUTIONS: [u32; 7] = [360, 480, 540, 720, 1080, 1440, 2160];
@@ -213,6 +295,19 @@ pub fn plan_with_encoder(
     output: Output,
     start: f64,
 ) -> Result<RenderPlan, String> {
+    plan_with_codecs(project, assets, options, sfx_path, Codecs { h264: encoder, gpu_hevc: false, gpu_av1: false }, output, start)
+}
+
+/// [`plan`] with every encoder chosen by the caller: H.264 and whether the GPU also does HEVC / AV1.
+pub fn plan_with_codecs(
+    project: &Project,
+    assets: &HashMap<String, Asset>,
+    options: &ExportOptions,
+    sfx_path: impl Fn(SfxKind) -> String,
+    codecs: Codecs,
+    output: Output,
+    start: f64,
+) -> Result<RenderPlan, String> {
     let comp = project.comp(&options.comp_id).ok_or("that comp is not in the project")?;
     project.validate_media(&comp.id, assets)?;
     let mut reachable=std::collections::HashSet::new();
@@ -239,32 +334,62 @@ pub fn plan_with_encoder(
             return Err(format!("{short}p is not an export resolution"));
         }
     }
-    let expected = expected_extension(&options.format)?;
+    let spec = codec::format(&options.format)?;
+    let expected = spec.ext;
     // Stills are always PNG regardless of the video format; only moving and
     // audio outputs must match their container.
-    if !matches!(output, Output::Still) {
+    if matches!(output, Output::Video | Output::Audio) {
         let actual = Path::new(&options.output).extension().and_then(|ext| ext.to_str()).unwrap_or_default();
         if !actual.eq_ignore_ascii_case(expected) {
             return Err(format!("a {} export must end in .{expected} — not .{actual}", options.format));
         }
+    }
+    if output == Output::Video && spec.video.is_none() {
+        return Err(format!("{} is audio only — it has no picture to render", options.format));
     }
     if let Some(fps) = options.fps {
         if !fps.is_finite() || !(1.0..=120.0).contains(&fps) {
             return Err("the frame rate must be between 1 and 120".to_owned());
         }
     }
-    let q = match options.quality.as_str() {
-        "draft" => 6,
-        "standard" => 3,
+    let rung = match options.quality.as_str() {
+        "draft" => 0,
+        "standard" => 1,
         "high" => 2,
         other => return Err(format!("\"{other}\" is not an export quality")),
     };
-    // MP3 bitrate follows the same quality ladder as picture CRF.
-    let audio_bitrate = match options.quality.as_str() {
-        "draft" => "128k",
-        "standard" => "192k",
-        _ => "320k",
+    let bitrate = |value: Option<f64>, what: &str| -> Result<f64, String> {
+        value.filter(|mbps| mbps.is_finite() && (0.1..=500.0).contains(mbps)).ok_or_else(|| format!("{what} must be 0.1–500 Mbit/s"))
     };
+    let rate_control = match options.rate_control.as_deref().unwrap_or("quality") {
+        "quality" => codec::Rate::Quality(rung),
+        "vbr" => {
+            let target = bitrate(options.bitrate, "the target bitrate")?;
+            let max = match options.max_bitrate { Some(_) => bitrate(options.max_bitrate, "the maximum bitrate")?, None => target * 1.5 };
+            codec::Rate::Vbr { target, max: max.max(target) }
+        }
+        "cbr" => codec::Rate::Cbr(bitrate(options.bitrate, "the bitrate")?),
+        other => return Err(format!("\"{other}\" is not a bitrate mode — quality, vbr or cbr")),
+    };
+    let bit_depth = options.bit_depth.unwrap_or(8);
+    if !matches!(bit_depth, 8 | 10) {
+        return Err("the bit depth must be 8 or 10".to_owned());
+    }
+    if options.keyframe_interval.is_some_and(|seconds| !seconds.is_finite() || !(0.1..=60.0).contains(&seconds)) {
+        return Err("keyframes must come every 0.1–60 seconds".to_owned());
+    }
+    let sample_rate = options.sample_rate.unwrap_or(SAMPLE_RATE);
+    if !matches!(sample_rate, 44_100 | 48_000 | 96_000) {
+        return Err("the sample rate must be 44.1, 48 or 96 kHz".to_owned());
+    }
+    if options.audio_bitrate.is_some_and(|kbps| !(32..=512).contains(&kbps)) {
+        return Err("the audio bitrate must be 32–512 kbit/s".to_owned());
+    }
+    if options.loudness.is_some_and(|lufs| !lufs.is_finite() || !codec::LOUDNESS_RANGE.contains(&lufs)) {
+        return Err("the loudness target must be between −36 and −5 LUFS".to_owned());
+    }
+    // Lossy sound follows the quality ladder unless a bitrate is given.
+    let audio_kbps = options.audio_bitrate.unwrap_or([128, 192, 320][rung]);
     let rate = Rate::from_fps(options.fps.unwrap_or(comp.fps));
     let (width, height) = output_size(comp, options.resolution, output);
     let (t0, duration, frames) = match output {
@@ -274,7 +399,7 @@ pub fn plan_with_encoder(
             }
             (start, 1.0 / rate.fps(), 1)
         }
-        Output::Video | Output::Audio => {
+        Output::Video | Output::Audio | Output::Loudness => {
             let (t0, duration) = range(comp, options.in_to_out)?;
             (t0, duration, ((duration * rate.fps() - 1e-6).ceil() as u64).max(1))
         }
@@ -288,9 +413,6 @@ pub fn plan_with_encoder(
         graph.scaler = "lanczos";
     }
     let frame = Frame { w: width, h: height, ratio: f64::from(height) / f64::from(comp.height) };
-    // ProRes-alpha renders the comp over transparency (nested comps already
-    // are); every other video format flattens onto black as before.
-    let alpha = options.format == "mov-alpha";
     let mut args: Vec<String> = Vec::new();
     // Provenance stamped into the file itself: any player or editor opening
     // the export reads what made it, from what, and where its chapters are.
@@ -308,65 +430,185 @@ pub fn plan_with_encoder(
     // The soundtrack is identical for picture and audio-only exports. Stills
     // build no audio at all: an unmapped filter output fails the render.
     let samples = (duration * f64::from(SAMPLE_RATE)).round().max(1.0) as u64;
+    let has_sound = spec.sound != codec::Sound::None;
+    let sound_args = |args: &mut Vec<String>| {
+        args.extend(codec::sound(spec.sound, audio_kbps));
+        if has_sound {
+            args.extend(["-ar".to_owned(), sample_rate.to_string()]);
+        }
+    };
+    // Timeline markers become real chapters (MP4, MOV, WebM, M4A): players list them and jump.
+    let chapter_input = |graph: &mut Graph| -> Option<usize> {
+        if !options.chapters || !matches!(spec.ext, "mp4" | "mov" | "webm" | "m4a") {
+            return None;
+        }
+        let mut marks: Vec<(f64, String)> = comp.markers.iter().map(|marker| (marker.time - t0, clean(&marker.name))).filter(|(at, _)| *at >= 0.0 && *at < duration).collect();
+        marks.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if marks.is_empty() {
+            return None;
+        }
+        if marks[0].0 > 0.05 {
+            marks.insert(0, (0.0, "Start".to_owned()));
+        }
+        let escape = |text: &str| text.chars().flat_map(|c| if matches!(c, '=' | ';' | '#' | '\\') { vec!['\\', c] } else { vec![c] }).collect::<String>();
+        let mut text = String::from(";FFMETADATA1\n");
+        for (index, (at, name)) in marks.iter().enumerate() {
+            let end = marks.get(index + 1).map_or(duration, |next| next.0);
+            let title = if name.is_empty() { format!("Chapter {}", index + 1) } else { name.clone() };
+            text.push_str(&format!("[CHAPTER]\nTIMEBASE=1/1000\nSTART={}\nEND={}\ntitle={}\n", (at * 1000.0).round() as u64, (end * 1000.0).round() as u64, escape(&title)));
+        }
+        let name = graph.file("chapters", "txt", text.into_bytes());
+        Some(graph.input(vec!["-f".into(), "ffmetadata".into(), "-i".into(), name]))
+    };
+    let mut first_pass = None;
+    let mut gpu = false;
     match output {
         Output::Video => {
+            let family = spec.video.ok_or("that format has no picture")?;
+            // ProRes 4444 and WebM-with-alpha render the comp over transparency (nested comps
+            // already are); every other video format flattens onto black.
+            let alpha = family == codec::Family::ProRes4444 || (family == codec::Family::Vp9 && options.alpha);
+            let settings = codec::VideoSettings {
+                rate: rate_control,
+                profile: options.profile.as_deref(),
+                bit_depth,
+                gop: options.keyframe_interval.map(|seconds| (seconds * rate.fps()).round().max(1.0) as u32),
+                alpha,
+                passlog: options.two_pass.then_some("helios-pass"),
+            };
+            let video = codec::video(family, codecs, &settings)?;
+            gpu = video.gpu;
+            let two_pass = video.first_pass.is_some();
             let picture = graph.comp_video(comp, frame, Span { t0, frames }, alpha, 0)?;
-            let mix = match graph.comp_audio(comp, t0, samples, 0)? {
-                Some(mix) => graph.chain(&[mix], "alimiter=limit=0.944:attack=5:release=80:level=0:latency=1"),
-                None => graph.chain(&[], "anullsrc=r=48000:cl=stereo"),
+            // A live look at the encode for the render window: one small JPEG a second, beside
+            // the export (not with two passes: the first pass would have no use for it).
+            let preview = options.preview_dir.as_ref().filter(|_| family != codec::Family::Gif && !two_pass);
+            let picture = match preview {
+                Some(_) => {
+                    let (main, thumb) = graph.split(&picture);
+                    graph.chain_to(&[thumb], "fps=1,scale=480:-2:flags=bilinear,format=yuvj420p", "vthumb");
+                    main
+                }
+                None => picture,
             };
-            graph.chain_to(&[mix], &format!("aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad=whole_len={samples},atrim=end_sample={samples}"), "aout");
-            if alpha {
-                graph.chain_to(&[picture], "format=yuva444p10le", "vout");
-            } else {
-                // The RGB composite becomes 4:2:0 once, here: accurate rounding and full-precision
-                // chroma keep colour edges (red type, graphics) clean at Standard and High.
-                let convert = if high_quality { "scale=out_color_matrix=bt709:out_range=tv:flags=lanczos+accurate_rnd+full_chroma_int,format=yuv420p" } else { "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p" };
-                graph.chain_to(&[picture], convert, "vout");
+            match family {
+                codec::Family::Gif => {
+                    // One palette for the whole clip, then dithered to it: far cleaner than
+                    // FFmpeg's default web palette.
+                    let rgb = graph.chain(&[picture], "format=rgb24");
+                    let (for_palette, to_map) = graph.split(&rgb);
+                    let dither = ["bayer:bayer_scale=3", "sierra2_4a", "sierra2_4a"][rung];
+                    let palette = graph.chain(&[for_palette], &format!("palettegen=max_colors={}:stats_mode=diff", [128, 256, 256][rung]));
+                    graph.chain_to(&[to_map, palette], &format!("paletteuse=dither={dither}:diff_mode=rectangle"), "vout");
+                }
+                _ if alpha => graph.chain_to(&[picture], &format!("format={}", video.pix_fmt), "vout"),
+                _ => {
+                    // The RGB composite becomes YUV once, here: accurate rounding and full-precision
+                    // chroma keep colour edges (red type, graphics) clean at Standard and High.
+                    let flags = if high_quality { ":flags=lanczos+accurate_rnd+full_chroma_int" } else { "" };
+                    graph.chain_to(&[picture], &format!("scale=out_color_matrix=bt709:out_range=tv{flags},format={}", video.pix_fmt), "vout");
+                }
             }
-            // Codec per container. ProRes 4444 is fixed broadcast quality, so
-            // the draft/standard/high ladder only steers H.264, MPEG-4 and MP3.
-            let video_codec: Vec<String> = match options.format.as_str() {
-                "mov-alpha" => vec!["-c:v".into(), "prores_ks".into(), "-profile:v".into(), "4444".into()],
-                "avi" => mpeg4_args(&q.to_string(), options.quality != "draft"),
-                _ => encoder.args(&options.quality),
+            if has_sound {
+                soundtrack(&mut graph, comp, t0, samples, options)?;
+            }
+            let chapters = chapter_input(&mut graph);
+            let inputs = graph.finish();
+            let tail = |codec_args: &[String], args: &mut Vec<String>| {
+                args.extend(codec_args.iter().cloned());
+                if family != codec::Family::Gif {
+                    args.extend(["-pix_fmt".to_owned(), video.pix_fmt.to_owned()]);
+                    args.extend(["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"].map(str::to_owned));
+                }
             };
-            args.extend(graph.finish());
-            args.extend(["-map", "[vout]", "-map", "[aout]"].map(str::to_owned));
-            args.extend(video_codec);
+            if let Some(first) = &video.first_pass {
+                // Pass one only gathers statistics: the sound is mixed (every graph output must be
+                // consumed) and thrown away with the picture.
+                let mut pass: Vec<String> = inputs.clone();
+                pass.extend(["-map", "[vout]"].map(str::to_owned));
+                if has_sound {
+                    pass.extend(["-map", "[aout]", "-c:a", "pcm_s16le"].map(str::to_owned));
+                }
+                tail(first, &mut pass);
+                pass.extend(["-t".to_owned(), num(duration), "-f".to_owned(), "null".to_owned(), "-".to_owned()]);
+                first_pass = Some(pass);
+            }
+            args.extend(inputs);
+            args.extend(["-map", "[vout]"].map(str::to_owned));
+            if has_sound {
+                args.extend(["-map", "[aout]"].map(str::to_owned));
+            }
+            if let Some(index) = chapters {
+                args.extend(["-map_chapters".to_owned(), index.to_string()]);
+            }
+            tail(&video.args, &mut args);
+            sound_args(&mut args);
             args.extend(file_metadata);
-            if alpha {
-                args.extend(["-pix_fmt", "yuva444p10le", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t"].map(str::to_owned));
-            } else if options.format == "avi" {
-                // PCM audio: always present in an AVI mux, unlike MP3/AAC encoders.
-                args.extend(["-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", "-t"].map(str::to_owned));
-            } else {
-                args.extend(
-                    ["-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "-t"]
-                        .map(str::to_owned),
-                );
+            if matches!(spec.ext, "mp4" | "mov") {
+                args.extend(["-movflags", "+faststart"].map(str::to_owned));
             }
-            args.push(num(duration));
+            args.extend(["-t".to_owned(), num(duration), options.output.clone()]);
+            if let Some(dir) = preview {
+                args.extend(["-map", "[vthumb]", "-q:v", "7", "-t"].map(str::to_owned));
+                args.push(num(duration));
+                args.extend(["-f".to_owned(), "image2".to_owned(), format!("{}/preview_%05d.jpg", dir.trim_end_matches(['/', '\\']))]);
+            }
         }
         Output::Audio => {
+            if spec.sound == codec::Sound::None {
+                return Err(format!("{} has no sound to export", options.format));
+            }
+            soundtrack(&mut graph, comp, t0, samples, options)?;
+            let chapters = chapter_input(&mut graph);
+            args.extend(graph.finish());
+            args.extend(["-map", "[aout]"].map(str::to_owned));
+            if let Some(index) = chapters {
+                args.extend(["-map_chapters".to_owned(), index.to_string()]);
+            }
+            sound_args(&mut args);
+            args.extend(file_metadata);
+            if spec.ext == "m4a" {
+                args.extend(["-movflags", "+faststart"].map(str::to_owned));
+            }
+            args.extend(["-t".to_owned(), num(duration), options.output.clone()]);
+        }
+        Output::Loudness => {
+            // The soundtrack alone, measured: `loudnorm` prints its EBU R128 reading as JSON.
+            let target = options.loudness.unwrap_or(-14.0);
             let mix = match graph.comp_audio(comp, t0, samples, 0)? {
                 Some(mix) => graph.chain(&[mix], "alimiter=limit=0.944:attack=5:release=80:level=0:latency=1"),
                 None => graph.chain(&[], "anullsrc=r=48000:cl=stereo"),
             };
-            graph.chain_to(&[mix], &format!("aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad=whole_len={samples},atrim=end_sample={samples}"), "aout");
+            graph.chain_to(&[mix], &format!("loudnorm=I={}:TP=-1:LRA=11:print_format=json", num(target)), "aout");
             args.extend(graph.finish());
-            args.extend(["-map", "[aout]", "-c:a", "libmp3lame", "-b:a", audio_bitrate, "-ar", "48000", "-t"].map(str::to_owned));
+            args.extend(["-map", "[aout]", "-t"].map(str::to_owned));
             args.push(num(duration));
+            args.extend(["-f", "null", "-"].map(str::to_owned));
         }
         Output::Still => {
             let picture = graph.comp_video(comp, frame, Span { t0, frames }, false, 0)?;
             graph.chain_to(&[picture], "format=rgb24", "vout");
             args.extend(graph.finish());
             args.extend(["-map", "[vout]", "-frames:v", "1", "-update", "1"].map(str::to_owned));
+            args.push(options.output.clone());
         }
     }
-    args.push(options.output.clone());
-    Ok(RenderPlan { args, files: graph.files, width, height, duration })
+    Ok(RenderPlan { args, files: graph.files, width, height, duration, first_pass, gpu })
+}
+
+/// The mixed soundtrack as `[aout]`: limited, normalised when asked, exactly `samples` long.
+fn soundtrack<'a>(graph: &mut Graph<'a>, comp: &'a Comp, t0: f64, samples: u64, options: &ExportOptions) -> Result<(), String> {
+    let mix = match graph.comp_audio(comp, t0, samples, 0)? {
+        Some(mix) => graph.chain(&[mix], "alimiter=limit=0.944:attack=5:release=80:level=0:latency=1"),
+        None => graph.chain(&[], "anullsrc=r=48000:cl=stereo"),
+    };
+    // Loudness normalisation, then back to 48 kHz (loudnorm works at 192 kHz inside).
+    let mix = match options.loudness {
+        Some(target) => graph.chain(&[mix], &format!("{},aresample=48000", codec::loudnorm(target, options.loudness_measured))),
+        None => mix,
+    };
+    graph.chain_to(&[mix], &format!("aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad=whole_len={samples},atrim=end_sample={samples}"), "aout");
+    Ok(())
 }
 
 /// The comp's frame size, or scaled so the short side is `short`. Video frames are even-sized

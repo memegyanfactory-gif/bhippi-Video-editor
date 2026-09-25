@@ -9,6 +9,7 @@
 mod hardware;
 mod ideagraph;
 mod local_media;
+mod magic_mask;
 mod ai_tools;
 mod caption_styles;
 mod chat;
@@ -2283,6 +2284,25 @@ fn finish_export(part: &Path, output: &Path, result: CommandResult<()>) -> Comma
     })
 }
 
+/// Where each running export writes its render-window preview JPEGs, by job id.
+fn export_previews() -> &'static std::sync::Mutex<HashMap<String, PathBuf>> {
+    static PREVIEWS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, PathBuf>>> = std::sync::OnceLock::new();
+    PREVIEWS.get_or_init(Default::default)
+}
+
+/// The newest preview frame of a running export (one small JPEG per second of video, written by
+/// FFmpeg beside the export), for the render window to show the encode as it happens.
+#[tauri::command]
+fn export_preview(job_id: String) -> Option<String> {
+    let dir = export_previews().lock().ok()?.get(&job_id)?.clone();
+    let newest = std::fs::read_dir(&dir).ok()?.flatten().map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|ext| ext == "jpg")).max()?;
+    // The newest file may still be being written; the one before it is complete.
+    let name = newest.file_stem()?.to_string_lossy().into_owned();
+    let index: usize = name.strip_prefix("preview_")?.parse().ok()?;
+    let settled = if index > 1 { dir.join(format!("preview_{:05}.jpg", index - 1)) } else { newest };
+    settled.is_file().then(|| settled.display().to_string())
+}
+
 #[tauri::command]
 async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: Project, options: ExportOptions) -> CommandResult<String> {
     /// How many ffmpeg exports burn at once; further renders queue behind them.
@@ -2297,40 +2317,41 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
     if let Some(parent) = output.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     }
+    let work = state.paths.work.join(format!("export-{}", store::new_id()));
+    let preview_dir = work.join("preview");
+    std::fs::create_dir_all(&preview_dir).map_err(|error| error.to_string())?;
+    let _ignored = app.asset_protocol_scope().allow_directory(&preview_dir, false);
     // FFmpeg writes a part file beside the target, which takes the real name only once it is done.
     let part = export_part_path(&output);
-    let rendering = ExportOptions { output: part.display().to_string(), ..options.clone() };
+    let rendering = ExportOptions { output: part.display().to_string(), preview_dir: Some(preview_dir.display().to_string().replace('\\', "/")), ..options.clone() };
     let sfx_dir = state.paths.sfx.clone();
-    let kind = if options.format == "mp3" { render::Output::Audio } else { render::Output::Video };
+    let kind = if render::is_audio_only(&options.format) { render::Output::Audio } else { render::Output::Video };
     let assets = state.assets_by_id();
-    // The GPU encoder when one works here and neither the dialog nor Settings refuses it.
+    // The GPU encoders when they work here and neither the dialog nor Settings refuses them.
     let preference = options.encoder.clone().or_else(|| state.settings().export.encoder);
-    let encoder = render::VideoEncoder::choose(preference.as_deref(), tools.status.x264, tools.status.gpu_encoder.as_deref());
-    let plan = render::plan_with_encoder(&project, &assets, &rendering, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), encoder, kind, 0.0)?;
-    // The same render on the CPU, kept ready in case the hardware encoder fails mid-way (a driver
-    // reset, a session limit, a frame size the card refuses).
-    let fallback = if encoder.is_gpu() && matches!(options.format.as_str(), "mp4" | "mov") {
-        Some(render::plan_with_encoder(&project, &assets, &rendering, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), render::VideoEncoder::cpu(tools.status.x264), kind, 0.0)?)
-    } else {
-        None
-    };
-    for args in std::iter::once(&plan.args).chain(fallback.as_ref().map(|fallback| &fallback.args)) {
+    let h264 = render::VideoEncoder::choose(preference.as_deref(), tools.status.x264, tools.status.gpu_encoder.as_deref());
+    let codecs = render::Codecs { h264, gpu_hevc: h264.is_gpu() && tools.status.gpu_hevc, gpu_av1: h264.is_gpu() && tools.status.gpu_av1 };
+    let cpu = render::Codecs::cpu(tools.status.x264);
+    let sfx_for = move |kind| sfx::path_for(&sfx_dir, kind).display().to_string();
+    // Planned now so a bad setting fails before the job exists; planned again below once the
+    // loudness has been measured.
+    let plan = render::plan_with_codecs(&project, &assets, &rendering, &sfx_for, codecs, kind, 0.0)?;
+    for args in std::iter::once(&plan.args).chain(plan.first_pass.as_ref()) {
         refuse_overwriting_an_input(&output, args, &state.paths.work)?;
     }
     let comp_name = project.comp(&options.comp_id).map_or_else(|| "video".to_owned(), |comp| comp.name.clone());
     let file_name = output.file_name().map_or_else(|| "video".into(), |name| name.to_string_lossy().into_owned());
     let job = state.jobs.start("export", format!("Exporting {comp_name} · {file_name} ({})", options.format), true);
     let job_id = job.id().to_owned();
+    if let Ok(mut previews) = export_previews().lock() {
+        previews.insert(job_id.clone(), preview_dir.clone());
+    }
     let queue_id = job_id.clone();
     let jobs = state.jobs.clone();
-    let work = state.paths.work.join(job.id());
-    std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
-    for (name, contents) in &plan.files {
-        std::fs::write(work.join(name), contents).map_err(|error| error.to_string())?;
-    }
     let env = tools::FfmpegEnv { fontconfig_file: state.fontconfig.clone() };
     let output_text = output.display().to_string();
     let app_handle = app.clone();
+    let x264 = tools.status.x264;
     tauri::async_runtime::spawn(async move {
         // The render queue: at most two ffmpeg exports burn at once; the rest
         // wait with an honest message instead of melting the machine. Waiting
@@ -2344,32 +2365,68 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
             job.progress(0.0, "Queued — waiting for a render slot");
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-        let on = if encoder.is_gpu() { " on the GPU" } else { "" };
-        job.progress(0.0, format!("Rendering {}×{}{on}", plan.width, plan.height));
-        let cancel = job.cancel.clone();
-        let mut result = tools::run_ffmpeg_with_progress(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |fraction| {
-            job.progress(fraction * 0.99, format!("Rendering{on} {}%", (fraction * 100.0).round()));
-        })
-        .await;
-        if let (Err(reason), Some(fallback)) = (&result, &fallback) {
-            if !*job.cancel.borrow() {
-                eprintln!("helios: GPU export failed, retrying with the CPU encoder: {reason}");
-                let written = fallback.files.iter().try_for_each(|(name, contents)| std::fs::write(work.join(name), contents));
-                if written.is_ok() {
-                    job.progress(0.0, "GPU encoder failed — rendering again on the CPU");
-                    result = tools::run_ffmpeg_with_progress(&ffmpeg, &fallback.args, Some(&work), &env, fallback.duration, job.cancel.clone(), |fraction| {
-                        job.progress(fraction * 0.99, format!("Rendering on the CPU {}%", (fraction * 100.0).round()));
+        let result: CommandResult<render::RenderPlan> = async {
+            let write_files = |plan: &render::RenderPlan| plan.files.iter().try_for_each(|(name, contents)| std::fs::write(work.join(name), contents)).map_err(|error| error.to_string());
+            let mut rendering = rendering;
+            let mut plan = plan;
+            // Loudness: measure the soundtrack, then render with a linear gain to the target.
+            if rendering.loudness.is_some() {
+                job.progress(0.0, "Measuring loudness");
+                let measure = render::plan_with_codecs(&project, &assets, &rendering, &sfx_for, codecs, render::Output::Loudness, 0.0)?;
+                write_files(&measure)?;
+                let log = tools::run_ffmpeg_collect(&ffmpeg, &measure.args, Some(&work), &env, measure.duration, job.cancel.clone(), |fraction| job.progress(fraction * 0.08, format!("Measuring loudness {}%", (fraction * 100.0).round()))).await?;
+                rendering.loudness_measured = render::codec::parse_loudness(&log);
+                plan = render::plan_with_codecs(&project, &assets, &rendering, &sfx_for, codecs, kind, 0.0)?;
+            }
+            let base = if rendering.loudness.is_some() { 0.08 } else { 0.0 };
+            let encode = |plan: render::RenderPlan, codecs: render::Codecs| {
+                let (ffmpeg, env, work, job) = (&ffmpeg, &env, &work, &job);
+                async move {
+                    write_files(&plan)?;
+                    let on = if codecs == cpu || !plan.gpu { "" } else { " on the GPU" };
+                    let span = 1.0 - base;
+                    let passes = if plan.first_pass.is_some() { 2.0 } else { 1.0 };
+                    if let Some(first) = &plan.first_pass {
+                        job.progress(base, "Pass 1 of 2 · analysing");
+                        tools::run_ffmpeg_collect(ffmpeg, first, Some(work), env, plan.duration, job.cancel.clone(), |fraction| {
+                            job.progress(base + span * fraction / passes * 0.99, format!("Pass 1 of 2 · analysing {}%", (fraction * 100.0).round()));
+                        })
+                        .await?;
+                    }
+                    let offset = base + span * (passes - 1.0) / passes;
+                    job.progress(offset, format!("Rendering {}×{}{on}", plan.width, plan.height));
+                    let pass = if passes > 1.0 { "Pass 2 of 2 · rendering" } else { "Rendering" };
+                    tools::run_ffmpeg_with_progress(ffmpeg, &plan.args, Some(work), env, plan.duration, job.cancel.clone(), |fraction| {
+                        job.progress(offset + span * fraction / passes * 0.99, format!("{pass}{on} {}%", (fraction * 100.0).round()));
                     })
-                    .await;
+                    .await?;
+                    Ok::<_, String>(plan)
                 }
+            };
+            let gpu = plan.gpu;
+            match encode(plan, codecs).await {
+                // The same render on the CPU when the hardware encoder fails mid-way (a driver
+                // reset, a session limit, a frame size the card refuses).
+                Err(reason) if gpu && !*job.cancel.borrow() => {
+                    eprintln!("helios: GPU export failed, retrying with the CPU encoder: {reason}");
+                    job.progress(base, "GPU encoder failed — rendering again on the CPU");
+                    let fallback = render::plan_with_codecs(&project, &assets, &rendering, &sfx_for, codecs.without_gpu(x264), kind, 0.0)?;
+                    encode(fallback, cpu).await
+                }
+                other => other,
             }
         }
+        .await;
+        if let Ok(mut previews) = export_previews().lock() {
+            previews.remove(&queue_id);
+        }
         let _ignored = std::fs::remove_dir_all(&work);
-        match finish_export(&part, &output, result) {
+        let duration = result.as_ref().map_or(0.0, |plan| plan.duration);
+        match finish_export(&part, &output, result.map(|_| ())) {
             Ok(()) => {
                 let size = std::fs::metadata(&output_text).map(|meta| meta.len()).unwrap_or(0);
-                let _ignored=app_handle.asset_protocol_scope().allow_file(&output_text);
-                job.done("Export complete", Some(serde_json::json!({ "path": output_text, "size": size, "duration": plan.duration })));
+                let _ignored = app_handle.asset_protocol_scope().allow_file(&output_text);
+                job.done("Export complete", Some(serde_json::json!({ "path": output_text, "size": size, "duration": duration })));
             }
             Err(reason) => job.fail(reason),
         }
@@ -2391,7 +2448,7 @@ async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id
         std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     }
     // `short_side` renders a smaller still (storyboard cards need 540p, not the full frame).
-    let options = ExportOptions { output: output.clone(), comp_id, resolution: short_side.map(|side| side.clamp(144, 4320)), fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None };
+    let options = ExportOptions { output: output.clone(), comp_id, resolution: short_side.map(|side| side.clamp(144, 4320)), fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None, ..Default::default() };
     let sfx_dir = state.paths.sfx.clone();
     let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, time)?;
     let work = state.paths.work.join(format!("frame-{}", store::new_id()));
@@ -2437,7 +2494,7 @@ async fn comp_poster(state: State<'_, Arc<AppState>>, project: Project, comp_id:
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let options = ExportOptions { output: output.display().to_string(), comp_id, resolution: Some(360), fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None };
+    let options = ExportOptions { output: output.display().to_string(), comp_id, resolution: Some(360), fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None, ..Default::default() };
     let sfx_dir = state.paths.sfx.clone();
     let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, total / 2.0)?;
     let work = state.paths.work.join(format!("poster-{}", store::new_id()));
@@ -3102,6 +3159,9 @@ pub fn run() {
             local_media_generate,
             local_media_install,
             roto_track_start,
+            magic_mask::magic_mask_frame,
+            magic_mask::magic_mask_release,
+            magic_mask::magic_mask_track_start,
             person_track_start,
             point_track_start,
             frontend_crash,
@@ -3210,6 +3270,7 @@ pub fn run() {
             chat_log_load,
             chat_log_save,
             export_start,
+            export_preview,
             export_frame,
             comp_poster,
             workspace_notes,

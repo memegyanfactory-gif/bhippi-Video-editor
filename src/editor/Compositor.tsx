@@ -17,6 +17,8 @@ import { audible, clipEnd, sourceInfo, sourceTimeAt, tracksOf, transitionWindow,
 import type { Asset, Clip, Comp, Mask, Project, ProjectItem, Transition } from '../lib/types';
 import { TextLayer, textAnchor } from './Overlay';
 import { RotoPreview } from './RotoPreview';
+import { MagicMaskLayer } from './MagicMaskLayer';
+import { wholeClipEffects } from '../lib/magicMask';
 import { HtmlMotionLayer } from './HtmlMotionLayer';
 import { MotionLayer, sceneLayerBoxes } from './MotionLayer';
 import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../lib/motionStack';
@@ -306,7 +308,7 @@ function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', sr
   return holder;
 }
 
-function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, clip, at = 0, fps = 30, quality = 1, clock, hidden = false }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; clip?: Clip; at?: number; fps?: number; quality?: number; clock?: ClockRole; hidden?: boolean }) {
+function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, clip, at = 0, fps = 30, quality = 1, clock, hidden = false, stageH = 1080 }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; clip?: Clip; at?: number; fps?: number; quality?: number; clock?: ClockRole; hidden?: boolean; stageH?: number }) {
   const running = playing && rate > 0 && !frozen;
   // A parked frame is the source frame nearest the playhead, the one the export's `fps` filter
   // picks. The element shows the frame at or before its time, so parked it is aimed half a frame
@@ -336,7 +338,7 @@ function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, cl
       if (!video.seeking && Math.abs(video.currentTime - parked) > 1 / 120) seekMedia(video, parked);
     }
   }, clock);
-  return <><div ref={holder} className="layer-media" style={matte ? { visibility: 'hidden' } : undefined} />{matte && <RotoPreview matte={matte} sourceTime={sourceTime} video={holder} corrections={clip?.rotoCorrections ?? []} at={at} fps={fps} quality={quality} />}</>;
+  return <><div ref={holder} className="layer-media" style={matte ? { visibility: 'hidden' } : undefined} />{matte && <RotoPreview matte={matte} sourceTime={sourceTime} video={holder} corrections={clip?.rotoCorrections ?? []} at={at} fps={fps} quality={quality} />}{clip?.magicMasks?.length ? <MagicMaskLayer clip={clip} holder={holder} stageH={stageH} quality={quality} fps={fps} /> : null}</>;
 }
 
 const BARS = ['#BFBFBF', '#BFBF00', '#00BFBF', '#00BF00', '#BF00BF', '#BF0000', '#0000BF'];
@@ -423,7 +425,8 @@ function Layer(props: LayerProps) {
   };
   const transition = transitionStyle(state, stageW, stageH);
   const opacity = (transform.opacity / 100) * (typeof transition.style.opacity === 'number' ? transition.style.opacity : 1);
-  const applied = computeAppliedEffects(clip.id, clip.appliedEffects, stageH);
+  // Effects limited to a Magic Mask draw in MagicMaskLayer, under this whole-clip filter.
+  const applied = computeAppliedEffects(clip.id, wholeClipEffects(clip), stageH);
   const baseFilter = cssFilter(clip.effects, stageH);
   // Blur keeps the picture's edges, as the export's does (edgeBlur.tsx).
   const { filter } = keepEdges([baseFilter, ...applied.cssFilters].filter(Boolean).join(' ') || undefined);
@@ -545,7 +548,7 @@ function Layer(props: LayerProps) {
         if (!asset || asset.missing || props.offline.has(clip.source.assetId)) picture = <div className="layer-fill offline"><span>Media Offline</span></div>;
         else if (!canPreview(asset)) picture = <div className="layer-fill preparing"><span>{asset.preview === 'failed' ? 'No preview for this format' : 'Preparing preview…'}</span></div>;
         else if (asset.kind === 'image') picture = <img className="layer-media" src={fileSrc(asset.path)} alt="" draggable={false} />;
-        else picture = <VideoElement src={mediaSrc(asset)} sourceTime={clampedSource} playing={playing && (visible || runUp)} hidden={runUp} rate={rate} speed={clip.speed} frozen={clip.hold !== null || clip.reverse} matte={clip.name?.toLowerCase().includes('background') ? null : clip.rotoMatte} clip={clip} at={time - clip.start} fps={asset.fps ?? comp.fps} quality={props.quality} clock={{ priority: 1, time, speed: clip.speed, live: depth === 0 && playing && visible && rate > 0 && clip.hold === null && !clip.reverse }} />;
+        else picture = <VideoElement src={mediaSrc(asset)} sourceTime={clampedSource} playing={playing && (visible || runUp)} hidden={runUp} rate={rate} speed={clip.speed} frozen={clip.hold !== null || clip.reverse} matte={clip.name?.toLowerCase().includes('background') ? null : clip.rotoMatte} clip={clip} at={time - clip.start} fps={asset.fps ?? comp.fps} quality={props.quality} stageH={stageH} clock={{ priority: 1, time, speed: clip.speed, live: depth === 0 && playing && visible && rate > 0 && clip.hold === null && !clip.reverse }} />;
       } else if (clip.source.type === 'item') {
         const item = project.items.find((entry) => entry.id === (clip.source as { itemId: string }).itemId);
         picture = item ? <ItemPicture item={item} sourceTime={clampedSource} /> : null;
@@ -661,7 +664,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
 
       if (isAdjustment && active) {
         // Calculate applied effects & filters for the adjustment layer
-        const adjApplied = computeAppliedEffects(clip.id, clip.appliedEffects, props.stageH);
+        const adjApplied = computeAppliedEffects(clip.id, wholeClipEffects(clip), props.stageH);
         const adjBaseFilter = cssFilter(clip.effects, props.stageH);
         const adjFilter = [adjBaseFilter, ...adjApplied.cssFilters].filter(Boolean).join(' ') || undefined;
         const adjTransform = adjApplied.transforms.length ? adjApplied.transforms.join(' ') : undefined;

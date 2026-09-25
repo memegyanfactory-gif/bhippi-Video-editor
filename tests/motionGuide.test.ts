@@ -123,8 +123,8 @@ describe('Crimson templates on 9:16 and 1:1 canvases', () => {
   });
   it('lays a portrait side panel as a card above the platform UI and a chapter marker below the top UI', () => {
     const panel = buildCrimsonTemplate({ template: 'side-panel', ...PARAMS, canvas: { width: 1080, height: 1920 } })!;
-    expect(panel.html).toContain('bottom:18%;max-height:45%');
-    expect(panel.box.y + panel.box.height).toBeCloseTo(0.82, 5);
+    expect(panel.html).toContain('bottom:20%;max-height:45%');
+    expect(panel.box.y + panel.box.height).toBeCloseTo(0.8, 5);
     const chart = buildCrimsonTemplate({ template: 'stat-chart', ...PARAMS, layout: 'side-panel-left', canvas: { width: 1080, height: 1920 } })!;
     expect(chart.box).toEqual(panel.box);
     const marker = buildCrimsonTemplate({ template: 'chapter-marker', ...PARAMS, canvas: { width: 1080, height: 1920 } })!;

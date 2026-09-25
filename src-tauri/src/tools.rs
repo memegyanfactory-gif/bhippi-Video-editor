@@ -20,25 +20,58 @@ pub struct ToolStatus {
     pub gpu_encoder: Option<String>,
     /// A readable name for it, e.g. "NVIDIA NVENC".
     pub gpu_encoder_label: Option<String>,
+    /// Whether the same GPU also encodes HEVC / AV1 here (test-encoded: an RTX 30 has no AV1).
+    pub gpu_hevc: bool,
+    pub gpu_av1: bool,
+    /// The export formats this FFmpeg can write (render::codec::FORMATS it has the encoders for).
+    pub formats: Vec<String>,
 }
 
 /// Hardware H.264 encoders in order of preference, with the name the UI shows.
 pub const GPU_ENCODERS: [(&str, &str); 3] = [("h264_nvenc", "NVIDIA NVENC"), ("h264_qsv", "Intel Quick Sync"), ("h264_amf", "AMD AMF")];
 
+/// Whether `encoder` encodes a real frame here — being listed by `-encoders` is not enough.
+async fn encodes(ffmpeg: &Path, listed: &str, encoder: &str) -> bool {
+    if !listed.contains(encoder) {
+        return false;
+    }
+    // 256×256 clears every vendor's minimum frame size; yuv420p is what exports feed it.
+    let probe = ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:r=30", "-frames:v", "1", "-pix_fmt", "yuv420p", "-c:v", encoder, "-f", "null", "-"];
+    tokio::time::timeout(std::time::Duration::from_secs(15), run(ffmpeg, &probe, None)).await.is_ok_and(|result| result.is_ok())
+}
+
 /// The first hardware encoder the build lists that also encodes a real frame here.
 async fn detect_gpu_encoder(ffmpeg: &Path, listed: &str) -> Option<&'static str> {
     for (name, _) in GPU_ENCODERS {
-        if !listed.contains(name) {
-            continue;
-        }
-        // 256×256 clears every vendor's minimum frame size; yuv420p is what exports feed it.
-        let probe = ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:r=30", "-frames:v", "1", "-pix_fmt", "yuv420p", "-c:v", name, "-f", "null", "-"];
-        let ok = tokio::time::timeout(std::time::Duration::from_secs(15), run(ffmpeg, &probe, None)).await.is_ok_and(|result| result.is_ok());
-        if ok {
+        if encodes(ffmpeg, listed, name).await {
             return Some(name);
         }
     }
     None
+}
+
+/// The formats an FFmpeg with these encoders (and GPU findings) can write.
+fn writable_formats(listed: &str, gpu_hevc: bool, gpu_av1: bool) -> Vec<String> {
+    let has = |name: &str| listed.split_whitespace().any(|word| word == name);
+    let h264 = has("libx264") || has("mpeg4");
+    crate::render::codec::FORMATS
+        .iter()
+        .filter(|format| match **format {
+            "mp4" | "mov" | "m4a" => h264 && has("aac") || **format == "m4a" && has("aac"),
+            "hevc" => (has("libx265") || gpu_hevc) && has("aac"),
+            "av1" => (has("libsvtav1") || gpu_av1) && has("aac"),
+            "webm" => has("libvpx-vp9") && has("libopus"),
+            "prores" | "mov-alpha" => has("prores_ks"),
+            "dnxhr" => has("dnxhd"),
+            "avi" => has("mpeg4"),
+            "gif" => has("gif"),
+            "mp3" => has("libmp3lame"),
+            "flac" => has("flac"),
+            "wav" => has("pcm_s24le"),
+            _ => false,
+        })
+        .map(|format| (*format).to_owned())
+        .collect()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -175,6 +208,12 @@ pub async fn resolve(explicit: Option<&str>) -> Tools {
     let encoders = run(&ffmpeg, &["-hide_banner", "-encoders"], None).await.unwrap_or_default();
     let x264 = encoders.contains("libx264");
     let gpu = detect_gpu_encoder(&ffmpeg, &encoders).await;
+    let vendor = gpu.and_then(|name| name.strip_prefix("h264_"));
+    let (gpu_hevc, gpu_av1) = match vendor {
+        Some(vendor) => (encodes(&ffmpeg, &encoders, &format!("hevc_{vendor}")).await, encodes(&ffmpeg, &encoders, &format!("av1_{vendor}")).await),
+        None => (false, false),
+    };
+    let formats = writable_formats(&encoders, gpu_hevc, gpu_av1);
     Tools {
         status: ToolStatus {
             found: true,
@@ -183,6 +222,9 @@ pub async fn resolve(explicit: Option<&str>) -> Tools {
             x264,
             gpu_encoder: gpu.map(str::to_owned),
             gpu_encoder_label: gpu.and_then(|name| GPU_ENCODERS.iter().find(|(id, _)| *id == name)).map(|(_, label)| (*label).to_owned()),
+            gpu_hevc,
+            gpu_av1,
+            formats,
         },
         ffmpeg: Some(ffmpeg),
         ffprobe: Some(ffprobe),
@@ -352,9 +394,23 @@ pub async fn run_ffmpeg_with_progress(
     cwd: Option<&Path>,
     env: &FfmpegEnv,
     total_seconds: f64,
+    cancel: watch::Receiver<bool>,
+    on_progress: impl FnMut(f64) + Send,
+) -> Result<(), String> {
+    run_ffmpeg_collect(ffmpeg, args, cwd, env, total_seconds, cancel, on_progress).await.map(|_| ())
+}
+
+/// [`run_ffmpeg_with_progress`], handing back the end of FFmpeg's log on success too (filters such
+/// as `loudnorm` print their measurements there).
+pub async fn run_ffmpeg_collect(
+    ffmpeg: &Path,
+    args: &[String],
+    cwd: Option<&Path>,
+    env: &FfmpegEnv,
+    total_seconds: f64,
     mut cancel: watch::Receiver<bool>,
     mut on_progress: impl FnMut(f64) + Send,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let mut command = command(ffmpeg, cwd);
     command.args(["-hide_banner", "-nostats", "-progress", "pipe:1", "-y"]);
     command.args(args);
@@ -413,7 +469,7 @@ pub async fn run_ffmpeg_with_progress(
         .map_err(|error| format!("FFmpeg did not finish: {error}"))?;
     let stderr = stderr_task.await.unwrap_or_default();
     if status.success() {
-        Ok(())
+        Ok(String::from_utf8_lossy(&stderr).into_owned())
     } else {
         Err(stderr_tail(&stderr))
     }

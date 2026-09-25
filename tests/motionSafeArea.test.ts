@@ -141,15 +141,15 @@ describe('safe area by orientation', () => {
       layers: [{ id: 'lower', name: 'Lower third', type: 'text', text: { text: 'Name here', size: 80 }, transform: { position: [540, 1750] } }],
     };
     const box = (s: MotionScene) => boxOf(s, 'lower', 1);
-    // The default for a tall frame keeps it above the bottom 18%, where the platform puts its buttons.
-    expect(box(tall).y + box(tall).height).toBeGreaterThan(1920 * 0.82);
+    // The default for a tall frame keeps it above the bottom 20%, where the platform puts its caption, handle and audio.
+    expect(box(tall).y + box(tall).height).toBeGreaterThan(1920 * 0.8);
     const fitted = fitToSafeArea(tall).scene;
-    expect(box(fitted).y + box(fitted).height).toBeLessThanOrEqual(1920 * 0.82 + 0.5);
+    expect(box(fitted).y + box(fitted).height).toBeLessThanOrEqual(1920 * 0.8 + 0.5);
     // Margins given side by side are used as given.
     expect(box(fitToSafeArea(tall, { margin: { top: 0.06, bottom: 0.06, left: 0.05, right: 0.05 } }).scene)).toEqual(box(tall));
     expect(layoutIssues(tall, { margin: { top: 0.1, bottom: 0.05, left: 0.05, right: 0.05 } })).toEqual([]);
     expect(layoutIssues(tall, { margin: { top: 0.05, bottom: 0.18, left: 0.05, right: 0.05 } })[0].overflow.bottom).toBeGreaterThan(0);
-    expect(safeMargins(tall)).toEqual({ top: 0.12, bottom: 0.18, left: 0.06, right: 0.06 });
+    expect(safeMargins(tall)).toEqual({ top: 0.12, bottom: 0.2, left: 0.06, right: 0.13 });
     expect(safeMargins({ width: W, height: H })).toEqual({ top: 0.06, bottom: 0.06, left: 0.05, right: 0.05 });
     expect(safeMargins(tall, 0.1)).toEqual({ top: 0.1, bottom: 0.1, left: 0.1, right: 0.1 });
   });

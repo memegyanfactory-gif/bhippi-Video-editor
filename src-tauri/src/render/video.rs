@@ -476,20 +476,7 @@ impl<'a> Graph<'a> {
     /// video with one frame per analyzed source frame; it is looped so short rounding
     /// differences at the tail can never reveal the background.
     fn roto_matted(&mut self, label: String, matte: &str, clip: &Clip, tau: f64, w: f64, h: f64, frames: u64) -> String {
-        let metadata = std::path::Path::new(matte).parent().and_then(|p| std::fs::read_to_string(p.join("roto.json")).ok()).and_then(|s| serde_json::from_str::<crate::roto::Roto>(&s).ok());
-        let origin = metadata.as_ref().and_then(|r| r.subjects.first()).map_or(clip.in_point, |s| s.at);
-        let duration = metadata.as_ref().map_or(clip.duration * clip.speed, |r| r.frames as f64 / r.fps);
-        let edge = source_time(clip, tau) - origin;
-        let covered = frames as f64 / self.fps() * clip.speed;
-        let start = if clip.reverse { edge - covered } else { edge }.max(0.0);
-        let index = self.input(vec!["-ss".into(), num(start.min((duration - 0.001).max(0.0))), "-i".into(), matte.to_owned()]);
-        let timing = if clip.hold.is_some() { "trim=end_frame=1,setpts=0,".to_owned() }
-            else if clip.reverse { format!("trim=duration={},reverse,setpts=(PTS-STARTPTS)/{},", num(covered), num(clip.speed)) }
-            else { format!("setpts=(PTS-STARTPTS)/{},", num(clip.speed)) };
-        let gray = self.chain(&[format!("{index}:v:0")], &format!(
-            "{timing}fps={},format=gray16le,scale={}:{}:flags=lanczos,{}",
-            self.rate.text(), w.round(), h.round(), self.conform(0, frames)
-        ));
+        let gray = self.matte_stream(matte, clip, tau, w, h, frames, "gray16le");
         let picture = self.chain(&[label], "format=gbrap16le");
         let (keep, extract) = self.split(&picture);
         let alpha = self.chain(&[extract], "alphaextract");
@@ -505,6 +492,67 @@ impl<'a> Graph<'a> {
         }
         let multiplied = self.chain(&[alpha, corrected], "blend=all_mode=multiply:shortest=1");
         self.chain(&[keep, multiplied], "alphamerge")
+    }
+
+    /// A cached matte video (Roto or Magic Mask) as a greyscale stream on the clip's timing,
+    /// `w`×`h`, in pixel format `format`.
+    #[allow(clippy::too_many_arguments)]
+    fn matte_stream(&mut self, matte: &str, clip: &Clip, tau: f64, w: f64, h: f64, frames: u64, format: &str) -> String {
+        let metadata = std::path::Path::new(matte).parent().and_then(|p| std::fs::read_to_string(p.join("roto.json")).ok()).and_then(|s| serde_json::from_str::<crate::roto::Roto>(&s).ok());
+        let origin = metadata.as_ref().and_then(|r| r.subjects.first()).map_or(clip.in_point, |s| s.at);
+        let duration = metadata.as_ref().map_or(clip.duration * clip.speed, |r| r.frames as f64 / r.fps);
+        let edge = source_time(clip, tau) - origin;
+        let covered = frames as f64 / self.fps() * clip.speed;
+        let start = if clip.reverse { edge - covered } else { edge }.max(0.0);
+        let index = self.input(vec!["-ss".into(), num(start.min((duration - 0.001).max(0.0))), "-i".into(), matte.to_owned()]);
+        let timing = if clip.hold.is_some() { "trim=end_frame=1,setpts=0,".to_owned() }
+            else if clip.reverse { format!("trim=duration={},reverse,setpts=(PTS-STARTPTS)/{},", num(covered), num(clip.speed)) }
+            else { format!("setpts=(PTS-STARTPTS)/{},", num(clip.speed)) };
+        self.chain(&[format!("{index}:v:0")], &format!(
+            "{timing}fps={},format={format},scale={}:{}:flags=lanczos,{}",
+            self.rate.text(), w.round(), h.round(), self.conform(0, frames)
+        ))
+    }
+
+    /// Effects limited to a Magic Mask, in stack order, each blended in through its mask:
+    /// `maskedmerge` keeps the untouched picture where the mask is black and the effected one where
+    /// it is white. Runs at source resolution, before the picture is placed, so the mask lines up
+    /// pixel for pixel; `fx_height` is the frame height as seen from the source, which sizes the
+    /// effects exactly as the whole-clip stack sizes them after scaling. The preview draws the same
+    /// thing (editor/MagicMaskLayer.tsx): masked effects first, the whole-clip stack over them.
+    #[allow(clippy::too_many_arguments)]
+    fn magic_masked(&mut self, mut label: String, clip: &Clip, tau: f64, w: f64, h: f64, frames: u64, fx_height: u32) -> String {
+        for fx in &clip.applied_effects {
+            if fx["enabled"].as_bool() == Some(false) {
+                continue;
+            }
+            let Scope::Masked(mask, outside) = scope(clip, fx) else { continue };
+            let Some(matte) = mask.matte.as_deref() else { continue };
+            let chain = self.effect_chain(std::slice::from_ref(fx), fx_height, "");
+            if chain.is_empty() {
+                continue;
+            }
+            let gray = self.matte_stream(matte, clip, tau, w, h, frames, "gray");
+            let px = h / 1080.0;
+            let mut refine: Vec<String> = Vec::new();
+            let grow = (mask.expand * px).round().clamp(-40.0, 40.0) as i64;
+            for _ in 0..grow.unsigned_abs() {
+                refine.push(if grow > 0 { "dilation" } else { "erosion" }.to_owned());
+            }
+            if mask.feather > 0.0 {
+                refine.push(format!("gblur=sigma={}", num((mask.feather * px / 2.0).min(200.0))));
+            }
+            if mask.invert != outside {
+                refine.push("negate".to_owned());
+            }
+            refine.push("format=gbrap".to_owned());
+            let weight = self.chain(&[gray], &refine.join(","));
+            let picture = self.chain(&[label], "format=gbrap");
+            let (keep, source) = self.split(&picture);
+            let changed = self.chain(&[source], &format!("format=gbrap,{},format=gbrap", chain.join(",")));
+            label = self.chain(&[keep, changed, weight], "maskedmerge");
+        }
+        label
     }
 
     /// Alpha for a clip: a plain multiplier, or one driven per frame by keyframes.
@@ -566,6 +614,10 @@ impl<'a> Graph<'a> {
         // `scale` keeps the display aspect by changing the sample aspect; concat and xfade insist
         // every segment agrees, so square pixels are forced back on.
         parts.push("setsar=1".to_owned());
+        if clip.applied_effects.iter().any(|fx| matches!(scope(clip, fx), Scope::Masked(..))) {
+            let fx_height = (f64::from(frame.h) / (unit * transform.scale.max(0.01) / 100.0)).round().clamp(2.0, 16384.0) as u32;
+            label = self.magic_masked(label, clip, tau, source.w, source.h, frames, fx_height);
+        }
         let body = parts.join(",");
         let placed = self.chain(&[label], &body);
         if animated {
@@ -991,6 +1043,22 @@ fn countdown(clip: &Clip, item: &ProjectItem, height: f64, tau: f64) -> String {
     )
 }
 
+/// Where an applied effect draws: the whole clip, inside or outside one of its Magic Masks, or
+/// nowhere (it names a mask that is deleted or not tracked yet).
+enum Scope<'c> {
+    Whole,
+    Masked(&'c crate::project::MagicMask, bool),
+    Off,
+}
+
+fn scope<'c>(clip: &'c Clip, fx: &serde_json::Value) -> Scope<'c> {
+    let Some(id) = fx["maskId"].as_str().filter(|id| !id.is_empty()) else { return Scope::Whole };
+    match clip.magic_masks.iter().find(|mask| mask.id == id) {
+        Some(mask) if mask.matte.as_deref().is_some_and(|m| !m.is_empty()) => Scope::Masked(mask, fx["maskSide"].as_str() == Some("outside")),
+        _ => Scope::Off,
+    }
+}
+
 /// Joins touching or overlapping frame ranges.
 fn merge(spans: &[(i64, i64)]) -> Vec<(i64, i64)> {
     let mut merged: Vec<(i64, i64)> = Vec::new();
@@ -1004,9 +1072,16 @@ fn merge(spans: &[(i64, i64)]) -> Vec<(i64, i64)> {
 }
 
 impl Graph<'_> {
+    /// The whole-clip effects; those limited to a Magic Mask are drawn by `magic_masked`, and
+    /// those naming a mask that is gone or not tracked yet draw nothing, as in the preview.
     fn stack_effects(&mut self, clip: &Clip, height: u32, enable: &str) -> Vec<String> {
+        let whole: Vec<serde_json::Value> = clip.applied_effects.iter().filter(|fx| matches!(scope(clip, fx), Scope::Whole)).cloned().collect();
+        self.effect_chain(&whole, height, enable)
+    }
+
+    fn effect_chain(&mut self, list: &[serde_json::Value], height: u32, enable: &str) -> Vec<String> {
         let mut output=Vec::new();
-        for fx in &clip.applied_effects {
+        for fx in list {
             if fx["enabled"].as_bool()==Some(false) {continue;}
             let id=fx["effectId"].as_str().unwrap_or("");let p=&fx["params"];
             let n=|key:&str,default:f64|p[key].as_f64().filter(|x|x.is_finite()).unwrap_or(default);

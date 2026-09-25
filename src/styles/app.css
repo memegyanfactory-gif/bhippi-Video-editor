@@ -3950,3 +3950,61 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 @media (prefers-reduced-motion: reduce) {
   .onboarding, .onboarding-card, .onboarding-panel.from-right, .onboarding-panel.from-left, .onboarding-done { animation: none; }
 }
+
+/* Magic Mask (editor/MagicMaskBar.tsx, panels/MagicMaskSection.tsx) */
+.magic-mask-bar { display: flex; gap: 8px; align-items: center; padding: 6px 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-dim); border-bottom: 1px solid var(--line); }
+.magic-mask-hint { color: var(--text-faint); }
+.magic-mask-chips { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.magic-mask-chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text-dim); }
+.magic-mask-chip.active { color: var(--text); border-color: var(--blue-line); background: var(--blue-soft); }
+.magic-mask-swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.magic-mask-status { font-size: 10.5px; padding: 1px 6px; border-radius: 8px; background: var(--panel-3); color: var(--text-faint); white-space: nowrap; }
+.magic-mask-status.tracked { color: var(--green); background: var(--green-soft); }
+.magic-mask-status.untracked, .magic-mask-status.stale { color: var(--amber); background: var(--amber-soft); }
+.magic-mask-busy { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); }
+.magic-mask-error { color: var(--red); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.magic-mask-section { margin: 6px 8px 8px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; }
+.magic-mask-section.empty { flex-direction: row; align-items: center; color: var(--text-faint); }
+.magic-mask-section .magic-mask-error { white-space: normal; }
+.magic-mask-section-head { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text); }
+.magic-mask-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.magic-mask-card-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
+.magic-mask-name { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; padding: 2px 0; }
+.magic-mask-card-body { padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); }
+.magic-mask-looks { display: flex; gap: 4px; flex-wrap: wrap; padding-top: 4px; }
+.fx-mask-row select { max-width: 100%; }
+
+/* Export Settings (settings/ExportDialog.tsx) */
+.export-cols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px; padding: 14px 16px 8px; max-height: min(72vh, 760px); overflow: auto; }
+.export-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.export-col select, .export-col input[type="number"], .export-col input:not([type]) { min-width: 0; width: 100%; }
+.export-col .field-inline select { flex: 1; }
+.export-save-preset { align-self: flex-start; margin-top: 2px; }
+.export-summary { text-align: left; display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); font-size: 11.5px; }
+.export-summary-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; }
+.export-summary-row > span:first-child { color: var(--text-faint); }
+.export-summary-row strong { color: var(--text); }
+.export-section { display: flex; flex-direction: column; gap: 9px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.export-section:last-child { border-bottom: 0; }
+.export-section h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+.export-check { display: block; font-size: 12px; line-height: 1.45; color: var(--text); text-align: left; }
+.export-check input { margin: 0 7px 0 0; vertical-align: -2px; }
+.export-check .muted { font-size: 11px; }
+.export-loudness button { padding: 0 6px; font-size: 11px; }
+.field-error { color: var(--red); font-size: 11px; }
+@media (max-width: 760px) { .export-cols { grid-template-columns: 1fr; } }
+
+/* Frame shape picker (settings/FrameShapePicker.tsx) */
+.frame-shape { display: flex; flex-direction: column; gap: 8px; }
+.frame-shape-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.frame-shape-card { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px 7px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--field); color: var(--text-dim); cursor: pointer; min-width: 0; }
+.frame-shape-card:hover { border-color: #4a4a4a; color: var(--text); }
+.frame-shape-card.active { border-color: var(--blue); background: var(--blue-soft); color: var(--text); }
+.frame-shape-card strong { font-size: 12px; color: var(--text); }
+.frame-shape-card > span:last-child { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.frame-shape-glyph { width: 38px; height: 38px; display: grid; place-items: center; }
+.frame-shape-glyph i { display: block; border: 1.5px solid currentColor; border-radius: 2px; }
+.frame-shape-card.active .frame-shape-glyph i { border-color: var(--blue-hi); background: rgba(78, 163, 255, 0.18); }
+.frame-shape-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.frame-shape-row .segmented button { padding: 0 9px; font-size: 11px; }
+@media (max-width: 560px) { .frame-shape-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

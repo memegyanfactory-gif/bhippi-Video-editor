@@ -519,6 +519,49 @@ pub struct RotoCorrection {
     pub softness: f64,
 }
 
+/// A Magic Mask: an object picked by clicks and tracked through the clip by SAM 2.1
+/// (magic_mask.rs). Effects name it (`maskId`, `maskSide`) to apply only inside or outside it.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MagicMask {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// The clicks; `at` is **source** seconds, so trimming or moving the clip keeps them.
+    #[serde(default)]
+    pub points: Vec<RotoCorrection>,
+    /// The tracked matte (a Roto run's `matte.mkv`); none until tracked.
+    #[serde(default)]
+    pub matte: Option<String>,
+    /// What the matte was tracked from (clicks, range, quality); the UI marks it stale on change.
+    #[serde(default)]
+    pub tracked_key: Option<String>,
+    #[serde(default)]
+    pub invert: bool,
+    /// Grow (+) or shrink (−) the edge, px at 1080p.
+    #[serde(default)]
+    pub expand: f64,
+    /// Soften the edge, px at 1080p.
+    #[serde(default)]
+    pub feather: f64,
+    /// 0–1: how hard the tracked edge is steadied over neighbouring frames (applied when tracking).
+    #[serde(default = "half")]
+    pub consistency: f64,
+    /// `fast` or `better` (ViTMatte edge).
+    #[serde(default = "fast")]
+    pub quality: String,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+fn half() -> f64 {
+    0.5
+}
+
+fn fast() -> String {
+    "fast".into()
+}
+
 /// Pre-rendered frames of an HTML motion graphic: `dir/%05d.png` with alpha, `frames` of them at
 /// `fps`, starting at the clip's first frame.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -593,6 +636,9 @@ pub struct Clip {
     /// Human corrections recorded against a cached roto pass.
     #[serde(default)]
     pub roto_corrections: Vec<RotoCorrection>,
+    /// Objects picked with the Magic Mask tool; effects can be limited to them.
+    #[serde(default)]
+    pub magic_masks: Vec<MagicMask>,
     #[serde(default)]
     pub keyframes: Keyframes,
     #[serde(default)]
@@ -1403,6 +1449,7 @@ pub mod fixtures {
             mask: None,
             roto_matte: None,
             roto_corrections: Vec::new(),
+            magic_masks: Vec::new(),
             keyframes: Keyframes::default(),
             channels: Channels::default(),
             enhance_speech: false,

@@ -40,7 +40,7 @@ fn library(assets: Vec<Asset>) -> HashMap<String, Asset> {
 }
 
 fn options(comp_id: &str) -> ExportOptions {
-    ExportOptions { output: "out.mp4".to_owned(), comp_id: comp_id.to_owned(), resolution: None, fps: None, quality: "standard".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None }
+    ExportOptions { output: "out.mp4".to_owned(), comp_id: comp_id.to_owned(), resolution: None, fps: None, quality: "standard".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None, ..Default::default() }
 }
 
 fn build(project: &Project, assets: &HashMap<String, Asset>, options: &ExportOptions, output: Output, start: f64) -> Result<RenderPlan, String> {
@@ -340,7 +340,56 @@ fn every_export_format_maps_to_its_container_codecs_and_extension() {
     assert!(mp3.args.iter().all(|arg| arg != "[vout]"), "audio-only maps no picture: {mp3:?}");
 
     assert!(build(&project, &assets, &formatted("mp4", "out.mov"), Output::Video, 0.0).expect_err("extension").contains(".mp4"));
-    assert!(build(&project, &assets, &formatted("webm", "out.webm"), Output::Video, 0.0).expect_err("format").contains("webm"));
+    assert!(build(&project, &assets, &formatted("mkv-lossless", "out.mkv"), Output::Video, 0.0).expect_err("format").contains("mkv-lossless"));
+}
+
+#[test]
+fn delivery_and_mastering_formats_reach_ffmpeg_with_their_settings() {
+    use crate::project::Marker;
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let mut timeline = comp("c", vec![clip("a", "v1", 0.0, 4.0, media("m"))]);
+    timeline.markers = vec![Marker { id: "k1".into(), time: 1.5, name: "Hook; part = 1".into(), color: "#fff".into() }, Marker { id: "k2".into(), time: 9.0, name: "Past the end".into(), color: "#fff".into() }];
+    let project = project(vec![timeline]);
+    let with = |patch: ExportOptions| { let kind = if super::is_audio_only(&patch.format) { Output::Audio } else { Output::Video }; build(&project, &assets, &ExportOptions { comp_id: "c".into(), ..patch }, kind, 0.0) };
+
+    // HEVC 10-bit on the CPU, tagged for Apple players; chapters from the markers inside the range.
+    let hevc = with(ExportOptions { format: "hevc".into(), output: "out.mp4".into(), bit_depth: Some(10), ..options("c") }).expect("hevc");
+    let text = hevc.args.join(" ");
+    assert!(text.contains("libx265") && text.contains("hvc1") && text.contains("yuv420p10le") && text.contains("-map_chapters"), "{text}");
+    let chapters = String::from_utf8(hevc.files.iter().find(|(name, _)| name.starts_with("chapters")).expect("chapters file").1.clone()).unwrap();
+    assert!(chapters.contains("title=Start") && chapters.contains("START=1500") && chapters.contains(r"Hook\; part \= 1") && !chapters.contains("Past the end"), "{chapters}");
+
+    // Bitrate modes, two-pass, keyframes.
+    let vbr = with(ExportOptions { rate_control: Some("vbr".into()), bitrate: Some(12.0), two_pass: true, keyframe_interval: Some(2.0), encoder: Some("cpu".into()), ..options("c") }).expect("vbr");
+    let first = vbr.first_pass.as_ref().expect("two-pass").join(" ");
+    assert!(first.contains("-pass 1") && first.ends_with("-f null -") && vbr.args.join(" ").contains("-pass 2"), "{first}");
+    assert!(vbr.args.join(" ").contains("-b:v 12000k -maxrate 18000k") && vbr.args.join(" ").contains("-g 60"), "{:?}", vbr.args);
+    assert!(with(ExportOptions { rate_control: Some("vbr".into()), bitrate: None, ..options("c") }).expect_err("target").contains("bitrate"));
+
+    // Mastering: ProRes HQ and DNxHR with 24-bit PCM.
+    let prores = with(ExportOptions { format: "prores".into(), output: "out.mov".into(), profile: Some("hq".into()), ..options("c") }).expect("prores").args.join(" ");
+    assert!(prores.contains("prores_ks -profile:v 3") && prores.contains("pcm_s24le") && prores.contains("yuv422p10le"), "{prores}");
+    let dnx = with(ExportOptions { format: "dnxhr".into(), output: "out.mov".into(), profile: Some("sq".into()), ..options("c") }).expect("dnxhr").args.join(" ");
+    assert!(dnx.contains("dnxhr_sq") && dnx.contains("pcm_s24le"), "{dnx}");
+
+    // GIF: palette, no sound, no colour tags.
+    let gif = with(ExportOptions { format: "gif".into(), output: "out.gif".into(), ..options("c") }).expect("gif");
+    assert!(graph(&gif).contains("palettegen") && graph(&gif).contains("paletteuse") && !gif.args.contains(&"[aout]".to_owned()) && !gif.args.contains(&"-colorspace".to_owned()), "{:?}", gif.args);
+
+    // Audio only: WAV 24-bit at 44.1 kHz, loudness normalised from a measurement.
+    let measured = super::Loudness { input_i: -20.0, input_tp: -3.0, input_lra: 6.0, input_thresh: -30.0, target_offset: 0.1 };
+    let wav = with(ExportOptions { format: "wav".into(), output: "out.wav".into(), sample_rate: Some(44_100), loudness: Some(-14.0), loudness_measured: Some(measured), ..options("c") }).expect("wav");
+    assert!(wav.args.join(" ").contains("pcm_s24le -ar 44100") && graph(&wav).contains("measured_I=-20") && graph(&wav).contains("aresample=48000"), "{:?}", wav.args);
+    let measure = build(&project, &assets, &ExportOptions { loudness: Some(-16.0), ..options("c") }, Output::Loudness, 0.0).expect("measure");
+    assert!(graph(&measure).contains("print_format=json") && measure.args.ends_with(&["-f".to_owned(), "null".to_owned(), "-".to_owned()]), "{:?}", measure.args);
+    assert!(with(ExportOptions { loudness: Some(0.0), ..options("c") }).expect_err("loud").contains("LUFS"));
+
+    // The render window's live preview: a second, small JPEG output.
+    let previewed = with(ExportOptions { preview_dir: Some("C:/work/p".into()), ..options("c") }).expect("preview").args.join(" ");
+    assert!(previewed.contains("[vthumb]") && previewed.ends_with("-f image2 C:/work/p/preview_%05d.jpg"), "{previewed}");
+
+    // An audio-only format has no picture to render as video.
+    assert!(build(&project, &assets, &ExportOptions { format: "flac".into(), output: "out.flac".into(), ..options("c") }, Output::Video, 0.0).expect_err("audio only").contains("audio only"));
 }
 
 #[test]

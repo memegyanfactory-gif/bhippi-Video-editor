@@ -21,11 +21,27 @@ export type SlotName =
   | 'caption';
 
 /**
- * The margin nothing important crosses. Broadcast uses 10%; short-form needs more at the bottom,
- * where the platform puts its own chrome — a caption at y=0.95 is under TikTok's buttons.
+ * The margin nothing important crosses. Broadcast uses 10%; short-form needs more, where the
+ * platform puts its own chrome.
+ *
+ * SOCIAL_SAFE is the one box clear on TikTok, Reels and Shorts together for organic posts (2026):
+ * the top 12% holds the tabs and search, the bottom 20% the caption, handle, audio and CTA, and the
+ * right 13% the like/comment/share rail (TikTok's is 120–140 px of 1080). A caption at y=0.95 or a
+ * card in the right strip is under the buttons. Meta's ad guidance is stricter (35% at the bottom);
+ * ads should keep type above 0.65.
  */
 export const SAFE = { top: 0.06, bottom: 0.06, left: 0.05, right: 0.05 };
-export const SOCIAL_SAFE = { top: 0.12, bottom: 0.18, left: 0.06, right: 0.06 };
+export const SOCIAL_SAFE = { top: 0.12, bottom: 0.2, left: 0.06, right: 0.13 };
+/** Feed posts (4:5, 3:4, 1:1) have no button rail; Instagram's grid trims about 3% off each side of a 4:5. */
+export const FEED_SAFE = { top: 0.06, bottom: 0.06, left: 0.06, right: 0.06 };
+
+/** The safe margins for a frame's shape: social for 9:16-like, feed for 4:5 / 3:4 / 1:1, broadcast for wide. */
+export function safeFor(width: number, height: number): typeof SAFE {
+  const tall = height / Math.max(1, width);
+  if (tall >= 1.6) return SOCIAL_SAFE;
+  if (tall >= 0.98) return FEED_SAFE;
+  return SAFE;
+}
 
 export type Frame = {
   width: number;
@@ -37,7 +53,7 @@ export type Frame = {
 
 export const frameOf = (comp: Comp): Frame => {
   const vertical = comp.height > comp.width;
-  return { width: comp.width, height: comp.height, vertical, safe: vertical ? SOCIAL_SAFE : SAFE };
+  return { width: comp.width, height: comp.height, vertical, safe: safeFor(comp.width, comp.height) };
 };
 
 /** The usable rectangle: the frame minus its safe margins. */

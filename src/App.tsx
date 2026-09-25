@@ -78,7 +78,8 @@ import {
 } from './settings/Dialogs';
 import { ExportDialog } from './settings/ExportDialog';
 import { RenderQueueDialog } from './settings/RenderQueueDialog';
-import { channelForFormat } from './lib/exportPresets';
+import { channelForFormat, findFormat } from './lib/exportPresets';
+import { aspectLabel, describeReformat, reformatComp } from './lib/reformat';
 import { HomeScreen } from './settings/HomeScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { registerStorageRoot } from './lib/storage';
@@ -1403,14 +1404,19 @@ export default function App() {
   };
 
   // ── export ─────────────────────────────────────────────────────────────
-  const startExport = useCallback(async (options: ExportOptions, folder: string) => {
+  const startExport = useCallback(async (options: ExportOptions, folder: string, preset: string | null = null) => {
     setExportOpen(false);
-    saveSettings({ export: { resolution: options.resolution, fps: options.fps, quality: options.quality, folder, format: options.format, channel: channelForFormat(options.format) ?? 'rgb', encoder: options.encoder ?? null } });
+    const { output: _output, compId: _compId, inToOut: _inToOut, ...last } = options;
+    void _output; void _compId; void _inToOut;
+    const current = settingsRef.current.export;
+    saveSettings({ export: { ...current, resolution: options.resolution, fps: options.fps, quality: options.quality, folder, format: options.format, channel: channelForFormat(options.format) ?? 'rgb', encoder: options.encoder ?? null, last, preset } });
     // One render window for the whole export (no toast per frame): pre-render stages, then the
     // FFmpeg encode job, with a live picture of the frame being rendered.
     const project = history.current();
-    const graphicsTargets = htmlClipsForExport(project, options.compId);
-    const sceneTargets = motionClipsForExport(project, options.compId);
+    // Audio-only formats render no picture: nothing to pre-render.
+    const picture = findFormat(options.format).video;
+    const graphicsTargets = picture ? htmlClipsForExport(project, options.compId) : [];
+    const sceneTargets = picture ? motionClipsForExport(project, options.compId) : [];
     const stages: RenderStage[] = [...(graphicsTargets.length ? ['graphics' as const] : []), ...(sceneTargets.length ? ['scenes' as const] : []), 'encoding'];
     // Graphics are drawn at the export's frame rate and size, not the comp's: a 60 fps or 4K export
     // of a 30 fps 1080p comp gets 60 fps, 4K graphics instead of held or upscaled frames.
@@ -1426,7 +1432,7 @@ export default function App() {
       // Motion graphics are live DOM in the preview; the export gets them as rendered frames
       // with alpha, so cards, charts and panels animate in the MP4 exactly as they do here.
       // Motion scenes (the GPU engine) render frame-exact off-screen with the preview's own code.
-      const prepared = await prerenderForExport(project, options.compId, assetsRef.current, { fps, scale, signal, onStage: (stage) => renderProgress.stage(stage), onItem, onFrame, onCanvas });
+      const prepared = picture ? await prerenderForExport(project, options.compId, assetsRef.current, { fps, scale, signal, onStage: (stage) => renderProgress.stage(stage), onItem, onFrame, onCanvas }) : project;
       if (signal.aborted) throw new Error('export cancelled');
       const jobId = await api.exportStart(prepared, options);
       renderProgress.encoding(jobId);
@@ -1874,12 +1880,22 @@ export default function App() {
               openCompIds: current.openCompIds.includes(result.activeCompId!) ? current.openCompIds : [...current.openCompIds, result.activeCompId!],
             }));
           }
-          history.commit((current) => {
-            const next = { ...current, name: result.name, captionStyle: result.captionStyle };
-            return result.activeCompId
-              ? updateComp(next, result.activeCompId, (target) => ({ ...target, width: result.width, height: result.height, fps: result.fps }))
-              : next;
-          }, 'Project Settings');
+          // A new shape re-fits the footage and rebuilds the motion graphics (lib/reformat.ts).
+          const apply = (current: Project): { project: Project; reformatted: string } => {
+            let next = { ...current, name: result.name, captionStyle: result.captionStyle };
+            let reformatted = '';
+            if (!result.activeCompId) return { project: next, reformatted };
+            const target = next.comps.find((entry) => entry.id === result.activeCompId);
+            if (target && (target.width !== result.width || target.height !== result.height) && target.clips.length) {
+              const reshaped = reformatComp(next, target.id, { width: result.width, height: result.height }, result.reframe ?? 'fill');
+              next = reshaped.project;
+              reformatted = describeReformat(reshaped.report, result.reframe ?? 'fill');
+            }
+            return { project: updateComp(next, result.activeCompId, (entry) => ({ ...entry, width: result.width, height: result.height, fps: result.fps })), reformatted };
+          };
+          const { reformatted } = apply(history.current());
+          history.commit((current) => apply(current).project, reformatted ? `Reformat to ${aspectLabel(result.width, result.height)}` : 'Project Settings');
+          if (reformatted) toast({ tone: 'success', title: `Comp is now ${result.width}×${result.height} (${aspectLabel(result.width, result.height)})`, body: reformatted });
         }} />,
     );
   };
@@ -2864,7 +2880,7 @@ export default function App() {
       {onboarding && loaded && <Onboarding onPatch={(patch) => saveSettings(patch)} onDone={() => setOnboarding(false)} />}
       {settingsTab && <LiveJobs>{(live) => <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
       <ErrorBoundary scope="Render window"><RenderWindow /></ErrorBoundary>
-      {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder) => void startExport(options, folder)} />}
+      {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder, preset) => void startExport(options, folder, preset)} onPrefs={(patch) => saveSettings({ export: { ...settingsRef.current.export, ...patch } })} />}
       {queueOpen && <LiveJobs>{(live) => <RenderQueueDialog jobs={live} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}</LiveJobs>}
       {shortcutsOpen && <ShortcutsDialog shortcuts={SHORTCUTS} onClose={() => setShortcutsOpen(false)} />}
       <FXConsoleModal

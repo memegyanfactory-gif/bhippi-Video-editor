@@ -11,13 +11,19 @@ pub struct ExportPrefs {
     /// `draft` · `standard` · `high`.
     pub quality: Option<String>,
     pub folder: Option<String>,
-    /// `mp4` · `mov` · `mov-alpha` · `avi` · `mp3` — the UI owns the list.
+    /// An export format id (render::codec::FORMATS) — the UI owns the list.
     pub format: Option<String>,
     /// `rgb` · `rgba`.
     pub channel: Option<String>,
-    /// `auto` · `gpu` · `cpu` — which H.264 encoder MP4/MOV exports use. `auto` (the default)
-    /// takes the detected hardware encoder and falls back to libx264 if it fails.
+    /// `auto` · `gpu` · `cpu` — whether H.264 / HEVC / AV1 exports use the GPU. `auto` (the default)
+    /// takes the detected hardware encoder and falls back to the CPU if it fails.
     pub encoder: Option<String>,
+    /// The Export dialog's last settings (codec, bitrate, audio, loudness …), restored next time.
+    pub last: Option<serde_json::Value>,
+    /// The preset the last export started from.
+    pub preset: Option<String>,
+    /// Presets saved from the Export dialog: `{ id, label, settings }`.
+    pub presets: Vec<serde_json::Value>,
 }
 
 /// Everything about speech: which transcriber to reach for, and which voice reads a script.

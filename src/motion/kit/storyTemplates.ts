@@ -8,6 +8,7 @@
 //   big-number-behind(T27) · huge type sandwiched between the plate and the cut-out presenter
 //   stylized-broll   (T21) · duotone b-roll with halation and a stacked kinetic caption
 // Every layout is in `unit(ctx)` (1 = 1 px at 1080p on the short side) and adapts to portrait.
+import { safeFor } from '../../lib/layout';
 import { keys } from '../anim';
 import type { Ease, Effect, FootageSource, Key, Layer, MotionScene, TextLayerData, TextSpan, Vec } from '../types';
 import { blurFx, glowFx, pal, scene, shadowFx, stage, unit, type KitContext } from './common';
@@ -523,10 +524,14 @@ function socialCard(ctx: KitContext, params: SocialCardParams): MotionScene {
     const spans = richSpans(word, p.accent);
     const hasScript = spans.some((s) => s.font === 'script');
     const size = (portrait ? 120 : 132) * u;
-    const maxW = portrait ? W * 0.9 : W * 0.5;
-    const est = spans.reduce((sum, s) => sum + estimateWidth(s.text, s.font === 'script' ? size * 1.1 : size, TRACK, s.font === 'script'), 0);
+    // A tall frame keeps the word inside the social safe area (clear of the right-hand button rail),
+    // centred on that area, with room for its 112% entrance peak.
+    const safe = safeFor(W, H);
+    const maxW = portrait ? (W * (1 - safe.left - safe.right) * 0.95) / 1.12 : W * 0.5;
+    // The script face sets far wider than the estimate (measured 835 px against 555 estimated), which matters where the width is tight.
+    const est = spans.reduce((sum, s) => sum + estimateWidth(s.text, s.font === 'script' ? size * 1.1 : size, TRACK, s.font === 'script'), 0) * (portrait && hasScript ? 1.55 : 1);
     const wSize = est > maxW ? size * (maxW / est) : size;
-    const pos = portrait ? [W / 2, cy + ch / 2 + 150 * u] : [cx + cw / 2 - 30 * u, cy - ch / 2 + 70 * u];
+    const pos = portrait ? [W * (safe.left + (1 - safe.left - safe.right) / 2), cy + ch / 2 + 150 * u] : [cx + cw / 2 - 30 * u, cy - ch / 2 + 70 * u];
     layers.push(textLayer('word', {
       spans, font: ctx.font, size: wSize, weight: 800, color: '#ffffff', align: 'center', tracking: TRACK,
       shadow: { color: '#00000088', blur: 24 * u, y: 6 * u },

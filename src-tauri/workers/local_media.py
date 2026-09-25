@@ -241,6 +241,10 @@ def execute(request):
         from tracked_roto import track
         track(request, emit)
         return
+    if request.get('action') == 'magic-mask-track':
+        from magic_mask import track as track_mask
+        track_mask(request, emit)
+        return
     if request.get('action') == 'person-track':
         from person_track import track_people
         track_people(request, emit)

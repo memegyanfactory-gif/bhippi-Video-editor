@@ -15,7 +15,7 @@ const LUMA_FILTER_ID = 'helios-roto-luma-alpha';
  * filled, then starved. `sRGB` interpolation keeps the stored alpha values exact rather than
  * gamma-shifting the soft edges.
  */
-function ensureLumaFilter(): string {
+export function ensureLumaFilter(): string {
   if (!document.getElementById(LUMA_FILTER_ID)) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width', '0');
@@ -31,10 +31,10 @@ function ensureLumaFilter(): string {
 type MaskFrame = { image: HTMLImageElement; alpha?: ImageData; mask?: HTMLCanvasElement };
 
 /** The roto run a `matte.mkv` path belongs to (its folder name). */
-const runOf = (matte: string) => matte.replaceAll('\\', '/').split('/').at(-2) ?? '';
+export const runOf = (matte: string) => matte.replaceAll('\\', '/').split('/').at(-2) ?? '';
 
 /** The matte PNG of frame `index` of a roto run. */
-function maskUrl(matte: string, index: number): string {
+export function maskUrl(matte: string, index: number): string {
   const folder = matte.replaceAll('\\', '/').split('/').slice(0, -1).join('/');
   return fileSrc(`${folder}/preview/${String(index + 1).padStart(5, '0')}.png`.replace(/\//g, '\\'));
 }
@@ -44,7 +44,7 @@ function maskUrl(matte: string, index: number): string {
  * (editor/previewWarm.ts) can fetch a clip's first frames before it appears.
  */
 const sharedMasks = new Map<string, Promise<HTMLImageElement>>();
-function loadMask(url: string): Promise<HTMLImageElement> {
+export function loadMask(url: string): Promise<HTMLImageElement> {
   let hit = sharedMasks.get(url);
   if (hit) { sharedMasks.delete(url); sharedMasks.set(url, hit); return hit; }
   hit = canvasImage(url);
@@ -55,7 +55,7 @@ function loadMask(url: string): Promise<HTMLImageElement> {
 }
 
 const runMeta = new Map<string, Promise<RotoCache | null>>();
-function readRun(runId: string): Promise<RotoCache | null> {
+export function readRun(runId: string): Promise<RotoCache | null> {
   let hit = runMeta.get(runId);
   if (!hit) {
     hit = api.rotoRead(runId);

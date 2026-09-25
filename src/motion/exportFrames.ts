@@ -109,8 +109,10 @@ function restingClip(clip: Clip): Clip {
 
 export function motionClipsForExport(project: Project, compId: string): MotionTarget[] {
   const seen = new Set<string>();
-  const out: MotionTarget[] = [];
-  const visit = (id: string) => {
+  const out: (MotionTarget & { at: number })[] = [];
+  // `offset`: where this comp's time 0 falls on the exported timeline. The list is put in the order
+  // the scenes appear, so the render window walks the video from start to end.
+  const visit = (id: string, offset: number) => {
     if (seen.has(id)) return;
     seen.add(id);
     const comp = project.comps.find((c) => c.id === id);
@@ -119,19 +121,19 @@ export function motionClipsForExport(project: Project, compId: string): MotionTa
     const grouped = new Set(groups.flatMap((group) => group.clips.map((clip) => clip.id)));
     for (const group of groups) {
       const clip = carrierClip(group);
-      out.push({ comp, clip, source: clip.source as MotionSource, members: group.clips.map((member) => member.id) });
+      out.push({ comp, clip, source: clip.source as MotionSource, members: group.clips.map((member) => member.id), at: offset + Math.min(...group.clips.map((member) => member.start)) });
     }
     for (const clip of comp.clips) {
       if (!clip.enabled) continue;
-      if (clip.source.type === 'comp') visit(clip.source.compId);
+      if (clip.source.type === 'comp') visit(clip.source.compId, offset + clip.start - clip.in / Math.max(1e-6, clip.speed));
       if (clip.source.type === 'motion' && !clip.adjustment && !grouped.has(clip.id)) {
         const scene = standaloneScene(project, clip) ?? clip.source.scene;
-        out.push({ comp, clip: isLayerClip(clip) ? restingClip(clip) : clip, source: { ...clip.source, scene }, members: [clip.id] });
+        out.push({ comp, clip: isLayerClip(clip) ? restingClip(clip) : clip, source: { ...clip.source, scene }, members: [clip.id], at: offset + clip.start });
       }
     }
   };
-  visit(compId);
-  return out;
+  visit(compId, 0);
+  return out.sort((a, b) => a.at - b.at);
 }
 
 /**

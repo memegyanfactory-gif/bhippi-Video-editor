@@ -1790,6 +1790,39 @@
           "open": {
             "type": "boolean",
             "description": "Open it in the timeline (default true)."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "landscape-16-9",
+              "portrait-9-16",
+              "square-1-1",
+              "vertical-4-5",
+              "portrait-3-4",
+              "classic-4-3",
+              "cinema-2-39",
+              "ultrawide-21-9"
+            ],
+            "description": "Frame shape: landscape-16-9 (YouTube), portrait-9-16 (Reels/TikTok/Shorts), square-1-1, vertical-4-5 (feed), portrait-3-4, classic-4-3, cinema-2-39, ultrawide-21-9."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "landscape",
+              "portrait",
+              "square"
+            ],
+            "description": "Turn the current shape (16:9 becomes 9:16 and back) or square it."
+          },
+          "resolution": {
+            "type": "integer",
+            "enum": [
+              720,
+              1080,
+              1440,
+              2160
+            ],
+            "description": "Short side in pixels (1080 = Full HD / 1080×1920 portrait)."
           }
         },
         "required": [
@@ -1800,7 +1833,7 @@
     },
     {
       "name": "update_comp",
-      "description": "Renames a comp or changes its frame size or frame rate. Clip transforms are relative, so pictures keep their framing.",
+      "description": "Renames a comp or changes its frame rate or shape. A new shape (format / orientation / resolution, or width+height) reformats the comp: footage that filled the old frame fills the new one (reframe fill, cropped from the centre), fits over a blurred copy of itself (blur), fits with bars (fit) or is left alone (keep); motion graphics are rebuilt for the new canvas. Check the result with run_frame_qa.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1833,6 +1866,49 @@
           },
           "fps": {
             "type": "number"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "landscape-16-9",
+              "portrait-9-16",
+              "square-1-1",
+              "vertical-4-5",
+              "portrait-3-4",
+              "classic-4-3",
+              "cinema-2-39",
+              "ultrawide-21-9"
+            ],
+            "description": "Frame shape: landscape-16-9 (YouTube), portrait-9-16 (Reels/TikTok/Shorts), square-1-1, vertical-4-5 (feed), portrait-3-4, classic-4-3, cinema-2-39, ultrawide-21-9."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "landscape",
+              "portrait",
+              "square"
+            ],
+            "description": "Turn the current shape (16:9 becomes 9:16 and back) or square it."
+          },
+          "resolution": {
+            "type": "integer",
+            "enum": [
+              720,
+              1080,
+              1440,
+              2160
+            ],
+            "description": "Short side in pixels (1080 = Full HD / 1080×1920 portrait)."
+          },
+          "reframe": {
+            "type": "string",
+            "enum": [
+              "fill",
+              "blur",
+              "fit",
+              "keep"
+            ],
+            "description": "What footage does when the shape changes (default fill). Use blur when the whole wide picture matters (slides, gameplay, landscapes)."
           }
         },
         "additionalProperties": false
@@ -4938,6 +5014,85 @@
           "clipId",
           "slot"
         ]
+      }
+    },
+    {
+      "name": "split_screen",
+      "description": "Shows 2–4 clips at once in a split screen that suits the comp's shape: stacked top/bottom in 9:16 and feed frames, side by side in 16:9 (layout auto), or a 2×2 grid, three-up, or a picture-in-picture inset. Each clip is cropped to its cell and fills it edge to edge (focus keeps a face in frame). The clips must be on separate video tracks and overlap in time. Returns the cells and where the captions belong (on the seam of a stack).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "clipIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 4,
+            "description": "Top / left / main picture first."
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "stack",
+              "side-by-side",
+              "grid",
+              "triple",
+              "pip"
+            ]
+          },
+          "ratio": {
+            "type": "number",
+            "minimum": 0.2,
+            "maximum": 0.8,
+            "description": "Share of the first cell: 0.5 even (two people), 0.4 facecam over gameplay / B-roll, 0.6 for a lead guest."
+          },
+          "gutter": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 40,
+            "description": "Gap between cells, px at 1080 (default 6)."
+          },
+          "corner": {
+            "type": "string",
+            "enum": [
+              "top-left",
+              "top-right",
+              "bottom-left",
+              "bottom-right"
+            ],
+            "description": "PiP corner (default top-left in tall frames, clear of the button rail; bottom-right in wide ones)."
+          },
+          "pipSize": {
+            "type": "number",
+            "minimum": 0.12,
+            "maximum": 0.5,
+            "description": "PiP width as a share of the frame width (default 0.3 tall, 0.28 wide)."
+          },
+          "focus": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "description": "Per clip, the point of the source (0–1) to keep in the middle of its cell, e.g. the speaker's face."
+          }
+        },
+        "required": [
+          "clipIds"
+        ],
+        "additionalProperties": false
       }
     },
     {

@@ -37,7 +37,7 @@ async fn roto_master_and_frame_local_corrections_export_real_pixels() {
     let project = Project { version: VERSION, name:"roto".into(), comps:vec![comp("c",128,128,tracks(1,0),vec![layer],vec![])], items:vec![red], active_comp_id:Some("c".into()), ..Project::default() };
     for (time, expected_red) in [(0.2,true),(0.5,false),(0.6,true)] {
         let output = dir.join(format!("{time}.png"));
-        let options = ExportOptions { output:output.display().to_string(), comp_id:"c".into(), resolution:None, fps:None, quality:"high".into(), in_to_out:false, format:"mp4".into(), encoder:None };
+        let options = ExportOptions { output:output.display().to_string(), comp_id:"c".into(), resolution:None, fps:None, quality:"high".into(), in_to_out:false, format:"mp4".into(), encoder:None, ..Default::default() };
         let render = plan(&project,&HashMap::new(),&options, |_| String::new(),tools.status.x264,Output::Still,time).unwrap();
         for (file,data) in &render.files { std::fs::write(dir.join(file),data).unwrap(); }
         let (_hold,cancel)=tokio::sync::watch::channel(false);
@@ -46,6 +46,115 @@ async fn roto_master_and_frame_local_corrections_export_real_pixels() {
         assert_eq!(actual[0]>200,expected_red,"time {time}: {actual:?}");
     }
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn magic_mask_limits_an_effect_to_inside_or_outside_the_mask() {
+    let tools = tools::resolve(None).await;
+    let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
+    let dir = std::env::temp_dir().join(format!("helios-magic-mask-test-{}", crate::store::new_id()));
+    let run_id = "run-1";
+    let cache = crate::roto::dir(&dir, run_id);
+    std::fs::create_dir_all(cache.join("mattes")).unwrap();
+    // The mask: the left half of the frame.
+    for index in 0..30 {
+        let mut data = b"P5\n128 128\n65535\n".to_vec();
+        for _ in 0..128 { for x in 0..128 { data.extend_from_slice(&(if x < 64 { 65535u16 } else { 0 }).to_be_bytes()); } }
+        std::fs::write(cache.join("mattes").join(format!("{:05}.pgm", index+1)), data).unwrap();
+    }
+    let matte = crate::roto::pack_matte(&ffmpeg, &dir, run_id, 30.0).await.expect("mask packs");
+    for (side, grey_left) in [("inside", true), ("outside", false)] {
+        let mut layer = clip("red", "v1", 0.0, 1.0, ClipSource::Item { item_id: "red".into() });
+        layer.magic_masks.push(crate::project::MagicMask { id: "m1".into(), name: "Mask 1".into(), points: vec![], matte: Some(matte.clone()), tracked_key: None, invert: false, expand: 0.0, feather: 0.0, consistency: 0.5, quality: "fast".into(), color: None });
+        layer.applied_effects.push(serde_json::json!({ "id": "fx1", "effectId": "black-white", "name": "Black & White", "category": "Color", "enabled": true, "params": { "amount": 100 }, "maskId": "m1", "maskSide": side }));
+        // An effect naming a mask that does not exist draws nothing.
+        layer.applied_effects.push(serde_json::json!({ "id": "fx2", "effectId": "invert", "name": "Invert", "category": "Channel", "enabled": true, "params": { "amount": 100 }, "maskId": "gone" }));
+        let mut red = item("red", ItemKind::ColorMatte, "#ff0000", 1.0); red.width=128; red.height=128;
+        let project = Project { version: VERSION, name:"magic".into(), comps:vec![comp("c",128,128,tracks(1,0),vec![layer],vec![])], items:vec![red], active_comp_id:Some("c".into()), ..Project::default() };
+        let output = dir.join(format!("{side}.png"));
+        let options = ExportOptions { output:output.display().to_string(), comp_id:"c".into(), resolution:None, fps:None, quality:"high".into(), in_to_out:false, format:"mp4".into(), encoder:None, ..Default::default() };
+        let render = plan(&project,&HashMap::new(),&options, |_| String::new(),tools.status.x264,Output::Still,0.5).unwrap();
+        for (file,data) in &render.files { std::fs::write(dir.join(file),data).unwrap(); }
+        let (_hold,cancel)=tokio::sync::watch::channel(false);
+        tools::run_ffmpeg_with_progress(&ffmpeg,&render.args,Some(&dir),&tools::FfmpegEnv { fontconfig_file:None },render.duration,cancel, |_| ()).await.expect("masked effect exports");
+        let grey = |p: &[u8]| (i32::from(p[0]) - i32::from(p[1])).abs() < 30;
+        let (left, right) = (pixel(&ffmpeg,&dir,&output,0.0,16,64).await, pixel(&ffmpeg,&dir,&output,0.0,110,64).await);
+        assert_eq!(grey(&left), grey_left, "{side}: left {left:?}");
+        assert_eq!(grey(&right), !grey_left, "{side}: right {right:?}");
+        assert!(right[0].max(left[0]) > 200, "{side}: the red half stays red, not inverted: {left:?} {right:?}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Every export format, encoded for real by the FFmpeg on this machine and read back: the file has
+/// the container and codecs the format promises, the chapters and the right length. Two-pass and
+/// the loudness measurement run as the export job runs them.
+#[tokio::test]
+async fn every_format_encodes_and_reads_back() {
+    use super::{codec, plan_with_codecs, Codecs};
+    let tools = tools::resolve(None).await;
+    let ffmpeg = tools.ffmpeg().expect("FFmpeg required").to_path_buf();
+    let ffprobe = tools.ffprobe().expect("FFprobe required").to_path_buf();
+    let dir = std::env::temp_dir().join(format!("helios-formats-test-{}", crate::store::new_id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut layer = clip("red", "v1", 0.0, 1.0, ClipSource::Item { item_id: "red".into() });
+    layer.transform.opacity = 100.0;
+    let mut red = item("red", ItemKind::ColorMatte, "#d02030", 1.0); red.width = 320; red.height = 180;
+    let mut timeline = comp("c", 320, 180, tracks(1, 0), vec![layer], vec![]);
+    timeline.markers = vec![crate::project::Marker { id: "k".into(), time: 0.5, name: "Half".into(), color: "#fff".into() }];
+    let project = Project { version: VERSION, name: "formats".into(), comps: vec![timeline], items: vec![red], active_comp_id: Some("c".into()), ..Project::default() };
+    let codecs = Codecs { h264: super::VideoEncoder::choose(Some("auto"), tools.status.x264, tools.status.gpu_encoder.as_deref()), gpu_hevc: tools.status.gpu_hevc, gpu_av1: tools.status.gpu_av1 };
+    // (format, extras, expected video codec, expected audio codec)
+    let cases: Vec<(&str, ExportOptions, Option<&str>, Option<&str>)> = vec![
+        ("mp4", ExportOptions::default(), Some("h264"), Some("aac")),
+        ("mov", ExportOptions { rate_control: Some("cbr".into()), bitrate: Some(4.0), ..Default::default() }, Some("h264"), Some("aac")),
+        ("mp4", ExportOptions { rate_control: Some("vbr".into()), bitrate: Some(3.0), two_pass: true, encoder: Some("cpu".into()), ..Default::default() }, Some("h264"), Some("aac")),
+        ("hevc", ExportOptions { bit_depth: Some(10), ..Default::default() }, Some("hevc"), Some("aac")),
+        ("av1", ExportOptions::default(), Some("av1"), Some("aac")),
+        ("webm", ExportOptions { alpha: true, ..Default::default() }, Some("vp9"), Some("opus")),
+        ("prores", ExportOptions { profile: Some("lt".into()), ..Default::default() }, Some("prores"), Some("pcm_s24le")),
+        ("mov-alpha", ExportOptions::default(), Some("prores"), Some("aac")),
+        ("dnxhr", ExportOptions { profile: Some("sq".into()), ..Default::default() }, Some("dnxhd"), Some("pcm_s24le")),
+        ("avi", ExportOptions::default(), Some("mpeg4"), Some("pcm_s16le")),
+        ("gif", ExportOptions::default(), Some("gif"), None),
+        ("mp3", ExportOptions::default(), None, Some("mp3")),
+        ("wav", ExportOptions { sample_rate: Some(44_100), loudness: Some(-16.0), ..Default::default() }, None, Some("pcm_s24le")),
+        ("m4a", ExportOptions::default(), None, Some("aac")),
+        ("flac", ExportOptions::default(), None, Some("flac")),
+    ];
+    for (index, (format, extra, want_video, want_audio)) in cases.into_iter().enumerate() {
+        let spec = codec::format(format).unwrap();
+        let output = dir.join(format!("case{index}.{}", spec.ext));
+        let kind = if spec.video.is_none() { Output::Audio } else { Output::Video };
+        let mut options = ExportOptions { output: output.display().to_string(), comp_id: "c".into(), format: format.into(), ..extra };
+        if options.loudness.is_some() {
+            let measure = plan_with_codecs(&project, &HashMap::new(), &options, |_| String::new(), codecs, Output::Loudness, 0.0).unwrap();
+            let stderr = collect(&ffmpeg, &dir, &measure.args).await.unwrap_or_else(|e| panic!("{format} measure: {e}"));
+            options.loudness_measured = codec::parse_loudness(&stderr);
+            assert!(options.loudness_measured.is_some(), "{format}: loudnorm printed its reading: {stderr}");
+        }
+        let plan = plan_with_codecs(&project, &HashMap::new(), &options, |_| String::new(), codecs, kind, 0.0).unwrap_or_else(|e| panic!("{format}: {e}"));
+        for (file, data) in &plan.files { std::fs::write(dir.join(file), data).unwrap(); }
+        if let Some(first) = &plan.first_pass { collect(&ffmpeg, &dir, first).await.unwrap_or_else(|e| panic!("{format} pass 1: {e}")); }
+        collect(&ffmpeg, &dir, &plan.args).await.unwrap_or_else(|e| panic!("{format} ({}): {e}", plan.args.join(" ")));
+        let probe = tools::run(&ffprobe, &["-v", "error", "-show_entries", "stream=codec_type,codec_name:format=duration", "-show_chapters", "-of", "json", &output.display().to_string()], None).await.unwrap();
+        let json: serde_json::Value = serde_json::from_str(&probe).unwrap();
+        let codec_of = |kind: &str| json["streams"].as_array().unwrap().iter().find(|s| s["codec_type"] == kind).and_then(|s| s["codec_name"].as_str()).map(str::to_owned);
+        assert_eq!(codec_of("video").as_deref(), want_video, "{format}: {probe}");
+        assert_eq!(codec_of("audio").as_deref(), want_audio, "{format}: {probe}");
+        let seconds: f64 = json["format"]["duration"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0.0);
+        assert!((seconds - 1.0).abs() < 0.12, "{format}: lasts {seconds} s");
+        if matches!(spec.ext, "mp4" | "mov" | "webm" | "m4a") {
+            assert_eq!(json["chapters"].as_array().map_or(0, Vec::len), 2, "{format}: Start + Half chapters: {probe}");
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Runs an export's FFmpeg arguments in `dir`, returning FFmpeg's log.
+async fn collect(ffmpeg: &Path, dir: &Path, args: &[String]) -> Result<String, String> {
+    let (_hold, cancel) = tokio::sync::watch::channel(false);
+    tools::run_ffmpeg_collect(ffmpeg, args, Some(dir), &tools::FfmpegEnv { fontconfig_file: None }, 1.0, cancel, |_| ()).await
 }
 
 /// Runs FFmpeg and fails loudly, for the test's own fixtures.
@@ -270,7 +379,7 @@ async fn a_comp_of_everything_exports_through_the_real_ffmpeg() {
     let project = build(&take, &card);
 
     let output = dir.join("export.mp4");
-    let options = ExportOptions { output: output.display().to_string(), comp_id: "main".to_owned(), resolution: None, fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None };
+    let options = ExportOptions { output: output.display().to_string(), comp_id: "main".to_owned(), resolution: None, fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None, ..Default::default() };
     let sfx_dir = dir.clone();
     let render = plan(&project, &assets, &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, Output::Video, 0.0).expect("a plan");
     assert_eq!((render.width, render.height), (WIDTH, HEIGHT));
@@ -450,7 +559,7 @@ async fn every_remaining_option_renders_without_upsetting_ffmpeg() {
     let project = build_odds_and_ends(&take);
 
     let output = dir.join("odds.mp4");
-    let options = ExportOptions { output: output.display().to_string(), comp_id: "quick".to_owned(), resolution: Some(360), fps: Some(29.97), quality: "draft".to_owned(), in_to_out: true, format: "mp4".to_owned(), encoder: None };
+    let options = ExportOptions { output: output.display().to_string(), comp_id: "quick".to_owned(), resolution: Some(360), fps: Some(29.97), quality: "draft".to_owned(), in_to_out: true, format: "mp4".to_owned(), encoder: None, ..Default::default() };
     let render = plan(&project, &assets, &options, |kind| sfx::path_for(&dir, kind).display().to_string(), tools.status.x264, Output::Video, 0.0).expect("a plan");
     assert_eq!((render.width, render.height), (360, 450), "the short side becomes 360");
     assert!((render.duration - 1.0).abs() < 1e-9, "only the In→Out range");
@@ -527,7 +636,7 @@ async fn a_long_edit_of_one_recording_renders_from_a_graph_file() {
         ..Project::default()
     };
     let output = dir.join("cuts.mp4");
-    let options = ExportOptions { output: output.display().to_string(), comp_id: "cuts".to_owned(), resolution: None, fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None };
+    let options = ExportOptions { output: output.display().to_string(), comp_id: "cuts".to_owned(), resolution: None, fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None, ..Default::default() };
     let render = plan(&project, &assets, &options, |kind| sfx::path_for(&dir, kind).display().to_string(), tools.status.x264, Output::Video, 0.0).expect("a plan");
     assert!(render.args.contains(&"-/filter_complex".to_owned()), "a graph this long belongs in a file");
     assert_eq!(render.args.iter().filter(|arg| *arg == "-ss").count(), 100, "one seek per cut");
@@ -570,7 +679,7 @@ async fn applied_color_effects_change_pixels_and_bypass_restores_them() {
         let mut matte=item("matte",ItemKind::ColorMatte,"#804020",1.0);matte.width=128;matte.height=128;
         let project=Project{version:VERSION,name:name.to_owned(),comps:vec![comp("c",128,128,tracks(1,0),vec![layer],vec![])],items:vec![matte],active_comp_id:Some("c".to_owned()),..Project::default()};
         let output=dir.join(format!("{name}.png"));
-        let options=ExportOptions{output:output.display().to_string(),comp_id:"c".to_owned(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false,format:"mp4".to_owned(),encoder:None};
+        let options=ExportOptions{output:output.display().to_string(),comp_id:"c".to_owned(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false,format:"mp4".to_owned(),encoder:None,..Default::default()};
         let render=plan(&project,&HashMap::new(),&options,|kind|sfx::path_for(&dir,kind).display().to_string(),tools.status.x264,Output::Still,0.0).expect("effect render plan");
         for (file,data) in &render.files {std::fs::write(dir.join(file),data).unwrap();}
         let (_hold,cancel)=tokio::sync::watch::channel(false);
@@ -592,7 +701,7 @@ async fn render_generated_native_demonstration() {
     let env=tools::FfmpegEnv{fontconfig_file:write_fontconfig(&work)};
     let started=std::time::Instant::now();
     for(still,name)in[(false,"Helios-demo.mp4"),(true,"Helios-demo.png")] {
-        let output=dir.join(name);let options=ExportOptions{output:output.display().to_string(),comp_id:project.active_comp_id.clone().unwrap(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false,format:"mp4".to_owned(),encoder:None};
+        let output=dir.join(name);let options=ExportOptions{output:output.display().to_string(),comp_id:project.active_comp_id.clone().unwrap(),resolution:None,fps:None,quality:"standard".to_owned(),in_to_out:false,format:"mp4".to_owned(),encoder:None,..Default::default()};
         let plan=plan(&project,&HashMap::new(),&options,|kind|sfx::path_for(&work,kind).display().to_string(),tools.status.x264,if still{Output::Still}else{Output::Video},1.0).expect("native render plan");
         std::fs::write(work.join("demo-args.json"),serde_json::to_string(&plan.args).unwrap()).unwrap();
         for(file,data)in &plan.files{std::fs::write(work.join(file),data).unwrap();}
@@ -629,7 +738,7 @@ async fn bench_encoders_on_the_user_project() {
     for quality in ["standard", "high"] {
         for encoder in &encoders {
             let output = dir.join(format!("{encoder:?}-{quality}.mp4"));
-            let options = ExportOptions { output: output.display().to_string(), comp_id: comp_id.clone(), resolution: None, fps: None, quality: quality.to_owned(), in_to_out: true, format: "mp4".to_owned(), encoder: None };
+            let options = ExportOptions { output: output.display().to_string(), comp_id: comp_id.clone(), resolution: None, fps: None, quality: quality.to_owned(), in_to_out: true, format: "mp4".to_owned(), encoder: None, ..Default::default() };
             let render = plan_with_encoder(&project, &assets, &options, |kind| sfx::path_for(&dir, kind).display().to_string(), *encoder, Output::Video, 0.0).expect("a plan");
             for (name, contents) in &render.files { std::fs::write(dir.join(name), contents).unwrap(); }
             std::fs::write(dir.join(format!("args-{encoder:?}-{quality}.txt")), render.args.join("
@@ -669,7 +778,7 @@ async fn parity_frames() {
     let env = tools::FfmpegEnv { fontconfig_file: write_fontconfig(&work) };
     for case in &cases.cases {
         let output = out.join(format!("{}-export.png", case.name));
-        let options = ExportOptions { output: output.display().to_string(), comp_id: case.comp_id.clone(), resolution: None, fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None };
+        let options = ExportOptions { output: output.display().to_string(), comp_id: case.comp_id.clone(), resolution: None, fps: None, quality: "high".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None, ..Default::default() };
         let render = match plan(&case.project, &assets, &options, |kind| sfx::path_for(&work, kind).display().to_string(), tools.status.x264, Output::Still, case.time) {
             Ok(render) => render,
             Err(error) => { eprintln!("{}: PLAN ERROR {error}", case.name); continue; }
@@ -692,7 +801,7 @@ async fn parity_frames() {
 #[tokio::test]
 #[ignore = "driven by hand on a prepared project"]
 async fn export_prepared() {
-    use super::{plan_with_encoder, VideoEncoder};
+    use super::VideoEncoder;
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Prepared { project: Project, assets: Vec<Asset>, comp_id: String }
@@ -708,15 +817,36 @@ async fn export_prepared() {
     sfx::ensure_all(&work).expect("the sound effects");
     let env = tools::FfmpegEnv { fontconfig_file: write_fontconfig(&work) };
     let format = var("HELIOS_EXPORT_FORMAT", "mov");
-    let options = ExportOptions { output: output.clone(), comp_id: prepared.comp_id, resolution: std::env::var("HELIOS_EXPORT_RESOLUTION").ok().and_then(|v| v.parse().ok()), fps: None, quality: var("HELIOS_EXPORT_QUALITY", "high"), in_to_out: false, format: format.clone(), encoder: None };
+    let mut options = ExportOptions { output: output.clone(), comp_id: prepared.comp_id, resolution: std::env::var("HELIOS_EXPORT_RESOLUTION").ok().and_then(|v| v.parse().ok()), fps: None, quality: var("HELIOS_EXPORT_QUALITY", "high"), in_to_out: false, format: format.clone(), encoder: None, ..Default::default() };
+    // `HELIOS_EXPORT_OPTIONS`: more settings as the Export dialog sends them (camelCase JSON).
+    if let Ok(extra) = std::env::var("HELIOS_EXPORT_OPTIONS") {
+        let mut merged = serde_json::to_value(&options).unwrap();
+        for (key, value) in serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&extra).expect("options JSON") { merged[key] = value; }
+        options = serde_json::from_value(merged).expect("options");
+    }
     let encoder = VideoEncoder::choose(Some(&var("HELIOS_EXPORT_ENCODER", "cpu")), tools.status.x264, tools.status.gpu_encoder.as_deref());
-    let kind = if format == "mp3" { Output::Audio } else { Output::Video };
-    let render = plan_with_encoder(&prepared.project, &assets, &options, |kind| sfx::path_for(&work, kind).display().to_string(), encoder, kind, 0.0).expect("a plan");
+    let codecs = super::Codecs { h264: encoder, gpu_hevc: encoder.is_gpu() && tools.status.gpu_hevc, gpu_av1: encoder.is_gpu() && tools.status.gpu_av1 };
+    let kind = if super::is_audio_only(&options.format) { Output::Audio } else { Output::Video };
+    let sfx_for = |kind| sfx::path_for(&work, kind).display().to_string();
+    let started = std::time::Instant::now();
+    // As the export job does: measure loudness first, then two passes when asked.
+    if options.loudness.is_some() {
+        let measure = super::plan_with_codecs(&prepared.project, &assets, &options, sfx_for, codecs, Output::Loudness, 0.0).expect("a measuring plan");
+        for (name, contents) in &measure.files { std::fs::write(work.join(name), contents).unwrap(); }
+        let (_hold, cancel) = tokio::sync::watch::channel(false);
+        let log = tools::run_ffmpeg_collect(&ffmpeg, &measure.args, Some(&work), &env, measure.duration, cancel, |_| ()).await.expect("the measurement");
+        options.loudness_measured = super::codec::parse_loudness(&log);
+        eprintln!("measured loudness: {:?}", options.loudness_measured);
+    }
+    let render = super::plan_with_codecs(&prepared.project, &assets, &options, sfx_for, codecs, kind, 0.0).expect("a plan");
     for (name, contents) in &render.files { std::fs::write(work.join(name), contents).unwrap(); }
     std::fs::write(work.join("args.txt"), render.args.join("
 ")).unwrap();
+    if let Some(first) = &render.first_pass {
+        let (_hold, cancel) = tokio::sync::watch::channel(false);
+        tools::run_ffmpeg_with_progress(&ffmpeg, first, Some(&work), &env, render.duration, cancel, |_| ()).await.expect("pass 1");
+    }
     let (_hold, cancel) = tokio::sync::watch::channel(false);
-    let started = std::time::Instant::now();
     tools::run_ffmpeg_with_progress(&ffmpeg, &render.args, Some(&work), &env, render.duration, cancel, |_| ()).await.expect("the export");
     eprintln!("exported {output} ({encoder:?}, {format}) in {:.1}s for {:.1}s of video", started.elapsed().as_secs_f64(), render.duration);
 }

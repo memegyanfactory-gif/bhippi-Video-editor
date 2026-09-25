@@ -39,7 +39,9 @@ import { blankFinding, collectQaLayers, frameStats } from './polish';
 import { renderMotionStill } from '../motion/exportFrames';
 import { renderHtmlStill } from './htmlFrames';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, placement, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
-import { SOCIAL_SAFE } from './layout';
+import { safeFor } from './layout';
+import { aspectLabel, describeReformat, FRAME_PRESETS, orientationOf, reformatComp, RESOLUTION_TIERS, scaleTo, type ReformatMode } from './reformat';
+import { autoLayout, captionBand, fillCell, pipBox, splitCells, type SplitLayout } from './splitScreen';
 import type { History } from './history';
 import { api, errorText } from './ipc';
 import { describe as describeDiff, runProgram, type Op, type Program } from './editProgram';
@@ -242,6 +244,8 @@ export function aiContext(project: Project, assets: AssetMap, selection: string[
       id: comp.id,
       name: comp.name,
       size: `${comp.width}x${comp.height}`,
+      aspect: aspectLabel(comp.width, comp.height),
+      orientation: orientationOf(comp.width, comp.height),
       fps: comp.fps,
       duration: round(compDuration(comp)),
       videoTracks: tracksOf(comp, 'video').length,
@@ -268,19 +272,63 @@ export function aiContext(project: Project, assets: AssetMap, selection: string[
     items: project.items.map((item) => ({ id: item.id, name: item.name, kind: item.kind, color: item.color, duration: round(item.duration), used: counts.get(item.id) ?? 0, folder: item.folderId ?? undefined })),
     folders: project.folders.map((folder) => ({ id: folder.id, name: folder.name, parent: folder.parentId ?? undefined })),
     activeComp: active ? compDetail(project, assets, active) : null,
+    frame: active ? frameBrief(active) : null,
     layoutRules: LAYOUT_RULES,
+  };
+}
+
+/** The active comp's frame in plain words: its shape, its safe area and what layouts suit it. */
+export function frameBrief(comp: Comp) {
+  const orientation = orientationOf(comp.width, comp.height);
+  const safe = safeFor(comp.width, comp.height);
+  const aspect = aspectLabel(comp.width, comp.height);
+  const tall = comp.height / Math.max(1, comp.width) >= 1.6;
+  const guidance = orientation === 'landscape'
+    ? 'Wide frame: split screens sit side by side (split_screen side-by-side, 50/50 or 60/40), a 2x2 grid for four, a PiP facecam about 28% wide bottom-right; titles and side panels use the left/right thirds; captions in the lower band.'
+    : tall
+      ? 'Tall 9:16 frame for Reels/TikTok/Shorts: everything stacks. Split screens are top/bottom (split_screen stack: 50/50 for two people, ratio 0.4 for facecam over gameplay or B-roll), three-up for panels. Captions sit on the seam of a stack or at 60-75% of the height, 1-2 lines, at most about 81% of the width. Nothing important in the right 13% (the like/comment/share rail) or the bottom 20% (caption, handle, audio). Wide 16:9 footage either fills (crop to the speaker, focus on the face), fits over a blurred copy, or fits as a band with the space above and below used for a hook title and captions.'
+      : `${aspect} feed frame: stack two pictures top/bottom or use a 2x2 grid; keep text 6% from every edge (the Instagram grid trims the sides of a 4:5).`;
+  return {
+    size: `${comp.width}x${comp.height}`,
+    aspect,
+    orientation,
+    safeArea: { left: safe.left, top: safe.top, right: safe.right, bottom: safe.bottom },
+    guidance,
   };
 }
 
 /** What every turn is reminded of about the frame: it is read each turn with the project. */
 const LAYOUT_RULES = [
   'Motion scenes open as layered "[Motion]" comps: one clip per layer on its own track, so the user can open one and change any layer. Edit them with update_motion_scene (clipId = the comp clip, the comp or a layer clip; patches by layer id); split_motion_layers opens older single-clip ones.',
-  'Everything rests inside the frame: panels, cards, type and reduced footage sit inside the safe area (16:9: 5% sides, 6% top/bottom; 9:16: 6% sides, 12% top, 18% bottom), never against or past an edge. layout_clip slots and fitted motion scenes already do; a hand-set x/y/scale must too.',
+  'Know the frame before designing: `frame` gives the active comp size, aspect, orientation, safe area and the layouts that suit it. Design for that shape: a 9:16 comp is not a squeezed 16:9 one. To change the shape use update_comp {format | orientation | resolution, reframe: fill | blur | fit | keep}; it re-fits the footage and rebuilds the motion graphics for the new canvas. For two or more pictures at once use split_screen (stacked in tall frames, side by side in wide ones).',
+  'Everything rests inside the frame: panels, cards, type and reduced footage sit inside the safe area (16:9: 5% sides, 6% top/bottom; 9:16: 6% left, 13% right, 12% top, 20% bottom; 4:5, 3:4 and 1:1: 6% all round), never against or past an edge. layout_clip slots, split_screen and fitted motion scenes already do; a hand-set x/y/scale must too.',
   'No blank frames: when the project has a designed background plate (a generated gradient on V1), full-frame templates go over it with background "none" — a light brand stage covering it reads as a white screen. Reduced footage always has a designed background behind it, never flat white or black.',
   'Finish every edit with the polish pass: run_frame_qa over the range (it renders real frames with the motion graphics and reports off-frame, safe-area, blank-frame, black-edge and overlap problems), fix each at its source, run it again until clear.',
 ].join(' ');
 
 // ───────────────────────────── helpers ─────────────────────────────
+
+/**
+ * The frame size `format` / `orientation` / `resolution` ask for, from `base` (the comp's current
+ * size or a preset): a format id picks a shape, orientation turns the current shape (16:9 and 9:16
+ * swap) or picks the standard one, resolution sets the short side.
+ */
+function frameFromArgs(args: Args, base: { width: number; height: number }): { width: number; height: number } {
+  let shape = { width: base.width, height: base.height };
+  const format = FRAME_PRESETS.find((preset) => preset.id === str(args, 'format'));
+  if (format) shape = { width: format.width, height: format.height };
+  const orientation = str(args, 'orientation');
+  if (orientation && !format) {
+    const current = orientationOf(shape.width, shape.height);
+    const side = Math.min(shape.width, shape.height);
+    if (orientation === 'square') shape = { width: side, height: side };
+    else if (current === 'square') shape = orientation === 'portrait' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
+    else if (current !== orientation) shape = { width: shape.height, height: shape.width };
+  }
+  const short = num(args, 'resolution');
+  if (short && RESOLUTION_TIERS.some((tier) => tier.short === short)) shape = scaleTo(shape, short);
+  return shape;
+}
 
 function pickComp(project: Project, args: Args): Comp | undefined {
   const wanted = str(args, 'compId');
@@ -325,7 +373,7 @@ const findClipIn = (project: Project, clipId: string) => {
 
 /**
  * layout_clip's slots in a tall comp, worked out from the picture's own aspect through the
- * editor's placement so each box lands inside the social safe area (6% sides, 12% top, 18%
+ * editor's placement so each box lands inside the frame's safe area (9:16: 6% left, 13% right, 12% top, 20%
  * bottom). A tall frame stacks rather than sits side by side: left-55/right-55 are top-55/bottom-55.
  */
 function portraitSlots(clip: Clip, comp: Comp, assets: AssetMap): Record<string, { scale: number; x: number; y: number }> {
@@ -335,7 +383,8 @@ function portraitSlots(clip: Clip, comp: Comp, assets: AssetMap): Record<string,
   const base = placement({ ...clip.transform, x: 0, y: 0, scale: 100 }, w, h, comp.width, comp.height);
   const bw = (base.width * (1 - (clip.transform.cropLeft + clip.transform.cropRight) / 100)) / comp.width;
   const bh = (base.height * (1 - (clip.transform.cropTop + clip.transform.cropBottom) / 100)) / comp.height;
-  const safe = { left: SOCIAL_SAFE.left, top: SOCIAL_SAFE.top, right: 1 - SOCIAL_SAFE.right, bottom: 1 - SOCIAL_SAFE.bottom };
+  const margins = safeFor(comp.width, comp.height);
+  const safe = { left: margins.left, top: margins.top, right: 1 - margins.right, bottom: 1 - margins.bottom };
   const round = (value: number, places: number) => Math.round(value * 10 ** places) / 10 ** places;
   /** The largest picture inside the region, pushed to its `ax`/`ay` side (0 start, 0.5 centre, 1 end). */
   const fit = (x: number, y: number, width: number, height: number, ax = 0.5, ay = 0.5) => {
@@ -2262,8 +2311,9 @@ ${notes.trim()}${paletteLine}
 
     case 'create_comp': {
       const preset = COMP_PRESETS.find((item) => item.id === str(args, 'preset'));
-      const width = num(args, 'width') ?? preset?.width ?? 1920;
-      const height = num(args, 'height') ?? preset?.height ?? 1080;
+      const shaped = frameFromArgs(args, { width: preset?.width ?? 1920, height: preset?.height ?? 1080 });
+      const width = num(args, 'width') ?? shaped.width;
+      const height = num(args, 'height') ?? shaped.height;
       const comp = newComp({ name: str(args, 'name') ?? 'Comp', width: Math.round(clamp(width, 16, 8192)), height: Math.round(clamp(height, 16, 8192)), fps: clamp(num(args, 'fps') ?? 30, 1, 240) });
       let next = comp;
       let cursor = 0;
@@ -2292,15 +2342,70 @@ ${notes.trim()}${paletteLine}
       const patch: Partial<Comp> = {};
       const name_ = str(args, 'name');
       if (name_) patch.name = name_;
-      const width = num(args, 'width') ?? preset?.width;
-      const height = num(args, 'height') ?? preset?.height;
-      if (width) patch.width = Math.round(clamp(width, 16, 8192));
-      if (height) patch.height = Math.round(clamp(height, 16, 8192));
+      const shaped = frameFromArgs(args, preset ?? comp);
+      const width = num(args, 'width') ?? shaped.width;
+      const height = num(args, 'height') ?? shaped.height;
       const rate = num(args, 'fps');
       if (rate) patch.fps = clamp(rate, 1, 240);
-      if (!Object.keys(patch).length) return fail('nothing to change');
-      editComp(comp, (current) => ({ ...current, ...patch }));
-      return done(`Comp “${patch.name ?? comp.name}” is now ${patch.width ?? comp.width}×${patch.height ?? comp.height} at ${patch.fps ?? comp.fps} fps`, { compId: comp.id });
+      const size = { width: Math.round(clamp(width, 16, 8192)), height: Math.round(clamp(height, 16, 8192)) };
+      const resized = size.width !== comp.width || size.height !== comp.height;
+      if (!Object.keys(patch).length && !resized) return fail('nothing to change');
+      const mode: ReformatMode = (['fill', 'blur', 'fit', 'keep'] as const).find((m) => m === str(args, 'reframe')) ?? 'fill';
+      let note = '';
+      if (resized) {
+        // A new shape re-fits the footage and rebuilds the motion graphics for it (lib/reformat.ts).
+        note = ` ${describeReformat(reformatComp(host.history.current(), comp.id, size, mode).report, mode)}.`;
+        commit((current) => reformatComp(current, comp.id, size, mode).project);
+      }
+      if (Object.keys(patch).length) editComp(host.history.current().comps.find((c) => c.id === comp.id) ?? comp, (current) => ({ ...current, ...patch }));
+      const shape = `${size.width}×${size.height} (${aspectLabel(size.width, size.height)} ${orientationOf(size.width, size.height)})`;
+      return done(`Comp “${patch.name ?? comp.name}” is now ${shape} at ${patch.fps ?? comp.fps} fps.${note}${resized ? ' Run run_frame_qa to check the new framing; a talking head cropped to fill can follow the speaker with podcast_cut mode reframe.' : ''}`, { compId: comp.id, width: size.width, height: size.height, aspect: aspectLabel(size.width, size.height) });
+    }
+
+    case 'split_screen': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const ids = list(args, 'clipIds');
+      const clips = ids.map((id) => comp.clips.find((clip) => clip.id === id));
+      if (ids.length < 2 || ids.length > 4 || clips.some((clip) => !clip)) return fail('Give 2–4 clipIds of video clips in this comp (the first is the top / left / main picture).');
+      const found = clips as Clip[];
+      const videoIds = new Set(tracksOf(comp, 'video').map((track) => track.id));
+      if (found.some((clip) => !videoIds.has(clip.trackId))) return fail('Every clip must be on a video track.');
+      if (new Set(found.map((clip) => clip.trackId)).size !== found.length) return fail('Put each clip on its own video track first, so they play at the same time.');
+      const from = Math.max(...found.map((clip) => clip.start));
+      const to = Math.min(...found.map((clip) => clipEnd(clip)));
+      if (to - from < 0.1) return fail('Those clips do not play at the same time; line them up on the timeline first.');
+      const wanted = (str(args, 'layout') ?? 'auto') as SplitLayout;
+      if (!['auto', 'stack', 'side-by-side', 'grid', 'triple', 'pip'].includes(wanted)) return fail('layout must be auto, stack, side-by-side, grid, triple or pip.');
+      const layout = wanted === 'auto' ? autoLayout(comp, found.length) : wanted;
+      if (layout === 'pip' && found.length !== 2) return fail('pip takes exactly two clips: the main picture, then the inset.');
+      const order = (clip: Clip) => comp.tracks.findIndex((track) => track.id === clip.trackId);
+      if (layout === 'pip' && order(found[1]) < order(found[0])) return fail('The inset must be on a higher video track than the main picture.');
+      const corner = str(args, 'corner') as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | undefined;
+      const options = { ratio: num(args, 'ratio'), gutter: num(args, 'gutter'), corner, pipSize: num(args, 'pipSize') };
+      const cells = splitCells(comp, layout, found.length, options);
+      const focus = Array.isArray(args.focus) ? (args.focus as unknown[]) : [];
+      const sizeOf = (clip: Clip): [number, number] => {
+        if (clip.source.type === 'media') { const asset = assets.get(clip.source.assetId); if (asset?.width && asset.height) return [asset.width, asset.height]; }
+        if (clip.source.type === 'comp') { const inner = project.comps.find((c) => c.id === (clip.source as { compId: string }).compId); if (inner) return [inner.width, inner.height]; }
+        if (clip.source.type === 'motion') return [clip.source.scene.width, clip.source.scene.height];
+        return [comp.width, comp.height];
+      };
+      const transforms = new Map<string, Clip['transform']>();
+      found.forEach((clip, index) => {
+        const [w, h] = sizeOf(clip);
+        const point = focus[index] as { x?: unknown; y?: unknown } | undefined;
+        const at = { x: typeof point?.x === 'number' ? clamp(point.x, 0, 1) : 0.5, y: typeof point?.y === 'number' ? clamp(point.y, 0, 1) : 0.5 };
+        const cell = layout === 'pip' && index === 1 ? pipBox(comp, w, h, cells[1].width, corner) : cells[index];
+        transforms.set(clip.id, fillCell(clip.transform, w, h, comp, cell, at));
+      });
+      editComp(comp, (current) => ({ ...current, clips: current.clips.map((c) => {
+        const transform = transforms.get(c.id);
+        return transform ? { ...c, transform, keyframes: { ...c.keyframes, x: [], y: [], scale: [], rotation: [] } } : c;
+      }) }));
+      const caption = captionBand(comp, layout, cells);
+      const shape = `${comp.width}×${comp.height} (${aspectLabel(comp.width, comp.height)})`;
+      return done(`Split screen “${layout}” in the ${shape} frame for ${timecode(from, fps(comp))}–${timecode(to, fps(comp))}: ${found.map((clip, i) => `${clip.name ?? clip.id} → ${layout === 'pip' ? (i ? 'inset' : 'full frame') : `cell ${i + 1}`}`).join(', ')}. Each picture is cropped to its cell and fills it; pass focus [{x,y}] per clip (source fractions) to keep a face in frame. Next: ${caption.note}.`, { layout, cells, captionY: caption.y, range: [from, to] });
     }
 
     case 'open_comp': {

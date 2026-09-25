@@ -5,7 +5,9 @@ import { useEffect, useState } from 'react';
 import { Modal, ColorSwatches } from '../components/ui';
 import { bytes, clamp, gainToDb, parseTimecode, timecode } from '../lib/editor';
 import { CAPTION_STYLES } from '../lib/captionStyles';
-import { COMP_PRESETS, FRAME_RATES, ITEM_LABEL, compDuration, tracksOf } from '../lib/timeline';
+import { FRAME_RATES, ITEM_LABEL, compDuration, tracksOf } from '../lib/timeline';
+import type { ReformatMode } from '../lib/reformat';
+import { FrameShapePicker, ReformatChoice } from './FrameShapePicker';
 import type { AttributeSet } from '../lib/timeline';
 import type { Asset, Clip, Comp, ItemKind, Marker, Project, ProjectItem } from '../lib/types';
 
@@ -21,9 +23,8 @@ export type CompDraft = { name: string; width: number; height: number; fps: numb
 
 export function CompDialog({ title, draft, onClose, onSubmit }: { title: string; draft: CompDraft; onClose: () => void; onSubmit: (draft: CompDraft) => void }) {
   const [value, setValue] = useState(draft);
-  const preset = COMP_PRESETS.find((item) => item.width === value.width && item.height === value.height);
   return (
-    <Modal title={title} onClose={onClose} width={460} footer={
+    <Modal title={title} onClose={onClose} width={560} footer={
       <>
         <div className="toolbar-spacer" />
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
@@ -32,14 +33,8 @@ export function CompDialog({ title, draft, onClose, onSubmit }: { title: string;
     }>
       <div className="dialog-body">
         <Field label="Comp name"><input value={value.name} autoFocus onChange={(event) => setValue({ ...value, name: event.target.value })} onKeyDown={(event) => event.key === 'Enter' && onSubmit({ ...value, name: value.name.trim() || 'Comp' })} /></Field>
-        <Field label="Frame size">
-          <select value={preset?.id ?? 'custom'} onChange={(event) => {
-            const chosen = COMP_PRESETS.find((item) => item.id === event.target.value);
-            if (chosen) setValue({ ...value, width: chosen.width, height: chosen.height });
-          }}>
-            {COMP_PRESETS.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.width}×{item.height}</option>)}
-            {!preset && <option value="custom">Custom</option>}
-          </select>
+        <Field label="Frame shape">
+          <FrameShapePicker size={value} onChange={(size) => setValue({ ...value, ...size })} />
         </Field>
         <div className="field-row">
           <Field label="Width"><input type="number" min={16} max={8192} value={value.width} onChange={(event) => setValue({ ...value, width: clamp(Number(event.target.value), 16, 8192) })} /></Field>
@@ -393,6 +388,8 @@ export type ProjectSettingsResult = {
   height: number;
   fps: number;
   captionStyle: string | null;
+  /** What footage does when the frame's shape changes (lib/reformat.ts). */
+  reframe?: ReformatMode;
 };
 
 /** Trims the name and clamps the frame setup, so the dialog always submits a valid result. */
@@ -420,18 +417,19 @@ export function ProjectSettingsDialog({ project, comp, filePath, onClose, onSubm
   const [height, setHeight] = useState(shown?.height ?? 1080);
   const [fps, setFps] = useState(shown?.fps ?? 30);
   const [captionStyle, setCaptionStyle] = useState<string | null>(project.captionStyle);
-  const preset = COMP_PRESETS.find((item) => item.width === width && item.height === height);
+  const [reframe, setReframe] = useState<ReformatMode>('fill');
   const clips = project.comps.reduce((total, item) => total + item.clips.length, 0);
-  const submit = () => onSubmit(normalizeProjectSettings(project, {
+  const reshaped = !!shown && shown.clips.length > 0 && (width !== shown.width || height !== shown.height);
+  const submit = () => onSubmit({ ...normalizeProjectSettings(project, {
     name,
     activeCompId,
     width,
     height,
     fps,
     captionStyle,
-  }));
+  }), reframe });
   return (
-    <Modal title="Project Settings" onClose={onClose} width={520} footer={
+    <Modal title="Project Settings" onClose={onClose} width={600} footer={
       <>
         <div className="toolbar-spacer" />
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
@@ -457,14 +455,8 @@ export function ProjectSettingsDialog({ project, comp, filePath, onClose, onSubm
             {project.comps.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.width}×{item.height} @ {item.fps}fps</option>)}
           </select>
         </Field>
-        <Field label="Frame size">
-          <select value={preset?.id ?? 'custom'} onChange={(event) => {
-            const chosen = COMP_PRESETS.find((item) => item.id === event.target.value);
-            if (chosen) { setWidth(chosen.width); setHeight(chosen.height); }
-          }}>
-            {COMP_PRESETS.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.width}×{item.height}</option>)}
-            {!preset && <option value="custom">Custom</option>}
-          </select>
+        <Field label="Frame shape">
+          <FrameShapePicker size={{ width, height }} onChange={(size) => { setWidth(size.width); setHeight(size.height); }} />
         </Field>
         <div className="field-row">
           <Field label="Width"><input type="number" min={16} max={8192} value={width} onChange={(event) => setWidth(clamp(Number(event.target.value), 16, 8192))} /></Field>
@@ -475,6 +467,7 @@ export function ProjectSettingsDialog({ project, comp, filePath, onClose, onSubm
             </select>
           </Field>
         </div>
+        {reshaped && <ReformatChoice mode={reframe} onChange={setReframe} />}
         {shown && <p className="muted small">Duration {timecode(compDuration(shown), shown.fps)} · {tracksOf(shown, 'video').length} video tracks · {tracksOf(shown, 'audio').length} audio tracks</p>}
         <h4 className="dialog-section">Defaults</h4>
         <Field label="Caption style">

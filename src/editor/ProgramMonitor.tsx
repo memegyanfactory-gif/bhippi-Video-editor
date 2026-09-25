@@ -15,6 +15,7 @@ import { CompAudio, CompLayers } from './Compositor';
 import { DEFAULT_CACHE_MB, previewCache } from '../lib/previewCache';
 import { warmAhead } from './previewWarm';
 import { stackGroups, standaloneScene } from '../lib/motionStack';
+import { MagicMaskBar, magicMaskClick, maskableClip } from './MagicMaskBar';
 import type { MotionScene } from '../motion/types';
 
 export type ProgramApi = { toggle: () => void; step: (frames: number) => void; shuttle: (direction: 1 | -1 | 0) => void; playAround: () => void; playInToOut: () => void; getStage: () => HTMLDivElement | null };
@@ -294,6 +295,15 @@ export function ProgramMonitor(props: Props) {
       paintRoto(event);
       return;
     }
+    if (tool === 'magic-mask') {
+      const target = maskableClip(selectedClip, assets, comp) ? selectedClip : null;
+      if (!target || playhead.get() < target.start || playhead.get() >= target.start + target.duration) return;
+      const hit = clipPoint(target, event);
+      if (!hit) return;
+      playhead.setPlaying(false);
+      magicMaskClick(history, comp, target, assets, hit.x, hit.y, event.altKey || event.shiftKey);
+      return;
+    }
     if (tool === 'rectangle' || tool === 'ellipse' || tool === 'polygon' || tool === 'mask-rectangle' || tool === 'mask-ellipse') {
       if (tool.startsWith('mask') && !maskable) return;
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -402,21 +412,29 @@ export function ProgramMonitor(props: Props) {
     return { left: element.offsetLeft, top: element.offsetTop, width: Math.max(1, element.offsetWidth), height: Math.max(1, element.offsetHeight) };
   };
 
-  const paintRoto = (event: ReactPointerEvent) => {
-    const stroke = rotoStroke.current;
-    if (!stroke || (stroke.clip.rotoCorrections?.length ?? 0) + stroke.points.length >= 2000) return;
-    const box = pictureBox(stroke.clip);
-    if (!box) return;
+  /** Where on a clip's source picture (0–1, before flips) a pointer event lands; null off the picture. */
+  const clipPoint = (clip: Clip, event: ReactPointerEvent): { x: number; y: number; box: Box } | null => {
+    const box = pictureBox(clip);
+    if (!box) return null;
     const point = stagePoint(event);
-    const element = stageRef.current?.querySelector<HTMLElement>(`[data-clip-id="${stroke.clip.id}"]`);
+    const element = stageRef.current?.querySelector<HTMLElement>(`[data-clip-id="${clip.id}"]`);
     const style = element ? getComputedStyle(element) : null;
     const [ox, oy] = (style?.transformOrigin ?? `${box.width/2}px ${box.height/2}px`).split(' ').map(parseFloat);
     const inverse = new DOMMatrix(style?.transform === 'none' ? undefined : style?.transform).inverse();
     const local = new DOMPoint(point.x - box.left - ox, point.y - box.top - oy).matrixTransform(inverse);
     let x = (local.x + ox) / box.width, y = (local.y + oy) / box.height;
-    if (!Number.isFinite(x + y) || x < 0 || x > 1 || y < 0 || y > 1) return;
-    if (stroke.clip.effects.flipH) x = 1 - x;
-    if (stroke.clip.effects.flipV) y = 1 - y;
+    if (!Number.isFinite(x + y) || x < 0 || x > 1 || y < 0 || y > 1) return null;
+    if (clip.effects.flipH) x = 1 - x;
+    if (clip.effects.flipV) y = 1 - y;
+    return { x, y, box };
+  };
+
+  const paintRoto = (event: ReactPointerEvent) => {
+    const stroke = rotoStroke.current;
+    if (!stroke || (stroke.clip.rotoCorrections?.length ?? 0) + stroke.points.length >= 2000) return;
+    const hit = clipPoint(stroke.clip, event);
+    if (!hit) return;
+    const { x, y, box } = hit;
     const last = stroke.points.at(-1);
     const distance = last ? Math.hypot((x - last.x) * box.width, (y - last.y) * box.height) : 0;
     const step = Math.max(1, rotoRadius * Math.min(box.width, box.height) / 2);
@@ -521,6 +539,7 @@ export function ProgramMonitor(props: Props) {
         <label>Softness <input aria-label="Roto brush softness" type="range" min="0" max="1" step="0.05" value={rotoSoftness} onChange={e => setRotoSoftness(Number(e.target.value))} /></label>
         <button className="btn" disabled={!selectedClip || locked(selectedClip)} onClick={() => { if (comp && selectedClip) history.commit(current => updateComp(current, comp.id, entry => ({ ...entry, clips: entry.clips.map(c => c.id === selectedClip.id ? { ...c, rotoCorrections: (c.rotoCorrections ?? []).filter(p => Math.floor(p.at * comp.fps) !== Math.floor((time - c.start) * comp.fps)) } : c) })), 'Clear Roto frame corrections'); }}>Clear frame</button>
       </div>}
+      {tool === 'magic-mask' && <MagicMaskBar comp={comp} clip={selectedClip ?? undefined} assets={assets} history={history} time={time} />}
       <div className="monitor-frame" ref={frameRef} style={{ overflow: zoom === 0 ? 'hidden' : 'auto' }}>
         <div className="monitor-canvas" style={{ minWidth: stageW + 16, minHeight: stageH + 16 }}>
           <div

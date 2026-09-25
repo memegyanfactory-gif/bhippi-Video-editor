@@ -3,8 +3,8 @@
 // FFmpeg encode job to the end and offers Open / Show in folder. "Run in background" collapses it
 // to a small pill; the render keeps going.
 import { CheckCircle2, Circle, Film, FolderOpen, Loader2, Minimize2, Play, X, XCircle } from 'lucide-react';
-import { useEffect, useRef } from 'react';
-import { api } from '../lib/ipc';
+import { useEffect, useRef, useState } from 'react';
+import { api, fileSrc } from '../lib/ipc';
 import { jobsStore } from '../lib/jobsStore';
 import { overallProgress, renderProgress, useRenderProgress, type RenderStage } from '../lib/renderProgress';
 
@@ -23,6 +23,24 @@ const clock = (seconds: number) => {
 export function RenderWindow() {
   const s = useRenderProgress();
   const rate = useRef<{ at: number; frames: number; fps: number }>({ at: 0, frames: 0, fps: 0 });
+  // The encode itself, frame by frame: FFmpeg writes a small JPEG each second of video beside the
+  // export, so the window shows the render moving from the first second to the last.
+  const [encoded, setEncoded] = useState<{ src: string; second: number } | null>(null);
+  useEffect(() => {
+    if (!s.jobId || s.stage !== 'encoding' || s.status !== 'running') return;
+    const job = s.jobId;
+    let stopped = false;
+    const poll = () => void api.exportPreview(job).then((path) => {
+      if (stopped || !path) return;
+      const second = Number(/preview_(\d+)\.jpg$/.exec(path)?.[1] ?? 0);
+      setEncoded((current) => (current?.second === second ? current : { src: fileSrc(path), second }));
+    }).catch(() => undefined);
+    poll();
+    const timer = setInterval(poll, 700);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [s.jobId, s.stage, s.status]);
+  useEffect(() => { if (!s.open) setEncoded(null); }, [s.open]);
+  useEffect(() => { setEncoded(null); }, [s.startedAt]);
 
   // Follow the FFmpeg job once the export hands over to it.
   useEffect(() => {
@@ -85,8 +103,11 @@ export function RenderWindow() {
         </div>
         <div className="modal-body render-body">
           <div className="render-preview">
-            {s.preview ? <img src={s.preview} alt="The frame being rendered" /> : <div className="render-preview-empty">{s.stage === 'encoding' ? 'Encoding with FFmpeg…' : 'Preparing the first frame…'}</div>}
+            {s.stage === 'encoding' && encoded ? <img src={encoded.src} alt="The frame being encoded" />
+              : s.stage !== 'encoding' && s.preview ? <img src={s.preview} alt="The frame being rendered" />
+              : <div className="render-preview-empty">{s.stage === 'encoding' ? 'Encoding with FFmpeg…' : 'Preparing the first frame…'}</div>}
             {running && s.stage !== 'encoding' && <span className="render-preview-tag">frame {s.frame}/{s.frames}</span>}
+            {running && s.stage === 'encoding' && encoded && <span className="render-preview-tag">encoding {clock(encoded.second)}</span>}
           </div>
           <div className="render-info">
             <div className="render-overall">

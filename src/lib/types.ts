@@ -123,11 +123,36 @@ export type Clip = {
   rotoMatte?: string | null;
   /** Frame-local corrections: clip-local seconds and normalized source-picture coordinates. */
   rotoCorrections?: RotoCorrection[];
+  /** Objects picked with the Magic Mask tool (lib/magicMask.ts); effects can be limited to them. */
+  magicMasks?: MagicMask[];
   keyframes: Keyframes;
   channels: Channels;
   enhanceSpeech: boolean;
   audioType: AudioType | null;
   appliedEffects?: AppliedEffect[];
+};
+
+/**
+ * An object picked with clicks and tracked through the clip by SAM 2.1 (src-tauri/src/magic_mask.rs).
+ * Point `at` is **source** seconds, so trimming or moving the clip keeps the clicks on their frames.
+ */
+export type MagicMask = {
+  id: string;
+  name: string;
+  points: RotoCorrection[];
+  /** The tracked matte (a Roto run's `matte.mkv`); null until tracked. */
+  matte: string | null;
+  /** What the matte was tracked from; differs from `magicMaskKey(...)` once the clicks change. */
+  trackedKey?: string | null;
+  invert: boolean;
+  /** Grow (+) or shrink (−) the edge, px at 1080p. */
+  expand: number;
+  /** Soften the edge, px at 1080p. */
+  feather: number;
+  /** 0–1, how hard the edge is steadied over neighbouring frames; applies when tracking. */
+  consistency: number;
+  quality: 'fast' | 'better';
+  color?: string | null;
 };
 
 export type RotoCorrection = {
@@ -142,6 +167,9 @@ export type RotoCorrection = {
 
 export type AppliedEffect = {
   stackOnly?: boolean;
+  /** Limits the effect to a Magic Mask of the clip; a mask that is gone or untracked draws nothing. */
+  maskId?: string | null;
+  maskSide?: 'inside' | 'outside';
   id: string;
   effectId: string;
   name: string;
@@ -493,6 +521,10 @@ export type ToolStatus = {
   found: boolean; path: string | null; version: string | null; x264: boolean;
   /** Hardware H.264 encoder confirmed by a test encode (`h264_nvenc` · `h264_qsv` · `h264_amf`), and its readable name. */
   gpuEncoder?: string | null; gpuEncoderLabel?: string | null;
+  /** Whether the same GPU also encodes HEVC / AV1 (test-encoded at startup). */
+  gpuHevc?: boolean; gpuAv1?: boolean;
+  /** The export formats this FFmpeg has the encoders for. */
+  formats?: ExportFormat[];
 };
 
 /** Which H.264 encoder MP4/MOV exports use: the detected GPU one (falling back to the CPU if it fails), or always the CPU. */
@@ -506,9 +538,23 @@ export type AppInfo = {
   extensions: string[];
 };
 
-export type ExportFormat = 'mp4' | 'mov' | 'mov-alpha' | 'avi' | 'mp3';
+/** Container + codec pairs (src-tauri/src/render/codec.rs); the catalogue is src/lib/exportPresets.ts. */
+export type ExportFormat = 'mp4' | 'mov' | 'hevc' | 'av1' | 'webm' | 'prores' | 'mov-alpha' | 'dnxhr' | 'avi' | 'gif' | 'mp3' | 'wav' | 'm4a' | 'flac';
 
-export type ExportPrefs = { resolution: number | null; fps: number | null; quality: string | null; folder: string | null; format?: ExportFormat | null; channel?: 'rgb' | 'rgba' | null; encoder?: ExportEncoder | null };
+/** Everything the Export dialog sets besides where the file goes and which comp: what a preset holds. */
+export type ExportSettings = Omit<ExportOptions, 'output' | 'compId' | 'inToOut'>;
+
+/** A preset the user saved from the Export dialog. */
+export type SavedExportPreset = { id: string; label: string; settings: Partial<ExportSettings> };
+
+export type ExportPrefs = {
+  resolution: number | null; fps: number | null; quality: string | null; folder: string | null; format?: ExportFormat | null; channel?: 'rgb' | 'rgba' | null; encoder?: ExportEncoder | null;
+  /** The settings of the last export, restored when the dialog opens. */
+  last?: Partial<ExportSettings> | null;
+  /** The preset the last export started from. */
+  preset?: string | null;
+  presets?: SavedExportPreset[];
+};
 
 /** How a script should be read aloud, and by whom. */
 export type VoiceMode = 'auto' | 'hinglish' | 'hindi-roman' | 'en' | 'hi';
@@ -620,8 +666,31 @@ export type ExportOptions = {
   inToOut: boolean;
   /** Container + codec set; mov-alpha is ProRes 4444 with an alpha channel. */
   format: ExportFormat;
-  /** H.264 encoder for MP4/MOV; unset follows Settings (`auto`). */
+  /** Whether H.264 / HEVC / AV1 may use the GPU; unset follows Settings (`auto`). */
   encoder?: ExportEncoder;
+  /** ProRes `proxy` · `lt` · `standard` · `hq`; DNxHR `lb` · `sq` · `hq` · `hqx` · `444`. */
+  profile?: string | null;
+  /** Constant quality (default), variable or constant bitrate. */
+  rateControl?: 'quality' | 'vbr' | 'cbr';
+  /** Mbit/s, for VBR (target) and CBR. */
+  bitrate?: number | null;
+  /** VBR ceiling, Mbit/s. */
+  maxBitrate?: number | null;
+  /** Two-pass VBR (CPU encoders). */
+  twoPass?: boolean;
+  /** 8 or 10 (HEVC, AV1). */
+  bitDepth?: 8 | 10 | null;
+  /** Seconds between keyframes; null leaves it to the encoder. */
+  keyframeInterval?: number | null;
+  /** WebM keeps transparency (VP9 alpha). */
+  alpha?: boolean;
+  /** kbit/s for AAC / Opus / MP3; null follows quality. */
+  audioBitrate?: number | null;
+  sampleRate?: 44100 | 48000 | 96000 | null;
+  /** Loudness normalisation target in LUFS; null leaves levels alone. */
+  loudness?: number | null;
+  /** Timeline markers as chapters (MP4, MOV, WebM, M4A). */
+  chapters?: boolean;
 };
 
 /** Timeline selection: clip ids in the active comp. */
@@ -629,7 +698,7 @@ export type Selection = string[];
 
 export type Tool =
   | 'select' | 'track-forward' | 'track-backward' | 'ripple' | 'rolling' | 'rate-stretch' | 'razor' | 'slip' | 'slide'
-  | 'pen' | 'rectangle' | 'ellipse' | 'polygon' | 'mask-rectangle' | 'mask-ellipse' | 'mask-pen' | 'roto'
+  | 'pen' | 'rectangle' | 'ellipse' | 'polygon' | 'mask-rectangle' | 'mask-ellipse' | 'mask-pen' | 'roto' | 'magic-mask'
   | 'hand' | 'zoom' | 'type' | 'vertical-type';
 
 /** A `.helios` project file. */
