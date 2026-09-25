@@ -328,13 +328,30 @@ This is a live record of what's done and what's left in the plan in
 
 ## ⏳ Remaining
 
-### Phase C: depth and characters (weeks 6–14)
+The planned Phases 0, A, B and C are done. What is left is follow-up polish found along the way, and the Phase D research track.
 
-### Phase D (later)
-- AI-generated characters, 3D workspace panel, AI in-betweening research.
+### Follow-ups (smaller, known work)
+- **Characters (C2b):**
+  - more base characters, and custom rigs from a drawing;
+  - Rhubarb phoneme lip sync;
+  - 3/4 head turns;
+  - light-matte pairs (colour inside a beam, silhouette outside);
+  - props in hands (sockets);
+  - secondary motion (drawstrings, hair).
+- **Forms:** card decals (faces and eyes riding a turning object).
+- **FX:** smear, painterly (Kuwahara), flakes that disintegrate a layer.
+- **Blender:** a persistent worker (no start-up cost per render), render passes.
+- **Type:** word timing in `update_motion_scene`; static TTF copies of the bundled fonts so captions (libass) can use them.
+- **Study kit:** port the fixed tempo code into `analyze.py`.
+
+### Phase D (later, research)
+- AI-generated characters (an LLM or an image → vector → segmented → auto-rigged).
+- A 3D workspace panel.
+- AI in-betweening research (watch the model licences).
 
 ---
 
 ## Notes
-- Phase 0 and Phase A are committed and pushed to `main` (commit 5acfbcf, 25 Sep 2026). Later phases will be committed as they finish.
+- Phase 0 and Phase A are pushed to `main` (5acfbcf).
+- B1–C4 are committed on `main` locally (90e2a2b … 1df0359) and **not pushed yet**.
 - Tests are run after each item. The desktop app is never started or stopped, and nothing is built into `target/release`.
