@@ -16,6 +16,7 @@ import { isStaticShape } from '../vector/shapes';
 import * as S from './shaders';
 import { proceduralUniforms } from './procedural';
 import { drawParticles, particlesAt } from '../particles';
+import { formUniforms } from '../form';
 
 export type RenderOptions = {
   /** Output pixels per scene pixel (preview resolution); 1 for export. */
@@ -214,6 +215,11 @@ export class MotionRenderer {
         pad = shapePad;
         if (still) this.shapeRasters.set(key, { data: layer.shape, density, size: [canvas.width, canvas.height], pad });
         else this.shapeRasters.delete(key);
+        break;
+      }
+      case 'form': {
+        target = gl.acquire(W, H);
+        gl.pass('form', S.FORM_FS, target, formUniforms(layer.form, L.time, [w, h]));
         break;
       }
       case 'particles': {

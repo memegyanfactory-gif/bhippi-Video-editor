@@ -3,7 +3,7 @@
 This is a live record of what's done and what's left in the plan in
 [docs/REFERENCE-FILMS-PLAN.md](docs/REFERENCE-FILMS-PLAN.md). It is updated after every item.
 
-**Overall: study, plan, Phase 0, Phase A and Phase B are done ✅. Phase C (2.5D forms, characters, full Blender, Lottie) is next. Phase D has not started.**
+**Overall: study, plan, Phase 0, Phase A and Phase B are done ✅. Phase C is in progress (C1 soft 2.5D forms ✅; C2 characters next). Phase D has not started.**
 
 | Stage | Status |
 |---|---|
@@ -12,7 +12,7 @@ This is a live record of what's done and what's left in the plan in
 | **Phase 0: quick fixes** | ✅ Done (6 of 6), all tests green |
 | **Phase A: foundations** | ✅ Done (6 of 6), all tests green |
 | **Phase B: the SaaS unlock** | ✅ Done (4 of 4), all tests green |
-| Phase C: 2.5D, characters, full Blender | ⬜ Not started |
+| **Phase C: 2.5D, characters, full Blender** | 🟡 1 of 4 done (C1) |
 | Phase D: beyond | ⬜ Not started |
 
 ---
@@ -250,10 +250,26 @@ This is a live record of what's done and what's left in the plan in
     - a triple cut from one transition counted three times.
 - **Phase B: complete ✅** (B1–B4).
 
+### Phase C: depth and characters
+- C1 ✅ **`form` layer: soft 2.5D objects** (the Motion Tricks "looks 3D but is 2D" look), drawn live on the GPU.
+  - **9 kinds:** sphere, capsule, cylinder, rounded box, torus, coin, slab, prism, cone. Each is a signed-distance shape, sphere-traced in a shader with a small perspective.
+  - **Motion:** a keyed 3D `orientation` (tumbling cubes), squash and stretch with volume kept (bouncy balls), and a **real morph** between kinds (a sphere opening into a torus).
+  - **5 looks:** soft-rim (the measured formula), jelly, two-tone, glossy, glass-fake. Plus a four-colour hue field and checker, stripe, dot or band patterns.
+  - It is instant in the preview and exports the same; no Blender needed.
+  - Files: new `src/motion/form.ts`; `gl/shaders.ts` (`FORM_FS`), `gl/renderer.ts`, `types.ts`, `evaluate.ts`, `validate.ts`, `MotionInspector.tsx`, `motionDirection.ts`, `copilot.md`, `MOTION-ENGINE.md`.
+  - Tests: `tests/motionForm.test.ts` (4). **Full suite: 1,222 TypeScript tests pass.**
+  - **Checked on the GPU:**
+    - all 9 kinds;
+    - the 4 other looks;
+    - the hue field and a checker;
+    - the sphere→torus morph in 5 steps;
+    - a tumbling rounded cube next to a bouncing jelly ball with squash on contact.
+  - **Fixed along the way:** a turned cube's corners were clipped; the layer box now fits the object's full diagonal.
+  - *Later:* card decals (faces and eyes riding the turning object).
+
 ## ⏳ Remaining
 
 ### Phase C: depth and characters (weeks 6–14)
-- C1 ⬜ `form` layer: soft 2.5D objects (the Motion Tricks look).
 - C2 ⬜ Character system: rigs on twos, action library, face, lip sync, 4 original base characters (first character in about 2 weeks).
 - C3 ⬜ Full Blender pipeline: more presets (card rings with UI decals, sphere bouquets, device with a live UI screen), a persistent worker, motion-engine camera auto-synced from `camera.json`, render passes, and a Blender path picker in Settings.
 - C4 ⬜ Lottie import.

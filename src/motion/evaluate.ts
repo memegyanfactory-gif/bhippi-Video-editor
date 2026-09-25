@@ -1,6 +1,7 @@
 // Resolves a MotionScene at one moment into a flat list of layers with their final matrices,
 // opacities, masks and effect parameters. Pure: no DOM, no GL — the GPU executor, thumbnails,
 // frame QA and the tests all read the same answer.
+import { formBox } from './form';
 import { layerTime, num, vec, valueOf, isAnimated, isExpression, type ExprContext } from './anim';
 import { identity, lookAt, multiply, perspective, rotationX, rotationY, rotationZ, scaling, skewing, transformPoint, translation, type Mat4 } from './math';
 import type { Effect, Layer, Mask, MotionScene, Prop, Vec } from './types';
@@ -142,6 +143,8 @@ export function defaultSize(scene: Pick<MotionScene, 'width' | 'height'>, layer:
     }
     case 'precomp':
       return [layer.scene.width, layer.scene.height];
+    case 'form':
+      return formBox(layer.form, t);
     case 'text':
       return [scene.width, scene.height];
     default:

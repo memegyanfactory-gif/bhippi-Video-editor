@@ -137,7 +137,7 @@ export const PLAYBOOKS: Playbook[] = [
     rules: ['Headlines lead the spoken word; never let text arrive after the word.', 'Retype instead of replacing when one sentence becomes another (text.retype).', 'Scatter only for "AI" moments; it reads as noise elsewhere.'],
     tools: ['create_motion_scene', 'update_motion_scene'],
     eases: ['house', 'settle', 'expo-in'],
-    features: ['text.cascade', 'text.type', 'text.retype', 'text.scatter', 'text.lineSpacing', 'effects.gradient-overlay'],
+    features: ['text.cascade', 'text.type', 'text.retype', 'text.scatter', 'text.lineSpacing', 'effects.gradient-overlay', 'form', 'form.morph', 'form.squash'],
     pacing: { swapGap: [0.4, 2], entrance: [2, 12] },
   },
   {
@@ -158,7 +158,7 @@ export const PLAYBOOKS: Playbook[] = [
     eases: ['house', 'expo-in', 'settle'],
     features: ['effects.bevel', 'effects.inner-glow', 'effects.gradient-overlay', 'ops.merge', 'morphTo', 'camera.dof'],
     pacing: { swapGap: [2, 5], entrance: [6, 30] },
-    gaps: ['True rim-lit forms with card decals and swap-when-hidden are plan P6; use bevel + gradient-overlay meanwhile.'],
+    gaps: ['Card decals on forms (faces and eyes riding a turning object) are not built yet; place eyes as shape layers parented to the form layer.'],
   },
   {
     id: 'sound',

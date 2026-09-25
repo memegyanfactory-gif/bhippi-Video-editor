@@ -10,6 +10,7 @@
 // · Any animatable value (`Prop`) is a literal, `{ k: keys }` or `{ expr: '…' }` — see anim.ts.
 import type { MotionBrand } from '../lib/brandKit/motionBrand';
 import type { ParticleData } from './particles';
+import type { FormData } from './form';
 
 export type Vec = number[];
 
@@ -384,6 +385,8 @@ export type Layer = LayerCommon & (
   | { type: 'procedural'; kind: ProceduralKind; params?: Record<string, unknown>; size?: Vec }
   /** Confetti, sparkles, dust, bokeh, speed lines, snow, embers, bursts (src/motion/particles.ts); the layer is the scene size unless `size`. */
   | { type: 'particles'; particles: ParticleData; size?: Vec }
+  /** A soft 2.5D object (src/motion/form.ts): sphere, capsule, cylinder, rounded box, torus, coin, slab, prism, cone. */
+  | { type: 'form'; form: FormData }
   | { type: 'shape'; shape: ShapeData }
   | { type: 'text'; text: TextLayerData }
   | { type: 'null' }

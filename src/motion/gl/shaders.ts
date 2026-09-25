@@ -733,3 +733,121 @@ void main() {
     : 1.0 - (1.0 - col) * (1.0 - grad);
   outColor = vec4(mix(col, b, uOpacity) * s.a, s.a);
 }`;
+
+// Soft 2.5D forms (src/motion/form.ts): sphere-traced signed-distance shapes inside the layer quad,
+// seen by a narrow perspective camera, shaded with the reference films' looks.
+export const FORM_FS = `${HEAD}
+uniform int uKind;
+uniform int uKind2;
+uniform float uMorph;
+uniform vec3 uDims;
+uniform mat3 uRot;
+uniform int uLook;
+uniform vec4 uBase;
+uniform vec4 uRim;
+uniform vec4 uH1;
+uniform vec4 uH2;
+uniform vec4 uH3;
+uniform vec4 uH4;
+uniform vec2 uLight;
+uniform float uRound;
+uniform vec2 uSquash;
+uniform vec4 uPattern;
+uniform vec4 uPatColor;
+const float F = 4.0;
+float sdBox(vec3 p, vec3 b, float r) { vec3 q = abs(p) - (b - r); return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r; }
+float sdCyl(vec3 p, float rad, float h, float r) { vec2 q = vec2(length(p.xz) - rad + r, abs(p.y) - h + r); return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r; }
+float sdKind(int k, vec3 p, vec3 d) {
+  float m = min(d.x, min(d.y, d.z));
+  float r = uRound * m;
+  if (k == 0) { return (length(p / d) - 1.0) * m; }
+  if (k == 1) { float h = max(d.y - d.x, 0.0); vec3 q = p; q.y -= clamp(q.y, -h, h); return length(q) - d.x; }
+  if (k == 2) { return sdCyl(p, d.x, d.y, min(r, d.x)); }
+  if (k == 3 || k == 6) { return sdBox(p, d, min(r, m)); }
+  if (k == 4) { float R = d.x * 0.68; float rr = d.x * 0.32; vec2 q = vec2(length(p.xy) - R, p.z); return length(q) - rr; }
+  if (k == 5) { return sdCyl(p.xzy, d.x, d.z, min(r, d.z)); }
+  if (k == 7) { vec3 q = abs(p); return max(q.z - d.z, max(q.x * 0.866025 + p.y * 0.5, -p.y) - d.x * 0.5); }
+  vec2 q = vec2(length(p.xz), p.y);
+  vec2 k1 = vec2(0.0, d.y);
+  vec2 k2 = vec2(-d.x, 2.0 * d.y);
+  vec2 ca = vec2(q.x - min(q.x, q.y < 0.0 ? d.x : 0.0), abs(q.y) - d.y);
+  vec2 cb = q - k1 + k2 * clamp(dot(k1 - q, k2) / dot(k2, k2), 0.0, 1.0);
+  float s = (cb.x < 0.0 && ca.y < 0.0) ? -1.0 : 1.0;
+  return s * sqrt(min(dot(ca, ca), dot(cb, cb))) - r * 0.2;
+}
+float map(vec3 p) {
+  vec3 q = transpose(uRot) * p;
+  vec3 sq = vec3(uSquash, 1.0 / sqrt(uSquash.x * uSquash.y));
+  q /= sq;
+  float d = sdKind(uKind, q, uDims);
+  if (uMorph > 0.0) d = mix(d, sdKind(uKind2, q, uDims), uMorph);
+  return d * min(sq.x, min(sq.y, sq.z));
+}
+vec3 normalAt(vec3 p) {
+  vec2 e = vec2(0.0015, 0.0);
+  return normalize(vec3(map(p + e.xyy) - map(p - e.xyy), map(p + e.yxy) - map(p - e.yxy), map(p + e.yyx) - map(p - e.yyx)));
+}
+void main() {
+  float s = min(uResolution.x, uResolution.y) * 0.5;
+  vec2 np = (vUv - 0.5) * uResolution / s;
+  np.y = -np.y;
+  vec3 ro = vec3(0.0, 0.0, -F);
+  vec3 rd = normalize(vec3(np, F));
+  float t = F - 2.5;
+  float dmin = 1e9;
+  bool hit = false;
+  for (int i = 0; i < 96; i++) {
+    vec3 p = ro + rd * t;
+    float d = map(p);
+    dmin = min(dmin, d);
+    if (d < 0.0008) { hit = true; break; }
+    t += d * 0.9;
+    if (t > F + 3.0) break;
+  }
+  float px = 1.5 / s;
+  if (!hit && dmin > px) { outColor = vec4(0.0); return; }
+  vec3 p = ro + rd * t;
+  vec3 n = normalAt(p);
+  vec3 v = -rd;
+  float nz = clamp(dot(n, v), 0.0, 1.0);
+  vec3 L = normalize(vec3(uLight.x, -uLight.y, -0.9));
+  float diff = dot(n, L);
+  vec3 base = uBase.rgb;
+  if (uPattern.x > 0.5) {
+    vec3 q = transpose(uRot) * p / vec3(uSquash, 1.0);
+    vec3 u = q / max(uDims.x, 1e-3) * uPattern.y;
+    float m = 0.0;
+    if (uPattern.x < 1.5) m = step(0.0, sin(u.x * 3.14159) * sin(u.y * 3.14159) * sin(u.z * 3.14159 + 0.5));
+    else if (uPattern.x < 2.5) m = step(0.0, sin(u.y * 3.14159));
+    else if (uPattern.x < 3.5) { vec3 f = fract(u * 0.5) - 0.5; m = 1.0 - step(0.18, length(f)); }
+    else m = 1.0 - step(0.16 * uPattern.y / 4.0, abs(q.y / max(uDims.y, 1e-3)));
+    base = mix(base, uPatColor.rgb, m * uPatColor.a);
+  }
+  if (uH1.a > 0.0) {
+    vec4 w = vec4(max(n.x, 0.0), max(-n.x, 0.0), max(n.y, 0.0), max(-n.y, 0.0));
+    vec3 hue = (uH1.rgb * w.x + uH2.rgb * w.y + uH3.rgb * w.z + uH4.rgb * w.w) / max(w.x + w.y + w.z + w.w, 1e-3);
+    base = mix(base, hue, 0.45 * clamp(w.x + w.y + w.z + w.w, 0.0, 1.0));
+  }
+  vec3 col;
+  float alpha = 1.0;
+  vec3 h = normalize(L + v);
+  if (uLook == 0) {
+    // soft-rim: L = a + b*sqrt(1 - n_z) + c*(n_xy . light)
+    float lit = 0.72 + 0.28 * dot(normalize(n.xy + 1e-5), normalize(L.xy)) * length(n.xy);
+    col = base * lit + uRim.rgb * 0.5 * sqrt(max(0.0, 1.0 - nz));
+  } else if (uLook == 1) {
+    float wrap = diff * 0.5 + 0.5;
+    col = base * (0.55 + 0.5 * wrap) + uRim.rgb * pow(1.0 - nz, 2.0) * 0.6 + vec3(pow(max(dot(n, h), 0.0), 90.0)) * 0.9;
+    alpha = 0.9 + 0.1 * (1.0 - nz);
+  } else if (uLook == 2) {
+    col = mix(base * 0.7, base, step(0.05, diff)) + uRim.rgb * step(0.93, 1.0 - nz) * 0.6;
+  } else if (uLook == 3) {
+    col = base * (0.35 + 0.65 * max(diff, 0.0)) + vec3(pow(max(dot(n, h), 0.0), 64.0)) * 0.85 + uRim.rgb * pow(1.0 - nz, 3.0) * 0.35;
+  } else {
+    float fr = pow(1.0 - nz, 2.2);
+    col = mix(base * 0.35, mix(uRim.rgb, vec3(1.0), 0.4), fr) + vec3(pow(max(dot(n, h), 0.0), 120.0));
+    alpha = 0.35 + 0.65 * fr;
+  }
+  if (!hit) alpha *= 1.0 - smoothstep(0.0, px, dmin);
+  outColor = vec4(clamp(col, 0.0, 1.0) * alpha, alpha);
+}`;
