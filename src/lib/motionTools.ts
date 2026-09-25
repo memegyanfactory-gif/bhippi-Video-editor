@@ -13,6 +13,7 @@ import { playbook, playbookIndex } from './motionDirection';
 import { cameraLayer, PRESETS_3D, renderScene, scene3dRequest, trackLayers, type CameraFile, type ObjectsFile, type Render3DResult } from './blender3d';
 import { buildUiScene, runUiScreenTool } from './uiScreenTools';
 import { runCharacterTool } from './characterTools';
+import { runLottieTool } from './lottieTools';
 import { GENERIC_TARGET, pacingReport, type PacingTarget } from './pacing';
 import { summarizeProfile, type MotionProfile } from './referenceMotion';
 import { FX_HELP, FX_KINDS, fxLayers, type FxKind, type FxOptions } from '../motion/fx';
@@ -32,7 +33,7 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'import_lottie']);
 /** Read-only / planning motion tools, allowed in any production phase. */
 export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing', 'list_character_actions']);
 
@@ -562,6 +563,9 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const scene: MotionScene = { ...base, duration: longest, layers: made.layers.map((l) => l.layer), ...(made.cues.length ? { cues: made.cues } : {}) };
       return runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start: num(args, 'start') ?? 0, title: str(args, 'title') ?? kind, duration: longest, fit: false, useBrand: false, sfx: args.sfx !== false }, ctx);
     }
+
+    case 'import_lottie':
+      return runLottieTool(args, ctx, runMotionTool);
 
     case 'create_character':
     case 'animate_character':

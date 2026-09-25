@@ -5337,6 +5337,68 @@
       }
     },
     {
+      "name": "import_lottie",
+      "description": "Places a Lottie animation the user supplied (.json or .lottie file, or its library assetId) as a motion scene. The common subset (shapes, paths, keyed transforms with their eases, fills, strokes, gradients, trim paths, merge paths, parenting, precomps) becomes real editable layers that match lottie-web; files that use anything else (animated paths, masks, mattes, text, images, effects, expressions…) are rendered frame by frame with alpha instead, so every file plays. Helios never searches or downloads LottieFiles content (their licence forbids it): the user downloads the file and gives it to you.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "native",
+              "render"
+            ],
+            "description": "auto (default): native layers when the file allows, otherwise rendered frames."
+          },
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Scene px of its centre."
+          },
+          "width": {
+            "type": "number",
+            "description": "On-screen width in px (default 60% of the frame height's worth)."
+          },
+          "start": {
+            "type": "number"
+          },
+          "duration": {
+            "type": "number"
+          },
+          "loop": {
+            "type": "boolean",
+            "description": "Rendered files: repeat for the whole scene."
+          },
+          "clipId": {
+            "type": "string",
+            "description": "Add into this motion scene (at scene time t) instead of a new one."
+          },
+          "t": {
+            "type": "number"
+          },
+          "compId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "add_fx",
       "description": "Drops a motion accent into a motion scene (clipId, at scene time t) or over the timeline as its own overlay (start): confetti-pop (a burst that falls), confetti-rain, sparkles, burst (lines from a point), ripple (rings), star-glint (a lens star, for glass, logos and product edges), glow-ring, speed-lines, exclaim (comic \"!\" marks), gradient-border (a moving gradient outline around a target layer or box), echo (trailing copies of a moving target layer), and ambient dust, bokeh, snow, embers, light-shafts, mesh-gradient or dot-wave. Call it with no kind to list them.",
       "input_schema": {

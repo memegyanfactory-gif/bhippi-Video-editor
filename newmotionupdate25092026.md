@@ -3,7 +3,7 @@
 This is a live record of what's done and what's left in the plan in
 [docs/REFERENCE-FILMS-PLAN.md](docs/REFERENCE-FILMS-PLAN.md). It is updated after every item.
 
-**Overall: study, plan, Phase 0, Phase A and Phase B are done ✅. Phase C is in progress (C1 soft 2.5D forms ✅, C2 characters ✅ (first version), C3 Blender pipeline ✅; C4 Lottie import next). Phase D has not started.**
+**Overall: study, plan, Phase 0 and Phases A, B and C are done ✅. Phase D (later research) and the follow-up list below remain.**
 
 | Stage | Status |
 |---|---|
@@ -12,7 +12,7 @@ This is a live record of what's done and what's left in the plan in
 | **Phase 0: quick fixes** | ✅ Done (6 of 6), all tests green |
 | **Phase A: foundations** | ✅ Done (6 of 6), all tests green |
 | **Phase B: the SaaS unlock** | ✅ Done (4 of 4), all tests green |
-| **Phase C: 2.5D, characters, full Blender** | 🟡 3 of 4 done (C1–C3) |
+| **Phase C: 2.5D, characters, full Blender** | ✅ Done (4 of 4), all tests green |
 | Phase D: beyond | ⬜ Not started |
 
 ---
@@ -313,11 +313,22 @@ This is a live record of what's done and what's left in the plan in
   - Tests: `tests/blender3d.test.ts` (+3). **Full suite: 1,234 TypeScript and 292 Rust tests pass**, and the real-Blender test passes.
   - **Fixed along the way:** the card ring's side cards faced inward and showed mirrored UI; they now face outward with solid backs.
   - *Later:* a persistent Blender worker (no start-up per render), render passes, turning a UI screen into a textured card automatically.
+- C4 ✅ **Lottie import.**
+  - **`import_lottie`** takes the user's `.json` or `.lottie` file and places it.
+  - The common subset becomes **real, editable layers**: shapes, paths, keyed transforms with each key's own bezier ease, fills, strokes, gradients, trim paths, merge paths, parenting, precomps, in/out points.
+  - Anything the layers can't reproduce exactly **renders frame by frame** with alpha instead, so every file plays. That covers animated paths, masks, mattes, text, images, effects, expressions, time remap and repeaters.
+  - The renderer is lottie-web's light canvas build (MIT). **It contains no `eval`, so it is safe under the app's security policy.**
+  - **Checked side by side against lottie-web on the GPU:** the converted test file matches it frame for frame. The only leftover differences are anti-aliased edges.
+    - Two fixes made the trimmed square match: rectangles and ellipses start and run the same way Lottie draws them, and missing `d` values follow lottie-web's direction rule.
+    - A morph file correctly falls back to rendered frames.
+  - **Licence rule:** user files only. Helios never searches or bundles LottieFiles content (their licence forbids it); the prompt tells the AI so.
+  - Files: new `src/motion/lottie/` (`convert.ts`, `render.ts`, a type shim), `src/lib/lottieTools.ts`; `motionTools.ts`, `council.ts`, `ai-tools.json`, `copilot.md`, `MOTION-ENGINE.md`; `package.json` (+`lottie-web`, +`fflate`).
+  - Tests: `tests/lottie.test.ts` (6), with two hand-made fixtures (no third-party files).
+- **Phase C: complete ✅** (C1–C4).
 
 ## ⏳ Remaining
 
 ### Phase C: depth and characters (weeks 6–14)
-- C4 ⬜ Lottie import.
 
 ### Phase D (later)
 - AI-generated characters, 3D workspace panel, AI in-betweening research.
