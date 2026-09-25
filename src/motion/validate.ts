@@ -5,9 +5,10 @@ import { checkExpression } from './expr';
 import { parseSvgPath } from './vector/path';
 import { PARTICLE_PRESETS } from './particles';
 import { FORM_KINDS, FORM_LOOKS } from './form';
+import { ACTIONS, CHARACTER_KINDS } from './character/types';
 import type { EffectType, Layer, MotionScene, ShapeItem } from './types';
 
-const LAYER_TYPES = new Set(['footage', 'solid', 'procedural', 'particles', 'form', 'shape', 'text', 'null', 'camera', 'precomp']);
+const LAYER_TYPES = new Set(['footage', 'solid', 'procedural', 'particles', 'form', 'character', 'shape', 'text', 'null', 'camera', 'precomp']);
 export const EFFECT_TYPES: EffectType[] = [
   'glow', 'gaussian-blur', 'directional-blur', 'zoom-blur', 'lens-blur', 'chromatic-aberration', 'vignette', 'grain', 'tint', 'duotone', 'black-white',
   'brightness-contrast', 'hue-saturation', 'levels', 'exposure', 'invert', 'fill', 'drop-shadow', 'stroke', 'halation', 'mosaic', 'pixel-sort',
@@ -69,6 +70,13 @@ export function validateScene(scene: unknown, depth = 0): string[] {
     if (typeof layer.in === 'number' && layer.in >= s.duration) problems.push(`${name}: in must be before the scene's end.`);
     for (const effect of layer.effects ?? []) if (!EFFECTS.has(effect?.type)) problems.push(`${name}: unknown effect "${String(effect?.type)}" (known: ${EFFECT_TYPES.join(', ')}).`);
     if (layer.type === 'procedural' && !PROCEDURALS.has(layer.kind)) problems.push(`${name}: unknown procedural kind "${layer.kind}".`);
+    if (layer.type === 'character') {
+      if (!(CHARACTER_KINDS as readonly string[]).includes(layer.character?.kind)) problems.push(`${name}: character kind must be one of ${CHARACTER_KINDS.join(', ')}.`);
+      for (const [i, action] of (layer.character?.actions ?? []).entries()) {
+        if (!(ACTIONS as readonly string[]).includes(action?.do)) problems.push(`${name}: actions[${i}].do must be one of ${ACTIONS.join(', ')}.`);
+        else if (typeof action.t !== 'number') problems.push(`${name}: actions[${i}] needs a time t.`);
+      }
+    }
     if (layer.type === 'form' && !(FORM_KINDS as readonly string[]).includes(layer.form?.kind)) problems.push(`${name}: form kind must be one of ${FORM_KINDS.join(', ')}.`);
     if (layer.type === 'form' && layer.form?.morph && !(FORM_KINDS as readonly string[]).includes(layer.form.morph.to)) problems.push(`${name}: form morph.to must be a form kind.`);
     if (layer.type === 'form' && layer.form?.look && !(FORM_LOOKS as readonly string[]).includes(layer.form.look)) problems.push(`${name}: form look must be one of ${FORM_LOOKS.join(', ')}.`);

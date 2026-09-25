@@ -3,7 +3,7 @@
 This is a live record of what's done and what's left in the plan in
 [docs/REFERENCE-FILMS-PLAN.md](docs/REFERENCE-FILMS-PLAN.md). It is updated after every item.
 
-**Overall: study, plan, Phase 0, Phase A and Phase B are done ✅. Phase C is in progress (C1 soft 2.5D forms ✅; C2 characters next). Phase D has not started.**
+**Overall: study, plan, Phase 0, Phase A and Phase B are done ✅. Phase C is in progress (C1 soft 2.5D forms ✅, C2 characters ✅ (first version); C3 full Blender next). Phase D has not started.**
 
 | Stage | Status |
 |---|---|
@@ -12,7 +12,7 @@ This is a live record of what's done and what's left in the plan in
 | **Phase 0: quick fixes** | ✅ Done (6 of 6), all tests green |
 | **Phase A: foundations** | ✅ Done (6 of 6), all tests green |
 | **Phase B: the SaaS unlock** | ✅ Done (4 of 4), all tests green |
-| **Phase C: 2.5D, characters, full Blender** | 🟡 1 of 4 done (C1) |
+| **Phase C: 2.5D, characters, full Blender** | 🟡 2 of 4 done (C1, C2 first version) |
 | Phase D: beyond | ⬜ Not started |
 
 ---
@@ -266,11 +266,44 @@ This is a live record of what's done and what's left in the plan in
     - a tumbling rounded cube next to a bouncing jelly ball with squash on contact.
   - **Fixed along the way:** a turned cube's corners were clipped; the layer box now fits the object's full diagonal.
   - *Later:* card decals (faces and eyes riding the turning object).
+- C2 ✅ **Character system: first version** (for the MDS film you marked very important).
+  - **A new `character` layer.** A pure pose solver turns timed actions into a pose. It is posterised **on twos** like the MDS film, while the camera and FX stay on ones.
+  - Drawing is Canvas2D:
+    - **rubber-hose limbs bent by two-bone IK**;
+    - almond, googly or dot eyes with lids and a **star catchlight**;
+    - **replacement mouths**.
+  - **3 original characters:** `dome-kid` (flat dome head, hoodie with drawstrings, noodle arms), `shape-buddy` (a round creature with googly eyes), `flat-corporate` (an office worker with a tie). Palettes can be recoloured (brand colours on the hoodie).
+  - **20 actions, measured on the MDS film:**
+    - **hop** (2 f crouch, 1 take-off, 7 hang, 2 f fall stretched ×1.24, contact 2, squash ×0.83 for 6);
+    - **leap** (3 f crouch, smear take-off, 1.7× fall stretch, 0.55× squash);
+    - walk (14 f a step), sneak (12 f), run (6 f, leaning 21°);
+    - wave, point and look (aimed at scene points), celebrate, shrug, nod, shake, facepalm, **surprise** (a take);
+    - think, type, **talk** (mouth shapes from words), expression, turn;
+    - **idle as dead holds with 2–3-drawing bursts** (not sine breathing).
+  - **Automatic blinks** use the measured half/closed/closed/half + rounder-open drawing.
+  - 8 expressions: normal, happy, sad, wide, determined, closed, unsure, side.
+  - Walks, hops and leaps **move the layer**, so a character never walks off its own canvas.
+  - **Tools:** `create_character`, `animate_character`, `lip_sync_character` (the voice-over's transcribed words drive the mouth), `list_character_actions`. There is also a new **`character-explainer` playbook** in `motion_guide`.
+  - Files: new `src/motion/character/` (`types.ts`, `pose.ts`, `draw.ts`), `src/lib/characterTools.ts`; `types.ts`, `evaluate.ts`, `gl/renderer.ts`, `validate.ts`, `MotionInspector.tsx`, `motionTools.ts`, `motionDirection.ts`, `permissions.ts`, `editWorkflow.ts`, `council.ts`, `ai-tools.json`, `copilot.md`, `MOTION-ENGINE.md`.
+  - Tests: `tests/motionCharacter.test.ts` (9: twos, the hop chart, walking distance and facing, the blink drawing, expressions and visemes, IK, validation, layer travel, the tools). **Full suite: 1,231 TypeScript tests pass.**
+  - **Checked on the GPU:**
+    - all 3 characters in 6 poses;
+    - a performance: the kid walks in, waves, talks, is surprised and celebrates; the office worker points, shrugs and facepalms; the buddy hops and turns happy.
+  - **Fixed along the way** (found on the GPU):
+    - raised arms covered the face;
+    - a walking character left its canvas;
+    - a left-facing character pointed the wrong way.
+  - *Still to come for characters (C2b):*
+    - more characters, and custom rigs from a drawing;
+    - Rhubarb phoneme lip sync;
+    - head turns with 3/4 views;
+    - light-matte pairs (colour inside a beam, silhouette outside);
+    - props in hands (sockets);
+    - secondary motion (drawstrings, hair).
 
 ## ⏳ Remaining
 
 ### Phase C: depth and characters (weeks 6–14)
-- C2 ⬜ Character system: rigs on twos, action library, face, lip sync, 4 original base characters (first character in about 2 weeks).
 - C3 ⬜ Full Blender pipeline: more presets (card rings with UI decals, sphere bouquets, device with a live UI screen), a persistent worker, motion-engine camera auto-synced from `camera.json`, render passes, and a Blender path picker in Settings.
 - C4 ⬜ Lottie import.
 

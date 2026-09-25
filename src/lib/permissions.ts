@@ -56,6 +56,7 @@ const READS = new Set([
   'list_ui_kinds',
   'list_transitions',
   'check_pacing',
+  'list_character_actions',
 ]);
 
 /** Tools that throw something away, which only Full access may do. */

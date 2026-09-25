@@ -2,6 +2,8 @@
 // opacities, masks and effect parameters. Pure: no DOM, no GL — the GPU executor, thumbnails,
 // frame QA and the tests all read the same answer.
 import { formBox } from './form';
+import { CHARACTER_BOX } from './character/types';
+import { poseAt } from './character/pose';
 import { layerTime, num, vec, valueOf, isAnimated, isExpression, type ExprContext } from './anim';
 import { identity, lookAt, multiply, perspective, rotationX, rotationY, rotationZ, scaling, skewing, transformPoint, translation, type Mat4 } from './math';
 import type { Effect, Layer, Mask, MotionScene, Prop, Vec } from './types';
@@ -145,6 +147,8 @@ export function defaultSize(scene: Pick<MotionScene, 'width' | 'height'>, layer:
       return [layer.scene.width, layer.scene.height];
     case 'form':
       return formBox(layer.form, t);
+    case 'character':
+      return [CHARACTER_BOX[0], CHARACTER_BOX[1]];
     case 'text':
       return [scene.width, scene.height];
     default:
@@ -184,9 +188,15 @@ function localTransform(layer: Layer, size: [number, number], scene: MotionScene
   const is3D = !!layer.threeD;
   const fallbackAnchor = (tr.anchor === undefined && anchorOf?.(layer, size, t)) || [size[0] / 2, size[1] / 2, 0];
   const anchor = vec(tr.anchor, t, [fallbackAnchor[0], fallbackAnchor[1], fallbackAnchor[2] ?? 0], ctx);
-  const position = vec(tr.position, t, layer.parent ? [0, 0, 0] : [scene.width / 2, scene.height / 2, 0], ctx);
+  let position = vec(tr.position, t, layer.parent ? [0, 0, 0] : [scene.width / 2, scene.height / 2, 0], ctx);
   const scaleValue = valueOf<number | Vec>(tr.scale, t, 100, ctx);
   const scale = typeof scaleValue === 'number' ? [scaleValue, scaleValue, scaleValue] : [scaleValue[0] ?? 100, scaleValue[1] ?? scaleValue[0] ?? 100, scaleValue[2] ?? 100];
+  if (layer.type === 'character') {
+    // A character's walks, hops and leaps move the layer, in its own px scaled to the scene.
+    // (A new array: vec() can hand back the scene's own.)
+    const pose = poseAt(layer.character, t);
+    position = [position[0] + (pose.x * scale[0]) / 100, position[1] + (pose.y * scale[1]) / 100, position[2] ?? 0];
+  }
   const rz = num(tr.rotation, t, 0, ctx);
   const opacity = Math.max(0, Math.min(100, num(tr.opacity, t, 100, ctx))) / 100;
   let m = translation(position[0], position[1], is3D ? position[2] ?? 0 : 0);

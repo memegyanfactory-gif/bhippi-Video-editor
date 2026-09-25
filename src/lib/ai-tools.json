@@ -5167,6 +5167,149 @@
       }
     },
     {
+      "name": "list_character_actions",
+      "description": "Lists the base characters (dome-kid, shape-buddy, flat-corporate — original designs) and every action and expression they can perform.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "create_character",
+      "description": "Places an animated character (a rigged flat 2D character on twos, like the MDS film): dome-kid (flat dome head, hoodie, noodle arms), shape-buddy (a round creature with googly eyes), flat-corporate (an office worker). Stands with its feet at `at`, `height` px tall, performing timed actions (walk, hop, leap, wave, point, talk, celebrate, surprise, facepalm…). Blinks and idles are automatic. Into an existing motion scene with clipId, or as its own scene on the timeline.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "character": {
+            "type": "string",
+            "enum": [
+              "dome-kid",
+              "shape-buddy",
+              "flat-corporate"
+            ]
+          },
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Scene px of the point between its feet (default bottom centre)."
+          },
+          "height": {
+            "type": "number",
+            "description": "Standing height in px (default half the frame)."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Timed actions [{t (scene s), do, duration?, to?, hand?, text?, words?, expression?, amount?}]. do: idle, wave, point, look, hop, leap, walk, sneak, run, celebrate, shrug, nod, shake, facepalm, surprise, think, type, talk, expression, turn. point/look to [x,y] scene px; walk/sneak/run/leap to a scene x or [x,y] (or a number of px); talk with text (or lip_sync_character); expression: normal|happy|sad|wide|determined|closed|unsure|side."
+          },
+          "palette": {
+            "type": "object",
+            "description": "{skin, top, bottom, shoe, hair, accent, eye, pupil, mouth} colours (e.g. brand colours on the hoodie)."
+          },
+          "expression": {
+            "type": "string"
+          },
+          "facing": {
+            "type": "number",
+            "description": "1 right, -1 left."
+          },
+          "step": {
+            "type": "number",
+            "description": "2 = on twos (default), 1 = ones, 3 = threes."
+          },
+          "clipId": {
+            "type": "string",
+            "description": "Add into this motion scene instead of a new one."
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number"
+          },
+          "duration": {
+            "type": "number"
+          },
+          "compId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "animate_character",
+      "description": "Adds (or with replace:true, replaces) timed actions on a character layer in a motion scene.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "layerId": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Timed actions [{t (scene s), do, duration?, to?, hand?, text?, words?, expression?, amount?}]. do: idle, wave, point, look, hop, leap, walk, sneak, run, celebrate, shrug, nod, shake, facepalm, surprise, think, type, talk, expression, turn. point/look to [x,y] scene px; walk/sneak/run/leap to a scene x or [x,y] (or a number of px); talk with text (or lip_sync_character); expression: normal|happy|sad|wide|determined|closed|unsure|side."
+          },
+          "replace": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clipId",
+          "actions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "lip_sync_character",
+      "description": "Makes a character's mouth follow the voice-over: the transcribed words under the scene (or from–to within it) become timed mouth shapes.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "layerId": {
+            "type": "string"
+          },
+          "from": {
+            "type": "number"
+          },
+          "to": {
+            "type": "number"
+          },
+          "compId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "clipId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "check_pacing",
       "description": "Pacing QA: measures the edit the way the reference films were measured and compares it with a target. It checks how often something new happens (foreground swaps), entrance speed, whether text holds long enough to read, typing speed by purpose (fields vs lines read with the voice-over), and cuts on the beat against chance. Target: a genre's measured pacing (genre: saas-explainer, ai-launch, brand-identity-film, kinetic-type, 2.5d-tricks), or a reference's own pacingTarget from analyze_reference_video.",
       "input_schema": {
@@ -5721,13 +5864,13 @@
     },
     {
       "name": "motion_guide",
-      "description": "Motion-direction playbooks measured on professional reference films: beat recipes with durations, look, timing, rules, eases and engine features for a genre. Call with no topic for the list; call motion_guide {topic} before planning a SaaS explainer, AI launch, brand identity film, kinetic type, 2.5D piece or the sound pass.",
+      "description": "Motion-direction playbooks measured on professional reference films: beat recipes with durations, look, timing, rules, eases and engine features for a genre. Call with no topic for the list; call motion_guide {topic} before planning a SaaS explainer, AI launch, brand identity film, kinetic type, 2.5D piece, character story or the sound pass.",
       "input_schema": {
         "type": "object",
         "properties": {
           "topic": {
             "type": "string",
-            "description": "saas-explainer | ai-launch | brand-identity-film | kinetic-type | 2.5d-tricks | sound"
+            "description": "saas-explainer | ai-launch | brand-identity-film | kinetic-type | 2.5d-tricks | character-explainer | sound"
           },
           "part": {
             "type": "string",

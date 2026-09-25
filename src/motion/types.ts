@@ -11,6 +11,7 @@
 import type { MotionBrand } from '../lib/brandKit/motionBrand';
 import type { ParticleData } from './particles';
 import type { FormData } from './form';
+import type { CharacterData } from './character/types';
 
 export type Vec = number[];
 
@@ -387,6 +388,8 @@ export type Layer = LayerCommon & (
   | { type: 'particles'; particles: ParticleData; size?: Vec }
   /** A soft 2.5D object (src/motion/form.ts): sphere, capsule, cylinder, rounded box, torus, coin, slab, prism, cone. */
   | { type: 'form'; form: FormData }
+  /** A rigged character driven by timed actions (src/motion/character); the layer is CHARACTER_BOX with the feet at CHARACTER_FEET. */
+  | { type: 'character'; character: CharacterData }
   | { type: 'shape'; shape: ShapeData }
   | { type: 'text'; text: TextLayerData }
   | { type: 'null' }

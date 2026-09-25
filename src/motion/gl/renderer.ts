@@ -17,6 +17,8 @@ import * as S from './shaders';
 import { proceduralUniforms } from './procedural';
 import { drawParticles, particlesAt } from '../particles';
 import { formUniforms } from '../form';
+import { drawCharacter } from '../character/draw';
+import { poseAt } from '../character/pose';
 
 export type RenderOptions = {
   /** Output pixels per scene pixel (preview resolution); 1 for export. */
@@ -215,6 +217,14 @@ export class MotionRenderer {
         pad = shapePad;
         if (still) this.shapeRasters.set(key, { data: layer.shape, density, size: [canvas.width, canvas.height], pad });
         else this.shapeRasters.delete(key);
+        break;
+      }
+      case 'character': {
+        const key = `c:${layer.id}`;
+        const { canvas, ctx } = this.canvases.get(key, w * density, h * density);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawCharacter(ctx, layer.character.kind, layer.character.palette, poseAt(layer.character, L.time), density);
+        target = this.fromTexture(this.upload(key, canvas), canvas.width, canvas.height);
         break;
       }
       case 'form': {
