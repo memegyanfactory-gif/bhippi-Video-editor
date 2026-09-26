@@ -133,6 +133,7 @@ Any animatable value (`Prop`) takes one of three forms:
 | `null` | Nothing. A parent for other layers. |
 | `camera` | AE one- or two-node camera: `zoom`, `pointOfInterest`. **Depth of field:** `aperture` (px, 0 = off) and `focus` (px from the camera, default the zoom) blur every 3D layer by its circle of confusion (`defocusSigma` in evaluate.ts; the renderer blurs the layer's content). `dof {band, near, far, max}` keeps a depth band sharp and weights the near and far sides. |
 | `precomp` | A nested scene, with `offset`/`speed`, up to 6 deep. |
+| `drawing` | A hand-made picture ([DRAWN-STYLES.md](DRAWN-STYLES.md)): looks riso, crayon, ink, pencil, cut-paper, felt, flat and scope. Items include primitives, generative motifs, bot and sprite characters with faces, hand-writing, the pen that follows the line and scope traces. They draw on, fill in and pop, and boil on twos. Riso prints on the GPU in halftone plates with misregistration. |
 
 **Text layers** also take:
 
@@ -169,6 +170,7 @@ These are in `src/motion/gl/effects.ts`. Every one exports exactly as it preview
 - **Colour:** chromatic aberration, RGB split, vignette, grain, tint, duotone, black & white, brightness-contrast, hue-saturation, levels, exposure, invert, fill, radial gradient overlay.
 - **Shadow and edges:** drop shadow, stroke (outside/centre/inside), matte choke.
 - **Stylise and distort:** mosaic, pixel sort, displacement, turbulent displace, wave warp, lens distortion, light leak, liquid glass.
+- **Print:** `riso` (any layer separated into 1–4 riso inks, halftone-screened, misregistered, on paper) and `halftone` (one ink by darkness). See [DRAWN-STYLES.md](DRAWN-STYLES.md).
 - **Layer styles** (inside the layer's alpha, AE's Layer Styles): `inner-shadow` (size, distance, direction, color, opacity, choke), `inner-glow`, `bevel` (size, depth, angle, altitude, highlight/shadow colours: the inflated soft-3D look), `gradient-overlay` (up to 4 `stops`, angle, scale, `offset` to sweep, `repeat` for a moving band, blend normal/soft-light/multiply/screen).
 
 **Matte FX** read the footage layer's roto matte:
