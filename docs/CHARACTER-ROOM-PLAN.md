@@ -387,3 +387,21 @@ Smooth).
 
 **In the app:** the same functions produce `Path2D` for the motion renderer. The displacement filter becomes
 a small WebGL pass (a noise-texture UV offset) in `gl/renderer.ts`, so export matches the preview.
+
+## 8. Update: sculpted 3D characters (Blender pipeline)
+
+The 3D characters are no longer assembled from primitives. They start from Blender's free CC0 stylized base meshes and are then:
+
+- stylized with scripted sculpt brushes;
+- given clump hair, brows and textured eyes;
+- rigged with 51 bones (every finger) found automatically from the mesh;
+- dressed from a wardrobe cut from the body itself (T-shirt, long sleeve, hoodie, open jacket, jeans, shorts, skirt, sneakers, underwear).
+
+They are exported as Draco-compressed `.glb` files of about 0.8 MB each. `rig3d.js` drives them from the same pose object as the ToonKit move library, so existing moves, shots and AI tools work unchanged. See `docs/character-studio/3d/README.md` for the pipeline, the rebuild command and the renders.
+
+Next steps:
+
+- more hair styles per base (buzz, bob, ponytail, bun, curly, afro);
+- facial shape keys (smile, blink, brow, talk) for expressions and lip sync;
+- a kid proportion pass;
+- more garments (dress, boots, caps and glasses as rigid head accessories).
