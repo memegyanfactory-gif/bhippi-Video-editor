@@ -8,4 +8,7 @@ def conv(src,dst):
         elif typ==0x004E4942:bin_=chunk
     js['buffers'][0]['uri']='data:application/octet-stream;base64,'+base64.b64encode(bin_).decode()
     json.dump(js,open(dst,'w'),separators=(',',':'))
-for s,d in [('male.glb','male.gltf.json'),('female.glb','female.gltf.json')]:conv(s,d)
+if __name__=='__main__':
+    # m.glb, m_slim.glb, m_heavy.glb, f.glb ... -> male.gltf.json, male_slim.gltf.json, ...
+    for g,n in [('m','male'),('f','female')]:
+        for b in ['','_slim','_heavy']:conv(f'{g}{b}.glb',f'{n}{b}.gltf.json')

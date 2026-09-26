@@ -65,7 +65,8 @@ for g,B in BODY.items():
     B['extra']=[]
     B['extra'].append(hair.style_messy(B['o'],B['hc'],hairmat) if g=='m' else hair.style_long(B['o'],B['hc'],hairmat2))
     import garment;importlib.reload(garment)
-    B['extra']+=garment.underwear(B['o'],g,{'briefs':studio.mat('briefs','#cfdbe8' if g=='m' else '#efe4ea',.75),'trim':studio.mat('trim','#2c68c8' if g=='m' else '#c9577f',.6),'top':studio.mat('top','#efe4ea',.75)})
+    UWM=globals().setdefault('UWM',{});UWM[g]={'briefs':studio.mat('briefs','#cfdbe8' if g=='m' else '#efe4ea',.75),'trim':studio.mat('trim','#2c68c8' if g=='m' else '#c9577f',.6),'top':studio.mat('top','#efe4ea',.75)}
+    B['extra']+=garment.underwear(B['o'],g,UWM[g])
     B['extra'].append(hair.brows(B['o'],B['hc'],hairmat,e,1.25 if g=='m' else .8))
 import rig;importlib.reload(rig)
 DO_RIG=True
@@ -77,6 +78,15 @@ for g,B in BODY.items():
     cloth=[x for x in B['extra'] if x not in heady]
     import wardrobe as WR;importlib.reload(WR)
     rig.bind(B['o'],arm,rigid=[],transfer=[])
+    rig.fix_head_neck(B['o'],arm)
+    rig.smooth_neck(B['o'],arm)
+    rig.apply_build(B['o'],arm,VIEWOPT.get('build','average'))
+    # underwear was cut before the reshape: rebuild it on the final body
+    old_uw=[x for x in B['extra'] if x.name.startswith(('Briefs','Top'))]
+    for x in old_uw:B['extra'].remove(x);bpy.data.objects.remove(x,do_unlink=True)
+    B['extra']+=garment.underwear(B['o'],g,UWM[g])
+    heady=[x for x in B['extra'] if x.name.startswith(('Hair','Brows'))]+B['eyes'];cloth=[x for x in B['extra'] if x not in heady]
+    # eyes/hair/brows were placed on the unmodified head; builds leave the head alone so they still fit
     WM={'top':studio.mat('w_top','#e8e4dc',.7),'outer':studio.mat('w_outer','#c9533f',.6),'bottom':studio.mat('w_bottom','#3b5a8c',.8),'shoe':studio.mat('w_shoe','#e2554a',.5),'sole':studio.mat('w_sole','#f4f1ea',.6)}
     B['ward']=WR.build(B['o'],arm,g,WM)
     rig.bind_extra(B['o'],arm,rigid=heady,transfer=cloth+list(B['ward'].values()))
@@ -108,6 +118,33 @@ for v in views:
     if v=='pose':
         studio.shot(f'{out}_pose.png',(0,0,.9),7.0,-.3,.06,62,1500,1100)
         studio.shot(f'{out}_poseh.png',(-.75,0,.95),2.2,-.6,.1,70,900,900)
+    if v=='rom':
+        import math
+        from mathutils import Matrix
+        def aim(arm,bn,d):
+            pb=arm.pose.bones[bn];M=pb.matrix.copy();y=M.col[1].xyz.normalized();q=y.rotation_difference(Vector(d).normalized())
+            T=Matrix.Translation(M.translation);pb.matrix=T@q.to_matrix().to_4x4()@T.inverted()@M;bpy.context.view_layer.update()
+        def reset(arm):
+            for pb in arm.pose.bones:pb.rotation_mode='QUATERNION';pb.rotation_quaternion=(1,0,0,0);pb.location=(0,0,0)
+            bpy.context.view_layer.update()
+        HEAD={'turnL':(0,55,0),'turnR':(0,-55,0),'up':(-35,0,0),'down':(30,0,0)}
+        BODYP={'armsup':[('upperarmL',(.35,-.1,1)),('forearmL',(.2,-.1,1)),('upperarmR',(-.35,-.1,1)),('forearmR',(-.2,-.1,1))],
+               'armsfwd':[('upperarmL',(.15,-1,0)),('forearmL',(.1,-.7,.7)),('upperarmR',(-.15,-1,0)),('forearmR',(-.1,-.7,.7))],
+               'squat':[('thighL',(.15,-1,-.15)),('shinL',(0,.15,-1)),('thighR',(-.15,-1,-.15)),('shinR',(0,.15,-1))]}
+        for pn in list(HEAD)+list(BODYP):
+            for g,B in BODY.items():
+                arm=B['arm'];reset(arm)
+                if pn in HEAD:
+                    x,y,z=HEAD[pn]
+                    for bn,f in(('neck',.4),('head',.6)):
+                        pb=arm.pose.bones[bn];pb.rotation_mode='XYZ';pb.rotation_euler=(math.radians(x*f),math.radians(y*f),math.radians(z*f))
+                    bpy.context.view_layer.update()
+                else:
+                    if pn=='squat':arm.pose.bones['hips'].location=(0,-.33,0);bpy.context.view_layer.update()
+                    for bn,d in BODYP[pn]:aim(arm,bn,d)
+            if pn in BODYP:studio.shot(f'{out}_rom_{pn}.png',(0,0,.8 if pn=='squat' else 1.05),6.4,-.45,.1,50,1000,760)
+            else:
+                studio.shot(f'{out}_rom_{pn}_m.png',(-.55,0,hm-.2),1.3,-.25,.05,80,500,560);studio.shot(f'{out}_rom_{pn}_f.png',(.55,0,hf-.18),1.25,-.25,.05,80,500,560)
     if v=='hero':
         studio.shot(f'{out}_hero.png',(0,0,.88),7.0,-.28,.06,62,1500,1100)
         studio.shot(f'{out}_face_m.png',(-.55,-.02,hm-.16),1.05,-.35,.03,85,800,900)
@@ -135,7 +172,7 @@ if 'export' in views:
             if o.type=='MESH':
                 ev=o.evaluated_get(dg);me=ev.to_mesh();t=sum(len(p.vertices)-2 for p in me.polygons);ev.to_mesh_clear();print('TRIS',g,o.name,t);tris+=t
         print('TRIS total',g,tris)
-        fn=os.path.abspath(f'{out}_{g}.glb')
+        fn=os.path.abspath(f"{out}_{g}{'_'+VIEWOPT['build'] if VIEWOPT.get('build','average')!='average' else ''}.glb")
         bpy.ops.export_scene.gltf(filepath=fn,export_format='GLB',use_selection=True,export_apply=True,export_skins=True,export_animations=False,export_yup=True,export_texcoords=True,export_normals=True,export_materials='EXPORT',export_image_format='AUTO',export_draco_mesh_compression_enable=True,export_draco_mesh_compression_level=7,export_draco_position_quantization=14,export_draco_normal_quantization=10,export_attributes=True)
         print('GLB',fn,os.path.getsize(fn))
         arm.location.x=dx

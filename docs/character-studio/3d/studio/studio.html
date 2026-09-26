@@ -561,10 +561,13 @@ function maskMaterial(m,bits){m.userData.hide={value:bits};m.onBeforeCompile=sh=
 const TOPMAP={tee:'tshirt',shirt:'tshirt',tank:'tshirt',longsleeve:'longsleeve',sweater:'longsleeve',hoodie:'hoodie'};
 const BTMMAP={jeans:'jeans',trousers:'jeans',cargo:'jeans',overalls:'jeans',shorts:'shorts',skirt:'skirt',dress:'skirt'};
 function buildCharacter(spec){
-  const key=spec.body==='fem'?'fem':'masc';const tp=R3.templates[key]||Object.values(R3.templates)[0];
+  // build = a separately sculpted body (not a squash); height and age scale uniformly
+  const build=spec.build||({noodle:'slim',chunky:'heavy'}[spec.shape])||'average';
+  const base=spec.body==='fem'?'fem':'masc';const key=build==='average'?base:base+'_'+build;
+  const tp=R3.templates[key]||R3.templates[base]||Object.values(R3.templates)[0];
   const model=window.__GLTF.SkeletonUtils.clone(tp.scene);
-  const s=(spec.age==='kid'?.68:spec.age==='teen'?.93:1)*({tall:1.05,tiny:.85}[spec.shape]||1);
-  const wide={chunky:1.18,noodle:.86}[spec.shape]||1;model.scale.set(s*wide,s,s*wide);
+  const hgt=spec.height||({tall:'tall',tiny:'short'}[spec.shape])||'average';
+  const s=(spec.age==='kid'?.7:spec.age==='teen'?.93:1)*({tall:1.06,short:.92}[hgt]||1);const wide=1;model.scale.setScalar(s);
   const root=new T.Group(),body=new T.Group();root.add(body);body.add(model);
   const mats={};const mat=(o,col,rough=.55)=>{const m=new T.MeshStandardMaterial({color:new T.Color(col),roughness:rough,metalness:0});o.material=m;return m;};
   const want=new Set();const tk=spec.top&&spec.top.kind;if(TOPMAP[tk])want.add(TOPMAP[tk]);if(spec.outer)want.add('jacket');
@@ -580,7 +583,8 @@ function buildCharacter(spec){
       const col=k==='jacket'?spec.outer&&spec.outer.color:['tshirt','longsleeve','hoodie'].includes(k)?spec.top&&spec.top.color:k==='sneakers'?spec.shoes&&spec.shoes.color:spec.bottom&&spec.bottom.color;
       if(Array.isArray(o.material)){o.material=o.material.map((m,i)=>i===0?new T.MeshStandardMaterial({color:new T.Color(col||'#888'),roughness:.6}):new T.MeshStandardMaterial({color:new T.Color('#F4F1EA'),roughness:.6}));}
       else if(o.material&&/sole/i.test(o.material.name))mat(o,'#F4F1EA',.6);else mat(o,col||'#888',k==='jeans'?.8:.62);}
-    else if(/^(Briefs|Top)/.test(n)){/* underwear keeps its own colours */const m=o.material;if(m){o.material=m.clone();}}
+    else if(/^(Briefs|Top)/.test(n)){const m=o.material;if(m)o.material=m.clone();
+      o.visible=/^Briefs/.test(n)?!(spec.bottom&&BTMMAP[spec.bottom.kind]):!(TOPMAP[tk]||spec.outer);}
   });
   const B=bonesOf(model);const r0=tp.R0;
   // eyes: unskin into pivots on the head bone so they can look around
@@ -726,7 +730,7 @@ function segCtl(label,key,opts,cur,labels={}){return`<div class="row"><h3>${labe
 function sw(label,key,cols,cur){return`<div class="row"><h3>${label}</h3><div class="sw">${cols.map(c=>`<button data-c="${key}" data-v="${c}" style="background:${c}" class="${cur===c?'on':''}" aria-label="${label} ${c}"></button>`).join('')}</div></div>`;}
 function renderSide(){const S=$('side');
   if(mode==='char'){S.innerHTML=`<div class="row"><h3>Start from</h3><select id="pre">${Object.keys(PRE).map(k=>`<option ${k===specName?'selected':''}>${k}</option>`).join('')}</select></div>`+
-    segCtl('Shape','shape',['classic','noodle','chunky','tall','tiny'],spec.shape)+segCtl('Age','age',['kid','teen','adult'],spec.age)+segCtl('Body','body',['masc','fem','neutral'],spec.body,{masc:'Masculine',fem:'Feminine',neutral:'Neutral'})+
+    segCtl('Build','build',['slim','average','heavy'],spec.build||({noodle:'slim',chunky:'heavy'}[spec.shape])||'average',{slim:'Slim',average:'Average',heavy:'Heavy'})+segCtl('Height','height',['short','average','tall'],spec.height||'average',{short:'Short',average:'Average',tall:'Tall'})+segCtl('Age','age',['kid','teen','adult'],spec.age)+segCtl('Body','body',['masc','fem','neutral'],spec.body,{masc:'Masculine',fem:'Feminine',neutral:'Neutral'})+
     sw('Skin','skin',SKIN,spec.skin)+`<div class="row"><h3>Hair</h3><select id="hair">${['short','messy','sidepart','bowl','long','bob','ponytail','bun','curly','afro','bald'].map(h=>`<option ${spec.hair.style===h?'selected':''}>${h}</option>`).join('')}</select></div>`+sw('Hair colour','hair',HAIRC,spec.hair.color)+
     sw('Top','top',CLOTH,spec.top.color)+`<div class="row"><h3>Jacket</h3><div class="seg"><button id="jOn" class="${spec.outer?'on':''}">On</button><button id="jOff" class="${spec.outer?'':'on'}">Off</button></div></div>`+(spec.outer?sw('Jacket colour','outer',CLOTH,spec.outer.color):'')+
     sw('Bottoms','bottom',CLOTH,spec.bottom.color)+sw('Shoes','shoes',CLOTH,spec.shoes.color)+`<p style="color:var(--text-faint);margin:0">Same CharacterSpec as the 2D Character room, so a saved character works in both. In the app, <code>/character Name</code> brings it into a shot.</p>`;
@@ -788,7 +792,7 @@ function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;const dur=sh
     cam.position.set(tgt.x+Math.sin(orbit.yaw)*Math.cos(orbit.pitch)*orbit.dist,tgt.y+Math.sin(orbit.pitch)*orbit.dist,tgt.z+Math.cos(orbit.yaw)*Math.cos(orbit.pitch)*orbit.dist);cam.lookAt(tgt);}
   R.render(scene,cam);
   $('scrub').value=Math.round(tNow/(mode==='char'?1e9:dur)*1000);$('time').textContent=mode==='char'?'live':`${tNow.toFixed(2)} / ${dur.toFixed(1)} s`;
-  $('cap').textContent=mode==='char'?specName:mode==='moves'?moveSel:'Shot';$('sub').textContent=mode==='char'?`${spec.shape} · ${spec.age} · ${spec.hair.style} hair`:mode==='moves'?(K.MOVES[moveSel].doc):'';
+  $('cap').textContent=mode==='char'?specName:mode==='moves'?moveSel:'Shot';$('sub').textContent=mode==='char'?`${spec.build||'average'} build · ${spec.age} · ${spec.hair.style} hair`:mode==='moves'?(K.MOVES[moveSel].doc):'';
   requestAnimationFrame(frame);}
 $('play').onclick=()=>{playing=!playing;$('play').textContent=playing?'Pause':'Play';};
 $('scrub').oninput=()=>{if(mode==='char')return;tNow=$('scrub').value/1000*(shot.duration||8);lastDrawing=-1;playing=false;$('play').textContent='Play';};
@@ -803,7 +807,7 @@ window.THREE={...THREE};window.__GLTF={GLTFLoader,DRACOLoader,SkeletonUtils};
 const run=id=>{const el=document.createElement('script');el.textContent=document.getElementById(id).textContent;document.body.appendChild(el);};
 run('app-toon3d');run('app-toonkit');run('app-rig3d');
 const hint=document.getElementById('hint');if(hint)hint.textContent='Loading sculpted characters…';
-try{await Rig3D.load({masc:'male.gltf.json',fem:'female.gltf.json'},{draco:'./draco/',dracoType:'js'});}catch(e){console.error('Sculpted characters failed to load',e);
+try{await Rig3D.load({masc:'male.gltf.json',fem:'female.gltf.json',masc_slim:'male_slim.gltf.json',fem_slim:'female_slim.gltf.json',masc_heavy:'male_heavy.gltf.json',fem_heavy:'female_heavy.gltf.json'},{draco:'./draco/',dracoType:'js'});}catch(e){console.error('Sculpted characters failed to load',e);
   const b=document.createElement('div');b.setAttribute('role','alert');b.style.cssText='position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:9;background:#3a1f1f;color:#ffd9d4;border:1px solid #8a3b33;border-radius:8px;padding:10px 14px;font:13px Inter,system-ui,sans-serif;max-width:min(560px,90vw)';
   b.textContent='The sculpted 3D characters did not load ('+(e&&e.message||e)+'). Reload the page to try again.';document.body.appendChild(b);}
 run('app-main');

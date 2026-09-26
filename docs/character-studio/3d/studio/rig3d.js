@@ -57,10 +57,13 @@ function maskMaterial(m,bits){m.userData.hide={value:bits};m.onBeforeCompile=sh=
 const TOPMAP={tee:'tshirt',shirt:'tshirt',tank:'tshirt',longsleeve:'longsleeve',sweater:'longsleeve',hoodie:'hoodie'};
 const BTMMAP={jeans:'jeans',trousers:'jeans',cargo:'jeans',overalls:'jeans',shorts:'shorts',skirt:'skirt',dress:'skirt'};
 function buildCharacter(spec){
-  const key=spec.body==='fem'?'fem':'masc';const tp=R3.templates[key]||Object.values(R3.templates)[0];
+  // build = a separately sculpted body (not a squash); height and age scale uniformly
+  const build=spec.build||({noodle:'slim',chunky:'heavy'}[spec.shape])||'average';
+  const base=spec.body==='fem'?'fem':'masc';const key=build==='average'?base:base+'_'+build;
+  const tp=R3.templates[key]||R3.templates[base]||Object.values(R3.templates)[0];
   const model=window.__GLTF.SkeletonUtils.clone(tp.scene);
-  const s=(spec.age==='kid'?.68:spec.age==='teen'?.93:1)*({tall:1.05,tiny:.85}[spec.shape]||1);
-  const wide={chunky:1.18,noodle:.86}[spec.shape]||1;model.scale.set(s*wide,s,s*wide);
+  const hgt=spec.height||({tall:'tall',tiny:'short'}[spec.shape])||'average';
+  const s=(spec.age==='kid'?.7:spec.age==='teen'?.93:1)*({tall:1.06,short:.92}[hgt]||1);const wide=1;model.scale.setScalar(s);
   const root=new T.Group(),body=new T.Group();root.add(body);body.add(model);
   const mats={};const mat=(o,col,rough=.55)=>{const m=new T.MeshStandardMaterial({color:new T.Color(col),roughness:rough,metalness:0});o.material=m;return m;};
   const want=new Set();const tk=spec.top&&spec.top.kind;if(TOPMAP[tk])want.add(TOPMAP[tk]);if(spec.outer)want.add('jacket');
@@ -76,7 +79,8 @@ function buildCharacter(spec){
       const col=k==='jacket'?spec.outer&&spec.outer.color:['tshirt','longsleeve','hoodie'].includes(k)?spec.top&&spec.top.color:k==='sneakers'?spec.shoes&&spec.shoes.color:spec.bottom&&spec.bottom.color;
       if(Array.isArray(o.material)){o.material=o.material.map((m,i)=>i===0?new T.MeshStandardMaterial({color:new T.Color(col||'#888'),roughness:.6}):new T.MeshStandardMaterial({color:new T.Color('#F4F1EA'),roughness:.6}));}
       else if(o.material&&/sole/i.test(o.material.name))mat(o,'#F4F1EA',.6);else mat(o,col||'#888',k==='jeans'?.8:.62);}
-    else if(/^(Briefs|Top)/.test(n)){/* underwear keeps its own colours */const m=o.material;if(m){o.material=m.clone();}}
+    else if(/^(Briefs|Top)/.test(n)){const m=o.material;if(m)o.material=m.clone();
+      o.visible=/^Briefs/.test(n)?!(spec.bottom&&BTMMAP[spec.bottom.kind]):!(TOPMAP[tk]||spec.outer);}
   });
   const B=bonesOf(model);const r0=tp.R0;
   // eyes: unskin into pivots on the head bone so they can look around

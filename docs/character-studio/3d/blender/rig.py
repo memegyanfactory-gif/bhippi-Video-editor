@@ -123,5 +123,107 @@ def bind_extra(body,arm,rigid=(),rigid_bone='head',transfer=()):
         for b in arm.data.bones:o.vertex_groups.new(name=b.name)
         dt=o.modifiers.new('dt','DATA_TRANSFER');dt.object=body;dt.use_vert_data=True;dt.data_types_verts={'VGROUP_WEIGHTS'};dt.vert_mapping='POLYINTERP_NEAREST'
         bpy.context.view_layer.objects.active=o;bpy.ops.object.datalayout_transfer(modifier='dt');bpy.ops.object.modifier_move_to_index(modifier='dt',index=0);bpy.ops.object.modifier_apply(modifier='dt')
+        for bn,to in(('head','chest'),('neck','chest')):
+            if bn in o.vertex_groups and to in o.vertex_groups:
+                src=o.vertex_groups[bn];dst=o.vertex_groups[to]
+                for v in o.data.vertices:
+                    for g in v.groups:
+                        if g.group==src.index and g.weight>0:
+                            w=g.weight;dst.add([v.index],w,'ADD');src.remove([v.index]);break
         bpy.ops.object.vertex_group_normalize_all(lock_active=False)
         m=o.modifiers.new('arm','ARMATURE');m.object=arm;bpy.ops.object.modifier_move_to_index(modifier='arm',index=0)
+
+def fix_head_neck(body,arm):
+    """rigid head above a tilted chin-to-nape plane; smooth chest->neck->head gradient along the neck; shoulders untouched"""
+    import math
+    B=arm.data.bones;hz=B['head'].head_local;nz=B['neck'].head_local
+    P=[v.co for v in body.data.vertices]
+    chin=min((p for p in P if p.y<-.085 and abs(p.x)<.02 and nz.z+.02<p.z<hz.z+.02),key=lambda p:p.z)
+    nape_z=hz.z-.01;nape_y=max(p.y for p in P if abs(p.x)<.02 and abs(p.z-nape_z)<.01)
+    k=max(.5,(nape_z-(chin.z-.004))/(nape_y-chin.y))     # plane z(y)=chin.z-.004+k*(y-chin.y); anatomical minimum slope
+    plane=lambda p:chin.z-.004+k*(p.y-chin.y)
+    names={g.name:g for g in body.vertex_groups};gi={g.index:g.name for g in body.vertex_groups}
+    for n in('head','neck','chest'):
+        if n not in names:names[n]=body.vertex_groups.new(name=n);gi[names[n].index]=n
+    nb=nz.z-.015;ax_y=nz.y
+    ss=lambda a,b,x:0. if x<=a else 1. if x>=b else (lambda t:t*t*(3-2*t))((x-a)/(b-a))
+    changed=0
+    for v in body.data.vertices:
+        p=v.co;pl=plane(p)
+        wh=ss(pl-.04,pl+.012,p.z)                        # head ownership, soft band under the jaw
+        r=math.hypot(p.x,(p.y-ax_y)*1.1)
+        inneck=1.-ss(.07,.1,r)                             # near the neck axis only (keeps shoulders/traps)
+        if wh<=0 and not(inneck>0 and p.z>nb):continue
+        cur={gi[g.group]:g.weight for g in v.groups if g.weight>0}
+        if wh>0:
+            # head takes wh, everything else scaled down
+            new={n:w*(1-wh) for n,w in cur.items() if n!='head'};new['head']=wh+cur.get('head',0)*(1-wh)
+        else:
+            t=ss(nb,pl-.04,p.z)                             # 0 at neck base -> 1 near the head
+            want={'chest':(1-t)**2,'neck':1-(1-t)**2-t*t*.35,'head':t*t*.35}
+            new={n:w*(1-inneck) for n,w in cur.items()}
+            for n,w in want.items():new[n]=new.get(n,0)+w*inneck
+        s=sum(new.values()) or 1
+        for n,w in new.items():
+            names[n].add([v.index],w/s,'REPLACE')
+        for n in cur:
+            if n not in new:names[n].remove([v.index])
+        changed+=1
+    print('fix_head_neck',body.name,'verts',changed,'chin',tuple(round(c,3) for c in chin),'slope',round(k,2))
+
+BUILDS={
+ 'slim':{'spine':.86,'chest':.89,'hips':.9,'neck':.93,'upperarm':.84,'forearm':.87,'thigh':.85,'shin':.88,'shoulder':.92},
+ 'heavy':{'spine':1.5,'chest':1.24,'hips':1.3,'neck':1.2,'upperarm':1.28,'forearm':1.16,'thigh':1.32,'shin':1.16,'shoulder':1.14,'belly':.075},
+ 'muscular':{'spine':1.0,'chest':1.12,'hips':1.03,'neck':1.12,'upperarm':1.2,'forearm':1.13,'thigh':1.12,'shin':1.07,'shoulder':1.15},
+}
+def apply_build(body,arm,build):
+    """re-shape the bound body around its own bones: each vertex moves radially from the bone axes it is weighted to"""
+    if build not in BUILDS:return
+    from mathutils import Vector
+    S=BUILDS[build];bones=arm.data.bones;gi={g.index:g.name for g in body.vertex_groups}
+    def fac(n):
+        for k,v in S.items():
+            if n.startswith(k):return v
+        return 1.
+    hipz=bones['hips'].head_local.z;chestz=bones['chest'].head_local.z
+    for v in body.data.vertices:
+        p=v.co.copy();d=Vector()
+        for g in v.groups:
+            n=gi[g.group];f=fac(n)
+            if f==1. or g.weight<=0:continue
+            b=bones[n];h=b.head_local;t=b.tail_local;ax=t-h;u=max(0.,min(1.,(p-h).dot(ax)/ax.length_squared));c=h+ax*u
+            r=p-c
+            if n in('spine','chest','hips'):r.z=0.                   # torso: grow sideways and front/back only
+            d+=r*(f-1.)*g.weight
+        if 'belly' in S and p.y<0:
+            t=max(0.,1.-abs(p.z-(hipz+chestz)/2)/((chestz-hipz)*.75))*max(0.,1.-abs(p.x)/.16)
+            d.y-=S['belly']*t*t*(3-2*t)
+        v.co=p+d
+    body.data.update();print('build',build,body.name)
+
+def smooth_neck(body,arm,iters=6):
+    """soften the chest/neck/head weight transition along the neck (no hard ring crease)"""
+    import bmesh,math
+    B=arm.data.bones;nb=B['neck'].head_local.z-.03;top=B['head'].head_local.z+.01;ay=B['neck'].head_local.y
+    gi={g.index:g.name for g in body.vertex_groups};gs={g.name:g for g in body.vertex_groups}
+    me=body.data;adj=[[] for _ in me.vertices]
+    for e in me.edges:a,b=e.vertices;adj[a].append(b);adj[b].append(a)
+    sel=[v.index for v in me.vertices if nb<v.co.z<top and math.hypot(v.co.x,(v.co.y-ay)*1.1)<.1]
+    names=('chest','neck','head')
+    W={n:[0.]*len(me.vertices) for n in names}
+    for v in me.vertices:
+        for g in v.groups:
+            n=gi[g.group]
+            if n in W:W[n][v.index]=g.weight
+    for _ in range(iters):
+        for n in names:
+            w=W[n];nw=w[:]
+            for i in sel:nw[i]=.5*w[i]+.5*sum(w[j] for j in adj[i])/max(1,len(adj[i]))
+            W[n]=nw
+    for i in sel:
+        v=me.vertices[i];other=sum(g.weight for g in v.groups if gi[g.group] not in names)
+        tot=sum(W[n][i] for n in names) or 1;scale=max(0.,1-other)/tot
+        for n in names:
+            if W[n][i]>1e-4:gs[n].add([i],W[n][i]*scale,'REPLACE')
+            elif any(gi[g.group]==n for g in v.groups):gs[n].remove([i])
+    print('smooth_neck',len(sel))
