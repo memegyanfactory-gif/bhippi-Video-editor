@@ -1,0 +1,231 @@
+<meta charset="utf-8">
+<title>Characters Plugin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#EDE8F2; --panel:#FBFAFD; --panel-2:#F3F0F8; --line:#DDD6E8; --ink:#231A33; --ink-2:#5B5170; --ink-3:#8A819C;
+  --accent:#6C4DF0; --accent-ink:#FFFFFF; --accent-soft:#E6E0FD; --pop:#FF7A45; --pop-soft:#FFE6DB; --ok:#1F9D72;
+  --stage-a:#F5EFFF; --stage-b:#E8E0F6; --shadow:0 1px 2px rgba(35,26,51,.06),0 8px 24px rgba(35,26,51,.08);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#141219; --panel:#1C1923; --panel-2:#24202D; --line:#342F40; --ink:#F1EDF8; --ink-2:#B9B1C9; --ink-3:#8C849C;
+  --accent:#8F76FF; --accent-ink:#140F24; --accent-soft:#2D2550; --pop:#FF8A5C; --pop-soft:#3A2419; --ok:#3CC493;
+  --stage-a:#2A2436; --stage-b:#1D1928; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35); color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --ground:#141219; --panel:#1C1923; --panel-2:#24202D; --line:#342F40; --ink:#F1EDF8; --ink-2:#B9B1C9; --ink-3:#8C849C;
+  --accent:#8F76FF; --accent-ink:#140F24; --accent-soft:#2D2550; --pop:#FF8A5C; --pop-soft:#3A2419; --ok:#3CC493;
+  --stage-a:#2A2436; --stage-b:#1D1928; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35); color-scheme:dark;}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font:15px/1.5 Figtree,"Segoe UI",system-ui,sans-serif;padding-inline:16px;padding-block:16px 40px}
+.app{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+h1,h2,h3{font-family:Fredoka,Figtree,system-ui,sans-serif;font-weight:600;margin:0;text-wrap:balance}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.note{color:var(--ink-3);font-size:13px}
+/* top bar */
+.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:10px 12px;box-shadow:var(--shadow)}
+.home{border:1px solid var(--line);background:var(--panel-2);border-radius:10px;padding:6px 12px;font-weight:600;font-size:14px}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+.logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(140deg,var(--accent),var(--pop));display:grid;place-items:center;color:#fff;font:700 18px Fredoka,sans-serif}
+.brand h1{font-size:22px}
+.tabs,.seg{display:flex;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:3px;gap:2px}
+.tabs button,.seg button{border:0;background:none;border-radius:9px;padding:6px 14px;font-weight:600;font-size:14px;color:var(--ink-2)}
+.tabs button[aria-selected="true"],.seg button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.seg.dim button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.cta{border:0;background:var(--accent);color:var(--accent-ink);border-radius:11px;padding:8px 16px;font-weight:700;font-size:14px}
+.ghost{border:1px solid var(--line);background:var(--panel);border-radius:11px;padding:7px 14px;font-weight:600;font-size:14px}
+/* library */
+.libhead{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.search{flex:1 1 260px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 12px}
+.search input{border:0;background:none;outline:none;color:var(--ink);font:inherit;width:100%}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column;transition:transform .18s ease,box-shadow .18s ease}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+.thumb{position:relative;aspect-ratio:3/3.6;background:var(--panel-2);overflow:hidden}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s ease}
+.thumb.d2 img{object-fit:contain;background:#EEE9F8;padding:6px 0}
+.card:hover .thumb img{transform:scale(1.04)}
+.tag{position:absolute;left:8px;top:8px;display:flex;gap:4px}
+.tag span{font-size:11px;font-weight:700;letter-spacing:.04em;background:rgba(255,255,255,.88);color:#3A2F4F;border-radius:6px;padding:2px 6px}
+.card .meta{padding:10px 12px 12px;display:flex;flex-direction:column;gap:6px}
+.card .meta b{font-family:Fredoka,sans-serif;font-weight:600;font-size:17px}
+.card .meta small{color:var(--ink-3);font-size:12.5px}
+.acts{display:flex;gap:6px}
+.acts button{flex:1;border:1px solid var(--line);background:var(--panel-2);border-radius:9px;padding:5px 0;font-size:12.5px;font-weight:600}
+.acts button.use{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+.newcard{border:2px dashed var(--line);background:transparent;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:260px;color:var(--ink-2);font-weight:600}
+.newcard .plus{width:48px;height:48px;border-radius:14px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font:600 28px Fredoka,sans-serif}
+/* editor */
+.editor{display:grid;grid-template-columns:92px minmax(0,1fr) 360px;gap:14px;align-items:start}
+.rail{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:8px;display:flex;flex-direction:column;gap:4px}
+.rail button{border:0;background:none;border-radius:12px;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.rail button svg{width:24px;height:24px}
+.rail button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.stage{background:radial-gradient(120% 80% at 50% 20%,var(--stage-a),var(--stage-b));border:1px solid var(--line);border-radius:20px;min-height:560px;position:relative;display:flex;flex-direction:column;overflow:hidden}
+.stage .top{display:flex;gap:10px;align-items:center;padding:12px;flex-wrap:wrap}
+.name{font:600 22px Fredoka,sans-serif;background:none;border:0;border-bottom:2px dashed transparent;color:var(--ink);width:min(220px,40vw)}
+.name:hover,.name:focus{border-bottom-color:var(--line);outline:none}
+.hero{flex:1;display:flex;align-items:flex-end;justify-content:center;position:relative}
+.hero img.face{border-radius:50%;max-height:320px;margin-bottom:60px}
+.hero img{max-height:470px;max-width:100%;object-fit:contain;filter:drop-shadow(0 18px 18px rgba(35,26,51,.18));border-radius:0}
+.hero .floor{position:absolute;bottom:18px;left:50%;width:260px;height:26px;transform:translateX(-50%);border-radius:50%;background:rgba(35,26,51,.12);filter:blur(6px)}
+.views{position:absolute;right:12px;top:64px;display:flex;flex-direction:column;gap:6px}
+.views button{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:5px 10px;font-size:12px;font-weight:600}
+.exprs{display:flex;gap:8px;padding:12px;justify-content:center;flex-wrap:wrap;background:linear-gradient(transparent,rgba(0,0,0,.03))}
+.expr{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600;display:flex;gap:6px;align-items:center}
+.expr i{font-style:normal;width:18px;height:18px;border-radius:50%;background:var(--pop-soft);display:grid;place-items:center;font-size:12px}
+.side{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:14px;max-height:none}
+.side h3{font-size:18px}
+.side .sub{display:flex;justify-content:space-between;align-items:baseline}
+.opts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.opt{border:2px solid transparent;background:var(--panel-2);border-radius:14px;padding:0;overflow:hidden;display:flex;flex-direction:column;text-align:left}
+.opt img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.opt.tall img{aspect-ratio:3/4}
+.opt span{font-size:12px;font-weight:600;padding:5px 8px;color:var(--ink-2)}
+.opt[aria-pressed="true"]{border-color:var(--accent)}
+.opt[aria-pressed="true"] span{color:var(--accent)}
+.sw{display:flex;gap:8px;flex-wrap:wrap}
+.sw button{width:28px;height:28px;border-radius:50%;border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line)}
+.sw button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--accent)}
+.lbl{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+/* moves */
+.moves .grid{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+.mcard .thumb{aspect-ratio:220/260}
+.play{position:absolute;right:8px;bottom:8px;width:32px;height:32px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-size:12px;box-shadow:var(--shadow)}
+.cat{display:flex;gap:6px;flex-wrap:wrap}
+.panelnote{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start}
+.panelnote code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:13px;background:var(--panel-2);padding:1px 6px;border-radius:6px}
+.hidden{display:none!important}
+@media (max-width:980px){.editor{grid-template-columns:1fr}.rail{flex-direction:row;overflow-x:auto}.rail button{min-width:74px}.stage{min-height:460px}.hero img{max-height:380px}}
+@media (prefers-reduced-motion:reduce){.card,.thumb img{transition:none}.card:hover{transform:none}}
+</style>
+
+<div class="app">
+  <header class="bar">
+    <button class="home" id="home">← Home</button>
+    <div class="brand"><div class="logo" aria-hidden="true">C</div><h1>Characters</h1></div>
+    <div class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" aria-selected="true" data-tab="library" id="t-library">Library</button>
+      <button role="tab" aria-selected="false" data-tab="editor" id="t-editor">Editor</button>
+      <button role="tab" aria-selected="false" data-tab="moves" id="t-moves">Moves</button>
+    </div>
+    <div class="seg dim" aria-label="Style">
+      <button aria-pressed="false" data-dim="2d" id="d2">2D</button>
+      <button aria-pressed="true" data-dim="3d" id="d3">3D</button>
+    </div>
+    <button class="cta" id="newc">+ New character</button>
+  </header>
+
+  <!-- LIBRARY -->
+  <section id="p-library" class="library" aria-labelledby="t-library" style="display:flex;flex-direction:column;gap:14px">
+    <div class="libhead">
+      <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search characters" aria-label="Search characters"></label>
+      <div class="chips" id="filters"></div>
+    </div>
+    <div class="grid" id="libgrid"></div>
+    <div class="panelnote"><div class="logo" style="flex:none;width:28px;height:28px;font-size:14px" aria-hidden="true">/</div>
+      <div><b>Use a character in a video.</b> Type <code>/character Kai</code> in chat, or drag a card onto the timeline. Each character has both a 2D and a 3D version; the shot's style picks one, or add <code>2d</code> / <code>3d</code> to force it.</div></div>
+  </section>
+
+  <!-- EDITOR -->
+  <section id="p-editor" class="hidden" aria-labelledby="t-editor">
+    <div class="editor">
+      <nav class="rail" aria-label="Edit category" id="rail"></nav>
+      <div class="stage">
+        <div class="top">
+          <input class="name" id="cname" value="Kai" aria-label="Character name">
+          <span class="note" id="cmeta">Teen · average build</span>
+          <span style="margin-left:auto;display:flex;gap:6px"><button class="ghost" id="undo">Undo</button><button class="ghost" id="rand">Randomize</button><button class="cta" id="save">Save</button></span>
+        </div>
+        <div class="views"><button id="v-full">Full</button><button id="v-face">Face</button><button id="v-turn">Turn</button></div>
+        <div class="hero"><div class="floor"></div><img id="heroimg" alt="Selected character" src="thumbs/hero_kai.png"></div>
+        <div class="exprs" id="exprs"></div>
+      </div>
+      <aside class="side" id="side"></aside>
+    </div>
+  </section>
+
+  <!-- MOVES -->
+  <section id="p-moves" class="moves hidden" aria-labelledby="t-moves" style="flex-direction:column;gap:14px">
+    <div class="libhead"><div class="cat" id="mcats"></div><span class="note" style="margin-left:auto">Click to preview on the stage · drag onto a shot's timeline</span></div>
+    <div class="grid" id="mgrid"></div>
+  </section>
+  <p class="note">Design mockup of the Characters plugin. All images are rendered from the real 2D and 3D characters.</p>
+</div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+let dim='3d',tab='library',filter='All',cat='Body',sel='char_kai',mcat='All';
+const CH=[
+ {id:'kai',n:'Kai',age:'Teen',d2:'kai',tags:['Mine'],b:'average'},{id:'mira',n:'Mira',age:'Teen',d2:'mira',tags:['Presets']},
+ {id:'zed',n:'Zed',age:'Adult',d2:'zed',tags:['Presets'],b:'slim'},{id:'nora',n:'Nora',age:'Adult',d2:'nora',tags:['Mine'],b:'slim'},
+ {id:'franky',n:'Franky',age:'Adult',d2:'franky',tags:['Presets'],b:'heavy'},{id:'priya',n:'Priya',age:'Adult',d2:'priya',tags:['Presets']},
+ {id:'leo',n:'Leo',age:'Kid',d2:'leo',tags:['Presets']},{id:'ada',n:'Ada',age:'Adult',d2:'queen_bea',tags:['Mine'],b:'heavy'},
+ {id:'sam',n:'Sam',age:'Adult',d2:'sam',tags:['Presets'],b:'tall'},{id:'maya',n:'Maya',age:'Kid',d2:'coco',tags:['Presets']},
+ {id:'omar',n:'Omar',age:'Adult',d2:'mo',tags:['Mine'],b:'heavy'},{id:'lena',n:'Lena',age:'Adult',d2:'angel',tags:['Presets']},
+];
+const FILTERS=['All','Mine','Presets','Kids','Teens','Adults','Recently used'];
+function renderFilters(){$('#filters').innerHTML=FILTERS.map(f=>`<button class="chip" aria-pressed="${f===filter}" data-f="${f}">${f}</button>`).join('');
+  $$('#filters .chip').forEach(b=>b.onclick=()=>{filter=b.dataset.f;renderFilters();renderLib();});}
+function img(c){return dim==='3d'?`thumbs/char_${c.id}.jpg`:`thumbs/d2_${c.d2}.jpg`;}
+function renderLib(){const q=($('#q').value||'').toLowerCase();
+  const list=CH.filter(c=>(filter==='All'||c.tags.includes(filter)||(filter==='Kids'&&c.age==='Kid')||(filter==='Teens'&&c.age==='Teen')||(filter==='Adults'&&c.age==='Adult')||(filter==='Recently used'&&['kai','mira','franky'].includes(c.id)))&&c.n.toLowerCase().includes(q));
+  $('#libgrid').innerHTML=`<button class="newcard" id="newc2"><span class="plus">+</span>New character<span class="note">Start from a preset or a blank body</span></button>`+
+   list.map(c=>`<article class="card"><div class="thumb ${dim==='2d'?'d2':''}"><img loading="lazy" alt="${c.n}" src="${img(c)}"><div class="tag"><span>2D</span><span>3D</span></div></div>
+    <div class="meta"><b>${c.n}</b><small>${c.age}${c.b?' · '+c.b:''} · ${c.tags[0]==='Mine'?'Yours':'Preset'}</small>
+    <div class="acts"><button class="use" data-use="${c.id}">Use</button><button data-edit="${c.id}">Edit</button><button aria-label="Duplicate ${c.n}">Copy</button></div></div></article>`).join('');
+  $$('[data-edit]').forEach(b=>b.onclick=()=>{const c=CH.find(x=>x.id===b.dataset.edit);sel='char_'+c.id;$('#heroimg').src=`thumbs/hero_${c.id}.png`;$('#cname').value=c.n;$('#cmeta').textContent=`${c.age} · ${c.b||'average'} build`;go('editor');});
+  $$('[data-use]').forEach(b=>b.onclick=()=>{b.textContent='Added';setTimeout(()=>b.textContent='Use',1200);});
+  $('#newc2').onclick=()=>go('editor');}
+$('#q').oninput=renderLib;
+// editor
+const ICON={Body:'<circle cx="12" cy="5" r="2.5"/><path d="M8 22v-7l-2-5 6 1 6-1-2 5v7"/>',Face:'<circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r=".8"/><circle cx="15" cy="10" r=".8"/><path d="M9 15c1.7 1.3 4.3 1.3 6 0"/>',
+ Hair:'<path d="M4 14c0-6 4-10 8-10s8 4 8 10"/><path d="M8 14c0-4 2-6 4-6s4 2 4 6"/>',Outfit:'<path d="M8 3 4 6l2 4 2-1v12h8V9l2 1 2-4-4-3c-1 2-2.5 3-4 3S9 5 8 3z"/>',
+ Accessories:'<circle cx="7" cy="14" r="3"/><circle cx="17" cy="14" r="3"/><path d="M10 14h4M4 14 3 9M20 14l1-5"/>',Colours:'<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.5"/><circle cx="12" cy="7" r="1.5"/><circle cx="16" cy="10" r="1.5"/>',
+ Personality:'<path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/>'};
+function renderRail(){$('#rail').innerHTML=Object.keys(ICON).map(k=>`<button aria-pressed="${k===cat}" data-cat="${k}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>${k}</button>`).join('');
+  $$('#rail button').forEach(b=>b.onclick=()=>{cat=b.dataset.cat;renderRail();renderSide();});}
+const SK=['#FFE3D1','#F9CDB1','#EDB48E','#D99A70','#BD7E55','#9C603E','#7A4630','#55321F'];
+const CL=['#F5F1E8','#2B2D33','#E4574C','#F6A623','#F2D34F','#3FBF7F','#1FA3A0','#3F7FC1','#6B5CE0','#E06FA6'];
+const HC=['#1D1A1A','#3B2419','#6B3F22','#9C3D1E','#E07B2E','#E8C77A','#C4C4C4','#3D6FE0'];
+function opts(list,cls=''){return`<div class="opts" style="${list.length===4?'grid-template-columns:repeat(2,1fr)':''}">${list.map(([id,src,label],i)=>`<button class="opt ${cls}" aria-pressed="${i===0}" data-opt="${id}"><img alt="" src="${src}"><span>${label}</span></button>`).join('')}</div>`;}
+function sw(label,cols,cur=0){return`<div><div class="lbl" style="margin-bottom:8px">${label}</div><div class="sw">${cols.map((c,i)=>`<button aria-pressed="${i===cur}" style="background:${c}" aria-label="${label} ${c}"></button>`).join('')}</div></div>`;}
+function seg(label,items,cur){return`<div><div class="lbl" style="margin-bottom:8px">${label}</div><div class="seg" style="display:inline-flex">${items.map(i=>`<button aria-pressed="${i===cur}">${i}</button>`).join('')}</div></div>`;}
+function renderSide(){let h=`<div class="sub"><h3>${cat}</h3><span class="note">Previews show your character</span></div>`;
+  if(cat==='Body')h+=`<div class="lbl">Build</div>`+opts([['m_slim','thumbs/build_m_slim.jpg','Slim'],['m_average','thumbs/build_m_average.jpg','Average'],['m_heavy','thumbs/build_m_heavy.jpg','Heavy']],'tall')+
+     `<div class="lbl">Feminine base</div>`+opts([['f_slim','thumbs/build_f_slim.jpg','Slim'],['f_average','thumbs/build_f_average.jpg','Average'],['f_heavy','thumbs/build_f_heavy.jpg','Heavy']],'tall')+
+     seg('Height',['Short','Average','Tall'],'Average')+seg('Age',['Kid','Teen','Adult','Elder'],'Teen')+sw('Skin',SK,4);
+  if(cat==='Face')h+=opts(CH.slice(0,9).map(c=>['f_'+c.id,`thumbs/face_${c.id}.jpg`,c.n+' face']))+sw('Eye colour',['#5A3A22','#3F7FC1','#3F8A5A','#6E7A86','#8A6E52'],0);
+  if(cat==='Hair')h+=opts([['messy','thumbs/hair_messy.jpg','Messy'],['long','thumbs/hair_long.jpg','Long'],['bald','thumbs/hair_bald.jpg','Bald'],['face_nora','thumbs/face_nora.jpg','Straight'],['face_franky','thumbs/face_franky.jpg','Short'],['face_lena','thumbs/face_lena.jpg','Blonde long']])+sw('Hair colour',HC,0);
+  if(cat==='Outfit')h+=`<div class="lbl">Tops</div>`+opts([['tshirt','thumbs/ward_tshirt.jpg','T-shirt'],['longsleeve','thumbs/ward_longsleeve.jpg','Long sleeve'],['hoodie','thumbs/ward_hoodie.jpg','Hoodie'],['jacket','thumbs/ward_jacket.jpg','Jacket']])+
+     `<div class="lbl">Bottoms</div>`+opts([['jeans','thumbs/ward_jeans.jpg','Jeans'],['shorts','thumbs/ward_shorts.jpg','Shorts'],['skirt','thumbs/ward_skirt.jpg','Skirt']],'tall')+sw('Top colour',CL,5)+sw('Bottoms colour',CL,7);
+  if(cat==='Accessories')h+=`<p class="note">Glasses, sunglasses, caps, beanie, hat, headphones, backpack, bag, watch and earrings arrive in the wardrobe phase. Each gets a rendered preview on your character, like the outfit grid.</p>`+opts([['kai','thumbs/face_kai.jpg','None'],['sam','thumbs/face_sam.jpg','Glasses'],['omar','thumbs/face_omar.jpg','Cap']]);
+  if(cat==='Colours')h+=sw('Skin',SK,4)+sw('Hair',HC,0)+sw('Top',CL,5)+sw('Jacket',CL,2)+sw('Bottoms',CL,7)+sw('Shoes',CL,0);
+  if(cat==='Personality')h+=seg('Energy',['Calm','Normal','Bouncy'],'Bouncy')+seg('Walk',['Shy','Normal','Swagger'],'Swagger')+seg('Default face',['Smile','Neutral','Smirk','Grumpy'],'Smirk')+`<p class="note">Personality tunes how every move plays: timing, spring and default expression. The AI never has to specify it again.</p>`;
+  $('#side').innerHTML=h;
+  $$('#side .opt').forEach(b=>b.onclick=()=>{b.parentElement.querySelectorAll('.opt').forEach(x=>x.setAttribute('aria-pressed',x===b));const im=b.querySelector('img').getAttribute('src');if(/build_/.test(im))$('#heroimg').src=im;});
+  $$('#side .sw button,#side .seg button').forEach(b=>b.onclick=()=>b.parentElement.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)));}
+$('#exprs').innerHTML=[['☺','Happy'],['☹','Sad'],['!','Surprised'],['?','Thinking'],['#','Angry'],['~','Sleepy']].map(([i,n])=>`<button class="expr"><i>${i}</i>${n}</button>`).join('');
+$('#v-face').onclick=()=>{$('#heroimg').src=$('#heroimg').src.replace(/hero_(\w+)\.png/,'face_$1.jpg');$('#heroimg').classList.add('face');};$('#v-full').onclick=()=>{$('#heroimg').src=$('#heroimg').src.replace(/face_(\w+)\.jpg/,'hero_$1.png');$('#heroimg').classList.remove('face');};
+$('#save').onclick=()=>{$('#save').textContent='Saved';setTimeout(()=>$('#save').textContent='Save',1200);};
+$('#rand').onclick=()=>{const c=CH[Math.floor(Math.random()*CH.length)];$('#heroimg').src=`thumbs/hero_${c.id}.png`;};
+// moves
+const MV=[['wave','Gestures','Wave hello'],['point','Gestures','Point at something'],['shrug','Gestures','Shrug'],['talk','Gestures','Talking hands'],['cheer','Emotes','Cheer'],['dance','Emotes','Dance groove'],['surprised','Reactions','Cartoon take'],['jump','Locomotion','Jump'],['walk','Locomotion','Walk'],['idle','Locomotion','Idle breathe']];
+const MC=['All','Locomotion','Gestures','Emotes','Reactions','Interactions','Cartoon takes'];
+function renderMoves(){$('#mcats').innerHTML=MC.map(c=>`<button class="chip" aria-pressed="${c===mcat}" data-mc="${c}">${c}</button>`).join('');
+  $$('#mcats .chip').forEach(b=>b.onclick=()=>{mcat=b.dataset.mc;renderMoves();});
+  $('#mgrid').innerHTML=MV.filter(m=>mcat==='All'||m[1]===mcat).map(([id,c,n])=>`<article class="card mcard"><div class="thumb"><img loading="lazy" alt="${n}" src="thumbs/move_${id}.jpg"><div class="tag"><span>${c}</span></div><span class="play" aria-hidden="true">▶</span></div><div class="meta"><b>${n}</b><small><code style="font-size:12px">${id}</code></small></div></article>`).join('')||`<p class="note">This category arrives with the motion library.</p>`;}
+function go(t){tab=t;$$('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));['library','editor','moves'].forEach(k=>{const el=$('#p-'+k);el.classList.toggle('hidden',k!==t);if(k!==t)el.style.display='';else if(k!=='editor')el.style.display='flex';});}
+$$('.tabs button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
+$$('.dim button').forEach(b=>b.onclick=()=>{dim=b.dataset.dim;$$('.dim button').forEach(x=>x.setAttribute('aria-pressed',x===b));renderLib();});
+$('#newc').onclick=()=>go('editor');$('#home').onclick=()=>go('library');
+renderFilters();renderLib();renderRail();renderSide();renderMoves();
+const h=location.hash.slice(1);if(['library','editor','moves'].includes(h))go(h);
+})();
+</script>

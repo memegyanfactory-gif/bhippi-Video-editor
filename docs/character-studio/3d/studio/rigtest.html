@@ -1,0 +1,18 @@
+<!doctype html><html><body style="margin:0;background:#8f969d"><canvas id=c></canvas>
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';import {DRACOLoader} from 'three/addons/loaders/DRACOLoader.js';import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+window.THREE={...THREE};window.__GLTF={GLTFLoader,DRACOLoader,SkeletonUtils};
+const load=src=>new Promise(r=>{const s=document.createElement('script');s.src=src;s.onload=r;document.body.appendChild(s);});
+await load('toon3d.js');await load('toonkit.js');await load('rig3d.js');
+await Rig3D.load({masc:'male.glb',fem:'female.glb'},{draco:'./node_modules/three/examples/jsm/libs/draco/gltf/'});
+const T=THREE,K=ToonKit;const W=1800,H=700;const R=new T.WebGLRenderer({canvas:c,antialias:true});R.setSize(W,H);R.outputColorSpace=T.SRGBColorSpace;R.toneMapping=T.ACESFilmicToneMapping;
+const sc=new T.Scene();sc.background=new T.Color('#8f969d');sc.add(new T.HemisphereLight(0xffffff,0x6a7078,1.5));const d=new T.DirectionalLight(0xfff2e6,2.4);d.position.set(-2,3,3);sc.add(d);const rl=new T.DirectionalLight(0xdde6ff,1.3);rl.position.set(2,2,-3);sc.add(rl);
+const moves=(new URLSearchParams(location.search).get('m')||'idle,wave,point,cheer,dance,walk,shrug').split(',');const ts=+(new URLSearchParams(location.search).get('t')||.8);
+const spec={shape:'classic',age:'adult',body:'masc',skin:'#E8B08A',face:{eyeColor:'#5A86B5'},hair:{style:'messy',color:'#2E1F18'},top:{kind:'tee',color:'#F5F1E8'},outer:null,bottom:{kind:'jeans',color:'#3F6FB0'},shoes:{kind:'sneakers',color:'#E4574C'}};
+const fspec={...spec,body:'fem',hair:{style:'long',color:'#6B3F22'},top:{kind:'tee',color:'#F2D34F'},outer:{kind:'jacket',color:'#E4574C'},bottom:{kind:'skirt',color:'#3F7FC1'},shoes:{kind:'sneakers',color:'#1FA3A0'},face:{eyeColor:'#3F8A5A'}};
+const D=new K.Director(sc,{A:spec,B:fspec});
+const shot={actors:moves.map((m,i)=>({id:'a'+i,spec:i%2?fspec:spec,at:[(i-(moves.length-1)/2)*1.05,0]})),beats:moves.map((m,i)=>({t:0,actor:'a'+i,do:m,params:m==='walk'?{to:[(i-(moves.length-1)/2)*1.05+.6,0]}:m==='point'?{at:[5,1.7,2]}:{}}))};
+D.load(shot);D.apply(ts);
+const cam=new T.PerspectiveCamera(24,W/H,.1,80);const cq=new URLSearchParams(location.search).get('cam');if(cq==='face'){cam.fov=14;cam.position.set(-.5,1.62,2.2);cam.lookAt(-.5,1.58,0);cam.updateProjectionMatrix();}else{const cz=+(new URLSearchParams(location.search).get('z')||9.2);const ly=+(new URLSearchParams(location.search).get('ly')||1.05);cam.position.set(0,ly+.05,cz);cam.lookAt(0,ly,0);}R.render(sc,cam);console.log('CAM',cam.position.toArray().join(','),location.search);window.done=1;
+</script></body></html>

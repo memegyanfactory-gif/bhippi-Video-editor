@@ -1,0 +1,23 @@
+<!doctype html><html><body style="margin:0"><canvas id=c></canvas>
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';import {DRACOLoader} from 'three/addons/loaders/DRACOLoader.js';import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+window.THREE={...THREE};window.__GLTF={GLTFLoader,DRACOLoader,SkeletonUtils};
+const load=src=>new Promise(r=>{const s=document.createElement('script');s.src=src;s.onload=r;document.body.appendChild(s);});
+await load('toon3d.js');await load('toonkit.js');await load('rig3d.js');
+await Rig3D.load({masc:'male.glb',fem:'female.glb',masc_slim:'male_slim.glb',fem_slim:'female_slim.glb',masc_heavy:'male_heavy.glb',fem_heavy:'female_heavy.glb'},{draco:'./node_modules/three/examples/jsm/libs/draco/gltf/'});
+const T=THREE,K=ToonKit;const R=new T.WebGLRenderer({canvas:c,antialias:true,preserveDrawingBuffer:true,alpha:true});R.outputColorSpace=T.SRGBColorSpace;R.toneMapping=T.ACESFilmicToneMapping;
+const sc=new T.Scene();sc.add(new T.HemisphereLight(0xfff8f2,0x8a7f9a,1.5));const k=new T.DirectionalLight(0xfff0e0,2.4);k.position.set(-2.5,4,3.5);sc.add(k);const rl=new T.DirectionalLight(0xd8e4ff,1.5);rl.position.set(3,2.5,-3.5);sc.add(rl);
+const C=(o)=>({shape:'classic',age:'adult',body:'masc',build:'average',skin:'#E8B08A',face:{eyeColor:'#5A86B5'},hair:{style:'messy',color:'#2E1F18'},top:{kind:'tee',color:'#F5F1E8'},outer:null,bottom:{kind:'jeans',color:'#3F6FB0'},shoes:{kind:'sneakers',color:'#E4574C'},...o});
+const JOBS=window.JOBS;const out={};
+for(const j of JOBS){
+  const D=new K.Director(sc,{});sc.children.filter(o=>o.userData.actor).forEach(o=>sc.remove(o));
+  const shot={actors:[{id:'a',spec:C(j.spec||{}),at:[0,0],facing:j.facing||0}],beats:[{t:0,actor:'a',do:j.move||'idle',params:j.params||{}}]};D.load(shot);D.apply(j.t||.6);
+  sc.background=j.bg==='none'?null:new T.Color(j.bg||'#EFE7DC');R.setClearColor(0x000000,0);
+  const W=j.w||300,H=j.h||380;R.setSize(W,H,false);const cam=new T.PerspectiveCamera(j.fov||26,W/H,.05,50);
+  const f=j.frame||'full';const ly=f==='face'?1.55:f==='bust'?1.35:.92;const dz=f==='face'?1.25:f==='bust'?2.3:4.6;const ax=j.az||.35;
+  const A=Object.values(D.actors)[0];const s=A.C.s||1;
+  cam.position.set(Math.sin(ax)*dz,ly*s+.04,Math.cos(ax)*dz);cam.lookAt(0,ly*s,0);R.render(sc,cam);out[j.id]=j.bg==='none'?c.toDataURL('image/png'):c.toDataURL('image/jpeg',.86);
+  Object.values(D.actors).forEach(a=>sc.remove(a.C.root));}
+window.OUT=out;window.done=1;
+</script></body></html>

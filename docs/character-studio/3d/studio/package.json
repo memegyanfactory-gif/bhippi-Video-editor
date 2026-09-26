@@ -1,0 +1,16 @@
+{
+  "name": "characters-3d-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "python3 build.py && python3 glb2json.py",
+    "serve": "python3 -m http.server 8765",
+    "shots": "node st.mjs"
+  },
+  "dependencies": {
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}
