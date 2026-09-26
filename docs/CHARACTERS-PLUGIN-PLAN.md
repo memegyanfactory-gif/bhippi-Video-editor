@@ -140,7 +140,7 @@ A dedicated review agent (`.claude/agents/3d-specialist.md`) runs after every ch
 
 ## 5. UI plan: the Characters plugin
 
-Mockup: see the published "Characters" UI mockup page.
+Mockup: `docs/character-studio/ui/characters-ui.html` (screenshots `mock-library.png`, `mock-editor.png`). Thumbnails are rendered from the real characters by `ui/thumbs.html` + `thumbs.mjs`.
 
 **Tone:** a bright, warm studio rather than a debug panel.
 
