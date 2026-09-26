@@ -151,6 +151,34 @@ function sortedKeys<T>(keys: Key<T>[]): Key<T>[] {
   return sorted;
 }
 
+/** The control point of a key's arc: the quadratic through `through`, or bowed `arc` × the chord sideways. */
+function arcControl(a: Vec, b: Vec, key: Key<Vec>): [number, number] | null {
+  const mx = (a[0] + b[0]) / 2;
+  const my = (a[1] + b[1]) / 2;
+  if (key.through && key.through.length >= 2) return [2 * key.through[0] - mx, 2 * key.through[1] - my];
+  if (!key.arc) return null;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  // Left of travel on screen (+y down): the perpendicular (dy, -dx). The curve's middle sits at
+  // half the control's offset, so the control goes out twice as far.
+  return [mx + dy * key.arc * 2, my - dx * key.arc * 2];
+}
+
+/** An [x, y(, z)] move on an arc and/or with per-axis spacing. */
+function curvedAt(a: Key<Vec>, b: Key<Vec>, u: number): Vec {
+  const n = Math.max(a.v.length, b.v.length);
+  const at = (i: number) => ease(a.easeAxes?.[i] ?? a.ease, u);
+  const control = arcControl(a.v, b.v, a);
+  const out: number[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = at(i);
+    const va = a.v[i] ?? a.v[a.v.length - 1] ?? 0;
+    const vb = b.v[i] ?? b.v[b.v.length - 1] ?? 0;
+    out[i] = control && i < 2 ? (1 - p) * (1 - p) * va + 2 * p * (1 - p) * control[i] + p * p * vb : lerp(va, vb, p);
+  }
+  return out;
+}
+
 /** The value of keyframes at time `t`. */
 export function keysAt<T extends number | Vec>(keys: Key<T>[], t: number): T {
   if (!keys.length) return 0 as T;
@@ -163,7 +191,9 @@ export function keysAt<T extends number | Vec>(keys: Key<T>[], t: number): T {
     const b = sorted[i + 1];
     if (t < b.t) {
       if (a.ease === 'hold') return a.v;
-      const p = ease(a.ease, (t - a.t) / Math.max(1e-9, b.t - a.t));
+      const u = (t - a.t) / Math.max(1e-9, b.t - a.t);
+      if (Array.isArray(a.v) && Array.isArray(b.v) && (a.arc || a.through || a.easeAxes?.length)) return curvedAt(a as Key<Vec>, b as Key<Vec>, u) as T;
+      const p = ease(a.ease, u);
       return mix(a.v, b.v, p) as T;
     }
   }

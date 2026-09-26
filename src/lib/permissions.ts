@@ -82,6 +82,7 @@ const READS = new Set([
   'svg_to_shape',
   'motion_guide',
   'list_drawn_styles',
+  'check_motion_arcs',
   'list_3d_presets',
   'list_ui_kinds',
   'list_transitions',

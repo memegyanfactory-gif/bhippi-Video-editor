@@ -220,8 +220,16 @@ export const PLAYBOOKS: Playbook[] = [
       'Word cards: one idea per card, one object per card, the word short enough to write in 7 f.',
       'Print any footage or logo into the same world with the riso or halftone effect instead of pasting it in clean.',
       'Sound: a tick per cut in montages, pop on each card, key/swish while the pen draws, glass on the sparkle, typing under hand-writing (cues come with the templates).',
+      // Solid drawing (Toniko Pantoja, "How to keep your 2D animation consistent and solid"):
+      'Build from primitives: a character is spheres and boxes first (the bot, the sprite, blob), details on a second pass; the construction item shows the build.',
+      'Layout first: before keying, write the character\'s positions and size for the whole shot (a layout: start, middle, end). Size changes only when it comes toward or goes away from the camera.',
+      'Things move on arcs: give travelling keys an "arc" (0.2–0.35) or a "through" point; straight lines are for UI, wipes and machines.',
+      'Spacing: out of a pose it accelerates, holds speed, then decelerates into the next pose (ease). A throw or a bounce is linear across and eased up and down: easeAxes ["linear", "sine-in-out"].',
+      'A head or body turning front → side: the protruding part (nose, snout) travels a circle seen from above, so its steps get tighter toward the side view; favour the side view in the in-betweens, never split the distance evenly (it flattens the snout).',
+      'Reuse, don\'t redraw: keep one drawing of the character and transform it (place and trace), so proportions never drift; change the face by keys, not by drawing a new head.',
+      'Flip test: run check_motion_arcs after every animated scene and fix what it flags (straight, even-spacing, jump, size-drift) before showing it.',
     ],
-    tools: ['list_drawn_styles', 'create_motion_scene', 'update_motion_scene', 'create_motion_sequence', 'search_icons', 'svg_to_shape', 'analyze_music_beats', 'snap_cuts_to_beats', 'run_frame_qa'],
+    tools: ['list_drawn_styles', 'check_motion_arcs', 'create_motion_scene', 'update_motion_scene', 'create_motion_sequence', 'search_icons', 'svg_to_shape', 'analyze_music_beats', 'snap_cuts_to_beats', 'run_frame_qa'],
     eases: ['sine-in-out', 'expo-out', 'expo-in', 'cubic-in-out'],
     features: ['drawing', 'effects.riso', 'effects.halftone', 'scene.cues', 'link'],
     // Measured: montage shots 3–12 f at 24 fps (0.125–0.5 s), story holds up to ~5 s; pops 2–3 drawings, writing ~7–15 f; cut-paper cards on the beat.

@@ -6569,6 +6569,23 @@
       }
     },
     {
+      "name": "check_motion_arcs",
+      "description": "The animator's flip test on a motion scene: tracks the centre of every moving layer and named drawing item frame by frame (dot-to-dot) and reports moves in dead-straight lines (living things move on arcs), moves at one speed from start to stop (no slow-out/slow-in), one-frame jumps, and characters that change size while they travel (layout drift), each with the fix. Run it after building or editing an animated scene, fix with update_motion_scene (key arc/through/ease/easeAxes), and run again.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string",
+            "description": "The motion clip, its [Motion] comp clip, a layer clip or the comp id."
+          }
+        },
+        "required": [
+          "clipId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "search_icons",
       "description": "Finds Lucide icons (2,000+ line icons) by name words, e.g. \"shield\", \"chart\", \"user plus\". Use a result inside a shape layer's shape.groups as {\"kind\":\"icon\",\"icon\":\"<name>\",\"iconSize\":120,\"color\":\"#fff\",\"position\":[x,y]}; it becomes real vector paths you can trim (draw on), scale and recolour.",
       "input_schema": {

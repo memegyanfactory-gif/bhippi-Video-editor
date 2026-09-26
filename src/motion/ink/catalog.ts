@@ -76,6 +76,7 @@ export function drawnCatalog() {
     item: {
       common: 'kind, id, at [x,y] (centre, layer px), size (number | [w,h]), rotation, scale (% or [sx,sy] for squash), opacity 0–100, in/out (s), fill, fill2, stroke (null = none), width, ink (riso plate index or coverage list), overprint, seed',
       motion: 'draw 0→1 (outline draws on; the pen follows), fillIn 0→1 (fill sweeps on; defaults to follow draw), pop (s: two big drawings with burst ticks, then rest — Film 5), progress (tear), wobble (extra boil px), hatchAngle. Any number may be keyed {k:[{t,v,ease}]} or an expression.',
+      arcs: 'any keyed at/position [x, y] travels a curve with "arc" (0.2–0.35, + bows left of travel) or "through" [x, y] on the key that starts the move; "easeAxes" ["linear", "sine-in-out"] eases each axis on its own (a throw: steady across, eased up and down). check_motion_arcs flags straight moves, even spacing, jumps and size drift.',
       print: `cut-paper texture inside a shape: ${PRINTS.join(', ')}`,
       rim: 'cut-paper torn rim px (5)',
     },

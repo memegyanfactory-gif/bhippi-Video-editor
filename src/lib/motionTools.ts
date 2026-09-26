@@ -9,6 +9,7 @@ import type { FootageSource, Layer, MotionScene } from '../motion/types';
 import { EFFECT_TYPES, validateScene } from '../motion/validate';
 import { expandIcons, searchIcons, unknownIcons } from '../motion/vector/icons';
 import { drawnCatalog } from '../motion/ink/catalog';
+import { motionReport } from '../motion/arcs';
 import { svgToShape } from '../motion/vector/svg';
 import { playbook, playbookIndex } from './motionDirection';
 import { cameraLayer, PRESETS_3D, renderScene, scene3dRequest, trackLayers, type CameraFile, type ObjectsFile, type Render3DResult } from './blender3d';
@@ -34,9 +35,9 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'import_lottie']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'import_lottie']);
 /** Read-only / planning motion tools, allowed in any production phase. */
-export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing', 'list_character_actions']);
+export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing', 'list_character_actions']);
 
 export type MotionToolContext = {
   project: Project;
@@ -724,6 +725,19 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const result = svgToShape(svg, { fit: fitArg && fitArg.length >= 2 ? [fitArg[0], fitArg[1]] : undefined, color: str(args, 'color') });
       if (!result.groups.length) return fail('The SVG draws nothing the engine can read (no paths or shapes).');
       return done(`${result.groups.length} vector path${result.groups.length === 1 ? '' : 's'}, ${Math.round(result.bounds[0])}×${Math.round(result.bounds[1])} px. Place it as a shape layer: {"type":"shape","shape":{"shape":"path","groups":<groups>,"bounds":<bounds>}} — then trim its strokes, animate groups, or recolour paths.`, { groups: result.groups, bounds: result.bounds });
+    }
+
+    case 'check_motion_arcs': {
+      // The flip test: dot-to-dot paths of every moving layer and named drawing item.
+      const target = resolveMotion(project, str(args, 'clipId') ?? str(args, 'compId') ?? '');
+      if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
+      const scene = target.kind === 'stack' ? logicalScene(project, target.comp) : (target.clip.source as MotionSource).scene;
+      if (!scene) return fail('That comp has no motion layers.');
+      const report = motionReport(scene);
+      return done(`${report.summary}${report.issues.length ? ' Fix each with update_motion_scene patches (arc, through, ease, easeAxes on the key that starts the move), then run it again.' : ''}`, {
+        issues: report.issues,
+        paths: report.tracks.map((tr) => ({ target: tr.target, from: tr.points[0]?.map(Math.round), to: tr.points[tr.points.length - 1]?.map(Math.round) })),
+      });
     }
 
     case 'list_drawn_styles': {

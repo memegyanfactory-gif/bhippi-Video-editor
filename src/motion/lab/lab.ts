@@ -13,6 +13,7 @@ import type { MediaHost } from '../sources';
 import type { MotionScene } from '../types';
 import { LAB_SCENES } from './scenes';
 import { findTemplate } from '../kit';
+import { motionReport } from '../arcs';
 
 const params = new URLSearchParams(location.search);
 const media = params.get('media') ?? 'http://127.0.0.1:8765';
@@ -138,5 +139,36 @@ async function tpl(name: string, id: string, params: Record<string, unknown> = {
   return built.duration;
 }
 
-Object.assign(window, { lab: { ui, seq, put, tpl, loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
+/**
+ * Onion skin + dot-to-dot (the flip test, src/motion/arcs.ts): `count` frames from t0 to t1 drawn
+ * faintly over each other, with every tracked path's dots on top (red when the report flags it).
+ */
+async function onion(name: string, t0: number, t1: number, count = 8, scale = 0.5) {
+  const scene = LAB_SCENES[name]();
+  const w = Math.round(scene.width * scale);
+  const h = Math.round(scene.height * scale);
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  for (let i = 0; i < count; i++) {
+    const t = t0 + ((t1 - t0) * i) / Math.max(1, count - 1);
+    await renderer.bank.prepareExact(scene, t);
+    renderer.draw(scene, t, { scale, fps: 24 });
+    ctx.globalAlpha = i === count - 1 ? 0.9 : 0.25;
+    ctx.drawImage(canvas, 0, 0, w, h);
+  }
+  ctx.globalAlpha = 1;
+  const report = motionReport(scene);
+  const flagged = new Set(report.issues.map((i) => i.target));
+  for (const track of report.tracks) {
+    ctx.fillStyle = flagged.has(track.target) ? '#e0245e' : '#1a73e8';
+    track.points.forEach(([x, y], i) => { const tt = track.times[i]; if (tt >= t0 - 1e-6 && tt <= t1 + 1e-6) ctx.fillRect(x * scale - 2, y * scale - 2, 4, 4); });
+  }
+  return { url: out.toDataURL('image/jpeg', 0.88), issues: report.issues };
+}
+
+Object.assign(window, { lab: { ui, seq, put, tpl, onion, loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
 document.title = 'Motion Lab ready';

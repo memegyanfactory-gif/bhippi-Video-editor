@@ -31,7 +31,21 @@ export type EaseName =
 export type Ease = EaseName | [number, number, number, number];
 
 /** A keyframe. `ease` shapes the segment that *starts* at this key (Bhippi's existing convention). */
-export type Key<T = number | Vec> = { t: number; v: T; ease?: Ease };
+export type Key<T = number | Vec> = {
+  t: number;
+  v: T;
+  ease?: Ease;
+  /**
+   * An [x, y] move to the next key travels a curve instead of a straight line: things move on
+   * arcs (a pendulum, a hand, a head). `arc` bows the path sideways by that fraction of the
+   * distance (+ left of travel, − right; 0.2–0.35 reads natural); `through` [x, y] makes it pass
+   * that point at the middle of the move. The ease still sets the spacing along the curve.
+   */
+  arc?: number;
+  through?: Vec;
+  /** Per-axis spacing for an [x, y(, z)] move, overriding `ease` per component: a bouncing ball is ['linear', 'sine-in-out'] (steady across, easing up and down). */
+  easeAxes?: Ease[];
+};
 
 export type Animated<T = number | Vec> = { k: Key<T>[] };
 /** `v` is the static base value, `k` optional keyframes the expression can read (`value`, `loopOut`). */
