@@ -1,0 +1,253 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Theo rig prototype</title>
+<style>
+  html,body{margin:0;background:#fff;font-family:Inter,Segoe UI,Arial,sans-serif}
+  #stage{display:block}
+</style></head>
+<body><div id="stage"></div>
+<script>
+// ---------- Prototype of the Character Studio rig: parts on a standard skeleton, IK limbs,
+// bendy outlined ribbons, hand swap set, face kit, socketed prop. Character space: origin between
+// the feet, +y down, ~700 px tall (1:7 proportions).
+const L = 3; // outline px (screen space, non-scaling)
+const BASE = { line:'#1E2022', skin:'#F9D3C1', skinShade:'#E9B9A3', hair:'#1A202C', top:'#3F7FC1', topShade:'#34699F',
+  collar:'#FFFFFF', bottom:'#2B3E50', bottomShade:'#233344', shoe:'#1A202C', eye:'#1A202C', mouth:'#1E2022',
+  glass:'#1A202C', tabletFrame:'#1A202C', screen:'#EAF2FB', accent:'#F6A623', accent2:'#22C3A6' };
+
+const V = {
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1]], sub:(a,b)=>[a[0]-b[0],a[1]-b[1]], mul:(a,k)=>[a[0]*k,a[1]*k],
+  len:(a)=>Math.hypot(a[0],a[1]), lerp:(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t],
+  norm:(a)=>{const l=Math.hypot(a[0],a[1])||1;return[a[0]/l,a[1]/l]},
+};
+const f = (n)=>+n.toFixed(2);
+
+// Skeleton (rest, character space) — the standard humanoid pivots used by every asset.
+const RIG = { pelvis:[0,-345], neck:[0,-592], head:[0,-655], shoulder:[[-60,-566],[60,-566]], hip:[[-25,-345],[25,-345]],
+  upper:124, fore:112, thigh:163, shin:158 };
+
+function twoBone(s,t,a,b,prefer){ // elbow/knee; prefer: pick the solution whose joint x is further along `prefer`
+  const d=V.sub(t,s); const dist=Math.max(Math.abs(a-b)+1e-3,Math.min(a+b-1e-3,V.len(d)));
+  const base=Math.atan2(d[1],d[0]); const cosA=(a*a+dist*dist-b*b)/(2*a*dist); const A=Math.acos(Math.max(-1,Math.min(1,cosA)));
+  const j1=[s[0]+Math.cos(base+A)*a,s[1]+Math.sin(base+A)*a], j2=[s[0]+Math.cos(base-A)*a,s[1]+Math.sin(base-A)*a];
+  const end=[s[0]+Math.cos(base)*dist,s[1]+Math.sin(base)*dist];
+  const pick=(j1[0]-j2[0])*prefer[0]+(j1[1]-j2[1])*prefer[1] >= 0 ? j1 : j2;
+  return {joint:pick,end};
+}
+// Limb centreline: a quadratic that rounds through the joint ("bendy" 1.0 = passes through it).
+function limbCurve(s,j,e,bendy=0.85){ const mid=V.lerp(s,e,.5); const c=V.add(mid,V.mul(V.sub(j,mid),1+bendy)); return {s,c,e}; }
+const qAt=(q,t)=>{const u=1-t;return[u*u*q.s[0]+2*u*t*q.c[0]+t*t*q.e[0],u*u*q.s[1]+2*u*t*q.c[1]+t*t*q.e[1]]};
+const qTan=(q,t)=>V.norm([2*(1-t)*(q.c[0]-q.s[0])+2*t*(q.e[0]-q.c[0]),2*(1-t)*(q.c[1]-q.s[1])+2*t*(q.e[1]-q.c[1])]);
+// Variable-width ribbon along a curve segment, round or flat caps → closed path d.
+function ribbon(q,t0,t1,w0,w1,capS='round',capE='round',n=18){
+  const Ls=[],Rs=[];
+  for(let i=0;i<=n;i++){const t=t0+(t1-t0)*i/n,p=qAt(q,t),tg=qTan(q,t),nm=[-tg[1],tg[0]],w=(w0+(w1-w0)*i/n)/2;
+    Ls.push(V.add(p,V.mul(nm,w)));Rs.push(V.sub(p,V.mul(nm,w)));}
+  const cap=(p,tg,w,dir)=>{const pts=[];const a0=Math.atan2(tg[1],tg[0]);for(let k=1;k<8;k++){const a=a0+dir*(Math.PI/2-Math.PI*k/8);pts.push([p[0]+Math.cos(a)*w,p[1]+Math.sin(a)*w]);}return pts;};
+  let pts=[...Ls];
+  if(capE==='round'){pts.push(...cap(qAt(q,t1),qTan(q,t1),w1/2,1));}
+  pts.push(...Rs.reverse());
+  if(capS==='round'){const tg=qTan(q,t0);pts.push(...cap(qAt(q,t0),[-tg[0],-tg[1]],w0/2,1));}
+  return 'M'+pts.map(p=>f(p[0])+' '+f(p[1])).join('L')+'Z';
+}
+// A part group drawn with the merged-outline trick: outline pass, then fill pass.
+let uid=0;
+function group(shapes,opts={}){ // shapes: [{d,fill,noOutline}]
+  const o=shapes.filter(s=>!s.noOutline).map(s=>`<path d="${s.d}" fill="${P.line}" stroke="${P.line}" stroke-width="${2*L}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`).join('');
+  const fl=shapes.map(s=>`<path d="${s.d}" fill="${s.fill}"/>`).join('');
+  return `<g ${opts.attr||''}>${o}${fl}${opts.extra||''}</g>`;
+}
+const line=(d,w=L,col)=>`<path d="${d}" fill="none" stroke="${col||P.line}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+let P=BASE;
+
+// ---------- Hands: a swap set, drawn in hand space (+y along the forearm, x across; side mirrors).
+function hand(kind,wrist,dir,side){
+  const ang=Math.atan2(dir[0],dir[1])*-180/Math.PI; const sx=side;
+  let shapes=[],extra='';
+  if(kind==='grip'){ shapes=[{d:'M-13 -2C-15 10-14 24-8 30C-2 35 7 34 11 29C15 22 14 9 12-2Z',fill:P.skin},{d:'M9 4C18 5 23 12 19 19C17 22 13 21 12 18Z',fill:P.skin}];
+    extra=line('M-6 22C-2 25 3 25 7 22',1.6); }
+  else if(kind==='open'){ // palm out, fingers spread
+    shapes=[{d:'M-13-2C-15 10-14 22-10 27C-4 31 6 31 11 27C15 21 14 9 12-2Z',fill:P.skin}];
+    [[-9,26,-12,44],[-3,28,-4,48],[3,28,4,47],[9,25,12,41]].forEach(([x0,y0,x1,y1])=>{shapes.push({d:ribbon({s:[x0,y0-6],c:[(x0+x1)/2,(y0+y1)/2],e:[x1,y1]},0,1,7,6.4),fill:P.skin});});
+    shapes.push({d:ribbon({s:[10,6],c:[20,10],e:[25,20]},0,1,8,7),fill:P.skin});
+  }
+  else if(kind==='thumb'){ shapes=[{d:'M-14 0C-16 10-14 26-6 29C2 32 10 30 13 24C16 16 14 6 11 0Z',fill:P.skin},{d:ribbon({s:[8,4],c:[14,-6],e:[14,-20]},0,1,11,10),fill:P.skin}];
+    extra=line('M-9 12L5 12M-9 19L6 19',1.4); }
+  return group(shapes,{attr:`transform="translate(${f(wrist[0])} ${f(wrist[1])}) rotate(${f(ang)}) scale(${sx} 1)"`,extra});
+}
+
+// ---------- Face kit
+function head(o){ // in head space: head centre (0,-655)
+  const eyesOpen=o.blink?0:1;
+  const face={d:'M-44-668C-45-700-22-712 0-712C24-712 45-700 44-668C44-640 36-612 14-603C6-600-6-600-14-603C-36-612-44-640-44-668Z',fill:P.skin};
+  const earL={d:'M-42-664C-54-668-57-650-50-642C-47-638-43-639-41-641Z',fill:P.skin};
+  const earR={d:'M42-664C54-668 57-650 50-642C47-638 43-639 41-641Z',fill:P.skin};
+  const hair={d:'M-47-662C-52-698-30-724 2-724C30-724 52-706 49-666C46-676 43-684 38-690C22-682 0-684-14-694C-20-686-30-680-40-678C-43-674-45-668-47-662Z',fill:P.hair};
+  let s=group([earL,earR,face]);
+  s+=`<path d="M-44-668C-44-640-36-612-14-603C-6-600 6-600 14-603C22-606 28-612 32-618C18-612 4-611-10-614C-28-620-38-640-40-662Z" fill="${P.skinShade}" opacity=".0"/>`;
+  s+=group([hair]);
+  // brows
+  const by=o.expr==='happy'?-685:-682;
+  s+=line(`M-29 ${by}Q-20 ${by-5}-11 ${by-1}`,3.4,P.hair)+line(`M29 ${by}Q20 ${by-5} 11 ${by-1}`,3.4,P.hair);
+  // eyes (dots / blink lines / happy arcs), look offset
+  const lk=o.look||[0,0];
+  [-19,19].forEach(x=>{
+    if(!eyesOpen) s+=line(`M${x-6}-658Q${x}-655 ${x+6}-658`,2.6);
+    else if(o.expr==='happy') s+=line(`M${x-6}-656Q${x}-664 ${x+6}-656`,2.8);
+    else s+=`<ellipse cx="${x+lk[0]}" cy="${-658+lk[1]}" rx="4.2" ry="5" fill="${P.eye}"/>`;
+  });
+  // glasses
+  s+=`<g fill="none" stroke="${P.glass}" stroke-width="3" vector-effect="non-scaling-stroke"><circle cx="-19" cy="-658" r="13"/><circle cx="19" cy="-658" r="13"/><path d="M-6-660Q0-664 6-660M-32-660L-42-664M32-660L42-664"/></g>`;
+  // nose + mouth
+  s+=line('M-2-640Q2-634-4-632',2.2,P.skinShade.replace('#','#'));
+  if(o.expr==='happy') s+=group([{d:'M-15-624Q0-620 15-624Q12-608 0-607Q-12-608-15-624Z',fill:'#7A2E2E'}],{extra:`<path d="M-8-612Q0-609 8-612Q4-608 0-608Q-4-608-8-612Z" fill="#E86B6B"/>`});
+  else s+=line('M-12-623Q0-614 12-623',3);
+  return s;
+}
+
+// ---------- Tablet prop (socketed; its screen is a slot for any comp/UI)
+function tablet(c,ang,sc=1){
+  const w=158*sc,h=108*sc;
+  let s=group([{d:`M${-w/2+10} ${-h/2}H${w/2-10}Q${w/2} ${-h/2} ${w/2} ${-h/2+10}V${h/2-10}Q${w/2} ${h/2} ${w/2-10} ${h/2}H${-w/2+10}Q${-w/2} ${h/2} ${-w/2} ${h/2-10}V${-h/2+10}Q${-w/2} ${-h/2} ${-w/2+10} ${-h/2}Z`,fill:P.tabletFrame}]);
+  s+=`<rect x="${-w/2+9}" y="${-h/2+9}" width="${w-18}" height="${h-18}" rx="4" fill="${P.screen}"/>`;
+  // tiny dashboard on the screen
+  const bx=-w/2+20,by=h/2-18;
+  [[0,.45,P.top],[1,.7,P.accent],[2,.55,P.top],[3,.9,P.accent2]].forEach(([i,k,c])=>{s+=`<rect x="${bx+i*16}" y="${by-k*52*sc}" width="10" height="${k*52*sc}" rx="2" fill="${c}"/>`;});
+  s+=`<circle cx="${w/2-38}" cy="${-4}" r="${20*sc}" fill="none" stroke="${P.accent}" stroke-width="7" stroke-dasharray="80 200" transform="rotate(-90 ${w/2-38} -4)"/>`;
+  s+=`<circle cx="${w/2-38}" cy="${-4}" r="${20*sc}" fill="none" stroke="#C9D6E6" stroke-width="7" stroke-dasharray="0 80 200" transform="rotate(-90 ${w/2-38} -4)" opacity=".7"/>`;
+  s+=`<rect x="${-w/2+20}" y="${-h/2+18}" width="52" height="6" rx="3" fill="#C9D6E6"/>`;
+  return `<g transform="translate(${f(c[0])} ${f(c[1])}) rotate(${f(ang)})">${s}</g>`;
+}
+
+// ---------- Poses: IK targets + face + prop placement (upper-body space)
+const POSES = {
+  hold:   { hands:[[-74,-428],[76,-436]], fs:[.42,.42], hk:['grip','grip'], tablet:{c:[0,-436],a:-5}, tilt:0, expr:'smile' },
+  present:{ hands:[[-86,-382],[200,-548]], hk:['grip','open'], tablet:{c:[-100,-318],a:86,sc:.86}, tilt:3, expr:'smile', look:[2,0] },
+  wave:   { hands:[[-86,-382],[128,-752]], hk:['grip','open'], tablet:{c:[-100,-318],a:86,sc:.86}, tilt:4, expr:'happy' },
+  thumbs: { hands:[[-86,-382],[112,-530]], hk:['grip','thumb'], tablet:{c:[-100,-318],a:86,sc:.86}, tilt:-3, expr:'happy' },
+  rest:   { hands:[[-92,-356],[92,-356]], hk:['grip','grip'], tablet:null, tilt:0, expr:'smile' },
+};
+function blendPose(a,b,k){
+  const out={...(k<.5?a:b)};
+  out.hands=[V.lerp(a.hands[0],b.hands[0],k),V.lerp(a.hands[1],b.hands[1],k)];
+  out.tilt=a.tilt+(b.tilt-a.tilt)*k; const fa=a.fs||[1,1],fb=b.fs||[1,1]; out.fs=[fa[0]+(fb[0]-fa[0])*k,fa[1]+(fb[1]-fa[1])*k];
+  if(a.tablet&&b.tablet) out.tablet={c:V.lerp(a.tablet.c,b.tablet.c,k),a:a.tablet.a+(b.tablet.a-a.tablet.a)*k,sc:(a.tablet.sc||1)+((b.tablet.sc||1)-(a.tablet.sc||1))*k};
+  return out;
+}
+
+// ---------- The character
+function character(pose,o={}){
+  P={...BASE,...(o.palette||{})};
+  const ex=o.explode||0, breath=o.breath||0;
+  const E=(x,y)=>`transform="translate(${x*ex} ${y*ex})"`;
+  let s='';
+  // shadow
+  s+=`<ellipse cx="0" cy="4" rx="120" ry="14" fill="#1E2022" opacity=".10"/>`;
+  // legs (IK: hip → ankle), trousers as ribbons, shoes
+  const legs=[0,1].map(i=>{const hip=RIG.hip[i],ank=[i?34:-34,-26];const k=twoBone(hip,ank,RIG.thigh,RIG.shin,[i?1:-1,0]);return{hip,...k};});
+  legs.forEach((lg,i)=>{
+    const q=limbCurve(lg.hip,lg.joint,lg.end,.6);
+    s+=`<g ${E(i?30:-30,28)}>`+group([{d:ribbon(q,0,1,52,40,'round','flat'),fill:P.bottom}],{extra:`<path d="${ribbon(q,.05,1,14,10,'flat','flat')}" transform="translate(${i?-12:12} 0)" fill="${P.bottomShade}" opacity=".9"/>`})+'</g>';
+    const sx=i?1:-1;
+    s+=`<g ${E(i?44:-44,56)}>`+group([{d:`M${sx*-18} -30C${sx*-24} -12 ${sx*-24} 0 ${sx*-14} 2H${sx*34}C${sx*44} 2 ${sx*44} -12 ${sx*30} -18C${sx*18} -24 ${sx*14} -30 ${sx*10} -32Z`,fill:P.shoe}],{attr:`transform="translate(${f(lg.end[0])} 0)"`,extra:line(`M${sx*-16} -4H${sx*36}`,1.6,'#3A4452')})+'</g>';
+  });
+  // pelvis (trouser top)
+  s+=`<g ${E(0,20)}>`+group([{d:'M-54-372H54C56-350 56-330 50-306C30-300 12-300 0-296C-12-300-30-300-50-306C-56-330-56-350-54-372Z',fill:P.bottom}])+'</g>';
+  // upper body: lean/tilt + breathing (chest scale)
+  const bs=1+breath*0.012;
+  s+=`<g transform="translate(0 -345) scale(1 ${bs}) translate(0 345)">`;
+  // torso (polo) with block shade + collar + placket
+  const torso='M-62-586C-72-580-74-560-72-540C-68-470-62-400-58-322C-30-316 30-316 58-322C62-400 68-470 72-540C74-560 72-580 62-586C40-594 20-598 0-598C-20-598-40-594-62-586Z';
+  uid++;
+  s+=`<g ${E(0,0)}>`+group([{d:torso,fill:P.top}],{extra:
+     `<clipPath id="tc${uid}"><path d="${torso}"/></clipPath><g clip-path="url(#tc${uid})"><path d="M26-600C40-520 44-420 40-300H90V-600Z" fill="${P.topShade}"/></g>`+
+     line('M0-574V-520',2.2)+`<circle cx="0" cy="-556" r="2.6" fill="${P.line}"/><circle cx="0" cy="-536" r="2.6" fill="${P.line}"/>`})+'</g>';
+  // neck + head
+  const tilt=pose.tilt||0;
+  s+=`<g ${E(0,-70)} ><g transform="rotate(${f(tilt)} 0 -592)">`;
+  s+=group([{d:'M-15-615V-586Q0-576 15-586V-615Z',fill:P.skin}],{extra:`<path d="M-15-606Q0-596 15-606V-600Q0-590-15-600Z" fill="${P.skinShade}"/>`});
+  s+=group([{d:'M-24-590L0-574L-10-560L-30-584Z',fill:P.collar},{d:'M24-590L0-574L10-560L30-584Z',fill:P.collar}]);
+  s+=head({blink:o.blink,expr:o.expr||pose.expr,look:pose.look});
+  s+='</g></g>';
+  // arms (IK shoulder → wrist), sleeves, tablet, hands
+  const arms=[0,1].map(i=>{const sh=RIG.shoulder[i];const k=twoBone(sh,pose.hands[i],RIG.upper,RIG.fore*((pose.fs||[1,1])[i]),[i?1:-1,.35]);return{sh,...k};});
+  const armSvg=arms.map((a,i)=>{
+    const q=limbCurve(a.sh,a.joint,a.end,.8);
+    const ax=i?70:-70;
+    let g=`<g ${E(ax,0)}>`+group([{d:ribbon(q,.05,1,31,24),fill:P.skin}]);
+    g+=group([{d:ribbon(q,0,.4,42,46,'round','flat'),fill:P.top}],{extra:line((()=>{const p=qAt(q,.4),t=qTan(q,.4),n=[-t[1],t[0]];return `M${f(p[0]+n[0]*21)} ${f(p[1]+n[1]*21)}L${f(p[0]-n[0]*21)} ${f(p[1]-n[1]*21)}`})(),2)});
+    g+='</g>';
+    return {g,q,a};
+  });
+  s+=armSvg[0].g+armSvg[1].g;
+  if(pose.tablet && !o.noProp) s+=`<g ${E(-40,0)}>`+tablet(pose.tablet.c,pose.tablet.a,pose.tablet.sc||1)+'</g>';
+  armSvg.forEach(({q,a},i)=>{ s+=`<g ${E(i?110:-110,0)}>`+hand(pose.hk[i],a.end,qTan(q,.97),i?-1:1)+'</g>'; });
+  s+='</g>';
+  // rig overlay
+  if(o.bones){
+    const B='#FF2E7E',J=(p)=>`<circle cx="${f(p[0])}" cy="${f(p[1])}" r="7" fill="#fff" stroke="${B}" stroke-width="3"/>`;
+    const bone=(a,b)=>{const d=V.sub(b,a),n=V.mul(V.norm([-d[1],d[0]]),9);return `<path d="M${f(a[0]+n[0])} ${f(a[1]+n[1])}L${f(b[0])} ${f(b[1])}L${f(a[0]-n[0])} ${f(a[1]-n[1])}Z" fill="${B}" opacity=".85"/>`;};
+    let r='';
+    r+=bone([0,0],RIG.pelvis)+bone(RIG.pelvis,[0,-470])+bone([0,-470],RIG.neck)+bone(RIG.neck,RIG.head)+bone(RIG.head,[0,-712]);
+    arms.forEach(a=>{r+=bone(RIG.neck,a.sh)+bone(a.sh,a.joint)+bone(a.joint,a.end);});
+    legs.forEach(l=>{r+=bone(RIG.pelvis,l.hip)+bone(l.hip,l.joint)+bone(l.joint,l.end);});
+    [[0,0],RIG.pelvis,[0,-470],RIG.neck,RIG.head,...arms.flatMap(a=>[a.sh,a.joint,a.end]),...legs.flatMap(l=>[l.hip,l.joint,l.end])].forEach(p=>r+=J(p));
+    // IK targets
+    arms.forEach(a=>{r+=`<g transform="translate(${f(a.end[0])} ${f(a.end[1])})"><circle r="16" fill="none" stroke="#1FA3FF" stroke-width="3"/><path d="M-22 0H22M0-22V22" stroke="#1FA3FF" stroke-width="2"/></g>`;});
+    s=`<g opacity=".38">${s}</g>`+r;
+  }
+  return s;
+}
+
+// ---------- Sheet
+function panel(x,y,w,h,title,sub,inner,scale=.7){
+  return `<g transform="translate(${x} ${y})"><rect width="${w}" height="${h}" rx="18" fill="#F4F7FB"/>
+   <text x="24" y="40" font-size="22" font-weight="700" fill="#1E2022">${title}</text>
+   <text x="24" y="66" font-size="15" fill="#5B6573">${sub}</text>
+   <g transform="translate(${w/2} ${h-34}) scale(${scale})">${inner}</g></g>`;
+}
+window.renderSheet=function(){
+  const W=1680,H=1400,pw=536,ph=640,g=16;
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="100%" height="100%" fill="#fff"/>`;
+  s+=`<text x="24" y="52" font-size="34" font-weight="800" fill="#1E2022">Theo — base character for the Character Studio pipeline</text>`;
+  s+=`<text x="24" y="84" font-size="17" fill="#5B6573">preset: tablet-presenter · style: corporate-flat · 1:7 proportions · 3 px outline (screen-space) · original design · every pose below is the SAME rig driven by IK targets</text>`;
+  const y0=104;
+  s+=panel(g,y0,pw,ph,'1 · Hero pose','hold tablet · grip hands · smile',character(POSES.hold));
+  s+=panel(g*2+pw,y0,pw,ph,'2 · Rig','21-bone skeleton · pink = bones · blue = hand IK targets',character(POSES.hold,{bones:1}));
+  s+=panel(g*3+pw*2,y0,pw,ph,'3 · Parts (exploded)','every piece is a separate part bound to a bone',character(POSES.rest,{explode:1}),.52);
+  const y1=y0+ph+g;
+  s+=panel(g,y1,pw,ph,'4 · Present','open-hand swap · tablet in hand socket · look',character(POSES.present));
+  s+=panel(g*2+pw,y1,pw,ph,'5 · Wave','IK arm up · happy face kit',character(POSES.wave,{expr:'happy'}));
+  const cw=`<g transform="translate(-225 0) scale(.78)">${character(POSES.thumbs,{palette:{skin:'#C98E69',skinShade:'#B27A57',top:'#F5B025',topShade:'#D99A1C',collar:'#1A202C',bottom:'#3A3F47',bottomShade:'#2E3238'}})}</g>`+
+           `<g transform="translate(0 0) scale(.78)">${character(POSES.hold,{palette:{skin:'#7A4B32',skinShade:'#673E29',top:'#1FA38A',topShade:'#198A74',bottom:'#B89B72',bottomShade:'#A0865F'}})}</g>`+
+           `<g transform="translate(225 0) scale(.78)">${character(POSES.wave,{palette:{top:'#E4574C',topShade:'#C7473D',hair:'#6B3A1E',collar:'#FFFFFF'}})}</g>`;
+  s+=panel(g*3+pw*2,y1,pw,ph,'6 · Palette slots','skin / hair / top / bottom are named slots',cw,.72);
+  s+='</svg>';
+  document.getElementById('stage').innerHTML=s;
+};
+
+// ---------- Animation (what motion v2 does): pop-in with overshoot, breathing, blended wave, blink.
+const easeOutBack=(x,c=1.9)=>1+(c+1)*Math.pow(x-1,3)+c*Math.pow(x-1,2);
+const easeInOut=(x)=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const clamp=(x)=>Math.max(0,Math.min(1,x));
+window.renderFrame=function(t){
+  const W=1080,H=1080;
+  const pop=easeOutBack(clamp(t/0.47));
+  // pose timeline: hold → wave (1.25–1.6) → waving → back to hold (2.9–3.25) → present (3.6-3.95)
+  let pose=POSES.hold, expr='smile';
+  const wIn=clamp((t-1.25)/0.35), wOut=clamp((t-2.9)/0.35), pIn=clamp((t-3.55)/0.4);
+  if(t>=1.25&&t<2.9){ const wv={...POSES.wave,hands:[POSES.wave.hands[0],V.add(POSES.wave.hands[1],[26*Math.sin((t-1.25)*2*Math.PI*2.4),4*Math.cos((t-1.25)*2*Math.PI*4.8)])]}; pose=blendPose(POSES.hold,wv,easeOutBack(wIn,1.2)); expr=wIn>.4?'happy':'smile'; }
+  else if(t>=2.9&&t<3.55){ pose=blendPose(POSES.wave,POSES.hold,easeInOut(wOut)); expr=wOut<.5?'happy':'smile'; }
+  else if(t>=3.55){ pose=blendPose(POSES.hold,POSES.present,easeOutBack(pIn,1.2)); }
+  const blink=(t>0.9&&t<0.98)||(t>3.3&&t<3.38);
+  const breath=Math.sin(t*2*Math.PI/3.2);
+  const sc=0.98*pop;
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="100%" height="100%" fill="#F4F7FB"/>`;
+  s+=`<circle cx="540" cy="560" r="${360*clamp(easeOutBack(clamp((t-0.05)/0.5),1.4))}" fill="#E3ECF7"/>`;
+  s+=`<g transform="translate(540 ${H-150}) scale(${sc}) ">${character(pose,{breath,blink,expr})}</g>`;
+  s+=`<text x="40" y="${H-40}" font-size="22" fill="#8A94A3">Theo · tablet-presenter · rig prototype · t=${t.toFixed(2)}s</text>`;
+  s+='</svg>';
+  document.getElementById('stage').innerHTML=s;
+};
+if(location.hash==='#anim'){let t0=performance.now();const loop=()=>{renderFrame(((performance.now()-t0)/1000)%4.5);requestAnimationFrame(loop)};loop();}
+else renderSheet();
+</script></body></html>

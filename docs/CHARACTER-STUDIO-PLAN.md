@@ -431,6 +431,24 @@ A credible first corporate-flat character that walks, sits and presents is ready
 
 ---
 
+## 7b. The base character: Theo (`tablet-presenter`)
+
+![Theo character sheet](character-studio/theo-sheet.png)
+
+`docs/character-studio/theo-prototype.html` is a single-file prototype of the pipeline. Open it in a
+browser to see the sheet, or add `#anim` for the live rig test. It shows:
+- parts bound to the standard skeleton;
+- two-bone IK arms and legs, with forearm foreshortening;
+- bendy, outlined, variable-width ribbon limbs;
+- a merged outline that stays the same width at any scale;
+- a hand swap set (grip, open, thumb);
+- a face kit (dot eyes, glasses, blink, happy);
+- the tablet as a socketed prop with a UI screen;
+- palette slots;
+- pose blending with overshoot, and breathing.
+
+Phase 1 ports this into `src/motion/character/`.
+
 ## 8. First steps
 0. On a desktop, grab 1 frame per 0.5 s from the reference into `docs/research/video-study/` (for private
    study only; not bundled). Check the palette and line weight.
