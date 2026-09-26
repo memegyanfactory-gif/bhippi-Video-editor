@@ -48,6 +48,12 @@ function eyeTexture(col){const c=document.createElement('canvas');c.width=c.heig
   g.fillStyle='#fff';g.beginPath();g.arc(cx-24,cy-26,13,0,Math.PI*2);g.fill();
   const t=new T.CanvasTexture(c);t.flipY=false;t.colorSpace=T.SRGBColorSpace;return t;}
 function shade(hex,k){const c=new T.Color(hex);const hsl={};c.getHSL(hsl);c.setHSL(hsl.h,hsl.s,clamp(hsl.l+k*.5,0,1));return '#'+c.getHexString();}
+// body skin under worn garments is hidden per fragment (bit mask baked in Blender as the _gmask vertex attribute)
+const GBITS=['tshirt','longsleeve','hoodie','jacket','jeans','shorts','skirt','sneakers'];
+function maskMaterial(m,bits){m.userData.hide={value:bits};m.onBeforeCompile=sh=>{sh.uniforms.uHide=m.userData.hide;
+  sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute float _gmask;uniform int uHide;varying float vHide;').replace('#include <begin_vertex>','#include <begin_vertex>\nvHide=((int(_gmask+.5)&uHide)!=0)?1.:0.;');
+  sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying float vHide;').replace('void main() {','void main() {\n\tif(vHide>.5)discard;');};
+  m.customProgramCacheKey=()=>'gmask';return m;}
 const TOPMAP={tee:'tshirt',shirt:'tshirt',tank:'tshirt',longsleeve:'longsleeve',sweater:'longsleeve',hoodie:'hoodie'};
 const BTMMAP={jeans:'jeans',trousers:'jeans',cargo:'jeans',overalls:'jeans',shorts:'shorts',skirt:'skirt',dress:'skirt'};
 function buildCharacter(spec){
@@ -62,7 +68,7 @@ function buildCharacter(spec){
   const hairCol=(spec.hair&&spec.hair.color)||'#3B2419';
   const wkey=o=>{for(let p=o;p;p=p.parent)if(/^W_/.test(p.name))return p.name.replace(/^W_/,'').replace(/\d+$/,'').replace(/[._-]+$/,'');return null;};
   model.traverse(o=>{if(!o.isMesh)return;o.frustumCulled=false;o.castShadow=true;const n=wkey(o)?'W_'+wkey(o):o.name;
-    if(/^GEO-body/.test(n)&&!/eye/.test(n))mat(o,spec.skin||'#E8B08A',.5);
+    if(/^GEO-body/.test(n)&&!/eye/.test(n)){const m=mat(o,spec.skin||'#E8B08A',.5);if(o.geometry.attributes._gmask){let bits=0;GBITS.forEach((g,i)=>{if(want.has(g)&&g!=='skirt')bits|=1<<i;});maskMaterial(m,bits);}}
     else if(/eye/.test(n)){o.material=new T.MeshStandardMaterial({map:eyeTexture((spec.face&&spec.face.eyeColor)||'#5A86B5'),roughness:.12});}
     else if(/^Hair|HairCap/.test(n)){mat(o,hairCol,.42);o.visible=!(spec.hair&&spec.hair.style==='bald');}
     else if(/^Brows/.test(n))mat(o,shade(hairCol,-.15),.5);
@@ -124,12 +130,14 @@ function poseCharacter(C,P){
     const Du=rotBetweenFrames(dirW(tp.D['upperarm'+k].a),dirW(tp.D['upperarm'+k].pole),a1,S.pd);
     setWorldQ(up,Du.clone().multiply(restW('upperarm'+k)));
     const Df=rotBetweenFrames(dirW(tp.D['forearm'+k].a),dirW(tp.D['forearm'+k].pole),a2,S.pd);
-    setWorldQ(fo,Df.clone().multiply(restW('forearm'+k)));
-    setWorldQ(ha,Df.clone().multiply(restW('hand'+k)));
+    // twist about the forearm (turns the palm): half on the forearm, all of it on the hand
+    const tw=((P.handTwist&&P.handTwist[k])||0)*-sd,Tq=f=>new T.Quaternion().setFromAxisAngle(a2,tw*f);
+    setWorldQ(fo,Tq(.5).multiply(Df).multiply(restW('forearm'+k)));
+    setWorldQ(ha,Tq(1).multiply(Df).multiply(restW('hand'+k)));
     // fingers
     const hp=(P.handPose&&P.handPose[k])||[.35,.1,.2,0];const curl=hp[0],spread=hp[1]||0,thumb=hp[2]||0,pinch=hp[3]||0;
     FINGERS.forEach((f,fi)=>{for(let j=1;j<=3;j++){const n=f+j+k;const bn=B[n];if(!bn||!tp.D[n])continue;
-      let ang=f==='thumb'?(j===1?thumb*.3:(thumb*.7+curl*.25+pinch*.6)*(j===2?.9:1.1)):(fi===1?Math.max(curl,pinch*.7):curl)*(j===1?1.15:j===2?1.35:1.0);
+      const pt=P.handPoint&&P.handPoint[k];let ang=f==='thumb'?(j===1?thumb*.3:(thumb*.7+curl*.25+pinch*.6)*(j===2?.9:1.1)):(fi===1?(pt?.05:Math.max(curl,pinch*.7)):curl)*(j===1?1.15:j===2?1.35:1.0);
       const q=new T.Quaternion().setFromAxisAngle(tp.D[n].axLocal,ang);bn.quaternion.copy(rest[n].lq).multiply(q);
       if(j===1&&f!=='thumb'&&spread){const sq=new T.Quaternion().setFromAxisAngle(V3(0,0,1),(fi-2.2)*spread*.12*sd);bn.quaternion.multiply(sq);}}});
     ha.updateMatrixWorld(true);}
@@ -145,7 +153,7 @@ function poseCharacter(C,P){
     setWorldQ(sh,rotBetweenFrames(dirW(tp.D['shin'+k].a),dirW(tp.D['shin'+k].pole),a2,S.pd).multiply(restW('shin'+k)));
     const fd=(P.footDir&&P.footDir[k])||V3(0,0,1);const yaw=Math.atan2(fd.x,fd.z);
     setWorldQ(ft,inW(new T.Quaternion().setFromAxisAngle(V3(0,1,0),yaw)).multiply(restW('foot'+k)));}
-  const lk=P.look||[0,0];for(const e of C.eyes){e.aim.rotation.set(clamp(lk[1],-1,1)*.3,clamp(lk[0],-1,1)*.45,0);e.aim.scale.y=P.blink?.08:1;}
+  const lk=P.look||[0,0];for(const e of C.eyes){e.aim.rotation.set(clamp(lk[1],-1,1)*.18,clamp(lk[0],-1,1)*.26,0);e.aim.scale.y=P.blink?.08:1;}
   model.updateMatrixWorld(true);
 }
 function collarPoint(C){const n=C.bones.neck.getWorldPosition(V3());const back=V3(0,-.03,-.075*C.s).applyQuaternion(C.root.getWorldQuaternion(new T.Quaternion()));return n.add(back);}

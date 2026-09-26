@@ -80,6 +80,7 @@ for g,B in BODY.items():
     WM={'top':studio.mat('w_top','#e8e4dc',.7),'outer':studio.mat('w_outer','#c9533f',.6),'bottom':studio.mat('w_bottom','#3b5a8c',.8),'shoe':studio.mat('w_shoe','#e2554a',.5),'sole':studio.mat('w_sole','#f4f1ea',.6)}
     B['ward']=WR.build(B['o'],arm,g,WM)
     rig.bind_extra(B['o'],arm,rigid=heady,transfer=cloth+list(B['ward'].values()))
+    WR.cover_mask(B['o'],B['ward'])
     show=set((VIEWOPT.get('wear_'+g) or '').split('+'))
     for k,o in B['ward'].items():o.hide_render=k not in show;o.hide_viewport=k not in show
     # armature deform before subdivision
@@ -135,7 +136,7 @@ if 'export' in views:
                 ev=o.evaluated_get(dg);me=ev.to_mesh();t=sum(len(p.vertices)-2 for p in me.polygons);ev.to_mesh_clear();print('TRIS',g,o.name,t);tris+=t
         print('TRIS total',g,tris)
         fn=os.path.abspath(f'{out}_{g}.glb')
-        bpy.ops.export_scene.gltf(filepath=fn,export_format='GLB',use_selection=True,export_apply=True,export_skins=True,export_animations=False,export_yup=True,export_texcoords=True,export_normals=True,export_materials='EXPORT',export_image_format='AUTO',export_draco_mesh_compression_enable=True,export_draco_mesh_compression_level=7,export_draco_position_quantization=14,export_draco_normal_quantization=10)
+        bpy.ops.export_scene.gltf(filepath=fn,export_format='GLB',use_selection=True,export_apply=True,export_skins=True,export_animations=False,export_yup=True,export_texcoords=True,export_normals=True,export_materials='EXPORT',export_image_format='AUTO',export_draco_mesh_compression_enable=True,export_draco_mesh_compression_level=7,export_draco_position_quantization=14,export_draco_normal_quantization=10,export_attributes=True)
         print('GLB',fn,os.path.getsize(fn))
         arm.location.x=dx
 bpy.ops.wm.save_as_mainfile(filepath=out+'.blend')

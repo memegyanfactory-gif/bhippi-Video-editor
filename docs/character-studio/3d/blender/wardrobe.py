@@ -166,3 +166,29 @@ def sneakers(body,arm,mat,sole):
     for o in obs:o.select_set(True)
     bpy.context.view_layer.objects.active=obs[0];bpy.ops.object.join();obs[0].name='W_sneakers'
     return obs[0]
+
+GBITS=['tshirt','longsleeve','hoodie','jacket','jeans','shorts','skirt','sneakers']
+def cover_mask(body,ward,reach=.07,erode=1):
+    """per body vertex bit mask: which garments cover it (ray along the normal hits the garment within reach)"""
+    import numpy as np
+    dg=bpy.context.evaluated_depsgraph_get();me=body.data;n=len(me.vertices);mask=np.zeros(n,dtype=np.int32)
+    adj=[[] for _ in range(n)]
+    for e in me.edges:a,b=e.vertices;adj[a].append(b);adj[b].append(a)
+    for bi,key in enumerate(GBITS):
+        o=ward.get(key)
+        if not o:continue
+        ev=o.evaluated_get(dg);m2=ev.to_mesh();bm=bmesh.new();bm.from_mesh(m2);bm.transform(o.matrix_world);t=BVHTree.FromBMesh(bm);bm.free();ev.to_mesh_clear()
+        cov=np.zeros(n,dtype=bool)
+        for v in me.vertices:
+            h=t.ray_cast(v.co+v.normal*.001,v.normal,reach)
+            if h[0] is not None:cov[v.index]=True
+            else:
+                co,no,i,d=t.find_nearest(v.co)
+                if co is not None and d<.028:cov[v.index]=True
+        for _ in range(erode):
+            cov=np.array([cov[i] and all(cov[j] for j in adj[i]) for i in range(n)])
+        mask[cov]|=1<<bi
+        print('mask',key,int(cov.sum()))
+    at=me.attributes.get('_GMASK') or me.attributes.new('_GMASK','FLOAT','POINT')
+    at.data.foreach_set('value',mask.astype(float).tolist())
+    return mask
