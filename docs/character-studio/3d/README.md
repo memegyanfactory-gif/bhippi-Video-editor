@@ -47,3 +47,49 @@ A character is the same CharacterSpec used by the 2D Character room. Rig3D maps 
 Shots are unchanged JSON (`actors`, `beats`, `camera`, `props`, `fx`) built only from library names. That is what the AI tools `list_toon_library`, `create_character3d`, `direct_shot`, `preview_shot` and `export_shot` produce. Poses are solved with two-bone IK and proper bend planes for arms and legs, curl axes for all fingers, and gaze and blink on the eyes.
 
 For the published page the `.glb` files are converted to embedded glTF JSON (`glb2json.py`), because the artifact host does not serve `.glb`. Draco decoding uses three.js's pure-JS decoder, shipped next to the page.
+
+## Work on it locally
+
+You need Node 18 or later, Python 3, and Blender 4.2 LTS if you want to rebuild the characters.
+
+```sh
+cd docs/character-studio/3d/studio
+npm install                      # three@0.160.0 and playwright
+npx playwright install chromium  # first time only
+npm run build                    # studio.html + studio_local.html, and the *.gltf.json copies of the .glb files
+npm run serve                    # http://localhost:8765/studio_local.html
+```
+
+Open `studio_local.html` for the Studio, which uses local three.js. `rigtest.html?m=wave,point&t=.9` shows moves side by side, and `&z=3.4&ly=1.35` zooms in.
+
+### Test tools (run while `npm run serve` is up)
+
+| Command | What it does |
+| --- | --- |
+| `node st.mjs` | Screenshots the Studio: Character, Moves and Shots modes. |
+| `node wavetest.mjs wave .3 .55 .8` | Renders a move at several times. |
+| `node csp.mjs csp_local.html` | Loads the page under the artifact viewer's strict CSP. `npm run build` also writes `csp_local.html`. |
+| `node montage.mjs out.png 400 a.png b.png` | Puts images side by side. |
+
+### Rebuilding the characters in Blender
+
+1. Download Blender's free *Human Base Meshes* bundle (v1.4.1) from blender.org/download/demo-files.
+2. Run:
+
+   ```sh
+   blender -b human_base_meshes_bundle.blend -P ../blender/make_cast.py -- out/cast export 8 build=average
+   ```
+
+   Repeat with `build=slim` and `build=heavy`. The results are `out/cast_m.glb`, `out/cast_f.glb`, `out/cast_m_slim.glb` and so on. Copy them into `studio/` as `male.glb`, `female.glb`, `male_slim.glb`, …
+3. Quality checks:
+   - `rom` mode renders the range-of-motion sheet: head turns and pitch, arms up and forward, and a squat.
+   - `-P ../blender/wcheck.py` finds vertices with no weights or weights on the wrong side.
+   - The `3d-specialist` agent (`.claude/agents/3d-specialist.md`) grades the renders.
+
+### UI mockup
+
+`docs/character-studio/ui/characters-ui.html` is the Characters plugin mockup. Its thumbnails are rendered by `ui/thumbs.html` with `thumbs.mjs`: serve the `studio/` folder, then copy `thumbs.html` and `thumbs.mjs` into it.
+
+### Next steps
+
+See `docs/CHARACTERS-PLUGIN-PLAN.md`, sections 6 and 7. The next step is the motion library. Put `Universal Animation Library[Standard].zip` (Quaternius, CC0) under `assets/third-party/quaternius/`, then retarget its clips to this rig and play them with three.js `AnimationMixer`.

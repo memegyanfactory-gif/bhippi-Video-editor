@@ -5,7 +5,7 @@ import * as THREE from 'three';import {GLTFLoader} from 'three/addons/loaders/GL
 window.THREE={...THREE};window.__GLTF={GLTFLoader,DRACOLoader,SkeletonUtils};
 const load=src=>new Promise(r=>{const s=document.createElement('script');s.src=src;s.onload=r;document.body.appendChild(s);});
 await load('toon3d.js');await load('toonkit.js');await load('rig3d.js');
-await Rig3D.load({masc:'male.glb',fem:'female.glb',masc_slim:'m_slim.glb',fem_slim:'f_slim.glb',masc_heavy:'m_heavy.glb',fem_heavy:'f_heavy.glb'},{draco:'./node_modules/three/examples/jsm/libs/draco/gltf/'});
+await Rig3D.load({masc:'male.glb',fem:'female.glb',masc_slim:'male_slim.glb',fem_slim:'female_slim.glb',masc_heavy:'male_heavy.glb',fem_heavy:'female_heavy.glb'},{draco:'./node_modules/three/examples/jsm/libs/draco/gltf/'});
 const T=THREE,K=ToonKit;const R=new T.WebGLRenderer({canvas:c,antialias:true,preserveDrawingBuffer:true,alpha:true});R.outputColorSpace=T.SRGBColorSpace;R.toneMapping=T.ACESFilmicToneMapping;
 const sc=new T.Scene();sc.add(new T.HemisphereLight(0xfff8f2,0x8a7f9a,1.5));const k=new T.DirectionalLight(0xfff0e0,2.4);k.position.set(-2.5,4,3.5);sc.add(k);const rl=new T.DirectionalLight(0xd8e4ff,1.5);rl.position.set(3,2.5,-3.5);sc.add(rl);
 const C=(o)=>({shape:'classic',age:'adult',body:'masc',build:'average',skin:'#E8B08A',face:{eyeColor:'#5A86B5'},hair:{style:'messy',color:'#2E1F18'},top:{kind:'tee',color:'#F5F1E8'},outer:null,bottom:{kind:'jeans',color:'#3F6FB0'},shoes:{kind:'sneakers',color:'#E4574C'},...o});

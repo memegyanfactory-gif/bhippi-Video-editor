@@ -9,6 +9,6 @@ def conv(src,dst):
     js['buffers'][0]['uri']='data:application/octet-stream;base64,'+base64.b64encode(bin_).decode()
     json.dump(js,open(dst,'w'),separators=(',',':'))
 if __name__=='__main__':
-    # m.glb, m_slim.glb, m_heavy.glb, f.glb ... -> male.gltf.json, male_slim.gltf.json, ...
-    for g,n in [('m','male'),('f','female')]:
-        for b in ['','_slim','_heavy']:conv(f'{g}{b}.glb',f'{n}{b}.gltf.json')
+    # male.glb, male_slim.glb, ... -> male.gltf.json, male_slim.gltf.json, ... (the artifact host does not serve .glb)
+    for n in ['male','female']:
+        for b in ['','_slim','_heavy']:conv(f'{n}{b}.glb',f'{n}{b}.gltf.json')

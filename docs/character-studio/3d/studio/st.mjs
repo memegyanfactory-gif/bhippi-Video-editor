@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({args:['--use-gl=swiftshader','--enable-webgl','--ignore-gpu-blocklist','--enable-unsafe-swiftshader']});
+const p = await b.newPage({viewport:{width:1500,height:880}});
+p.on('pageerror', e=>console.log('ERR',e.message));
+p.on('console',m=>{if(m.type()==='error'||m.type()==='warning')console.log(m.type(),m.text().slice(0,200));});await p.goto('http://localhost:8765/studio_local.html'); await p.waitForFunction(()=>window.__studio,null,{timeout:120000});await p.waitForTimeout(1500);
+await p.mouse.move(900,300);await p.waitForTimeout(600);await p.screenshot({path:'st_char.png'});
+await p.evaluate(()=>window.__studio.mode('moves'));await p.evaluate(()=>window.__studio.pick('dance'));await p.evaluate(()=>window.__studio.seek(.7));await p.waitForTimeout(500);await p.screenshot({path:'st_moves.png'});
+await p.evaluate(()=>window.__studio.mode('shots'));await p.waitForTimeout(400);await p.evaluate(()=>window.__studio.example('Friends meet'));await p.evaluate(()=>window.__studio.seek(5.2));await p.waitForTimeout(600);await p.screenshot({path:'st_shots.png'});
+await p.evaluate(()=>window.__studio.example('Grab gag'));await p.evaluate(()=>window.__studio.seek(6.2));await p.waitForTimeout(600);await p.screenshot({path:'st_shots2.png'});
+await b.close();
