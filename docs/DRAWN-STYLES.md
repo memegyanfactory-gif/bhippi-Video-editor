@@ -132,6 +132,31 @@ Riso ink sets (`src/motion/ink/library.ts`): classic, sunset, sea, duotone, mono
   with a shadow rides the edge.
 - **`iris`** with `at` on the dot: the next world opens out of it.
 
+## Solid drawing: arcs and the flip test
+
+These rules come from Toniko Pantoja's "How to keep your 2D animation consistent and solid". The
+first three are now engine features:
+- **Arcs:** a key with `arc` (the sideways bow, as a fraction of the distance) or `through` (a point
+  to pass at the middle) moves on a curve.
+- **Per-axis easing:** `easeAxes` sets the spacing per axis; a throw or a hop is
+  `["linear", "sine-in-out"]`.
+- **The flip test:** `check_motion_arcs` (`src/motion/arcs.ts`) is the dot-to-dot check. It flags:
+  - straight moves;
+  - even spacing from start to stop;
+  - one-frame jumps;
+  - characters that change size while they travel.
+- **Playbook:** the `hand-made` playbook adds primitives first, layout first, the head-turn rule
+  and place and trace.
+
+`lab.onion(name, t0, t1)` shows an onion skin with the paths.
+
+`demo-film.mp4` is a 14-second film made only from this library, with a synthesized soundtrack of
+its cues. It runs: riso ripple open → accelerating riso montage → the pen draws the bot, which hops
+twice on arcs with squash → cut-paper word cards on the beat → hand-written title. The onion skin of
+the hop:
+
+![The bot's hops: arcs, stretch on take-off, squash on landing](drawn-styles/hop-onion.jpg)
+
 ## Working with the Character Studio
 
 The rigged 2.5D characters (the Character Studio, `docs/CHARACTER-STUDIO-PLAN.md` on its branch)
