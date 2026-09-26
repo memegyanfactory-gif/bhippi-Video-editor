@@ -1,0 +1,202 @@
+/* ── Color Studio (src/color/ColorStudio.tsx) ───────────────────────── */
+.fx-card-params.fx-card-studio { padding: 2px 8px 10px 10px; }
+
+.cs-studio { display: flex; flex-direction: column; gap: 8px; container-type: inline-size; }
+
+.cs-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.cs-tab {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11px;
+  padding: 6px 8px 7px;
+  white-space: nowrap;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.cs-tab:hover { color: var(--text-dim); }
+.cs-tab.active { color: var(--text); border-bottom-color: var(--blue-hi); }
+.cs-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--blue-hi); margin-left: 5px; vertical-align: middle; }
+
+.cs-toolbar { display: flex; align-items: center; gap: 6px; }
+.cs-toolbar .btn { display: inline-flex; align-items: center; gap: 5px; }
+.cs-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+}
+
+.cs-section { display: flex; flex-direction: column; gap: 1px; }
+.cs-section-title { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); padding: 6px 0 3px; }
+
+/* The wheels: four across when the panel is wide, two by two when it is not. */
+.cs-wheels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; }
+@container (min-width: 460px) { .cs-wheels { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.cs-wheel { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 0; }
+.cs-wheel-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-dim); }
+.cs-wheel.changed .cs-wheel-head span { color: var(--text); }
+.cs-wheel-head .icon-btn { width: 18px; height: 18px; }
+
+.cs-wheel-disc {
+  position: relative;
+  width: 100%;
+  max-width: 132px;
+  align-self: center;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  touch-action: none;
+  cursor: grab;
+  background:
+    radial-gradient(circle, #1b1c1f 0 62%, transparent 63%),
+    radial-gradient(circle, transparent 0 66%, rgba(0, 0, 0, 0.35) 67% 70%, transparent 71%),
+    var(--ring);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.cs-wheel-disc:active { cursor: grabbing; }
+.cs-wheel-disc:focus-visible { outline: 2px solid var(--blue-hi); outline-offset: 2px; }
+.cs-wheel-cross {
+  position: absolute;
+  inset: 22%;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(255, 255, 255, 0.12) calc(50% - 0.5px), rgba(255, 255, 255, 0.12) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(0deg, transparent calc(50% - 0.5px), rgba(255, 255, 255, 0.12) calc(50% - 0.5px), rgba(255, 255, 255, 0.12) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+  pointer-events: none;
+}
+.cs-wheel-puck {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* The master strip: a ribbed dial dragged sideways, like the ring under a grading wheel. */
+.cs-wheel-master {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--well, #111);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.cs-wheel-master-ticks {
+  display: block;
+  height: 100%;
+  background-image: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.18) 0 1px, transparent 1px 5px);
+}
+.cs-wheel.changed .cs-wheel-master { border-color: var(--blue-line, var(--line-strong)); }
+
+.cs-wheel-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; }
+.cs-wheel-value { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.cs-wheel-value .scrub-number,
+.cs-wheel-value .scrub-input { width: 100%; font-size: 10px; font-family: var(--mono); text-align: center; padding: 1px 0; color: var(--text-dim); }
+.cs-wheel-value .scrub-input { height: 17px; }
+.cs-wheel-value small { font-size: 9px; color: var(--text-faint); line-height: 1; }
+.cs-wheel-value.ch-R small { color: #ff6b6b; }
+.cs-wheel-value.ch-G small { color: #5fd07a; }
+.cs-wheel-value.ch-B small { color: #6b9bff; }
+
+/* Curves */
+.cs-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.cs-pill {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: 11px;
+  cursor: pointer;
+}
+.cs-pill:hover { color: var(--text); border-color: var(--line-strong); }
+.cs-pill.active { color: var(--text); background: var(--blue-soft); border-color: var(--blue-hi); }
+
+.cs-curve { display: flex; flex-direction: column; gap: 5px; }
+.cs-curve-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+.cs-curve-readout { flex: 1; min-width: 0; text-align: right; font-size: 10px; color: var(--text-faint); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-curve-box { position: relative; height: 150px; background: #121315; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.cs-curve-plot { position: absolute; inset: 0 0 12px 0; }
+.cs-curve-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.cs-curve-strip { position: absolute; left: 0; right: 0; bottom: 0; height: 10px; }
+.cs-curve-grid { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.cs-curve-mid { stroke: rgba(255, 255, 255, 0.2); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.cs-curve-line { fill: none; stroke: #e8e8ea; stroke-width: 1.5; }
+.cs-curve-line.neutral { stroke: rgba(232, 232, 234, 0.5); }
+.cs-curve-point {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: #1b1c1f;
+  border: 1.5px solid #e8e8ea;
+  pointer-events: none;
+}
+.cs-curve-point.ghost { border-color: rgba(232, 232, 234, 0.45); }
+.cs-curve-point.active { background: var(--blue-hi); border-color: #fff; }
+
+/* Color Slice */
+.cs-slice { display: flex; flex-direction: column; gap: 2px; }
+.cs-slice-row { display: grid; grid-template-columns: 66px repeat(3, minmax(0, 1fr)); gap: 6px; align-items: center; min-height: 26px; }
+.cs-slice-head span { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; text-align: center; }
+.cs-slice-name { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+.cs-slice-name i { width: 10px; height: 10px; border-radius: 3px; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3); }
+.cs-mini { display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
+.cs-mini .fx-slider { height: 12px; }
+.cs-mini b { font-weight: 400; font-size: 10px; font-family: var(--mono); text-align: center; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.cs-mini.changed b { color: var(--text); }
+
+/* LUT */
+.cs-lut { display: flex; flex-direction: column; gap: 4px; }
+.cs-lut-actions { display: flex; gap: 6px; padding-top: 4px; }
+.cs-lut-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
+.cs-lut-list { display: flex; flex-direction: column; gap: 2px; }
+.cs-lut-item { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); min-height: 22px; }
+.cs-lut-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-lut-item small { color: var(--text-faint); font-family: var(--mono); }
+.cs-seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.cs-seg button { border: 0; background: transparent; color: var(--text-dim); font-size: 11px; padding: 3px 8px; cursor: pointer; }
+.cs-seg button + button { border-left: 1px solid var(--line-strong); }
+.cs-seg button.active { background: var(--blue-soft); color: var(--text); }
+.field-hint.warn { color: var(--amber); }
+
+/* ── The Histogram panel (src/color/ScopesPanel.tsx) ────────────────── */
+.monitor-frame-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.monitor-frame-wrap > .monitor-frame { flex: 1; min-width: 0; }
+
+.scopes-panel {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 10, 12, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+}
+.scopes-head { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.07); cursor: move; user-select: none; }
+.scopes-grip { color: var(--text-faint); flex: none; }
+.scopes-modes { display: flex; gap: 1px; }
+.scopes-modes button { border: 0; background: transparent; color: var(--text-faint); font-size: 10.5px; padding: 3px 6px; border-radius: 3px; cursor: pointer; }
+.scopes-modes button:hover { color: var(--text-dim); }
+.scopes-modes button.active { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.scopes-head .icon-btn { width: 20px; height: 20px; }
+.scopes-canvas { display: block; }
+.scopes-foot { font-size: 10px; color: var(--text-faint); padding: 2px 8px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-top: 1px solid rgba(255, 255, 255, 0.05); }

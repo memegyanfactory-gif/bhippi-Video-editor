@@ -1,6 +1,6 @@
 // Settings › Avatar: Heli, the pixel producer who acts out what Bhippi AI is doing (or one of the
-// other characters — Settings.avatarCharacter), and the council seats it dresses up as. The switch
-// is Settings.avatar (on when unset); the stage plays
+// other characters — Settings.avatarCharacter), its colours (Settings.avatarColors), and the council
+// seats it dresses up as. The switch is Settings.avatar (off until the user turns it on); the stage plays
 // the same poses the editor's avatar uses (src/avatar/poses.ts), so what you see here is what
 // walks around the timeline.
 
@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Toggle } from '../components/ui';
 import { COUNCIL, type CouncilRole } from '../lib/council';
 import { poseAt, type AnimName } from '../avatar/poses';
-import { ART_H, ART_W, CHARACTERS, paint, type Character } from '../avatar/sprite';
+import { ART_H, ART_W, CHARACTERS, COLOUR_SLOTS, paint, slotDefault, type Character } from '../avatar/sprite';
 import type { Settings } from '../lib/types';
 import '../styles/avatar.css';
 
@@ -38,7 +38,7 @@ const SEAT_ANIM: Record<CouncilRole, AnimName> = { researcher: 'research', anima
 /** One-shot moves loop on their own length so they keep playing on the stage. */
 const LOOP: Partial<Record<AnimName, number>> = { slap: 1.6, kick: 1.6, place: 1.6, celebrate: 2.6, land: 1 };
 
-function PixelStage({ anim, scale, color, character, className }: { anim: AnimName; scale: number; color?: string; character?: Character; className?: string }) {
+export function PixelStage({ anim, scale, color, character, className }: { anim: AnimName; scale: number; color?: string; character?: Character; className?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const ctx = canvas.current?.getContext('2d');
@@ -62,12 +62,20 @@ function PixelStage({ anim, scale, color, character, className }: { anim: AnimNa
 }
 
 export function AvatarSettings({ settings, onSettings }: Props) {
-  const on = settings.avatar !== false;
+  const on = settings.avatar === true;
   const [move, setMove] = useState<Move>(MOVES[0]);
   const [seat, setSeat] = useState<CouncilRole | null>(null);
   const member = COUNCIL.find((entry) => entry.id === seat);
   const who = CHARACTERS.find((entry) => entry.id === settings.avatarCharacter) ?? CHARACTERS[0];
   const name = who.name;
+  const colours = settings.avatarColors?.[who.id] ?? {};
+  const custom = Object.keys(colours).length > 0;
+  const setColours = (next: Record<string, string>) => {
+    const all = { ...(settings.avatarColors ?? {}) };
+    if (Object.keys(next).length) all[who.id] = next;
+    else delete all[who.id];
+    onSettings({ ...settings, avatarColors: all });
+  };
 
   return (
     <div className="avatar-settings">
@@ -96,6 +104,22 @@ export function AvatarSettings({ settings, onSettings }: Props) {
             <span>{entry.title}</span>
           </button>
         ))}
+      </div>
+
+      <div className="avatar-colours">
+        <div className="avatar-colours-head">
+          <h4>{name}’s colours</h4>
+          {custom && <button type="button" className="btn btn-ghost btn-small" onClick={() => setColours({})}>Reset to original</button>}
+        </div>
+        <p className="muted small">Make {name} yours: every change is saved as your default and shows everywhere {name} appears. Each character keeps its own colours.</p>
+        <div className="avatar-swatches">
+          {COLOUR_SLOTS[who.id].map((slot) => (
+            <label key={slot.id} className={`avatar-swatch${colours[slot.id] ? ' changed' : ''}`} title={colours[slot.id] ? `${slot.label}: your colour` : `${slot.label}: original`}>
+              <input type="color" value={colours[slot.id] ?? slotDefault(who.id, slot)} onChange={(event) => setColours({ ...colours, [slot.id]: event.target.value })} aria-label={`${name} ${slot.label} colour`} />
+              <span>{slot.label}</span>
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="avatar-stage-row">

@@ -1,12 +1,15 @@
-//! Text to voice: offline with Piper, or through a cloud voice when the user has a key.
+//! Text to voice: through a cloud voice when the user has a key (ElevenLabs, then OpenAI), or
+//! offline with Kokoro — see `kokoro.rs`.
 //!
 //! The hard part is not the synthesis, it is Hinglish. A single sentence like
 //! "yaar ye transition bahut smooth hai" is two languages in one line, and handing all of it
 //! to one voice gets it wrong either way: an English voice reads `yaar` as "yar", a Hindi
-//! voice reads `transition` as "ट्रांसिशन". So Bhippi splits the line word by word, sends the
-//! Hindi words (in either script) to a Hindi voice and the rest to an English one, and joins
-//! the pieces back into one take. [`plan`] is that split, and it is what the tests pin down.
+//! voice reads `transition` as "ट्रांसिशन". So Bhippi decides word by word which words are Hindi,
+//! respells those in Devanagari and leaves the English in Latin letters, and one Hindi voice reads
+//! the line in one pass, switching pronunciation per word. [`plan`] is that decision, and it is
+//! what the tests pin down.
 
+use crate::kokoro;
 use crate::models;
 use crate::settings::SpeechPrefs;
 use crate::tools::Tools;
@@ -18,10 +21,10 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Voice {
-    /// `piper:<catalogue id>` · `elevenlabs:<voice id>` · `openai:<name>`.
+    /// `kokoro:<speaker>` · `elevenlabs:<voice id>` · `openai:<name>`.
     pub id: String,
     pub label: String,
-    /// `piper` · `elevenlabs` · `openai`.
+    /// `kokoro` · `elevenlabs` · `openai`.
     pub engine: String,
     pub languages: Vec<String>,
     /// True when nothing leaves this computer to use it.
@@ -307,22 +310,38 @@ const OPENAI_VOICES: &[(&str, &str)] = &[
     ("shimmer", "Shimmer — light female read"),
 ];
 
-/// Every voice usable right now: the Piper voices downloaded, plus cloud voices when a key
-/// for them is in the credential store. ElevenLabs is asked for the user's own voice list.
-pub async fn voices(root: &Path) -> Vec<Voice> {
-    let mut out: Vec<Voice> = models::installed(root, models::Kind::TtsVoice)
-        .into_iter()
-        .map(|(id, _)| Voice {
-            id: format!("piper:{id}"),
-            label: models::label_of(id).unwrap_or(id).to_owned(),
-            engine: "piper".to_owned(),
-            languages: models::languages_of(id).iter().map(|language| (*language).to_owned()).collect(),
-            offline: true,
-            detail: "Offline · Piper".to_owned(),
-        })
-        .collect();
+/// The Kokoro speaker a script is read in when nothing was chosen.
+const DEFAULT_ENGLISH: &str = "af_heart";
+/// The Kokoro speaker that reads Hindi and Hinglish when nothing was chosen.
+const DEFAULT_HINDI: &str = "hf_alpha";
+const DEFAULT_ELEVENLABS_MODEL: &str = "eleven_multilingual_v2";
+const DEFAULT_OPENAI_TTS_MODEL: &str = "gpt-4o-mini-tts";
 
-    if crate::settings::get_api_key("openai").is_some() {
+/// A saved key, or the environment variable people set for the same service.
+fn key(id: &str) -> Option<String> {
+    crate::settings::get_api_key(id).or_else(|| {
+        let names: &[&str] = match id {
+            "elevenlabs" => &["ELEVENLABS_API_KEY", "XI_API_KEY"],
+            "openai" => &["OPENAI_API_KEY"],
+            _ => &[],
+        };
+        names.iter().find_map(|name| std::env::var(name).ok().map(|value| value.trim().to_owned()).filter(|value| !value.is_empty()))
+    })
+}
+
+/// Whether Kokoro can speak on this machine: the engine and the voice pack, both here.
+fn kokoro_ready(root: &Path, prefs: &SpeechPrefs) -> Option<(PathBuf, PathBuf)> {
+    Some((models::kokoro_library(root, prefs.tts_path.as_deref())?, models::kokoro_model_dir(root)?))
+}
+
+/// Every voice usable right now: the Kokoro speakers once the pack is here, plus cloud voices
+/// when a key for them is saved. ElevenLabs is asked for the user's own voice list.
+pub async fn voices(root: &Path, prefs: &SpeechPrefs) -> Vec<Voice> {
+    let mut out: Vec<Voice> = Vec::new();
+    if let Some(key) = key("elevenlabs") {
+        out.extend(elevenlabs_voices(&key).await);
+    }
+    if key("openai").is_some() {
         out.extend(OPENAI_VOICES.iter().map(|(name, detail)| Voice {
             id: format!("openai:{name}"),
             label: format!("{} (OpenAI)", title_case(name)),
@@ -332,8 +351,19 @@ pub async fn voices(root: &Path) -> Vec<Voice> {
             detail: (*detail).to_owned(),
         }));
     }
-    if let Some(key) = crate::settings::get_api_key("elevenlabs") {
-        out.extend(elevenlabs_voices(&key).await);
+    if kokoro_ready(root, prefs).is_some() {
+        out.extend(kokoro::SPEAKERS.iter().map(|speaker| Voice {
+            id: format!("kokoro:{}", speaker.name),
+            label: speaker.label.to_owned(),
+            engine: "kokoro".to_owned(),
+            languages: if speaker.lang == "hi" {
+                vec!["hi".to_owned(), "hinglish".to_owned(), "en".to_owned()]
+            } else {
+                vec!["en".to_owned()]
+            },
+            offline: true,
+            detail: format!("Offline · Kokoro · {}", speaker.detail),
+        }));
     }
     out
 }
@@ -373,7 +403,7 @@ async fn elevenlabs_voices(key: &str) -> Vec<Voice> {
                         .get("labels")
                         .and_then(|labels| labels.get("description"))
                         .and_then(serde_json::Value::as_str)
-                        .unwrap_or("Cloud · ElevenLabs multilingual v2");
+                        .unwrap_or("Cloud · ElevenLabs");
                     Some(Voice {
                         id: format!("elevenlabs:{id}"),
                         label: format!("{name} (ElevenLabs)"),
@@ -388,37 +418,96 @@ async fn elevenlabs_voices(key: &str) -> Vec<Voice> {
         .unwrap_or_default()
 }
 
-// ───────────────────────────── speaking ─────────────────────────────
-
-/// The voice to use for each half of a bilingual read, resolved from the request and the
-/// saved preferences, falling back to whatever is installed.
-struct Pair {
-    english: String,
-    hindi: String,
+/// One model a cloud voice service offers.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudModel {
+    pub id: String,
+    pub label: String,
 }
 
-fn pick(root: &Path, prefs: &SpeechPrefs, requested: Option<&str>) -> Result<Pair, String> {
-    let installed = models::installed(root, models::Kind::TtsVoice);
-    let of_language = |language: &str| -> Option<String> {
-        installed
-            .iter()
-            .find(|(id, _)| models::languages_of(id).contains(&language))
-            .map(|(id, _)| format!("piper:{id}"))
+/// The speech models each keyed service offers, as that service lists them right now, with the
+/// one Bhippi uses when nothing is chosen.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudModels {
+    pub elevenlabs: Vec<CloudModel>,
+    pub elevenlabs_default: String,
+    pub openai: Vec<CloudModel>,
+    pub openai_default: String,
+}
+
+pub async fn cloud_models() -> CloudModels {
+    let mut out = CloudModels {
+        elevenlabs_default: DEFAULT_ELEVENLABS_MODEL.to_owned(),
+        openai_default: DEFAULT_OPENAI_TTS_MODEL.to_owned(),
+        ..CloudModels::default()
     };
-    let english = requested
-        .map(str::to_owned)
-        .or_else(|| prefs.voice.clone())
-        .or_else(|| of_language("en"))
-        .ok_or_else(|| {
-            "No voice is installed yet. Open Settings › Speech & voice and download Piper plus one voice, or add an ElevenLabs or OpenAI key.".to_owned()
-        })?;
-    // The Hindi half only matters for a Piper pair; a cloud voice reads both languages itself.
-    let hindi = prefs
-        .hindi_voice
-        .clone()
-        .or_else(|| of_language("hi"))
-        .unwrap_or_else(|| english.clone());
-    Ok(Pair { english, hindi })
+    let client = reqwest::Client::new();
+    if let Some(key) = key("elevenlabs") {
+        let listed = async {
+            let body = client.get("https://api.elevenlabs.io/v1/models").header("xi-api-key", &key).send().await.ok()?.text().await.ok()?;
+            serde_json::from_str::<serde_json::Value>(&body).ok()
+        }
+        .await;
+        if let Some(list) = listed.as_ref().and_then(serde_json::Value::as_array) {
+            out.elevenlabs = list
+                .iter()
+                .filter(|entry| entry.get("can_do_text_to_speech").and_then(serde_json::Value::as_bool).unwrap_or(true))
+                .filter_map(|entry| {
+                    let id = entry.get("model_id").and_then(serde_json::Value::as_str)?;
+                    let name = entry.get("name").and_then(serde_json::Value::as_str).unwrap_or(id);
+                    Some(CloudModel { id: id.to_owned(), label: name.to_owned() })
+                })
+                .collect();
+        }
+    }
+    if let Some(key) = key("openai") {
+        let listed = async {
+            let body = client.get("https://api.openai.com/v1/models").bearer_auth(&key).send().await.ok()?.text().await.ok()?;
+            serde_json::from_str::<serde_json::Value>(&body).ok()
+        }
+        .await;
+        if let Some(list) = listed.as_ref().and_then(|value| value.get("data")).and_then(serde_json::Value::as_array) {
+            let mut ids: Vec<String> = list
+                .iter()
+                .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
+                .filter(|id| id.contains("tts") && !id.contains("realtime"))
+                .map(str::to_owned)
+                .collect();
+            ids.sort();
+            out.openai = ids.into_iter().map(|id| CloudModel { label: id.clone(), id }).collect();
+        }
+    }
+    out
+}
+
+// ───────────────────────────── speaking ─────────────────────────────
+
+/// The voice a script is read in when the request and the settings name none: a cloud voice when
+/// the user has paid for one, else Kokoro on this machine.
+async fn automatic_voice(root: &Path, prefs: &SpeechPrefs) -> Result<String, String> {
+    if let Some(key) = key("elevenlabs") {
+        if let Some(first) = elevenlabs_voices(&key).await.into_iter().next() {
+            return Ok(first.id);
+        }
+    }
+    if key("openai").is_some() {
+        return Ok("openai:coral".to_owned());
+    }
+    if kokoro_ready(root, prefs).is_some() {
+        return Ok(format!("kokoro:{DEFAULT_ENGLISH}"));
+    }
+    Err("No voice is ready yet. Open Settings › Speech & voice and download the Kokoro engine and voices (about 350 MB, then everything runs offline), or add an ElevenLabs or OpenAI key.".to_owned())
+}
+
+/// An id saved before Kokoro replaced Piper still means "that language, offline".
+fn upgrade_legacy(voice: &str) -> String {
+    match voice.strip_prefix("piper:") {
+        Some(old) if old.starts_with("piper-hi") => format!("kokoro:{DEFAULT_HINDI}"),
+        Some(_) => format!("kokoro:{DEFAULT_ENGLISH}"),
+        None => voice.to_owned(),
+    }
 }
 
 /// Reads `text` into a 48 kHz mono WAV at `out`.
@@ -441,104 +530,157 @@ pub async fn synthesize(
     if text.chars().count() > 20_000 {
         return Err("that script is too long for one take — split it into paragraphs".to_owned());
     }
-    let pair = pick(root, prefs, voice)?;
+    let chosen = voice
+        .map(str::to_owned)
+        .or_else(|| prefs.voice.clone())
+        .map(|voice| voice.trim().to_owned())
+        .filter(|voice| !voice.is_empty() && voice != "auto");
+    let voice_id = match chosen {
+        Some(voice) => upgrade_legacy(&voice),
+        None => automatic_voice(root, prefs).await?,
+    };
     let speed = prefs.speed.unwrap_or(1.0).clamp(0.5, 2.0);
-    // A cloud voice handles both languages in one request; splitting would only cost round trips.
-    let bilingual = pair.english.starts_with("piper:");
-    let runs = if bilingual { plan(text, mode) } else { vec![Run { lang: Lang::English, text: text.to_owned() }] };
-    if runs.is_empty() {
-        return Err("there is nothing to say".to_owned());
-    }
 
     std::fs::create_dir_all(work).map_err(|error| format!("cannot create {}: {error}", work.display()))?;
     let stamp = crate::store::new_id();
-    let mut parts: Vec<PathBuf> = Vec::new();
-    let total = runs.len() as f64;
-    for (index, run) in runs.iter().enumerate() {
-        report(index as f64 / total * 0.85, &format!("Speaking part {} of {}", index + 1, runs.len()));
-        let voice_id = if run.lang == Lang::Hindi { &pair.hindi } else { &pair.english };
-        let raw = work.join(format!("speech-{stamp}-{index}.raw"));
-        speak_one(root, prefs, &run.text, voice_id, speed, &raw).await?;
-        let part = work.join(format!("speech-{stamp}-{index}.wav"));
-        normalise(tools, &raw, &part).await?;
-        let _ignored = std::fs::remove_file(&raw);
-        parts.push(part);
+    let raw_parts: Vec<PathBuf>;
+    let breathe;
+    let (engine, name) = voice_id.split_once(':').unwrap_or(("kokoro", voice_id.as_str()));
+    match engine {
+        "kokoro" => {
+            let (library, model_dir) = kokoro_ready(root, prefs).ok_or_else(|| {
+                "Kokoro is not installed yet. Open Settings › Speech & voice and download the Kokoro engine and voices — then everything runs offline.".to_owned()
+            })?;
+            let parts = kokoro_parts(text, mode, name, prefs.hindi_voice.as_deref())?;
+            breathe = parts.len() > 1;
+            let job = kokoro::Job {
+                library,
+                model_dir,
+                speed: speed as f32,
+                parts: parts
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (text, sid, reading))| kokoro::Part { text, sid, reading, out: work.join(format!("speech-{stamp}-{index}.raw.wav")) })
+                    .collect(),
+            };
+            report(0.1, "Reading the script with Kokoro");
+            raw_parts = job.parts.iter().map(|part| part.out.clone()).collect();
+            if let Err(error) = kokoro::run(&job).await {
+                for part in &raw_parts {
+                    let _ignored = std::fs::remove_file(part);
+                }
+                return Err(error);
+            }
+        }
+        // A cloud voice reads both languages itself in one request; splitting would only cost
+        // round trips and prosody.
+        "openai" | "elevenlabs" => {
+            report(0.1, "Asking the cloud voice to read the script");
+            let raw = work.join(format!("speech-{stamp}-0.raw"));
+            if engine == "openai" {
+                cloud_openai(text, name, speed, prefs, &raw).await?;
+            } else {
+                cloud_elevenlabs(text, name, speed, prefs, &raw).await?;
+            }
+            raw_parts = vec![raw];
+            breathe = false;
+        }
+        other => return Err(format!("unknown voice engine: {other}")),
     }
 
-    report(0.9, "Joining the take");
-    let result = join(&parts, out, runs.len() > 1);
+    report(0.8, "Cleaning up the take");
+    let mut parts: Vec<PathBuf> = Vec::new();
+    for (index, raw) in raw_parts.iter().enumerate() {
+        let part = work.join(format!("speech-{stamp}-{index}.wav"));
+        let result = normalise(tools, raw, &part).await;
+        let _ignored = std::fs::remove_file(raw);
+        result?;
+        parts.push(part);
+    }
+    let joined = work.join(format!("speech-{stamp}-joined.wav"));
+    let result = join(&parts, &joined, breathe);
     for part in &parts {
         let _ignored = std::fs::remove_file(part);
     }
-    result
+    result?;
+    report(0.9, "Levelling the voice");
+    let finished = master(tools, &joined, out).await;
+    let _ignored = std::fs::remove_file(&joined);
+    finished
 }
 
-/// One run, through whichever engine its voice belongs to. The file at `raw` is whatever the
-/// engine produced — a Piper WAV or a cloud MP3 — and [`normalise`] settles the format.
-async fn speak_one(
-    root: &Path,
-    prefs: &SpeechPrefs,
-    text: &str,
-    voice: &str,
-    speed: f64,
-    raw: &Path,
-) -> Result<(), String> {
-    let (engine, name) = voice.split_once(':').unwrap_or(("piper", voice));
-    match engine {
-        "piper" => piper(root, prefs, text, name, speed, raw).await,
-        "openai" => cloud_openai(text, name, speed, raw).await,
-        "elevenlabs" => cloud_elevenlabs(text, name, speed, raw).await,
-        other => Err(format!("unknown voice engine: {other}")),
+/// The parts Kokoro reads a script in, each as (text, speaker id, pronunciation).
+///
+/// The rule that makes Hinglish sound human: one speaker reads the whole line in one pass. When
+/// there is any Hindi in it, that speaker is a Hindi one; the romanised Hindi is respelled in
+/// Devanagari and the English words stay in Latin letters, and espeak-ng's Hindi rules switch to
+/// English pronunciation for those words on their own — Indian-accented English inside a natural
+/// Hindi sentence. Cutting the line into per-language pieces broke the sentence melody and could
+/// swallow a one-word piece, and switching to an American voice mid-sentence sounds spliced.
+fn kokoro_parts(text: &str, mode: Mode, chosen: &str, hindi_choice: Option<&str>) -> Result<Vec<(String, i32, kokoro::Reading)>, String> {
+    let main = kokoro::speaker(chosen).ok_or_else(|| format!("unknown Kokoro voice: {chosen}"))?;
+    let hindi = hindi_choice
+        .and_then(|value| value.strip_prefix("kokoro:").or(Some(value)))
+        .and_then(kokoro::speaker)
+        .filter(|speaker| speaker.lang == "hi")
+        .or_else(|| kokoro::speaker(DEFAULT_HINDI))
+        .ok_or_else(|| "the Hindi voice is missing from the table".to_owned())?;
+
+    // A Hindi voice chosen outright reads with Hinglish rules, so romanised Hindi is caught.
+    let mode = if main.lang == "hi" && mode == Mode::Auto { Mode::Hinglish } else { mode };
+    let runs = plan(text, mode);
+    if runs.is_empty() {
+        return Err("there is nothing to say".to_owned());
     }
+    if runs.iter().any(|run| run.lang == Lang::Hindi) {
+        let reader = if main.lang == "hi" { main } else { hindi };
+        let line = runs.into_iter().map(|run| run.text).collect::<Vec<_>>().join(" ");
+        return Ok(vec![(line, reader.sid, kokoro::Reading::Hi)]);
+    }
+    // No Hindi at all: Kokoro's own English lexicon, in the chosen voice's accent. A Hindi
+    // speaker reading plain English keeps American spelling-to-sound rules.
+    let reading = if main.lang == "en-gb" { kokoro::Reading::EnGb } else { kokoro::Reading::EnUs };
+    Ok(vec![(text.to_owned(), main.sid, reading)])
 }
 
-async fn piper(root: &Path, prefs: &SpeechPrefs, text: &str, id: &str, speed: f64, out: &Path) -> Result<(), String> {
-    let program = models::piper_binary(root, prefs.piper_path.as_deref()).ok_or_else(|| {
-        "Piper is not installed. Open Settings › Speech & voice and download it — it is about 20 MB and then everything runs offline.".to_owned()
-    })?;
-    let model = models::model_path(root, id)
-        .ok_or_else(|| format!("that voice is not downloaded. Open Settings › Speech & voice and get {}.", models::label_of(id).unwrap_or(id)))?;
-    // Piper measures pace the other way round: a longer scale is a slower read.
-    let length_scale = format!("{:.3}", 1.0 / speed);
-    let model_text = model.display().to_string();
-    let out_text = out.display().to_string();
-    let mut args = vec!["-m", model_text.as_str(), "-f", out_text.as_str(), "--length_scale", length_scale.as_str()];
-    // Piper needs espeak-ng's data to turn letters into sounds; the release ships it alongside.
-    let espeak = program.parent().map(|dir| dir.join("espeak-ng-data"));
-    let espeak_text = espeak.as_ref().map(|dir| dir.display().to_string());
-    if let Some(dir) = espeak_text.as_ref().filter(|_| espeak.as_ref().is_some_and(|dir| dir.is_dir())) {
-        args.extend(["--espeak_data", dir.as_str()]);
-    }
-    crate::tools::run_with_input(&program, &args, text, program.parent()).await?;
-    if !out.is_file() {
-        return Err("Piper produced no audio for that text".to_owned());
-    }
-    Ok(())
-}
-
-async fn cloud_openai(text: &str, voice: &str, speed: f64, out: &Path) -> Result<(), String> {
-    let key = crate::settings::get_api_key("openai").ok_or("no OpenAI key is saved")?;
-    let body = serde_json::json!({
-        "model": "gpt-4o-mini-tts",
+async fn cloud_openai(text: &str, voice: &str, speed: f64, prefs: &SpeechPrefs, out: &Path) -> Result<(), String> {
+    let key = key("openai").ok_or("no OpenAI key is saved")?;
+    let model = prefs.openai_tts_model.as_deref().filter(|model| !model.is_empty()).unwrap_or(DEFAULT_OPENAI_TTS_MODEL);
+    let mut body = serde_json::json!({
+        "model": model,
         "voice": voice,
         "input": text,
         "speed": speed,
         "response_format": "wav",
     });
+    if model.starts_with("gpt-") {
+        body["instructions"] = serde_json::Value::String(
+            "Speak naturally like a real person recording a voice-over: relaxed, warm and clear, with natural pauses. If the script mixes Hindi and English, read it the way an Indian speaker naturally would.".to_owned(),
+        );
+    }
     let bytes = post_audio("https://api.openai.com/v1/audio/speech", &[("Authorization", &format!("Bearer {key}"))], &body, "OpenAI").await?;
     std::fs::write(out, bytes).map_err(|error| format!("cannot write the voice track: {error}"))
 }
 
-async fn cloud_elevenlabs(text: &str, voice: &str, speed: f64, out: &Path) -> Result<(), String> {
-    let key = crate::settings::get_api_key("elevenlabs").ok_or("no ElevenLabs key is saved")?;
-    let url = format!("https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_128");
+async fn cloud_elevenlabs(text: &str, voice: &str, speed: f64, prefs: &SpeechPrefs, out: &Path) -> Result<(), String> {
+    let key = key("elevenlabs").ok_or("no ElevenLabs key is saved")?;
+    let url = format!("https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_192");
+    // Multilingual v2 is the default because it reads Hindi and code-switched Hinglish properly;
+    // whichever model the user picked in Settings wins.
+    let model = prefs.elevenlabs_model.as_deref().filter(|model| !model.is_empty()).unwrap_or(DEFAULT_ELEVENLABS_MODEL);
     let body = serde_json::json!({
         "text": text,
-        // Multilingual v2 is the one that reads Hindi and code-switched Hinglish properly.
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": { "stability": 0.4, "similarity_boost": 0.75, "speed": speed.clamp(0.7, 1.2) },
+        "model_id": model,
+        "voice_settings": { "stability": 0.45, "similarity_boost": 0.8, "style": 0.15, "use_speaker_boost": true, "speed": speed.clamp(0.7, 1.2) },
     });
-    let bytes = post_audio(&url, &[("xi-api-key", &key)], &body, "ElevenLabs").await?;
+    let bytes = match post_audio(&url, &[("xi-api-key", &key)], &body, "ElevenLabs").await {
+        // A 192 kbps take needs a paid tier; fall back to the standard one rather than failing.
+        Err(error) if error.contains("output_format") => {
+            let url = format!("https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_128");
+            post_audio(&url, &[("xi-api-key", &key)], &body, "ElevenLabs").await?
+        }
+        other => other?,
+    };
     std::fs::write(out, bytes).map_err(|error| format!("cannot write the voice track: {error}"))
 }
 
@@ -575,6 +717,28 @@ async fn normalise(tools: &Tools, raw: &Path, out: &Path) -> Result<(), String> 
     .await
     .map(|_| ())
     .map_err(|error| format!("could not prepare the voice track: {error}"))
+}
+
+/// The finishing pass every take gets: rumble below the voice cut, then levelled to the loudness
+/// online platforms play speech at (−16 LUFS, peaks under −1.5 dB), so a voice-over sits at the
+/// same level as everything else on the timeline instead of whatever the engine happened to emit.
+async fn master(tools: &Tools, input: &Path, out: &Path) -> Result<(), String> {
+    let ffmpeg = tools.ffmpeg()?;
+    let levelled = crate::tools::run(
+        ffmpeg,
+        &[
+            "-hide_banner", "-loglevel", "error", "-y", "-i", &input.display().to_string(),
+            "-af", "highpass=f=70,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000",
+            "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", &out.display().to_string(),
+        ],
+        None,
+    )
+    .await;
+    if levelled.is_ok() && out.is_file() {
+        return Ok(());
+    }
+    // An FFmpeg without those filters still leaves a usable take.
+    std::fs::copy(input, out).map(|_| ()).map_err(|error| format!("cannot save the voice track: {error}"))
 }
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -639,7 +803,33 @@ fn join(parts: &[PathBuf], out: &Path, breathe: bool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{devanagari, join, plan, wav_header, wav_samples, Lang, Mode, HINDI_WORDS};
+    use super::{devanagari, join, kokoro_parts, plan, upgrade_legacy, wav_header, wav_samples, Lang, Mode, HINDI_WORDS};
+    use crate::kokoro::Reading;
+
+    #[test]
+    fn hinglish_is_read_by_one_hindi_voice_in_one_pass() {
+        let parts = kokoro_parts("yaar ye transition bahut smooth hai", Mode::Hinglish, "af_heart", None).expect("parts");
+        // The English voice was chosen, but the line has Hindi in it: the Hindi speaker reads all
+        // of it at once, romanised Hindi respelled and the English words left in Latin letters.
+        assert_eq!(parts, vec![("यार ये transition बहुत smooth है".to_owned(), 31, Reading::Hi)]);
+    }
+
+    #[test]
+    fn plain_english_stays_in_the_chosen_english_voice() {
+        let parts = kokoro_parts("Welcome back to the channel.", Mode::Auto, "bm_george", None).expect("parts");
+        assert_eq!(parts, vec![("Welcome back to the channel.".to_owned(), 26, Reading::EnGb)]);
+        // A chosen Hindi speaker is used for Hinglish instead of the default one.
+        let hindi = kokoro_parts("accha, phir?", Mode::Hinglish, "af_heart", Some("kokoro:hm_omega")).expect("parts");
+        assert_eq!(hindi[0].1, 33);
+        assert!(kokoro_parts("hello", Mode::Auto, "no_such_voice", None).is_err());
+    }
+
+    #[test]
+    fn voices_saved_before_kokoro_still_resolve() {
+        assert_eq!(upgrade_legacy("piper:piper-en-ryan"), "kokoro:af_heart");
+        assert_eq!(upgrade_legacy("piper:piper-hi-priyamvada"), "kokoro:hf_alpha");
+        assert_eq!(upgrade_legacy("elevenlabs:abc"), "elevenlabs:abc");
+    }
 
     #[test]
     fn the_dictionary_spells_one_reading_per_word() {

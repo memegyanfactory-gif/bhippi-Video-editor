@@ -265,6 +265,8 @@ def execute(request):
             'video': 'Lightricks/LTX-Video',
             'video-ltx': 'Lightricks/LTX-Video',
             'video-wan': 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers',
+            'video-wan22': 'Wan-AI/Wan2.2-TI2V-5B-Diffusers',
+            'image-flux': 'black-forest-labs/FLUX.1-schnell',
             'audio': 'stabilityai/stable-audio-open-1.0',
             'sam2': 'facebook/sam2.1-hiera-tiny',
             'vitmatte': 'hustvl/vitmatte-small-composition-1k',
@@ -292,6 +294,10 @@ def execute(request):
             wanted = [s.rfilename for s in (info.siblings or [])
                       if any(_fnmatch.fnmatch(s.rfilename, p) for p in ['*.json', '*.txt', '*.model', weights, 'LICENSE*', '*.md'])
                       and not any(_fnmatch.fnmatch(s.rfilename, p) for p in ['*.bin', '*.onnx', '*.msgpack', '*.ckpt'])]
+            if repo == 'black-forest-labs/FLUX.1-schnell':
+                # The repo root also carries the single-file ComfyUI checkpoint (flux1-schnell,
+                # ae) — 24 GB the Diffusers layout never reads.
+                wanted = [name for name in wanted if '/' in name or not name.endswith('.safetensors')]
         if not wanted:
             raise RuntimeError('The model repository lists no downloadable weights.')
         emit(0.05, f'Downloading {request["task"]} model ({len(wanted)} files); progress depends on network speed')
@@ -317,6 +323,10 @@ def execute(request):
         StableAudioPipeline,
         DPMSolverMultistepScheduler,
     )
+    try:
+        from diffusers import FluxPipeline
+    except ImportError:
+        FluxPipeline = None
     try:
         import diffusers as _diffusers_pkg
         _diffusers_pkg.logging.set_verbosity_error()
@@ -360,8 +370,14 @@ def execute(request):
                     is_ltx = False
                     break
     video_class = LTXPipeline if is_ltx else WanPipeline
+    # Wan 2.2 TI2V 5B shares WanPipeline but runs 24 fps at 720p; its VAE compresses 16x.
+    is_wan22 = task == "video" and not is_ltx and ("wan22" in str(checkpoint).lower().replace(".", "").replace("-", "") or "2.2" in str(checkpoint))
+    is_flux = task == "image" and class_name == "FluxPipeline"
+    if is_flux and FluxPipeline is None:
+        raise RuntimeError("This Python environment's diffusers is too old for FLUX; upgrade diffusers to 0.30 or newer.")
+    image_class = FluxPipeline if is_flux else StableDiffusionXLPipeline
 
-    classes = {"image": StableDiffusionXLPipeline, "image-edit": StableDiffusionXLImg2ImgPipeline, "image-inpaint": StableDiffusionXLInpaintPipeline, "video": video_class, "audio": StableAudioPipeline}
+    classes = {"image": image_class, "image-edit": StableDiffusionXLImg2ImgPipeline, "image-inpaint": StableDiffusionXLInpaintPipeline, "video": video_class, "audio": StableAudioPipeline}
     if task not in classes:
         raise ValueError("Unsupported task; use image, video or audio.")
     # Ensure safetensors compatibility across diffusers and transformers
@@ -402,6 +418,9 @@ def execute(request):
                 raise
             return classes[task].from_pretrained(str(checkpoint), torch_dtype=dtype, **overrides)
 
+    if is_flux or is_wan22:
+        # Both are published in bf16; fp16 overflows FLUX's activations into black frames.
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     try:
         pipe = load_pipe(**load_kwargs)
     except Exception as load_err:
@@ -435,7 +454,14 @@ def execute(request):
         except Exception:
             pass
 
-    pipe.enable_model_cpu_offload()
+    vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024 ** 3
+    if is_flux and vram_gb < 26:
+        # The 12B transformer alone is 24 GB in bf16: stream it layer by layer instead of
+        # failing to fit it whole. Slow, but it runs.
+        emit(0.08, f"FLUX needs ~24 GB VRAM to load whole; streaming weights on this {vram_gb:.0f} GB card (slower)")
+        pipe.enable_sequential_cpu_offload()
+    else:
+        pipe.enable_model_cpu_offload()
     if hasattr(pipe, "enable_vae_tiling"):
         pipe.enable_vae_tiling()
 
@@ -512,14 +538,21 @@ def execute(request):
             pass
         return text
 
-    prompt = compact_to_window(prompt, "Prompt")
+    if not is_flux:
+        prompt = compact_to_window(prompt, "Prompt")
     if negative_prompt and task in ("image", "image-edit", "image-inpaint", "video"):
         negative_prompt = compact_to_window(negative_prompt, "Negative prompt")
 
+    if is_flux:
+        # schnell is timestep-distilled: 4 steps, no classifier-free guidance, no negative prompt.
+        steps = min(steps, 8) if "steps" in request else 4
     kwargs = dict(prompt=prompt, generator=generator, num_inference_steps=steps)
-    if task.startswith("image") or task == "video":
+    if is_flux:
+        kwargs["guidance_scale"] = 0.0
+        kwargs["max_sequence_length"] = 256
+    elif task.startswith("image") or task == "video":
         kwargs["guidance_scale"] = guidance_scale
-    if negative_prompt and task in ("image", "image-edit", "image-inpaint", "video"):
+    if negative_prompt and task in ("image", "image-edit", "image-inpaint", "video") and not is_flux:
         kwargs["negative_prompt"] = negative_prompt
     def step_end(pipeline, index, timestep, values):
         pct = 0.20 + 0.70 * (index + 1) / steps
@@ -535,6 +568,8 @@ def execute(request):
         req_w = int(request.get("width", 1024))
         req_h = int(request.get("height", 1024))
         width, height = optimal_sdxl_dimensions(req_w, req_h)
+        if is_flux:
+            width, height = (width // 16) * 16, (height // 16) * 16
         if task != 'image':
             from PIL import Image, ImageOps
             source = ImageOps.exif_transpose(Image.open(request['sourcePath'])).convert('RGB')
@@ -546,7 +581,7 @@ def execute(request):
             if task == 'image-inpaint':
                 mask = ImageOps.exif_transpose(Image.open(request['maskPath'])).convert('L').resize((width, height), Image.Resampling.NEAREST)
                 kwargs['mask_image'] = mask
-        emit(0.20, f"Generating SDXL image: {width}x{height}, {steps} steps...")
+        emit(0.20, f"Generating {'FLUX' if is_flux else 'SDXL'} image: {width}x{height}, {steps} steps...")
         with torch.inference_mode():
             result = pipe(**kwargs, width=width, height=height).images[0]
         if task == 'image-inpaint':
@@ -567,6 +602,18 @@ def execute(request):
             fps = 24
             emit(0.20, f"Generating LTX-Video: {width}x{height}, {frames} frames at {fps} fps ({steps} steps)...")
             kwargs["frame_rate"] = fps
+        elif is_wan22:
+            # Wan 2.2 TI2V 5B: 720p class, 24 fps, 121 frames max, dimensions on a 32 grid.
+            landscape = req_w >= req_h
+            width, height = (1280, 704) if landscape else (704, 1280)
+            if req_w == req_h:
+                width, height = 960, 960
+            # The editor clamps frames for Wan 2.1's 16 fps; seconds is the real intent here.
+            requested_frames = int(round(float(request["seconds"]) * 24)) + 1 if request.get("seconds") else int(request.get("frames", 121))
+            clamped_frames = min(max(5, requested_frames), 121)
+            frames = ((clamped_frames - 1) // 4) * 4 + 1
+            fps = 24
+            emit(0.20, f"Generating Wan 2.2 video: {width}x{height}, {frames} frames at {fps} fps ({steps} steps)...")
         else:
             width, height = optimal_wan_dimensions(req_w, req_h)
             requested_frames = int(request.get("frames", 81))

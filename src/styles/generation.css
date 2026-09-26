@@ -1,0 +1,107 @@
+/* Generation: the local model advisor, the Connectors page and the chat's generation plan card. */
+
+/* ── quality meter ─────────────────────────────────────────────────────── */
+.gen-meter { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-dim); white-space: nowrap; }
+.gen-meter-bars { display: inline-flex; gap: 2px; }
+.gen-meter-bars i { width: 12px; height: 6px; border-radius: 2px; background: var(--panel-4, #3a3a3a); }
+.gen-meter.tone-low .gen-meter-bars i.on { background: var(--amber); }
+.gen-meter.tone-mid .gen-meter-bars i.on { background: var(--blue, var(--accent)); }
+.gen-meter.tone-high .gen-meter-bars i.on { background: var(--green); }
+.gen-meter.dim { opacity: 0.45; }
+.gen-meter-label { font-weight: 500; color: var(--text); }
+
+/* ── hardware card ─────────────────────────────────────────────────────── */
+.gen-hw { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--well); margin-bottom: 14px; }
+.gen-hw-specs { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text); }
+.gen-hw-specs span { display: inline-flex; align-items: center; gap: 6px; }
+.gen-hw-specs svg { color: var(--text-faint); }
+.gen-hw-verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+.gen-hw-verdict { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; border-radius: 6px; background: color-mix(in srgb, var(--text) 3%, transparent); }
+.gen-hw-kind { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-faint); }
+.gen-hw-note { margin: 0 !important; font-size: 12px; color: var(--amber) !important; }
+
+/* ── model rows ────────────────────────────────────────────────────────── */
+.gen-model-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.gen-list-title { font-size: 11px; font-weight: 600; color: var(--text-dim); margin: 2px 0; }
+.gen-model { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--well); }
+.gen-model.recommended { border-color: color-mix(in srgb, var(--green) 45%, var(--line)); }
+.gen-model.active { box-shadow: inset 2px 0 0 var(--green); }
+.gen-model > input[type='checkbox'] { margin-top: 3px; }
+.gen-model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.gen-model-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.gen-model-title strong { font-size: 13px; color: var(--text); }
+.gen-model-maker { font-size: 11px; color: var(--text-faint); }
+.gen-model-output { font-size: 11.5px; color: var(--text-dim); }
+.gen-model-meters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 2px; }
+.gen-model-time { font-size: 11.5px; color: var(--text-dim); }
+.gen-model-note { font-size: 11.5px; color: var(--text-faint); }
+.gen-model-why { font-size: 11.5px; color: var(--text-faint); }
+.gen-model-why.bad { color: var(--amber); }
+.gen-model-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.gen-model-progress { height: 4px; border-radius: 2px; background: var(--panel-4, #3a3a3a); overflow: hidden; }
+.gen-model-progress i { display: block; height: 100%; background: var(--blue, var(--accent)); transition: width 0.3s ease; }
+
+/* ── connector logos ───────────────────────────────────────────────────── */
+.gen-logo { display: inline-grid; place-items: center; flex: none; border-radius: 9px; overflow: hidden; }
+.gen-logo svg { display: block; }
+
+/* ── connectors page ───────────────────────────────────────────────────── */
+.conn-master { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--well); margin-bottom: 18px; }
+.conn-master strong { display: block; font-size: 13px; color: var(--text); margin-bottom: 2px; }
+.conn-master span { font-size: 12px; color: var(--text-dim); }
+.conn-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+.conn-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--well); min-width: 0; }
+.conn-card.connected { border-color: color-mix(in srgb, var(--green) 40%, var(--line)); }
+.conn-card.off { opacity: 0.85; }
+.conn-head { display: flex; align-items: center; gap: 11px; }
+.conn-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.conn-head-text strong { font-size: 13.5px; color: var(--text); }
+.conn-head-text span { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conn-blurb { margin: 0 !important; font-size: 12px !important; }
+.conn-models { display: flex; flex-wrap: wrap; gap: 4px; }
+.conn-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 10px; font-size: 10.5px; background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text-dim); }
+.conn-chip.video { background: color-mix(in srgb, var(--blue, var(--accent)) 14%, transparent); color: var(--text); }
+.conn-key { display: flex; gap: 6px; }
+.conn-key input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border-radius: var(--radius); border: 1px solid var(--line-strong, var(--line)); background: var(--field, var(--panel)); color: var(--text); font-family: var(--mono, monospace); font-size: 11.5px; }
+.conn-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.conn-picks label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-faint); }
+.conn-picks select { height: 26px; }
+.conn-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; }
+.conn-foot a { color: var(--blue-hi, var(--accent)); text-decoration: none; }
+.conn-foot a:hover { text-decoration: underline; }
+.conn-status { font-size: 11.5px; }
+.conn-status.ok { color: #7ee28a; }
+.conn-status.error { color: var(--red); }
+
+/* ── onboarding: generation choice ─────────────────────────────────────── */
+.gen-choice { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.gen-choice button { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--well); color: var(--text); text-align: left; cursor: pointer; }
+.gen-choice button[aria-checked='true'] { border-color: var(--blue, var(--accent)); box-shadow: 0 0 0 1px var(--blue, var(--accent)); }
+.gen-choice button strong { font-size: 13px; }
+.gen-choice button span { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
+.gen-choice-logos { display: flex; gap: 4px; }
+.gen-onb-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; margin-bottom: 10px; overflow-y: auto; padding-right: 4px; }
+.gen-onb-conn { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--well); }
+.gen-onb-conn .conn-head-text span { white-space: normal; }
+.gen-onb-conn input[type='password'] { width: 190px; height: 26px; padding: 0 8px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--field, var(--panel)); color: var(--text); font-size: 11.5px; }
+
+/* ── chat: generation plan card ────────────────────────────────────────── */
+.genplan-card { margin: 8px 10px; padding: 12px; border: 1px solid color-mix(in srgb, var(--blue, var(--accent)) 45%, var(--line)); border-radius: 10px; background: var(--panel-2, var(--panel)); display: flex; flex-direction: column; gap: 10px; }
+.genplan-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); }
+.genplan-head strong { flex: 1; }
+.genplan-cost { font-size: 11px; color: var(--text-faint); }
+.genplan-item { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 10px; border-radius: 8px; background: var(--well); border: 1px solid var(--line); }
+.genplan-item.skipped { opacity: 0.45; }
+.genplan-ref { position: relative; width: 64px; height: 64px; border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--text) 5%, transparent); display: grid; place-items: center; color: var(--text-faint); font-size: 10px; text-align: center; }
+.genplan-ref img { width: 100%; height: 100%; object-fit: cover; }
+.genplan-ref button { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.65); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.genplan-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.genplan-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+.genplan-meta select { width: auto; flex: 0 1 auto; min-width: 0; height: 24px; font-size: 11px; max-width: 230px; }
+.genplan-source { font-size: 11px; color: var(--text-faint); }
+.genplan-body textarea { width: 100%; min-height: 58px; resize: vertical; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--field, var(--panel)); color: var(--text); font: inherit; font-size: 12px; line-height: 1.45; }
+.genplan-refs-pick { display: flex; flex-wrap: wrap; gap: 4px; }
+.genplan-refs-pick button { width: 34px; height: 34px; padding: 0; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); background: none; cursor: pointer; }
+.genplan-refs-pick button img { width: 100%; height: 100%; object-fit: cover; }
+.genplan-actions { display: flex; align-items: center; gap: 8px; }
+.genplan-actions .spacer { flex: 1; }

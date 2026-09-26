@@ -15,7 +15,7 @@ export const HISTORY_TURNS = 12;
 
 /** The shape this module needs from a transcript entry; `ChatMessage` satisfies it. */
 export type Turn =
-  | { role: 'user'; content: string; images?: string[] }
+  | { role: 'user'; content: string; images?: string[]; annotationBrief?: string }
   | {
       role: 'assistant';
       content: string;
@@ -73,6 +73,9 @@ export function handoffFor(messages: Turn[], providerId: string | null, model: s
  * `speaker` is filled in only when someone other than the model being asked said the line, so a
  * model is never shown its own words under another name, nor another model's words as its own.
  */
+/** Providers whose models are sent images (attachments, annotation snapshots). */
+export const seesImages = (providerId: string | null) => ['claude','codex','opencode','anthropic','openai','google','openrouter','opencode-zen'].includes(providerId || '');
+
 export function historyFor(messages: Turn[], providerId: string | null, model: string | null): HistoryLine[] {
   const history:HistoryLine[] = messages
     .filter((turn) =>
@@ -82,7 +85,9 @@ export function historyFor(messages: Turn[], providerId: string | null, model: s
     )
     .map((turn) => ({
       role: turn.role,
-      content: turn.content,
+      // Monitor annotations sent with a message stay in what later turns read, or "the title I
+      // marked" would mean nothing one message on.
+      content: turn.role === 'user' && turn.annotationBrief ? `${turn.content}\n\n${turn.annotationBrief}` : turn.content,
       ...(turn.role === 'user' && turn.images?.length ? { images: turn.images } : {}),
       speaker:
         turn.role === 'assistant' && (turn.providerId !== providerId || turn.model !== model)
@@ -92,7 +97,7 @@ export function historyFor(messages: Turn[], providerId: string | null, model: s
     .slice(-HISTORY_TURNS);
   // Keep the transcript intact while bounding what is resent. Reserve space for four new images.
   let budget=8*1024*1024,count=12;
-  const vision=['claude','codex','opencode','anthropic','openai','google','openrouter'].includes(providerId||'');
+  const vision=seesImages(providerId);
   return history.reverse().map(line=>{
     if(!line.images?.length)return line;
     const kept=line.images.filter(image=>{if(!vision||count<=0||image.length>budget)return false;budget-=image.length;count--;return true;});

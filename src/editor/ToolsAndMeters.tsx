@@ -259,6 +259,13 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
   prefsRef.current = prefs;
   const clipped = useRef<[boolean, boolean]>([false, false]);
   const reset = useRef(0);
+  const solo = useRef(mutes.solo);
+  solo.current = mutes.solo;
+  // Where the drawing put each channel's solo button, in CSS pixels, for clicks and hover.
+  const soloHit = useRef<{ x: number; width: number; top: number }[]>([]);
+  const [soloHover, setSoloHover] = useState(-1);
+  const hoverRef = useRef(-1);
+  hoverRef.current = soloHover;
 
   useEffect(() => {
     let frame = 0;
@@ -371,11 +378,24 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
           ctx.fillStyle = clipped.current[channel] ? '#e0261c' : '#3a3a3c';
           ctx.fillRect(x, 1, barWidth, clipHeight);
 
-          // The solo label under the well.
-          ctx.fillStyle = '#8b8f96';
-          ctx.font = '600 9px Segoe UI, system-ui, sans-serif';
+          // The solo button under the well: lit when this channel is soloed, and while another
+          // channel is soloed this one's well dims, since it is not reaching the speakers.
+          const soloed = solo.current[channel];
+          const silenced = !soloed && (solo.current[0] || solo.current[1]);
+          if (silenced) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+            ctx.fillRect(x, top, barWidth, usable);
+          }
+          const buttonTop = height - footHeight + 1;
+          soloHit.current[channel] = { x, width: barWidth, top: buttonTop - 1 };
+          if (soloed || hoverRef.current === channel) {
+            ctx.fillStyle = soloed ? '#e8c547' : '#3a3c42';
+            ctx.fillRect(x, buttonTop, barWidth, footHeight - 2);
+          }
+          ctx.fillStyle = soloed ? '#1a1a1a' : hoverRef.current === channel ? '#e6e8ec' : '#8b8f96';
+          ctx.font = '700 9px Segoe UI, system-ui, sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText('S', x + barWidth / 2, height - 2);
+          ctx.fillText('S', x + barWidth / 2, height - 3);
         }
 
         // Scale: a rule down its left edge, a tick at each mark, numbers right-aligned, and the
@@ -401,13 +421,30 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
   }, []);
 
   const set = (patch: Partial<MeterPrefs>) => onPrefs({ ...prefs, ...patch });
+  const soloAt = (x: number, y: number) => soloHit.current.findIndex((hit) => hit && y >= hit.top && x >= hit.x - 1 && x <= hit.x + hit.width + 1);
 
   return (
     <div className="meters" onContextMenu={(event) => { event.preventDefault(); setMenu(new DOMRect(event.clientX, event.clientY, 0, 0)); }}>
-      <canvas ref={canvas} className="meter-canvas" aria-label="Audio levels" onClick={(event) => {
-        // Clicking the clip lights resets them and the peak holds, as in Premiere.
-        if (event.nativeEvent.offsetY < 9) reset.current++;
-      }} />
+      <canvas
+        ref={canvas}
+        className={`meter-canvas${soloHover >= 0 ? ' solo-hover' : ''}`}
+        aria-label="Audio levels"
+        onPointerMove={(event) => setSoloHover(soloAt(event.nativeEvent.offsetX, event.nativeEvent.offsetY))}
+        onPointerLeave={() => setSoloHover(-1)}
+        onClick={(event) => {
+          const { offsetX, offsetY } = event.nativeEvent;
+          // Clicking the clip lights resets them and the peak holds, as in Premiere.
+          if (offsetY < 9) return void reset.current++;
+          // An S button solos its channel in place; Ctrl/Cmd-click solos it alone.
+          const channel = soloAt(offsetX, offsetY);
+          if (channel < 0) return;
+          const next: [boolean, boolean] = event.ctrlKey || event.metaKey
+            ? [channel === 0 && !mutes.solo[0], channel === 1 && !mutes.solo[1]]
+            : [...mutes.solo];
+          if (!(event.ctrlKey || event.metaKey)) next[channel] = !next[channel];
+          onMutes({ ...mutes, solo: next });
+        }}
+      />
       {menu && (
         <MenuList anchor={menu} onClose={() => setMenu(null)} items={[
           { label: 'Reset Indicators', onSelect: () => reset.current++ },
@@ -418,6 +455,9 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
           { label: 'Mute Source Monitor', checked: mutes.source, onSelect: () => onMutes({ ...mutes, source: !mutes.source }) },
           { label: 'Mute Program Monitor', checked: mutes.program, onSelect: () => onMutes({ ...mutes, program: !mutes.program }) },
           { separator: true },
+          { label: 'Solo Left Channel', checked: mutes.solo[0], onSelect: () => onMutes({ ...mutes, solo: [!mutes.solo[0], mutes.solo[1]] }) },
+          { label: 'Solo Right Channel', checked: mutes.solo[1], onSelect: () => onMutes({ ...mutes, solo: [mutes.solo[0], !mutes.solo[1]] }) },
+          { label: 'Clear Solo', disabled: !mutes.solo[0] && !mutes.solo[1], onSelect: () => onMutes({ ...mutes, solo: [false, false] }) },
           { label: 'Solo in Place', disabled: true, checked: true },
           { label: 'Monitor Mono Channels', disabled: true },
           { label: 'Monitor Stereo Pairs', disabled: true },

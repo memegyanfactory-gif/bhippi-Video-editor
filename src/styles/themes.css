@@ -336,6 +336,15 @@
   :root[data-backdrop="moving"] .app::before { animation: none; }
 }
 
+/* Inside the panes, the content surfaces (monitors, timeline, tools, meters) go clear so the pane
+   is the one tint over the backdrop; the solid --panel stays for cards and menus elsewhere. */
+:root[data-theme="glass"] .ws-main .panel-frame:not(.panel-chat),
+:root[data-theme="glass"] .ws-main .tools-panel,
+:root[data-theme="glass"] .ws-main .meters { --panel: transparent; }
+:root[data-theme="glass"] .tools-panel,
+:root[data-theme="glass"] .meters { background: var(--frame); }
+:root[data-theme="glass"] .statusbar { background: var(--chrome); }
+
 /* Each pane catches light along its top edge, like a sheet of glass. */
 :root[data-theme="glass"] .panel-frame {
   border-color: rgba(255, 255, 255, 0.09);
@@ -350,7 +359,7 @@
    on the pane, and every sticky header that rows scroll under is frosted, so a clip passing
    beneath the track heads or the ruler blurs instead of colliding with their labels. */
 :root[data-theme="glass"] .tl-scroll,
-:root[data-theme="glass"] .tl-below { background: rgba(8, 6, 24, 0.24); }
+:root[data-theme="glass"] .tl-below { background: rgba(0, 0, 0, 0.22); }
 :root[data-theme="glass"] .tl-lane.video { background: rgba(255, 255, 255, 0.035); }
 :root[data-theme="glass"] .tl-lane.audio { background: rgba(255, 255, 255, 0.018); }
 :root[data-theme="glass"] .tl-divider,
@@ -394,7 +403,7 @@
   -webkit-backdrop-filter: blur(28px) saturate(170%);
 }
 :root[data-theme="glass"] .modal-backdrop {
-  background: rgba(6, 4, 20, 0.45);
+  background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }

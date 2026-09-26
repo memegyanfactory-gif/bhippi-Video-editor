@@ -495,7 +495,7 @@ function GraphicsTab({ project, assets, history, clipSelection, onAddText, onCap
       <ErrorBoundary scope="Motion templates"><MotionTemplates history={history} assets={assets} clipSelection={clipSelection} /></ErrorBoundary>
       <div className="effects-section grow">
         <div className="effects-title">
-          Caption styles <span className="muted">· from WatchFIWN</span>
+          Caption styles
           <div className="toolbar-spacer" />
           <button type="button" className="btn btn-small" onClick={() => fileInput.current?.click()} title="Import .srt or .vtt"><Captions size={12} /> Import captions</button>
           <input ref={fileInput} type="file" accept=".srt,.vtt" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportCaptions(file); event.target.value = ''; }} />

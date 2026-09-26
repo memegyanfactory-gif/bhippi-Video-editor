@@ -180,7 +180,7 @@ export function FXConsolePanel({
         <button
           type="button"
           className="fx-launch-btn"
-          title="Open FX Console Quick Spotlight (Ctrl+Space)"
+          title="Open Console Quick Spotlight (Ctrl+Space)"
           onClick={onOpenQuickModal}
         >
           <Zap size={12} className="fx-bolt-anim" />
@@ -355,7 +355,7 @@ export function FXConsolePanel({
             <Zap size={14} className="accent-color" />
             <div>
               <strong>Quick Number Slots 1–9</strong>
-              <p>Press keys 1 to 9 inside FX Console (Ctrl+Space) to apply instantly to selected clips.</p>
+              <p>Press keys 1 to 9 inside Console (Ctrl+Space) to apply instantly to selected clips.</p>
             </div>
           </div>
 

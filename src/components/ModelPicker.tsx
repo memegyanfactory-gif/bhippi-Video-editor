@@ -52,7 +52,8 @@ export function defaultModelLabel(provider: ProviderInfo | undefined) {
   if (!provider) return 'Choose a provider';
   if (provider.kind === 'builtin') return 'Offline commands';
   if (provider.kind === 'cli') return 'Default model';
-  return provider.models[0] ? shortModel(provider.models[0]) : 'Default model';
+  // The backend sends the first listed model when none is picked (recommended ones lead the list).
+  return provider.models[0] ? `Auto (${shortModel(provider.models[0])})` : 'Default model';
 }
 
 /** Whether any row's model list is old enough to re-read. */
@@ -322,8 +323,8 @@ export function ModelPicker({ providers, providerId, model, onSelect, onManage, 
                     onPointerMove={() => setCursor(0)}
                   >
                     <span className="mp-row-text">
-                      <span className="mp-title">{tabProvider.kind === 'builtin' ? 'Offline command parser' : `Use ${defaultModelLabel(tabProvider).toLowerCase()}`}</span>
-                      <span className="mp-sub">{tabProvider.kind === 'cli' ? `Whatever ${tabProvider.label} is set to` : tabProvider.kind === 'builtin' ? 'Instant, no AI — direct edit commands' : 'First model the provider lists'}</span>
+                      <span className="mp-title">{tabProvider.kind === 'builtin' ? 'Offline command parser' : tabProvider.kind === 'cli' ? 'Use default model' : defaultModelLabel(tabProvider)}</span>
+                      <span className="mp-sub">{tabProvider.kind === 'cli' ? `Whatever ${tabProvider.label} is set to` : tabProvider.kind === 'builtin' ? 'Instant, no AI — direct edit commands' : tabProvider.models[0] ? `Bhippi's pick for ${tabProvider.label}: ${tabProvider.models[0]}` : 'The provider has not listed its models yet'}</span>
                     </span>
                     {tabProvider.id === providerId && !model && <Check size={13} className="mp-check" />}
                   </div>

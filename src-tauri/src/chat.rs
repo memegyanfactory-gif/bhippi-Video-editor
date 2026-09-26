@@ -256,6 +256,9 @@ pub fn resolve_row(rows: &[ProviderInfo], wanted: Option<&str>) -> Result<Provid
         .iter()
         .find(|row| row.id == wanted)
         .ok_or_else(|| format!("{wanted} is not a provider Bhippi knows"))?;
+    if !row.enabled && row.kind != ProviderKind::Builtin {
+        return Err(format!("{} is switched off — turn it back on in Settings › AI providers", row.label));
+    }
     if !row.usable {
         let why = match &row.health {
             bhippi_providers::Health::Unavailable { reason } | bhippi_providers::Health::Degraded { reason } => reason.clone(),
@@ -266,17 +269,49 @@ pub fn resolve_row(rows: &[ProviderInfo], wanted: Option<&str>) -> Result<Provid
     Ok(row.clone())
 }
 
-fn adapter(row: &ProviderInfo, keys: &ApiKeys) -> Result<Arc<dyn Provider>, String> {
+/// Whether this row's model list is the one the backend itself gave this sweep, so a model id
+/// missing from it has really gone (or never existed) rather than merely not been listed.
+fn listed_live(row: &ProviderInfo) -> bool {
+    matches!(row.kind, ProviderKind::CloudApi | ProviderKind::LocalServer)
+        && !row.models.is_empty()
+        && matches!(row.health, bhippi_providers::Health::Healthy { .. })
+}
+
+/// The model a turn on `row` should ask for. The user's pick stands unless the backend's live
+/// list no longer offers it (a retired id, a model from another provider left in settings), in
+/// which case the row's default — the first model, recommended ones first — is used instead of
+/// sending an id that can only fail. API rows with no pick get that default named explicitly; a
+/// CLI with no pick keeps its own default.
+pub fn effective_model(row: &ProviderInfo, wanted: Option<&str>) -> Option<String> {
+    let wanted = wanted.map(str::trim).filter(|model| !model.is_empty());
+    let reachable = |model: &str| row.id != bhippi_providers::zen::ID || bhippi_providers::zen::supported(model);
+    if let Some(model) = wanted {
+        let listed = !listed_live(row) || row.models.iter().any(|known| known == model);
+        if listed && reachable(model) {
+            return Some(model.to_owned());
+        }
+        tracing::info!(provider = %row.id, model, "the saved model is not offered any more; using the default");
+    }
+    match row.kind {
+        ProviderKind::CloudApi | ProviderKind::LocalServer => row.models.iter().find(|model| reachable(model)).cloned(),
+        ProviderKind::Cli | ProviderKind::Builtin => None,
+    }
+}
+
+fn adapter(row: &ProviderInfo, keys: &ApiKeys, model: Option<&str>) -> Result<Arc<dyn Provider>, String> {
     let spec = bhippi_providers::spec(&row.id).ok_or_else(|| format!("{} has no adapter", row.label))?;
-    let first_model = row.models.first().cloned().unwrap_or_default();
+    let first_model = model.map(str::to_owned).or_else(|| row.models.first().cloned()).unwrap_or_default();
     let port = row.detected_port.or(spec.port).unwrap_or(0);
+    // The address detection found (the user's own, the app's configured port, or IPv6 loopback).
+    let local_base = row.base_url.clone().unwrap_or_else(|| format!("http://127.0.0.1:{port}"));
     Ok(match spec.api {
         Api::Cli => Arc::new(
             CliProvider::open(spec).ok_or_else(|| format!("{} is not installed", row.label))?,
         ),
-        Api::Ollama => Arc::new(OllamaProvider::new(format!("http://127.0.0.1:{port}"), first_model)),
+        Api::Ollama => Arc::new(OllamaProvider::new(local_base, first_model)),
         Api::OpenAiCompat if row.kind == ProviderKind::LocalServer => {
-            Arc::new(OpenAiCompatProvider::local(spec.id, spec.label, port, first_model))
+            let key = keys.get(spec.id).map(|key| key.trim().to_owned()).filter(|key| !key.is_empty());
+            Arc::new(OpenAiCompatProvider::local_at(spec.id, spec.label, &local_base, key, first_model))
         }
         Api::OpenAiCompat => {
             let (key, _) = resolve_key(spec, keys).ok_or_else(|| format!("{} has no API key", row.label))?;
@@ -285,6 +320,21 @@ fn adapter(row: &ProviderInfo, keys: &ApiKeys) -> Result<Arc<dyn Provider>, Stri
         Api::Anthropic => {
             let (key, _) = resolve_key(spec, keys).ok_or_else(|| format!("{} has no API key", row.label))?;
             Arc::new(AnthropicProvider::new(spec.base_url.unwrap_or_default(), key, first_model))
+        }
+        // One Zen key reaches each model family on its own endpoint under the same base URL.
+        Api::OpenCodeZen => {
+            let (key, _) = resolve_key(spec, keys).ok_or_else(|| format!("{} has no API key", row.label))?;
+            let base = spec.base_url.unwrap_or_default();
+            match bhippi_providers::zen::route(&first_model) {
+                Some(Api::Anthropic) => Arc::new(AnthropicProvider::new(base, key, first_model)),
+                Some(_) => Arc::new(OpenAiCompatProvider::cloud(spec.id, spec.label, base, key, first_model)),
+                None => {
+                    return Err(format!(
+                        "{} serves {first_model} on an endpoint Bhippi cannot use yet — pick a Claude, Qwen, DeepSeek, GLM, Kimi or MiniMax model",
+                        row.label
+                    ))
+                }
+            }
         }
     })
 }
@@ -429,11 +479,16 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
 /// above what the model can output, so the old Claude 3 models keep theirs; only Anthropic, Ollama
 /// and local servers send the cap at all.
 fn output_cap(row: &ProviderInfo, model: Option<&str>) -> u32 {
-    let anthropic = bhippi_providers::spec(&row.id).is_some_and(|spec| spec.api == Api::Anthropic);
+    let model = model.or(row.models.first().map(String::as_str)).unwrap_or_default().to_ascii_lowercase();
+    let anthropic = bhippi_providers::spec(&row.id).is_some_and(|spec| match spec.api {
+        Api::Anthropic => true,
+        // Zen's Messages endpoint also fronts Qwen, which keeps the smaller cap.
+        Api::OpenCodeZen => model.starts_with("claude-"),
+        _ => false,
+    });
     if !anthropic {
         return 16_000;
     }
-    let model = model.or(row.models.first().map(String::as_str)).unwrap_or_default().to_ascii_lowercase();
     if model.contains("claude-3-5") {
         8_192
     } else if ["claude-3-opus", "claude-3-sonnet", "claude-3-haiku"].iter().any(|old| model.contains(old)) {
@@ -904,6 +959,9 @@ pub async fn run_turn(
     // Subagents this turn spawns inherit its edit style through this, until the turn ends.
     let _style = StyleHold::register(&req);
     let TurnContext { row, keys, executor, mcp } = context;
+    // A model the backend no longer lists falls back to its default instead of failing the turn.
+    let mut req = req;
+    req.model = effective_model(&row, req.model.as_deref());
     emit(ChatEvent::Start {
         turn_id: req.turn_id.clone(),
         provider_id: row.id.clone(),
@@ -917,7 +975,7 @@ pub async fn run_turn(
         turn.show(&reply, &mut false);
         turn.progress.stopped = turn.stopped();
     } else {
-        match adapter(&row, &keys) {
+        match adapter(&row, &keys, req.model.as_deref()) {
             Ok(provider) => match (mode_for(&row, mcp.as_ref()), &mcp) {
                 (ToolMode::Mcp, Some(link)) => turn.mcp(provider.as_ref(), &req, executor, link).await,
                 (ToolMode::Native, _) => turn.native(provider.as_ref(), &req, executor.as_ref()).await,
@@ -972,6 +1030,8 @@ mod tests {
             enabled: true,
             accepts_custom_model: true,
             detected_port: None,
+            base_url: None,
+            can_start: false,
             key_env: None,
             key_source: None,
             install_command: None,
@@ -1006,6 +1066,31 @@ mod tests {
         let refused = resolve_row(&rows, Some("codex")).expect_err("unusable");
         assert!(refused.contains("not installed"), "{refused}");
         assert_eq!(resolve_row(&rows, None).expect("builtin").id, "bhippi");
+        let mut off = row("claude", true);
+        off.enabled = false;
+        let refused = resolve_row(&[off], Some("claude")).expect_err("disabled");
+        assert!(refused.contains("switched off"), "{refused}");
+    }
+
+    #[test]
+    fn a_vanished_model_falls_back_to_the_default() {
+        let mut cloud = row_of("openai", ProviderKind::CloudApi, true);
+        cloud.models = vec!["gpt-6-sol".to_owned(), "gpt-5.5".to_owned()];
+        assert_eq!(super::effective_model(&cloud, Some("gpt-5.5")).as_deref(), Some("gpt-5.5"));
+        assert_eq!(super::effective_model(&cloud, Some("gpt-4o")).as_deref(), Some("gpt-6-sol"));
+        assert_eq!(super::effective_model(&cloud, None).as_deref(), Some("gpt-6-sol"));
+        // An offline list proves nothing, so the pick stands.
+        cloud.health = Health::Degraded { reason: "offline".to_owned() };
+        assert_eq!(super::effective_model(&cloud, Some("gpt-4o")).as_deref(), Some("gpt-4o"));
+        // A CLI keeps its own default when nothing was picked, and a typed id is trusted.
+        let cli = row("claude", true);
+        assert_eq!(super::effective_model(&cli, None), None);
+        assert_eq!(super::effective_model(&cli, Some("opus")).as_deref(), Some("opus"));
+        // Zen never sends a model it has no adapter for.
+        let mut zen = row_of("opencode-zen", ProviderKind::CloudApi, true);
+        zen.health = Health::Degraded { reason: "offline".to_owned() };
+        zen.models = vec!["claude-sonnet-5".to_owned()];
+        assert_eq!(super::effective_model(&zen, Some("gpt-6-sol")).as_deref(), Some("claude-sonnet-5"));
     }
 
     /// A provider that answers each request with the next scripted round, and remembers

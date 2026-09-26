@@ -214,7 +214,7 @@ fn tracks(video: usize, audio: usize) -> Vec<Track> {
 }
 
 fn comp(id: &str, width: u32, height: u32, tracks: Vec<Track>, clips: Vec<Clip>, transitions: Vec<Transition>) -> Comp {
-    Comp { storyboard: Vec::new(), video_blueprint: None, production: None, roast: None, id: id.to_owned(), name: id.to_owned(), width, height, fps: 30.0, tracks, clips, markers: Vec::new(), transitions, in_point: None, out_point: None, source_video: None, source_audio: None, folder_id: None }
+    Comp { storyboard: Vec::new(), video_blueprint: None, production: None, roast: None, short: None, id: id.to_owned(), name: id.to_owned(), width, height, fps: 30.0, tracks, clips, markers: Vec::new(), transitions, in_point: None, out_point: None, source_video: None, source_audio: None, folder_id: None }
 }
 
 /// A 7-second vertical comp that exercises the whole renderer.
@@ -660,8 +660,20 @@ async fn applied_color_effects_change_pixels_and_bypass_restores_them() {
     let dir=std::env::temp_dir().join(format!("bhippi-effect-check-{}",crate::store::new_id()));
     std::fs::create_dir_all(&dir).expect("test folder");
     let invert_table:Vec<String>=(0..256).map(|i|format!("{}",1.0-f64::from(i)/255.0)).collect();
+    // A Color Studio grade as the UI bakes it (src/lib/effectExport.ts): a 3D LUT, red fastest,
+    // as base64 little-endian 16-bit values. This one drops the red channel.
+    let no_red={
+        use base64::Engine;
+        let size=5usize;let mut bytes=Vec::new();
+        for b in 0..size {for g in 0..size {for _r in 0..size {for value in [0.0,g as f64/(size-1) as f64,b as f64/(size-1) as f64] {bytes.extend_from_slice(&((value*65535.0f64).round() as u16).to_le_bytes());}}}}
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    };
+    let grade=serde_json::json!({"id":"g","effectId":"lumetri-color","enabled":true,"params":{"_exportLut3d":no_red,"_lutSize":5}});
     let cases=vec![
         ("plain",serde_json::json!([]),[128,64,32]),
+        ("grade",serde_json::json!([grade.clone()]),[0,64,32]),
+        // Listed after an invert, the grade still runs first: red dropped, then inverted.
+        ("grade-first",serde_json::json!([{"id":"f","effectId":"invert","enabled":true,"params":{"amount":100}},grade]),[255,191,223]),
         ("invert",serde_json::json!([{"id":"f","effectId":"invert","enabled":true,"params":{"amount":100}}]),[127,191,223]),
         ("hls-desaturate",serde_json::json!([{"id":"f","effectId":"color-balance-hls","enabled":true,"params":{"masterSaturation":-100}}]),[75,75,75]),
         ("hue-desaturate",serde_json::json!([{"id":"f","effectId":"hue-saturation","enabled":true,"params":{"masterSaturation":-100}}]),[75,75,75]),

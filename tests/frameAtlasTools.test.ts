@@ -172,7 +172,7 @@ describe('Speech Synthesis Voiceover Tool', () => {
     const mockStatus: SpeechStatus = {
       folder: '/models',
       whisper: { found: true, path: '/bin/whisper', source: 'system' },
-      piper: { found: true, path: '/bin/piper', source: 'downloaded' },
+      tts: { found: true, path: '/bin/kokoro/sherpa-onnx-c-api.dll', source: 'downloaded' },
       models: [],
     };
     vi.mocked(api.speechStatus).mockResolvedValue(mockStatus);
@@ -189,7 +189,7 @@ describe('Speech Synthesis Voiceover Tool', () => {
 
     const result = await runTool(host, 'synthesize_speech_voiceover', {
       script: 'In a world dominated by algorithms, attention is the only real currency.',
-      voice: 'piper:piper-en-hfc-female',
+      voice: 'kokoro:af_heart',
       speed: 1.0,
       autoPlace: true,
       startTime: 0,
@@ -198,7 +198,7 @@ describe('Speech Synthesis Voiceover Tool', () => {
     expect(result.ok).toBe(true);
     expect(api.speechGenerate).toHaveBeenCalledWith(
       'In a world dominated by algorithms, attention is the only real currency.',
-      'piper:piper-en-hfc-female',
+      'kokoro:af_heart',
       'natural',
       expect.any(String)
     );
@@ -219,37 +219,29 @@ describe('Speech Synthesis Voiceover Tool', () => {
     expect(result.summary).toContain('Placed on audio track at 0.0s');
   });
 
-  it('triggers model download when Piper runtime is missing', async () => {
+  it('starts the Kokoro download and asks to retry when no voice can speak yet', async () => {
     const { host } = fixture();
 
     const mockStatus: SpeechStatus = {
       folder: '/models',
       whisper: { found: false, path: null, source: '' },
-      piper: { found: false, path: null, source: '' }, // missing!
+      tts: { found: false, path: null, source: '' }, // missing!
       models: [],
     };
     vi.mocked(api.speechStatus).mockResolvedValue(mockStatus);
-
     vi.mocked(api.speechVoices).mockResolvedValue([]);
-    vi.mocked(api.modelDownload).mockResolvedValue('job_download_piper');
-
-    const mockVoiceAsset: Asset = {
-      id: 'asset_vo_2',
-      name: 'take2.wav',
-      path: '/audio/take2.wav',
-      kind: 'audio',
-      duration: 4.0,
-    } as Asset;
-
-    vi.mocked(api.speechGenerate).mockResolvedValue(mockVoiceAsset);
+    vi.mocked(api.modelDownload).mockClear();
+    vi.mocked(api.modelDownload).mockResolvedValue('job_download_kokoro');
+    vi.mocked(api.speechGenerate).mockClear();
 
     const result = await runTool(host, 'synthesize_speech_voiceover', {
-      script: 'Testing automatic Piper model download.',
+      script: 'Testing the automatic Kokoro download.',
       autoPlace: false,
     });
 
-    expect(result.ok).toBe(true);
-    expect(api.modelDownload).toHaveBeenCalledWith('piper-runtime');
-    expect(api.speechGenerate).toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(api.modelDownload).toHaveBeenCalledWith('kokoro-runtime');
+    expect(api.modelDownload).toHaveBeenCalledWith('kokoro-v1');
+    expect(api.speechGenerate).not.toHaveBeenCalled();
   });
 });

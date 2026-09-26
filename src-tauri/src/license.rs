@@ -10,7 +10,11 @@
 //! Activation: on every start the app sends its device id (a SHA-256 of the machine id) and gets
 //! back either a signed certificate (`active`) or why not (`no_license`, `slots_full`, `revoked`).
 //! One key per Google account, two PCs per key — both enforced by the server. The certificate is
-//! Ed25519-signed and bound to this PC, so Bhippi keeps working offline until it expires (14 days).
+//! Ed25519-signed and bound to this PC.
+//!
+//! When bhippi.com can't be reached (the site is down, no internet), Bhippi quietly keeps working
+//! for 72 hours counted from the first failed check — reopening doesn't restart that clock, and
+//! nothing is shown until the 72 hours are up. The first sign-in always needs bhippi.com.
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -28,6 +32,12 @@ const KEYCHAIN_SERVICE: &str = "bhippi-studio";
 const SESSION_ENTRY: &str = "license:session";
 const CERT_ENTRY: &str = "license:certificate";
 const KEY_ENTRY: &str = "license:key";
+/// When bhippi.com first stopped answering (unix seconds); cleared by the next answer.
+const OUTAGE_ENTRY: &str = "license:outage";
+/// How long Bhippi keeps running while bhippi.com can't be reached.
+const OUTAGE_GRACE: i64 = 72 * 3_600;
+/// However the outage clock was kept, a certificate this long past its expiry no longer counts.
+const STALE_CERTIFICATE: i64 = 30 * 86_400;
 /// A clock set back further than this since the last online check voids the offline certificate.
 const CLOCK_SLACK: i64 = 86_400;
 
@@ -149,6 +159,9 @@ fn delete_secret(name: &str) {
 struct Cache {
     account: Option<Value>,
     checked_at: i64,
+    /// A second copy of the outage start, so clearing one store doesn't restart the 72 hours.
+    #[serde(default)]
+    outage_since: Option<i64>,
 }
 
 fn cache_path(app: &AppHandle) -> Option<PathBuf> {
@@ -172,6 +185,7 @@ fn clear_all(app: &AppHandle) {
     delete_secret(SESSION_ENTRY);
     delete_secret(KEY_ENTRY);
     delete_secret(CERT_ENTRY);
+    delete_secret(OUTAGE_ENTRY);
     if let Some(path) = cache_path(app) {
         let _ignored = std::fs::remove_file(path);
     }
@@ -194,6 +208,11 @@ struct Certificate {
 
 /// Checks the signature, the PC it was issued to, and the expiry.
 fn verify_certificate(token: &str, device_hash: &str, at: i64) -> Option<Certificate> {
+    signed_certificate(token, device_hash).filter(|certificate| certificate.exp > at)
+}
+
+/// Checks the signature and the PC it was issued to, whatever its expiry.
+fn signed_certificate(token: &str, device_hash: &str) -> Option<Certificate> {
     let (payload, signature) = token.split_once('.')?;
     let key = STANDARD.decode(PUBLIC_KEY).ok()?;
     let signature = URL_SAFE_NO_PAD.decode(signature).ok()?;
@@ -201,7 +220,7 @@ fn verify_certificate(token: &str, device_hash: &str, at: i64) -> Option<Certifi
         .verify(payload.as_bytes(), &signature)
         .ok()?;
     let certificate: Certificate = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).ok()?).ok()?;
-    (certificate.device == device_hash && certificate.exp > at).then_some(certificate)
+    (certificate.device == device_hash).then_some(certificate)
 }
 
 // ───────────────────────────── status ─────────────────────────────
@@ -212,7 +231,7 @@ pub struct LicenseStatus {
     /// `signed_out`, `active`, `no_license`, `slots_full`, `revoked`, or `unreachable`
     /// (bhippi.com can't be reached and there is no valid offline certificate).
     state: String,
-    /// True when `active` rests on the offline certificate because bhippi.com didn't answer.
+    /// True when `active` rests on the 72-hour outage grace because bhippi.com didn't answer.
     offline: bool,
     dev_build: bool,
     /// Debug builds started with BHIPPI_DEV_NO_LICENSE=1 may skip the gate; never a release build.
@@ -291,35 +310,64 @@ fn apply(app: &AppHandle, response: Value) -> LicenseStatus {
                 let _ignored = write_secret(CERT_ENTRY, certificate);
                 status.expires_at = Some(parsed.exp);
             }
-            None => {
-                delete_secret(CERT_ENTRY);
-                return LicenseStatus::new(app, "unreachable").with_message("The license server’s answer couldn’t be verified.");
-            }
+            // A certificate that doesn't verify means something other than bhippi.com answered
+            // (a captive portal, a broken proxy): treat it like the site being down.
+            None => return offline(app, "The license server’s answer couldn’t be verified.".to_owned()),
         }
     } else {
         delete_secret(CERT_ENTRY);
     }
-    write_cache(app, &Cache { account: Some(account), checked_at: now() });
+    // bhippi.com answered: any outage is over.
+    delete_secret(OUTAGE_ENTRY);
+    write_cache(app, &Cache { account: Some(account), checked_at: now(), outage_since: None });
     status
 }
 
-/// What to do when bhippi.com can't be reached: the offline certificate, if it still holds.
-fn offline(app: &AppHandle, reason: String) -> LicenseStatus {
-    let cache = read_cache(app);
-    let at = now();
-    let valid = read_secret(CERT_ENTRY)
-        .and_then(|token| verify_certificate(&token, &device(app).hash, at))
-        .filter(|_| at + CLOCK_SLACK >= cache.checked_at);
-    match valid {
-        Some(certificate) => {
-            let mut status = LicenseStatus::new(app, "active");
-            status.offline = true;
-            status.expires_at = Some(certificate.exp);
-            status.account = cache.account;
-            status
-        }
-        None => LicenseStatus::new(app, "unreachable").with_message(format!("Couldn’t reach bhippi.com to check your license. {reason}")),
+/// When this outage began: the earliest start on record, or now for the first failed check.
+fn outage_since(app: &AppHandle, cache: &mut Cache, at: i64) -> i64 {
+    let stored = read_secret(OUTAGE_ENTRY).and_then(|value| value.trim().parse::<i64>().ok());
+    let since = [stored, cache.outage_since].into_iter().flatten().min().unwrap_or(at);
+    if stored != Some(since) {
+        let _ignored = write_secret(OUTAGE_ENTRY, &since.to_string());
     }
+    if cache.outage_since != Some(since) {
+        cache.outage_since = Some(since);
+        write_cache(app, cache);
+    }
+    since
+}
+
+/// Whether an outage that began at `since` still lets Bhippi run at `at`, given the last online
+/// check and the certificate's expiry. A clock set back before either voids it.
+fn within_grace(since: i64, checked_at: i64, certificate_exp: i64, at: i64) -> bool {
+    checked_at > 0
+        && at + CLOCK_SLACK >= checked_at
+        && at + CLOCK_SLACK >= since
+        && at < since + OUTAGE_GRACE
+        && at < certificate_exp + STALE_CERTIFICATE
+}
+
+/// What to do when bhippi.com can't be reached: keep running for 72 hours from the first failed
+/// check, on this PC's signed certificate. Only a PC that has been activated online gets this.
+fn offline(app: &AppHandle, reason: String) -> LicenseStatus {
+    let unreachable = || {
+        LicenseStatus::new(app, "unreachable")
+            .with_message(format!("Cannot connect to bhippi.com. Check your internet connection and try again. ({reason})"))
+    };
+    let Some(certificate) = read_secret(CERT_ENTRY).and_then(|token| signed_certificate(&token, &device(app).hash)) else {
+        return unreachable();
+    };
+    let mut cache = read_cache(app);
+    let at = now();
+    let since = outage_since(app, &mut cache, at);
+    if !within_grace(since, cache.checked_at, certificate.exp, at) {
+        return unreachable();
+    }
+    let mut status = LicenseStatus::new(app, "active");
+    status.offline = true;
+    status.expires_at = Some(since + OUTAGE_GRACE);
+    status.account = cache.account;
+    status
 }
 
 fn failed(app: &AppHandle, failure: Failure) -> CommandResult<LicenseStatus> {
@@ -493,7 +541,7 @@ pub async fn license_sign_out(app: AppHandle) -> CommandResult<LicenseStatus> {
 
 #[cfg(test)]
 mod tests {
-    use super::verify_certificate;
+    use super::{verify_certificate, within_grace, OUTAGE_GRACE};
 
     /// Issued by the real signing code (functions/_lib/helios/license.ts) for device "aaaa…".
     const ISSUED: &str = "eyJ2IjoxLCJzdWIiOiJ1LWJvYiIsImVtYWlsIjoiYm9iQGV4YW1wbGUuY29tIiwia2luZCI6InBhaWQiLCJkZXZpY2UiOiJhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwiaWF0IjoxNzkwMTUwODUzLCJleHAiOjE3OTEzNjA0NTN9.4Mu0hGLDXomrK2eMPCd1ejJuXrj1hosuD5pmGnEpOXhmZzKwkhwrvVwBbz0qNx0Ier09KOIDL4iGwMscDknpBA";
@@ -518,5 +566,18 @@ mod tests {
         let forged = URL_SAFE_NO_PAD.encode(text.replace("\"kind\":\"paid\"", "\"kind\":\"admin\""));
         assert!(verify_certificate(&format!("{forged}.{signature}"), DEVICE, ISSUED_AT).is_none());
         assert!(verify_certificate("garbage", DEVICE, ISSUED_AT).is_none());
+    }
+
+    #[test]
+    fn an_outage_is_carried_for_72_hours_from_its_first_failure() {
+        let checked = 1_000_000;
+        let since = checked + 5 * 86_400;
+        let exp = checked + 14 * 86_400;
+        assert!(within_grace(since, checked, exp, since), "the first failed check");
+        assert!(within_grace(since, checked, exp, since + 71 * 3_600), "reopened two days later");
+        assert!(!within_grace(since, checked, exp, since + OUTAGE_GRACE), "72 hours are up");
+        assert!(!within_grace(since, 0, exp, since), "never checked online");
+        assert!(!within_grace(since, checked, exp, checked - 3 * 86_400), "clock set back");
+        assert!(within_grace(exp + 86_400, checked, exp, exp + 86_400 + 3_600), "an expired certificate still carries a fresh outage");
     }
 }

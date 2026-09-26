@@ -1,11 +1,12 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Boxes, Brain, Check, Code2, Cpu, Film, FolderOpen, Gem, HardDrive, Info, LoaderCircle, Mic, Palette, RefreshCw, Scissors, Settings2, ShieldCheck, Smile, Sparkles, TriangleAlert, Wand2 } from 'lucide-react';
+import { Boxes, Brain, LifeBuoy, Lock, Check, Code2, Cpu, Film, FolderOpen, Gem, HardDrive, Info, LoaderCircle, Mic, Palette, PlugZap, RefreshCw, Scissors, Settings2, ShieldCheck, Smile, Sparkles, TriangleAlert, Wand2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Modal, useToast } from '../components/ui';
 import { SpeechSettings } from './SpeechSettings';
 import { BrainSettings } from './BrainSettings';
 import { BrandKitSettings } from './BrandKitSettings';
 import { LocalMediaSettings } from './LocalMediaSettings';
+import { ConnectorsSettings } from './ConnectorsSettings';
 import { StorageSettings } from './StorageSettings';
 import { ProvidersSettings } from './ProvidersSettings';
 import { ProfileSection } from './ProfileSection';
@@ -13,13 +14,15 @@ import { UpdateSection } from './UpdateSection';
 import { AvatarSettings } from './AvatarSettings';
 import { AppearanceSettings } from './AppearanceSettings';
 import { GeneralSettings } from './GeneralSettings';
+import { PrivacySettings } from './PrivacySettings';
+import { SupportSettings } from './SupportSettings';
 import { Row, Section, SettingsHeader } from './SettingsLayout';
 import { api, errorText } from '../lib/ipc';
 import type { AppInfo, Asset, Job, ProviderInfo, Settings, ToolStatus } from '../lib/types';
 import '../styles/about.css';
 import '../styles/settings.css';
 
-export type SettingsTab = 'general' | 'providers' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'about';
+export type SettingsTab = 'general' | 'providers' | 'connectors' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'privacy' | 'support' | 'about';
 
 type Props = {
   tab: SettingsTab;
@@ -37,6 +40,8 @@ type Props = {
   onProjectBrandKit?: (id: string | null) => void;
   /** Imports files into the project library (logos land in a "Brand" folder). */
   importMedia?: (paths: string[], folderId?: string | null) => Promise<Asset[]>;
+  /** Closes Settings and runs the welcome tour. */
+  onTour?: () => void;
 };
 
 // Settings › About: what Bhippi is built on, and the keyboard shortcuts it lists.
@@ -70,6 +75,7 @@ const NAV: { title?: string; items: { id: SettingsTab; label: string; icon: Reac
   { title: 'AI', items: [
     { id: 'providers', label: 'AI providers', icon: <Sparkles size={15} /> },
     { id: 'speech', label: 'Model Center', icon: <Mic size={15} /> },
+    { id: 'connectors', label: 'Connectors', icon: <PlugZap size={15} /> },
     { id: 'local-media', label: 'Local generation', icon: <Wand2 size={15} /> },
     { id: 'brain', label: 'Brain', icon: <Brain size={15} /> },
   ] },
@@ -78,7 +84,11 @@ const NAV: { title?: string; items: { id: SettingsTab; label: string; icon: Reac
     { id: 'storage', label: 'Storage', icon: <HardDrive size={15} /> },
     { id: 'media', label: 'Media & FFmpeg', icon: <Film size={15} /> },
   ] },
-  { items: [{ id: 'about', label: 'About', icon: <Info size={15} /> }] },
+  { items: [
+    { id: 'support', label: 'Help & feedback', icon: <LifeBuoy size={15} /> },
+    { id: 'privacy', label: 'Privacy & legal', icon: <Lock size={15} /> },
+    { id: 'about', label: 'About', icon: <Info size={15} /> },
+  ] },
 ];
 
 export function SettingsModal(props: Props) {
@@ -99,15 +109,18 @@ export function SettingsModal(props: Props) {
         </nav>
         <div className="settings-body">
           {props.tab === 'brand' && <BrandKitSettings settings={props.settings} onSettings={props.onSettings} projectBrandKitId={props.projectBrandKitId ?? null} onProjectBrandKit={props.onProjectBrandKit ?? (() => undefined)} importMedia={props.importMedia} />}
+          {props.tab === 'connectors' && <ConnectorsSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'local-media' && <LocalMediaSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'providers' && <ProvidersSettings providers={props.providers} onProviders={props.onProviders} settings={props.settings} onSettings={props.onSettings} jobs={props.jobs} />}
           {props.tab === 'speech' && <SpeechSettings settings={props.settings} onSettings={props.onSettings} jobs={props.jobs} />}
           {props.tab === 'media' && <MediaSettings {...props} />}
           {props.tab === 'storage' && <StorageSettings settings={props.settings} onSettings={props.onSettings} />}
-          {props.tab === 'general' && <GeneralSettings settings={props.settings} onSettings={props.onSettings} providers={props.providers} info={props.info} onTab={props.onTab} />}
+          {props.tab === 'general' && <GeneralSettings settings={props.settings} onSettings={props.onSettings} providers={props.providers} info={props.info} onTab={props.onTab} onTour={props.onTour} />}
           {props.tab === 'appearance' && <AppearanceSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'avatar' && <AvatarSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'brain' && <BrainSettings settings={props.settings} onSettings={props.onSettings} />}
+          {props.tab === 'privacy' && <PrivacySettings />}
+          {props.tab === 'support' && <SupportSettings dataDir={props.info?.dataDir} onClose={props.onClose} />}
           {props.tab === 'about' && (
             // Layout lives in styles/about.css: one container-query grid, so every block shares the
             // same left/right edges and the same midline, and collapses by the panel's own width.
@@ -122,9 +135,9 @@ export function SettingsModal(props: Props) {
                   <p className="about-maker">Made by Aayush Datta</p>
                 </div>
                 <p className="about-intro">
-                  A video and motion studio that runs on your own computer. Your footage never leaves it — the only thing
-                  that ever goes out is a short summary of the timeline, and only when you send a message to a cloud AI
-                  provider. Nothing is uploaded to render, transcribe or separate a subject.
+                  A video and motion studio that runs on your own computer. Your footage is never uploaded to us, and
+                  nothing is uploaded to render, transcribe or separate a subject. A cloud AI provider only sees what a
+                  message to it needs. Settings › Privacy &amp; legal lists exactly what goes where.
                 </p>
               </header>
 

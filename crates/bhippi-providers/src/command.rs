@@ -125,6 +125,12 @@ impl ResolvedCommand {
         command
     }
 
+    /// The file this command resolves to (the `.exe` itself for native binaries).
+    #[must_use]
+    pub(crate) fn target(&self) -> &Path {
+        &self.target
+    }
+
     #[must_use]
     pub(crate) fn target_exists(&self) -> bool {
         self.target.is_file()

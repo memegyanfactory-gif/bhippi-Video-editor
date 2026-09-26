@@ -85,6 +85,8 @@ mod tests {
             enabled: true,
             accepts_custom_model: true,
             detected_port: None,
+            base_url: None,
+            can_start: false,
             key_env: None,
             key_source: None,
             install_command: None,

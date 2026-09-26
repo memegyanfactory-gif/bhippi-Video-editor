@@ -40,6 +40,20 @@ impl OpenAiCompatProvider {
         }
     }
 
+    /// A local server at `base` (`http://host:port`, no `/v1`), with the key it asks for, if any.
+    #[must_use]
+    pub fn local_at(id: &str, label: &str, base: &str, api_key: Option<String>, model: impl Into<String>) -> Self {
+        Self {
+            id: id.to_owned(),
+            label: label.to_owned(),
+            base_url: format!("{}/v1", base.trim_end_matches('/')),
+            api_key,
+            model: model.into(),
+            client: reqwest::Client::new(),
+            local: true,
+        }
+    }
+
     /// A hosted API at `base_url` (ending in `/v1` or equivalent) authorised by `api_key`.
     #[must_use]
     pub fn cloud(
@@ -121,6 +135,11 @@ impl OpenAiCompatProvider {
         // that does not answers 400 rather than ignoring it.
         if let Some(level) = crate::effort::resolve(&self.id, Some(model), req.reasoning_effort.as_deref()) {
             body["reasoning_effort"] = serde_json::json!(crate::effort::openai_value(level));
+        }
+        // GPT-6 Sol and Luna take function calls over Chat Completions only with reasoning off
+        // (platform.openai.com/docs/models/gpt-6-sol); their default is medium, so say so.
+        if self.id == "openai" && !req.tools.is_empty() && ["gpt-6-sol", "gpt-6-luna"].iter().any(|name| model.starts_with(name)) {
+            body["reasoning_effort"] = serde_json::json!("none");
         }
         if !req.tools.is_empty() {
             body["tools"] = req

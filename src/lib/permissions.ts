@@ -45,8 +45,11 @@ const READS = new Set([
   'glob_search',
   'grep_search',
   'local_media_capabilities',
+  'cloud_generation_capabilities',
   'generation_job',
   'list_effects',
+  // Renders a frame and measures its colour; changes nothing.
+  'inspect_color',
   'list_learned_skills',
   'list_custom_tools',
   // The brain is the assistant's own memory, never the project.
@@ -102,7 +105,7 @@ const DESTRUCTIVE = new Set([
 
 /** Whether a tool only looks — allowed in every mode, and to every plugin without asking. */
 export const isReadTool = (name: string) =>
-  READS.has(name) || ['editing_workflow_status', 'verify_edit_workflow', 'analyze_clip_speech', 'inspect_clip_frames', 'inspect_source_frames'].includes(name);
+  READS.has(name) || ['editing_workflow_status', 'verify_edit_workflow', 'analyze_clip_speech', 'inspect_clip_frames', 'inspect_source_frames', 'choose_shorts_format'].includes(name);
 
 /** Whether a tool throws work away (Full access only). */
 export const isDestructiveTool = (name: string) => DESTRUCTIVE.has(name);

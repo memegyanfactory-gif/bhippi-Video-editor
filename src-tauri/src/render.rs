@@ -321,7 +321,12 @@ pub fn plan_with_codecs(
         let id=fx["effectId"].as_str().unwrap_or("");
         // Mirrors RENDERED_EFFECTS in src/lib/effectSupport.ts: everything the UI offers has an export.
         if !matches!(id,"gaussian-blur"|"brightness-contrast"|"hue-saturation"|"color-balance-hls"|"lumetri-color"|"curves"|"levels"|"tint"|"invert"|"black-white"|"4-color-gradient"|"mirror"|"keylight"|"linear-color-key"|"extract") {return Err(format!("Effect {id} has no export implementation. Bypass it before rendering."));}
-        if matches!(id,"brightness-contrast"|"lumetri-color"|"curves"|"levels") {
+        if id=="lumetri-color" {
+            // The Color Studio grade arrives baked (src/lib/colorGrade.ts): a 3D LUT as base64 16-bit values.
+            if video::grade_cube(&fx["params"]).is_none() { return Err("The Color Studio grade needs its prepared 3D LUT. Export through Bhippi.".to_owned()); }
+            continue;
+        }
+        if matches!(id,"brightness-contrast"|"curves"|"levels") {
             let valid = fx["params"]["_exportTables"].as_str()
                 .and_then(|raw| serde_json::from_str::<Vec<Vec<String>>>(raw).ok())
                 .is_some_and(|tables| (3..=4).contains(&tables.len()) && tables.iter().all(|channel| channel.len()==256 && channel.iter().all(|value| value.parse::<f64>().is_ok_and(|n| n.is_finite() && (0.0..=1.0).contains(&n)))));

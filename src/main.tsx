@@ -2,10 +2,12 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SupportLayer } from './components/SupportLayer';
 import { ToastProvider } from './components/ui';
 import { LicenseGate } from './license/LicenseGate';
 import './fonts/bundled.css';
 import './styles/app.css';
+import './styles/color.css';
 import './styles/themes.css';
 import './styles/terminal.css';
 import './styles/brandkit.css';
@@ -31,5 +33,7 @@ createRoot(document.getElementById('root')!).render(
         </LicenseGate>
       </ToastProvider>
     </ErrorBoundary>
+    {/* Outside the boundary: the crash report panel still opens when the editor itself has crashed. */}
+    <SupportLayer />
   </StrictMode>,
 );

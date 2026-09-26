@@ -18,10 +18,13 @@ import {
   X,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { ScrubNumber } from '../components/workspace';
 import { RENDERED_EFFECTS } from '../lib/effectSupport';
-import { ColorWheels } from '../components/ColorWheels';
 import { CurvesEditor } from '../components/CurvesEditor';
+import { ParamRow, ParamSlider } from '../components/FxParam';
+import { ColorStudio } from '../color/ColorStudio';
+import { grabClip } from '../color/frameGrab';
+import { scopeClip } from '../lib/colorScopes';
+import { playhead } from '../lib/playhead';
 import { AVAILABLE_EFFECTS as ALL_EFFECTS, EFFECT_CATEGORIES, type EffectDefinition } from '../lib/effectsCatalog';
 import { createAppliedEffect, getEffectSchema } from '../lib/effectFilters';
 import { timecode } from '../lib/editor';
@@ -71,7 +74,7 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
         </div>
         {onOpenFXConsole && (
           <button type="button" className="btn btn-primary btn-small" onClick={onOpenFXConsole} style={{ marginTop: 12 }}>
-            <Sparkles size={12} /> Open FX Console (Ctrl+Space)
+            <Sparkles size={12} /> Open Console (Ctrl+Space)
           </button>
         )}
       </div>
@@ -113,28 +116,38 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
     updateClipEffects(next, 'Reset Effect');
   };
 
-  const updateParam = (effectId: string, paramId: string, value: number | boolean | string, commit = true) => {
+  /** Merges params into one effect: previewed inside a gesture, or committed as one undo step. */
+  const updateParams = (effectId: string, patch: Record<string, number | boolean | string>, commit = true, label = 'Edit Effect Parameter') => {
     const apply = (current: Project) =>
       updateComp(current, comp.id, (target) => ({
         ...target,
         clips: target.clips.map((c) => {
           if (c.id !== clip.id) return c;
-          const fxList = (c.appliedEffects || []).map((fx) => {
-            if (fx.id !== effectId) return fx;
-            return { ...fx, params: { ...fx.params, [paramId]: value } };
-          });
+          const fxList = (c.appliedEffects || []).map((fx) => (fx.id === effectId ? { ...fx, params: { ...fx.params, ...patch } } : fx));
           return { ...c, effects: cleanLegacy(c.effects, c.appliedEffects || []), appliedEffects: fxList.map(fx => ({ ...fx, stackOnly: true })) };
         }),
       }));
 
-    if (commit) history.commit(apply, 'Edit Effect Parameter');
+    if (commit) history.commit(apply, label);
     else history.preview(apply);
   };
+  const updateParam = (effectId: string, paramId: string, value: number | boolean | string, commit = true) => updateParams(effectId, { [paramId]: value }, commit);
 
   const addEffectToClip = (effectDef: EffectDefinition) => {
     const newEffect = createAppliedEffect(effectDef);
-    updateClipEffects([...appliedEffects, newEffect], `Apply ${effectDef.label}`);
+    // The Color Studio grades the source before any other effect (preview and export alike),
+    // so its card goes to the top of the stack where that order is visible.
+    const next = effectDef.id === 'lumetri-color' ? [newEffect, ...appliedEffects] : [...appliedEffects, newEffect];
+    updateClipEffects(next, `Apply ${effectDef.label}`);
     setAddModalOpen(false);
+  };
+
+  /** The ungraded picture a grade on this layer works on, for Auto Balance. */
+  const sampleForGrade = () => {
+    if (clip.source.type === 'media') return grabClip(clip.id);
+    // An adjustment layer grades whatever is under it: read the picture at the playhead.
+    const under = scopeClip(project, comp, playhead.get(), []);
+    return under ? grabClip(under.id) : null;
   };
 
   // Filter available effects for adding
@@ -265,110 +278,84 @@ export function EffectControlsPanel({ project, comp, assets, history, selection,
                 {!isCollapsed && <EffectMaskRow clip={clip} fx={fx} onChange={(patch) => updateClipEffects(appliedEffects.map((item) => (item.id === fx.id ? { ...item, ...patch } : item)), 'Limit effect to mask')} />}
                 {/* Effect Parameters */}
                 {!isCollapsed && !RENDERED_EFFECTS.has(fx.effectId) && <p className="field-hint">This legacy effect has no complete export implementation. Bypass or remove it before exporting.</p>}
-                {!isCollapsed && RENDERED_EFFECTS.has(fx.effectId) && (
+                {!isCollapsed && RENDERED_EFFECTS.has(fx.effectId) && fx.effectId === 'lumetri-color' && (
+                  <div className="fx-card-params fx-card-studio">
+                    <ColorStudio
+                      fx={fx}
+                      project={project}
+                      onPatch={(patch, commit) => updateParams(fx.id, patch, commit, 'Color grade')}
+                      onCommit={(label) => history.settle(label)}
+                      onProjectLuts={(luts, label) => history.commit((current) => ({ ...current, luts }), label)}
+                      sample={sampleForGrade}
+                    />
+                  </div>
+                )}
+                {!isCollapsed && RENDERED_EFFECTS.has(fx.effectId) && fx.effectId !== 'lumetri-color' && (
                   <div className="fx-card-params">
-                    {fx.effectId === 'lumetri-color' && <><ColorWheels params={fx.params} onChange={(key,value,commit)=>updateParam(fx.id,key,value,commit)} onCommit={()=>history.settle('Color wheel')} /><CurvesEditor allowAlpha={false} params={fx.params} onChange={(key,value,commit)=>{if(typeof value==='string'||typeof value==='number'||typeof value==='boolean')updateParam(fx.id,key,value,commit);}} onCommit={()=>history.settle('Color curves')} /></>}
                     {fx.effectId === 'curves' ? (
                       <CurvesEditor
                         params={fx.params}
                         onChange={(paramId, value, commit) =>
                           (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') && updateParam(fx.id, paramId, value, commit)
                         }
+                        onPatch={(patch, commit) => updateParams(fx.id, patch, commit, 'Change Curves')}
                         onCommit={() => history.settle('Change Curves')}
                       />
                     ) : (
-                      schema.params.filter(param => fx.effectId !== 'lumetri-color' || !/^(shadow|midtone|highlight)(Hue|Amount|Luma)$/.test(param.id)).map((param) => {
+                      schema.params.filter((param) => !param.hidden).map((param) => {
                         const val = fx.params[param.id] !== undefined ? fx.params[param.id] : param.defaultValue;
+                        const reset = () => updateParam(fx.id, param.id, param.defaultValue, true);
 
-                      if (param.type === 'number') {
-                        const numVal = Number(val);
-                        return (
-                          <div key={param.id} className="fx-param-row">
-                            <span className="fx-param-label">{param.name}</span>
-                            <div className="fx-param-control">
-                              <input
-                                type="range"
-                                className="fx-slider"
-                                min={param.min ?? 0}
-                                max={param.max ?? 100}
-                                step={param.step ?? 1}
-                                value={numVal}
-                                onChange={(e) => updateParam(fx.id, param.id, Number(e.target.value), false)}
-                                onMouseUp={() => history.settle(`Change ${param.name}`)}
-                                onKeyUp={() => history.settle(`Change ${param.name}`)}
-                              />
-                              <ScrubNumber
-                                value={numVal}
-                                min={param.min ?? -Infinity}
-                                max={param.max ?? Infinity}
-                                step={param.step ?? 1}
-                                suffix={param.unit ? ` ${param.unit}` : ''}
-                                onChange={(next) => updateParam(fx.id, param.id, next, false)}
-                                onCommit={() => history.settle(`Change ${param.name}`)}
-                              />
-                            </div>
-                          </div>
-                        );
-                      }
+                        if (param.type === 'number') {
+                          return (
+                            <ParamSlider
+                              key={param.id}
+                              label={param.name}
+                              hint={param.hint}
+                              value={Number(val)}
+                              min={param.min ?? 0}
+                              max={param.max ?? 100}
+                              step={param.step ?? 1}
+                              unit={param.unit}
+                              defaultValue={typeof param.defaultValue === 'number' ? param.defaultValue : undefined}
+                              onPreview={(next) => updateParam(fx.id, param.id, next, false)}
+                              onCommit={() => history.settle(`Change ${param.name}`)}
+                            />
+                          );
+                        }
 
-                      if (param.type === 'select' && param.options) {
-                        return (
-                          <div key={param.id} className="fx-param-row">
-                            <span className="fx-param-label">{param.name}</span>
-                            <div className="fx-param-control">
-                              <select
-                                className="prop-select"
-                                value={String(val)}
-                                onChange={(e) => updateParam(fx.id, param.id, e.target.value, true)}
-                              >
-                                {param.options.map((opt) => (
-                                  <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                  </option>
-                                ))}
+                        if (param.type === 'select' && param.options) {
+                          return (
+                            <ParamRow key={param.id} label={param.name} hint={param.hint} onReset={reset}>
+                              <select className="prop-select" value={String(val)} onChange={(e) => updateParam(fx.id, param.id, e.target.value, true)}>
+                                {param.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                               </select>
-                            </div>
-                          </div>
-                        );
-                      }
+                            </ParamRow>
+                          );
+                        }
 
-                      if (param.type === 'color') {
-                        return (
-                          <div key={param.id} className="fx-param-row">
-                            <span className="fx-param-label">{param.name}</span>
-                            <div className="fx-param-control" style={{ gap: 6 }}>
-                              <span className="fx-color-value">{String(val)}</span>
-                              <input
-                                type="color"
-                                className="fx-color-input"
-                                value={String(val)}
-                                onChange={(e) => updateParam(fx.id, param.id, e.target.value, true)}
-                              />
-                            </div>
-                          </div>
-                        );
-                      }
+                        if (param.type === 'color') {
+                          return (
+                            <ParamRow key={param.id} label={param.name} hint={param.hint} onReset={reset}>
+                              <span className="fx-color-value">{String(val).toUpperCase()}</span>
+                              <input type="color" className="fx-color-input" value={String(val)} onChange={(e) => updateParam(fx.id, param.id, e.target.value, false)} onBlur={() => history.settle(`Change ${param.name}`)} />
+                            </ParamRow>
+                          );
+                        }
 
-                      if (param.type === 'boolean') {
-                        return (
-                          <div key={param.id} className="fx-param-row">
-                            <span className="fx-param-label">{param.name}</span>
-                            <div className="fx-param-control">
+                        if (param.type === 'boolean') {
+                          return (
+                            <ParamRow key={param.id} label={param.name} hint={param.hint} onReset={reset}>
                               <label className="fx-check">
-                                <input
-                                  type="checkbox"
-                                  checked={!!val}
-                                  onChange={(e) => updateParam(fx.id, param.id, e.target.checked, true)}
-                                />
+                                <input type="checkbox" checked={!!val} onChange={(e) => updateParam(fx.id, param.id, e.target.checked, true)} />
                               </label>
-                            </div>
-                          </div>
-                        );
-                      }
+                            </ParamRow>
+                          );
+                        }
 
-                      return null;
-                    })
-                  )}
+                        return null;
+                      })
+                    )}
                   </div>
                 )}
               </div>

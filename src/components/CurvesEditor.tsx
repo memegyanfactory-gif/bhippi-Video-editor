@@ -165,10 +165,24 @@ type Props = {
   allowAlpha?: boolean;
   params: Record<string, unknown>;
   onChange: (paramId: string, value: unknown, commit: boolean) => void;
+  /** Every param one curve edit changes, in one update (one undo step); preferred over onChange. */
+  onPatch?: (patch: Record<string, string>, commit: boolean) => void;
   onCommit: () => void;
 };
 
-export function CurvesEditor({ params, onChange, onCommit, allowAlpha=true }: Props) {
+/** The params a set of curves renders from: the point lists and the per-channel tables. */
+export function curvesPatch(data: CurvesData, allowAlpha = true): Record<string, string> {
+  const patch: Record<string, string> = {
+    curvesJson: JSON.stringify(data),
+    rTable: generateTableValues(data.rgb, data.r),
+    gTable: generateTableValues(data.rgb, data.g),
+    bTable: generateTableValues(data.rgb, data.b),
+  };
+  if (allowAlpha) patch.aTable = generateTableValues(data.rgb, data.a);
+  return patch;
+}
+
+export function CurvesEditor({ params, onChange, onPatch, onCommit, allowAlpha=true }: Props) {
   const [channel, setChannel] = useState<CurvesChannel>('rgb');
   const [drawMode, setDrawMode] = useState<'spline' | 'pencil'>('spline');
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
@@ -216,6 +230,7 @@ export function CurvesEditor({ params, onChange, onCommit, allowAlpha=true }: Pr
         [channel]: sorted,
       };
 
+      if (onPatch) { onPatch(curvesPatch(nextData, allowAlpha), commit); return; }
       // Also compute lookup table strings for feComponentTransfer
       const rTable = generateTableValues(nextData.rgb, nextData.r);
       const gTable = generateTableValues(nextData.rgb, nextData.g);
@@ -229,7 +244,7 @@ export function CurvesEditor({ params, onChange, onCommit, allowAlpha=true }: Pr
       onChange('bTable', bTable, commit);
       onChange('aTable', aTable, commit);
     },
-    [channel, curvesData, onChange]
+    [channel, curvesData, onChange, onPatch, allowAlpha]
   );
 
   // Colors based on active channel matching After Effects
@@ -416,8 +431,10 @@ export function CurvesEditor({ params, onChange, onCommit, allowAlpha=true }: Pr
         const text = ev.target?.result as string;
         const parsed = JSON.parse(text) as CurvesData;
         if (parsed.rgb || parsed.r || parsed.g || parsed.b || parsed.a) {
-          onChange('curvesData', parsed, true);
-          onChange('curvesJson', text, true);
+          const data: CurvesData = { ...getDefaultCurvesData(), ...parsed };
+          // The tables are what renders: an import that only stored the points changed nothing.
+          if (onPatch) onPatch(curvesPatch(data, allowAlpha), true);
+          else for (const [key, value] of Object.entries(curvesPatch(data, allowAlpha))) onChange(key, value, true);
           onCommit();
         }
       } catch (err) {

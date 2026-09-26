@@ -231,7 +231,7 @@
     },
     {
       "name": "synthesize_speech_voiceover",
-      "description": "Generate voice-over speech audio from a narration script using local offline neural TTS models (Piper) or configured cloud voices. If the local Piper model or voice is not installed, it automatically initiates download and uses it. Automatically imports the generated audio take and optionally places it directly onto the timeline audio track. GATHER phase only (after Start generating); pass sceneIndex so the asset attaches to the plan.",
+      "description": "Generate voice-over speech audio from a narration script. With no voice given it uses a cloud voice when an ElevenLabs or OpenAI key is saved, otherwise the offline Kokoro voices (natural English, Hindi and Hinglish). If nothing can speak yet it starts the Kokoro download and asks to retry. Automatically imports the generated audio take and optionally places it directly onto the timeline audio track. GATHER phase only (after Start generating); pass sceneIndex so the asset attaches to the plan.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -241,7 +241,7 @@
           },
           "voice": {
             "type": "string",
-            "description": "Optional voice identifier (e.g. 'piper:piper-en-hfc-female', 'piper:piper-en-ryan', 'piper:piper-hi-priyamvada'). Defaults to default English offline voice."
+            "description": "Optional voice identifier (e.g. 'kokoro:af_heart', 'kokoro:am_michael', 'kokoro:bf_emma', 'kokoro:hf_alpha', 'kokoro:hm_omega', 'elevenlabs:<voiceId>', 'openai:coral'). Omit to use the automatic choice."
           },
           "speed": {
             "type": "number",
@@ -1377,6 +1377,98 @@
       }
     },
     {
+      "name": "cloud_generation_capabilities",
+      "description": "Read which cloud video/image generators the editor has connected (Settings › Connectors: Higgsfield, Magnific/Freepik, Google Veo, Runway, Kling, Luma, MiniMax, fal), each model's kind, whether it animates a reference image, lengths and aspect ratios, the defaults, and the project images usable as references. Call before planning generated shots. When cloud generation is off or nothing is connected, do not generate in the cloud — source real footage or use local models instead.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "generate_cloud_media",
+      "description": "Generate the video clips (or images) the edit needs with the editor's connected cloud generators. Plan EVERY clip for this request in ONE call via `items`. Before anything runs, the editor sees a plan card listing each item's prompt, its reference image (or 'from this prompt'), the service/model, length and shape; they can rewrite prompts, swap or remove the reference image, change the model, skip items or cancel — then press Generate. Respect what comes back: generate only what was approved. Give each prompt as a self-contained shot description (subject, action, camera, lighting, style); for image-to-video describe the motion, not the picture. Pass referenceAssetIds (imported image assets, e.g. the editor's product photo or character) to animate a still or keep a subject consistent; use the images the editor attached or named. Leave `model` empty to use the editor's default; set it as 'connector:model' from cloud_generation_capabilities only when a specific model is needed. Results import into the Generated bin; returns their asset IDs in item order. Costs the editor's credits — never pad the plan. Pass sceneIndex to attach each result to the storyboard shot.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "One sentence the editor reads on the plan card: why these clips are needed."
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "video",
+                    "image"
+                  ]
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "negativePrompt": {
+                  "type": "string"
+                },
+                "referenceAssetIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 4,
+                  "description": "Imported image asset IDs: first frame for video, references for images."
+                },
+                "model": {
+                  "type": "string",
+                  "description": "Optional 'connector:model', e.g. 'google:veo-3.1-generate-preview'."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 2,
+                  "maximum": 15,
+                  "description": "Seconds (video). Snapped to what the model offers."
+                },
+                "aspect": {
+                  "type": "string",
+                  "enum": [
+                    "16:9",
+                    "9:16",
+                    "1:1",
+                    "4:3",
+                    "3:4",
+                    "21:9"
+                  ],
+                  "description": "Defaults to the timeline's shape."
+                },
+                "purpose": {
+                  "type": "string",
+                  "description": "Short label for the card: the beat or shot this fills."
+                },
+                "sceneIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "kind",
+                "prompt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "generation_job",
       "description": "Inspect a local generation job's progress, errors or completed output. Do not repeatedly poll without doing useful planning between calls.",
       "input_schema": {
@@ -1931,6 +2023,128 @@
       }
     },
     {
+      "name": "choose_shorts_format",
+      "description": "SHORTS step 1: asks the user which screen the shorts are for — portrait 9:16 (Reels, Shorts, TikTok) or landscape 16:9 — and waits for the answer. Always call it before picking clips when the user asks for shorts and has not said portrait or landscape; it asks even in Full access (the screen is the user's call). Pass orientation only when the user already said it. create_shorts then uses the answer.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "portrait",
+              "landscape"
+            ],
+            "description": "Only when the user's message already says it."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_shorts",
+      "description": "SHORTS step 2: turns the best moments of a long video into shorts, one comp each, in a \"Shorts\" folder, named with their rating best first (\"Short 1 _ 8.4★\") and all opened as tabs. You do the judging first: analyze_clip_speech on the source and read the whole transcript, inspect_clip_frames to see who is where, then pick moments that stand alone — a hook in the first 2 s, one complete idea, a payoff — 15–60 s each (up to 90 s for a story), and rate each 0–10 (hook strength, standalone clarity, emotion or value, payoff, shareability). Segments are SOURCE seconds from the transcript; give several segments to cut out waffle inside a short (they play in the order given). The tool eases every cut to word edges, builds the comp at the chosen frame (portrait 1080×1920 or landscape 1920×1080), reframes the footage on the speaker's face (tracked automatically; tall footage in a wide frame is fitted over a blurred copy), punches in on alternate parts with a slow push, puts the hook as kinetic type over the opening and captions from the transcript. It asks portrait or landscape itself if choose_shorts_format was not called. Then edit every short like any video (motion graphics, sound, music, frame QA) with compId.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string",
+            "description": "The long video's clip on the timeline (its source is used)."
+          },
+          "assetId": {
+            "type": "string",
+            "description": "Or the long video's asset id."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "portrait",
+              "landscape"
+            ],
+            "description": "Normally left out: the answer from choose_shorts_format is used."
+          },
+          "shorts": {
+            "type": "array",
+            "description": "1–12 shorts, any order (they are ranked by score).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "What the short is about, a few words."
+                },
+                "score": {
+                  "type": "number",
+                  "description": "Rating 0–10, one decimal (e.g. 7.8)."
+                },
+                "segments": {
+                  "type": "array",
+                  "description": "Source-time ranges in seconds, in play order.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "number"
+                      },
+                      "end": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end"
+                    ]
+                  }
+                },
+                "hook": {
+                  "type": "string",
+                  "description": "On-screen hook for the opening, ≤8 words, in the speaker's language."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why this moment works as a short (kept on the comp)."
+                },
+                "focus": {
+                  "type": "object",
+                  "description": "Where the subject sits in the source picture (0..1), used when no face is tracked.",
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  }
+                }
+              },
+              "required": [
+                "title",
+                "score",
+                "segments"
+              ]
+            }
+          },
+          "captions": {
+            "type": "boolean",
+            "description": "Captions from the transcript (default true)."
+          },
+          "captionStyle": {
+            "type": "string",
+            "description": "Caption style id; the project default when omitted."
+          },
+          "trackFaces": {
+            "type": "boolean",
+            "description": "Track the speaker's face to frame each short (default true)."
+          },
+          "folderName": {
+            "type": "string",
+            "description": "Folder for the shorts (default \"Shorts\")."
+          }
+        },
+        "required": [
+          "shorts"
+        ]
+      }
+    },
+    {
       "name": "create_item",
       "description": "Creates a generated item in the Project panel, like Premiere's New Item menu: color_matte (a solid color), black_video, transparent_video, bars_and_tone (SMPTE bars with a 1 kHz tone), adjustment_layer (its effects apply to every track below it), or countdown (a countdown leader with a beep each second). Place it on a timeline with place_clip.",
       "input_schema": {
@@ -2401,7 +2615,7 @@
     },
     {
       "name": "add_voiceover",
-      "description": "Reads a script aloud in a synthetic voice and places the take on an audio track. Offline when a Piper voice is downloaded, otherwise an ElevenLabs or OpenAI voice if a key is saved. Use `language: \"hinglish\"` for a mixed Hindi-English script — each word goes to whichever of the two voices fits it, so English words are not read with a Hindi accent and vice versa. Without a track it uses the first audio track free at that time, creating one if needed.",
+      "description": "Reads a script aloud in a synthetic voice and places the take on an audio track. Uses an ElevenLabs or OpenAI voice when a key is saved, otherwise the offline Kokoro voices. Use `language: \"hinglish\"` for a mixed Hindi-English script — one Hindi speaker reads the whole line, Hindi words with Hindi pronunciation and English words with English pronunciation, the way it is naturally spoken. Without a track it uses the first audio track free at that time, creating one if needed.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -3313,6 +3527,87 @@
           "clipId",
           "action"
         ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "inspect_color",
+      "description": "See the graded picture the way a colourist does. Renders the frame at a time through the export renderer (so it is exactly what will export) and returns the image plus scope readings: luma percentiles on the 0–1023 waveform scale, clipped black/white shares, mean RGB of shadows/midtones/highlights, the colour cast of the neutrals, saturation, and the hue of skin-like pixels against the ≈24° skin line — with a plain reading of what to fix. With clipId it also renders the same frame without that clip's colour effects (compare, default true) so you can judge the grade against the source. Call it before grading (to diagnose) and after every color_grade (to verify). Read the numbers AND look at the images; never report a grade as finished without checking it.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string",
+            "description": "The clip to judge; the frame is rendered inside it (its middle unless time falls within it)."
+          },
+          "time": {
+            "type": "number",
+            "description": "Timeline seconds (default: the playhead)."
+          },
+          "compId": {
+            "type": "string"
+          },
+          "compare": {
+            "type": "boolean",
+            "description": "Also render the frame without the clip's colour effects (default true with clipId)."
+          },
+          "images": {
+            "type": "boolean",
+            "description": "Attach the frames (default true)."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "color_grade",
+      "description": "Grade clips in the Bhippi Color Studio (a DaVinci-style grade applied identically in preview and export; it grades the source before any other effect). Adds the Color Studio to the clip if it has none. params (all optional; merge by default): white balance temperature/tint (−100…100); exposure (EV, −5…5); contrast (−100…100) about pivot (0–100, default 46); highlights/shadows/whites/blacks (−100…100); softClipHigh/softClipLow (0–100); saturation (0–200, 100 = unchanged); vibrance (colour boost, −100…100); hue (−180…180°). Wheels — lift/gamma/gain/offset, each with a master Y and per-channel R/G/B (e.g. liftY, gainB): lift/gamma/offset −1…1, gain −1…3, 0 = neutral; small values (±0.02–0.1) are normal. Curves: rTable/gTable/bTable (space-separated 0–1 samples) and hueHue/hueSat/hueLum/lumSat/satSat as JSON point lists \"[[x,y],…]\" in 0–1 where y 0.5 = no change (hue x: 0 red, 0.167 yellow, 0.333 green, 0.5 cyan, 0.667 blue, 0.833 magenta). Color Slice per vector (red, skin, yellow, green, cyan, blue, magenta): slice<Name>Hue (−60…60°), slice<Name>Sat (−100…100), slice<Name>Den (density −100…100), e.g. sliceSkinSat. auto \"balance\" sets black/white points and removes the neutral cast from the rendered source frame first. LUTs (lutId, lutAmount, lutStage, lutPath): ONLY when the user explicitly asks for a LUT in this turn — otherwise they are refused; never add one on your own initiative. Workflow: inspect_color → color_grade → inspect_color again, and iterate until the numbers and the image agree. One undo step per call.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "clipIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Give several clips (or an adjustment layer and clips) the same change."
+          },
+          "instanceId": {
+            "type": "string",
+            "description": "A specific Color Studio on the clip (default: its first whole-clip one)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "merge",
+              "replace"
+            ],
+            "description": "merge (default) changes only the params given; replace starts the grade from neutral (a LUT the user chose is kept)."
+          },
+          "auto": {
+            "type": "string",
+            "enum": [
+              "balance"
+            ]
+          },
+          "time": {
+            "type": "number",
+            "description": "Timeline seconds auto balance reads (default: the playhead, clamped into the clip)."
+          },
+          "params": {
+            "type": "object",
+            "description": "Color Studio params as described above."
+          },
+          "lutPath": {
+            "type": "string",
+            "description": "A .cube file to import and apply — only when the user asked for this LUT."
+          }
+        },
+        "required": [],
         "additionalProperties": false
       }
     },

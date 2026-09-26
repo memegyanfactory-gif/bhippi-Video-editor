@@ -8,7 +8,7 @@ export const KIND_COLORS: Record<BrainNodeKind, string> = {
   tool: '#7ee0a8',
   topic: '#b69cff',
   provider: '#ff9f5a',
-  episode: '#8a93a6',
+  episode: '#8f8f8f',
 };
 
 export const KIND_LABELS: Record<BrainNodeKind, string> = {
@@ -199,7 +199,7 @@ export function BrainMap({ graph, selected, onSelect, visible, search }: Props) 
         const nb = byId.get(edge.b);
         if (!a || !b || !na || !nb) continue;
         const on = lit(na) && lit(nb);
-        context.strokeStyle = on && active ? 'rgba(255,255,255,0.42)' : on ? 'rgba(170,180,210,0.16)' : 'rgba(170,180,210,0.04)';
+        context.strokeStyle = on && active ? 'rgba(255,255,255,0.42)' : on ? 'rgba(200,200,200,0.16)' : 'rgba(200,200,200,0.04)';
         context.lineWidth = (edge.kind === 'similar' ? 0.7 : 1) / k;
         context.beginPath();
         context.moveTo(a.x, a.y);

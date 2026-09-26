@@ -22,6 +22,24 @@ export type ChatRequest = {
   persona?: string;
 };
 
+/** A compressed JPEG of the Bhippi window (base64). */
+export type SupportScreenshot = { data: string; mime: string; width: number; height: number; bytes: number };
+export type SupportLogs = { appLog: string | null; previousLog: string | null; crashLog: string | null; hangLog: string | null };
+/** `id` when it reached bhippi.com; `queued` when it waits in the outbox for the next launch. */
+export type SupportOutcome = { id: string | null; queued: boolean; message: string | null };
+export type CrashReportPayload = {
+  kind: 'crash' | 'previous_session' | 'manual';
+  title: string;
+  description: string;
+  signature: string | null;
+  errors: unknown[];
+  frontendLog: string;
+  context: Record<string, unknown>;
+  screenshot: SupportScreenshot | null;
+  includeLogs: boolean;
+};
+export type FeedbackPayload = { source: 'first_render' | 'settings'; rating: number | null; message: string; context: Record<string, unknown> };
+
 /** A document filed into the project folder on save. */
 export type ProjectDocFile = { category: 'guidelines' | 'storyboard' | 'research'; name: string; content: string };
 /** One document in the project folder (or an older workspace note, `legacy`). */
@@ -32,6 +50,15 @@ export type ProjectSaveReport = {
   copied: number; moved: number; reused: number; left: number; bytes: number; failures: string[];
 };
 
+/** hardware_info: what this computer has, for the local model advisor. Missing readings stay null. */
+export type HardwareInfo = {
+  os: string; architecture: string; threads: number; cpu: string | null; ramGb: number | null; diskFreeGb: number | null;
+  gpus: string[];
+  /** Every display adapter with its dedicated memory (null when the driver does not say). */
+  adapters?: { name: string; vramMb: number | null; driver?: string | null }[];
+  /** NVIDIA cards as nvidia-smi reports them; computeCap is null on drivers that predate it. */
+  nvidia: { name: string; vramMb: number; computeCap?: number | null; driver?: string | null }[];
+};
 export type ImportResult = { imported: Asset[]; existing: Asset[]; failed: { path: string; reason: string }[] };
 
 /** Where the subject is in one frame, in frame units — the same units lib/layout.ts uses. */
@@ -226,15 +253,20 @@ export type RuntimeStatus = { found: boolean; path: string | null; source: 'down
 export type SpeechStatus = {
   models: ModelInfo[];
   whisper: RuntimeStatus;
-  piper: RuntimeStatus;
+  /** The Kokoro engine (sherpa-onnx's library). */
+  tts: RuntimeStatus;
   folder: string;
 };
+
+/** One model a cloud voice service offers. */
+export type CloudSpeechModel = { id: string; label: string };
+export type CloudSpeechModels = { elevenlabs: CloudSpeechModel[]; elevenlabsDefault: string; openai: CloudSpeechModel[]; openaiDefault: string };
 
 /** A voice that can speak right now. */
 export type Voice = {
   id: string;
   label: string;
-  engine: 'piper' | 'elevenlabs' | 'openai';
+  engine: 'kokoro' | 'elevenlabs' | 'openai';
   languages: string[];
   /** True when nothing leaves this computer to use it. */
   offline: boolean;
@@ -254,6 +286,9 @@ export type Transcript = {
 
 /** A key Bhippi keeps for a service that is not a chat provider. The key itself never comes back. */
 export type ServiceKey = { id: string; label: string; blurb: string; saved: boolean };
+
+/** One transcription engine, in Auto's order: whether its key (or offline model) is here. */
+export type TranscribeEngineOption = { id: string; label: string; ready: boolean; dedicated: boolean; offline: boolean };
 
 export type StorageInfo = {
   root: string;
@@ -276,7 +311,7 @@ export type AccountView = {
 export type LicenseState = 'signed_out' | 'active' | 'no_license' | 'slots_full' | 'revoked' | 'unreachable';
 export type LicenseStatus = {
   state: LicenseState;
-  /** Active on the offline certificate because bhippi.com didn't answer. */
+  /** Active on the silent 72-hour grace because bhippi.com didn't answer (never shown to the person). */
   offline: boolean;
   devBuild: boolean;
   /** A debug build started with BHIPPI_DEV_NO_LICENSE=1: the gate offers to continue without a license. */
@@ -444,6 +479,8 @@ export const api = {
   serviceSetKey: (id: string, key: string) => invoke<ServiceKey[]>('service_set_key', { id, key }),
   /** Which transcription engines the keys on this machine allow, by label. */
   transcribeEngines: () => invoke<string[]>('transcribe_engines'),
+  /** Every transcription engine, in Auto's order, for the Settings choice. */
+  transcribeEngineOptions: () => invoke<TranscribeEngineOption[]>('transcribe_engine_options'),
   /** The words spoken in one asset, in source time. Transcribed once, then cached. */
   transcribeAsset: (id: string, language: string) => invoke<Transcript>('transcribe_asset', { id, language }),
   /** Transcripts already made for these assets; transcribes nothing. */
@@ -455,9 +492,11 @@ export const api = {
   modelDownload: (id: string) => invoke<string>('model_download', { id }),
   modelDelete: (id: string) => invoke<SpeechStatus>('model_delete', { id }),
   /** Points Bhippi at a whisper.cpp or Piper program installed by hand; null goes back to auto. */
-  speechLocate: (runtime: 'whisper' | 'piper', path: string | null) => invoke<SpeechStatus>('speech_locate', { runtime, path }),
+  speechLocate: (runtime: 'whisper' | 'tts', path: string | null) => invoke<SpeechStatus>('speech_locate', { runtime, path }),
   /** Every voice usable right now: offline ones, plus cloud voices when a key is saved. */
   speechVoices: () => invoke<Voice[]>('speech_voices'),
+  /** The speech models each keyed cloud voice service lists right now, and the default it uses. */
+  speechCloudModels: () => invoke<CloudSpeechModels>('speech_cloud_models'),
   /** A sample take in the work folder, for the Preview button. */
   speechPreview: (text: string, voice: string | null, mode: string) => invoke<string>('speech_preview', { text, voice, mode }),
   /** Reads a script and imports the take, ready to drop on the timeline. */
@@ -543,6 +582,8 @@ export const api = {
     invoke<string | null>('pick_open_path', { title, filterName, extensions }),
   /** Reads and writes `.bhippi` project files. */
   projectFileRead: (path: string) => invoke<unknown>('project_file_read', { path }),
+  /** Which of these project files still exist, in the same order. */
+  projectFilesExist: (paths: string[]) => invoke<boolean[]>('project_files_exist', { paths }),
   projectFileWrite: (path: string, document: unknown) => invoke<void>('project_file_write', { path, document }),
   /**
    * Save / Save As (keepPath) or Save a copy: gathers every file the project uses into the folder
@@ -557,7 +598,7 @@ export const api = {
   projectDocDelete: (path: string) => invoke<void>('project_doc_delete', { path }),
   /** Ids of library media whose file is gone — cheap, for noticing deletions made in Explorer. */
   libraryMissing: () => invoke<string[]>('library_missing'),
-  hardwareInfo: () => invoke<{os:string;architecture:string;threads:number;cpu:string|null;ramGb:number|null;diskFreeGb:number|null;gpus:string[];nvidia:{name:string;vramMb:number}[]}>('hardware_info'),
+  hardwareInfo: () => invoke<HardwareInfo>('hardware_info'),
   learningLoad: () => invoke<import('./learning').LearningSkill[]>('learning_load'),
   learningSave: (skills: import('./learning').LearningSkill[]) => invoke<void>('learning_save', { skills }),
   customToolsLoad: () => invoke<import('./customTools').CustomTool[]>('custom_tools_load'),
@@ -593,6 +634,14 @@ export const api = {
   jobCancel: (id: string) => invoke<boolean>('job_cancel', { id }),
   /** Appends a caught frontend crash to crash.log (beside Rust panics). */
   frontendCrash: (message: string, stack: string, components: string) => invoke<void>('frontend_crash', { message, stack, components }),
+  // Crash reports and feedback to bhippi.com (support.rs). Nothing is sent until the person presses Send.
+  supportScreenshot: () => invoke<SupportScreenshot>('support_screenshot'),
+  supportLogs: (previousSession: boolean) => invoke<SupportLogs>('support_logs', { previousSession }),
+  supportNewCrashes: () => invoke<string | null>('support_new_crashes'),
+  supportSendCrash: (report: CrashReportPayload) => invoke<SupportOutcome>('support_send_crash', { report }),
+  supportSendFeedback: (feedback: FeedbackPayload) => invoke<SupportOutcome>('support_send_feedback', { feedback }),
+  supportFlushOutbox: () => invoke<number>('support_flush_outbox'),
+  supportOutboxCount: () => invoke<number>('support_outbox_count'),
   jobDelete: (id: string) => invoke<boolean>('job_delete', { id }),
 
   /** Scene Edit Detection: the cut times inside a piece of media. */
@@ -623,6 +672,8 @@ export const api = {
   providersRefresh: () => invoke<ProviderInfo[]>('providers_refresh'),
   providerSetEnabled: (id: string, enabled: boolean) => invoke<ProviderInfo[]>('provider_set_enabled', { id, enabled }),
   providerSetKey: (id: string, key: string) => invoke<ProviderInfo[]>('provider_set_key', { id, key }),
+  providerSetEndpoint: (id: string, url: string) => invoke<ProviderInfo[]>('provider_set_endpoint', { id, url }),
+  providerStart: (id: string) => invoke<ProviderInfo[]>('provider_start', { id }),
   providerInstall: (id: string) => invoke<string>('provider_install', { id }),
   providerUpdate: (id: string) => invoke<string>('provider_update', { id }),
 

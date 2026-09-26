@@ -170,7 +170,7 @@ function glassAccent(glass: GlassPrefs): [string, string] {
 }
 
 /** The custom properties the Glass look sets on the root; every other theme clears them. */
-const GLASS_VARS = ['--glass-backdrop', '--glass-blur', '--glass-tint', '--glass-tint-amount', '--chrome', '--slab', '--frame', '--frost', '--overlay', '--modal', '--blue', '--blue-hi', '--accent', '--accent-grad', '--accent-grad-hi', '--bubble', '--bubble-line'];
+const GLASS_VARS = ['--glass-backdrop', '--glass-blur', '--glass-tint', '--glass-tint-amount', '--chrome', '--slab', '--frame', '--frost', '--overlay', '--modal', '--app', '--seam', '--panel', '--panel-2', '--panel-3', '--panel-4', '--well', '--deep', '--lane-a', '--monitor', '--field', '--text-dim', '--text-faint', '--blue', '--blue-hi', '--accent', '--accent-grad', '--accent-grad-hi', '--bubble', '--bubble-line'];
 
 function paintGlass(root: HTMLElement, glass: GlassPrefs | null): void {
   if (!glass) {
@@ -178,16 +178,33 @@ function paintGlass(root: HTMLElement, glass: GlassPrefs | null): void {
     return;
   }
   const tint = glass.tintAmount / 100;
-  // The panes are a deep indigo pulled toward the tint. Opacity scales every layer together, so
-  // the 34% default reproduces the stock Glass fills.
-  const pane = mix('#16122f', glass.tint, tint * 0.35);
+  // A gradient keeps its deep indigo panes; a picture gets neutral ones so the photo's own colours
+  // show through. Either way the tint takes the panes all the way to a deep shade of itself at
+  // 100%, so a black tint means black panes, not indigo ones. Opacity scales every layer together.
+  const base = glass.source === 'gradient' ? '#16122f' : '#141417';
+  const pane = mix(base, mix(glass.tint, '#0b0b0d', 0.72), tint);
+  const solid = (lift: number) => mix(pane, '#ffffff', lift);
   const o = glass.opacity / 100;
   const [a, b] = glassAccent(glass);
+  const neutral = glass.source !== 'gradient';
   const vars: Record<string, string> = {
     '--glass-backdrop': glassBackdrop(glass),
     '--glass-blur': `${glass.blur}px`,
     '--glass-tint': glass.tint,
-    '--glass-tint-amount': (tint * 0.6).toFixed(3),
+    '--glass-tint-amount': (tint * 0.78).toFixed(3),
+    // The solid surfaces (menus' fallbacks, cards in Settings, fields) follow the same pane colour.
+    '--app': mix(pane, '#000000', 0.3),
+    '--seam': mix(pane, '#000000', 0.4),
+    '--panel': solid(0.04),
+    '--panel-2': solid(0.07),
+    '--panel-3': solid(0.12),
+    '--panel-4': solid(0.18),
+    '--well': rgba(mix(pane, '#000000', 0.2), 0.35 + o * 0.45),
+    '--deep': rgba(mix(pane, '#000000', 0.35), 0.4 + o * 0.5),
+    '--lane-a': rgba(pane, 0.2 + o * 0.4),
+    '--monitor': rgba(mix(pane, '#000000', 0.5), 0.3 + o * 0.65),
+    '--field': rgba(mix(pane, '#000000', 0.4), 0.45),
+    ...(neutral ? { '--text-dim': '#c3c1cc', '--text-faint': '#8f8d99' } : {}),
     '--chrome': rgba(pane, o * 0.47),
     '--slab': rgba(pane, o * 0.41),
     '--frame': rgba(pane, o),

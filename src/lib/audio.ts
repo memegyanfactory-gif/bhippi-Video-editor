@@ -15,6 +15,8 @@ type Bus = {
   master: GainNode;
   left: AnalyserNode;
   right: AnalyserNode;
+  /** Per-ear gains after the meters, for the meters' solo buttons. */
+  ears: [GainNode, GainNode];
 };
 
 let bus: Bus | null = null;
@@ -39,11 +41,19 @@ function getBus(): Bus | null {
     master.channelInterpretation = 'speakers';
     program.connect(master);
     source.connect(master);
-    master.connect(ctx.destination);
     master.connect(splitter);
     splitter.connect(left, 0);
     splitter.connect(right, 1);
-    bus = { ctx, program, source, master, left, right };
+    // Each ear gets its own gain on the way to the speakers, so soloing one channel silences the
+    // other in place (left stays in the left ear) while both meters keep reading the mix.
+    const ears: [GainNode, GainNode] = [ctx.createGain(), ctx.createGain()];
+    const merger = ctx.createChannelMerger(2);
+    splitter.connect(ears[0], 0);
+    splitter.connect(ears[1], 1);
+    ears[0].connect(merger, 0, 0);
+    ears[1].connect(merger, 0, 1);
+    merger.connect(ctx.destination);
+    bus = { ctx, program, source, master, left, right, ears };
     // Created before the user has clicked anything (the mute state is applied at startup), the
     // context starts suspended and every clip routed through it is silent while its element
     // "plays". Any click or key is a gesture that may start it; Windows also suspends it on an
@@ -65,7 +75,13 @@ export function resumeAudio() {
   if (target && target.ctx.state !== 'running' && target.ctx.state !== 'closed') void target.ctx.resume().catch(() => undefined);
 }
 
-export type MuteState = { all: boolean; program: boolean; source: boolean };
+/**
+ * What the speakers play. `solo` is the meters' S buttons, left then right: with none on both ears
+ * play; with any on, only the soloed channels are heard, each in its own ear (Premiere's Solo in Place).
+ */
+export type MuteState = { all: boolean; program: boolean; source: boolean; solo: [boolean, boolean] };
+
+export const NO_MUTES: MuteState = { all: false, program: false, source: false, solo: [false, false] };
 
 export function setMutes(mutes: MuteState) {
   const target = getBus();
@@ -74,6 +90,8 @@ export function setMutes(mutes: MuteState) {
   target.master.gain.setTargetAtTime(mutes.all ? 0 : 1, now, 0.01);
   target.program.gain.setTargetAtTime(mutes.program ? 0 : 1, now, 0.01);
   target.source.gain.setTargetAtTime(mutes.source ? 0 : 1, now, 0.01);
+  const soloing = mutes.solo[0] || mutes.solo[1];
+  target.ears.forEach((ear, channel) => ear.gain.setTargetAtTime(!soloing || mutes.solo[channel] ? 1 : 0, now, 0.01));
 }
 
 /** Per-clip processing between a media element and the program bus. */

@@ -45,6 +45,10 @@ export const categoryBrief = (category: string): string => {
   switch (category) {
     case 'Trending':
       return 'Loud social captions with a highlighted word — talking-head, podcast clips, hooks, anything for Reels, Shorts or TikTok';
+    case 'Dynamic':
+      return 'Centre-frame motion captions with big entrances — hooks, reels, high-energy edits';
+    case 'Meme':
+      return 'Meme lettering — roasts, reaction edits, comedy';
     case 'Word by word':
       return 'One word at a time, in step with the speech — fast delivery, rapping, punchy narration';
     case 'Boxed & Chips':

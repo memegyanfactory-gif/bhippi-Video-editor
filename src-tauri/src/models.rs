@@ -1,8 +1,8 @@
 //! Offline speech models: the catalogue Bhippi can fetch, what is already on this machine,
 //! and the download itself.
 //!
-//! Transcription and voice each need two things — a small runtime binary (whisper.cpp, Piper)
-//! and the weights. Neither ships with Bhippi: together they are gigabytes and most people
+//! Transcription and voice each need two things — a small runtime (whisper.cpp, the sherpa-onnx
+//! library that runs Kokoro) and the weights. Neither ships with Bhippi: together they are gigabytes and most people
 //! only ever want one language. So both are listed here, downloaded on demand into the Bhippi
 //! data folder, and detected wherever the user already has them.
 
@@ -21,9 +21,9 @@ pub enum Kind {
     SttRuntime,
     /// Whisper weights, in GGML form.
     SttModel,
-    /// Piper — the program that runs a voice.
+    /// sherpa-onnx — the library that runs Kokoro.
     TtsRuntime,
-    /// One Piper voice: an ONNX file and its config.
+    /// The Kokoro voice pack: one model, every speaker.
     TtsVoice,
     /// A matting model: separates the subject from the background, frame by frame.
     Matte,
@@ -60,7 +60,7 @@ struct Entry {
 #[cfg(test)]
 const HF_WHISPER: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 #[cfg(test)]
-const HF_PIPER: &str = "https://huggingface.co/rhasspy/piper-voices/resolve/main";
+const SHERPA_RELEASES: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/";
 
 macro_rules! whisper_model {
     ($id:literal, $file:literal, $label:literal, $detail:literal, $size:literal, $langs:expr, $rec:literal) => {
@@ -83,33 +83,6 @@ macro_rules! whisper_model {
     };
 }
 
-macro_rules! piper_voice {
-    ($id:literal, $dir:literal, $name:literal, $label:literal, $detail:literal, $size:literal, $langs:expr, $rec:literal) => {
-        Entry {
-            id: $id,
-            kind: Kind::TtsVoice,
-            label: $label,
-            detail: $detail,
-            languages: $langs,
-            size_mb: $size,
-            files: &[
-                Source {
-                    url: concat!("https://huggingface.co/rhasspy/piper-voices/resolve/main/", $dir, "/", $name, ".onnx"),
-                    path: concat!("tts/", $name, ".onnx"),
-                },
-                Source {
-                    url: concat!("https://huggingface.co/rhasspy/piper-voices/resolve/main/", $dir, "/", $name, ".onnx.json"),
-                    path: concat!("tts/", $name, ".onnx.json"),
-                },
-            ],
-            archive: false,
-            marker: concat!("tts/", $name, ".onnx"),
-            recommended: $rec,
-            license: "MIT · Piper voices",
-        }
-    };
-}
-
 /// The whisper.cpp build for this platform. Only Windows gets an official prebuilt zip, so
 /// elsewhere the entry exists to be *detected*, not downloaded.
 const WHISPER_RUNTIME_FILES: &[Source] = if cfg!(windows) {
@@ -121,25 +94,28 @@ const WHISPER_RUNTIME_FILES: &[Source] = if cfg!(windows) {
     &[]
 };
 
-const PIPER_RUNTIME_FILES: &[Source] = if cfg!(windows) {
+/// sherpa-onnx's C library, pinned: `kokoro.rs` mirrors this version's config structs, so a newer
+/// build must not arrive by accident. The `-lib` archives carry only the libraries.
+const KOKORO_RUNTIME_FILES: &[Source] = if cfg!(windows) {
     &[Source {
-        url: "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip",
-        path: "bin/piper/piper_windows_amd64.zip",
+        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2",
+        path: "bin/kokoro/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2",
     }]
 } else if cfg!(target_os = "macos") {
     &[Source {
-        url: "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_macos_x64.tar.gz",
-        path: "bin/piper/piper_macos_x64.tar.gz",
+        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-osx-universal2-shared-lib.tar.bz2",
+        path: "bin/kokoro/sherpa-onnx-v1.13.8-osx-universal2-shared-lib.tar.bz2",
     }]
 } else {
     &[Source {
-        url: "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz",
-        path: "bin/piper/piper_linux_x86_64.tar.gz",
+        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-x64-shared-lib.tar.bz2",
+        path: "bin/kokoro/sherpa-onnx-v1.13.8-linux-x64-shared-lib.tar.bz2",
     }]
 };
 
 const WHISPER_NAMES: &[&str] = &["whisper-cli", "whisper", "whisper-cpp", "main"];
-const PIPER_NAMES: &[&str] = &["piper"];
+/// What proves the Kokoro pack is unpacked: its speaker table sits beside the model.
+const KOKORO_MARKER_FILE: &str = "voices.bin";
 
 /// Robust Video Matting. Chosen over a photo matting model because it carries recurrent state
 /// from frame to frame: the matte is steady where a per-frame model crawls and flickers, which is
@@ -233,88 +209,34 @@ const CATALOG: &[Entry] = &[
         false
     ),
     Entry {
-        id: "piper-runtime",
+        id: "kokoro-runtime",
         kind: Kind::TtsRuntime,
-        label: "Piper",
-        detail: "A fast neural voice engine that runs on the CPU. Needed before any offline voice can speak.",
+        label: "Kokoro engine",
+        detail: "Runs Kokoro on this computer's CPU (sherpa-onnx). Needed before the offline voices can speak.",
         languages: &["multilingual"],
-        size_mb: 22,
-        files: PIPER_RUNTIME_FILES,
+        size_mb: 20,
+        files: KOKORO_RUNTIME_FILES,
         archive: true,
-        marker: "bin/piper",
+        marker: "bin/kokoro",
         recommended: true,
-        license: "MIT",
+        license: "Apache-2.0 · sherpa-onnx, MIT · ONNX Runtime",
     },
-    piper_voice!(
-        "piper-hi-priyamvada",
-        "hi/hi_IN/priyamvada/medium",
-        "hi_IN-priyamvada-medium",
-        "Priyamvada — Hindi, female",
-        "Warm Hindi narration. The Hindi half of the default Hinglish pair.",
-        64,
-        &["hi", "hinglish"],
-        true
-    ),
-    piper_voice!(
-        "piper-hi-pratham",
-        "hi/hi_IN/pratham/medium",
-        "hi_IN-pratham-medium",
-        "Pratham — Hindi, male",
-        "Clear Hindi male read, good for explainers.",
-        64,
-        &["hi", "hinglish"],
-        false
-    ),
-    piper_voice!(
-        "piper-hi-rohan",
-        "hi/hi_IN/rohan/medium",
-        "hi_IN-rohan-medium",
-        "Rohan — Hindi, male",
-        "Brighter, younger Hindi male voice.",
-        64,
-        &["hi", "hinglish"],
-        false
-    ),
-    piper_voice!(
-        "piper-en-hfc-female",
-        "en/en_US/hfc_female/medium",
-        "en_US-hfc_female-medium",
-        "HFC Female — English (US)",
-        "The most natural of the Piper English voices, and the English half of the default Hinglish pair.",
-        64,
-        &["en", "hinglish"],
-        true
-    ),
-    piper_voice!(
-        "piper-en-ryan",
-        "en/en_US/ryan/high",
-        "en_US-ryan-high",
-        "Ryan — English (US), high",
-        "Higher-quality English male voice; a larger file and a little slower.",
-        114,
-        &["en", "hinglish"],
-        false
-    ),
-    piper_voice!(
-        "piper-en-amy",
-        "en/en_US/amy/medium",
-        "en_US-amy-medium",
-        "Amy — English (US)",
-        "Light, friendly English female voice.",
-        64,
-        &["en", "hinglish"],
-        false
-    ),
-    piper_voice!(
-        "piper-en-gb-alba",
-        "en/en_GB/alba/medium",
-        "en_GB-alba-medium",
-        "Alba — English (UK)",
-        "Scottish-accented English female voice.",
-        64,
-        &["en"],
-        false
-    ),
+    Entry {
+        id: "kokoro-v1",
+        kind: Kind::TtsVoice,
+        label: "Kokoro v1.0 voices",
+        detail: "Natural, studio-clean voices that run offline: 10 English (US and UK) and 4 Hindi speakers, and Hinglish read with an Indian accent.",
+        languages: &["en", "hi", "hinglish"],
+        size_mb: 334,
+        files: &[Source {
+            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+            path: "tts/kokoro-multi-lang-v1_0.tar.bz2",
+        }],
+        archive: true,
+        marker: "tts",
+        recommended: true,
+        license: "Apache-2.0 · Kokoro-82M (hexgrad)",
+    },
 ];
 
 // ───────────────────────────── what the UI sees ─────────────────────────────
@@ -351,7 +273,8 @@ pub struct RuntimeStatus {
 pub struct SpeechStatus {
     pub models: Vec<ModelInfo>,
     pub whisper: RuntimeStatus,
-    pub piper: RuntimeStatus,
+    /// The Kokoro engine (sherpa-onnx's library).
+    pub tts: RuntimeStatus,
     /// Where downloads land, for the "Open folder" button.
     pub folder: String,
 }
@@ -408,8 +331,8 @@ fn on_path(names: &[String]) -> Option<PathBuf> {
 }
 
 /// Where a runtime is: the explicit setting first, then Bhippi's own download, then PATH.
-fn locate(root: &Path, folder: &str, names: &[&str], explicit: Option<&str>) -> RuntimeStatus {
-    let names = exe_names(names);
+fn locate(root: &Path, folder: &str, names: &[String], explicit: Option<&str>) -> RuntimeStatus {
+    let names = names.to_vec();
     if let Some(given) = explicit.map(str::trim).filter(|value| !value.is_empty()) {
         let path = PathBuf::from(given);
         let found = if path.is_file() { Some(path) } else { find_under(&path, &names, 2) };
@@ -428,11 +351,21 @@ fn locate(root: &Path, folder: &str, names: &[&str], explicit: Option<&str>) -> 
 
 /// The whisper.cpp program to run, if there is one. Older builds call it `main`.
 pub fn whisper_binary(root: &Path, explicit: Option<&str>) -> Option<PathBuf> {
-    locate(root, "bin/whisper", WHISPER_NAMES, explicit).path.map(PathBuf::from)
+    locate(root, "bin/whisper", &exe_names(WHISPER_NAMES), explicit).path.map(PathBuf::from)
 }
 
-pub fn piper_binary(root: &Path, explicit: Option<&str>) -> Option<PathBuf> {
-    locate(root, "bin/piper", PIPER_NAMES, explicit).path.map(PathBuf::from)
+fn kokoro_names() -> Vec<String> {
+    crate::kokoro::library_names().iter().map(|name| (*name).to_owned()).collect()
+}
+
+/// The sherpa-onnx library that runs Kokoro, if there is one.
+pub fn kokoro_library(root: &Path, explicit: Option<&str>) -> Option<PathBuf> {
+    locate(root, "bin/kokoro", &kokoro_names(), explicit).path.map(PathBuf::from)
+}
+
+/// The unpacked Kokoro voice pack: the folder holding `model.onnx` and `voices.bin`.
+pub fn kokoro_model_dir(root: &Path) -> Option<PathBuf> {
+    entry("kokoro-v1").and_then(|item| installed_path(root, item))
 }
 
 fn entry(id: &str) -> Option<&'static Entry> {
@@ -441,17 +374,18 @@ fn entry(id: &str) -> Option<&'static Entry> {
 
 fn installed_path(root: &Path, item: &Entry) -> Option<PathBuf> {
     if item.archive {
-        let names = exe_names(if item.kind == Kind::SttRuntime { WHISPER_NAMES } else { PIPER_NAMES });
-        return find_under(&root.join(item.marker), &names, 3);
+        return match item.kind {
+            Kind::SttRuntime => find_under(&root.join(item.marker), &exe_names(WHISPER_NAMES), 3),
+            Kind::TtsRuntime => find_under(&root.join(item.marker), &kokoro_names(), 3),
+            // A voice pack is a folder; the file inside only proves it finished unpacking.
+            _ => find_under(&root.join(item.marker), &[KOKORO_MARKER_FILE.to_owned()], 2)
+                .and_then(|file| file.parent().map(Path::to_path_buf))
+                .filter(|dir| dir.join("model.onnx").is_file()),
+        };
     }
     // A download still in flight is a `.part`; only a renamed file counts as installed.
     let path = root.join(item.marker);
     path.is_file().then_some(path)
-}
-
-/// The weights for one installed model, by catalogue id.
-pub fn model_path(root: &Path, id: &str) -> Option<PathBuf> {
-    entry(id).filter(|item| !item.archive).and_then(|item| installed_path(root, item))
 }
 
 /// Every installed entry of one kind, in catalogue order.
@@ -468,11 +402,7 @@ pub fn label_of(id: &str) -> Option<&'static str> {
     entry(id).map(|item| item.label)
 }
 
-pub fn languages_of(id: &str) -> &'static [&'static str] {
-    entry(id).map(|item| item.languages).unwrap_or(&[])
-}
-
-pub fn status(root: &Path, whisper_path: Option<&str>, piper_path: Option<&str>) -> SpeechStatus {
+pub fn status(root: &Path, whisper_path: Option<&str>, tts_path: Option<&str>) -> SpeechStatus {
     let models = CATALOG
         .iter()
         .map(|item| {
@@ -494,8 +424,8 @@ pub fn status(root: &Path, whisper_path: Option<&str>, piper_path: Option<&str>)
         .collect();
     SpeechStatus {
         models,
-        whisper: locate(root, "bin/whisper", WHISPER_NAMES, whisper_path),
-        piper: locate(root, "bin/piper", PIPER_NAMES, piper_path),
+        whisper: locate(root, "bin/whisper", &exe_names(WHISPER_NAMES), whisper_path),
+        tts: locate(root, "bin/kokoro", &kokoro_names(), tts_path),
         folder: root.display().to_string(),
     }
 }
@@ -647,7 +577,12 @@ pub fn remove(root: &Path, id: &str) -> Result<(), String> {
         return Err(format!("no such model: {id}"));
     };
     if item.archive {
-        let dir = root.join(item.marker);
+        // The voice pack's marker is the shared `tts` folder; only its own unpacked folder goes.
+        let dir = if item.kind == Kind::TtsVoice {
+            installed_path(root, item).unwrap_or_else(|| root.join("tts/kokoro-multi-lang-v1_0"))
+        } else {
+            root.join(item.marker)
+        };
         if dir.is_dir() {
             std::fs::remove_dir_all(&dir).map_err(|error| format!("cannot remove {}: {error}", dir.display()))?;
         }
@@ -664,7 +599,7 @@ pub fn remove(root: &Path, id: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{entry, exe, exe_names, find_under, human, installed_path, CATALOG, HF_PIPER, HF_WHISPER};
+    use super::{entry, exe, exe_names, find_under, human, installed_path, CATALOG, HF_WHISPER, SHERPA_RELEASES};
 
     #[test]
     fn every_catalogue_id_is_unique_and_downloads_over_https() {
@@ -685,9 +620,8 @@ mod tests {
         for item in CATALOG {
             for file in item.files {
                 let hosted = file.url.starts_with(HF_WHISPER)
-                    || file.url.starts_with(HF_PIPER)
+                    || file.url.starts_with(SHERPA_RELEASES)
                     || file.url.starts_with("https://github.com/ggml-org/whisper.cpp/releases/")
-                    || file.url.starts_with("https://github.com/rhasspy/piper/releases/")
                     || file.url.starts_with("https://github.com/PeterL1n/RobustVideoMatting/releases/");
                 assert!(hosted, "{} downloads from somewhere unexpected: {}", item.id, file.url);
             }

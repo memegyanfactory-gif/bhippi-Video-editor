@@ -24,8 +24,11 @@ the global \`bhippi\` object, which applies Bhippi's rules to every call.
   transform, effects, keyframes), transitions, markers. No id = the active comp.
 - \`await bhippi.selection.get()\` / \`bhippi.selection.set([clipIds])\`.
 - \`await bhippi.playhead.get()\` / \`bhippi.playhead.seek(seconds)\`.
-- \`bhippi.on('project' | 'selection' | 'playhead' | 'theme', fn)\` → returns an unsubscribe function.
+- \`bhippi.on('project' | 'session' | 'selection' | 'playhead' | 'theme', fn)\` → returns an unsubscribe function.
   'project' fires (coalesced, ≤4/s) after any change; re-read what you need.
+- \`bhippi.session\` → { key, name, saved } for the open project. key is stable for one project file
+  (null until it is first saved); 'session' fires when the user opens another project, starts a new
+  one or saves under a new file. bhippi.project().project also carries key and saved.
 
 ## Changing the project — only through Bhippi tools
 - \`await bhippi.tool(name, args)\` runs any Bhippi tool exactly as Bhippi AI calls it (same names and
@@ -44,7 +47,11 @@ the global \`bhippi\` object, which applies Bhippi's rules to every call.
 
 ## Everything else
 - \`bhippi.storage.get(key, fallback)\` (instant), \`await bhippi.storage.set(key, value)\`,
-  \`bhippi.storage.remove(key)\`, \`bhippi.storage.keys()\` — this plugin's own saved data (JSON, ≤4 MB).
+  \`bhippi.storage.remove(key)\`, \`bhippi.storage.keys()\` — this plugin's own saved data (JSON, ≤4 MB),
+  the same in every project.
+- \`bhippi.projectStorage\` — the same four calls, but kept per project (todo lists, notes, per-project
+  settings). It has already switched when 'session' fires, so redraw from it there. It shares the
+  4 MB limit with storage. An unsaved project's data is saved with the project on its first save.
 - \`bhippi.toast(message, 'info' | 'success' | 'error')\` — a notification in the editor.
 - \`await bhippi.chat(message)\` — sends a message to the Bhippi AI chat as the user would (needs the
   \`chat\` permission). This is how a plugin hands a job to the AI.

@@ -26,6 +26,8 @@ export const FEET_Y = 70;
 export const HEAD_Y = 38;
 export const TORSO_Y = 51;
 export const HAIR_TOP = 13;
+/** The cat stands lower: the row its ear tips reach. */
+export const CAT_TOP = 30;
 
 /** A packed ABGR pixel from `#rrggbb` or a computed `rgb(…)`/`rgba(…)` (a clip's real colour); unreadable or see-through colours fall back to a clip blue. */
 const rgb = (css: string): number => {
@@ -99,7 +101,7 @@ export type Character = 'heli' | 'cat' | 'woman' | 'genie' | 'puppy' | 'senior';
 
 export const CHARACTERS: { id: Character; name: string; title: string }[] = [
   { id: 'heli', name: 'Heli', title: 'The pixel producer — flame hair, lab coat, backpack.' },
-  { id: 'cat', name: 'Miso', title: 'A tabby cat with a bell on its collar and a curly tail.' },
+  { id: 'cat', name: 'Miso', title: 'An orange tabby on four paws: struts, loafs, swats and naps curled up.' },
   { id: 'woman', name: 'Nova', title: 'Long auburn hair, a flower clip and a pink dress.' },
   { id: 'genie', name: 'Jinn', title: 'A genie out of the lamp, floating on a wisp of smoke.' },
   { id: 'puppy', name: 'Biscuit', title: 'A floppy-eared puppy with a wagging tail.' },
@@ -110,10 +112,10 @@ export const CHARACTERS: { id: Character; name: string; title: string }[] = [
 const LOOKS: Record<Character, Partial<Record<keyof typeof PALETTE, string>>> = {
   heli: {},
   cat: {
-    hairOutline: '#5a2e12', skin: '#fff1dc', skinShadow: '#f1d9bb',
-    fur: '#f5a54a', furLight: '#ffc877', furShadow: '#d9822e', accentDark: '#b8611f', accent: '#ff9fb2',
-    sleeve: '#f5a54a', cuff: '#d9822e', pants: '#f5a54a', pantsShadow: '#d9822e',
-    shoe: '#fff1dc', shoeLight: '#ffffff', sole: '#f1d9bb', band: '#e5484d', bandDark: '#a82a35', nose: '#ff7f9a',
+    hairOutline: '#5a2a10', skin: '#fff1dc', skinShadow: '#f1d9bb',
+    fur: '#f39a3d', furLight: '#ffc26e', furShadow: '#d4772a', accentDark: '#b0561b', accent: '#ff9fb2',
+    sleeve: '#f39a3d', cuff: '#d4772a', pants: '#f39a3d', pantsShadow: '#d4772a',
+    shoe: '#fff1dc', shoeLight: '#ffffff', sole: '#f1d9bb', band: '#e5484d', bandDark: '#a82a35', nose: '#ff7f9a', iris: '#3f9a4a',
   },
   woman: {
     hairOutline: '#2a1210', hair: '#8a3f2c', hairLight: '#b35a3c', hairShine: '#e39a74', hairShadow: '#6a2c20', hairDeep: '#461b14',
@@ -142,10 +144,92 @@ const LOOKS: Record<Character, Partial<Record<keyof typeof PALETTE, string>>> = 
   },
 };
 
-type Colours = Record<keyof typeof PALETTE, number>;
-const COLOURS = Object.fromEntries((Object.keys(LOOKS) as Character[]).map((id) => [
-  id, Object.fromEntries(Object.entries({ ...PALETTE, ...LOOKS[id] }).map(([key, hex]) => [key, rgb(hex)])),
-])) as Record<Character, Colours>;
+type Key = keyof typeof PALETTE;
+type Colours = Record<Key, number>;
+const build = (id: Character, own: Partial<Record<Key, string>> = {}) =>
+  Object.fromEntries(Object.entries({ ...PALETTE, ...LOOKS[id], ...own }).map(([key, hex]) => [key, rgb(hex)])) as Colours;
+const COLOURS = Object.fromEntries((Object.keys(LOOKS) as Character[]).map((id) => [id, build(id)])) as Record<Character, Colours>;
+
+/** `hex` mixed towards white (amount > 0) or black (amount < 0). */
+const tint = (hex: string, amount: number) => {
+  const value = parseInt(hex.slice(1), 16);
+  const mix = (c: number) => Math.round(amount >= 0 ? c + (255 - c) * amount : c * (1 + amount));
+  return `#${[(value >> 16) & 255, (value >> 8) & 255, value & 255].map((c) => mix(c).toString(16).padStart(2, '0')).join('')}`;
+};
+
+/**
+ * One colour the user can change on a character (Settings › Avatar): the swatch sets the first
+ * palette key, and the rest follow as lighter or darker shades of it, so the shading still reads.
+ */
+export type ColourSlot = { id: string; label: string; keys: [Key, number][] };
+const HAIR: [Key, number][] = [['hair', 0], ['hairLight', 0.3], ['hairShine', 0.65], ['hairShadow', -0.12], ['hairDeep', -0.3], ['hairOutline', -0.6]];
+const SKIN: ColourSlot = { id: 'skin', label: 'Skin', keys: [['skin', 0], ['skinShadow', -0.1]] };
+const EYES: ColourSlot = { id: 'eyes', label: 'Eyes', keys: [['iris', 0]] };
+export const COLOUR_SLOTS: Record<Character, ColourSlot[]> = {
+  heli: [
+    { id: 'hair', label: 'Hair', keys: HAIR },
+    { id: 'band', label: 'Headband', keys: [['band', 0], ['bandLight', 0.4], ['bandDark', -0.3], ['sole', 0]] },
+    { id: 'coat', label: 'Coat', keys: [['coat', 0], ['coatShadow', -0.15], ['sleeve', -0.03], ['cuff', -0.15]] },
+    { id: 'shirt', label: 'Shirt', keys: [['shirt', 0], ['shirtShadow', -0.3]] },
+    { id: 'pants', label: 'Trousers', keys: [['pants', 0], ['pantsShadow', -0.25]] },
+    { id: 'shoe', label: 'Shoes', keys: [['shoe', 0], ['shoeLight', 0.25]] },
+    SKIN, EYES,
+  ],
+  cat: [
+    { id: 'fur', label: 'Fur', keys: [['fur', 0], ['furLight', 0.3], ['furShadow', -0.14], ['sleeve', 0], ['cuff', -0.14], ['pants', 0], ['pantsShadow', -0.14]] },
+    { id: 'stripes', label: 'Stripes', keys: [['accentDark', 0], ['hairOutline', -0.5]] },
+    { id: 'cream', label: 'Chest & paws', keys: [['skin', 0], ['skinShadow', -0.06], ['shoe', 0], ['sole', -0.06]] },
+    { id: 'collar', label: 'Collar', keys: [['band', 0], ['bandDark', -0.3]] },
+    { id: 'nose', label: 'Nose & ears', keys: [['nose', 0], ['accent', 0.25]] },
+    EYES,
+  ],
+  woman: [
+    { id: 'hair', label: 'Hair', keys: HAIR },
+    { id: 'dress', label: 'Dress', keys: [['coat', 0], ['coatShadow', -0.2], ['sleeve', 0.12], ['cuff', -0.2], ['shirt', 0]] },
+    { id: 'pants', label: 'Leggings', keys: [['pants', 0], ['pantsShadow', -0.25]] },
+    { id: 'shoe', label: 'Shoes', keys: [['shoe', 0], ['shoeLight', 0.35], ['sole', -0.35]] },
+    { id: 'accent', label: 'Belt & flower', keys: [['accent', 0], ['accentLight', 0.55], ['accentDark', -0.15]] },
+    SKIN, EYES,
+  ],
+  genie: [
+    { id: 'skin', label: 'Skin', keys: [['skin', 0], ['skinShadow', -0.15], ['sleeve', 0]] },
+    { id: 'vest', label: 'Vest', keys: [['coat', 0], ['coatShadow', -0.2]] },
+    { id: 'sash', label: 'Sash', keys: [['accent', 0], ['accentLight', 0.3], ['accentDark', -0.3]] },
+    { id: 'smoke', label: 'Smoke', keys: [['fur', 0], ['furLight', 0.5], ['furShadow', -0.15]] },
+    { id: 'hair', label: 'Topknot', keys: [['hair', 0], ['hairLight', 0.15], ['hairShine', 0.35], ['hairShadow', -0.2], ['hairDeep', -0.45]] },
+    EYES,
+  ],
+  puppy: [
+    { id: 'fur', label: 'Fur', keys: [['fur', 0], ['furLight', 0.3], ['furShadow', -0.14], ['sleeve', 0], ['cuff', -0.14], ['pants', 0], ['pantsShadow', -0.14]] },
+    { id: 'ears', label: 'Ears', keys: [['accent', 0], ['accentLight', 0.2], ['accentDark', -0.3]] },
+    { id: 'muzzle', label: 'Muzzle & paws', keys: [['skin', 0], ['skinShadow', -0.06], ['shoe', 0], ['sole', -0.06]] },
+    { id: 'collar', label: 'Collar', keys: [['band', 0], ['bandDark', -0.3]] },
+    EYES,
+  ],
+  senior: [
+    { id: 'hair', label: 'Hair & beard', keys: HAIR },
+    { id: 'hoodie', label: 'Hoodie', keys: [['coat', 0], ['coatShadow', -0.25], ['sleeve', 0.05], ['cuff', -0.25]] },
+    { id: 'pants', label: 'Jeans', keys: [['pants', 0], ['pantsShadow', -0.25]] },
+    { id: 'shoe', label: 'Shoes', keys: [['shoe', 0], ['shoeLight', 0.5], ['sole', -0.3]] },
+    SKIN, EYES,
+  ],
+};
+
+/** The colour a slot starts with, before the user changes it. */
+export const slotDefault = (id: Character, slot: ColourSlot): string => ({ ...PALETTE, ...LOOKS[id] } as Record<Key, string>)[slot.keys[0][0]];
+
+/** Applies the user's colours (Settings.avatarColors: character → slot → #rrggbb) to every drawing from now on. */
+export function setAvatarColours(all: Record<string, Record<string, string>> | null | undefined) {
+  for (const id of Object.keys(LOOKS) as Character[]) {
+    const own: Partial<Record<Key, string>> = {};
+    for (const slot of COLOUR_SLOTS[id]) {
+      const hex = all?.[id]?.[slot.id];
+      if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) continue;
+      for (const [key, amount] of slot.keys) own[key] = tint(hex, amount);
+    }
+    COLOURS[id] = build(id, own);
+  }
+}
 /** The palette of the character being drawn right now (renderPose picks it). */
 let C: Colours = COLOURS.heli;
 const colour = (hex: string) => rgb(hex);
@@ -199,6 +283,45 @@ export type Pose = {
   props?: Prop[];
   /** Who is wearing the pose; Heli when unset. */
   character?: Character;
+  /** The genie going to sleep in its lamp: 1 the smoke streams into the spout, 2 the last wisp, 3 inside. Other characters ignore it. */
+  lamp?: 1 | 2 | 3;
+  /** Asleep in the lamp and breathing out: the lid lifts and a puff leaves the spout. */
+  snore?: boolean;
+  /**
+   * The puppy's kennel at bedtime: its centre column, the row it stands on, and how it sits with
+   * the body — behind it, held in front, set down behind it, or with the puppy inside, where only
+   * the doorway shows it. Other characters ignore it.
+   */
+  kennel?: { x: number; y: number; stage: 'behind' | 'held' | 'placed' | 'inside' };
+  /** Miso on four paws: its posture, legs and tail (see CatPose). Only the cat reads it. */
+  cat?: CatPose;
+};
+
+/** How the cat holds itself: up on all fours, sitting, a loaf, curled asleep, mid-stretch, mid-leap, or scruffed. */
+export type CatBody = 'stand' | 'sit' | 'loaf' | 'curl' | 'stretch' | 'leap' | 'hang';
+/** The tail: pointing at `a` degrees (0 straight back, 90 straight up, negative down) with a hook at the tip, or wrapped round the paws. */
+export type CatTail = { a: number; curl?: number } | { wrap: true; flick?: number };
+export type CatPose = {
+  body: CatBody;
+  /**
+   * The legs, near front, far front, near back, far back. Standing: how far each foot is forward
+   * and lifted off the ground. Leaping or scruffed: where each paw is from its shoulder or hip.
+   */
+  paws?: [number, number][];
+  /** The near front paw up off the ground, this far from its shoulder: a swat, a wave, typing, washing. */
+  raise?: [number, number];
+  /** Claws out on the raised paw. */
+  claws?: boolean;
+  tail: CatTail;
+  /** Ears laid back: running, cross, scruffed. */
+  earsBack?: boolean;
+  /** Curled up, the body swells a pixel on each breath. */
+  breath?: number;
+  /** A clip carried in the mouth, and how far it is lowered (0 in the mouth … 1 at the paws). */
+  carry?: { color: string; drop: number };
+  /** Set out in front of it: a laptop to type on, a mixer, a sketch pad. */
+  desk?: 'laptop' | 'mixer' | 'pad';
+  deskPhase?: number;
 };
 
 export const REST: Pose = {
@@ -276,11 +399,11 @@ const main = new Buf();
 const scratch = new Buf();
 
 /** Draws one part into scratch, then stamps its outline and its pixels onto the sprite. */
-function part(draw: (b: Buf) => void, outline: number = C.outline) {
+function part(draw: (b: Buf) => void, outline: number = C.outline, into: Buf = main) {
   scratch.clear();
   draw(scratch);
   const src = scratch.data;
-  const dst = main.data;
+  const dst = into.data;
   for (let y = 0; y < ART_H; y++) {
     for (let x = 0; x < ART_W; x++) {
       if (src[y * ART_W + x]) continue;
@@ -805,16 +928,27 @@ function browShadow(b: Buf) {
 }
 
 /** The cat: pointed ears with pink insides, cheek fluff, tabby stripes and a cream muzzle. */
-function drawCatHead(b: Buf, hx: number, hy: number, sway: number) {
+function drawCatHead(b: Buf, hx: number, hy: number, sway: number, earsBack = false) {
   const tip = Math.round(sway);
-  b.tri(hx - 10.5, hy - 2, hx - 2.5, hy - 7.5, hx - 8.5 + tip, hy - 15, C.fur);
-  b.tri(hx + 10.5, hy - 2, hx + 2.5, hy - 7.5, hx + 8.5 + tip, hy - 15, C.fur);
+  if (earsBack) {
+    // Laid back and out to the sides: cross, scruffed, or running flat out.
+    b.tri(hx - 10, hy - 1, hx - 3.5, hy - 7.5, hx - 14.5, hy - 9 + tip, C.fur);
+    b.tri(hx + 10, hy - 1, hx + 3.5, hy - 7.5, hx + 14.5, hy - 9 - tip, C.fur);
+  } else {
+    b.tri(hx - 10.5, hy - 2, hx - 2.5, hy - 7.5, hx - 8.5 + tip, hy - 15, C.fur);
+    b.tri(hx + 10.5, hy - 2, hx + 2.5, hy - 7.5, hx + 8.5 + tip, hy - 15, C.fur);
+  }
   b.ellipse(hx, hy + 0.5, 10.5, 8.5, C.fur);
   b.tri(hx - 9, hy + 1, hx - 7, hy + 6, hx - 12.5, hy + 5, C.fur);
   b.tri(hx + 9, hy + 1, hx + 7, hy + 6, hx + 12.5, hy + 5, C.fur);
   shade(b, C.fur, C.furLight, C.furShadow, hx, hy, 11, 9);
-  b.tri(hx - 8.5, hy - 5.5, hx - 4.5, hy - 7.5, hx - 7.8 + tip, hy - 12, C.accent);
-  b.tri(hx + 8.5, hy - 5.5, hx + 4.5, hy - 7.5, hx + 7.8 + tip, hy - 12, C.accent);
+  if (earsBack) {
+    b.tri(hx - 9, hy - 3, hx - 5, hy - 6.5, hx - 12, hy - 7.5, C.accent);
+    b.tri(hx + 9, hy - 3, hx + 5, hy - 6.5, hx + 12, hy - 7.5, C.accent);
+  } else {
+    b.tri(hx - 8.5, hy - 5.5, hx - 4.5, hy - 7.5, hx - 7.8 + tip, hy - 12, C.accent);
+    b.tri(hx + 8.5, hy - 5.5, hx + 4.5, hy - 7.5, hx + 7.8 + tip, hy - 12, C.accent);
+  }
   for (const x of [hx - 4, hx - 1, hx + 2]) { b.set(x, hy - 7, C.accentDark); b.set(x, hy - 6, C.accentDark); }
   b.set(hx - 1, hy - 5, C.accentDark);
   for (const x of [hx - 10, hx - 9, hx + 8, hx + 9]) b.set(x, hy + 1, C.accentDark);
@@ -1018,6 +1152,322 @@ function drawSmoke(pose: Pose, torsoY: number) {
   });
 }
 
+/** The genie asleep: only its lamp stands on the floor, drawn larger, with the smoke going in or puffing out. */
+function drawSleepingLamp(pose: Pose) {
+  const gold = colour('#ffc23d');
+  const goldLight = colour('#ffe58a');
+  const goldDark = colour('#c98a1a');
+  const cx = CX - 2;
+  const foot = FEET_Y - 1;
+  const tip: [number, number] = [cx + 13, foot - 9];
+  // The smoke behind the lamp: a wide swirl pouring into the spout, then a thin last wisp.
+  if (pose.lamp === 1 || pose.lamp === 2) {
+    part((b) => {
+      if (pose.lamp === 1) strand(b, cx + 2, TORSO_Y - 4, cx + 24, foot - 24, tip[0], tip[1], 4.5, 1, C.fur);
+      else strand(b, cx + 16, foot - 24, cx + 20, foot - 14, tip[0], tip[1], 2.6, 1, C.fur);
+      b.recolour(C.fur, C.furShadow, (x) => x + 0.5 > cx + 17);
+      b.recolour(C.fur, C.furLight, (x, y) => x + 0.5 < cx + 13 && y < foot - 16);
+    });
+  }
+  const lid = pose.snore ? 1 : 0;
+  part((b) => {
+    b.ring(cx - 9, foot - 6, 2.5, 2.5, gold);
+    b.line(cx + 6, foot - 5, tip[0], tip[1], gold, 2);
+    b.ellipse(cx, foot - 5, 8, 3.6, gold);
+    b.rect(cx - 3, foot - 2, 6, 1, gold);
+    b.rect(cx - 4, foot - 1, 8, 1, goldDark);
+    b.rect(cx - 2, foot - 9, 4, 1, goldDark);
+    b.ellipse(cx, foot - 10 - lid, 3.6, 1.4, gold);
+    b.rect(cx - 1, foot - 12 - lid, 2, 1, goldLight);
+    b.recolour(gold, goldDark, (x, y) => y + 0.5 > foot - 3.5 || (x + 0.5 > cx + 5 && y + 0.5 > foot - 6));
+    b.recolour(gold, goldLight, (x, y) => x + 0.5 < cx - 1 && x + 0.5 > cx - 6 && y + 0.5 < foot - 6 && y + 0.5 > foot - 8);
+  });
+  if (pose.lamp === 3 && pose.snore) {
+    part((b) => {
+      b.ellipse(tip[0] + 3, tip[1] - 4, 2, 1.6, C.fur);
+      b.set(tip[0] + 1, tip[1] - 2, C.fur);
+      b.set(tip[0] + 2, tip[1] - 5, C.furLight);
+    });
+  }
+}
+
+const kennelBuf = new Buf();
+/** The kennel's doorway; the one colour a puppy inside shows through. */
+const KENNEL_DOOR = colour('#24171a');
+
+/** A little red kennel seen from the front: plank walls, a slate gable roof, a name plate and an arched door. */
+function drawKennel(b: Buf, cx: number, bottom: number) {
+  const wall = colour('#d9573f');
+  const wallLight = colour('#ef7c5e');
+  const wallDark = colour('#a93b2c');
+  const roof = colour('#3f4a78');
+  const roofLight = colour('#5b6aa6');
+  const roofDark = colour('#2c3458');
+  const top = bottom - 14;
+  b.tri(cx - 16.5, top + 1.5, cx + 16.5, top + 1.5, cx, top - 13, roof);
+  b.tri(cx - 11.5, top + 1.5, cx + 11.5, top + 1.5, cx, top - 8, wall);
+  b.rect(cx - 12, top, 24, 15, wall);
+  for (let y = top + 4; y < bottom; y += 4) b.rect(cx - 12, y, 24, 1, wallDark);
+  b.recolour(wall, wallLight, (x, y) => x + 0.5 < cx - 8 && y > top);
+  b.recolour(wall, wallDark, (x) => x + 0.5 > cx + 8);
+  b.recolour(roof, roofLight, (x, y) => x + 0.5 < cx && y < top - 2);
+  b.recolour(roof, roofDark, (x, y) => x + 0.5 > cx + 2 || y >= top);
+  b.rect(cx - 3, top - 5, 6, 2, colour('#fff1c9'));
+  b.set(cx - 3, top - 5, C.white);
+  b.rect(cx - 8, bottom - 7, 16, 8, wallDark);
+  b.ellipse(cx, bottom - 7, 8, 6, wallDark);
+  b.rect(cx - 7, bottom - 7, 14, 8, KENNEL_DOOR);
+  b.ellipse(cx, bottom - 7, 7, 5, KENNEL_DOOR);
+}
+
+/**
+ * Lays the kennel over the sprite. With the puppy inside, the house hides it — nothing of it shows
+ * in the kennel's columns except through the doorway.
+ */
+function stampKennel(cx: number, inside: boolean) {
+  const k = kennelBuf.data;
+  const d = main.data;
+  for (let y = 0; y < ART_H; y++) {
+    for (let x = 0; x < ART_W; x++) {
+      const i = y * ART_W + x;
+      if (k[i]) { if (!inside || k[i] !== KENNEL_DOOR) d[i] = k[i]; }
+      else if (inside && ((x >= cx - 17 && x <= cx + 16 && y >= FEET_Y - 16) || y > FEET_Y)) d[i] = 0;
+    }
+  }
+}
+
+// ── the cat, on four paws ──────────────────────────────────────────────────
+//
+// Miso is drawn side-on, facing right (the engine mirrors it), with its round face turned to the
+// viewer so the eyes and mouth read: a body, a haunch, four legs with cream paws, a ringed tail.
+
+type CatFrame = { bx: number; hx: number; hy: number; shoulder: [number, number]; foot: [number, number]; ground: number };
+
+/** Where the cat's head, near front shoulder and near front paw are in a pose (art pixels). */
+function catFrame(pose: Pose, cat: CatPose): CatFrame {
+  const bx = CX - 3 + pose.lean;
+  const P = cat.paws ?? [[0, 0], [0, 0], [0, 0], [0, 0]];
+  const sy = FEET_Y + pose.y;
+  const hX = pose.headX;
+  const hY = pose.headY;
+  switch (cat.body) {
+    case 'stand': {
+      const by = 56 + pose.y;
+      const ground = FEET_Y + Math.min(0, pose.y);
+      return { bx, hx: bx + 13 + hX, hy: by - 9 + hY, shoulder: [bx + 10, by + 2], foot: [bx + 8 + P[0][0], ground - P[0][1]], ground };
+    }
+    case 'sit': return { bx, hx: bx + 5 + hX, hy: sy - 25 + hY, shoulder: [bx + 5, sy - 10], foot: [bx + 5 + P[0][0], sy], ground: sy };
+    case 'loaf': return { bx, hx: bx + 11 + hX, hy: sy - 14 + hY, shoulder: [bx + 9, sy - 4], foot: [bx + 10, sy], ground: sy };
+    case 'curl': return { bx, hx: bx + 8 + hX, hy: sy - 9 + hY, shoulder: [bx + 5, sy - 3], foot: [bx + 4, sy], ground: sy };
+    case 'stretch': return { bx, hx: bx + 13 + hX, hy: sy - 12 + hY, shoulder: [bx + 8, sy - 3], foot: [bx + 17, sy], ground: sy };
+    case 'leap': {
+      const by = 54 + pose.y;
+      const Q = cat.paws ?? LEAP_PAWS;
+      return { bx, hx: bx + 14 + hX, hy: by - 7 + hY, shoulder: [bx + 8, by + 2], foot: [bx + 8 + Q[0][0], by + 2 + Q[0][1]], ground: FEET_Y };
+    }
+    case 'hang': {
+      const Q = cat.paws ?? HANG_PAWS;
+      return { bx, hx: CX + hX, hy: 31 + hY, shoulder: [CX + 4 + hX, 42], foot: [CX + 4 + hX + Q[1][0], 42 + Q[1][1]], ground: FEET_Y };
+    }
+  }
+}
+
+const LEAP_PAWS: [number, number][] = [[7, 5], [5, 5], [-7, 6], [-5, 6]];
+const HANG_PAWS: [number, number][] = [[0, 5], [0, 5], [-1, 6], [1, 6]];
+
+const isFur = (c: number) => c === C.fur || c === C.furLight || c === C.furShadow;
+
+/** A leg from its joint down to a cream paw: flat on the ground, or round in the air. */
+function catLeg(b: Buf, x0: number, y0: number, x1: number, y1: number, fur: number, round = false) {
+  b.line(x0, y0, x1, y1 - 1.5, fur, 3.2);
+  if (round) b.ellipse(x1, y1 - 1, 2, 2, C.skin);
+  else b.ellipse(x1 + 0.5, y1 - 1.2, 2.4, 1.3, C.skin);
+}
+
+/** The ringed tail from its root: pointing up, back or down, or wrapped along the ground towards `reach`. */
+function catTail(b: Buf, x0: number, y0: number, tail: CatTail, ground: number, reach: number, bend = -5) {
+  let pts: [number, number, number, number, number, number];
+  if ('wrap' in tail) {
+    pts = [x0, y0, x0 + bend, ground + 1, x0 + reach, ground - 1.5 - (tail.flick ?? 0)];
+  } else {
+    const a = (tail.a * Math.PI) / 180;
+    const dx = -Math.cos(a);
+    const dy = -Math.sin(a);
+    const curl = tail.curl ?? 0;
+    // The perpendicular bends the tip towards the head for a positive curl: the question-mark tail.
+    pts = [x0, y0, x0 + dx * 8 + dy * curl * 3, y0 + dy * 8 - dx * curl * 3, x0 + dx * 14 - dy * curl * 5, y0 + dy * 14 + dx * curl * 5];
+  }
+  strand(b, ...pts, 2, 1.5, C.fur);
+  const at = (t: number): [number, number] => [
+    (1 - t) ** 2 * pts[0] + 2 * (1 - t) * t * pts[2] + t * t * pts[4],
+    (1 - t) ** 2 * pts[1] + 2 * (1 - t) * t * pts[3] + t * t * pts[5],
+  ];
+  for (const t of [0.42, 0.64, 0.86]) { const [x, y] = at(t); b.ellipse(x, y, 1.2, 1.2, C.accentDark); }
+}
+
+/** Tabby stripes: short dark strokes down from the top edge of the fur at each column. */
+function tabby(b: Buf, columns: number[]) {
+  for (const x of columns) {
+    let y = 0;
+    while (y < ART_H && !isFur(b.at(x, y))) y++;
+    for (let k = 1; k <= 3; k++) {
+      const sx = x - (k === 3 ? 1 : 0);
+      if (isFur(b.at(sx, y + k))) b.set(sx, y + k, C.accentDark);
+    }
+  }
+}
+
+/** A round body of fur, lit from the upper left, cream underneath, with its stripes. */
+function catBody(b: Buf, blobs: [number, number, number, number][], cream: (x: number, y: number) => boolean, stripes: number[]) {
+  for (const [x, y, rx, ry] of blobs) b.ellipse(x, y, rx, ry, C.fur);
+  b.recolour(C.fur, C.skin, cream);
+  const [x, y, rx, ry] = blobs[0];
+  shade(b, C.fur, C.furLight, C.furShadow, x, y, rx, ry);
+  tabby(b, stripes);
+}
+
+/** What the cat works at, set out on the ground in front of it. */
+function drawDesk(kind: NonNullable<CatPose['desk']>, hx: number, ground: number, phase: number) {
+  const x = hx + 6;
+  part((b) => {
+    if (kind === 'laptop') {
+      // Side-on: the keyboard flat on the ground, the screen tilted up towards the cat, glowing.
+      b.rect(x, ground - 2, 14, 2, colour('#8a92a8'));
+      b.rect(x, ground - 2, 14, 1, colour('#c3cad8'));
+      b.line(x + 13, ground - 2, x + 10, ground - 13, colour('#6b7389'), 2);
+      const glow = phase > 0.5 ? C.hairShine : colour('#bfe6ff');
+      for (let k = 3; k < 10; k += 2) b.set(x + 11 - Math.round(k * 0.27) - 1, ground - 2 - k, glow);
+    } else if (kind === 'mixer') {
+      b.rect(x, ground - 5, 14, 5, colour('#2f2f3a'));
+      b.rect(x, ground - 5, 14, 1, colour('#4a4a5a'));
+      ['#e5484d', '#3ecf8e', '#ffc23d'].forEach((k, i) => b.set(x + 2 + i * 3, ground - 3, colour(k)));
+      for (let i = 0; i < 3; i++) {
+        const level = Math.max(1, Math.round(2 + Math.sin(phase * 6 + i * 1.7) * 1.5));
+        b.rect(x + 10 + i, ground - 1 - level, 1, level, colour(level > 2 ? '#ffc23d' : '#3ecf8e'));
+      }
+    } else {
+      b.rect(x, ground - 2, 12, 2, colour('#fff4cf'));
+      b.rect(x - 1, ground - 1, 14, 1, colour('#ff7a45'));
+      const ink = colour('#8a8fa8');
+      for (let i = 0; i < 4; i++) b.set(x + 2 + i * 2 + (Math.floor(phase) % 2), ground - 2, ink);
+    }
+  });
+}
+
+function drawCat(pose: Pose, cat: CatPose) {
+  const f = catFrame(pose, cat);
+  const { bx, hx, hy, ground: gy } = f;
+  const P = cat.paws ?? [[0, 0], [0, 0], [0, 0], [0, 0]];
+  const far = C.furShadow;
+  const wrap = 'wrap' in cat.tail;
+  const sy = FEET_Y + pose.y;
+  let curled = false;
+  switch (cat.body) {
+    case 'stand': {
+      const by = 56 + pose.y;
+      part((b) => {
+        catTail(b, bx - 11, by - 2, cat.tail, gy, 12);
+        catLeg(b, bx + 5, by + 2, bx + 5 + P[1][0], gy - P[1][1], far);
+        catLeg(b, bx - 6, by + 2, bx - 6 + P[3][0], gy - P[3][1], far);
+      }, C.hairOutline);
+      part((b) => catBody(b, [[bx, by, 12.5, 6.5], [bx - 8, by + 1.5, 4.5, 5]], (x, y) => y + 0.5 > by + 3.5 && x + 0.5 > bx - 3, [bx - 7, bx - 3, bx + 1, bx + 5]), C.hairOutline);
+      part((b) => {
+        catLeg(b, bx - 9, by + 4, bx - 9 + P[2][0], gy - P[2][1], C.fur);
+        if (!cat.raise) catLeg(b, bx + 8, by + 3, bx + 8 + P[0][0], gy - P[0][1], C.fur);
+      }, C.hairOutline);
+      break;
+    }
+    case 'sit':
+      part((b) => {
+        if (!wrap) catTail(b, bx - 9, sy - 5, cat.tail, gy, 0);
+        catLeg(b, bx + 2, sy - 11, bx + 2 + P[1][0], sy - P[1][1], far);
+      }, C.hairOutline);
+      part((b) => {
+        catBody(b, [[bx - 4, sy - 6.5, 7.5, 6.5], [bx + 2.5, sy - 12, 5.5, 8]], (x, y) => x + 0.5 > bx + 4 && y + 0.5 > sy - 17, [bx - 8, bx - 5, bx - 2]);
+        b.ellipse(bx + 0.5, sy - 1.3, 3.5, 1.5, C.fur);
+        b.rect(bx + 2, sy - 2, 2, 2, C.skin);
+      }, C.hairOutline);
+      part((b) => {
+        if (wrap) catTail(b, bx - 10, sy - 3, cat.tail, gy, 11);
+        if (!cat.raise) catLeg(b, bx + 5, sy - 10, bx + 5 + P[0][0], sy - P[0][1], C.fur);
+      }, C.hairOutline);
+      break;
+    case 'loaf':
+      if (!wrap) part((b) => catTail(b, bx - 11, sy - 6, cat.tail, gy, 0), C.hairOutline);
+      part((b) => catBody(b, [[bx, sy - 6, 13, 6.5]], (x, y) => y + 0.5 > sy - 3 && x + 0.5 > bx + 2, [bx - 8, bx - 4, bx, bx + 4]), C.hairOutline);
+      part((b) => {
+        if (wrap) catTail(b, bx - 12, sy - 3, cat.tail, gy, 14);
+        if (!cat.raise) b.ellipse(bx + 10.5, sy - 1.2, 3, 1.4, C.skin);
+      }, C.hairOutline);
+      break;
+    case 'curl': {
+      const breath = cat.breath ?? 0;
+      part((b) => catBody(b, [[bx - 2, sy - 7 - breath * 0.5, 13.5, 7.5 + breath * 0.5]], () => false, [bx - 10, bx - 6, bx - 2, bx + 2]), C.hairOutline);
+      curled = true;
+      break;
+    }
+    case 'stretch':
+      part((b) => {
+        catTail(b, bx - 12, sy - 13, cat.tail, gy, 0);
+        catLeg(b, bx - 3, sy - 8, bx - 3, sy, far);
+        catLeg(b, bx + 6, sy - 3, bx + 15, sy, far);
+      }, C.hairOutline);
+      part((b) => catBody(b, [[bx - 6, sy - 11, 7.5, 6], [bx + 4, sy - 6, 7.5, 4.5]], (x, y) => y + 0.5 > sy - 4 && x + 0.5 > bx, [bx - 9, bx - 5, bx - 1]), C.hairOutline);
+      part((b) => {
+        catLeg(b, bx - 7, sy - 8, bx - 7, sy, C.fur);
+        catLeg(b, bx + 8, sy - 3, bx + 17, sy, C.fur);
+      }, C.hairOutline);
+      break;
+    case 'leap': {
+      const by = 54 + pose.y;
+      const Q = cat.paws ?? LEAP_PAWS;
+      part((b) => {
+        catTail(b, bx - 13, by - 1, cat.tail, gy, 0);
+        catLeg(b, bx + 6, by + 2, bx + 6 + Q[1][0], by + 2 + Q[1][1], far, true);
+        catLeg(b, bx - 7, by + 2, bx - 7 + Q[3][0], by + 2 + Q[3][1], far, true);
+      }, C.hairOutline);
+      part((b) => catBody(b, [[bx, by, 14, 5.5]], (x, y) => y + 0.5 > by + 2.5 && x + 0.5 > bx - 4, [bx - 8, bx - 4, bx, bx + 4]), C.hairOutline);
+      part((b) => {
+        catLeg(b, bx - 9, by + 2, bx - 9 + Q[2][0], by + 2 + Q[2][1], C.fur, true);
+        if (!cat.raise) catLeg(b, bx + 8, by + 2, bx + 8 + Q[0][0], by + 2 + Q[0][1], C.fur, true);
+      }, C.hairOutline);
+      break;
+    }
+    case 'hang': {
+      // Held by the scruff: seen from the front, hanging below the head, legs and tail dangling.
+      const Q = cat.paws ?? HANG_PAWS;
+      part((b) => catTail(b, hx - 1, 56, cat.tail, gy, 0), C.hairOutline);
+      part((b) => catBody(b, [[hx - 0.5, 47, 6.5, 10]], (x, y) => ((x + 0.5 - (hx - 0.5)) / 3.5) ** 2 + ((y + 0.5 - 49) / 6) ** 2 <= 1, []), C.hairOutline);
+      part((b) => {
+        ([[hx - 5, 42], [hx + 4, 42], [hx - 5, 54], [hx + 4, 54]] as const).forEach(([x0, y0], i) => catLeg(b, x0, y0, x0 + Q[i][0], y0 + Q[i][1], C.fur, true));
+      }, C.hairOutline);
+      break;
+    }
+  }
+  part((b) => drawCatHead(b, hx, hy, pose.sway ?? 0, cat.earsBack), C.hairOutline);
+  drawFace(hx, hy, pose);
+  drawFaceExtras('cat', hx, hy, pose.eyes);
+  drawGear(hx, hy, pose.gear ?? []);
+  // Asleep: the tail comes round the front and ends under the chin, a paw tucked beside it.
+  if (curled) part((b) => { b.ellipse(bx + 3, gy - 1.3, 2.6, 1.3, C.skin); catTail(b, bx - 15, sy - 6, cat.tail, gy, 30, 2); }, C.hairOutline);
+  if (cat.carry) {
+    const top = Math.round(hy + 7 + cat.carry.drop * (gy - 11 - (hy + 7)));
+    const color = cat.carry.color;
+    part((b) => drawClip(b, hx - 2, top, color));
+  }
+  if (cat.desk) drawDesk(cat.desk, hx, gy, cat.deskPhase ?? 0);
+  if (cat.raise) {
+    const [sx, sy0] = f.shoulder;
+    const px = sx + cat.raise[0];
+    const py = sy0 + cat.raise[1];
+    part((b) => {
+      b.line(sx, sy0, px, py, C.fur, 3.2);
+      b.ellipse(px, py, 2.2, 2.2, C.skin);
+      if (cat.claws) for (const [dx, dy] of [[2, -2], [3, 0], [2, 2]] as const) b.set(px + dx, py + dy, C.white);
+    }, C.hairOutline);
+  }
+}
+
 /** Sudo: short grey hair receding at the temples, a few messy tufts, a full grey beard. */
 function drawSeniorHead(b: Buf, hx: number, hy: number) {
   b.ellipse(hx, hy + 0.5, 9, 7, C.skin);
@@ -1120,6 +1570,14 @@ export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
   const who = pose.character ?? 'heli';
   C = COLOURS[who];
   main.clear();
+  if (who === 'genie' && pose.lamp) {
+    drawSleepingLamp(pose);
+    return new Uint8ClampedArray(main.data.buffer.slice(0));
+  }
+  if (who === 'cat' && pose.cat) {
+    drawCat(pose, pose.cat);
+    return new Uint8ClampedArray(main.data.buffer.slice(0));
+  }
   const drop = pose.sit ? SIT_DROP[pose.sit] : 0;
   const ty = TORSO_Y + pose.y + drop;
   const bx = CX + pose.lean;
@@ -1136,6 +1594,12 @@ export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
     ? drawArm(shoulderL[0], shoulderL[1], pose.armL, fingerL, pose.thumb === 'L', -1)
     : drawArm(shoulderR[0], shoulderR[1], pose.armR, fingerR, pose.thumb === 'R', 1);
   const sway = pose.sway ?? 0;
+  const kennel = who === 'puppy' ? pose.kennel : undefined;
+  if (kennel) {
+    kennelBuf.clear();
+    part((b) => drawKennel(b, kennel.x, kennel.y), C.outline, kennelBuf);
+    if (kennel.stage !== 'held') stampKennel(kennel.x, false);
+  }
   // Behind the body: Heli's backpack, a tail, or Nova's long hair.
   if (who === 'heli') drawPack(bx, ty);
   else if (who === 'cat' || who === 'puppy') drawTail(pose, bx, ty, who);
@@ -1174,14 +1638,21 @@ export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
   // Sudo's own glasses stay on; the round research pair would sit on top of them.
   drawGear(hx, hy, (pose.gear ?? []).filter((gear) => !(who === 'senior' && gear === 'glasses')));
   for (const prop of props) if (MID_PROPS.has(prop.kind)) drawProp(prop, hands, bx);
+  if (kennel?.stage === 'held') stampKennel(kennel.x, false);
   if (!pose.armLBack) arm('L');
   if (!pose.armRBack) arm('R');
   for (const prop of props) if (!MID_PROPS.has(prop.kind)) drawProp(prop, hands, bx);
+  if (kennel?.stage === 'inside') stampKennel(kennel.x, true);
   return new Uint8ClampedArray(main.data.buffer.slice(0));
 }
 
 /** Where a hand ends up in art pixels, for effects that start at the hand (sparks, notes). */
 export function handPoint(pose: Pose, which: 'l' | 'r'): [number, number] {
+  // The cat works with its near front paw.
+  if (pose.cat && pose.character === 'cat') {
+    const f = catFrame(pose, pose.cat);
+    return pose.cat.raise ? [f.shoulder[0] + pose.cat.raise[0], f.shoulder[1] + pose.cat.raise[1]] : f.foot;
+  }
   const drop = pose.sit ? SIT_DROP[pose.sit] : 0;
   const ty = TORSO_Y + pose.y + drop;
   const bx = CX + pose.lean;

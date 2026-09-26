@@ -18,6 +18,7 @@ mod caption_styles;
 mod chat;
 mod files;
 mod jobs;
+mod kokoro;
 mod library;
 mod license;
 mod mcp;
@@ -46,12 +47,14 @@ mod web_media;
 mod receipts;
 mod memes;
 mod free_media;
+mod gen_cloud;
 mod frame_sink;
 mod system_tools;
 mod subagent;
 mod safe_asset;
 mod storyboard;
 mod storage;
+mod support;
 mod watchdog;
 mod bundle;
 mod cutout;
@@ -981,6 +984,8 @@ fn local_media_status(state: State<'_, Arc<AppState>>) -> serde_json::Value {
         ("image", "SDXL text to image"),
         ("image-edit", "SDXL image to image"),
         ("image-inpaint", "SDXL masked image replacement"),
+        ("image-flux", "FLUX.1 schnell text to image"),
+        ("video-wan22", "Wan 2.2 5B · 720p"),
         ("video-ltx23", "LTX-Video 2.3 22B (ComfyUI DiT + Audio) · Ultra-high quality"),
         ("video-ltx", "LTX-Video 2B (Lightricks) · Fast, cinematic, 10 GB VRAM"),
         ("video-wan", "Wan 2.1 1.3B · Lightweight"),
@@ -992,7 +997,7 @@ fn local_media_status(state: State<'_, Arc<AppState>>) -> serde_json::Value {
         ("person-track", "RF-DETR Nano · people tracking"),
         ("erase", "Magic eraser · LaMa clean plate")
     ].iter().map(|(task, label)| {
-        let model_key = if task.starts_with("image") { "image" } else { *task };
+        let model_key = if task.starts_with("image") && *task != "image-flux" { "image" } else { *task };
         let checkpoint = media_checkpoint(&prefs, &state.paths, model_key);
         let index = if ["sam2", "vitmatte", "depth"].contains(task) { "config.json" } else if ["person-track", "erase"].contains(task) { "bhippi-install.json" } else { "model_index.json" };
         let installed = checkpoint.as_ref().is_some_and(|p| {
@@ -1000,7 +1005,7 @@ fn local_media_status(state: State<'_, Arc<AppState>>) -> serde_json::Value {
             if path.is_file() {
                 return true;
             }
-            if ["image", "image-edit", "image-inpaint", "video", "video-ltx", "video-ltx23", "video-wan", "audio"].contains(task) {
+            if ["image", "image-edit", "image-inpaint", "image-flux", "video", "video-ltx", "video-ltx23", "video-wan", "video-wan22", "audio"].contains(task) {
                 is_diffusers_model_ready(path)
             } else {
                 path.join(index).is_file()
@@ -1032,6 +1037,9 @@ fn media_checkpoint(prefs: &Settings, paths: &Paths, task: &str) -> Option<Strin
             if custom_opt.as_ref().is_some_and(|p| is_diffusers_model_ready(Path::new(p))) {
                 return custom_opt;
             }
+        }
+        if video_kind == "wan22" {
+            if let Some(found) = media_checkpoint(prefs, paths, "video-wan22") { return Some(found); }
         }
         if video_kind == "wan" {
             if let Some(p) = prefs.local_media_models.get("video-wan") {
@@ -1079,6 +1087,13 @@ fn media_checkpoint(prefs: &Settings, paths: &Paths, task: &str) -> Option<Strin
             if is_diffusers_model_ready(Path::new(p)) { return Some(p.clone()); }
         }
         let folder = paths.models.join("generation").join("video-ltx");
+        return is_diffusers_model_ready(&folder).then(|| folder.display().to_string());
+    }
+    if task == "video-wan22" || task == "image-flux" {
+        if let Some(p) = prefs.local_media_models.get(task) {
+            if is_diffusers_model_ready(Path::new(p)) { return Some(p.clone()); }
+        }
+        let folder = paths.models.join("generation").join(task);
         return is_diffusers_model_ready(&folder).then(|| folder.display().to_string());
     }
     if task == "video-wan" {
@@ -1167,7 +1182,10 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
     if prompt.trim().is_empty() || prompt.len() > 12000 { return Err("Invalid generation prompt".into()); }
     let prefs = state.settings();
     let mut python = PathBuf::from(prefs.local_media_python.clone().ok_or("Configure the Python runtime in Local Media settings")?);
-    let model_key = if task.starts_with("image") { "image" } else { &task };
+    // Plain text-to-image follows the chosen image model; edits and inpainting stay on SDXL, the
+    // only local model with those pipelines.
+    let flux = task == "image" && prefs.local_image_model.as_deref() == Some("flux") && media_checkpoint(&prefs, &state.paths, "image-flux").is_some();
+    let model_key = if flux { "image-flux" } else if task.starts_with("image") { "image" } else { &task };
     let checkpoint = media_checkpoint(&prefs, &state.paths, model_key).ok_or("Choose an installed model in Local Media settings")?;
     let is_ltx23 = checkpoint.ends_with(".safetensors") || checkpoint.contains("ltx-2.3");
     let comfy_python = PathBuf::from(r"C:\Users\aayus\AppData\Local\Comfy-Desktop\ComfyUI-Installs\COMFY\ComfyUI\.venv\Scripts\python.exe");
@@ -1232,7 +1250,7 @@ fn local_media_generate(state: State<'_, Arc<AppState>>, request: serde_json::Va
 }
 
 /// The local-media tasks a checkpoint install exists for.
-pub(crate) const LOCAL_INSTALL_TASKS: [&str; 10] = ["image", "video", "video-ltx", "video-wan", "audio", "sam2", "vitmatte", "depth", "person-track", "erase"];
+pub(crate) const LOCAL_INSTALL_TASKS: [&str; 12] = ["image", "image-flux", "video", "video-ltx", "video-wan", "video-wan22", "audio", "sam2", "vitmatte", "depth", "person-track", "erase"];
 
 /// Writes the worker and its request for installing `task`'s checkpoint into `work`; returns the
 /// worker, the request and where the checkpoint lands.
@@ -1258,6 +1276,10 @@ pub(crate) fn remember_local_install(app: &AppHandle, state: &AppState, task: &s
             prefs.local_video_model = Some("ltx".into());
         } else if task == "video-wan" {
             prefs.local_video_model = Some("wan".into());
+        } else if task == "video-wan22" {
+            prefs.local_video_model = Some("wan22".into());
+        } else if task == "image-flux" {
+            prefs.local_image_model = Some("flux".into());
         }
     })?;
     let _ignored = app.emit(SETTINGS_EVENT, &prefs);
@@ -1692,7 +1714,7 @@ const SERVICE_KEYS: &[(&str, &str, &str)] = &[
     (
         "elevenlabs",
         "ElevenLabs",
-        "Adds your own ElevenLabs voices to the voice-over list.",
+        "Adds your own ElevenLabs voices to the voice-over list, and transcribes with Scribe (speakers separated) when no Deepgram key is saved.",
     ),
     (
         "klipy",
@@ -1746,6 +1768,61 @@ fn service_set_key(id: String, key: String) -> CommandResult<Vec<ServiceKey>> {
     Ok(service_key_rows())
 }
 
+// ───────────────────────────── cloud generation (Settings › Connectors) ─────────────────────────────
+
+#[tauri::command]
+fn gen_connectors() -> serde_json::Value {
+    gen_cloud::rows()
+}
+
+/// Files a connector's key (and secret) in the OS credential store; an empty key removes both.
+#[tauri::command]
+async fn gen_connector_set_key(id: String, key: String, secret: Option<String>) -> CommandResult<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(move || gen_cloud::set_key(&id, &key, secret.as_deref())).await.map_err(|e| e.to_string())??;
+    Ok(gen_cloud::rows())
+}
+
+#[tauri::command]
+async fn gen_connector_test(id: String) -> serde_json::Value {
+    match gen_cloud::test(&id).await {
+        Ok(message) => serde_json::json!({ "ok": true, "message": message }),
+        Err(message) => serde_json::json!({ "ok": false, "message": message }),
+    }
+}
+
+/// Starts one cloud generation as a background job; the job's result is `{path, task}` like the
+/// local generator's, so the same import path picks it up.
+#[tauri::command]
+fn gen_cloud_generate(state: State<'_, Arc<AppState>>, request: gen_cloud::GenRequest) -> CommandResult<String> {
+    let prefs = state.settings();
+    let assets = state.assets_by_id();
+    let mut refs = Vec::new();
+    for id in request.reference_asset_ids.iter().take(8) {
+        let asset = assets.get(id).ok_or("Reference image not found in the project")?;
+        if asset.kind != library::AssetKind::Image || !Path::new(&asset.path).is_file() {
+            return Err("References must be imported images that are still on disk".into());
+        }
+        refs.push(PathBuf::from(&asset.path));
+    }
+    let prepared = gen_cloud::prepare(&prefs.cloud_generation, &request, refs)?;
+    let job = state.jobs.start("generation", format!("Generating {} · {} {}", request.kind, prepared.spec.label, prepared.model.label), true);
+    let id = job.id().to_owned();
+    let folder = storage::dir(&state, storage::Category::Generated)?.join(if request.kind == "video" { "Video" } else { "Images" }).join(&id);
+    let scratch = state.paths.work.join(&id);
+    let ffmpeg = state.tools().ffmpeg().ok().map(Path::to_path_buf);
+    let kind = request.kind.clone();
+    let (connector, model) = (prepared.spec.id, prepared.model.id);
+    tauri::async_runtime::spawn(async move {
+        let result = gen_cloud::run(prepared, request, folder, scratch.clone(), ffmpeg, &job).await;
+        let _ = std::fs::remove_dir_all(&scratch);
+        match result {
+            Ok(path) => job.done("Generated media is ready to import", Some(serde_json::json!({ "path": path, "task": kind, "connector": connector, "model": model }))),
+            Err(error) => job.fail(error),
+        }
+    });
+    Ok(id)
+}
+
 /// Whether a TypeSafe key is on this machine, so the UI can offer its judgments or stay quiet.
 #[tauri::command]
 fn typesafe_ready() -> bool {
@@ -1786,6 +1863,13 @@ fn effort_levels(provider_id: String, model: Option<String>) -> Vec<String> {
 fn transcribe_engines(state: State<'_, Arc<AppState>>) -> Vec<String> {
     let prefs = state.settings().speech;
     transcribe::available(&state.paths.models, &prefs)
+}
+
+/// Every transcription engine in Auto's order, with whether it could run now: the Settings choice.
+#[tauri::command]
+fn transcribe_engine_options(state: State<'_, Arc<AppState>>) -> Vec<transcribe::EngineOption> {
+    let prefs = state.settings().speech;
+    transcribe::options(&state.paths.models, &prefs)
 }
 
 /// The transcripts already made for these assets, without transcribing anything: what the
@@ -1837,7 +1921,7 @@ async fn transcribe_asset(
 
 fn speech_status_of(state: &AppState) -> models::SpeechStatus {
     let prefs = state.settings().speech;
-    models::status(&state.paths.models, prefs.whisper_path.as_deref(), prefs.piper_path.as_deref())
+    models::status(&state.paths.models, prefs.whisper_path.as_deref(), prefs.tts_path.as_deref())
 }
 
 /// Everything Settings › Speech & voice shows: the catalogue, what is downloaded, and whether
@@ -1880,27 +1964,33 @@ fn model_delete(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> 
     Ok(speech_status_of(state.inner()))
 }
 
-/// Points Bhippi at a whisper.cpp or Piper program the user installed themselves. An empty
+/// Points Bhippi at a whisper.cpp program or sherpa-onnx library the user installed themselves. An empty
 /// path goes back to looking for Bhippi's own download and then PATH.
 #[tauri::command]
 async fn speech_locate(app: AppHandle, state: State<'_, Arc<AppState>>, runtime: String, path: Option<String>) -> CommandResult<models::SpeechStatus> {
     let chosen = path.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
-    if !matches!(runtime.as_str(), "whisper" | "piper") {
+    if !matches!(runtime.as_str(), "whisper" | "tts") {
         return Err(format!("unknown speech runtime: {runtime}"));
     }
     let settings = state.update_settings(|settings| match runtime.as_str() {
         "whisper" => settings.speech.whisper_path = chosen,
-        _ => settings.speech.piper_path = chosen,
+        _ => settings.speech.tts_path = chosen,
     })?;
     let _ignored = app.emit(SETTINGS_EVENT, &settings);
     Ok(speech_status_of(state.inner()))
 }
 
-/// Every voice that can speak right now: the Piper voices downloaded, plus cloud voices when
-/// a key for them is saved.
+/// Every voice that can speak right now: the Kokoro speakers once downloaded, plus cloud voices
+/// when a key for them is saved.
 #[tauri::command]
 async fn speech_voices(state: State<'_, Arc<AppState>>) -> CommandResult<Vec<speech::Voice>> {
-    Ok(speech::voices(&state.paths.models).await)
+    Ok(speech::voices(&state.paths.models, &state.settings().speech).await)
+}
+
+/// The speech models each cloud voice service offers this key, for the model pickers.
+#[tauri::command]
+async fn speech_cloud_models() -> CommandResult<speech::CloudModels> {
+    Ok(speech::cloud_models().await)
 }
 
 /// A short sample, for the Preview button. It lands in the work folder, not the library.
@@ -2051,6 +2141,12 @@ async fn project_file_read(app: AppHandle, path: String) -> CommandResult<Docume
         Ok(document)
     })
     .await
+}
+
+/// Which of these `.bhippi` files are still there (the Recent projects list checks before it offers them).
+#[tauri::command]
+async fn project_files_exist(paths: Vec<String>) -> CommandResult<Vec<bool>> {
+    off_ui_thread(move || Ok(paths.iter().map(|path| Path::new(path).is_file()).collect())).await
 }
 
 #[tauri::command]
@@ -2611,7 +2707,7 @@ fn job_delete(state: State<'_, Arc<AppState>>, id: String) -> bool {
 fn keychain_keys() -> ApiKeys {
     CATALOG
         .iter()
-        .filter(|spec| spec.kind == ProviderKind::CloudApi)
+        .filter(|spec| matches!(spec.kind, ProviderKind::CloudApi | ProviderKind::LocalServer))
         .filter_map(|spec| settings::get_api_key(spec.id).map(|key| (spec.id.to_owned(), key)))
         .collect()
 }
@@ -2619,9 +2715,9 @@ fn keychain_keys() -> ApiKeys {
 async fn detect_providers(app: &AppHandle, state: &AppState) -> Vec<ProviderInfo> {
     // One sweep at a time: a second request waits and then reuses the fresh result.
     let _guard = state.detecting.lock().await;
-    let disabled = state.settings().disabled_providers;
+    let current = state.settings();
     let keys = tauri::async_runtime::spawn_blocking(keychain_keys).await.unwrap_or_default();
-    let mut rows = bhippi_providers::detect(CATALOG, &disabled, &keys).await;
+    let mut rows = bhippi_providers::detect(CATALOG, &current.disabled_providers, &keys, &current.local_endpoints).await;
     // A provider whose listing failed this sweep keeps the models it listed last time.
     let cache_file = provider_cache::file(&state.paths.root);
     let mut cache: provider_cache::ModelCache = store::read_json(&cache_file);
@@ -2673,12 +2769,50 @@ fn provider_set_enabled(app: AppHandle, state: State<'_, Arc<AppState>>, id: Str
 
 #[tauri::command]
 async fn provider_set_key(app: AppHandle, state: State<'_, Arc<AppState>>, id: String, key: String) -> CommandResult<Vec<ProviderInfo>> {
-    let spec = bhippi_providers::spec(&id).filter(|spec| spec.kind == ProviderKind::CloudApi).ok_or("only cloud APIs take a key")?;
+    let spec = bhippi_providers::spec(&id)
+        .filter(|spec| matches!(spec.kind, ProviderKind::CloudApi | ProviderKind::LocalServer))
+        .ok_or("only cloud APIs and local servers take a key")?;
     let owned_key = key.clone();
     tauri::async_runtime::spawn_blocking(move || settings::set_api_key(spec.id, &owned_key))
         .await
         .map_err(|error| error.to_string())??;
     Ok(detect_providers(&app, &state).await)
+}
+
+/// Saves (or clears) the address of a local model server and re-detects.
+#[tauri::command]
+async fn provider_set_endpoint(app: AppHandle, state: State<'_, Arc<AppState>>, id: String, url: String) -> CommandResult<Vec<ProviderInfo>> {
+    bhippi_providers::spec(&id).filter(|spec| spec.kind == ProviderKind::LocalServer).ok_or("only local servers take an address")?;
+    let url = url.trim().to_owned();
+    if !url.is_empty() && bhippi_providers::local::normalize_base(&url).is_none() {
+        return Err("That is not an address Bhippi can reach — use something like localhost:1234 or http://192.168.1.20:8080".into());
+    }
+    let settings = state.update_settings(|settings| {
+        if url.is_empty() {
+            settings.local_endpoints.remove(&id);
+        } else {
+            settings.local_endpoints.insert(id.clone(), url.clone());
+        }
+    })?;
+    let _ignored = app.emit(SETTINGS_EVENT, &settings);
+    Ok(detect_providers(&app, &state).await)
+}
+
+/// Switches on a local server that is installed but stopped (LM Studio, Ollama), then waits
+/// for it to answer so the row turns ready without a second click.
+#[tauri::command]
+async fn provider_start(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> CommandResult<Vec<ProviderInfo>> {
+    bhippi_providers::spec(&id).filter(|spec| spec.kind == ProviderKind::LocalServer).ok_or("only local servers can be started")?;
+    bhippi_providers::local::start(&id).await?;
+    let mut rows = Vec::new();
+    for _ in 0..10 {
+        rows = detect_providers(&app, &state).await;
+        if rows.iter().any(|row| row.id == id && row.detected_port.is_some() && row.base_url.is_some()) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    }
+    Ok(rows)
 }
 
 #[tauri::command]
@@ -2754,7 +2888,7 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, mut request: ChatR
     };
     let images: Vec<&String> = request.images.iter().chain(request.history.iter().flat_map(|h| h.images.iter())).collect();
     if images.len() > 16 || images.iter().map(|s|s.len()).sum::<usize>() > 32 * 1024 * 1024 { return Err("Image context exceeds 32 MB; clear older images or start a new chat".to_owned()); }
-    if !images.is_empty() && !matches!(row.id.as_str(), "claude" | "codex" | "opencode" | "anthropic" | "openai" | "google" | "openrouter") { return Err("This provider integration cannot receive images. Choose Claude, Codex, OpenCode, or a vision-capable API model.".to_owned()); }
+    if !images.is_empty() && !matches!(row.id.as_str(), "claude" | "codex" | "opencode" | "anthropic" | "openai" | "google" | "openrouter" | "opencode-zen") { return Err("This provider integration cannot receive images. Choose Claude, Codex, OpenCode, or a vision-capable API model.".to_owned()); }
     for image in images {
         use base64::Engine;
         let (prefix, encoded) = image.split_once(',').ok_or("Invalid image")?;
@@ -2818,6 +2952,8 @@ fn builtin_row() -> ProviderInfo {
         enabled: true,
         accepts_custom_model: false,
         detected_port: None,
+        base_url: None,
+        can_start: false,
         key_env: None,
         key_source: None,
         install_command: None,
@@ -3116,6 +3252,7 @@ fn watched<R: tauri::Runtime>(
 }
 
 pub use crate::mcp::{run_bridge as run_mcp_bridge, BRIDGE_FLAG as MCP_BRIDGE_FLAG};
+pub use crate::kokoro::{worker_main as run_kokoro_worker, WORKER_FLAG as KOKORO_WORKER_FLAG};
 
 /// `%APPDATA%/com.bhippi.videoeditor/logs/bhippi.log`: every tracing line also lands here, so a
 /// session can be read back after the fact (and by a coding agent) — stderr is gone once the
@@ -3213,6 +3350,10 @@ pub fn run() {
             brain_load_skill,
             brain_dream,
             local_media_status,
+            gen_connectors,
+            gen_connector_set_key,
+            gen_connector_test,
+            gen_cloud_generate,
             depth_start,
             local_media_generate,
             local_media_install,
@@ -3225,6 +3366,13 @@ pub fn run() {
             person_track_start,
             point_track_start,
             frontend_crash,
+            support::support_screenshot,
+            support::support_logs,
+            support::support_new_crashes,
+            support::support_send_crash,
+            support::support_send_feedback,
+            support::support_flush_outbox,
+            support::support_outbox_count,
             app_info,
             settings_get,
             settings_save,
@@ -3286,11 +3434,13 @@ pub fn run() {
             roto_finish,
             erase_start,
             transcribe_engines,
+            transcribe_engine_options,
             transcribe_asset,
             transcripts_cached,
             speech_status,
             speech_locate,
             speech_voices,
+            speech_cloud_models,
             speech_preview,
             speech_generate,
             model_download,
@@ -3300,6 +3450,7 @@ pub fn run() {
             project_load,
             project_save,
             project_file_read,
+            project_files_exist,
             project_file_write,
             startup_file,
             detect_scenes,
@@ -3350,6 +3501,8 @@ pub fn run() {
             providers_list,
             providers_refresh,
             provider_set_enabled,
+            provider_set_endpoint,
+            provider_start,
             provider_set_key,
             provider_install,
             provider_update,

@@ -148,8 +148,10 @@ const preparation = new Set([
   'inspect_clip_frames',
   'inspect_source_frames',
   'local_media_capabilities',
+  'cloud_generation_capabilities',
   'install_local_model',
   'generate_local_media',
+  'generate_cloud_media',
   'generation_job',
   'import_generated_media',
   'save_video_blueprint',
@@ -158,6 +160,7 @@ const preparation = new Set([
   'query_frame_atlas',
   'scrape_videos',
   'list_effects',
+  'inspect_color',
   'list_recipes',
   'react_bits',
   'remotion_kit',
@@ -191,6 +194,7 @@ const preparation = new Set([
   'delete_custom_tool',
   'detect_scenes',
   'ask_user',
+  'choose_shorts_format',
   'set_playhead',
   // Production bookkeeping and analysis: they change the plan, never the timeline.
   'run_frame_qa',
@@ -222,6 +226,7 @@ const timing = (comp: Comp) => JSON.stringify([comp.fps, comp.clips.map(c => [c.
  */
 const GATHER_TOOLS = new Set([
   'generate_local_media',
+  'generate_cloud_media',
   'generation_job',
   'import_generated_media',
   'download_online_media',
@@ -279,6 +284,7 @@ const ALWAYS_TOOLS = new Set([
   'glob_search',
   'grep_search',
   'list_effects',
+  'inspect_color',
   'list_recipes',
   'react_bits',
   'remotion_kit',
@@ -302,7 +308,9 @@ const ALWAYS_TOOLS = new Set([
   'wait_subagent',
   'consult_council',
   'local_media_capabilities',
+  'cloud_generation_capabilities',
   'ask_user',
+  'choose_shorts_format',
   'set_playhead',
   'analyze_music_beats',
   // @funny reads: the libraries, captions and the measured edit.
@@ -378,9 +386,19 @@ export class EditWorkflow {
   private qaIssues: { kind: string; a: string; b: string }[] = [];
   /** The waivers the pending verify_edit_workflow call carries (verify itself only sees the project). */
   private pendingWaivers: unknown[] = [];
+  /**
+   * Shorts made this turn (create_shorts). Each is a comp of its own whose plan is the short itself,
+   * so this turn may edit them all; verify checks every one.
+   */
+  private shorts = new Set<string>();
+  /** Shorts that have had a frame-QA pass this turn. */
+  private shortsQa = new Set<string>();
+  /** The workflow comp is a short made earlier: its source plan stands in for a storyboard. */
+  private shortComp = false;
   constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false) {
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
+    this.shortComp = !!comp?.short;
     const musicAssetId = comp?.production?.music?.assetId ?? null;
     this.sources = (comp?.clips ?? []).filter(c => c.enabled && c.source.type === 'media' && !comp.tracks.find(t => t.id === c.trackId)?.hidden && !comp.tracks.find(t => t.id === c.trackId)?.muted).flatMap(c => {
       if (c.source.type !== 'media') return [];
@@ -443,6 +461,7 @@ export class EditWorkflow {
       for (const clip of comp.clips) if (clip.source.type === 'comp') walk(clip.source.compId);
     };
     walk(this.compId);
+    for (const id of this.shorts) walk(id);
     return [...seen].map(id => byId.get(id)!);
   }
   private outOfScope(comp: Comp): string {
@@ -487,6 +506,8 @@ export class EditWorkflow {
     if (name === 'editing_workflow_status' || name === 'verify_edit_workflow') return null;
     const comp = this.comp(project);
     if (!comp) return 'The workflow composition no longer exists. Start a new turn for another composition.';
+    // A short made this turn is planned by create_shorts itself: edit it freely (it is in scope).
+    if (this.onShort(name, args, project)) return name.startsWith('mcp__') ? 'External tools cannot bypass this workflow. Use the native editing tools.' : null;
     // Reads are never refused over which comp they look at.
     const scope = ALWAYS_TOOLS.has(name) ? null : this.scopeComps(project);
     if (scope && typeof args.compId === 'string' && !scope.some(c => c.id === args.compId || c.name === args.compId)) return this.outOfScope(comp);
@@ -518,15 +539,26 @@ export class EditWorkflow {
     // thinking names real installed adapters (image/video/audio/depth) instead of wishes.
     if (!state.capabilitiesChecked) return 'Call local_media_capabilities before saving the storyboard or editing, so the visual plan uses the actual installed image/video/audio/depth models.';
     if (name === 'save_storyboard' || name === 'save_video_blueprint') return null;
+    // Shorts: the picked moments (with their scores and reasons) are the plan, one comp per short.
+    if (name === 'create_shorts') return null;
     // Blueprint-first pipeline: once a blueprint exists and execution has started
     // (or the blueprint was saved this turn), timeline edits are blocked until
     // execute_blueprint runs and all assets are gathered. Asset gathering tools
     // (generate/download/voice-over) are in `preparation` and already passed.
     if (state.blueprintActive) return 'Blueprint saved — gather everything first, build later. Finish asset pre-production (voice-over, generated visuals, downloads — all imported into Generated), then call execute_blueprint before any timeline edit. Do not place, cut, or style clips yet.';
-    if (!state.storyboardCurrent && !state.blueprintExecuted && !state.blueprintPlan) return 'Save or update a concise timed storyboard for the CURRENT timeline before further edits. Call save_storyboard; planned ranges must cover the composition without overlaps.';
+    if (!state.storyboardCurrent && !state.blueprintExecuted && !state.blueprintPlan && !this.shortComp) return 'Save or update a concise timed storyboard for the CURRENT timeline before further edits. Call save_storyboard; planned ranges must cover the composition without overlaps.';
     if (!this.capabilities && ['rotoscope_clip', 'depth_occlusion_clip'].includes(name)) return 'Call local_media_capabilities before choosing a local model. Unsupported tasks must be reported as unavailable.';
     if (name.startsWith('mcp__')) return 'External tools cannot bypass this workflow. Use the native editing tools, or select Quick edit for a separate explicitly scoped task.';
     return null;
+  }
+  /** Whether a call works on a short made this turn: by compId, by its clips, or on the open short. */
+  private onShort(name: string, args: Args, project: Project): boolean {
+    if (!this.shorts.size || name === 'create_shorts') return false;
+    const shortComps = project.comps.filter(c => this.shorts.has(c.id));
+    if (typeof args.compId === 'string') return shortComps.some(c => c.id === args.compId || c.name === args.compId);
+    const clipIds = [args.clipId, ...(Array.isArray(args.clipIds) ? args.clipIds : [])].filter((id): id is string => typeof id === 'string');
+    if (clipIds.length) return clipIds.every(id => shortComps.some(c => c.clips.some(clip => clip.id === id)));
+    return this.shorts.has(project.activeCompId ?? '');
   }
   /**
    * The production phases. The model plans, the user presses Start generating, the model
@@ -624,7 +656,14 @@ export class EditWorkflow {
         }
       }
     }
-    if (name === 'local_media_capabilities') this.capabilities = true;
+    if (name === 'local_media_capabilities' || name === 'cloud_generation_capabilities') this.capabilities = true;
+    if (name === 'create_shorts' && Array.isArray(result.shorts)) {
+      for (const short of result.shorts as { compId?: unknown }[]) if (typeof short?.compId === 'string') this.shorts.add(short.compId);
+    }
+    if (name === 'run_frame_qa') {
+      const qaComp = typeof args.compId === 'string' ? project.comps.find(c => c.id === args.compId || c.name === args.compId)?.id : project.activeCompId;
+      if (qaComp && this.shorts.has(qaComp)) this.shortsQa.add(qaComp);
+    }
     if ((name === 'save_storyboard' || name === 'save_video_blueprint') && comp.production?.phase === 'plan-ready') this.closedPhase = 'plan';
     if (name === 'finish_gathering' && comp.production?.phase === 'gathered') this.closedPhase = 'gather';
     if (name === 'run_frame_qa') {
@@ -647,6 +686,14 @@ export class EditWorkflow {
     }
     if (name === 'execute_blueprint') {
       this.blueprintExecuted = true;
+    }
+    if (name === 'generate_cloud_media' && Array.isArray(result.assets)) {
+      for (const asset of result.assets) {
+        if (typeof asset?.id === 'string') {
+          this.unplaced.add(asset.id);
+          this.generated.add(asset.id);
+        }
+      }
     }
     if (name === 'generate_local_media') {
       if (typeof result.jobId === 'string') {
@@ -709,7 +756,32 @@ export class EditWorkflow {
       if (this.planned) this.planned = timing(comp);
     }
   }
+  /** Shorts made this turn: every one must exist, be sound, be QA'd, and hold nothing the council blocks. */
+  private verifyShorts(project: Project, assets?: Map<string, Asset>): ToolResult {
+    const problems: string[] = [];
+    for (const id of this.shorts) {
+      const short = project.comps.find(c => c.id === id);
+      if (!short) continue;
+      if (short.clips.some(c => !short.tracks.some(t => t.id === c.trackId) || !Number.isFinite(c.start) || !Number.isFinite(c.duration) || c.start < 0 || c.duration <= 0)) problems.push(`"${short.name}": invalid clip timing or a missing track`);
+      if (this.mode === 'full' && !this.shortsQa.has(id)) problems.push(`"${short.name}": no frame QA yet — run_frame_qa {"compId":"${id}"} and fix what it finds`);
+      const uncovered = assets ? uncoveredSpans(project, assets, short) : [];
+      if (uncovered.length) problems.push(`"${short.name}": black frame edges — ${describeUncovered(uncovered, short, project, assets)}`);
+      if (this.mode === 'full' && assets) {
+        for (const note of councilReview(project, assets, short).notes.filter(n => n.severity === 'block')) problems.push(`"${short.name}" · ${councilMember(note.member)?.name}: ${note.text} → ${note.fix}`);
+      }
+    }
+    const waivers = this.pendingWaivers.flatMap(raw => {
+      const w = (raw && typeof raw === 'object' ? raw : {}) as Args;
+      return typeof w.kind === 'string' && typeof w.a === 'string' && typeof w.reason === 'string' && w.reason.trim() && w.kind !== 'blank-frame' ? [{ kind: w.kind, a: w.a }] : [];
+    });
+    const open = this.mode === 'full' ? this.qaIssues.filter(issue => !waivers.some(w => w.kind === issue.kind && w.a === issue.a)) : [];
+    if (open.length) problems.push(`the last frame-QA pass is not clear: ${open.slice(0, 6).map(issue => `${issue.kind} "${issue.a}"`).join('; ')} — fix and run it again, or pass acceptedQaIssues with a reason`);
+    if (problems.length) return { ok: false, error: `The shorts are not finished:\n${problems.map(p => `- ${p}`).join('\n')}` };
+    this.finished = true;
+    return { ok: true, summary: `All ${this.shorts.size} shorts checked: cut, framed, QA'd and signed off by the council. This does not verify rendered frames or music taste.` };
+  }
   verify(project: Project, assets?: Map<string, Asset>): ToolResult {
+    if (this.shorts.size) return this.verifyShorts(project, assets);
     const status = this.status(project), comp = this.comp(project);
     const phase = this.phase(project);
     if (phase === 'plan-ready' || phase === 'gathering' || phase === 'gathered') return { ok: false, error: `Nothing to verify yet: the production is in the ${phase} phase. verify_edit_workflow belongs to the end of the editing phase, after the user has pressed Start editing and the timeline is assembled.` };
@@ -727,13 +799,13 @@ export class EditWorkflow {
     const accepted = this.mode === 'full' && status.qaCurrent ? waivers.filter(w => this.qaIssues.some(issue => issue.kind === w.kind && issue.a === w.a)) : [];
     if (status.blueprintActive) return { ok: false, error: `Workflow incomplete: blueprint saved but not executed. Gather all assets, call execute_blueprint, then assemble. ${JSON.stringify(status)}` };
     const producing = this.producing(comp);
-    const planOk = status.storyboardCurrent || status.blueprintExecuted || status.blueprintPlan || (producing && !!comp?.storyboard?.length);
+    const planOk = status.storyboardCurrent || status.blueprintExecuted || status.blueprintPlan || (producing && !!comp?.storyboard?.length) || this.shortComp;
     const analysed = producing || (!status.transcriptPending.length && !status.frameReviewPending.length);
     if (this.mode === 'full' && (!status.timelineRead || !status.finalTimelineRead || !planOk || !analysed || status.pendingJobs.length || status.pendingPlacement.length)) return { ok: false, error: `Workflow incomplete: ${JSON.stringify(status)}. Finish or explicitly report blocked work; do not claim completion.` };
     const needsPro = this.mode === 'full' && !!comp?.clips.some(c => c.enabled && c.source.type === 'media');
     // A later turn of a production being edited (a fix, the polish pass) is judged on the timeline
     // it leaves, not on what it did itself: the graphics and the sound design are already there.
-    const onTimeline = producing && comp ? {
+    const onTimeline = (producing || this.shortComp) && comp ? {
       visual: comp.clips.some(c => c.enabled && (c.source.type === 'comp' || c.source.type === 'motion' || c.source.type === 'html' || c.source.type === 'text' || !!c.rotoMatte)),
       sound: comp.clips.some(c => c.enabled && c.source.type === 'sfx') || comp.tracks.filter(t => t.kind === 'audio' && comp.clips.some(c => c.enabled && c.trackId === t.id)).length > 1,
     } : null;
@@ -741,7 +813,7 @@ export class EditWorkflow {
       if (!status.capabilitiesChecked) return { ok: false, error: `Pro pass missing: local image/video/audio/depth models were never checked. Call local_media_capabilities, then run the planned roto/depth/generation work or report the blocker. ${JSON.stringify(status)}` };
       if (!status.proVisualPass && !onTimeline?.visual) return { ok: false, error: `Pro visual pass missing: no motion graphics, roto/depth matte, or generated media placed. Add kinetic/title/lower-third motion graphics, isolate a subject (rotoscope_clip/depth_occlusion_clip) and layer text behind it, or generate+import+place a storyboard asset — or report the blocker. ${JSON.stringify(status)}` };
       if (!status.soundPass && !onTimeline?.sound) return { ok: false, error: `Sound pass missing: no shaped music/SFX. Lay the music bed, shape it with score_audio_clip (duck under dialogue, swell on beats), add whoosh/impact/riser accents — or report the blocker. ${JSON.stringify(status)}` };
-      if (!status.storyboardRefs && !status.blueprintExecuted && !status.blueprintPlan && !onTimeline) return { ok: false, error: `Storyboard has no visual references: generate 1+ reference stills (local image model), import them, and attach their asset IDs as refs on the relevant scenes — or report the blocker. ${JSON.stringify(status)}` };
+      if (!status.storyboardRefs && !status.blueprintExecuted && !status.blueprintPlan && !onTimeline && !this.shortComp) return { ok: false, error: `Storyboard has no visual references: generate 1+ reference stills (local image model), import them, and attach their asset IDs as refs on the relevant scenes — or report the blocker. ${JSON.stringify(status)}` };
     }
     if (!comp || comp.clips.some(c => !comp.tracks.some(t => t.id === c.trackId) || !Number.isFinite(c.start) || !Number.isFinite(c.duration) || c.start < 0 || c.duration <= 0)) return { ok: false, error: 'Timeline contains invalid clip timing or missing tracks.' };
     // Picture scaled down, moved or cropped with nothing behind it renders black at the edges.

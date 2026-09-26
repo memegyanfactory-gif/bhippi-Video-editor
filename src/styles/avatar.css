@@ -74,3 +74,14 @@
 .avatar-tips { margin: 6px 0 0; padding: 0 0 0 16px; display: grid; gap: 6px; font-size: 12px; line-height: 1.45; color: var(--text-dim); }
 .avatar-tips strong { color: var(--text, #ddd); font-weight: 600; }
 .avatar-settings h4 { margin: 4px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+.avatar-colours { display: grid; gap: 6px; }
+.avatar-colours-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.avatar-colours-head h4 { margin: 0; }
+.avatar-colours p { margin: 0; }
+.avatar-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.avatar-swatch { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border: 1px solid var(--line, var(--line-strong)); border-radius: 999px; cursor: pointer; font-size: 12px; }
+.avatar-swatch:hover { border-color: #666; }
+.avatar-swatch.changed { border-color: var(--blue, #2d8ceb); }
+.avatar-swatch input[type="color"] { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(0, 0, 0, 0.35); border-radius: 50%; background: none; cursor: pointer; overflow: hidden; }
+.avatar-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.avatar-swatch input[type="color"]::-webkit-color-swatch { border: none; border-radius: 50%; }

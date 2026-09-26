@@ -1,0 +1,24 @@
+[package]
+name = "bhippi-kokoro"
+description = "Runs the Kokoro voice through sherpa-onnx's C library, loaded at run time."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# The one crate allowed `unsafe`: calling a C library cannot be done without it. The workspace
+# forbids it everywhere else, so it stays fenced in here, behind a small safe API.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[dependencies]
+libloading = "0.8"
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -189,6 +189,18 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: '/shorts',
+    args: 'portrait|landscape',
+    summary: 'Find the best moments of the video and make each one a rated, edited short',
+    group: 'Project',
+    options: () => ['portrait', 'landscape'],
+    run: (context, argument) => {
+      const wanted = argument.trim().toLowerCase();
+      const screen = wanted.startsWith('p') ? ' in portrait (9:16)' : wanted.startsWith('l') ? ' in landscape (16:9)' : '';
+      context.send(`Make shorts from this video${screen}: read the whole transcript, pick the best standalone moments, rate each one, and edit every short fully.`);
+    },
+  },
+  {
     name: '/help',
     summary: 'List these commands',
     group: 'Chat',

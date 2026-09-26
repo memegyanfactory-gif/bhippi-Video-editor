@@ -1,6 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Home, Maximize, Minimize, Minus, PanelLeft, Settings, Share, Square, Volume2, VolumeX, X } from 'lucide-react';
 import { useState } from 'react';
+import { AccountButton } from './AccountButton';
 import { UpdateButton } from './UpdateButton';
 import { MenuList, type MenuItem } from './workspace';
 
@@ -56,7 +57,8 @@ type HeaderProps = {
   onSettings: () => void;
   /** Opens Settings › About (release notes, the auto-download switch) — the update panel's "Details". */
   onUpdates: () => void;
-  providerBadge: React.ReactNode;
+  /** Opens Settings › About, where the full Profile lives — the account panel's "Account details". */
+  onAccount: () => void;
   resourceMonitor?: React.ReactNode;
 };
 
@@ -92,7 +94,7 @@ export function HeaderBar(props: HeaderProps) {
         <button type="button" className="icon-btn" onClick={props.onToggleProgramMax} title="Maximize Program monitor (`)">{props.programMaximized ? <Minimize size={15} /> : <Maximize size={15} />}</button>
         <UpdateButton onDetails={props.onUpdates} />
         <button type="button" className="icon-btn" onClick={props.onSettings} title="Settings (Ctrl+,)"><Settings size={16} /></button>
-        <button type="button" className="header-avatar" onClick={props.onSettings} title="AI providers">{props.providerBadge}</button>
+        <AccountButton onDetails={props.onAccount} />
       </div>
     </div>
   );

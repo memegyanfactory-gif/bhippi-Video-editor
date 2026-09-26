@@ -25,6 +25,9 @@ pub const CLOUD_TIMEOUT: Duration = Duration::from_secs(8);
 /// named by the catalogue are consulted as well; the keychain wins when both exist.
 pub type ApiKeys = HashMap<String, String>;
 
+/// Addresses the user typed for local servers, by provider id (`localhost:1234`, a LAN box).
+pub type Endpoints = HashMap<String, String>;
+
 /// Resolves the key for one cloud spec: keychain first, then its environment variables.
 #[must_use]
 pub fn resolve_key(spec: &ProviderSpec, keys: &ApiKeys) -> Option<(String, &'static str)> {
@@ -39,19 +42,28 @@ pub fn resolve_key(spec: &ProviderSpec, keys: &ApiKeys) -> Option<(String, &'sta
     })
 }
 
+/// The key for a catalogued provider id, from `keys` (the app's keychain read) or, failing that,
+/// the provider's environment variables (`OPENAI_API_KEY`, `GROQ_API_KEY`, …). Returns the key
+/// and where it came from (`"keychain"` or `"env"`); `None` for an unknown id or no key.
+#[must_use]
+pub fn resolve_key_for(id: &str, keys: &ApiKeys) -> Option<(String, &'static str)> {
+    crate::catalog::spec(id).and_then(|spec| resolve_key(spec, keys))
+}
+
 /// Every catalogued backend plus the builtin, probed concurrently within budget.
 /// `disabled` carries the user's toggles; detection never flips one.
 pub async fn detect(
     catalogue: &'static [ProviderSpec],
     disabled: &[String],
     keys: &ApiKeys,
+    endpoints: &Endpoints,
 ) -> Vec<ProviderInfo> {
     let probes = catalogue.iter().map(|entry| {
         let enabled = !disabled.iter().any(|id| id == entry.id);
         async move {
             let mut row = match entry.kind {
                 ProviderKind::Cli => cli_row(entry, enabled).await,
-                ProviderKind::LocalServer => server_row(entry, enabled).await,
+                ProviderKind::LocalServer => server_row(entry, enabled, endpoints, keys).await,
                 ProviderKind::CloudApi => cloud_row(entry, enabled, keys).await,
                 ProviderKind::Builtin => builtin_row(),
             };
@@ -78,6 +90,8 @@ fn base_row(entry: &ProviderSpec, enabled: bool) -> ProviderInfo {
         enabled,
         accepts_custom_model: entry.model_args.is_some() || entry.kind != ProviderKind::Cli,
         detected_port: None,
+        base_url: None,
+        can_start: false,
         key_env: entry.env_keys.first().map(|name| (*name).to_owned()),
         key_source: None,
         install_command: entry.install.map(|install| install.display()),
@@ -113,21 +127,29 @@ async fn cli_row(entry: &ProviderSpec, enabled: bool) -> ProviderInfo {
     row
 }
 
-/// One local server answering on one port.
+/// One local server answering at one address.
 struct Reachable {
-    port: u16,
+    base: String,
     latency_ms: u32,
     models: Vec<String>,
 }
 
-/// The ports a given server is worth looking for, primary first.
+/// Why one address did not count as this server.
+enum Miss {
+    /// Nothing listening, or something that is not this server.
+    Absent(String),
+    /// This server, refusing us: it wants an API key.
+    NeedsKey(u16),
+}
+
+/// The well-known ports a given server is worth looking for, primary first.
 fn candidate_ports(entry: &ProviderSpec) -> Vec<u16> {
     let fallback: &[u16] = match entry.id {
-        "lmstudio" => &[1234, 53166],
-        "llamacpp" => &[8080],
+        "lmstudio" => &[1234, 1235, 53166],
+        "llamacpp" => &[8080, 8081],
         "ollama" => &[11434, 11435],
         "vllm" => &[8000],
-        "jan" => &[1337],
+        "jan" => &[1337, 39291],
         _ => &[],
     };
     let mut ports = Vec::with_capacity(fallback.len() + 1);
@@ -142,35 +164,75 @@ fn candidate_ports(entry: &ProviderSpec) -> Vec<u16> {
     ports
 }
 
-/// Asks one port whether this server is behind it.
-async fn probe_port(port: u16, path: &str) -> Result<Reachable, String> {
+/// Every address worth asking, best first: the user's own, the app's config, then the usual
+/// ports on IPv4 and IPv6 loopback (some servers bind only `::1` when told "localhost").
+fn candidate_bases(entry: &ProviderSpec, endpoints: &Endpoints) -> Vec<String> {
+    let mut bases: Vec<String> = Vec::new();
+    let mut push = |base: String| {
+        if !bases.contains(&base) {
+            bases.push(base);
+        }
+    };
+    if let Some(custom) = endpoints.get(entry.id).and_then(|raw| crate::local::normalize_base(raw)) {
+        push(custom);
+    }
+    for base in crate::local::configured_bases(entry.id) {
+        push(base);
+    }
+    for port in candidate_ports(entry) {
+        push(format!("http://127.0.0.1:{port}"));
+    }
+    for port in candidate_ports(entry) {
+        push(format!("http://[::1]:{port}"));
+    }
+    bases
+}
+
+/// Asks one address whether this server is behind it. Anything that does not answer the
+/// model-list route with JSON is some other program on that port, not this server.
+async fn probe_base(base: String, path: &str, key: Option<&str>) -> Result<Reachable, Miss> {
     let started = std::time::Instant::now();
     let response = reqwest::Client::new()
-        .get(format!("http://127.0.0.1:{port}{path}"))
-        .header("Authorization", "Bearer local")
+        .get(format!("{base}{path}"))
+        .header("Authorization", format!("Bearer {}", key.unwrap_or("local")))
         .timeout(PROBE_TIMEOUT)
         .send()
         .await
-        .map_err(|error| format!("port {port}: {error}"))?;
+        .map_err(|error| Miss::Absent(format!("{base}: {error}")))?;
+    let status = response.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err(Miss::NeedsKey(crate::local::port_of(&base).unwrap_or(0)));
+    }
     if !response.status().is_success() {
-        return Err(format!("port {port}: answered HTTP {}", response.status().as_u16()));
+        return Err(Miss::Absent(format!("{base}: answered HTTP {status}")));
     }
     let latency_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
-    let value: serde_json::Value = response.json().await.unwrap_or(serde_json::Value::Null);
-    Ok(Reachable {
-        port,
-        latency_ms,
-        models: extract_model_names(&value),
-    })
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|_| Miss::Absent(format!("{base}: answered, but not with a model list")))?;
+    if !(value.get("models").is_some() || value.get("data").is_some() || value.is_array()) {
+        return Err(Miss::Absent(format!("{base}: answered, but not with a model list")));
+    }
+    let models = extract_model_names(&value)
+        .into_iter()
+        .filter(|name| !name.to_ascii_lowercase().contains("embed"))
+        .collect();
+    Ok(Reachable { base, latency_ms, models })
 }
 
-async fn server_row(entry: &ProviderSpec, enabled: bool) -> ProviderInfo {
+async fn server_row(entry: &ProviderSpec, enabled: bool, endpoints: &Endpoints, keys: &ApiKeys) -> ProviderInfo {
     let mut row = base_row(entry, enabled);
     let path = entry.probe_path.unwrap_or("/v1/models");
-    let probes = candidate_ports(entry)
-        .into_iter()
-        .map(|port| probe_port(port, path));
+    let key = keys.get(entry.id).map(|key| key.trim()).filter(|key| !key.is_empty());
+    if key.is_some() {
+        row.key_source = Some("keychain".to_owned());
+    }
+    let bases = candidate_bases(entry, endpoints);
+    let probes = bases.into_iter().map(|base| probe_base(base, path, key));
+    let mut needs_key = None;
     let mut last_reason = String::new();
+    // Results come back in candidate order, so the user's address and the config win ties.
     for result in futures_util::future::join_all(probes).await {
         match result {
             Ok(found) => {
@@ -179,33 +241,45 @@ async fn server_row(entry: &ProviderSpec, enabled: bool) -> ProviderInfo {
                 };
                 row.models = found.models;
                 row.installed = true;
-                row.detected_port = Some(found.port);
+                row.detected_port = crate::local::port_of(&found.base);
+                row.base_url = Some(found.base);
                 if row.models.is_empty() {
                     row.health = Health::Degraded {
-                        reason: "running, but no model is loaded or installed".to_owned(),
+                        reason: format!("{} is running, but has no chat model downloaded or loaded", entry.label),
                     };
                 }
                 return row;
             }
-            Err(reason) if last_reason.is_empty() => last_reason = reason,
-            Err(_) => {}
+            Err(Miss::NeedsKey(port)) => {
+                needs_key.get_or_insert(port);
+            }
+            Err(Miss::Absent(reason)) if last_reason.is_empty() => last_reason = reason,
+            Err(Miss::Absent(_)) => {}
         }
     }
-    row.offered = entry.id == "ollama" && ollama_on_disk();
+    if let Some(port) = needs_key {
+        row.installed = true;
+        row.offered = true;
+        row.detected_port = Some(port);
+        row.health = Health::Unavailable {
+            reason: if key.is_some() {
+                format!("{} rejected the saved API key on port {port}", entry.label)
+            } else {
+                format!("{} is running on port {port}, but asks for an API key — paste the one set in {} below", entry.label, entry.label)
+            },
+        };
+        return row;
+    }
+    row.offered = crate::local::installed(entry.id);
+    row.can_start = row.offered && crate::local::can_start(entry.id);
     let reason = if row.offered {
-        "installed, but not running — start Ollama to use it".to_owned()
+        crate::local::stopped_reason(entry.id)
     } else {
         tracing::debug!(provider = entry.id, reason = %last_reason, "local server not detected");
         "not running".to_owned()
     };
     row.health = Health::Unavailable { reason };
     row
-}
-
-/// Ollama's app installs its binary where PATH lookup finds it; presence on disk only
-/// changes the wording ("start it" versus "install it"), never usability.
-fn ollama_on_disk() -> bool {
-    resolve_command("ollama").is_some_and(|command| command.target_exists())
 }
 
 async fn cloud_row(entry: &'static ProviderSpec, enabled: bool, keys: &ApiKeys) -> ProviderInfo {
@@ -219,7 +293,7 @@ async fn cloud_row(entry: &'static ProviderSpec, enabled: bool, keys: &ApiKeys) 
     row.installed = true;
     match list_cloud_models(entry, &key).await {
         Ok(models) => {
-            row.models = models;
+            row.models = prefer_curated(models, entry.models);
             row.health = Health::Healthy { latency_ms: 0 };
         }
         Err(CloudProbe::Rejected(reason)) => {
@@ -273,6 +347,24 @@ async fn list_cloud_models(entry: &ProviderSpec, key: &str) -> Result<Vec<String
     Ok(cloud_chat_models(entry.id, extract_model_names(&value)))
 }
 
+/// Orders a live model list so the catalogue's recommended models (in catalogue order) lead and
+/// everything else follows in the vendor's order. The first entry is the default a turn uses when
+/// the user picked nothing, so it has to be a good one rather than whatever the vendor listed first.
+#[must_use]
+pub fn prefer_curated(live: Vec<String>, curated: &[&str]) -> Vec<String> {
+    let mut ordered: Vec<String> = curated
+        .iter()
+        .filter(|wanted| live.iter().any(|name| name == *wanted))
+        .map(|wanted| (*wanted).to_owned())
+        .collect();
+    for name in live {
+        if !ordered.contains(&name) {
+            ordered.push(name);
+        }
+    }
+    ordered
+}
+
 /// A vendor's `/models` answer, reduced to what a chat turn can use: Gemini's `models/`
 /// prefix dropped, and every embedding, speech, image and moderation endpoint left out.
 #[must_use]
@@ -286,6 +378,10 @@ pub fn cloud_chat_models(provider: &str, names: Vec<String>) -> Vec<String> {
     if provider == "openrouter" {
         return dedup(names.collect());
     }
+    // Zen lists models on endpoints Bhippi has no adapter for; offering them would only fail.
+    if provider == crate::zen::ID {
+        return dedup(names.filter(|name| is_chat_model(name) && crate::zen::supported(name)).collect());
+    }
     dedup(names.filter(|name| is_chat_model(name)).collect())
 }
 
@@ -294,7 +390,7 @@ fn is_chat_model(name: &str) -> bool {
     const NOT_CHAT: &[&str] = &[
         "embed", "tts", "whisper", "dall-e", "moderation", "davinci", "babbage", "audio",
         "realtime", "transcribe", "image", "search", "computer-use", "sora", "imagen", "veo",
-        "aqa", "imagine", "ocr", "guard", "lyria", "native-audio", "-live", "playai",
+        "aqa", "imagine", "ocr", "guard", "lyria", "native-audio", "-live", "playai", "voice",
     ];
     let lower = name.to_ascii_lowercase();
     !NOT_CHAT.iter().any(|needle| lower.contains(needle))
@@ -314,6 +410,8 @@ fn builtin_row() -> ProviderInfo {
         enabled: true,
         accepts_custom_model: false,
         detected_port: None,
+        base_url: None,
+        can_start: false,
         key_env: None,
         key_source: None,
         install_command: None,
@@ -467,7 +565,7 @@ mod tests {
     #[tokio::test]
     async fn a_local_server_that_is_not_listening_is_never_usable() {
         let spec = crate::spec("vllm").expect("vllm");
-        let mut row = server_row(spec, true).await;
+        let mut row = server_row(spec, true, &super::Endpoints::new(), &ApiKeys::new()).await;
         row.usable = row.compute_usable();
         if row.detected_port.is_none() {
             assert!(!row.usable, "{:?}", row.health);
@@ -573,6 +671,28 @@ openrouter/cohere/north-mini-code:free
         assert_eq!(parse_model_list(opencode).len(), 4);
     }
 
+    #[test]
+    fn a_live_list_leads_with_the_recommended_models() {
+        let live = ["z-new", "b", "old", "a"].map(str::to_owned).to_vec();
+        assert_eq!(super::prefer_curated(live, &["a", "gone", "b"]), ["a", "b", "z-new", "old"]);
+    }
+
+    #[test]
+    fn zen_offers_only_models_bhippi_can_reach() {
+        let zen = json!({ "object": "list", "data": [
+            { "id": "claude-opus-5-5" }, { "id": "gpt-6-sol" }, { "id": "gemini-3.8-flash" },
+            { "id": "grok-4.7" }, { "id": "kimi-k3" }, { "id": "jev-1.13" }, { "id": "qwen3.6-plus" },
+            { "id": "big-pickle" }, { "id": "muse-spark-1.3" },
+        ] });
+        assert_eq!(
+            cloud_chat_models("opencode-zen", extract_model_names(&zen)),
+            ["claude-opus-5-5", "kimi-k3", "qwen3.6-plus", "big-pickle"]
+        );
+        for model in crate::spec("opencode-zen").expect("zen").models {
+            assert!(crate::zen::supported(model), "{model} is in the fallback but unreachable");
+        }
+    }
+
     /// Cloud rows with no key still carry the offline list, so adding a key is the only step.
     #[test]
     fn every_cloud_vendor_has_an_offline_fallback_list() {
@@ -590,7 +710,7 @@ mod live {
     #[ignore = "probes the real CLIs, servers and keys on this machine"]
     async fn live_detect() {
         let started = std::time::Instant::now();
-        let rows = super::detect(crate::CATALOG, &[], &super::ApiKeys::new()).await;
+        let rows = super::detect(crate::CATALOG, &[], &super::ApiKeys::new(), &super::Endpoints::new()).await;
         for row in rows {
             println!(
                 "{:<12} installed={:<5} usable={:<5} version={:?} health={:?} models={} {:?}",
@@ -605,7 +725,7 @@ mod live {
         }
         println!("took {:?}", started.elapsed());
         if let Ok(path) = std::env::var("BHIPPI_DETECT_DUMP") {
-            let rows = super::detect(crate::CATALOG, &[], &super::ApiKeys::new()).await;
+            let rows = super::detect(crate::CATALOG, &[], &super::ApiKeys::new(), &super::Endpoints::new()).await;
             std::fs::write(path, serde_json::to_string_pretty(&rows).unwrap_or_default()).expect("dump");
         }
     }

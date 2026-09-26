@@ -42,5 +42,10 @@ fn main() {
     if args.first().map(String::as_str) == Some(bhippi_lib::MCP_BRIDGE_FLAG) {
         std::process::exit(bhippi_lib::run_mcp_bridge(&args[1..]));
     }
+    // Speech synthesis runs native code in a child copy of this program, so a crash there never
+    // takes the editor with it. See `kokoro.rs`.
+    if args.first().map(String::as_str) == Some(bhippi_lib::KOKORO_WORKER_FLAG) {
+        std::process::exit(bhippi_lib::run_kokoro_worker());
+    }
     bhippi_lib::run();
 }

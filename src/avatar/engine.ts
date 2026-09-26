@@ -15,8 +15,8 @@ import { LINES, type ActivityKind, type ClipDiff } from './brain';
 import type { AvatarEvent, Ghost, TurnOutcome } from './bus';
 import { ChatMirror, type Desire } from './mirror';
 import { GLYPH_H, drawText, textWidth, wrap } from './pixelFont';
-import { FPS, poseAt, type AnimName, type AnimOptions } from './poses';
-import { ART_H, ART_W, CHARACTERS, CX, FEET_Y, HAIR_TOP, TORSO_Y, handPoint, paint, type Character, type Gear } from './sprite';
+import { CAT_NAP, FPS, KENNEL, poseAt, type AnimName, type AnimOptions } from './poses';
+import { ART_H, ART_W, CHARACTERS, CAT_TOP, CX, FEET_Y, HAIR_TOP, TORSO_Y, handPoint, paint, type Character, type Gear } from './sprite';
 
 /** Screen pixels per art pixel. */
 export const SCALE = 2;
@@ -157,7 +157,7 @@ export class AvatarEngine {
   private lastSlap = 0;
   private pointer: Vec | null = null;
 
-  private held: { start: number; startPos: Vec; origin: Vec; grab: Vec; lifted: number; pointer: Vec; moved: number; lastLine: number; samples: { t: number; x: number; y: number }[] } | null = null;
+  private held: { start: number; startPos: Vec; origin: Vec; midAir: boolean; grab: Vec; lifted: number; pointer: Vec; moved: number; lastLine: number; samples: { t: number; x: number; y: number }[] } | null = null;
   private fallFrom = 0;
 
   private bubble: { text: string; until: number; style: 'normal' | 'shout' | 'laugh'; lines: string[]; w: number; h: number; drawnAt: number } | null = null;
@@ -168,8 +168,12 @@ export class AvatarEngine {
   private fxDirty = false;
   private timers: number[] = [];
 
-  constructor(layer: HTMLElement, character: Character = 'heli') {
+  /** Right-click on the character: the host shows its menu (hide it, its settings) at that point. */
+  private readonly menu?: (point: Vec) => void;
+
+  constructor(layer: HTMLElement, character: Character = 'heli', menu?: (point: Vec) => void) {
     this.layer = layer;
+    this.menu = menu;
     this.character = character;
     this.fx = this.el('canvas', 'avatar-fx') as HTMLCanvasElement;
     this.fxCtx = this.fx.getContext('2d')!;
@@ -187,17 +191,18 @@ export class AvatarEngine {
     this.spriteCtx = this.sprite.getContext('2d')!;
     this.hitbox = document.createElement('div');
     this.hitbox.className = 'avatar-hitbox';
-    Object.assign(this.hitbox.style, { left: `${(CX - 14) * S}px`, top: `${(HAIR_TOP + 3) * S}px`, width: `${28 * S}px`, height: `${(FEET_Y - HAIR_TOP - 3) * S}px` });
-    this.hitbox.title = `${this.name} — drag me, poke me`;
+    this.fitHitbox();
     this.body.append(this.sprite, this.hitbox);
     this.tagEl = this.el('canvas', 'avatar-tag') as HTMLCanvasElement;
     this.bubbleEl = this.el('canvas', 'avatar-bubble') as HTMLCanvasElement;
     this.resize();
 
     this.hitbox.addEventListener('pointerdown', this.onGrab);
+    this.hitbox.addEventListener('contextmenu', this.onMenu);
     this.hitbox.addEventListener('pointermove', this.onDrag);
     this.hitbox.addEventListener('pointerup', this.onDrop);
     this.hitbox.addEventListener('pointercancel', this.onDrop);
+    this.hitbox.addEventListener('lostpointercapture', this.onDrop);
     document.addEventListener('pointerdown', this.onDocPointer, true);
     document.addEventListener('keydown', this.onKey, true);
     window.addEventListener('pointermove', this.onPointerMove, { passive: true });
@@ -209,6 +214,18 @@ export class AvatarEngine {
     this.raf = requestAnimationFrame(this.frame);
   }
 
+  /** The row the top of its head reaches: the cat stands lower than the others. */
+  private get top() {
+    return this.character === 'cat' ? CAT_TOP : HAIR_TOP;
+  }
+
+  /** The grab-and-poke area over the drawing, sized to whoever is on screen. */
+  private fitHitbox() {
+    const cat = this.character === 'cat';
+    Object.assign(this.hitbox.style, { left: `${(CX - (cat ? 20 : 14)) * S}px`, top: `${(this.top + 3) * S}px`, width: `${(cat ? 42 : 28) * S}px`, height: `${(FEET_Y - this.top - 3) * S}px` });
+    this.hitbox.title = `${this.name} — drag me, poke me, right-click for options`;
+  }
+
   private get name() {
     return CHARACTERS.find((entry) => entry.id === this.character)?.name ?? 'Heli';
   }
@@ -217,16 +234,18 @@ export class AvatarEngine {
   setCharacter(character: Character) {
     if (character === this.character) return;
     this.character = character;
-    this.hitbox.title = `${this.name} — drag me, poke me`;
+    this.fitHitbox();
     this.lastKey = '';
   }
 
   destroy() {
     cancelAnimationFrame(this.raf);
     this.hitbox.removeEventListener('pointerdown', this.onGrab);
+    this.hitbox.removeEventListener('contextmenu', this.onMenu);
     this.hitbox.removeEventListener('pointermove', this.onDrag);
     this.hitbox.removeEventListener('pointerup', this.onDrop);
     this.hitbox.removeEventListener('pointercancel', this.onDrop);
+    this.hitbox.removeEventListener('lostpointercapture', this.onDrop);
     document.removeEventListener('pointerdown', this.onDocPointer, true);
     document.removeEventListener('keydown', this.onKey, true);
     window.removeEventListener('pointermove', this.onPointerMove);
@@ -464,7 +483,11 @@ export class AvatarEngine {
     if (!this.visible) return;
     if (this.mode === 'held') this.updateHeld(dt, now);
     else if (this.mode === 'falling') this.updateFalling(dt, now);
-    else this.updateFree(dt, now);
+    else {
+      // Standing up straight is the resting state: any tilt a grab or a drop left behind eases out.
+      if (this.angle || this.angleVel) this.settleAngle(dt);
+      this.updateFree(dt, now);
+    }
     this.updateParticles(Math.min(0.25, real));
     this.render(now);
   };
@@ -472,6 +495,13 @@ export class AvatarEngine {
   private setAnim(anim: AnimName, now: number, options: AnimOptions = {}) {
     const key = JSON.stringify(options);
     if (anim !== this.anim || key !== JSON.stringify(this.opts)) {
+      // Woken up, the genie bursts back out of its lamp.
+      if (this.anim === 'sleep' && anim !== 'sleep' && this.character === 'genie' && now - this.animT0 > 600) this.poof(this.pos.x, this.pos.y - 40);
+      // Woken up, the puppy's kennel vanishes in a puff as it bounds out.
+      if (this.anim === 'sleep' && anim !== 'sleep' && this.character === 'puppy' && now - this.animT0 > 700) {
+        const [x, y] = this.artToScreen([KENNEL.x, FEET_Y - 12]);
+        this.poof(x, y);
+      }
       if (anim !== this.anim) this.animT0 = now;
       this.anim = anim;
       this.opts = options;
@@ -571,7 +601,24 @@ export class AvatarEngine {
     this.tag = null;
     if (now - this.lastActive > 60_000) {
       this.setAnim('sleep', now);
-      if (Math.floor(now / 1100) !== Math.floor((now - dt * 1000) / 1100)) this.emit({ kind: 'text', text: 'z', x: this.pos.x + 14, y: this.pos.y - 92, vx: 14, vy: -26, color: '#bfe6ff', life: 2 });
+      // The genie sleeps inside its lamp: a puff as it streams in, and the z's rise from the spout.
+      // The puppy sets its kennel down with a bump of dust, and snores out of the doorway.
+      const inLamp = this.character === 'genie';
+      const inKennel = this.character === 'puppy';
+      const slept = now - this.animT0;
+      const reached = (ms: number) => slept >= ms && slept - dt * 1000 < ms;
+      if (inLamp && reached(600)) this.poof(this.pos.x, this.pos.y - 40);
+      if (inKennel && reached(KENNEL.landsAt * 1000)) {
+        const [x, y] = this.artToScreen([KENNEL.x, FEET_Y]);
+        this.dust(x, y, 8);
+      }
+      // The cat curls up after its stretch and its kneading; the z's rise from its curled-up head.
+      const curled = this.character === 'cat';
+      if (inLamp ? slept > 1100 : inKennel ? slept > KENNEL.asleepAt * 1000 : curled ? slept > CAT_NAP * 1000 : true) {
+        const [kx, ky] = this.artToScreen(inKennel ? [KENNEL.x + 6, FEET_Y - 13] : [CX + 12, FEET_Y - 26]);
+        const z = inLamp ? { x: this.pos.x + 12 * S * this.facing, y: this.pos.y - 14 * S } : inKennel || curled ? { x: kx, y: ky } : { x: this.pos.x + 14, y: this.pos.y - 92 };
+        if (Math.floor(now / 1100) !== Math.floor((now - dt * 1000) / 1100)) this.emit({ kind: 'text', text: 'z', x: z.x, y: z.y, vx: 14 * (inLamp || inKennel || curled ? this.facing : 1), vy: -26, color: '#bfe6ff', life: 2 });
+      }
     } else this.setAnim('idle', now);
   }
 
@@ -579,7 +626,7 @@ export class AvatarEngine {
     job.started = now;
     // The first frame of long work: it notices the job ("!"); straight after thinking, an idea.
     if (WORK.has(job.kind)) {
-      const head = this.pos.y - (FEET_Y - HAIR_TOP) * S;
+      const head = this.pos.y - (FEET_Y - this.top) * S;
       if (this.lastJob === 'think') this.emit({ kind: 'bulb', x: this.pos.x + 26 * this.facing, y: head + 10, vx: 0, vy: -10, color: '#ffe066', life: 1.1 });
       else this.emit({ kind: 'marks', x: this.pos.x + 26 * this.facing, y: head + 22, vx: 0, vy: 0, color: '#ffc23d', life: 0.55, dir: this.facing });
     }
@@ -605,8 +652,8 @@ export class AvatarEngine {
     const t = (now - job.started) / 1000;
     const once = (key: string, at: number, fn: () => void) => { if (t >= at && !job.fired.has(key)) { job.fired.add(key); fn(); } };
     const every = (period: number, fn: () => void) => { if (Math.floor(t / period) !== Math.floor((t - dt) / period)) fn(); };
-    const hand = (which: 'l' | 'r') => this.artToScreen(handPoint(poseAt(this.anim, t, this.opts), which));
-    const overHead = this.pos.y - (FEET_Y - HAIR_TOP) * S;
+    const hand = (which: 'l' | 'r') => this.artToScreen(handPoint(poseAt(this.anim, t, { ...this.opts, character: this.character }), which));
+    const overHead = this.pos.y - (FEET_Y - this.top) * S;
     this.setAnim(job.anim, now, this.jobOptions(job));
     switch (job.kind) {
       case 'polish': {
@@ -744,16 +791,24 @@ export class AvatarEngine {
     this.fxCtx.imageSmoothingEnabled = false;
   }
 
+  private onMenu = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.mode === 'held') return;
+    this.menu?.({ x: event.clientX, y: event.clientY });
+  };
+
   private onGrab = (event: PointerEvent) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     this.hitbox.setPointerCapture(event.pointerId);
+    const midAir = this.mode === 'falling';
     this.mode = 'held';
     this.travel = null;
     this.legs = [];
     const pointer = { x: event.clientX, y: event.clientY };
-    this.held = { start: performance.now(), startPos: pointer, origin: { ...this.pos }, grab: { x: this.pos.x - pointer.x, y: this.pos.y - pointer.y }, lifted: 0, pointer, moved: 0, lastLine: 0, samples: [] };
+    this.held = { start: performance.now(), startPos: pointer, origin: { ...this.pos }, midAir, grab: { x: this.pos.x - pointer.x, y: this.pos.y - pointer.y }, lifted: 0, pointer, moved: 0, lastLine: 0, samples: [] };
     this.hitbox.classList.add('grabbing');
   };
 
@@ -769,27 +824,44 @@ export class AvatarEngine {
 
   private onDrop = (event: PointerEvent) => {
     if (this.mode !== 'held' || !this.held) return;
-    this.hitbox.releasePointerCapture?.(event.pointerId);
+    const held = this.held;
+    // Cleared before releasing: releasing fires lostpointercapture, which lands here again.
+    this.held = null;
+    if (this.hitbox.hasPointerCapture?.(event.pointerId)) this.hitbox.releasePointerCapture(event.pointerId);
     this.hitbox.classList.remove('grabbing');
     const now = performance.now();
-    const held = this.held;
-    this.held = null;
     this.lastActive = now;
+    if (!held.lifted && held.midAir) {
+      // Caught mid-fall and let go without a lift: it carries on falling from where it hung.
+      this.vel = { x: 0, y: 0 };
+      this.mode = 'falling';
+      return;
+    }
     if (!held.lifted) {
       // A click, not a lift: a giggle where it stands, then back to work.
       this.mode = 'free';
+      this.angle = 0;
+      this.angleVel = 0;
       this.pos = held.origin;
       this.interrupt(this.makeJob('poked', { line: pick(LINES.poked), minMs: 700 }));
       return;
     }
-    const first = held.samples[0];
-    const last = held.samples[held.samples.length - 1];
+    // Only the last moment of the drag throws it; a pause before letting go is a plain drop.
+    const recent = held.samples.filter((s) => now - s.t < 90);
+    const first = recent[0];
+    const last = recent[recent.length - 1];
     const span = first && last ? Math.max(16, last.t - first.t) / 1000 : 1;
     this.vel = first && last ? { x: clamp((last.x - first.x) / span, -1600, 1600), y: clamp((last.y - first.y) / span, -1600, 1200) } : { x: 0, y: 0 };
     this.mode = 'falling';
     this.fallFrom = this.pos.y;
     this.bubble = null;
   };
+
+  private settleAngle(dt: number) {
+    this.angleVel = 0;
+    this.angle *= 1 - Math.min(1, dt * 12);
+    if (Math.abs(this.angle) < 0.2) this.angle = 0;
+  }
 
   private updateHeld(dt: number, now: number) {
     const held = this.held;
@@ -801,8 +873,9 @@ export class AvatarEngine {
     this.sitting = false;
     this.setAnim('dangle', now);
     this.tag = null;
-    // Swing from the grip: pulled against the direction the mouse moves.
-    const samples = held.samples;
+    // Swing from the grip: pulled against the direction the mouse moves. A mouse held still
+    // leaves no fresh samples, so it swings back to hanging straight.
+    const samples = (held.samples = held.samples.filter((s) => now - s.t < 90));
     const vx = samples.length > 1 ? (samples[samples.length - 1].x - samples[0].x) / Math.max(0.016, (samples[samples.length - 1].t - samples[0].t) / 1000) : 0;
     const target = clamp(-vx * 0.05, -50, 50) + Math.sin(now / 90) * 6;
     this.angleVel += ((target - this.angle) * 60 - this.angleVel * 9) * dt;
@@ -1117,7 +1190,7 @@ export class AvatarEngine {
       this.drawTag();
       this.put(this.tagEl, 'display', '');
       const w = this.tagEl.width * S;
-      this.put(this.tagEl, 'transform', `translate3d(${Math.round(this.pos.x - w / 2)}px, ${Math.round(this.pos.y - (FEET_Y - HAIR_TOP + 3) * S - this.tagEl.height * S)}px, 0)`);
+      this.put(this.tagEl, 'transform', `translate3d(${Math.round(this.pos.x - w / 2)}px, ${Math.round(this.pos.y - (FEET_Y - this.top + 3) * S - this.tagEl.height * S)}px, 0)`);
     } else {
       this.put(this.tagEl, 'display', 'none');
       delete this.tagEl.dataset.role;
@@ -1130,7 +1203,7 @@ export class AvatarEngine {
       this.put(this.bubbleEl, 'display', '');
       const bw = this.bubbleEl.width * S;
       const bh = this.bubbleEl.height * S;
-      const headTop = this.pos.y - (FEET_Y - HAIR_TOP - 2) * S - (this.tag ? 22 : 0);
+      const headTop = this.pos.y - (FEET_Y - this.top - 2) * S - (this.tag ? 22 : 0);
       const x = flip ? this.pos.x - 10 - bw : this.pos.x + 10;
       this.put(this.bubbleEl, 'transform', `translate3d(${Math.round(clamp(x, 4, window.innerWidth - bw - 4))}px, ${Math.round(Math.max(4, headTop - bh))}px, 0)`);
     } else this.put(this.bubbleEl, 'display', 'none');

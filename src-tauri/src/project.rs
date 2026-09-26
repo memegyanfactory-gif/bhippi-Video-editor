@@ -826,6 +826,10 @@ pub struct Comp {
     /// clip ids and Edit DNA. Opaque here, like `production`; kept so it survives save and load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roast: Option<serde_json::Value>,
+    /// A short cut from a longer video (see src/lib/shorts.ts `ShortInfo`): its rating and source
+    /// ranges. Opaque here, like `roast`; kept so it survives save and load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short: Option<serde_json::Value>,
     pub id: String,
     pub name: String,
     pub width: u32,
@@ -1018,6 +1022,10 @@ pub struct Project {
     /// src/lib/council.ts); the UI owns the shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<serde_json::Value>,
+    /// LUTs imported for the Color Studio (see src/lib/luts.ts); the UI owns the shape. The export
+    /// never reads them: every grade arrives already baked into its own table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub luts: Option<serde_json::Value>,
 }
 
 pub const VERSION: u32 = 3;
@@ -1055,6 +1063,7 @@ impl Default for Project {
             caption_style: None,
             active_brand_kit_id: None,
             provenance: None,
+            luts: None,
         }
     }
 }
@@ -1466,6 +1475,7 @@ pub mod fixtures {
             video_blueprint: None,
             production: None,
             roast: None,
+            short: None,
             id: id.to_owned(),
             name: id.to_owned(),
             width: 1920,

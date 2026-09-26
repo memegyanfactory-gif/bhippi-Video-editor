@@ -1081,10 +1081,21 @@ impl Graph<'_> {
 
     fn effect_chain(&mut self, list: &[serde_json::Value], height: u32, enable: &str) -> Vec<String> {
         let mut output=Vec::new();
+        // The Color Studio grades the source first, whatever its place in the stack — as the
+        // preview's GPU pass does (src/editor/GradeCanvas.tsx).
+        let mut list: Vec<&serde_json::Value>=list.iter().collect();
+        list.sort_by_key(|fx| fx["effectId"].as_str()!=Some("lumetri-color"));
         for fx in list {
             if fx["enabled"].as_bool()==Some(false) {continue;}
             let id=fx["effectId"].as_str().unwrap_or("");let p=&fx["params"];
             let n=|key:&str,default:f64|p[key].as_f64().filter(|x|x.is_finite()).unwrap_or(default);
+            if id=="lumetri-color" {
+                if let Some(cube)=grade_cube(p) {
+                    let file=self.file("grade","cube",cube.into_bytes());
+                    output.push(format!("lut3d=file='{file}':interp=trilinear{enable}"));
+                }
+                continue;
+            }
             if let Some(tables)=p["_exportTables"].as_str().and_then(|s|serde_json::from_str::<Vec<Vec<String>>>(s).ok()) {
                 if tables.len()>=3 && tables.iter().all(|t|t.len()==256 && t.iter().all(|v|v.parse::<f64>().is_ok_and(|x|x.is_finite()&&(0.0..=1.0).contains(&x)))) {
                     let mut cube=String::from("LUT_1D_SIZE 256\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n");
@@ -1105,7 +1116,6 @@ impl Graph<'_> {
             }
             match id {
                 "gaussian-blur"=>{let sigma=n("blurriness",15.0).max(0.0)*f64::from(height)/1080.0;if sigma>0.0{output.push(format!("gblur=sigma={}{enable}",num(sigma)));}},
-                "lumetri-color"=>{let mut e=Effects::default();e.saturation=n("saturation",100.0);output.extend(effects(&e,height,enable));},
                 "hue-saturation"|"color-balance-hls"=>{let mut e=Effects::default();e.hue=n("masterHue",0.0);e.saturation=(100.0+n("masterSaturation",0.0)).max(0.0);output.extend(effects(&e,height,enable));let light=n("masterLightness",0.0);if light!=0.0{let value=num((1.0+light/100.0).max(0.0));output.push(format!("lutrgb=r='clip(val*{value},0,255)':g='clip(val*{value},0,255)':b='clip(val*{value},0,255)'{enable}"));}},
                 "invert"=>{let mut e=Effects::default();e.invert=n("amount",100.0);output.extend(effects(&e,height,enable));},
                 "black-white"=>{let mut e=Effects::default();e.saturation=100.0-n("amount",100.0);output.extend(effects(&e,height,enable));},
@@ -1156,5 +1166,47 @@ impl Graph<'_> {
             }
         }
         output
+    }
+}
+
+/// The Color Studio grade of an effect's params as .cube text: `_exportLut3d` holds its
+/// `_lutSize`³ RGB entries (red fastest) as base64 little-endian 16-bit values, baked by
+/// src/lib/effectExport.ts from the same function the preview draws with.
+pub(super) fn grade_cube(params: &serde_json::Value) -> Option<String> {
+    use base64::Engine;
+    use std::fmt::Write as _;
+    let size = params["_lutSize"].as_u64().filter(|size| (2..=65).contains(size))? as usize;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(params["_exportLut3d"].as_str()?).ok()?;
+    if bytes.len() != size * size * size * 3 * 2 {
+        return None;
+    }
+    let mut cube = format!("LUT_3D_SIZE {size}
+DOMAIN_MIN 0 0 0
+DOMAIN_MAX 1 1 1
+");
+    for entry in bytes.chunks_exact(6) {
+        let value = |i: usize| f64::from(u16::from_le_bytes([entry[i], entry[i + 1]])) / 65535.0;
+        let _ = writeln!(cube, "{:.6} {:.6} {:.6}", value(0), value(2), value(4));
+    }
+    Some(cube)
+}
+
+#[cfg(test)]
+mod grade_tests {
+    use super::grade_cube;
+    use base64::Engine;
+
+    #[test]
+    fn a_baked_grade_becomes_a_cube_and_a_broken_one_does_not() {
+        let size = 2usize;
+        let values: Vec<u16> = (0..size * size * size * 3).map(|i| if i % 3 == 0 { 65535 } else { 0 }).collect();
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let cube = grade_cube(&serde_json::json!({"_exportLut3d": encoded, "_lutSize": 2})).expect("a cube");
+        assert!(cube.starts_with("LUT_3D_SIZE 2\n"));
+        assert_eq!(cube.lines().filter(|line| line.starts_with("1.000000 0.000000 0.000000")).count(), 8);
+        assert!(grade_cube(&serde_json::json!({"_exportLut3d": encoded, "_lutSize": 3})).is_none(), "wrong size");
+        assert!(grade_cube(&serde_json::json!({"_lutSize": 2})).is_none(), "no table");
+        assert!(grade_cube(&serde_json::json!({"_exportLut3d": "not base64!", "_lutSize": 2})).is_none());
     }
 }

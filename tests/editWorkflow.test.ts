@@ -227,3 +227,35 @@ describe('enforced editorial pipeline', () => {
   });
 });
 
+
+describe('shorts in the full workflow', () => {
+  it('lets create_shorts run without a storyboard once the source is analysed, then edit every short', () => {
+    const f = fixture();
+    expect(f.flow.before('choose_shorts_format', {}, f.project)).toBeNull();
+    f.read(); f.speech(); f.frames(); f.caps();
+    // The picked moments are the plan: no storyboard is demanded for them.
+    expect(f.flow.before('create_shorts', { clipId: f.clip.id, shorts: [] }, f.project)).toBeNull();
+    const short = newProject().comps[0];
+    short.id = 'short-1'; short.name = 'Short 1 _ 8.4★';
+    f.project.comps.push(short);
+    f.flow.record('create_shorts', {}, { ok: true, shorts: [{ compId: 'short-1' }] }, f.project);
+    f.project.activeCompId = 'short-1';
+    // Edits on the short are in scope, by compId or as the open comp.
+    expect(f.flow.before('add_text', { compId: 'short-1' }, f.project)).toBeNull();
+    expect(f.flow.before('add_sound_effect', {}, f.project)).toBeNull();
+    // verify wants every short QA'd.
+    expect(f.flow.verify(f.project).error).toContain('run_frame_qa');
+    f.flow.record('run_frame_qa', { compId: 'short-1' }, { ok: true, issues: [] }, f.project);
+    expect(f.flow.verify(f.project).ok).toBe(true);
+  });
+  it('treats a short made earlier as planned in a later turn', () => {
+    const f = fixture();
+    f.comp.short = { rank: 1, score: 8, title: 't', hook: null, reason: null, orientation: 'portrait', assetId: 'source', segments: [{ start: 0, end: 2 }], createdAt: 0 };
+    const flow = new EditWorkflow(f.project, new Map([['source', { id: 'source', kind: 'video', hasAudio: true } as Asset]]));
+    flow.record('get_comp', {}, { ok: true, id: f.comp.id }, f.project);
+    flow.record('analyze_clip_speech', { clipId: f.clip.id }, { ok: true, transcript: { words: [] } }, f.project);
+    flow.record('inspect_clip_frames', { clipId: f.clip.id }, { ok: true, frames: [0, 1, 2, 3, 4, 5], images: Array(6).fill('x') }, f.project);
+    flow.record('local_media_capabilities', {}, { ok: true }, f.project);
+    expect(flow.before('add_text', {}, f.project)).toBeNull();
+  });
+});

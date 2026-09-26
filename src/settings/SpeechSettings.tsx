@@ -13,8 +13,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../components/ui';
-import { api, errorText, events, fileSrc, type ModelInfo, type ServiceKey, type SpeechStatus, type Voice } from '../lib/ipc';
-import type { Job, Settings, VoiceMode } from '../lib/types';
+import { api, errorText, events, fileSrc, type CloudSpeechModels, type ModelInfo, type ServiceKey, type SpeechStatus, type TranscribeEngineOption, type Voice } from '../lib/ipc';
+import type { Job, Settings, TranscribeEngine, VoiceMode } from '../lib/types';
 
 type Props = {
   settings: Settings;
@@ -25,7 +25,7 @@ type Props = {
 /** What each reading mode does, in the order they make sense to try. */
 const MODES: { id: VoiceMode; label: string; blurb: string }[] = [
   { id: 'auto', label: 'Auto', blurb: 'Devanagari is read in Hindi, everything else in English.' },
-  { id: 'hinglish', label: 'Hinglish', blurb: 'Word by word: "yaar ye transition bahut smooth hai" splits between the two voices, so neither language is mangled.' },
+  { id: 'hinglish', label: 'Hinglish', blurb: 'Word by word: in "yaar ye transition bahut smooth hai" the Hindi words get Hindi pronunciation and the English ones English — all in one voice, the way it is actually spoken.' },
   { id: 'hindi-roman', label: 'Romanised Hindi', blurb: 'The whole script is Hindi typed in Latin letters — transliterated, then read in Hindi.' },
   { id: 'en', label: 'English only', blurb: 'One voice, no splitting.' },
   { id: 'hi', label: 'Hindi only', blurb: 'One voice, transliterating anything still in Latin letters.' },
@@ -36,7 +36,7 @@ const SAMPLES: Record<VoiceMode, string> = {
   hinglish: 'Yaar ye transition bahut smooth hai, dekho.',
   'hindi-roman': 'Namaste, main Bhippi hoon.',
   en: 'This is how your voice-over will sound.',
-  hi: 'नमस्ते, मैं हीलियोस हूँ।',
+  hi: 'नमस्ते दोस्तों, आज हम एक बहुत मज़ेदार वीडियो बनाने वाले हैं।',
 };
 
 const LANGUAGE_LABEL: Record<string, string> = {
@@ -52,6 +52,7 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
   const toast = useToast();
   const [status, setStatus] = useState<SpeechStatus | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [cloudModels, setCloudModels] = useState<CloudSpeechModels | null>(null);
   const [services, setServices] = useState<ServiceKey[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -63,6 +64,18 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
   useEffect(() => {
     void api.serviceKeys().then(setServices).catch(() => undefined);
   }, []);
+
+  // The models each keyed voice service offers, re-read when a key comes or goes.
+  useEffect(() => {
+    void api.speechCloudModels().then(setCloudModels).catch(() => setCloudModels(null));
+    void api.speechVoices().then(setVoices).catch(() => undefined);
+  }, [services]);
+
+  // Which transcribers could run: re-read whenever a key or a model comes or goes.
+  const [engineOptions, setEngineOptions] = useState<TranscribeEngineOption[]>([]);
+  useEffect(() => {
+    void api.transcribeEngineOptions().then(setEngineOptions).catch(() => undefined);
+  }, [services, status]);
 
   const saveServiceKey = useCallback(
     async (id: string, key: string) => {
@@ -137,8 +150,8 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
     }
   };
 
-  const locate = async (runtime: 'whisper' | 'piper') => {
-    const picked = await openDialog({ title: runtime === 'whisper' ? 'Pick whisper-cli' : 'Pick the piper program' });
+  const locate = async (runtime: 'whisper' | 'tts') => {
+    const picked = await openDialog({ title: runtime === 'whisper' ? 'Pick whisper-cli' : 'Pick the sherpa-onnx C library (sherpa-onnx-c-api)' });
     if (typeof picked !== 'string') return;
     setBusy(runtime);
     try {
@@ -146,10 +159,10 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
       setStatus(next);
       // The backend stores the program's path in the settings itself: read them back, or the next save undoes it.
       onSettings(await api.settingsGet());
-      const found = runtime === 'whisper' ? next.whisper.found : next.piper.found;
+      const found = runtime === 'whisper' ? next.whisper.found : next.tts.found;
       toast(found
-        ? { tone: 'success', title: 'Found it', body: (runtime === 'whisper' ? next.whisper.path : next.piper.path) ?? '' }
-        : { tone: 'error', title: 'That is not the right program', body: runtime === 'whisper' ? 'Pick whisper-cli (older builds call it main).' : 'Pick the piper program itself.' });
+        ? { tone: 'success', title: 'Found it', body: (runtime === 'whisper' ? next.whisper.path : next.tts.path) ?? '' }
+        : { tone: 'error', title: 'That is not the right program', body: runtime === 'whisper' ? 'Pick whisper-cli (older builds call it main).' : 'Pick sherpa-onnx-c-api from a sherpa-onnx v1.13.8 shared build.' });
     } catch (error) {
       toast({ tone: 'error', title: 'Could not use that path', body: errorText(error) });
     } finally {
@@ -176,14 +189,21 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
   const sttModels = models.filter((model) => model.kind === 'stt-model');
   const ttsVoices = models.filter((model) => model.kind === 'tts-voice');
   const whisperRuntime = models.find((model) => model.kind === 'stt-runtime');
-  const piperRuntime = models.find((model) => model.kind === 'tts-runtime');
+  const kokoroRuntime = models.find((model) => model.kind === 'tts-runtime');
   const sttReady = (status?.whisper.found ?? false) && sttModels.some((model) => model.installed);
-  const hindiVoices = voices.filter((voice) => voice.languages.includes('hi'));
+  // Only Kokoro splits a line between speakers; a cloud voice reads Hindi itself.
+  const hindiVoices = voices.filter((voice) => voice.engine === 'kokoro' && voice.languages.includes('hi'));
+  const cloudVoices = voices.filter((voice) => !voice.offline);
+  const offlineVoices = voices.filter((voice) => voice.offline);
+  // What "Automatic" resolves to today — the same order the backend uses.
+  const automatic = voices.find((voice) => voice.engine === 'elevenlabs') ?? voices.find((voice) => voice.id === 'openai:coral') ?? voices.find((voice) => voice.id === 'kokoro:af_heart');
+  const hasEleven = voices.some((voice) => voice.engine === 'elevenlabs');
+  const hasOpenAi = voices.some((voice) => voice.engine === 'openai');
 
   // Every model/runtime row below draws its own download progress. A running job whose label
   // matches none of them — stale, or from a model this build no longer lists — would otherwise
   // vanish silently instead of showing the user their download is still going.
-  const knownLabels = new Set([...models.map((model) => model.label), whisperRuntime?.label, piperRuntime?.label].filter((label): label is string => !!label));
+  const knownLabels = new Set([...models.map((model) => model.label), whisperRuntime?.label, kokoroRuntime?.label].filter((label): label is string => !!label));
   const otherJobs = jobs.filter((job) => job.kind === 'model' && job.status === 'running' && !knownLabels.has(job.label.replace(/^Downloading /, '')));
 
   return (
@@ -228,9 +248,10 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
       <section className="provider-group">
         <h4><Mic size={14} /> Transcription</h4>
         <p className="group-blurb">
-          Turns the sound in your clips into timed words for the Subtitles panel. With a Deepgram key saved it goes
-          there first — it answers in seconds and follows Hinglish. Otherwise offline is tried whenever a model is
-          here, with a Groq or OpenAI key as the fallback.
+          Turns the sound in your clips into timed words for the Subtitles panel. Auto uses a speech-to-text key first
+          — Deepgram, then ElevenLabs Scribe; both separate speakers and take long files. Without one it uses an AI
+          provider key that can hear audio (OpenAI, Groq, Mistral, Google Gemini or OpenRouter), and then the offline
+          model when one is downloaded. Your ElevenLabs key under Voice-over also turns on Scribe transcription.
         </p>
 
         <ServiceKeyField row={services.find((item) => item.id === 'deepgram')} onSave={saveServiceKey} />
@@ -248,25 +269,11 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
           />
         )}
 
-        <label className="field speech-field">
-          <span>Which transcriber to use</span>
-          <select value={speech?.transcribeEngine ?? 'auto'} onChange={(event) => void save({ transcribeEngine: event.target.value as 'auto' })}>
-            <option value="auto">
-              {services.some((item) => item.id === 'deepgram' && item.saved)
-                ? 'Auto — Deepgram first, then whatever is offline'
-                : 'Auto — offline when it is ready, otherwise a cloud key'}
-            </option>
-            <option value="local">Offline only — never upload the audio</option>
-            <option value="cloud">Cloud only — Deepgram, Groq or OpenAI</option>
-          </select>
-          {/* A saved key that nothing will ever reach is worth saying out loud. */}
-          {services.some((item) => item.id === 'deepgram' && item.saved) && speech?.transcribeEngine === 'local' && (
-            <span className="field-hint warn">
-              Your Deepgram key is saved, but this is set to offline only, so nothing will reach it. Choose Auto to
-              transcribe with Deepgram.
-            </span>
-          )}
-        </label>
+        <TranscriberChoice
+          value={speech?.transcribeEngine ?? 'auto'}
+          options={engineOptions}
+          onChange={(value) => void save({ transcribeEngine: value })}
+        />
 
         <label className="field speech-field">
           <span>Offline model</span>
@@ -282,7 +289,7 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
           </select>
           <span className="field-hint">
             {sttReady
-              ? 'Ready. The Subtitles panel will use this instead of a cloud key.'
+              ? 'Ready. Auto uses it when no key can transcribe; Offline only uses nothing else.'
               : 'Download whisper.cpp and one model below to transcribe without a key.'}
           </span>
         </label>
@@ -303,22 +310,23 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
       <section className="provider-group">
         <h4><Volume2 size={14} /> Voice-over</h4>
         <p className="group-blurb">
-          Reads a script aloud and drops the take in your project. Piper runs here and costs nothing; ElevenLabs and
-          OpenAI sound more natural but send the text to their servers.
+          Reads a script aloud and drops the take in your project. With an ElevenLabs or OpenAI key saved, their voices
+          are used; otherwise Kokoro reads it on this computer — natural English, Hindi and Hinglish, free, and nothing is
+          uploaded. Every take is cleaned up and levelled to the loudness online platforms play speech at.
         </p>
 
         <ServiceKeyField row={services.find((item) => item.id === 'elevenlabs')} onSave={saveServiceKey} />
 
-        {piperRuntime && (
+        {kokoroRuntime && (
           <RuntimeCard
-            model={piperRuntime}
-            found={status?.piper.found ?? false}
-            path={status?.piper.path ?? null}
-            source={status?.piper.source ?? ''}
-            job={downloading[piperRuntime.label]}
-            onDownload={() => void download(piperRuntime)}
-            onLocate={() => void locate('piper')}
-            busy={busy === 'piper'}
+            model={kokoroRuntime}
+            found={status?.tts.found ?? false}
+            path={status?.tts.path ?? null}
+            source={status?.tts.source ?? ''}
+            job={downloading[kokoroRuntime.label]}
+            onDownload={() => void download(kokoroRuntime)}
+            onLocate={() => void locate('tts')}
+            busy={busy === 'tts'}
           />
         )}
 
@@ -326,10 +334,17 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
           <label className="field">
             <span>Voice</span>
             <select value={speech?.voice ?? ''} onChange={(event) => void save({ voice: event.target.value || null })} disabled={!voices.length}>
-              <option value="">{voices.length ? 'First one available' : 'No voice installed yet'}</option>
-              {voices.map((voice) => (
-                <option key={voice.id} value={voice.id}>{voice.label}{voice.offline ? '' : ' · cloud'}</option>
-              ))}
+              <option value="">{automatic ? `Automatic — ${automatic.label}` : 'No voice ready yet'}</option>
+              {cloudVoices.length > 0 && (
+                <optgroup label="Cloud">
+                  {cloudVoices.map((voice) => <option key={voice.id} value={voice.id}>{voice.label}</option>)}
+                </optgroup>
+              )}
+              {offlineVoices.length > 0 && (
+                <optgroup label="Offline · Kokoro">
+                  {offlineVoices.map((voice) => <option key={voice.id} value={voice.id}>{voice.label}</option>)}
+                </optgroup>
+              )}
             </select>
           </label>
           <label className="field">
@@ -339,13 +354,36 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
               onChange={(event) => void save({ hindiVoice: event.target.value || null })}
               disabled={!hindiVoices.length}
             >
-              <option value="">{hindiVoices.length ? 'First Hindi voice available' : 'No Hindi voice installed yet'}</option>
+              <option value="">{hindiVoices.length ? `Automatic — ${hindiVoices[0].label}` : 'Download the Kokoro voices first'}</option>
               {hindiVoices.map((voice) => (
                 <option key={voice.id} value={voice.id}>{voice.label}</option>
               ))}
             </select>
           </label>
         </div>
+
+        {(hasEleven || hasOpenAi) && (
+          <div className="field-row">
+            {hasEleven && (
+              <label className="field">
+                <span>ElevenLabs model</span>
+                <select value={speech?.elevenlabsModel ?? ''} onChange={(event) => void save({ elevenlabsModel: event.target.value || null })}>
+                  <option value="">Automatic — {cloudModels?.elevenlabs.find((model) => model.id === cloudModels.elevenlabsDefault)?.label ?? 'Multilingual v2'}</option>
+                  {(cloudModels?.elevenlabs ?? []).map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+                </select>
+              </label>
+            )}
+            {hasOpenAi && (
+              <label className="field">
+                <span>OpenAI speech model</span>
+                <select value={speech?.openaiTtsModel ?? ''} onChange={(event) => void save({ openaiTtsModel: event.target.value || null })}>
+                  <option value="">Automatic — {cloudModels?.openaiDefault ?? 'gpt-4o-mini-tts'}</option>
+                  {(cloudModels?.openai ?? []).map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
 
         <label className="field speech-field">
           <span>How to read a script</span>
@@ -380,11 +418,68 @@ export function SpeechSettings({ settings, onSettings, jobs }: Props) {
           />
         ))}
         <p className="muted small">
-          For Hinglish, download one Hindi voice and one English voice. Bhippi sends each word to whichever of the two
-          fits it, then joins the pieces into a single take.
+          For Hinglish, one Hindi Kokoro speaker reads the whole line: Hindi words with Hindi pronunciation, English words
+          with English pronunciation — Indian-accented English, the way it is naturally spoken.
         </p>
       </section>
     </div>
+  );
+}
+
+/**
+ * Which transcriber to use: Auto (naming the engine it will pick), cloud only, one engine by name,
+ * or offline only. An engine without a key is listed but cannot be picked, so the choice always
+ * says what is missing rather than failing later in the Subtitles panel.
+ */
+function TranscriberChoice({ value, options, onChange }: {
+  value: TranscribeEngine;
+  options: TranscribeEngineOption[];
+  onChange: (value: TranscribeEngine) => void;
+}) {
+  const cloud = options.filter((option) => !option.offline);
+  const offline = options.find((option) => option.offline);
+  const autoPick = options.find((option) => option.ready);
+  const cloudPick = cloud.find((option) => option.ready);
+  const chosen = options.find((option) => option.id === value);
+  const savedSpeechKey = cloud.find((option) => option.dedicated && option.ready);
+  const row = (option: TranscribeEngineOption) => (
+    <option key={option.id} value={option.id} disabled={!option.ready && option.id !== value}>
+      {option.label}{option.ready ? '' : option.offline ? ' — not downloaded' : ' — no key saved'}
+    </option>
+  );
+  return (
+    <label className="field speech-field">
+      <span>Which transcriber to use</span>
+      <select value={value} onChange={(event) => onChange(event.target.value as TranscribeEngine)}>
+        <option value="auto">{autoPick ? `Auto — ${autoPick.label} now, the next one if it fails` : 'Auto — nothing set up yet'}</option>
+        <option value="cloud">{cloudPick ? `Cloud only — ${cloudPick.label} first, never the offline model` : 'Cloud only — no key saved yet'}</option>
+        <optgroup label="Speech-to-text keys">{cloud.filter((option) => option.dedicated).map(row)}</optgroup>
+        <optgroup label="AI provider keys">{cloud.filter((option) => !option.dedicated).map(row)}</optgroup>
+        <option value="local">{offline?.ready ? `Offline only — ${offline.label}, never upload the audio` : 'Offline only — never upload the audio (not downloaded yet)'}</option>
+      </select>
+      {chosen && !chosen.ready && !chosen.offline && (
+        <span className="field-hint warn">
+          No {chosen.label} key is saved, so nothing will transcribe. Add it in Settings
+          {chosen.dedicated ? ' › Speech & voice' : ' › AI providers'}, or choose Auto.
+        </span>
+      )}
+      {/* A saved key that nothing will ever reach is worth saying out loud. */}
+      {value === 'local' && savedSpeechKey && (
+        <span className="field-hint warn">
+          Your {savedSpeechKey.label} key is saved, but this is set to offline only, so nothing will reach it. Choose
+          Auto to transcribe with it.
+        </span>
+      )}
+      {value === 'auto' && !autoPick && options.length > 0 && (
+        <span className="field-hint">
+          Save a Deepgram or ElevenLabs key, add an OpenAI, Groq, Mistral, Google Gemini or OpenRouter key in
+          Settings › AI providers, or download an offline model below.
+        </span>
+      )}
+      {value !== 'auto' && value !== 'local' && (
+        <span className="field-hint">A single engine is used on its own: if it fails, nothing else is tried.</span>
+      )}
+    </label>
   );
 }
 

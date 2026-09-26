@@ -1,6 +1,6 @@
 // Fills src-tauri/bundled/ with what the installer ships beside Bhippi, so a fresh install works
 // offline from the first launch: FFmpeg + FFprobe (export, previews, analysis), yt-dlp (online
-// media and memes), the whisper.cpp and Piper engines (offline transcription and voices) and the
+// media and memes), the whisper.cpp and Kokoro (sherpa-onnx) engines (offline transcription and voices) and the
 // Robust Video Matting models (Roto). Models big enough to matter — Whisper weights, voices, the
 // GPU AI runtime — are one-click packs inside Bhippi instead, so installers and updates stay small.
 // Text-to-image and text-to-video models are never bundled.
@@ -26,7 +26,7 @@ const SOURCES = {
   ytdlp: { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe', file: 'yt-dlp.exe' },
   // The same archives Settings › Speech & voice downloads (src-tauri/src/models.rs), unpacked the same way.
   whisper: { url: 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip', file: 'whisper-bin-x64.zip' },
-  piper: { url: 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip', file: 'piper_windows_amd64.zip' },
+  kokoro: { url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2', file: 'sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2' },
   rvm32: { url: 'https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx', file: 'rvm_mobilenetv3_fp32.onnx' },
   rvm16: { url: 'https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp16.onnx', file: 'rvm_mobilenetv3_fp16.onnx' },
 };
@@ -96,8 +96,8 @@ if (!existsSync(join(bin, 'yt-dlp.exe'))) cpSync(await download(SOURCES.ytdlp), 
 const models = join(OUT, 'models');
 const whisperDir = join(models, 'bin', 'whisper');
 if (!existsSync(whisperDir)) unzip(await download(SOURCES.whisper), whisperDir);
-const piperDir = join(models, 'bin', 'piper');
-if (!existsSync(piperDir)) unzip(await download(SOURCES.piper), piperDir);
+const kokoroDir = join(models, 'bin', 'kokoro');
+if (!existsSync(kokoroDir)) unzip(await download(SOURCES.kokoro), kokoroDir);
 const matte = join(models, 'matte');
 mkdirSync(matte, { recursive: true });
 for (const source of [SOURCES.rvm32, SOURCES.rvm16]) {

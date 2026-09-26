@@ -192,11 +192,12 @@ impl ToolExecutor for EventExecutor {
         // eraser run for minutes; `ask_user` waits for a human; a 60 s cap on those made the model
         // hear "Bhippi did not respond" while the frontend was still working, and improvise.
         let timeout = match name.as_str() {
-            "ask_user" => self.timeout.max(Duration::from_secs(24 * 3600)),
+            // generate_cloud_media waits on the editor's plan card, then on the generations.
+            "ask_user" | "choose_shorts_format" | "generate_cloud_media" => self.timeout.max(Duration::from_secs(24 * 3600)),
             "rotoscope_clip" | "depth_occlusion_clip" | "analyze_clip_speech" | "generate_local_media" | "import_generated_media" | "generation_job"
             | "download_online_media" | "scrape_videos" | "online_research" | "find_free_media" | "scrape_web_page" | "extract_brand_from_url" | "synthesize_speech_voiceover" | "install_local_model"
             | "erase_subject_clip" | "run_frame_qa" | "level_audio" | "analyze_music_beats" | "track_people" | "podcast_cut" | "wait_subagent" | "run_command" | "bash"
-            | "apply_recipe" | "apply_edit" | "add_captions" | "detect_scenes" | "analyze_reference_video" | "create_motion_scene" | "render_3d_scene" | "track_motion" => self.timeout.max(Duration::from_secs(1800)),
+            | "apply_recipe" | "apply_edit" | "add_captions" | "create_shorts" | "detect_scenes" | "analyze_reference_video" | "create_motion_scene" | "render_3d_scene" | "track_motion" => self.timeout.max(Duration::from_secs(1800)),
             _ => self.timeout.max(Duration::from_secs(180)),
         };
         let gate = self.gate.clone();

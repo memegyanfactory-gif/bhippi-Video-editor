@@ -74,7 +74,7 @@ export function useLicense(): Snapshot {
 
 export const ACCOUNT_URL = 'https://bhippi.com/helios/account';
 
-export const KIND_LABEL: Record<string, string> = { paid: 'Paid', tester: 'Tester', admin: 'Admin' };
+export const KIND_LABEL: Record<string, string> = { paid: 'Premium',tester: 'Tester', admin: 'Admin' };
 
 export function maskKey(key: string): string {
   return key.replace(/-[A-Z0-9]{5}-[A-Z0-9]{5}-/, '-•••••-•••••-');

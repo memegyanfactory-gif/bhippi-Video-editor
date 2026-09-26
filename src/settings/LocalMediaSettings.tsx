@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Box, Check, Cpu, Download, Eraser, Film, FolderOpen, Image, Layers, Music, RefreshCw, Scissors, TriangleAlert, Users } from 'lucide-react';
 import { DownloadProgress, type DownloadJob } from './DownloadProgress';
+import { LocalModelAdvisor, type ModelInstall } from './LocalModelAdvisor';
 import { Toggle } from '../components/ui';
 import { api, errorText } from '../lib/ipc';
 import { AI_PACK_FEATURES, aiPackApi, aiPackReady, type AiPackStatus } from '../lib/aiPack';
@@ -38,7 +39,7 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
     catch (e) { setError(errorText(e)); }
   };
   const install = async (task: string) => {
-    try { const id = await api.localMediaInstall(task, task === 'audio' && hfToken.trim() ? hfToken.trim() : undefined); setMessage(`Download started. Follow progress or cancel in Jobs (${id}).`); }
+    try { const id = await api.localMediaInstall(task, (task === 'audio' || task === 'image-flux') && hfToken.trim() ? hfToken.trim() : undefined); setMessage(`Download started. Follow progress or cancel in Jobs (${id}).`); }
     catch (e) { setError(errorText(e)); }
   };
   useEffect(() => {
@@ -131,6 +132,29 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
     {!rotoOnly && <BlenderCard path={settings.blenderPath ?? null} onChoose={() => void chooseBlender()} onAuto={() => void chooseBlender(true)} />}
 
     {!rotoOnly && (() => {
+      const videoKind = settings.localVideoModel ?? null;
+      const installs: Record<string, ModelInstall> = {};
+      for (const row of status?.tasks ?? []) {
+        const active = row.task === 'image' ? (settings.localImageModel ?? 'sdxl') === 'sdxl'
+          : row.task === 'image-flux' ? settings.localImageModel === 'flux'
+          : row.task === `video-${videoKind}`;
+        installs[row.task] = { configured: row.configured, downloading: row.download?.status === 'running', progress: row.download?.progress, active: row.configured && active };
+      }
+      return <LocalModelAdvisor installs={installs} pythonReady={pythonReady}
+        onDownload={(task) => {
+          if (task === 'image-flux' && !hfToken.trim()) { setError('FLUX.1 schnell is gated: accept its terms on huggingface.co, paste a read token in the FLUX row below, then download.'); return; }
+          void install(task);
+        }}
+        onChoose={(task) => void choose(task)}
+        onUse={(task) => {
+          const next = task.startsWith('image')
+            ? { ...settings, localImageModel: task === 'image-flux' ? 'flux' as const : 'sdxl' as const }
+            : { ...settings, localVideoModel: task.replace('video-', '') as 'ltx' | 'wan' | 'wan22' | 'ltx23' };
+          void api.settingsSave(next).then(onSettings).then(() => setMessage('Model switched. The AI and the generate tools use it from now on.')).catch(e => setError(errorText(e)));
+        }} />;
+    })()}
+
+    {!rotoOnly && (() => {
       const activeKind = settings.localVideoModel ?? (status?.tasks.some(r => r.task === 'video-ltx23' && r.configured) ? 'ltx23' : status?.tasks.some(r => r.task === 'video-wan' && r.configured) ? 'wan' : 'ltx');
       const ltx23Row = status?.tasks.find(r => r.task === 'video-ltx23');
       const ltxRow = status?.tasks.find(r => r.task === 'video-ltx');
@@ -146,12 +170,13 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
               aria-label="Active video model"
               value={activeKind}
               onChange={async (event) => {
-                const next = { ...settings, localVideoModel: event.target.value as 'ltx' | 'wan' | 'ltx23' | 'custom' };
+                const next = { ...settings, localVideoModel: event.target.value as 'ltx' | 'wan' | 'wan22' | 'ltx23' | 'custom' };
                 onSettings(await api.settingsSave(next));
                 setMessage(`Active video model switched to ${event.target.value.toUpperCase()}.`);
               }}
             >
               <option value="ltx23">LTX-Video 2.3 22B (ComfyUI checkpoint · video + synchronized audio)</option>
+              <option value="wan22">Wan 2.2 5B · 720p, 24 fps, needs 16 GB+ VRAM</option>
               <option value="wan">Wan 2.1 1.3B · lightweight, compact model</option>
               <option value="ltx">LTX-Video 2B (Lightricks) · fast, cinematic, fits 10 GB VRAM</option>
               <option value="custom">Custom folder · local Diffusers video model directory</option>
@@ -173,11 +198,26 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
               progress={ltxRow?.download?.status === 'running' ? ltxRow.download : undefined}>
               <button type="button" className="btn btn-small" onClick={() => void choose('video-ltx')}><FolderOpen size={12} /> Choose folder</button>
               <button type="button" className="btn btn-small" disabled={!pythonReady || ltxRow?.download?.status === 'running' || ltxRow?.configured} title={!pythonReady ? 'Choose a Python environment first' : undefined} onClick={() => void install('video-ltx')}>
-                {ltxRow?.download?.status === 'running' ? <><Download size={12} /> Downloading…</> : ltxRow?.configured ? <><Check size={12} /> Installed</> : <><Download size={12} /> Download (~4.8 GB)</>}
+                {ltxRow?.download?.status === 'running' ? <><Download size={12} /> Downloading…</> : ltxRow?.configured ? <><Check size={12} /> Installed</> : <><Download size={12} /> Download (~28 GB)</>}
               </button>
               {ltxRow?.download?.jobId && ltxRow.download.status === 'running' && <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.jobCancel(ltxRow.download!.jobId!).catch(e => setError(errorText(e)))}>Cancel</button>}
             </VideoModelCard>
           )}
+
+          {activeKind === 'wan22' && (() => {
+            const row = status?.tasks.find(r => r.task === 'video-wan22');
+            return (
+              <VideoModelCard tone={taskTone(row).tone} label="Wan 2.2 TI2V 5B" state={taskTone(row).label}
+                path={row?.modelPath || settings.localMediaModels?.['video-wan22'] || null}
+                description="1280×704 at 24 fps, up to 5 s. Sharp 720p with steady motion; ~34 GB download."
+                progress={row?.download?.status === 'running' ? row.download : undefined}>
+                <button type="button" className="btn btn-small" onClick={() => void choose('video-wan22')}><FolderOpen size={12} /> Choose folder</button>
+                <button type="button" className="btn btn-small" disabled={!pythonReady || row?.download?.status === 'running' || row?.configured} title={!pythonReady ? 'Choose a Python environment first' : undefined} onClick={() => void install('video-wan22')}>
+                  {row?.download?.status === 'running' ? <><Download size={12} /> Downloading…</> : row?.configured ? <><Check size={12} /> Installed</> : <><Download size={12} /> Download (~34 GB)</>}
+                </button>
+              </VideoModelCard>
+            );
+          })()}
 
           {activeKind === 'wan' && (
             <VideoModelCard tone={taskTone(wanRow).tone} label="Wan 2.1 1.3B" state={taskTone(wanRow).label}
@@ -204,7 +244,7 @@ export function LocalMediaSettings({ settings, onSettings, rotoOnly = false }: {
     })()}
 
     {(() => {
-      const rows = status?.tasks.filter(row => row.task === row.modelKey && !['video', 'video-ltx', 'video-wan'].includes(row.task) && (!rotoOnly || ['sam2', 'vitmatte'].includes(row.task))) ?? [];
+      const rows = status?.tasks.filter(row => row.task === row.modelKey && !['video', 'video-ltx', 'video-wan', 'video-wan22'].includes(row.task) && (!rotoOnly || ['sam2', 'vitmatte'].includes(row.task))) ?? [];
       if (!rows.length) return null;
       return (
         <section className="provider-group">
@@ -276,7 +316,8 @@ function TaskRow({ row, status, pythonReady, hfToken, onHfToken, onChoose, onIns
 }) {
   const tone = taskTone(row);
   const downloading = row.download?.status === 'running';
-  const description = row.modelKey === 'image' ? 'Shared SDXL Base 1.0 weights · OpenRAIL++ terms · multi-GB download. Masked replacement uses a white replacement region and preserves black regions.'
+  const description = row.task === 'image-flux' ? 'FLUX.1 schnell · Apache 2.0 · ~34 GB · gated: accept the terms on huggingface.co/black-forest-labs/FLUX.1-schnell and paste a read token. Plain text-to-image only; edits stay on SDXL.'
+    : row.modelKey === 'image' ? 'Shared SDXL Base 1.0 weights · OpenRAIL++ terms · multi-GB download. Masked replacement uses a white replacement region and preserves black regions.'
     : row.task === 'sam2' ? 'SAM 2.1 tiny · Apache 2.0 · used by experimental tracked Roto.'
     : row.task === 'vitmatte' ? 'ViTMatte small · Apache 2.0 · refines SAM trimaps into alpha; requires SAM for tracked Roto.'
     : row.task === 'depth' ? 'Depth Anything 3 Small · Apache 2.0 · relative video depth and foreground occlusion, so the AI can place images, video or text behind a subject. Not hair matting or metre-accurate placement.'
@@ -291,7 +332,7 @@ function TaskRow({ row, status, pythonReady, hfToken, onHfToken, onChoose, onIns
         <div className="provider-title"><strong>{row.label}</strong><span className={`pill tone-${tone.tone}`}>{tone.tone === 'ok' && <Check size={11} />}{tone.label}</span></div>
         <div className="provider-detail"><span>{row.modelPath || 'No model directory selected'}</span></div>
         <p className="muted small">{description}</p>
-        {row.task === 'audio' && !row.configured && (
+        {(row.task === 'audio' || row.task === 'image-flux') && !row.configured && (
           <label className="field">
             <span>Hugging Face read token (gated model — accept its terms on huggingface.co first; used once, never stored)</span>
             <input type="password" value={hfToken} onChange={(event) => onHfToken(event.target.value)} placeholder="hf_…" autoComplete="off" />

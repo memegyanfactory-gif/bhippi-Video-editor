@@ -3,7 +3,7 @@
 // recursively, generated items, text, shapes, masks, effects, adjustment layers, keyframes and
 // transitions. Every clip that is on screen (or about to be) keeps its own media element, kept in
 // step with the playhead.
-import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import { beep, ClipChain, startTone } from '../lib/audio';
 import { registerClock } from '../lib/masterClock';
 import { acquireMedia, releaseMedia } from '../lib/mediaPool';
@@ -14,7 +14,7 @@ import { animated } from '../lib/keyframes';
 import { rbBackgroundFromName, rbBackgroundStyle } from '../lib/reactbits';
 import { sfxSrc } from '../lib/sfx';
 import { audible, clipEnd, sourceInfo, sourceTimeAt, tracksOf, transitionWindow, type AssetMap } from '../lib/timeline';
-import type { Asset, Clip, Comp, Mask, Project, ProjectItem, Transition } from '../lib/types';
+import type { AppliedEffect, Asset, Clip, Comp, Mask, Project, ProjectItem, Transition } from '../lib/types';
 import { TextLayer, textAnchor } from './Overlay';
 import { RotoPreview } from './RotoPreview';
 import { MagicMaskLayer } from './MagicMaskLayer';
@@ -25,6 +25,11 @@ import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../l
 import { htmlLayerInfo } from '../lib/htmlLayers';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { edgeBlurDefs, keepEdges } from './edgeBlur';
+import { composeGrades, GradeCanvas, GradedImage, GradeScope, GradeScopeWrap, gradeLut, holderVideo, useGpuGrade, type GradeSpec } from './GradeCanvas';
+import { syncProjectLuts } from '../lib/luts';
+
+/** An enabled Color Studio grade: drawn by the GPU pass (GradeCanvas) wherever it can be. */
+const isGrade = (fx: AppliedEffect) => fx.enabled && fx.effectId === 'lumetri-color';
 
 /** What the webview should load for an asset: its preview proxy when one exists. */
 export const mediaSrc = (asset: Asset | undefined) => (asset ? fileSrc(asset.proxy ?? asset.path) : '');
@@ -308,7 +313,7 @@ function useMediaElement<T extends HTMLMediaElement>(kind: 'video' | 'audio', sr
   return holder;
 }
 
-function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, clip, at = 0, fps = 30, quality = 1, clock, hidden = false, stageH = 1080 }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; clip?: Clip; at?: number; fps?: number; quality?: number; clock?: ClockRole; hidden?: boolean; stageH?: number }) {
+function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, grade, clip, at = 0, fps = 30, quality = 1, clock, hidden = false, stageH = 1080 }: { src: string; sourceTime: number; playing: boolean; rate: number; speed: number; frozen: boolean; matte?: string | null; grade?: GradeSpec | null; clip?: Clip; at?: number; fps?: number; quality?: number; clock?: ClockRole; hidden?: boolean; stageH?: number }) {
   const running = playing && rate > 0 && !frozen;
   // A parked frame is the source frame nearest the playhead, the one the export's `fps` filter
   // picks. The element shows the frame at or before its time, so parked it is aimed half a frame
@@ -338,7 +343,8 @@ function VideoElement({ src, sourceTime, playing, rate, speed, frozen, matte, cl
       if (!video.seeking && Math.abs(video.currentTime - parked) > 1 / 120) seekMedia(video, parked);
     }
   }, clock);
-  return <><div ref={holder} className="layer-media" style={matte ? { visibility: 'hidden' } : undefined} />{matte && <RotoPreview matte={matte} sourceTime={sourceTime} video={holder} corrections={clip?.rotoCorrections ?? []} at={at} fps={fps} quality={quality} />}{clip?.magicMasks?.length ? <MagicMaskLayer clip={clip} holder={holder} stageH={stageH} quality={quality} fps={fps} /> : null}</>;
+  const video = useMemo(() => holderVideo(holder), [holder]);
+  return <><div ref={holder} className="layer-media" style={matte || grade ? { visibility: 'hidden' } : undefined} />{grade && !matte && <GradeCanvas source={video} grade={grade} quality={quality} />}{matte && <RotoPreview matte={matte} sourceTime={sourceTime} video={holder} corrections={clip?.rotoCorrections ?? []} at={at} fps={fps} quality={quality} />}{clip?.magicMasks?.length ? <MagicMaskLayer clip={clip} holder={holder} stageH={stageH} quality={quality} fps={fps} /> : null}</>;
 }
 
 const BARS = ['#BFBFBF', '#BFBF00', '#00BFBF', '#00BF00', '#BF00BF', '#BF0000', '#0000BF'];
@@ -425,11 +431,24 @@ function Layer(props: LayerProps) {
   };
   const transition = transitionStyle(state, stageW, stageH);
   const opacity = (transform.opacity / 100) * (typeof transition.style.opacity === 'number' ? transition.style.opacity : 1);
+  // Colour grades: a video or still is drawn through its own Color Studio grades and those of the
+  // graded adjustment layers above it on the GPU (GradeCanvas). Anything the GPU pass cannot draw
+  // — text, shapes, graphics, a rotoscoped or Magic-Masked clip — takes the filter form instead.
+  const inherited = useContext(GradeScope);
+  const gpu = useGpuGrade();
+  const whole = wholeClipEffects(clip);
+  const mediaAsset = clip.source.type === 'media' ? assets.get(clip.source.assetId) : undefined;
+  const matte = clip.name?.toLowerCase().includes('background') ? null : clip.rotoMatte;
+  const gpuCapable = gpu && !!mediaAsset && canPreview(mediaAsset) && (mediaAsset.kind === 'video' || mediaAsset.kind === 'image')
+    && !matte && !clip.appliedEffects?.some((fx) => fx.enabled && fx.maskId);
+  const grade: GradeSpec | null = gpuCapable ? composeGrades([...(whole ?? []).filter(isGrade).map((fx) => ({ ...gradeLut(fx.params), mix: 1 })), ...inherited]) : null;
   // Effects limited to a Magic Mask draw in MagicMaskLayer, under this whole-clip filter.
-  const applied = computeAppliedEffects(clip.id, wholeClipEffects(clip), stageH);
+  const applied = computeAppliedEffects(clip.id, gpuCapable ? whole?.filter((fx) => !isGrade(fx)) : whole, stageH);
   const baseFilter = cssFilter(clip.effects, stageH);
+  // A nested comp's own layers take the grades above it themselves.
+  const inheritedFilters = !gpuCapable && clip.source.type !== 'comp' ? inherited.flatMap((entry) => entry.filters) : [];
   // Blur keeps the picture's edges, as the export's does (edgeBlur.tsx).
-  const { filter } = keepEdges([baseFilter, ...applied.cssFilters].filter(Boolean).join(' ') || undefined);
+  const { filter } = keepEdges([baseFilter, ...applied.cssFilters, ...inheritedFilters].filter(Boolean).join(' ') || undefined);
   const appliedTransform = applied.transforms.length ? ` ${applied.transforms.join(' ')}` : '';
   const flip = clip.effects.flipH || clip.effects.flipV ? `scale(${clip.effects.flipH ? -1 : 1}, ${clip.effects.flipV ? -1 : 1})` : '';
   const hidden: CSSProperties = visible ? {} : { visibility: 'hidden' };
@@ -547,8 +566,8 @@ function Layer(props: LayerProps) {
         const asset = assets.get(clip.source.assetId);
         if (!asset || asset.missing || props.offline.has(clip.source.assetId)) picture = <div className="layer-fill offline"><span>Media Offline</span></div>;
         else if (!canPreview(asset)) picture = <div className="layer-fill preparing"><span>{asset.preview === 'failed' ? 'No preview for this format' : 'Preparing preview…'}</span></div>;
-        else if (asset.kind === 'image') picture = <img className="layer-media" src={fileSrc(asset.path)} alt="" draggable={false} />;
-        else picture = <VideoElement src={mediaSrc(asset)} sourceTime={clampedSource} playing={playing && (visible || runUp)} hidden={runUp} rate={rate} speed={clip.speed} frozen={clip.hold !== null || clip.reverse} matte={clip.name?.toLowerCase().includes('background') ? null : clip.rotoMatte} clip={clip} at={time - clip.start} fps={asset.fps ?? comp.fps} quality={props.quality} stageH={stageH} clock={{ priority: 1, time, speed: clip.speed, live: depth === 0 && playing && visible && rate > 0 && clip.hold === null && !clip.reverse }} />;
+        else if (asset.kind === 'image') picture = grade ? <GradedImage src={fileSrc(asset.path)} grade={grade} quality={props.quality} /> : <img className="layer-media" src={fileSrc(asset.path)} alt="" draggable={false} />;
+        else picture = <VideoElement src={mediaSrc(asset)} sourceTime={clampedSource} playing={playing && (visible || runUp)} hidden={runUp} rate={rate} speed={clip.speed} frozen={clip.hold !== null || clip.reverse} matte={matte} grade={grade} clip={clip} at={time - clip.start} fps={asset.fps ?? comp.fps} quality={props.quality} stageH={stageH} clock={{ priority: 1, time, speed: clip.speed, live: depth === 0 && playing && visible && rate > 0 && clip.hold === null && !clip.reverse }} />;
       } else if (clip.source.type === 'item') {
         const item = project.items.find((entry) => entry.id === (clip.source as { itemId: string }).itemId);
         picture = item ? <ItemPicture item={item} sourceTime={clampedSource} /> : null;
@@ -613,6 +632,9 @@ function StackLayer({ group, comp, time, depth, zIndex, playing, rate, stageW, s
 /** Every visible video track of `comp` at `time`, bottom to top. */
 export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: number; stageH: number; depth: number }) {
   const { comp, time, project } = props;
+  const gpu = useGpuGrade();
+  // The grades resolve imported LUTs through the open project (lib/luts.ts).
+  if (props.depth === 0) syncProjectLuts(project);
   const states = transitionStates(comp, time);
 
   // Collect all SVG filter defs across all active clips, and the edge-keeping blurs they use.
@@ -664,7 +686,10 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
 
       if (isAdjustment && active) {
         // Calculate applied effects & filters for the adjustment layer
-        const adjApplied = computeAppliedEffects(clip.id, wholeClipEffects(clip), props.stageH);
+        // Its Color Studio grades reach the pictures below through GradeScope (drawn by their GPU
+        // pass); a masked adjustment keeps the filter form, since a mask cannot follow them there.
+        const adjGrades = gpu && !clip.mask ? (wholeClipEffects(clip) ?? []).filter(isGrade) : [];
+        const adjApplied = computeAppliedEffects(clip.id, adjGrades.length ? wholeClipEffects(clip)?.filter((fx) => !isGrade(fx)) : wholeClipEffects(clip), props.stageH);
         const adjBaseFilter = cssFilter(clip.effects, props.stageH);
         const adjFilter = [adjBaseFilter, ...adjApplied.cssFilters].filter(Boolean).join(' ') || undefined;
         const adjTransform = adjApplied.transforms.length ? adjApplied.transforms.join(' ') : undefined;
@@ -684,7 +709,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
               style={{ position: 'absolute', inset: 0, backdropFilter: adjFilter, opacity: adjOpacity, zIndex: clipZIndex, pointerEvents: 'none', ...maskStyle(clip.mask, props.stageW, props.stageH, props.stageH) }}
             />,
           );
-        } else if (accumulated.length > 0 && (adjFilter || adjTransform || adjOpacity < 1)) {
+        } else if (accumulated.length > 0 && (adjFilter || adjTransform || (adjOpacity < 1 && !adjGrades.length))) {
           // Wrap the accumulated layers below this adjustment layer with its filters and distortion
           const below = accumulated;
           accumulated = [
@@ -705,6 +730,13 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
               {below}
             </div>,
           ];
+        }
+
+        // Nearest grade innermost, so the pictures below take them in stack order.
+        for (const fx of adjGrades) {
+          if (!accumulated.length) break;
+          const entry = { ...gradeLut(fx.params), mix: Math.max(0, Math.min(1, adjOpacity)), filters: [`url(#bhippi-fx-${clip.id}-${fx.id})`] };
+          accumulated = [<GradeScopeWrap key={`adj-grade-${clip.id}-${fx.id}`} entry={entry}>{accumulated}</GradeScopeWrap>];
         }
 
         accumulated.push(<Layer key={clip.id} {...props} clip={clip} state={clipState} visible={active} zIndex={clipZIndex} />);

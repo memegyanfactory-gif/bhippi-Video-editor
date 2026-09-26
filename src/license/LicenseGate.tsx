@@ -230,7 +230,7 @@ function KeyForm({ autoFocus }: { autoFocus?: boolean }) {
     <>
       <form className="gate-key" onSubmit={(event) => { event.preventDefault(); void redeem(); }}>
         <KeyRound size={15} />
-        <input value={key} onChange={(event) => setKey(event.target.value.toUpperCase())} placeholder="HLS-XXXXX-XXXXX-XXXXX-XXXXX" spellCheck={false} autoFocus={autoFocus} aria-label="Bhippi key" />
+        <input value={key} onChange={(event) => setKey(event.target.value.toUpperCase())} placeholder="BVE-XXXXX-XXXXX-XXXXX-XXXXX" spellCheck={false} autoFocus={autoFocus} aria-label="Bhippi key" />
         <button type="submit" className="btn btn-primary" disabled={busy || !key.trim()}>{busy ? <LoaderCircle size={14} className="spin" /> : null} Activate</button>
       </form>
       {error && <p className="gate-error">{error}</p>}
@@ -339,8 +339,8 @@ function Unreachable({ message }: { message: string | null }) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="gate-body">
-      <h2><WifiOff size={18} /> Can’t check your license</h2>
-      <p className="gate-lead">{message ?? 'Bhippi needs to reach bhippi.com once to activate this PC. After that it works offline for up to 14 days.'}</p>
+      <h2><WifiOff size={18} /> Cannot connect to bhippi.com</h2>
+      <p className="gate-lead">{message ?? 'Bhippi needs to reach bhippi.com to check your license. Check your internet connection and try again.'}</p>
       <div className="gate-actions">
         <button
           type="button"

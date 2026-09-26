@@ -1,5 +1,5 @@
 // Subtitle Panel Tab for Bhippi: Project scanning, subtitle layer generation,
-// and WatchFIWN style library browser.
+// and the caption style library browser.
 import {
   Languages,
   Layers,
@@ -10,6 +10,7 @@ import {
   Subtitles as SubtitlesIcon,
   Trash2,
   Upload,
+  Wand2,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../components/ui';
@@ -90,7 +91,7 @@ export function SubtitleTab({
     [currentStyleId],
   );
 
-  // Filtered WatchFIWN styles
+  // Filtered caption styles
   const filteredStyles = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return CAPTION_STYLES.filter((style) => {
@@ -129,7 +130,7 @@ export function SubtitleTab({
   /**
    * Picks a caption style for this video with a TypeSafe judgment.
    *
-   * Eighty options in one question is too many to answer well, so it asks twice: which family
+   * A hundred-plus options in one question is too many to answer well, so it asks twice: which family
    * suits the footage, then which style within it. Code gathers the state and owns the shortlist;
    * the model only chooses. A no-match option is in both lists, because a project with nothing to
    * go on should not force a confident answer.
@@ -241,7 +242,7 @@ export function SubtitleTab({
           ...current,
           comps: current.comps.map((c) => (c.id === comp.id ? result.comp : c)),
         }),
-        'Generate WatchFIWN Subtitles',
+        'Generate Subtitles',
       );
 
       toast({
@@ -323,30 +324,23 @@ export function SubtitleTab({
 
   return (
     <div className="panel-body sub-tab-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', padding: '10px 12px', gap: 10 }}>
-      {/* One row: the button, what it does, the language it listens for, and .SRT import.
-          Everything else that used to sit up here was a header about a header \u2014 the styles
-          below are what the panel is for. */}
+      {/* Generate and the language it listens for. Nothing can transcribe without an engine,
+          so the button stays off until one is set up. */}
       <div className="sub-generate">
         <button
           type="button"
-          className="btn btn-small btn-primary"
-          disabled={generating || !comp || engines?.length === 0}
+          className="btn btn-small btn-primary sub-generate-btn"
+          disabled={generating || !comp || !engines?.length}
           onClick={handleGenerateSubtitles}
-          title={engines?.length === 0
-            ? 'Nothing can transcribe yet \u2014 set up offline speech in Settings \u203a Speech & voice, add a Groq or OpenAI key, or import an .SRT'
-            : engines?.length ? `Transcribes with ${engines[0]}` : 'Transcribes the sound in this sequence'}
+          title={engines === null
+            ? 'Checking for a transcription engine…'
+            : engines.length === 0
+              ? 'Add a transcription API key in Settings › AI providers to generate subtitles'
+              : `Transcribes with ${engines[0]}`}
         >
           {generating ? <Loader2 size={12} className="spin" /> : <Sparkles size={12} />}
-          <span>{generating ? 'Working\u2026' : 'Generate'}</span>
+          <span>{generating ? 'Generating…' : 'Generate'}</span>
         </button>
-
-        <span className="sub-generate-hint">
-          {generating
-            ? statusMessage || 'Transcribing this sequence\u2026'
-            : captionClips.length > 0
-              ? `${captionClips.length} cues in this sequence \u00b7 press to redo them`
-              : 'Press here to generate transcription'}
-        </span>
 
         <label className="sub-lang-group">
           <Languages size={13} className="sub-lang-mark" />
@@ -370,7 +364,69 @@ export function SubtitleTab({
             </optgroup>
           </select>
         </label>
+      </div>
 
+      {generating && <div className="sub-status">{statusMessage || 'Transcribing this sequence…'}</div>}
+      {engines?.length === 0 && (
+        <div className="sub-note">
+          No transcription engine yet. Add an API key in Settings › AI providers, or set up offline speech in Settings › Speech &amp; voice.
+        </div>
+      )}
+
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".srt,.vtt"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onImportCaptions(f);
+          e.target.value = '';
+        }}
+      />
+
+      <div className="sub-tabs">
+        <div className="sub-tabs-group">
+          <button
+            type="button"
+            className={`sub-tab${activeTabSection === 'styles' ? ' active' : ''}`}
+            onClick={() => setActiveTabSection('styles')}
+          >
+            Styles <span className="sub-tab-count">{CAPTION_STYLES.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`sub-tab${activeTabSection === 'cues' ? ' active' : ''}`}
+            onClick={() => setActiveTabSection('cues')}
+          >
+            Cues <span className="sub-tab-count">{captionClips.length}</span>
+          </button>
+        </div>
+
+        {activeTabSection === 'styles' && (
+          <div className="sub-search">
+            <Search size={11} className="sub-search-mark" />
+            <input
+              type="text"
+              placeholder="Search styles…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="prop-input"
+            />
+          </div>
+        )}
+
+        {activeTabSection === 'styles' && canJudge && (
+          <button
+            type="button"
+            className="icon-btn small"
+            disabled={suggesting || !comp}
+            onClick={() => void suggestStyle()}
+            title="Suggest a style for this video"
+          >
+            {suggesting ? <Loader2 size={13} className="spin" /> : <Wand2 size={13} />}
+          </button>
+        )}
         {captionClips.length > 0 && (
           <button
             type="button"
@@ -385,83 +441,13 @@ export function SubtitleTab({
           type="button"
           className="icon-btn small"
           onClick={() => fileInput.current?.click()}
-          title="Import an .SRT or .VTT file instead"
+          title="Import an .SRT or .VTT file"
         >
           <Upload size={13} />
         </button>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".srt,.vtt"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onImportCaptions(f);
-            e.target.value = '';
-          }}
-        />
       </div>
 
-      {engines?.length === 0 && (
-        <div className="sub-note">
-          Nothing here can transcribe yet. Download whisper.cpp and a model in Settings \u203a Speech &amp; voice
-          to run it offline and free, or add a Groq or OpenAI key in Settings \u203a AI providers. Import .SRT also works.
-        </div>
-      )}
-
-      {/* ── Sub-Tab Navigation (WatchFIWN Styles vs Cue List) ────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid var(--line)', paddingBottom: 6 }}>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button
-            type="button"
-            className={`btn btn-small ${activeTabSection === 'styles' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setActiveTabSection('styles')}
-          >
-            WatchFIWN Styles ({CAPTION_STYLES.length})
-          </button>
-          <button
-            type="button"
-            className={`btn btn-small ${activeTabSection === 'cues' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setActiveTabSection('cues')}
-          >
-            Sequence Cues ({captionClips.length})
-          </button>
-        </div>
-
-        {activeTabSection === 'styles' && canJudge && (
-          <button
-            type="button"
-            className="btn btn-small btn-ghost"
-            disabled={suggesting || !comp}
-            onClick={() => void suggestStyle()}
-            title="Ask TypeSafe which WatchFIWN style suits this video"
-          >
-            {suggesting ? <Loader2 size={12} className="spin" /> : <Sparkles size={12} />}
-            <span>{suggesting ? 'Judging…' : 'Suggest'}</span>
-          </button>
-        )}
-
-        {activeTabSection === 'styles' && (
-          <div style={{ position: 'relative', width: 140 }}>
-            <Search size={11} style={{ position: 'absolute', left: 6, top: 7, color: 'var(--text-faint)' }} />
-            <input
-              type="text"
-              placeholder="Search styles…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="prop-input"
-              style={{
-                width: '100%',
-                fontSize: 11,
-                padding: '3px 6px 3px 22px',
-                height: 22,
-              }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ── Tab Content: WatchFIWN Styles Browser ──────────────────────────── */}
+      {/* ── Tab Content: Styles Browser ──────────────────────────────────────── */}
       {activeTabSection === 'styles' && (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, gap: 8 }}>
           {/* Category Filter Chips */}
@@ -505,7 +491,7 @@ export function SubtitleTab({
                     <StyledCaptionText
                       style={style}
                       elapsed={null}
-                      words={['Make', 'it', 'POP'].map((text, index) => ({
+                      words={['Make', 'it', 'pop'].map((text, index) => ({
                         text: style.uppercase ? text.toUpperCase() : text,
                         index,
                         active: index === 1,
@@ -517,7 +503,7 @@ export function SubtitleTab({
                   {/* Label & Details */}
                   <div className="style-meta">
                     <div className="style-name">{style.label}</div>
-                    <div className="style-cat">{suggestion?.id === style.id ? `Suggested · ${Math.round(suggestion.confidence * 100)}%` : style.category}</div>
+                    {suggestion?.id === style.id && <div className="style-cat">Suggested · {Math.round(suggestion.confidence * 100)}%</div>}
                   </div>
                 </button>
               );
@@ -548,6 +534,7 @@ export function SubtitleTab({
               <button
                 type="button"
                 className="btn btn-primary btn-small"
+                disabled={generating || !engines?.length}
                 onClick={handleGenerateSubtitles}
               >
                 <Sparkles size={13} /> Generate Subtitles

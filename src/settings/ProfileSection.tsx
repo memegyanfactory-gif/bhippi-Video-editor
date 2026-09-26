@@ -1,5 +1,5 @@
 // About › Profile: the Google account, its Bhippi key, and the PCs using the key's slots.
-import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, LoaderCircle, LogOut, MonitorSmartphone, RefreshCw, WifiOff } from 'lucide-react';
+import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, LoaderCircle, LogOut, MonitorSmartphone, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useToast } from '../components/ui';
 import { api, errorText } from '../lib/ipc';
@@ -61,10 +61,6 @@ export function ProfileSection() {
         {license && <span className={`profile-pill kind-${license.revoked ? 'revoked' : license.kind}`}>{license.revoked ? 'Revoked' : KIND_LABEL[license.kind]}</span>}
         {status.devBuild && <span className="profile-pill kind-dev">Dev build</span>}
       </div>
-
-      {status.offline && (
-        <p className="profile-note"><WifiOff size={12} /> Offline. Your license is verified until {status.expiresAt ? new Date(status.expiresAt * 1000).toLocaleDateString() : 'soon'}.</p>
-      )}
 
       {license ? (
         <>

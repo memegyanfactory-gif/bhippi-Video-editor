@@ -15,6 +15,8 @@ export const SDK_SOURCE = String.raw`
   var listeners = {};
   var actions = {};
   var storage = {};
+  var projectStore = {};
+  var session = null;
   var info = null;
   var readyResolve;
   var ready = new Promise(function (resolve) { readyResolve = resolve; });
@@ -73,10 +75,19 @@ export const SDK_SOURCE = String.raw`
     } else if (m.type === 'init') {
       info = m.plugin;
       storage = m.storage || {};
+      session = m.session || null;
+      projectStore = m.projectStorage || {};
       applyTheme(m.theme);
       readyResolve(info);
     } else if (m.type === 'event') {
       if (m.event === 'theme') applyTheme(m.data);
+      if (m.event === 'session') {
+        var data = m.data || {};
+        projectStore = data.projectStorage || {};
+        session = { key: data.key == null ? null : data.key, name: data.name || '', saved: !!data.saved };
+        emit('session', session);
+        return;
+      }
       emit(m.event, m.data);
     } else if (m.type === 'action') {
       var handler = actions[m.name];
@@ -94,6 +105,11 @@ export const SDK_SOURCE = String.raw`
     /** Resolves with { id, name } once the editor has connected. */
     ready: ready,
     get plugin() { return info; },
+    /**
+     * The open project: { key, name, saved }. key is stable for one project file (null until the
+     * project is first saved) — use it to tell projects apart. bhippi.on('session') fires when it changes.
+     */
+    get session() { return session; },
     /** The project overview Bhippi AI sees: comps, media, selection, playhead. */
     project: function () { return call('project'); },
     /** One comp in full: tracks, clips, transitions, markers. Omit id for the active comp. */
@@ -117,6 +133,17 @@ export const SDK_SOURCE = String.raw`
       set: function (key, value) { storage[key] = value; return call('storage.set', { data: storage }); },
       remove: function (key) { delete storage[key]; return call('storage.set', { data: storage }); }
     },
+    /**
+     * Like storage, but kept per project: each project the user opens has its own. It switches by
+     * itself when another project opens (listen with bhippi.on('session') to redraw). An unsaved
+     * project's data is kept in memory and saved with the project the first time it is saved.
+     */
+    projectStorage: {
+      get: function (key, fallback) { return Object.prototype.hasOwnProperty.call(projectStore, key) ? projectStore[key] : fallback; },
+      keys: function () { return Object.keys(projectStore); },
+      set: function (key, value) { projectStore[key] = value; return call('projectStorage.set', { data: projectStore }); },
+      remove: function (key) { delete projectStore[key]; return call('projectStorage.set', { data: projectStore }); }
+    },
     /** A notification in the editor. tone: 'info' | 'success' | 'error'. */
     toast: function (message, tone) { return call('toast', { message: String(message), tone: tone || 'info' }); },
     /** Sends a message to the Bhippi AI chat as if the user typed it (needs the chat permission). */
@@ -124,8 +151,9 @@ export const SDK_SOURCE = String.raw`
     /** Media file path → URL an <img>/<video> in the plugin can show. */
     fileUrl: function (path) { return call('fileUrl', { path: path }); },
     /**
-     * Listens for 'project' (the project changed), 'selection', 'playhead' (a few times a second
-     * while it moves), 'theme'. Returns a function that stops listening.
+     * Listens for 'project' (the project changed), 'session' (another project was opened, a new one
+     * started, or it was saved under a new file — projectStorage has already switched), 'selection',
+     * 'playhead' (a few times a second while it moves), 'theme'. Returns a function that stops listening.
      */
     on: function (event, fn) {
       (listeners[event] = listeners[event] || []).push(fn);

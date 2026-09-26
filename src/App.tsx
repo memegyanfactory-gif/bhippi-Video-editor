@@ -7,6 +7,7 @@ import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialo
 import { CircleCheck, Film, LoaderCircle, Mic, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { actionLogger } from './lib/actionLogger';
+import { crashReporter } from './lib/crashReporter';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { EditWorkflow } from './lib/editWorkflow';
 import { TranscriptPanel } from './panels/TranscriptPanel';
@@ -48,7 +49,7 @@ import { applyTheme, resolveGlass, resolveMotion, resolveTheme } from './lib/the
 import { allowTool, DEFAULT_EFFORT, DEFAULT_PERMISSION, type Effort, type PermissionMode } from './lib/permissions';
 import { rotoscope } from './lib/roto';
 import type { AgentRun, Connection } from './chat/ChatStatusBar';
-import { setMutes, type MuteState } from './lib/audio';
+import { NO_MUTES, setMutes, type MuteState } from './lib/audio';
 import type { CaptionStyle } from './lib/captionStyles';
 import { capitalize, clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, parseCaptions, safeFileName, STILL_DEFAULT, timecode, uid } from './lib/editor';
 import { useHistory } from './lib/history';
@@ -83,9 +84,11 @@ import { channelForFormat, findFormat } from './lib/exportPresets';
 import { aspectLabel, describeReformat, reformatComp } from './lib/reformat';
 import { HomeScreen } from './settings/HomeScreen';
 import { Onboarding } from './onboarding/Onboarding';
+import { Tour, type TourStepId } from './onboarding/Tour';
 import { registerStorageRoot } from './lib/storage';
 import { rewritePaths, storyboardDocs } from './lib/projectDocs';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
+import type { GenPlan } from './lib/cloudGen';
 import { isSetUp } from './settings/ProvidersSettings';
 import { SHORTCUTS } from './lib/shortcuts';
 import { settingsSync } from './lib/settingsSync';
@@ -99,6 +102,7 @@ import { setBrandKitDoc } from './lib/brandKit/activeStore';
 import { licenseStore, useLicense } from './license/licenseStore';
 import { Avatar } from './avatar/Avatar';
 import { avatarBus } from './avatar/bus';
+import { setAvatarColours } from './avatar/sprite';
 import { KNOWN_TOOLS } from './lib/aiTools';
 import { pluginEvents, setPluginEditor } from './plugins/bridge';
 import { PLUGIN_MAKER_PERSONA } from './plugins/brief';
@@ -123,11 +127,11 @@ const EMPTY_SETTINGS: Settings = {
   disableLocalGeneration: true,
   export: { resolution: null, fps: null, quality: null, folder: null }, layout: null, recentProjects: [], projectPath: null, theme: null,
   ideagraphBin: null, ideagraphBrain: null, ideagraphRecord: null,
-  speech: { transcribeEngine: null, transcribeModel: 'whisper-large-v3', whisperPath: null, piperPath: null, voice: 'piper:piper-en-ryan', hindiVoice: null, voiceMode: 'auto', speed: null },
+  speech: { transcribeEngine: null, transcribeModel: null, whisperPath: null, ttsPath: null, voice: null, hindiVoice: null, elevenlabsModel: null, openaiTtsModel: null, voiceMode: 'auto', speed: null },
 };
 
 /** When the saved choice is unusable, prefer agents the user is signed in to, then local, then cloud. */
-const PREFERENCE = ['claude', 'codex', 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', 'openrouter', 'groq', 'xai', 'deepseek', 'mistral', 'moonshot', 'opencode', 'grok', 'antigravity', 'bhippi'];
+const PREFERENCE = ['claude', 'codex', 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', 'openrouter', 'groq', 'xai', 'deepseek', 'mistral', 'moonshot', 'opencode-zen', 'opencode', 'grok', 'antigravity', 'bhippi'];
 
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || (target.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes((target as HTMLInputElement).type)));
@@ -246,6 +250,8 @@ export default function App() {
   }, [referenceId]);
 
   const [pendingAsks, setPendingAsks] = useState<{ question: string; options: string[]; context: string | null; answer: (value: string) => void }[]>([]);
+  /** The cloud generation plan the AI is waiting on (generate_cloud_media), one at a time. */
+  const [pendingGen, setPendingGen] = useState<{ plan: GenPlan; resolve: (plan: GenPlan | null) => void } | null>(null);
   const permissionRef = useRef<PermissionMode>(permission);
   permissionRef.current = permission;
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -266,7 +272,7 @@ export default function App() {
   const [nestComps, setNestComps] = useState(true);
   const [display, setDisplay] = useState<DisplaySettings>(DEFAULT_DISPLAY);
   const [zoom, setZoom] = useState(60);
-  const [mutes, setMuteState] = useState<MuteState>({ all: false, program: false, source: false });
+  const [mutes, setMuteState] = useState<MuteState>(NO_MUTES);
   const [focused, setFocused] = useState<PanelId>('timeline');
   const [maximized, setMaximized] = useState<PanelId | null>(null);
   const [layout, setLayout] = useState<WorkspaceLayout>(DEFAULT_LAYOUT);
@@ -278,6 +284,9 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   /** First run: the storage + models onboarding, until Settings.onboarded is true. */
   const [onboarding, setOnboarding] = useState(false);
+  /** The welcome tour over the editor; starts on its own once, after the first-run setup. */
+  const [tour, setTour] = useState(false);
+  const tourOffered = useRef(false);
   /** The open project's folder under the storage root (storage.rs), for paths built in the UI. */
   const projectDirRef = useRef<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<'properties' | 'effects'>('properties');
@@ -299,6 +308,7 @@ export default function App() {
     setQueueOpen(false);
     setShortcutsOpen(false);
     setFxConsoleOpen(false);
+    setTour(false);
   }, [licenseBlocked]);
   const [incoming, setIncoming] = useState<IncomingDrag | null>(null);
   const [dragLabel, setDragLabel] = useState<string | null>(null);
@@ -344,6 +354,8 @@ export default function App() {
       void api.storageInfo().then((storage) => { registerStorageRoot(storage.root); projectDirRef.current = storage.projectDir; }).catch(() => undefined);
       void warmCustomTools({ dataDir: appInfo.dataDir, ffmpeg: appInfo.ffmpeg.path });
       settingsStore.apply(stored);
+      // A fresh install is marked so the welcome tour follows the setup; older installs stay unset.
+      if (!stored.onboarded && stored.tourSeen == null) settingsStore.save({ tourSeen: false });
       // A layout saved before these floors existed is raised to them rather than left overlapping.
       if (stored.layout) {
         const saved = { ...DEFAULT_LAYOUT, ...stored.layout, meters: { ...DEFAULT_METERS, ...(stored.layout.meters ?? {}) } };
@@ -410,6 +422,8 @@ export default function App() {
         if (job.kind === 'export' && job.status === 'done' && job.result?.path) {
           const path = job.result.path;
           toast({ tone: 'success', title: 'Export complete', body: path.split(/[\\/]/).pop(), actions: [{ label: 'Open', run: () => void api.openPath(path) }, { label: 'Show in folder', run: () => void api.revealPath(path) }] });
+          // The very first finished render asks once how Bhippi is doing.
+          crashReporter.afterRender();
         } else if (job.kind === 'export' && job.status === 'error') {
           toast({ tone: 'error', title: 'Export failed', body: job.message.slice(0, 400) });
         } else if (job.kind === 'generation' && job.status === 'done' && (job.result as { path?: string })?.path) {
@@ -469,6 +483,17 @@ export default function App() {
         }, { once: true });
         setPendingAsks((current) => [...current, entry]);
       }),
+    approveGeneration: (plan: GenPlan, signal?: AbortSignal) =>
+      new Promise<GenPlan | null>((resolve) => {
+        // Like a question card: it waits for Generate or Cancel, and goes if the turn ends.
+        if (signal?.aborted) return resolve(null);
+        const entry = { plan, resolve };
+        signal?.addEventListener('abort', () => {
+          setPendingGen((current) => (current === entry ? null : current));
+          resolve(null);
+        }, { once: true });
+        setPendingGen(entry);
+      }),
     importMedia: async (paths: string[], targetFolderId?: string | null) => {
       const result = await api.libraryImport(paths);
       await refreshAssets();
@@ -495,7 +520,8 @@ export default function App() {
     },
     speak: async (text: string, voice: string | null, mode: string, name?: string) => {
       const currentSettings = await api.settingsGet().catch(() => settings);
-      const chosenVoice = voice || currentSettings.speech.voice || 'piper:piper-en-ryan';
+      // No voice named anywhere: the backend picks — a cloud voice when a key is saved, else Kokoro.
+      const chosenVoice = voice || currentSettings.speech.voice || null;
       const chosenMode = (mode && mode !== 'auto') ? mode : (currentSettings.speech.voiceMode || 'auto');
       const asset = await api.speechGenerate(text, chosenVoice, chosenMode, name);
       await refreshAssets();
@@ -615,6 +641,7 @@ export default function App() {
       disableLocalGeneration: () => settingsRef.current.disableLocalGeneration ?? true,
       toast: (tone, title, body) => toast({ tone, title, body }),
       chat: (message) => chatApi.current?.send(message),
+      projectPath: () => settingsRef.current.projectPath,
     });
   }, [toast]);
   useEffect(() => pluginEvents.project(), [project]);
@@ -807,7 +834,7 @@ export default function App() {
   const advanceProductionPhase = (compId: string, phase: 'gathering' | 'editing' | ProductionPhase) => {
     history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: advanceProduction(c.production, phase) } : c)), phase === 'gathering' ? 'Start generating' : 'Start editing');
     const message = phase === 'gathering'
-      ? 'Start generating. The plan is approved: begin the GATHER phase now. Call editing_workflow_status, then gather every planned shot one call at a time with its sceneIndex — text-to-video shots 5–7 s from their own script and prompt (generate_local_media task video, wait true), images, downloads and scrapes into their research folders, the voice-over (synthesize_speech_voiceover) and the music bed. Retry a failed generation once with a simpler prompt. When everything has a real asset, call finish_gathering and end your turn with a short list of what was gathered. Do not touch the timeline.'
+      ? 'Start generating. The plan is approved: begin the GATHER phase now. Call editing_workflow_status, then gather every planned shot one call at a time with its sceneIndex — text-to-video shots 5–7 s from their own script and prompt (generate_cloud_media when cloud generation is on — every generated shot in one call so the editor approves them together — otherwise generate_local_media task video, wait true), images, downloads and scrapes into their research folders, the voice-over (synthesize_speech_voiceover) and the music bed. Retry a failed generation once with a simpler prompt. When everything has a real asset, call finish_gathering and end your turn with a short list of what was gathered. Do not touch the timeline.'
       : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, each beat\'s planned graphic — with a brand kit active, its brand-* recipe via create_motion_scene; otherwise a motion-engine template via create_motion_scene, or a Crimson HTML template via create_motion_graphic where the engine has none; layout_clip where the beat has a side panel, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
     window.setTimeout(() => chatApi.current?.send(message), 50);
   };
@@ -873,6 +900,29 @@ export default function App() {
 
   const settingsStore = useMemo(() => settingsSync(EMPTY_SETTINGS, settingsRef, setSettings), []);
   const saveSettings = useCallback((patch: Partial<Settings>) => settingsStore.save(patch), [settingsStore]);
+  // The user's own avatar colours (Settings › Avatar) repaint every drawing of the characters.
+  useEffect(() => setAvatarColours(settings.avatarColors), [settings.avatarColors]);
+
+  // The welcome tour: once, on a fresh install, after the setup closes — unless switched off.
+  useEffect(() => {
+    if (!loaded || onboarding || licenseBlocked || tourOffered.current) return;
+    if (settings.tourSeen !== false || settings.tour === false) return;
+    tourOffered.current = true;
+    setMode('edit');
+    setTour(true);
+  }, [loaded, onboarding, licenseBlocked, settings.tourSeen, settings.tour]);
+  const startTour = useCallback(() => {
+    setSettingsTab(null);
+    setMaximized(null);
+    setMode('edit');
+    setTour(true);
+  }, []);
+  const tourStep = useCallback((id: TourStepId) => setChatTab(id === 'providers' ? 'providers' : 'chat'), []);
+  const endTour = useCallback(() => {
+    setTour(false);
+    setChatTab('chat');
+    saveSettings({ tourSeen: true });
+  }, [saveSettings]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -910,10 +960,35 @@ export default function App() {
     };
   };
 
+  const samePath = (a: string, b: string) => a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
   const rememberRecent = (path: string) => {
-    const recents = [path, ...settingsRef.current.recentProjects.filter((item) => item !== path)].slice(0, 12);
+    const recents = [path, ...settingsRef.current.recentProjects.filter((item) => !samePath(item, path))].slice(0, 12);
     saveSettings({ recentProjects: recents, projectPath: path });
   };
+  const forgetRecent = (path: string) => {
+    const recents = settingsRef.current.recentProjects.filter((item) => item !== path);
+    if (recents.length !== settingsRef.current.recentProjects.length) saveSettings({ recentProjects: recents });
+  };
+
+  // Recent projects are only offered while their file is still on disk: checked whenever the list
+  // changes, Home shows, or the window comes back into focus (a file moved or deleted meanwhile).
+  // Until a check answers, an entry counts as missing, so nothing stale is ever clickable.
+  const [recentFound, setRecentFound] = useState<ReadonlySet<string>>(() => new Set());
+  const recentKey = settings.recentProjects.join('\n');
+  const checkRecents = useCallback(async () => {
+    const paths = settingsRef.current.recentProjects;
+    if (!paths.length) { setRecentFound(new Set()); return; }
+    const found = await api.projectFilesExist(paths).catch(() => paths.map(() => false));
+    setRecentFound(new Set(paths.filter((_, index) => found[index])));
+  }, []);
+  useEffect(() => { void checkRecents(); }, [recentKey, mode, checkRecents]);
+  useEffect(() => {
+    const onFocus = () => void checkRecents();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [checkRecents]);
+  const usableRecents = settings.recentProjects.filter((path) => recentFound.has(path));
+  const openRecent = (path: string) => guardUnsaved(() => void openProjectFile(path, true), 'Open another project');
 
   const writeProject = async (path: string, keepPath: boolean): Promise<boolean> => {
     const target = path.toLowerCase().endsWith('.bhippi') ? path : `${path}.bhippi`;
@@ -929,6 +1004,7 @@ export default function App() {
         if (moved !== base) history.view((current) => (current === base ? moved : rewritePaths(current, report.rewrites)));
         setSavedProject(moved);
         rememberRecent(target);
+        void pluginEvents.session('saved', target);
         projectDirRef.current = report.projectFolder;
         void api.storageSetProject(base.name).catch(() => undefined);
         void refreshAssets();
@@ -964,7 +1040,16 @@ export default function App() {
 
   const saveProject = async (): Promise<boolean> => (settingsRef.current.projectPath ? writeProject(settingsRef.current.projectPath, true) : saveAs());
 
-  const openProjectFile = async (path: string) => {
+  const openProjectFile = async (path: string, fromRecents = false) => {
+    // Checked again right before opening: the file may have gone since the list was drawn.
+    if (fromRecents) {
+      const [there] = await api.projectFilesExist([path]).catch(() => [false]);
+      if (!there) {
+        void checkRecents();
+        toast({ tone: 'error', title: 'Project not found', body: `${path} was moved or deleted.` });
+        return;
+      }
+    }
     try {
       const raw = (await api.projectFileRead(path)) as BhippiDocument;
       const bundled = Array.isArray(raw.assets) ? raw.assets : [];
@@ -983,6 +1068,7 @@ export default function App() {
       setSelection([]);
       playhead.seek(0);
       rememberRecent(path);
+      void pluginEvents.session('opened', path);
       void api.storageSetProject(opened.name).catch(() => undefined);
       // What the file carries beyond the project: its brand kit (added if this machine lacks it)
       // and the chat transcript.
@@ -1057,6 +1143,7 @@ export default function App() {
       void api.storageSetProject(fresh.name).catch(() => undefined);
       setSavedProject(null);
       saveSettings({ projectPath: null });
+      void pluginEvents.session('opened', null);
       setSelection([]);
       setBinFolder(null);
       setSourceId(null);
@@ -2147,7 +2234,7 @@ export default function App() {
       { label: 'New Item', submenu: newItemMenu.slice(2) },
       { separator: true },
       { label: 'Open Project…', shortcut: 'Ctrl+O', onSelect: () => void openProject() },
-      { label: 'Open Recent', disabled: !settings.recentProjects.length, submenu: settings.recentProjects.map((path) => ({ label: path.split(/[\\/]/).pop() ?? path, onSelect: () => guardUnsaved(() => void openProjectFile(path), 'Open another project') })) },
+      { label: 'Open Recent', disabled: !usableRecents.length, submenu: usableRecents.map((path) => ({ label: path.split(/[\\/]/).pop() ?? path, onSelect: () => openRecent(path) })) },
       { separator: true },
       { label: 'Save', shortcut: 'Ctrl+S', onSelect: () => void saveProject() },
       { label: 'Save As…', shortcut: 'Ctrl+Shift+S', onSelect: () => void saveAs() },
@@ -2330,6 +2417,7 @@ export default function App() {
     { label: 'Help', items: [
       { label: 'Keyboard Shortcuts', shortcut: 'Ctrl+Alt+K', onSelect: () => setShortcutsOpen(true) },
       { label: 'AI Providers…', onSelect: () => setSettingsTab('providers') },
+      { label: 'Generation Connectors…', onSelect: () => setSettingsTab('connectors') },
       { label: 'Speech & Voice…', onSelect: () => setSettingsTab('speech') },
       { label: 'FFmpeg & Media…', onSelect: () => setSettingsTab('media') },
       { label: 'About Bhippi Video Editor', onSelect: () => setSettingsTab('about') },
@@ -2460,6 +2548,7 @@ export default function App() {
       if (selectedText && !selectedText.isCollapsed && selectedText.toString().length > 0) return;
     }
     if (chord) return run(perform(chord));
+    if (ctrl && shift && event.key === ' ') return run(() => programApi.current?.playInToOut());
     if (ctrl) return;
     const sourceFocused = focused === 'source' && !!sourceAsset;
     // Transport and navigation
@@ -2635,7 +2724,28 @@ export default function App() {
     if (settings.providerId && chatProviders.some((row) => row.id === settings.providerId)) return settings.providerId;
     return PREFERENCE.find((id) => chatProviders.some((row) => row.id === id)) ?? 'bhippi';
   }, [settings.providerId, chatProviders]);
-  const model = providerId === settings.providerId ? settings.model : null;
+  // A saved model the provider's live list no longer offers shows (and sends) as Auto; the
+  // backend applies the same rule, so a retired id never reaches the vendor.
+  const model = useMemo(() => {
+    if (providerId !== settings.providerId || !settings.model) return null;
+    const row = chatProviders.find((item) => item.id === providerId);
+    const live = row && (row.kind === 'cloud_api' || row.kind === 'local_server') && row.health.state === 'healthy' && row.models.length > 0;
+    return live && !row.models.includes(settings.model) ? null : settings.model;
+  }, [providerId, settings.providerId, settings.model, chatProviders]);
+  // What a crash report says the editor was doing: sizes and modes only, never names or file paths.
+  useEffect(() => {
+    crashReporter.setContextProvider(() => ({
+      tool,
+      selectedClips: selection.length,
+      comps: project.comps.length,
+      media: project.media.length,
+      activeComp: comp ? { width: comp.width, height: comp.height, fps: comp.fps, tracks: comp.tracks.length, clips: comp.clips.length, clipKinds: [...new Set(comp.clips.map((clip) => clip.source.type))] } : null,
+      aiProvider: providerId,
+      aiModel: model,
+      openPanels: { settings: settingsTab, export: exportOpen, terminal: terminalOpen },
+    }));
+  });
+  useEffect(() => () => crashReporter.setContextProvider(null), []);
 
   // ── panels ─────────────────────────────────────────────────────────────
   const frameHost: FrameHost = {
@@ -2708,7 +2818,7 @@ export default function App() {
             vanishes rather than sitting there as a permanent row of green checks. Saving a
             plan for the next task starts a fresh production (see parseProduction), which
             brings the dock back. */}
-        <ChatPanel apiRef={chatApi} providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
+        <ChatPanel apiRef={chatApi} annotations providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
           productionBar={comp?.production && comp.production.phase !== 'done' && (
             <ProductionBar
               comp={comp}
@@ -2729,7 +2839,9 @@ export default function App() {
             setPendingAsks(rest);
           }}
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), plugins: pluginsBrief(), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
+          genPlan={pendingGen ? { plan: pendingGen.plan, assets: assetMap } : null}
+          onGenPlan={(plan) => { pendingGen?.resolve(plan); setPendingGen(null); }}
+          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
             // The brain learns from every turn (on unless turned off); recording never disturbs the chat.
             if (settingsRef.current.ideagraphRecord === false) return;
@@ -2917,8 +3029,10 @@ export default function App() {
               ask={pendingAsks[0] ?? null} askCount={pendingAsks.length}
               onAnswer={(value) => { const [head, ...rest] = pendingAsks; head?.answer(value); setPendingAsks(rest); }}
               connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
+          genPlan={pendingGen ? { plan: pendingGen.plan, assets: assetMap } : null}
+          onGenPlan={(plan) => { pendingGen?.resolve(plan); setPendingGen(null); }}
               onManageProviders={() => setSettingsTab('providers')}
-              getContext={() => ({ ...(aiContext(history.current(), assetMap, selection) as object), customTools: customToolsBrief(), plugins: pluginsBrief(), pluginMaker: { openPluginId: selectedPlugin(), note: selectedPlugin() ? `The user has the "${selectedPlugin()}" plugin open: change THAT plugin (save_plugin with its id) unless they ask for a new one.` : 'No plugin is open: save_plugin creates a new one.' } })}
+              getContext={() => ({ ...(aiContext(history.current(), assetMap, selection) as object), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', pluginMaker: { openPluginId: selectedPlugin(), note: selectedPlugin() ? `The user has the "${selectedPlugin()}" plugin open: change THAT plugin (save_plugin with its id) unless they ask for a new one.` : 'No plugin is open: save_plugin creates a new one.' } })}
               tools={toolRuns}
               onStartWorkflow={(turnId, mode) => editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true))}
               workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
@@ -2932,14 +3046,14 @@ export default function App() {
         mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }} onQueue={() => setQueueOpen(true)}
         exportDisabled={!hasClips} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}
-        onSettings={() => setSettingsTab('general')} onUpdates={() => setSettingsTab('about')} providerBadge={<ProviderLogo id={providerId} size={24} />}
+        onSettings={() => setSettingsTab('general')} onUpdates={() => setSettingsTab('about')} onAccount={() => setSettingsTab('about')}
       />
 
       {mode === 'home' && (
         <LiveJobs>{(live) => (
         <HomeScreen project={project} info={info} jobs={live} providers={providers} assetCount={project.media.length} onEdit={() => setMode('edit')} onNewProject={newProjectNow}
           onImport={() => { setMode('edit'); void pickFiles(); }} onProviders={() => setSettingsTab('providers')} onShortcuts={() => setShortcutsOpen(true)} onOpen={() => void openProject()}
-          recents={settings.recentProjects} onOpenRecent={(path) => guardUnsaved(() => void openProjectFile(path), 'Open another project')} />
+          recents={settings.recentProjects} recentFound={recentFound} onOpenRecent={openRecent} onForgetRecent={forgetRecent} />
         )}</LiveJobs>
       )}
       {/* One tree for every view: the chat keeps its place, so a running turn keeps streaming through Home, hide, and maximize. */}
@@ -3065,7 +3179,8 @@ export default function App() {
       {menu && <MenuList items={menu.items} anchor={menu.anchor} onClose={() => setMenu(null)} />}
       {dialog}
       {onboarding && loaded && <Onboarding onPatch={(patch) => saveSettings(patch)} onDone={() => setOnboarding(false)} />}
-      {settingsTab && <LiveJobs>{(live) => <SettingsModal tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
+      {tour && !onboarding && <Tour onStep={tourStep} onDone={endTour} />}
+      {settingsTab && <LiveJobs>{(live) => <SettingsModal onTour={startTour} tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
       <ErrorBoundary scope="Render window"><RenderWindow /></ErrorBoundary>
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder, preset) => void startExport(options, folder, preset)} onPrefs={(patch) => saveSettings({ export: { ...settingsRef.current.export, ...patch } })} />}
       {queueOpen && <LiveJobs>{(live) => <RenderQueueDialog jobs={live} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}</LiveJobs>}
@@ -3086,7 +3201,20 @@ export default function App() {
         onExportFrame={() => void exportFrame()}
         onReimportSnapshot={(snap) => void reimportSnapshot(snap)}
       />
-      <Avatar enabled={loaded && mode === 'edit' && settings.avatar !== false} character={settings.avatarCharacter} />
+      <Avatar
+        enabled={loaded && mode === 'edit' && settings.avatar === true}
+        character={settings.avatarCharacter}
+        onMenu={(point, name) => showMenu({ clientX: point.x, clientY: point.y }, [
+          {
+            label: `Hide ${name}`,
+            onSelect: () => {
+              saveSettings({ avatar: false });
+              toast({ tone: 'info', title: `${name} is hidden`, body: 'Turn it back on any time in Settings › Avatar.', timeout: 8000, actions: [{ label: 'Open Settings', run: () => setSettingsTab('avatar') }] });
+            },
+          },
+          { label: 'Change character or colours…', onSelect: () => setSettingsTab('avatar') },
+        ])}
+      />
       {/* The program's sound keeps playing while a panel is maximized or Home is open. */}
       {mode === 'home' && comp && <div hidden><CompAudio project={project} assets={assetMap} offline={offline} playing={false} rate={1} comp={comp} time={playhead.get()} quality={1} /></div>}
     </div>

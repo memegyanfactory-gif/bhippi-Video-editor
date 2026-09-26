@@ -186,11 +186,14 @@ export function ScrubNumber({
   disabled,
   format,
   parse,
+  pixelStep,
 }: {
   value: number;
   onChange: (value: number) => void;
   onCommit: () => void;
   step?: number;
+  /** How much one pixel of drag moves the value (default `step`); the result still snaps to `step`. */
+  pixelStep?: number;
   min?: number;
   max?: number;
   decimals?: number;
@@ -243,7 +246,9 @@ export function ScrubNumber({
           moved = true;
           document.body.classList.add('resizing-x');
           const factor = moveEvent.shiftKey ? 10 : moveEvent.ctrlKey ? 0.1 : 1;
-          onChange(clampValue(Number((originValue + dx * step * factor).toFixed(Math.max(decimals, 2)))));
+          const raw = originValue + dx * (pixelStep ?? step) * factor;
+          const snapped = pixelStep ? Math.round(raw / step) * step : raw;
+          onChange(clampValue(Number(snapped.toFixed(Math.max(decimals, 2)))));
         };
         const up = () => {
           window.removeEventListener('pointermove', move);

@@ -21,11 +21,11 @@ type Props = {
   fallback: string | null;
 };
 
-// Tuned against the audio clip body (--clip-audio): a soft outer envelope with a brighter core,
-// which reads as "loud here" at a glance even in a 30px lane.
-const ENVELOPE = 'rgba(190, 245, 255, 0.42)';
-const CORE = 'rgba(225, 252, 255, 0.92)';
-const CENTER = 'rgba(255, 255, 255, 0.22)';
+// Tuned against the green audio clip body (--clip-audio): a pale outer envelope with a near-white
+// core, which reads as "loud here" at a glance even in a 30px lane.
+const ENVELOPE = 'rgba(214, 236, 220, 0.45)';
+const CORE = 'rgba(240, 248, 242, 0.9)';
+const CENTER = 'rgba(255, 255, 255, 0.18)';
 
 export const ClipWave = ({ asset, in: inPoint, speed, left, width, height, zoom, fallback }: Props) => {
   const peaks = usePeaks(asset?.peaks);

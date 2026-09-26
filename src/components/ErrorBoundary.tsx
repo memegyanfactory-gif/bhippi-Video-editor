@@ -3,6 +3,7 @@
 // launch, so an error that a reload clears can still be read and fixed.
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { api } from '../lib/ipc';
+import { crashReporter } from '../lib/crashReporter';
 
 type Props = {
   children: ReactNode;
@@ -29,6 +30,8 @@ function record(error: Error, components: string, scope: string) {
   const message = `${scope ? `[${scope}] ` : ''}${error.message}`;
   try { localStorage.setItem(LAST_CRASH, JSON.stringify({ at: new Date().toISOString(), message, scope })); } catch { /* storage full or blocked */ }
   void api.frontendCrash(message, error.stack ?? '', components).catch(() => undefined);
+  // Opens the crash report panel (once per distinct problem, unless turned off in Settings).
+  crashReporter.reportBoundary(error, components, scope);
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -60,10 +63,11 @@ export class ErrorBoundary extends Component<Props, State> {
       <div className="crash">
         <div className="crash-card">
           <h1><img src="/bhippi.png" alt="" width={22} height={22} /> Bhippi hit an error</h1>
-          <p>Your project is autosaved, so nothing is lost. Try again — the details are saved to crash.log in the Bhippi data folder.</p>
+          <p>Your project is autosaved, so nothing is lost. Try again — or send a report so we can fix it. The details are also saved to crash.log in the Bhippi data folder.</p>
           <pre>{error.message}{info ? `\n${info}` : ''}</pre>
           <div className="crash-actions">
             <button type="button" className="btn btn-primary" onClick={() => this.setState({ error: null, info: '' })}>Try again</button>
+            <button type="button" className="btn" onClick={() => void crashReporter.openManual()}>Send a report</button>
             <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(`${error.message}\n${error.stack ?? ''}\n${info}`)}>Copy details</button>
             <button type="button" className="btn" onClick={() => window.location.reload()}>Reload Bhippi</button>
           </div>

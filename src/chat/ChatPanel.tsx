@@ -1,7 +1,11 @@
+import { GenerationPlanCard } from './GenerationPlanCard';
+import type { GenPlan } from '../lib/cloudGen';
+import type { Asset } from '../lib/types';
 import { modelVariants, variantModel } from '../lib/modelVariants';
+import { rememberTurnPrompt } from '../lib/turnPrompts';
 import { speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Laugh, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
+import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Laugh, MapPin, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { ModelPicker } from '../components/ModelPicker';
@@ -17,7 +21,8 @@ import { AnswerBody } from './AnswerBody';
 import { appendText, settleText } from './segments';
 import { CommandPanel, panelOrder } from './CommandPanel';
 import { COMMANDS, matchCommands, type CommandContext } from './commands';
-import { handoffFor, historyFor } from './handoff';
+import { handoffFor, historyFor, seesImages } from './handoff';
+import { annotationBrief, annotationLabel, annotations, sentAnnotation, usePendingAnnotations, type SentAnnotation } from '../lib/annotations';
 import { copyText } from '../lib/clipboard';
 import { uid } from '../lib/editor';
 import { api, errorText, events, type ReferenceFilm } from '../lib/ipc';
@@ -30,7 +35,7 @@ import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 export type { ToolRun } from './Activity';
 
 export type ChatMessage =
-  | { id: string; role: 'user'; content: string; at: number; images?: string[] }
+  | { id: string; role: 'user'; content: string; at: number; images?: string[]; /** Monitor annotations sent with it: shown as chips, and their brief kept for later turns. */ annotations?: SentAnnotation[]; annotationBrief?: string }
   | {
       id: string;
       role: 'assistant';
@@ -132,6 +137,9 @@ type Props = {
   onStyle: (id: StyleId | null) => void;
   /** A question the assistant is waiting on, and the answer going back to it. */
   ask: { question: string; options: string[]; context: string | null } | null;
+  /** The cloud generation plan the AI is waiting on, with the project's media for thumbnails. */
+  genPlan?: { plan: GenPlan; assets: Map<string, Asset> } | null;
+  onGenPlan?: (plan: GenPlan | null) => void;
   /** How many are waiting, so the card can say which one this is. */
   askCount: number;
   onAnswer: (answer: string) => void;
@@ -172,6 +180,8 @@ type Props = {
   instruction?: string;
   placeholder?: string;
   label?: string;
+  /** This chat takes the Program monitor's annotations (the main chat, not the Plugin Maker's). */
+  annotations?: boolean;
 };
 
 
@@ -301,6 +311,7 @@ export function ChatPanel(props: Props) {
       setImages([]);
       setQueued(null);
       setAttached(null);
+      if (props.annotations) annotations.reset();
       void api.chatLogSave([], props.logScope).catch(() => undefined);
     },
     focus: () => {
@@ -673,9 +684,20 @@ export function ChatPanel(props: Props) {
 
   const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick') => {
     const mode = propsRef.current.lockedMode ?? modeOverride ?? workflowMode;
-    const sentImages=[...imagesRef.current];
-    const message = text.trim() || (sentImages.length ? 'Please inspect the attached images.' : '');
-    if (!message) return;
+    const attachedImages=[...imagesRef.current];
+    // Annotations from the Program monitor go with the next message that starts a turn; mid-turn
+    // they wait, since a steer is words only.
+    const notes = propsRef.current.annotations && !streaming ? annotations.list() : [];
+    const message = text.trim() || (attachedImages.length ? 'Please inspect the attached images.' : notes.length ? (notes.length === 1 ? 'Please apply my annotation.' : `Please apply my ${notes.length} annotations.`) : '');
+    if (!message) {
+      if (streaming && propsRef.current.annotations && annotations.list().length) toast({ tone: 'info', title: 'Annotations are waiting', body: 'They go with your next message once this response finishes.' });
+      return;
+    }
+    const taken = notes.length ? annotations.take() : [];
+    const brief = annotationBrief(taken);
+    // Each annotation's frame, outlined, for models that can see — after the user's own images.
+    const snapshots = seesImages(propsRef.current.providerId) ? taken.flatMap((item) => (item.snapshot ? [item.snapshot] : [])) : [];
+    const sentImages = [...attachedImages, ...snapshots].slice(0, 4);
     if (streaming) {
       if(sentImages.length){toast({tone:'info',title:'Images ready',body:'Send these images after the current response finishes.'});return;}
       // The Claude app's behaviour: a message typed while it works goes into the running turn and
@@ -701,6 +723,7 @@ export function ChatPanel(props: Props) {
     const providerModels=propsRef.current.providers.find(p=>p.id===providerId)?.models||[];
     const model=variantModel(providerModels,propsRef.current.model,propsRef.current.effort);
     const turnId = uid();
+    rememberTurnPrompt(turnId, message);
     propsRef.current.onStartWorkflow(turnId, mode);
     const history = historyFor(messages, providerId, model);
     // Who the new model is relieving, read straight off the transcript — so a cleared chat has
@@ -708,19 +731,20 @@ export function ChatPanel(props: Props) {
     const handoff = handoffFor(messages, providerId, model);
     const provider = propsRef.current.providers.find((item) => item.id === providerId);
     turnMeta.current.set(turnId, { provider: provider?.label ?? 'Bhippi', model, prompt: message });
+    const extra = [hiddenExtra, brief].filter(Boolean).join('\n\n');
     const assistant: Assistant = {
       id: uid(), role: 'assistant', turnId, providerId: providerId ?? 'bhippi', providerLabel: provider?.label ?? 'Bhippi', model,
       content: '', thinking: '', steps: [], status: 'streaming', notes: [], fault: null, usage: null, elapsedMs: null, limit: null,
     };
     pinned.current = true;
-    setMessages((items) => [...items, { id: uid(), role: 'user', content: message, at: Date.now(), images: sentImages }, assistant]);
+    setMessages((items) => [...items, { id: uid(), role: 'user', content: message, at: Date.now(), images: sentImages, ...(taken.length ? { annotations: taken.map(sentAnnotation), annotationBrief: brief } : {}) }, assistant]);
     setDraft('');
     actionLogger.user(`Chat Prompt: "${message.length > 80 ? message.slice(0, 77) + '...' : message}"`, { turnId, provider: provider?.label ?? 'Bhippi', model, images: sentImages.length });
     try {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
-      await api.chatSend({ turnId, providerId, model, effort: level, message: hiddenExtra ? `${message}\n\n${hiddenExtra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, workflowInstruction: propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId)) }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}) });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, workflowInstruction: propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId)) }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}) });
       setImages([]);
     } catch (error) {
       actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
@@ -741,15 +765,15 @@ export function ChatPanel(props: Props) {
     const index = messages.findIndex((item) => item.id === before);
     for (let i = index - 1; i >= 0; i--) {
       const item = messages[i];
-      if (item.role === 'user') return item.content;
+      if (item.role === 'user') return item;
     }
     return null;
   };
 
   const remedy = (message: Assistant, action: TurnFault['remedy']) => {
     if (action === 'retry') {
-      const text = lastUserMessage(message.id);
-      if (text) void send(text, retryNote(message, propsRef.current.tools[message.turnId] ?? [], propsRef.current.workflowStatus(message.turnId)));
+      const last = lastUserMessage(message.id);
+      if (last) void send(last.content, [retryNote(message, propsRef.current.tools[message.turnId] ?? [], propsRef.current.workflowStatus(message.turnId)), last.annotationBrief].filter(Boolean).join('\n\n'));
     } else if (action === 'switch_provider') {
       setPickerOpen(true);
     } else if (action === 'compact') {
@@ -797,6 +821,7 @@ export function ChatPanel(props: Props) {
     // Nothing is being carried over, so the next turn is a first turn: no handover note, and the
     // queued message from the old conversation does not arrive in the new one.
     setQueued(null);
+    if (props.annotations) annotations.reset();
     for (const item of messages) if (item.role === 'assistant') steer.take(item.turnId);
     missing.current.clear();
     // A fresh conversation is a fresh task: the production dock from the old one used to stay
@@ -823,6 +848,18 @@ export function ChatPanel(props: Props) {
 
   props.apiRef.current = { clear, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript };
   sendRef.current = (text: string, mode?: 'full' | 'quick') => void send(text, undefined, mode);
+
+  // The Program monitor's "Send to chat": whatever is in the composer goes, with the annotations.
+  const pendingNotes = usePendingAnnotations();
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const annotationSendRef = useRef<() => void>(() => undefined);
+  annotationSendRef.current = () => {
+    if (runIfCommand(draftRef.current)) return;
+    liftOff(draftRef.current || (annotations.list().length === 1 ? 'Please apply my annotation.' : 'Please apply my annotations.'));
+    void send(draftRef.current);
+  };
+  useEffect(() => (props.annotations ? annotations.onSendRequest(() => annotationSendRef.current()) : undefined), [props.annotations]);
 
   // A message typed mid-turn waits here, then goes by itself.
   useEffect(() => {
@@ -1012,6 +1049,15 @@ export function ChatPanel(props: Props) {
             <div key={message.id} className="msg-user-row">
               <div className="msg msg-user">
                 {message.content}
+                {!!message.annotations?.length && (
+                  <div className="msg-annots">
+                    {message.annotations.map((item) => (
+                      <span key={item.n} className="msg-annot" title={`${item.timecode} · ${item.label}${item.note ? ` — ${item.note}` : ''}`}>
+                        <MapPin size={10} /><b>#{item.n}</b> {item.timecode} · {item.label}{item.note ? <em> — {item.note}</em> : null}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {!!message.images?.length && <div className="chat-images">{message.images.map((src,index)=><img key={index} src={src} alt={"Attached image "+(index+1)} />)}</div>}
               </div>
               <div className="msg-actions">
@@ -1063,6 +1109,10 @@ export function ChatPanel(props: Props) {
           ),
         )}
       </div>
+
+      {props.genPlan && props.onGenPlan && (
+        <GenerationPlanCard key={props.genPlan.plan.items.map((item) => item.key).join()} plan={props.genPlan.plan} assets={props.genPlan.assets} onDone={props.onGenPlan} />
+      )}
 
       {props.ask && (
         // One question at a time, with its place in the queue: four at once is a form, and a form
@@ -1223,6 +1273,27 @@ export function ChatPanel(props: Props) {
             <button type="button" onClick={() => props.onStyle(null)} aria-label={`Turn off the ${activeStyle.label} style`}><X size={11} /></button>
           </div>
         )}
+        {props.annotations && pendingNotes.length > 0 && (
+          <div className="annot-queue" aria-label="Annotations waiting to be sent">
+            <div className="annot-queue-head">
+              <MapPin size={11} />
+              <span className="attached-name">{pendingNotes.length} annotation{pendingNotes.length === 1 ? '' : 's'} added</span>
+              <span className="attached-detail">{streaming ? 'go with your next message' : 'go with this message'}</span>
+              <button type="button" onClick={() => annotations.clear()} aria-label="Remove all annotations" title="Remove all"><X size={11} /></button>
+            </div>
+            <ul>
+              {pendingNotes.map((item) => (
+                <li key={item.id}>
+                  {item.snapshot && <img src={item.snapshot} alt="" />}
+                  <b>#{item.n}</b>
+                  <span className="annot-where">{item.timecode} · {annotationLabel(item)}</span>
+                  <span className="annot-note">{item.note || '(pointed at)'}</span>
+                  <button type="button" onClick={() => annotations.remove(item.id)} aria-label={`Remove annotation ${item.n}`}><X size={10} /></button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={e=>{void addImages(Array.from(e.target.files||[]));e.target.value='';}} />
         {messages.some(message=>message.role==='user'&&message.images?.length)&&<small>Images in this conversation may be sent again to {active?.label||'the selected provider'} as context.</small>}
         {images.length>0&&<><div className="chat-images">{images.map((src,index)=><div key={index}><img src={src} alt={'Image '+(index+1)}/><button type="button" aria-label={'Remove image '+(index+1)} onClick={()=>setImages(current=>current.filter((_,i)=>i!==index))}>×</button></div>)}</div><small>Sending shares these images with {active?.label||'the selected provider'}. Choose a vision-capable model.</small></>}
@@ -1327,7 +1398,7 @@ export function ChatPanel(props: Props) {
               <button type="button" className="send-btn stop" onClick={() => stop()} title="Stop"><CircleStop size={16} /></button>
             </>
           ) : (
-            <button type="submit" className="send-btn" disabled={!draft.trim() && !images.length} title="Send (Enter)"><ArrowUp size={16} /></button>
+            <button type="submit" className="send-btn" disabled={!draft.trim() && !images.length && !(props.annotations && pendingNotes.length)} title="Send (Enter)"><ArrowUp size={16} /></button>
           )}
         </div>
       </form>
@@ -1476,3 +1547,4 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
     </div>
   );
 }
+

@@ -105,28 +105,76 @@ async fn output(program: &str, args: &[&str], folder: &std::path::Path) -> Optio
 }
 
 pub async fn inspect(folder: &std::path::Path) -> Value {
-    let mut info = json!({"os":std::env::consts::OS,"architecture":std::env::consts::ARCH,"threads":std::thread::available_parallelism().map_or(1,usize::from),"cpu":null,"ramGb":null,"diskFreeGb":null,"gpus":[],"nvidia":[]});
+    let mut info = json!({"os":std::env::consts::OS,"architecture":std::env::consts::ARCH,"threads":std::thread::available_parallelism().map_or(1,usize::from),"cpu":null,"ramGb":null,"diskFreeGb":null,"gpus":[],"adapters":[],"nvidia":[]});
     #[cfg(windows)]
     {
-        let script = r#"$ErrorActionPreference='Stop'; $os=Get-CimInstance Win32_OperatingSystem; $cpu=Get-CimInstance Win32_Processor; $drive=[IO.Path]::GetPathRoot($env:BHIPPI_DATA_FOLDER).TrimEnd('\'); $disk=Get-CimInstance Win32_LogicalDisk | Where-Object DeviceID -eq $drive; [pscustomobject]@{cpu=($cpu.Name -join ', ');ramGb=[math]::Round($os.TotalVisibleMemorySize/1MB,1);diskFreeGb=if($disk){[math]::Round($disk.FreeSpace/1GB,1)}else{$null};gpus=@(Get-CimInstance Win32_VideoController | ForEach-Object Name)} | ConvertTo-Json -Compress"#;
+        // `adapters` carries each display adapter's dedicated memory. WMI's AdapterRAM is a 32-bit
+        // field that tops out at 4 GB, so the size comes from the driver's own 64-bit
+        // `HardwareInformation.qwMemorySize` in the display class key, with AdapterRAM only as a
+        // fallback. Integrated GPUs report a small carve-out (or nothing) here, which is right:
+        // they borrow system RAM and cannot hold a video model.
+        let script = r#"$ErrorActionPreference='Stop'; $os=Get-CimInstance Win32_OperatingSystem; $cpu=Get-CimInstance Win32_Processor; $drive=[IO.Path]::GetPathRoot($env:BHIPPI_DATA_FOLDER).TrimEnd('\'); $disk=Get-CimInstance Win32_LogicalDisk | Where-Object DeviceID -eq $drive; $reg=@{}; try { Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}' -ErrorAction SilentlyContinue | ForEach-Object { $p=Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue; if($p -and $p.DriverDesc -and $p.'HardwareInformation.qwMemorySize'){ $reg[[string]$p.DriverDesc]=[double]$p.'HardwareInformation.qwMemorySize' } } } catch {}; $adapters=@(Get-CimInstance Win32_VideoController | ForEach-Object { $bytes=if($reg.ContainsKey([string]$_.Name)){$reg[[string]$_.Name]}else{[double]$_.AdapterRAM}; [pscustomobject]@{name=$_.Name;vramMb=if($bytes -gt 0){[math]::Round($bytes/1MB)}else{$null};driver=$_.DriverVersion} }); [pscustomobject]@{cpu=($cpu.Name -join ', ');ramGb=[math]::Round($os.TotalVisibleMemorySize/1MB,1);diskFreeGb=if($disk){[math]::Round($disk.FreeSpace/1GB,1)}else{$null};gpus=@($adapters | ForEach-Object name);adapters=$adapters} | ConvertTo-Json -Depth 3 -Compress"#;
         if let Some(data) = output("powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", script], folder).await {
             if let Ok(measured) = serde_json::from_str::<Value>(data.trim_start_matches('\u{feff}').trim()) {
-                for key in ["cpu", "ramGb", "diskFreeGb", "gpus"] {
+                for key in ["cpu", "ramGb", "diskFreeGb", "gpus", "adapters"] {
                     info[key] = measured[key].clone();
+                }
+                for key in ["gpus", "adapters"] {
+                    if !info[key].is_array() {
+                        let single = info[key].take();
+                        info[key] = if single.is_null() { json!([]) } else { json!([single]) };
+                    }
                 }
             }
         }
     }
-    if let Some(data) = output("nvidia-smi", &["--query-gpu=name,memory.total", NVIDIA_FORMAT], folder).await {
-        info["nvidia"] = Value::Array(
-            data.lines()
-                .filter_map(|line| {
-                    let (name, memory) = line.rsplit_once(',')?;
-                    let mb = memory.trim().parse::<u64>().ok()?;
-                    Some(json!({"name":name.trim(),"vramMb":mb}))
-                })
-                .collect(),
-        );
+    // compute_cap says which precisions the card runs natively (8.0+ has bf16, which the video
+    // models are published in); driver_version tells whether current CUDA wheels will load.
+    if let Some(data) = output("nvidia-smi", &["--query-gpu=name,memory.total,compute_cap,driver_version", NVIDIA_FORMAT], folder).await {
+        info["nvidia"] = Value::Array(data.lines().filter_map(parse_nvidia_card).collect());
+    } else if let Some(data) = output("nvidia-smi", &["--query-gpu=name,memory.total", NVIDIA_FORMAT], folder).await {
+        // Older drivers do not know compute_cap and reject the whole query.
+        info["nvidia"] = Value::Array(data.lines().filter_map(parse_nvidia_card).collect());
     }
     info
+}
+
+/// `name, memory.total[, compute_cap, driver_version]` → `{name, vramMb, computeCap, driver}`.
+/// The name is whatever precedes the numeric fields, so a comma inside it cannot shift them.
+fn parse_nvidia_card(line: &str) -> Option<Value> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+    // Find the memory column: the first field from the right-hand group that parses as an integer.
+    let (name, vram, cap, driver) = if parts.len() >= 4 && parts[parts.len() - 3].parse::<u64>().is_ok() {
+        let n = parts.len();
+        (parts[..n - 3].join(","), parts[n - 3], parts[n - 2], parts[n - 1])
+    } else if parts.len() >= 2 {
+        let n = parts.len();
+        (parts[..n - 1].join(","), parts[n - 1], "", "")
+    } else {
+        return None;
+    };
+    let mb = vram.parse::<u64>().ok()?;
+    let cap = cap.parse::<f64>().ok();
+    Some(json!({"name": name.trim(), "vramMb": mb, "computeCap": cap, "driver": (!driver.is_empty() && driver != "[N/A]").then_some(driver)}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_nvidia_card;
+
+    #[test]
+    fn reads_nvidia_cards_with_and_without_capability() {
+        let full = parse_nvidia_card("NVIDIA GeForce RTX 4070, 12282, 8.9, 566.36").unwrap();
+        assert_eq!(full["vramMb"], 12282);
+        assert_eq!(full["computeCap"], 8.9);
+        assert_eq!(full["driver"], "566.36");
+        let old = parse_nvidia_card("Quadro P2000, 5120").unwrap();
+        assert_eq!(old["name"], "Quadro P2000");
+        assert!(old["computeCap"].is_null());
+        assert!(parse_nvidia_card("  ").is_none());
+    }
 }

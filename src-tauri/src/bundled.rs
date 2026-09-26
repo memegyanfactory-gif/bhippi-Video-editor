@@ -1,6 +1,6 @@
 //! What the installer ships beside Bhippi (`src-tauri/bundled`, filled at build time by
 //! `scripts/fetch-bundle.mjs`): FFmpeg + FFprobe and yt-dlp in `bin/`, and in `models/` the
-//! whisper.cpp and Piper engines and the Roto models, laid out exactly as Settings › Speech & voice
+//! whisper.cpp and Kokoro voice engines and the Roto models, laid out exactly as Settings › Speech & voice
 //! and the Model Center install them.
 //!
 //! At startup `bin/` is put first in the tool search (tools.rs), and `models/` is copied into the

@@ -581,7 +581,7 @@ function KitEditor({ kit, isDefault, isProject, onPatch, onReplace, onDefault, o
           <Field label="Tempo min"><input type="number" value={kit.audio.tempo[0]} onChange={(e) => onPatch('audio', { tempo: [Number(e.target.value), kit.audio.tempo[1]] })} /></Field>
           <Field label="Tempo max"><input type="number" value={kit.audio.tempo[1]} onChange={(e) => onPatch('audio', { tempo: [kit.audio.tempo[0], Number(e.target.value)] })} /></Field>
           <Field label="SFX palette"><input value={kit.audio.sfx.join(', ')} onChange={(e) => onPatch('audio', { sfx: chipsFromText(e.target.value) })} /></Field>
-          <Field label="TTS voice id"><input value={kit.audio.voice ?? ''} placeholder="piper:piper-en-ryan" onChange={(e) => onPatch('audio', { voice: e.target.value || null })} /></Field>
+          <Field label="TTS voice id"><input value={kit.audio.voice ?? ''} placeholder="kokoro:af_heart" onChange={(e) => onPatch('audio', { voice: e.target.value || null })} /></Field>
         </div>
         <Field label="Sound rules (one per line)"><textarea value={kit.audio.rules.join('\n')} onChange={(e) => onPatch('audio', { rules: linesFromText(e.target.value) })} /></Field>
       </Section>

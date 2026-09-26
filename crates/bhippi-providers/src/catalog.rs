@@ -32,6 +32,9 @@ pub enum Api {
     OpenAiCompat,
     /// Anthropic Messages API with SSE.
     Anthropic,
+    /// OpenCode Zen: one key and base URL, with each model reached through the Messages or
+    /// the chat-completions adapter by family (see [`crate::zen::route`]).
+    OpenCodeZen,
 }
 
 /// How one CLI agent loads an MCP server for a single headless turn. Each vendor has its own
@@ -432,7 +435,7 @@ pub const CATALOG: &[ProviderSpec] = &[
         "https://jan.ai",
     ),
     ProviderSpec {
-        models: &["claude-opus-5-5", "claude-opus-5", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"],
+        models: &["claude-opus-5-5", "claude-sonnet-5", "claude-fable-5-1", "claude-haiku-4-5", "claude-opus-5", "claude-sonnet-4-6"],
         ..cloud(
             "anthropic",
             "Anthropic API",
@@ -443,7 +446,7 @@ pub const CATALOG: &[ProviderSpec] = &[
         )
     },
     ProviderSpec {
-        models: &["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
+        models: &["gpt-6-sol", "gpt-6-astra", "gpt-6-luna", "gpt-5.6-terra", "gpt-5.5", "gpt-5.4-mini", "gpt-5"],
         ..cloud(
             "openai",
             "OpenAI API",
@@ -454,7 +457,7 @@ pub const CATALOG: &[ProviderSpec] = &[
         )
     },
     ProviderSpec {
-        models: &["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-pro-preview", "gemini-3-flash-preview"],
+        models: &["gemini-3.8-flash", "gemini-3.1-pro", "gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash"],
         ..cloud(
             "google",
             "Google Gemini API",
@@ -465,7 +468,7 @@ pub const CATALOG: &[ProviderSpec] = &[
         )
     },
     ProviderSpec {
-        models: &["grok-4", "grok-4-fast-reasoning", "grok-4-fast-non-reasoning", "grok-code-fast-1", "grok-3-mini"],
+        models: &["grok-4.7", "grok-4.6", "grok-4.3"],
         ..cloud(
             "xai",
             "xAI API",
@@ -476,7 +479,7 @@ pub const CATALOG: &[ProviderSpec] = &[
         )
     },
     ProviderSpec {
-        models: &["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3-32b"],
+        models: &["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "qwen/qwen3.8-27b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"],
         ..cloud(
             "groq",
             "Groq API",
@@ -498,7 +501,7 @@ pub const CATALOG: &[ProviderSpec] = &[
         )
     },
     ProviderSpec {
-        models: &["deepseek-chat", "deepseek-reasoner"],
+        models: &["deepseek-v4-pro", "deepseek-v4-flash"],
         ..cloud(
             "deepseek",
             "DeepSeek API",
@@ -520,7 +523,7 @@ pub const CATALOG: &[ProviderSpec] = &[
         )
     },
     ProviderSpec {
-        models: &["kimi-latest", "kimi-k2-0905-preview", "kimi-k2-turbo-preview"],
+        models: &["kimi-k3", "kimi-k2.7-code", "kimi-k2.6"],
         ..cloud(
             "moonshot",
             "Moonshot (Kimi) API",
@@ -528,6 +531,20 @@ pub const CATALOG: &[ProviderSpec] = &[
             "https://api.moonshot.ai/v1",
             &["MOONSHOT_API_KEY"],
             "https://platform.moonshot.ai",
+        )
+    },
+    ProviderSpec {
+        // Offline fallback, recommended first. The live list replaces it (keeping this order at
+        // the front); GPT, Grok, Muse and Gemini models are left out because Zen serves them on
+        // endpoints Bhippi has no adapter for (see `crate::zen`).
+        models: &["claude-sonnet-5", "claude-opus-5-5", "claude-haiku-4-5", "kimi-k3", "glm-5.3", "deepseek-v4-pro", "big-pickle"],
+        ..cloud(
+            "opencode-zen",
+            "OpenCode Zen",
+            Api::OpenCodeZen,
+            "https://opencode.ai/zen/v1",
+            &["OPENCODE_API_KEY"],
+            "https://opencode.ai/auth",
         )
     },
 ];

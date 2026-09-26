@@ -5,9 +5,10 @@
 //
 //   node scripts/import-fiwn-caption-styles.mjs [path-to-FIWN]
 //
-// FIWN's "dynamic layout" and "motion graphics" presets are canvas engines rather than data, so
-// only the data-driven presets (colour, outline, box, glow, word highlight, entrance animation)
-// are imported. Fonts are mapped to families that ship with Windows, because Bhippi renders
+// FIWN's "dynamic layout" presets drive canvas engines there; here they are imported through their
+// typography (colour, outline, glow, highlight, entrance animation), so every preset is available
+// and renders the same in the preview and the export. Styles added in Bhippi that FIWN does not
+// have (the Meme set) are kept. Fonts are mapped to families that ship with Windows, because Bhippi renders
 // offline and the export (libass) must use the same face as the preview.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -41,6 +42,8 @@ const FONT_MAP = {
   'JetBrains Mono': 'Consolas',
   'Chalkboard SE': 'Comic Sans MS',
   'Snell Roundhand': 'Segoe Script',
+  Audiowide: 'Segoe UI', Bungee: 'Arial Black', Bangers: 'Impact', Silkscreen: 'Consolas',
+  'Permanent Marker': 'Segoe Print',
 };
 /** Segoe UI's heavy cut is its own family on Windows. */
 const family = (font, weight) => {
@@ -69,6 +72,7 @@ const TRENDING = ['hormozi', 'karaoke', 'beastone', 'boxword', 'wordFocus', 'kin
 
 function category(id, s) {
   if (TRENDING.includes(id)) return 'Trending';
+  if (s.dynamicLayout || String(id).startsWith('dyn')) return 'Dynamic';
   if (s.highlightBox || s.captionCard || s.bgOn) return 'Boxed & Chips';
   if (s.glow) return 'Neon & Glow';
   if (s.highlightWords || s.progressiveHighlight) return 'Word by word';
@@ -94,7 +98,6 @@ function tags(s) {
 
 const styles = [];
 for (const [id, preset] of Object.entries(PRESETS)) {
-  if (preset.dynamicLayout || String(id).startsWith('dyn')) continue;
   const s = { ...BASE, ...preset };
   const anim = { ...NO_ANIM, ...(preset.anim ?? {}) };
   const card = s.captionCard ? hex(s.captionCardColor) : null;
@@ -136,9 +139,19 @@ for (const [id, preset] of Object.entries(PRESETS)) {
   });
 }
 
-const order = ['Trending', 'Word by word', 'Boxed & Chips', 'Bold & Punchy', 'Neon & Glow', 'Clean & Minimal', 'Retro & Comic', 'Cinematic & Editorial'];
-styles.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category) || (a.category === 'Trending' ? TRENDING.indexOf(a.id) - TRENDING.indexOf(b.id) : 0));
 const target = join(here, '..', 'src', 'lib', 'caption-styles.json');
+let previous = { styles: [], categories: [] };
+try {
+  previous = JSON.parse(readFileSync(target, 'utf8'));
+} catch {
+  // first import
+}
+const imported = new Set(styles.map((style) => style.id));
+const kept = previous.styles.filter((style) => !imported.has(style.id));
+styles.push(...kept);
+
+const order = ['Trending', 'Dynamic', 'Word by word', 'Boxed & Chips', 'Bold & Punchy', 'Neon & Glow', 'Clean & Minimal', 'Retro & Comic', 'Cinematic & Editorial', ...new Set(kept.map((style) => style.category))];
+styles.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category) || (a.category === 'Trending' ? TRENDING.indexOf(a.id) - TRENDING.indexOf(b.id) : 0));
 writeFileSync(target, `${JSON.stringify({ source: 'WatchFIWN STYLE_PRESETS (imported read-only)', categories: order, styles }, null, 2)}\n`);
 const counts = Object.fromEntries(order.map((name) => [name, styles.filter((s) => s.category === name).length]));
 console.log(`Imported ${styles.length} caption styles →`, target, counts);

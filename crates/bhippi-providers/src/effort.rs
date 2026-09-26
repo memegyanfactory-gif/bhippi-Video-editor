@@ -95,6 +95,15 @@ pub fn levels(provider: &str, model: Option<&str>) -> &'static [Level] {
                 NONE
             }
         }
+        // OpenCode Zen reaches Claude through the Messages API, so Claude's steps apply; its
+        // chat-completions models get no knob.
+        "opencode-zen" => {
+            if has(model, &["claude-"]) {
+                levels("anthropic", Some(model))
+            } else {
+                NONE
+            }
+        }
         // Groq passes the setting through for the gpt-oss models.
         "groq" => {
             if has(model, &["gpt-oss"]) {

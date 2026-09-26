@@ -31,19 +31,27 @@ pub struct ExportPrefs {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SpeechPrefs {
-    /// `auto` · `local` · `cloud` — which transcriber to try first. `auto` prefers whatever
-    /// is offline, because it costs nothing and never leaves the machine.
+    /// `auto` · `cloud` · `local`, or one engine by id (`deepgram` · `elevenlabs` · `openai` ·
+    /// `groq` · `mistral` · `google` · `openrouter`). `auto` tries speech keys, then AI provider
+    /// keys that can hear audio, then offline whisper.cpp (see `transcribe::plan`).
     pub transcribe_engine: Option<String>,
     /// The catalogue id of the offline Whisper model to run.
     pub transcribe_model: Option<String>,
     /// Explicit whisper.cpp program, when it is not one Bhippi downloaded.
     pub whisper_path: Option<String>,
-    /// Explicit Piper program.
-    pub piper_path: Option<String>,
-    /// The voice a script is read in: `piper:<id>` · `elevenlabs:<id>` · `openai:<name>`.
+    /// Explicit sherpa-onnx library for Kokoro. Read from the old `piperPath` too, though a
+    /// Piper program saved there no longer means anything and is simply not found.
+    #[serde(alias = "piperPath")]
+    pub tts_path: Option<String>,
+    /// The voice a script is read in: `kokoro:<speaker>` · `elevenlabs:<id>` · `openai:<name>`.
+    /// Unset means automatic: a cloud voice when a key is saved, else Kokoro.
     pub voice: Option<String>,
-    /// The Hindi half of a Hinglish pair, when the main voice is an offline English one.
+    /// The Kokoro Hindi speaker that reads Hindi and Hinglish when the main voice is English.
     pub hindi_voice: Option<String>,
+    /// ElevenLabs model for voice-overs; unset means Multilingual v2.
+    pub elevenlabs_model: Option<String>,
+    /// OpenAI speech model for voice-overs; unset means gpt-4o-mini-tts.
+    pub openai_tts_model: Option<String>,
     /// How the reader should be told to treat a script: `auto` · `hinglish` · `hindi-roman`
     /// · `en` · `hi`.
     pub voice_mode: Option<String>,
@@ -58,6 +66,10 @@ pub struct Settings {
     pub local_media_python: Option<String>,
     pub local_roto_engine: Option<String>,
     pub local_video_model: Option<String>,
+    /// `sdxl` (default) or `flux`: which local model plain text-to-image uses.
+    pub local_image_model: Option<String>,
+    /// Cloud image/video generation through the user's own connector keys (gen_cloud.rs).
+    pub cloud_generation: crate::gen_cloud::CloudPrefs,
     pub local_media_models: std::collections::HashMap<String, String>,
     /// When true the AI does not call local image/video generation on its own.
     pub disable_local_generation: Option<bool>,
@@ -67,11 +79,18 @@ pub struct Settings {
     pub copy_imports: Option<bool>,
     /// The first-run onboarding has been finished or skipped.
     pub onboarded: Option<bool>,
+    /// Show the welcome tour on a fresh install; on when unset.
+    pub tour: Option<bool>,
+    /// `false` on a fresh install until the welcome tour is finished or skipped; unset on older
+    /// installs, which never get it on their own.
+    pub tour_seen: Option<bool>,
     /// Fetch a new version as soon as bhippi.com has one (installing still waits for the user).
     /// Unset means on.
     pub auto_update: Option<bool>,
     /// Providers the user switched off. Everything else that is usable is offered.
     pub disabled_providers: Vec<String>,
+    /// Addresses typed for local model servers that are not on their usual port, by provider id.
+    pub local_endpoints: std::collections::HashMap<String, String>,
     /// The chat picker's last choice.
     pub provider_id: Option<String>,
     pub model: Option<String>,
@@ -115,10 +134,12 @@ pub struct Settings {
     pub preview_cache_enabled: Option<bool>,
     /// Its RAM budget in megabytes; the UI's default (1536) when unset.
     pub preview_cache_mb: Option<u32>,
-    /// The pixel avatar that acts out what Bhippi AI is doing; on when unset.
+    /// The pixel avatar that acts out what Bhippi AI is doing; off unless the user turns it on.
     pub avatar: Option<bool>,
     /// Who the avatar is (`heli`, `cat`, `woman`, `genie`, `puppy`, `senior`); Heli when unset.
     pub avatar_character: Option<String>,
+    /// The user's own colours per character (character → colour slot → `#rrggbb`); the UI owns the shape.
+    pub avatar_colors: Option<serde_json::Value>,
 }
 
 const KEYCHAIN_SERVICE: &str = "bhippi-studio";

@@ -53,7 +53,7 @@ function Lab() {
       host: () => ({ ...host, history: { ...host.history, commit: (...args: Parameters<typeof host.history.commit>) => flushSync(() => host.history.commit(...args)) } }),
       runTool: (h, name, args) => runTool(h, name, args), known: KNOWN_TOOLS, toolSpecs: () => TOOL_SPECS,
       permission: () => 'edit', disableLocalGeneration: () => true,
-      toast: (tone, title, body) => console.info(`[toast ${tone}] ${title}: ${body}`), chat: (message) => console.info(`[chat] ${message}`),
+      toast: (tone, title, body) => console.info(`[toast ${tone}] ${title}: ${body}`), chat: (message) => console.info(`[chat] ${message}`), projectPath: () => null,
     });
   }, [host]);
   useEffect(() => {

@@ -45,6 +45,7 @@ import { aspectLabel, describeReformat, FRAME_PRESETS, orientationOf, reformatCo
 import { autoLayout, captionBand, fillCell, pipBox, splitCells, type SplitLayout } from './splitScreen';
 import type { History } from './history';
 import { api, errorText } from './ipc';
+import { cloudPrefs, genApi, pickModel, usableConnectors, type GenPlan, type GenPlanItem } from './cloudGen';
 import { describe as describeDiff, runProgram, type Op, type Program } from './editProgram';
 import { buildRecipe, findRecipe, recipeCatalogue, registerCustomRecipe, setCustomRecipes } from './recipes';
 import {
@@ -63,7 +64,11 @@ import { SFX_KINDS } from './types';
 import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
 import { playbook } from './motionDirection';
 import { PLUGIN_TOOLS, runPluginAiTool } from '../plugins/aiTools';
+import { COLOR_TOOLS, LUT_REFUSAL, runColorTool } from './colorTools';
+import { asksForLut, turnPrompt } from './turnPrompts';
 import { GENERIC_TARGET, pacingReport } from './pacing';
+import { buildShortComp, MAX_SHORTS, normalizeSegments, orientationFromAnswer, orientationStated, SHORT_FORMAT_OPTIONS, SHORT_FRAMES, type ShortOrientation, type ShortSpec } from './shorts';
+import { detectFaces } from './roast/alpha';
 
 /** Tells the model a file search stopped at its budget, so "0 found" is not "not there". */
 const truncatedNote = (truncated: boolean | undefined) =>
@@ -109,6 +114,11 @@ export type ToolHost = {
   guard?: (name: string, args: Record<string, unknown>) => string | null;
   /** Tells the edit workflow a call ran, as it is told about direct calls. */
   record?: (name: string, args: Record<string, unknown>, result: ToolResult) => void;
+  /**
+   * Shows the cloud generation plan card and waits for the editor: the plan they approved
+   * (possibly edited, items skipped), or null when they cancel or the turn ends.
+   */
+  approveGeneration?: (plan: GenPlan, signal?: AbortSignal) => Promise<GenPlan | null>;
 };
 
 function findOrCreateFolder(
@@ -134,6 +144,38 @@ function findOrCreateFolder(
 }
 
 type Args = Record<string, unknown>;
+
+/**
+ * The screen the user picked for this turn's shorts (choose_shorts_format), so create_shorts never
+ * asks twice. Keyed by turn; a few recent turns are kept.
+ */
+const shortsFormats = new Map<string, ShortOrientation>();
+
+/**
+ * Asks portrait or landscape. Always a real question — even in Full access, because it is the
+ * user's call which screen their shorts are for — unless the request already said which.
+ */
+async function askShortsFormat(host: ToolHost, args: Args, turnId: string | undefined, signal?: AbortSignal): Promise<ShortOrientation | null> {
+  const key = turnId ?? host.turnId ?? '';
+  const known = shortsFormats.get(key);
+  if (known) return known;
+  const stated = typeof args.orientation === 'string' ? orientationFromAnswer(args.orientation) : null;
+  const fromPrompt = orientationStated(turnPrompt(turnId ?? host.turnId));
+  let chosen = stated ?? fromPrompt;
+  if (!chosen) {
+    const answer = await host.ask({
+      question: 'Which screen should the shorts be made for?',
+      options: SHORT_FORMAT_OPTIONS,
+      context: 'Every short is cut, reframed and animated for this frame shape.',
+    }, signal);
+    chosen = orientationFromAnswer(answer);
+  }
+  if (chosen) {
+    shortsFormats.set(key, chosen);
+    while (shortsFormats.size > 16) shortsFormats.delete(shortsFormats.keys().next().value!);
+  }
+  return chosen;
+}
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
 const done = (summary: string, data: Record<string, unknown> = {}): ToolResult => ({ ok: true, ...data, summary });
@@ -566,7 +608,7 @@ function parseProduction(args: Args, mode: Production['mode'], existing: Product
 }
 
 /** Tools that produce media; with a `sceneIndex` their result attaches to the plan by itself. */
-const MEDIA_TOOLS = new Set(['generate_local_media', 'import_generated_media', 'download_online_media', 'scrape_videos', 'find_free_media', 'synthesize_speech_voiceover', 'erase_subject_clip', 'get_meme_media', 'cutout_image']);
+const MEDIA_TOOLS = new Set(['generate_cloud_media', 'generate_local_media', 'import_generated_media', 'download_online_media', 'scrape_videos', 'find_free_media', 'synthesize_speech_voiceover', 'erase_subject_clip', 'get_meme_media', 'cutout_image']);
 
 const resultAssetId = (result: ToolResult): string | null => {
   const r = result as Record<string, unknown>;
@@ -769,6 +811,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
 
   // Plugins: the Plugin Maker's tools (src/plugins). They change the plugin library, never the project.
   if (PLUGIN_TOOLS.has(name)) return runPluginAiTool(name, args, KNOWN_TOOLS);
+
+  // Colour: the Color Studio grade and the frames and scopes it is judged by (colorTools.ts).
+  if (COLOR_TOOLS.has(name)) {
+    return runColorTool(name, args, { project, assets, commit, current: () => host.history.current(), pickComp, prompt: turnPrompt(turnId ?? host.turnId) });
+  }
 
   // Brand kits: read in any phase, written through the host's settings callbacks.
   if (BRAND_KIT_TOOLS.has(name)) {
@@ -1325,30 +1372,20 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
         const requestedMode = str(args, 'mode');
         const mode = (requestedMode && requestedMode !== 'auto') ? requestedMode : (settingsMode !== 'auto' ? settingsMode : 'natural');
 
-        const status = await api.speechStatus();
-        // Precedence: the tool argument, then the active brand kit's voice, then Settings, then the first installed voice.
-        let voice = requestedVoice || activeBrandKit(host, project)?.audio.voice || settingsVoice;
-
-        if (!status?.piper?.found) {
-          try {
-            await api.modelDownload('piper-runtime');
-          } catch (dlErr) {
-            console.warn('Could not auto-download piper-runtime:', dlErr);
-          }
-        }
+        // Precedence: the tool argument, then the active brand kit's voice, then Settings. With none
+        // of those the backend picks: a cloud voice when a key is saved, else Kokoro offline.
+        const voice = requestedVoice || activeBrandKit(host, project)?.audio.voice || settingsVoice || null;
 
         if (!voice) {
-          const installedVoices = await api.speechVoices().catch(() => []);
-          const firstVoice = installedVoices[0];
-          if (firstVoice) {
-            voice = firstVoice.id;
-          } else {
-            try {
-              await api.modelDownload('piper-en-ryan');
-              voice = 'piper:piper-en-ryan';
-            } catch {
-              voice = 'piper:piper-en-ryan';
-            }
+          const ready = await api.speechVoices().catch(() => []);
+          if (ready.length === 0) {
+            // Nothing can speak yet: start the offline voice downloading so the next try works.
+            const status = await api.speechStatus().catch(() => null);
+            const missing = ['kokoro-runtime', 'kokoro-v1'].filter((id) => !status?.models.find((model) => model.id === id)?.installed);
+            for (const id of missing) await api.modelDownload(id).catch(() => undefined);
+            return fail(missing.length
+              ? 'No voice is ready yet. Downloading the Kokoro offline voices now (about 350 MB) — try again once the download finishes, or add an ElevenLabs or OpenAI key in Settings › Speech & voice.'
+              : 'No voice is ready yet. Add an ElevenLabs or OpenAI key, or download the Kokoro voices in Settings › Speech & voice.');
           }
         }
 
@@ -1845,7 +1882,113 @@ ${notes.trim()}${paletteLine}
         disableLocalGeneration
           ? 'Configured direct model adapters; configured does not mean verified. Local image/video generation is turned OFF in Settings (Local Media) — plan every shot as either real footage to find online (online_research / download_online_media / scrape_videos) or, for a topic with nothing real to find, an animated explainer built with create_motion_graphic. Local audio generation (music) is unaffected.'
           : 'Configured direct model adapters; configured does not mean verified.',
-        { capabilities, disableLocalGeneration },
+        { capabilities, disableLocalGeneration, cloudGeneration: 'Cloud generators (Settings › Connectors) are separate: call cloud_generation_capabilities.' },
+      );
+    }
+    case 'cloud_generation_capabilities': {
+      const settings = host.settings?.() ?? await api.settingsGet();
+      const prefs = cloudPrefs(settings);
+      const rows = await genApi.connectors();
+      const usable = usableConnectors(settings, rows);
+      const refs = [...assets.values()].filter((asset) => asset.kind === 'image' && !asset.missing).slice(-30).map((asset) => ({ id: asset.id, name: asset.name, width: asset.width, height: asset.height }));
+      if (!prefs.enabled || !usable.length) {
+        return done(prefs.enabled
+          ? 'Cloud generation is on but no connector has a key. Do not call generate_cloud_media; tell the editor they can connect Higgsfield, Magnific, Veo, Runway, Kling, Luma, MiniMax or fal in Settings › Connectors if they want generated clips.'
+          : 'Cloud generation is OFF (Settings › Connectors). Do not call generate_cloud_media. Source real footage, use local models if enabled, or build motion graphics.', { enabled: prefs.enabled, connectors: [] });
+      }
+      return done(`Cloud generation ready: ${usable.map((row) => row.label).join(', ')}. Plan all clips in one generate_cloud_media call; ${prefs.confirm ? 'the editor approves them on a plan card first' : 'confirmation is off, so they run immediately'}.`, {
+        enabled: true,
+        confirmFirst: prefs.confirm,
+        defaultVideo: prefs.defaultVideo ?? null,
+        defaultImage: prefs.defaultImage ?? null,
+        connectors: usable.map((row) => ({
+          id: row.id, label: row.label,
+          models: row.models.map((m) => ({ model: `${row.id}:${m.id}`, label: m.label, kind: m.kind, takesReferenceImage: m.modes.includes('image'), textOnlyOk: m.modes.includes('text'), durations: m.durations, aspects: m.aspects, quality: m.quality })),
+        })),
+        referenceImages: refs,
+      });
+    }
+    case 'generate_cloud_media': {
+      const settings = host.settings?.() ?? await api.settingsGet();
+      const prefs = cloudPrefs(settings);
+      if (!prefs.enabled) return fail('Cloud generation is off in Settings › Connectors. Source footage another way, or ask the editor to turn it on.');
+      const rows = await genApi.connectors();
+      if (!usableConnectors(settings, rows).length) return fail('No cloud generator is connected. The editor can add one in Settings › Connectors.');
+      const raw = Array.isArray(args.items) ? (args.items as Args[]) : [];
+      if (!raw.length) return fail('Give at least one item to generate.');
+      const comp = pickComp(project, args);
+      const shape = comp ? (comp.height > comp.width * 1.1 ? '9:16' : Math.abs(comp.width - comp.height) < comp.width * 0.1 ? '1:1' : '16:9') : '16:9';
+      const kit = activeBrandKit(host, project);
+      const planned: GenPlanItem[] = [];
+      for (const [index, item] of raw.entries()) {
+        const kind = item.kind === 'image' ? 'image' : 'video';
+        let prompt = typeof item.prompt === 'string' ? item.prompt.trim() : '';
+        if (!prompt) return fail(`Item ${index + 1} has no prompt.`);
+        const refIds = (Array.isArray(item.referenceAssetIds) ? item.referenceAssetIds : []).filter((id): id is string => typeof id === 'string');
+        for (const id of refIds) {
+          if (assets.get(id)?.kind !== 'image') return fail(`Item ${index + 1}: ${id} is not an imported image. Use IDs from cloud_generation_capabilities.referenceImages.`);
+        }
+        const choice = pickModel(settings, rows, kind, refIds.length > 0, typeof item.model === 'string' ? item.model : null);
+        if (!choice) return fail(`No connected model makes ${kind === 'video' ? (refIds.length ? 'video from an image' : 'text-to-video') : 'images'}. Check cloud_generation_capabilities.`);
+        let negative = typeof item.negativePrompt === 'string' ? item.negativePrompt : undefined;
+        // The active brand kit frames generated imagery here as it does for local generation.
+        if (kit) { const branded = brandedPrompt(kit, prompt, negative, kind); prompt = branded.prompt; negative = branded.negative; }
+        planned.push({
+          key: `${index}-${uid()}`, kind, prompt, negativePrompt: negative, referenceAssetIds: refIds.slice(0, choice.model.maxRefs),
+          connector: choice.connector.id, model: choice.model.id,
+          duration: kind === 'video' ? (typeof item.duration === 'number' ? item.duration : 5) : undefined,
+          aspect: typeof item.aspect === 'string' ? item.aspect : shape,
+          purpose: typeof item.purpose === 'string' ? item.purpose : undefined,
+          sceneIndex: Number.isInteger(item.sceneIndex) ? (item.sceneIndex as number) : undefined,
+        });
+      }
+      let plan: GenPlan = { reason: str(args, 'reason'), items: planned };
+      if (prefs.confirm) {
+        if (!host.approveGeneration) return fail('This chat cannot show the generation plan card; nothing was generated.');
+        const approved = await host.approveGeneration(plan, signal);
+        if (!approved) return done('The editor cancelled the generation plan; nothing was generated or charged. Ask what they want instead, or continue without these clips.', { cancelled: true });
+        plan = approved;
+      }
+      const run = plan.items.filter((item) => !item.skip && item.prompt.trim());
+      if (!run.length) return done('The editor skipped every item; nothing was generated.', { cancelled: true });
+      const edited = run.filter((item) => planned.find((p) => p.key === item.key && (p.prompt !== item.prompt || p.model !== item.model || p.referenceAssetIds.join() !== item.referenceAssetIds.join())));
+      // Every approved item starts at once — they queue on the services, not here.
+      const started = await Promise.all(run.map(async (item) => {
+        try {
+          const jobId = await genApi.generate({ connector: item.connector, model: item.model, kind: item.kind, prompt: item.prompt, negativePrompt: item.negativePrompt, referenceAssetIds: item.referenceAssetIds, duration: item.duration, aspect: item.aspect });
+          return { item, jobId, error: null as string | null };
+        } catch (error) { return { item, jobId: null as string | null, error: errorText(error) }; }
+      }));
+      const folder = generatedFolderId(project, commit);
+      const results: Record<string, unknown>[] = [];
+      const pending = new Map<string, GenPlanItem>();
+      for (const entry of started) {
+        if (entry.jobId) pending.set(entry.jobId, entry.item);
+        else results.push({ purpose: entry.item.purpose, prompt: entry.item.prompt, ok: false, error: entry.error });
+      }
+      const deadline = Date.now() + 35 * 60_000;
+      while (pending.size && Date.now() < deadline && !signal?.aborted) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const jobs = await api.jobsList();
+        for (const [jobId, item] of [...pending]) {
+          const job = jobs.find((entry) => entry.id === jobId);
+          if (!job || job.status === 'running') continue;
+          pending.delete(jobId);
+          const path = (job.result as { path?: string } | null)?.path;
+          if (job.status !== 'done' || !path) { results.push({ purpose: item.purpose, prompt: item.prompt, ok: false, error: job.message || job.status, jobId }); continue; }
+          try {
+            const [asset] = await host.importMedia([path], folder);
+            results.push({ purpose: item.purpose, prompt: item.prompt, ok: true, assetId: asset?.id, name: asset?.name, model: `${item.connector}:${item.model}`, jobId });
+            if (asset && item.sceneIndex !== undefined) attachGathered(host, 'generate_cloud_media', { sceneIndex: item.sceneIndex, kind: item.kind, compId: args.compId }, { ok: true, summary: '', assetId: asset.id });
+          } catch (error) { results.push({ purpose: item.purpose, ok: false, error: errorText(error), jobId }); }
+        }
+      }
+      for (const [jobId, item] of pending) results.push({ purpose: item.purpose, ok: false, error: 'Still generating as a background job; import it later with import_generated_media.', jobId });
+      const made = results.filter((r) => r.ok);
+      if (!made.length) return fail(`Nothing was generated: ${results.map((r) => r.error).join(' · ')}`);
+      return done(
+        `Generated ${made.length} of ${run.length}${results.length > made.length ? ` (${results.length - made.length} failed)` : ''} into the Generated bin${edited.length ? `; the editor changed ${edited.length} item(s) on the plan card, so follow their version` : ''}. Place them with place_clip using these asset IDs.`,
+        { results, assets: made.map((r) => ({ id: r.assetId, name: r.name })) },
       );
     }
     case 'install_local_model':
@@ -2085,7 +2228,7 @@ ${notes.trim()}${paletteLine}
       const review = [
         trackedBy ? `Faces by machine (${trackedBy}): eyeball one single per person — a wrong track punches the wrong face.` : 'Review the singles at 2x: a wrong box punches the wrong face — fix boxes, re-run.',
         plan.unmappedSpeakers.length ? `Speakers without faces (${plan.unmappedSpeakers.join(', ')}) stayed wide: pass cast:[{person, speaker}] to place them.` : null,
-        !transcript.diarized ? 'Transcript is not diarized (one voice assumed; cuts follow speech activity). Save a Deepgram key and re-run for true who-speaks-what.' : null,
+        !transcript.diarized ? 'Transcript is not diarized (one voice assumed; cuts follow speech activity). Save a Deepgram or ElevenLabs key and re-run for true who-speaks-what.' : null,
       ].filter((line): line is string => !!line);
       return done(`Podcast ${mode === 'cut' ? 'cut' : 'reframe'}: ${applied.segments} ${applied.segments === 1 ? 'segment' : 'segments'}, ${plan.shots.length} shots, audio untouched. ${review[0]}`, {
         mode, segments: applied.segments,
@@ -2141,7 +2284,7 @@ ${notes.trim()}${paletteLine}
       editComp(comp,()=>result.comp);host.setSelection(result.ids);return done('Local procedural accents added on new audio tracks; original audio preserved',{clipIds:result.ids});}catch(error){return fail(String(error));}
     }
     case 'list_effects':
-      return done('Native effects with preview and export support', { effects: AVAILABLE_EFFECTS.map(effect=>({id:effect.id,name:effect.label,category:effect.group,parameters:getEffectSchema(effect.id,effect.group).params,curves:effect.id==='curves'||effect.id==='lumetri-color'})) });
+      return done('Native effects with preview and export support. For colour grading use color_grade (the Color Studio) and check it with inspect_color.', { effects: AVAILABLE_EFFECTS.map(effect=>({id:effect.id,name:effect.label,category:effect.group,parameters:getEffectSchema(effect.id,effect.group).params.filter(p=>!p.hidden),curves:effect.id==='curves'||effect.id==='lumetri-color'})) });
     case 'edit_effect': {
       const found=findClipIn(project,str(args,'clipId')||'');
       if(!found)return fail('Unknown clipId.');
@@ -2158,6 +2301,8 @@ ${notes.trim()}${paletteLine}
         const effect=action==='add'||action==='reset'?createAppliedEffect(definition!):{...previous!,params:{...previous!.params}};
         if(action==='reset')effect.id=previous!.id;
         const params=record(args,'params')||{};
+        // A LUT on a grade is the user's call (see colorTools.ts): only when this turn's message asks.
+        if(effect.effectId==='lumetri-color'&&['lutId','lutAmount','lutStage'].some(k=>k in params)&&!asksForLut(turnPrompt(turnId??host.turnId)))return fail(LUT_REFUSAL);
         for(const [key,value] of Object.entries(params)){
           const parameter=getEffectSchema(effect.effectId,effect.category).params.find(p=>p.id===key);
           if(!parameter){if((effect.effectId==='curves'?['rTable','gTable','bTable','aTable']:effect.effectId==='lumetri-color'?['rTable','gTable','bTable']:[]).includes(key)&&typeof value==='string'){
@@ -2395,6 +2540,115 @@ ${notes.trim()}${paletteLine}
       const next = result.comp;
       host.history.commit((current) => updateComp(current, comp.id, () => next), `AI: ${recipe.name}`);
       return done(summary, { diff: result.diff, warnings: result.warnings });
+    }
+
+    case 'choose_shorts_format': {
+      const orientation = await askShortsFormat(host, args, turnId, signal);
+      if (!orientation) return fail('The answer did not say portrait or landscape. Ask again with choose_shorts_format.');
+      const frame = SHORT_FRAMES[orientation];
+      return done(`Shorts will be ${orientation} (${frame.width}×${frame.height}).`, { orientation, width: frame.width, height: frame.height });
+    }
+
+    case 'create_shorts': {
+      // The source: a clip on a timeline (its asset) or an asset id.
+      const clipId = str(args, 'clipId');
+      const fromClip = clipId ? findClipIn(project, clipId) : null;
+      if (clipId && !fromClip) return fail('No clip with that clipId.');
+      const assetId = fromClip && fromClip.clip.source.type === 'media' ? fromClip.clip.source.assetId : str(args, 'assetId');
+      const asset = assetId ? assets.get(assetId) : undefined;
+      if (!asset || (asset.kind !== 'video' && asset.kind !== 'audio')) return fail('Give the long video as clipId (a clip on the timeline) or assetId.');
+      const rawShorts = Array.isArray(args.shorts) ? (args.shorts as Args[]) : [];
+      if (!rawShorts.length) return fail('Give shorts: [{title, score, segments:[{start,end}], hook?, reason?}] — source seconds from analyze_clip_speech.');
+      if (rawShorts.length > MAX_SHORTS) return fail(`At most ${MAX_SHORTS} shorts per call; keep the strongest.`);
+      const orientation = await askShortsFormat(host, args, turnId, signal);
+      if (!orientation) return fail('Portrait or landscape was not chosen. Call choose_shorts_format first.');
+      if (signal?.aborted) return fail('Cancelled.');
+
+      // What was said, for word-safe cuts and the captions (cached after analyze_clip_speech).
+      let words: import('./ipc').TranscriptWord[] = [];
+      try {
+        words = (await api.transcribeAsset(asset.id, 'auto')).words ?? [];
+      } catch { /* no engine: cuts stay as given, no captions */ }
+
+      const problems: string[] = [];
+      const specs: ShortSpec[] = [];
+      rawShorts.forEach((row, index) => {
+        const title = typeof row?.title === 'string' && row.title.trim() ? row.title.trim().slice(0, 80) : `Short ${index + 1}`;
+        const score = typeof row?.score === 'number' && Number.isFinite(row.score) ? clamp(row.score, 0, 10) : NaN;
+        if (Number.isNaN(score)) { problems.push(`${title}: score must be a number 0–10`); return; }
+        const segments = Array.isArray(row.segments) ? (row.segments as { start: number; end: number }[]) : typeof row.start === 'number' && typeof row.end === 'number' ? [{ start: row.start as number, end: row.end as number }] : [];
+        const cleaned = normalizeSegments(segments, asset.duration, words);
+        if ('error' in cleaned) { problems.push(`${title}: ${cleaned.error}`); return; }
+        const focus = row.focus && typeof row.focus === 'object' ? row.focus as { x?: unknown; y?: unknown } : null;
+        specs.push({
+          title, score, segments: cleaned.segments,
+          hook: typeof row.hook === 'string' ? row.hook.slice(0, 90) : undefined,
+          reason: typeof row.reason === 'string' ? row.reason.slice(0, 400) : undefined,
+          focus: focus && typeof focus.x === 'number' && typeof focus.y === 'number' ? { x: clamp(focus.x, 0, 1), y: clamp(focus.y, 0, 1) } : undefined,
+        });
+      });
+      if (problems.length) return fail(`Fix these and call again (nothing was made): ${problems.join('; ')}.`);
+      specs.sort((a, b) => b.score - a.score);
+
+      // Faces keep the speaker in shot when the frame is cropped (YuNet on the CPU; optional).
+      let faces: { id: number; frames: { t: number; x: number; y: number; width: number; height: number }[] }[] = [];
+      let faceNote = '';
+      if (asset.kind === 'video' && bool(args, 'trackFaces') !== false) {
+        const from = Math.min(...specs.flatMap((spec) => spec.segments.map((seg) => seg.start)));
+        const to = Math.max(...specs.flatMap((spec) => spec.segments.map((seg) => seg.end)));
+        try {
+          const span = to - from;
+          faces = await detectFaces({ path: asset.path, start: from, end: to, fps: span > 900 ? 1 : span > 300 ? 2 : 4 });
+          faceNote = faces.length ? '' : ' No face was found, so each short is framed on its focus point (or the centre).';
+        } catch (error) {
+          faceNote = ` Face tracking was not available (${errorText(error)}), so each short is framed on its focus point (or the centre).`;
+        }
+      }
+      if (signal?.aborted) return fail('Cancelled.');
+
+      // A "Shorts" folder of its own for this batch.
+      const taken = new Set(project.folders.map((folder) => folder.name.toLowerCase()));
+      let folderName = str(args, 'folderName')?.trim() || 'Shorts';
+      if (taken.has(folderName.toLowerCase()) && project.comps.some((c) => c.folderId === project.folders.find((f) => f.name.toLowerCase() === folderName.toLowerCase())?.id)) {
+        let n = 2;
+        while (taken.has(`${folderName} ${n}`.toLowerCase())) n++;
+        folderName = `${folderName} ${n}`;
+      }
+      const existing = project.folders.find((folder) => folder.name.toLowerCase() === folderName.toLowerCase() && folder.parentId === null);
+      const folderId = existing?.id ?? uid();
+      const sourceComp = fromClip?.comp ?? project.comps.find((c) => c.id === project.activeCompId);
+      const captions = bool(args, 'captions') !== false;
+      const built = specs.map((spec, index) => buildShortComp({
+        asset, spec, rank: index + 1, orientation, fps: sourceComp?.fps ?? 30, words, faces,
+        captionStyle: str(args, 'captionStyle') ?? project.captionStyle, captions, folderId,
+      }));
+      let next = host.history.current();
+      next = {
+        ...next,
+        folders: existing ? next.folders : [...next.folders, { id: folderId, name: folderName, parentId: null }],
+        comps: [...next.comps, ...built.map((entry) => entry.comp)],
+      };
+      // Tall footage in a wide frame is fitted; fill the bars with a blurred copy of the shot.
+      for (const { comp } of built) {
+        const spans = uncoveredSpans(next, assets, comp);
+        if (!spans.length) continue;
+        const filled = fillBackground(next, assets, comp.id, spans, { source: 'blur' });
+        if (!('error' in filled)) next = filled.project;
+      }
+      const ids = built.map((entry) => entry.comp.id);
+      next = { ...next, activeCompId: ids[0], openCompIds: [...next.openCompIds.filter((id) => !ids.includes(id)), ...ids] };
+      commit(() => next);
+      const frame = SHORT_FRAMES[orientation];
+      const rows = built.map(({ comp, notes }, index) => {
+        const spec = specs[index];
+        const length = spec.segments.reduce((sum, seg) => sum + seg.end - seg.start, 0);
+        return `${comp.name} — “${spec.title}”, ${length.toFixed(1)} s from ${spec.segments.map((seg) => `${seg.start.toFixed(1)}–${seg.end.toFixed(1)}`).join(' + ')}${notes.length ? ` (${notes.join(', ')})` : ''}`;
+      });
+      return done(
+        `Made ${built.length} ${orientation} short${built.length === 1 ? '' : 's'} (${frame.width}×${frame.height}) in the “${folderName}” folder, best first, all open as tabs:\n${rows.join('\n')}.${faceNote}\n` +
+        'Each is cut, reframed on the speaker, punched in on alternate parts with a slow push, with its hook and captions. Now edit every short like any video, one comp at a time (open_comp, then compId on each call): motion graphics on the key lines, sound design and a music bed (level_audio), seamless transitions at the cuts, then run_frame_qa {"compId"} on it and fix what it finds. Finish with verify_edit_workflow.',
+        { folderId, orientation, shorts: built.map(({ comp }, index) => ({ compId: comp.id, name: comp.name, score: specs[index].score, title: specs[index].title, duration: Math.round(compDuration(comp) * 100) / 100 })) },
+      );
     }
 
     case 'create_comp': {

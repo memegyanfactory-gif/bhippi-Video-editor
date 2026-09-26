@@ -311,7 +311,7 @@ export function FXConsoleModal({
             <button
               type="button"
               className={`fx-bar-btn${activeDrawer === 'settings' ? ' active' : ''}`}
-              title="FX Console Shortcuts (1–9) & Settings"
+              title="Console Shortcuts (1–9) & Settings"
               onClick={() => {
                 setActiveDrawer((curr) => (curr === 'settings' ? 'none' : 'settings'));
               }}

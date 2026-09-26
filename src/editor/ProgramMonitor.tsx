@@ -1,8 +1,8 @@
 // The Program monitor: the active comp at the playhead, the transport, and direct manipulation —
 // click a picture to select it, drag its Motion handles, draw shapes and masks, type text.
-import { ArrowLeftToLine, ArrowRightToLine, Camera, Film, Pause, Play, Repeat, StepBack, StepForward, Upload, Wrench } from 'lucide-react';
+import { ArrowLeftToLine, ArrowRightToLine, BarChart3, Camera, Film, Heart, MapPin, MessageCircle, MoreHorizontal, Music2, Pause, Play, Repeat, Send, StepBack, StepForward, Upload, Wrench } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
-import { MenuList } from '../components/workspace';
+import { MenuList, type MenuItem } from '../components/workspace';
 import { clamp, parseTimecode, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
 import { setKey, shape } from '../lib/keyframes';
@@ -16,7 +16,10 @@ import { DEFAULT_CACHE_MB, previewCache } from '../lib/previewCache';
 import { warmAhead } from './previewWarm';
 import { stackGroups, standaloneScene } from '../lib/motionStack';
 import { MagicMaskBar, magicMaskClick, maskableClip } from './MagicMaskBar';
+import { useAnnotator } from './Annotator';
 import type { MotionScene } from '../motion/types';
+import { rememberScopes, ScopesPanel, scopesVisible } from '../color/ScopesPanel';
+import { drawRuler, GUIDE_COLOR, GuideEditor, loadGuidePrefs, loadGuides, newGuideId, RULER_SIZE, saveGuidePrefs, saveGuides, snapBox, snapTo, type Guide, type GuideAxis, type GuidePrefs } from './MonitorRulers';
 
 export type ProgramApi = { toggle: () => void; step: (frames: number) => void; shuttle: (direction: 1 | -1 | 0) => void; playAround: () => void; playInToOut: () => void; getStage: () => HTMLDivElement | null };
 
@@ -48,8 +51,10 @@ const CACHE_BUDGETS = [512, 1024, 1536, 3072, 6144];
 const budgetLabel = (mb: number) => `${+(mb / 1024).toFixed(1)} GB`;
 
 const ZOOMS: { label: string; value: number }[] = [
-  { label: 'Fit', value: 0 }, { label: '10%', value: 0.1 }, { label: '25%', value: 0.25 }, { label: '50%', value: 0.5 }, { label: '75%', value: 0.75 }, { label: '100%', value: 1 }, { label: '150%', value: 1.5 }, { label: '200%', value: 2 }, { label: '400%', value: 4 },
+  { label: 'Fit', value: 0 }, { label: '10%', value: 0.1 }, { label: '25%', value: 0.25 }, { label: '50%', value: 0.5 }, { label: '75%', value: 0.75 }, { label: '100%', value: 1 }, { label: '150%', value: 1.5 }, { label: '200%', value: 2 }, { label: '400%', value: 4 }, { label: '800%', value: 8 },
 ];
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = 8;
 
 /** Preview render resolution, After Effects-style: fewer pixels to composite while playing, at
  * the cost of a softer picture. Export always renders full quality — see render.rs, which builds
@@ -70,7 +75,7 @@ export const shouldStep = (carry: number) => carry >= UI_STEP - 0.004;
 
 type Box = { left: number; top: number; width: number; height: number };
 type Drag =
-  | { kind: 'move'; clipId: string; startX: number; startY: number; origin: { x: number; y: number } }
+  | { kind: 'move'; clipId: string; startX: number; startY: number; origin: { x: number; y: number }; box: Box | null }
   | { kind: 'scale'; clipId: string; centerX: number; centerY: number; startDistance: number; origin: number }
   | { kind: 'rotate'; clipId: string; centerX: number; centerY: number; startAngle: number; origin: number }
   | { kind: 'draw'; tool: 'rectangle' | 'ellipse' | 'polygon' | 'mask-rectangle' | 'mask-ellipse'; x0: number; y0: number; x1: number; y1: number };
@@ -89,6 +94,28 @@ export function ProgramMonitor(props: Props) {
   const [loop, setLoop] = useState(false);
   const [safe, setSafe] = useState(false);
   const [grid, setGrid] = useState(false);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const rulerTopRef = useRef<HTMLCanvasElement>(null);
+  const rulerLeftRef = useRef<HTMLCanvasElement>(null);
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const rulerDrawn = useRef('');
+  const zoomAnchor = useRef<{ fx: number; fy: number; cx: number; cy: number } | null>(null);
+  const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const [panning, setPanning] = useState(false);
+  const [guidePrefs, setGuidePrefsState] = useState<GuidePrefs>(loadGuidePrefs);
+  const setGuidePrefs = (patch: Partial<GuidePrefs>) => setGuidePrefsState((current) => {
+    const next = { ...current, ...patch };
+    saveGuidePrefs(next);
+    return next;
+  });
+  const [guides, setGuidesState] = useState<Guide[]>(() => (comp ? loadGuides(comp.id) : []));
+  const [guideDrag, setGuideDrag] = useState<{ id: string; axis: GuideAxis; outside: boolean; x: number; y: number } | null>(null);
+  const [guideEdit, setGuideEdit] = useState<{ id: string; left: number; top: number } | null>(null);
+  const [rulerMenu, setRulerMenu] = useState<DOMRect | null>(null);
+  const [snapLines, setSnapLines] = useState<{ x: number | null; y: number | null } | null>(null);
+  const [annotating, setAnnotating] = useState(false);
+  const [scopes, setScopesState] = useState(scopesVisible);
+  const setScopes = (on: boolean) => { rememberScopes(on); setScopesState(on); };
   const [wrench, setWrench] = useState<DOMRect | null>(null);
   const [editingTime, setEditingTime] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -100,6 +127,9 @@ export function ProgramMonitor(props: Props) {
   const rotoStroke = useRef<{ clip: Clip; compId: string; at: number; mode: 'include' | 'exclude'; points: RotoCorrection[] } | null>(null);
   const compRef = useRef(comp);
   const loopRef = useRef(loop);
+  // A one-shot stop point for Play In to Out / Play Around: forward playback halts at `at`, then
+  // parks the playhead on `returnTo` (Play Around goes back to where it started) or stays at `at`.
+  const stopRef = useRef<{ at: number; returnTo: number | null } | null>(null);
   compRef.current = comp;
   loopRef.current = loop;
 
@@ -133,6 +163,183 @@ export function ProgramMonitor(props: Props) {
   const renderW = Math.max(1, Math.round(stageW * quality));
   const renderH = Math.max(1, Math.round(stageH * quality));
   const previewDownscaled = playing && quality < 1;
+
+  // ── zoom & pan ─────────────────────────────────────────────────────────
+  // Zooming keeps the picture point under the pointer (or the view centre) where it was.
+  const zoomTo = (next: number, at?: { clientX: number; clientY: number }) => {
+    const frame = frameRef.current;
+    const stage = stageRef.current;
+    const target = next === 0 ? 0 : clamp(next, MIN_ZOOM, MAX_ZOOM);
+    if (frame && stage && target !== 0) {
+      const rect = stage.getBoundingClientRect();
+      const view = frame.getBoundingClientRect();
+      const cx = at ? at.clientX : view.left + view.width / 2;
+      const cy = at ? at.clientY : view.top + view.height / 2;
+      zoomAnchor.current = { fx: (cx - rect.left) / scale, fy: (cy - rect.top) / scale, cx, cy };
+    }
+    setZoom(target);
+  };
+  useLayoutEffect(() => {
+    const anchor = zoomAnchor.current;
+    const frame = frameRef.current;
+    const stage = stageRef.current;
+    zoomAnchor.current = null;
+    if (!anchor || !frame || !stage) return;
+    const rect = stage.getBoundingClientRect();
+    frame.scrollLeft += rect.left + anchor.fx * scale - anchor.cx;
+    frame.scrollTop += rect.top + anchor.fy * scale - anchor.cy;
+  }, [zoom]);
+  const wheelRef = useRef<(event: WheelEvent) => void>(() => undefined);
+  wheelRef.current = (event: WheelEvent) => {
+    // Ctrl/Alt + wheel (and a trackpad pinch, which arrives as Ctrl + wheel) zooms; a plain wheel
+    // scrolls the zoomed picture, Shift + wheel sideways.
+    if (!(event.ctrlKey || event.altKey || event.metaKey)) return;
+    event.preventDefault();
+    const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+    zoomTo(scale * Math.exp(-clamp(delta, -120, 120) * 0.002), event);
+  };
+  useEffect(() => {
+    const node = frameRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => wheelRef.current(event);
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => node.removeEventListener('wheel', onWheel);
+  }, []);
+  const onFrameDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const frame = frameRef.current;
+    if (!frame || guideDrag) return;
+    if (tool === 'zoom' && event.button === 0) {
+      zoomTo(scale * (event.altKey ? 0.5 : 2), event);
+      return;
+    }
+    // The Hand tool, or the middle mouse button with any tool, pans a zoomed picture.
+    if (event.button === 1 || (event.button === 0 && tool === 'hand')) {
+      event.preventDefault();
+      frame.setPointerCapture(event.pointerId);
+      panRef.current = { x: event.clientX, y: event.clientY, left: frame.scrollLeft, top: frame.scrollTop };
+      setPanning(true);
+    }
+  };
+  const onFrameMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pointerRef.current = { x: event.clientX, y: event.clientY };
+    const pan = panRef.current;
+    const frame = frameRef.current;
+    if (pan && frame) {
+      frame.scrollLeft = pan.left - (event.clientX - pan.x);
+      frame.scrollTop = pan.top - (event.clientY - pan.y);
+    }
+    drawRulers.current();
+  };
+  const onFrameUp = () => {
+    if (!panRef.current) return;
+    panRef.current = null;
+    setPanning(false);
+  };
+
+  // ── rulers & guides ────────────────────────────────────────────────────
+  useEffect(() => {
+    setGuidesState(comp ? loadGuides(comp.id) : []);
+    setGuideEdit(null);
+  }, [comp?.id]);
+  const setGuides = (update: (current: Guide[]) => Guide[]) => setGuidesState((current) => {
+    const next = update(current);
+    if (comp) saveGuides(comp.id, next);
+    return next;
+  });
+  const drawRulers = useRef<() => void>(() => undefined);
+  drawRulers.current = () => {
+    const frame = frameRef.current;
+    const stage = stageRef.current;
+    if (!guidePrefs.rulers || !frame || !stage) return;
+    const view = frame.getBoundingClientRect();
+    const rect = stage.getBoundingClientRect();
+    const pointer = pointerRef.current;
+    const cursorX = pointer ? pointer.x - view.left : null;
+    const cursorY = pointer ? pointer.y - view.top : null;
+    const marks = (axis: GuideAxis) => (guidePrefs.guides ? guides.filter((guide) => guide.axis === axis).map((guide) => ({ pos: guide.pos, color: guide.color ?? GUIDE_COLOR })) : []);
+    const key = [view.width, view.height, rect.left - view.left, rect.top - view.top, scale, frameW, frameH, cursorX, cursorY, JSON.stringify(guidePrefs.guides ? guides : []), window.devicePixelRatio].join('|');
+    if (key === rulerDrawn.current) return;
+    rulerDrawn.current = key;
+    if (rulerTopRef.current) drawRuler(rulerTopRef.current, { axis: 'h', length: view.width, origin: rect.left - view.left, scale, extent: frameW, cursor: cursorX, marks: marks('v') });
+    if (rulerLeftRef.current) drawRuler(rulerLeftRef.current, { axis: 'v', length: view.height, origin: rect.top - view.top, scale, extent: frameH, cursor: cursorY, marks: marks('h') });
+  };
+  useLayoutEffect(() => drawRulers.current());
+
+  // A guide follows the pointer while dragged (snapping to the frame's edges and centre unless
+  // Ctrl is held); letting go outside the picture area removes it.
+  const guideAt = (axis: GuideAxis, clientX: number, clientY: number, free: boolean) => {
+    const stage = stageRef.current;
+    const frame = frameRef.current;
+    const view = viewRef.current;
+    if (!stage || !frame || !view) return null;
+    const rect = stage.getBoundingClientRect();
+    const port = frame.getBoundingClientRect();
+    const box = view.getBoundingClientRect();
+    let along = axis === 'h' ? clientY - rect.top : clientX - rect.left;
+    if (guidePrefs.snap && !free) {
+      const span = axis === 'h' ? stageH : stageW;
+      along = snapTo(along, [0, span / 2, span], 6).value;
+    }
+    const outside = axis === 'h' ? clientY < port.top || clientY > port.bottom : clientX < port.left || clientX > port.right;
+    return { pos: Math.round(along / scale), outside, x: clientX - box.left, y: clientY - box.top };
+  };
+  const startGuideDrag = (event: ReactPointerEvent<HTMLElement>, guide: Guide, outside = false) => {
+    if (event.button !== 0 || guidePrefs.lock) return;
+    event.stopPropagation();
+    event.preventDefault();
+    setGuideEdit(null);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const at = guideAt(guide.axis, event.clientX, event.clientY, true);
+    setGuideDrag({ id: guide.id, axis: guide.axis, outside: outside || (at?.outside ?? false), x: at?.x ?? 0, y: at?.y ?? 0 });
+  };
+  const moveGuide = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!guideDrag) return;
+    pointerRef.current = { x: event.clientX, y: event.clientY };
+    const at = guideAt(guideDrag.axis, event.clientX, event.clientY, event.ctrlKey);
+    if (!at) return;
+    setGuides((list) => list.map((guide) => (guide.id === guideDrag.id ? { ...guide, pos: at.pos } : guide)));
+    setGuideDrag({ ...guideDrag, outside: at.outside, x: at.x, y: at.y });
+  };
+  const endGuide = () => {
+    if (!guideDrag) return;
+    if (guideDrag.outside) setGuides((list) => list.filter((guide) => guide.id !== guideDrag.id));
+    setGuideDrag(null);
+  };
+  // Top ruler -> horizontal guide, left ruler -> vertical guide, as in Premiere.
+  const pullGuide = (event: ReactPointerEvent<HTMLCanvasElement>, axis: GuideAxis) => {
+    if (event.button !== 0 || !comp || guidePrefs.lock) return;
+    if (!guidePrefs.guides) setGuidePrefs({ guides: true });
+    const at = guideAt(axis, event.clientX, event.clientY, true);
+    const guide: Guide = { id: newGuideId(), axis, pos: at?.pos ?? 0 };
+    setGuides((list) => [...list, guide]);
+    startGuideDrag(event, guide, true);
+  };
+  const openGuideEditor = (id: string, at?: { clientX: number; clientY: number }) => {
+    const view = viewRef.current?.getBoundingClientRect();
+    if (!view) return;
+    const left = at ? at.clientX - view.left + 8 : view.width / 2 - 110;
+    const top = at ? at.clientY - view.top + 8 : view.height / 2 - 90;
+    setGuideEdit({ id, left: clamp(left, 4, Math.max(4, view.width - 232)), top: clamp(top, 4, Math.max(4, view.height - 200)) });
+  };
+  const addGuide = (axis: GuideAxis) => {
+    if (!comp) return;
+    const guide: Guide = { id: newGuideId(), axis, pos: Math.round((axis === 'h' ? frameH : frameW) / 2) };
+    setGuides((list) => [...list, guide]);
+    setGuidePrefs({ guides: true, lock: false });
+    openGuideEditor(guide.id);
+  };
+  const editedGuide = guideEdit ? guides.find((guide) => guide.id === guideEdit.id) : undefined;
+  const guideMenu: MenuItem[] = [
+    { label: 'Show Rulers', checked: guidePrefs.rulers, onSelect: () => setGuidePrefs({ rulers: !guidePrefs.rulers }) },
+    { label: 'Show Guides', checked: guidePrefs.guides, onSelect: () => setGuidePrefs({ guides: !guidePrefs.guides }) },
+    { label: 'Lock Guides', checked: guidePrefs.lock, onSelect: () => setGuidePrefs({ lock: !guidePrefs.lock }) },
+    { label: 'Snap in Program Monitor', checked: guidePrefs.snap, onSelect: () => setGuidePrefs({ snap: !guidePrefs.snap }) },
+    { separator: true },
+    { label: 'Add Horizontal Guide...', onSelect: () => addGuide('h'), disabled: !comp },
+    { label: 'Add Vertical Guide...', onSelect: () => addGuide('v'), disabled: !comp },
+    { separator: true },
+    { label: 'Clear Guides', onSelect: () => setGuides(() => []), disabled: guides.length === 0 },
+  ];
   // Whatever the plan's palette settled on (save_video_blueprint's style.palette) shows behind
   // the picture instead of flat black — so reframing, a punch-out, or a vertical comp with
   // horizontal footage reveals the project's own theme at the edges rather than a black bar.
@@ -176,6 +383,12 @@ export function ProgramMonitor(props: Props) {
       const step = stepPlayhead(playhead.get(), elapsed, speed, held, readClocks());
       held = step.held;
       let next = step.next;
+      const stop = stopRef.current;
+      if (stop && speed > 0 && next >= stop.at) {
+        stopRef.current = null;
+        playhead.seek(stop.returnTo ?? Math.min(stop.at, end));
+        return;
+      }
       if (speed > 0 && next >= (loopRef.current ? loopEnd : end)) {
         if (loopRef.current && loopEnd > loopStart) next = loopStart;
         else {
@@ -197,6 +410,7 @@ export function ProgramMonitor(props: Props) {
   const toggle = useCallback(() => {
     const current = compRef.current;
     if (!current || compDuration(current) <= 0) return;
+    stopRef.current = null;
     if (playhead.isPlaying()) return playhead.setPlaying(false);
     if (playhead.get() >= compDuration(current) - 1 / current.fps) playhead.set(loopRef.current ? (current.inPoint ?? 0) : 0);
     playhead.setPlaying(true, 1);
@@ -208,23 +422,32 @@ export function ProgramMonitor(props: Props) {
     playhead.seek(clamp(frame / current.fps, 0, compDuration(current)));
   }, []);
   const shuttle = useCallback((direction: 1 | -1 | 0) => {
+    stopRef.current = null;
     if (direction === 0) return playhead.setPlaying(false);
     const current = playhead.isPlaying() ? playhead.rate() : 0;
     const same = Math.sign(current) === direction;
     const next = same ? Math.min(8, Math.abs(current) * 2) * direction : direction;
     playhead.setPlaying(true, next);
   }, []);
+  // Premiere's Play Around: 2 s of pre-roll, 2 s of post-roll, then back to where it started.
   const playAround = useCallback(() => {
+    const current = compRef.current;
+    if (!current || compDuration(current) <= 0) return;
     const at = playhead.get();
     playhead.seek(Math.max(0, at - 2));
+    stopRef.current = { at: Math.min(compDuration(current), at + 2), returnTo: at };
     playhead.setPlaying(true, 1);
-    window.setTimeout(() => playhead.isPlaying() && playhead.get() >= at + 2 - 0.1 && playhead.seek(at), 4100);
   }, []);
+  // Plays the marked range (In, or the start, to Out, or the end) and stops at Out — or loops it
+  // when Loop is on.
   const playInToOut = useCallback(() => {
     const current = compRef.current;
-    if (!current) return;
-    playhead.seek(current.inPoint ?? 0);
-    setLoop(false);
+    if (!current || compDuration(current) <= 0) return;
+    const end = compDuration(current);
+    const start = clamp(current.inPoint ?? 0, 0, end);
+    const out = current.outPoint !== null && current.outPoint > start ? Math.min(current.outPoint, end) : end;
+    playhead.seek(start);
+    stopRef.current = loopRef.current ? null : { at: out, returnTo: null };
     playhead.setPlaying(true, 1);
   }, []);
   props.apiRef.current = { toggle, step, shuttle, playAround, playInToOut, getStage: () => stageRef.current };
@@ -348,7 +571,11 @@ export function ProgramMonitor(props: Props) {
     event.currentTarget.setPointerCapture(event.pointerId);
     const x = currentValue(clip, 'x');
     const y = currentValue(clip, 'y');
-    setDrag({ kind: 'move', clipId, startX: event.clientX, startY: event.clientY, origin: { x, y } });
+    const base = stage.getBoundingClientRect();
+    const target = hit && hit.classList.contains('text-layer') ? hit.querySelector<HTMLElement>('.ov > *') ?? hit : hit;
+    const picked = target?.getBoundingClientRect();
+    const box = picked && picked.width >= 1 && picked.height >= 1 ? { left: picked.left - base.left, top: picked.top - base.top, width: picked.width, height: picked.height } : null;
+    setDrag({ kind: 'move', clipId, startX: event.clientX, startY: event.clientY, origin: { x, y }, box });
   };
 
   const currentValue = (clip: Clip, name: KeyframedProperty) => {
@@ -384,8 +611,22 @@ export function ProgramMonitor(props: Props) {
     if (rotoStroke.current) { paintRoto(event); return; }
     if (!drag) return;
     if (drag.kind === 'move') {
-      const dx = (event.clientX - drag.startX) / stageW;
-      const dy = (event.clientY - drag.startY) / stageH;
+      let moveX = event.clientX - drag.startX;
+      let moveY = event.clientY - drag.startY;
+      // Snap in Program Monitor: edges and centre catch guides and the frame's edges and centre
+      // (hold Ctrl to move freely).
+      if (guidePrefs.snap && drag.box && !event.ctrlKey) {
+        const shown = guidePrefs.guides ? guides : [];
+        const xs = [0, stageW / 2, stageW, ...shown.filter((guide) => guide.axis === 'v').map((guide) => guide.pos * scale)];
+        const ys = [0, stageH / 2, stageH, ...shown.filter((guide) => guide.axis === 'h').map((guide) => guide.pos * scale)];
+        const snapX = snapBox(drag.box.left, drag.box.width, moveX, xs, 6);
+        const snapY = snapBox(drag.box.top, drag.box.height, moveY, ys, 6);
+        if (snapX) moveX += snapX.shift;
+        if (snapY) moveY += snapY.shift;
+        setSnapLines(snapX || snapY ? { x: snapX?.line ?? null, y: snapY?.line ?? null } : null);
+      } else if (snapLines) setSnapLines(null);
+      const dx = moveX / stageW;
+      const dy = moveY / stageH;
       commitProperty(drag.clipId, { x: +(drag.origin.x + dx).toFixed(5), y: +(drag.origin.y + dy).toFixed(5) });
     } else if (drag.kind === 'scale') {
       const distance = Math.hypot(event.clientX - drag.centerX, event.clientY - drag.centerY);
@@ -488,6 +729,7 @@ export function ProgramMonitor(props: Props) {
       return;
     }
     setDrag(null);
+    setSnapLines(null);
     history.settle(drag.kind === 'move' ? 'Move' : drag.kind === 'scale' ? 'Scale' : 'Rotate');
   };
 
@@ -501,6 +743,8 @@ export function ProgramMonitor(props: Props) {
     return () => window.removeEventListener('keydown', key, true);
   });
 
+  const annotator = useAnnotator({ active: annotating && !!comp, onClose: () => setAnnotating(false), stageRef, project, comp, assets, stageW, stageH, time, selection });
+
   const typingClip = typing ? comp?.clips.find((clip) => clip.id === typing.clipId) : undefined;
   const empty = !comp || comp.clips.length === 0;
   const percent = (value: number) => `${total > 0 ? (Math.min(value, total) / total) * 100 : 0}%`;
@@ -508,7 +752,7 @@ export function ProgramMonitor(props: Props) {
     const rect = element.getBoundingClientRect();
     playhead.seek(clamp(((clientX - rect.left) / rect.width) * total, 0, total));
   };
-  const cursor = tool === 'type' || tool === 'vertical-type' ? 'text' : tool === 'select' ? 'default' : 'crosshair';
+  const cursor = tool === 'hand' ? (panning ? 'grabbing' : 'grab') : tool === 'zoom' ? 'zoom-in' : tool === 'type' || tool === 'vertical-type' ? 'text' : tool === 'select' ? 'default' : 'crosshair';
   const rangeIn = comp?.inPoint ?? null;
   const rangeOut = comp?.outPoint ?? null;
 
@@ -540,7 +784,32 @@ export function ProgramMonitor(props: Props) {
         <button className="btn" disabled={!selectedClip || locked(selectedClip)} onClick={() => { if (comp && selectedClip) history.commit(current => updateComp(current, comp.id, entry => ({ ...entry, clips: entry.clips.map(c => c.id === selectedClip.id ? { ...c, rotoCorrections: (c.rotoCorrections ?? []).filter(p => Math.floor(p.at * comp.fps) !== Math.floor((time - c.start) * comp.fps)) } : c) })), 'Clear Roto frame corrections'); }}>Clear frame</button>
       </div>}
       {tool === 'magic-mask' && <MagicMaskBar comp={comp} clip={selectedClip ?? undefined} assets={assets} history={history} time={time} />}
-      <div className="monitor-frame" ref={frameRef} style={{ overflow: zoom === 0 ? 'hidden' : 'auto' }}>
+      <div className="monitor-frame-wrap">
+      {scopes && <ScopesPanel project={project} comp={comp} selection={selection} onClose={() => setScopes(false)} />}
+      <div ref={viewRef} className={`monitor-view${guidePrefs.rulers ? ' with-rulers' : ''}`} style={{ ['--ruler' as string]: `${RULER_SIZE}px` }}>
+      {guidePrefs.rulers && (
+        <>
+          <div className="monitor-ruler-corner" title="Rulers & guides" onClick={(event) => setRulerMenu(event.currentTarget.getBoundingClientRect())} onContextMenu={(event) => { event.preventDefault(); setRulerMenu(event.currentTarget.getBoundingClientRect()); }} />
+          <canvas ref={rulerTopRef} className="monitor-ruler top" title="Drag down to add a horizontal guide · right-click for guide options"
+            onPointerDown={(event) => pullGuide(event, 'h')} onPointerMove={moveGuide} onPointerUp={endGuide} onPointerCancel={endGuide}
+            onContextMenu={(event) => { event.preventDefault(); setRulerMenu(new DOMRect(event.clientX, event.clientY, 0, 0)); }} />
+          <canvas ref={rulerLeftRef} className="monitor-ruler left" title="Drag right to add a vertical guide · right-click for guide options"
+            onPointerDown={(event) => pullGuide(event, 'v')} onPointerMove={moveGuide} onPointerUp={endGuide} onPointerCancel={endGuide}
+            onContextMenu={(event) => { event.preventDefault(); setRulerMenu(new DOMRect(event.clientX, event.clientY, 0, 0)); }} />
+        </>
+      )}
+      <div
+        className={`monitor-frame${panning ? ' panning' : ''}`}
+        ref={frameRef}
+        style={{ overflow: zoom === 0 ? 'hidden' : 'auto' }}
+        onScroll={() => drawRulers.current()}
+        onPointerDown={onFrameDown}
+        onPointerMove={onFrameMove}
+        onPointerUp={onFrameUp}
+        onPointerCancel={onFrameUp}
+        onPointerLeave={() => { pointerRef.current = null; drawRulers.current(); }}
+        onDoubleClick={(event) => { if (tool === 'hand') { event.preventDefault(); zoomTo(0); } }}
+      >
         <div className="monitor-canvas" style={{ minWidth: stageW + 16, minHeight: stageH + 16 }}>
           <div
             ref={stageRef}
@@ -569,10 +838,28 @@ export function ProgramMonitor(props: Props) {
                 <button type="button" className="btn btn-primary" onClick={props.onImport}><Upload size={14} /> Import media</button>
               </div>
             )}
-            {safe && (
-              <div className="safe-margins" aria-hidden="true">
-                <div className="safe action" />
-                <div className="safe title" />
+            {safe && <SafeMargins width={stageW} height={stageH} />}
+            {guidePrefs.guides && guides.length > 0 && (
+              <div className={`monitor-guides${guidePrefs.lock ? ' locked' : ''}`}>
+                {guides.map((guide) => (
+                  <div
+                    key={guide.id}
+                    className={`monitor-guide ${guide.axis}${guideDrag?.id === guide.id ? ' dragging' : ''}${guideDrag?.id === guide.id && guideDrag.outside ? ' removing' : ''}`}
+                    style={{ ['--guide' as string]: guide.color ?? GUIDE_COLOR, ...(guide.axis === 'h' ? { top: guide.pos * scale } : { left: guide.pos * scale }) }}
+                    title={guidePrefs.lock ? undefined : 'Drag to move · drag out of the monitor to remove · double-click to edit'}
+                    onPointerDown={(event) => startGuideDrag(event, guide)}
+                    onPointerMove={moveGuide}
+                    onPointerUp={endGuide}
+                    onPointerCancel={endGuide}
+                    onDoubleClick={(event) => { event.stopPropagation(); if (!guidePrefs.lock) openGuideEditor(guide.id, event); }}
+                  />
+                ))}
+              </div>
+            )}
+            {snapLines && (
+              <div className="monitor-snaplines" aria-hidden="true">
+                {snapLines.x !== null && <div className="snapline v" style={{ left: snapLines.x }} />}
+                {snapLines.y !== null && <div className="snapline h" style={{ top: snapLines.y }} />}
               </div>
             )}
             {handles && tool === 'select' && !playing && selectedClip && (
@@ -620,9 +907,31 @@ export function ProgramMonitor(props: Props) {
                 }}
               />
             )}
+            {annotator.overlay}
           </div>
         </div>
       </div>
+      {guideDrag && (
+        <div className={`guide-readout${guideDrag.outside ? ' removing' : ''}`} style={{ left: guideDrag.x + 12, top: guideDrag.y + 12 }}>
+          {guideDrag.outside ? 'Release to remove guide' : `${guideDrag.axis === 'h' ? 'Y' : 'X'}: ${guides.find((guide) => guide.id === guideDrag.id)?.pos ?? 0} px`}
+        </div>
+      )}
+      {guideEdit && editedGuide && (
+        <GuideEditor
+          key={editedGuide.id}
+          guide={editedGuide}
+          frameW={frameW}
+          frameH={frameH}
+          left={guideEdit.left}
+          top={guideEdit.top}
+          onChange={(next) => setGuides((list) => list.map((guide) => (guide.id === next.id ? next : guide)))}
+          onDelete={() => { setGuides((list) => list.filter((guide) => guide.id !== editedGuide.id)); setGuideEdit(null); }}
+          onClose={() => setGuideEdit(null)}
+        />
+      )}
+      </div>
+      </div>
+      {annotator.bar}
       <div className="monitor-bar">
         {editingTime !== null ? (
           <input className="timecode-input" autoFocus value={editingTime} onChange={(event) => setEditingTime(event.target.value)}
@@ -631,8 +940,9 @@ export function ProgramMonitor(props: Props) {
         ) : (
           <button type="button" className="timecode" onClick={() => setEditingTime(timecode(time, fps))} title="Playhead position — click to type (+/- for relative)">{timecode(time, fps)}</button>
         )}
-        <select className="monitor-select" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} aria-label="Zoom level">
-          {ZOOMS.map((item) => <option key={item.label} value={item.value}>{item.label}</option>)}
+        <select className="monitor-select" value={zoom} onChange={(event) => zoomTo(Number(event.target.value))} aria-label="Zoom level" title="Select Zoom Level · Ctrl+scroll zooms at the pointer · middle-drag or the Hand tool pans">
+          {ZOOMS.map((item) => <option key={item.label} value={item.value}>{item.value === 0 && zoom === 0 ? `Fit (${Math.round(scale * 100)}%)` : item.label}</option>)}
+          {zoom !== 0 && !ZOOMS.some((item) => item.value === zoom) && <option value={zoom}>{`${Math.round(zoom * 100)}%`}</option>}
         </select>
         <select
           className="monitor-select"
@@ -662,6 +972,8 @@ export function ProgramMonitor(props: Props) {
         <div className="toolbar-spacer" />
         {maskHint && <span className="monitor-hint warn">{maskHint}</span>}
         {pen && <span className="monitor-hint">Click to add points · click the first point, double-click or Enter to close · Esc cancels</span>}
+        <button type="button" className={`icon-btn small${annotating ? ' active' : ''}`} onClick={() => setAnnotating((value) => !value)} disabled={!comp} title="Annotate — point at a layer or area and send notes to the chat" aria-pressed={annotating}><MapPin size={14} /></button>
+        <button type="button" className={`icon-btn small${scopes ? ' active' : ''}`} onClick={() => setScopes(!scopes)} title="Histogram & scopes (waveform, parade, vectorscope)" aria-pressed={scopes}><BarChart3 size={14} /></button>
         <button type="button" className="icon-btn small" onClick={(event) => setWrench(event.currentTarget.getBoundingClientRect())} title="Settings"><Wrench size={14} /></button>
         <span className="timecode dim" title={rangeIn !== null && rangeOut !== null ? 'In to Out duration' : 'Comp duration'}>{timecode(rangeIn !== null && rangeOut !== null && rangeOut > rangeIn ? rangeOut - rangeIn : total, fps)}</span>
       </div>
@@ -695,19 +1007,62 @@ export function ProgramMonitor(props: Props) {
         <button type="button" className="transport-btn" onClick={props.onExportFrame} disabled={empty} title="Export Frame (Ctrl+Shift+E)"><Camera size={15} /></button>
         <button type="button" className={`transport-btn${loop ? ' active' : ''}`} onClick={() => setLoop((value) => !value)} title="Loop Playback"><Repeat size={15} /></button>
       </div>
+      {rulerMenu && <MenuList anchor={rulerMenu} onClose={() => setRulerMenu(null)} items={guideMenu} />}
       {wrench && (
         <MenuList anchor={wrench} align="right" onClose={() => setWrench(null)} items={[
           { label: 'Safe Margins', checked: safe, onSelect: () => setSafe((value) => !value) },
           { label: 'Transparency Grid', checked: grid, onSelect: () => setGrid((value) => !value) },
+          { label: 'Rulers & Guides', submenu: guideMenu },
+          { label: 'Histogram / Scopes', checked: scopes, onSelect: () => setScopes(!scopes) },
+          { label: 'Annotate for Chat', checked: annotating, onSelect: () => setAnnotating((value) => !value), disabled: !comp },
           { label: 'Loop', checked: loop, onSelect: () => setLoop((value) => !value) },
           { separator: true },
-          { label: 'Play In to Out', shortcut: 'Ctrl+Shift+Space', onSelect: playInToOut, disabled: rangeIn === null },
+          { label: 'Play In to Out', shortcut: 'Ctrl+Shift+Space', onSelect: playInToOut, disabled: empty },
           { label: 'Play Around', shortcut: 'Shift+K', onSelect: playAround, disabled: empty },
           { separator: true },
           { label: 'Preview Cache in RAM', checked: cacheOn, onSelect: () => setCache({ enabled: !cacheOn }), disabled: !props.onPreviewCache },
           { label: `Cache Budget (${budgetLabel(cacheMb)})`, disabled: !props.onPreviewCache || !cacheOn, submenu: CACHE_BUDGETS.map((mb) => ({ label: budgetLabel(mb), checked: mb === cacheMb, onSelect: () => setCache({ budgetMb: mb }) })) },
         ]} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Safe-area guides. Landscape/square frames get Premiere's broadcast guides (action safe 90%,
+ * title safe 80%, centre cross). Portrait frames get an Instagram Reels mock-up — the app chrome
+ * a viewer actually sees — so it is obvious which parts of the picture the UI will cover.
+ */
+function SafeMargins({ width, height }: { width: number; height: number }) {
+  if (height <= width) {
+    return (
+      <div className="safe-margins" aria-hidden="true">
+        <div className="safe action" />
+        <div className="safe title" />
+        <div className="safe-cross" />
+      </div>
+    );
+  }
+  return (
+    <div className="safe-margins reels" aria-hidden="true" style={{ ['--u' as string]: `${width / 100}px` }}>
+      <div className="reels-shade top" />
+      <div className="reels-shade bottom" />
+      <div className="reels-shade right" />
+      <div className="reels-safe" />
+      <div className="reels-header"><span>Reels</span><Camera /></div>
+      <div className="reels-rail">
+        <span><Heart />12.4K</span>
+        <span><MessageCircle />318</span>
+        <span><Send />1.2K</span>
+        <span><MoreHorizontal /></span>
+        <i className="reels-disc" />
+      </div>
+      <div className="reels-info">
+        <div className="reels-user"><i className="reels-avatar">b</i><strong>bhippi</strong><em>Follow</em></div>
+        <p>Your caption sits here… keep key text out of this area</p>
+        <div className="reels-audio"><Music2 />bhippi · Original audio</div>
+      </div>
+      <div className="reels-label">Instagram Reels safe zone</div>
     </div>
   );
 }

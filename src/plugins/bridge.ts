@@ -6,7 +6,14 @@
 //                edit workflow (Quick edit rules: the local-generation switch still holds),
 //                then runTool — the same function Bhippi AI's calls go through. Each edit is
 //                one Undo step, labelled with the plugin's name. Calls run one at a time per frame.
-//   project, comp, selection, playhead, storage, toast, chat, fileUrl, subscribe, expose.
+//   project, session, comp, selection, playhead, storage, projectStorage, toast, chat, fileUrl,
+//   subscribe, expose.
+//
+// Sessions: each saved project has a key (a hash of its file path — the path itself never reaches
+// a plugin). Opening, starting or saving a project under a new file sends every frame a 'session'
+// event, so a plugin can keep data per project (`bhippi.projectStorage`). That data sits in the
+// plugin's own data file under PROJECTS; an unsaved project's lives in memory and moves to the file
+// the first time the project is saved.
 //
 // The editor hands the bridge what it needs once, with `setPluginEditor`.
 
@@ -19,7 +26,7 @@ import { allowTool, type PermissionMode } from '../lib/permissions';
 import { playhead } from '../lib/playhead';
 import type { ToolResult } from '../lib/types';
 import { pluginToolRefusal } from './rules';
-import { dropActions, findPlugin, pushLog, setAction } from './store';
+import { dropActions, findPlugin, pluginStore, pushLog, setAction } from './store';
 
 export type PluginEditor = {
   /** The host AI tool calls run against (history committed synchronously). */
@@ -32,6 +39,8 @@ export type PluginEditor = {
   toast: (tone: 'info' | 'success' | 'error', title: string, body?: string) => void;
   /** Sends a message to the Bhippi AI chat. */
   chat: (message: string) => void;
+  /** The open project's .bhippi file, or null while it has never been saved. */
+  projectPath: () => string | null;
 };
 
 let editor: PluginEditor | null = null;
@@ -40,7 +49,7 @@ export const setPluginEditor = (next: PluginEditor) => {
 };
 
 const TAG = 'bhippi-plugin';
-type Subscription = 'project' | 'selection' | 'playhead' | 'theme';
+type Subscription = 'project' | 'selection' | 'playhead' | 'theme' | 'session';
 
 type Frame = {
   key: string;
@@ -87,15 +96,74 @@ export function connectPluginFrame(pluginId: string, target: Window): () => void
   };
 }
 
+type Data = Record<string, unknown>;
+/** The reserved key in a plugin's data file that holds its per-project data, by session key. */
+const PROJECTS = '__projects';
+const isObject = (value: unknown): value is Data => !!value && typeof value === 'object' && !Array.isArray(value);
+
+/** Reads and writes of one plugin's data file run one at a time, so storage and projectStorage never overwrite each other. */
+const diskQueues = new Map<string, Promise<unknown>>();
+function withData<T>(pluginId: string, work: (data: Data) => Promise<T> | T): Promise<T> {
+  const run = (diskQueues.get(pluginId) ?? Promise.resolve()).then(async () => {
+    let data: Data = {};
+    try {
+      const loaded = await api.pluginStorageLoad(pluginId);
+      if (isObject(loaded)) data = loaded;
+    } catch {
+      // No saved data yet, or no app around it.
+    }
+    return work(data);
+  });
+  diskQueues.set(pluginId, run.catch(() => undefined));
+  return run;
+}
+const projectsOf = (data: Data): Record<string, Data> => (isObject(data[PROJECTS]) ? (data[PROJECTS] as Record<string, Data>) : {});
+const withoutProjects = (data: Data): Data => {
+  const rest = { ...data };
+  delete rest[PROJECTS];
+  return rest;
+};
+
+/** A stable, private key for a project file: the same file always gives the same key. */
+const keyCache = new Map<string, string>();
+async function sessionKey(path: string | null): Promise<string | null> {
+  if (!path) return null;
+  const normal = path.replace(/\//g, '\\').toLowerCase();
+  const cached = keyCache.get(normal);
+  if (cached) return cached;
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normal));
+  const key = [...new Uint8Array(digest)].slice(0, 12).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  keyCache.set(normal, key);
+  return key;
+}
+
+/** The session plugins currently see; undefined until first asked. */
+let activeKey: string | null | undefined;
+/** Per-project data plugins keep for a project that has never been saved, by plugin id. */
+const unsaved = new Map<string, Data>();
+
+async function currentKey(): Promise<string | null> {
+  if (activeKey === undefined) activeKey = await sessionKey(editor?.projectPath() ?? null);
+  return activeKey;
+}
+
+type Session = { key: string | null; name: string; saved: boolean };
+async function session(): Promise<Session> {
+  const key = await currentKey();
+  return { key, name: editor?.host().history.current().name ?? '', saved: key !== null };
+}
+
+/** This plugin's data for the open project. */
+function projectSlice(pluginId: string, key: string | null): Promise<Data> {
+  if (key === null) return Promise.resolve({ ...(unsaved.get(pluginId) ?? {}) });
+  return withData(pluginId, (data) => ({ ...(projectsOf(data)[key] ?? {}) }));
+}
+
 async function init(frame: Frame) {
   const plugin = findPlugin(frame.pluginId);
-  let storage: Record<string, unknown> = {};
-  try {
-    storage = await api.pluginStorageLoad(frame.pluginId);
-  } catch {
-    // No saved data yet, or no app around it.
-  }
-  send(frame, { type: 'init', plugin: plugin ? { id: plugin.id, name: plugin.name } : { id: frame.pluginId, name: frame.pluginId }, storage, theme: themeTokens() });
+  const [storage, info] = await Promise.all([withData(frame.pluginId, withoutProjects), session()]);
+  const projectStorage = await projectSlice(frame.pluginId, info.key);
+  send(frame, { type: 'init', plugin: plugin ? { id: plugin.id, name: plugin.name } : { id: frame.pluginId, name: frame.pluginId }, storage, session: info, projectStorage, theme: themeTokens() });
 }
 
 /** Why a plugin's call to a Bhippi tool is refused, or null: its manifest, the permission mode, the workflow. */
@@ -141,10 +209,13 @@ async function runPluginTool(pluginId: string, name: string, args: Record<string
 type Handler = (frame: Frame, params: Record<string, unknown>) => Promise<unknown> | unknown;
 
 const HANDLERS: Record<string, Handler> = {
-  project: () => {
+  project: async () => {
     const host = editor!.host();
-    return aiContext(host.history.current(), host.assets(), host.selection());
+    const context = aiContext(host.history.current(), host.assets(), host.selection());
+    const key = await currentKey();
+    return { ...context, project: { ...context.project, key, saved: key !== null } };
   },
+  session: () => session(),
   comp: (_frame, params) => {
     const host = editor!.host();
     const project = host.history.current();
@@ -178,8 +249,23 @@ const HANDLERS: Record<string, Handler> = {
     return time;
   },
   'storage.set': async (frame, params) => {
-    const data = params.data && typeof params.data === 'object' && !Array.isArray(params.data) ? (params.data as Record<string, unknown>) : {};
-    await api.pluginStorageSave(frame.pluginId, data);
+    const next = isObject(params.data) ? withoutProjects(params.data) : {};
+    await withData(frame.pluginId, (data) => api.pluginStorageSave(frame.pluginId, data[PROJECTS] === undefined ? next : { ...next, [PROJECTS]: data[PROJECTS] }));
+    return true;
+  },
+  'projectStorage.set': async (frame, params) => {
+    const next = isObject(params.data) ? params.data : {};
+    const key = await currentKey();
+    if (key === null) {
+      unsaved.set(frame.pluginId, next);
+      return true;
+    }
+    await withData(frame.pluginId, (data) => {
+      const projects = { ...projectsOf(data) };
+      if (Object.keys(next).length) projects[key] = next;
+      else delete projects[key];
+      return api.pluginStorageSave(frame.pluginId, { ...data, [PROJECTS]: projects });
+    });
     return true;
   },
   toast: (frame, params) => {
@@ -200,7 +286,7 @@ const HANDLERS: Record<string, Handler> = {
   fileUrl: (_frame, params) => (typeof params.path === 'string' && params.path ? convertFileSrc(params.path) : ''),
   subscribe: (frame, params) => {
     const event = params.event as Subscription;
-    if (!['project', 'selection', 'playhead', 'theme'].includes(event)) throw new Error(`There is no “${String(params.event)}” event (project, selection, playhead, theme).`);
+    if (!['project', 'selection', 'playhead', 'theme', 'session'].includes(event)) throw new Error(`There is no “${String(params.event)}” event (project, selection, playhead, theme, session).`);
     frame.subscriptions.add(event);
     return true;
   },
@@ -272,6 +358,34 @@ export const pluginEvents = {
   theme() {
     const tokens = themeTokens();
     for (const frame of frames.values()) send(frame, { type: 'event', event: 'theme', data: tokens });
+  },
+  /**
+   * The editor calls this after opening or starting a project ('opened') and after saving
+   * ('saved'), with the project's file (null for a new, unsaved one). When the project now lives
+   * in a different file, every frame gets a 'session' event with its data for that project; a
+   * save under a new file carries the project's data along.
+   */
+  async session(reason: 'opened' | 'saved', path: string | null) {
+    const before = await currentKey();
+    const after = await sessionKey(path);
+    if (reason === 'saved' && after === before) return;
+    activeKey = after;
+    if (reason === 'saved' && after !== null) {
+      // Save As: the project keeps its plugin data under its new file.
+      const ids = new Set([...unsaved.keys(), ...pluginStore.get().plugins.map((plugin) => plugin.id)]);
+      await Promise.all([...ids].map((id) => withData(id, async (data) => {
+        const projects = projectsOf(data);
+        const carried = before === null ? unsaved.get(id) : projects[before];
+        if (!carried || !Object.keys(carried).length || projects[after]) return;
+        await api.pluginStorageSave(id, { ...data, [PROJECTS]: { ...projects, [after]: carried } });
+      }).catch(() => undefined)));
+    }
+    unsaved.clear();
+    const info = await session();
+    await Promise.all([...frames.values()].map(async (frame) => {
+      const projectStorage = await projectSlice(frame.pluginId, info.key).catch(() => ({}));
+      send(frame, { type: 'event', event: 'session', data: { ...info, projectStorage } });
+    }));
   },
 };
 

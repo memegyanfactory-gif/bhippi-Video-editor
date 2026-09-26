@@ -3,7 +3,7 @@
 // Only what this computer actually has is listed: a CLI on PATH, a model server that answered,
 // an API key that is saved. Everything else Bhippi knows how to reach waits behind "Add
 // provider", one click away, instead of a wall of "not running" and "needs an API key" rows.
-import { Check, ChevronDown, Cloud, Cpu, Download, ExternalLink, KeyRound, LoaderCircle, Plus, RefreshCw, Sparkles, Terminal, TriangleAlert } from 'lucide-react';
+import { Check, ChevronDown, Cloud, Cpu, Download, ExternalLink, KeyRound, Link2, LoaderCircle, Play, Plus, RefreshCw, Sparkles, Terminal, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { ProviderLogo } from '../components/ProviderLogo';
 import { Toggle, useToast } from '../components/ui';
@@ -18,6 +18,23 @@ const GROUPS: { kind: ProviderKind; title: string; icon: typeof Terminal; blurb:
   { kind: 'cloud_api', title: 'Cloud APIs', icon: Cloud, blurb: 'Your own keys, stored in the Windows Credential Manager, never in project files.' },
   { kind: 'builtin', title: 'Built in', icon: Sparkles, blurb: 'Always available, works offline.' },
 ];
+
+/** The port each local server listens on out of the box — the placeholder for a custom address. */
+const DEFAULT_PORT: Record<string, number> = { ollama: 11434, lmstudio: 1234, llamacpp: 8080, vllm: 8000, jan: 1337 };
+
+/** How to get each local server answering, for someone who has never opened its settings. */
+const LOCAL_SETUP: Record<string, string> = {
+  ollama: 'Install Ollama and download a model (for example `ollama pull qwen2.5`). Bhippi finds it automatically and can start it for you.',
+  lmstudio: 'Install LM Studio and download a model. Bhippi finds it automatically and can switch on its local server for you.',
+  jan: 'Install Jan and download a model, then in Jan open Settings → Local API Server and press Start Server.',
+  llamacpp: 'Run `llama-server -m your-model.gguf`. Bhippi checks port 8080; set the address below if you use another one.',
+  vllm: 'Run `vllm serve <model>`. Bhippi checks port 8000; set the address below if you use another one.',
+};
+
+/** A local server that answered but refused us for want of an API key (Jan, a keyed llama-server). */
+function needsKey(row: ProviderInfo) {
+  return row.kind === 'local_server' && !row.usable && row.health.state === 'unavailable' && /api key/i.test(row.health.reason);
+}
 
 /**
  * Whether this computer has the provider at all: the CLI is installed, the server answered (or
@@ -36,8 +53,10 @@ function status(row: ProviderInfo, installing: boolean): { tone: 'ok' | 'warn' |
   if (row.usable) return row.health.state === 'degraded' ? { tone: 'warn', label: 'Ready · offline list' } : { tone: 'ok', label: 'Ready' };
   if (row.kind === 'cli') return row.installed ? { tone: 'warn', label: 'Not signed in' } : { tone: 'off', label: 'Not installed' };
   if (row.kind === 'local_server') {
+    if (needsKey(row)) return { tone: 'warn', label: 'Needs API key' };
     if (row.detectedPort) return { tone: 'warn', label: 'No model loaded' };
-    return row.offered ? { tone: 'warn', label: 'Not running' } : { tone: 'off', label: 'Not detected' };
+    if (row.offered) return { tone: 'warn', label: row.canStart ? 'Server off' : 'Not running' };
+    return { tone: 'off', label: 'Not detected' };
   }
   if (row.health.state === 'unavailable') return { tone: 'error', label: 'Key rejected' };
   return { tone: 'off', label: 'Needs API key' };
@@ -69,6 +88,10 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [addOpen, setAddOpen] = useState<string | null>(null);
+  const [starting, setStarting] = useState<string | null>(null);
+  const [endpoints, setEndpoints] = useState<Record<string, string>>(() => ({ ...(settings.localEndpoints ?? {}) }));
+  const [savingEndpoint, setSavingEndpoint] = useState<string | null>(null);
+  const [connectOpen, setConnectOpen] = useState<string | null>(null);
   const installing = new Set(jobs.filter((job) => job.kind === 'install' && job.status === 'running').map((job) => job.label.replace(/^(Installing|Updating) /, '')));
   const ready = providers.filter((row) => row.usable && row.kind !== 'builtin').length;
   const present = providers.filter(isSetUp);
@@ -104,6 +127,40 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
     }
   };
 
+  const start = async (row: ProviderInfo) => {
+    setStarting(row.id);
+    try {
+      const rows = await api.providerStart(row.id);
+      onProviders(rows);
+      const updated = rows.find((item) => item.id === row.id);
+      if (updated?.usable) toast({ tone: 'success', title: `${row.label} is ready`, body: `${updated.models.length} model${updated.models.length === 1 ? '' : 's'} found` });
+      else if (updated?.detectedPort) toast({ tone: 'info', title: `${row.label} server started`, body: updated.health.state === 'degraded' || updated.health.state === 'unavailable' ? updated.health.reason : 'Download or load a model in it, then press Refresh.' });
+      else toast({ tone: 'error', title: `${row.label} did not answer yet`, body: 'Give it a few seconds and press Refresh.' });
+    } catch (error) {
+      toast({ tone: 'error', title: `Could not start ${row.label}`, body: errorText(error) });
+    } finally {
+      setStarting(null);
+    }
+  };
+
+  const saveEndpoint = async (row: ProviderInfo, value: string) => {
+    setSavingEndpoint(row.id);
+    try {
+      const rows = await api.providerSetEndpoint(row.id, value);
+      onProviders(rows);
+      // The backend records the address in the settings itself: read them back, or the next save undoes it.
+      onSettings(await api.settingsGet());
+      const updated = rows.find((item) => item.id === row.id);
+      if (!value.trim()) toast({ tone: 'info', title: `${row.label} back to automatic detection` });
+      else if (updated?.usable) toast({ tone: 'success', title: `${row.label} connected`, body: `${updated.models.length} model${updated.models.length === 1 ? '' : 's'} found` });
+      else toast({ tone: 'error', title: `Nothing usable answered at ${value.trim()}`, body: `Check that ${row.label} is running with its server started, then try again.` });
+    } catch (error) {
+      toast({ tone: 'error', title: 'Could not save the address', body: errorText(error) });
+    } finally {
+      setSavingEndpoint(null);
+    }
+  };
+
   const install = async (row: ProviderInfo) => {
     try {
       await api.providerInstall(row.id);
@@ -133,11 +190,37 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
   const keyForm = (row: ProviderInfo) => (
     <form className="key-form" onSubmit={(event) => { event.preventDefault(); void saveKey(row, keys[row.id] ?? ''); }}>
       <KeyRound size={13} />
-      <input type="password" placeholder={row.keySource === 'keychain' ? 'Key saved — paste a new one to replace' : row.keySource === 'env' ? `Using ${row.keyEnv} — paste to override` : `Paste ${row.label} key`} value={keys[row.id] ?? ''} onChange={(event) => { const value = event.target.value; setKeys((current) => ({ ...current, [row.id]: value })); }} autoComplete="off" spellCheck={false} />
+      <input type="password" placeholder={row.keySource === 'keychain' ? 'Key saved — paste a new one to replace' : row.keySource === 'env' ? `Using ${row.keyEnv} — paste to override` : row.kind === 'local_server' ? `API key (only if you set one in ${row.label})` : `Paste ${row.label} key`} value={keys[row.id] ?? ''} onChange={(event) => { const value = event.target.value; setKeys((current) => ({ ...current, [row.id]: value })); }} autoComplete="off" spellCheck={false} />
       <button type="submit" className="btn btn-small" disabled={savingKey === row.id || !(keys[row.id] ?? '').trim()}>{savingKey === row.id ? <LoaderCircle size={12} className="spin" /> : 'Save'}</button>
       {row.keySource === 'keychain' && <button type="button" className="btn btn-small btn-ghost" onClick={() => void saveKey(row, '')}>Remove</button>}
     </form>
   );
+
+  const endpointForm = (row: ProviderInfo) => {
+    const saved = settings.localEndpoints?.[row.id] ?? '';
+    const value = endpoints[row.id] ?? saved;
+    return (
+      <form className="key-form" onSubmit={(event) => { event.preventDefault(); void saveEndpoint(row, value); }}>
+        <Link2 size={13} />
+        <input type="text" placeholder={`Address, e.g. localhost:${DEFAULT_PORT[row.id] ?? 8080} — empty finds it automatically`} value={value} onChange={(event) => { const next = event.target.value; setEndpoints((current) => ({ ...current, [row.id]: next })); }} autoComplete="off" spellCheck={false} />
+        <button type="submit" className="btn btn-small" disabled={savingEndpoint === row.id || value.trim() === saved.trim()}>{savingEndpoint === row.id ? <LoaderCircle size={12} className="spin" /> : 'Connect'}</button>
+        {saved && <button type="button" className="btn btn-small btn-ghost" disabled={savingEndpoint === row.id} onClick={() => { setEndpoints((current) => ({ ...current, [row.id]: '' })); void saveEndpoint(row, ''); }}>Automatic</button>}
+      </form>
+    );
+  };
+
+  /** Address + optional key for a local server, folded away unless it is needed. */
+  const connection = (row: ProviderInfo) => {
+    const open = connectOpen === row.id || needsKey(row) || Boolean(settings.localEndpoints?.[row.id]);
+    if (!open) return <button type="button" className="btn btn-small btn-ghost provider-connection-toggle" onClick={() => setConnectOpen(row.id)}>Running on a different port or computer?</button>;
+    return (
+      <div className="provider-connection">
+        {endpointForm(row)}
+        {(needsKey(row) || row.keySource) && keyForm(row)}
+        <p className="muted">Bhippi checks the usual port{row.id === 'lmstudio' ? ' and the port set in LM Studio' : ''} by itself. Only set an address if {row.label} runs on another port or another computer.</p>
+      </div>
+    );
+  };
 
   const opened = absent.find((row) => row.id === addOpen);
 
@@ -181,8 +264,11 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
                     </div>
                     {row.usable && row.models.length > 0 && row.kind !== 'builtin' && <div className="provider-models-line" title={row.models.join('\n')}>{modelsLine(row)}</div>}
                     {row.kind === 'cloud_api' && keyForm(row)}
+                    {row.kind === 'local_server' && !row.usable && connection(row)}
                   </div>
                   <div className="provider-actions">
+                    {row.kind === 'local_server' && row.canStart && !row.detectedPort && <button type="button" className="btn btn-small" disabled={starting !== null} onClick={() => void start(row)}>{starting === row.id ? <LoaderCircle size={12} className="spin" /> : <Play size={12} />} Start server</button>}
+                    {row.kind === 'local_server' && !row.usable && !row.canStart && <button type="button" className="btn btn-small" disabled={refreshing} onClick={() => void refresh()}>{refreshing ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />} Check again</button>}
                     {row.kind === 'cli' && row.installed && row.installCommand && <button type="button" className="btn btn-small" disabled={installing.size > 0} onClick={() => void update(row)}>{installing.has(row.label) ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />} Update</button>}
                     {row.kind === 'cloud_api' && <button type="button" className="btn btn-small" disabled={refreshing} onClick={() => void refresh()} title="Re-read this key's model list">Refresh models</button>}
                     {((row.kind === 'cli' && row.installed && !row.installCommand) || row.kind === 'local_server') && row.homepage && <button type="button" className="btn btn-small" onClick={() => void api.openUrl(row.homepage!)}>Open app site</button>}
@@ -221,7 +307,7 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
                     <div className="provider-title"><strong>{opened.label}</strong></div>
                     {opened.kind === 'cloud_api' && <>{keyForm(opened)}<p className="muted">Its models are read from the API as soon as the key is saved.</p></>}
                     {opened.kind === 'cli' && <div className="provider-detail">{opened.installCommand ? <code>{opened.installCommand}</code> : <span>Install it from its website, then press Refresh.</span>}</div>}
-                    {opened.kind === 'local_server' && <p className="muted">Start {opened.label} and load a model, then press Refresh — Bhippi finds it on its usual port and reads its models.</p>}
+                    {opened.kind === 'local_server' && <><p className="muted">{LOCAL_SETUP[opened.id] ?? `Start ${opened.label} and load a model, then press Refresh.`}</p>{endpointForm(opened)}</>}
                   </div>
                   <div className="provider-actions">
                     {opened.kind === 'cli' && opened.installCommand && (

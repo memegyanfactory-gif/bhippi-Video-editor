@@ -162,7 +162,7 @@ export function ProviderLogo({ id, size = 20, transparent = false, className }: 
   }
 
   // 2. OpenCode (Exact screenshot design: white wireframe window + blue 'OP' badge)
-  if (normalized === "opencode") {
+  if (normalized === "opencode" || normalized === "opencode-zen") {
     const bg = transparent ? "transparent" : "#0C0D0F";
     return (
       <span

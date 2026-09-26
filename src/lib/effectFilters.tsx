@@ -1,4 +1,4 @@
-import { gradeTables } from './colorGrade';
+import { compileGrade, GRADE_CONTROLS, number as gradeNumber } from './colorGrade';
 // Engine for generating effect schemas, SVG filter pipelines, and CSS transforms
 // Supports distortion (Turbulent Displace, Wave Warp, Bulge, Twirl, Ripple, CC Slant, etc.),
 // Blur & Sharpen, Color Correction, and Stylize effects on clips and adjustment layers.
@@ -17,6 +17,9 @@ export type EffectParamDef = {
   step?: number;
   unit?: string;
   options?: { label: string; value: string }[];
+  /** Kept for saved projects and the AI, but drawn by a custom panel rather than a plain row. */
+  hidden?: boolean;
+  hint?: string;
 };
 
 export type EffectSchema = {
@@ -267,15 +270,8 @@ export const EFFECT_SCHEMAS: Record<string, EffectSchema> = {
   },
   'lumetri-color': {
     params: [
-      { id: 'temperature', name: 'Temperature', type: 'number', defaultValue: 0, min: -100, max: 100, step: 1 },
-      { id: 'tint', name: 'Tint', type: 'number', defaultValue: 0, min: -100, max: 100, step: 1 },
-      { id: 'exposure', name: 'Exposure', type: 'number', defaultValue: 0, min: -5, max: 5, step: 0.1 },
-      { id: 'contrast', name: 'Contrast', type: 'number', defaultValue: 0, min: -100, max: 100, step: 1 },
-      { id: 'highlights', name: 'Highlights', type: 'number', defaultValue: 0, min: -100, max: 100, step: 1 },
-      { id: 'shadows', name: 'Shadows', type: 'number', defaultValue: 0, min: -100, max: 100, step: 1 },
-      { id: 'whites', name: 'Whites', type: 'number', defaultValue: 0, min: -100, max: 100, step: 1 },
-      { id: 'blacks', name: 'Blacks', type: 'number', defaultValue: 0, min: -100, max: 100, step: 1 },
-      { id: 'saturation', name: 'Saturation', type: 'number', defaultValue: 100, min: 0, max: 200, step: 1, unit: '%' },
+      ...GRADE_CONTROLS.map((c) => ({ id: c.id, name: c.name, type: 'number' as const, defaultValue: c.defaultValue, min: c.min, max: c.max, step: c.step, unit: c.unit, hint: c.hint })),
+      { id: 'lutStage', name: 'LUT Stage', type: 'select', defaultValue: 'output', options: [{ label: 'Output (creative look)', value: 'output' }, { label: 'Input (camera conversion)', value: 'input' }] },
     ],
   },
   'color-balance-hls': { params: [
@@ -309,9 +305,10 @@ export const EFFECT_SCHEMAS: Record<string, EffectSchema> = {
   ]},
 };
 
+// The first Color Studio's three-way bands: still graded for saved projects, no longer on the panel.
 for (const band of ['shadow','midtone','highlight']) {
   for (const [suffix,label,min,max] of [['Hue','Hue',0,360],['Amount','Amount',0,100],['Luma','Luminance',-100,100]] as const) {
-    EFFECT_SCHEMAS['lumetri-color'].params.push({id:band+suffix,name:band+' '+label,type:'number',defaultValue:0,min,max,step:1});
+    EFFECT_SCHEMAS['lumetri-color'].params.push({id:band+suffix,name:band+' '+label,type:'number',defaultValue:0,min,max,step:1,hidden:true});
   }
 }
 
@@ -368,7 +365,8 @@ export function createAppliedEffect(effect: EffectDefinition): AppliedEffect {
     initialParams[p.id] = p.defaultValue;
   }
 
-  for (const param of schema.params) {
+  // A new Color Studio starts neutral: its catalogue preset is only there to migrate old projects.
+  for (const param of effect.id === 'lumetri-color' ? [] : schema.params) {
     const value = effect.apply?.[param.id];
     if (value !== undefined) initialParams[param.id] = value;
   }
@@ -390,6 +388,11 @@ export type ComputedEffectVisuals = {
   svgDefs: ReactNode[];
 };
 
+/** An effect stack with its Color Studio grades moved to the front, otherwise in order. */
+export function gradeFirst(effects: AppliedEffect[]): AppliedEffect[] {
+  return [...effects.filter((fx) => fx.effectId === 'lumetri-color'), ...effects.filter((fx) => fx.effectId !== 'lumetri-color')];
+}
+
 /** Compute SVG filters and CSS properties for an applied effect stack */
 export function computeAppliedEffects(
   clipId: string,
@@ -408,7 +411,8 @@ export function computeAppliedEffects(
 
   const hScale = stageH / 1080;
 
-  for (const fx of appliedEffects) {
+  // The Color Studio grades the source first, as the export does (render/video.rs effect_chain).
+  for (const fx of gradeFirst(appliedEffects)) {
     if (!fx.enabled) continue;
 
     const filterId = `bhippi-fx-${clipId}-${fx.id}`;
@@ -802,10 +806,16 @@ export function computeAppliedEffects(
       }
 
       case 'lumetri-color': {
-        const tables = gradeTables(p);
+        // The filter form of the grade, for layers the GPU pass does not draw (text, shapes,
+        // graphics, masked or rotoscoped clips): the per-channel primaries exactly, saturation and
+        // hue approximately. Video and still clips are graded by editor/GradeCanvas.tsx instead.
+        const tables = compileGrade(p).channelTables().map((t) => t.map((v) => v.toFixed(5)).join(' '));
+        const saturation = Math.max(0, gradeNumber(p, 'saturation', 100) / 100) * (1 + gradeNumber(p, 'vibrance') / 250);
+        const hue = gradeNumber(p, 'hue');
         result.svgDefs.push(<filter key={filterId} id={filterId} x="0%" y="0%" width="100%" height="100%" colorInterpolationFilters="sRGB">
           <feComponentTransfer><feFuncR type="table" tableValues={tables[0]} /><feFuncG type="table" tableValues={tables[1]} /><feFuncB type="table" tableValues={tables[2]} /></feComponentTransfer>
-          <feColorMatrix type="saturate" values={String(Math.max(0,Number(p.saturation ?? 100))/100)} />
+          {saturation !== 1 && <feColorMatrix type="saturate" values={String(saturation)} />}
+          {hue !== 0 && <feColorMatrix type="hueRotate" values={String(hue)} />}
         </filter>);
         result.cssFilters.push('url(#'+filterId+')');
         break;

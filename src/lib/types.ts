@@ -4,6 +4,7 @@
 import type { BrandKit, BrandKitDoc } from './brandKit/types';
 import type { MotionScene } from '../motion/types';
 import type { RoastState } from './roast/types';
+import type { ShortInfo } from './shorts';
 
 export type Preset = 'title' | 'kinetic' | 'lower-third' | 'caption';
 /** Procedural sounds (Rust `SfxKind`): the classic five, the six @funny kinds (ROAST_SFX_KINDS) and the UI click. */
@@ -365,6 +366,8 @@ export type Comp = {
   production?: Production | null;
   /** The @funny plan on this comp: beat sheet, roast EDL, what was applied and its Edit DNA (src/lib/roast). */
   roast?: RoastState;
+  /** This comp is a short cut from a longer video (src/lib/shorts.ts): its rating and source plan. */
+  short?: ShortInfo | null;
   id: string;
   name: string;
   width: number;
@@ -414,7 +417,12 @@ export type Project = {
   activeBrandKitId?: string | null;
   /** Where each downloaded asset came from and under which licence, by asset id (the council's Researcher reads it). */
   provenance?: Record<string, import('./council').Provenance> | null;
+  /** LUTs imported into the project for the Color Studio (lib/luts.ts), resampled to 33³. */
+  luts?: ProjectLut[];
 };
+
+/** An imported LUT: its values as base64 little-endian 16-bit integers, red fastest. */
+export type ProjectLut = { id: string; name: string; size: number; data: string };
 
 /** Text timing in the shape the caption renderers take. */
 export type Graphic = { id: string; text: string; subtitle: string; start: number; duration: number; preset: Preset; color: string; style?: string | null };
@@ -465,6 +473,10 @@ export type ProviderInfo = {
   enabled: boolean;
   acceptsCustomModel: boolean;
   detectedPort: number | null;
+  /** Local rows: the address that answered, `http://host:port`. */
+  baseUrl?: string | null;
+  /** Local rows: installed but stopped, and Bhippi can start the server itself. */
+  canStart?: boolean;
   keyEnv: string | null;
   keySource: 'env' | 'keychain' | null;
   installCommand: string | null;
@@ -559,18 +571,25 @@ export type ExportPrefs = {
 /** How a script should be read aloud, and by whom. */
 export type VoiceMode = 'auto' | 'hinglish' | 'hindi-roman' | 'en' | 'hi';
 
+/** Which transcriber: a chain (`auto`, `cloud`), offline only (`local`), or one engine by id. */
+export type TranscribeEngine = 'auto' | 'cloud' | 'local' | 'deepgram' | 'elevenlabs' | 'openai' | 'groq' | 'mistral' | 'google' | 'openrouter';
+
 export type SpeechPrefs = {
-  /** `auto` prefers whatever runs offline; `local` never uploads; `cloud` never runs local. */
-  transcribeEngine: 'auto' | 'local' | 'cloud' | null;
+  /** `auto`: speech keys, then AI provider keys that hear audio, then offline; `local` never uploads; `cloud` never runs local. */
+  transcribeEngine: TranscribeEngine | null;
   /** Catalogue id of the offline Whisper model to run. */
   transcribeModel: string | null;
-  /** Explicit whisper.cpp / Piper programs, when they are not ones Bhippi downloaded. */
+  /** Explicit whisper.cpp program / sherpa-onnx library, when they are not ones Bhippi downloaded. */
   whisperPath: string | null;
-  piperPath: string | null;
-  /** `piper:<id>` · `elevenlabs:<id>` · `openai:<name>`. */
+  ttsPath: string | null;
+  /** `kokoro:<speaker>` · `elevenlabs:<id>` · `openai:<name>`; null picks automatically (cloud key, else Kokoro). */
   voice: string | null;
-  /** The Hindi half of a Hinglish pair, when the main voice is an offline English one. */
+  /** The Kokoro Hindi speaker that reads Hindi and Hinglish when the main voice is English. */
   hindiVoice: string | null;
+  /** ElevenLabs model for voice-overs; null uses Multilingual v2. */
+  elevenlabsModel: string | null;
+  /** OpenAI speech model for voice-overs; null uses gpt-4o-mini-tts. */
+  openaiTtsModel: string | null;
   voiceMode: VoiceMode | null;
   /** 0.5 – 2.0, where 1.0 is the voice's own pace. */
   speed: number | null;
@@ -596,11 +615,28 @@ export type GlassPrefs = {
   opacity: number;
 };
 
+/** Settings › Connectors: cloud generation through the user's own keys. The keys live in the OS credential store, never here. */
+export type CloudGenerationPrefs = {
+  /** Master switch. Off: the AI never calls a cloud generator. */
+  enabled?: boolean;
+  /** Per connector: whether the AI may use it, and its chosen models. */
+  connectors?: Record<string, { enabled?: boolean; videoModel?: string | null; imageModel?: string | null }>;
+  /** `connectorId:modelId` the AI reaches for first. */
+  defaultVideo?: string | null;
+  defaultImage?: string | null;
+  /** Show the plan card (prompt, reference, model) and wait for Generate before spending credits. On when unset. */
+  confirm?: boolean;
+};
+
 export type Settings = {
   autoUpdateProviders?: string[];
   localMediaPython?: string | null;
   localRotoEngine?: string | null;
-  localVideoModel?: 'ltx' | 'wan' | 'ltx23' | 'custom' | null;
+  localVideoModel?: 'ltx' | 'wan' | 'wan22' | 'ltx23' | 'custom' | null;
+  /** Which local model plain text-to-image uses; SDXL when unset. */
+  localImageModel?: 'sdxl' | 'flux' | null;
+  /** Cloud image/video generation through the user's own connector keys; off by default. */
+  cloudGeneration?: CloudGenerationPrefs;
   localMediaModels?: Record<string, string>;
   /** Off by default: the AI sources real footage online (or builds an animated explainer for
    * topics with none to find) instead of generating images/video with local models. Local
@@ -612,9 +648,15 @@ export type Settings = {
   copyImports?: boolean | null;
   /** The first-run onboarding was finished or skipped. */
   onboarded?: boolean | null;
+  /** Show the welcome tour (src/onboarding/Tour.tsx) on a fresh install; on when unset. */
+  tour?: boolean | null;
+  /** False on a fresh install until the tour is finished or skipped; unset on older installs. */
+  tourSeen?: boolean | null;
   /** Fetch a new version as soon as bhippi.com has one; installing still waits for the user. Unset means on. */
   autoUpdate?: boolean | null;
   disabledProviders: string[];
+  /** Addresses typed for local model servers on an unusual port, by provider id. */
+  localEndpoints?: Record<string, string>;
   providerId: string | null;
   model: string | null;
   effort: string | null;
@@ -654,10 +696,12 @@ export type Settings = {
   previewCacheEnabled?: boolean | null;
   /** Its RAM budget in megabytes; 1536 when unset. */
   previewCacheMb?: number | null;
-  /** The pixel avatar that acts out what Bhippi AI is doing (src/avatar); on when unset. */
+  /** The pixel avatar that acts out what Bhippi AI is doing (src/avatar); off unless the user turns it on (onboarding or Settings › Avatar). */
   avatar?: boolean | null;
   /** Who the avatar is: 'heli', 'cat', 'woman', 'genie', 'puppy' or 'senior'; Heli when unset. */
   avatarCharacter?: string | null;
+  /** The user's own colours for each character: character → colour slot (sprite.ts COLOUR_SLOTS) → #rrggbb. */
+  avatarColors?: Record<string, Record<string, string>> | null;
 };
 
 export type PanelId = 'chat' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools' | 'plugins';

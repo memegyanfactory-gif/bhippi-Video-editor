@@ -345,6 +345,12 @@ pub struct ProviderInfo {
     /// The composer may offer a free-text model field for this backend.
     pub accepts_custom_model: bool,
     pub detected_port: Option<u16>,
+    /// Local rows: the address that answered, `http://host:port` (no `/v1`).
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Local rows: installed but stopped, and Bhippi can switch the server on itself.
+    #[serde(default)]
+    pub can_start: bool,
     /// Cloud rows: the environment variable that can hold the key.
     pub key_env: Option<String>,
     /// Cloud rows: where the key came from — `env`, `keychain`, or `None` when absent.

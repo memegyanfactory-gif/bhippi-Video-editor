@@ -1,7 +1,7 @@
 // Settings › General: the handful of choices most people make first — the look, which AI answers
 // and how much it may do, the editor's extras, where projects live and how updates arrive. Each
 // row is the same setting its own page shows in full; this page only gathers them.
-import { ChevronRight, FolderOpen, LoaderCircle } from 'lucide-react';
+import { ChevronRight, Compass, FolderOpen, LoaderCircle } from 'lucide-react';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Toggle, useToast } from '../components/ui';
 import { api, errorText, type StorageInfo } from '../lib/ipc';
@@ -19,11 +19,13 @@ type Props = {
   providers: ProviderInfo[];
   info: AppInfo | null;
   onTab: (tab: SettingsTab) => void;
+  /** Closes Settings and runs the welcome tour. */
+  onTour?: () => void;
 };
 
 const CACHE_SIZES = [512, 1024, 1536, 2048, 3072, 4096];
 
-export function GeneralSettings({ settings, onSettings, providers, info, onTab }: Props) {
+export function GeneralSettings({ settings, onSettings, providers, info, onTab, onTour }: Props) {
   const toast = useToast();
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [moving, setMoving] = useState(false);
@@ -92,11 +94,14 @@ export function GeneralSettings({ settings, onSettings, providers, info, onTab }
         <Row title="Generate images and video on this computer" hint="Off: the AI finds real footage online instead. Local models stay available when you ask for them.">
           <Toggle checked={!(settings.disableLocalGeneration ?? true)} onChange={(on) => set({ disableLocalGeneration: !on })} label="Local generation" />
         </Row>
+        <Row title="Generate clips with online models" hint={<>Higgsfield, Magnific (Freepik), Veo, Runway, Kling and more on your own keys. You approve every prompt first. {more('connectors', 'Connectors')}</>}>
+          <Toggle checked={settings.cloudGeneration?.enabled ?? false} onChange={(on) => set({ cloudGeneration: { ...settings.cloudGeneration, enabled: on } })} label="Cloud generation" />
+        </Row>
       </Section>
 
       <Section title="Editor">
         <Row title="Pixel avatar" hint="A little producer who acts out what Bhippi AI is doing on your timeline.">
-          <Toggle checked={settings.avatar !== false} onChange={(on) => set({ avatar: on })} label="Pixel avatar" />
+          <Toggle checked={settings.avatar === true} onChange={(on) => set({ avatar: on })} label="Pixel avatar" />
         </Row>
         <Row title="Animated chat" hint="The chat's moving look. Surface only.">
           <Toggle checked={settings.awesomeLook ?? false} onChange={(on) => set({ awesomeLook: on })} label="Animated chat" />
@@ -108,6 +113,13 @@ export function GeneralSettings({ settings, onSettings, providers, info, onTab }
             </select>
           )}
           <Toggle checked={cacheOn} onChange={(on) => set({ previewCacheEnabled: on })} label="RAM preview cache" />
+        </Row>
+      </Section>
+
+      <Section title="Getting started">
+        <Row title="Welcome tour" hint="A five-step walk through the chat, AI providers, project area, timeline and preview. Shown once, the first time Bhippi opens after it is installed.">
+          {onTour && <button type="button" className="btn" onClick={onTour}><Compass size={14} /> Show tour</button>}
+          <Toggle checked={settings.tour !== false} onChange={(on) => set({ tour: on })} label="Welcome tour" />
         </Row>
       </Section>
 

@@ -51,7 +51,7 @@ export function saveFxSettings(settings: FxConsoleSettings): void {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   } catch (err) {
-    console.error('Failed to save FX Console settings', err);
+    console.error('Failed to save Console settings', err);
   }
 }
 
@@ -82,7 +82,7 @@ export function exportFxSettingsFile(settings: FxConsoleSettings): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `bhippi-fx-console-settings-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `bhippi-console-settings-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }

@@ -12,11 +12,14 @@ type Props = {
   providers: ProviderInfo[];
   assetCount: number;
   recents: string[];
+  /** The recent files confirmed to be on disk; any other entry is shown but can't be opened. */
+  recentFound: ReadonlySet<string>;
   onEdit: () => void;
   onNewProject: () => void;
   onImport: () => void;
   onOpen: () => void;
   onOpenRecent: (path: string) => void;
+  onForgetRecent: (path: string) => void;
   onProviders: () => void;
   onShortcuts: () => void;
 };
@@ -70,18 +73,32 @@ export function HomeScreen(props: Props) {
             <span>Premiere's keymap: J K L, I O, Q W, Ctrl+K and more</span>
           </button>
         </div>
-        {props.recents.length > 0 && (
-          <div className="home-recent">
-            <h2>Recent projects</h2>
-            {props.recents.slice(0, 6).map((path) => (
-              <div key={path} className="home-export">
-                <Clapperboard size={14} />
-                <button type="button" className="home-export-name link" onClick={() => props.onOpenRecent(path)} title={path}>{path.split(/[\\/]/).pop()}</button>
-                <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.revealPath(path)}>Show in folder</button>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="home-recent">
+          <h2>Recent projects</h2>
+          {props.recents.length === 0 ? (
+            <p className="muted">No recent projects yet — projects you open or save show up here.</p>
+          ) : (
+            props.recents.slice(0, 6).map((path) => {
+              const found = props.recentFound.has(path);
+              const name = path.split(/[\\/]/).pop();
+              return (
+                <div key={path} className={`home-export${found ? '' : ' missing'}`}>
+                  <Clapperboard size={14} />
+                  <button type="button" className="home-export-name link" disabled={!found} onClick={() => found && props.onOpenRecent(path)}
+                    title={found ? path : `Not found: ${path}`}>{name}</button>
+                  {found ? (
+                    <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.revealPath(path)}>Show in folder</button>
+                  ) : (
+                    <>
+                      <span className="muted">Missing</span>
+                      <button type="button" className="btn btn-small btn-ghost" onClick={() => props.onForgetRecent(path)}>Remove</button>
+                    </>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
         <div className="home-recent">
           <h2>Exported this session</h2>
           {exports.length === 0 ? (

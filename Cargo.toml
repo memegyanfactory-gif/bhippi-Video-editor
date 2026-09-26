@@ -1,9 +1,9 @@
 [workspace]
-members = ["crates/bhippi-providers", "src-tauri"]
+members = ["crates/bhippi-providers", "crates/bhippi-kokoro", "src-tauri"]
 resolver = "2"
 
 [workspace.package]
-version = "1.0.1"
+version = "1.0.3"
 edition = "2021"
 rust-version = "1.85"
 license = "UNLICENSED"
