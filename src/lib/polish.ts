@@ -68,7 +68,7 @@ export function restingLayerBoxes(scene: MotionScene, t: number, fps = 30): { la
   now.layers.forEach((entry, index) => {
     const layer = entry.layer;
     if (!entry.active || entry.opacity < 0.5 || layer.hidden || layer.ref || layer.threeD || layer.adjustment || layer.bleed || matteSources.has(layer.id)) return;
-    if (layer.type === 'null' || layer.type === 'camera' || layer.type === 'procedural' || layer.type === 'particles' || ((layer.type === 'solid' || layer.type === 'footage') && !layer.size)) return;
+    if (layer.type === 'null' || layer.type === 'camera' || layer.type === 'procedural' || layer.type === 'particles' || layer.type === 'drawing' || ((layer.type === 'solid' || layer.type === 'footage') && !layer.size)) return;
     const box = entryBounds(entry.matrix, entry.size);
     const prior = before.layers[index] ? entryBounds(before.layers[index].matrix, before.layers[index].size) : null;
     if (!box || !prior) return;

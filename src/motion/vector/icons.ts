@@ -2,6 +2,7 @@
 // catalogue loads on demand (its own chunk) and `expandIcons` turns every `{kind:'icon'}` item of
 // a scene into plain paths when the scene is built, so a saved scene never depends on the library.
 import type { Layer, MotionScene, ShapeItem } from '../types';
+import type { DrawItem } from '../ink/types';
 import { elementPath } from './svg';
 
 type IconNode = [string, Record<string, string | number>][];
@@ -64,7 +65,8 @@ export async function unknownIcons(scene: MotionScene): Promise<string[]> {
 
 function forEachIcon(scene: MotionScene, fn: (item: ShapeItem) => void) {
   const walk = (items: ShapeItem[] | undefined) => { for (const it of items ?? []) { if (it.kind === 'icon') fn(it); if (it.items) walk(it.items); if (it.item) walk([it.item]); } };
-  const layers = (list: Layer[]) => { for (const l of list) { if (l.type === 'shape') walk(l.shape.groups); if (l.type === 'precomp') layers(l.scene.layers); } };
+  const drawn = (items: DrawItem[] | undefined) => { for (const it of items ?? []) { if (it.kind === 'icon') fn(it as unknown as ShapeItem); if (it.items) drawn(it.items); } };
+  const layers = (list: Layer[]) => { for (const l of list) { if (l.type === 'drawing') drawn(l.drawing?.items); if (l.type === 'shape') walk(l.shape.groups); if (l.type === 'precomp') layers(l.scene.layers); } };
   layers(scene.layers);
 }
 
@@ -79,7 +81,18 @@ export async function expandIcons(scene: MotionScene): Promise<MotionScene> {
     if (it.item) { const [inner] = expand([it.item]) ?? []; return [{ ...it, item: inner }]; }
     return it.items ? [{ ...it, items: expand(it.items) }] : [it];
   });
+  // A drawn icon becomes a path in the icon's 24-unit box, so the look inks it like any line.
+  const drawn = (items: DrawItem[] | undefined): DrawItem[] | undefined => items?.flatMap((it) => {
+    if (it.kind === 'icon') {
+      const node = icons.get(key(it.icon ?? ''));
+      if (!node) return [];
+      const d = node.map(([tag, attrs]) => elementPath(tag, Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, String(v)])))).filter(Boolean).join(' ');
+      return [{ ...it, kind: 'icon', d, box: [0, 0, 24, 24] } as DrawItem];
+    }
+    return it.items ? [{ ...it, items: drawn(it.items) }] : [it];
+  });
   const layers = (list: Layer[]): Layer[] => list.map((l) => {
+    if (l.type === 'drawing' && l.drawing?.items) return { ...l, drawing: { ...l.drawing, items: drawn(l.drawing.items) ?? [] } };
     if (l.type === 'shape' && l.shape.groups) return { ...l, shape: { ...l.shape, groups: expand(l.shape.groups) } };
     if (l.type === 'precomp') return { ...l, scene: { ...l.scene, layers: layers(l.scene.layers) } };
     return l;

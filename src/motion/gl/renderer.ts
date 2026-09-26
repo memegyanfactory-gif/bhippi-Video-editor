@@ -18,6 +18,8 @@ import { proceduralUniforms } from './procedural';
 import { drawParticles, particlesAt } from '../particles';
 import { formUniforms } from '../form';
 import { drawCharacter } from '../character/draw';
+import { drawDrawing, risoParams } from '../ink/draw';
+import type { DrawItem } from '../ink/types';
 import { poseAt } from '../character/pose';
 
 export type RenderOptions = {
@@ -225,6 +227,40 @@ export class MotionRenderer {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawCharacter(ctx, layer.character.kind, layer.character.palette, poseAt(layer.character, L.time), density);
         target = this.fromTexture(this.upload(key, canvas), canvas.width, canvas.height);
+        break;
+      }
+      case 'drawing': {
+        const data = layer.drawing;
+        const exprCtx = { seed: scene.seed ?? 1, index: L.index };
+        const main = this.canvases.get(`d:${layer.id}`, w * density, h * density);
+        if (data.look === 'riso') {
+          // Coverage per ink plate on the CPU, printed by the GPU (halftone, misregistration, paper).
+          const count = Math.max(1, Math.min(4, data.inks?.length || 4));
+          const plates = Array.from({ length: count }, (_, i) => this.canvases.get(`d:${layer.id}:${i}`, w * density, h * density));
+          drawDrawing({ main: main.ctx, plates: plates.map((p) => p.ctx) }, data, [w, h], L.time, density, exprCtx);
+          const tex = plates.map((p, i) => this.upload(`d:${layer.id}:${i}`, p.canvas));
+          const r = risoParams(data, L.time);
+          const ink = (i: number) => r.inks[Math.min(i, r.inks.length - 1)];
+          target = gl.acquire(W, H);
+          gl.pass('riso-plates', S.RISO_PLATES_FS, target, {
+            uPlate0: tex[0], uPlate1: tex[1] ?? tex[0], uPlate2: tex[2] ?? tex[0], uPlate3: tex[3] ?? tex[0],
+            uInk0: ink(0), uInk1: ink(1), uInk2: ink(2), uInk3: ink(3), uCount: count, uPaper: r.paper,
+            uPitch: r.pitch * density, uDensity: density, uSeed: r.seed, uAngles: r.angles,
+            uOffA: [r.offsets[0], r.offsets[1], r.offsets[2], r.offsets[3]], uOffB: [r.offsets[4], r.offsets[5], r.offsets[6], r.offsets[7]],
+          });
+          // The pen is never printed: it goes on top in colour.
+          const hasPen = (items: DrawItem[]): boolean => items.some((it) => it?.kind === 'pen' || (it?.items ? hasPen(it.items) : false));
+          if (hasPen(data.items ?? [])) {
+            const penTex = this.upload(`d:${layer.id}`, main.canvas);
+            const out = gl.acquire(W, H);
+            gl.pass('blend', S.BLEND_FS, out, { uDst: target.tex, uSrc: penTex, uMode: 0 });
+            gl.release(target);
+            target = out;
+          }
+        } else {
+          drawDrawing({ main: main.ctx }, data, [w, h], L.time, density, exprCtx);
+          target = this.fromTexture(this.upload(`d:${layer.id}`, main.canvas), main.canvas.width, main.canvas.height);
+        }
         break;
       }
       case 'form': {

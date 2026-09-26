@@ -6538,17 +6538,31 @@
     },
     {
       "name": "motion_guide",
-      "description": "Motion-direction playbooks measured on professional reference films: beat recipes with durations, look, timing, rules, eases and engine features for a genre. Call with no topic for the list; call motion_guide {topic} before planning a SaaS explainer, AI launch, brand identity film, kinetic type, 2.5D piece, character story or the sound pass.",
+      "description": "Motion-direction playbooks measured on professional reference films: beat recipes with durations, look, timing, rules, eases and engine features for a genre. Call with no topic for the list; call motion_guide {topic} before planning a SaaS explainer, AI launch, brand identity film, kinetic type, 2.5D piece, character story, hand-made (riso, crayon pen, cut-paper) film or the sound pass.",
       "input_schema": {
         "type": "object",
         "properties": {
           "topic": {
             "type": "string",
-            "description": "saas-explainer | ai-launch | brand-identity-film | kinetic-type | 2.5d-tricks | character-explainer | sound"
+            "description": "saas-explainer | ai-launch | brand-identity-film | kinetic-type | 2.5d-tricks | character-explainer | hand-made | sound"
           },
           "part": {
             "type": "string",
             "description": "Only one part: beats | look | timing | rules | tools | eases | features | gaps"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_drawn_styles",
+      "description": "The hand-made motion library: looks (riso print, crayon, ink, pencil, cut-paper, felt, scope), ink sets, every drawable item kind with its params (primitives, generative motifs, bot and sprite characters with faces, hand-writing, the pen tool, construction lines, scope traces), motion verbs (draw, fillIn, pop, boil, on twos), the riso/halftone effects, drawn templates and transitions, and a complete example `drawing` layer. Read it before making riso, hand-drawn, crayon, cut-paper or doodle animation; then use a template or write your own drawing layer in create_motion_scene.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "part": {
+            "type": "string",
+            "description": "Only one part: looks | drawing | item | kinds | faces | penTools | inkSets | worlds | feltGrounds | effects | templates | transitions | example"
           }
         },
         "additionalProperties": false

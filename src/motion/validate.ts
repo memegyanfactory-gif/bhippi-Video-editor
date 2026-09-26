@@ -6,14 +6,15 @@ import { parseSvgPath } from './vector/path';
 import { PARTICLE_PRESETS } from './particles';
 import { FORM_KINDS, FORM_LOOKS } from './form';
 import { ACTIONS, CHARACTER_KINDS } from './character/types';
+import { drawingProblems } from './ink/validate';
 import type { EffectType, Layer, MotionScene, ShapeItem } from './types';
 
-const LAYER_TYPES = new Set(['footage', 'solid', 'procedural', 'particles', 'form', 'character', 'shape', 'text', 'null', 'camera', 'precomp']);
+const LAYER_TYPES = new Set(['footage', 'solid', 'procedural', 'particles', 'form', 'character', 'drawing', 'shape', 'text', 'null', 'camera', 'precomp']);
 export const EFFECT_TYPES: EffectType[] = [
   'glow', 'gaussian-blur', 'directional-blur', 'zoom-blur', 'lens-blur', 'chromatic-aberration', 'vignette', 'grain', 'tint', 'duotone', 'black-white',
   'brightness-contrast', 'hue-saturation', 'levels', 'exposure', 'invert', 'fill', 'drop-shadow', 'stroke', 'halation', 'mosaic', 'pixel-sort',
   'displacement', 'turbulent-displace', 'wave-warp', 'rgb-split', 'lens-distortion', 'light-leak', 'liquid-glass', 'radial-gradient-overlay', 'matte-choke',
-  'subject-reveal', 'matte-fill', 'matte-edge-glow', 'inner-shadow', 'inner-glow', 'bevel', 'gradient-overlay',
+  'subject-reveal', 'matte-fill', 'matte-edge-glow', 'inner-shadow', 'inner-glow', 'bevel', 'gradient-overlay', 'riso', 'halftone',
 ];
 const EFFECTS = new Set<string>(EFFECT_TYPES);
 const PROCEDURALS = new Set(['crimson-stage', 'radial-glow', 'linear-gradient', 'hex-field', 'grid', 'light-rails', 'noise', 'light-leak', 'dots', 'aurora', 'mesh-gradient', 'light-shafts', 'dot-wave']);
@@ -77,6 +78,7 @@ export function validateScene(scene: unknown, depth = 0): string[] {
         else if (typeof action.t !== 'number') problems.push(`${name}: actions[${i}] needs a time t.`);
       }
     }
+    if (layer.type === 'drawing') problems.push(...drawingProblems(layer.drawing, name));
     if (layer.type === 'form' && !(FORM_KINDS as readonly string[]).includes(layer.form?.kind)) problems.push(`${name}: form kind must be one of ${FORM_KINDS.join(', ')}.`);
     if (layer.type === 'form' && layer.form?.morph && !(FORM_KINDS as readonly string[]).includes(layer.form.morph.to)) problems.push(`${name}: form morph.to must be a form kind.`);
     if (layer.type === 'form' && layer.form?.look && !(FORM_LOOKS as readonly string[]).includes(layer.form.look)) problems.push(`${name}: form look must be one of ${FORM_LOOKS.join(', ')}.`);

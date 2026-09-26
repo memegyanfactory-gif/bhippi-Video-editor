@@ -12,6 +12,7 @@ import { MotionRenderer } from '../gl/renderer';
 import type { MediaHost } from '../sources';
 import type { MotionScene } from '../types';
 import { LAB_SCENES } from './scenes';
+import { findTemplate } from '../kit';
 
 const params = new URLSearchParams(location.search);
 const media = params.get('media') ?? 'http://127.0.0.1:8765';
@@ -121,5 +122,21 @@ function seq(spec: SequenceSpec, name = 'seq') {
   return { duration: built.duration, starts: built.starts, cuts: built.cuts, layers: built.scene.layers.map((l) => l.id) };
 }
 
-Object.assign(window, { lab: { ui, seq, loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
+/** Registers any scene (JSON from a test script) as scene `name`, icons expanded. */
+async function put(name: string, scene: MotionScene) {
+  const built = await expandIcons(scene);
+  LAB_SCENES[name] = () => built;
+  return name;
+}
+
+/** Builds a kit template (create_motion_scene's path) as scene `name`; returns its length. */
+async function tpl(name: string, id: string, params: Record<string, unknown> = {}, width = 1920, height = 1080) {
+  const spec = findTemplate(id);
+  if (!spec) throw new Error(`no template ${id}`);
+  const built = await expandIcons(spec.build({ width, height }, params));
+  LAB_SCENES[name] = () => built;
+  return built.duration;
+}
+
+Object.assign(window, { lab: { ui, seq, put, tpl, loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
 document.title = 'Motion Lab ready';

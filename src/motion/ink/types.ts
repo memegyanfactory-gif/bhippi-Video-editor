@@ -21,6 +21,8 @@ export const ITEM_KINDS = [
   'write', 'note',
   // tools
   'pen', 'construction',
+  // transitions
+  'tear',
   // scope
   'trace', 'cloud-points',
   // grouping
@@ -66,6 +68,10 @@ export type DrawItem = {
   /** Riso: print on top of what is under it instead of knocking it out first. */
   overprint?: boolean;
 
+  /** tear: how far the torn edge has swept across the box, 0 → 1 (animatable). */
+  progress?: Prop<number>;
+  /** cut-paper: px of torn white paper rim under the shape (default 5); tear: draw only a torn strip this wide along the edge. */
+  rim?: number;
   /** Draw-on, 0 → 1: the outline strokes appear along their length (the pen follows the tip). */
   draw?: Prop<number>;
   /** Fill-in, 0 → 1: the fill sweeps on (crayon hatching, a wipe for other looks). */

@@ -20,7 +20,7 @@ const F = 1 / 30;
 export const TRANSITION_KINDS = [
   'cut', 'dissolve', 'push', 'slide', 'whip', 'zoom-through', 'blur-bridge', 'z-recede', 'card-zoom-reveal',
   'shape-wipe', 'iris', 'diagonal-wipe', 'noise-dissolve', 'white-out', 'black-breath', 'palette-swap-cut', 'eyelid',
-  'scale-cut', 'snap-punch', 'snap-zoom-out', 'snap-press', 'swap-when-hidden', 'collapse-into', 'spin', 'glitch', 'light-leak', 'truck',
+  'scale-cut', 'snap-punch', 'snap-zoom-out', 'snap-press', 'swap-when-hidden', 'collapse-into', 'spin', 'glitch', 'light-leak', 'truck', 'paper-tear',
 ] as const;
 export type TransitionKind = (typeof TRANSITION_KINDS)[number];
 
@@ -72,16 +72,16 @@ export type CompiledSequence = { scene: MotionScene; starts: number[]; cuts: num
 
 const DEFAULT_DURATION: Partial<Record<TransitionKind, number>> = {
   cut: 0, dissolve: 0.5, push: 0.6, slide: 0.6, whip: 0.36, 'zoom-through': 0.5, 'blur-bridge': 11 * F, 'z-recede': 0.6, 'card-zoom-reveal': 0.8,
-  'shape-wipe': 0.7, iris: 0.6, 'diagonal-wipe': 0.5, 'noise-dissolve': 0.8, 'white-out': 0.5, 'black-breath': 15 * F, 'palette-swap-cut': 2 * F, eyelid: 0.5,
+  'shape-wipe': 0.7, 'paper-tear': 6 / 24, iris: 0.6, 'diagonal-wipe': 0.5, 'noise-dissolve': 0.8, 'white-out': 0.5, 'black-breath': 15 * F, 'palette-swap-cut': 2 * F, eyelid: 0.5,
   'scale-cut': 0.35, 'snap-punch': 6 * F, 'snap-zoom-out': 8 * F, 'snap-press': 9 * F, 'swap-when-hidden': 0.5, 'collapse-into': 0.6, spin: 0.6, glitch: 6 * F, 'light-leak': 0.7, truck: 0.9,
 };
 
 /** Kinds where both beats are on screen together (the new one enters before the cut point). */
-const OVERLAP = new Set<TransitionKind>(['dissolve', 'push', 'slide', 'card-zoom-reveal', 'shape-wipe', 'iris', 'diagonal-wipe', 'noise-dissolve', 'z-recede', 'truck']);
+const OVERLAP = new Set<TransitionKind>(['dissolve', 'push', 'slide', 'card-zoom-reveal', 'shape-wipe', 'paper-tear', 'iris', 'diagonal-wipe', 'noise-dissolve', 'z-recede', 'truck']);
 
 const SOUND: Partial<Record<TransitionKind, Cue['sound']>> = {
   push: 'whoosh', slide: 'whoosh', whip: 'whoosh', 'zoom-through': 'whoosh', 'blur-bridge': 'swish', 'z-recede': 'swish', 'card-zoom-reveal': 'whoosh', truck: 'whoosh',
-  'shape-wipe': 'swish', iris: 'swish', 'diagonal-wipe': 'swish', 'white-out': 'shimmer', 'black-breath': 'sub', 'scale-cut': 'impact', 'snap-punch': 'impact', 'snap-zoom-out': 'pop',
+  'shape-wipe': 'swish', 'paper-tear': 'swish', iris: 'swish', 'diagonal-wipe': 'swish', 'white-out': 'shimmer', 'black-breath': 'sub', 'scale-cut': 'impact', 'snap-punch': 'impact', 'snap-zoom-out': 'pop',
   'snap-press': 'pop', 'swap-when-hidden': 'swish', 'collapse-into': 'whoosh', spin: 'whoosh', glitch: 'blip', 'light-leak': 'shimmer', 'palette-swap-cut': 'click',
 };
 
@@ -268,6 +268,17 @@ export function compileSequence(spec: SequenceSpec): CompiledSequence {
         B.matte = { layer: matte, mode: inward ? 'alpha-inverted' : 'alpha' };
         break;
       }
+      case 'paper-tear': {
+        // Film 4: a torn paper edge sweeps across in ~6 f; the new beat is under the torn-off part,
+        // and a white torn rim rides the edge on top.
+        const matte = id('tear');
+        const progress = new Track<number>(1).move(s, d, 0, 1, 'cubic-in-out').prop();
+        const tear = { kind: 'tear' as const, at: [W / 2, H / 2], size: [W, H], progress };
+        extra.push({ after: i + 1, layer: { id: matte, name: 'Tear matte', type: 'drawing', hidden: true, in: round(s), ...(world ? { parent: 'world', transform: { position: rb } } : {}), drawing: { look: 'flat', size: [W, H], items: [{ ...tear, fill: '#ffffff' }] } } });
+        extra.push({ after: n, layer: { id: id('tear-edge'), name: 'Torn edge', type: 'drawing', in: round(s), out: round(e), ...(world ? { parent: 'world', transform: { position: rb } } : {}), drawing: { look: 'flat', size: [W, H], boil: 0, items: [{ ...tear, fill: '#fbf6ea', rim: 16 }] }, effects: [{ type: 'drop-shadow', distance: 3, softness: 8, opacity: 35, direction: 90, color: '#000000' }] } });
+        B.matte = { layer: matte, mode: 'alpha' };
+        break;
+      }
       case 'diagonal-wipe': {
         const matte = id('wipe');
         const bw = W * 2.2;
@@ -438,7 +449,8 @@ export const TRANSITION_HELP: Record<TransitionKind, string> = {
   'z-recede': 'the old beat recedes (0.65, blur) while the new one pops and rises (13 f)',
   'card-zoom-reveal': 'the new beat opens from a card to full frame',
   'shape-wipe': 'the new beat grows out of a glyph (circle, square, rounded, star, diamond); mode "in" shrinks the old one into it (logo resolve)',
-  iris: 'circle iris wipe',
+  iris: 'circle iris wipe (with at = a dot, the new world opens out of it — the riso films)',
+  'paper-tear': 'a torn paper edge sweeps across in 6 f revealing the new beat, a white torn rim on the edge (hand-made films)',
   'diagonal-wipe': 'a hard diagonal wipe',
   'noise-dissolve': 'dissolve through noise',
   'white-out': 'flash to white (7–13 f) and out into the new beat',

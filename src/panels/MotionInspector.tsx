@@ -21,7 +21,7 @@ import { motionBrandFromKit } from '../lib/brandKit/motionBrand';
 
 type MotionSource = Extract<Clip['source'], { type: 'motion' }>;
 
-const LAYER_ICON: Record<Layer['type'], string> = { footage: '🎞', solid: '■', procedural: '◈', particles: '✦', form: '●', character: '☺', shape: '◆', text: 'T', null: '⌖', camera: '🎥', precomp: '▣' };
+const LAYER_ICON: Record<Layer['type'], string> = { footage: '🎞', solid: '■', procedural: '◈', particles: '✦', form: '●', character: '☺', drawing: '✎', shape: '◆', text: 'T', null: '⌖', camera: '🎥', precomp: '▣' };
 
 /** A param's value as editable text: strings as-is, string/number lists comma-separated, the rest JSON. */
 function toText(value: unknown): string {

@@ -6,7 +6,7 @@ import { EFFECT_TYPES } from '../src/motion/validate';
 
 const TOOLS = new Set((catalogue as { tools: { name: string }[] }).tools.map((t) => t.name));
 // Engine features that exist today (effects are checked against the engine's own list).
-const FEATURES = new Set(['shape.groups', 'text.type', 'text.retype', 'text.counter', 'text.scatter', 'text.cascade', 'text.lineSpacing', 'camera.aperture', 'camera.dof', 'bleed', 'kind:array', 'morphTo', 'ops.merge', 'backdrop', 'scene.cues', 'form', 'form.morph', 'form.squash', 'particles', 'link', 'character']);
+const FEATURES = new Set(['shape.groups', 'text.type', 'text.retype', 'text.counter', 'text.scatter', 'text.cascade', 'text.lineSpacing', 'camera.aperture', 'camera.dof', 'bleed', 'kind:array', 'morphTo', 'ops.merge', 'backdrop', 'scene.cues', 'form', 'form.morph', 'form.squash', 'particles', 'link', 'character', 'drawing']);
 
 describe('motion direction playbooks', () => {
   it('cite only tools, eases, effects and features that exist', () => {

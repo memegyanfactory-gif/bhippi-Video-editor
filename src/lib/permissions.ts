@@ -81,6 +81,7 @@ const READS = new Set([
   'search_icons',
   'svg_to_shape',
   'motion_guide',
+  'list_drawn_styles',
   'list_3d_presets',
   'list_ui_kinds',
   'list_transitions',

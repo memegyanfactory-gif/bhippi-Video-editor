@@ -851,3 +851,130 @@ void main() {
   if (!hit) alpha *= 1.0 - smoothstep(0.0, px, dmin);
   outColor = vec4(clamp(col, 0.0, 1.0) * alpha, alpha);
 }`;
+
+/**
+ * Riso print (docs/DRAWN-STYLES.md): coverage per ink → an AM halftone screen at the ink's own
+ * angle, pinned to the layer so it never swims, with low-frequency mottling, starved-ink flecks
+ * and misregistration, multiplied onto grained paper. Shared by the `drawing` layer (plates) and
+ * the `riso` / `halftone` effects (coverage solved from colour).
+ */
+const RISO_SCREEN = `
+uniform float uPitch;
+uniform float uDensity;
+uniform float uSeed;
+uniform vec4 uAngles;
+float screenInk(float c, vec2 px, float ang, float k) {
+  float mottle = (fbm(px / (110.0 * uDensity) + vec2(k * 7.3, uSeed)) - 0.5) * 0.3;
+  c = clamp(c * (1.0 + mottle) * (0.93 + 0.07 * vnoise(px / (2.0 * uDensity) + k * 13.0)), 0.0, 1.0);
+  if (c <= 0.004) return 0.0;
+  if (c >= 0.985) return 1.0 - 0.7 * step(0.992, hash12(floor(px / (1.6 * uDensity)) + k * 31.0));
+  float s = sin(ang);
+  float co = cos(ang);
+  vec2 r = vec2(co * px.x - s * px.y, s * px.x + co * px.y);
+  vec2 cell = fract(r / uPitch) - 0.5;
+  float th = dot(cell, cell) * 2.0;
+  float aa = max(fwidth(th) * 1.3, 0.02);
+  float ink = smoothstep(th - aa, th + aa, c);
+  float fleck = step(0.988, hash12(floor(px / (1.6 * uDensity)) + k * 31.0));
+  return ink * (1.0 - fleck * 0.8);
+}
+vec4 printInks(vec4 cov, vec3 i0, vec3 i1, vec3 i2, vec3 i3, float count, vec4 paper, vec2 px) {
+  vec3 mult = vec3(1.0);
+  mult *= mix(vec3(1.0), i0, cov.x);
+  if (count > 1.5) mult *= mix(vec3(1.0), i1, cov.y);
+  if (count > 2.5) mult *= mix(vec3(1.0), i2, cov.z);
+  if (count > 3.5) mult *= mix(vec3(1.0), i3, cov.w);
+  float a = 1.0 - (1.0 - cov.x) * (1.0 - (count > 1.5 ? cov.y : 0.0)) * (1.0 - (count > 2.5 ? cov.z : 0.0)) * (1.0 - (count > 3.5 ? cov.w : 0.0));
+  if (paper.a > 0.5) {
+    float grain = (vnoise(px / (1.4 * uDensity)) - 0.5) * 0.06 + (fbm(px / (260.0 * uDensity) + 3.0) - 0.5) * 0.06;
+    return vec4(clamp(paper.rgb * (1.0 + grain), 0.0, 1.0) * mult, 1.0);
+  }
+  return vec4(max(mult - (1.0 - a), vec3(0.0)), a);
+}`;
+
+export const RISO_PLATES_FS = `${HEAD}${RISO_SCREEN}
+uniform sampler2D uPlate0;
+uniform sampler2D uPlate1;
+uniform sampler2D uPlate2;
+uniform sampler2D uPlate3;
+uniform vec3 uInk0;
+uniform vec3 uInk1;
+uniform vec3 uInk2;
+uniform vec3 uInk3;
+uniform float uCount;
+uniform vec4 uPaper;
+uniform vec4 uOffA;
+uniform vec4 uOffB;
+float plate(sampler2D s, vec2 px, vec2 off, float ang, float k) {
+  vec2 q = px - off * uDensity;
+  return screenInk(texture(s, q / uResolution).a, q, ang, k);
+}
+void main() {
+  vec2 px = vUv * uResolution;
+  vec4 cov = vec4(
+    plate(uPlate0, px, uOffA.xy, uAngles.x, 0.0),
+    uCount > 1.5 ? plate(uPlate1, px, uOffA.zw, uAngles.y, 1.0) : 0.0,
+    uCount > 2.5 ? plate(uPlate2, px, uOffB.xy, uAngles.z, 2.0) : 0.0,
+    uCount > 3.5 ? plate(uPlate3, px, uOffB.zw, uAngles.w, 3.0) : 0.0);
+  outColor = printInks(cov, uInk0, uInk1, uInk2, uInk3, uCount, uPaper, px);
+}`;
+
+/** The riso / halftone effect: solves each pixel's ink coverage from its colour, then prints it. */
+export const RISO_EFFECT_FS = `${HEAD}${RISO_SCREEN}
+uniform sampler2D uTex;
+uniform vec3 uInk0;
+uniform vec3 uInk1;
+uniform vec3 uInk2;
+uniform vec3 uInk3;
+uniform float uCount;
+uniform vec4 uPaper;
+uniform vec4 uOffA;
+uniform vec4 uOffB;
+uniform float uMode;
+uniform float uAmount;
+vec4 solve(vec3 target) {
+  vec4 a = vec4(0.4);
+  vec3 base = uPaper.a > 0.5 ? max(uPaper.rgb, vec3(0.05)) : vec3(1.0);
+  for (int it = 0; it < 32; it++) {
+    vec3 f0 = 1.0 - a.x * (1.0 - uInk0);
+    vec3 f1 = uCount > 1.5 ? 1.0 - a.y * (1.0 - uInk1) : vec3(1.0);
+    vec3 f2 = uCount > 2.5 ? 1.0 - a.z * (1.0 - uInk2) : vec3(1.0);
+    vec3 f3 = uCount > 3.5 ? 1.0 - a.w * (1.0 - uInk3) : vec3(1.0);
+    vec3 p = base * f0 * f1 * f2 * f3;
+    vec3 e = 2.0 * (p - target);
+    vec4 g = vec4(
+      dot(e, p / max(f0, vec3(1e-3)) * -(1.0 - uInk0)),
+      dot(e, p / max(f1, vec3(1e-3)) * -(1.0 - uInk1)),
+      dot(e, p / max(f2, vec3(1e-3)) * -(1.0 - uInk2)),
+      dot(e, p / max(f3, vec3(1e-3)) * -(1.0 - uInk3)));
+    a = clamp(a - g * 0.7, 0.0, 1.0);
+  }
+  return a * vec4(1.0, step(1.5, uCount), step(2.5, uCount), step(3.5, uCount));
+}
+void main() {
+  vec2 px = vUv * uResolution;
+  vec4 src = texture(uTex, vUv);
+  if (src.a < 0.002) { outColor = vec4(0.0); return; }
+  vec3 rgb = unpremul(src);
+  vec4 cov;
+  if (uMode > 0.5) {
+    // halftone: one ink, coverage = darkness.
+    cov = vec4(clamp(1.0 - luma(rgb), 0.0, 1.0), 0.0, 0.0, 0.0);
+  } else {
+    // Two solves: inks 1 and 3 read the picture where their misregistered plate sits, so edges fringe.
+    cov = solve(rgb);
+    vec4 shifted = texture(uTex, (px - uOffA.zw * uDensity) / uResolution);
+    vec4 cov2 = shifted.a > 0.002 ? solve(unpremul(shifted)) : vec4(0.0);
+    cov.y = cov2.y * shifted.a / max(src.a, 1e-3);
+    cov.w = cov2.w * shifted.a / max(src.a, 1e-3);
+  }
+  vec2 o0 = uOffA.xy * uDensity, o1 = uOffA.zw * uDensity, o2 = uOffB.xy * uDensity, o3 = uOffB.zw * uDensity;
+  vec4 printed = vec4(
+    screenInk(cov.x, px - o0, uAngles.x, 0.0),
+    screenInk(cov.y, px - o1, uAngles.y, 1.0),
+    screenInk(cov.z, px - o2, uAngles.z, 2.0),
+    screenInk(cov.w, px - o3, uAngles.w, 3.0));
+  vec4 inked = printInks(printed, uInk0, uInk1, uInk2, uInk3, uMode > 0.5 ? 1.0 : uCount, uPaper, px);
+  vec4 outc = uPaper.a > 0.5 ? vec4(inked.rgb, 1.0) * src.a : inked * src.a;
+  outColor = mix(src, outc, uAmount);
+}`;

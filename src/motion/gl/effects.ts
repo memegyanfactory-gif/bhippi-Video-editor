@@ -162,6 +162,25 @@ export function applyEffect(gl: GL, src: Target, effect: ResolvedEffect, env: Ef
     case 'invert': return colorOp(gl, src, 7, [0, 0, 0, 0], [0, 0, 0, 0], [n(p, 'amount', 100) / 100, 0, 0, 0]);
     case 'fill': return colorOp(gl, src, 8, [...rgb(s(p, 'color', '#ffffff')), 0], [0, 0, 0, 0], [n(p, 'amount', 100) / 100, 0, 0, 0]);
     case 'vignette': return colorOp(gl, src, 9, [n(p, 'amount', 0.45), n(p, 'size', 1.05), n(p, 'softness', 0.75), n(p, 'roundness', 0)]);
+    case 'riso':
+    case 'halftone': {
+      // Print the layer as riso inks (colour separated per pixel) or a one-ink halftone.
+      const inks = (Array.isArray(p.inks) && p.inks.length ? (p.inks as string[]) : effect.type === 'halftone' ? [s(p, 'color', '#1d1b22')] : ['#2f6fb0', '#ff48b0', '#ffe800']).slice(0, 4);
+      const col = (i: number) => rgb(inks[Math.min(i, inks.length - 1)]);
+      const paper = typeof p.paper === 'string' ? [...rgb(p.paper as string), 1] : [1, 1, 1, 0];
+      const mis = n(p, 'misregister', effect.type === 'halftone' ? 0 : 3);
+      const frame = Math.floor(env.time * env.fps / Math.max(1, n(p, 'step', 2)));
+      const jitter = (k: number) => (((Math.sin(frame * 12.9898 + k * 78.233) * 43758.5453) % 1) - 0.5) * 2 * n(p, 'tremor', 0.6);
+      const off = [0, 0, Math.cos(2.1) * mis + jitter(1), Math.sin(2.1) * mis + jitter(2), Math.cos(4.2) * mis + jitter(3), Math.sin(4.2) * mis + jitter(4), Math.cos(6.3) * mis + jitter(5), Math.sin(6.3) * mis + jitter(6)];
+      const angle = n(p, 'angle', 15);
+      const out = gl.acquire(src.w, src.h);
+      gl.pass('riso-fx', S.RISO_EFFECT_FS, out, {
+        uTex: src.tex, uInk0: col(0), uInk1: col(1), uInk2: col(2), uInk3: col(3), uCount: inks.length, uPaper: paper,
+        uPitch: n(p, 'pitch', 5) * d, uDensity: d, uSeed: env.seed % 997, uAngles: [angle, angle + 60, angle - 15, angle + 30].map((a) => (a * Math.PI) / 180),
+        uOffA: off.slice(0, 4), uOffB: off.slice(4, 8), uMode: effect.type === 'halftone' ? 1 : 0, uAmount: n(p, 'amount', 100) / 100,
+      });
+      return out;
+    }
     case 'grain': return colorOp(gl, src, 10, [n(p, 'amount', 0.35) * 0.25, n(p, 'size', 1.2) * d, b(p, 'animated', true) ? Math.floor(env.time * env.fps) % 997 : env.seed, 0]);
     case 'radial-gradient-overlay': {
       const c = v2(p, 'center', [0.5, 0.5]);

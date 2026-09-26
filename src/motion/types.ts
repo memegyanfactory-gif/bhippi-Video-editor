@@ -12,6 +12,7 @@ import type { MotionBrand } from '../lib/brandKit/motionBrand';
 import type { ParticleData } from './particles';
 import type { FormData } from './form';
 import type { CharacterData } from './character/types';
+import type { DrawingData } from './ink/types';
 
 export type Vec = number[];
 
@@ -91,7 +92,9 @@ export type EffectType =
   | 'light-leak' | 'liquid-glass' | 'radial-gradient-overlay' | 'matte-choke'
   | 'subject-reveal' | 'matte-fill' | 'matte-edge-glow'
   // Layer styles (the inflated / glass looks): inside the layer's alpha.
-  | 'inner-shadow' | 'inner-glow' | 'bevel' | 'gradient-overlay';
+  | 'inner-shadow' | 'inner-glow' | 'bevel' | 'gradient-overlay'
+  // Print looks (src/motion/ink, docs/DRAWN-STYLES.md): any layer printed as riso inks or a halftone.
+  | 'riso' | 'halftone';
 
 /** Per-glyph animator, AE's Text Animator: properties applied by a range selector's amount. */
 export type TextAnimator = {
@@ -390,6 +393,8 @@ export type Layer = LayerCommon & (
   | { type: 'form'; form: FormData }
   /** A rigged character driven by timed actions (src/motion/character); the layer is CHARACTER_BOX with the feet at CHARACTER_FEET. */
   | { type: 'character'; character: CharacterData }
+  /** A hand-made drawing (src/motion/ink, docs/DRAWN-STYLES.md): riso, crayon, ink, pencil, cut paper, felt or scope looks; items drawn on, popped and boiled on twos. The layer is the scene size unless `drawing.size`. */
+  | { type: 'drawing'; drawing: DrawingData }
   | { type: 'shape'; shape: ShapeData }
   | { type: 'text'; text: TextLayerData }
   | { type: 'null' }

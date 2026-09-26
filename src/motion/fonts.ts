@@ -2,6 +2,7 @@
 // text is rasterised: Canvas2D draws a fallback while a face is still loading, and an export frame
 // drawn that way would bake the wrong font in.
 import type { Layer, MotionScene } from './types';
+import type { DrawItem } from './ink/types';
 import { fontString } from './text';
 
 /** Families that ship with Bhippi (variable weight; Archivo also varies in width). */
@@ -13,6 +14,12 @@ function fontsOf(scene: MotionScene, out = new Set<string>(), depth = 0): Set<st
   if (depth > 6) return out;
   const visit = (layer: Layer) => {
     if (layer.type === 'precomp') { fontsOf(layer.scene, out, depth + 1); return; }
+    if (layer.type === 'drawing') {
+      // Hand-written items (src/motion/ink): Caveat unless they name another face.
+      const walk = (items: DrawItem[] | undefined) => { for (const it of items ?? []) { if (it?.kind === 'write') out.add(`${it.weight ?? 500} ${Math.round(it.fontSize ?? 64)}px "${it.font ?? 'Caveat'}"`); walk(it?.items); } };
+      walk(layer.drawing?.items);
+      return;
+    }
     if (layer.type !== 'text') return;
     const d = layer.text;
     const size = typeof d.size === 'number' ? d.size : 64;

@@ -8,6 +8,7 @@ import { OVERLAY_TEMPLATES } from './overlayTemplates';
 import { STORY_TEMPLATES } from './storyTemplates';
 import { BRAND_TEMPLATES } from './brandTemplates';
 import { FUN_TEMPLATES } from './funTemplates';
+import { DRAWN_TEMPLATES } from './drawnTemplates';
 
 export type TemplateSpec = {
   id: string;
@@ -44,7 +45,7 @@ const SUBJECT_REVEAL: TemplateSpec = {
   build: (ctx, params) => subjectReveal(ctx, params as unknown as SubjectRevealParams),
 };
 
-export const MOTION_TEMPLATES: TemplateSpec[] = [...BRAND_TEMPLATES, SUBJECT_REVEAL, ...STAGE_TEMPLATES, ...OVERLAY_TEMPLATES, ...STORY_TEMPLATES, ...FUN_TEMPLATES];
+export const MOTION_TEMPLATES: TemplateSpec[] = [...BRAND_TEMPLATES, SUBJECT_REVEAL, ...STAGE_TEMPLATES, ...OVERLAY_TEMPLATES, ...STORY_TEMPLATES, ...FUN_TEMPLATES, ...DRAWN_TEMPLATES];
 
 export const findTemplate = (id: string) => MOTION_TEMPLATES.find((spec) => spec.id === id);
 

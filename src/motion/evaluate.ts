@@ -149,6 +149,10 @@ export function defaultSize(scene: Pick<MotionScene, 'width' | 'height'>, layer:
       return formBox(layer.form, t);
     case 'character':
       return [CHARACTER_BOX[0], CHARACTER_BOX[1]];
+    case 'drawing': {
+      const s = layer.drawing?.size;
+      return s && s.length >= 2 ? [Math.max(1, s[0]), Math.max(1, s[1])] : [scene.width, scene.height];
+    }
     case 'text':
       return [scene.width, scene.height];
     default:

@@ -37,6 +37,8 @@ export type GeoEnv = {
   /** Box [w, h]. */
   w: number;
   h: number;
+  /** The item's evaluated `progress` (tear). */
+  progress?: number;
 };
 
 const TAU = Math.PI * 2;
@@ -502,7 +504,7 @@ export function itemGeometry(it: DrawItem, env: GeoEnv): Geo {
       let used = 0;
       lines.forEach((line, i) => {
         const count = [...line].length;
-        g.texts.push({ text: line, x: align === 'center' ? 0 : align === 'left' ? -rx : rx, y: (i - (lines.length - 1) / 2) * size * 1.15, font: `${it.weight ?? 500} ${size}px ${it.font ?? 'Caveat'}, "Comic Sans MS", cursive`, size, color: it.fill ?? it.stroke ?? '#2e4a9e', align, shown: Math.max(0, Math.min(count, shown - used)) });
+        g.texts.push({ text: line, x: align === 'center' ? 0 : align === 'left' ? -rx : rx, y: (i - (lines.length - 1) / 2) * size * 1.15, font: `${it.weight ?? 500} ${size}px "${it.font ?? 'Caveat'}", "Comic Sans MS", cursive`, size, color: it.fill ?? it.stroke ?? '#2e4a9e', align, shown: Math.max(0, Math.min(count, shown - used)) });
         used += count;
       });
       break;
@@ -566,7 +568,30 @@ export function itemGeometry(it: DrawItem, env: GeoEnv): Geo {
         const d = Math.sqrt(hash(i, seed, 3));
         const region = Math.floor(hash(i, seed, 4) * colors.length);
         const hot = region === 2 ? flare : 0;
-        g.dots.push({ x: (lobe[0] + Math.cos(a) * lobe[2] * d) * rx, y: (lobe[1] + Math.sin(a) * lobe[3] * d) * ry, r: 1.2 + 1.8 * hash(i, seed, 5) + hot * 1.5, color: colors[region], alpha: 0.35 + 0.35 * hash(i, seed, 6) + hot * 0.5 });
+        g.dots.push({ x: (lobe[0] + Math.cos(a) * lobe[2] * d) * rx, y: (lobe[1] + Math.sin(a) * lobe[3] * d) * ry, r: 1 + 1.6 * hash(i, seed, 5) + hot * 1.2, color: colors[region], alpha: 0.18 + 0.22 * hash(i, seed, 6) + hot * 0.45 });
+      }
+      break;
+    }
+    case 'tear': {
+      // Film 4's page turn: a region swept in from the left up to a jagged torn edge.
+      const p = env.progress ?? 1;
+      const margin = w * 0.08;
+      const edge = -rx - margin + (w + margin * 2) * p;
+      const edgeX = (y: number) => edge + noise1(y / 60, seed) * w * 0.035 + (hash(Math.round(y), seed) - 0.5) * 9;
+      const ys: number[] = [];
+      for (let y = -ry - 20; y <= ry + 20; y += 7) ys.push(y);
+      if (it.rim) {
+        // Only the torn white strip along the edge: the paper that tore (drawn over the cut).
+        const band = it.rim;
+        const pts: Poly = [];
+        for (const y of ys) pts.push(edgeX(y), y);
+        for (let k = ys.length - 1; k >= 0; k--) pts.push(edgeX(ys[k]) - band * (0.6 + 0.8 * hash(k, seed + 9)), ys[k]);
+        g.marks.push({ kind: 'fill', pts, closed: true, color: it.fill ?? '#fbf6ea', role: 'detail' });
+      } else {
+        const pts: Poly = [-rx - w, -ry - 20];
+        for (const y of ys) pts.push(edgeX(y), y);
+        pts.push(-rx - w, ry + 20);
+        g.marks.push({ kind: 'fill', pts, closed: true, color: it.fill ?? '#ffffff', role: 'outline' });
       }
       break;
     }
