@@ -8,7 +8,12 @@ const R3={ready:false,templates:{},
   async load(urls,opt={}){
     const {GLTFLoader,DRACOLoader}=window.__GLTF;const L=new GLTFLoader();
     const dr=new DRACOLoader();dr.setDecoderPath(opt.draco||'./draco/');if(opt.dracoType)dr.setDecoderConfig({type:opt.dracoType});L.setDRACOLoader(dr);
-    const get=u=>new Promise((res,rej)=>L.load(u,res,undefined,rej));
+    // .json = glTF with its binary embedded as base64: rebuild a GLB in memory so nothing fetches a data: URI (blocked by strict CSPs)
+    const toGLB=js=>{const uri=js.buffers[0].uri;const b64=uri.slice(uri.indexOf(',')+1);const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));delete js.buffers[0].uri;delete js.images;delete js.textures;delete js.samplers;(js.materials||[]).forEach(m=>{if(m.pbrMetallicRoughness)delete m.pbrMetallicRoughness.baseColorTexture;});
+      const jb=new TextEncoder().encode(JSON.stringify(js));const jl=(jb.length+3)&~3,bl=(bin.length+3)&~3;const out=new Uint8Array(12+8+jl+8+bl);const dv=new DataView(out.buffer);
+      dv.setUint32(0,0x46546C67,true);dv.setUint32(4,2,true);dv.setUint32(8,out.length,true);dv.setUint32(12,jl,true);dv.setUint32(16,0x4E4F534A,true);out.fill(0x20,20,20+jl);out.set(jb,20);
+      dv.setUint32(20+jl,bl,true);dv.setUint32(24+jl,0x004E4942,true);out.set(bin,28+jl);return out.buffer;};
+    const get=async u=>{if(/\.json$/.test(u)){const js=await (await fetch(u)).json();return await new Promise((res,rej)=>L.parse(toGLB(js),'',res,rej));}return await new Promise((res,rej)=>L.load(u,res,undefined,rej));};
     const keys=Object.keys(urls);const G=await Promise.all(keys.map(k=>get(urls[k])));
     keys.forEach((k,i)=>{this.templates[k]=analyse(G[i].scene);});
     this.ready=true;return this;},

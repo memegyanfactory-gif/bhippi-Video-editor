@@ -210,7 +210,9 @@ window.THREE={...THREE};window.__GLTF={GLTFLoader,DRACOLoader,SkeletonUtils};
 const run=id=>{const el=document.createElement('script');el.textContent=document.getElementById(id).textContent;document.body.appendChild(el);};
 run('app-toon3d');run('app-toonkit');run('app-rig3d');
 const hint=document.getElementById('hint');if(hint)hint.textContent='Loading sculpted characters…';
-try{await Rig3D.load({masc:'male.gltf.json',fem:'female.gltf.json'},{draco:'./draco/',dracoType:'js'});}catch(e){console.warn('Sculpted characters unavailable; using the toon builder.',e);}
+try{await Rig3D.load({masc:'male.gltf.json',fem:'female.gltf.json'},{draco:'./draco/',dracoType:'js'});}catch(e){console.error('Sculpted characters failed to load',e);
+  const b=document.createElement('div');b.setAttribute('role','alert');b.style.cssText='position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:9;background:#3a1f1f;color:#ffd9d4;border:1px solid #8a3b33;border-radius:8px;padding:10px 14px;font:13px Inter,system-ui,sans-serif;max-width:min(560px,90vw)';
+  b.textContent='The sculpted 3D characters did not load ('+(e&&e.message||e)+'). Reload the page to try again.';document.body.appendChild(b);}
 run('app-main');
 if(hint)hint.textContent=window.Rig3D&&Rig3D.ready?'Drag to orbit · move the pointer and they look at it':'Drag to orbit (toon builder: sculpted models could not load)';
 </script>
