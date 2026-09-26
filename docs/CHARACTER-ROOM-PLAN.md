@@ -241,3 +241,74 @@ The AI reads the personality when it animates: "Pip reacts" plays a shy reaction
    project-only characters.
 3. **The default style for new characters:** colour line (recommended, like the teen-cast sample), flat,
    or ink.
+
+---
+
+## 7. Update: the 2.5D engine (360° turns, looking anywhere)
+
+**Prototype.** `docs/character-studio/engine-2p5d.js` is the engine the room prototype now runs on.
+`cast-2p5d.png` shows the cast and a 360° turnaround.
+
+### How it works
+We researched three existing approaches:
+- Cartoon Animator's 360 head: features are moved, reshaped, swapped and re-layered by angle.
+- Live2D angle X/Y warp deformers.
+- "View-dependent 2.5D cartoon models" (arXiv 2103.15472).
+
+We chose a procedural version of the same idea:
+
+1. **Body parts are simple 3D volumes.**
+   - **Lathes** (stacked ellipse slices): head, torso, garments, skirt, long hair. Their outline at any
+     angle is exact and cheap.
+   - **Capsules:** arms and legs, via 3D two-bone IK with a pole.
+   - **Small hulls:** nose, ears, feet and shoes, horns, cap brim.
+2. **Details live on the surfaces.** Eyes, brows, mouth, blush, beard, buttons, pockets, bib and straps are
+   sampled points on the lathe surface. They wrap around the form and fade out at the silhouette as it
+   turns.
+3. **Hair and hats** are the inflated skull, clipped to "everything above the visible hairline". Every
+   hairstyle reads correctly from the front, the side and the back, with no per-angle drawings.
+4. **Draw order** comes from depth (the painter's algorithm), with rules for joints:
+   - joint caps hide shoulder seams;
+   - a hand in front of the face goes last;
+   - a ponytail swaps behind or in front of the head as the head turns.
+5. **The look:**
+   - colour linework (outline = a darker shade of the fill);
+   - a flat shade band on the side away from a fixed light, which moves correctly as the character turns;
+   - a highlight streak on the hair.
+
+### The "character" pass (from the reference sheets)
+- **Shape presets:**
+
+  | Preset | Proportions |
+  |---|---|
+  | classic | balanced proportions |
+  | noodle | thin limbs, big hands and shoes |
+  | chunky | box torso, huge hands and boots |
+  | tall | small head, long legs |
+  | tiny | big head, short legs |
+
+- **Heads:** round, oval, square, heart, box and bean.
+- **Ears:** round, big and pointy.
+- **Eyes:** big glossy toon eyes with two highlights and a lid line, plus dot, almond, sleepy and happy.
+  Optional eye bags.
+- **Noses:** button, small, round, long, pointy and bulb (a coloured cartoon nose).
+- **Mouths:** smile, grin, a row of teeth, open, smirk, flat, tongue and fangs.
+- **Hands:** chunky cartoon hands with three fingers and a thumb (relaxed, open, fist, peace), sized by
+  the shape preset.
+- **Poses:** weight shift is on by default: tilted hips, one relaxed knee, the upper body leaning over the
+  standing leg, and a slow idle sway.
+- **Monsters:** fantasy skins (green, blue, violet, red, yellow, ghost-white), horns, neck bolts and
+  stitches.
+
+### In the room
+- Drag the stage to turn the character, or use the **Turn** slider or **Turntable**.
+- **Look at cursor** makes the head (yaw and pitch) and the eyes follow the pointer.
+- **Walk** plays a walk cycle that works from every angle, because the legs swing in 3D.
+
+### What this changes in the phases
+- The 3/4 and side views in phase E come **for free**. What remains is polish:
+  - side-view hand drawings;
+  - sitting poses (a chair socket);
+  - more hair volumes (spikes, curls done as sphere clusters).
+- **Rendering stays deterministic** (pure `t → SVG`), so the same code draws the room, the tiles and the
+  export frames. In the app, the SVG path strings become `Path2D`, as planned in §2.5.
