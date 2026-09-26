@@ -109,7 +109,11 @@ def app_icon(mark: Image.Image, size: int, flat: Image.Image | None = None) -> I
     else:
         pad, scale = 0, 0.86
     tile = render_svg(tile_svg(edge=size >= 64, pad=pad, radius=RADIUS if pad else 230), size)
+    # Keep the mark's edge the same parity as the tile's so the margin splits evenly; an odd
+    # leftover pixel would sit the logo half a pixel up and left (visible at 24 px on the taskbar).
     px = max(1, round(size * scale))
+    if (size - px) % 2:
+        px += 1 if size * scale > px else -1
     offset = (size - px) // 2
     tile.alpha_composite(scaled_mark(mark, px), (offset, offset))
     return tile
