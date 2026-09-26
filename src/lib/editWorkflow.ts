@@ -1,7 +1,7 @@
 import { describeUncovered, uncoveredSpans } from './coverage';
 import { councilMember, councilReview } from './council';
 import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } from './types';
-import { compDuration } from './timeline';
+import { compDuration, needsFrameSize } from './timeline';
 
 type Args = Record<string, unknown>;
 export type StoryboardSceneInput = { start: number; end: number; intent?: unknown; visual?: unknown; audio?: unknown; evidence?: unknown; refs?: unknown };
@@ -195,6 +195,7 @@ const preparation = new Set([
   'detect_scenes',
   'ask_user',
   'choose_shorts_format',
+  'choose_comp_size',
   'set_playhead',
   // Production bookkeeping and analysis: they change the plan, never the timeline.
   'run_frame_qa',
@@ -311,6 +312,7 @@ const ALWAYS_TOOLS = new Set([
   'cloud_generation_capabilities',
   'ask_user',
   'choose_shorts_format',
+  'choose_comp_size',
   'set_playhead',
   'analyze_music_beats',
   // @funny reads: the libraries, captions and the measured edit.
@@ -395,7 +397,8 @@ export class EditWorkflow {
   private shortsQa = new Set<string>();
   /** The workflow comp is a short made earlier: its source plan stands in for a storyboard. */
   private shortComp = false;
-  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false) {
+  /** `askFrameSize` is off for plugins: they cannot ask the user, so they are never held for the size. */
+  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false, readonly askFrameSize = true) {
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
     this.shortComp = !!comp?.short;
@@ -502,6 +505,10 @@ export class EditWorkflow {
     // edit turn cannot route around the setting either.
     if (this.disableLocalGeneration && name === 'generate_local_media' && LOCAL_GENERATION_TASKS.has(String(args.task))) return LOCAL_GENERATION_OFF;
     if (name === 'verify_edit_workflow') this.pendingWaivers = Array.isArray(args.acceptedQaIssues) ? args.acceptedQaIssues : [];
+    // A timeline with no picture (empty, or audio only) has no size to take from footage: the user
+    // picks the frame before anything is planned or built, in Quick edit too.
+    const sizeGate = this.sizeGate(name, project);
+    if (sizeGate) return sizeGate;
     if (this.mode === 'quick') return null;
     if (name === 'editing_workflow_status' || name === 'verify_edit_workflow') return null;
     const comp = this.comp(project);
@@ -550,6 +557,14 @@ export class EditWorkflow {
     if (!this.capabilities && ['rotoscope_clip', 'depth_occlusion_clip'].includes(name)) return 'Call local_media_capabilities before choosing a local model. Unsupported tasks must be reported as unavailable.';
     if (name.startsWith('mcp__')) return 'External tools cannot bypass this workflow. Use the native editing tools, or select Quick edit for a separate explicitly scoped task.';
     return null;
+  }
+  /** Refuses all but reads until the user has chosen the frame size of a comp that has no picture. */
+  private sizeGate(name: string, project: Project): string | null {
+    // Shorts are built in comps of their own, at the frame choose_shorts_format asks for.
+    if (!this.askFrameSize || ALWAYS_TOOLS.has(name) || name === 'create_shorts') return null;
+    const comp = this.comp(project);
+    if (comp ? !needsFrameSize(comp) : this.compId) return null;
+    return 'Ask the frame size first: the timeline has no picture (empty or audio only), so its size is only the default. Call choose_comp_size — it asks the user and sets the comp — then carry on with the task.';
   }
   /** Whether a call works on a short made this turn: by compId, by its clips, or on the open short. */
   private onShort(name: string, args: Args, project: Project): boolean {
@@ -627,6 +642,8 @@ export class EditWorkflow {
       if (source) this.transcripts.add(source.assetId);
     }
     if (!result.ok) return;
+    // The comp choose_comp_size made, when the project had none, is this turn's comp.
+    if (name === 'choose_comp_size' && !this.comp(project) && typeof result.compId === 'string') this.compId = result.compId;
     const comp = this.comp(project);
     if (!comp) return;
     if ((name === 'get_comp' && result.id === this.compId) || (name === 'get_project' && (result.activeComp as { id?: string })?.id === this.compId)) { this.inspected = timing(comp); this.reviewedActions = this.actions.length; }

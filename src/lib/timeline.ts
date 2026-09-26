@@ -30,6 +30,46 @@ export const COMP_PRESETS = [
 
 export type CompPresetId = (typeof COMP_PRESETS)[number]['id'];
 
+/** The frame sizes the assistant offers when it asks for a comp's size, in order. */
+export const COMP_SIZE_OPTIONS: { id: CompPresetId; label: string }[] = [
+  { id: '1080p', label: 'Landscape 16:9 — 1920×1080 (YouTube)' },
+  { id: 'vertical', label: 'Vertical 9:16 — 1080×1920 (Reels, Shorts, TikTok)' },
+  { id: 'square', label: 'Square 1:1 — 1080×1080' },
+  { id: 'portrait', label: 'Portrait 4:5 — 1080×1350 (Instagram feed)' },
+  { id: '4k', label: 'Landscape 4K — 3840×2160' },
+];
+
+/**
+ * Whether a comp's frame size is still only the default: it holds no picture to take a size
+ * from and nobody chose one. The assistant asks the user before building in such a comp.
+ */
+export function needsFrameSize(comp: Comp): boolean {
+  if (comp.sizeChosen) return false;
+  const video = new Set(comp.tracks.filter((track) => track.kind === 'video').map((track) => track.id));
+  return !comp.clips.some((clip) => video.has(clip.trackId));
+}
+
+/**
+ * Reads a frame size from an answer or a request: explicit pixels ("1080x1920"), a ratio, or a
+ * shape word. Null when it names none, or names two different shapes.
+ */
+export function frameSizeFromText(text: string): { width: number; height: number } | null {
+  const lower = text.toLowerCase();
+  const pixels = /\b(\d{3,4})\s*[x×*]\s*(\d{3,4})\b/.exec(lower);
+  if (pixels) return { width: Number(pixels[1]), height: Number(pixels[2]) };
+  const preset = (id: CompPresetId) => COMP_PRESETS.find((item) => item.id === id)!;
+  const found = new Set<CompPresetId>();
+  if (/\b4k\b|\buhd\b|3840/.test(lower)) found.add('4k');
+  else if (/\b16\s*[:x/]\s*9\b|\blandscape\b|\bhorizontal\b|\bwidescreen\b/.test(lower)) found.add('1080p');
+  if (/\b9\s*[:x/]\s*16\b|\bvertical\b/.test(lower)) found.add('vertical');
+  if (/\b1\s*[:x/]\s*1\b|\bsquare\b/.test(lower)) found.add('square');
+  if (/\b4\s*[:x/]\s*5\b|\bportrait 4/.test(lower)) found.add('portrait');
+  else if (/\bportrait\b/.test(lower) && !found.has('vertical')) found.add('vertical');
+  if (found.size !== 1) return null;
+  const { width, height } = preset([...found][0]);
+  return { width, height };
+}
+
 export const FRAME_RATES = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60];
 
 export const ITEM_LABEL: Record<ItemKind, string> = {

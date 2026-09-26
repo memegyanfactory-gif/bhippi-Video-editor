@@ -19,7 +19,7 @@ const LOOKING = new Set([
   'write_file', 'edit_file', 'list_directory', 'glob_search', 'grep_search', 'local_media_capabilities', 'list_brand_kits', 'get_brand_kit',
   'get_brand_guideline', 'list_custom_tools', 'list_subagents', 'wait_subagent', 'spawn_subagent',
 ]);
-const ASKING = new Set(['ask_user']);
+const ASKING = new Set(['ask_user', 'choose_comp_size']);
 const TINKERING = new Set(['run_command']);
 
 /** Every tool name the avatar acts out by name (the council's seats aside), for the catalogue check in tests. */

@@ -125,6 +125,7 @@ describe('blueprint workflow gate (phases)', () => {
     const project = newProject();
     const comp = project.comps[0];
     comp.clips = [];
+    comp.sizeChosen = true;
     const flow = new EditWorkflow(project, new Map());
     flow.record('get_comp', {}, { ok: true, id: comp.id }, project);
     flow.record('local_media_capabilities', {}, { ok: true }, project);

@@ -2098,7 +2098,7 @@ export default function App() {
               next = reshaped.project;
               reformatted = describeReformat(reshaped.report, result.reframe ?? 'fill');
             }
-            return { project: updateComp(next, result.activeCompId, (entry) => ({ ...entry, width: result.width, height: result.height, fps: result.fps })), reformatted };
+            return { project: updateComp(next, result.activeCompId, (entry) => ({ ...entry, width: result.width, height: result.height, fps: result.fps, sizeChosen: true })), reformatted };
           };
           const { reformatted } = apply(history.current());
           history.commit((current) => apply(current).project, reformatted ? `Reformat to ${aspectLabel(result.width, result.height)}` : 'Project Settings');
@@ -2114,6 +2114,7 @@ export default function App() {
           setDialog(null);
           const created = newComp(draft);
           created.folderId = binFolder;
+          created.sizeChosen = true;
           history.commit((current) => ({ ...current, comps: [...current.comps, created], activeCompId: created.id, openCompIds: [...current.openCompIds, created.id] }), 'New Comp');
           setSelection([]);
           playhead.seek(0);

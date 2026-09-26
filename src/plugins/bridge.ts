@@ -176,7 +176,7 @@ function refusal(pluginId: string, name: string, args: Record<string, unknown>):
   const mode = allowTool(editor.permission(), name);
   if (!mode.ok) return mode.reason.replace(/Bhippi AI/g, 'Bhippi');
   const host = editor.host();
-  const workflow = new EditWorkflow(host.history.current(), host.assets(), 'quick', editor.disableLocalGeneration());
+  const workflow = new EditWorkflow(host.history.current(), host.assets(), 'quick', editor.disableLocalGeneration(), false);
   return workflow.before(name, args, host.history.current());
 }
 

@@ -2040,6 +2040,23 @@
       }
     },
     {
+      "name": "choose_comp_size",
+      "description": "Asks the user what frame size the video should be (16:9, 9:16, 1:1, 4:5, 4K) and waits for the answer, then sets the comp to it (or creates a comp when there is none). Call it FIRST, before any planning or editing, whenever the timeline has no picture yet — empty, or only audio — and the user has not chosen a size: the size cannot be taken from footage, and every graphic and shot is built for it. It asks even in Full access (the frame is the user's call) unless the user's message already named the size. Other tools are refused until it has run.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string",
+            "description": "Normally left out: the open comp."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for a new comp, only used when the project has none."
+          }
+        }
+      }
+    },
+    {
       "name": "create_shorts",
       "description": "SHORTS step 2: turns the best moments of a long video into shorts, one comp each, in a \"Shorts\" folder, named with their rating best first (\"Short 1 _ 8.4★\") and all opened as tabs. You do the judging first: analyze_clip_speech on the source and read the whole transcript, inspect_clip_frames to see who is where, then pick moments that stand alone — a hook in the first 2 s, one complete idea, a payoff — 15–60 s each (up to 90 s for a story), and rate each 0–10 (hook strength, standalone clarity, emotion or value, payoff, shareability). Segments are SOURCE seconds from the transcript; give several segments to cut out waffle inside a short (they play in the order given). The tool eases every cut to word edges, builds the comp at the chosen frame (portrait 1080×1920 or landscape 1920×1080), reframes the footage on the speaker's face (tracked automatically; tall footage in a wide frame is fitted over a blurred copy), punches in on alternate parts with a slow push, puts the hook as kinetic type over the opening and captions from the transcript. It asks portrait or landscape itself if choose_shorts_format was not called. Then edit every short like any video (motion graphics, sound, music, frame QA) with compId.",
       "input_schema": {

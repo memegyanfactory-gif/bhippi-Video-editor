@@ -13,7 +13,7 @@ import type { Plugin, PluginPermissions } from './types';
 export const PLUGIN_FORBIDDEN = new Set([
   'create_custom_tool', 'update_custom_tool', 'delete_custom_tool',
   'save_plugin', 'delete_plugin', 'call_plugin_action',
-  'spawn_subagent', 'wait_subagent', 'ask_user',
+  'spawn_subagent', 'wait_subagent', 'ask_user', 'choose_comp_size',
   'editing_workflow_status', 'verify_edit_workflow',
 ]);
 

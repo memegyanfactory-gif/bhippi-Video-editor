@@ -373,6 +373,11 @@ export type Comp = {
   width: number;
   height: number;
   fps: number;
+  /**
+   * The user picked this frame size (New Comp, Project Settings, or the assistant's
+   * choose_comp_size question). A comp holding no picture without it has only the default size.
+   */
+  sizeChosen?: boolean;
   /** V1, V2… and A1, A2… in order within each kind. */
   tracks: Track[];
   clips: Clip[];

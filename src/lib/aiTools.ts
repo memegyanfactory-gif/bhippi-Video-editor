@@ -56,7 +56,7 @@ import {
 import { EASINGS, EMPTY_KEYFRAMES } from './keyframes';
 import { playhead } from './playhead';
 import {
-  addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, deleteBinEntries, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
+  addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, COMP_SIZE_OPTIONS, deleteBinEntries, frameSizeFromText, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
   newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
@@ -2547,6 +2547,38 @@ ${notes.trim()}${paletteLine}
       if (!orientation) return fail('The answer did not say portrait or landscape. Ask again with choose_shorts_format.');
       const frame = SHORT_FRAMES[orientation];
       return done(`Shorts will be ${orientation} (${frame.width}×${frame.height}).`, { orientation, width: frame.width, height: frame.height });
+    }
+
+    case 'choose_comp_size': {
+      // Always a real question — even in Full access — unless the user's own message named the size:
+      // the frame is the user's call and everything built after it depends on it.
+      const stated = frameSizeFromText(turnPrompt(turnId ?? host.turnId));
+      let size = stated;
+      if (!size) {
+        const answer = await host.ask({
+          question: 'What frame size should this video be?',
+          options: COMP_SIZE_OPTIONS.map((option) => option.label),
+          context: 'The timeline has no picture yet, so there is no size to take from the footage. Everything is built for this frame.',
+        }, signal);
+        size = frameSizeFromText(answer);
+      }
+      if (signal?.aborted) return fail('Cancelled.');
+      if (!size) return fail('The answer did not name a frame size. Ask again with choose_comp_size.');
+      const frame = { width: Math.round(clamp(size.width, 16, 8192)), height: Math.round(clamp(size.height, 16, 8192)) };
+      const target = pickComp(project, args);
+      let compId = target?.id;
+      if (!target) {
+        const created = { ...newComp({ name: str(args, 'name') ?? 'Comp 1', ...frame }), sizeChosen: true };
+        compId = created.id;
+        commit((current) => ({ ...current, comps: [...current.comps, created], activeCompId: created.id, openCompIds: [...current.openCompIds, created.id] }));
+      } else {
+        commit((current) => {
+          const resized = target.width !== frame.width || target.height !== frame.height ? reformatComp(current, target.id, frame, 'fill').project : current;
+          return updateComp(resized, target.id, (entry) => ({ ...entry, sizeChosen: true }));
+        });
+      }
+      const shape = `${frame.width}×${frame.height} (${aspectLabel(frame.width, frame.height)} ${orientationOf(frame.width, frame.height)})`;
+      return done(`The comp is ${shape}${stated ? ', as the request said' : ', as the user chose'}. Carry on with the task.`, { compId, width: frame.width, height: frame.height });
     }
 
     case 'create_shorts': {
