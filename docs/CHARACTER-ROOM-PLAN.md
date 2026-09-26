@@ -312,3 +312,43 @@ We chose a procedural version of the same idea:
   - more hair volumes (spikes, curls done as sphere clusters).
 - **Rendering stays deterministic** (pure `t → SVG`), so the same code draws the room, the tiles and the
   export frames. In the app, the SVG path strings become `Path2D`, as planned in §2.5.
+
+### Update: wardrobe pass, skeleton and 20 presets
+- **Fixed: a bent leg drawn over the clothes.** Legs now always sort behind the torso and garments. The two
+  legs still sort against each other.
+- **Jackets** (a style table: padding, hem, open or closed, plus details). Two existing ones are kept:
+  - **jacket:** open, with lapels;
+  - **denim:** yellow stitched pockets.
+
+  Nine are new:
+  - **leather:** big lapels, zip, shine;
+  - **bomber:** ribbed collar, cuffs and hem;
+  - **puffer:** quilted, high collar, puffy sleeves;
+  - **blazer:** lapels, buttons, pocket flaps;
+  - **varsity:** contrast sleeves, a letter patch, snaps, a striped rib;
+  - **trench:** knee length, belt, double buttons;
+  - **raincoat;**
+  - **cardigan;**
+  - **puffer vest.**
+- **Hats and headwear** are projected 3D volumes, with brims split into front and back halves:
+  - cap and backwards cap;
+  - beanie, bucket hat, cowboy hat, top hat, fedora, witch hat, beret;
+  - crown (with gems), bandana (with a knot);
+  - headphones, cat ears, halo, horns, bolts.
+- **Hair accessories** (can be combined with hats): clips, bow, headband, scrunchie, flower.
+- **Shoes**, each built from a sole, an upper, a toe cap and details:
+  - sneakers (laces), high-tops (ankle patch), chunky platform sneakers;
+  - boots (lace rows, welt), loafers, heels (with a heel spike), flats;
+  - sandals (straps, visible toes), barefoot.
+- **Hands**, redrawn: four fingers, palm creases, knuckles on the fist. Options for painted nails and white
+  cartoon gloves with a rolled cuff. New poses: **arms crossed**, **thinking** (hand to chin, brow raised),
+  **shrug** (shoulders up, palms out).
+- **Face:** wide and half-lidded eyes, lashes, and brows that react to the pose (up, down, one raised).
+- **Skeleton** (a "Type" option):
+  - skull with sockets that glint, nose cavity and a row of teeth;
+  - spine, ribcage, sternum and pelvis;
+  - bone limbs with knobbly joints, bony hands and feet.
+
+  It can wear any outfit. Clothes keep human widths.
+- **20 presets:** Mira, Bones, Franky, Vex, Luna, Rex, Kai, Nora, Sam, Priya, Leo, Coco, Sir Reginald,
+  Queen Bea, Wolfie, Angel, Rain, Mo, Zed and Grandpa Joe (`presets-20.png`).
