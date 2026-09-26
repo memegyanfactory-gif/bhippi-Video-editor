@@ -352,3 +352,38 @@ We chose a procedural version of the same idea:
   It can wear any outfit. Clothes keep human widths.
 - **20 presets:** Mira, Bones, Franky, Vex, Luna, Rex, Kai, Nora, Sam, Priya, Leo, Coco, Sir Reginald,
   Queen Bea, Wolfie, Angel, Rain, Mo, Zed and Grandpa Joe (`presets-20.png`).
+
+### Update: hand-inked rendering (`hand-inked-compare.png`)
+
+The characters looked like combined vector shapes mostly because every line had the same width. Hand-inked
+anime and cartoon cels get their life from a handful of things, and the engine now does each of them:
+
+1. **Every outline is a brush stroke.**
+   - Each part's path is parsed (M/L/H/V/C/Q/A/Z), resampled every ~2.4 px, and the ink band is rebuilt as
+     a filled offset.
+   - Its width follows the light: it swells on the shadow side (down-right) and thins to near nothing on
+     the light side. Where it thins out it breaks, giving the inker's "lost edges".
+   - Low-frequency noise adds hand pressure.
+2. **Detail lines are tapered brush strokes.** Brows, mouths, creases, hairlines and seams thicken in the
+   middle and taper to points at the ends.
+3. **Line boil.** Every new drawing re-jitters the ink slightly, from a seed per drawing, the way
+   hand-drawn animation shimmers.
+4. **Timing on twos.** The stage shows 12 new drawings per second by default. **Smooth** is still available.
+5. **Pixel-level edge roughness.** An SVG displacement filter with a low-frequency noise map, at about
+   1.5 px, so no edge is mathematically perfect. We tried a paper-grain texture in the fills and dropped
+   it, because clean flat cels read as more hand-painted.
+6. **Anime shading cues:**
+   - the fringe casts a shadow on the forehead;
+   - the chin casts a shadow on the shirt;
+   - a zig-zag shine band sits on the hair;
+   - brushed strands follow the hair's flow;
+   - fold strokes at the elbows, knees, ankles and waist;
+   - irises have a gradient, with a thick upper lash line and a flick.
+7. **Performance.** Thumbnails use the fast clean renderer. The stage renders only when a new drawing is
+   due, a steady 12 per second in testing.
+
+**In the room:** a **Line** switch (Hand-inked / Clean) and a **Timing** switch (Hand-drawn 12 fps /
+Smooth).
+
+**In the app:** the same functions produce `Path2D` for the motion renderer. The displacement filter becomes
+a small WebGL pass (a noise-texture UV offset) in `gl/renderer.ts`, so export matches the preview.

@@ -138,7 +138,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--blue-hi);outlin
 const TAU=Math.PI*2, f=n=>Math.round(n*10)/10, clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x)), lerp=(a,b,t)=>a+(b-a)*t;
 function hex2rgb(h){h=h.replace('#','');return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
 function mix(a,b,k){const A=hex2rgb(a),B=hex2rgb(b);return'#'+A.map((v,i)=>Math.round(v+(B[i]-v)*k).toString(16).padStart(2,'0')).join('');}
-const shade=(c,k=.16)=>mix(c,'#3a1f3a',k), tint=(c,k=.3)=>mix(c,'#ffffff',k), lineOf=c=>mix(c,'#2a1426',.55);
+const shade=(c,k=.16)=>mix(c,'#3a1f3a',k), tint=(c,k=.3)=>mix(c,'#ffffff',k), lineOf=c=>mix(c,'#24101f',.68);
 
 // ---------- catalogue ----------
 const CAT={
@@ -210,15 +210,69 @@ function ribbon(q,t0,t1,w0,w1,capS='round',capE='round',n=16,shift=0){const L=[]
 
 // ---------- drawing context ----------
 let C;
-function part(d,fill,opt={}){ // outline pass then fill (+ pattern)
+// ---------- hand-inked lines ----------
+// Every outline is rebuilt as a brush stroke: the path is parsed and resampled, then the ink band is
+// offset outward with a width that swells on the shadow side (down-right) and thins toward the light,
+// carries a little hand pressure noise, and "boils" (re-jitters) on each new drawing like hand-drawn animation.
+function parsePath(d){const toks=d.match(/[a-zA-Z]|-?\d*\.?\d+(?:e-?\d+)?/g)||[];let i=0,cmd='',cx=0,cy=0,sx=0,sy=0;const subs=[];let cur=null;
+  const num=()=>parseFloat(toks[i++]);const isNum=()=>i<toks.length&&!/[a-zA-Z]/.test(toks[i]);
+  const push=(x,y)=>{cur.push([x,y]);};
+  const cubic=(x1,y1,x2,y2,x,y)=>{const x0=cx,y0=cy,n=Math.max(4,Math.min(24,Math.ceil((Math.hypot(x1-x0,y1-y0)+Math.hypot(x2-x1,y2-y1)+Math.hypot(x-x2,y-y2))/3)));for(let k=1;k<=n;k++){const t=k/n,u=1-t;push(u*u*u*x0+3*u*u*t*x1+3*u*t*t*x2+t*t*t*x,u*u*u*y0+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y);}cx=x;cy=y;};
+  const quad=(x1,y1,x,y)=>{const x0=cx,y0=cy,n=8;for(let k=1;k<=n;k++){const t=k/n,u=1-t;push(u*u*x0+2*u*t*x1+t*t*x,u*u*y0+2*u*t*y1+t*t*y);}cx=x;cy=y;};
+  const arc=(rx,ry,phi,fa,fs,x,y)=>{const x1=cx,y1=cy;if(rx===0||ry===0){push(x,y);cx=x;cy=y;return;}const c=Math.cos(phi*Math.PI/180),s2=Math.sin(phi*Math.PI/180);
+    const dx=(x1-x)/2,dy=(y1-y)/2,xp=c*dx+s2*dy,yp=-s2*dx+c*dy;rx=Math.abs(rx);ry=Math.abs(ry);let lam=xp*xp/(rx*rx)+yp*yp/(ry*ry);if(lam>1){rx*=Math.sqrt(lam);ry*=Math.sqrt(lam);}
+    let num2=rx*rx*ry*ry-rx*rx*yp*yp-ry*ry*xp*xp;num2=Math.max(0,num2);let co=Math.sqrt(num2/(rx*rx*yp*yp+ry*ry*xp*xp))*(fa===fs?-1:1);const cxp=co*rx*yp/ry,cyp=-co*ry*xp/rx;
+    const ccx=c*cxp-s2*cyp+(x1+x)/2,ccy=s2*cxp+c*cyp+(y1+y)/2;const ang=(ux,uy,vx,vy)=>{const a=Math.atan2(ux*vy-uy*vx,ux*vx+uy*vy);return a;};
+    const t1=ang(1,0,(xp-cxp)/rx,(yp-cyp)/ry);let dt=ang((xp-cxp)/rx,(yp-cyp)/ry,(-xp-cxp)/rx,(-yp-cyp)/ry);if(!fs&&dt>0)dt-=TAU;if(fs&&dt<0)dt+=TAU;
+    const n=Math.max(6,Math.ceil(Math.abs(dt)*Math.max(rx,ry)/3));for(let k=1;k<=n;k++){const t=t1+dt*k/n;push(ccx+c*rx*Math.cos(t)-s2*ry*Math.sin(t),ccy+s2*rx*Math.cos(t)+c*ry*Math.sin(t));}cx=x;cy=y;};
+  while(i<toks.length){if(/[a-zA-Z]/.test(toks[i]))cmd=toks[i++];const rel=cmd===cmd.toLowerCase(),C0=cmd.toUpperCase();
+    if(C0==='Z'){if(cur){cur.closed=true;}cx=sx;cy=sy;if(!isNum())continue;}
+    if(C0==='M'){let x=num(),y=num();if(rel){x+=cx;y+=cy;}cur=[[x,y]];subs.push(cur);cx=sx=x;cy=sy=y;cmd=rel?'l':'L';continue;}
+    if(!cur){cur=[[cx,cy]];subs.push(cur);}
+    if(C0==='L'){let x=num(),y=num();if(rel){x+=cx;y+=cy;}push(x,y);cx=x;cy=y;}
+    else if(C0==='H'){let x=num();if(rel)x+=cx;push(x,cy);cx=x;}
+    else if(C0==='V'){let y=num();if(rel)y+=cy;push(cx,y);cy=y;}
+    else if(C0==='C'){let a=[num(),num(),num(),num(),num(),num()];if(rel)a=a.map((v,k)=>v+(k%2?cy:cx));cubic(...a);}
+    else if(C0==='Q'){let a=[num(),num(),num(),num()];if(rel)a=a.map((v,k)=>v+(k%2?cy:cx));quad(...a);}
+    else if(C0==='A'){const rx=num(),ry=num(),ph=num(),fa=num(),fs=num();let x=num(),y=num();if(rel){x+=cx;y+=cy;}arc(rx,ry,ph,fa,fs,x,y);}
+    else i++;}
+  return subs;}
+function resample(pts,closed,step=2.6){const out=[];const n=pts.length;if(n<2)return pts.slice();const segs=closed?n:n-1;let acc=0;out.push(pts[0]);
+  for(let k=0;k<segs;k++){const a=pts[k],b=pts[(k+1)%n];const L=Math.hypot(b[0]-a[0],b[1]-a[1]);if(L===0)continue;let t=step-acc;while(t<=L){out.push([a[0]+(b[0]-a[0])*t/L,a[1]+(b[1]-a[1])*t/L]);t+=step;}acc=L-(t-step);}
+  if(!closed)out.push(pts[n-1]);return out;}
+function hnoise(x,y,sd){const v=Math.sin(x*12.9898+y*78.233+sd*37.719)*43758.5453;return v-Math.floor(v);}
+function vnoise(x,y,sd){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
+  const a=hnoise(xi,yi,sd),b=hnoise(xi+1,yi,sd),c=hnoise(xi,yi+1,sd),d=hnoise(xi+1,yi+1,sd);return lerp(lerp(a,b,u),lerp(c,d,u),v)*2-1;}
+const SHD=[.5,.866]; // shadow direction (down-right): lines swell there
+function inkOutline(d,w){ // filled band around a closed shape
+  let out='';for(const sp of parsePath(d)){if(sp.length<3)continue;const P=resample(sp,true,2.4);const n=P.length;if(n<3)continue;
+    let A=0;for(let k=0;k<n;k++){const a=P[k],b=P[(k+1)%n];A+=a[0]*b[1]-b[0]*a[1];}const dir=A>0?1:-1;
+    const o=[];for(let k=0;k<n;k++){const a=P[(k-1+n)%n],b=P[(k+1)%n],p=P[k];let tx=b[0]-a[0],ty=b[1]-a[1];const tl=Math.hypot(tx,ty)||1;tx/=tl;ty/=tl;
+      const nx=ty*dir,ny=-tx*dir; // outward normal
+      const sh=clamp(nx*SHD[0]+ny*SHD[1],-1,1);const pr=vnoise(p[0]*.06,p[1]*.06,C.seed)*.22+vnoise(p[0]*.015,p[1]*.015,3.1)*.18;
+      const ww=w*Math.max(.04,.2+1.45*Math.pow(clamp((sh+.2)/1.2),.85)+pr*1.3);const j=vnoise(p[0]*.09,p[1]*.09,C.seed+7)*C.boil;
+      o.push([p[0]+nx*(ww+j),p[1]+ny*(ww+j)]);}
+    out+='M'+o.map(p=>f(p[0])+' '+f(p[1])).join('L')+'Z';}
+  return out;}
+function brushD(d,w){ // open stroke → tapered filled ribbon
+  let out='';for(const sp of parsePath(d)){if(sp.length<2)continue;const P=resample(sp,!!sp.closed,2);const n=P.length;if(n<2)continue;
+    let len=0;const cum=[0];for(let k=1;k<n;k++){len+=Math.hypot(P[k][0]-P[k-1][0],P[k][1]-P[k-1][1]);cum.push(len);}
+    const L=[],R=[];for(let k=0;k<n;k++){const a=P[Math.max(0,k-1)],b=P[Math.min(n-1,k+1)];let tx=b[0]-a[0],ty=b[1]-a[1];const tl=Math.hypot(tx,ty)||1;tx/=tl;ty/=tl;
+      const u=len?cum[k]/len:.5;const taper=sp.closed?1:Math.pow(Math.sin(Math.PI*clamp(u*.92+.04)),.55);const pr=1+vnoise(P[k][0]*.08,P[k][1]*.08,C.seed+2)*.25;
+      const hw=Math.max(.35,w*.5*taper*pr);const j=vnoise(P[k][0]*.1,P[k][1]*.1,C.seed+11)*C.boil*.6;const p=[P[k][0]-ty*j,P[k][1]+tx*j];
+      L.push([p[0]-ty*hw,p[1]+tx*hw]);R.push([p[0]+ty*hw,p[1]-tx*hw]);}
+    out+='M'+[...L,...R.reverse()].map(p=>f(p[0])+' '+f(p[1])).join('L')+'Z';}
+  return out;}
+
+function part(d,fill,opt={}){ // ink line then fill (+ pattern)
   let s='';const lc=opt.line||C.lc(fill);
-  if(C.LW&&!opt.noLine) s+=`<path d="${d}" fill="${lc}" stroke="${lc}" stroke-width="${f(2*C.LW)}" stroke-linejoin="round"/>`;
+  if(C.LW&&!opt.noLine) s+=C.hand?`<path d="${inkOutline(d,C.LW*1.15)}" fill="${lc}"/>`:`<path d="${d}" fill="${lc}" stroke="${lc}" stroke-width="${f(2*C.LW)}" stroke-linejoin="round"/>`;
   s+=`<path d="${d}" fill="${fill}"/>`;
   if(opt.pat&&opt.pat!=='plain') s+=`<path d="${d}" fill="url(#${pat(opt.pat,fill)})"/>`;
   return s;}
-function merged(list){let s='';if(C.LW)s+=list.filter(x=>!x.noLine).map(x=>`<path d="${x.d}" fill="${C.lc(x.fill)}" stroke="${C.lc(x.fill)}" stroke-width="${f(2*C.LW)}" stroke-linejoin="round"${x.tf?` transform="${x.tf}"`:''}/>`).join('');
+function merged(list){let s='';if(C.LW)s+=list.filter(x=>!x.noLine).map(x=>C.hand?`<path d="${inkOutline(x.d,C.LW*(x.tf?.85:1.15))}" fill="${C.lc(x.fill)}"${x.tf?` transform="${x.tf}"`:''}/>`:`<path d="${x.d}" fill="${C.lc(x.fill)}" stroke="${C.lc(x.fill)}" stroke-width="${f(2*C.LW)}" stroke-linejoin="round"${x.tf?` transform="${x.tf}"`:''}/>`).join('');
   return s+list.map(x=>`<path d="${x.d}" fill="${x.fill}"${x.tf?` transform="${x.tf}"`:''}/>`).join('');}
-const ln=(pts,w,col,op)=>`<path d="${Array.isArray(pts)?smooth(pts,false):pts}" fill="none" stroke="${col}" stroke-width="${f(w)}" stroke-linecap="round" stroke-linejoin="round"${op?` opacity="${op}"`:''}/>`;
+const ln=(pts,w,col,op)=>{const d=Array.isArray(pts)?smooth(pts,false):pts;if(C&&C.hand&&w>0)return`<path d="${brushD(d,w*1.15)}" fill="${col}"${op!=null&&op!==''?` opacity="${op}"`:''}/>`;return`<path d="${d}" fill="none" stroke="${col}" stroke-width="${f(w)}" stroke-linecap="round" stroke-linejoin="round"${op?` opacity="${op}"`:''}/>`;};
 function clipTo(d,inner){const id=`c${C.id}_${C.n++}`;C.defs.push(`<clipPath id="${id}"><path d="${d}"/></clipPath>`);return`<g clip-path="url(#${id})">${inner}</g>`;}
 function pat(kind,base){const id=`p${C.id}-${kind}-${base.slice(1)}`;if(C.pats[id])return id;
   const d=shade(base,.28),l=tint(base,.55);let body='',w=16,h=16;
@@ -234,7 +288,7 @@ function latheShade(S,yaw,O,col,y0,y1,pitch=0,C0=[0,0,0],off=0){
   if(C.style==='ink')return'';const term=LIGHT_AL+Math.PI/2+.35-(-yaw)*0; // world α of the terminator
   const ys=[];const n=10;for(let i=0;i<=n;i++)ys.push(lerp(y0,y1,i/n));
   const edge=ys.map(y=>[term-yaw,y]);const far=ys.slice().reverse().map(y=>[term-yaw+1.9,y]);
-  const pts=decal(S,[...edge,...far],off,yaw,O,pitch,C0);return`<path d="${smooth(pts,true,.3)}" fill="${col}" opacity=".9"/>`;}
+  const pts=decal(S,[...edge,...far],off,yaw,O,pitch,C0);return`<path d="${smooth(pts,true,.3)}" fill="${C.hand?mix(col,'#3a1f3a',.08):col}" opacity=".95"/>`;}
 
 // ---------- rig ----------
 function rigFor(s){
@@ -357,7 +411,8 @@ function drawHead(s,r,a,O,yaw,pitch){
       const lx=clamp(look[0],-1,1)*.12,lyy=clamp(look[1],-1,1)*5;const ir=eyeStyle==='wide'?.6:1;mid+=`<path d="${smooth(D(ring(12,t=>[al+lx+Math.cos(t)*.1*ir,ey+2+lyy+Math.sin(t)*6*ir]),1),true)}" fill="${ink}" opacity="${k}"/>`;const h=P(al+lx+.04,ey+lyy-1,1.5);mid+=`<circle cx="${f(h.x)}" cy="${f(h.y)}" r="2" fill="#fff" opacity="${k}"/>`;
       if(eyeStyle==='half'){mid+=`<path d="${smooth(D([[al-.3,ey-20],[al+.3,ey-20],[al+.3,ey-1],[al,ey],[al-.3,ey-1]],.8),true,.2)}" fill="${skin}" opacity="${k}"/>`+ln(D([[al-.27,ey],[al,ey+1],[al+.27,ey]],.8),3.2,ink,k);}}
     if(eyeStyle==='toon'){const E2=kid?1.12:1;mid+=`<path d="${smooth(D(ring(18,t=>[al+Math.cos(t)*.25*E2,ey+Math.sin(t)*14*E2]),.5),true)}" fill="#fff" stroke="${ink}" stroke-width="2.6" opacity="${k}"/>`;
-      const lx=clamp(look[0],-1,1)*.1,lyy=clamp(look[1],-1,1)*4;mid+=`<path d="${smooth(D(ring(14,t=>[al+lx+Math.cos(t)*.16*E2,ey+2+lyy+Math.sin(t)*9*E2]),1),true)}" fill="${F.eyeColor}" opacity="${k}"/><path d="${smooth(D(ring(12,t=>[al+lx+Math.cos(t)*.1*E2,ey+2+lyy+Math.sin(t)*5.8*E2]),1.2),true)}" fill="${ink}" opacity="${k}"/>`;const h=P(al+lx+.06,ey-2+lyy,1.5),h2=P(al+lx-.05,ey+6+lyy,1.5);mid+=`<circle cx="${f(h.x)}" cy="${f(h.y)}" r="3" fill="#fff" opacity="${k}"/><circle cx="${f(h2.x)}" cy="${f(h2.y)}" r="1.5" fill="#fff" opacity="${k}"/>`+ln(D([[al-.24*E2,ey-6],[al,ey-15*E2],[al+.24*E2,ey-6]],.6),3.2,ink,k);}
+      const gid=`ig${C.id}_${F.eyeColor.slice(1)}`;if(!C.pats[gid])C.pats[gid]=`<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shade(F.eyeColor,.55)}"/><stop offset=".55" stop-color="${F.eyeColor}"/><stop offset="1" stop-color="${tint(F.eyeColor,.45)}"/></linearGradient>`;
+      const lx=clamp(look[0],-1,1)*.1,lyy=clamp(look[1],-1,1)*4;mid+=`<path d="${smooth(D(ring(14,t=>[al+lx+Math.cos(t)*.16*E2,ey+2+lyy+Math.sin(t)*9*E2]),1),true)}" fill="url(#${gid})" opacity="${k}"/><path d="${smooth(D(ring(12,t=>[al+lx+Math.cos(t)*.1*E2,ey+2+lyy+Math.sin(t)*5.8*E2]),1.2),true)}" fill="${ink}" opacity="${k}"/>`;const h=P(al+lx+.06,ey-2+lyy,1.5),h2=P(al+lx-.05,ey+6+lyy,1.5);mid+=`<circle cx="${f(h.x)}" cy="${f(h.y)}" r="3" fill="#fff" opacity="${k}"/><circle cx="${f(h2.x)}" cy="${f(h2.y)}" r="1.5" fill="#fff" opacity="${k}"/>`+ln(D([[al-.26*E2,ey-5],[al-.1,ey-14*E2],[al+.12,ey-14*E2],[al+.27*E2,ey-6],[al+sd*.34*E2*(sd>0?1:-1)*0+al*0+(sd>0?.34:-.34)*E2*0+.0,ey-6]].slice(0,4),.6),C.hand?5:3.2,ink,k)+(C.hand?ln(D([[al+sd*.24*E2,ey-6],[al+sd*.34*E2,ey-10]],.6),3.2,ink,k):'');}
     if(eyeStyle==='almond'){const up=[...Array(9)].map((_,i)=>{const u=-1+i/4;return[al+u*.2,ey-Math.cos(u*Math.PI/2)*8+1];}),dn=[...Array(9)].map((_,i)=>{const u=1-i/4;return[al+u*.2,ey+Math.cos(u*Math.PI/2)*6+1];});
       mid+=`<path d="${smooth(D([...up,...dn]),true,.3)}" fill="#fff" opacity="${k}"/><path d="${smooth(D(ring(12,t=>[la+Math.cos(t)*.1,ly+Math.sin(t)*4.8]),.5),true)}" fill="${F.eyeColor}" opacity="${k}"/><path d="${smooth(D(ring(10,t=>[la+Math.cos(t)*.05,ly+Math.sin(t)*2.4]),.6),true)}" fill="${ink}" opacity="${k}"/>`+ln(D(up),2.6,ink,k)+ln(D([[al+sd*.2,ey-1],[al+sd*.28,ey-5]]),2,ink,k);}
     if(eyeStyle==='sleepy'){mid+=`<path d="${smooth(D(ring(12,t=>[la+Math.cos(t)*.1,ly+1+Math.sin(t)*5]),.3),true)}" fill="${ink}" opacity="${k}"/>`+`<path d="${smooth(D([[al-.18,ey-10],[al+.18,ey-10],[al+.18,ey-1],[al,ey],[al-.18,ey-1]]),true,.2)}" fill="${skin}" opacity="${k}"/>`+ln(D([[al-.16,ey-1],[al,ey+1],[al+.16,ey-1]]),2.6,ink,k);}
@@ -409,9 +464,14 @@ function drawHead(s,r,a,O,yaw,pitch){
     bun:al=>{const c=Math.cos(al);return c>0?lerp(-2,-36,Math.pow(c,1.3)):lerp(-2,22,-c);},
   }[st];
   let front='';
+  if(HL&&!SKh&&C.style!=='ink'){const up=[],dn=[];for(let i=0;i<=40;i++){const al=-1.45+i*2.9/40;up.push([al,Math.min(HL(al),60)-2]);dn.unshift([al,Math.min(HL(al),60)+(C.hand?11:8)-Math.abs(al)*2]);}
+    mid+=clipTo(headD,`<path d="${smooth(D([...up,...dn]),true,.3)}" fill="${shade(skin,.2)}" opacity=".85"/>`);}
   if(HL){const off=inf*.7,capD=infHull(off);const reg=above(al=>Math.min(HL(al),60),off);
     let inner=part(capD,hc);
-    if(C.style!=='ink'){inner+=clipTo(capD,latheShade(S,yaw,O,shade(hc,.18),-70,60,pitch,[0,0,0],off));const hl=D([[-.9,-50],[-.45,-58],[0,-60],[.35,-57]],off+1);inner+=ln(hl,4,tint(hc,.3),.8);}
+    if(C.style!=='ink'){inner+=clipTo(capD,latheShade(S,yaw,O,shade(hc,.2),-70,60,pitch,[0,0,0],off));
+      const top=[],bot=[];for(let i=0;i<=16;i++){const al=-1.1+i*1.7/16;top.push([al,-60+Math.abs(al+.3)*5]);bot.unshift([al,-53+Math.abs(al+.3)*5+(i%2?5:-1)]);}
+      inner+=`<path d="${smooth(D([...top,...bot],off+1),true,.15)}" fill="${tint(hc,.38)}" opacity=".9"/>`;}
+    if(C.hand)for(let k=0;k<9;k++){const al=-1.2+k*.3+Math.sin(k*3.1)*.06;const yb=Math.min(HL(al),50);if(yb<-50)continue;inner+=ln(D([[al*.3,-66],[al*.75,(yb-66)/2-4],[al,yb-5]],off+.5),2.2,shade(hc,.34),.75);}
     front+=clipRegion(reg,inner);
     // outline along the hairline so the fringe edge reads clearly
     if(C.LW){const N=96,seg=[];let cur=[];for(let i=0;i<=N;i++){const al=-Math.PI+i/N*TAU,p=P(al,Math.min(HL(al),60),off);if(p.face>0.02)cur.push([p.x,p.y]);else if(cur.length){seg.push(cur);cur=[];}}if(cur.length)seg.push(cur);
@@ -527,7 +587,7 @@ function drawShoe(s,r,L,W,yaw,SK){
 
 function render(s,a={}){
   a={t:0,yaw:0,headYaw:0,headPitch:0,...a};
-  const r=rigFor(s);const SK=r.sk;r.legRh=r.legR;r.armWh=r.armW;r.wristWh=r.wristW;if(SK){r.legR=6.5;r.armW=10;r.wristW=7;r.nr=7;s={...s,skin:'#F4EFE6',hair:{...s.hair,style:'bald'}};}C={id:(render.n=(render.n||0)+1),n:0,defs:[],pats:{},style:s.style,LW:s.style==='flat'?0:s.style==='ink'?2.6:2.3,lc:s.style==='ink'?(()=>'#1E1A22'):lineOf};
+  const r=rigFor(s);const SK=r.sk;r.legRh=r.legR;r.armWh=r.armW;r.wristWh=r.wristW;if(SK){r.legR=6.5;r.armW=10;r.wristW=7;r.nr=7;s={...s,skin:'#F4EFE6',hair:{...s.hair,style:'bald'}};}C={id:(render.n=(render.n||0)+1),n:0,defs:[],pats:{},style:s.style,LW:s.style==='flat'?0:s.style==='ink'?2.8:2.4,lc:s.style==='ink'?(()=>'#1E1A22'):lineOf,hand:!a.fast&&s.style!=='flat'&&a.hand!==false,seed:a.drawing!=null?a.drawing%97:3,boil:a.boil==null?.9:a.boil};
   const yaw=a.yaw, cy=Math.cos(yaw), sy=Math.sin(yaw);
   const W=p=>{const q=rotP(p,yaw,0);return[q[0],q[1]-(a.hop||0),q[2]];}; // body-local → world
   const skin=s.skin, fem=s.body==='fem', breath=Math.sin(a.t*TAU/3.2);
@@ -547,7 +607,8 @@ function render(s,a={}){
     if(C.style!=='ink'&&!longLeg&&!SK) g+=`<path d="${ribbon(q,.05,.98,r.legR*.7,r.legR*.45,'flat','flat',12,r.legR*.55*(cy>=0?1:-1))}" fill="${shade(skin,.09)}"/>`;
     if(longLeg||shortLeg){const t1=longLeg?.94:.36;const lw=r.legRh*2+9;g+=part(ribbon(q,-.02,t1,lw,longLeg?r.legRh*1.25+10:lw-2,'round','flat'),btm.color,{pat:btm.pattern});
       if(C.style!=='ink')g+=`<path d="${ribbon(q,.02,t1,lw*.34,lw*.28,'flat','flat',12,lw*.3*(cy>=0?1:-1))}" fill="${shade(btm.color,.12)}"/>`;
-      if(longLeg){g+=part(ribbon(q,.86,.95,r.legRh*1.25+14,r.legRh*1.25+14,'flat','flat',4),tint(btm.color,.15));}}
+      if(longLeg){g+=part(ribbon(q,.86,.95,r.legRh*1.25+14,r.legRh*1.25+14,'flat','flat',4),tint(btm.color,.15));}
+      if(C.hand&&longLeg){[[.5,.9],[.56,.6],[.78,.7],[.82,.5]].forEach(([tt,ww])=>{const p=qAt(q,tt),t=qTan(q,tt),n=[-t[1],t[0]],w=(r.legRh*1.6+9)/2*ww;g+=ln([[p[0]-n[0]*w,p[1]-n[1]*w],[p[0]+t[0]*3,p[1]+t[1]*3],[p[0]+n[0]*w,p[1]+n[1]*w]],1.8,shade(btm.color,.35),.75);});}}
     g+=drawShoe(s,r,L,W,yaw,SK);
     items.push({z:Math.min(-3,(hp[2]+an[2]*.3)*.3-9),svg:g,leg:1});});
   // --- torso, pelvis, garments ---
@@ -581,6 +642,8 @@ function render(s,a={}){
     const gD=smooth(latheSil(gS,yaw,Ob),true,.5);torsoSvg+=part(gD,topCol,{pat:topPat})+clipTo(gD,latheShade(gS,yaw,Ob,shade(topCol,.14),r.neckY-4,hemY,0,[0,0,0],4));
     const GD=(pts,off=4)=>decal(gS,pts,off,yaw,Ob),gv=(al,y)=>lathePt(gS,al,y,4,yaw,Ob).face>.1;
     torsoSvg+=ln(GD([...Array(25)].map((_,i)=>[-Math.PI+i/24*TAU,hemY-(topKind==='hoodie'||topKind==='sweater'?12:1)])),2,shade(topCol,.3));
+    if(C.style!=='ink'&&topKind!=='crop'&&topKind!=='tank')torsoSvg+=clipTo(gD,`<path d="${smooth(GD([[-.5,r.neckY-4],[.5,r.neckY-4],[.42,r.neckY+18],[0,r.neckY+26],[-.42,r.neckY+18]],4),true,.3)}" fill="${shade(topCol,.24)}" opacity=".8"/>`);
+    if(C.hand)[-1,1].forEach(sd=>{const y=r.neckY+r.torso*.66;if(gv(sd*.85,y))torsoSvg+=ln(GD([[sd*.95,y-6],[sd*.7,y],[sd*.55,y+2]],4.5),2,shade(topCol,.32),.8)+ln(GD([[sd*.9,y+12],[sd*.72,y+15]],4.5),1.8,shade(topCol,.32),.7);});
     if(topKind==='shirt'){torsoSvg+=gv(0,r.neckY+30)?ln(GD([[0,r.neckY+10],[0,hemY-2]]),2,shade(topCol,.3)):'';[.25,.45,.65,.85].forEach(k=>{const p=lathePt(gS,.06,lerp(r.neckY+10,hemY,k),5,yaw,Ob);if(p.face>.15)torsoSvg+=`<circle cx="${f(p.x)}" cy="${f(p.y)}" r="2.3" fill="${shade(topCol,.35)}"/>`;});
       [-1,1].forEach(sd=>{if(gv(sd*.3,r.neckY+8))torsoSvg+=part(smooth(GD([[0,r.neckY+12],[sd*.55,r.neckY-2],[sd*.62,r.neckY+10],[sd*.2,r.neckY+26]],6),true,.2),tint(topCol,.55));});}
     if(topKind==='hoodie'){if(gv(0,hemY-40))torsoSvg+=part(smooth(GD([[-.55,hemY-58],[.55,hemY-58],[.45,hemY-22],[-.45,hemY-22]],5),true,.2),shade(topCol,.08));
@@ -671,6 +734,7 @@ function render(s,a={}){
       if(slT>.9){const p=qAt(q,slT-.05),t=qTan(q,slT-.05),n=[-t[1],t[0]],w=(r.wristW+12)/2;g+=ln([[p[0]+n[0]*w,p[1]+n[1]*w],[p[0]-n[0]*w,p[1]-n[1]*w]],2,shade(slCol,.3));
         if(oSl&&JK.rib)g+=part(ribbon(q,slT-.07,slT,r.wristW+13,r.wristW+13,'flat','flat',4),shade(oc,.18));
         if(oSl&&JK.quilt)[.3,.55,.8].forEach(tt=>{const p=qAt(q,tt),t=qTan(q,tt),n=[-t[1],t[0]],w=(w0)/2;g+=ln([[p[0]+n[0]*w,p[1]+n[1]*w],[p[0]-n[0]*w,p[1]-n[1]*w]],2,shade(slCol,.22));});}}
+    if(C.hand&&slT>.6){const tt=.47;[0,1].forEach(kk=>{const p=qAt(q,tt+kk*.07),t=qTan(q,tt+kk*.07),n=[-t[1],t[0]],w=(r.armWh*1.24+11)/2;g+=ln([[p[0]+n[0]*w*.9,p[1]+n[1]*w*.9],[p[0]+t[0]*4,p[1]+t[1]*4],[p[0]-n[0]*w*.2,p[1]-n[1]*w*.2]],1.9,shade(slCol,.35),.8);});}
     // joint cover so the shoulder never shows a seam
     const capCol=slT>0?slCol:(JK&&JK.noSleeve)?oc:topKind!=='none'?topCol:skin;if(!SK||slT>0)g+=`<path d="${circ(S0[0],S0[1],Math.max(1,(slT>0?(r.armW*2*.62+11+(oSl&&JK.sx?JK.sx:0)):r.armW*2*.62)/2-C.LW))}" fill="${capCol}"/>`;else g+=part(circ(S0[0],S0[1],8),skin);
     // wrist accessories
@@ -695,7 +759,9 @@ function render(s,a={}){
   // a hand held in front of the face goes last
   const hi=items.findIndex(it=>it.head);items.forEach((it,i)=>{if(it.arm!=null&&it.handZ>30&&it.handY<hc[1]+60*r.hs&&i<hi)it.z=99;});items.sort((A,B)=>A.z-B.z);
   let out=`<ellipse cx="0" cy="4" rx="${f(r.hw*2.1)}" ry="13" fill="#1E1A22" opacity=".12"/>`;
-  out+=`<g transform="${a.squash?`translate(0 0) scale(${1+a.squash} ${1-a.squash})`:''}">${items.map(i=>i.svg).join('')}</g>`;
+  const fid=`hd${C.id}`;
+  if(C.hand)C.defs.push(`<filter id="${fid}" x="-10%" y="-6%" width="120%" height="112%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="${C.seed}" result="w"/><feDisplacementMap in="SourceGraphic" in2="w" scale="${f(1.5*(a.rough??1))}" xChannelSelector="R" yChannelSelector="G" result="d"/><feMerge><feMergeNode in="d"/></feMerge></filter>`);
+  out+=`<g${C.hand?` filter="url(#${fid})"`:''}><g transform="${a.squash?`translate(0 0) scale(${1+a.squash} ${1-a.squash})`:''}">${items.map(i=>i.svg).join('')}</g></g>`;
   return`<defs>${C.defs.join('')}${Object.values(C.pats).join('')}</defs>`+out;
 }
 
@@ -748,7 +814,7 @@ const EXAMPLES=[
 let saved=[]; try{saved=JSON.parse(localStorage.getItem(KEY)||'[]');}catch(e){saved=[];}
 let spec=clone(saved[0]||EXAMPLES[0]); let current=spec.name||'';
 let tab='face', anim={type:null,t0:0};
-const view={yaw:0,spin:false,follow:true,mx:0,my:0,hy:0,hp:0,drag:null,last:0};
+const view={yaw:0,spin:false,follow:true,mx:0,my:0,hy:0,hp:0,drag:null,last:0,hand:true,twos:true,lastDrawing:-1,dirty:true};
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const LBL={kid:'Kid',teen:'Teen',adult:'Adult',senior:'Senior',masc:'Masculine',fem:'Feminine',neutral:'Neutral',slim:'Slim',average:'Average',round:'Round',pop:'Colour line',flat:'Flat',ink:'Ink line',human:'Human',skeleton:'Skeleton',classic:'Classic',noodle:'Noodle',chunky:'Chunky',tall:'Tall',tiny:'Tiny'};
@@ -774,7 +840,7 @@ $('new').onclick=()=>{spec=E.defaults();current='';$('name').value='';refreshAll
 
 // ---------- saved rail ----------
 function list(){const names=new Set(saved.map(c=>c.name.toLowerCase()));return[...saved,...EXAMPLES.filter(c=>!names.has(c.name.toLowerCase())).map(c=>({...c,example:1}))];}
-function portrait(s,cls){const r=E.rigFor(s);const R=95*r.hs;return`<svg class="${cls}" viewBox="${Math.round(-R)} ${Math.round(r.headC[1]-R*.95)} ${Math.round(2*R)} ${Math.round(2*R)}">${E.render(s,{t:0,stance:'relaxed'})}</svg>`;}
+function portrait(s,cls){const r=E.rigFor(s);const R=95*r.hs;return`<svg class="${cls}" viewBox="${Math.round(-R)} ${Math.round(r.headC[1]-R*.95)} ${Math.round(2*R)} ${Math.round(2*R)}">${E.render(s,{t:0,stance:'relaxed',fast:true})}</svg>`;}
 function renderSaved(){$('saved').innerHTML=list().map((c,i)=>`<button class="saved-item${c.name===current?' on':''}" data-i="${i}">${portrait(c,'av')}<div><b>${esc(c.name)}</b><small>${LBL[c.age]}${c.example?'<span class="tag">Example</span>':''}</small></div></button>`).join('');
   $('saved').querySelectorAll('.saved-item').forEach(b=>b.onclick=()=>{const c=list()[+b.dataset.i];spec=clone(c);delete spec.example;current=c.name;$('name').value=c.name;refreshAll();});}
 
@@ -793,11 +859,11 @@ function renderId(){
 const STANCES=[['relaxed','Relaxed'],['hip','Hand on hip'],['peace','Peace'],['pocket','Pockets'],['cross','Arms crossed'],['think','Thinking'],['shrug','Shrug'],['hold','Holding']];
 function renderAct(){
   $('actbar').innerHTML=`<span class="hint">Try</span>`+[['wave','hand','Wave'],['hop','arrow-up','Hop'],['walk','footprints','Walk'],['talk','message-circle','Talk'],['happy','smile','Happy']].map(([k,ic,l])=>`<button class="chip" data-a="${k}"><i data-lucide="${ic}"></i>${l}</button>`).join('')+
-    `<span class="sep"></span><span class="hint">Pose</span>`+STANCES.map(([k,l])=>`<button class="chip${spec.stance===k?' on':''}" data-st="${k}">${l}</button>`).join('')+`<span class="sep"></span><label class="turn" for="turn"><span class="hint">Turn</span><input type="range" id="turn" min="0" max="360" value="${Math.round(view.yaw*180/Math.PI)%360}"></label><button class="chip${view.spin?' on':''}" id="spin"><i data-lucide="rotate-3d"></i>Turntable</button><button class="chip${view.follow?' on':''}" id="follow"><i data-lucide="eye"></i>Look at cursor</button>`;
+    `<span class="sep"></span><span class="hint">Pose</span>`+STANCES.map(([k,l])=>`<button class="chip${spec.stance===k?' on':''}" data-st="${k}">${l}</button>`).join('')+`<span class="sep"></span><label class="turn" for="turn"><span class="hint">Turn</span><input type="range" id="turn" min="0" max="360" value="${Math.round(view.yaw*180/Math.PI)%360}"></label><button class="chip${view.spin?' on':''}" id="spin"><i data-lucide="rotate-3d"></i>Turntable</button><button class="chip${view.follow?' on':''}" id="follow"><i data-lucide="eye"></i>Look at cursor</button><span class="sep"></span><span class="hint">Line</span><div class="seg"><button id="lnHand" class="${view.hand?'on':''}">Hand-inked</button><button id="lnClean" class="${view.hand?'':'on'}">Clean</button></div><span class="hint">Timing</span><div class="seg"><button id="tmTwos" class="${view.twos?'on':''}">Hand-drawn 12 fps</button><button id="tmSmooth" class="${view.twos?'':'on'}">Smooth</button></div>`;
   $('actbar').querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{anim={type:b.dataset.a,t0:performance.now()};});
   $('actbar').querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{spec.stance=b.dataset.st;renderAct();});
   $('turn').oninput=e=>{view.yaw=(+e.target.value)*Math.PI/180;view.spin=false;$('spin').classList.remove('on');};
-  $('spin').onclick=()=>{view.spin=!view.spin;renderAct();};$('follow').onclick=()=>{view.follow=!view.follow;renderAct();};
+  $('spin').onclick=()=>{view.spin=!view.spin;renderAct();};$('lnHand').onclick=()=>{view.hand=true;renderAct();};$('lnClean').onclick=()=>{view.hand=false;renderAct();};$('tmTwos').onclick=()=>{view.twos=true;renderAct();};$('tmSmooth').onclick=()=>{view.twos=false;renderAct();};$('follow').onclick=()=>{view.follow=!view.follow;renderAct();};
 }
 
 // ---------- wardrobe ----------
@@ -809,7 +875,7 @@ function crop(kind,s){const r=E.rigFor(s);
   if(kind==='feet'){return[-120,-150,240,180];}
   return[-400,-760,800,800];}
 function tile(label,s,kind,on,attrs){const vb=crop(kind,s).map(n=>Math.round(n)).join(' ');
-  return`<button class="tile${on?' on':''}" ${attrs} title="${esc(label)}"><svg viewBox="${vb}" preserveAspectRatio="xMidYMid meet">${E.render(s,{t:0,stance:'relaxed'})}</svg><span>${esc(label)}</span></button>`;}
+  return`<button class="tile${on?' on':''}" ${attrs} title="${esc(label)}"><svg viewBox="${vb}" preserveAspectRatio="xMidYMid meet">${E.render(s,{t:0,stance:'relaxed',fast:true})}</svg><span>${esc(label)}</span></button>`;}
 function variant(fn){const s=clone(spec);fn(s);return s;}
 function swatches(key,colors,cur){return`<div class="sw">${colors.map(c=>`<button data-col="${key}" data-v="${c}" style="background:${c}" class="${cur===c?'on':''}" aria-label="${key} colour ${c}"></button>`).join('')}</div>`;}
 function pats(key,cur){return`<div class="pats">${CAT.pattern.map(p=>`<button class="chip${cur===p?' on':''}" data-pat="${key}" data-v="${p}">${p}</button>`).join('')}</div>`;}
@@ -874,6 +940,9 @@ function frame(now){
     if(anim.type==='talk'){if(e<2.6){a.mouth=['open','smile','o','grin','flat','open'][Math.floor(e*9)%6];}else anim.type=null;}
     if(anim.type==='happy'){if(e<1.8){a.expr='happy';}else anim.type=null;}
   }
+  const drawing=Math.floor(now/1000*12);a.drawing=drawing;a.hand=view.hand;
+  if(view.twos&&drawing===view.lastDrawing){requestAnimationFrame(frame);return;}
+  if(view.twos){a.t=drawing/12;}view.lastDrawing=drawing;
   $('stageSvg').innerHTML=`<ellipse cx="0" cy="10" rx="330" ry="46" fill="var(--floor)" opacity=".75"/>`+E.render(spec,a); const R=E.rigFor(spec),hg=R.H+220; $('stageSvg').setAttribute('viewBox',`${-hg*.62} ${-hg+46} ${hg*1.24} ${hg}`);
   requestAnimationFrame(frame);
 }
