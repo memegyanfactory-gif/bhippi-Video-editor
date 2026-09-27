@@ -10,23 +10,60 @@ export type MenuItem =
 
 const isSeparator = (item: MenuItem): item is { separator: true } => 'separator' in item;
 
-/** A dropdown anchored to a rect. Closes on outside click, Escape, or choosing an item. */
-export function MenuList({ items, anchor, onClose, align = 'left' }: { items: MenuItem[]; anchor: DOMRect; onClose: () => void; align?: 'left' | 'right' }) {
+/** A rectangle on screen (a DOMRect fits). */
+type Box = { left: number; top: number; right: number; bottom: number };
+
+/** Room left at the window's edges. */
+const EDGE = 4;
+
+/**
+ * Where a menu goes. A dropdown opens below its anchor (above when there is no room below). A
+ * submenu opens beside its row: to the right of the parent menu, or to its left when the right
+ * would run off the window — never over the parent — and it slides up only as far as it must to
+ * stay on screen. A menu taller than the window scrolls (.menu-list's max-height).
+ */
+export function menuPosition(
+  size: { width: number; height: number },
+  view: { width: number; height: number },
+  place: { anchor: Box; align: 'left' | 'right' } | { row: Box; parent: Box },
+): { left: number; top: number } {
+  const clampTop = (top: number) => Math.max(EDGE, Math.min(top, view.height - size.height - EDGE));
+  if ('row' in place) {
+    const { row, parent } = place;
+    const right = parent.right - 2;
+    const left = parent.left - size.width + 2;
+    const fitsRight = right + size.width <= view.width - EDGE;
+    const fitsLeft = left >= EDGE;
+    // Neither side fits: the side with more room, kept inside the window.
+    const x = fitsRight ? right : fitsLeft ? left : view.width - parent.right >= parent.left ? Math.max(EDGE, view.width - size.width - EDGE) : EDGE;
+    return { left: x, top: clampTop(row.top - 4) };
+  }
+  const { anchor, align } = place;
+  let left = align === 'right' ? anchor.right - size.width : anchor.left;
+  left = Math.max(EDGE, Math.min(left, view.width - size.width - EDGE));
+  let top = anchor.bottom + 2;
+  if (top + size.height > view.height - EDGE) {
+    const above = anchor.top - size.height - 2;
+    // Above only when it fits there; otherwise as low as the window allows.
+    top = above >= EDGE ? above : clampTop(top);
+  }
+  return { left, top };
+}
+
+/** A dropdown anchored to a rect, or (with `beside`) a submenu beside a row of its parent menu. Closes on outside click, Escape, or choosing an item. */
+export function MenuList({ items, anchor, onClose, align = 'left', beside }: { items: MenuItem[]; anchor: DOMRect; onClose: () => void; align?: 'left' | 'right'; beside?: { row: DOMRect; parent: DOMRect } }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ left: anchor.left, top: anchor.bottom + 2 });
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const [open, setOpen] = useState<number | null>(null);
 
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const width = node.offsetWidth;
-    const height = node.offsetHeight;
-    let left = align === 'right' ? anchor.right - width : anchor.left;
-    left = Math.max(4, Math.min(left, window.innerWidth - width - 4));
-    let top = anchor.bottom + 2;
-    if (top + height > window.innerHeight - 4) top = Math.max(4, anchor.top - height - 2);
-    setPosition({ left, top });
-  }, [anchor, align]);
+    const size = { width: node.offsetWidth, height: node.offsetHeight };
+    const view = { width: window.innerWidth, height: window.innerHeight };
+    const next = menuPosition(size, view, beside ?? { anchor, align });
+    setPosition((current) => (current && current.left === next.left && current.top === next.top ? current : next));
+  }, [anchor, align, beside, items]);
 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
@@ -42,7 +79,8 @@ export function MenuList({ items, anchor, onClose, align = 'left' }: { items: Me
   }, [onClose]);
 
   return createPortal(
-    <div ref={ref} className="menu-list" role="menu" style={{ left: position.left, top: position.top }}>
+    // Measured before it is shown, so it never flashes in the wrong place.
+    <div ref={ref} className="menu-list" role="menu" style={position ? { left: position.left, top: position.top } : { left: 0, top: 0, visibility: 'hidden' }}>
       {items.map((item, index) =>
         isSeparator(item) ? (
           <div key={index} className="menu-separator" />
@@ -78,15 +116,16 @@ export function MenuList({ items, anchor, onClose, align = 'left' }: { items: Me
 }
 
 function SubMenu({ items, onClose }: { items: MenuItem[]; onClose: () => void }) {
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const [place, setPlace] = useState<{ row: DOMRect; parent: DOMRect } | null>(null);
   const probe = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
-    const row = probe.current?.parentElement?.getBoundingClientRect();
-    if (row) setAnchor(new DOMRect(row.right - 2, row.top - 4, 0, 0));
+    const row = probe.current?.parentElement;
+    const parent = row?.closest('.menu-list');
+    if (row && parent) setPlace({ row: row.getBoundingClientRect(), parent: parent.getBoundingClientRect() });
   }, []);
   return (
     <span ref={probe}>
-      {anchor && <MenuList items={items} anchor={new DOMRect(anchor.left, anchor.top, 0, 0)} onClose={onClose} />}
+      {place && <MenuList items={items} anchor={place.row} beside={place} onClose={onClose} />}
     </span>
   );
 }
