@@ -6,6 +6,7 @@ vi.mock('../src/lib/ipc', () => ({
   api: { rotoRead: vi.fn(async () => null), transcriptsCached: vi.fn(async () => []), uiScreenSave: vi.fn(async (s: string, n: string) => `C:/p/${s}/${n}`) },
   errorText: (e: unknown) => String(e),
   fileSrc: (p: string) => p,
+  fetchFile: (p: string) => fetch(p),
 }));
 const renders: unknown[] = [];
 vi.mock('../src/motion/lottie/render', () => ({

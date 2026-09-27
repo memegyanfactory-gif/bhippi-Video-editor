@@ -6,7 +6,7 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import { lottieToScene } from '../motion/lottie/convert';
 import type { Layer, MotionScene, Vec } from '../motion/types';
-import { api, errorText, fileSrc } from './ipc';
+import { api, errorText, fetchFile } from './ipc';
 import type { ToolResult } from './types';
 import type { MotionToolContext } from './motionTools';
 
@@ -39,7 +39,7 @@ export async function runLottieTool(args: Args, ctx: MotionToolContext, run: Run
   if (!path) return fail('Give the Lottie file the user supplied: a .json or .lottie path or its assetId. (Bhippi cannot fetch from LottieFiles: download it there and import the file.)');
   let json: J;
   try {
-    json = readLottie(new Uint8Array(await (await fetch(fileSrc(path))).arrayBuffer()));
+    json = readLottie(new Uint8Array(await (await fetchFile(path)).arrayBuffer()));
   } catch (error) {
     return fail(`That is not a readable Lottie file: ${errorText(error)}`);
   }

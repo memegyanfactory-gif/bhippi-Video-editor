@@ -31,7 +31,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { aiContext, compDetail } from '../lib/aiTools';
 import type { ToolHost } from '../lib/aiTools';
 import { EditWorkflow } from '../lib/editWorkflow';
-import { errorText, api, fileSrc, type Transcript } from '../lib/ipc';
+import { errorText, api, fetchFile, fileSrc, type Transcript } from '../lib/ipc';
 import { BUCKETS_PER_SECOND, loadPeaks } from '../lib/peaks';
 import { allowTool, type PermissionMode } from '../lib/permissions';
 import { playhead } from '../lib/playhead';
@@ -759,10 +759,8 @@ const HANDLERS: Record<string, Handler> = {
   'media.read': async (frame, params) => {
     const asset = editorFor(frame)!.host().assets().get(String(params.assetId ?? ''));
     if (!asset) throw new Error(`No media “${String(params.assetId)}” in the project`);
-    const response = await fetch(fileSrc(asset.path));
+    const response = await fetchFile(asset.path, { maxBytes: MAX_PLUGIN_READ_BYTES });
     if (!response.ok) throw new Error(`“${asset.name}” could not be read (is it offline?)`);
-    const size = Number(response.headers.get('content-length') ?? 0);
-    if (size > MAX_PLUGIN_READ_BYTES) throw new Error(`“${asset.name}” is ${Math.round(size / 1024 / 1024)} MB; a plugin may read files up to ${MAX_PLUGIN_READ_BYTES / 1024 / 1024} MB whole`);
     const bytes = await response.arrayBuffer();
     if (bytes.byteLength > MAX_PLUGIN_READ_BYTES) throw new Error(`“${asset.name}” is too big to read whole`);
     return new Binary({ name: asset.name, kind: asset.kind, bytes });

@@ -3,7 +3,7 @@
 // plugin_validate reads the draft, plugin_save bundles it into the installed plugin, plugin_test
 // and plugin_screenshot run it against a scratch copy of the project (testRunner.ts).
 
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { fetchFile } from '../lib/ipc';
 import catalog from '../lib/ai-tools.json';
 import type { ToolResult } from '../lib/types';
 import { base64ToBytes, bytesToBase64, isBase64, isBinaryFile, mimeOf } from './assets';
@@ -23,7 +23,7 @@ export const MAKER_TOOLS = new Set(['plugin_scaffold', 'plugin_list_files', 'plu
 
 /** Reads a file the plugin may take in as an asset (plugin_add_asset); the app's asset protocol in Bhippi. */
 let readMedia: (path: string) => Promise<Uint8Array> = async (path) => {
-  const response = await fetch(convertFileSrc(path));
+  const response = await fetchFile(path);
   if (!response.ok) throw new Error(`${path} could not be read (${response.status})`);
   return new Uint8Array(await response.arrayBuffer());
 };

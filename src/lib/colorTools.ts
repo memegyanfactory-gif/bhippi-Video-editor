@@ -10,7 +10,7 @@ import { autoBalance, colorStats, describeStats, type ColorStats } from './color
 import { createAppliedEffect } from './effectFilters';
 import { EFFECT_MAP } from './effectsCatalog';
 import { renderHtmlStill } from './htmlFrames';
-import { api, errorText, fileSrc } from './ipc';
+import { api, errorText, fetchFile } from './ipc';
 import { availableLuts, importCube, lutName, resolveLut, syncProjectLuts } from './luts';
 import { effectScope } from './magicMask';
 import { playhead } from './playhead';
@@ -212,7 +212,7 @@ export async function runColorTool(name: string, args: Args, ctx: ColorToolConte
     if (lutPath) {
       if (!/\.cube$/i.test(lutPath)) return fail('lutPath must be a .cube file.');
       try {
-        const response = await fetch(fileSrc(lutPath));
+        const response = await fetchFile(lutPath);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const lut = importCube(await response.text(), lutPath.split(/[\\/]/).pop() ?? 'LUT.cube');
         ctx.commit((current) => ({ ...current, luts: [...(current.luts ?? []), lut] }));

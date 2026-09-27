@@ -7,7 +7,7 @@
 // audible audio tracks (mute and solo), enabled clips, in point, speed and reverse, volume and its
 // keyframes, audio transitions, and nested comps.
 
-import { fileSrc } from '../lib/ipc';
+import { fetchFile } from '../lib/ipc';
 import { animated } from '../lib/keyframes';
 import { audible, clipEnd, sourceTimeAt, tracksOf, transitionWindow, type AssetMap } from '../lib/timeline';
 import type { Asset, Clip, Comp, Project } from '../lib/types';
@@ -47,7 +47,7 @@ export function samplesFor(asset: Asset): Promise<Float32Array | null> {
   if (running) return running;
   const job = (async () => {
     if (!asset.hasAudio || !(asset.duration > 0) || asset.duration > MAX_DECODE_SECONDS || typeof OfflineAudioContext === 'undefined') return null;
-    const response = await fetch(fileSrc(asset.path));
+    const response = await fetchFile(asset.path);
     if (!response.ok) return null;
     const bytes = await response.arrayBuffer();
     const length = Math.max(1, Math.ceil(asset.duration * ANALYSIS_RATE));

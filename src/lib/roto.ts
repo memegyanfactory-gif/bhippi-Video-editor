@@ -10,7 +10,7 @@
 // subject is. Nothing is held in memory but the current frame.
 import * as ort from 'onnxruntime-web';
 import { invoke } from '@tauri-apps/api/core';
-import { api, fileSrc, type RotoCache } from './ipc';
+import { api, fileSrc, type RotoCache, fetchFile } from './ipc';
 import { canvasImage } from './canvasImage';
 import { validateRotoResult } from './rotoValidation';
 import { longRotoKey, planRotoChunks } from './rotoEngine';
@@ -50,7 +50,7 @@ async function load(path: string): Promise<ort.InferenceSession> {
   // external-data resolver treats the encoded backslashes in that URL as a sidecar
   // filename and reports a misleading "failed to load external data" error even for
   // the self-contained RVM .onnx file.
-  const response = await fetch(fileSrc(path));
+  const response = await fetchFile(path);
   if (!response.ok) throw new Error(`The matting model could not be read (${response.status}). Re-download it in Model Center.`);
   const bytes = await response.arrayBuffer();
   if (bytes.byteLength < 1024 * 1024) throw new Error('The matting model download is incomplete. Remove it in Model Center and download it again.');

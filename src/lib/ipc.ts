@@ -759,6 +759,58 @@ export const events = {
 /** A URL the webview can load for a local file Bhippi imported or produced. */
 export const fileSrc = (path: string | null | undefined) => (path ? convertFileSrc(path) : '');
 
+/** Bytes per range request: the asset protocol answers at most 1000 KB a piece (tauri's protocol/asset.rs, MAX_LEN). */
+const FILE_PIECE = 1000 * 1024;
+/** Range requests in flight at once while reading a big file. */
+const FILE_READERS = 6;
+
+/**
+ * A local file read whole, as a Response, for code that needs every byte (decoding sound, a model,
+ * a LUT, a plugin's media.read). A plain fetch() of an asset URL can come back cut short with no
+ * error — on Windows the webview stops a whole-file answer at about 4 MB — so the file is read in
+ * byte ranges, which the asset protocol answers exactly, and put back together. A small file (one
+ * piece) costs one request. `maxBytes` refuses a bigger file before it is read.
+ */
+export async function fetchFile(path: string, options: { maxBytes?: number } = {}): Promise<Response> {
+  const url = fileSrc(path);
+  const first = await fetch(url, { headers: { Range: `bytes=0-${FILE_PIECE - 1}` } });
+  // 200: the whole file in one answer (a server that ignores ranges); errors pass straight through.
+  if (first.status !== 206) return first;
+  const type = first.headers.get('content-type') ?? 'application/octet-stream';
+  const total = Number(/\/(\d+)\s*$/.exec(first.headers.get('content-range') ?? '')?.[1]);
+  const head = new Uint8Array(await first.arrayBuffer());
+  if (!Number.isFinite(total) || total <= head.length) return new Response(head, { status: 200, headers: { 'content-type': type } });
+  if (options.maxBytes !== undefined && total > options.maxBytes) {
+    throw new Error(`${path.split(/[\\/]/).pop()} is ${Math.round(total / 1024 / 1024)} MB; at most ${Math.round(options.maxBytes / 1024 / 1024)} MB can be read whole`);
+  }
+  const bytes = new Uint8Array(total);
+  bytes.set(head, 0);
+  /** Fills [start, end) — asking again for whatever an answer left short. */
+  const fill = async (start: number, end: number) => {
+    for (let at = start; at < end;) {
+      const response = await fetch(url, { headers: { Range: `bytes=${at}-${end - 1}` } });
+      if (response.status !== 206 && response.status !== 200) throw new Error(`Reading ${path} failed (${response.status})`);
+      const piece = new Uint8Array(await response.arrayBuffer());
+      // A 200 is the whole file after all.
+      const from = response.status === 200 ? piece.subarray(at, end) : piece.subarray(0, end - at);
+      if (!from.length) throw new Error(`Reading ${path} stopped at byte ${at} of ${total}`);
+      bytes.set(from, at);
+      at += from.length;
+    }
+  };
+  const starts: number[] = [];
+  for (let start = head.length; start < total; start += FILE_PIECE) starts.push(start);
+  let next = 0;
+  const reader = async () => {
+    while (next < starts.length) {
+      const start = starts[next++];
+      await fill(start, Math.min(total, start + FILE_PIECE));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FILE_READERS, starts.length) }, reader));
+  return new Response(bytes, { status: 200, headers: { 'content-type': type, 'content-length': String(total) } });
+}
+
 /** Error text from a rejected command, whatever shape it arrived in. */
 export const errorText = (error: unknown) =>
   typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error);

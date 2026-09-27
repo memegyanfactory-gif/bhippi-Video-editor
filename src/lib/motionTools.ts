@@ -25,7 +25,7 @@ import { entryBounds } from '../motion/evaluate';
 import { compileSequence, TRANSITION_HELP, TRANSITION_KINDS, type SeqBeat, type SeqTransition, type TransitionKind } from '../motion/sequence';
 import { keyTimes } from '../motion/anim';
 import { clamp, SFX_LENGTH, timecode } from './editor';
-import { api, errorText, fileSrc, type Transcript, type TranscriptWord } from './ipc';
+import { api, errorText, type Transcript, type TranscriptWord, fetchFile } from './ipc';
 import { timelineWords } from './transcriptText';
 import { hasWordRefs, resolveWordTimes } from './wordTimes';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
@@ -317,7 +317,7 @@ function cadenceFromCuts(cuts: number[], seconds: number) {
 
 async function imageDataUrl(path: string): Promise<string | null> {
   try {
-    const response = await fetch(fileSrc(path));
+    const response = await fetchFile(path);
     const blob = await response.blob();
     return await new Promise((resolve) => {
       const reader = new FileReader();
@@ -716,7 +716,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       if (!render?.dir) return fail(`Blender is still rendering (job ${jobId}); place it later with render_3d_scene {"jobId":"${jobId}"}.`);
       // Blender's camera as a motion-engine camera (3D layers then sit in the render's space), and nulls on tracked objects.
       const extras: Layer[] = [];
-      const readJson = async <T,>(path?: string): Promise<T | null> => { if (!path) return null; try { return (await (await fetch(fileSrc(path))).json()) as T; } catch { return null; } };
+      const readJson = async <T,>(path?: string): Promise<T | null> => { if (!path) return null; try { return (await (await fetchFile(path)).json()) as T; } catch { return null; } };
       if (args.syncCamera !== false) { const cam = await readJson<CameraFile>(render.camera); if (cam?.frames?.length) extras.push(cameraLayer(cam)); }
       const track = Array.isArray(args.track) ? (args.track as unknown[]).filter((x): x is string => typeof x === 'string') : [];
       if (track.length) { const objects = await readJson<ObjectsFile>(render.objects2d); if (objects?.frames?.length) extras.push(...trackLayers(objects, track)); }
@@ -739,7 +739,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const path = str(args, 'path');
       if (!svg && path) {
         try {
-          const response = await fetch(fileSrc(path));
+          const response = await fetchFile(path);
           if (!response.ok) return fail(`Could not read ${path}.`);
           svg = await response.text();
         } catch (error) { return fail(`Could not read ${path}: ${errorText(error)}`); }
@@ -958,9 +958,9 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
             const job = (await api.jobsList()).find((j) => j.id === jobId);
             if (job?.status === 'done') {
               const res = job.result as { profile?: string; peaks?: string | null } | null;
-              const profile = res?.profile ? ((await (await fetch(fileSrc(res.profile))).json()) as MotionProfile) : null;
+              const profile = res?.profile ? ((await (await fetchFile(res.profile)).json()) as MotionProfile) : null;
               let peaks = null;
-              if (res?.peaks) { const bytes = new Uint8Array(await (await fetch(fileSrc(res.peaks))).arrayBuffer()); peaks = { data: bytes, buckets: Math.floor(bytes.length / 2) }; }
+              if (res?.peaks) { const bytes = new Uint8Array(await (await fetchFile(res.peaks)).arrayBuffer()); peaks = { data: bytes, buckets: Math.floor(bytes.length / 2) }; }
               if (profile) motion = { ...summarizeProfile(profile, peaks), hiddenCuts: profile.hiddenCuts, cuts: profile.cuts, twosShare: profile.twosShare };
               break;
             }
