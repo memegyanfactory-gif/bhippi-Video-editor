@@ -50,6 +50,8 @@ export const PLUGIN_SENSITIVE = new Set([
   'brain_remember', 'brain_forget', 'brain_recall', 'brain_save_skill', 'brain_load_skill', 'save_meme',
   'online_research', 'scrape_web_page', 'scrape_videos', 'download_online_media', 'find_memes_online', 'refresh_meme_trends',
   'extract_brand_from_url', 'find_free_media', 'generate_cloud_media',
+  // Online, or spending the user's AI or voice credits.
+  'search_memes', 'get_meme_media', 'find_receipt', 'capture_product_ui', 'consult_council', 'analyze_reference_video', 'synthesize_speech_voiceover',
 ]);
 
 export const isSensitiveTool = (name: string) => PLUGIN_SENSITIVE.has(name) || name.startsWith('mcp__') || isDestructiveTool(name);

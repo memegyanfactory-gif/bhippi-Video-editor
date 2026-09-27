@@ -30,7 +30,9 @@ import { widens } from '../src/plugins/package';
 import { validatePlugin } from '../src/plugins/rules';
 import { SDK_SOURCE } from '../src/plugins/sdk';
 import { findPlugin } from '../src/plugins/store';
-import { scratchHistory } from '../src/plugins/testRunner';
+import { SCRATCH_SKIPPED, SCRATCH_TOOLS, scratchHistory } from '../src/plugins/testRunner';
+import catalog from '../src/lib/ai-tools.json';
+import { isSensitiveTool, PLUGIN_FORBIDDEN, PLUGIN_READS, pluginToolRefusal } from '../src/plugins/rules';
 import type { Plugin, PluginPermissions } from '../src/plugins/types';
 
 const permissions = (change: Partial<PluginPermissions> = {}): PluginPermissions => ({ tools: [], network: [], chat: false, services: [], ...change });
@@ -361,5 +363,71 @@ describe('clips a plugin draws', () => {
     pluginStore.get().generators.push({ plugin: 'viz', name: 'spectrum', label: 'Spectrum', description: '', params: {} });
     const wrong = await runTool(host, 'add_plugin_clip', { plugin: 'viz', generator: 'nope' });
     expect(wrong.error).toMatch(/offers: spectrum/);
+  });
+});
+
+
+describe('every Bhippi tool, for plugins', () => {
+  // A new tool must be sorted here before it ships: a read, run on the scratch copy in tests,
+  // skipped in tests (with why), sensitive (named by hand, never "*"), or never for plugins.
+  const names = catalog.tools.map((tool) => tool.name);
+
+  it('is classified, once', () => {
+    const unsorted = names.filter((name) => !PLUGIN_FORBIDDEN.has(name) && !PLUGIN_READS.has(name) && !SCRATCH_TOOLS.has(name) && !(name in SCRATCH_SKIPPED) && !isSensitiveTool(name));
+    expect(unsorted, 'put these in PLUGIN_READS, SCRATCH_TOOLS, SCRATCH_SKIPPED or PLUGIN_SENSITIVE').toEqual([]);
+    const both = names.filter((name) => SCRATCH_TOOLS.has(name) && name in SCRATCH_SKIPPED);
+    expect(both).toEqual([]);
+    for (const name of [...SCRATCH_TOOLS, ...Object.keys(SCRATCH_SKIPPED)]) expect(names, `${name} is not a tool any more`).toContain(name);
+  });
+
+  it('is callable by a plugin that names it, unless it is for AI turns only', () => {
+    const known = new Set(names);
+    for (const name of names) {
+      const refused = pluginToolRefusal({ tools: [name], network: [], chat: false }, name, known);
+      expect(refused === null, `${name}: ${refused}`).toBe(!PLUGIN_FORBIDDEN.has(name));
+    }
+  });
+});
+
+
+describe('a shorts clipper plugin', () => {
+  it('turns a long video into portrait shorts through bhippi.tool, as the plugin would', async () => {
+    const project = newProject();
+    const comp = project.comps[0];
+    const video = tracksOf(comp, 'video')[0].id;
+    const long = newClip({ trackId: video, start: 0, duration: 120, source: { type: 'media', assetId: 'talk' } });
+    comp.clips = [long];
+    project.media = [{ assetId: 'talk', folderId: null, offline: false }];
+    const assets = new Map([['talk', { id: 'talk', name: 'talk.mp4', path: 'D:/talk.mp4', kind: 'video', duration: 120, width: 1920, height: 1080, hasAudio: true, peaks: null } as unknown as Asset]]);
+    const history = scratchHistory(project);
+    vi.mocked(api.transcribeAsset).mockResolvedValue({ assetId: 'talk', provider: 'test', language: 'en', text: '', words: [] });
+    setPluginEditor({
+      host: () => ({ history, assets: () => assets, selection: () => [], setSelection: () => undefined, ask: async () => 'portrait' } as unknown as ToolHost),
+      runTool: (host, name, args) => runTool(host, name, args), known: new Set(catalog.tools.map((tool) => tool.name)), toolSpecs: () => [],
+      permission: () => 'edit' as never, disableLocalGeneration: () => true, toast: () => undefined, chat: () => undefined, projectPath: () => null,
+      ai: () => ({ providerId: null, model: null }), job: () => undefined,
+    });
+    vi.mocked(findPlugin).mockReturnValue(plugin({ tools: ['create_shorts'] }));
+    const frame = { postMessage: vi.fn() } as unknown as Window;
+    connectPluginFrame('cap', frame);
+
+    const result = await callAs(frame, 'tool', { name: 'create_shorts', args: {
+      clipId: long.id, orientation: 'portrait', trackFaces: false, captions: false,
+      shorts: [
+        { title: 'The hook', score: 8.4, segments: [{ start: 10, end: 32 }] },
+        { title: 'The payoff', score: 7.1, segments: [{ start: 60, end: 75 }, { start: 80, end: 95 }] },
+      ],
+    } }) as { ok: boolean };
+    expect(result.ok).toBe(true);
+    const made = history.current().comps.filter((item) => item.id !== comp.id);
+    expect(made).toHaveLength(2);
+    for (const short of made) expect([short.width, short.height]).toEqual([1080, 1920]);
+    expect(made.every((short) => short.clips.some((clip) => clip.source.type === 'media' && clip.source.assetId === 'talk'))).toBe(true);
+    expect(history.current().folders.some((folder) => folder.name === 'Shorts')).toBe(true);
+    // Landscape on the next call is honoured: a plugin's calls share no remembered answer.
+    const before = new Set(history.current().comps.map((item) => item.id));
+    await callAs(frame, 'tool', { name: 'create_shorts', args: { clipId: long.id, orientation: 'landscape', trackFaces: false, captions: false, shorts: [{ title: 'Wide', score: 6, segments: [{ start: 40, end: 55 }] }] } });
+    const wide = history.current().comps.find((item) => !before.has(item.id))!;
+    expect([wide.width, wide.height]).toEqual([1920, 1080]);
   });
 });

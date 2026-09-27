@@ -113,6 +113,11 @@ export type ToolHost = {
   saveSettings?: (next: Settings) => Promise<Settings>;
   turnId?: string;
   /**
+   * A plugin test's scratch host (testRunner.ts): tools make no new transcriptions, track nothing
+   * heavy and ask nothing, so a test is quick and free and still exercises the tool.
+   */
+  testing?: boolean;
+  /**
    * The checks a direct call from the model goes through before it runs — the user's permission
    * mode and the edit workflow's phase gate — returning why a call is refused, or null. A steps
    * tool runs each step through this, so saving calls in a tool never gets around them.
@@ -162,12 +167,18 @@ const shortsFormats = new Map<string, ShortOrientation>();
  * user's call which screen their shorts are for — unless the request already said which.
  */
 async function askShortsFormat(host: ToolHost, args: Args, turnId: string | undefined, signal?: AbortSignal): Promise<ShortOrientation | null> {
+  // Asked once per AI turn. A call from a plugin has no turn, so nothing is remembered for it:
+  // each call says its orientation (or asks).
   const key = turnId ?? host.turnId ?? '';
-  const known = shortsFormats.get(key);
-  if (known) return known;
   const stated = typeof args.orientation === 'string' ? orientationFromAnswer(args.orientation) : null;
+  if (stated) {
+    if (key) shortsFormats.set(key, stated);
+    return stated;
+  }
+  const known = key ? shortsFormats.get(key) : undefined;
+  if (known) return known;
   const fromPrompt = orientationStated(turnPrompt(turnId ?? host.turnId));
-  let chosen = stated ?? fromPrompt;
+  let chosen = fromPrompt;
   if (!chosen) {
     const answer = await host.ask({
       question: 'Which screen should the shorts be made for?',
@@ -176,7 +187,7 @@ async function askShortsFormat(host: ToolHost, args: Args, turnId: string | unde
     }, signal, turnId ?? host.turnId);
     chosen = orientationFromAnswer(answer);
   }
-  if (chosen) {
+  if (chosen && key) {
     shortsFormats.set(key, chosen);
     while (shortsFormats.size > 16) shortsFormats.delete(shortsFormats.keys().next().value!);
   }
@@ -2649,7 +2660,8 @@ ${notes.trim()}${paletteLine}
       // What was said, for word-safe cuts and the captions (cached after analyze_clip_speech).
       let words: import('./ipc').TranscriptWord[] = [];
       try {
-        words = (await api.transcribeAsset(asset.id, 'auto')).words ?? [];
+        // A plugin test makes no new transcription (it could cost): what is cached, or none.
+        words = host.testing ? (await api.transcriptsCached([asset.id]))[0]?.words ?? [] : (await api.transcribeAsset(asset.id, 'auto')).words ?? [];
       } catch { /* no engine: cuts stay as given, no captions */ }
 
       const problems: string[] = [];
@@ -2675,7 +2687,8 @@ ${notes.trim()}${paletteLine}
       // Faces keep the speaker in shot when the frame is cropped (YuNet on the CPU; optional).
       let faces: { id: number; frames: { t: number; x: number; y: number; width: number; height: number }[] }[] = [];
       let faceNote = '';
-      if (asset.kind === 'video' && bool(args, 'trackFaces') !== false) {
+      if (host.testing) faceNote = ' [test] Faces were not tracked during the plugin test; each short is framed on its focus point.';
+      else if (asset.kind === 'video' && bool(args, 'trackFaces') !== false) {
         const from = Math.min(...specs.flatMap((spec) => spec.segments.map((seg) => seg.start)));
         const to = Math.max(...specs.flatMap((spec) => spec.segments.map((seg) => seg.end)));
         try {

@@ -19,8 +19,9 @@ import type { Plugin, PluginGenerator, PluginLog } from './types';
 export const SCRATCH_READS = PLUGIN_READS;
 
 /**
- * Tools that only change the project itself, so they are safe to really run on a scratch copy.
- * Everything that is neither this nor a SCRATCH_READS read is skipped during a test.
+ * Tools safe to really run on a scratch copy: they change only the project, or only read it and
+ * its media on this computer. On the scratch host (`testing`) a tool makes no new transcription,
+ * tracks nothing heavy and asks nothing (create_shorts, for one, uses cached words and skips faces).
  */
 export const SCRATCH_TOOLS = new Set([
   'add_fx', 'add_marker', 'add_plugin_clip', 'add_shape', 'add_text', 'add_tracks', 'add_transition', 'apply_edit', 'color_grade',
@@ -28,12 +29,44 @@ export const SCRATCH_TOOLS = new Set([
   'frame_hold', 'group_clips', 'layout_clip', 'link_clips', 'nest_clips', 'open_comp', 'organize_bin', 'place_clip',
   'remove_range', 'remove_transitions', 'seamless_transition', 'set_caption_style', 'set_in_out', 'set_keyframes',
   'set_mask', 'split_clips', 'split_screen', 'undo', 'update_clip', 'update_comp', 'update_item', 'update_track',
+  // Shorts, captions, sound levels and beats: project edits from what is already known.
+  'create_shorts', 'add_captions', 'level_audio', 'snap_cuts_to_beats', 'fill_background', 'apply_recipe', 'call_custom_tool',
+  // Graphics and motion built inside the project.
+  'create_motion_graphic', 'react_bits', 'remotion_kit', 'create_motion_sequence', 'create_motion_scene', 'update_motion_scene',
+  'nest_motion_scenes', 'split_motion_layers', 'create_stick_figure', 'animate_character', 'create_ui_screen', 'update_ui_screen',
+  'apply_brand_kit', 'save_beat_sheet', 'roast_move', 'apply_roast_edl',
+  // Local reads of the project and its media.
+  'inspect_clip_frames', 'inspect_source_frames', 'detect_scenes', 'analyze_music_beats', 'score_audio_clip', 'inspect_color',
+  'check_brand_compliance', 'list_brand_archetypes', 'brand_kit_prompt', 'validate_roast_edl', 'edit_dna',
+  'local_media_capabilities', 'cloud_generation_capabilities',
+]);
+
+/**
+ * Tools a plugin may call (when its permissions name them) that never run during a test, and why.
+ * Every tool in the catalogue is a read, a scratch tool, one of these, sensitive or forbidden:
+ * tests/pluginCapabilities.test.ts fails for a new tool until it is put in one of them.
+ */
+export const SCRATCH_SKIPPED: Record<string, string> = Object.fromEntries([
+  ...['import_media', 'import_lottie', 'import_generated_media', 'import_brand_logo', 'import_brand_kit', 'export_brand_kit', 'render_brand_board',
+    'create_brand_kit', 'update_brand_kit', 'set_active_brand_kit', 'create_project_guideline', 'save_style_profile', 'create_character',
+    'add_sound_effect', 'generate_selection_sound', 'normalize_audio', 'add_voiceover']
+    .map((name) => [name, 'it writes or imports files']),
+  ...['analyze_clip_speech', 'podcast_cut', 'track_people', 'lip_sync_character', 'detect_faces', 'track_motion', 'rotoscope_clip', 'erase_subject_clip',
+    'reveal_subject', 'depth_occlusion_clip', 'add_text_behind_subject', 'add_media_behind_subject', 'key_green_screen', 'cutout_image',
+    'render_3d_scene', 'generate_local_media', 'generation_job']
+    .map((name) => [name, 'it transcribes or runs a heavy local model']),
+  ...['search_sfx', 'place_sfx'].map((name) => [name, 'it may search or download online']),
+  ...['choose_shorts_format', 'set_playhead'].map((name) => [name, 'it asks the user or moves the real playhead']),
+  ...['propose_storyboards', 'save_storyboard', 'save_video_blueprint', 'execute_blueprint', 'attach_production_asset', 'finish_gathering',
+    'judge_edit', 'run_frame_qa', 'query_frame_atlas', 'list_subagents', 'list_learned_skills', 'apply_learned_skill']
+    .map((name) => [name, 'it belongs to an AI turn or its memory']),
 ]);
 
 /** Why `name` is not really run during a test, or null. */
 export function scratchSkip(name: string): string | null {
   if (SCRATCH_READS.has(name) || SCRATCH_TOOLS.has(name)) return null;
-  return `[test] ${name} was not run: during a test only reads and project edits run, never files, network, shell or settings. It will run for the user.`;
+  const why = SCRATCH_SKIPPED[name] ?? 'during a test only reads and project edits run, never files, network, shell or settings';
+  return `[test] ${name} was not run: ${why}. It will run for the user.`;
 }
 
 /** An undo history over a copy of `initial`, with the shape of the editor's (history.ts). */
@@ -106,6 +139,7 @@ export function scratchHost(base: ToolHost, history: History): ToolHost {
   let selection: string[] = [];
   return {
     history,
+    testing: true,
     assets: base.assets,
     selection: () => selection,
     setSelection: (ids) => { selection = [...ids]; },

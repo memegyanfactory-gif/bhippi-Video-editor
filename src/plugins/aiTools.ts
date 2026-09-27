@@ -15,6 +15,7 @@ import { isPluginRead, isSensitiveTool, pluginIdFor, PLUGIN_FORBIDDEN, PLUGIN_ID
 import { findPlugin, loadPlugins, patchPlugin, pluginStore, clearLogs, removePlugin, savePlugin } from './store';
 import { LOGO_FILE, logoImage } from './logo';
 import { EXAMPLES, scaffold, TEMPLATES, type TemplateId } from './templates';
+import { SCRATCH_SKIPPED, scratchSkip } from './testRunner';
 import type { Plugin, PluginPermissions } from './types';
 
 /** The Plugin Maker's draft and check tools. */
@@ -126,7 +127,9 @@ function toolCatalog(query: string) {
       const cut = tool.description.indexOf('. ');
       const line = (cut < 0 ? tool.description : tool.description.slice(0, cut + 1)).slice(0, 140);
       const tag = isPluginRead(tool.name) ? 'read' : isSensitiveTool(tool.name) ? 'SENSITIVE' : 'edit';
-      return `${tool.name} [${tag}] — ${line}`;
+      // Whether plugin_test really runs it on the scratch copy, so the Maker writes checks that can pass.
+      const skipped = SCRATCH_SKIPPED[tool.name] ?? (scratchSkip(tool.name) ? 'it reaches outside the project' : null);
+      return `${tool.name} [${tag}; ${skipped ? `not run in plugin_test: ${skipped}` : 'runs in plugin_test'}] — ${line}`;
     });
 }
 

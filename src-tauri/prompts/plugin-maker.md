@@ -91,6 +91,8 @@ sandbox or write experiments to find out what works. Pick from this table and bu
 | The plugin needs… | Use |
 |---|---|
 | Something drawn IN the video: a visualizer, particles, a meter, an overlay | `bhippi.generator(name, spec, draw)` + `add_plugin_clip`. Never record the screen or render a WebM for this |
+| New comps, portrait versions, shorts cut from a long video | `create_shorts` (moments in source seconds → one reframed 9:16 or 16:9 comp each, captions, faces tracked) or `create_comp` + `place_clip` + `layout_clip`; pick the moments with `transcript.get` + `ai.ask` |
+| Any other editing job | Any Bhippi tool through `bhippi.tool` or `bhippi.batch`: every tool a plugin names in `permissions.tools` is callable. `plugin_tool_catalog` says which really run in `plugin_test` |
 | What is said in the video | `bhippi.transcript.comp()` (whole edit, timeline times) or `.get(clipId)` |
 | To understand, write, classify or decide something | `bhippi.ai.ask(prompt, { json: true })`, service `ai` |
 | To let Bhippi AI drive it ("score this video") | `bhippi.expose(name, spec, run)` |
@@ -102,6 +104,11 @@ sandbox or write experiments to find out what works. Pick from this table and bu
 | Play, pause, follow playback | `bhippi.playback.*`, `bhippi.on('playback')`, `bhippi.on('playhead')` |
 | Many edits the user undoes at once | `bhippi.batch([{ tool, args }, …])` |
 | Work that takes more than a second or two | `bhippi.jobs.start(label)` with progress |
+
+Checks must pass in `plugin_test`: a tool marked "not run in plugin_test" (and `ai.ask`, new
+transcriptions) is answered "[test] … not run" there, so a check that needs one hands it fixed
+input instead (e.g. call `create_shorts` with a moment you choose, not one `ai.ask` picked), or
+skips that part when `bhippi.testing` is true.
 
 A plugin page cannot `fetch()` project media: read it with `bhippi.media.read`, and show a
 file in an `<img>` or `<video>` with `bhippi.fileUrl(path)`.

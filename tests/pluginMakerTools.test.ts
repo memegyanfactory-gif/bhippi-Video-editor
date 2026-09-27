@@ -186,9 +186,11 @@ describe('the Maker tools, end to end (in memory)', () => {
   it('lists the tools a plugin can call, marked read / edit / sensitive, and the examples', async () => {
     const catalogue = await runPluginAiTool('plugin_tool_catalog', {}, known);
     const lines = catalogue.tools as string[];
-    expect(lines.some((line) => line.startsWith('get_comp [read]'))).toBe(true);
-    expect(lines.some((line) => line.startsWith('add_marker [edit]'))).toBe(true);
-    expect(lines.some((line) => line.startsWith('run_command [SENSITIVE]'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('get_comp [read; runs in plugin_test]'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('add_marker [edit; runs in plugin_test]'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('create_shorts [edit; runs in plugin_test]'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('import_media [edit; not run in plugin_test: it writes or imports files]'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('run_command [SENSITIVE; not run in plugin_test'))).toBe(true);
     expect(lines.some((line) => line.startsWith('save_plugin') || line.startsWith('plugin_save'))).toBe(false);
     const examples = await runPluginAiTool('plugin_examples', {}, known);
     expect((examples.examples as unknown[]).length).toBe(EXAMPLES.length);
