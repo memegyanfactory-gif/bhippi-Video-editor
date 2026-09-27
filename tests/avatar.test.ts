@@ -51,7 +51,7 @@ describe('mirroring the chat', () => {
 
   it('does what the newest running call does, then writes or thinks between calls', () => {
     const mirror = new ChatMirror();
-    expect(mirror.apply(start('t'), 0)).toEqual({ type: 'started' });
+    expect(mirror.apply(start('t'), 0)).toEqual({ type: 'started', plugin: false });
     expect(kind(mirror, 10)).toBe('think');
     mirror.apply(call('t', 'a', 'online_research'), 100);
     expect(mirror.desired(110)).toMatchObject({ kind: 'research', role: 'researcher' });
@@ -84,7 +84,7 @@ describe('mirroring the chat', () => {
     const mirror = new ChatMirror();
     mirror.apply(start('t'), 0);
     mirror.apply(call('t', 'a', 'create_motion_scene'), 10);
-    expect(mirror.apply(end('t', 'stopped'), 20)).toEqual({ type: 'ended', outcome: 'stopped' });
+    expect(mirror.apply(end('t', 'stopped'), 20)).toEqual({ type: 'ended', outcome: 'stopped', plugin: false });
     expect(mirror.desired(30)).toBeNull();
     expect(mirror.busy(30)).toBe(false);
     // Already in flight when the user pressed Stop: none of it is acted out, none of it wakes the chat.
@@ -95,7 +95,7 @@ describe('mirroring the chat', () => {
     // The backend's own closing event after the chat's: nothing more happens.
     expect(mirror.apply(end('t', 'stopped'), 80)).toEqual({ type: 'none' });
     // The next message is a new turn, and it starts fresh.
-    expect(mirror.apply(start('t2'), 90)).toEqual({ type: 'started' });
+    expect(mirror.apply(start('t2'), 90)).toEqual({ type: 'started', plugin: false });
   });
 
   it('stopping the lead stops its council workers; a lead that simply finished leaves them working', () => {
@@ -103,7 +103,7 @@ describe('mirroring the chat', () => {
     stopped.apply(start('lead'), 0);
     stopped.apply(start('lead:sub:1'), 5);
     stopped.apply(call('lead:sub:1', 'w', 'level_audio'), 10);
-    expect(stopped.apply(end('lead', 'stopped'), 20)).toEqual({ type: 'ended', outcome: 'stopped' });
+    expect(stopped.apply(end('lead', 'stopped'), 20)).toEqual({ type: 'ended', outcome: 'stopped', plugin: false });
     expect(stopped.desired(30)).toBeNull();
     expect(stopped.apply(done('lead:sub:1', 'w', 'level_audio', true), 40)).toEqual({ type: 'none' });
 
@@ -114,7 +114,35 @@ describe('mirroring the chat', () => {
     expect(finished.apply(end('lead', 'done'), 20)).toEqual({ type: 'none' });
     expect(finished.desired(30)).toMatchObject({ kind: 'mix', role: 'audio' });
     expect(finished.apply(done('lead:sub:1', 'w', 'level_audio', true), 40).type).toBe('edited');
-    expect(finished.apply(end('lead:sub:1', 'done'), 50)).toEqual({ type: 'ended', outcome: 'done' });
+    expect(finished.apply(end('lead:sub:1', 'done'), 50)).toEqual({ type: 'ended', outcome: 'done', plugin: false });
+  });
+
+  it('a Plugin Maker turn builds the plugin and leaves the edit open', () => {
+    const mirror = new ChatMirror();
+    expect(mirror.apply({ type: 'turn', turnId: 'p', busy: true, plugin: true }, 0)).toEqual({ type: 'started', plugin: true });
+    expect(mirror.busy(10)).toBe(true);
+    // Nothing in the video is changing, so nothing is guarded.
+    expect(mirror.editBusy(10)).toBe(false);
+    expect(mirror.buildingPlugin(10)).toBe(true);
+    expect(kind(mirror, 10)).toBe('tinker');
+    // Its file writes and research read as building, not drawing keyframes or researching footage.
+    mirror.apply(call('p', 'a', 'write_file'), 20);
+    expect(kind(mirror, 30)).toBe('tinker');
+    mirror.apply({ type: 'step', turnId: 'p:sub:1', id: 's', verb: 'edited', title: 'index.html', done: false }, 40);
+    expect(kind(mirror, 50)).toBe('tinker');
+    // A question to the user is still a question.
+    mirror.apply(call('p', 'q', 'ask_user'), 60);
+    expect(kind(mirror, 70)).toBe('ask');
+    // An editing turn alongside it guards the edit again.
+    mirror.apply(start('e'), 80);
+    expect(mirror.editBusy(90)).toBe(true);
+    mirror.apply(end('e', 'done'), 100);
+    expect(mirror.editBusy(110)).toBe(false);
+    expect(mirror.apply({ type: 'step', turnId: 'p:sub:1', id: 's', verb: 'edited', title: '', done: true }, 115)).toEqual({ type: 'none' });
+    mirror.apply(done('p', 'a', 'write_file'), 120);
+    mirror.apply(done('p', 'q', 'ask_user'), 125);
+    mirror.apply(end('p:sub:1', 'done'), 128);
+    expect(mirror.apply(end('p', 'done'), 130)).toEqual({ type: 'ended', outcome: 'done', plugin: true });
   });
 
   it('forgets a turn that went silent without closing', () => {

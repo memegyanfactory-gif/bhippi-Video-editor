@@ -136,6 +136,10 @@ export const LINES: Record<string, string[]> = {
   tweak: ['Tweaking', 'Just so'],
   think: ['Hmm...', 'Let me see', 'Reading it'],
   tinker: ['Running it...', 'Building...', 'Beep boop'],
+  // A Plugin Maker turn: building a plugin, not editing the video.
+  plugin: ['Building your plugin', 'Coding it up...', 'Testing the plugin', 'Wiring the UI', 'Almost there!'],
+  pluginWake: ['Plugin time!', 'Building it!', 'On your plugin!'],
+  pluginDone: ['Plugin ready!', 'Built it!', 'Try your plugin!'],
   ask: ['Your turn!', 'Need your answer', 'Over to you'],
   stopped: ['Stopped.', 'OK, stopping', 'Stopped!'],
   failed: ['Uh oh...', 'That failed', 'Oops...'],

@@ -8,7 +8,9 @@
 // timeline (a cut, a clip added, deleted, moved or tweaked) is acted out as a short reaction right
 // after it; reactions the chat has already left behind are dropped rather than played late. The
 // user can pick it up (it laughs and wriggles, then falls where it is dropped), poke it, and —
-// while the AI is working — gets their cursor slapped for touching the edit.
+// while the AI is working on the video — gets their cursor slapped for touching the edit. A
+// Plugin Maker turn is different work: the avatar builds the plugin (its own lines and sparks)
+// and leaves the edit open, because nothing in the video is being changed.
 
 import { councilMember, type CouncilRole } from '../lib/council';
 import { LINES, type ActivityKind, type ClipDiff } from './brain';
@@ -266,19 +268,19 @@ export class AvatarEngine {
     switch (change.type) {
       case 'started':
         this.parked = false;
-        this.say(pick(LINES.wake), 1100);
+        this.say(pick(change.plugin ? LINES.pluginWake : LINES.wake), 1100);
         break;
       case 'edited':
         if (change.event.diff) this.fromDiff(change.event.diff, change.event.ghosts, now);
         break;
       case 'ended':
-        this.finish(change.outcome, now);
+        this.finish(change.outcome, now, change.plugin);
         break;
     }
   }
 
   /** The last live turn closed. Stopped: drop everything, right where it stands. */
-  private finish(outcome: TurnOutcome, now: number) {
+  private finish(outcome: TurnOutcome, now: number, plugin = false) {
     if (outcome === 'stopped' || outcome === 'failed') {
       for (const job of [this.job, ...this.queue]) if (job) this.release(job);
       this.queue = [];
@@ -295,12 +297,7 @@ export class AvatarEngine {
       return;
     }
     // Finished: the last edits it made play out first, then the thumbs-up.
-    this.react(this.makeJob('celebrate', { line: pick(LINES.done), minMs: 2300 }));
-  }
-
-  /** Whether Bhippi AI is at work (the chat's turns and its council workers). */
-  private busy(now = performance.now()) {
-    return this.mirror.busy(now);
+    this.react(this.makeJob('celebrate', { line: pick(plugin ? LINES.pluginDone : LINES.done), minMs: 2300 }));
   }
 
   private fromDiff(diff: ClipDiff, ghosts: Ghost[], now: number) {
@@ -692,10 +689,14 @@ export class AvatarEngine {
         });
         break;
       }
-      case 'tinker':
+      case 'tinker': {
+        // Building a plugin reads as code going in, not a command running.
+        const plugin = this.mirror.buildingPlugin(now);
         every(0.5, () => { const [x, y] = hand('r'); this.burst(x + 8 * this.facing, y - 10, '#ffd35a', 3); });
-        every(1.6, () => this.emit({ kind: 'text', text: pick(['>_', 'RUN', 'OK!']), x: this.pos.x - 10 + Math.random() * 20, y: overHead + 8, vx: 0, vy: -30, color: '#3ecf8e', life: 1 }));
+        every(1.6, () => this.emit({ kind: 'text', text: pick(plugin ? ['</>', '{ }', 'JS', 'UI', 'OK!'] : ['>_', 'RUN', 'OK!']), x: this.pos.x - 10 + Math.random() * 20, y: overHead + 8, vx: 0, vy: -30, color: plugin ? '#7fd6ff' : '#3ecf8e', life: 1 }));
+        if (plugin) every(6, () => { if (Math.random() < 0.45) this.say(pick(LINES.plugin), 1600); });
         break;
+      }
       case 'think':
         every(4.5, () => { if (Math.random() < 0.35) this.say(pick(LINES.think), 1400); });
         break;
@@ -936,14 +937,14 @@ export class AvatarEngine {
 
   /** The user reached into the edit while the AI works on it. */
   private onDocPointer = (event: PointerEvent) => {
-    if (!this.visible || !this.busy()) return;
+    if (!this.visible || !this.mirror.editBusy(performance.now())) return;
     const target = event.target as HTMLElement | null;
     if (!target || target.closest('.avatar-layer') || !target.closest(EDIT_TARGETS)) return;
     this.slapAt({ x: event.clientX, y: event.clientY });
   };
 
   private onKey = (event: KeyboardEvent) => {
-    if (!this.visible || event.repeat || !this.busy()) return;
+    if (!this.visible || event.repeat || !this.mirror.editBusy(performance.now())) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('input, textarea, select, [contenteditable="true"], [data-panel="chat"]')) return;
     const key = event.key.toLowerCase();

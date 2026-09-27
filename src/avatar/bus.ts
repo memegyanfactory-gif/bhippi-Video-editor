@@ -13,7 +13,8 @@ export type Ghost = { id: string; x: number; y: number; w: number; h: number; co
 export type TurnOutcome = 'done' | 'stopped' | 'failed';
 
 export type AvatarEvent =
-  | { type: 'turn'; turnId: string; busy: boolean; outcome?: TurnOutcome }
+  /** `plugin`: a Plugin Maker turn — it builds a plugin and never touches the video. */
+  | { type: 'turn'; turnId: string; busy: boolean; outcome?: TurnOutcome; plugin?: boolean }
   /** The model is thinking, or writing its reply in the chat. */
   | { type: 'chat'; turnId: string; what: 'thinking' | 'writing' }
   /** A step a CLI provider takes by itself (its own search, file read, command), as the chat lists it. */
@@ -49,9 +50,9 @@ export const avatarBus = {
       try { listener(event); } catch (error) { console.warn('avatar:', error); }
     }
   },
-  /** A chat turn (or a council worker's turn) started, or closed with an outcome. */
-  turn(turnId: string, busy: boolean, outcome?: TurnOutcome) {
-    if (listeners.size) this.emit({ type: 'turn', turnId, busy, outcome });
+  /** A chat turn (or a council worker's turn) started, or closed with an outcome. `plugin` marks a Plugin Maker turn. */
+  turn(turnId: string, busy: boolean, outcome?: TurnOutcome, plugin = false) {
+    if (listeners.size) this.emit({ type: 'turn', turnId, busy, outcome, ...(plugin ? { plugin } : {}) });
   },
   /** A chunk of the model's thinking or of its reply arrived. */
   chat(turnId: string, what: 'thinking' | 'writing') {

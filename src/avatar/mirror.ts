@@ -19,10 +19,10 @@ type ToolEnd = Extract<AvatarEvent, { type: 'tool-end' }>;
 /** What an event changed, as far as the character is concerned. */
 export type Change =
   | { type: 'none' }
-  /** The chat went from idle to working. */
-  | { type: 'started' }
-  /** The last live turn closed: finished, stopped by the user, or failed. */
-  | { type: 'ended'; outcome: TurnOutcome }
+  /** The chat went from idle to working; `plugin` when that work is building a plugin. */
+  | { type: 'started'; plugin: boolean }
+  /** The last live turn closed: finished, stopped by the user, or failed. `plugin` when it was a Plugin Maker turn. */
+  | { type: 'ended'; outcome: TurnOutcome; plugin: boolean }
   /** A call that finished changed the timeline. */
   | { type: 'edited'; event: ToolEnd };
 
@@ -40,6 +40,9 @@ type Step = { turnId: string; activity: Activity | null; seen: number; order: nu
 const isWorkerOf = (turnId: string, lead: string) => turnId.startsWith(`${lead}:sub:`);
 
 const desire = (activity: Activity): Desire => ({ kind: activity.kind, role: activity.role, key: `${activity.kind}|${activity.role ?? ''}` });
+/** Everything a Plugin Maker turn does — reading, writing files, validating, testing — is building the plugin. */
+const BUILDING: Activity = { kind: 'tinker', role: null };
+const asBuilding = (activity: Activity | null): Activity => (activity?.kind === 'ask' ? activity : BUILDING);
 const NONE: Change = { type: 'none' };
 
 export class ChatMirror {
@@ -50,15 +53,19 @@ export class ChatMirror {
   private closed = new Set<string>();
   /** Leads the user stopped: their workers are closed with them. */
   private stoppedLeads = new Set<string>();
+  /** Plugin Maker turns (and their workers): they build a plugin and never touch the video. */
+  private pluginLeads = new Set<string>();
   private writingAt = -Infinity;
   private order = 0;
 
   apply(event: AvatarEvent, now: number): Change {
     const wasBusy = this.busy(now);
     const { turnId } = event;
+    if (event.type === 'turn' && event.busy && event.plugin) this.pluginLeads.add(turnId);
     if (event.type === 'turn' && !event.busy) {
+      const plugin = this.isPlugin(turnId);
       this.close(turnId, event.outcome === 'stopped');
-      return wasBusy && !this.busy(now) ? { type: 'ended', outcome: event.outcome ?? 'done' } : NONE;
+      return wasBusy && !this.busy(now) ? { type: 'ended', outcome: event.outcome ?? 'done', plugin } : NONE;
     }
     if (this.isClosed(turnId)) {
       // Late news from a turn that has ended: a call it started still reports back, but nothing it says is acted out.
@@ -72,10 +79,13 @@ export class ChatMirror {
         break;
       case 'step':
         if (event.done) this.steps.delete(event.id);
-        else this.steps.set(event.id, { turnId, activity: activityForStep(event.verb, event.title), seen: now, order: ++this.order });
+        else {
+          const activity = activityForStep(event.verb, event.title);
+          this.steps.set(event.id, { turnId, activity: this.isPlugin(turnId) ? asBuilding(activity) : activity, seen: now, order: ++this.order });
+        }
         break;
       case 'tool-start':
-        this.calls.set(event.callId, { turnId, activity: event.activity, order: ++this.order });
+        this.calls.set(event.callId, { turnId, activity: this.isPlugin(turnId) ? asBuilding(event.activity) : event.activity, order: ++this.order });
         // A tool call means the reply is not being written just now.
         this.writingAt = -Infinity;
         break;
@@ -84,7 +94,31 @@ export class ChatMirror {
         if (event.ok && event.diff) return { type: 'edited', event };
         break;
     }
-    return wasBusy ? NONE : { type: 'started' };
+    return wasBusy ? NONE : { type: 'started', plugin: this.isPlugin(turnId) };
+  }
+
+  /** Whether `turnId` is a Plugin Maker turn, or a worker one of them put to work. */
+  isPlugin(turnId: string): boolean {
+    if (this.pluginLeads.has(turnId)) return true;
+    for (const lead of this.pluginLeads) if (isWorkerOf(turnId, lead)) return true;
+    return false;
+  }
+
+  /**
+   * Whether Bhippi AI is at work on the video: [`busy`] with at least one turn that is not a
+   * Plugin Maker turn. Only this guards the edit — building a plugin changes no clip, so the user
+   * may keep editing while it runs.
+   */
+  editBusy(now: number): boolean {
+    if (!this.busy(now)) return false;
+    for (const call of this.calls.values()) if (!this.isPlugin(call.turnId)) return true;
+    for (const id of this.turns.keys()) if (!this.isPlugin(id)) return true;
+    return false;
+  }
+
+  /** Whether the only work under way is building a plugin. */
+  buildingPlugin(now: number): boolean {
+    return this.busy(now) && !this.editBusy(now);
   }
 
   /** Whether Bhippi AI is at work: a call running, or a live turn that spoke recently. */
@@ -108,7 +142,7 @@ export class ChatMirror {
     if (step?.activity) return desire(step.activity);
     if (!this.busy(now)) return null;
     if (now - this.writingAt < WRITING_MS) return desire({ kind: 'talk', role: null });
-    return desire({ kind: 'think', role: null });
+    return desire(this.buildingPlugin(now) ? BUILDING : { kind: 'think', role: null });
   }
 
   isClosed(turnId: string): boolean {
@@ -128,5 +162,6 @@ export class ChatMirror {
     // Keep the memory of closed turns bounded.
     if (this.closed.size > 500) this.closed = new Set([...this.closed].slice(-250));
     if (this.stoppedLeads.size > 100) this.stoppedLeads = new Set([...this.stoppedLeads].slice(-50));
+    if (this.pluginLeads.size > 100) this.pluginLeads = new Set([...this.pluginLeads].slice(-50));
   }
 }
