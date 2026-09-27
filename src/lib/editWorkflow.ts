@@ -1,3 +1,4 @@
+import { JUDGE_ROUNDS, PASS_MARK } from './judge';
 import { describeUncovered, uncoveredSpans } from './coverage';
 import { councilMember, councilReview } from './council';
 import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } from './types';
@@ -144,6 +145,7 @@ const preparation = new Set([
   'list_transitions',
   'check_pacing',
   'list_character_actions',
+  'list_characters',
   'get_motion_scene',
   'analyze_reference_video',
   'save_style_profile',
@@ -201,6 +203,7 @@ const preparation = new Set([
   'set_playhead',
   // Production bookkeeping and analysis: they change the plan, never the timeline.
   'run_frame_qa',
+  'judge_edit',
   'attach_production_asset',
   'finish_gathering',
   'analyze_music_beats',
@@ -256,7 +259,17 @@ const LOCAL_GENERATION_OFF =
   'can turn local generation back on in Settings → Local Media if they want it for this project.';
 
 /** Reads and bookkeeping that are fine in any phase, including after a phase has just closed. */
+/** Tools usable in any phase that still wait for the frame size of a picture-less comp: notes, memory, research, plugin writes. */
+const HELD_FOR_SIZE = new Set([
+  'write_file', 'edit_file', 'replace_file_content', 'save_plugin', 'brain_remember', 'brain_forget', 'brain_save_skill', 'export_brand_kit',
+  'extract_brand_from_url', 'consult_council', 'wait_subagent',
+]);
+
 const ALWAYS_TOOLS = new Set([
+  // A tool's own documentation (the catalogue sends most tools slim): reading it changes nothing.
+  'tool_help',
+  // The Director's debate proposes storyboards; the lead still saves one through save_storyboard.
+  'propose_storyboards',
   // The plugin library, not the project: fine in any phase (call_plugin_action is gated like an edit).
   'plugin_sdk_reference',
   'list_plugins',
@@ -275,6 +288,7 @@ const ALWAYS_TOOLS = new Set([
   'list_transitions',
   'check_pacing',
   'list_character_actions',
+  'list_characters',
   'get_motion_scene',
   'editing_workflow_status',
   'verify_edit_workflow',
@@ -388,6 +402,10 @@ export class EditWorkflow {
   private closedPhase: 'plan' | 'gather' | null = null;
   /** How many timeline actions had run when the last frame-QA pass was taken; -1 = never. */
   private qaAtAction = -1;
+  /** The Judge's last verdict in this turn: the action count it saw, its score, how many rounds ran. */
+  private judgeAtAction = -1;
+  private judgeScore: number | null = null;
+  private judgeRounds = 0;
   /** What the last frame-QA pass reported: verify needs each fixed, or waived with a reason. */
   private qaIssues: { kind: string; a: string; b: string }[] = [];
   /** The waivers the pending verify_edit_workflow call carries (verify itself only sees the project). */
@@ -502,7 +520,11 @@ export class EditWorkflow {
       blueprintPlan: !!comp?.videoBlueprint && (comp.videoBlueprint.status === 'executing' || comp.videoBlueprint.status === 'done' || this.blueprintExecuted),
       pendingJobs: [...this.jobs], pendingPlacement: [...this.unplaced], successfulActions: [...this.actions],
       finalTimelineRead: this.reviewedActions === this.actions.length,
-      structurallyVerified: this.finished && this.verifiedSnapshot === JSON.stringify(comp), visualQualityVerified: false };
+      structurallyVerified: this.finished && this.verifiedSnapshot === JSON.stringify(comp),
+      // Rendered frames were looked at and scored after the last edit (judge_edit).
+      visualQualityVerified: this.judgeAtAction === this.actions.length && this.judgeScore !== null && this.judgeScore >= PASS_MARK,
+      judge: { score: this.judgeScore, current: this.judgeAtAction === this.actions.length && this.judgeAtAction >= 0, rounds: this.judgeRounds, passMark: PASS_MARK },
+      frameSizeNeeded: this.frameSizePending(project) };
   }
   before(name: string, args: Args, project: Project): string | null {
     // A hard switch, not a phase gate: checked before the quick-mode bypass so a one-off Quick
@@ -562,13 +584,22 @@ export class EditWorkflow {
     if (name.startsWith('mcp__')) return 'External tools cannot bypass this workflow. Use the native editing tools, or select Quick edit for a separate explicitly scoped task.';
     return null;
   }
-  /** Refuses all but reads until the user has chosen the frame size of a comp that has no picture. */
+  /** Whether the user still has to pick the frame: the comp has no picture to take a size from and nobody chose one. */
+  frameSizePending(project: Project): boolean {
+    if (!this.askFrameSize) return false;
+    const comp = this.comp(project);
+    return comp ? needsFrameSize(comp) : !this.compId;
+  }
+  /**
+   * Refuses everything but the question itself and library lookups until the user has chosen
+   * the frame size of a comp that has no picture: the question comes first, before any planning,
+   * research, notes or building.
+   */
   private sizeGate(name: string, project: Project): string | null {
     // Shorts are built in comps of their own, at the frame choose_shorts_format asks for.
-    if (!this.askFrameSize || ALWAYS_TOOLS.has(name) || name === 'create_shorts') return null;
-    const comp = this.comp(project);
-    if (comp ? !needsFrameSize(comp) : this.compId) return null;
-    return 'Ask the frame size first: the timeline has no picture (empty or audio only), so its size is only the default. Call choose_comp_size — it asks the user and sets the comp — then carry on with the task.';
+    // Library lookups are harmless; notes, research and builds wait for the answer.
+    if (name === 'create_shorts' || (ALWAYS_TOOLS.has(name) && !HELD_FOR_SIZE.has(name)) || !this.frameSizePending(project)) return null;
+    return 'Ask the frame size first: the timeline has no picture (empty or audio only), so its size is only the default. Call choose_comp_size now — before any plan, research, note or build — it asks the user and sets the comp; then carry on with the task.';
   }
   /** Whether a call works on a short made this turn: by compId, by its clips, or on the open short. */
   private onShort(name: string, args: Args, project: Project): boolean {
@@ -687,7 +718,13 @@ export class EditWorkflow {
     }
     if ((name === 'save_storyboard' || name === 'save_video_blueprint') && comp.production?.phase === 'plan-ready') this.closedPhase = 'plan';
     if (name === 'finish_gathering' && comp.production?.phase === 'gathered') this.closedPhase = 'gather';
-    if (name === 'run_frame_qa') {
+    if (name === 'judge_edit' && typeof result.score === 'number') {
+      this.judgeAtAction = this.actions.length;
+      this.judgeScore = result.score;
+      this.judgeRounds = typeof result.round === 'number' ? result.round : this.judgeRounds + 1;
+    }
+    // The Judge runs the Editor's frame pass first, so its verdict is a QA pass too.
+    if (name === 'run_frame_qa' || (name === 'judge_edit' && Array.isArray(result.issues))) {
       this.qaAtAction = this.actions.length;
       this.qaIssues = Array.isArray(result.issues)
         ? (result.issues as { kind?: unknown; a?: unknown; b?: unknown }[]).map(issue => ({ kind: String(issue?.kind ?? ''), a: String(issue?.a ?? ''), b: String(issue?.b ?? '') }))
@@ -845,9 +882,19 @@ export class EditWorkflow {
       const holds = councilReview(project, assets, comp).notes.filter((note) => note.severity === 'block');
       if (holds.length) return { ok: false, error: `The council holds the cut. Fix these, then consult_council and verify again:\n${holds.map((note) => `- ${councilMember(note.member)?.name}: ${note.text} → ${note.fix}`).join('\n')}` };
     }
+    // The Judge signs the production off: a current verdict at the pass mark, or the rounds spent.
+    let judgeNote = '';
+    if (this.mode === 'full' && comp.production && (phase === 'editing' || phase === 'polishing')) {
+      const judgeCurrent = this.judgeAtAction === this.actions.length && this.judgeScore !== null;
+      if (!judgeCurrent) return { ok: false, error: `The Judge has not scored this cut: call judge_edit${status.qaCurrent ? '' : ' (it runs the frame pass too)'} after your last edit, fix what it lists, then verify.` };
+      if ((this.judgeScore ?? 0) < PASS_MARK) {
+        if (this.judgeRounds < JUDGE_ROUNDS) return { ok: false, error: `The Judge scored ${this.judgeScore}/100 (pass mark ${PASS_MARK}). Fix its list and call judge_edit again (round ${this.judgeRounds + 1} of ${JUDGE_ROUNDS}).` };
+        judgeNote = ` The Judge scored ${this.judgeScore}/100 after ${this.judgeRounds} rounds (below ${PASS_MARK}); the Token Council stopped the loop — tell the user what is still weak.`;
+      } else judgeNote = ` The Judge scored ${this.judgeScore}/100.`;
+    }
     this.finished = true;
     this.verifiedSnapshot = JSON.stringify(comp);
     const waiverNote = accepted.length ? ` Frame QA issues accepted as intended: ${accepted.map(w => `${w.kind} "${w.a}" (${w.reason})`).join('; ')}.` : '';
-    return { ok: true, summary: `Workflow receipts and timeline structure checked.${waiverNote} This does not verify rendered frames, matte quality, music quality or unsupported model features.`, workflow: this.status(project), ...(accepted.length ? { acceptedQaIssues: accepted } : {}) };
+    return { ok: true, summary: `Workflow receipts and timeline structure checked.${waiverNote}${judgeNote}${judgeNote ? '' : ' This does not verify rendered frames, matte quality, music quality or unsupported model features.'}`, judgeScore: this.judgeScore, workflow: this.status(project), ...(accepted.length ? { acceptedQaIssues: accepted } : {}) };
   }
 }

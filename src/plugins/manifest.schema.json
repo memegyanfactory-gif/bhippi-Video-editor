@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bhippi.com/schemas/plugin-manifest-2.json",
+  "title": "Bhippi plugin manifest (schema 2)",
+  "description": "manifest.json of a .bhippi-plugin package (src/plugins/package.ts). The app and the marketplace both check it; manifest.lock.json pins the SHA-256 of every other file in the package.",
+  "type": "object",
+  "required": ["schema", "id", "name", "version", "permissions"],
+  "properties": {
+    "schema": { "const": 2 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "description": { "type": "string", "maxLength": 1000 },
+    "icon": { "type": "string", "maxLength": 8, "description": "One emoji or short glyph." },
+    "version": { "type": "string", "maxLength": 32, "pattern": "^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(-[0-9A-Za-z.-]+)?$" },
+    "bhippi": { "type": "string", "description": "Bhippi versions it works with: space-separated conditions such as \">=1.0.0 <2\", \"^1.2.0\", \"~1.2.0\"." },
+    "author": {
+      "type": "object",
+      "required": ["name"],
+      "properties": { "name": { "type": "string", "maxLength": 80 }, "id": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "tools": { "type": "array", "items": { "type": "string" }, "description": "Bhippi tools the plugin calls that change something. \"*\" covers editing tools but never sensitive ones (shell, files, deletes, memory, network through Bhippi, paid generation, MCP servers), which must be named." },
+        "network": { "type": "array", "items": { "type": "string" }, "description": "Hosts the plugin may connect to: example.com, *.example.com, https://api.example.com:8443." },
+        "chat": { "type": "boolean", "description": "May suggest messages for Bhippi AI; each reaches the AI only when the user clicks Send." }
+      },
+      "additionalProperties": false
+    },
+    "background": { "type": "boolean", "default": false },
+    "showAsPanel": { "type": "boolean", "default": true }
+  },
+  "additionalProperties": false
+}

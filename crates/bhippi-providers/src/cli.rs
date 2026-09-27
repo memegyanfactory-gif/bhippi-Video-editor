@@ -36,6 +36,11 @@ use tokio::sync::mpsc;
 /// How long the vendor may say **nothing at all** before it is treated as hung.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 
+/// The longest a CLI may stay silent with no Bhippi tool running, whatever the request's own
+/// timeout. A slow reasoning step fits well inside it; a vendor stuck on its own compaction call
+/// (OpenCode did this for 40 minutes) does not.
+const STALL_CAP: Duration = Duration::from_secs(8 * 60);
+
 /// The absolute ceiling for one turn, however talkative.
 const HARD_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
@@ -516,7 +521,7 @@ impl Provider for CliProvider {
 
         // A small buffer: back-pressure keeps a fast vendor from outrunning the UI.
         let (tx, rx) = mpsc::channel::<Result<Delta>>(64);
-        let idle_budget = IDLE_TIMEOUT.max(req.timeout);
+        let idle_budget = req.timeout.clamp(IDLE_TIMEOUT, STALL_CAP);
         let hard_timeout = if server.is_some() { MCP_HARD_TIMEOUT } else { HARD_TIMEOUT };
         let activity = req.activity.clone().filter(|_| server.is_some());
 

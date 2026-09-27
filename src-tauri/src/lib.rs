@@ -61,6 +61,9 @@ mod cutout;
 mod blender;
 mod ui_screen;
 mod ref_motion;
+mod trace;
+mod harness;
+mod market;
 #[cfg(windows)]
 mod window_icon;
 
@@ -2220,6 +2223,43 @@ async fn save_recording(app: AppHandle, state: State<'_, Arc<AppState>>, bytes: 
     Ok(asset)
 }
 
+/// Saves a character still from the Characters window (a transparent PNG) into the project's
+/// Generated/Characters folder and imports it.
+#[tauri::command]
+async fn save_character_image(app: AppHandle, state: State<'_, Arc<AppState>>, bytes: Vec<u8>, name: String) -> CommandResult<Asset> {
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("the character picture is not a PNG".into());
+    }
+    if bytes.len() > 64 * 1024 * 1024 {
+        return Err("the character picture is larger than 64 MB".into());
+    }
+    let tools = state.tools();
+    let dir = storage::dir(&state, storage::Category::Generated)?.join("Characters");
+    std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let stem = match storage::sanitize(&name) {
+        stem if stem.is_empty() => "Character".to_owned(),
+        stem => stem,
+    };
+    let mut path = dir.join(format!("{stem}.png"));
+    for n in 2.. {
+        if !path.exists() {
+            break;
+        }
+        path = dir.join(format!("{stem} {n}.png"));
+    }
+    std::fs::write(&path, &bytes).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    let asset = library::import(&tools, &path).await?;
+    {
+        let mut items = state.library.lock().map_err(lock_error)?;
+        items.push(asset.clone());
+        state.save_library(&items)?;
+    }
+    allow_asset(&app, &asset);
+    prepare_media(app.clone(), state.inner().clone(), asset.clone());
+    let _ignored = app.emit(LIBRARY_EVENT, ());
+    Ok(asset)
+}
+
 /// Where the frontend renders a motion graphic's frames for one export: a fresh folder under
 /// work/mogrt, with folders from earlier exports (older than a day) swept away first.
 #[tauri::command]
@@ -2894,8 +2934,12 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, mut request: ChatR
         let (prefix, encoded) = image.split_once(',').ok_or("Invalid image")?;
         if !matches!(prefix, "data:image/png;base64" | "data:image/jpeg;base64" | "data:image/webp;base64") || encoded.len() > 6 * 1024 * 1024 || base64::engine::general_purpose::STANDARD.decode(encoded).is_err() { return Err("Invalid or oversized image attachment".to_owned()); }
     }
-    // The brain briefs every turn: curated memory, the user model, skills, recall and nudges.
-    if ideagraph::learning_on(&state.settings()) {
+    // A harness turn (the Plugin Maker) must name a real harness: an unknown name is refused rather
+    // than quietly run as the editor with every tool.
+    let harness = harness::resolve(request.harness.as_deref())?;
+    // The brain briefs every editor turn: curated memory, the user model, skills, recall and
+    // nudges. A harness turn is not about the video, so the editing memory stays out of it.
+    if harness.is_none() && ideagraph::learning_on(&state.settings()) {
         if let Some(context) = request.context.as_object_mut() {
             context.insert("brain".to_owned(), brain::brief(&ideagraph::brain_dir(&state), &request.message));
         }
@@ -3349,6 +3393,9 @@ pub fn run() {
             brain_save_skill,
             brain_load_skill,
             brain_dream,
+            trace::trace_append,
+            trace::trace_list,
+            trace::trace_read,
             local_media_status,
             gen_connectors,
             gen_connector_set_key,
@@ -3457,6 +3504,7 @@ pub fn run() {
             audio_peak,
             audio_loudness,
             save_recording,
+            save_character_image,
             mogrt_frames_begin,
             mogrt_frame_write,
             frame_sink,
@@ -3488,6 +3536,21 @@ pub fn run() {
             plugins::plugin_files_remove,
             plugins::plugin_storage_load,
             plugins::plugin_storage_save,
+            plugins::plugin_draft_list,
+            plugins::plugin_draft_read,
+            plugins::plugin_draft_write,
+            plugins::plugin_draft_delete,
+            plugins::plugin_draft_remove,
+            plugins::plugin_pkg_install,
+            plugins::plugin_pkg_versions,
+            plugins::plugin_pkg_read,
+            plugins::plugin_pkg_remove,
+            market::market_get,
+            market::market_download,
+            market::market_revocations,
+            market::market_submit,
+            market::market_withdraw,
+            market::market_post,
             export_start,
             export_preview,
             export_frame,

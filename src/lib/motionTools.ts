@@ -12,6 +12,7 @@ import { drawnCatalog } from '../motion/ink/catalog';
 import { motionReport } from '../motion/arcs';
 import { svgToShape } from '../motion/vector/svg';
 import { playbook, playbookIndex } from './motionDirection';
+import { findPack, packCatalogue } from './stylePacks';
 import { cameraLayer, PRESETS_3D, renderScene, scene3dRequest, trackLayers, type CameraFile, type ObjectsFile, type Render3DResult } from './blender3d';
 import { buildUiScene, runUiScreenTool } from './uiScreenTools';
 import { runCharacterTool } from './characterTools';
@@ -35,9 +36,9 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'import_lottie']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie']);
 /** Read-only / planning motion tools, allowed in any production phase. */
-export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing', 'list_character_actions']);
+export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing', 'list_character_actions', 'list_characters']);
 
 export type MotionToolContext = {
   project: Project;
@@ -51,6 +52,8 @@ export type MotionToolContext = {
   brand?: MotionBrand | null;
   /** Ends with the AI turn: long waits (a Blender render) stop waiting, the job carries on. */
   signal?: AbortSignal;
+  /** What the user asked this turn (empty when unknown), for choices that are theirs to make. */
+  prompt?: string;
 };
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
@@ -518,14 +521,34 @@ async function withIcons(args: Args): Promise<Args> {
   return out;
 }
 
+/**
+ * A template's params as the model reads them: image data and other long blobs (a UI screen's
+ * raster, an embedded SVG) are left out — they cost thousands of tokens on every read and the
+ * model edits through the other params anyway.
+ */
+function paramsForModel(params: unknown, depth = 0): unknown {
+  if (typeof params === 'string') return params.startsWith('data:') || params.length > 4000 ? `[${params.length} bytes omitted]` : params;
+  if (Array.isArray(params)) return depth > 6 ? '[…]' : params.map((item) => paramsForModel(item, depth + 1));
+  if (params && typeof params === 'object') {
+    if (depth > 6) return '{…}';
+    return Object.fromEntries(Object.entries(params as Record<string, unknown>).map(([key, value]) => [key, key === 'raster' ? '[raster omitted]' : paramsForModel(value, depth + 1)]));
+  }
+  return params;
+}
+
 export async function runMotionTool(name: string, args: Args, ctx: MotionToolContext): Promise<ToolResult> {
   const { project } = ctx;
   switch (name) {
     case 'motion_guide': {
       const topic = str(args, 'topic');
-      if (!topic) return done('Motion direction playbooks (measured on pro reference films). Call motion_guide {topic} before planning that kind of film.', { topics: playbookIndex() });
+      if (!topic) return done('Motion direction playbooks (measured on pro reference films) and style packs (whole looks taken apart frame by frame). Call motion_guide {topic} before planning that kind of film, or {topic:"pack:<id>"} for a look.', { topics: playbookIndex(), stylePacks: packCatalogue() });
+      if (topic.startsWith('pack:')) {
+        const pack = findPack(topic.slice(5));
+        if (!pack) return fail(`No style pack "${topic.slice(5)}". Packs: ${packCatalogue().map((p) => p.id).join(', ')}.`);
+        return done(`${pack.name}: ${pack.about} Build its scenes with its palette, type sizes, materials and moves.`, pack as unknown as Record<string, unknown>);
+      }
       const book = playbook(topic);
-      if (!book) return fail(`No playbook "${topic}". Topics: ${playbookIndex().map((p) => p.id).join(', ')}.`);
+      if (!book) return fail(`No playbook "${topic}". Topics: ${playbookIndex().map((p) => p.id).join(', ')}; style packs: ${packCatalogue().map((p) => `pack:${p.id}`).join(', ')}.`);
       const part = str(args, 'part');
       const data = part && part in book ? { [part]: book[part as keyof typeof book] } : book;
       return done(`${book.title} — ${book.use} Follow its beats, timing and rules; use the eases and features it names.`, data as Record<string, unknown>);
@@ -573,6 +596,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'animate_character':
     case 'lip_sync_character':
     case 'list_character_actions':
+    case 'list_characters':
       return runCharacterTool(name, args, ctx, runMotionTool, async () => {
         const comp = ctx.pickComp(project, args);
         return comp ? compWords(comp, ctx) : [];
@@ -749,10 +773,16 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
 
     case 'list_motion_templates': {
       const query = str(args, 'query')?.toLowerCase();
-      const specs = MOTION_TEMPLATES.filter((spec) => !query || `${spec.id} ${spec.label} ${spec.use} ${spec.technique}`.toLowerCase().includes(query));
-      return done(`${specs.length} motion template${specs.length === 1 ? '' : 's'}. Build one with create_motion_scene {"template":"<id>","params":{…},"start":<s>}. Footage params accept {"clipId":"…"} (asset, source time and roto matte are filled in) or {"assetId":"…"}.`, {
-        templates: specs.map((spec) => ({ id: spec.id, label: spec.label, technique: spec.technique, use: spec.use, params: spec.params, seconds: spec.seconds, fullFrame: spec.fullFrame })),
-        effects: EFFECT_TYPES,
+      const exact = query ? MOTION_TEMPLATES.filter((spec) => spec.id.toLowerCase() === query) : [];
+      const specs = exact.length ? exact : MOTION_TEMPLATES.filter((spec) => !query || `${spec.id} ${spec.label} ${spec.use} ${spec.technique}`.toLowerCase().includes(query));
+      // The whole catalogue with every param set is ~22 KB; a model re-reads it each round. The
+      // list is the menu; params come with a narrow query (a template id, or a word matching few).
+      const detailed = !!query && specs.length <= 8;
+      return done(`${specs.length} motion template${specs.length === 1 ? '' : 's'}. ${detailed ? '' : 'Params are listed when you query a template id (list_motion_templates {"query":"<id>"}). '}Build one with create_motion_scene {"template":"<id>","params":{…},"start":<s>}. Footage params accept {"clipId":"…"} (asset, source time and roto matte are filled in) or {"assetId":"…"}.`, {
+        templates: specs.map((spec) => (detailed
+          ? { id: spec.id, label: spec.label, technique: spec.technique, use: spec.use, params: spec.params, seconds: spec.seconds, fullFrame: spec.fullFrame }
+          : { id: spec.id, label: spec.label, use: spec.use, seconds: spec.seconds })),
+        ...(detailed ? { effects: EFFECT_TYPES } : {}),
       });
     }
 
@@ -876,14 +906,14 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
           layout,
           ...(lossy.length ? { lossy } : {}),
           ...(args.full === true ? { scene } : {}),
-          ...(scene.template ? { templateParams: scene.template.params } : {}),
+          ...(scene.template ? { templateParams: paramsForModel(scene.template.params) } : {}),
         });
       }
       const scene = (target.clip.source as MotionSource).scene;
       return done(`${(target.clip.source as MotionSource).title ?? 'Motion scene'}: ${scene.layers.length} layers, ${scene.duration.toFixed(2)} s${scene.template ? `, built from ${scene.template.id}` : ''}. It is one clip; split_motion_layers opens it into a clip per layer.`, {
         outline: summarizeScene(scene),
         ...(args.full === true ? { scene } : {}),
-        ...(scene.template ? { templateParams: scene.template.params } : {}),
+        ...(scene.template ? { templateParams: paramsForModel(scene.template.params) } : {}),
       });
     }
 

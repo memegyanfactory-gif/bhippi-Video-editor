@@ -1,0 +1,11 @@
+[
+  { "id": "saas-ad", "brief": "make a 40 second saas ad for my app Bhippi with a hook, the product UI in use and a download CTA", "genres": ["saas"] },
+  { "id": "saas-characters-drawn", "brief": "a saas video for my app with hand drawn 2d characters, motion graphics and a download cta", "genres": ["saas", "motion", "character2d"] },
+  { "id": "motion-graphics", "brief": "kinetic typography motion graphics intro for my brand logo", "genres": ["motion"] },
+  { "id": "character-story", "brief": "a 2d cartoon character explainer where the character walks, waves and talks with lip sync", "genres": ["character2d"] },
+  { "id": "3d-promo", "brief": "a 3d blender product render promo for my headphones", "genres": ["3d"] },
+  { "id": "documentary", "brief": "make a documentary about the history of chai in India from these interviews", "genres": ["documentary"] },
+  { "id": "meme", "brief": "make this clip funny with memes and reaction sounds", "genres": ["meme"] },
+  { "id": "podcast-edit", "brief": "tighten my podcast footage, remove silences, add captions and b-roll", "genres": ["edit"] },
+  { "id": "shorts", "brief": "turn my long video into vertical reels for instagram", "genres": ["shorts"] }
+]

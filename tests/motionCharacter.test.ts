@@ -26,6 +26,31 @@ describe('character pose solver', () => {
     expect(poseAt({ ...data, step: 1 }, 10 / 30)).not.toEqual(poseAt({ ...data, step: 1 }, 11 / 30));
   });
 
+  it('holds the entire drawing, including a blink, at the selected cadence', () => {
+    for (const step of [2, 3] as const) {
+      const data = kid([{ t: 0, do: 'idle', duration: 12 }], { step, blink: true });
+      let blinkSeen = false;
+      for (let f = 0; f < 300; f += step) {
+        const held = poseAt(data, f / 30);
+        blinkSeen ||= held.eyes < 1;
+        for (let offset = 1; offset < step; offset++) expect(poseAt(data, (f + offset) / 30)).toEqual(held);
+      }
+      expect(blinkSeen).toBe(true);
+    }
+  });
+
+  it('alternates the lifting foot across consecutive walking half-cycles', () => {
+    const data = kid([{ t: 0, do: 'walk', to: 280 }], { step: 1 });
+    const rest = restPose('dome-kid');
+    const first = poseAt(data, 7 / 30);
+    const second = poseAt(data, 21 / 30);
+    expect(first.feet[0][1]).toBeLessThan(rest.feet[0][1]);
+    expect(first.feet[1][1]).toBe(rest.feet[1][1]);
+    expect(second.feet[1][1]).toBeLessThan(rest.feet[1][1]);
+    expect(second.feet[0][1]).toBe(rest.feet[0][1]);
+    expect(first.feet[0][0] - rest.feet[0][0]).toBeCloseTo(-(second.feet[0][0] - rest.feet[0][0]));
+  });
+
   it('hop follows the measured chart: crouch 0.95, hang high, fall stretched 1.24, contact squash 0.83', () => {
     const data = kid([{ t: 0, do: 'hop' }], { step: 1 });
     expect(poseAt(data, 2 / 30).squash).toBeCloseTo(0.95, 2);

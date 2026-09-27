@@ -830,6 +830,10 @@ pub struct Comp {
     /// ranges. Opaque here, like `roast`; kept so it survives save and load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub short: Option<serde_json::Value>,
+    /// The user picked this frame size (New Comp, Project Settings, or the assistant's
+    /// choose_comp_size question). Kept so a reopened project is not asked again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub size_chosen: bool,
     pub id: String,
     pub name: String,
     pub width: u32,
@@ -1476,6 +1480,7 @@ pub mod fixtures {
             production: None,
             roast: None,
             short: None,
+            size_chosen: false,
             id: id.to_owned(),
             name: id.to_owned(),
             width: 1920,

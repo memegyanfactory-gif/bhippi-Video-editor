@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>2D motion drawing review</title>
+  <style>
+    :root{color-scheme:dark;font:14px/1.5 system-ui,sans-serif;background:#15171c;color:#e9edf5}
+    *{box-sizing:border-box}body{margin:0;padding:28px;max-width:1800px;margin-inline:auto}
+    h1{font-size:25px;letter-spacing:-.7px;margin:0 0 5px}p{margin:0;color:#a7b0c2}
+    header{display:flex;align-items:start;justify-content:space-between;gap:20px;margin-bottom:22px}
+    header a{color:#aabefc;white-space:nowrap}form{display:flex;flex-wrap:wrap;gap:14px;padding:17px;border:1px solid #353b47;border-radius:10px;background:#1e222b;margin-bottom:14px}
+    label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:#bdc7d9}select,input{font:inherit;color:#f0f3fa;background:#12151b;border:1px solid #4a5264;border-radius:5px;padding:7px;min-width:130px}
+    input{width:105px;min-width:0}select:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid #adc3ff;outline-offset:3px}
+    #status{font-size:12px;min-height:20px;margin-bottom:14px;font-variant-numeric:tabular-nums}
+    #sheet{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    figure{margin:0;border:1px solid #353b47;border-radius:9px;overflow:hidden;background:#20252e}
+    .drawing{position:relative;background:#e9e4f1;aspect-ratio:1.1}.drawing svg{width:100%;height:100%;display:block}
+    .number{position:absolute;left:10px;top:7px;color:#766b87;font-size:11px;font-variant-numeric:tabular-nums}
+    figcaption{display:flex;justify-content:space-between;gap:5px;padding:9px 11px;font-size:11px;color:#afbbd0;font-variant-numeric:tabular-nums}figcaption strong{font-weight:500;color:#eef2fb}
+    footer{margin:20px 0;color:#97a2b7;font-size:12px}.error{color:#ffa5a5!important}
+    @media(max-width:1000px){body{padding:18px}#sheet{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    @media(max-width:650px){header{display:block}header a{display:inline-block;margin-top:10px}#sheet{grid-template-columns:repeat(2,minmax(0,1fr))}form{gap:10px}h1{font-size:22px}}
+  </style>
+</head>
+<body>
+  <header><div><h1>Every drawing, in sequence.</h1><p>Live 2D engine contact sheet · inspect poses, arcs and phase transitions.</p></div><a id="studioLink" href="/characters/room2d.html">Open animation studio →</a></header>
+  <form id="controls" aria-label="Drawing review settings">
+    <label>Character<select id="character"></select></label>
+    <label>Action<select id="action"></select></label>
+    <label>Timing<select id="timing"><option value="smooth">Smooth</option><option value="film">24 fps</option><option value="drawn">12 fps</option></select></label>
+    <label>Energy<input id="energy" type="number" min="0.35" max="1.6" step="0.05" value="1"></label>
+    <label>Follow-through<input id="secondary" type="number" min="0" max="1.5" step="0.05" value="1"></label>
+    <label>Camera<select id="camera"><option value="0">Default view</option><option value="-0.28">Front</option><option value="0.85">Profile</option><option value="2.86">Back</option></select></label>
+    <label>Drawings<select id="phases"><option value="even">12 evenly spaced poses</option><option value="jump">16 jump phase details</option></select></label>
+    <label>Contours<select id="ink"><option value="drawn">Drawn</option><option value="clean">Clean</option></select></label>
+  </form>
+  <p id="status" role="status">Loading character engine…</p>
+  <main id="sheet" aria-label="Character pose contact sheet"></main>
+  <footer>Same deterministic sampler and renderer as the animation studio. Travel stays in place here so every drawing shares a camera. Jump details include poses immediately before and after takeoff and landing; select Smooth to inspect the exact phase boundary.</footer>
+  <script>
+    (async()=>{
+      const $=id=>document.getElementById(id);
+      // Vite exposes public assets at /characters; the relative filesystem path
+      // also lets this fixture be opened directly without a development server.
+      const source=location.protocol==='file:'?'../../public/characters/':'/characters/';
+      $('studioLink').href=source+'room2d.html';
+      try{
+        for(const file of ['engine2d.js','motion2d.js','presets2d.js'])await new Promise((resolve,reject)=>{
+          const script=document.createElement('script');script.src=source+file;script.onload=resolve;script.onerror=()=>reject(new Error('Unable to load '+file));document.head.appendChild(script);
+        });
+        const E=window.CharEngine,M=window.CharMotion,presets=window.CharPresets.EXAMPLES;
+        const option=(label,value)=>{const item=document.createElement('option');item.value=String(value);item.textContent=label;return item;};
+        presets.forEach((s,i)=>$('character').appendChild(option(s.name,i)));
+        M.ACTIONS.forEach(a=>$('action').appendChild(option(a.label,a.id)));
+        $('action').value='hop';
+        const params=new URLSearchParams(location.search);
+        for(const id of ['character','action','timing','energy','secondary','camera','phases','ink'])if(params.has(id)){
+          const value=params.get(id);if(id==='character'&&!/^\d+$/.test(value)){const index=presets.findIndex(s=>s.name===value);if(index>=0)$(id).value=String(index);}else $(id).value=value;
+        }
+        function render(){
+          const start=performance.now(),spec=JSON.parse(JSON.stringify(presets[+$('character').value]||presets[0]));
+          const type=$('action').value||'idle',duration=M.duration(type),r=E.rigFor(spec);
+          const settings={timing:$('timing').value||'smooth',energy:Math.max(.35,Math.min(1.6,+$('energy').value||1)),secondary:Math.max(0,Math.min(1.5,+$('secondary').value||0))};
+          const jump=$('phases').value==='jump';
+          const phases=jump?[0,.1,.18,.19999,.20001,.3,.4,.5,.6,.72999,.73001,.8,.88,.94,.98,1]:Array.from({length:12},(_,i)=>i/11);
+          const action={do:type,t:0,duration};if(['walk','run','sneak','leap'].includes(type))action.to=0;
+          if(type==='point')action.to=[280,-r.H*.64];if(type==='talk')action.text='Hello there! Let us make something wonderful together.';
+          const fragment=document.createDocumentFragment();
+          phases.forEach((phase,index)=>{
+            const t=duration*phase,pose=M.sample(spec,{t,actions:[action],stance:spec.stance,motion:settings,seed:7});
+            pose.yaw=(pose.yaw||0)+(+$('camera').value||0);pose.hand=$('ink').value!=='clean';pose.boil=0;pose.rough=0;
+            const figure=document.createElement('figure'),drawing=document.createElement('div');drawing.className='drawing';
+            const height=r.H*1.55+100,width=height*1.1;
+            drawing.innerHTML=`<span class="number">${String(index+1).padStart(2,'0')}</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="${-width/2} ${-height+46} ${width} ${height}" role="img" aria-label="Pose ${index+1} at ${t.toFixed(4)} seconds"><path d="M ${-width/2} 10 H ${width/2}" stroke="#c9bdd8" stroke-width="1.5"/><g transform="translate(${pose.root.x} ${pose.root.y})">${E.render(spec,pose)}</g></svg>`;
+            const caption=document.createElement('figcaption'),label=document.createElement('strong'),time=document.createElement('span');
+            label.textContent=jump&&index===3?'Before takeoff':jump&&index===4?'After takeoff':jump&&index===9?'Before landing':jump&&index===10?'After landing':Math.round(phase*100)+'% of action';
+            time.textContent=M.sampleTime(t,settings.timing).toFixed(jump?4:2)+' s';caption.append(label,time);figure.append(drawing,caption);fragment.appendChild(figure);
+          });
+          $('sheet').replaceChildren(fragment);$('status').classList.remove('error');
+          $('status').textContent=`${spec.name} · ${type} · ${duration.toFixed(2)} seconds · ${phases.length} drawings · ${(performance.now()-start).toFixed(0)} ms to generate`;
+        }
+        $('controls').addEventListener('submit',event=>event.preventDefault());$('controls').addEventListener('change',render);render();
+      }catch(error){$('status').classList.add('error');$('status').textContent=error.message||String(error);}
+    })();
+  </script>
+</body>
+</html>

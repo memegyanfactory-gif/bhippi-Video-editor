@@ -3,6 +3,7 @@
 import type { FootageSource, Layer, MotionScene } from './types';
 import { layerTime, num } from './anim';
 import { ensureFonts } from './fonts';
+import { loadStudio, sceneHasStudio } from './character/studio';
 
 /** What the host (the Bhippi editor, a test harness) knows about media. */
 export type MediaHost = {
@@ -224,6 +225,8 @@ export class MediaBank {
   async prepareExact(scene: MotionScene, t: number, options: { presented?: boolean } = {}): Promise<void> {
     // Text must be drawn in its real face: an export frame never bakes in a fallback font.
     const waits: Promise<unknown>[] = [ensureFonts(scene)];
+    // Library characters are drawn by the Characters room's engine, loaded on first use.
+    if (sceneHasStudio(scene.layers)) waits.push(loadStudio());
     for (const { layer, time, resolved } of this.footage(scene, t)) {
       if (resolved.seq) { waits.push(loaded(this.image(resolved.url, this.seqFrames).ready, resolved.url)); continue; }
       if (resolved.kind === 'image') { waits.push(loaded(this.image(resolved.url).ready, resolved.url)); continue; }

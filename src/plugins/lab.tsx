@@ -28,6 +28,15 @@ const line = (t) => { out.textContent += t + String.fromCharCode(10); console.lo
   try { await fetch('https://example.com'); line('fetch: ALLOWED (bad)'); } catch (e) { line('fetch blocked'); }
   try { void parent.document.title; line('parent DOM: REACHABLE (bad)'); } catch (e) { line('parent DOM blocked'); }
   try { localStorage.x = 1; line('localStorage: REACHABLE (bad)'); } catch (e) { line('localStorage blocked'); }
+  // Phase 2 escapes: each must be refused.
+  const refused = async (label, run) => { try { await run(); line(label + ': ALLOWED (bad)'); } catch (e) { line(label + ' refused: ' + e.message.slice(0, 90)); } };
+  await refused('mcp tool', () => bhippi.tool('mcp__github__create_issue', {}));
+  await refused('read_file', () => bhippi.tool('read_file', { path: 'C:/Windows/win.ini' }));
+  await refused('scrape_web_page', () => bhippi.tool('scrape_web_page', { url: 'https://example.com' }));
+  await refused('get_plugin', () => bhippi.tool('get_plugin', { id: 'self-test' }));
+  await refused('set_playhead', () => bhippi.tool('set_playhead', { time: 3 }));
+  await refused('fileUrl outside', () => bhippi.fileUrl('C:/Users/me/.ssh/id_rsa'));
+  await refused('chat without permission', () => bhippi.chat('hi'));
   bhippi.expose('ping', { description: 'answers pong' }, async () => 'pong');
   const mark = async () => {
     try { const r = await bhippi.tool('add_marker', { time: 1.5, name: 'From plugin' }); line('add_marker: ' + r.summary); }
@@ -37,6 +46,10 @@ const line = (t) => { out.textContent += t + String.fromCharCode(10); console.lo
   await mark();
   const c = await bhippi.comp();
   line('markers now: ' + c.markers.length);
+  // Last, since it spends the minute's budget of tool calls.
+  let slowed = '';
+  for (let i = 0; i < 125 && !slowed; i++) { try { await bhippi.tool('get_comp', {}); } catch (e) { slowed = e.message; } }
+  line(slowed ? 'rate limit: ' + slowed.slice(0, 60) : 'rate limit: NONE (bad)');
 })();
 </script>`;
 
@@ -53,7 +66,7 @@ function Lab() {
       host: () => ({ ...host, history: { ...host.history, commit: (...args: Parameters<typeof host.history.commit>) => flushSync(() => host.history.commit(...args)) } }),
       runTool: (h, name, args) => runTool(h, name, args), known: KNOWN_TOOLS, toolSpecs: () => TOOL_SPECS,
       permission: () => 'edit', disableLocalGeneration: () => true,
-      toast: (tone, title, body) => console.info(`[toast ${tone}] ${title}: ${body}`), chat: (message) => console.info(`[chat] ${message}`), projectPath: () => null,
+      toast: (tone, title, body) => console.info(`[toast ${tone}] ${title}: ${body}`), chat: (message, pluginName) => console.info(`[chat suggestion from ${pluginName}] ${message}`), projectPath: () => null,
     });
   }, [host]);
   useEffect(() => {

@@ -130,6 +130,8 @@ pub struct Settings {
     pub ideagraph_brain: Option<String>,
     /// Record Bhippi AI turn outcomes into the brain when true.
     pub ideagraph_record: Option<bool>,
+    /// Keep a step-by-step trace of every AI turn (src-tauri/src/trace.rs); on unless set false.
+    pub turn_traces: Option<bool>,
     /// The Program monitor's RAM preview cache; on when unset.
     pub preview_cache_enabled: Option<bool>,
     /// Its RAM budget in megabytes; the UI's default (1536) when unset.

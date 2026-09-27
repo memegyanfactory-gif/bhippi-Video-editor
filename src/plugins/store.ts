@@ -105,10 +105,12 @@ export async function savePlugin(next: Plugin, known: ReadonlySet<string>, note 
 }
 
 /** Changes a plugin's switches (panel, enabled, background) without touching its page. */
-export async function patchPlugin(id: string, change: Partial<Pick<Plugin, 'panel' | 'enabled' | 'background' | 'permissions' | 'name' | 'description' | 'icon'>>) {
+export async function patchPlugin(id: string, change: Partial<Pick<Plugin, 'panel' | 'enabled' | 'background' | 'permissions' | 'name' | 'description' | 'icon' | 'revoked'>>) {
   await loadPlugins();
   const current = findPlugin(id);
   if (!current) throw new Error(`No plugin “${id}”`);
+  const revoked = change.revoked ?? current.revoked;
+  if (change.enabled && revoked) throw new Error(`“${current.name}” was pulled from the marketplace (${revoked.reason}), so it cannot be turned on. Install a newer version, or delete it.`);
   const next = { ...current, ...change, updatedAt: new Date().toISOString() };
   await persist(state.plugins.map((plugin) => (plugin.id === id ? next : plugin)));
   // A change of permissions changes the page's policy; turning a plugin on needs its page.
@@ -141,6 +143,9 @@ export async function removePlugin(id: string) {
   void _logs;
   set({ pages, logs });
   await api.pluginFilesRemove(id).catch(() => undefined);
+  // Its draft and every installed package version go with it (drafts.ts, package.ts).
+  await api.pluginDraftRemove(id).catch(() => undefined);
+  await api.pluginPkgRemove(id).catch(() => undefined);
 }
 
 /** Reloads a plugin's frame by giving its page a fresh URL. */

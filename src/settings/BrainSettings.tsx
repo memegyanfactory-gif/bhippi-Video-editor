@@ -211,6 +211,9 @@ export function BrainSettings({ settings, onSettings }: Props) {
         <Row title="Learn from every AI turn" hint="Each turn becomes a dot linked to its tools and topics, and the assistant is briefed with your memory and skills before it answers.">
           <Toggle checked={learning} onChange={(on) => onSettings({ ...settings, ideagraphRecord: on })} label="Learn from every AI turn" />
         </Row>
+        <Row title="Keep turn traces" hint="A step-by-step log of each AI turn (every tool call, its time and result, the Judge's scores, the tokens) kept in the app's data folder, newest 200 turns per project. Secrets are never written.">
+          <Toggle checked={settings.turnTraces !== false} onChange={(on) => onSettings({ ...settings, turnTraces: on })} label="Keep turn traces" />
+        </Row>
         {graph?.lastDream && <Row title="Last dream" hint="Runs on its own every 40 turns.">{when(graph.lastDream)}</Row>}
       </Section>
 

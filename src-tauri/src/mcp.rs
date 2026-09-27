@@ -20,6 +20,39 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 /// The first argument that turns the bhippi binary into a bridge.
 pub const BRIDGE_FLAG: &str = "--mcp-bridge";
 
+/// The bridge argument that carries the turn's toolset: `--full=add_text,get_comp,…`.
+pub const FULL_FLAG: &str = "--full=";
+
+/// The bridge argument a harness turn carries instead (harness.rs): `--only=plugin_save,…` — the
+/// bridge lists these tools and nothing else, and refuses a call to any other.
+pub const ONLY_FLAG: &str = "--only=";
+
+/// What one bridge serves: the turn's toolset whole and the rest slim, or only a harness's tools.
+#[derive(Default)]
+pub struct Scope {
+    pub full: Option<ai_tools::Toolset>,
+    pub only: Option<ai_tools::Toolset>,
+}
+
+impl Scope {
+    fn names(list: &str) -> ai_tools::Toolset {
+        list.split(',').filter(|name| !name.is_empty()).map(str::to_owned).collect()
+    }
+
+    /// The scope a bridge's arguments (after the port and token) describe.
+    pub fn from_args(args: &[String]) -> Self {
+        let mut scope = Self::default();
+        for arg in args {
+            if let Some(list) = arg.strip_prefix(ONLY_FLAG) {
+                scope.only = Some(Self::names(list));
+            } else if let Some(list) = arg.strip_prefix(FULL_FLAG) {
+                scope.full = Some(Self::names(list));
+            }
+        }
+        scope
+    }
+}
+
 /// The server name agents see, and fold into tool names (`mcp__bhippi__add_text`).
 pub const SERVER_NAME: &str = "bhippi";
 
@@ -54,8 +87,12 @@ fn result_reply(id: Value, result: Value) -> Value {
 }
 
 /// The catalogue in MCP's shape.
-pub fn tool_list() -> Value {
-    let tools: Vec<Value> = ai_tools::specs()
+pub fn tool_list(scope: Option<&Scope>) -> Value {
+    let catalogue = match scope.and_then(|scope| scope.only.as_ref()) {
+        Some(only) => ai_tools::specs().iter().filter(|tool| only.contains(&tool.name)).cloned().collect(),
+        None => ai_tools::catalogue_for(scope.and_then(|scope| scope.full.as_ref())),
+    };
+    let tools: Vec<Value> = catalogue
         .iter()
         .map(|tool| json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema }))
         .collect();
@@ -63,7 +100,7 @@ pub fn tool_list() -> Value {
 }
 
 /// Reads one line of JSON-RPC from the agent.
-pub fn handle_line(line: &str) -> Step {
+pub fn handle_line(line: &str, scope: Option<&Scope>) -> Step {
     let Ok(message) = serde_json::from_str::<Value>(line) else {
         return Step::Reply(error_reply(Value::Null, -32700, "Parse error"));
     };
@@ -93,13 +130,16 @@ pub fn handle_line(line: &str) -> Step {
             ))
         }
         "ping" => Step::Reply(result_reply(id, json!({}))),
-        "tools/list" => Step::Reply(result_reply(id, tool_list())),
+        "tools/list" => Step::Reply(result_reply(id, tool_list(scope))),
         "tools/call" => {
             let Some(name) = params.get("name").and_then(Value::as_str) else {
                 return Step::Reply(error_reply(id, -32602, "tools/call needs a tool name"));
             };
             if !ai_tools::is_known(name) {
                 return Step::Reply(error_reply(id, -32602, &format!("Unknown tool: {name}")));
+            }
+            if scope.and_then(|scope| scope.only.as_ref()).is_some_and(|only| !only.contains(name)) {
+                return Step::Reply(error_reply(id, -32602, &format!("{name} is not available in this chat")));
             }
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             Step::Call { id, name: name.to_owned(), args }
@@ -115,6 +155,9 @@ pub fn call_reply(id: Value, result: &Value) -> Value {
     let omit_image_blocks = result.get("omitImageBlocks").and_then(Value::as_bool).unwrap_or(false)
         || result.get("textOnly").and_then(Value::as_bool).unwrap_or(false);
     let images = text_result.as_object_mut().and_then(|object| object.remove("images"));
+    // The same result budget the native and text paths keep: a CLI agent carries every result
+    // for the rest of its loop too.
+    crate::chat::shorten_result(&mut text_result);
     let mut content = vec![json!({ "type": "text", "text": text_result.to_string() })];
     if !omit_image_blocks {
         if let Some(Value::Array(images)) = images {
@@ -206,6 +249,9 @@ pub fn run_bridge(args: &[String]) -> i32 {
         eprintln!("usage: bhippi {BRIDGE_FLAG} <port> <token>");
         return 2;
     };
+    // `--full=a,b,c`: the turn's toolset (chat.rs); without it every tool is listed whole.
+    // `--only=a,b,c`: a harness turn's tools, the only ones listed or accepted.
+    let scope = Scope::from_args(args.get(2..).unwrap_or_default());
     let mut link = AppLink { port, token: token.clone(), connection: None, next_id: 0 };
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
@@ -216,7 +262,7 @@ pub fn run_bridge(args: &[String]) -> i32 {
         if line.trim().is_empty() {
             continue;
         }
-        let reply = match handle_line(&line) {
+        let reply = match handle_line(&line, Some(&scope)) {
             Step::Reply(reply) => reply,
             Step::Call { id, name, args } => call_reply(id, &link.call(&name, &args)),
             Step::Nothing => continue,
@@ -372,7 +418,7 @@ mod tests {
     use std::sync::Arc;
 
     fn reply(line: &str) -> serde_json::Value {
-        match handle_line(line) {
+        match handle_line(line, None) {
             Step::Reply(reply) => reply,
             other => panic!("expected a reply, got {other:?}"),
         }
@@ -392,8 +438,8 @@ mod tests {
 
     #[test]
     fn notifications_get_no_answer_and_unknown_methods_get_32601() {
-        assert_eq!(handle_line(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#), Step::Nothing);
-        assert_eq!(handle_line(r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3}}"#), Step::Nothing);
+        assert_eq!(handle_line(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#, None), Step::Nothing);
+        assert_eq!(handle_line(r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3}}"#, None), Step::Nothing);
         assert_eq!(reply(r#"{"jsonrpc":"2.0","id":7,"method":"ping"}"#)["result"], json!({}));
         assert_eq!(reply(r#"{"jsonrpc":"2.0","id":8,"method":"resources/list"}"#)["error"]["code"], -32601);
         assert_eq!(reply("not json")["error"]["code"], -32700);
@@ -411,7 +457,7 @@ mod tests {
 
     #[test]
     fn a_tool_call_is_forwarded_and_its_result_becomes_text_content() {
-        let step = handle_line(r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"add_text","arguments":{"text":"Goa"},"_meta":{"progressToken":2}}}"#);
+        let step = handle_line(r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"add_text","arguments":{"text":"Goa"},"_meta":{"progressToken":2}}}"#, None);
         assert_eq!(step, Step::Call { id: json!(2), name: "add_text".to_owned(), args: json!({"text": "Goa"}) });
         let unknown = reply(r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"rm_rf"}}"#);
         assert_eq!(unknown["error"]["code"], -32602);

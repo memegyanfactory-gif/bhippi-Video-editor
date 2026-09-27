@@ -55,6 +55,52 @@
       }
     },
     {
+      "name": "tool_help",
+      "description": "The full description and parameters of any Bhippi tool. To save tokens the catalogue sends the tools this video needs in full and lists the rest in one line; call tool_help for a tool whose entry says '(params: tool_help)' before its first use.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The tool's name, e.g. color_grade."
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "propose_storyboards",
+      "description": "The Director's debate, for the PLAN stage of a production (once per video): three small proposers write a storyboard in parallel from three angles (story-first, motion-first, product-first), each proposal is critiqued by the Director, Animator and Story seats, and a majority vote picks the winner (the Director breaks a tie). Returns the winning scenes (save them with save_storyboard), the votes, every critique, and the other proposals' beats to borrow from. Costs three capped subagent runs: use it for a from-scratch or long production, not for a quick fix.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brief": { "type": "string", "description": "What the video is, for whom, and what it must achieve (the user's ask in full)." },
+          "seconds": { "type": "number", "description": "Planned length when the timeline is still empty." },
+          "compId": { "type": "string" }
+        },
+        "required": ["brief"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "judge_edit",
+      "description": "The Judge: scores the finished edit 0-100 for its kind of video. It runs the Editor's frame pass first (fresh contact frames attached), then weighs every frame clean, the council's sign-off, pacing against the genre's films, every storyboard beat on screen, designed motion and the genre's must-haves (characters that act and lip-sync, the product UI in use, a CTA end card, lower thirds, captions, a vertical frame). Pass mark 80. Below it, fix the listed items and judge again; after 3 rounds the loop stops and you report the score. verify_edit_workflow needs a current passing verdict on a production.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": { "type": "string" },
+          "genres": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["saas", "motion", "character2d", "3d", "documentary", "meme", "edit", "shorts"] },
+            "description": "The kinds of video this is (toolset.genres in the project summary); inferred from the timeline when omitted."
+          },
+          "frames": { "type": "number", "description": "Contact frames to render (default 8)." }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "install_local_model",
       "description": "Download an official direct-runtime checkpoint to Local Media settings: image (shared SDXL text/image-edit/inpaint), video (Wan text-to-video), audio (Stable Audio Open), sam2 or vitmatte (tracked Roto pair). Downloads may be several GB; use when the user requests model installation. Check local_media_capabilities first to avoid duplicates; existing downloads continue in background. Audio may require the user's authorized Hugging Face login/model license access. Never bypass access or license gates. Poll returned jobId with generation_job. Installation is not verified inference.",
       "input_schema": {
@@ -1735,6 +1781,10 @@
           "compId": {
             "type": "string",
             "description": "Comp id; omit for the active comp."
+          },
+          "plan": {
+            "type": "boolean",
+            "description": "Return the storyboard and blueprint in full (by default each storyboard beat is one line and the blueprint a summary)."
           }
         },
         "additionalProperties": false
@@ -5756,7 +5806,7 @@
     },
     {
       "name": "list_motion_templates",
-      "description": "Lists the motion-engine templates (After Effects-grade scenes rendered on the GPU, identical in preview and export): id, what it is for, its params and technique ids from the motion master plan (T1…T27). Filter with query. Use before create_motion_scene.",
+      "description": "Lists the motion-engine templates (After Effects-grade scenes rendered on the GPU, identical in preview and export): id, what it is for and its length. query with a template id (or a word that matches 8 or fewer) to get its params and technique ids. Use before create_motion_scene.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5769,7 +5819,7 @@
     },
     {
       "name": "list_character_actions",
-      "description": "Lists the base characters (dome-kid, shape-buddy, flat-corporate — original designs) and every action and expression they can perform.",
+      "description": "Lists the characters you can cast — the user's own character LIBRARY first (characters they saved in the Characters window, then its 20 examples), and the three built-in rigs (dome-kid, shape-buddy, flat-corporate) — plus every action and expression they all perform.",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -5777,18 +5827,32 @@
       }
     },
     {
+      "name": "list_characters",
+      "description": "Shows the user's character library: the characters they saved in the Characters window (2D and 3D share one library), then its 20 examples, each with a one-line look (age, body, hair, clothes, extras), plus the spec format for a new design. Call it before casting any character and cast from it with create_character {\"character\":\"<name>\"}.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Only characters whose name or look mentions this (e.g. \"kid\", \"blazer\", \"senior\")."
+          },
+          "full": {
+            "type": "boolean",
+            "description": "Return every full spec (to copy one for a new design)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "create_character",
-      "description": "Places an animated character (a rigged flat 2D character on twos, like the MDS film): dome-kid (flat dome head, hoodie, noodle arms), shape-buddy (a round creature with googly eyes), flat-corporate (an office worker). Stands with its feet at `at`, `height` px tall, performing timed actions (walk, hop, leap, wave, point, talk, celebrate, surprise, facepalm…). Blinks and idles are automatic. Into an existing motion scene with clipId, or as its own scene on the timeline.",
+      "description": "Places an animated character performing timed actions (walk, hop, leap, wave, point, talk, celebrate, surprise, facepalm…); blinks and idles are automatic. Library characters use smooth motion or their saved 24/12 fps drawing cadence; built-in rigs default to on twos. CAST FROM THE USER'S CHARACTER LIBRARY FIRST: `character` is the name of a character they saved in the Characters window or one of its examples (list_characters shows who is there and how each looks); library characters are hand-drawn 2.5D people that turn toward where they walk and look. Use `look` for small changes (clothes in brand colours, a hat) so the character stays theirs. Only when the user asks for something specific the library cannot give, design a new character with `spec` (the library's format; save:true adds it to their library). The built-in rigs dome-kid (flat dome head, hoodie), shape-buddy (round creature with googly eyes) and flat-corporate (office worker) are only for when the user asks for that style. Stands with its feet at `at`, `height` px tall. Into an existing motion scene with clipId, or as its own scene on the timeline.",
       "input_schema": {
         "type": "object",
         "properties": {
           "character": {
             "type": "string",
-            "enum": [
-              "dome-kid",
-              "shape-buddy",
-              "flat-corporate"
-            ]
+            "description": "A library character's name (saved or example, from list_characters), or a built-in rig: dome-kid, shape-buddy, flat-corporate. With spec, the new character's name."
           },
           "at": {
             "type": "array",
@@ -5804,24 +5868,35 @@
           "actions": {
             "type": "array",
             "items": {
-              "type": "object"
+              "type": "object",
+              "properties": {
+                "t": { "type": "number", "description": "Start, in scene seconds (a number, e.g. 1.5)." },
+                "do": { "type": "string", "enum": ["idle", "wave", "point", "look", "hop", "leap", "walk", "sneak", "run", "celebrate", "shrug", "nod", "shake", "facepalm", "surprise", "think", "type", "talk", "expression", "turn"] },
+                "duration": { "type": "number", "description": "Seconds (a number)." },
+                "to": { "description": "point/look: [x, y] scene px. walk/sneak/run/leap: a scene x, [x, y], or a number of px." },
+                "hand": { "type": "string", "enum": ["left", "right"] },
+                "text": { "type": "string" },
+                "expression": { "type": "string", "enum": ["normal", "happy", "sad", "wide", "determined", "closed", "unsure", "side"] },
+                "amount": { "type": "number", "description": "turn: -1 (left) … 1 (right)." }
+              },
+              "required": ["t", "do"]
             },
             "description": "Timed actions [{t (scene s), do, duration?, to?, hand?, text?, words?, expression?, amount?}]. do: idle, wave, point, look, hop, leap, walk, sneak, run, celebrate, shrug, nod, shake, facepalm, surprise, think, type, talk, expression, turn. point/look to [x,y] scene px; walk/sneak/run/leap to a scene x or [x,y] (or a number of px); talk with text (or lip_sync_character); expression: normal|happy|sad|wide|determined|closed|unsure|side."
           },
           "palette": {
             "type": "object",
-            "description": "{skin, top, bottom, shoe, hair, accent, eye, pupil, mouth} colours (e.g. brand colours on the hoodie)."
+            "description": "Built-in rigs only: {skin, top, bottom, shoe, hair, accent, eye, pupil, mouth} colours (e.g. brand colours on the hoodie). For library characters use look."
           },
           "expression": {
             "type": "string"
           },
           "facing": {
             "type": "number",
-            "description": "1 right, -1 left."
+            "description": "1 right, -1 left (library characters turn three-quarters that way; walking turns them)."
           },
           "step": {
             "type": "number",
-            "description": "2 = on twos (default), 1 = ones, 3 = threes."
+            "description": "Optional legacy 30 fps drawing-step override: 1 = ones, 2 = twos, 3 = threes. Omit for library characters to use their saved Smooth/24/12 fps timing; built-in rigs default to 2."
           },
           "clipId": {
             "type": "string",
@@ -5847,6 +5922,18 @@
           },
           "title": {
             "type": "string"
+          },
+          "look": {
+            "type": "object",
+            "description": "Changes laid onto a library character, in its spec format, e.g. {\"top\":{\"kind\":\"hoodie\",\"color\":\"#F6A623\"},\"acc\":[\"headphones\"]}."
+          },
+          "spec": {
+            "type": "object",
+            "description": "A new character in the library format (list_characters specFormat; copy an example with list_characters full:true and change it). Only when nothing in the library fits a specific request."
+          },
+          "save": {
+            "type": "boolean",
+            "description": "With spec: also save the new character to the user's library (it needs a name)."
           }
         },
         "additionalProperties": false
@@ -5867,7 +5954,18 @@
           "actions": {
             "type": "array",
             "items": {
-              "type": "object"
+              "type": "object",
+              "properties": {
+                "t": { "type": "number", "description": "Start, in scene seconds (a number, e.g. 1.5)." },
+                "do": { "type": "string", "enum": ["idle", "wave", "point", "look", "hop", "leap", "walk", "sneak", "run", "celebrate", "shrug", "nod", "shake", "facepalm", "surprise", "think", "type", "talk", "expression", "turn"] },
+                "duration": { "type": "number", "description": "Seconds (a number)." },
+                "to": { "description": "point/look: [x, y] scene px. walk/sneak/run/leap: a scene x, [x, y], or a number of px." },
+                "hand": { "type": "string", "enum": ["left", "right"] },
+                "text": { "type": "string" },
+                "expression": { "type": "string", "enum": ["normal", "happy", "sad", "wide", "determined", "closed", "unsure", "side"] },
+                "amount": { "type": "number", "description": "turn: -1 (left) … 1 (right)." }
+              },
+              "required": ["t", "do"]
             },
             "description": "Timed actions [{t (scene s), do, duration?, to?, hand?, text?, words?, expression?, amount?}]. do: idle, wave, point, look, hop, leap, walk, sneak, run, celebrate, shrug, nod, shake, facepalm, surprise, think, type, talk, expression, turn. point/look to [x,y] scene px; walk/sneak/run/leap to a scene x or [x,y] (or a number of px); talk with text (or lip_sync_character); expression: normal|happy|sad|wide|determined|closed|unsure|side."
           },
@@ -6544,7 +6642,7 @@
         "properties": {
           "topic": {
             "type": "string",
-            "description": "saas-explainer | ai-launch | brand-identity-film | kinetic-type | 2.5d-tricks | character-explainer | hand-made | sound"
+            "description": "saas-explainer | ai-launch | brand-identity-film | kinetic-type | 2.5d-tricks | character-explainer | hand-made | documentary | 3d-promo | product-launch | ui-walkthrough | normal-edit | meme-edit | sound; or pack:crimson-brief | pack:aflow-glass for a whole look"
           },
           "part": {
             "type": "string",
@@ -8181,6 +8279,222 @@
           }
         },
         "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_scaffold",
+      "description": "Start a new plugin from a template: writes its draft (manifest.json, spec.md, index.html, app.js, style.css) and installs it so the preview shows it. Templates: panel (a UI panel), background (an automation with a small status log), action (offers Bhippi AI an action via bhippi.expose), panel-actions (a panel that also exposes actions). Then write spec.md, then the code.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string",
+            "enum": [
+              "panel",
+              "background",
+              "action",
+              "panel-actions"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Short name, 1–60 characters."
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string",
+            "description": "One emoji."
+          },
+          "id": {
+            "type": "string",
+            "description": "Optional id (lower-case letters, digits, - and _); made from the name when omitted."
+          }
+        },
+        "required": [
+          "template",
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_list_files",
+      "description": "The files in a plugin's draft with their sizes. A plugin that has no draft yet gets one made from its installed page.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_read_file",
+      "description": "Read one file of a plugin's draft.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          },
+          "file": {
+            "type": "string",
+            "description": "A file name in the draft: letters, digits, - _ . only, no folders (manifest.json, spec.md, index.html, app.js, style.css, …)."
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_write_file",
+      "description": "Create or replace one file of a plugin's draft (whole contents). Nothing runs until plugin_save.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          },
+          "file": {
+            "type": "string",
+            "description": "A file name in the draft: letters, digits, - _ . only, no folders (manifest.json, spec.md, index.html, app.js, style.css, …)."
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_delete_file",
+      "description": "Delete one file from a plugin's draft (manifest.json and index.html cannot be deleted).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          },
+          "file": {
+            "type": "string",
+            "description": "A file name in the draft: letters, digits, - _ . only, no folders (manifest.json, spec.md, index.html, app.js, style.css, …)."
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_validate",
+      "description": "Check a plugin's draft without running it (free, instant): manifest fields, spec.md sections, files index.html references, no remote scripts, every bhippi.tool() name is a real tool, permissions match the tools the code calls (none missing, none unused, no '*' without need), acceptance checks present, theme variables and error handling used, sizes. Returns problems and warnings to fix.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_test",
+      "description": "Run the saved plugin in a hidden sandboxed frame against a SCRATCH COPY of the project (the real project is never touched): waits for it to load, collects console errors and refused calls, runs its bhippi.test() acceptance checks, and counts the edits it made to the copy. Returns the report and the Plugin Maker Judge's score (0–100, pass 80) with fixes. plugin_save first.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          },
+          "waitMs": {
+            "type": "number",
+            "description": "How long to let it settle before the checks run (default 1500, max 8000)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_screenshot",
+      "description": "Pictures of the saved plugin's panel at narrow (320 px) and wide (480 px) widths, rendered in the sandbox against a scratch copy of the project, for a look at layout, overflow, contrast and styling. The images come back with the result.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          },
+          "widths": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Panel widths in px (default [320, 480], at most 3, each 240–1200)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_save",
+      "description": "Bundle the draft into the installed plugin: index.html with the app.js/style.css it references inlined, the manifest's name, icon, description and permissions applied. The preview reloads. The previous version is kept (last 10).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          },
+          "note": {
+            "type": "string",
+            "description": "What changed, for the version history."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_examples",
+      "description": "Reviewed example plugins to learn from: with no id, the list; with an id, its full source (manifest, spec, code).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_tool_catalog",
+      "description": "Every Bhippi tool a plugin can call through bhippi.tool(), one line each, marked read (always allowed) or sensitive (must be named in permissions). Filter with query. tool_help gives one tool's full parameters.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
         "additionalProperties": false
       }
     },

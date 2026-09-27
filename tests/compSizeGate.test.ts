@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EditWorkflow } from '../src/lib/editWorkflow';
+import { workflowInstruction } from '../src/chat/ChatPanel';
 import { allowTool } from '../src/lib/permissions';
 import { frameSizeFromText, needsFrameSize, newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { Asset } from '../src/lib/types';
@@ -38,6 +39,19 @@ describe('frame size comes first on a timeline with no picture', () => {
     comp.sizeChosen = true;
     expect(new EditWorkflow(project, assets, 'quick').before('add_text', { text: 'hi' }, project)).toBeNull();
     expect(new EditWorkflow(project, assets).before('online_research', { query: 'q' }, project)).toBeNull();
+  });
+
+  it('asks before notes, memory or research, and tells the turn up front', () => {
+    const { project, comp, assets } = audioOnly();
+    const flow = new EditWorkflow(project, assets);
+    expect(flow.before('write_file', { path: 'todo.md', content: 'x' }, project)).toContain('choose_comp_size');
+    expect(flow.before('brain_remember', {}, project)).toContain('choose_comp_size');
+    expect(flow.before('list_characters', {}, project)).toBeNull();
+    expect(flow.status(project).frameSizeNeeded).toBe(true);
+    expect(workflowInstruction(flow.status(project))).toMatch(/^FIRST.*choose_comp_size/);
+    comp.sizeChosen = true;
+    expect(flow.status(project).frameSizeNeeded).toBe(false);
+    expect(workflowInstruction(flow.status(project))).not.toContain('choose_comp_size');
   });
 
   it('never holds plugins, which cannot ask, nor shorts, which ask their own frame', () => {

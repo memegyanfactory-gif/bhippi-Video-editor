@@ -9,7 +9,7 @@
 // The activity lists come from props, not the poll, so a job's progress moves the moment the
 // event lands rather than on the next tick.
 import { ChevronDown, ChevronRight, Cpu, Gauge, HardDrive, LoaderCircle, MemoryStick, Square, Trash2, Video, Wrench, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Job } from '../lib/types';
 import type { ToolRun } from '../chat/Activity';
@@ -74,12 +74,12 @@ function Bar({ percent, tone }: { percent: number | null; tone?: Tone | 'accent'
 }
 
 /** The chip's meters: icon plus bar, or icon plus a dash when there is nothing to measure. */
-function ChipMeter({ icon: Icon, label, percent }: { icon: ComponentType<{ size?: number }>; label: string; percent: number | null }) {
+function ChipMeter({ label, percent }: { label: string; percent: number | null }) {
   const text = percent == null ? `${label} —` : `${label} ${Math.round(percent)}%`;
+  // No reading yet: an empty, dimmed bar holds its row so the stack keeps its shape.
   return (
-    <span className="rm-meter" aria-label={text} title={text}>
-      <Icon size={12} />
-      {percent == null ? <span className="rm-meter-dash">{label} —</span> : <Bar percent={percent} />}
+    <span className={`rm-meter${percent == null ? ' empty' : ''}`} aria-label={text} title={text}>
+      <Bar percent={percent ?? 0} />
     </span>
   );
 }
@@ -282,9 +282,12 @@ export function ResourceMonitor({
         aria-haspopup="dialog"
         title={chipTitle}
       >
-        <ChipMeter icon={MemoryStick} label="RAM" percent={ramPercent} />
-        <ChipMeter icon={Gauge} label="GPU" percent={gpuPercent} />
-        <ChipMeter icon={HardDrive} label="Storage" percent={storagePercent} />
+        {/* Stacked, not side by side: three slim bars in one column keep the bar tidy. */}
+        <span className="rm-meters">
+          <ChipMeter label="RAM" percent={ramPercent} />
+          <ChipMeter label="GPU" percent={gpuPercent} />
+          <ChipMeter label="Storage" percent={storagePercent} />
+        </span>
         <span className="rm-chip-text">{chipText}</span>
         {activeCount > 0 && (
           <span className="rm-chip-badge" title={`${activeCount} running`}>

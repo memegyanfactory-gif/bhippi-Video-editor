@@ -147,7 +147,7 @@ export function gatherReport(comp: Comp): { ready: number; total: number; missin
  * reported as overlapping each other.
  */
 export type QaLayer = { clipId: string; name: string; kind: 'graphic' | 'text' | 'caption' | 'subject' | 'picture'; box: Box; from: number; to: number; behind?: boolean; group?: string };
-export type QaIssue = { at: number; a: string; b: string; kind: 'covers-subject' | 'graphic-overlap' | 'outside-safe' | 'off-frame' | 'caption-collision' | 'blank-frame' | 'black-edges'; overlap: number; suggestion: string };
+export type QaIssue = { at: number; a: string; b: string; kind: 'covers-subject' | 'graphic-overlap' | 'outside-safe' | 'off-frame' | 'caption-collision' | 'blank-frame' | 'black-edges' | 'small-text' | 'low-contrast'; overlap: number; suggestion: string };
 
 const intersection = (a: Box, b: Box): number => {
   const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
@@ -223,6 +223,12 @@ export function frameQa(comp: Comp, layers: QaLayer[], times: number[]): QaIssue
           issues.push({ at, a: graphic.name, b: other.name, kind, overlap: shared, suggestion: kind === 'caption-collision' ? `Raise the caption zone or shorten "${graphic.kind === 'caption' ? other.name : graphic.name}" so captions keep a clear lane.` : `Stagger "${graphic.name}" and "${other.name}" in time or give them different slots; one idea per frame.` });
         }
       }
+      // Type too small to read on a phone: its box shorter than ~2% of a landscape frame
+      // (21 px at 1080p), ~1.3% of a vertical one.
+      const minHeight = comp.height > comp.width ? 0.013 : 0.02;
+      if ((graphic.kind === 'text' || graphic.kind === 'caption') && graphic.box.width > 0.03 && graphic.box.height < minHeight) {
+        issues.push({ at, a: graphic.name, b: 'reading size', kind: 'small-text', overlap: 1 - graphic.box.height / minHeight, suggestion: `"${graphic.name}" is ${Math.round(graphic.box.height * comp.height)} px tall: too small to read on a phone. Make it at least ${Math.ceil(minHeight * comp.height)} px (larger size or scale), or cut the words.` });
+      }
       const inside = intersection(graphic.box, safe) / area;
       const onFrame = intersection(graphic.box, { x: 0, y: 0, width: 1, height: 1 }) / area;
       const how = graphic.kind === 'picture' ? 'layout_clip (its slots sit inside the safe area) or a smaller scale / x' : graphic.group ? 'update_motion_scene (patch the layer position, or rebuild — scenes are fitted to the safe area)' : 'its layout or position';
@@ -233,7 +239,7 @@ export function frameQa(comp: Comp, layers: QaLayer[], times: number[]): QaIssue
       }
     }
   }
-  const order: Record<QaIssue['kind'], number> = { 'blank-frame': 0, 'black-edges': 1, 'covers-subject': 2, 'off-frame': 3, 'caption-collision': 4, 'graphic-overlap': 5, 'outside-safe': 6 };
+  const order: Record<QaIssue['kind'], number> = { 'blank-frame': 0, 'black-edges': 1, 'covers-subject': 2, 'off-frame': 3, 'low-contrast': 4, 'caption-collision': 5, 'small-text': 6, 'graphic-overlap': 7, 'outside-safe': 8 };
   return issues.sort((a, b) => a.at - b.at || order[a.kind] - order[b.kind] || b.overlap - a.overlap);
 }
 

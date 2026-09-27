@@ -35,6 +35,7 @@ export function permissionBrief(mode: PermissionMode) {
 
 /** Tools that only look at the project. Always allowed. */
 const READS = new Set([
+  'tool_help',
   'online_research',
   'scrape_web_page',
   'capture_product_ui',
@@ -88,6 +89,7 @@ const READS = new Set([
   'list_transitions',
   'check_pacing',
   'list_character_actions',
+  'list_characters',
   // Plugins: reading the library and a plugin's console.
   'plugin_sdk_reference',
   'list_plugins',

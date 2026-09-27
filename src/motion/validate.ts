@@ -5,7 +5,7 @@ import { checkExpression } from './expr';
 import { parseSvgPath } from './vector/path';
 import { PARTICLE_PRESETS } from './particles';
 import { FORM_KINDS, FORM_LOOKS } from './form';
-import { ACTIONS, CHARACTER_KINDS } from './character/types';
+import { ACTIONS, CHARACTER_KINDS, STUDIO_KIND } from './character/types';
 import { drawingProblems } from './ink/validate';
 import type { EffectType, Layer, MotionScene, ShapeItem } from './types';
 
@@ -72,7 +72,9 @@ export function validateScene(scene: unknown, depth = 0): string[] {
     for (const effect of layer.effects ?? []) if (!EFFECTS.has(effect?.type)) problems.push(`${name}: unknown effect "${String(effect?.type)}" (known: ${EFFECT_TYPES.join(', ')}).`);
     if (layer.type === 'procedural' && !PROCEDURALS.has(layer.kind)) problems.push(`${name}: unknown procedural kind "${layer.kind}".`);
     if (layer.type === 'character') {
-      if (!(CHARACTER_KINDS as readonly string[]).includes(layer.character?.kind)) problems.push(`${name}: character kind must be one of ${CHARACTER_KINDS.join(', ')}.`);
+      if (layer.character?.kind === STUDIO_KIND) {
+        if (!layer.character.spec || typeof layer.character.spec !== 'object') problems.push(`${name}: a library character (kind "studio") needs its spec (create_character with a library name).`);
+      } else if (!(CHARACTER_KINDS as readonly string[]).includes(layer.character?.kind)) problems.push(`${name}: character kind must be one of ${CHARACTER_KINDS.join(', ')}, or "studio" for a library character.`);
       for (const [i, action] of (layer.character?.actions ?? []).entries()) {
         if (!(ACTIONS as readonly string[]).includes(action?.do)) problems.push(`${name}: actions[${i}].do must be one of ${ACTIONS.join(', ')}.`);
         else if (typeof action.t !== 'number') problems.push(`${name}: actions[${i}] needs a time t.`);

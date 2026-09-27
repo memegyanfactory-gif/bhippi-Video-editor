@@ -214,7 +214,7 @@ fn tracks(video: usize, audio: usize) -> Vec<Track> {
 }
 
 fn comp(id: &str, width: u32, height: u32, tracks: Vec<Track>, clips: Vec<Clip>, transitions: Vec<Transition>) -> Comp {
-    Comp { storyboard: Vec::new(), video_blueprint: None, production: None, roast: None, short: None, id: id.to_owned(), name: id.to_owned(), width, height, fps: 30.0, tracks, clips, markers: Vec::new(), transitions, in_point: None, out_point: None, source_video: None, source_audio: None, folder_id: None }
+    Comp { storyboard: Vec::new(), video_blueprint: None, production: None, roast: None, short: None, size_chosen: false, id: id.to_owned(), name: id.to_owned(), width, height, fps: 30.0, tracks, clips, markers: Vec::new(), transitions, in_point: None, out_point: None, source_video: None, source_audio: None, folder_id: None }
 }
 
 /// A 7-second vertical comp that exercises the whole renderer.

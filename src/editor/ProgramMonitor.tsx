@@ -78,7 +78,33 @@ type Drag =
   | { kind: 'move'; clipId: string; startX: number; startY: number; origin: { x: number; y: number }; box: Box | null }
   | { kind: 'scale'; clipId: string; centerX: number; centerY: number; startDistance: number; origin: number }
   | { kind: 'rotate'; clipId: string; centerX: number; centerY: number; startAngle: number; origin: number }
-  | { kind: 'draw'; tool: 'rectangle' | 'ellipse' | 'polygon' | 'mask-rectangle' | 'mask-ellipse'; x0: number; y0: number; x1: number; y1: number };
+  | { kind: 'draw'; tool: 'rectangle' | 'ellipse' | 'polygon' | 'mask-rectangle' | 'mask-ellipse'; x0: number; y0: number; x1: number; y1: number; shift: boolean; alt: boolean };
+
+type DrawDrag = Extract<Drag, { kind: 'draw' }>;
+
+/**
+ * The box a shape drag covers, the Photoshop/Premiere way: Shift locks it to a square (so a
+ * rectangle is a square, an ellipse a circle, a polygon regular), Alt draws out from the centre.
+ */
+export function drawBox(drag: DrawDrag): Box {
+  let dx = drag.x1 - drag.x0;
+  let dy = drag.y1 - drag.y0;
+  if (drag.shift) {
+    const side = Math.max(Math.abs(dx), Math.abs(dy));
+    dx = (dx < 0 ? -1 : 1) * side;
+    dy = (dy < 0 ? -1 : 1) * side;
+  }
+  if (drag.alt) return { left: drag.x0 - Math.abs(dx), top: drag.y0 - Math.abs(dy), width: Math.abs(dx) * 2, height: Math.abs(dy) * 2 };
+  return { left: Math.min(drag.x0, drag.x0 + dx), top: Math.min(drag.y0, drag.y0 + dy), width: Math.abs(dx), height: Math.abs(dy) };
+}
+
+/** The outline of a regular polygon filling a box, matching how shape layers draw it. */
+export function polygonPoints(width: number, height: number, sides: number) {
+  return Array.from({ length: sides }, (_, index) => {
+    const angle = -Math.PI / 2 + (index * 2 * Math.PI) / sides;
+    return `${width / 2 + Math.cos(angle) * (width / 2)},${height / 2 + Math.sin(angle) * (height / 2)}`;
+  }).join(' ');
+}
 
 export function ProgramMonitor(props: Props) {
   const { project, comp, assets, history, selection, tool } = props;
@@ -530,7 +556,7 @@ export function ProgramMonitor(props: Props) {
     if (tool === 'rectangle' || tool === 'ellipse' || tool === 'polygon' || tool === 'mask-rectangle' || tool === 'mask-ellipse') {
       if (tool.startsWith('mask') && !maskable) return;
       event.currentTarget.setPointerCapture(event.pointerId);
-      setDrag({ kind: 'draw', tool, x0: point.x, y0: point.y, x1: point.x, y1: point.y });
+      setDrag({ kind: 'draw', tool, x0: point.x, y0: point.y, x1: point.x, y1: point.y, shift: event.shiftKey, alt: event.altKey });
       return;
     }
     if (tool === 'mask-pen') {
@@ -638,7 +664,7 @@ export function ProgramMonitor(props: Props) {
       commitProperty(drag.clipId, { rotation: +degrees.toFixed(2) });
     } else {
       const point = stagePoint(event);
-      setDrag({ ...drag, x1: point.x, y1: point.y });
+      setDrag({ ...drag, x1: point.x, y1: point.y, shift: event.shiftKey, alt: event.altKey });
     }
   };
 
@@ -701,10 +727,7 @@ export function ProgramMonitor(props: Props) {
     if (rotoStroke.current) { rotoStroke.current = null; history.settle('Roto brush correction'); return; }
     if (!drag || !comp) return;
     if (drag.kind === 'draw') {
-      const left = Math.min(drag.x0, drag.x1);
-      const top = Math.min(drag.y0, drag.y1);
-      const width = Math.abs(drag.x1 - drag.x0);
-      const height = Math.abs(drag.y1 - drag.y0);
+      const { left, top, width, height } = drawBox(drag);
       setDrag(null);
       if (width < 4 || height < 4) return;
       if (drag.tool.startsWith('mask')) {
@@ -732,6 +755,23 @@ export function ProgramMonitor(props: Props) {
     setSnapLines(null);
     history.settle(drag.kind === 'move' ? 'Move' : drag.kind === 'scale' ? 'Scale' : 'Rotate');
   };
+
+  // Pressing or releasing Shift/Alt mid-drag reshapes the draw box at once, as in Photoshop.
+  const drawing = drag?.kind === 'draw';
+  useEffect(() => {
+    if (!drawing) return;
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== 'Shift' && event.key !== 'Alt') return;
+      if (event.key === 'Alt') event.preventDefault();
+      setDrag((current) => (current?.kind === 'draw' ? { ...current, shift: event.shiftKey, alt: event.altKey } : current));
+    };
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('keyup', key, true);
+    return () => {
+      window.removeEventListener('keydown', key, true);
+      window.removeEventListener('keyup', key, true);
+    };
+  }, [drawing]);
 
   useEffect(() => {
     if (!pen) return;
@@ -874,7 +914,22 @@ export function ProgramMonitor(props: Props) {
               </div>
             )}
             {drag?.kind === 'draw' && (
-              <div className={`draw-preview ${drag.tool}`} style={{ left: Math.min(drag.x0, drag.x1), top: Math.min(drag.y0, drag.y1), width: Math.abs(drag.x1 - drag.x0), height: Math.abs(drag.y1 - drag.y0) }} />
+              (() => {
+                // Trace the shape being drawn, not just its bounding box.
+                const box = drawBox(drag);
+                const w = Math.max(1, box.width);
+                const h = Math.max(1, box.height);
+                const outline = drag.tool === 'polygon'
+                  ? <polygon points={polygonPoints(w, h, 5)} strokeLinejoin="round" />
+                  : drag.tool === 'ellipse' || drag.tool === 'mask-ellipse'
+                    ? <ellipse cx={w / 2} cy={h / 2} rx={w / 2} ry={h / 2} />
+                    : <rect width={w} height={h} />;
+                return (
+                  <svg className="draw-preview" style={{ left: box.left, top: box.top, width: w, height: h }} viewBox={`0 0 ${w} ${h}`} overflow="visible">
+                    {outline}
+                  </svg>
+                );
+              })()
             )}
             {pen && selectedClip && (() => {
               const box = pictureBox(selectedClip);

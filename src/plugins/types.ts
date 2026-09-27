@@ -11,15 +11,35 @@ export type PluginPermissions = {
   tools: string[];
   /** Hosts the plugin may talk to (fetch / WebSocket). Empty means no network at all. */
   network: string[];
-  /** Whether it may send messages to the Bhippi AI chat (`bhippi.chat()`). */
+  /** Whether it may offer messages for the Bhippi AI chat (`bhippi.chat()`); the user sends them. */
   chat: boolean;
 };
 
 /** An earlier version of a plugin's page, kept so a change can be taken back. */
 export type PluginRevision = { at: string; html: string; note: string };
 
+/** Where an installed package came from, and which version of it is running (package.ts). */
+export type PluginPackage = {
+  /** Semver of the running version. */
+  version: string;
+  author?: string;
+  source: 'local' | 'file' | 'marketplace';
+  installedAt: string;
+  /** SHA-256 of the running version's manifest.lock: which exact files run. */
+  lockHash: string;
+};
+
 export type Plugin = {
   version: 1;
+  /**
+   * 2 for a plugin built from Plugin Maker drafts or installed from a package: it runs under the
+   * strict page policy (its own code only, no CDN scripts, no eval). Absent for older plugins.
+   */
+  format?: 2;
+  /** Set when the plugin was installed from a .bhippi-plugin package. */
+  pkg?: PluginPackage;
+  /** Pulled from the marketplace (its signed revocation list): off, and it cannot be turned on. */
+  revoked?: { reason: string; at: number };
   /** Lower-case letters, digits, dashes, underscores; it names the page file. */
   id: string;
   name: string;

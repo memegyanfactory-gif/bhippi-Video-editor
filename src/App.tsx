@@ -42,6 +42,10 @@ import { SourceMonitor, type SourceApi, type SourceRange } from './editor/Source
 import { DEFAULT_DISPLAY, dropClips, dropIntoEmpty, LABELS, Timeline, type DisplaySettings, type IncomingDrag, type TimelineApi } from './editor/Timeline';
 import { AudioMeters, DEFAULT_METERS, ToolsPanel, TOOL_LABEL } from './editor/ToolsAndMeters';
 import { aiContext, generatedFolderId, runTool, TOOL_SPECS, warmCustomTools } from './lib/aiTools';
+import { repairArgs } from './lib/argRepair';
+import { readDedupeFor } from './lib/readDedupe';
+import { configureTrace, toolEvent, trace } from './lib/turnTrace';
+import { ledgerBrief, projectKey } from './lib/tokenLedger';
 import { customToolsBrief } from './lib/customTools';
 import { brandKitContext, resolveActiveKit } from './lib/brandKit';
 import { recordTurnOutcome, type TurnOutcome } from './lib/ideagraph';
@@ -105,11 +109,16 @@ import { avatarBus } from './avatar/bus';
 import { setAvatarColours } from './avatar/sprite';
 import { KNOWN_TOOLS } from './lib/aiTools';
 import { pluginEvents, setPluginEditor } from './plugins/bridge';
-import { PLUGIN_MAKER_PERSONA } from './plugins/brief';
+import { pluginChecker } from './plugins/testRunner';
+import { checkRevocations } from './plugins/market';
+import { PluginMarket } from './plugins/PluginMarket';
+import { PLUGIN_MAKER_BRIEF, PLUGIN_MAKER_TOOLSET } from './plugins/brief';
+import { harnessRefusal } from './lib/harness';
 import { PluginMaker } from './plugins/PluginMaker';
 import { BackgroundPlugins, panelPlugins, pluginGlyph, PluginsPanelBody } from './plugins/PluginsPanel';
 import { loadPlugins, patchPlugin, pluginsBrief, usePlugins } from './plugins/store';
-import { selectedPlugin } from './plugins/aiTools';
+import { selectedPlugin, setPluginChecker } from './plugins/aiTools';
+import { CHARACTERS_TAB, CharactersIcon, CharactersLauncher, CharactersWindow } from './characters/CharactersWindow';
 
 /**
  * How narrow each panel may be dragged.
@@ -176,11 +185,15 @@ export default function App() {
   const [learningOpen, setLearningOpen] = useState(false);
   /** The Plugin Maker workspace, and the plugin it has open (null: a new one). */
   const [makerOpen, setMakerOpen] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
   const [makerPlugin, setMakerPlugin] = useState<string | null>(null);
   const [pluginTab, setPluginTab] = useState<string | null>(null);
   const makerChatApi = useRef<ChatApi | null>(null);
   /** The Plugins panel was asked for while it has no plugin tabs, so it shows its empty state. */
-  const [pluginsInvited, setPluginsInvited] = useState(false);
+  /** The Characters window (a built-in tab of the Plugins panel), and which studio it shows. */
+  const [charactersOpen, setCharactersOpen] = useState(false);
+  const [charactersMode, setCharactersMode] = useState<'2d' | '3d'>('2d');
+  const [charactersSeen, setCharactersSeen] = useState(0);
   const { plugins } = usePlugins();
   const [loaded, setLoaded] = useState(false);
   const [savedProject, setSavedProject] = useState<Project | null>(null);
@@ -235,7 +248,19 @@ export default function App() {
   // answer. Keeping only the newest would strand the others and lose the answers already given.
   // The reference edits follow. Its guideline is added to the context every turn, so the model is
   // working from the same reading of the film the editor is.
-  const [referenceId, setReferenceId] = useState<string | null>(null);
+  // Remembered across restarts: a reference the user chose keeps steering until they clear it.
+  const [referenceId, setReferenceIdState] = useState<string | null>(() => {
+    try { return localStorage.getItem('bhippi.activeReference'); } catch { return null; }
+  });
+  const setReferenceId = useCallback((id: string | null) => {
+    setReferenceIdState(id);
+    try {
+      if (id) localStorage.setItem('bhippi.activeReference', id);
+      else localStorage.removeItem('bhippi.activeReference');
+    } catch {
+      // Storage blocked: the reference still applies for this session.
+    }
+  }, []);
   // The edit style (`@funny`, src/lib/styles.ts) every turn works in until the chat's chip clears
   // it; the backend puts the style's brief in the prompt when the context names it.
   const [editStyle, setEditStyle] = useState<StyleId | null>(null);
@@ -324,9 +349,13 @@ export default function App() {
   // The storyboard frame queue's view of the app, refreshed every render (see frameHost below).
   const frameHostRef = useRef<FrameHost | null>(null);
   settingsRef.current = settings;
+  // Read through refs at each event, so a turn traces into the project that was open when it began.
+  configureTrace({ enabled: () => settingsRef.current.turnTraces !== false, project: () => projectDirRef.current });
   const layoutStart = useRef(layout);
   const turnSnapshots = useRef(new Map<string, Project>());
   const editWorkflows = useRef(new Map<string, EditWorkflow>());
+  /** Turns started from the Plugin Maker's chat (docs/PLUGIN-PLATFORM-PLAN.md). */
+  const makerTurns = useRef(new Set<string>());
   const renderOriginals = useRef(new Map<string, Clip['source']>());
   const recorder = useRef<{ stop: () => void } | null>(null);
   const stageRefProxy = useMemo(() => ({ get current() { return programApi.current?.getStage() ?? null; } }), []);
@@ -625,6 +654,15 @@ export default function App() {
   // Plugins (src/plugins): the bridge runs their calls against the same host and rules as the AI's.
   useEffect(() => {
     void loadPlugins();
+    // The Plugin Maker's plugin_test / plugin_screenshot run plugins against a scratch copy of the project.
+    setPluginChecker(pluginChecker);
+    // bhippi.com's signed revocation list: a plugin pulled from the marketplace is turned off on
+    // every machine, at start and every six hours. An unreachable or unsigned list changes nothing.
+    const revocations = () => void checkRevocations().then((pulled) => {
+      for (const { plugin, reason } of pulled) toast({ tone: 'error', title: `“${plugin.name}” was turned off`, body: `It was pulled from the plugin marketplace: ${reason}`, timeout: 15000 });
+    }, () => undefined);
+    const firstCheck = window.setTimeout(revocations, 20_000);
+    const everySixHours = window.setInterval(revocations, 6 * 3600 * 1000);
     setPluginEditor({
       host: () => {
         const host = hostRef.current;
@@ -640,9 +678,17 @@ export default function App() {
       permission: () => permissionRef.current,
       disableLocalGeneration: () => settingsRef.current.disableLocalGeneration ?? true,
       toast: (tone, title, body) => toast({ tone, title, body }),
-      chat: (message) => chatApi.current?.send(message),
+      // A plugin only suggests: the message goes to Bhippi AI when the user clicks Send.
+      chat: (message, pluginName) => toast({
+        tone: 'info', title: `“${pluginName}” suggests asking Bhippi AI`, body: message.replace(/^\[From the “[^”]*” plugin\] /, '').slice(0, 400),
+        actions: [{ label: 'Send to Bhippi AI', run: () => chatApi.current?.send(message) }, { label: 'Dismiss', run: () => undefined }],
+      }),
       projectPath: () => settingsRef.current.projectPath,
     });
+    return () => {
+      window.clearTimeout(firstCheck);
+      window.clearInterval(everySixHours);
+    };
   }, [toast]);
   useEffect(() => pluginEvents.project(), [project]);
   useEffect(() => pluginEvents.selection(selection), [selection]);
@@ -698,7 +744,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const pending = events.toolCall(async (call) => {
+    const pending = events.toolCall(async (sent) => {
+      // Mended against the schema once, so the guard, the tool and the log all see the same call.
+      const call = { ...sent, args: repairArgs(sent.name, sent.args) };
       const controller = new AbortController();
       toolAborts.current.set(call.callId, { turnId: call.turnId, controller });
       if (!turnSnapshots.current.has(call.turnId)) turnSnapshots.current.set(call.turnId, hostRef.current.history.current());
@@ -720,11 +768,16 @@ export default function App() {
       let result;
       const projectBeforeTool = hostRef.current.history.current();
       avatarBus.toolStart(call.turnId, call.callId, call.name, call.args);
-      // What the assistant may do without asking is the user's choice, not the model's.
-      const permitted = allowTool(permissionRef.current, call.name);
+      // A Plugin Maker turn may call only the Maker's own tools (src/lib/harness.ts; the backend
+      // refuses the rest too). Within them, what the assistant may do without asking is the user's
+      // choice, not the model's.
+      const maker = makerTurns.current.has(call.turnId);
+      const outside = maker ? harnessRefusal('plugin-maker', call.name) : null;
+      const permitted = outside ? { ok: false as const, reason: outside } : allowTool(permissionRef.current, call.name);
       let workflow = editWorkflows.current.get(call.turnId);
       if (!workflow) {
-        workflow = new EditWorkflow(hostRef.current.history.current(), hostRef.current.assets(), 'full', settingsRef.current.disableLocalGeneration ?? true);
+        // Rebuilt after "New conversation" cleared it mid-turn: a Plugin Maker turn stays quick and never asks for a frame size.
+        workflow = new EditWorkflow(hostRef.current.history.current(), hostRef.current.assets(), maker ? 'quick' : 'full', settingsRef.current.disableLocalGeneration ?? true, !maker);
         editWorkflows.current.set(call.turnId, workflow);
       }
       if (!permitted.ok) {
@@ -733,7 +786,8 @@ export default function App() {
         try {
           const args = (call.args && typeof call.args === 'object' ? call.args : {}) as Record<string, unknown>;
           const project = hostRef.current.history.current();
-          const blocked = workflow.before(call.name, args, project) || (call.name === 'save_storyboard' ? workflow.validateStoryboard(args, project) : null);
+          // The Maker builds plugins, not a video: the edit workflow's phases never gate its tools.
+          const blocked = maker ? null : workflow.before(call.name, args, project) || (call.name === 'save_storyboard' ? workflow.validateStoryboard(args, project) : null);
           // Flagged separately from an ordinary tool failure: every other call from the same
           // blind batch is refused for the identical reason (wrong phase, unread timeline,
           // missing prerequisite), so a CLI-protocol turn can stop burning through the rest of
@@ -758,6 +812,8 @@ export default function App() {
             },
             // The same checks as above, for each call a custom tool makes on the model's behalf.
             guard: (name: string, stepArgs: Record<string, unknown>) => {
+              const outsideHarness = maker ? harnessRefusal('plugin-maker', name) : null;
+              if (outsideHarness) return outsideHarness;
               const allowed = allowTool(permissionRef.current, name);
               if (!allowed.ok) return allowed.reason;
               return turnWorkflow.before(name, stepArgs, hostRef.current.history.current());
@@ -806,7 +862,10 @@ export default function App() {
         }));
       }
       // Anything the user typed while this turn works goes back with this result, so the model reads it now.
-      await api.chatToolResult(call.turnId, call.callId, steer.attach(call.turnId, result)).catch(() => undefined);
+      // A repeat of a read the model already holds goes back as a one-line note (Token Council).
+      const reply = readDedupeFor(call.turnId).pass(call.name, call.args, result);
+      trace(call.turnId, toolEvent({ name: call.name, callId: call.callId, sentArgs: sent.args, args: call.args, result, reply, permitted: permitted.ok, ms, changedProject }));
+      await api.chatToolResult(call.turnId, call.callId, steer.attach(call.turnId, reply)).catch(() => undefined);
     });
     return () => void pending.then((unlisten) => unlisten());
   }, []);
@@ -1223,9 +1282,9 @@ export default function App() {
 
   // ── layout ─────────────────────────────────────────────────────────────
   const hidden = (panel: PanelId) => layout.hidden.includes(panel);
-  // The Plugins panel shows when it has plugin tabs, or when the user asked for it (its empty state invites building one).
+  // The Plugins panel always has the built-in Characters tab, so it shows unless the user hid it.
   const shownPlugins = panelPlugins(plugins);
-  const showPlugins = !hidden('plugins') && (shownPlugins.length > 0 || pluginsInvited);
+  const showPlugins = !hidden('plugins');
   const setPanelVisible = (panel: PanelId, visible: boolean) => {
     setLayout((current) => ({ ...current, hidden: visible ? current.hidden.filter((id) => id !== panel) : [...new Set([...current.hidden, panel])] }));
     if (!visible && maximized === panel) setMaximized(null);
@@ -1322,6 +1381,20 @@ export default function App() {
       if (errorText(error).includes('FFmpeg')) setSettingsTab('media');
     }
   }, [assets, binFolder, history, landDrop, nestComps, refreshAssets, toast]);
+
+  const openCharacters = (mode?: '2d' | '3d') => {
+    if (mode) setCharactersMode(mode);
+    setCharactersOpen(true);
+  };
+  // A character from the Characters window: the PNG is already in the library, so it joins the project's media.
+  const addCharacter = useCallback((asset: Asset, name: string) => {
+    setAssets((current) => (current.some((item) => item.id === asset.id) ? current : [...current, asset]));
+    void refreshAssets();
+    history.commit((current) => (current.media.some((ref) => ref.assetId === asset.id)
+      ? current
+      : { ...current, media: [...current.media, { assetId: asset.id, folderId: null, offline: false }] }), `Add character ${name}`);
+    toast({ tone: 'success', title: `Added ${name}`, body: 'The character is in the project media as a transparent PNG.', timeout: 3000 });
+  }, [history, refreshAssets, toast]);
 
   const pickFiles = useCallback(async () => {
     const extensions = info?.extensions ?? ['mp4', 'mov', 'mkv', 'webm', 'mp3', 'wav', 'm4a', 'png', 'jpg'];
@@ -2391,9 +2464,12 @@ export default function App() {
     ] },
     { label: 'Learning', items: [{label:'Reference learning workspace…',onSelect:()=>setLearningOpen(true)}] },
     { label: 'Plugins', items: [
+      { label: 'Characters…', onSelect: () => openCharacters() },
+      { separator: true },
       { label: 'Custom Plugin…', onSelect: () => { setMakerPlugin(null); setMakerOpen(true); } },
       { label: 'Plugin Maker', onSelect: () => setMakerOpen(true) },
-      { label: 'Show Plugins Panel', checked: showPlugins, onSelect: () => { setPanelVisible('plugins', !showPlugins); setPluginsInvited(!showPlugins); } },
+      { label: 'Plugin Marketplace…', onSelect: () => setMarketOpen(true) },
+      { label: 'Show Plugins Panel', checked: showPlugins, onSelect: () => setPanelVisible('plugins', !showPlugins) },
       ...(plugins.length ? [{ separator: true } as MenuItem] : []),
       ...plugins.map((item) => ({
         label: `${pluginGlyph(item)} ${item.name}`,
@@ -2410,7 +2486,7 @@ export default function App() {
       ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['transcript', 'Storyboard & Transcription', 'Shift+8'], ['chat', 'Bhippi AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
         label, shortcut, checked: !hidden(id), onSelect: () => setPanelVisible(id, hidden(id)),
       })),
-      { label: 'Plugins', checked: showPlugins, onSelect: () => { setPanelVisible('plugins', !showPlugins); setPluginsInvited(!showPlugins); } },
+      { label: 'Plugins', checked: showPlugins, onSelect: () => setPanelVisible('plugins', !showPlugins) },
       { separator: true },
       { label: maximized ? 'Restore Panel Size' : 'Maximize Panel Under Cursor', shortcut: '`', onSelect: () => toggleMax(maximized ?? focused) },
       { label: 'Reset Workspace', onSelect: () => { setLayout(DEFAULT_LAYOUT); setMaximized(null); } },
@@ -2779,14 +2855,19 @@ export default function App() {
   );
 
   // The Plugins panel: one tab per plugin shown as a panel, or an invitation to build one.
-  const activePlugin = shownPlugins.find((item) => item.id === pluginTab)?.id ?? shownPlugins[0]?.id ?? 'plugins';
+  const activePlugin = shownPlugins.find((item) => item.id === pluginTab)?.id ?? CHARACTERS_TAB;
   const openMaker = (id: string | null) => { setMakerPlugin(id); setMakerOpen(true); };
-  const pluginsPanel = panel('plugins', shownPlugins.length ? shownPlugins.map((item) => ({ id: item.id, label: <span title={item.description}>{pluginGlyph(item)} {item.name}</span> })) : [{ id: 'plugins', label: 'Plugins' }], activePlugin, (
-    <PluginsPanelBody active={activePlugin} skip={makerOpen ? makerPlugin : null} onMaker={() => openMaker(null)} onOpenInMaker={openMaker} />
+  const pluginsPanel = panel('plugins', [
+    { id: CHARACTERS_TAB, label: <span className="plugin-tab-label" title="Build 2D and 3D characters for this project"><CharactersIcon size={14} /> Characters</span> },
+    ...shownPlugins.map((item) => ({ id: item.id, label: <span title={item.description}>{pluginGlyph(item)} {item.name}</span> })),
+  ], activePlugin, (
+    <PluginsPanelBody active={activePlugin} skip={makerOpen ? makerPlugin : null} onMaker={() => openMaker(null)} onOpenInMaker={openMaker}
+      builtin={{ id: CHARACTERS_TAB, body: <CharactersLauncher onOpen={openCharacters} onCustomPlugin={() => openMaker(null)} refresh={charactersSeen} /> }} />
   ), {
     onTab: setPluginTab,
     menu: [
       { label: 'Custom Plugin…', onSelect: () => openMaker(null) },
+      { label: 'Marketplace…', onSelect: () => setMarketOpen(true) },
       ...(shownPlugins.some((item) => item.id === activePlugin) ? [
         { label: 'Edit in Plugin Maker…', onSelect: () => openMaker(activePlugin) },
         { label: 'Remove from Panel', onSelect: () => void patchPlugin(activePlugin, { panel: false }) },
@@ -2842,7 +2923,7 @@ export default function App() {
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
           genPlan={pendingGen ? { plan: pendingGen.plan, assets: assetMap } : null}
           onGenPlan={(plan) => { pendingGen?.resolve(plan); setPendingGen(null); }}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
+          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', tokenBudget: ledgerBrief(projectKey(projectDirRef.current)), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
             // The brain learns from every turn (on unless turned off); recording never disturbs the chat.
             if (settingsRef.current.ideagraphRecord === false) return;
@@ -3011,16 +3092,22 @@ export default function App() {
     <div className="app">
       <MenuBar menus={menus} />
       <BackgroundPlugins panelShown={showPlugins && (!maximizedPanel || maximizedPanel === 'plugins')} skip={makerOpen ? makerPlugin : null} />
+      <CharactersWindow open={charactersOpen} mode={charactersMode} onMode={setCharactersMode} onAdded={addCharacter}
+        onClose={() => { setCharactersOpen(false); setCharactersSeen((n) => n + 1); }} />
+      {marketOpen && (
+        <PluginMarket known={KNOWN_TOOLS} onClose={() => setMarketOpen(false)} onOpenInMaker={(id) => { setMarketOpen(false); openMaker(id); }} />
+      )}
       {makerOpen && (
         <PluginMaker
           selected={makerPlugin}
           onSelect={setMakerPlugin}
           onPrompt={(text) => makerChatApi.current?.send(text)}
           onClose={() => setMakerOpen(false)}
+          onMarket={() => { setMakerOpen(false); setMarketOpen(true); }}
           known={KNOWN_TOOLS}
           chat={
-            <ChatPanel apiRef={makerChatApi} logScope="plugins" persona={PLUGIN_MAKER_PERSONA} lockedMode="quick" label="Plugin Maker chat"
-              instruction="You are in the Plugin Maker: build or change the plugin the user describes with save_plugin, then check it with plugin_logs. Do not call editing_workflow_status or verify_edit_workflow."
+            <ChatPanel apiRef={makerChatApi} logScope="plugins" persona={PLUGIN_MAKER_BRIEF} lockedMode="quick" harness="plugin-maker" toolset={PLUGIN_MAKER_TOOLSET} label="Plugin Maker chat"
+              instruction="You are in the Plugin Maker: build or change the plugin the user describes by following your loop — spec.md first, the draft files, plugin_validate, plugin_save, plugin_test, plugin_screenshot — until the Judge passes or three rounds have run."
               placeholder="Describe the plugin you want…"
               providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
               effort={effort} onEffort={(value) => saveSettings({ effort: value })}
@@ -3035,7 +3122,11 @@ export default function App() {
               onManageProviders={() => setSettingsTab('providers')}
               getContext={() => ({ ...(aiContext(history.current(), assetMap, selection) as object), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', pluginMaker: { openPluginId: selectedPlugin(), note: selectedPlugin() ? `The user has the "${selectedPlugin()}" plugin open: change THAT plugin (save_plugin with its id) unless they ask for a new one.` : 'No plugin is open: save_plugin creates a new one.' } })}
               tools={toolRuns}
-              onStartWorkflow={(turnId, mode) => editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true))}
+              onStartWorkflow={(turnId, mode) => {
+                // A plugin is not a video: its turns never stop to ask for a frame size.
+                makerTurns.current.add(turnId);
+                editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true, false));
+              }}
               workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
               onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)} />
           }

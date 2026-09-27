@@ -103,8 +103,32 @@ describe('production phase gates', () => {
     expect(editing.status(f.project).qaCurrent).toBe(false);
     editing.record('run_frame_qa', {}, { ok: true, issues: [] }, f.project);
     editing.record('get_comp', {}, { ok: true, id: f.comp.id }, f.project);
+    // A production also needs the Judge's verdict on the cut it leaves.
+    expect(editing.verify(f.project).error).toContain('judge_edit');
+    editing.record('judge_edit', {}, { ok: true, score: 64, round: 1, issues: [] }, f.project);
+    expect(editing.verify(f.project).error).toContain('64/100');
+    expect(editing.status(f.project).visualQualityVerified).toBe(false);
+    editing.record('judge_edit', {}, { ok: true, score: 86, round: 2, issues: [] }, f.project);
+    expect(editing.status(f.project).visualQualityVerified).toBe(true);
     const verdict = editing.verify(f.project);
     expect(verdict.ok, String(verdict.error ?? "")).toBe(true);
+    expect(verdict.summary).toContain('86/100');
+  });
+
+  it('stops the judge loop after its rounds and passes with the score told', () => {
+    const f = planned('editing');
+    f.comp.production = { ...f.comp.production!, receipts: f.flow.receipts(f.project)! };
+    const editing = new EditWorkflow(f.project, f.assets);
+    editing.record('add_text', { text: 'x' }, { ok: true }, f.project);
+    editing.record('score_audio_clip', { clipId: f.clip.id }, { ok: true }, f.project);
+    editing.record('generate_local_media', { task: 'audio' }, { ok: true, jobId: 'j', assets: [{ id: 'gen' }] }, f.project);
+    f.comp.clips.push(newClip({ trackId: tracksOf(f.comp, 'audio')[0].id, start: 0, duration: 1, source: { type: 'media', assetId: 'gen' } }));
+    editing.record('place_clip', {}, { ok: true }, f.project);
+    editing.record('get_comp', {}, { ok: true, id: f.comp.id }, f.project);
+    editing.record('judge_edit', {}, { ok: true, score: 71, round: 3, issues: [] }, f.project);
+    const verdict = editing.verify(f.project);
+    expect(verdict.ok, String(verdict.error ?? '')).toBe(true);
+    expect(verdict.summary).toContain('after 3 rounds');
   });
   it('lists the shots to gather across storyboard scenes and the music', () => {
     const f = planned('gathering');

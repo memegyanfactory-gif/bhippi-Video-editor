@@ -60,10 +60,15 @@ describe('validateScene', () => {
 describe('motion tools', () => {
   it('lists templates with their params', async () => {
     const { ctx } = harness(newProject());
-    const result = await runMotionTool('list_motion_templates', {}, ctx);
-    expect(result.ok).toBe(true);
+    const menu = await runMotionTool('list_motion_templates', {}, ctx);
+    expect(menu.ok).toBe(true);
+    const listed = (menu as unknown as { templates: { id: string; params?: object }[] }).templates;
+    expect(listed.length).toBeGreaterThan(30);
+    expect(listed.find((t) => t.id === 'subject-reveal')?.params).toBeUndefined();
+    const result = await runMotionTool('list_motion_templates', { query: 'subject-reveal' }, ctx);
     const templates = (result as unknown as { templates: { id: string; params: object }[] }).templates;
-    expect(templates.find((t) => t.id === 'subject-reveal')?.params).toHaveProperty('subject');
+    expect(templates).toHaveLength(1);
+    expect(templates[0].params).toHaveProperty('subject');
   });
 
   it('places a raw scene above the footage with its sound cues', async () => {

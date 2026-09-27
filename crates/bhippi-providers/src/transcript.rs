@@ -311,10 +311,15 @@ impl Reader {
         };
 
         let mut out = Vec::new();
-        // Usage is cumulative per turn in both dialects, so the last report wins and it
-        // is released once at `finish` rather than re-announced on every line.
+        // Codex, Claude Code and Gemini report the turn's running total, so the last report
+        // wins; OpenCode reports each step on its own, so its steps add up. Either way it is
+        // released once at `finish` rather than re-announced on every line.
         if let Some(counts) = event_usage(&event) {
             self.usage = Some(counts);
+        } else if let Some(step) = step_usage(&event) {
+            let sum = self.usage.get_or_insert(TokenCounts { input: 0, output: 0 });
+            sum.input = sum.input.saturating_add(step.input);
+            sum.output = sum.output.saturating_add(step.output);
         }
         if let Some(reason) = event_failure(&event) {
             self.failure = Some(reason);
@@ -1040,10 +1045,18 @@ fn event_usage(event: &Value) -> Option<TokenCounts> {
             });
         }
     }
+    None
+}
+
+/// One OpenCode step's tokens (`part.tokens` on `step_finish`). Its `input` leaves out the
+/// context read from cache, which is most of a long agent loop, so the cache counts are added in;
+/// reasoning is output the model was billed for.
+fn step_usage(event: &Value) -> Option<TokenCounts> {
     let tokens = event.get("part").and_then(|part| part.get("tokens"))?;
+    let count = |pointer: &str| tokens.pointer(pointer).and_then(Value::as_u64).unwrap_or(0);
     Some(TokenCounts {
-        input: tokens.get("input").and_then(Value::as_u64)?,
-        output: tokens.get("output").and_then(Value::as_u64)?,
+        input: tokens.get("input").and_then(Value::as_u64)?.saturating_add(count("/cache/read")).saturating_add(count("/cache/write")),
+        output: tokens.get("output").and_then(Value::as_u64)?.saturating_add(count("/reasoning")),
     })
 }
 
@@ -1205,6 +1218,20 @@ mod tests {
                 output: 4
             })
         );
+    }
+
+    #[test]
+    fn opencode_steps_add_up_with_the_context_they_read_from_cache() {
+        let steps = concat!(
+            r#"{"type":"step_finish","part":{"type":"step-finish","tokens":{"input":12787,"output":301,"reasoning":0,"cache":{"read":87513,"write":0}}}}"#,
+            "
+",
+            r#"{"type":"step_finish","part":{"type":"step-finish","tokens":{"input":100,"output":329,"reasoning":48,"cache":{"read":103689,"write":0}}}}"#,
+            "
+",
+        );
+        let answer = read(Transcript::JsonLines, steps);
+        assert_eq!(answer.usage, Some(TokenCounts { input: 12_787 + 87_513 + 100 + 103_689, output: 301 + 329 + 48 }));
     }
 
     #[test]

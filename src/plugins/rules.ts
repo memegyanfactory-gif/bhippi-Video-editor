@@ -5,22 +5,52 @@
 //   - pluginCsp / composePage: the page a plugin actually runs as — its own content security
 //     policy first, then the SDK, then the plugin's HTML.
 
-import { isDestructiveTool, isReadTool } from '../lib/permissions';
+import { isDestructiveTool } from '../lib/permissions';
 import { SDK_SOURCE } from './sdk';
 import type { Plugin, PluginPermissions } from './types';
 
-/** Tools a plugin can never call: they belong to an AI turn, or would let a plugin rewrite the tool and plugin libraries. */
+/**
+ * Tools a plugin can never call: they belong to an AI turn, would let a plugin rewrite the tool and
+ * plugin libraries, or would let one plugin read another's code, permissions or console.
+ */
 export const PLUGIN_FORBIDDEN = new Set([
   'create_custom_tool', 'update_custom_tool', 'delete_custom_tool',
-  'save_plugin', 'delete_plugin', 'call_plugin_action',
+  'save_plugin', 'delete_plugin', 'call_plugin_action', 'list_plugins', 'get_plugin', 'plugin_logs', 'show_plugin',
   'spawn_subagent', 'wait_subagent', 'ask_user', 'choose_comp_size',
   'editing_workflow_status', 'verify_edit_workflow',
+  // The Plugin Maker's own tools: a plugin never builds or runs plugins.
+  'plugin_scaffold', 'plugin_list_files', 'plugin_read_file', 'plugin_write_file', 'plugin_delete_file',
+  'plugin_validate', 'plugin_test', 'plugin_screenshot', 'plugin_save', 'plugin_examples', 'plugin_tool_catalog',
 ]);
 
-/** Tools `'*'` does not cover: the shell, files on disk, installs and anything that deletes. Each must be named. */
-export const PLUGIN_SENSITIVE = new Set(['run_command', 'write_file', 'edit_file', 'install_local_model', 'delete_brand_kit']);
+/**
+ * What a plugin may read without asking: the project and Bhippi's built-in catalogues, nothing
+ * else. Not permissions.ts isReadTool — that means "allowed without asking the user" and includes
+ * tools that move the real playhead, write the brain or the meme library, or go online.
+ */
+export const PLUGIN_READS = new Set([
+  'get_project', 'get_comp', 'get_motion_scene', 'tool_help', 'plugin_sdk_reference', 'list_effects', 'list_transitions',
+  'list_motion_templates', 'list_recipes', 'list_characters', 'list_character_actions', 'list_drawn_styles', 'list_3d_presets',
+  'list_ui_kinds', 'list_brand_kits', 'get_brand_kit', 'get_brand_guideline', 'list_custom_tools', 'check_pacing',
+  'check_motion_arcs', 'motion_guide', 'search_icons', 'svg_to_shape',
+]);
+export const isPluginRead = (name: string) => PLUGIN_READS.has(name);
 
-export const isSensitiveTool = (name: string) => PLUGIN_SENSITIVE.has(name) || isDestructiveTool(name);
+/**
+ * Tools `'*'` does not cover; each must be named, and the user sees it flagged. The shell, files on
+ * disk (reading too), installs, anything that deletes, the assistant's memory, anything that
+ * reaches the network through Bhippi (which would get round the plugin's own network policy),
+ * anything that spends money, and every tool of a connected MCP server.
+ */
+export const PLUGIN_SENSITIVE = new Set([
+  'run_command', 'write_file', 'edit_file', 'read_file', 'list_directory', 'glob_search', 'grep_search',
+  'install_local_model', 'delete_brand_kit',
+  'brain_remember', 'brain_forget', 'brain_recall', 'brain_save_skill', 'brain_load_skill', 'save_meme',
+  'online_research', 'scrape_web_page', 'scrape_videos', 'download_online_media', 'find_memes_online', 'refresh_meme_trends',
+  'extract_brand_from_url', 'find_free_media', 'generate_cloud_media',
+]);
+
+export const isSensitiveTool = (name: string) => PLUGIN_SENSITIVE.has(name) || name.startsWith('mcp__') || isDestructiveTool(name);
 
 export const MAX_PLUGIN_HTML = 1024 * 1024;
 export const MAX_REVISIONS = 10;
@@ -42,12 +72,12 @@ export function pluginIdFor(name: string, taken: ReadonlySet<string>): string {
 export function pluginToolRefusal(permissions: PluginPermissions, name: string, known: ReadonlySet<string>): string | null {
   if (PLUGIN_FORBIDDEN.has(name)) return `${name} cannot be called by a plugin.`;
   if (!known.has(name) && !name.startsWith('mcp__')) return `“${name}” is not a Bhippi tool.`;
-  if (isReadTool(name)) return null;
+  if (isPluginRead(name)) return null;
   const declared = permissions.tools ?? [];
   if (declared.includes(name)) return null;
   if (declared.includes('*') && !isSensitiveTool(name)) return null;
   return isSensitiveTool(name)
-    ? `This plugin has not been given ${name}. Sensitive tools (shell, files, deletes) must be listed by name in its permissions.`
+    ? `This plugin has not been given ${name}. Sensitive tools (shell, files, deletes, memory, network, paid generation, MCP servers) must be listed by name in its permissions.`
     : `This plugin has not been given ${name}. Add it to the plugin's permitted tools.`;
 }
 
@@ -83,15 +113,21 @@ export function validatePlugin(plugin: Plugin, known: ReadonlySet<string>): stri
 /** Libraries a plugin may load without asking: the common public CDNs. */
 const CDNS = 'https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com';
 
-/** The content security policy a plugin's page runs under: no network but its own hosts. */
-export function pluginCsp(permissions: PluginPermissions): string {
+/**
+ * The content security policy a plugin's page runs under: no network but its own hosts.
+ * `strict` (plugins built from drafts or installed from packages, format 2): only the plugin's own
+ * inline code — no CDN scripts, styles or fonts, no eval — so the code that was checked is the only
+ * code that runs. Older plugins keep the CDN allowance until they are next saved in the Maker.
+ */
+export function pluginCsp(permissions: PluginPermissions, strict = false): string {
   const network = permissions.network.flatMap((entry) => networkSources(entry) ?? []);
   const connect = network.length ? network.join(' ') : "'none'";
+  const remote = strict ? '' : ` ${CDNS}`;
   return [
     "default-src 'none'",
-    `script-src 'unsafe-inline' 'unsafe-eval' blob: ${CDNS}`,
-    `style-src 'unsafe-inline' https://fonts.googleapis.com ${CDNS}`,
-    `font-src data: https://fonts.gstatic.com ${CDNS}`,
+    strict ? "script-src 'unsafe-inline'" : `script-src 'unsafe-inline' 'unsafe-eval' blob:${remote}`,
+    `style-src 'unsafe-inline'${strict ? '' : ` https://fonts.googleapis.com${remote}`}`,
+    `font-src data:${strict ? '' : ` https://fonts.gstatic.com${remote}`}`,
     `img-src data: blob: asset: http://asset.localhost ${network.join(' ')}`.trim(),
     'media-src data: blob: asset: http://asset.localhost',
     `connect-src ${connect}`,
@@ -122,12 +158,12 @@ a { color: var(--blue-hi, #4ea3ff); }
  * plugin's own html follows (a whole document or a fragment — a second <html>/<head> in it is
  * folded in by the parser, and its scripts and styles still run).
  */
-export function composePage(plugin: Pick<Plugin, 'id' | 'name' | 'html' | 'permissions'>): string {
+export function composePage(plugin: Pick<Plugin, 'id' | 'name' | 'html' | 'permissions' | 'format'>): string {
   const body = plugin.html.replace(/^\s*<!doctype[^>]*>/i, '');
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${escapeAttr(pluginCsp(plugin.permissions))}">
+<meta http-equiv="Content-Security-Policy" content="${escapeAttr(pluginCsp(plugin.permissions, plugin.format === 2))}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeAttr(plugin.name)}</title>
 <style>${BASE_STYLE}</style>

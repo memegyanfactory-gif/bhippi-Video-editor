@@ -1,13 +1,33 @@
 // The tools Bhippi AI builds and runs plugins with (their specs are in src/lib/ai-tools.json).
+// The Plugin Maker's (src/lib/harnesses.json) work on a plugin's draft — its files — and check it:
+// plugin_validate reads the draft, plugin_save bundles it into the installed plugin, plugin_test
+// and plugin_screenshot run it against a scratch copy of the project (testRunner.ts).
 
+import catalog from '../lib/ai-tools.json';
 import type { ToolResult } from '../lib/types';
 import { callPluginAction, pluginRunning } from './bridge';
 import { PLUGIN_SDK_REFERENCE } from './brief';
-import { pluginIdFor, PLUGIN_ID } from './rules';
+import { bundleDraft, draftStore, ensureDraft, isDraftFile, readDraft, REQUIRED_FILES, validateDraft, type DraftCheck } from './drafts';
+import { isPluginRead, isSensitiveTool, pluginIdFor, PLUGIN_FORBIDDEN, PLUGIN_ID } from './rules';
 import { findPlugin, loadPlugins, patchPlugin, pluginStore, clearLogs, removePlugin, savePlugin } from './store';
+import { EXAMPLES, scaffold, TEMPLATES, type TemplateId } from './templates';
 import type { Plugin, PluginPermissions } from './types';
 
-export const PLUGIN_TOOLS = new Set(['list_plugins', 'get_plugin', 'save_plugin', 'delete_plugin', 'plugin_logs', 'call_plugin_action', 'plugin_sdk_reference', 'show_plugin']);
+/** The Plugin Maker's draft and check tools. */
+export const MAKER_TOOLS = new Set(['plugin_scaffold', 'plugin_list_files', 'plugin_read_file', 'plugin_write_file', 'plugin_delete_file', 'plugin_validate', 'plugin_test', 'plugin_screenshot', 'plugin_save', 'plugin_examples', 'plugin_tool_catalog']);
+
+export const PLUGIN_TOOLS = new Set(['list_plugins', 'get_plugin', 'save_plugin', 'delete_plugin', 'plugin_logs', 'call_plugin_action', 'plugin_sdk_reference', 'show_plugin', ...MAKER_TOOLS]);
+
+/** Runs a saved plugin against a scratch project (testRunner.ts); set by the editor, absent in tests. */
+export type PluginChecker = {
+  /** `check` is the static check of the plugin's draft, which the Judge weighs with the run. */
+  test: (plugin: Plugin, waitMs: number, check: DraftCheck | null) => Promise<ToolResult>;
+  screenshot: (plugin: Plugin, widths: number[]) => Promise<ToolResult>;
+};
+let checker: PluginChecker | null = null;
+export const setPluginChecker = (next: PluginChecker | null) => {
+  checker = next;
+};
 
 type Args = Record<string, unknown>;
 const fail = (error: string): ToolResult => ({ ok: false, error });
@@ -38,9 +58,168 @@ function permissionsFrom(raw: unknown, fallback?: PluginPermissions): PluginPerm
   };
 }
 
+/** The plugin a Maker tool works on: its id, or the one open in the Maker. */
+const target = (args: Args) => str(args, 'id') ?? selected;
+
+/** A plugin's draft, started from its installed page if it has none yet. */
+async function draftOf(args: Args): Promise<{ id: string; files: Record<string, string> } | string> {
+  const id = target(args);
+  if (!id) return 'No plugin is open: pass its id, or start one with plugin_scaffold.';
+  const files = await readDraft(id);
+  if (Object.keys(files).length) return { id, files };
+  const plugin = findPlugin(id);
+  if (!plugin) return `No plugin or draft “${id}”. list_plugins shows the installed ones; plugin_scaffold starts a new one.`;
+  return { id, files: await ensureDraft(plugin) };
+}
+
+/** Bundles a draft into the installed plugin. */
+export async function saveDraft(id: string, files: Record<string, string>, known: ReadonlySet<string>, note: string): Promise<ToolResult> {
+  const check = validateDraft(files, known);
+  if (!check.ok || !check.manifest) return fail(`The draft cannot be saved yet:\n${check.problems.map((problem) => `- ${problem}`).join('\n')}`);
+  const bundled = bundleDraft(files);
+  if (!bundled.html) return fail(bundled.error ?? 'The draft could not be bundled.');
+  const existing = findPlugin(id);
+  const now = new Date().toISOString();
+  const { manifest } = check;
+  const plugin: Plugin = {
+    version: 1, format: 2, pkg: existing?.pkg, id, name: manifest.name, description: manifest.description, icon: manifest.icon, html: bundled.html,
+    permissions: manifest.permissions, background: manifest.background,
+    enabled: existing?.enabled ?? true, panel: manifest.showAsPanel,
+    author: existing?.author ?? 'ai', createdAt: existing?.createdAt ?? now, updatedAt: now,
+    revision: existing?.revision ?? 1, revisions: existing?.revisions,
+  };
+  const saved = await savePlugin(plugin, known, note);
+  clearLogs(saved.id);
+  onSaved?.(saved.id);
+  return done(
+    `Saved “${saved.name}” (revision ${saved.revision}, ${Math.round(bundled.html.length / 1024)} KB). The preview reloaded.${check.warnings.length ? ` ${check.warnings.length} warning${check.warnings.length === 1 ? '' : 's'} left (plugin_validate).` : ''} Next: plugin_test.`,
+    { id: saved.id, revision: saved.revision, warnings: check.warnings },
+  );
+}
+
+/** One line per tool a plugin can call. */
+function toolCatalog(query: string) {
+  const tools = (catalog as unknown as { tools: { name: string; description: string }[] }).tools;
+  const wanted = query.toLowerCase();
+  return tools
+    .filter((tool) => !PLUGIN_FORBIDDEN.has(tool.name) && !PLUGIN_TOOLS.has(tool.name) && tool.name !== 'tool_help')
+    .filter((tool) => !wanted || `${tool.name} ${tool.description}`.toLowerCase().includes(wanted))
+    .map((tool) => {
+      const cut = tool.description.indexOf('. ');
+      const line = (cut < 0 ? tool.description : tool.description.slice(0, cut + 1)).slice(0, 140);
+      const tag = isPluginRead(tool.name) ? 'read' : isSensitiveTool(tool.name) ? 'SENSITIVE' : 'edit';
+      return `${tool.name} [${tag}] — ${line}`;
+    });
+}
+
 export async function runPluginAiTool(name: string, args: Args, known: ReadonlySet<string>): Promise<ToolResult> {
   await loadPlugins();
   switch (name) {
+    case 'plugin_scaffold': {
+      const template = (str(args, 'template') ?? 'panel') as TemplateId;
+      if (!TEMPLATES.includes(template)) return fail(`plugin_scaffold needs a template: ${TEMPLATES.join(', ')}`);
+      const pluginName = str(args, 'name');
+      if (!pluginName || pluginName.length > 60) return fail('plugin_scaffold needs a name of 1–60 characters');
+      const taken = new Set(pluginStore.get().plugins.map((plugin) => plugin.id));
+      const requested = str(args, 'id');
+      if (requested && !PLUGIN_ID.test(requested)) return fail(`“${requested}” is not a valid plugin id (lower-case letters, digits, - and _).`);
+      if (requested && taken.has(requested)) return fail(`“${requested}” is already a plugin: open it and change its draft instead.`);
+      const id = requested ?? pluginIdFor(pluginName, taken);
+      const files = scaffold(template, { name: pluginName, description: str(args, 'description') ?? '', icon: str(args, 'icon') ?? '🧩' });
+      await draftStore.clear(id);
+      for (const [file, text] of Object.entries(files)) await draftStore.write(id, file, text);
+      const saved = await saveDraft(id, files, known, `Started from the ${template} template`);
+      if (!saved.ok) return saved;
+      return done(`Started “${pluginName}” (id ${id}) from the ${template} template; it is installed and showing in the preview. Now write spec.md (the contract), then the code.`, { id, template, files: Object.keys(files) });
+    }
+
+    case 'plugin_list_files': {
+      const draft = await draftOf(args);
+      if (typeof draft === 'string') return fail(draft);
+      const files = await draftStore.list(draft.id);
+      return done(`${files.length} file${files.length === 1 ? '' : 's'} in the draft of “${draft.id}”`, { id: draft.id, files });
+    }
+
+    case 'plugin_read_file': {
+      const draft = await draftOf(args);
+      if (typeof draft === 'string') return fail(draft);
+      const file = str(args, 'file') ?? '';
+      if (draft.files[file] === undefined) return fail(`The draft of “${draft.id}” has no ${file || 'file by that name'}. It has: ${Object.keys(draft.files).join(', ')}.`);
+      return done(`${file} (${draft.files[file].length} characters)`, { id: draft.id, file, content: draft.files[file] });
+    }
+
+    case 'plugin_write_file': {
+      const draft = await draftOf(args);
+      if (typeof draft === 'string') return fail(draft);
+      const file = str(args, 'file') ?? '';
+      if (!isDraftFile(file)) return fail(`“${file}” is not a draft file name: letters, digits, - _ . and a .html, .js, .css, .json, .md, .svg or .txt ending, no folders.`);
+      if (typeof args.content !== 'string') return fail('plugin_write_file needs the whole file as content');
+      await draftStore.write(draft.id, file, args.content);
+      return done(`Wrote ${file} (${args.content.length} characters) in the draft of “${draft.id}”. It runs after plugin_save.`, { id: draft.id, file });
+    }
+
+    case 'plugin_delete_file': {
+      const draft = await draftOf(args);
+      if (typeof draft === 'string') return fail(draft);
+      const file = str(args, 'file') ?? '';
+      if (REQUIRED_FILES.includes(file)) return fail(`${file} is required and cannot be deleted; rewrite it instead.`);
+      if (draft.files[file] === undefined) return fail(`The draft of “${draft.id}” has no ${file}.`);
+      await draftStore.remove(draft.id, file);
+      return done(`Deleted ${file} from the draft of “${draft.id}”.`);
+    }
+
+    case 'plugin_validate': {
+      const draft = await draftOf(args);
+      if (typeof draft === 'string') return fail(draft);
+      const check = validateDraft(draft.files, known);
+      const lines = [...check.problems.map((problem) => `PROBLEM ${problem}`), ...check.warnings.map((warning) => `warning ${warning}`)];
+      return done(
+        check.ok
+          ? `The draft of “${draft.id}” is valid${check.warnings.length ? ` with ${check.warnings.length} warning${check.warnings.length === 1 ? '' : 's'}` : ' and clean'}: ${check.calls.length} tool${check.calls.length === 1 ? '' : 's'} called, ${check.checks} acceptance check${check.checks === 1 ? '' : 's'}, ${Math.round(check.bytes / 1024)} KB.${lines.length ? `\n${lines.join('\n')}` : ''}`
+          : `The draft of “${draft.id}” has ${check.problems.length} problem${check.problems.length === 1 ? '' : 's'} to fix before plugin_save:\n${lines.join('\n')}`,
+        { id: draft.id, valid: check.ok, problems: check.problems, warnings: check.warnings, calls: check.calls, missingPermissions: check.missing, unusedPermissions: check.unused, checks: check.checks, bytes: check.bytes },
+      );
+    }
+
+    case 'plugin_save': {
+      const draft = await draftOf(args);
+      if (typeof draft === 'string') return fail(draft);
+      try {
+        return await saveDraft(draft.id, draft.files, known, str(args, 'note') ?? 'Changed by Bhippi AI');
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    case 'plugin_test':
+    case 'plugin_screenshot': {
+      const id = target(args);
+      const plugin = id ? findPlugin(id) : null;
+      if (!plugin) return fail(`No installed plugin “${id ?? ''}”: plugin_save the draft first.`);
+      if (!checker) return fail('Plugins can only be run in the Bhippi app.');
+      if (name === 'plugin_test') {
+        const wait = typeof args.waitMs === 'number' ? Math.min(8000, Math.max(200, args.waitMs)) : 1500;
+        // The Judge weighs the run together with the static checks of the draft it came from.
+        const draft = await readDraft(plugin.id);
+        return checker.test(plugin, wait, Object.keys(draft).length ? validateDraft(draft, known) : null);
+      }
+      const widths = Array.isArray(args.widths) ? args.widths.filter((w): w is number => typeof w === 'number').map((w) => Math.min(1200, Math.max(240, Math.round(w)))).slice(0, 3) : [];
+      return checker.screenshot(plugin, widths.length ? widths : [320, 480]);
+    }
+
+    case 'plugin_examples': {
+      const id = str(args, 'id');
+      if (!id) return done(`${EXAMPLES.length} reviewed examples; pass an id for the source.`, { examples: EXAMPLES.map((example) => ({ id: example.id, title: example.title, about: example.about })), templates: TEMPLATES });
+      const example = EXAMPLES.find((item) => item.id === id);
+      if (!example) return fail(`No example “${id}”. There are: ${EXAMPLES.map((item) => item.id).join(', ')}.`);
+      return done(`${example.title}: ${example.about}`, { id: example.id, files: example.files });
+    }
+
+    case 'plugin_tool_catalog': {
+      const lines = toolCatalog(str(args, 'query') ?? '');
+      return done(`${lines.length} tool${lines.length === 1 ? '' : 's'} a plugin can call (read: always allowed; edit: list it in permissions.tools; SENSITIVE: must be named, needs a reason). tool_help <name> gives the parameters.`, { tools: lines });
+    }
+
     case 'plugin_sdk_reference':
       return done('The Bhippi plugin SDK reference.', { reference: PLUGIN_SDK_REFERENCE });
 
@@ -109,7 +288,9 @@ export async function runPluginAiTool(name: string, args: Args, known: ReadonlyS
       const id = str(args, 'id');
       if (!id || !findPlugin(id)) return fail(`No plugin “${id ?? ''}”.`);
       await removePlugin(id);
-      return done(`Deleted the “${id}” plugin and its saved data.`);
+      // In the app removePlugin also removes the draft and packages; this covers memory (tests).
+      await draftStore.clear(id).catch(() => undefined);
+      return done(`Deleted the “${id}” plugin, its draft and its saved data.`);
     }
 
     case 'show_plugin': {

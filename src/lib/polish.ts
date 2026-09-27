@@ -237,6 +237,55 @@ export type FrameStats = { white: number; dark: number; flat: number; mean: numb
  * (bright and colourless), of near-black ones, and of pixels within a hair of the median
  * brightness (one flat colour).
  */
+/**
+ * How far apart the light and dark of each box are on a rendered frame, as a WCAG-style ratio
+ * of its 90th to 10th luminance percentile. Legible type on its background spreads the two
+ * (white on dark: > 4); type that melts into its background keeps them close (< ~1.8).
+ */
+export async function boxContrast(path: string, boxes: Box[]): Promise<(number | null)[]> {
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('frame did not load'));
+      img.src = `${fileSrc(path)}${fileSrc(path).includes('?') ? '&' : '?'}qa=${Date.now()}`;
+    });
+    const W = 480;
+    const H = Math.max(1, Math.round((W * image.naturalHeight) / Math.max(1, image.naturalWidth)));
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return boxes.map(() => null);
+    context.drawImage(image, 0, 0, W, H);
+    return boxes.map((box) => {
+      const x = Math.max(0, Math.floor(box.x * W));
+      const y = Math.max(0, Math.floor(box.y * H));
+      const w = Math.min(W - x, Math.ceil(box.width * W));
+      const h = Math.min(H - y, Math.ceil(box.height * H));
+      if (w < 3 || h < 3) return null;
+      const { data } = context.getImageData(x, y, w, h);
+      const lum: number[] = [];
+      for (let i = 0; i < data.length; i += 4) {
+        const c = [data[i], data[i + 1], data[i + 2]].map((v) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        });
+        lum.push(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]);
+      }
+      lum.sort((a, b) => a - b);
+      const low = lum[Math.floor(lum.length * 0.1)];
+      const high = lum[Math.floor(lum.length * 0.9)];
+      return (high + 0.05) / (low + 0.05);
+    });
+  } catch {
+    return boxes.map(() => null);
+  }
+}
+
+/** Contrast below this and the words in a text box are not readable at a glance. */
+export const MIN_TEXT_CONTRAST = 1.8;
+
 export async function frameStats(path: string): Promise<FrameStats | null> {
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {

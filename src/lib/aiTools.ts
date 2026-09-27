@@ -30,13 +30,17 @@ import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, r
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
 import catalog from './ai-tools.json';
+import { repairArgs } from './argRepair';
+import { inferGenres, judge, JUDGE_ROUNDS, PASS_MARK } from './judge';
+import { ANGLES, debate, parseProposal } from './director';
+import { GENRE_TOOLS, PLAYBOOK_FOR, routeTools, type Genre } from './toolRouter';
 import { MOTION_TOOLS, runMotionTool } from './motionTools';
 import { ROAST_TOOLS, memeLookup, primeMemeCache, runRoastTool } from './roast/tools';
 import { isRoastCardTemplate } from './roast/cards';
 import { CARD_TEMPLATES } from './roast/types';
 import { MOTION_TEMPLATES, findTemplate } from '../motion/kit';
 import { SFX_GAIN_DB, sfxClipFields, sfxTrack } from './sfxLevels';
-import { blankFinding, collectQaLayers, frameStats } from './polish';
+import { blankFinding, boxContrast, collectQaLayers, frameStats, MIN_TEXT_CONTRAST } from './polish';
 import { renderMotionStill } from '../motion/exportFrames';
 import { renderHtmlStill } from './htmlFrames';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, placement, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
@@ -44,7 +48,7 @@ import { safeFor } from './layout';
 import { aspectLabel, describeReformat, FRAME_PRESETS, orientationOf, reformatComp, RESOLUTION_TIERS, scaleTo, type ReformatMode } from './reformat';
 import { autoLayout, captionBand, fillCell, pipBox, splitCells, type SplitLayout } from './splitScreen';
 import type { History } from './history';
-import { api, errorText } from './ipc';
+import { api, errorText, type Transcript } from './ipc';
 import { cloudPrefs, genApi, pickModel, usableConnectors, type GenPlan, type GenPlanItem } from './cloudGen';
 import { describe as describeDiff, runProgram, type Op, type Program } from './editProgram';
 import { buildRecipe, findRecipe, recipeCatalogue, registerCustomRecipe, setCustomRecipes } from './recipes';
@@ -278,7 +282,7 @@ function clipSummary(project: Project, assets: AssetMap, comp: Comp, clip: Clip)
 }
 
 /** One comp in full: what `get_comp` answers with. */
-export function compDetail(project: Project, assets: AssetMap, comp: Comp) {
+export function compDetail(project: Project, assets: AssetMap, comp: Comp, plan = false) {
   const ranged = comp.inPoint !== null && comp.outPoint !== null && comp.outPoint > comp.inPoint;
   return {
     id: comp.id,
@@ -310,8 +314,26 @@ export function compDetail(project: Project, assets: AssetMap, comp: Comp) {
       return { id: transition.id, kind: transition.kind, track: trackLabel(comp, transition.trackId), at: window ? round(window.at) : null, duration: round(transition.duration), alignment: transition.alignment, fromClip: transition.fromClip, toClip: transition.toClip };
     }),
     markers: comp.markers.map((marker) => ({ id: marker.id, time: round(marker.time), name: marker.name || undefined })),
-    storyboard: comp.storyboard ?? [],
-    blueprint: comp.videoBlueprint ?? null,
+    // The plan in full is often most of a comp (and cards may carry image data); every read
+    // re-sent it. By default each beat is one line; `plan: true` returns it whole, minus images.
+    storyboard: plan ? (comp.storyboard ?? []).map((card) => ({ ...card, thumbnail: undefined, sketch: undefined })) : storyboardDigest(comp),
+    blueprint: plan || !comp.videoBlueprint ? comp.videoBlueprint ?? null : blueprintDigest(comp.videoBlueprint),
+  };
+}
+
+const clip = (text: string | undefined, max: number) => (!text ? undefined : text.length > max ? `${text.slice(0, max - 1)}…` : text);
+
+function storyboardDigest(comp: Comp) {
+  return (comp.storyboard ?? []).map((card) => ({ start: round(card.start), end: round(card.end), intent: clip(card.intent, 90), visual: clip(card.visual, 140) }));
+}
+
+function blueprintDigest(blueprint: NonNullable<Comp['videoBlueprint']>) {
+  return {
+    title: blueprint.title,
+    status: blueprint.status,
+    scenes: blueprint.scenes.length,
+    assets: blueprint.assets.length,
+    note: 'get_comp {"plan":true} returns the storyboard and blueprint in full.',
   };
 }
 
@@ -754,7 +776,26 @@ function fileNewEntries(host: ToolHost, before: Project) {
   if (moved.length) host.history.commit(() => project, 'AI: file into folders');
 }
 
-export async function runTool(host: ToolHost, name: string, rawArgs: unknown, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
+/**
+ * A transcript as the model reads it: every word's start time in one line ("0.00 Hi. 0.56 I'm …",
+ * a "[S1]" marker where the speaker changes) instead of an object per word — the same timings at
+ * about a sixth of the tokens, which a model otherwise re-reads every round.
+ */
+export function transcriptForModel(transcript: Transcript) {
+  const speakers = transcript.diarized && new Set(transcript.words.map((w) => w.speaker ?? 0)).size > 1;
+  let speaker: number | undefined;
+  const parts: string[] = [];
+  for (const word of transcript.words) {
+    if (speakers && word.speaker !== speaker) { speaker = word.speaker; parts.push(`[S${(speaker ?? 0) + 1}]`); }
+    parts.push(`${word.start.toFixed(2)} ${word.text}`);
+  }
+  const last = transcript.words[transcript.words.length - 1];
+  return { assetId: transcript.assetId, provider: transcript.provider, language: transcript.language, words: transcript.words.length, timed: parts.join(' '), end: last ? Math.round(last.end * 100) / 100 : 0, text: transcript.text, diarized: transcript.diarized };
+}
+
+export async function runTool(host: ToolHost, name: string, sentArgs: unknown, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
+  // Quoted numbers, stringified arrays and the like are mended against the schema first.
+  const rawArgs = repairArgs(name, sentArgs);
   const before = host.history.current();
   const inner = await runToolInner(host, name, rawArgs, signal, turnId);
   if (inner.ok) fileNewEntries(host, before);
@@ -798,7 +839,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
   // The motion engine: AE-grade scenes from templates or layer JSON, and reference style profiles.
   if (MOTION_TOOLS.has(name)) {
     const kitForMotion = activeBrandKit(host, project);
-    return runMotionTool(name, args, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: kitForMotion ? motionBrandFromKit(kitForMotion) : null, signal });
+    return runMotionTool(name, args, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: kitForMotion ? motionBrandFromKit(kitForMotion) : null, signal, prompt: turnPrompt(turnId ?? host.turnId) });
   }
 
   // @funny: memes, receipts, sounds, cutouts and the roast plan (src/lib/roast).
@@ -2120,7 +2161,7 @@ ${notes.trim()}${paletteLine}
       if (!found || found.clip.source.type !== 'media') return fail('Supply a media clipId.');
       try {
         const transcript = await api.transcribeAsset(found.clip.source.assetId, str(args, 'language') ?? 'auto');
-        return done('Source transcript obtained; no subtitle layers were created.', { transcript, sourceIn: found.clip.in, sourceOut: sourceOut(found.clip), timelineStart: found.clip.start, speed: found.clip.speed, reverse: found.clip.reverse });
+        return done('Source transcript obtained; no subtitle layers were created. `timed` is "<start s> <word>" in source seconds; the last word ends at `end`.', { transcript: transcriptForModel(transcript), sourceIn: found.clip.in, sourceOut: sourceOut(found.clip), timelineStart: found.clip.start, speed: found.clip.speed, reverse: found.clip.reverse });
       } catch (error) { return fail(errorText(error)); }
     }
     case 'podcast_cut': {
@@ -2478,6 +2519,13 @@ ${notes.trim()}${paletteLine}
     case 'get_project':
       return { ok: true, ...aiContext(project, assets, host.selection()) };
 
+    case 'tool_help': {
+      const wanted = str(args, 'name')?.replace(/^mcp__bhippi__/, '');
+      const spec = (catalog as { tools: { name: string; description: string; input_schema: unknown }[] }).tools.find((tool) => tool.name === wanted);
+      if (!spec) return fail(`No tool "${wanted ?? ''}". Every tool is listed in your catalogue by name.`);
+      return done(`${spec.name}: ${spec.description}`, { name: spec.name, parameters: spec.input_schema });
+    }
+
     case 'ask_user': {
       const question = str(args, 'question');
       if (!question) return fail('ask_user needs a question');
@@ -2495,7 +2543,7 @@ ${notes.trim()}${paletteLine}
     case 'get_comp': {
       const comp = pickComp(project, args);
       if (!comp) return fail('there is no comp to read');
-      return { ok: true, ...compDetail(project, assets, comp) };
+      return { ok: true, ...compDetail(project, assets, comp, args.plan === true) };
     }
 
     case 'apply_edit': {
@@ -3494,6 +3542,8 @@ ${notes.trim()}${paletteLine}
       let images: string[] = [];
       let frameTimes: number[] = [];
       let renderNote = '';
+      // Each rendered frame in words, for a model that cannot see images (text-protocol CLIs).
+      const frameNotes: string[] = [];
       if (stillTimes.length) {
         const shots: { at: number; path: string }[] = [];
         try {
@@ -3504,7 +3554,15 @@ ${notes.trim()}${paletteLine}
             shots.push({ at: t, path });
             const stats = await frameStats(path);
             const blank = stats ? blankFinding(stats) : null;
+            const onScreen = [...new Set(layers.filter((layer) => layer.kind !== 'subject' && t >= layer.from && t < layer.to).map((layer) => `${layer.kind} "${layer.name}"`))];
+            frameNotes.push(`${timecode(t, fps(comp))}: ${stats ? `${Math.round(stats.mean * 100)}% bright, ${Math.round(stats.flat * 100)}% one flat tone` : 'not measured'}; on screen: ${onScreen.slice(0, 6).join(', ') || 'footage only'}${blank ? ` — ${blank.what}` : ''}.`);
             if (blank) issues.push({ at: t, a: 'the frame', b: 'picture', kind: 'blank-frame', overlap: blank.share, suggestion: `${blank.what}. Put a designed background under it (a generated gradient plate on V1, or fill_background), give full-frame brand templates background "none" over that plate, and keep light full-frame stages off the timeline.` });
+            // The Editor reads the type on the rendered frame: words that melt into what is behind them.
+            const words = layers.filter((layer) => (layer.kind === 'text' || layer.kind === 'caption') && t >= layer.from && t < layer.to && layer.box.width > 0.03);
+            const ratios = words.length ? await boxContrast(path, words.map((layer) => layer.box)) : [];
+            for (const [k, ratio] of ratios.entries()) {
+              if (ratio !== null && ratio < MIN_TEXT_CONTRAST) issues.push({ at: t, a: words[k].name, b: 'its background', kind: 'low-contrast', overlap: 1 - ratio / MIN_TEXT_CONTRAST, suggestion: `"${words[k].name}" is hard to read over what is behind it (contrast ${ratio.toFixed(1)}:1). Change its colour to the opposite of the background, add a stroke or shadow, or put a darker/lighter plate behind it.` });
+            }
           }
         } catch (error) {
           renderNote = ` Contact frames could not be rendered (${errorText(error)}), so blank frames were not checked.`;
@@ -3523,7 +3581,7 @@ ${notes.trim()}${paletteLine}
           }
         }
       }
-      const order: Record<QaIssue['kind'], number> = { 'blank-frame': 0, 'black-edges': 1, 'covers-subject': 2, 'off-frame': 3, 'caption-collision': 4, 'graphic-overlap': 5, 'outside-safe': 6 };
+      const order: Record<QaIssue['kind'], number> = { 'blank-frame': 0, 'black-edges': 1, 'covers-subject': 2, 'off-frame': 3, 'low-contrast': 4, 'caption-collision': 5, 'small-text': 6, 'graphic-overlap': 7, 'outside-safe': 8 };
       issues.sort((x, y) => order[x.kind] - order[y.kind] || x.at - y.at);
       // One line per problem, not per sampled frame: the same card off the frame for ten samples is one fix.
       const grouped = new Map<string, { issue: QaIssue; from: number; to: number; count: number }>();
@@ -3543,7 +3601,103 @@ ${notes.trim()}${paletteLine}
       return done(problems.length
         ? `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: ${problems.length} problem(s). Fix every one, then run it again until it is clear; an intended design (a title set behind the subject, a reveal) is instead waived in verify_edit_workflow's acceptedQaIssues with a reason.${hasSubject ? '' : ' No subject track was available (rotoscope_clip gives one), so subject coverage was not checked.'}${renderNote}\n${lines.join('\n')}\n${pacing.summary}`
         : `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: nothing off the frame or outside the safe area, no overlaps, no blank or black-edged frames.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'}${renderNote}${images.length ? ' Look at the contact frames for what geometry cannot judge (contrast, reading time, taste), then' : ' Then'} verify_edit_workflow. ${pacing.summary}`,
-        { pacing: pacing.checks, issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
+        { pacing: pacing.checks, issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, frameNotes, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
+    }
+
+    case 'propose_storyboards': {
+      // The Director's debate: three capped proposers in parallel, then critique and a vote.
+      const brief = str(args, 'brief');
+      if (!brief) return fail('Give the brief: what the video is, for whom, and what it must achieve.');
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const duration = num(args, 'seconds') ?? compDuration(comp);
+      if (!(duration > 0)) return fail('Give seconds (the planned length): the timeline is empty.');
+      const parentTurnId = turnId ?? host.turnId ?? '';
+      // What was said, in timeline seconds, so no proposer spends a round transcribing.
+      const speech = comp.clips.filter((clip) => clip.enabled && clip.source.type === 'media' && assets.get(clip.source.assetId)?.kind !== 'image');
+      let timed = '';
+      const wordStarts: number[] = [];
+      try {
+        const cached = await api.transcriptsCached(speech.map((clip) => (clip.source as { assetId: string }).assetId));
+        for (const transcript of cached) {
+          const clip = speech.find((c) => (c.source as { assetId: string }).assetId === transcript.assetId);
+          if (!clip) continue;
+          const at = (t: number) => clip.start + (t - clip.in) / (clip.speed || 1);
+          const words = transcript.words.filter((w) => at(w.start) >= clip.start && at(w.start) < clip.start + clip.duration);
+          wordStarts.push(...words.map((w) => Math.round(at(w.start) * 100) / 100));
+          timed += words.map((w) => `${at(w.start).toFixed(2)} ${w.text}`).join(' ') + '\n';
+        }
+      } catch {
+        // No cached transcript: the proposers plan from the brief alone.
+      }
+      const set = routeTools(brief);
+      const book = set.playbook;
+      const templates = MOTION_TEMPLATES.map((spec) => `${spec.id} (${spec.seconds}s)`).join(', ');
+      const task = [
+        `Propose a storyboard for this video. Brief: ${brief}`,
+        `Frame ${comp.width}x${comp.height}, ${duration.toFixed(1)} s long, kinds: ${set.genres.join(', ')}.`,
+        timed ? `The voice-over, "<timeline seconds> <word>":\n${timed.slice(0, 6000)}` : 'No voice-over is transcribed yet.',
+        book ? `Plan from this playbook (${book.title}): beats ${JSON.stringify(book.beats)}; timing ${JSON.stringify(book.timing)}; rules ${JSON.stringify(book.rules)}.` : '',
+        `Motion templates you may name as mogrt: ${templates}.`,
+        'Reply with ONLY a JSON object {"scenes":[…]} and nothing else. Each scene: start, end (timeline seconds, 3–12 s beats covering the whole length with no gaps), title (2–5 words), intent (≥20 chars), visual (≥120 chars: exactly what is on screen and what MOVES), audio (≥40 chars: music and the named sound effects), evidence (the quoted spoken line it illustrates, or the frame observation), mogrt ({"template":"<id>"} or null), transition.',
+        'Do not call any tool that changes the project. At most one or two reads (list_characters, motion_guide) if you truly need them.',
+      ].filter(Boolean).join('\n\n');
+      const context = { toolset: { genres: set.genres, full: ['tool_help', 'get_comp', 'list_characters', 'motion_guide', 'list_motion_templates'] }, project: { name: project.name, comp: comp.name, size: `${comp.width}x${comp.height}`, seconds: duration } };
+      let spawned: { angle: string; id: string }[];
+      try {
+        spawned = await Promise.all(ANGLES.map(async (angle) => ({
+          angle: angle.id,
+          id: (await api.chatSpawnSubagent({ parentTurnId, task, label: `Director · ${angle.id}`, maxRounds: 4, persona: angle.persona, context })).subagentId,
+        })));
+      } catch (error) {
+        return fail(`The proposers could not start: ${errorText(error)}. Plan the storyboard yourself.`);
+      }
+      const replies = await Promise.all(spawned.map(async ({ angle, id }) => {
+        try {
+          const res = await api.chatWaitSubagent(id);
+          return parseProposal(res.result ?? '', angle);
+        } catch {
+          return null;
+        }
+      }));
+      const proposals = replies.filter((p): p is NonNullable<typeof p> => !!p);
+      if (!proposals.length) return fail('No proposer returned a usable storyboard. Plan it yourself from the playbook.');
+      const result = debate(proposals, duration, wordStarts);
+      const won = proposals[result.winner];
+      const lines = proposals.map((p, i) => `${i === result.winner ? '★' : '·'} ${p.angle}: ${result.tally[i]} vote(s); ${result.critiques.filter((c) => c.proposal === i).map((c) => `${c.seat} ${Math.round(c.score * 100)} (${c.notes.join('; ')})`).join(' | ')}`);
+      return done(`The debate: ${proposals.length} storyboard(s) proposed in parallel, critiqued by the Director, Animator and Story seats; "${won.angle}" wins ${result.tally[result.winner]} of 3 votes.\n${lines.join('\n')}\nSave the winning scenes with save_storyboard (fix any beat a seat called thin first; borrow a stronger beat from another proposal if a seat praised it).`, {
+        winner: won.angle, scenes: won.scenes, votes: result.votes, tally: result.tally, critiques: result.critiques,
+        others: proposals.filter((_, i) => i !== result.winner).map((p) => ({ angle: p.angle, scenes: p.scenes.map((s) => ({ start: s.start, end: s.end, title: s.title, intent: s.intent })) })),
+      });
+    }
+
+    case 'judge_edit': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      // The Editor looks first: a fresh frame pass, whose contact frames the Judge hands on.
+      const frames = await runToolInner(host, 'run_frame_qa', { ...(args.compId ? { compId: args.compId } : {}), frames: num(args, 'frames') ?? 8 }, signal, turnId);
+      const after = host.history.current();
+      const judged = after.comps.find((c) => c.id === comp.id) ?? comp;
+      const asked = Array.isArray(args.genres) ? (args.genres as unknown[]).filter((g): g is Genre => typeof g === 'string' && g in GENRE_TOOLS) : [];
+      const genres = asked.length ? asked : inferGenres(after, judged);
+      await primeMemeCache(judged);
+      const review = councilReview(after, assets, judged, undefined, { meme: memeLookup });
+      const book = playbook(PLAYBOOK_FOR[genres[0]]);
+      const pacing = pacingReport(after, judged, book?.pacing ?? GENERIC_TARGET);
+      const issues = frames.ok && Array.isArray(frames.issues) ? (frames.issues as { kind: string; a: string; suggestion?: string }[]) : [];
+      const verdict = judge({ project: after, comp: judged, review, pacing, qa: { ran: frames.ok, issues }, genres });
+      const round = (judged.production?.judge?.round ?? 0) + 1;
+      if (judged.production) editComp(judged, (current) => ({ ...current, production: current.production ? { ...current.production, judge: { at: Date.now(), score: verdict.score, pass: verdict.pass, round }, updatedAt: Date.now() } : current.production }));
+      const table = verdict.criteria.map((c) => `${c.label}: ${Math.round(c.score * c.weight)}/${c.weight}`).join('; ');
+      const next = verdict.pass
+        ? 'The Judge passes it. Look at the contact frames once for taste, then verify_edit_workflow.'
+        : round >= JUDGE_ROUNDS
+          ? `Round ${round} of ${JUDGE_ROUNDS}: the Token Council stops the loop here. Fix what you can cheaply, verify, and tell the user the score and what is still weak.`
+          : `Below ${PASS_MARK}. Director: fix these in order (only the beats named), then judge_edit again (round ${round + 1} of ${JUDGE_ROUNDS}).`;
+      return done(`Judge: ${verdict.score}/100 for a ${genres.join(' + ')} video (pass mark ${PASS_MARK}). ${table}.\n${verdict.fixes.map((fix) => `- ${fix}`).join('\n')}\n${next}`, {
+        score: verdict.score, pass: verdict.pass, round, criteria: verdict.criteria, fixes: verdict.fixes, genres,
+        issues, images: frames.ok ? frames.images : [], times: frames.ok ? frames.times : [], frameNotes: frames.ok ? frames.frameNotes : [],
+      });
     }
 
     case 'organize_bin': {

@@ -1,10 +1,16 @@
 // What Bhippi AI is told about plugins: the SDK reference (the plugin_sdk_reference tool, and
-// the Plugin Maker's brief) and the Plugin Maker persona that leads its system prompt.
+// what leads the Plugin Maker's prompt) and the Plugin Maker's toolset. The Maker's workflow and
+// rules are its own prompt, src-tauri/prompts/plugin-maker.md.
+
+import { harnessToolset } from '../lib/harness';
+import type { Toolset } from '../lib/toolRouter';
 
 export const PLUGIN_SDK_REFERENCE = `# Bhippi plugin SDK
 
-A plugin is ONE HTML document (inline <style> and <script>; libraries may load from
-cdn.jsdelivr.net, cdnjs.cloudflare.com or unpkg.com). It runs in a sandboxed frame inside a Bhippi
+A plugin is ONE HTML document with its own <style> and <script> (in the Plugin Maker it is
+written as draft files — index.html, app.js, style.css — that plugin_save inlines into one page).
+Write the code yourself: no remote scripts from CDNs (plugin_validate refuses them, because code a
+plugin downloads later is code nobody reviewed). It runs in a sandboxed frame inside a Bhippi
 panel. It cannot touch the editor, the disk or the network directly — everything goes through
 the global \`bhippi\` object, which applies Bhippi's rules to every call.
 
@@ -52,16 +58,22 @@ the global \`bhippi\` object, which applies Bhippi's rules to every call.
 - \`bhippi.projectStorage\` — the same four calls, but kept per project (todo lists, notes, per-project
   settings). It has already switched when 'session' fires, so redraw from it there. It shares the
   4 MB limit with storage. An unsaved project's data is saved with the project on its first save.
-- \`bhippi.toast(message, 'info' | 'success' | 'error')\` — a notification in the editor.
-- \`await bhippi.chat(message)\` — sends a message to the Bhippi AI chat as the user would (needs the
-  \`chat\` permission). This is how a plugin hands a job to the AI.
-- \`await bhippi.fileUrl(path)\` — a URL for a media file path (from bhippi.project().media) that an
-  <img> / <video> in the plugin can show.
+- \`bhippi.toast(message, 'info' | 'success' | 'error')\` — a notification in the editor (20 a minute).
+- \`await bhippi.chat(message)\` — offers the user a message for the Bhippi AI chat (needs the
+  \`chat\` permission): it appears as a notification with a Send button, and reaches the AI only
+  when the user clicks it (6 a minute). This is how a plugin hands a job to the AI.
+- \`await bhippi.fileUrl(path)\` — a URL for one of the project's media files (from
+  bhippi.project().media) or a file in the project's folder, that an <img> / <video> in the plugin
+  can show. Any other path is refused.
+- Limits: 120 bhippi.tool() calls a minute; past a limit the call is refused with "Slow down".
 - Network: fetch() / WebSocket work ONLY to hosts listed in the plugin's \`network\` permission
   (e.g. "api.example.com", "*.example.com", "http://127.0.0.1:5678", "ws://127.0.0.1:4455").
   Anything else is blocked by the page's security policy.
 - \`bhippi.expose(name, { description, params }, async (args) => result)\` offers Bhippi AI an action
   it can run with call_plugin_action while the plugin is running (params is a JSON schema).
+- \`bhippi.test(name, async () => { … })\` is an acceptance check: throw (or reject) when the plugin
+  does not do what its spec says. Checks never run for the user — only under plugin_test, against
+  a scratch copy of the project, so a check may make real edits through bhippi.tool().
 - console.log / warn / error and uncaught errors are shown in the Plugin Maker console; the AI
   reads them with plugin_logs.
 
@@ -71,36 +83,16 @@ react to bhippi.on(...) events, poll a service it was given network access to, o
 Keep background work light: no tight loops, no timers faster than ~1 s.
 `;
 
-export const PLUGIN_MAKER_PERSONA = `## Mode: Bhippi Plugin Maker
 
-You are Bhippi AI in the Plugin Maker. The user is building a PLUGIN for Bhippi — a small web app
-that lives inside the editor as a panel (a tool, a dashboard, an automation, an integration with
-another service: whatever they ask for). Your job this turn is to design, write, test and fix
-that plugin, not to edit their video — unless they ask you to try the plugin on their project.
+/**
+ * The Plugin Maker's toolset: its harness's tools (src/lib/harnesses.json), whole, with no genres —
+ * so none of the timeline playbooks or production sections are sent. The backend enforces the same
+ * list (src-tauri/src/harness.rs), and App.tsx refuses anything else.
+ */
+export const PLUGIN_MAKER_TOOLSET: Toolset = harnessToolset('plugin-maker');
 
-How to work:
-1. Understand what they want. If something important is ambiguous (what service, what it should
-   do to the timeline), make a sensible choice and say so — ask only when you truly cannot.
-2. Look before you build: get_project / get_comp show the real project the plugin will work on;
-   your tool catalogue is exactly what \`bhippi.tool()\` can call, with the same schemas.
-   Call plugin_sdk_reference if you need the SDK details again. list_plugins / get_plugin show what exists.
-3. Write the whole plugin with save_plugin: one HTML document, the smallest permissions that let it
-   work (named tools; "*" only when it truly drives many tools; network hosts only if it calls out;
-   chat only if it hands jobs to you). Pass the context's selected plugin id to change that plugin
-   instead of making a new one. Give it a short name, a one-line description and an emoji icon.
-4. Test it: after saving, the preview reloads; call plugin_logs to read its console and errors, fix
-   what is wrong with another save_plugin, and repeat until it loads clean. If it exposes actions,
-   try one with call_plugin_action.
-5. End with two or three lines: what the plugin does, how to use it, and which permissions it has.
-
-Rules that always hold:
-- Follow Bhippi's rules: all project changes go through bhippi.tool() (never fake an edit in the UI),
-  respect the permission mode, handle refusals by showing the reason, never loop on failures.
-- Match the editor: its CSS variables and compact 12px UI, a narrow resizable column, no giant
-  headers, no external fonts unless asked. It must look like part of Bhippi.
-- Robust code: await bhippi.ready; try/catch around every bhippi call with a visible error state;
-  debounce reactions to bhippi.on('project'); no secrets hard-coded — keep keys the user types in
-  bhippi.storage.
-- A saved plugin keeps its last 10 versions; the user can go back in the Plugin Maker.
-
-${PLUGIN_SDK_REFERENCE}`;
+/**
+ * What leads the Plugin Maker's system prompt: the SDK reference. The Maker's own prompt
+ * (src-tauri/prompts/plugin-maker.md) replaces copilot.md and carries the workflow and the rules.
+ */
+export const PLUGIN_MAKER_BRIEF = PLUGIN_SDK_REFERENCE;

@@ -18,6 +18,8 @@ import { proceduralUniforms } from './procedural';
 import { drawParticles, particlesAt } from '../particles';
 import { formUniforms } from '../form';
 import { drawCharacter } from '../character/draw';
+import { drawStudioCharacter } from '../character/studio';
+import { STUDIO_KIND } from '../character/types';
 import { drawDrawing, risoParams } from '../ink/draw';
 import type { DrawItem } from '../ink/types';
 import { poseAt } from '../character/pose';
@@ -225,7 +227,8 @@ export class MotionRenderer {
         const key = `c:${layer.id}`;
         const { canvas, ctx } = this.canvases.get(key, w * density, h * density);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        drawCharacter(ctx, layer.character.kind, layer.character.palette, poseAt(layer.character, L.time), density);
+        if (layer.character.kind === STUDIO_KIND) drawStudioCharacter(ctx, layer.character, L.time, density);
+        else drawCharacter(ctx, layer.character.kind, layer.character.palette, poseAt(layer.character, L.time), density);
         target = this.fromTexture(this.upload(key, canvas), canvas.width, canvas.height);
         break;
       }

@@ -1,6 +1,7 @@
 // The Plugins panel: every plugin the user chose to show, one tab each, and the plugins that
 // run in the background with no panel at all.
 
+import type { ReactNode } from 'react';
 import { Plus, Puzzle } from 'lucide-react';
 import '../styles/plugins.css';
 import { PluginFrame } from './PluginFrame';
@@ -15,12 +16,14 @@ export const panelPlugins = (plugins: Plugin[]) => plugins.filter((plugin) => pl
 /**
  * The panel's body. Every tab's frame stays mounted (hidden when not active), so switching tabs
  * does not restart a plugin. `skip` is the plugin the Plugin Maker has open: its preview is the
- * one running copy while it is being built.
+ * one running copy while it is being built. `builtin` is a tab Bhippi ships (Characters): when it
+ * is the active tab it shows instead, and the plugins' frames stay mounted behind it.
  */
-export function PluginsPanelBody({ active, skip, onMaker, onOpenInMaker }: { active: string | null; skip: string | null; onMaker: () => void; onOpenInMaker: (id: string) => void }) {
+export function PluginsPanelBody({ active, skip, onMaker, onOpenInMaker, builtin }: { active: string | null; skip: string | null; onMaker: () => void; onOpenInMaker: (id: string) => void; builtin?: { id: string; body: ReactNode } }) {
   const { plugins, loaded } = usePlugins();
   const shown = panelPlugins(plugins);
-  if (!shown.length) {
+  const builtinActive = !!builtin && (active === builtin.id || !shown.length);
+  if (!shown.length && !builtin) {
     const others = plugins.filter((plugin) => !plugin.panel);
     return (
       <div className="plugins-empty">
@@ -40,18 +43,19 @@ export function PluginsPanelBody({ active, skip, onMaker, onOpenInMaker }: { act
       </div>
     );
   }
-  const current = shown.find((plugin) => plugin.id === active) ?? shown[0];
+  const current = builtinActive ? null : shown.find((plugin) => plugin.id === active) ?? shown[0];
   return (
     <div className="plugins-body">
+      {builtinActive && builtin?.body}
       {shown.map((plugin) =>
         plugin.id === skip ? (
-          plugin.id === current.id && (
+          plugin.id === current?.id && (
             <div key={plugin.id} className="plugin-frame-empty">
               “{plugin.name}” is open in the Plugin Maker. <button type="button" className="btn" onClick={() => onOpenInMaker(plugin.id)}>Go there</button>
             </div>
           )
         ) : (
-          <PluginFrame key={plugin.id} pluginId={plugin.id} hidden={plugin.id !== current.id} />
+          <PluginFrame key={plugin.id} pluginId={plugin.id} hidden={plugin.id !== current?.id} />
         ),
       )}
     </div>

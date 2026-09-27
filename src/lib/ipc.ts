@@ -20,6 +20,8 @@ export type ChatRequest = {
   context: unknown;
   /** A brief that leads the system prompt for this turn (a council seat, or the Plugin Maker). */
   persona?: string;
+  /** The harness the turn runs under (src/lib/harnesses.json); omitted for the timeline editor. */
+  harness?: string;
 };
 
 /** A compressed JPEG of the Bhippi window (base64). */
@@ -380,6 +382,9 @@ export const api = {
   brainGraph: () => invoke<BrainGraph>('brain_graph'),
   brainNode: (id: string) => invoke<BrainNodeDetail>('brain_node', { id }),
   brainRecordTurn: (outcome: unknown, note?: string) => invoke<{ episode?: string; learned?: string[]; skipped?: string }>('brain_record_turn', { outcome, note }),
+  traceAppend: (project: string | null, turn: string, lines: unknown[]) => invoke<boolean>('trace_append', { project, turn, lines }),
+  traceList: (project: string | null) => invoke<{ turn: string; bytes: number; modifiedMs: number }[]>('trace_list', { project }),
+  traceRead: (project: string | null, turn: string) => invoke<Record<string, unknown>[]>('trace_read', { project, turn }),
   brainRemember: (kind: string, text: string) => invoke<{ id: string; updated: boolean; evicted: string[]; budget: string }>('brain_remember', { kind, text }),
   brainForget: (id: string) => invoke<{ forgot: string; kind: string }>('brain_forget', { id }),
   brainRecall: (query: string, limit?: number, kinds?: string[]) => invoke<BrainHit[]>('brain_recall', { query, limit, kinds }),
@@ -613,6 +618,21 @@ export const api = {
   pluginFilesRemove: (id: string) => invoke<void>('plugin_files_remove', { id }),
   pluginStorageLoad: (id: string) => invoke<Record<string, unknown>>('plugin_storage_load', { id }),
   pluginStorageSave: (id: string, data: Record<string, unknown>) => invoke<void>('plugin_storage_save', { id, data }),
+  pluginDraftList: (id: string) => invoke<{ name: string; bytes: number }[]>('plugin_draft_list', { id }),
+  pluginDraftRead: (id: string, file: string) => invoke<string>('plugin_draft_read', { id, file }),
+  pluginDraftWrite: (id: string, file: string, content: string) => invoke<void>('plugin_draft_write', { id, file, content }),
+  pluginDraftDelete: (id: string, file: string) => invoke<void>('plugin_draft_delete', { id, file }),
+  pluginDraftRemove: (id: string) => invoke<void>('plugin_draft_remove', { id }),
+  pluginPkgInstall: (id: string, version: string, files: Record<string, string>) => invoke<Record<string, string>>('plugin_pkg_install', { id, version, files }),
+  pluginPkgVersions: (id: string) => invoke<{ version: string; installedMs: number }[]>('plugin_pkg_versions', { id }),
+  pluginPkgRead: (id: string, version: string) => invoke<{ files: Record<string, string>; hashes: Record<string, string> }>('plugin_pkg_read', { id, version }),
+  pluginPkgRemove: (id: string) => invoke<void>('plugin_pkg_remove', { id }),
+  marketGet: <T = unknown>(path: string) => invoke<T>('market_get', { path }),
+  marketDownload: (id: string, version: string) => invoke<{ bytes: string; lockHash: string; zipSha256: string }>('market_download', { id, version }),
+  marketRevocations: () => invoke<{ issuedAt: number; entries: { id: string; version: string; reason: string; revokedAt: number }[] }>('market_revocations'),
+  marketSubmit: (bytes: string, category: string) => invoke<Record<string, unknown>>('market_submit', { bytes, category }),
+  marketWithdraw: (versionId: string) => invoke<{ ok: boolean }>('market_withdraw', { versionId }),
+  marketPost: <T = { ok: boolean }>(path: string, body: unknown) => invoke<T>('market_post', { path, body }),
 
   exportStart: (project: Project, options: ExportOptions) => invoke<string>('export_start', { project: prepareEffectExport(project,options.compId), options }),
   /** The newest live-preview frame of a running export (a JPEG path), for the render window. */
@@ -653,6 +673,8 @@ export const api = {
     invoke<{ integratedLufs: number; rangeLu: number; truePeakDb: number; duration: number }>('audio_loudness', { assetId, start, end }),
   /** Saves a voice-over recording and imports it. */
   saveRecording: (bytes: number[], extension: string) => invoke<Asset>('save_recording', { bytes, extension }),
+  /** Saves a character still (PNG) from the Characters window into the project and imports it. */
+  saveCharacterImage: (bytes: number[], name: string) => invoke<Asset>('save_character_image', { bytes, name }),
   /** A fresh folder under the work dir for one motion graphic's rendered export frames. */
   mogrtFramesBegin: (clipId: string) => invoke<string>('mogrt_frames_begin', { clipId }),
   /** One PNG frame, sent as raw bytes so a 1080p sequence never goes through JSON. Only the

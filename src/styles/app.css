@@ -336,8 +336,8 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--blue); width: 
 .motion-rotate.se { right: -18px; bottom: -18px; }
 .motion-rotate.sw { left: -18px; bottom: -18px; }
 .motion-anchor { position: absolute; left: calc(50% - 5px); top: calc(50% - 5px); width: 10px; height: 10px; border: 1px solid #fff; border-radius: 50%; }
-.draw-preview { position: absolute; border: 1px dashed var(--blue-hi); background: color-mix(in srgb, var(--blue) 14%, transparent); pointer-events: none; }
-.draw-preview.ellipse, .draw-preview.mask-ellipse { border-radius: 50%; }
+.draw-preview { position: absolute; pointer-events: none; }
+.draw-preview > * { fill: color-mix(in srgb, var(--blue) 14%, transparent); stroke: var(--blue-hi); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .pen-preview { position: absolute; inset: 0; pointer-events: none; }
 .pen-preview polyline { fill: color-mix(in srgb, var(--blue) 15%, transparent); stroke: var(--blue-hi); stroke-width: 1.5; }
 .pen-preview circle { fill: #fff; stroke: #111; }
@@ -3679,6 +3679,11 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .rm-bar { display: inline-block; flex: none; width: 100%; min-width: 34px; height: 7px; border-radius: 999px; background: var(--field); border: 1px solid rgba(255, 255, 255, 0.07); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); overflow: hidden; vertical-align: middle; }
 .rm-meter .rm-bar, .rm-card-line .rm-bar { flex: 1 1 auto; width: auto; }
 .rm-chip .rm-bar { flex: none; width: 40px; height: 6px; }
+/* The chip's three meters stack in one column: RAM, GPU, storage from the top. */
+.rm-meters { display: inline-flex; flex-direction: column; justify-content: center; gap: 2px; }
+.rm-meters .rm-meter { display: flex; }
+.rm-meters .rm-meter.empty { opacity: 0.45; }
+.rm-chip .rm-meters .rm-bar { width: 46px; min-width: 0; height: 4px; box-shadow: none; }
 .rm-bar-fill { display: block; height: 100%; border-radius: 999px; background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 55%), repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0 4px, rgba(255, 255, 255, 0) 4px 9px); background-blend-mode: overlay; box-shadow: 0 0 6px -1px currentColor; transition: width 400ms cubic-bezier(0.16, 1, 0.3, 1); }
 .rm-bar-fill.ok { background-color: #46c46a; color: #46c46a; }
 .rm-bar-fill.warn { background-color: #d8a33c; color: #d8a33c; }

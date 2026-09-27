@@ -43,6 +43,49 @@ pub fn specs() -> &'static [ToolSpec] {
     })
 }
 
+/// The tools a turn gets whole; every other tool goes out slim. Chosen by the UI's router for the
+/// kind of video being made (`context.toolset.full`, src/lib/toolRouter.ts).
+pub type Toolset = std::collections::HashSet<String>;
+
+/// This turn's toolset, or `None` (no router ran, e.g. an old client): everything whole.
+pub fn toolset_from(context: &Value) -> Option<Toolset> {
+    let names = context.pointer("/toolset/full")?.as_array()?;
+    let set: Toolset = names.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+    (!set.is_empty()).then_some(set)
+}
+
+/// A description's first sentence, for a slim entry.
+fn first_sentence(text: &str) -> &str {
+    let cut = text.find(". ").map_or(text.len(), |at| at + 1);
+    let mut end = cut.min(72);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// A tool as a one-liner: still listed and callable, its parameters one `tool_help` away. The
+/// full catalogue is ~58 K tokens a model re-reads every step; most of it is tools this video
+/// will never touch.
+pub fn slim(tool: &ToolSpec) -> ToolSpec {
+    ToolSpec {
+        name: tool.name.clone(),
+        description: format!("{} (params: tool_help)", first_sentence(&tool.description)),
+        input_schema: json!({ "type": "object", "additionalProperties": true }),
+    }
+}
+
+/// The catalogue for one turn: the toolset whole, the rest slim (everything whole without one).
+pub fn catalogue_for(full: Option<&Toolset>) -> Vec<ToolSpec> {
+    specs()
+        .iter()
+        .map(|tool| match full {
+            Some(set) if !set.contains(&tool.name) => slim(tool),
+            _ => tool.clone(),
+        })
+        .collect()
+}
+
 pub fn is_known(name: &str) -> bool {
     specs().iter().any(|tool| tool.name == name)
 }
@@ -193,11 +236,11 @@ impl ToolExecutor for EventExecutor {
         // hear "Bhippi did not respond" while the frontend was still working, and improvise.
         let timeout = match name.as_str() {
             // generate_cloud_media waits on the editor's plan card, then on the generations.
-            "ask_user" | "choose_shorts_format" | "generate_cloud_media" => self.timeout.max(Duration::from_secs(24 * 3600)),
+            "ask_user" | "choose_shorts_format" | "choose_comp_size" | "generate_cloud_media" => self.timeout.max(Duration::from_secs(24 * 3600)),
             "rotoscope_clip" | "depth_occlusion_clip" | "analyze_clip_speech" | "generate_local_media" | "import_generated_media" | "generation_job"
             | "download_online_media" | "scrape_videos" | "online_research" | "find_free_media" | "scrape_web_page" | "extract_brand_from_url" | "synthesize_speech_voiceover" | "install_local_model"
             | "erase_subject_clip" | "run_frame_qa" | "level_audio" | "analyze_music_beats" | "track_people" | "podcast_cut" | "wait_subagent" | "run_command" | "bash"
-            | "apply_recipe" | "apply_edit" | "add_captions" | "create_shorts" | "detect_scenes" | "analyze_reference_video" | "create_motion_scene" | "render_3d_scene" | "track_motion" => self.timeout.max(Duration::from_secs(1800)),
+            | "apply_recipe" | "apply_edit" | "add_captions" | "create_shorts" | "detect_scenes" | "analyze_reference_video" | "create_motion_scene" | "render_3d_scene" | "track_motion" | "judge_edit" | "propose_storyboards" => self.timeout.max(Duration::from_secs(1800)),
             _ => self.timeout.max(Duration::from_secs(180)),
         };
         let gate = self.gate.clone();
@@ -428,9 +471,22 @@ fn parse_block(body: &str) -> Option<Vec<TextCall>> {
 
 /// The catalogue as a compact list a model without native tools can call from:
 /// `- add_text(text*, preset: title|kinetic|…, start: number) — Adds a text clip…`
-pub fn compact_catalogue() -> String {
+pub fn compact_catalogue(full: Option<&Toolset>) -> String {
     let mut out = String::new();
     for tool in specs() {
+        if full.is_some_and(|set| !set.contains(&tool.name)) {
+            let _ignored = writeln!(out, "- `{}` — {} (params: tool_help)", tool.name, first_sentence(&tool.description));
+        } else {
+            let _ignored = writeln!(out, "- `{}`({}) — {}", tool.name, params(&tool.input_schema), tool.description);
+        }
+    }
+    out
+}
+
+/// The text-protocol catalogue of exactly these tools, each whole (a harness's; harness.rs).
+pub fn compact_only(only: &Toolset) -> String {
+    let mut out = String::new();
+    for tool in specs().iter().filter(|tool| only.contains(&tool.name)) {
         let _ignored = writeln!(out, "- `{}`({}) — {}", tool.name, params(&tool.input_schema), tool.description);
     }
     out
@@ -511,8 +567,8 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use super::{
-        compact_catalogue, extract_calls, is_known, run_call, specs, testing::FakeExecutor, EventExecutor,
-        without_echo, FenceFilter, PendingCalls, ToolCallEvent, ToolExecutor,
+        catalogue_for, compact_catalogue, extract_calls, is_known, run_call, specs, testing::FakeExecutor, EventExecutor,
+        toolset_from, without_echo, FenceFilter, PendingCalls, ToolCallEvent, ToolExecutor,
     };
     use serde_json::json;
     use std::sync::{Arc, Mutex};
@@ -533,9 +589,28 @@ mod tests {
         for wanted in ["get_project", "get_comp", "add_text", "add_sound_effect", "update_comp", "split_clips", "set_playhead", "undo"] {
             assert!(is_known(wanted), "{wanted}");
         }
-        let compact = compact_catalogue();
+        let compact = compact_catalogue(None);
         assert!(compact.contains("- `add_text`(") && compact.contains("text*: string"), "{compact}");
         assert!(compact.contains("preset: title|kinetic|lower-third|caption"));
+    }
+
+    #[test]
+    fn a_toolset_keeps_its_tools_whole_and_slims_the_rest() {
+        let context = json!({ "toolset": { "full": ["add_text", "tool_help"] } });
+        let set = toolset_from(&context).expect("a toolset");
+        let tools = catalogue_for(Some(&set));
+        assert_eq!(tools.len(), specs().len(), "every tool stays callable");
+        let add_text = tools.iter().find(|tool| tool.name == "add_text").expect("add_text");
+        assert_eq!(add_text.input_schema["required"], json!(["text"]));
+        let grade = tools.iter().find(|tool| tool.name == "color_grade").expect("color_grade");
+        assert!(grade.description.contains("tool_help"));
+        assert!(grade.input_schema.get("properties").is_none());
+        let whole: usize = specs().iter().map(|tool| serde_json::to_string(tool).map_or(0, |s| s.len())).sum();
+        let slimmed: usize = tools.iter().map(|tool| serde_json::to_string(tool).map_or(0, |s| s.len())).sum();
+        assert!(slimmed * 3 < whole, "slim catalogue {slimmed} B vs whole {whole} B");
+        assert!(toolset_from(&json!({})).is_none());
+        let compact = compact_catalogue(Some(&set));
+        assert!(compact.contains("- `add_text`(") && compact.contains("text*: string") && compact.contains("- `color_grade` — "), "{compact}");
     }
 
     #[tokio::test]

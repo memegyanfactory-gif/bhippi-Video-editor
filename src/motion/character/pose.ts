@@ -5,7 +5,7 @@
 // run 6 f a step leaning 21°, idles as dead holds broken by short bursts, the rig on twos.
 import { ease } from '../anim';
 import type { Vec } from '../types';
-import type { CharacterAction, CharacterData, CharacterKind, CharacterPalette, Mouth, Pose } from './types';
+import { STUDIO_KIND, STUDIO_RIG, STUDIO_SCALE, type CharacterAction, type CharacterData, type CharacterKind, type CharacterPalette, type Mouth, type Pose, type StudioMotionFrame, type StudioMotionSettings, type StudioSpec } from './types';
 
 const F = 1 / 30;
 
@@ -38,6 +38,9 @@ export const PALETTES: Record<CharacterKind, CharacterPalette> = {
 };
 
 /** Hands hang, feet stand under the hips. */
+/** The rig a character's actions are timed on: its own, or for a library character the one it borrows. */
+export const rigKind = (kind: CharacterData['kind']): CharacterKind => (kind === STUDIO_KIND ? STUDIO_RIG : kind);
+
 export function restPose(kind: CharacterKind, data: Pick<CharacterData, 'expression' | 'facing'> = {}): Pose {
   const r = RIGS[kind];
   const reach = (r.upperArm + r.lowerArm) * 0.93;
@@ -125,6 +128,15 @@ export function actionDuration(action: CharacterAction): number {
   }
 }
 
+/** New studio actions use the room's timing; explicit-step scenes retain their old schedules. */
+export function characterActionDuration(data: Pick<CharacterData, 'kind' | 'step'>, action: CharacterAction): number {
+  if (data.kind === STUDIO_KIND && data.step === undefined && typeof window !== 'undefined') {
+    const motion = (window as unknown as { CharMotion?: { duration(action: CharacterAction): number } }).CharMotion;
+    if (motion) return motion.duration(action);
+  }
+  return actionDuration(action);
+}
+
 /** Where the character has walked to by `t` (travel persists after each walk ends). */
 function travelled(actions: CharacterAction[], t: number): { x: number; facing: 1 | -1 | 0 } {
   let x = 0;
@@ -140,8 +152,45 @@ function travelled(actions: CharacterAction[], t: number): { x: number; facing: 
   return { x, facing };
 }
 
+/**
+ * The exact room sampler also drives timeline roots and render parameters. It is loaded by
+ * studio.ts; keeping this bridge here avoids a pose ↔ studio import cycle. Old scene targets
+ * and distances remain in character pixels, while the room engine uses its own rig units.
+ */
+export function sampleStudioMotion(data: CharacterData, sceneT: number): StudioMotionFrame | null {
+  if (data.kind !== STUDIO_KIND || !data.spec || typeof window === 'undefined') return null;
+  const w = window as unknown as {
+    CharMotion?: { sample(spec: StudioSpec, options: { t: number; actions: CharacterAction[]; motion?: StudioMotionSettings; seed?: number; blink?: boolean; facing?: 1 | -1; step?: 1 | 2 | 3 }): StudioMotionFrame };
+    CharEngine?: { defaults(): StudioSpec };
+    BhippiChars?: { to2D(spec: StudioSpec, defaults: StudioSpec): StudioSpec };
+  };
+  if (!w.CharMotion) return null;
+  const spec = w.BhippiChars && w.CharEngine ? w.BhippiChars.to2D(data.spec, w.CharEngine.defaults()) : data.spec;
+  const actions = [...(data.actions ?? [])].sort((a, b) => a.t - b.t).map((action): CharacterAction => {
+    const converted = { ...action, duration: characterActionDuration(data, action) };
+    if (['walk', 'run', 'sneak', 'leap'].includes(action.do)) {
+      const distance = typeof action.to === 'number' ? action.to : Array.isArray(action.to) ? action.to[0] : action.do === 'leap' ? 0 : 200;
+      converted.to = distance / STUDIO_SCALE;
+    } else if ((action.do === 'point' || action.do === 'look') && Array.isArray(action.to)) {
+      converted.to = [action.to[0] / STUDIO_SCALE, action.to[1] / STUDIO_SCALE];
+    }
+    return converted;
+  });
+  if (data.expression) actions.unshift({ t: 0, do: 'expression', expression: data.expression });
+  return w.CharMotion.sample(spec, { t: sceneT, actions, motion: spec.motion2d, seed: data.seed, blink: data.blink, facing: data.facing, step: data.step });
+}
+
 export function poseAt(data: CharacterData, sceneT: number): Pose {
-  const kind = data.kind;
+  const kind = rigKind(data.kind);
+  const studio = sampleStudioMotion(data, sceneT);
+  if (studio) {
+    const pose = restPose(kind, data);
+    pose.x = studio.root.x * STUDIO_SCALE;
+    pose.y = studio.root.y * STUDIO_SCALE;
+    pose.facing = studio.yaw < 0 ? -1 : 1;
+    pose.eyes = studio.eyeOpen ?? (typeof studio.blink === 'number' ? 1 - studio.blink : studio.blink ? 0 : 1);
+    return pose;
+  }
   const rig = RIGS[kind];
   const step = data.step ?? 2;
   // The rig runs on twos (or threes): its clock holds each drawing for `step` frames.
@@ -233,7 +282,7 @@ export function poseAt(data: CharacterData, sceneT: number): Pose {
         const sf = STEP_FRAMES[action.do] * F;
         const p = a / sf;
         const stride = STRIDE[action.do] * 0.5;
-        const swing = Math.sin(p * Math.PI) * (Math.floor(p) % 2 ? -1 : 1);
+        const swing = Math.sin(p * Math.PI);
         const lift = Math.abs(Math.sin(p * Math.PI));
         pose.feet[0] = [pose.feet[0][0] + swing * stride, pose.feet[0][1] - (swing > 0 ? lift * 22 : 0)];
         pose.feet[1] = [pose.feet[1][0] - swing * stride, pose.feet[1][1] - (swing < 0 ? lift * 22 : 0)];
@@ -319,9 +368,9 @@ export function poseAt(data: CharacterData, sceneT: number): Pose {
   // Blinks every few seconds: half, closed, closed, half, then a rounder open (MDS f8–12).
   if (data.blink !== false && pose.expression !== 'closed') {
     const period = 3.2;
-    const k = Math.floor(sceneT / period);
+    const k = Math.floor(t / period);
     const at = k * period + 0.4 + hash(data.seed ?? 3, k) * 1.8;
-    const f = Math.floor((sceneT - at) * 30);
+    const f = Math.floor((t - at) * 30);
     if (f >= 0 && f < 6) pose.eyes = [0.5, 0, 0, 0.5, 1.12, 1.05][f];
   }
   if (!talking && pose.mouth === 'rest' && pose.expression === 'happy') pose.mouth = 'smile';

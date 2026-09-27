@@ -328,6 +328,8 @@ export type Production = {
   gates: { planReadyAt?: number; generateApprovedAt?: number; gatheredAt?: number; editApprovedAt?: number; editedAt?: number; qaAt?: number; doneAt?: number };
   /** The last frame-QA pass: how many overlaps it found and whether a later pass cleared them. */
   qa?: { at: number; sampled: number; issues: number; clear: boolean };
+  /** The Judge's last score of this edit (src/lib/judge.ts). */
+  judge?: { at: number; score: number; pass: boolean; round: number };
   /**
    * Workflow receipts stamped when the plan was saved, so the gathering and editing turns start
    * from the analysis already done instead of transcribing and scanning the footage again. Only
@@ -695,6 +697,8 @@ export type Settings = {
   ideagraphBrain: string | null;
   /** Record Bhippi AI turn outcomes into the brain when true. */
   ideagraphRecord: boolean | null;
+  /** Keep a step-by-step trace of every AI turn (src/lib/turnTrace.ts); on unless false. */
+  turnTraces?: boolean | null;
   /** The .bhippi file the session project belongs to, when it has been saved. */
   projectPath: string | null;
   /** The Program monitor's RAM preview cache (lib/previewCache.ts); on when unset. */

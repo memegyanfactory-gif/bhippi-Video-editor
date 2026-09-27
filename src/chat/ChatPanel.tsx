@@ -15,6 +15,10 @@ import { PermissionMenu, ThinkingSlider } from './ComposerControls';
 import { ChatStatusBar, type AgentRun, type Connection } from './ChatStatusBar';
 import { UsageMeter } from './UsageMeter';
 import * as usage from '../lib/usage';
+import { projectKey, recordTurn } from '../lib/tokenLedger';
+import { routeTools, type Toolset } from '../lib/toolRouter';
+import type { HarnessId } from '../lib/harness';
+import { trace } from '../lib/turnTrace';
 import { type Interjection, type Step, type TextSegment, type ToolRun } from './Activity';
 import { steer } from './steer';
 import { AnswerBody } from './AnswerBody';
@@ -95,7 +99,7 @@ export function retryNote(message: Pick<Assistant, 'content' | 'steps'>, runs: r
   return '[Continuing after an interruption — do not redo completed edits. First read the current timeline with get_comp, identify the first unfinished step of the request, continue from there in 5–12s batches, and finish with verify_edit_workflow.]';
 }
 
-type WorkflowPhaseStatus = { phase?: string | null; gather?: { ready: number; total: number; pending: string[] } | null } | null;
+type WorkflowPhaseStatus = { phase?: string | null; gather?: { ready: number; total: number; pending: string[] } | null; frameSizeNeeded?: boolean } | null;
 
 /** Plan and gather turns end when their phase closes; the user's button (Start generating, Start editing) moves on. */
 const endsAtButton = (status: WorkflowPhaseStatus) => ['plan', 'planning', 'plan-ready', 'gathering', 'gathered'].includes(status?.phase ?? '');
@@ -106,6 +110,12 @@ const endsAtButton = (status: WorkflowPhaseStatus) => ['plan', 'planning', 'plan
  * those phases are told to finish their own work and end the turn.
  */
 export function workflowInstruction(status: WorkflowPhaseStatus): string {
+  // The frame is the user's call and everything is built for it: the question is the first thing the turn does.
+  const size = status?.frameSizeNeeded ? 'FIRST, before any other tool, plan, note or research: call choose_comp_size — the timeline has no picture yet, so the user picks the frame size — and wait for the answer (it does not ask when the request already names the size). Only a turn that just answers a question skips it. Then: ' : '';
+  return size + phaseInstruction(status);
+}
+
+function phaseInstruction(status: WorkflowPhaseStatus): string {
   if (!endsAtButton(status)) return 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.';
   const phase = status?.phase;
   const next = phase === 'gathering' || phase === 'gathered' ? 'Start editing' : 'Start generating';
@@ -178,6 +188,13 @@ type Props = {
   persona?: string;
   lockedMode?: 'full' | 'quick';
   instruction?: string;
+  /** A fixed toolset that replaces the router's (the Plugin Maker's: no genres, no timeline playbooks). */
+  toolset?: Toolset;
+  /**
+   * The harness this chat's turns run under (src/lib/harnesses.json): the backend swaps copilot.md
+   * for its prompt and lets its turns see and call only its tools.
+   */
+  harness?: HarnessId;
   placeholder?: string;
   label?: string;
   /** This chat takes the Program monitor's annotations (the main chat, not the Plugin Maker's). */
@@ -334,6 +351,8 @@ export function ChatPanel(props: Props) {
 
   const streaming = messages.some((message) => message.role === 'assistant' && message.status === 'streaming');
   const sendRef = useRef<(text: string, mode?: 'full' | 'quick') => void>(() => undefined);
+  /** Turns that were themselves an automatic finishing round ('pending' marks the next one sent). */
+  const autoFinished = useRef(new Set<string>());
   const [workflowMode, setWorkflowMode] = useState<'full' | 'quick'>('full');
   const active = props.providers.find((provider) => provider.id === props.providerId);
   /** The chosen model's sizes (Flash-Lite · Flash · Pro…), for the speed rail. */
@@ -534,6 +553,7 @@ export function ChatPanel(props: Props) {
     const pending = events.chat((event) => {
       if (event.event === 'start') {
         actionLogger.ai(`Chat Turn Started: ${event.providerLabel} (${event.model ?? 'default'})`, { turnId: event.turnId });
+        trace(event.turnId, { ev: 'turn_start', provider: event.providerLabel, providerId: event.providerId, model: event.model ?? null });
         patch(event.turnId, (message) => ({ ...message, providerId: event.providerId, providerLabel: event.providerLabel, model: event.model }));
         const meta = turnMeta.current.get(event.turnId);
         turnMeta.current.set(event.turnId, { provider: event.providerLabel, model: event.model, prompt: meta?.prompt ?? '' });
@@ -578,6 +598,13 @@ export function ChatPanel(props: Props) {
       } else if (event.event === 'subagent_update') {
         // Subagent progress is displayed in the status bar agents chip and map.
       } else if (event.event === 'done') {
+        trace(event.turnId, { ev: 'turn_end', outcome: event.stopped ? 'stopped' : event.fault ? 'fault' : 'done', fault: event.fault ? { kind: event.fault.kind, title: event.fault.title } : null, elapsedMs: event.elapsedMs ?? null, usage: event.usage ?? null, notes: event.notes ?? [], replyChars: event.reply?.length ?? 0 });
+        // Every finished turn goes on the project's bill, a subagent's too (it has no chat message).
+        if (event.usage) {
+          const folder = (propsRef.current.getContext() as { projectFolder?: { path?: string } | null }).projectFolder?.path;
+          const who = turnMeta.current.get(event.turnId)?.provider ?? `${propsRef.current.providerId ?? 'bhippi'} (subagent)`;
+          recordTurn(projectKey(folder), who, event.usage.inputTokens, event.usage.outputTokens);
+        }
         if (event.fault) {
           actionLogger.error(`Chat Turn Error [${event.turnId}]: ${event.fault.title} — ${event.fault.summary}`, event.fault);
         } else if (event.stopped) {
@@ -630,6 +657,18 @@ export function ChatPanel(props: Props) {
             verified: propsRef.current.workflowStatus(event.turnId)?.structurallyVerified ?? null,
             tools: runs.map((run) => ({ name: run.name, status: run.status, ms: run.ms, changedProject: run.changedProject ?? false })),
           });
+          // An edit turn that changed the timeline but stopped short of the Judge and verify gets
+          // one automatic finishing round (never a second: that one reports whatever it reached).
+          const status = propsRef.current.workflowStatus(event.turnId);
+          const edited = runs.some((run) => run.changedProject);
+          if (!event.stopped && !event.fault && edited && status && status.mode === 'full' && !status.structurallyVerified
+            && (status.phase === 'editing' || status.phase === 'polishing') && !autoFinished.current.has(event.turnId)) {
+            const finish = `[Automatic finishing round: the last turn ended before verify_edit_workflow.] ${continuePrompt(status)}`;
+            setTimeout(() => {
+              autoFinished.current.add('pending');
+              sendRef.current(finish);
+            }, 400);
+          }
         }
       }
     });
@@ -723,6 +762,7 @@ export function ChatPanel(props: Props) {
     const providerModels=propsRef.current.providers.find(p=>p.id===providerId)?.models||[];
     const model=variantModel(providerModels,propsRef.current.model,propsRef.current.effort);
     const turnId = uid();
+    if (autoFinished.current.delete('pending')) autoFinished.current.add(turnId);
     rememberTurnPrompt(turnId, message);
     propsRef.current.onStartWorkflow(turnId, mode);
     const history = historyFor(messages, providerId, model);
@@ -744,7 +784,10 @@ export function ChatPanel(props: Props) {
       // The backend clamps or drops a level the model does not honour, so sending the chosen one
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
-      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, workflowInstruction: propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId)) }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}) });
+      const phase = propsRef.current.workflowStatus(turnId)?.phase;
+      const toolset = propsRef.current.toolset ?? routeTools(message, messages.filter((m) => m.role === 'user').map((m) => m.content), tagged?.id ?? propsRef.current.editStyle, phase);
+      trace(turnId, { ev: 'turn_sent', harness: propsRef.current.harness ?? 'editor', providerId, model, effort: level, messageChars: message.length, images: sentImages.length, historyTurns: history.length, phase: phase ?? null, permission: propsRef.current.permission, editStyle: tagged?.id ?? propsRef.current.editStyle ?? null, genres: toolset.genres, toolsWhole: toolset.full.length, playbook: toolset.playbook?.id ?? null });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, workflowInstruction: propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId)) }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}), ...(propsRef.current.harness ? { harness: propsRef.current.harness } : {}) });
       setImages([]);
     } catch (error) {
       actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
@@ -1439,7 +1482,7 @@ function continuePrompt(status: WorkflowPhaseStatus): string {
   if (phase === 'plan-ready' || phase === null || phase === 'planning') {
     return `Continue the PLAN phase only. ${shared} Finish research, script, shots (with sceneIndex, script/prompt, graphics, transition, SFX, music per beat) and save it with save_storyboard or save_video_blueprint, then end your turn — do not generate media yet.`;
   }
-  return `Continue the EDIT/POLISH phase only. ${shared} Work just the next unfinished 5–12s batch — cuts, levels, beats, transitions, roto/erase, motion graphics, sound — run run_frame_qa until it is clear, then get_comp + verify_edit_workflow. Do not redo batches already on the timeline.`;
+  return `Continue the EDIT/POLISH phase only. ${shared} Work just the next unfinished 5–12s batch — cuts, levels, beats, transitions, roto/erase, motion graphics, sound — run judge_edit (it runs the frame pass and scores the cut; fix its list and judge again until it passes or its rounds run out), then get_comp + verify_edit_workflow. Do not redo batches already on the timeline.`;
 }
 
 /** A copy button that says it worked. */

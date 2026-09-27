@@ -128,7 +128,7 @@ impl Supervisor {
         stop: (watch::Sender<bool>, watch::Receiver<bool>),
     ) -> Result<String, String> {
         let (stop_sender, stop_receiver) = stop;
-        let SubagentSpec { parent_turn_id, task, label, model, persona, context: project, .. } = spec;
+        let SubagentSpec { parent_turn_id, task, label, model, persona, context: project, max_rounds } = spec;
         let (parent_id, entry_label) = (parent_turn_id.clone(), label.clone());
         let tool_count = Arc::new(AtomicUsize::new(0));
         context.executor = Arc::new(Counted { inner: context.executor, calls: tool_count.clone() });
@@ -151,6 +151,9 @@ impl Supervisor {
                 // The worker sees the project the lead sees, and works under its council seat's brief.
                 context: project.unwrap_or_else(|| serde_json::json!({})),
                 persona,
+                max_rounds: Some(max_rounds as usize),
+                // A worker is never given a harness's tools: the Plugin Maker cannot spawn workers.
+                harness: None,
             };
 
             // Emit the initial "running" update.

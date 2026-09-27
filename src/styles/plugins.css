@@ -90,3 +90,80 @@
 .pm-plugin-row em { grid-column: 2; font-style: normal; color: var(--text-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 1200px) { .pm-body { grid-template-columns: 436px 1fr 280px; } .pm-header-note { display: none; } }
+
+/* The review a plugin from outside the app waits for before it runs (PluginMaker.tsx Permissions). */
+.pm-consent { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--amber); border-radius: var(--radius, 4px); background: color-mix(in srgb, var(--amber) 8%, transparent); }
+.pm-consent ul { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
+.pm-consent li.warn { color: var(--red); font-weight: 600; }
+.pm-notice { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 10px; background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--text); border-bottom: 1px solid var(--line); }
+.pm-notice button { margin-left: auto; background: none; border: 0; color: inherit; cursor: pointer; }
+
+/* ── Publishing (PluginMaker.tsx Publish) ── */
+.pm-publish { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius, 4px); background: var(--panel-2); }
+.pm-publish h4 { margin: 0; }
+.pm-publish label { display: flex; flex-direction: column; gap: 2px; }
+.pm-publish-ok, .pm-publish-problems { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
+.pm-publish-ok { color: var(--green); }
+.pm-publish-problems { color: var(--red); }
+
+/* ── The marketplace (PluginMarket.tsx) ── */
+.mk .pm-header h2 { display: inline-flex; align-items: center; gap: 6px; }
+.mk-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
+.mk-list { min-height: 0; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+.mk-filters { display: flex; flex-direction: column; gap: 8px; }
+.mk-search { display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--field); border: 1px solid var(--line-strong); border-radius: var(--radius, 4px); max-width: 420px; }
+.mk-search input { flex: 1; min-width: 0; border: 0; background: none; padding: 6px 0; color: var(--text); font: inherit; outline: none; }
+.mk-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-chips button { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--text-dim); font: inherit; text-transform: capitalize; cursor: pointer; }
+.mk-chips button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.mk-card { position: relative; display: flex; gap: 10px; align-items: flex-start; padding: 10px; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font: inherit; cursor: pointer; }
+.mk-card:hover, .mk-card.on { border-color: var(--blue-line, var(--accent)); background: var(--panel-3); }
+.mk-card-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mk-card-text em { color: var(--text-faint); font-style: normal; font-size: 11px; }
+.mk-card-text span { color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mk-icon { font-size: 22px; line-height: 1; width: 32px; text-align: center; flex-shrink: 0; }
+.mk-icon.big { font-size: 34px; width: 44px; }
+.mk-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; background: var(--panel-4); color: var(--text-dim); white-space: nowrap; }
+.mk-card .mk-badge { position: absolute; top: 8px; right: 8px; }
+.mk-badge.update { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--blue-hi, var(--accent)); }
+.mk-badge.danger, .mk-badge.status-rejected, .mk-badge.status-revoked { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+.mk-badge.status-approved { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.mk-badge.status-in_review { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber); }
+.mk-detail { min-height: 0; overflow: auto; border-left: 1px solid var(--seam); padding: 14px; background: var(--panel); }
+.mk-detail-body { display: flex; flex-direction: column; gap: 8px; }
+.mk-detail-head { display: flex; gap: 10px; align-items: center; }
+.mk-detail-head h3 { margin: 0; font-size: 15px; }
+.mk-detail-body h4 { margin: 6px 0 0; display: inline-flex; align-items: center; gap: 5px; }
+.mk-perms { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; }
+.mk-perms code { margin: 0 3px; }
+.mk-perms .warn { color: var(--red); font-weight: 600; }
+.mk-perms .ok { color: var(--green); }
+.mk-versions { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.mk-versions em { color: var(--text-faint); font-style: normal; margin-left: 6px; }
+.mk-page { flex: 1; min-height: 0; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.mk-table { width: 100%; border-collapse: collapse; }
+.mk-table th, .mk-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.mk-table th { color: var(--text-faint); font-weight: 600; font-size: 11px; }
+.mk-actions { text-align: right; white-space: nowrap; }
+.mk-actions .btn + .btn { margin-left: 6px; }
+@media (max-width: 900px) { .mk-body { grid-template-columns: 1fr; } .mk-detail { border-left: 0; border-top: 1px solid var(--seam); } }
+
+/* ── Marketplace trust (PluginMarket.tsx, Phase 5) ── */
+.mk-stars { display: inline-flex; gap: 1px; vertical-align: -1px; color: var(--text-faint); }
+.mk-stars svg.on { color: var(--gold, #e8b339); fill: currentColor; }
+.mk-stars svg.half { color: var(--gold, #e8b339); }
+.mk-stars.pick button { background: none; border: 0; padding: 0 2px; cursor: pointer; color: inherit; }
+.mk-verified { color: var(--blue-hi, var(--accent)); margin-left: 3px; vertical-align: -1px; }
+.mk-handle { color: var(--text-faint); }
+.mk-badge.verified { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--blue-hi, var(--accent)); display: inline-flex; align-items: center; gap: 3px; }
+.mk-reviews, .mk-report, .mk-profile { display: flex; flex-direction: column; gap: 6px; }
+.mk-rate textarea, .mk-report textarea, .mk-report select, .mk-profile input { width: 100%; box-sizing: border-box; }
+.mk-review { margin: 0; padding: 6px 8px; border-left: 2px solid var(--line-strong); }
+.mk-review p { margin: 2px 0 0; color: var(--text-dim); }
+.mk-review em { color: var(--text-faint); font-style: normal; }
+.mk-report-link { align-self: flex-start; }
+.mk-profile { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); max-width: 640px; }
+.mk-profile h4 { margin: 0; display: flex; align-items: center; gap: 6px; }
+.mk-profile label { display: flex; flex-direction: column; gap: 2px; }
+.mk-handle-input { display: flex; align-items: center; gap: 2px; }

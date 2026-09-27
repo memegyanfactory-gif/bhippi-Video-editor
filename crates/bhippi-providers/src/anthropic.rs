@@ -121,8 +121,11 @@ impl AnthropicProvider {
             "messages": messages,
             "stream": true,
         });
+        // Prompt caching: the prefix (tools, then system, then the conversation so far) is the
+        // same on every round of a tool loop, so it is marked for the cache and read back at a
+        // tenth of the price instead of paid in full each round.
         if !req.system.trim().is_empty() {
-            body["system"] = serde_json::Value::String(req.system.clone());
+            body["system"] = serde_json::json!([{ "type": "text", "text": req.system, "cache_control": { "type": "ephemeral" } }]);
         }
         // Thinking, in the shape each model family takes. Adaptive models size their own
         // thinking inside `max_tokens` and are steered by effort; `budget_tokens` is a 400 there.
@@ -162,6 +165,17 @@ impl AnthropicProvider {
                     })
                 })
                 .collect();
+            if let Some(last) = body["tools"].as_array_mut().and_then(|tools| tools.last_mut()) {
+                last["cache_control"] = serde_json::json!({ "type": "ephemeral" });
+            }
+        }
+        if let Some(block) = body["messages"]
+            .as_array_mut()
+            .and_then(|messages| messages.last_mut())
+            .and_then(|message| message["content"].as_array_mut())
+            .and_then(|blocks| blocks.last_mut())
+        {
+            block["cache_control"] = serde_json::json!({ "type": "ephemeral" });
         }
         body
     }
@@ -441,7 +455,9 @@ mod tests {
             vec![Message::user("hi".to_owned()), Message::assistant(String::new())],
         );
         let body = AnthropicProvider::request_body(&req, "claude-x");
-        assert_eq!(body["system"], "be brief");
+        assert_eq!(body["system"][0]["text"], "be brief");
+        assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
+        assert_eq!(body["messages"][0]["content"].as_array().and_then(|blocks| blocks.last()).map(|block| &block["cache_control"]["type"]), Some(&serde_json::json!("ephemeral")));
         assert_eq!(body["messages"].as_array().map(Vec::len), Some(1));
         assert!(body.get("tools").is_none(), "no tools means no tools field");
     }
