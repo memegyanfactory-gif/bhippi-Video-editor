@@ -8,8 +8,9 @@ import '../styles/app.css';
 import { KNOWN_TOOLS, runTool, TOOL_SPECS, type ToolHost } from '../lib/aiTools';
 import { useHistory } from '../lib/history';
 import { newProject } from '../lib/timeline';
-import { setPluginEditor } from './bridge';
+import { renderPluginFrame, setPluginEditor } from './bridge';
 import { PluginFrame } from './PluginFrame';
+import { PluginClipRenderers } from './PluginsPanel';
 import { savePlugin, usePlugins } from './store';
 import type { Plugin } from './types';
 
@@ -53,6 +54,42 @@ const line = (t) => { out.textContent += t + String.fromCharCode(10); console.lo
 })();
 </script>`;
 
+/** A plugin that draws a clip (bhippi.generator): dots whose size follows the sound it is given. */
+const GENERATOR = `<script>
+bhippi.ready.then(() => bhippi.generator('dots', { label: 'Dots', params: { color: { type: 'color', default: '#ff3b6b' } } }, (ctx, info) => {
+  ctx.fillStyle = info.params.color;
+  for (let i = 0; i < 16; i++) {
+    ctx.beginPath();
+    ctx.arc((i + 0.5) * info.width / 16, info.height / 2, 4 + info.audio.bands[i * 4] * 40 * info.u * 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}));
+</script>`;
+
+/** Asks the generator plugin's hidden render page for a frame, as the preview and the export do. */
+function RenderCheck() {
+  const [result, setResult] = useState('rendering…');
+  useEffect(() => {
+    let alive = true;
+    const audio = { rms: 0.4, peak: 0.8, loading: false, waveform: [], smooth: [], bands: Array.from({ length: 64 }, (_, i) => 1 - i / 64) };
+    const info = { time: 1, duration: 4, progress: 0.25, compTime: 1, fps: 30, frame: 30, width: 320, height: 180, u: 320 / 1920, exporting: false, audio };
+    void renderPluginFrame({ id: 'gen-test', generator: 'dots', params: {} }, info)
+      .then((bitmap) => {
+        const canvas = document.getElementById('lab-render') as HTMLCanvasElement;
+        const context = canvas.getContext('2d', { willReadFrequently: true })!;
+        context.drawImage(bitmap, 0, 0);
+        const { data } = context.getImageData(0, 0, 320, 180);
+        let lit = 0;
+        for (let i = 3; i < data.length; i += 4) if (data[i] > 0) lit++;
+        if (alive) setResult(`render: ${bitmap.width}x${bitmap.height}, ${lit} pixels drawn`);
+        bitmap.close();
+      })
+      .catch((error: Error) => alive && setResult(`render failed: ${error.message}`));
+    return () => { alive = false; };
+  }, []);
+  return <div><canvas id="lab-render" width={320} height={180} style={{ background: '#000' }} /><div id="lab-render-result">{result}</div></div>;
+}
+
 function Lab() {
   const history = useHistory(newProject('Lab project'));
   const [selection, setSelection] = useState<string[]>([]);
@@ -74,13 +111,18 @@ function Lab() {
     const now = new Date().toISOString();
     const plugin: Plugin = { version: 1, id: 'self-test', name: 'Self test', description: 'lab', icon: '🧪', html: SAMPLE, permissions: { tools: ['add_marker'], network: [], chat: false }, background: false, enabled: true, panel: true, author: 'user', createdAt: now, updatedAt: now, revision: 1 };
     void savePlugin(plugin, KNOWN_TOOLS);
+    void savePlugin({ ...plugin, id: 'gen-test', name: 'Generator test', html: GENERATOR, permissions: { tools: [], network: [], chat: false } }, KNOWN_TOOLS);
   }, []);
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', height: '100vh' }}>
       <div style={{ display: 'flex' }}><PluginFrame pluginId="self-test" /></div>
-      <pre id="lab-log" style={{ margin: 0, padding: 10, overflow: 'auto', font: '11px monospace' }}>
-        {`undo: ${history.undoLabel ?? '-'}\n\n`}{(logs['self-test'] ?? []).map((line) => `${line.level} ${line.text}`).join('\n')}
-      </pre>
+      <div style={{ overflow: 'auto' }}>
+        <PluginClipRenderers pluginIds={['gen-test']} />
+        <RenderCheck />
+        <pre id="lab-log" style={{ margin: 0, padding: 10, font: '11px monospace' }}>
+          {`undo: ${history.undoLabel ?? '-'}\n\n`}{(logs['self-test'] ?? []).map((line) => `${line.level} ${line.text}`).join('\n')}
+        </pre>
+      </div>
     </div>
   );
 }

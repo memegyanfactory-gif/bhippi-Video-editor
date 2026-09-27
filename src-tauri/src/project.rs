@@ -494,6 +494,11 @@ pub enum ClipSource {
         /// restored; never run, and only the frontend reads it.
         #[serde(default, rename = "quarantinedJs", skip_serializing_if = "Option::is_none")]
         quarantined_js: Option<String>,
+        /// A clip a plugin draws (`{ id, generator, params }`, src/plugins/generators.ts): the
+        /// frontend renders its frames before export. Only the frontend reads it; kept so a save
+        /// does not lose it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plugin: Option<serde_json::Value>,
     },
     /// A GPU motion scene (src/motion in the frontend): After Effects-style layers, cameras,
     /// mattes and effects. Only the frontend can draw it; the export overlays the PNG sequence
@@ -1108,6 +1113,8 @@ impl Graphic {
             // message entirely. Export their visible text as a static title so
             // the words always survive; the animation itself is preview-only.
             ClipSource::Html { frames: Some(_), .. } => None,
+            // A plugin's clip has no text of its own: without its frames it draws nothing.
+            ClipSource::Html { plugin: Some(_), .. } => None,
             ClipSource::Html { html, title, .. } => {
                 let mut text = visible_html_text(html);
                 if text.is_empty() {
@@ -1655,6 +1662,7 @@ mod tests {
             layout_box: None,
             frames: None,
             quarantined_js: None,
+            plugin: None,
         });
         let graphic = Graphic::from_clip(&card).expect("html graphic");
         assert_eq!(graphic.text, "DAILY AI streams & news");
@@ -1669,11 +1677,26 @@ mod tests {
             layout_box: None,
             frames: None,
             quarantined_js: None,
+            plugin: None,
         });
         assert_eq!(Graphic::from_clip(&bare).expect("title fallback").text, "Lower third");
         // Nothing to say means nothing to draw — still skipped, not blank.
-        let empty = clip("e", "v2", 0.0, 1.0, ClipSource::Html { html: "<br/>".into(), css: None, js: None, title: None, template: None, layout_box: None, frames: None, quarantined_js: None });
+        let empty = clip("e", "v2", 0.0, 1.0, ClipSource::Html { html: "<br/>".into(), css: None, js: None, title: None, template: None, layout_box: None, frames: None, quarantined_js: None, plugin: None });
         assert!(Graphic::from_clip(&empty).is_none());
+    }
+
+    #[test]
+    fn a_plugin_clip_keeps_its_plugin_and_draws_no_title_without_frames() {
+        let json = serde_json::json!({
+            "type": "html", "html": "", "title": "Visualizer: Spectrum",
+            "plugin": { "id": "audio-viz", "generator": "spectrum", "params": { "bars": 48 } }
+        });
+        let source: ClipSource = serde_json::from_value(json).expect("a plugin clip");
+        let back = serde_json::to_value(&source).expect("serialises");
+        assert_eq!(back["plugin"]["generator"], "spectrum", "a save keeps the plugin: {back}");
+        assert_eq!(back["plugin"]["params"]["bars"], 48);
+        let clip = clip("p", "v2", 0.0, 2.0, source);
+        assert!(Graphic::from_clip(&clip).is_none(), "no white title where the plugin's frames belong");
     }
 
     #[test]

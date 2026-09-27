@@ -450,4 +450,154 @@ Offers Bhippi AI the action count_clips: how many clips of each kind a comp has.
 - count_clips counts every clip exactly once.
 `;
 
-export const EXAMPLES: Example[] = [shotList, markerHere, clipCounter];
+const audioVisualizer: Example = {
+  id: 'audio-visualizer',
+  title: 'Audio visualizer (a clip the plugin draws)',
+  about: 'A clip generator: bhippi.generator draws a spectrum with particles from info.audio, the edit\'s own sound at that frame, so it follows every cut, mute and volume change and exports exactly as it previews. The panel previews the style at the playhead and places the clip with add_plugin_clip. Drawing is stateless (particles come from the frame number), as generators must be.',
+  files: {
+    'manifest.json': manifest({ name: 'Audio visualizer', description: 'A spectrum-and-particles clip that dances to the edit\'s sound.', icon: '🎚️' }, { permissions: { tools: ['add_plugin_clip'], network: [], chat: false, services: [] } }),
+    'spec.md': `# Audio visualizer
+
+## What it does
+Offers a clip, "Spectrum", that draws the edit's sound as bars, a mirrored band or a circle, with
+particles that burst on loud moments. Its colour, style, bar count and glow are clip settings.
+
+## UI
+- A preview of the look at the playhead, and the style and colour to place with.
+- "Add to timeline": a Spectrum clip from the playhead to the end of the comp.
+
+## Bhippi tools it calls
+- add_plugin_clip { plugin, generator, params }: places the clip.
+
+## Permissions
+- tools: add_plugin_clip · network: none · chat: no
+
+## Acceptance checks
+- The Spectrum generator draws something for a moment with sound.
+- Add to timeline puts one Spectrum clip on the comp.
+`,
+    'index.html': PAGE(`  <header class="bar"><strong>Audio visualizer</strong></header>
+  <canvas id="preview" width="480" height="270"></canvas>
+  <div class="bar">
+    <select id="style"><option>bars</option><option>mirror</option><option>circle</option></select>
+    <input id="color" type="color" value="#ff3b6b">
+    <button id="add" class="primary">Add to timeline</button>
+  </div>`),
+    'app.js': `${COMMON_JS}
+const STYLES = ['bars', 'mirror', 'circle'];
+
+/** A repeatable random number for particle i (the same every time this frame is drawn). */
+function seeded(i) {
+  const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/** One frame, from info alone: the generator must not keep state between frames. */
+function draw(ctx, info) {
+  const { width: w, height: h, u, params, audio } = info;
+  const count = Math.max(8, Math.min(64, Math.round(params.bars)));
+  const values = [];
+  for (let i = 0; i < count; i++) values.push(audio.smooth[Math.floor((i / count) * audio.smooth.length)] || 0);
+  ctx.save();
+  ctx.fillStyle = params.color;
+  ctx.shadowColor = params.color;
+  ctx.shadowBlur = params.glow * u;
+  if (params.style === 'circle') {
+    const radius = Math.min(w, h) * 0.18 * (1 + audio.rms * 0.4);
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
+      const length = values[i] * Math.min(w, h) * 0.22;
+      ctx.save();
+      ctx.translate(w / 2 + Math.cos(angle) * radius, h / 2 + Math.sin(angle) * radius);
+      ctx.rotate(angle + Math.PI / 2);
+      ctx.fillRect(-4 * u, -length, 8 * u, length);
+      ctx.restore();
+    }
+  } else {
+    const gap = 6 * u;
+    const barW = (w * 0.8 - gap * (count - 1)) / count;
+    const base = params.style === 'mirror' ? h / 2 : h * 0.85;
+    for (let i = 0; i < count; i++) {
+      const length = values[i] * h * (params.style === 'mirror' ? 0.35 : 0.6);
+      const x = w * 0.1 + i * (barW + gap);
+      ctx.fillRect(x, base - length, barW, params.style === 'mirror' ? length * 2 : length);
+    }
+  }
+  // Particles: born on a loop from the frame number, brighter and faster when it is loud.
+  const energy = Math.min(1, audio.peak * 1.2);
+  for (let i = 0; i < 90; i++) {
+    const life = 1.5 + seeded(i) * 1.5;
+    const age = ((info.time + seeded(i + 99) * life) % life) / life;
+    const x = w * seeded(i + 7);
+    const y = h * (1 - age) - h * 0.1 * energy;
+    ctx.globalAlpha = (1 - age) * (0.25 + energy * 0.75);
+    ctx.beginPath();
+    ctx.arc(x, y, (1.5 + seeded(i + 3) * 3) * u * (1 + energy), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+const SPEC = {
+  label: 'Spectrum',
+  description: 'Bars, a mirrored band or a circle that follow the edit\\'s sound, with particles on loud moments.',
+  params: {
+    style: { type: 'select', label: 'Style', options: STYLES, default: 'bars' },
+    color: { type: 'color', label: 'Colour', default: '#ff3b6b' },
+    bars: { type: 'number', label: 'Bars', min: 8, max: 64, step: 1, default: 40 },
+    glow: { type: 'number', label: 'Glow', min: 0, max: 60, step: 1, default: 18 },
+  },
+};
+
+async function preview() {
+  const canvas = $('preview');
+  try {
+    const time = await bhippi.playhead.get();
+    const sound = await bhippi.audio.analyze({ from: time, to: time + 1 / 30, bands: 64 });
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    draw(ctx, { time, width: canvas.width, height: canvas.height, u: canvas.width / 1920, frame: Math.round(time * 30), audio: sound.frames[0], params: { style: $('style').value, color: $('color').value, bars: 40, glow: 18 } });
+    clearError();
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function addClip() {
+  return bhippi.tool('add_plugin_clip', { plugin: bhippi.plugin.id, generator: 'spectrum', params: { style: $('style').value, color: $('color').value } });
+}
+
+bhippi.ready.then(() => {
+  bhippi.generator('spectrum', SPEC, draw).catch(showError);
+  // The hidden copy Bhippi keeps to draw clips has no panel to run.
+  if (bhippi.role === 'render') return;
+  $('add').onclick = () => addClip().catch(showError);
+  $('style').onchange = preview;
+  $('color').oninput = preview;
+  preview();
+  bhippi.on('playhead', debounce(preview, 30));
+});
+
+bhippi.test('the spectrum draws for a moment with sound', async () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 192; canvas.height = 108;
+  const loud = { rms: 0.5, peak: 0.9, bands: [], smooth: new Array(64).fill(0.8), waveform: [], loading: false };
+  draw(canvas.getContext('2d'), { time: 1, width: 192, height: 108, u: 0.1, frame: 30, audio: loud, params: { style: 'bars', color: '#ffffff', bars: 40, glow: 0 } });
+  const pixels = canvas.getContext('2d').getImageData(0, 0, 192, 108).data;
+  let lit = 0;
+  for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 0) lit++;
+  if (lit < 200) throw new Error('only ' + lit + ' pixels drawn');
+});
+
+bhippi.test('adds one Spectrum clip', async () => {
+  const before = (await bhippi.comp()).clips.length;
+  await addClip();
+  const after = await bhippi.comp();
+  if (after.clips.length !== before + 1) throw new Error('no clip was added');
+});
+`,
+    'style.css': `${STYLE}#preview { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius, 4px); }\n`,
+  },
+};
+
+export const EXAMPLES: Example[] = [shotList, markerHere, clipCounter, audioVisualizer];

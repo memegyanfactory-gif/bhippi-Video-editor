@@ -267,6 +267,9 @@ export function validateDraft(files: DraftFiles, known: ReadonlySet<string>): Dr
   const transcribes = /bhippi\s*\.\s*transcript\b/.test(all) && /transcribe\s*:\s*(?!false)/.test(all);
   if (asksAi && !services.includes('ai')) problems.push('The code calls bhippi.ai.ask but permissions.services does not list "ai".');
   if (transcribes && !services.includes('transcribe')) problems.push('The code asks for new transcriptions ({ transcribe: true }) but permissions.services does not list "transcribe".');
+  const callsPlugins = /bhippi\s*\.\s*plugins\s*\.\s*call\s*\(/.test(all);
+  if (callsPlugins && !services.includes('plugins')) problems.push('The code calls bhippi.plugins.call but permissions.services does not list "plugins".');
+  if (services.includes('plugins') && !callsPlugins) warnings.push('The "plugins" service is allowed but the code never calls bhippi.plugins.call(): remove it.');
   if (services.includes('ai') && !asksAi) warnings.push('The "ai" service is allowed but the code never calls bhippi.ai.ask(): remove it.');
   if (services.includes('transcribe') && !transcribes) warnings.push('The "transcribe" service is allowed but the code never asks for { transcribe: true }: remove it.');
 

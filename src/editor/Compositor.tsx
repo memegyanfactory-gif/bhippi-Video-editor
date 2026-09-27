@@ -20,6 +20,7 @@ import { RotoPreview } from './RotoPreview';
 import { MagicMaskLayer } from './MagicMaskLayer';
 import { wholeClipEffects } from '../lib/magicMask';
 import { HtmlMotionLayer } from './HtmlMotionLayer';
+import { PluginClipLayer } from './PluginClipLayer';
 import { MotionLayer, sceneLayerBoxes } from './MotionLayer';
 import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../lib/motionStack';
 import { htmlLayerInfo } from '../lib/htmlLayers';
@@ -511,6 +512,15 @@ function Layer(props: LayerProps) {
       return wrapper(<ShapePicture clip={clip} />, box, width, height);
     }
     case 'html': {
+      // A clip a plugin draws: its page paints each frame (clipRender.ts); placed like any graphic.
+      if (clip.source.plugin) {
+        return (
+          <div className="layer html-motion-layer plugin-clip-layer" data-clip-id={depth === 0 ? clip.id : undefined}
+            style={{ inset: 0, opacity, zIndex, transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden }}>
+            <PluginClipLayer project={project} comp={comp} clip={clip} assets={assets} time={Math.min(time, clipEnd(clip) - 1e-3)} stageW={stageW} stageH={stageH} />
+          </div>
+        );
+      }
       // One layer of an opened graphic: only its own part is hit-tested (see HtmlMotionLayer's pick).
       const part = htmlLayerInfo(clip.source)?.layer;
       const own = depth === 0 && part !== undefined;

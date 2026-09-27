@@ -8,7 +8,7 @@
 // is: an entry here, a handler in bridge.ts, a method in sdk.ts.
 
 /** Services that cost the user something, so a plugin must declare them (`permissions.services`). */
-export type PluginService = 'transcribe' | 'ai';
+export type PluginService = 'transcribe' | 'ai' | 'plugins';
 
 export const PLUGIN_SERVICES: Record<PluginService, { label: string; risk: string; hint: string }> = {
   transcribe: {
@@ -20,6 +20,11 @@ export const PLUGIN_SERVICES: Record<PluginService, { label: string; risk: strin
     label: 'Ask your AI model',
     risk: 'Sends questions to your AI model (uses your tokens or subscription; at most 20 a minute)',
     hint: 'bhippi.ai.ask(prompt, options).',
+  },
+  plugins: {
+    label: 'Use other plugins',
+    risk: 'Runs actions your other plugins offer (each within that plugin\'s own permissions)',
+    hint: 'bhippi.plugins.call(plugin, action, args).',
   },
 };
 
@@ -39,6 +44,17 @@ export type SdkEntry = {
 export type SdkArea = { title: string; intro?: string; entries: SdkEntry[] };
 
 export const SDK_AREAS: SdkArea[] = [
+  {
+    title: 'Clips the plugin draws (visualizers, particles, overlays)',
+    intro: 'A generator is a kind of clip on the timeline that this plugin draws, frame by frame. It plays in the Program monitor and renders in the export like any graphic, and the user moves, trims, fades and keyframes it like any clip. Place one with bhippi.tool(\'add_plugin_clip\', { plugin: bhippi.plugin.id, generator, start, duration, params }) (list add_plugin_clip in permissions.tools), or let Bhippi AI place it: running plugins\' generators are listed to it. Bhippi keeps a hidden copy of the page running to draw them (bhippi.role is \'render\' there: skip panel-only work).',
+    entries: [
+      {
+        method: 'generator.register',
+        usage: 'bhippi.generator(name, { label, description, params }, (ctx, info) => { … })',
+        doc: 'Registers a kind of clip. params are the settings the Properties panel shows: { key: { type: \'number\', label, default, min, max, step } | { type: \'color\', default: \'#ff3b6b\' } | { type: \'boolean\' } | { type: \'select\', options: [...] } | { type: \'text\' } }. The draw function paints ONE frame on a cleared, transparent CanvasRenderingContext2D of info.width × info.height and may be async. info: { time (s into the clip), duration, progress, compTime, fps, frame, width, height, u (= width / 1920: multiply sizes by it), exporting, params (with defaults filled in), audio: { rms, peak, bands: 64 values 0–1 from 30 Hz to 11 kHz, smooth (bands averaged over 3 frames), waveform: 128 values −1..1, loading } }. audio is the edit\'s own mix at that moment (mute, solo, volume keyframes, trims and speed included), the same in the preview and the export. Draw only from info: no state kept between frames, no Math.random() (seed a random from info.frame), because frames are drawn out of order and one at a time. For WebGL draw on your own canvas, then ctx.drawImage(it, 0, 0).',
+      },
+    ],
+  },
   {
     title: 'Transcripts (what is said)',
     intro: 'Words come with timeline times, already mapped through each clip\'s in point, speed and place, so they line up with the playhead and with bhippi.tool() times. Reading a transcript Bhippi already made is free; making a new one needs the `transcribe` service.',
@@ -80,6 +96,11 @@ export const SDK_AREAS: SdkArea[] = [
     title: 'Audio data',
     entries: [
       {
+        method: 'audio.analyze',
+        usage: 'await bhippi.audio.analyze({ compId?, from, to, fps?, bands? })',
+        doc: 'The edit\'s mixed sound as frames, exactly what a generator\'s info.audio holds: { compId, fps, from, frames: [{ rms, peak, bands, smooth, waveform, loading }] }. fps default 30 (up to 120), bands default 32 (8–256), at most 36,000 frames a call. For beat-synced edits, meters and analysis panels.',
+      },
+      {
         method: 'audio.peaks',
         usage: 'await bhippi.audio.peaks(assetId, { from?, to? })',
         doc: 'The file\'s waveform (the timeline\'s own): { perSecond: 100, from, peak: number[], rms: number[] }, each 0–1 of full scale, 100 values a second of source. from/to are seconds in the file. Rejects for media without sound.',
@@ -104,6 +125,14 @@ export const SDK_AREAS: SdkArea[] = [
         usage: 'await bhippi.media.read(assetId)',
         doc: 'The bytes of one of the project\'s media files: { name, kind, bytes: ArrayBuffer } (up to 256 MB). Decode sound with new AudioContext().decodeAudioData(bytes) or an OfflineAudioContext; this is how a plugin analyses audio itself.',
       },
+    ],
+  },
+  {
+    title: 'Other plugins',
+    intro: 'Plugins work together through the actions they expose (bhippi.expose): one plugin can transcribe, another score, a third place sounds. Each action runs in its own plugin, under that plugin\'s permissions.',
+    entries: [
+      { method: 'plugins.list', usage: 'await bhippi.plugins.list()', doc: 'The running plugins and what they offer: [{ id, name, actions: [{ name, description, params }], generators: [{ name, label }] }].' },
+      { method: 'plugins.call', service: 'plugins', usage: 'await bhippi.plugins.call(pluginId, action, args)', doc: 'Runs another plugin\'s exposed action and resolves with what it returns. That plugin must be running (a panel, or background: true); it has 2 minutes. 120 calls a minute, shared with bhippi.tool.' },
     ],
   },
   {

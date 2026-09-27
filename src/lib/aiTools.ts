@@ -68,6 +68,7 @@ import { SFX_KINDS } from './types';
 import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
 import { playbook } from './motionDirection';
 import { PLUGIN_TOOLS, runPluginAiTool } from '../plugins/aiTools';
+import { findGenerator, findPlugin, pluginStore } from '../plugins/store';
 import { COLOR_TOOLS, LUT_REFUSAL, runColorTool } from './colorTools';
 import { asksForLut, turnPrompt } from './turnPrompts';
 import { GENERIC_TARGET, pacingReport } from './pacing';
@@ -257,7 +258,7 @@ function clipSummary(project: Project, assets: AssetMap, comp: Comp, clip: Clip)
   if (source.type === 'text') Object.assign(summary, { text: source.text, subtitle: source.subtitle || undefined, preset: source.preset, color: source.color, captionStyle: source.style ?? undefined, vertical: source.vertical || undefined });
   if (source.type === 'sfx') summary.sfx = source.kind;
   if (source.type === 'shape') Object.assign(summary, { shape: source.shape, fill: source.fill, size: `${Math.round(source.width)}x${Math.round(source.height)}` });
-  if (source.type === 'html') Object.assign(summary, { html: true, title: source.title, hasGsap: !!source.js });
+  if (source.type === 'html') Object.assign(summary, source.plugin ? { pluginClip: { plugin: source.plugin.id, generator: source.plugin.generator, params: source.plugin.params }, title: source.title } : { html: true, title: source.title, hasGsap: !!source.js });
   if (clip.linkId) summary.linkedTo = comp.clips.find((item) => item.linkId === clip.linkId && item.id !== clip.id)?.id;
   if (clip.groupId) summary.groupId = clip.groupId;
   if (clip.speed !== 1) summary.speed = clip.speed;
@@ -3428,6 +3429,31 @@ ${notes.trim()}${paletteLine}
       editComp(comp, () => placeClips(target.comp, [clip], 'overwrite'));
       host.setSelection([clip.id]);
       return done(`${shape} on ${trackLabel(target.comp, target.track.id)} at ${timecode(start, fps(comp))}`, { clipId: clip.id });
+    }
+
+    case 'add_plugin_clip': {
+      const comp = pickComp(project, args);
+      if (!comp) return fail('there is no comp');
+      const id = str(args, 'plugin');
+      const name = str(args, 'generator');
+      if (!id || !name) return fail('add_plugin_clip needs plugin and generator (the plugins brief lists clipGenerators).');
+      const plugin = findPlugin(id);
+      if (!plugin) return fail(`No plugin “${id}”.`);
+      if (!plugin.enabled) return fail(`“${plugin.name}” is turned off; the user has to turn it on first.`);
+      const generator = findGenerator(id, name);
+      const offered = pluginStore.get().generators.filter((item) => item.plugin === id).map((item) => item.name);
+      if (!generator && offered.length) return fail(`“${plugin.name}” has no clip “${name}”. It offers: ${offered.join(', ')}.`);
+      const start = Math.max(0, num(args, 'start') ?? playhead.get());
+      const rest = compDuration(comp) - start;
+      const duration = clamp(num(args, 'duration') ?? (rest > 0.5 ? rest : 10), 0.1, 36000);
+      const params = record(args, 'params') ?? {};
+      const source: ClipSource = { type: 'html', html: '', title: `${plugin.name}: ${generator?.label ?? name}`, plugin: { id, generator: name, params } };
+      const target = trackFor(comp, str(args, 'track'), 'video') ?? aboveTrack(comp, start, start + duration);
+      const clip = newClip({ trackId: target.track.id, start, duration, source });
+      editComp(comp, () => placeClips(target.comp, [clip], 'overwrite'));
+      host.setSelection([clip.id]);
+      const note = generator ? '' : ` “${plugin.name}” is not running yet; its page starts in the background to draw the clip.`;
+      return done(`${source.title} on ${trackLabel(target.comp, target.track.id)} at ${timecode(start, fps(comp))} for ${duration.toFixed(1)} s.${note}`, { clipId: clip.id });
     }
 
     case 'frame_hold': {

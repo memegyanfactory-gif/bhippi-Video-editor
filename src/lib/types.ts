@@ -84,7 +84,7 @@ export type ClipSource =
   | { type: 'text'; text: string; subtitle: string; preset: Preset; color: string; style: string | null; vertical: boolean }
   | { type: 'sfx'; kind: SfxKind }
   | { type: 'shape'; shape: ShapeKind; sides: number; fill: string | null; stroke: string | null; strokeWidth: number; width: number; height: number; cornerRadius: number }
-  | { type: 'html'; html: string; css?: string; js?: string; /** A script held back from a project file opened from elsewhere, until the user trusts it. */ quarantinedJs?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number } }
+  | { type: 'html'; html: string; css?: string; js?: string; /** A script held back from a project file opened from elsewhere, until the user trusts it. */ quarantinedJs?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number }; /** Drawn by a plugin's generator instead of this markup (src/plugins/generators.ts). */ plugin?: PluginClipSource }
   | { type: 'scene3d'; scene: any; title?: string }
   /** A GPU motion scene (src/motion): AE-style layers, camera, mattes, effects. Export overlays `frames`. */
   | { type: 'motion'; scene: MotionScene; title?: string; frames?: { dir: string; fps: number; frames: number; width: number; height: number } };
@@ -492,6 +492,9 @@ export type ProviderInfo = {
 };
 
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
+/** A clip a plugin draws, frame by frame (bhippi.generator): which plugin, which generator, its settings. */
+export type PluginClipSource = { id: string; generator: string; params: Record<string, unknown> };
+
 export type Job = {
   id: string;
   kind: 'export' | 'media' | 'install' | 'transcribe' | 'model' | 'speech' | 'generation' | 'collect' | 'ai-pack' | 'plugin';

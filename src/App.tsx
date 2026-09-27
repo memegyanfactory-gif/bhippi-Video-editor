@@ -119,7 +119,8 @@ import { PLUGIN_MAKER_BRIEF, PLUGIN_MAKER_TOOLSET } from './plugins/brief';
 import { harnessRefusal } from './lib/harness';
 import { makerActivityKey, MakerStatusBadge, PluginMaker } from './plugins/PluginMaker';
 import { CornerStack, DownloadsBadge } from './components/DownloadsBadge';
-import { BackgroundPlugins, panelPlugins, pluginGlyph, PluginMark, PLUGINS_HOME, PluginsHome, PluginsPanelBody } from './plugins/PluginsPanel';
+import { BackgroundPlugins, panelPlugins, PluginClipRenderers, pluginGlyph, PluginMark, PLUGINS_HOME, PluginsHome, PluginsPanelBody } from './plugins/PluginsPanel';
+import { pluginClipIds } from './plugins/clipRender';
 import { loadPlugins, patchPlugin, pluginsBrief, usePlugins } from './plugins/store';
 import { ANCHOR_LABEL, ANCHOR_REGION, DOCK_ANCHORS, DOCK_MIN, DOCK_MIN_HEIGHT, DOCK_SLOTS, DockOverlay, SIDE_LABEL, dragToDock, isAnchor, isSide, samePlace, sidesFor, withDocked, type DockDrag, type DockPlace, type DockTarget } from './plugins/dock';
 import { PluginFrame } from './plugins/PluginFrame';
@@ -1354,6 +1355,9 @@ export default function App() {
   // Plugins docked in the editing area are panels there, not tabs in the Plugins panel.
   const docked = layout.docked ?? [];
   const dockedIds = new Set(docked.map((item) => item.id));
+  // Plugins that draw a clip in this project keep a hidden page running to draw it (clipRender.ts).
+  const clipPluginKey = pluginClipIds(project).join(',');
+  const clipPlugins = useMemo(() => (clipPluginKey ? clipPluginKey.split(',') : []), [clipPluginKey]);
   // The Plugins panel always has the built-in Characters tab, so it shows unless the user hid it.
   const shownPlugins = panelPlugins(plugins, dockedIds);
   const showPlugins = !hidden('plugins');
@@ -3281,6 +3285,7 @@ export default function App() {
   return (
     <div className="app">
       <MenuBar menus={menus} />
+      <PluginClipRenderers pluginIds={clipPlugins} />
       <BackgroundPlugins panelShown={showPlugins && (!maximizedPanel || maximizedPanel === 'plugins')} docked={dockedIds} dockShown={!maximizedPanel} skip={makerOpen ? makerPlugin : null} />
       {dockDrag && <DockOverlay drag={dockDrag} />}
       <CharactersWindow open={charactersOpen} mode={charactersMode} onMode={setCharactersMode} onAdded={addCharacter}

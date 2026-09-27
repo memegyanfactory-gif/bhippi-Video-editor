@@ -38,11 +38,12 @@ import { playhead } from '../lib/playhead';
 import { newClip, newComp } from '../lib/timeline';
 import { wordsOnTimeline } from '../lib/subtitlesEngine';
 import { toLines } from '../lib/transcriptText';
-import type { Asset, Clip, Job, Project, ToolResult } from '../lib/types';
+import type { Asset, Clip, Job, PluginClipSource, Project, ToolResult } from '../lib/types';
+import { audioAt, prepareAudio, type AudioFrame } from './clipAudio';
 import { PLUGIN_SERVICES, type PluginService } from './capabilities';
 import { pluginToolRefusal } from './rules';
-import { dropActions, findPlugin, pluginStore, pushLog, setAction } from './store';
-import type { Plugin, PluginAction, PluginLog } from './types';
+import { dropActions, findGenerator, findPlugin, pluginStore, pushLog, setAction, setGenerator } from './store';
+import type { GeneratorParam, Plugin, PluginAction, PluginGenerator, PluginLog } from './types';
 
 export type PluginEditor = {
   /** The host AI tool calls run against (history committed synchronously). */
@@ -92,6 +93,8 @@ export type Sandbox = {
   playhead: number;
   actions: PluginAction[];
   calls: { name: string; ok: boolean; skipped?: boolean; error?: string }[];
+  /** Clip generators the page registered (bhippi.generator). */
+  generators: PluginGenerator[];
   /** Replies to the runner's requests (runChecks, snapshot), by id. */
   waiting: Map<string, (message: Record<string, unknown>) => void>;
   hello: () => void;
@@ -112,7 +115,14 @@ type Frame = {
   jobs: Map<string, Job>;
   /** Menu entries this frame offers (bhippi.menu.add), by id. */
   menus: Map<string, { id: string; label: string; where: PluginMenuPlace[] }>;
+  /** Clip generators this page draws (bhippi.generator), by name. */
+  generators: Set<string>;
+  /** 'render': a hidden copy kept to draw the plugin's clips (generators.ts), not a panel. */
+  role: PluginRole;
 };
+
+/** What a plugin page is for: a panel (or background work), or drawing clips. */
+export type PluginRole = 'panel' | 'render';
 
 /** The context menus a plugin can add entries to. */
 export type PluginMenuPlace = 'clip' | 'timeline' | 'media';
@@ -182,9 +192,9 @@ const send = (frame: Frame, message: Record<string, unknown>) => {
 };
 
 /** Starts talking to a plugin's frame. Returns the disconnect. */
-export function connectPluginFrame(pluginId: string, target: Window): () => void {
+export function connectPluginFrame(pluginId: string, target: Window, role: PluginRole = 'panel'): () => void {
   const key = `${pluginId}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  frames.set(key, { key, pluginId, window: target, subscriptions: new Set(['theme']), queue: Promise.resolve(), connectedAt: Date.now(), recent: {}, jobs: new Map(), menus: new Map() });
+  frames.set(key, { key, pluginId, window: target, subscriptions: new Set(['theme']), queue: Promise.resolve(), connectedAt: Date.now(), recent: {}, jobs: new Map(), menus: new Map(), generators: new Set(), role });
   return () => {
     const frame = frames.get(key);
     // A job cannot outlive the page doing it.
@@ -200,7 +210,7 @@ export function connectPluginFrame(pluginId: string, target: Window): () => void
  */
 export function connectSandboxFrame(target: Window, sandbox: Sandbox) {
   const key = `test:${sandbox.plugin.id}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  const frame: Frame = { key, pluginId: sandbox.plugin.id, window: target, subscriptions: new Set(['theme']), queue: Promise.resolve(), connectedAt: Date.now(), sandbox, recent: {}, jobs: new Map(), menus: new Map() };
+  const frame: Frame = { key, pluginId: sandbox.plugin.id, window: target, subscriptions: new Set(['theme']), queue: Promise.resolve(), connectedAt: Date.now(), sandbox, recent: {}, jobs: new Map(), menus: new Map(), generators: new Set(), role: 'panel' };
   frames.set(key, frame);
   let seq = 0;
   return {
@@ -219,6 +229,8 @@ export function connectSandboxFrame(target: Window, sandbox: Sandbox) {
         send(frame, { type, id });
       });
     },
+    /** One frame of a generator the test page registered (plugin_test draws each once). */
+    render: (generator: string, info: RenderInfo) => requestRender(frame, generator, info, sandbox.plugin.name),
     disconnect: () => frames.delete(key),
   };
 }
@@ -291,12 +303,12 @@ async function init(frame: Frame) {
   const identity = plugin ? { id: plugin.id, name: plugin.name } : { id: frame.pluginId, name: frame.pluginId };
   if (frame.sandbox) {
     const { storage, projectStorage } = frame.sandbox;
-    send(frame, { type: 'init', plugin: identity, storage: { ...storage }, session: await session(frame), projectStorage: { ...projectStorage }, theme: themeTokens(), testing: true });
+    send(frame, { type: 'init', plugin: identity, storage: { ...storage }, session: await session(frame), projectStorage: { ...projectStorage }, theme: themeTokens(), testing: true, role: frame.role });
     return;
   }
   const [storage, info] = await Promise.all([withData(frame.pluginId, withoutProjects), session()]);
   const projectStorage = await projectSlice(frame.pluginId, info.key);
-  send(frame, { type: 'init', plugin: identity, storage, session: info, projectStorage, theme: themeTokens() });
+  send(frame, { type: 'init', plugin: identity, storage, session: info, projectStorage, theme: themeTokens(), role: frame.role });
 }
 
 /** Why a plugin's call to a Bhippi tool is refused, or null: its manifest, the permission mode, the workflow. */
@@ -359,6 +371,39 @@ type Handler = (frame: Frame, params: Record<string, unknown>) => Promise<unknow
 /** A handler's answer that carries bytes: handed to the page as it is, not through JSON. */
 class Binary {
   constructor(readonly value: Record<string, unknown>) {}
+}
+
+const GENERATOR_NAME = /^[a-zA-Z][a-zA-Z0-9_-]{0,47}$/;
+
+/** A generator's settings, kept to the kinds the Properties panel can edit. */
+export function generatorParams(raw: unknown): Record<string, GeneratorParam> {
+  const out: Record<string, GeneratorParam> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>).slice(0, 40)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_]{0,47}$/.test(key) || !value || typeof value !== 'object') continue;
+    const spec = value as Record<string, unknown>;
+    const label = typeof spec.label === 'string' ? spec.label.slice(0, 60) : undefined;
+    const number = (field: string) => (typeof spec[field] === 'number' && Number.isFinite(spec[field]) ? (spec[field] as number) : undefined);
+    switch (spec.type) {
+      case 'number': out[key] = { type: 'number', label, default: number('default'), min: number('min'), max: number('max'), step: number('step') }; break;
+      case 'color': out[key] = { type: 'color', label, default: typeof spec.default === 'string' ? spec.default : undefined }; break;
+      case 'boolean': out[key] = { type: 'boolean', label, default: typeof spec.default === 'boolean' ? spec.default : undefined }; break;
+      case 'select': {
+        const options = Array.isArray(spec.options) ? spec.options.filter((item): item is string => typeof item === 'string').slice(0, 40) : [];
+        if (options.length) out[key] = { type: 'select', label, options, default: typeof spec.default === 'string' && options.includes(spec.default) ? spec.default : options[0] };
+        break;
+      }
+      case 'text': out[key] = { type: 'text', label, default: typeof spec.default === 'string' ? spec.default.slice(0, 400) : undefined }; break;
+    }
+  }
+  return out;
+}
+
+/** A clip's settings over its generator's defaults. */
+export function withDefaults(params: Record<string, unknown>, spec: Record<string, GeneratorParam> | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(spec ?? {})) if (value.default !== undefined) out[key] = value.default;
+  return { ...out, ...params };
 }
 
 /** Why this frame's plugin may not use `service`, or null. */
@@ -722,6 +767,63 @@ const HANDLERS: Record<string, Handler> = {
     if (bytes.byteLength > MAX_PLUGIN_READ_BYTES) throw new Error(`“${asset.name}” is too big to read whole`);
     return new Binary({ name: asset.name, kind: asset.kind, bytes });
   },
+  'generator.register': (frame, params) => {
+    const name = typeof params.name === 'string' ? params.name.trim() : '';
+    if (!GENERATOR_NAME.test(name)) throw new Error('A generator name is letters, digits, - and _ (up to 48).');
+    const plugin = pluginFor(frame);
+    const generator: PluginGenerator = {
+      plugin: frame.pluginId,
+      name,
+      label: String(params.label ?? '').trim().slice(0, 60) || name,
+      description: String(params.description ?? '').trim().slice(0, 400),
+      params: generatorParams(params.params),
+    };
+    frame.generators.add(name);
+    if (frame.sandbox) frame.sandbox.generators = [...frame.sandbox.generators.filter((item) => item.name !== name), generator];
+    else if (plugin?.enabled) setGenerator(generator);
+    return true;
+  },
+  'audio.analyze': async (frame, params) => {
+    const host = editorFor(frame)!.host();
+    const project = host.history.current();
+    const wanted = typeof params.compId === 'string' && params.compId ? params.compId : project.activeCompId;
+    const comp = project.comps.find((item) => item.id === wanted || item.name === wanted);
+    if (!comp) throw new Error(`No comp “${String(wanted)}”`);
+    const fps = Math.max(1, Math.min(120, finite(params.fps) ?? 30));
+    const from = Math.max(0, finite(params.from) ?? 0);
+    const to = Math.max(from, finite(params.to) ?? from + 1 / fps);
+    const count = Math.ceil((to - from) * fps);
+    if (count > 36_000) throw new Error('audio.analyze returns at most 36,000 frames a call: ask for a shorter range or a lower fps');
+    const bands = finite(params.bands) ?? 32;
+    const assets = host.assets();
+    await prepareAudio(project, comp.id, assets);
+    const out: AudioFrame[] = [];
+    for (let index = 0; index < count; index++) out.push(audioAt(project, comp.id, from + index / fps, assets, bands));
+    return { compId: comp.id, fps, from, frames: out };
+  },
+  'plugins.list': () => {
+    const { plugins, actions, generators } = pluginStore.get();
+    const running = new Set(liveFrames().map((item) => item.pluginId));
+    return plugins.filter((plugin) => plugin.enabled && running.has(plugin.id)).map((plugin) => ({
+      id: plugin.id,
+      name: plugin.name,
+      actions: actions.filter((action) => action.plugin === plugin.id).map((action) => ({ name: action.name, description: action.description, params: action.params ?? null })),
+      generators: generators.filter((item) => item.plugin === plugin.id).map((item) => ({ name: item.name, label: item.label })),
+    }));
+  },
+  'plugins.call': async (frame, params) => {
+    needService(frame, 'plugins');
+    notDuringTest(frame, 'Calling another plugin');
+    spend(frame, 'tool');
+    const target = typeof params.plugin === 'string' ? params.plugin : '';
+    const action = typeof params.action === 'string' ? params.action : '';
+    if (!target || !action) throw new Error('plugins.call needs a plugin id and an action name');
+    const other = findPlugin(target);
+    if (!other?.enabled) throw new Error(`No running plugin “${target}”`);
+    const args = params.args && typeof params.args === 'object' && !Array.isArray(params.args) ? (params.args as Record<string, unknown>) : {};
+    log(frame, 'call', `→ ${target}.${action}`);
+    return { result: await callPluginAction(target, action, args) };
+  },
   'menu.add': (frame, params) => {
     const id = typeof params.id === 'string' ? params.id.trim() : '';
     if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,47}$/.test(id)) throw new Error('A menu entry id is letters, digits, - and _ (up to 48).');
@@ -843,6 +945,16 @@ function onMessage(event: MessageEvent) {
     case 'snapshotResult':
       frame.sandbox?.waiting.get(String(data.id))?.(data as Record<string, unknown>);
       return;
+    case 'renderResult': {
+      const waiting = waitingRenders.get(String(data.id));
+      if (!waiting) return;
+      waitingRenders.delete(String(data.id));
+      window.clearTimeout(waiting.timer);
+      const bitmap = (data as { bitmap?: unknown }).bitmap;
+      if (data.ok && typeof ImageBitmap !== 'undefined' && bitmap instanceof ImageBitmap) waiting.resolve(bitmap);
+      else waiting.reject(new Error(String(data.error ?? 'The plugin drew nothing')));
+      return;
+    }
     case 'actionResult': {
       const waiting = waitingActions.get(String(data.id));
       if (!waiting) return;
@@ -937,6 +1049,71 @@ export function pluginMenuItems(where: PluginMenuPlace, context: Record<string, 
     }
   }
   return items;
+}
+
+/** One frame of a plugin clip, as the plugin is asked to draw it (bhippi.generator's `info`). */
+export type RenderInfo = {
+  /** Seconds from the clip's start; its length; time / duration. */
+  time: number;
+  duration: number;
+  progress: number;
+  /** Where the playhead is on the comp's timeline. */
+  compTime: number;
+  fps: number;
+  frame: number;
+  /** Pixels to draw; u = width / 1920, the design unit. */
+  width: number;
+  height: number;
+  u: number;
+  /** True for the export's frames, false in the preview. */
+  exporting: boolean;
+  params: Record<string, unknown>;
+  audio: AudioFrame;
+};
+
+const waitingRenders = new Map<string, { resolve: (bitmap: ImageBitmap) => void; reject: (error: Error) => void; timer: number }>();
+let renderSeq = 0;
+
+/** The page that draws `source`'s clips: a render copy first, then the newest page that registered it. */
+function rendererFor(source: PluginClipSource): Frame | undefined {
+  return liveFrames()
+    .filter((frame) => frame.pluginId === source.id && frame.generators.has(source.generator))
+    .sort((a, b) => (a.role === b.role ? b.connectedAt - a.connectedAt : a.role === 'render' ? -1 : 1))[0];
+}
+
+/**
+ * A frame of a plugin clip, drawn by the plugin's own page. Waits up to `waitMs` for the page to
+ * load and register its generator (a project just opened, a plugin just saved).
+ */
+export async function renderPluginFrame(source: PluginClipSource, info: Omit<RenderInfo, 'params'>, waitMs = 10_000): Promise<ImageBitmap> {
+  // The plugin library may still be loading (a project opened at startup), and the page starting.
+  let frame = rendererFor(source);
+  for (const until = Date.now() + waitMs; !frame && Date.now() < until;) {
+    const waiting = findPlugin(source.id);
+    if (waiting && !waiting.enabled) break;
+    if (!waiting && pluginStore.get().loaded) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    frame = rendererFor(source);
+  }
+  const plugin = findPlugin(source.id);
+  if (!plugin) throw new Error(`The “${source.id}” plugin that draws this clip is not installed`);
+  if (!plugin.enabled) throw new Error(`“${plugin.name}” draws this clip but is turned off`);
+  if (!frame) throw new Error(`“${plugin.name}” did not offer the “${source.generator}” clip (is it still in the plugin?)`);
+  const params = withDefaults(source.params ?? {}, findGenerator(source.id, source.generator)?.params);
+  return requestRender(frame, source.generator, { ...info, params }, plugin.name);
+}
+
+/** Asks `frame` for one frame of its `generator`. */
+function requestRender(frame: Frame, generator: string, info: RenderInfo, name: string): Promise<ImageBitmap> {
+  const id = `g${++renderSeq}`;
+  return new Promise<ImageBitmap>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      waitingRenders.delete(id);
+      reject(new Error(`“${name}” took more than 15 s to draw a frame of “${generator}”`));
+    }, 15_000);
+    waitingRenders.set(id, { resolve, reject, timer });
+    send(frame, { type: 'render', id, generator, info });
+  });
 }
 
 /** The user stopped a plugin's job: its page hears 'jobCancel' (job.onCancel) and the job ends. */

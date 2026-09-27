@@ -150,15 +150,27 @@ function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'wi
   return { draw, canvas, pixels, unmount: () => { timeline?.kill(); host.remove(); } };
 }
 
+/** Where a plugin clip sits, for its plugin to draw it (src/plugins/clipRender.ts). */
+type PluginTarget = { project: Project; comp: Comp; clip: Clip };
+
+/** A graphic ready to draw frames: the HTML itself, or the plugin that draws the clip. */
+async function mountFor(source: HtmlSource, duration: number, comp: Pick<Comp, 'width' | 'height' | 'fps'>, scale: number, plugin: PluginTarget | undefined, fps: number) {
+  if (!source.plugin) return mountGraphic(source, duration, comp, scale);
+  if (!plugin) throw new Error(`“${source.title ?? 'A plugin clip'}” needs its project to render`);
+  // Loaded on first use: plugin clips are rare, and the plugin runtime imports much of the editor.
+  const { mountPluginClip } = await import('../plugins/clipRender');
+  return mountPluginClip(plugin.project, plugin.comp, plugin.clip, scale, fps);
+}
+
 /**
  * Renders one HTML clip to `dir/%05d.png` at `fps`, `duration` seconds long, on a canvas the
  * size of the comp's design canvas. Returns what the export needs to overlay it.
  */
-export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; scale?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void } = {}): Promise<RenderedFrames> {
+export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; scale?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void; plugin?: PluginTarget } = {}): Promise<RenderedFrames> {
   const fps = exportFrameRate(options.fps ?? comp.fps);
   const frames = Math.max(1, Math.round(clip.duration * fps));
   const dir = await api.mogrtFramesBegin(clip.id);
-  const mounted = mountGraphic(source, clip.duration, comp, options.scale ?? 1);
+  const mounted = await mountFor(source, clip.duration, comp, options.scale ?? 1, options.plugin, fps);
   const cancelled = () => { if (options.signal?.aborted) throw new Error('export cancelled'); };
   let writer: FrameWriter | null = null;
   try {
@@ -305,6 +317,7 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
     const title = target.source.title ?? 'motion graphic';
     options.onItem?.(title, i + 1, targets.length, htmlFrameCount(target.clip, target.comp, options.fps));
     const frames = await renderHtmlClipFrames(target.source, target.clip, target.comp, {
+      plugin: { project, comp: target.comp, clip: target.clip },
       fps: options.fps,
       scale: options.scale,
       signal: options.signal,
@@ -360,7 +373,7 @@ export async function renderHtmlStill(project: Project, compId: string, times: n
     const indices = [...new Set((clocks.get(target.comp.id) ?? []).filter((at) => at >= clip.start && at < clipEnd(clip)).map((at) => Math.max(0, Math.round((at - clip.start) * fps))))];
     if (!indices.length) continue;
     const dir = await api.mogrtFramesBegin(`${clip.id}-still`);
-    const mounted = mountGraphic(target.source, clip.duration, target.comp);
+    const mounted = await mountFor(target.source, clip.duration, target.comp, 1, { project, comp: target.comp, clip }, fps);
     let writer: FrameWriter | null = null;
     try {
       writer = await openFrameWriter(dir);

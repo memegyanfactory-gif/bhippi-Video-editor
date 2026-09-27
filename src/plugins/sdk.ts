@@ -24,6 +24,11 @@ export const SDK_SOURCE = String.raw`
   var jobCancels = {};
   /** Handlers of this page's menu entries, by entry id. */
   var menuHandlers = {};
+  /** Draw functions of this page's clip generators, by name, and the canvas they draw on. */
+  var generators = {};
+  var renderCanvas = null;
+  /** 'panel', or 'render' for the hidden copy Bhippi keeps to draw this plugin's clips. */
+  var role = 'panel';
   var readyResolve;
   var ready = new Promise(function (resolve) { readyResolve = resolve; });
   /** Acceptance checks (bhippi.test): run only when the Plugin Maker tests the plugin. */
@@ -208,6 +213,7 @@ export const SDK_SOURCE = String.raw`
       session = m.session || null;
       projectStore = m.projectStorage || {};
       testing = !!m.testing;
+      role = m.role === 'render' ? 'render' : 'panel';
       applyTheme(m.theme);
       readyResolve(info);
     } else if (m.type === 'event') {
@@ -241,6 +247,30 @@ export const SDK_SOURCE = String.raw`
       work
         .then(function (result) { result.type = m.type + 'Result'; result.id = m.id; result.ok = true; post(result); })
         .catch(function (error) { post({ type: m.type + 'Result', id: m.id, ok: false, error: text(error) }); });
+    } else if (m.type === 'render') {
+      // One frame of one of this plugin's clips: drawn on a cleared canvas, handed back as a bitmap.
+      var draw = generators[m.generator];
+      var info = m.info || {};
+      Promise.resolve()
+        .then(function () {
+          if (!draw) throw new Error('This plugin has no generator "' + m.generator + '"');
+          if (!renderCanvas) renderCanvas = document.createElement('canvas');
+          var width = Math.max(1, Math.round(info.width || 1));
+          var height = Math.max(1, Math.round(info.height || 1));
+          if (renderCanvas.width !== width) renderCanvas.width = width;
+          if (renderCanvas.height !== height) renderCanvas.height = height;
+          var context = renderCanvas.getContext('2d');
+          context.setTransform(1, 0, 0, 1, 0, 0);
+          context.globalAlpha = 1;
+          context.globalCompositeOperation = 'source-over';
+          context.filter = 'none';
+          context.clearRect(0, 0, width, height);
+          return Promise.resolve(draw(context, info)).then(function () { return createImageBitmap(renderCanvas); });
+        })
+        .then(function (bitmap) {
+          try { parent.postMessage({ tag: TAG, type: 'renderResult', id: m.id, ok: true, bitmap: bitmap }, '*', [bitmap]); } catch (e) { /* the editor is gone */ }
+        })
+        .catch(function (error) { post({ type: 'renderResult', id: m.id, ok: false, error: text(error) }); });
     } else if (m.type === 'action') {
       var handler = actions[m.name];
       Promise.resolve()
@@ -326,6 +356,21 @@ export const SDK_SOURCE = String.raw`
     fileUrl: function (path) { return call('fileUrl', { path: path }); },
     /** True inside the Plugin Maker's test run: AI questions and new transcriptions do not run there. */
     get testing() { return testing; },
+    /** 'panel' (shown, or running in the background), or 'render': a hidden copy that only draws this plugin's clips. */
+    get role() { return role; },
+    /**
+     * A kind of clip this plugin draws on the timeline, in the preview and in the export.
+     * spec: { label, description, params: { key: { type: 'number' | 'color' | 'boolean' | 'select' | 'text', label, default, min, max, step, options } } }.
+     * draw(ctx, info) paints one frame on a cleared, transparent 2D canvas of info.width × info.height;
+     * info: { time, duration, progress, compTime, fps, frame, width, height, u, exporting, params, audio }.
+     * It must depend only on info (no state kept between frames), so any frame can be drawn alone.
+     */
+    generator: function (name, spec, draw) {
+      if (typeof spec === 'function') { draw = spec; spec = {}; }
+      spec = spec || {};
+      if (typeof draw === 'function') generators[name] = draw;
+      return call('generator.register', { name: name, label: spec.label, description: spec.description, params: spec.params || {} });
+    },
     /**
      * What is said, in timeline time. comp(compId?, { transcribe }) → the whole edit's words and
      * lines; get(clipId | { clipId } | { assetId }, { transcribe }) → one clip's or file's words.
@@ -357,6 +402,7 @@ export const SDK_SOURCE = String.raw`
     },
     /** A media file's sound as numbers: peaks(assetId, { from, to }) and loudness(assetId, { from, to }). */
     audio: {
+      analyze: function (options) { return call('audio.analyze', options || {}); },
       peaks: function (assetId, range) { range = range || {}; return call('audio.peaks', { assetId: assetId, from: range.from, to: range.to }); },
       loudness: function (assetId, range) { range = range || {}; return call('audio.loudness', { assetId: assetId, from: range.from, to: range.to }); }
     },
@@ -383,6 +429,11 @@ export const SDK_SOURCE = String.raw`
         return call('menu.add', { id: entry.id, label: entry.label, where: entry.where });
       },
       remove: function (id) { delete menuHandlers[id]; return call('menu.remove', { id: id }); }
+    },
+    /** Other plugins: list() what the running ones offer; call(plugin, action, args) runs one (the plugins service). */
+    plugins: {
+      list: function () { return call('plugins.list'); },
+      call: function (plugin, action, args) { return call('plugins.call', { plugin: plugin, action: action, args: args || {} }).then(function (answer) { return answer.result; }); }
     },
     /** Runs [{ tool, args }, …] as one undo step. */
     batch: function (steps, options) { return call('batch', { steps: steps, label: options && options.label }); },

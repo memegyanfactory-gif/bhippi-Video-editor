@@ -13,7 +13,9 @@ import { api } from '../lib/ipc';
 import { removeKey, setKey, valueAt } from '../lib/keyframes';
 import { playhead, usePlayhead } from '../lib/playhead';
 import { clipEnd, clipName, COMP_PRESETS, focusClip, FRAME_RATES, ITEM_LABEL, moveClipTo, slipClip, sourceInfo, sourceLimit, trackLabel, transitionLabel, transitionWindow, updateComp, type AssetMap } from '../lib/timeline';
-import type { Clip, Comp, Effects, Keyframe, KeyframedProperty as Property, Mask, Project, Transform, Transition } from '../lib/types';
+import type { Clip, Comp, Effects, Keyframe, KeyframedProperty as Property, Mask, PluginClipSource, Project, Transform, Transition } from '../lib/types';
+import { withDefaults } from '../plugins/bridge';
+import { usePlugins } from '../plugins/store';
 
 type Props = {
   project: Project;
@@ -39,6 +41,63 @@ function Section({ title, icon, onReset, children, defaultOpen = true }: { title
       </div>
       {open && <div className="prop-rows">{children}</div>}
     </div>
+  );
+}
+
+/**
+ * A plugin clip's settings (bhippi.generator's params), edited like any property: each change is
+ * one undo step, and the plugin draws the clip again with it. The controls come from the running
+ * plugin; while it is not running only what it draws is shown.
+ */
+function PluginClipSettings({ clip, comp, source, history, disabled }: { clip: Clip; comp: Comp; source: PluginClipSource; history: History; disabled: boolean }) {
+  const { plugins, generators } = usePlugins();
+  const plugin = plugins.find((item) => item.id === source.id);
+  const generator = generators.find((item) => item.plugin === source.id && item.name === source.generator);
+  const values = withDefaults(source.params ?? {}, generator?.params);
+  const set = (key: string, value: unknown, commit = true) => {
+    const apply = (current: Project) => updateComp(current, comp.id, (target) => ({
+      ...target,
+      clips: target.clips.map((entry) => (entry.id === clip.id && entry.source.type === 'html' && entry.source.plugin
+        ? { ...entry, source: { ...entry.source, plugin: { ...entry.source.plugin, params: { ...entry.source.plugin.params, [key]: value } } } }
+        : entry)),
+    }));
+    if (commit) history.commit(apply, `${generator?.label ?? 'Plugin clip'}: ${key}`);
+    else history.preview(apply);
+  };
+  return (
+    <Section title={plugin?.name ?? 'Plugin clip'} icon={<Sparkles size={12} />}>
+      <Row label="Draws"><span className="prop-readout">{generator?.label ?? source.generator}</span></Row>
+      {!plugin && <p className="prop-hint">The “{source.id}” plugin that draws this clip is not installed.</p>}
+      {plugin && !plugin.enabled && <p className="prop-hint">“{plugin.name}” is turned off, so this clip draws nothing.</p>}
+      {plugin?.enabled && !generator && <p className="prop-hint">Its settings show once “{plugin.name}” is running.</p>}
+      {generator && Object.entries(generator.params).map(([key, spec]) => {
+        const value = values[key];
+        const label = spec.label ?? key;
+        switch (spec.type) {
+          case 'number':
+            return (
+              <Row key={key} label={label}>
+                <ScrubNumber value={typeof value === 'number' ? value : 0} min={spec.min} max={spec.max} step={spec.step ?? 1} disabled={disabled}
+                  onChange={(next) => set(key, next, false)} onCommit={() => history.settle(`${generator.label}: ${label}`)} />
+              </Row>
+            );
+          case 'color':
+            return <Row key={key} label={label}><input type="color" value={typeof value === 'string' ? value : '#ffffff'} disabled={disabled} onChange={(event) => set(key, event.target.value)} /></Row>;
+          case 'boolean':
+            return <Row key={key} label={label}><input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => set(key, event.target.checked)} /></Row>;
+          case 'select':
+            return (
+              <Row key={key} label={label}>
+                <select value={typeof value === 'string' ? value : spec.options[0]} disabled={disabled} onChange={(event) => set(key, event.target.value)}>
+                  {spec.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Row>
+            );
+          case 'text':
+            return <Row key={key} label={label}><input type="text" defaultValue={typeof value === 'string' ? value : ''} disabled={disabled} onBlur={(event) => { if (event.target.value !== value) set(key, event.target.value); }} /></Row>;
+        }
+      })}
+    </Section>
   );
 }
 
@@ -322,7 +381,9 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
 
       {source.type === 'motion' && <ErrorBoundary scope="Motion inspector"><MotionInspector clip={clip} comp={comp} history={history} disabled={disabled} Section={Section} Row={Row} /></ErrorBoundary>}
 
-      {source.type === 'html' && (
+      {source.type === 'html' && source.plugin && <PluginClipSettings clip={clip} comp={comp} source={source.plugin} history={history} disabled={disabled} />}
+
+      {source.type === 'html' && !source.plugin && (
         <Section title="Motion Graphic" icon={<Sparkles size={12} />}>
           <Row label="Template"><span className="prop-readout">{source.title || 'HTML/GSAP'}</span></Row>
           <Row label="Engine"><span className="prop-readout">{source.js ? 'HTML + CSS + GSAP' : 'HTML + CSS'}</span></Row>

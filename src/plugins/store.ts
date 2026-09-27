@@ -5,7 +5,7 @@
 import { useSyncExternalStore } from 'react';
 import { api, fileSrc } from '../lib/ipc';
 import { composePage, validatePlugin, withRevision } from './rules';
-import type { Plugin, PluginAction, PluginLog } from './types';
+import type { Plugin, PluginAction, PluginGenerator, PluginLog } from './types';
 
 const MAX_LOGS = 300;
 
@@ -16,9 +16,11 @@ type State = {
   pages: Record<string, string>;
   logs: Record<string, PluginLog[]>;
   actions: PluginAction[];
+  /** Kinds of clip the running plugins draw (bhippi.generator), for add_plugin_clip and the Properties panel. */
+  generators: PluginGenerator[];
 };
 
-let state: State = { loaded: false, plugins: [], pages: {}, logs: {}, actions: [] };
+let state: State = { loaded: false, plugins: [], pages: {}, logs: {}, actions: [], generators: [] };
 const listeners = new Set<() => void>();
 
 function set(change: Partial<State>) {
@@ -214,9 +216,16 @@ export function setAction(action: PluginAction) {
   set({ actions: [...state.actions.filter((item) => !(item.plugin === action.plugin && item.name === action.name)), action] });
 }
 
+export function setGenerator(generator: PluginGenerator) {
+  set({ generators: [...state.generators.filter((item) => !(item.plugin === generator.plugin && item.name === generator.name)), generator] });
+}
+
+export const findGenerator = (plugin: string, name: string) => state.generators.find((item) => item.plugin === plugin && item.name === name);
+
 /** A plugin's frame went away (or reloaded): what it offered goes with it until it offers again. */
 export function dropActions(id: string) {
   if (state.actions.some((item) => item.plugin === id)) set({ actions: state.actions.filter((item) => item.plugin !== id) });
+  if (state.generators.some((item) => item.plugin === id)) set({ generators: state.generators.filter((item) => item.plugin !== id) });
 }
 
 /** What Bhippi AI is told about the plugins on every turn. */
@@ -231,5 +240,7 @@ export function pluginsBrief() {
       background: plugin.background,
     })),
     actions: state.actions.map((action) => ({ plugin: action.plugin, name: action.name, description: action.description, params: action.params ?? undefined })),
+    // Placed with add_plugin_clip: a clip on the timeline the plugin draws, in the preview and the export.
+    clipGenerators: state.generators.map((item) => ({ plugin: item.plugin, generator: item.name, label: item.label, description: item.description, params: item.params })),
   };
 }

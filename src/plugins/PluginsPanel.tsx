@@ -281,6 +281,21 @@ function DiscoverCard({ plugin, onGet }: { plugin: SamplePlugin; onGet: () => vo
  * or docked in the editing area. `docked` is every docked plugin; `dockShown` says whether the
  * editing area is showing them (not while another panel is maximized).
  */
+/**
+ * Hidden pages that draw the plugin clips in the open project (clipRender.ts): one per plugin with
+ * a clip, whether or not its panel is showing, so the preview and the export always have it.
+ */
+export function PluginClipRenderers({ pluginIds }: { pluginIds: string[] }) {
+  const { plugins } = usePlugins();
+  const running = pluginIds.filter((id) => plugins.some((plugin) => plugin.id === id && plugin.enabled));
+  if (!running.length) return null;
+  return (
+    <div className="plugins-background" aria-hidden="true">
+      {running.map((id) => <PluginFrame key={id} pluginId={id} hidden role="render" />)}
+    </div>
+  );
+}
+
 export function BackgroundPlugins({ panelShown, docked, dockShown, skip }: { panelShown: boolean; docked: ReadonlySet<string>; dockShown: boolean; skip: string | null }) {
   const { plugins } = usePlugins();
   const shown = (plugin: Plugin) => (docked.has(plugin.id) ? dockShown : panelShown && plugin.panel);

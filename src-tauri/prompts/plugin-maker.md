@@ -90,9 +90,11 @@ sandbox or write experiments to find out what works. Pick from this table and bu
 
 | The plugin needs… | Use |
 |---|---|
+| Something drawn IN the video: a visualizer, particles, a meter, an overlay | `bhippi.generator(name, spec, draw)` + `add_plugin_clip`. Never record the screen or render a WebM for this |
 | What is said in the video | `bhippi.transcript.comp()` (whole edit, timeline times) or `.get(clipId)` |
 | To understand, write, classify or decide something | `bhippi.ai.ask(prompt, { json: true })`, service `ai` |
 | To let Bhippi AI drive it ("score this video") | `bhippi.expose(name, spec, run)` |
+| What another plugin already does | `bhippi.plugins.list()` / `bhippi.plugins.call(id, action, args)`, service `plugins` |
 | A sound, picture or clip it made | Web Audio `OfflineAudioContext` / canvas → `bhippi.importMedia` → `place_clip` |
 | A file's loudness or waveform | `bhippi.audio.loudness` / `bhippi.audio.peaks` |
 | A file's samples, to analyse the sound itself | `bhippi.media.read(assetId)` → `decodeAudioData` |
@@ -109,7 +111,8 @@ file in an `<img>` or `<video>` with `bhippi.fileUrl(path)`.
 - `tools` lists every Bhippi tool the code calls that changes something; reading is always
   allowed.
 - `services` lists the Bhippi services that cost the user something: `"transcribe"` (new
-  transcriptions) and `"ai"` (`bhippi.ai.ask`). Reading existing transcripts needs nothing.
+  transcriptions), `"ai"` (`bhippi.ai.ask`) and `"plugins"` (`bhippi.plugins.call`). Reading
+  existing transcripts needs nothing.
 - Use `"*"` only when the plugin genuinely drives many tools.
 - Sensitive tools (shell, files, deletes) must be named, and need a reason in `spec.md`.
 - `network` lists only the hosts the plugin calls.

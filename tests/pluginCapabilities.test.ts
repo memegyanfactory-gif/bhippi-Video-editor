@@ -18,7 +18,11 @@ import { squashStep } from '../src/lib/history';
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { Asset, Job, Project, ToolResult } from '../src/lib/types';
 import type { ToolHost } from '../src/lib/aiTools';
-import { answerJson, BRIDGE_METHODS, callAs, connectPluginFrame, pluginMenuItems, setPluginEditor, type PluginEditor } from '../src/plugins/bridge';
+import { answerJson, BRIDGE_METHODS, callAs, connectPluginFrame, generatorParams, pluginMenuItems, setPluginEditor, withDefaults, type PluginEditor } from '../src/plugins/bridge';
+import { audioAt, setSamples, voicesAt } from '../src/plugins/clipAudio';
+import { pluginClipIds } from '../src/plugins/clipRender';
+import { pluginStore } from '../src/plugins/store';
+import { runTool } from '../src/lib/aiTools';
 import { PLUGIN_SERVICES, SDK_METHODS, servicesReference } from '../src/plugins/capabilities';
 import { PLUGIN_SDK_REFERENCE } from '../src/plugins/brief';
 import { validateDraft } from '../src/plugins/drafts';
@@ -48,7 +52,7 @@ describe('the capability registry', () => {
   });
 
   it('every service the bridge answers is in the registry, so the Maker is told about it', () => {
-    const services = [...BRIDGE_METHODS].filter((method) => /^(transcript|ai|playback|audio|video|media|jobs|menu)\./.test(method) || method === 'batch');
+    const services = [...BRIDGE_METHODS].filter((method) => /^(transcript|ai|playback|audio|video|media|jobs|menu|generator|plugins)\./.test(method) || method === 'batch');
     const listed = new Set(SDK_METHODS.map((entry) => entry.method));
     for (const method of services) expect(listed.has(method), `${method} is missing from capabilities.ts`).toBe(true);
   });
@@ -64,7 +68,7 @@ describe('the capability registry', () => {
 describe('the services permission', () => {
   const known = new Set(['add_marker']);
   it('only names real services', () => {
-    expect(validatePlugin(plugin({ services: ['ai', 'transcribe'] }), known)).toBeNull();
+    expect(validatePlugin(plugin({ services: ['ai', 'transcribe', 'plugins'] }), known)).toBeNull();
     expect(validatePlugin(plugin({ services: ['shell'] }), known)).toMatch(/not a Bhippi service/);
   });
 
@@ -246,6 +250,13 @@ describe('the services, through the bridge', () => {
     await expect(callAs(frame, 'menu.add', { id: 'x', label: 'X', where: 'toolbar' })).rejects.toThrow(/where is one or more/);
   });
 
+  it('calling another plugin needs the plugins service', async () => {
+    const { frame } = fixture();
+    await expect(callAs(frame, 'plugins.call', { plugin: 'other', action: 'score' })).rejects.toThrow(/“plugins” service/);
+    const listed = await callAs(frame, 'plugins.list', {}) as unknown[];
+    expect(Array.isArray(listed)).toBe(true);
+  });
+
   it('jobs show in the editor and end', async () => {
     const { frame, jobs } = fixture();
     const id = await callAs(frame, 'jobs.start', { label: 'Scoring', cancellable: true }) as string;
@@ -254,5 +265,101 @@ describe('the services, through the bridge', () => {
     expect(jobs.map((job) => [job.status, job.progress])).toEqual([['running', 0], ['running', 0.5], ['done', 1]]);
     expect(jobs[0].label).toBe('Cap: Scoring');
     await expect(callAs(frame, 'jobs.update', { id, progress: 0.9 })).rejects.toThrow(/has ended/);
+  });
+});
+
+
+describe('clips a plugin draws', () => {
+  it('keeps generator settings to what the Properties panel can edit', () => {
+    const params = generatorParams({
+      bars: { type: 'number', min: 8, max: 64, default: 40, label: 'Bars' },
+      color: { type: 'color', default: '#ff0000' },
+      style: { type: 'select', options: ['bars', 'circle'], default: 'nope' },
+      weird: { type: 'function' },
+      'bad key': { type: 'number' },
+    });
+    expect(Object.keys(params)).toEqual(['bars', 'color', 'style']);
+    expect(params.style).toMatchObject({ type: 'select', default: 'bars' });
+    expect(withDefaults({ bars: 12 }, params)).toEqual({ bars: 12, color: '#ff0000', style: 'bars' });
+  });
+
+  it('lists the plugins that draw a clip in the project', () => {
+    const project = newProject();
+    const video = tracksOf(project.comps[0], 'video')[1].id;
+    project.comps[0].clips = [
+      newClip({ trackId: video, start: 0, duration: 5, source: { type: 'html', html: '', plugin: { id: 'viz', generator: 'spectrum', params: {} } } }),
+      newClip({ trackId: video, start: 5, duration: 5, source: { type: 'html', html: '<b>hi</b>' } }),
+    ];
+    expect(pluginClipIds(project)).toEqual(['viz']);
+  });
+
+  describe('the sound at a moment', () => {
+    // A 440 Hz tone in the first half of the file, silence after.
+    const rate = 22050;
+    const tone = new Float32Array(rate * 4);
+    for (let i = 0; i < rate * 2; i++) tone[i] = Math.sin((2 * Math.PI * 440 * i) / rate) * 0.5;
+    const assets = new Map([['tone', { id: 'tone', name: 'tone.wav', kind: 'audio', duration: 4, hasAudio: true } as unknown as Asset]]);
+
+    function edit(change: Partial<Parameters<typeof newClip>[0]> = {}) {
+      const project = newProject();
+      const comp = project.comps[0];
+      const audio = tracksOf(comp, 'audio')[0];
+      comp.clips = [newClip({ trackId: audio.id, start: 10, duration: 4, source: { type: 'media', assetId: 'tone' }, ...change })];
+      return { project, comp, audio };
+    }
+
+    beforeEach(() => setSamples('tone', tone));
+
+    it('follows the clip on the timeline: loud over the tone, quiet elsewhere', () => {
+      const { project, comp } = edit();
+      const during = audioAt(project, comp.id, 11, assets);
+      const after = audioAt(project, comp.id, 13, assets);
+      const before = audioAt(project, comp.id, 5, assets);
+      expect(during.rms).toBeGreaterThan(0.2);
+      expect(after.rms).toBe(0);
+      expect(before.rms).toBe(0);
+      // 440 Hz lands in one band, well above the highest ones.
+      const loudest = during.bands.indexOf(Math.max(...during.bands));
+      expect(during.bands[loudest]).toBeGreaterThan(0.6);
+      expect(during.bands[63]).toBeLessThan(0.2);
+      expect(during.waveform).toHaveLength(128);
+    });
+
+    it('hears mute, solo, volume keyframes and disabled clips as the preview does', () => {
+      const muted = edit();
+      muted.audio.muted = true;
+      expect(audioAt(muted.project, muted.comp.id, 11, assets).rms).toBe(0);
+      const off = edit({ enabled: false });
+      expect(audioAt(off.project, off.comp.id, 11, assets).rms).toBe(0);
+      const base = edit();
+      const quiet = edit({ volume: 0.25 });
+      expect(audioAt(quiet.project, quiet.comp.id, 11, assets).rms).toBeCloseTo(audioAt(base.project, base.comp.id, 11, assets).rms * 0.25, 2);
+      const faded = edit();
+      faded.comp.clips[0].keyframes = { ...faded.comp.clips[0].keyframes, volume: [{ time: 0, value: 1, easing: 'linear' }, { time: 1, value: 0, easing: 'linear' }] };
+      expect(audioAt(faded.project, faded.comp.id, 11.5, assets).rms).toBeLessThan(audioAt(base.project, base.comp.id, 11.5, assets).rms * 0.7);
+      // Speed and in point move where in the file the moment is.
+      const late = edit({ in: 2 });
+      expect(voicesAt(late.project, late.comp, 11)[0].sourceTime).toBeCloseTo(3);
+      expect(audioAt(late.project, late.comp.id, 11, assets).rms).toBe(0);
+    });
+  });
+
+  it('add_plugin_clip places a clip the plugin draws, with its settings', async () => {
+    vi.mocked(findPlugin).mockReturnValue({ ...plugin(), id: 'viz', name: 'Viz' });
+    const project = newProject();
+    let current = project;
+    const host = {
+      history: { current: () => current, commit: (change: (p: Project) => Project) => { current = change(current); } },
+      assets: () => new Map(), selection: () => [], setSelection: vi.fn(),
+    } as unknown as ToolHost;
+    const result = await runTool(host, 'add_plugin_clip', { plugin: 'viz', generator: 'spectrum', start: 2, duration: 6, params: { bars: 24 } });
+    expect(result.ok, String(result.error)).toBe(true);
+    const clip = current.comps[0].clips.find((item) => item.id === result.clipId)!;
+    expect(clip.source).toMatchObject({ type: 'html', plugin: { id: 'viz', generator: 'spectrum', params: { bars: 24 } } });
+    expect([clip.start, clip.duration]).toEqual([2, 6]);
+    // A running plugin that offers other clips says which.
+    pluginStore.get().generators.push({ plugin: 'viz', name: 'spectrum', label: 'Spectrum', description: '', params: {} });
+    const wrong = await runTool(host, 'add_plugin_clip', { plugin: 'viz', generator: 'nope' });
+    expect(wrong.error).toMatch(/offers: spectrum/);
   });
 });

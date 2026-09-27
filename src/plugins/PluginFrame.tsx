@@ -5,10 +5,10 @@
 // network to the hosts it was given. The only way out is postMessage to the bridge.
 
 import { useEffect, useRef } from 'react';
-import { connectPluginFrame } from './bridge';
+import { connectPluginFrame, type PluginRole } from './bridge';
 import { usePlugins } from './store';
 
-export function PluginFrame({ pluginId, hidden = false, className }: { pluginId: string; hidden?: boolean; className?: string }) {
+export function PluginFrame({ pluginId, hidden = false, className, role = 'panel' }: { pluginId: string; hidden?: boolean; className?: string; role?: PluginRole }) {
   const { pages, plugins } = usePlugins();
   const plugin = plugins.find((item) => item.id === pluginId);
   const url = plugin?.enabled ? pages[pluginId] : undefined;
@@ -19,8 +19,8 @@ export function PluginFrame({ pluginId, hidden = false, className }: { pluginId:
     const frame = ref.current;
     const target = frame?.contentWindow;
     if (!frame || !target || !url) return;
-    return connectPluginFrame(pluginId, target);
-  }, [pluginId, url]);
+    return connectPluginFrame(pluginId, target, role);
+  }, [pluginId, url, role]);
 
   if (!plugin) return <div className="plugin-frame-empty">This plugin is no longer installed.</div>;
   if (!plugin.enabled) return <div className="plugin-frame-empty">“{plugin.name}” is turned off.</div>;

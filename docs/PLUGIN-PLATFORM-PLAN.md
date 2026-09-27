@@ -894,18 +894,40 @@ for a new one sends an update back for review (`widens`).
 - Not built: a command palette (Bhippi has none yet) and plugin keyboard shortcuts (key events
   stay out of plugins on purpose, see Level 2).
 
-### Step 3: plugin clips and effects — planned
+### Step 3: plugin clips — done (2026-09-27)
 
-A manifest declares `generators`; a clip with source `{ type: 'plugin', plugin, generator,
-params }` is drawn by the plugin's `bhippi.render(canvas, { time, params, audio })` in the viewer
-and rendered frame by frame for export, as HTML clips are (`htmlFrames.ts`). `bhippi.audio.analyze`
-gives the render the same per-frame spectrum the preview shows. An audio visualizer becomes a clip
-on V2. Effects follow: a clip's frame in, a new frame out.
+- A plugin registers a kind of clip with `bhippi.generator(name, { label, params }, draw)`. The
+  clip is an HTML clip carrying `plugin: { id, generator, params }` (Rust keeps the field;
+  without frames it draws nothing rather than a white title).
+- **Who draws:** the plugin's own sandboxed page, one frame at a time: the editor sends `render`,
+  the page draws on a cleared canvas and returns a transferred `ImageBitmap`. Plugin code never
+  runs in the editor's document. A hidden `role: 'render'` copy of each plugin with a clip in
+  the project stays running (`PluginClipRenderers`).
+- **Preview:** `PluginClipLayer` in the Compositor, one request in flight, latest frame wins.
+  **Export and stills:** `htmlFrames.ts` mounts the plugin in place of the DOM renderer, so the
+  existing PNG-sequence path and Rust compositing are unchanged.
+- **Sound:** `clipAudio.ts` mixes the decoded files the way the preview does (mute, solo, volume
+  keyframes, audio transitions, trims, speed, reverse, nested comps) and gives every frame
+  `{ rms, peak, 64 bands, smooth, waveform }`. It is computed, not tapped from the speakers, so
+  the preview and the export match frame for frame. `bhippi.audio.analyze` returns the same.
+- **Placing:** the `add_plugin_clip` tool (plugins and Bhippi AI; running plugins' generators are
+  in the AI's plugins brief). **Settings:** the Properties panel edits a clip's params, one undo
+  step each.
+- **The Maker:** a reviewed `audio-visualizer` example; `plugin_test` draws one frame of every
+  generator and reports errors or empty frames.
+- Checked in headless Chromium through `plugin-lab.html`: a sandboxed generator drew a
+  320×180 frame (11,146 pixels) back to the editor.
+- Not built: **plugin effects** (a clip's frame in, a new frame out). They need the source frames
+  handed to the plugin per frame at export. That is the next piece to design.
 
-### Step 4: plugins working together — planned
+### Step 4: plugins working together — done (2026-09-27)
 
-Plugins calling each other's exposed actions, inspector sections for a selected clip, export
-hooks.
+- `bhippi.plugins.list()` and `bhippi.plugins.call(id, action, args)` (service `plugins`): one
+  plugin uses another's exposed actions, each running under its own permissions.
+- Export hooks: `bhippi.on('export')` (Level 2) reports start and finish. A hook that changes
+  an export was left out on purpose: an export must not depend on a plugin being open.
+- Per-clip panels: the generator settings in the Properties panel, plus right-click entries
+  (step 2), cover a plugin acting on a selected clip. A free-form inspector section was not built.
 
 ## Decisions
 
@@ -1004,4 +1026,7 @@ hooks.
     playback, audio data, batched edits and jobs for plugins, with the backend `plugin_ask`.
   - The Maker runs sealed and at most at `high` effort.
   - Step 2 the same day: `video.frame`, `media.read`, and right-click menu entries.
-  - Next up: step 3, plugin clips (generators) that render in the viewer and in the export.
+  - Steps 3 and 4 the same day: plugin clips (generators) drawn in the preview and the export
+    from the edit's own sound, `add_plugin_clip`, clip settings in the Properties panel, and
+    plugins calling each other's actions.
+  - Next: plugin effects (frame in, frame out).

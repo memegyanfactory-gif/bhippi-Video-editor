@@ -73,5 +73,16 @@ export type Plugin = {
 /** One line from a running plugin's console, or a call it made. */
 export type PluginLog = { at: number; level: 'log' | 'info' | 'warn' | 'error' | 'call'; text: string };
 
+/** One setting of a plugin clip, as the Properties panel shows it (bhippi.generator's params). */
+export type GeneratorParam =
+  | { type: 'number'; label?: string; default?: number; min?: number; max?: number; step?: number }
+  | { type: 'color'; label?: string; default?: string }
+  | { type: 'boolean'; label?: string; default?: boolean }
+  | { type: 'select'; label?: string; default?: string; options: string[] }
+  | { type: 'text'; label?: string; default?: string };
+
+/** A kind of clip a running plugin draws (`bhippi.generator()`). */
+export type PluginGenerator = { plugin: string; name: string; label: string; description: string; params: Record<string, GeneratorParam> };
+
 /** Something a running plugin offers Bhippi AI (`bhippi.expose()`). */
 export type PluginAction = { plugin: string; name: string; description: string; params?: Record<string, unknown> };

@@ -10,10 +10,10 @@ import type { History } from '../lib/history';
 import { api, fileSrc } from '../lib/ipc';
 import type { Project, ToolResult } from '../lib/types';
 import type { PluginChecker } from './aiTools';
-import { connectSandboxFrame, pluginEditor, type PluginEditor, type Sandbox } from './bridge';
+import { connectSandboxFrame, pluginEditor, withDefaults, type PluginEditor, type Sandbox } from './bridge';
 import { judgePlugin, type TestReport } from './makerJudge';
 import { composePage, PLUGIN_READS } from './rules';
-import type { Plugin } from './types';
+import type { Plugin, PluginGenerator, PluginLog } from './types';
 
 /** Reads that run during a test: the same pure reads a plugin gets without asking (rules.ts). */
 export const SCRATCH_READS = PLUGIN_READS;
@@ -23,7 +23,7 @@ export const SCRATCH_READS = PLUGIN_READS;
  * Everything that is neither this nor a SCRATCH_READS read is skipped during a test.
  */
 export const SCRATCH_TOOLS = new Set([
-  'add_fx', 'add_marker', 'add_shape', 'add_text', 'add_tracks', 'add_transition', 'apply_edit', 'color_grade',
+  'add_fx', 'add_marker', 'add_plugin_clip', 'add_shape', 'add_text', 'add_tracks', 'add_transition', 'apply_edit', 'color_grade',
   'create_comp', 'create_folder', 'create_item', 'delete_clips', 'delete_project_items', 'delete_tracks', 'edit_effect',
   'frame_hold', 'group_clips', 'layout_clip', 'link_clips', 'nest_clips', 'open_comp', 'organize_bin', 'place_clip',
   'remove_range', 'remove_transitions', 'seamless_transition', 'set_caption_style', 'set_in_out', 'set_keyframes',
@@ -167,7 +167,7 @@ export async function runPlugin(plugin: Plugin, options: { waitMs: number; check
     editor: scratchEditor(live, host),
     plugin: { ...plugin, enabled: true },
     skip: scratchSkip,
-    logs: [], storage: {}, projectStorage: {}, playhead: 0, actions: [], calls: [], waiting: new Map(),
+    logs: [], storage: {}, projectStorage: {}, playhead: 0, actions: [], calls: [], generators: [], waiting: new Map(),
     hello: () => { helloAt ??= Date.now(); resolveHello(); },
   };
 
@@ -194,6 +194,8 @@ export async function runPlugin(plugin: Plugin, options: { waitMs: number; check
       if (options.checks && connection.current) {
         const answer = await connection.current.request('runChecks', 60_000).catch((error: Error): Record<string, unknown> => ({ ok: false, error: error.message }));
         checks = Array.isArray(answer.results) ? (answer.results as TestReport['checks']) : [{ name: 'running the checks', ok: false, error: String(answer.error ?? 'no answer'), ms: 0 }];
+        // Each clip generator draws one frame, with sound: a failure is an error, an empty frame a warning.
+        for (const generator of sandbox.generators) await drawOnce(connection.current, generator, sandbox.logs);
       }
       for (const width of options.widths.length && !options.checks ? options.widths : []) {
         frame.style.width = `${width}px`;
@@ -224,6 +226,36 @@ export async function runPlugin(plugin: Plugin, options: { waitMs: number; check
     logs: sandbox.logs.slice(-40).map((line) => `${line.level.toUpperCase()} ${line.text.slice(0, 300)}`),
   };
   return { report, images };
+}
+
+/** A made-up moment of sound for a test frame: a falling spectrum with a kick in it. */
+const TEST_AUDIO = {
+  rms: 0.3, peak: 0.7, loading: false,
+  bands: Array.from({ length: 64 }, (_, index) => Math.max(0, 0.9 - index / 80 + (index % 7 === 0 ? 0.1 : 0))),
+  smooth: Array.from({ length: 64 }, (_, index) => Math.max(0, 0.85 - index / 80)),
+  waveform: Array.from({ length: 128 }, (_, index) => Math.sin(index / 6) * 0.6),
+};
+
+async function drawOnce(connection: ReturnType<typeof connectSandboxFrame>, generator: PluginGenerator, logs: PluginLog[]) {
+  const info = { time: 1, duration: 5, progress: 0.2, compTime: 1, fps: 30, frame: 30, width: 480, height: 270, u: 0.25, exporting: false, params: withDefaults({}, generator.params), audio: TEST_AUDIO };
+  const started = Date.now();
+  try {
+    const bitmap = await connection.render(generator.name, info);
+    const canvas = document.createElement('canvas');
+    canvas.width = info.width;
+    canvas.height = info.height;
+    const context = canvas.getContext('2d', { willReadFrequently: true })!;
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const { data } = context.getImageData(0, 0, info.width, info.height);
+    let drawn = 0;
+    for (let index = 3; index < data.length; index += 16) if (data[index] > 0) drawn++;
+    logs.push(drawn
+      ? { at: Date.now(), level: 'info', text: `clip generator “${generator.name}” drew a frame in ${Date.now() - started} ms` }
+      : { at: Date.now(), level: 'warn', text: `clip generator “${generator.name}” drew an empty (transparent) frame for a moment with sound` });
+  } catch (error) {
+    logs.push({ at: Date.now(), level: 'error', text: `clip generator “${generator.name}” failed to draw: ${error instanceof Error ? error.message : String(error)}` });
+  }
 }
 
 /** plugin_test and plugin_screenshot for the Maker's tools (aiTools.ts). */

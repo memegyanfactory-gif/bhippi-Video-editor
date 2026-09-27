@@ -3444,6 +3444,46 @@
       }
     },
     {
+      "name": "add_plugin_clip",
+      "description": "Places a clip that a plugin draws itself, frame by frame (an audio visualizer, particles, a data overlay …): it plays in the preview and renders in the export like any graphic, and moves, trims, fades and keyframes like any clip. The plugins brief lists what each running plugin offers under clipGenerators (plugin, generator, label, params). Visualizers follow the edit's own sound at every frame. Defaults: at the playhead, to the end of the comp, on the lowest free video track above V1.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "plugin": {
+            "type": "string",
+            "description": "The plugin's id."
+          },
+          "generator": {
+            "type": "string",
+            "description": "Which of its clip generators."
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds (default: the playhead)."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Seconds (default: to the end of the comp)."
+          },
+          "track": {
+            "type": "string",
+            "description": "A video track, e.g. V2 (default: the lowest free one above V1)."
+          },
+          "params": {
+            "type": "object",
+            "description": "The generator's settings, by the keys its params list; unset ones take their defaults."
+          }
+        },
+        "required": [
+          "plugin",
+          "generator"
+        ]
+      }
+    },
+    {
       "name": "frame_hold",
       "description": "add: everything after `time` in each video clip freezes on that frame (Add Frame Hold). insert: puts a still of the frame at `time` into the timeline, `length` seconds long, pushing later material along (Insert Frame Hold Segment).",
       "input_schema": {
