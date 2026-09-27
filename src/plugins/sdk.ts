@@ -18,6 +18,12 @@ export const SDK_SOURCE = String.raw`
   var projectStore = {};
   var session = null;
   var info = null;
+  /** True inside the Plugin Maker's test run (plugin_test). */
+  var testing = false;
+  /** Cancel handlers of this page's running jobs, by job id. */
+  var jobCancels = {};
+  /** Handlers of this page's menu entries, by entry id. */
+  var menuHandlers = {};
   var readyResolve;
   var ready = new Promise(function (resolve) { readyResolve = resolve; });
   /** Acceptance checks (bhippi.test): run only when the Plugin Maker tests the plugin. */
@@ -201,10 +207,26 @@ export const SDK_SOURCE = String.raw`
       storage = m.storage || {};
       session = m.session || null;
       projectStore = m.projectStorage || {};
+      testing = !!m.testing;
       applyTheme(m.theme);
       readyResolve(info);
     } else if (m.type === 'event') {
       if (m.event === 'theme') applyTheme(m.data);
+      if (m.event === 'menu') {
+        var entry = menuHandlers[m.data && m.data.id];
+        if (entry) {
+          Promise.resolve().then(function () { return entry(m.data); }).catch(function (error) { console.error('menu entry "' + m.data.id + '" failed:', error); });
+        }
+        return;
+      }
+      if (m.event === 'jobCancel') {
+        var id = m.data && m.data.id;
+        (jobCancels[id] || []).slice().forEach(function (fn) {
+          try { fn(); } catch (error) { console.error('job.onCancel handler failed:', error); }
+        });
+        delete jobCancels[id];
+        return;
+      }
       if (m.event === 'session') {
         var data = m.data || {};
         projectStore = data.projectStorage || {};
@@ -302,8 +324,88 @@ export const SDK_SOURCE = String.raw`
     chat: function (message) { return call('chat', { message: String(message) }); },
     /** A project media file (or a file in the project folder) → URL an <img>/<video> in the plugin can show. */
     fileUrl: function (path) { return call('fileUrl', { path: path }); },
+    /** True inside the Plugin Maker's test run: AI questions and new transcriptions do not run there. */
+    get testing() { return testing; },
     /**
-     * Listens for 'project' (the project changed), 'session' (another project was opened, a new one
+     * What is said, in timeline time. comp(compId?, { transcribe }) → the whole edit's words and
+     * lines; get(clipId | { clipId } | { assetId }, { transcribe }) → one clip's or file's words.
+     * { transcribe: true } makes missing transcripts first (the transcribe service).
+     */
+    transcript: {
+      get: function (target, options) {
+        var which = typeof target === 'string' ? { clipId: target } : (target || {});
+        return call('transcript.get', { clipId: which.clipId, assetId: which.assetId, transcribe: !!(options && options.transcribe) });
+      },
+      comp: function (compId, options) {
+        if (compId && typeof compId === 'object') { options = compId; compId = undefined; }
+        return call('transcript.comp', { compId: compId, transcribe: !!(options && options.transcribe) });
+      }
+    },
+    /** The user's AI model, one question at a time (the ai service). options: { system, json, maxTokens }. */
+    ai: {
+      ask: function (prompt, options) {
+        options = options || {};
+        return call('ai.ask', { prompt: String(prompt), system: options.system ? String(options.system) : '', json: options.json || false, maxTokens: options.maxTokens });
+      }
+    },
+    /** The Program monitor's transport. bhippi.on('playback', fn) hears { playing, rate, time }. */
+    playback: {
+      state: function () { return call('playback.state'); },
+      play: function (options) { return call('playback.play', options || {}); },
+      pause: function () { return call('playback.pause'); },
+      toggle: function () { return call('playback.toggle'); }
+    },
+    /** A media file's sound as numbers: peaks(assetId, { from, to }) and loudness(assetId, { from, to }). */
+    audio: {
+      peaks: function (assetId, range) { range = range || {}; return call('audio.peaks', { assetId: assetId, from: range.from, to: range.to }); },
+      loudness: function (assetId, range) { range = range || {}; return call('audio.loudness', { assetId: assetId, from: range.from, to: range.to }); }
+    },
+    /**
+     * Pictures: frame({ time, compId, size }) is the edit as exported at that time; frame({ assetId,
+     * time, size }) is one file's own picture. Resolves with { image: a PNG data: URL, time, compId }.
+     */
+    video: {
+      frame: function (options) { return call('video.frame', options || {}); }
+    },
+    /** A project media file's bytes: read(assetId) → { name, kind, bytes: ArrayBuffer }. */
+    media: {
+      read: function (assetId) { return call('media.read', { assetId: assetId }); }
+    },
+    /**
+     * An entry in Bhippi's right-click menus while this plugin runs (under Plugins).
+     * add({ id, label, where: 'clip' | 'timeline' | 'media' or a list }, fn): fn gets { id, where,
+     * clipIds, compId, time, trackId, ids } — what was right-clicked. remove(id) takes it away.
+     */
+    menu: {
+      add: function (entry, fn) {
+        entry = entry || {};
+        if (typeof fn === 'function') menuHandlers[entry.id] = fn;
+        return call('menu.add', { id: entry.id, label: entry.label, where: entry.where });
+      },
+      remove: function (id) { delete menuHandlers[id]; return call('menu.remove', { id: id }); }
+    },
+    /** Runs [{ tool, args }, …] as one undo step. */
+    batch: function (steps, options) { return call('batch', { steps: steps, label: options && options.label }); },
+    /** Long work with a progress bar in Bhippi's job list. */
+    jobs: {
+      start: function (label, options) {
+        return call('jobs.start', { label: String(label), cancellable: !!(options && options.cancellable) }).then(function (id) {
+          var cancels = [];
+          jobCancels[id] = cancels;
+          function update(patch) { return call('jobs.update', Object.assign({ id: id }, patch)); }
+          return {
+            id: id,
+            progress: function (value, message) { return update({ progress: Number(value), message: message == null ? undefined : String(message) }); },
+            done: function (message) { delete jobCancels[id]; return update({ status: 'done', message: message == null ? undefined : String(message) }); },
+            fail: function (error) { delete jobCancels[id]; return update({ status: 'error', message: text(error) }); },
+            onCancel: function (fn) { if (typeof fn === 'function') cancels.push(fn); }
+          };
+        });
+      }
+    },
+    /**
+     * Listens for 'project' (the project changed), 'playback' ({ playing, rate, time } when playback
+     * starts, stops or changes speed), 'session' (another project was opened, a new one
      * started, or it was saved under a new file — projectStorage has already switched), 'selection',
      * 'playhead' (a few times a second while it moves), 'theme', 'export' ({ status: 'started' | 'done'
      * | 'error' | 'cancelled', file: the output's file name or null }). Returns a function that stops listening.

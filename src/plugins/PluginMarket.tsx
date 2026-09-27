@@ -27,6 +27,7 @@ import { isSample, SAMPLE_PLUGINS, type SamplePlugin } from './marketSamples';
 import { isSensitiveTool } from './rules';
 import { loadPlugins, removePlugin, usePlugins } from './store';
 import type { Plugin, PluginPermissions } from './types';
+import { isPluginService, PLUGIN_SERVICES } from './capabilities';
 import '../styles/market.css';
 
 type View = { kind: 'discover' } | { kind: 'category'; id: string } | { kind: 'search' } | { kind: 'installed' } | { kind: 'mine' };
@@ -104,7 +105,8 @@ export function PermissionSheet({ permissions }: { permissions: PluginPermission
       {!!edits.length && <li>Edits your project with {edits.map((tool) => <code key={tool}>{tool}</code>)}</li>}
       {permissions.network.map((host) => <li key={host}>Connects to <code>{host}</code></li>)}
       {permissions.chat && <li>Suggests messages for Bhippi AI (each needs your click)</li>}
-      {!permissions.tools.length && !permissions.network.length && !permissions.chat && <li className="ok">Nothing else: it only reads</li>}
+      {(permissions.services ?? []).filter(isPluginService).map((name) => <li key={name}>{PLUGIN_SERVICES[name].risk}</li>)}
+      {!permissions.tools.length && !permissions.network.length && !permissions.chat && !permissions.services?.length && <li className="ok">Nothing else: it only reads</li>}
     </ul>
   );
 }

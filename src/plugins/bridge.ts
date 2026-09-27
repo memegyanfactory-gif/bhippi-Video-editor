@@ -10,6 +10,8 @@
 //                Generated/Plugins/<id>/ (plugins.rs) and imported with import_media.
 //   project, session, comp, selection, playhead, storage, projectStorage, toast, chat, fileUrl,
 //   subscribe, expose.
+//   Bhippi's services (capabilities.ts, which lists them and the permission each needs):
+//   transcript.*, ai.ask, playback.*, audio.*, batch, jobs.*.
 //
 // Sessions: each saved project has a key (a hash of its file path — the path itself never reaches
 // a plugin). Opening, starting or saving a project under a new file sends every frame a 'session'
@@ -29,10 +31,15 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { aiContext, compDetail } from '../lib/aiTools';
 import type { ToolHost } from '../lib/aiTools';
 import { EditWorkflow } from '../lib/editWorkflow';
-import { errorText, api } from '../lib/ipc';
+import { errorText, api, fileSrc, type Transcript } from '../lib/ipc';
+import { BUCKETS_PER_SECOND, loadPeaks } from '../lib/peaks';
 import { allowTool, type PermissionMode } from '../lib/permissions';
 import { playhead } from '../lib/playhead';
-import type { ToolResult } from '../lib/types';
+import { newClip, newComp } from '../lib/timeline';
+import { wordsOnTimeline } from '../lib/subtitlesEngine';
+import { toLines } from '../lib/transcriptText';
+import type { Asset, Clip, Job, Project, ToolResult } from '../lib/types';
+import { PLUGIN_SERVICES, type PluginService } from './capabilities';
 import { pluginToolRefusal } from './rules';
 import { dropActions, findPlugin, pluginStore, pushLog, setAction } from './store';
 import type { Plugin, PluginAction, PluginLog } from './types';
@@ -53,6 +60,10 @@ export type PluginEditor = {
   chat: (message: string, pluginName: string) => void;
   /** The open project's .bhippi file, or null while it has never been saved. */
   projectPath: () => string | null;
+  /** The model Bhippi AI answers with (Settings / the chat's picker), for bhippi.ai.ask. */
+  ai: () => { providerId: string | null; model: string | null };
+  /** Shows (or updates) a plugin's job in the editor's job list. */
+  job: (job: Job) => void;
 };
 
 let editor: PluginEditor | null = null;
@@ -63,8 +74,8 @@ export const setPluginEditor = (next: PluginEditor) => {
 export const pluginEditor = () => editor;
 
 const TAG = 'bhippi-plugin';
-type Subscription = 'project' | 'selection' | 'playhead' | 'theme' | 'session' | 'export';
-const SUBSCRIPTIONS: Subscription[] = ['project', 'selection', 'playhead', 'theme', 'session', 'export'];
+type Subscription = 'project' | 'selection' | 'playhead' | 'playback' | 'theme' | 'session' | 'export';
+const SUBSCRIPTIONS: Subscription[] = ['project', 'selection', 'playhead', 'playback', 'theme', 'session', 'export'];
 /** The largest file a plugin may hand the project with bhippi.importMedia. */
 export const MAX_PLUGIN_MEDIA_BYTES = 512 * 1024 * 1024;
 type Data = Record<string, unknown>;
@@ -97,10 +108,18 @@ type Frame = {
   sandbox?: Sandbox;
   /** When each rate-limited call was made, newest last, per kind. */
   recent: Partial<Record<Limited, number[]>>;
+  /** Jobs this frame started that have not ended, by id. */
+  jobs: Map<string, Job>;
+  /** Menu entries this frame offers (bhippi.menu.add), by id. */
+  menus: Map<string, { id: string; label: string; where: PluginMenuPlace[] }>;
 };
 
+/** The context menus a plugin can add entries to. */
+export type PluginMenuPlace = 'clip' | 'timeline' | 'media';
+const MENU_PLACES: PluginMenuPlace[] = ['clip', 'timeline', 'media'];
+
 /** How often a plugin may do things that cost the user something, per minute. */
-export const PLUGIN_RATE_LIMITS = { tool: 120, toast: 20, chat: 6 } as const;
+export const PLUGIN_RATE_LIMITS = { tool: 120, toast: 20, chat: 6, ai: 20 } as const;
 type Limited = keyof typeof PLUGIN_RATE_LIMITS;
 
 /** Records one `kind` call, or throws when the frame is over its limit for the last minute. */
@@ -108,7 +127,8 @@ function spend(frame: Frame, kind: Limited, now = Date.now()) {
   const recent = (frame.recent[kind] ?? []).filter((at) => now - at < 60_000);
   if (recent.length >= PLUGIN_RATE_LIMITS[kind]) {
     frame.recent[kind] = recent;
-    throw new Error(`Slow down: a plugin may make ${PLUGIN_RATE_LIMITS[kind]} ${kind === 'tool' ? 'tool calls' : kind === 'toast' ? 'notifications' : 'chat suggestions'} a minute.`);
+    const what = { tool: 'tool calls', toast: 'notifications', chat: 'chat suggestions', ai: 'AI questions' }[kind];
+    throw new Error(`Slow down: a plugin may make ${PLUGIN_RATE_LIMITS[kind]} ${what} a minute.`);
   }
   frame.recent[kind] = [...recent, now];
 }
@@ -164,8 +184,11 @@ const send = (frame: Frame, message: Record<string, unknown>) => {
 /** Starts talking to a plugin's frame. Returns the disconnect. */
 export function connectPluginFrame(pluginId: string, target: Window): () => void {
   const key = `${pluginId}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  frames.set(key, { key, pluginId, window: target, subscriptions: new Set(['theme']), queue: Promise.resolve(), connectedAt: Date.now(), recent: {} });
+  frames.set(key, { key, pluginId, window: target, subscriptions: new Set(['theme']), queue: Promise.resolve(), connectedAt: Date.now(), recent: {}, jobs: new Map(), menus: new Map() });
   return () => {
+    const frame = frames.get(key);
+    // A job cannot outlive the page doing it.
+    if (frame) for (const job of frame.jobs.values()) editor?.job({ ...job, status: 'error', message: 'The plugin closed before it finished', cancellable: false });
     frames.delete(key);
     if (!liveFrames().some((frame) => frame.pluginId === pluginId)) dropActions(pluginId);
   };
@@ -177,7 +200,7 @@ export function connectPluginFrame(pluginId: string, target: Window): () => void
  */
 export function connectSandboxFrame(target: Window, sandbox: Sandbox) {
   const key = `test:${sandbox.plugin.id}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  const frame: Frame = { key, pluginId: sandbox.plugin.id, window: target, subscriptions: new Set(['theme']), queue: Promise.resolve(), connectedAt: Date.now(), sandbox, recent: {} };
+  const frame: Frame = { key, pluginId: sandbox.plugin.id, window: target, subscriptions: new Set(['theme']), queue: Promise.resolve(), connectedAt: Date.now(), sandbox, recent: {}, jobs: new Map(), menus: new Map() };
   frames.set(key, frame);
   let seq = 0;
   return {
@@ -268,7 +291,7 @@ async function init(frame: Frame) {
   const identity = plugin ? { id: plugin.id, name: plugin.name } : { id: frame.pluginId, name: frame.pluginId };
   if (frame.sandbox) {
     const { storage, projectStorage } = frame.sandbox;
-    send(frame, { type: 'init', plugin: identity, storage: { ...storage }, session: await session(frame), projectStorage: { ...projectStorage }, theme: themeTokens() });
+    send(frame, { type: 'init', plugin: identity, storage: { ...storage }, session: await session(frame), projectStorage: { ...projectStorage }, theme: themeTokens(), testing: true });
     return;
   }
   const [storage, info] = await Promise.all([withData(frame.pluginId, withoutProjects), session()]);
@@ -332,6 +355,109 @@ async function runPluginTool(frame: Frame, name: string, args: Record<string, un
 }
 
 type Handler = (frame: Frame, params: Record<string, unknown>) => Promise<unknown> | unknown;
+
+/** A handler's answer that carries bytes: handed to the page as it is, not through JSON. */
+class Binary {
+  constructor(readonly value: Record<string, unknown>) {}
+}
+
+/** Why this frame's plugin may not use `service`, or null. */
+function serviceRefusal(frame: Frame, service: PluginService): string | null {
+  const plugin = pluginFor(frame);
+  if (!plugin || (!frame.sandbox && !plugin.enabled)) return 'This plugin is turned off.';
+  if (plugin.permissions.services?.includes(service)) return null;
+  return `This plugin has not been given the “${service}” service (${PLUGIN_SERVICES[service].label}). Add it to permissions.services.`;
+}
+function needService(frame: Frame, service: PluginService) {
+  const refused = serviceRefusal(frame, service);
+  if (refused) {
+    log(frame, 'call', `✕ ${service}: ${refused}`);
+    frame.sandbox?.calls.push({ name: service, ok: false, error: refused });
+    throw new Error(refused);
+  }
+}
+/** Work a test run never does: it costs the user, or reaches outside the scratch project. */
+function notDuringTest(frame: Frame, what: string) {
+  if (!frame.sandbox) return;
+  const reason = `[test] ${what} does not run during a plugin test (bhippi.testing is true); it will for the user.`;
+  log(frame, 'call', `⏭ ${reason}`);
+  frame.sandbox.calls.push({ name: what, ok: false, skipped: true, error: reason });
+  throw new Error(reason);
+}
+
+const finite = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/** Transcripts for `assetIds`: the ones Bhippi has, and with `transcribe` the rest made first. */
+async function transcriptsFor(frame: Frame, assetIds: string[], transcribe: boolean): Promise<{ found: Map<string, Transcript>; missing: string[] }> {
+  const ids = [...new Set(assetIds)];
+  const cached = ids.length ? await api.transcriptsCached(ids).catch(() => [] as Transcript[]) : [];
+  const found = new Map(cached.map((transcript) => [transcript.assetId, transcript]));
+  const missing = ids.filter((id) => !found.has(id));
+  if (!transcribe || !missing.length) return { found, missing };
+  needService(frame, 'transcribe');
+  notDuringTest(frame, 'Transcribing');
+  for (const id of missing) {
+    log(frame, 'call', `→ transcribing ${id}`);
+    found.set(id, await api.transcribeAsset(id, 'auto'));
+  }
+  return { found, missing: [] };
+}
+
+function findClip(project: Project, clipId: string): Clip | null {
+  for (const comp of project.comps) {
+    const clip = comp.clips.find((item) => item.id === clipId);
+    if (clip) return clip;
+  }
+  return null;
+}
+
+/** The text of a model's answer as JSON: bare, fenced, or the first object/array in it. */
+export function answerJson(text: string): unknown {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  const body = (fenced ? fenced[1] : text).trim();
+  try {
+    return JSON.parse(body);
+  } catch {
+    const start = body.search(/[[{]/);
+    const end = Math.max(body.lastIndexOf('}'), body.lastIndexOf(']'));
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(body.slice(start, end + 1));
+      } catch {
+        // Falls through to the error below.
+      }
+    }
+    throw new Error('The model did not answer with JSON');
+  }
+}
+
+/** The largest media file a plugin may read whole with bhippi.media.read. */
+export const MAX_PLUGIN_READ_BYTES = 256 * 1024 * 1024;
+
+const dataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result));
+  reader.onerror = () => reject(new Error('the frame could not be read'));
+  reader.readAsDataURL(blob);
+});
+
+/**
+ * A picture of `compId` at `time` as the export draws it (motion graphics and HTML cards
+ * included), `shortSide` pixels on its short side, as a PNG data URL.
+ */
+async function renderFrame(project: Project, compId: string, time: number, shortSide: number, assets: Iterable<Asset>): Promise<string> {
+  // Loaded on first use: the renderers are big, and most plugins never ask for a frame.
+  const [{ renderHtmlStill }, { renderMotionStill }] = await Promise.all([import('../lib/htmlFrames'), import('../motion/exportFrames')]);
+  const dir = await api.mogrtFramesBegin('plugin');
+  const prepared = await renderHtmlStill(await renderMotionStill(project, compId, [time], [...assets]), compId, [time]);
+  const path = await api.exportFrame(prepared, compId, time, `${dir}/frame-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.png`, shortSide);
+  const response = await fetch(fileSrc(path));
+  if (!response.ok) throw new Error('The rendered frame could not be read');
+  return dataUrl(await response.blob());
+}
+
+let jobSeq = 0;
+const playbackState = (frame: Frame) => (frame.sandbox ? { playing: false, rate: 1, time: frame.sandbox.playhead } : { playing: playhead.isPlaying(), rate: playhead.rate(), time: playhead.get() });
 
 const HANDLERS: Record<string, Handler> = {
   project: async (frame) => {
@@ -459,6 +585,210 @@ const HANDLERS: Record<string, Handler> = {
     if (!fileAllowed(path, assets, current.projectPath())) throw new Error("fileUrl only shows the project's own media and files in its folder.");
     return convertFileSrc(path);
   },
+  'transcript.get': async (frame, params) => {
+    const host = editorFor(frame)!.host();
+    const project = host.history.current();
+    const clipId = typeof params.clipId === 'string' ? params.clipId : '';
+    const clip = clipId ? findClip(project, clipId) : null;
+    if (clipId && !clip) throw new Error(`No clip “${clipId}”`);
+    const assetId = clip ? (clip.source.type === 'media' ? clip.source.assetId : null) : typeof params.assetId === 'string' ? params.assetId : null;
+    if (!assetId) throw new Error(clip ? 'That clip is not media (text, graphics and comps have no speech).' : 'transcript.get needs a clipId or an assetId');
+    if (!host.assets().has(assetId)) throw new Error(`No media “${assetId}” in the project`);
+    const { found } = await transcriptsFor(frame, [assetId], params.transcribe === true);
+    const transcript = found.get(assetId);
+    if (!transcript) return { assetId, clipId: clip?.id ?? null, cached: false, language: null, text: '', words: [] };
+    let words = transcript.words.map((word) => ({ text: word.text, start: word.start, end: word.end, sourceStart: word.start, sourceEnd: word.end, ...(word.speaker !== undefined ? { speaker: word.speaker } : {}) }));
+    if (clip) {
+      const speed = clip.speed || 1;
+      const from = clip.in;
+      const to = clip.in + clip.duration * speed;
+      words = words
+        .filter((word) => (word.sourceStart + word.sourceEnd) / 2 >= from && (word.sourceStart + word.sourceEnd) / 2 < to)
+        .map((word) => ({ ...word, start: clip.start + (word.sourceStart - from) / speed, end: clip.start + (word.sourceEnd - from) / speed }));
+    }
+    return { assetId, clipId: clip?.id ?? null, cached: true, language: transcript.language, text: words.map((word) => word.text).join(' '), words };
+  },
+  'transcript.comp': async (frame, params) => {
+    const host = editorFor(frame)!.host();
+    const project = host.history.current();
+    const id = typeof params.compId === 'string' && params.compId ? params.compId : project.activeCompId;
+    const comp = project.comps.find((item) => item.id === id || item.name === id);
+    if (!comp) throw new Error(`No comp “${String(id)}”`);
+    const assets = host.assets();
+    const speaking = comp.clips.flatMap((clip) => (clip.enabled && clip.source.type === 'media' && assets.get(clip.source.assetId)?.hasAudio ? [clip.source.assetId] : []));
+    const { found, missing } = await transcriptsFor(frame, speaking, params.transcribe === true);
+    const words = wordsOnTimeline(comp, assets, new Map([...found].map(([assetId, transcript]) => [assetId, transcript.words]))).map((word) => ({ text: word.word, start: word.start, end: word.end }));
+    words.sort((a, b) => a.start - b.start);
+    return { compId: comp.id, words, lines: toLines(words), text: words.map((word) => word.text).join(' '), missing };
+  },
+  'ai.ask': async (frame, params) => {
+    needService(frame, 'ai');
+    notDuringTest(frame, 'Asking the AI model');
+    spend(frame, 'ai');
+    const prompt = String(params.prompt ?? '').trim();
+    if (!prompt) throw new Error('ai.ask needs a prompt');
+    const json = params.json === true || (!!params.json && typeof params.json === 'object');
+    let system = String(params.system ?? '');
+    if (json) {
+      system = `${system}\n\nAnswer with JSON only: no prose, no code fences.${typeof params.json === 'object' ? ` It must match this JSON schema:\n${JSON.stringify(params.json)}` : ''}`.trim();
+    }
+    const maxTokens = finite(params.maxTokens);
+    const target = editorFor(frame)!.ai();
+    log(frame, 'call', `→ ai.ask (${prompt.length} characters${json ? ', JSON' : ''})`);
+    const reply = await api.pluginAsk({ providerId: target.providerId, model: target.model, system, prompt, ...(maxTokens ? { maxTokens: Math.round(maxTokens) } : {}) });
+    return { text: reply.text, json: json ? answerJson(reply.text) : null, provider: reply.provider, model: reply.model, usage: { input: reply.inputTokens, output: reply.outputTokens } };
+  },
+  'playback.state': (frame) => playbackState(frame),
+  'playback.play': (frame, params) => {
+    const from = finite(params.from);
+    const rate = finite(params.rate) ?? 1;
+    if (rate === 0 || Math.abs(rate) > 8) throw new Error('rate is between -8 and 8, and not 0');
+    if (frame.sandbox) {
+      if (from !== null) frame.sandbox.playhead = Math.max(0, from);
+      return playbackState(frame);
+    }
+    if (from !== null) playhead.set(Math.max(0, from));
+    playhead.setPlaying(true, rate);
+    return playbackState(frame);
+  },
+  'playback.pause': (frame) => {
+    if (!frame.sandbox) playhead.setPlaying(false);
+    return playbackState(frame);
+  },
+  'playback.toggle': (frame) => {
+    if (!frame.sandbox) playhead.setPlaying(!playhead.isPlaying());
+    return playbackState(frame);
+  },
+  'audio.peaks': async (frame, params) => {
+    const asset = editorFor(frame)!.host().assets().get(String(params.assetId ?? ''));
+    if (!asset) throw new Error(`No media “${String(params.assetId)}” in the project`);
+    if (!asset.hasAudio || !asset.peaks) throw new Error(`“${asset.name}” has no sound to measure${asset.hasAudio ? ' yet (its waveform is still being made)' : ''}`);
+    const peaks = await loadPeaks(asset.peaks);
+    if (!peaks) throw new Error(`The waveform of “${asset.name}” could not be read`);
+    const first = Math.max(0, Math.floor((finite(params.from) ?? 0) * BUCKETS_PER_SECOND));
+    const last = Math.min(peaks.buckets, Math.ceil((finite(params.to) ?? peaks.buckets / BUCKETS_PER_SECOND) * BUCKETS_PER_SECOND));
+    const peak: number[] = [];
+    const rms: number[] = [];
+    for (let bucket = first; bucket < last; bucket++) {
+      peak.push(Math.round((peaks.data[bucket * 2] / 255) * 1000) / 1000);
+      rms.push(Math.round((peaks.data[bucket * 2 + 1] / 255) * 1000) / 1000);
+    }
+    return { perSecond: BUCKETS_PER_SECOND, from: first / BUCKETS_PER_SECOND, peak, rms };
+  },
+  'audio.loudness': async (frame, params) => {
+    const asset = editorFor(frame)!.host().assets().get(String(params.assetId ?? ''));
+    if (!asset) throw new Error(`No media “${String(params.assetId)}” in the project`);
+    if (!asset.hasAudio) throw new Error(`“${asset.name}” has no sound`);
+    const from = Math.max(0, finite(params.from) ?? 0);
+    const to = Math.min(asset.duration, finite(params.to) ?? asset.duration);
+    return api.audioLoudness(asset.id, from, to);
+  },
+  'video.frame': async (frame, params) => {
+    spend(frame, 'tool');
+    const host = editorFor(frame)!.host();
+    const assets = host.assets();
+    let project = host.history.current();
+    let compId: string;
+    let time = Math.max(0, finite(params.time) ?? (frame.sandbox ? frame.sandbox.playhead : playhead.get()));
+    const shortSide = Math.round(Math.max(64, Math.min(2160, finite(params.size) ?? 540)));
+    if (typeof params.assetId === 'string' && params.assetId) {
+      // One file's own picture: a throwaway comp holding just it, never committed.
+      const asset = assets.get(params.assetId);
+      if (!asset) throw new Error(`No media “${params.assetId}” in the project`);
+      if (asset.kind === 'audio') throw new Error(`“${asset.name}” is sound only`);
+      const comp = newComp({ name: 'Plugin frame', width: asset.width || 1920, height: asset.height || 1080 });
+      const at = Math.min(time, Math.max(0, asset.duration - 1 / comp.fps));
+      comp.clips = [newClip({ trackId: comp.tracks[0].id, start: 0, duration: 1, in: asset.kind === 'image' ? 0 : at, source: { type: 'media', assetId: asset.id } })];
+      project = { ...project, comps: [...project.comps, comp] };
+      compId = comp.id;
+      time = 0;
+    } else {
+      const wanted = typeof params.compId === 'string' && params.compId ? params.compId : project.activeCompId;
+      const comp = project.comps.find((item) => item.id === wanted || item.name === wanted);
+      if (!comp) throw new Error(`No comp “${String(wanted)}”`);
+      compId = comp.id;
+    }
+    const image = await renderFrame(project, compId, time, shortSide, assets.values());
+    return { image, time, compId: typeof params.assetId === 'string' ? null : compId };
+  },
+  'media.read': async (frame, params) => {
+    const asset = editorFor(frame)!.host().assets().get(String(params.assetId ?? ''));
+    if (!asset) throw new Error(`No media “${String(params.assetId)}” in the project`);
+    const response = await fetch(fileSrc(asset.path));
+    if (!response.ok) throw new Error(`“${asset.name}” could not be read (is it offline?)`);
+    const size = Number(response.headers.get('content-length') ?? 0);
+    if (size > MAX_PLUGIN_READ_BYTES) throw new Error(`“${asset.name}” is ${Math.round(size / 1024 / 1024)} MB; a plugin may read files up to ${MAX_PLUGIN_READ_BYTES / 1024 / 1024} MB whole`);
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > MAX_PLUGIN_READ_BYTES) throw new Error(`“${asset.name}” is too big to read whole`);
+    return new Binary({ name: asset.name, kind: asset.kind, bytes });
+  },
+  'menu.add': (frame, params) => {
+    const id = typeof params.id === 'string' ? params.id.trim() : '';
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,47}$/.test(id)) throw new Error('A menu entry id is letters, digits, - and _ (up to 48).');
+    const label = String(params.label ?? '').trim().slice(0, 60);
+    if (!label) throw new Error('A menu entry needs a label');
+    const wanted = Array.isArray(params.where) ? params.where : [params.where];
+    const where = MENU_PLACES.filter((place) => wanted.includes(place));
+    if (!where.length) throw new Error(`where is one or more of ${MENU_PLACES.join(', ')}`);
+    if (!frame.menus.has(id) && frame.menus.size >= 12) throw new Error('A plugin may offer at most 12 menu entries');
+    frame.menus.set(id, { id, label, where });
+    return true;
+  },
+  'menu.remove': (frame, params) => {
+    frame.menus.delete(String(params.id ?? ''));
+    return true;
+  },
+  batch: (frame, params) => {
+    const steps: unknown[] = Array.isArray(params.steps) ? params.steps : [];
+    if (!steps.length) throw new Error('batch needs steps: [{ tool, args }, …]');
+    if (steps.length > 100) throw new Error('A batch runs at most 100 steps');
+    const plugin = pluginFor(frame);
+    const label = `${plugin?.name ?? frame.pluginId}: ${String(params.label ?? '').trim().slice(0, 80) || `${steps.length} edits`}`;
+    const run = frame.queue.then(async () => {
+      const history = editorFor(frame)!.host().history;
+      const before = history.current();
+      const results: ToolResult[] = [];
+      try {
+        for (const [index, step] of steps.entries()) {
+          const item = (step && typeof step === 'object' ? step : {}) as Record<string, unknown>;
+          const name = typeof item.tool === 'string' ? item.tool : typeof item.name === 'string' ? item.name : '';
+          const args = item.args && typeof item.args === 'object' && !Array.isArray(item.args) ? (item.args as Record<string, unknown>) : {};
+          spend(frame, 'tool');
+          const result = await runPluginTool(frame, name, args);
+          if (!result.ok) throw new Error(`Step ${index + 1} (${name || 'no tool'}) failed: ${String(result.error)}`);
+          results.push(result);
+        }
+      } finally {
+        history.squash(before, label);
+      }
+      return { results };
+    });
+    frame.queue = run.catch(() => undefined);
+    return run;
+  },
+  'jobs.start': (frame, params) => {
+    const plugin = pluginFor(frame);
+    const id = `plugin:${frame.pluginId}:${Date.now().toString(36)}${(++jobSeq).toString(36)}`;
+    const job: Job = { id, kind: 'plugin', label: `${plugin?.name ?? frame.pluginId}: ${String(params.label ?? 'Working').slice(0, 120)}`, status: 'running', progress: 0, message: '', result: null, cancellable: params.cancellable === true };
+    frame.jobs.set(id, job);
+    if (frame.sandbox) log(frame, 'info', `job started: ${job.label}`);
+    else editorFor(frame)!.job(job);
+    return id;
+  },
+  'jobs.update': (frame, params) => {
+    const id = String(params.id ?? '');
+    const job = frame.jobs.get(id);
+    if (!job) throw new Error("That job has ended or is not this plugin's");
+    const status = params.status === 'done' || params.status === 'error' ? params.status : 'running';
+    const progress = status === 'done' ? 1 : Math.max(0, Math.min(1, finite(params.progress) ?? job.progress));
+    const next: Job = { ...job, status, progress, message: typeof params.message === 'string' ? params.message.slice(0, 300) : job.message, cancellable: status === 'running' && job.cancellable };
+    if (status === 'running') frame.jobs.set(id, next);
+    else frame.jobs.delete(id);
+    if (frame.sandbox) {
+      if (status !== 'running') log(frame, 'info', `job ${status}: ${next.label}${next.message ? ` — ${next.message}` : ''}`);
+    } else editorFor(frame)!.job(next);
+    return true;
+  },
   subscribe: (frame, params) => {
     const event = params.event as Subscription;
     if (!SUBSCRIPTIONS.includes(event)) throw new Error(`There is no “${String(params.event)}” event (${SUBSCRIPTIONS.join(', ')}).`);
@@ -474,6 +804,25 @@ const HANDLERS: Record<string, Handler> = {
     return true;
   },
 };
+
+/** Every method the bridge answers (the coverage test checks capabilities.ts against it). */
+export const BRIDGE_METHODS: ReadonlySet<string> = new Set(Object.keys(HANDLERS));
+
+/** Runs one SDK call for `frame`; resolves with what the page receives (plain JSON). */
+async function answer(frame: Frame, method: string, params: Record<string, unknown>): Promise<unknown> {
+  const handler = HANDLERS[method];
+  if (!editorFor(frame)) throw new Error('The editor is not ready.');
+  if (!handler) throw new Error(`bhippi has no “${method}”`);
+  const result = await handler(frame, params);
+  if (result instanceof Binary) return result.value;
+  return result === undefined ? null : JSON.parse(JSON.stringify(result));
+}
+
+/** An SDK call as the page at `target` would make it: for tests, which have no message events. */
+export function callAs(target: Window, method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  const frame = [...frames.values()].find((item) => item.window === target);
+  return frame ? answer(frame, method, params) : Promise.reject(new Error('That frame is not connected'));
+}
 
 function onMessage(event: MessageEvent) {
   const data = event.data as { tag?: string; type?: string; id?: number | string; method?: string; params?: Record<string, unknown>; level?: string; text?: string; ok?: boolean; result?: unknown; error?: string } | null;
@@ -504,15 +853,9 @@ function onMessage(event: MessageEvent) {
       return;
     }
     case 'call': {
-      const handler = HANDLERS[String(data.method)];
       const reply = (message: Record<string, unknown>) => send(frame, { type: 'reply', id: data.id, ...message });
-      if (!handler || !editorFor(frame)) {
-        reply({ ok: false, error: editorFor(frame) ? `bhippi has no “${String(data.method)}”` : 'The editor is not ready.' });
-        return;
-      }
-      Promise.resolve()
-        .then(() => handler(frame, data.params ?? {}))
-        .then((result) => reply({ ok: true, result: result === undefined ? null : JSON.parse(JSON.stringify(result)) }))
+      answer(frame, String(data.method), data.params ?? {})
+        .then((result) => reply({ ok: true, result }))
         .catch((error) => reply({ ok: false, error: errorText(error) }));
       return;
     }
@@ -575,6 +918,50 @@ export const pluginEvents = {
     }));
   },
 };
+
+/**
+ * The entries running plugins offer in the `where` menu, each named after its plugin. Choosing one
+ * sends its page a 'menu' event with the entry's id and what was right-clicked (`context`).
+ */
+export function pluginMenuItems(where: PluginMenuPlace, context: Record<string, unknown>): { label: string; run: () => void }[] {
+  const items: { label: string; run: () => void }[] = [];
+  const seen = new Set<string>();
+  for (const frame of [...liveFrames()].sort((a, b) => b.connectedAt - a.connectedAt)) {
+    const plugin = findPlugin(frame.pluginId);
+    if (!plugin?.enabled) continue;
+    for (const entry of frame.menus.values()) {
+      const key = `${frame.pluginId}:${entry.id}`;
+      if (!entry.where.includes(where) || seen.has(key)) continue;
+      seen.add(key);
+      items.push({ label: `${plugin.name}: ${entry.label}`, run: () => send(frame, { type: 'event', event: 'menu', data: { id: entry.id, where, ...context } }) });
+    }
+  }
+  return items;
+}
+
+/** The user stopped a plugin's job: its page hears 'jobCancel' (job.onCancel) and the job ends. */
+export function cancelPluginJob(id: string): boolean {
+  for (const frame of liveFrames()) {
+    const job = frame.jobs.get(id);
+    if (!job) continue;
+    frame.jobs.delete(id);
+    send(frame, { type: 'event', event: 'jobCancel', data: { id } });
+    editor?.job({ ...job, status: 'cancelled', message: 'Cancelled by user', cancellable: false });
+    return true;
+  }
+  return false;
+}
+
+/** Playback starting, stopping or changing speed reaches the frames listening for 'playback'. */
+if (typeof window !== 'undefined') {
+  let last = { playing: playhead.isPlaying(), rate: playhead.rate() };
+  playhead.subscribe(() => {
+    const now = { playing: playhead.isPlaying(), rate: playhead.rate() };
+    if (now.playing === last.playing && now.rate === last.rate) return;
+    last = now;
+    for (const frame of liveFrames()) if (frame.subscriptions.has('playback')) send(frame, { type: 'event', event: 'playback', data: { ...now, time: playhead.get() } });
+  });
+}
 
 /** Whether a plugin has a frame running right now (a panel, the Plugin Maker preview, or in the background). */
 export const pluginRunning = (pluginId: string) => liveFrames().some((frame) => frame.pluginId === pluginId);

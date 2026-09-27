@@ -21,7 +21,7 @@ export type DraftManifest = {
 };
 
 const manifest = (meta: Meta, change: Partial<DraftManifest> = {}): string =>
-  `${JSON.stringify({ name: meta.name, description: meta.description, icon: meta.icon, permissions: { tools: [], network: [], chat: false }, background: false, showAsPanel: true, ...change }, null, 2)}\n`;
+  `${JSON.stringify({ name: meta.name, description: meta.description, icon: meta.icon, permissions: { tools: [], network: [], chat: false, services: [] }, background: false, showAsPanel: true, ...change }, null, 2)}\n`;
 
 const spec = (meta: Meta, kind: string) => `# ${meta.name}
 

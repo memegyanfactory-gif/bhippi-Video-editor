@@ -111,7 +111,7 @@ import { Avatar } from './avatar/Avatar';
 import { avatarBus } from './avatar/bus';
 import { setAvatarColours } from './avatar/sprite';
 import { KNOWN_TOOLS } from './lib/aiTools';
-import { pluginEvents, setPluginEditor } from './plugins/bridge';
+import { cancelPluginJob, pluginEvents, pluginMenuItems, setPluginEditor, type PluginMenuPlace } from './plugins/bridge';
 import { pluginChecker } from './plugins/testRunner';
 import { checkRevocations } from './plugins/market';
 import { PluginMarket } from './plugins/PluginMarket';
@@ -709,6 +709,7 @@ export default function App() {
           commit: (...args: Parameters<typeof host.history.commit>) => flushSync(() => host.history.commit(...args)),
           view: (...args: Parameters<typeof host.history.view>) => flushSync(() => host.history.view(...args)),
           undo: () => flushSync(() => host.history.undo()),
+          squash: (...args: Parameters<typeof host.history.squash>) => flushSync(() => host.history.squash(...args)),
         } };
       },
       runTool: (host, name, args) => runTool(host, name, args),
@@ -723,6 +724,11 @@ export default function App() {
         actions: [{ label: 'Send to Bhippi AI', run: () => chatApi.current?.send(message) }, { label: 'Dismiss', run: () => undefined }],
       }),
       projectPath: () => settingsRef.current.projectPath,
+      ai: () => ({ providerId: settingsRef.current.providerId, model: settingsRef.current.model }),
+      job: (job) => {
+        if (!jobsStore.put(job)) return;
+        setJobs((current) => ({ ...current, [job.id]: job }));
+      },
     });
     return () => {
       window.clearTimeout(firstCheck);
@@ -756,7 +762,8 @@ export default function App() {
     const pending = events.chat(event => {
       // The avatar mirrors every turn, the council workers' included (their turn id is the subagent id):
       // thinking, writing the reply, the steps a CLI takes by itself, and how the turn closed.
-      if (event.event === 'start') avatarBus.turn(event.turnId, true);
+      // A Plugin Maker turn builds a plugin: the avatar acts that out and leaves the edit open.
+      if (event.event === 'start') avatarBus.turn(event.turnId, true, undefined, makerTurns.current.has(event.turnId));
       else if (event.event === 'delta') {
         const delta = event.delta;
         if (delta.kind === 'thinking') avatarBus.chat(event.turnId, 'thinking');
@@ -1944,7 +1951,12 @@ export default function App() {
   }, [importFiles]);
 
   // ── context menus ──────────────────────────────────────────────────────
-  const showMenu = (event: { clientX: number; clientY: number }, items: MenuItem[]) => setMenu({ anchor: new DOMRect(event.clientX, event.clientY, 0, 0), items });
+  /** Opens a context menu; `plugin` adds the entries running plugins offer there (bhippi.menu). */
+  const showMenu = (event: { clientX: number; clientY: number }, items: MenuItem[], plugin?: { where: PluginMenuPlace; context: Record<string, unknown> }) => {
+    const offered = plugin ? pluginMenuItems(plugin.where, plugin.context) : [];
+    const extra: MenuItem[] = offered.length ? [{ separator: true }, { label: 'Plugins', submenu: offered.map((item) => ({ label: item.label, onSelect: item.run })) }] : [];
+    setMenu({ anchor: new DOMRect(event.clientX, event.clientY, 0, 0), items: [...items, ...extra] });
+  };
 
   const clipMenu = (event: { clientX: number; clientY: number }, clipId: string, at: number) => {
     if (!comp) return;
@@ -2073,7 +2085,7 @@ export default function App() {
       { label: 'Show Clip Keyframes', submenu: [
         { label: display.keyframes ? 'Hide keyframes' : 'Show Opacity / Volume', checked: display.keyframes, onSelect: () => setDisplay({ ...display, keyframes: !display.keyframes }) },
       ] },
-    ]);
+    ], { where: 'clip', context: { clipIds: ids, compId: comp.id, time: at } });
     void at;
   };
 
@@ -2229,7 +2241,7 @@ export default function App() {
       { separator: true },
       { label: 'Zoom to Sequence', shortcut: '\\', onSelect: () => timelineApi.current?.fit() },
       { label: 'Comp Settings…', onSelect: () => compSettings() },
-    ]);
+    ], { where: 'timeline', context: { compId: comp.id, trackId, time: at } });
   };
 
   const compSettings = () => {
@@ -2375,7 +2387,7 @@ export default function App() {
         { label: 'Make Offline…', onSelect: () => history.commit((current) => ({ ...current, media: current.media.map((ref) => (ids.includes(ref.assetId) ? { ...ref, offline: true } : ref)) }), 'Make Offline') } as MenuItem,
       ] : []),
       { label: 'Delete', shortcut: 'Delete', onSelect: () => deleteBinItems(ids) },
-    ]);
+    ], { where: 'media', context: { ids } });
   };
 
   const binPanelMenu = (event: React.MouseEvent) => showMenu(event, [
@@ -3223,6 +3235,15 @@ export default function App() {
 
 
   const cancelJob = useCallback(async (id: string) => {
+    // A plugin's job runs in its page, not the backend: the page is told to stop.
+    if (id.startsWith('plugin:')) {
+      if (!cancelPluginJob(id)) {
+        const live = jobsStore.get(id);
+        if (live) jobsStore.put({ ...live, status: 'cancelled', message: 'Cancelled by user', cancellable: false });
+      }
+      setJobs((current) => (current[id] ? { ...current, [id]: { ...current[id], status: 'cancelled', message: 'Cancelled by user', cancellable: false } } : current));
+      return;
+    }
     try {
       await api.jobCancel(id);
       const live = jobsStore.get(id);

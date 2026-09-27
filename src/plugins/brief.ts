@@ -3,6 +3,7 @@
 // rules are its own prompt, src-tauri/prompts/plugin-maker.md.
 
 import { harnessToolset } from '../lib/harness';
+import { servicesReference } from './capabilities';
 import type { Toolset } from '../lib/toolRouter';
 
 export const PLUGIN_SDK_REFERENCE = `# Bhippi plugin SDK
@@ -32,7 +33,7 @@ the global \`bhippi\` object, which applies Bhippi's rules to every call.
   transform, effects, keyframes), transitions, markers. No id = the active comp.
 - \`await bhippi.selection.get()\` / \`bhippi.selection.set([clipIds])\`.
 - \`await bhippi.playhead.get()\` / \`bhippi.playhead.seek(seconds)\`.
-- \`bhippi.on('project' | 'session' | 'selection' | 'playhead' | 'theme' | 'export', fn)\` → returns an unsubscribe function.
+- \`bhippi.on('project' | 'session' | 'selection' | 'playhead' | 'playback' | 'theme' | 'export', fn)\` → returns an unsubscribe function.
   'project' fires (coalesced, ≤4/s) after any change; re-read what you need. 'export' fires with
   { status: 'started' | 'done' | 'error' | 'cancelled', file } when the user exports (file is the name only).
 - \`bhippi.session\` → { key, name, saved } for the open project. key is stable for one project file
@@ -93,12 +94,15 @@ the global \`bhippi\` object, which applies Bhippi's rules to every call.
   (e.g. "api.example.com", "*.example.com", "http://127.0.0.1:5678", "ws://127.0.0.1:4455").
   Anything else is blocked by the page's security policy.
 - \`bhippi.expose(name, { description, params }, async (args) => result)\` offers Bhippi AI an action
-  it can run with call_plugin_action while the plugin is running (params is a JSON schema).
+  it can run with call_plugin_action while the plugin is running (params is a JSON schema). This is
+  how a plugin lends Bhippi AI a skill: the AI decides what and when, the plugin does it.
 - \`bhippi.test(name, async () => { … })\` is an acceptance check: throw (or reject) when the plugin
   does not do what its spec says. Checks never run for the user — only under plugin_test, against
   a scratch copy of the project, so a check may make real edits through bhippi.tool().
 - console.log / warn / error and uncaught errors are shown in the Plugin Maker console; the AI
   reads them with plugin_logs.
+
+${servicesReference()}
 
 ## Automations
 A plugin with \`background: true\` keeps running while hidden (as long as it is enabled), so it can

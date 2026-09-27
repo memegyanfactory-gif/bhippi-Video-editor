@@ -36,6 +36,8 @@ struct RawHarness {
     label: String,
     prompt: String,
     tools: Vec<String>,
+    #[serde(default, rename = "maxEffort")]
+    max_effort: Option<String>,
 }
 
 pub struct Harness {
@@ -43,6 +45,9 @@ pub struct Harness {
     pub label: String,
     pub prompt: &'static str,
     pub tools: Toolset,
+    /// The most thinking a turn of this harness gets, whatever the composer asks for: a builder
+    /// that thinks for ten minutes between steps is slower, not better.
+    pub max_effort: Option<bhippi_providers::EffortLevel>,
 }
 
 fn all() -> &'static HashMap<String, Harness> {
@@ -63,7 +68,8 @@ fn all() -> &'static HashMap<String, Harness> {
                     return None;
                 };
                 let tools = h.tools.into_iter().filter(|name| ai_tools::is_known(name)).collect();
-                Some((id.clone(), Harness { id, label: h.label, prompt, tools }))
+                let max_effort = h.max_effort.as_deref().and_then(bhippi_providers::EffortLevel::parse);
+                Some((id.clone(), Harness { id, label: h.label, prompt, tools, max_effort }))
             })
             .collect()
     })
@@ -91,6 +97,14 @@ impl Harness {
     }
 
     /// Its tools, whole, in catalogue order — and nothing else.
+    /// The effort a turn runs at: what was asked, lowered to this harness's ceiling.
+    pub fn effort(&self, asked: Option<String>) -> Option<String> {
+        let (Some(ceiling), Some(level)) = (self.max_effort, asked.as_deref().and_then(bhippi_providers::EffortLevel::parse)) else {
+            return asked;
+        };
+        Some(level.min(ceiling).as_str().to_owned())
+    }
+
     pub fn catalogue(&self) -> Vec<ToolSpec> {
         ai_tools::specs().iter().filter(|tool| self.allows(&tool.name)).cloned().collect()
     }
@@ -150,6 +164,15 @@ mod tests {
         // Every listed tool exists: an unknown name is dropped rather than trusted.
         assert!(maker.tools.iter().all(|name| ai_tools::is_known(name)));
         assert_eq!(maker.catalogue().len(), maker.tools.len());
+    }
+
+    #[test]
+    fn the_plugin_maker_thinks_at_most_high() {
+        let maker = get("plugin-maker").expect("built in");
+        assert_eq!(maker.effort(Some("max".to_owned())).as_deref(), Some("high"));
+        assert_eq!(maker.effort(Some("xhigh".to_owned())).as_deref(), Some("high"));
+        assert_eq!(maker.effort(Some("medium".to_owned())).as_deref(), Some("medium"));
+        assert_eq!(maker.effort(None), None);
     }
 
     #[test]

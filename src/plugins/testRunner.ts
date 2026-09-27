@@ -82,6 +82,16 @@ export function scratchHistory(initial: Project): History & { edits: () => numbe
     undo,
     redo,
     jump: (steps: number) => { for (let i = 0; i < Math.abs(steps); i++) (steps < 0 ? undo : redo)(); },
+    squash: (before: Project, text: string) => {
+      if (present === before) return;
+      let at = -1;
+      for (let index = past.length - 1; index >= 0 && at < 0; index--) if (past[index].project === before) at = index;
+      if (at < 0) return;
+      edits -= past.length - at - 1;
+      past.length = at + 1;
+      future.length = 0;
+      label = text;
+    },
     current: () => present,
     gesture: () => false,
     edits: () => edits,

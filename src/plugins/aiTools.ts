@@ -72,6 +72,7 @@ function permissionsFrom(raw: unknown, fallback?: PluginPermissions): PluginPerm
     tools: value.tools !== undefined ? strings(value.tools) : fallback?.tools ?? [],
     network: value.network !== undefined ? strings(value.network) : fallback?.network ?? [],
     chat: typeof value.chat === 'boolean' ? value.chat : fallback?.chat ?? false,
+    services: value.services !== undefined ? strings(value.services) : fallback?.services ?? [],
   };
 }
 

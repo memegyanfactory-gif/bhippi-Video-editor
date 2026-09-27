@@ -13,6 +13,11 @@ export type PluginPermissions = {
   network: string[];
   /** Whether it may offer messages for the Bhippi AI chat (`bhippi.chat()`); the user sends them. */
   chat: boolean;
+  /**
+   * Bhippi services beyond the tools that cost the user something (capabilities.ts): `transcribe`
+   * (new transcriptions) and `ai` (questions to the user's AI model). Absent means none.
+   */
+  services?: string[];
 };
 
 /** An earlier version of a plugin's page, kept so a change can be taken back. */

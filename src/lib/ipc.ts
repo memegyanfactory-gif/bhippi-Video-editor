@@ -712,6 +712,9 @@ export const api = {
 
   chatReadImages: (paths: string[]) => invoke<string[]>('chat_read_images', { paths }),
   chatSend: (request: ChatRequest) => invoke<void>('chat_send', { request }),
+  /** One question from a plugin (bhippi.ai.ask) for the user's model: no tools, nothing shown in the chat. */
+  pluginAsk: (request: { providerId: string | null; model: string | null; system: string; prompt: string; maxTokens?: number }) =>
+    invoke<{ text: string; provider: string; model: string | null; inputTokens: number; outputTokens: number }>('plugin_ask', { request }),
   chatStop: (turnId: string) => invoke<boolean>('chat_stop', { turnId }),
   /** Turn ids the backend is still running, for spotting a turn whose closing event never came. */
   chatActiveTurns: () => invoke<string[]>('chat_active_turns'),

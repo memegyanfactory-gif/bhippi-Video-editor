@@ -272,7 +272,8 @@ export const versionStore = {
 export function widens(before: PluginPermissions, next: PluginPermissions): boolean {
   const wildcard = before.tools.includes('*');
   const newTool = next.tools.some((name) => !before.tools.includes(name) && !(wildcard && name !== '*' && !isSensitiveTool(name)));
-  return newTool || next.network.some((host) => !before.network.includes(host)) || (next.chat && !before.chat);
+  const newService = (next.services ?? []).some((name) => !(before.services ?? []).includes(name));
+  return newTool || newService || next.network.some((host) => !before.network.includes(host)) || (next.chat && !before.chat);
 }
 
 export type InstallOutcome = { plugin: Plugin; update: boolean; previous: string | null; waitsForReview: boolean; warnings: string[] };
@@ -367,7 +368,7 @@ export function legacyPlugin(raw: Partial<Plugin>, taken: ReadonlySet<string>, i
   const now = new Date().toISOString();
   return {
     version: 1, id: idFor(raw.name, taken), name: raw.name, description: String(raw.description ?? ''), icon: raw.icon, html: raw.html,
-    permissions: { tools: raw.permissions?.tools ?? [], network: raw.permissions?.network ?? [], chat: !!raw.permissions?.chat },
+    permissions: { tools: raw.permissions?.tools ?? [], network: raw.permissions?.network ?? [], chat: !!raw.permissions?.chat, services: raw.permissions?.services ?? [] },
     // An imported plugin starts off: the user reads its permissions before it runs.
     background: !!raw.background, enabled: false, panel: false, author: 'user', createdAt: now, updatedAt: now, revision: 1,
   };

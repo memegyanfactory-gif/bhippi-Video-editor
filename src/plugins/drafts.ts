@@ -10,6 +10,7 @@ import { isPluginRead, isSensitiveTool, MAX_PLUGIN_HTML, networkSources, PLUGIN_
 import type { DraftFiles, DraftManifest } from './templates';
 import { LOGO_FILE, logoImage } from './logo';
 import type { Plugin } from './types';
+import { isPluginService, PLUGIN_SERVICES } from './capabilities';
 
 /** Kept in step with plugins.rs: one file, the whole draft, and how many files it holds. */
 export const MAX_DRAFT_FILE_BYTES = 8 * 1024 * 1024;
@@ -108,7 +109,7 @@ export function parseManifest(text: string | undefined): { manifest: DraftManife
       name,
       description: typeof value.description === 'string' ? value.description.trim() : '',
       icon: typeof value.icon === 'string' && value.icon.trim() ? value.icon.trim().slice(0, 8) : undefined,
-      permissions: { tools: strings(perms.tools), network: strings(perms.network), chat: perms.chat === true },
+      permissions: { tools: strings(perms.tools), network: strings(perms.network), chat: perms.chat === true, services: strings(perms.services) },
       background: value.background === true,
       showAsPanel: value.showAsPanel !== false,
     },
@@ -260,6 +261,14 @@ export function validateDraft(files: DraftFiles, known: ReadonlySet<string>): Dr
     if (!covered(match[2], manifest?.permissions.network ?? [])) problems.push(`The code connects to ${match[2]}, which permissions.network does not allow.`);
   }
   if (manifest?.permissions.chat && !/bhippi\s*\.\s*chat\s*\(/.test(all)) warnings.push('chat is allowed but the code never calls bhippi.chat(): turn it off.');
+  const services = manifest?.permissions.services ?? [];
+  for (const name of services) if (!isPluginService(name)) problems.push(`“${name}” in permissions.services is not a Bhippi service (${Object.keys(PLUGIN_SERVICES).join(', ')}).`);
+  const asksAi = /bhippi\s*\.\s*ai\s*\.\s*ask\s*\(/.test(all);
+  const transcribes = /bhippi\s*\.\s*transcript\b/.test(all) && /transcribe\s*:\s*(?!false)/.test(all);
+  if (asksAi && !services.includes('ai')) problems.push('The code calls bhippi.ai.ask but permissions.services does not list "ai".');
+  if (transcribes && !services.includes('transcribe')) problems.push('The code asks for new transcriptions ({ transcribe: true }) but permissions.services does not list "transcribe".');
+  if (services.includes('ai') && !asksAi) warnings.push('The "ai" service is allowed but the code never calls bhippi.ai.ask(): remove it.');
+  if (services.includes('transcribe') && !transcribes) warnings.push('The "transcribe" service is allowed but the code never asks for { transcribe: true }: remove it.');
 
   if (files[LOGO_FILE] !== undefined && !logoImage(files[LOGO_FILE])) problems.push(`${LOGO_FILE} is not a logo the Plugin Maker made: upload the image again in Details › Logo, or delete the file.`);
 

@@ -159,12 +159,32 @@ fn toml_string(text: &str) -> String {
     out
 }
 
+/// Claude Code's own tools, all taken away from a sealed turn.
+const CLAUDE_BUILT_INS: &[&str] = &[
+    "Bash", "BashOutput", "KillShell", "Edit", "MultiEdit", "Write", "NotebookEdit", "Read", "Glob", "Grep", "LS",
+    "WebSearch", "WebFetch", "Task", "Agent", "TodoWrite",
+];
+
 /// Argv that hands `server` to the vendor, for the wirings that use argv at all.
 fn mcp_flag_args(spec: &ProviderSpec, req: &CompletionRequest, config_file: &Path) -> Vec<OsString> {
     let (Some(wiring), Some(server)) = (spec.mcp, req.mcp.as_ref()) else {
+        // A sealed question with no server (a plugin's bhippi.ai.ask): no tools at all.
+        if req.sealed && spec.mcp == Some(McpWiring::ClaudeConfigFile) {
+            return vec![OsString::from("--disallowedTools"), OsString::from(CLAUDE_BUILT_INS.join(","))];
+        }
         return Vec::new();
     };
     match wiring {
+        McpWiring::ClaudeConfigFile if req.sealed => vec![
+            OsString::from("--mcp-config"),
+            config_file.as_os_str().to_owned(),
+            OsString::from("--allowedTools"),
+            OsString::from(format!("mcp__{}", server.name)),
+            // Taken out of the agent's view, not just refused: a refused tool still costs a round
+            // (and the agent keeps reaching for it).
+            OsString::from("--disallowedTools"),
+            OsString::from(CLAUDE_BUILT_INS.join(",")),
+        ],
         McpWiring::ClaudeConfigFile => vec![
             OsString::from("--mcp-config"),
             config_file.as_os_str().to_owned(),
@@ -866,6 +886,30 @@ mod tests {
         assert!(!allowed.contains("Bash") && !allowed.contains("Write") && !allowed.contains("Edit"), "{claude:?}");
         let codex = text(CliProvider::argv_for_request(get("codex"), &request, "hi", Path::new("p"), Path::new("m")));
         assert!(codex.windows(2).any(|pair| pair == ["--sandbox", "read-only"]), "{codex:?}");
+    }
+
+    #[test]
+    fn a_sealed_turn_has_only_the_servers_tools() {
+        let mut request = CompletionRequest::new("", vec![Message::user("hi".to_owned())]);
+        request.mcp = Some(server());
+        request.read_only = true;
+        request.sealed = true;
+        let claude: Vec<String> = CliProvider::argv_for_request(get("claude"), &request, "hi", Path::new("p"), Path::new("m"))
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let after = |flag: &str| claude.windows(2).find(|pair| pair[0] == flag).map(|pair| pair[1].clone()).unwrap_or_default();
+        assert_eq!(after("--allowedTools"), "mcp__bhippi", "{claude:?}");
+        let denied = after("--disallowedTools");
+        for tool in ["Read", "Glob", "Grep", "Bash", "Write", "WebFetch", "WebSearch"] {
+            assert!(denied.split(',').any(|name| name == tool), "{tool} must be taken away: {claude:?}");
+        }
+        request.mcp = None;
+        let bare: Vec<String> = CliProvider::argv_for_request(get("claude"), &request, "hi", Path::new("p"), Path::new("m"))
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(bare.windows(2).any(|pair| pair[0] == "--disallowedTools" && pair[1].contains("Read")), "{bare:?}");
     }
 
     /// Verified live against Claude Code 2.1: with `--tools ""` the only tools the agent sees

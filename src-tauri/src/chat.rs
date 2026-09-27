@@ -522,11 +522,13 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     messages.push(user_message);
     let mut request = CompletionRequest::new(system, messages)
         .with_model(req.model.clone())
-        .with_effort(req.effort.clone());
+        .with_effort(harness.map_or_else(|| req.effort.clone(), |h| h.effort(req.effort.clone())));
     // Plan only (the composer's permission, sent in the context): the Bhippi tools are already
     // refused in the app; this takes a CLI agent's own shell and file writes away too.
     // A harness builds through its own tools only, so a CLI agent's own shell and file writes go too.
     request.read_only = harness.is_some() || req.context.pointer("/permission/mode").and_then(Value::as_str) == Some("plan");
+    // Not even reading: a harness's own tools are the whole world it works in.
+    request.sealed = harness.is_some();
     if mode == ToolMode::Native {
         request.tools = match harness {
             Some(harness) => harness.catalogue(),
@@ -1087,6 +1089,76 @@ pub async fn run_turn(
     });
 }
 
+/// One question from a plugin (`bhippi.ai.ask`), answered in one go: no tools, no history, no
+/// Bhippi prompt, nothing streamed to the chat. A CLI agent gets none of its own tools either.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskRequest {
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
+    #[serde(default)]
+    pub system: String,
+    pub prompt: String,
+    pub max_tokens: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskReply {
+    pub text: String,
+    pub provider: String,
+    pub model: Option<String>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// The largest answer a plugin may ask for, in tokens.
+const ASK_MAX_TOKENS: u32 = 8192;
+
+pub async fn ask_once(row: &ProviderInfo, keys: &ApiKeys, req: AskRequest) -> Result<AskReply, String> {
+    if row.kind == ProviderKind::Builtin {
+        return Err("The offline command parser cannot answer questions. Pick an AI model in the chat first.".to_owned());
+    }
+    let model = effective_model(row, req.model.as_deref());
+    let provider = adapter(row, keys, model.as_deref())?;
+    let mut system = req.system;
+    let mut messages = vec![Message::user(req.prompt)];
+    if row.kind == ProviderKind::Cli {
+        // A CLI takes one prompt string: the instructions ride in front of the question.
+        let question = messages.remove(0).content;
+        if !system.trim().is_empty() {
+            messages.push(Message::user(format!("{}\n\n{question}", system.trim())));
+            system.clear();
+        } else {
+            messages.push(Message::user(question));
+        }
+    }
+    let mut request = CompletionRequest::new(system, messages).with_model(model.clone());
+    request.max_tokens = req.max_tokens.unwrap_or(2048).clamp(16, ASK_MAX_TOKENS);
+    request.read_only = true;
+    request.sealed = true;
+    request.timeout = Duration::from_secs(300);
+    let mut stream = provider.complete(request).await.map_err(|error| error.reason)?;
+    let mut text = String::new();
+    let (mut input_tokens, mut output_tokens) = (0, 0);
+    while let Some(item) = stream.next().await {
+        match item.map_err(|error| error.reason)? {
+            Delta::Text { delta } => text.push_str(&delta),
+            Delta::Usage { input_tokens: sent, output_tokens: got } => {
+                input_tokens += sent;
+                output_tokens += got;
+            }
+            Delta::Done { .. } => break,
+            _ => {}
+        }
+    }
+    let text = text.trim().to_owned();
+    if text.is_empty() {
+        return Err(format!("{} answered with nothing", row.label));
+    }
+    Ok(AskReply { text, provider: row.label.clone(), model, input_tokens, output_tokens })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{build_request, mode_for, resolve_row, run_turn, ChatEvent, ChatRequest, McpLink, Progress, ToolMode, Turn};
@@ -1167,6 +1239,10 @@ mod tests {
         allowed.sort_unstable();
         assert_eq!(names, allowed, "exactly the harness's tools, none slim, none extra");
         assert!(native.read_only, "a CLI agent loses its own shell and file writes");
+        assert!(native.sealed, "and its own file reading and search too");
+        req.effort = Some("max".to_owned());
+        assert_eq!(super::build_request(&req, &row, super::ToolMode::Native).reasoning_effort.as_deref(), Some("high"), "effort is capped");
+        req.effort = None;
         let text = super::build_request(&req, &row, super::ToolMode::Text);
         assert!(!text.system.contains("`choose_comp_size`") && !text.system.contains("`add_text`") && text.system.contains("- `plugin_save`("));
         let args = super::bridge_args(4242, "tok", &req.context, super::harness_of(&req));

@@ -218,6 +218,10 @@ pub struct CompletionRequest {
     /// The user put the assistant in Plan only: a CLI agent loses its own file-writing and shell
     /// tools for the turn, so looking and suggesting is all it can do.
     pub read_only: bool,
+    /// Only the MCP server's tools: a CLI agent's own tools (shell, files, search, web) are all
+    /// taken away, reading too. A harness turn (the Plugin Maker) builds through its own tools and
+    /// has no business on the disk.
+    pub sealed: bool,
 }
 
 impl CompletionRequest {
@@ -235,6 +239,7 @@ impl CompletionRequest {
             mcp: None,
             activity: None,
             read_only: false,
+            sealed: false,
         }
     }
 

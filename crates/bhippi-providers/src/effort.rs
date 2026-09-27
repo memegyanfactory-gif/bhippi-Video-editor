@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The steps, from least thinking to most. Not every provider offers all five.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Level {
     Low,

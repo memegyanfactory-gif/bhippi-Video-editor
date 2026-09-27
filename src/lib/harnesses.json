@@ -4,6 +4,7 @@
     "plugin-maker": {
       "label": "Plugin Maker",
       "prompt": "plugin-maker.md",
+      "maxEffort": "high",
       "tools": [
         "plugin_scaffold", "plugin_list_files", "plugin_read_file", "plugin_write_file", "plugin_delete_file",
         "plugin_validate", "plugin_test", "plugin_screenshot", "plugin_save",

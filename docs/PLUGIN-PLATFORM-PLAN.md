@@ -853,6 +853,60 @@ Note: the local wrangler (4.125) is older than `wrangler.jsonc`'s compatibility 
 (`npx wrangler d1 migrations apply bhippi-ve --remote` applies both), and optionally
 `npx wrangler pages secret put ANTHROPIC_API_KEY --project-name bhippi` for the AI review.
 
+## Level 3: plugins as part of Bhippi
+
+The goal: anything Bhippi can do, a plugin can do, under the same rules. A plugin that needs the
+transcript, the user's AI model, the sound, the frames or the transport gets them from the SDK,
+not by guessing at file paths. What was missing were Bhippi's services outside the tools, and
+places in the editor for plugins to plug into.
+
+**How it stays complete.** `src/plugins/capabilities.ts` is the one list of services. It produces
+the Plugin Maker's SDK reference, names the permission each service needs, and feeds the install
+and marketplace screens. `tests/pluginCapabilities.test.ts` fails when an entry has no bridge
+handler or SDK method, or when the bridge answers a service the list does not name.
+
+**Permissions.** Reading costs nothing. What spends the user's money or time is a declared
+**service** (`permissions.services`: `transcribe`, `ai`), shown before the plugin runs; asking
+for a new one sends an update back for review (`widens`).
+
+### Step 1: services a plugin can call — done (2026-09-27)
+
+- `bhippi.transcript.comp / .get`: words in timeline time, from the transcripts Bhippi already
+  has; `{ transcribe: true }` makes missing ones (service `transcribe`).
+- `bhippi.ai.ask(prompt, { system, json, maxTokens })`: the user's own model, one question, no
+  tools (service `ai`, 20 a minute). Backend: `plugin_ask` → `chat::ask_once`, sealed so a CLI
+  agent gets none of its own tools.
+- `bhippi.playback.*` and the `'playback'` event; `bhippi.audio.peaks / .loudness`.
+- `bhippi.batch([...])`: many tools as one undo step (`history.squash`).
+- `bhippi.jobs.start(label)`: progress in Bhippi's job list, cancellable, ended if the page closes.
+- The Plugin Maker gets a "which API for which job" table, runs sealed (no Claude Code
+  `Read`/`Glob`/`Grep`/web tools: it had been searching AppData) and at most `high` effort
+  (`maxEffort` in `harnesses.json`).
+
+### Step 2: pictures and places in the editor — done (2026-09-27)
+
+- `bhippi.video.frame({ time, compId | assetId, size })`: the edit as the export draws it
+  (graphics included), or one file's picture, as a PNG data URL.
+- `bhippi.media.read(assetId)`: a project file's bytes (up to 256 MB), so a plugin can decode and
+  analyse sound itself.
+- `bhippi.menu.add({ id, label, where }, fn)`: entries under Plugins in the clip, empty-timeline
+  and Project panel right-click menus, told what was clicked.
+- Not built: a command palette (Bhippi has none yet) and plugin keyboard shortcuts (key events
+  stay out of plugins on purpose, see Level 2).
+
+### Step 3: plugin clips and effects — planned
+
+A manifest declares `generators`; a clip with source `{ type: 'plugin', plugin, generator,
+params }` is drawn by the plugin's `bhippi.render(canvas, { time, params, audio })` in the viewer
+and rendered frame by frame for export, as HTML clips are (`htmlFrames.ts`). `bhippi.audio.analyze`
+gives the render the same per-frame spectrum the preview shows. An audio visualizer becomes a clip
+on V2. Effects follow: a clip's frame in, a new frame out.
+
+### Step 4: plugins working together — planned
+
+Plugins calling each other's exposed actions, inspector sections for a selected clip, export
+hooks.
+
 ## Decisions
 
 1. **Who approves? — built as: you approve.** The author submits, automated checks run, and you
@@ -942,3 +996,12 @@ Note: the local wrangler (4.125) is older than `wrangler.jsonc`'s compatibility 
     what the user types into the chat.
   - Still to do: the bhippi.com automated check must accept the new file types and limits
     before plugins with assets can be published.
+- **2026-09-27:** **Level 3, step 1 done** (plugins as part of Bhippi).
+  - Why: an "audio visualizer" took the Plugin Maker 40+ minutes. Traces showed the tools ran for
+    under a minute in total. The rest was max-effort thinking, probing a sandbox that could not
+    read media, and searching the disk with Claude Code's own tools.
+  - New: the capability registry, the `services` permission, and transcripts, AI questions,
+    playback, audio data, batched edits and jobs for plugins, with the backend `plugin_ask`.
+  - The Maker runs sealed and at most at `high` effort.
+  - Step 2 the same day: `video.frame`, `media.read`, and right-click menu entries.
+  - Next up: step 3, plugin clips (generators) that render in the viewer and in the export.

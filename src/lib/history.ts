@@ -57,6 +57,24 @@ export function settleStep(current: State, label: string): State {
   return { past: [...current.past, { project: current.pending, label: current.presentLabel }].slice(-LIMIT), present, presentLabel: label, future: [], pending: null };
 }
 
+/**
+ * Folds every undo step made since the project was `before` into one, named `label`: a plugin's
+ * `bhippi.batch` runs many tools and the user undoes them together. Nothing happens during a
+ * gesture, or when `before` has already left the history.
+ */
+export function squashStep(current: State, before: Project, label: string): State {
+  if (current.pending || current.present === before) return current;
+  let at = -1;
+  for (let index = current.past.length - 1; index >= 0; index--) {
+    if (current.past[index].project === before) {
+      at = index;
+      break;
+    }
+  }
+  if (at < 0) return current;
+  return { ...current, past: current.past.slice(0, at + 1), presentLabel: label, future: [] };
+}
+
 export function undoStep(current: State): State {
   const base = current.pending ?? current.present;
   if (current.past.length === 0) return current.pending ? { ...current, present: base, pending: null } : current;
@@ -118,6 +136,9 @@ export function useHistory(initial: Project) {
 
   const undo = useCallback(() => setState(undoStep), []);
 
+  /** Makes everything since `before` one undo step (see `squashStep`). */
+  const squash = useCallback((before: Project, label: string) => setState((current) => squashStep(current, before, label)), []);
+
   const redo = useCallback(() => {
     setState((current) => {
       if (current.future.length === 0) return current;
@@ -148,10 +169,11 @@ export function useHistory(initial: Project) {
       undo,
       redo,
       jump,
+      squash,
       current: () => stateRef.current.present,
       gesture: () => stateRef.current.pending !== null,
     }),
-    [state, commit, preview, settle, cancel, view, reset, undo, redo, jump],
+    [state, commit, preview, settle, cancel, view, reset, undo, redo, jump, squash],
   );
 }
 

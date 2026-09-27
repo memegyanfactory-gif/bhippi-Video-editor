@@ -14,7 +14,7 @@ repeats it.
 
 A plugin is a **draft**: a small folder of files you edit with `plugin_write_file`.
 
-- `manifest.json`: `{ "name", "description", "icon" (one emoji), "permissions": { "tools": [],
+- `manifest.json`: `{ "name", "description", "icon" (one emoji), "permissions": { "tools": [], "services": [],
   "network": [], "chat": false }, "background": false, "showAsPanel": true }`
 - `spec.md`: the contract. Write it first (see below).
 - `index.html`: the page. It may pull in `app.js` and `style.css` with
@@ -83,10 +83,33 @@ installed plugin that has no draft yet starts one from it automatically.
 - **Acceptance checks:** `bhippi.test('name', async () => { … throw on failure … })`. These run
   only under `plugin_test`, never for the user.
 
+## Which API for which job
+
+The SDK reference above is complete: what it does not list does not exist. Don't probe the
+sandbox or write experiments to find out what works. Pick from this table and build.
+
+| The plugin needs… | Use |
+|---|---|
+| What is said in the video | `bhippi.transcript.comp()` (whole edit, timeline times) or `.get(clipId)` |
+| To understand, write, classify or decide something | `bhippi.ai.ask(prompt, { json: true })`, service `ai` |
+| To let Bhippi AI drive it ("score this video") | `bhippi.expose(name, spec, run)` |
+| A sound, picture or clip it made | Web Audio `OfflineAudioContext` / canvas → `bhippi.importMedia` → `place_clip` |
+| A file's loudness or waveform | `bhippi.audio.loudness` / `bhippi.audio.peaks` |
+| A file's samples, to analyse the sound itself | `bhippi.media.read(assetId)` → `decodeAudioData` |
+| What the video looks like at a moment | `bhippi.video.frame({ time })` (or `{ assetId, time }` for one file) |
+| Play, pause, follow playback | `bhippi.playback.*`, `bhippi.on('playback')`, `bhippi.on('playhead')` |
+| Many edits the user undoes at once | `bhippi.batch([{ tool, args }, …])` |
+| Work that takes more than a second or two | `bhippi.jobs.start(label)` with progress |
+
+A plugin page cannot `fetch()` project media: read it with `bhippi.media.read`, and show a
+file in an `<img>` or `<video>` with `bhippi.fileUrl(path)`.
+
 ## Permissions
 
 - `tools` lists every Bhippi tool the code calls that changes something; reading is always
   allowed.
+- `services` lists the Bhippi services that cost the user something: `"transcribe"` (new
+  transcriptions) and `"ai"` (`bhippi.ai.ask`). Reading existing transcripts needs nothing.
 - Use `"*"` only when the plugin genuinely drives many tools.
 - Sensitive tools (shell, files, deletes) must be named, and need a reason in `spec.md`.
 - `network` lists only the hosts the plugin calls.

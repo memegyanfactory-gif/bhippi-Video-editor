@@ -8,6 +8,7 @@
 import { isDestructiveTool } from '../lib/permissions';
 import { SDK_SOURCE } from './sdk';
 import type { Plugin, PluginPermissions } from './types';
+import { isPluginService, PLUGIN_SERVICES } from './capabilities';
 
 /**
  * Tools a plugin can never call: they belong to an AI turn, would let a plugin rewrite the tool and
@@ -110,6 +111,9 @@ export function validatePlugin(plugin: Plugin, known: ReadonlySet<string>): stri
   }
   for (const entry of plugin.permissions.network) {
     if (!networkSources(entry)) return `“${entry}” in network is not a host (use example.com, *.example.com or https://api.example.com:8443).`;
+  }
+  for (const name of plugin.permissions.services ?? []) {
+    if (!isPluginService(name)) return `“${name}” in services is not a Bhippi service (${Object.keys(PLUGIN_SERVICES).join(', ')}).`;
   }
   return null;
 }

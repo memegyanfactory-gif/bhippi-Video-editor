@@ -494,7 +494,7 @@ export type ProviderInfo = {
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 export type Job = {
   id: string;
-  kind: 'export' | 'media' | 'install' | 'transcribe' | 'model' | 'speech' | 'generation' | 'collect' | 'ai-pack';
+  kind: 'export' | 'media' | 'install' | 'transcribe' | 'model' | 'speech' | 'generation' | 'collect' | 'ai-pack' | 'plugin';
   label: string;
   status: JobStatus;
   progress: number;

@@ -19,6 +19,7 @@ import { PluginMark } from './PluginsPanel';
 import { isSensitiveTool, pluginIdFor, validatePlugin } from './rules';
 import { clearLogs, patchPlugin, reloadPlugin, removePlugin, savePlugin, usePlugins } from './store';
 import type { Plugin } from './types';
+import { isPluginService, PLUGIN_SERVICES, type PluginService } from './capabilities';
 
 type Tab = 'spec' | 'details' | 'permissions' | 'code' | 'versions';
 type Width = 'narrow' | 'wide' | 'full';
@@ -554,6 +555,7 @@ export function pluginRisks(plugin: Plugin): { text: string; danger: boolean }[]
   if (edits.length) risks.push({ text: `Edits your project with: ${edits.join(', ')}`, danger: false });
   for (const host of network) risks.push({ text: `Connects to ${host}`, danger: false });
   if (chat) risks.push({ text: 'Suggests messages for Bhippi AI (each one needs your click)', danger: false });
+  for (const name of plugin.permissions.services ?? []) if (isPluginService(name)) risks.push({ text: PLUGIN_SERVICES[name].risk, danger: false });
   return risks;
 }
 
@@ -691,6 +693,14 @@ function Permissions({ plugin, known, act }: { plugin: Plugin; known: ReadonlySe
         <button type="button" className="btn" disabled={!host.trim()} onClick={() => { const entry = host.trim(); setHost(''); void save({ ...plugin.permissions, network: [...network, entry] }); }}>Add</button>
       </div>
       <Toggle label="Talk to Bhippi AI" hint="May suggest messages for the chat (bhippi.chat); each one reaches Bhippi AI only when you click Send." checked={chat} onChange={(on) => void save({ ...plugin.permissions, chat: on })} />
+      <h4>Services</h4>
+      {(Object.keys(PLUGIN_SERVICES) as PluginService[]).map((name) => {
+        const services = plugin.permissions.services ?? [];
+        return (
+          <Toggle key={name} label={PLUGIN_SERVICES[name].label} hint={PLUGIN_SERVICES[name].risk} checked={services.includes(name)}
+            onChange={(on) => void save({ ...plugin.permissions, services: on ? [...services.filter((item) => item !== name), name] : services.filter((item) => item !== name) })} />
+        );
+      })}
     </div>
   );
 }

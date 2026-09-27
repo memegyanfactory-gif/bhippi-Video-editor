@@ -67,6 +67,7 @@ function Lab() {
       runTool: (h, name, args) => runTool(h, name, args), known: KNOWN_TOOLS, toolSpecs: () => TOOL_SPECS,
       permission: () => 'edit', disableLocalGeneration: () => true,
       toast: (tone, title, body) => console.info(`[toast ${tone}] ${title}: ${body}`), chat: (message, pluginName) => console.info(`[chat suggestion from ${pluginName}] ${message}`), projectPath: () => null,
+      ai: () => ({ providerId: null, model: null }), job: (job) => console.info(`[job ${job.status}] ${job.label} ${Math.round(job.progress * 100)}%`),
     });
   }, [host]);
   useEffect(() => {

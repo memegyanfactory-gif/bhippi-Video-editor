@@ -3051,6 +3051,22 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, mut request: ChatR
     Ok(())
 }
 
+/// A plugin's question for the user's AI model (`bhippi.ai.ask`). The plugin bridge has already
+/// checked the plugin's `ai` permission and its rate; this only answers.
+#[tauri::command]
+async fn plugin_ask(state: State<'_, Arc<AppState>>, request: chat::AskRequest) -> CommandResult<chat::AskReply> {
+    if request.prompt.trim().is_empty() {
+        return Err("ask needs a prompt".to_owned());
+    }
+    if request.prompt.chars().count() + request.system.chars().count() > 200_000 {
+        return Err("that question is too long (200,000 characters at most)".to_owned());
+    }
+    let rows = state.providers.read().map_err(lock_error)?.clone();
+    let row = chat::resolve_row(&rows, request.provider_id.as_deref())?;
+    let keys = tauri::async_runtime::spawn_blocking(keychain_keys).await.unwrap_or_default();
+    chat::ask_once(&row, &keys, request).await
+}
+
 fn builtin_row() -> ProviderInfo {
     ProviderInfo {
         id: bhippi_providers::catalog::BUILTIN_ID.to_owned(),
@@ -3683,6 +3699,7 @@ pub fn run() {
             provider_update_all,
             chat_read_images,
             chat_send,
+            plugin_ask,
             chat_tool_result,
             chat_stop,
             chat_active_turns,
