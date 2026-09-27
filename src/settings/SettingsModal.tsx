@@ -20,6 +20,7 @@ import { Row, Section, SettingsHeader } from './SettingsLayout';
 import { api, errorText } from '../lib/ipc';
 import type { AppInfo, Asset, Job, ProviderInfo, Settings, ToolStatus } from '../lib/types';
 import '../styles/about.css';
+import { display, findCommand, keymapFrom } from '../lib/keymap';
 import '../styles/settings.css';
 
 export type SettingsTab = 'general' | 'providers' | 'connectors' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'privacy' | 'support' | 'about';
@@ -56,14 +57,17 @@ const BUILT_ON = [
   { icon: <ShieldCheck size={14} />, name: 'Your own keys', detail: 'Provider keys live in this computer’s credential store, never in the project file.' },
 ];
 
-const SHORTCUTS: [keys: string, action: string][] = [
-  ['Space', 'Play / pause'], ['← →', 'Step one frame (Shift: one second)'], ['S', 'Split at playhead'], ['Del', 'Delete selection'],
-  ['Ctrl+D', 'Duplicate selection'], ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'], ['Ctrl+I', 'Import media'], ['Ctrl+E', 'Export'],
-  ['Ctrl+L', 'Toggle Bhippi AI'], ['Ctrl + wheel', 'Zoom timeline'],
-];
+/** The shortcuts About lists: the everyday ones, with whatever keys the user gave them. */
+const ABOUT_COMMANDS = ['playToggle', 'stepBack', 'stepForward', 'toolRazor', 'clear', 'duplicate', 'undo', 'redo', 'import', 'export', 'toggleChat', 'shortcuts'];
 
-/** Two top-to-bottom halves, so the list reads down each column rather than across. */
-const SHORTCUT_COLUMNS = [SHORTCUTS.slice(0, Math.ceil(SHORTCUTS.length / 2)), SHORTCUTS.slice(Math.ceil(SHORTCUTS.length / 2))];
+function aboutShortcuts(overrides: Record<string, string[]> | null | undefined): [keys: string, action: string][] {
+  const map = keymapFrom(overrides);
+  return ABOUT_COMMANDS.flatMap((id) => {
+    const item = findCommand(id);
+    const keys = map[id] ?? [];
+    return item && keys.length ? [[keys.map(display).join(' · '), item.label] as [string, string]] : [];
+  });
+}
 
 /** The sidebar: General on top, then the pages grouped by what they are about, About last. */
 const NAV: { title?: string; items: { id: SettingsTab; label: string; icon: ReactNode }[] }[] = [
@@ -92,6 +96,11 @@ const NAV: { title?: string; items: { id: SettingsTab; label: string; icon: Reac
 ];
 
 export function SettingsModal(props: Props) {
+  // About lists the user's own keys, so it never names a key that now does something else.
+  const shortcuts = aboutShortcuts(props.settings.shortcuts);
+  const half = Math.ceil(shortcuts.length / 2);
+  const shortcutColumns = [shortcuts.slice(0, half), shortcuts.slice(half)].filter((column) => column.length);
+  const shortcutsKey = (keymapFrom(props.settings.shortcuts).shortcuts ?? []).map(display)[0];
   return (
     <Modal title="Settings" onClose={props.onClose} width="min(1320px, calc(100vw - 48px))" className="settings-modal">
       <div className="settings">
@@ -171,8 +180,9 @@ export function SettingsModal(props: Props) {
 
               <section className="about-block">
                 <h4 className="about-heading">Keyboard shortcuts</h4>
+                <p className="about-credits">Change any of them in Keyboard Shortcuts{shortcutsKey ? ` (${shortcutsKey})` : ''}.</p>
                 <div className="about-keys">
-                  {SHORTCUT_COLUMNS.map((column) => (
+                  {shortcutColumns.map((column) => (
                     <dl key={column[0][0]} className="about-keylist">
                       {column.map(([keys, action]) => (
                         <div key={keys} className="about-key">

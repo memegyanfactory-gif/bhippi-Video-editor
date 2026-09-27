@@ -713,6 +713,8 @@ export type Settings = {
   avatarCharacter?: string | null;
   /** The user's own colours for each character: character → colour slot (sprite.ts COLOUR_SLOTS) → #rrggbb. */
   avatarColors?: Record<string, Record<string, string>> | null;
+  /** Keyboard shortcuts the user changed: command id → its keys ([] = none). The rest are the defaults (lib/keymap.ts). */
+  shortcuts?: Record<string, string[]> | null;
 };
 
 export type PanelId = 'chat' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools' | 'plugins';

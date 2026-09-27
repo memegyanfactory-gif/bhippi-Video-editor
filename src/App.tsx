@@ -97,9 +97,8 @@ import { rewritePaths, storyboardDocs } from './lib/projectDocs';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
 import type { GenPlan } from './lib/cloudGen';
 import { isSetUp } from './settings/ProvidersSettings';
-import { SHORTCUTS } from './lib/shortcuts';
 import { settingsSync } from './lib/settingsSync';
-import { APP_CHORDS, chordAction, type Chord } from './lib/chords';
+import { commandFor, findCommand, keymapFrom } from './lib/keymap';
 import { FXConsoleModal } from './components/FXConsoleModal';
 import { loadFxSettings, loadFxSnapshots, saveFxSnapshots } from './lib/fxConsole';
 import { getLiveMousePos } from './lib/mouseTracker';
@@ -2633,11 +2632,9 @@ export default function App() {
 
   // ── keyboard ───────────────────────────────────────────────────────────
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  // The keys each command runs on: the defaults with the user's changes (Keyboard Shortcuts).
+  const keymap = useMemo(() => keymapFrom(settings.shortcuts), [settings.shortcuts]);
   keyHandler.current = (event: KeyboardEvent) => {
-    const ctrl = event.ctrlKey || event.metaKey;
-    const shift = event.shiftKey;
-    const alt = event.altKey;
-    const key = event.key.toLowerCase();
     const run = (action: () => void) => {
       event.preventDefault();
       action();
@@ -2648,7 +2645,17 @@ export default function App() {
       if (event.key === 'Escape' && menu) setMenu(null);
       return;
     }
-    const chord = chordAction(event);
+    const id = commandFor(keymap, event);
+    if (!id) return;
+    // Only file and app commands work on the home screen.
+    if (mode === 'home' && !findCommand(id)?.app) return;
+    if (id === 'copy' || id === 'cut') {
+      // Selected prose (chat, settings, anywhere else text is selectable) wants a plain clipboard
+      // copy, not the timeline's clip-copy — this used to preventDefault and hijack Ctrl+C/X even
+      // when nothing in the timeline was selected, so copying chat text silently did nothing.
+      const selectedText = window.getSelection();
+      if (selectedText && !selectedText.isCollapsed && selectedText.toString().length > 0) return;
+    }
     const duplicate = () => {
       if (!comp || !selection.length) return;
       const span = Math.max(...selectedClips.map(clipEnd)) - Math.min(...selectedClips.map((clip) => clip.start));
@@ -2659,7 +2666,31 @@ export default function App() {
       }
     };
     const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools', 'transcript'];
-    const perform = (name: Chord): (() => void) => {
+    const sourceFocused = focused === 'source' && !!sourceAsset;
+    const step = (frames: number) => (sourceFocused ? sourceApi.current?.step(frames) : programApi.current?.step(frames));
+    const sourceRange = () => sourceAsset && (sourceRanges[sourceAsset.id] ?? { in: 0, out: sourceAsset.kind === 'image' ? STILL_DEFAULT : sourceAsset.duration });
+    const seekMarker = (direction: 1 | -1) => { const target = nextPoint(comp?.markers.map((marker) => marker.time) ?? [], playhead.get(), direction); if (target !== null) playhead.seek(target); };
+    const maximizeUnderCursor = () => {
+      if (maximized) {
+        setMaximized(null);
+        return;
+      }
+      let target: PanelId | null = null;
+      if (typeof document !== 'undefined') {
+        const { x, y } = getLiveMousePos();
+        for (const el of document.elementsFromPoint(x, y)) {
+          const id = el.closest('[data-panel]')?.getAttribute('data-panel') as PanelId | null;
+          if (id && ['chat', 'source', 'program', 'properties', 'project', 'timeline'].includes(id)) {
+            target = id;
+            break;
+          }
+        }
+      }
+      const panelToToggle = target ?? focused;
+      setFocused(panelToToggle);
+      toggleMax(panelToToggle);
+    };
+    const perform = (name: string): (() => void) | null => {
       switch (name) {
         // File and app-wide
         case 'newProject': return newProjectNow;
@@ -2689,6 +2720,8 @@ export default function App() {
         case 'paste': return () => paste(false);
         case 'copy': return () => copySelection(false);
         case 'cut': return () => copySelection(true);
+        case 'clear': return () => deleteSelection(false);
+        case 'rippleDelete': return () => deleteSelection(true);
         case 'deselectAll': return () => { setSelection([]); setTransitionSelection(null); };
         case 'selectAll': return () => comp && setSelection(comp.clips.map((clip) => clip.id));
         case 'editOriginal': return () => {
@@ -2696,181 +2729,108 @@ export default function App() {
           if (clip?.source.type === 'media') void api.openPath(assetMap.get(clip.source.assetId)?.path ?? '');
         };
         case 'duplicate': return duplicate;
-        // Clip and comp
-        case 'speed': return () => selectedClips[0] && speedDialog(selectedClips[0], selection);
-        case 'ungroup': return () => editComp((current) => setGrouped(current, selection, false), 'Ungroup');
-        case 'group': return () => editComp((current) => setGrouped(current, selection, true), 'Group');
-        case 'link': return () => editComp((current) => setLinked(current, selection, !selectedClips.some((clip) => clip.linkId)), 'Link');
-        case 'addEditAll': return () => addEdit(true);
-        case 'addEdit': return () => addEdit(false);
-        case 'applyTransition': return () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition');
-        case 'newTitle': return () => addText('title');
+        // Tools
+        case 'toolSelect': return () => setTool('select');
+        case 'toolTrackForward': return () => setTool('track-forward');
+        case 'toolTrackBackward': return () => setTool('track-backward');
+        case 'toolRipple': return () => setTool('ripple');
+        case 'toolRolling': return () => setTool('rolling');
+        case 'toolRateStretch': return () => setTool('rate-stretch');
+        case 'toolRazor': return () => setTool('razor');
+        case 'toolSlip': return () => setTool('slip');
+        case 'toolSlide': return () => setTool('slide');
+        case 'toolPen': return () => setTool('pen');
+        case 'toolHand': return () => setTool('hand');
+        case 'toolZoom': return () => setTool('zoom');
+        case 'toolType': return () => setTool('type');
         case 'rectangle': return () => setTool('rectangle');
         case 'ellipse': return () => setTool('ellipse');
-        // Markers
+        case 'newTitle': return () => addText('title');
+        // Playback
+        case 'playToggle': return () => (sourceFocused ? sourceApi.current?.toggle() : programApi.current?.toggle());
+        case 'shuttleBack': return () => programApi.current?.shuttle(-1);
+        case 'shuttleStop': return () => programApi.current?.shuttle(0);
+        case 'shuttleForward': return () => programApi.current?.shuttle(1);
+        case 'playAround': return () => programApi.current?.playAround();
+        case 'playInToOut': return () => programApi.current?.playInToOut();
+        case 'stepBack': return () => step(-1);
+        case 'stepForward': return () => step(1);
+        case 'stepBack5': return () => step(-5);
+        case 'stepForward5': return () => step(5);
+        case 'previousEdit': return () => goToPoint(-1, false);
+        case 'nextEdit': return () => goToPoint(1, false);
+        case 'previousEditAny': return () => goToPoint(-1, true);
+        case 'nextEditAny': return () => goToPoint(1, true);
+        case 'goStart': return () => playhead.seek(0);
+        case 'goEnd': return () => comp && playhead.seek(compDuration(comp));
+        case 'jumpBack': return () => playhead.seek(Math.max(0, playhead.get() - 5));
+        case 'jumpForward': return () => playhead.seek(playhead.get() + 5);
+        // Marking
+        case 'markIn': return () => (sourceFocused ? sourceApi.current?.markIn() : markIn());
+        case 'markOut': return () => (sourceFocused ? sourceApi.current?.markOut() : markOut());
+        case 'markClip': return () => (sourceFocused ? sourceApi.current?.markClip() : markClip());
+        case 'markSelection': return markSelection;
+        case 'goIn': return () => playhead.seek(comp?.inPoint ?? 0);
+        case 'goOut': return () => playhead.seek(comp?.outPoint ?? (comp ? compDuration(comp) : 0));
         case 'clearIn': return () => editComp((current) => ({ ...current, inPoint: null }), 'Clear In');
         case 'clearOut': return () => editComp((current) => ({ ...current, outPoint: null }), 'Clear Out');
         case 'clearInOut': return clearInOut;
-        case 'clearAllMarkers': return () => editComp((current) => ({ ...current, markers: [] }), 'Clear All Markers');
+        case 'addMarker': return addMarker;
+        case 'nextMarker': return () => seekMarker(1);
+        case 'previousMarker': return () => seekMarker(-1);
         case 'clearMarker': return () => editComp((current) => toggleMarker(current, playhead.get()), 'Clear Marker');
-        case 'previousMarker': return () => { const target = nextPoint(comp?.markers.map((marker) => marker.time) ?? [], playhead.get(), -1); if (target !== null) playhead.seek(target); };
-        // Track heights and panels
+        case 'clearAllMarkers': return () => editComp((current) => ({ ...current, markers: [] }), 'Clear All Markers');
+        // Editing
+        case 'insert': return () => { const range = sourceRange(); if (sourceAsset && range) sourceEdit(sourceAsset, range, 'insert'); };
+        case 'overwrite': return () => { const range = sourceRange(); if (sourceAsset && range) sourceEdit(sourceAsset, range, 'overwrite'); };
+        case 'addEdit': return () => addEdit(false);
+        case 'addEditAll': return () => addEdit(true);
+        case 'rippleTrimPrevious': return () => trimAtPlayhead('previous', true);
+        case 'rippleTrimNext': return () => trimAtPlayhead('next', true);
+        case 'extendPrevious': return () => trimAtPlayhead('previous', false);
+        case 'extendNext': return () => trimAtPlayhead('next', false);
+        case 'lift': return () => removeRangeNow('lift');
+        case 'extract': return () => removeRangeNow('extract');
+        case 'applyTransition': return () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition');
+        case 'speed': return () => selectedClips[0] && speedDialog(selectedClips[0], selection);
+        case 'enableToggle': return () => editComp((current) => ({ ...current, clips: current.clips.map((clip) => (selection.includes(clip.id) ? { ...clip, enabled: !selectedClips.every((item) => item.enabled) } : clip)) }), 'Enable');
+        case 'link': return () => editComp((current) => setLinked(current, selection, !selectedClips.some((clip) => clip.linkId)), 'Link');
+        case 'group': return () => editComp((current) => setGrouped(current, selection, true), 'Group');
+        case 'ungroup': return () => editComp((current) => setGrouped(current, selection, false), 'Ungroup');
+        case 'gain': return () => selectedClips.length && gainDialog(selectedClips);
+        case 'matchFrame': return matchFrame;
+        case 'nudgeLeft': return () => nudge(-1);
+        case 'nudgeRight': return () => nudge(1);
+        case 'nudgeLeft5': return () => nudge(-5);
+        case 'nudgeRight5': return () => nudge(5);
+        case 'nudgeUp': return () => nudge(1, true);
+        case 'nudgeDown': return () => nudge(-1, true);
+        case 'volumeDown': return () => clipVolume(-1);
+        case 'volumeUp': return () => clipVolume(1);
+        case 'volumeDown6': return () => clipVolume(-6);
+        case 'volumeUp6': return () => clipVolume(6);
+        // Timeline
+        case 'snap': return () => setSnapping((value) => !value);
+        case 'zoomIn': return () => timelineApi.current?.zoomBy(1.3);
+        case 'zoomOut': return () => timelineApi.current?.zoomBy(1 / 1.3);
+        case 'zoomFit': return () => timelineApi.current?.toggleFit();
         case 'videoTaller': return () => trackHeights('video', 16);
         case 'videoShorter': return () => trackHeights('video', -16);
         case 'audioTaller': return () => trackHeights('audio', 16);
         case 'audioShorter': return () => trackHeights('audio', -16);
         case 'allTaller': return () => trackHeights('all', 40);
         case 'allShorter': return () => trackHeights('all', -40);
-        default: return () => showPanel(panels[Number(name.slice(5)) - 1]);
+        // Panels
+        case 'maximize': return maximizeUnderCursor;
+        case 'escape': return () => { setSelection([]); setTransitionSelection(null); setTool('select'); };
+        default: {
+          const panel = /^panel(\d)$/.exec(name);
+          return panel ? () => showPanel(panels[Number(panel[1]) - 1]) : null;
+        }
       }
     };
-    if (chord && APP_CHORDS.has(chord)) return run(perform(chord));
-    if (mode === 'home') return;
-    if (chord === 'copy' || chord === 'cut') {
-      // Selected prose (chat, settings, anywhere else text is selectable) wants a plain clipboard
-      // copy, not the timeline's clip-copy — this used to preventDefault and hijack Ctrl+C/X even
-      // when nothing in the timeline was selected, so copying chat text silently did nothing.
-      const selectedText = window.getSelection();
-      if (selectedText && !selectedText.isCollapsed && selectedText.toString().length > 0) return;
-    }
-    if (chord) return run(perform(chord));
-    if (ctrl && shift && event.key === ' ') return run(() => programApi.current?.playInToOut());
-    if (ctrl) return;
-    const sourceFocused = focused === 'source' && !!sourceAsset;
-    // Transport and navigation
-    switch (event.key) {
-      case ' ':
-        return run(() => (sourceFocused ? sourceApi.current?.toggle() : programApi.current?.toggle()));
-      case 'ArrowLeft':
-      case 'ArrowRight': {
-        const direction = event.key === 'ArrowLeft' ? -1 : 1;
-        if (alt) return run(() => nudge(direction * (shift ? 5 : 1)));
-        const frames = (shift ? 5 : 1) * direction;
-        return run(() => (sourceFocused ? sourceApi.current?.step(frames) : programApi.current?.step(frames)));
-      }
-      case 'ArrowUp':
-        if (alt) return run(() => nudge(1, true));
-        return run(() => goToPoint(-1, shift));
-      case 'ArrowDown':
-        if (alt) return run(() => nudge(-1, true));
-        return run(() => goToPoint(1, shift));
-      case 'Home':
-        return run(() => playhead.seek(0));
-      case 'End':
-        return run(() => comp && playhead.seek(compDuration(comp)));
-      case 'PageUp':
-      case 'PageDown':
-        return run(() => {
-          const span = 5;
-          playhead.seek(Math.max(0, playhead.get() + (event.key === 'PageDown' ? span : -span)));
-        });
-      case 'Delete':
-      case 'Backspace':
-        return run(() => deleteSelection(shift));
-      case 'Escape':
-        return run(() => { setSelection([]); setTransitionSelection(null); setTool('select'); });
-      case '`':
-      case '~':
-        return run(() => {
-          if (maximized) {
-            setMaximized(null);
-            return;
-          }
-          let target: PanelId | null = null;
-          if (typeof document !== 'undefined') {
-            const { x, y } = getLiveMousePos();
-            const elements = document.elementsFromPoint(x, y);
-            for (const el of elements) {
-              const panelEl = el.closest('[data-panel]');
-              const id = panelEl?.getAttribute('data-panel') as PanelId | null;
-              if (id && ['chat', 'source', 'program', 'properties', 'project', 'timeline'].includes(id)) {
-                target = id;
-                break;
-              }
-            }
-          }
-          const panelToToggle = target ?? focused;
-          setFocused(panelToToggle);
-          toggleMax(panelToToggle);
-        });
-      case '=':
-      case '+':
-        return run(() => timelineApi.current?.zoomBy(1.3));
-      case '-':
-        return run(() => timelineApi.current?.zoomBy(1 / 1.3));
-      case '\\':
-        return run(() => timelineApi.current?.toggleFit());
-      case ',':
-        return run(() => sourceAsset && sourceEdit(sourceAsset, sourceRanges[sourceAsset.id] ?? { in: 0, out: sourceAsset.kind === 'image' ? STILL_DEFAULT : sourceAsset.duration }, 'insert'));
-      case '.':
-        return run(() => sourceAsset && sourceEdit(sourceAsset, sourceRanges[sourceAsset.id] ?? { in: 0, out: sourceAsset.kind === 'image' ? STILL_DEFAULT : sourceAsset.duration }, 'overwrite'));
-      case ';':
-        return run(() => removeRangeNow('lift'));
-      case "'":
-        return run(() => removeRangeNow('extract'));
-      case '/':
-        return run(markSelection);
-      case '[':
-        return run(() => clipVolume(shift ? -6 : -1));
-      case ']':
-        return run(() => clipVolume(shift ? 6 : 1));
-      default:
-        break;
-    }
-    switch (key) {
-      case 'i':
-        return run(() => (shift ? playhead.seek(comp?.inPoint ?? 0) : sourceFocused ? sourceApi.current?.markIn() : markIn()));
-      case 'o':
-        return run(() => (shift ? playhead.seek(comp?.outPoint ?? (comp ? compDuration(comp) : 0)) : sourceFocused ? sourceApi.current?.markOut() : markOut()));
-      case 'x':
-        return run(() => (sourceFocused ? sourceApi.current?.markClip() : markClip()));
-      case 'm':
-        return run(() => (shift ? (() => { const target = nextPoint(comp?.markers.map((marker) => marker.time) ?? [], playhead.get(), 1); if (target !== null) playhead.seek(target); })() : addMarker()));
-      case 'j':
-        return run(() => programApi.current?.shuttle(-1));
-      case 'k':
-        return run(() => (shift ? programApi.current?.playAround() : programApi.current?.shuttle(0)));
-      case 'l':
-        return run(() => programApi.current?.shuttle(1));
-      case 'q':
-        return run(() => trimAtPlayhead('previous', !shift));
-      case 'w':
-        return run(() => trimAtPlayhead('next', !shift));
-      case 'e':
-        return run(() => (shift ? editComp((current) => ({ ...current, clips: current.clips.map((clip) => (selection.includes(clip.id) ? { ...clip, enabled: !selectedClips.every((item) => item.enabled) } : clip)) }), 'Enable') : trimAtPlayhead('next', false)));
-      case 'f':
-        return run(matchFrame);
-      case 'r':
-        return run(() => (shift ? matchFrame() : setTool('rate-stretch')));
-      case 'v':
-        return run(() => setTool('select'));
-      case 'a':
-        return run(() => setTool(shift ? 'track-backward' : 'track-forward'));
-      case 'b':
-        return run(() => setTool('ripple'));
-      case 'n':
-        return run(() => setTool('rolling'));
-      case 'c':
-        return run(() => setTool('razor'));
-      case 'y':
-        return run(() => setTool('slip'));
-      case 'u':
-        return run(() => setTool('slide'));
-      case 'p':
-        return run(() => setTool('pen'));
-      case 'h':
-        return run(() => setTool('hand'));
-      case 'z':
-        return run(() => setTool('zoom'));
-      case 't':
-        return run(() => setTool('type'));
-      case 'g':
-        return run(() => selectedClips.length && gainDialog(selectedClips));
-      case 's':
-        return run(() => setSnapping((value) => !value));
-      default:
-        break;
-    }
+    const action = perform(id);
+    if (action) run(action);
   };
 
   useEffect(() => {
@@ -3473,7 +3433,7 @@ export default function App() {
       <ErrorBoundary scope="Render window"><RenderWindow /></ErrorBoundary>
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder, preset) => void startExport(options, folder, preset)} onPrefs={(patch) => saveSettings({ export: { ...settingsRef.current.export, ...patch } })} />}
       {queueOpen && <LiveJobs>{(live) => <RenderQueueDialog jobs={live} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}</LiveJobs>}
-      {shortcutsOpen && <ShortcutsDialog shortcuts={SHORTCUTS} onClose={() => setShortcutsOpen(false)} />}
+      {shortcutsOpen && <ShortcutsDialog overrides={settings.shortcuts} onSave={(shortcuts) => void saveSettings({ shortcuts })} onClose={() => setShortcutsOpen(false)} />}
       <FXConsoleModal
         open={fxConsoleOpen}
         anchorPos={fxConsoleAnchor}

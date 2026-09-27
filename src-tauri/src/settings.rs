@@ -142,6 +142,9 @@ pub struct Settings {
     pub avatar_character: Option<String>,
     /// The user's own colours per character (character → colour slot → `#rrggbb`); the UI owns the shape.
     pub avatar_colors: Option<serde_json::Value>,
+    /// Keyboard shortcuts the user changed: command id → its keys (`[]` = no key); the rest keep
+    /// their defaults (src/lib/keymap.ts owns the shape).
+    pub shortcuts: Option<serde_json::Value>,
 }
 
 const KEYCHAIN_SERVICE: &str = "bhippi-studio";

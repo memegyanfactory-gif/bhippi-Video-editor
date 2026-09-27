@@ -3,6 +3,7 @@
 // Detection, clip properties and the shortcut list.
 import { useEffect, useState } from 'react';
 import { Modal, ColorSwatches } from '../components/ui';
+import { bindingOf, COMMANDS, conflicts, display, findCommand, GESTURES, keymapFrom, overridesOf, refuseBinding, usersOf, type Command, type Keymap } from '../lib/keymap';
 import { bytes, clamp, gainToDb, parseTimecode, timecode } from '../lib/editor';
 import { CAPTION_STYLES } from '../lib/captionStyles';
 import { FRAME_RATES, ITEM_LABEL, compDuration, tracksOf } from '../lib/timeline';
@@ -334,22 +335,120 @@ export function ClipInfoDialog({ clip, comp, asset, item, nested, onClose }: { c
   );
 }
 
-export function ShortcutsDialog({ shortcuts, onClose }: { shortcuts: [string, string, string][]; onClose: () => void }) {
+/**
+ * Keyboard Shortcuts: every command with its keys, each changeable. A key already in use is never
+ * taken silently: the dialog names the command that has it and asks before moving it. Keys Windows
+ * keeps for itself are refused. Nothing changes until Save.
+ */
+export function ShortcutsDialog({ overrides, onSave, onClose }: { overrides: Record<string, string[]> | null | undefined; onSave: (overrides: Record<string, string[]>) => void; onClose: () => void }) {
+  const [draft, setDraft] = useState<Keymap>(() => keymapFrom(overrides));
   const [query, setQuery] = useState('');
+  /** The command waiting for a key press, and what that press ran into. */
+  const [recording, setRecording] = useState<string | null>(null);
+  const [clash, setClash] = useState<{ command: string; binding: string; users: Command[] } | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+
+  const assign = (id: string, binding: string, takeFromOthers: boolean) => {
+    setDraft((current) => {
+      const next: Keymap = {};
+      for (const [command, keys] of Object.entries(current)) next[command] = takeFromOthers && command !== id ? keys.filter((key) => key !== binding) : keys;
+      next[id] = [...(next[id] ?? []).filter((key) => key !== binding), binding];
+      return next;
+    });
+    setRecording(null);
+    setClash(null);
+  };
+
+  // Recording: the next key press (with its modifiers) is the new shortcut. Caught before the
+  // dialog's own Escape and the editor see it.
+  useEffect(() => {
+    if (!recording) return;
+    const onKey = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.key === 'Escape' && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+        setRecording(null);
+        setRefused(null);
+        return;
+      }
+      const binding = bindingOf(event);
+      if (!binding) return;
+      const reason = refuseBinding(binding);
+      if (reason) {
+        setRefused(reason);
+        return;
+      }
+      setRefused(null);
+      const users = usersOf(draft, binding, recording);
+      if (users.length) setClash({ command: recording, binding, users });
+      else assign(recording, binding, false);
+      setRecording(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [recording, draft]);
+
   const needle = query.trim().toLowerCase();
-  const rows = shortcuts.filter(([keys, action, group]) => !needle || `${keys} ${action} ${group}`.toLowerCase().includes(needle));
-  const groups = [...new Set(rows.map(([, , group]) => group))];
+  const rows = COMMANDS.filter((item) => !needle || `${item.label} ${item.group} ${(draft[item.id] ?? []).map(display).join(' ')}`.toLowerCase().includes(needle));
+  const gestures = GESTURES.filter(([keys, action, group]) => !needle || `${keys} ${action} ${group}`.toLowerCase().includes(needle));
+  const groups = [...new Set([...rows.map((item) => item.group), ...gestures.map(([, , group]) => group)])];
+  const clashes = conflicts(draft);
+  const changed = Object.keys(overridesOf(draft)).length;
+  const clashLabel = (users: Command[]) => users.map((item) => `“${item.label}” (${item.group})`).join(' and ');
+
   return (
-    <Modal title="Keyboard Shortcuts" onClose={onClose} width={720} footer={<><span className="muted">{rows.length} shortcuts</span><div className="toolbar-spacer" /><button type="button" className="btn btn-primary" onClick={onClose}>Close</button></>}>
+    <Modal title="Keyboard Shortcuts" onClose={onClose} width={820} footer={
+      <>
+        <span className="muted">{changed ? `${changed} changed from the defaults` : 'All defaults'}</span>
+        <button type="button" className="btn" disabled={!changed} onClick={() => { setDraft(keymapFrom(null)); setClash(null); }}>Reset all</button>
+        <div className="toolbar-spacer" />
+        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-primary" onClick={() => { onSave(overridesOf(draft)); onClose(); }}>Save</button>
+      </>
+    }>
       <div className="shortcuts-search">
-        <input placeholder="Search shortcuts" value={query} autoFocus onChange={(event) => setQuery(event.target.value)} />
+        <input placeholder="Search commands or keys" value={query} autoFocus onChange={(event) => setQuery(event.target.value)} />
       </div>
+      {clash && (
+        <div className="shortcut-notice warn" role="alert">
+          <span><kbd>{display(clash.binding)}</kbd> is already used by {clashLabel(clash.users)}.</span>
+          <button type="button" className="btn btn-small btn-primary" onClick={() => assign(clash.command, clash.binding, true)}>Use it for “{findCommand(clash.command)?.label}” instead</button>
+          <button type="button" className="btn btn-small" onClick={() => setClash(null)}>Cancel</button>
+        </div>
+      )}
+      {refused && <div className="shortcut-notice warn" role="alert"><span>{refused} Pick another key.</span></div>}
+      {!clash && clashes.size > 0 && (
+        <div className="shortcut-notice warn">
+          <span>{[...clashes].map(([binding, users]) => `${display(binding)} runs ${users.map((item) => `“${item.label}”`).join(' and ')}`).join('; ')}. Only the first one runs: give one of them another key.</span>
+        </div>
+      )}
       <div className="shortcuts-table">
         {groups.map((group) => (
           <div key={group} className="shortcut-group">
             <h4>{group}</h4>
-            {rows.filter(([, , item]) => item === group).map(([keys, action]) => (
-              <div key={`${group}-${keys}-${action}`} className="shortcut"><kbd>{keys}</kbd><span>{action}</span></div>
+            {rows.filter((item) => item.group === group).map((item) => {
+              const keys = draft[item.id] ?? [];
+              const isDefault = keys.length === item.keys.length && keys.every((key, index) => key === item.keys[index]);
+              return (
+                <div key={item.id} className={`shortcut${recording === item.id ? ' recording' : ''}`}>
+                  <span className="shortcut-label">{item.label}</span>
+                  <span className="shortcut-keys">
+                    {keys.map((key) => (
+                      <kbd key={key} className={clashes.has(key) ? 'clash' : undefined} title={clashes.has(key) ? `Also used by ${clashLabel((clashes.get(key) ?? []).filter((user) => user.id !== item.id))}` : undefined}>
+                        {display(key)}
+                        <button type="button" aria-label={`Remove ${display(key)} from ${item.label}`} onClick={() => setDraft((current) => ({ ...current, [item.id]: (current[item.id] ?? []).filter((other) => other !== key) }))}>×</button>
+                      </kbd>
+                    ))}
+                    {recording === item.id
+                      ? <span className="shortcut-press">Press the keys… (Esc cancels)</span>
+                      : <button type="button" className="shortcut-add" title={`Add a key for ${item.label}`} onClick={() => { setRecording(item.id); setClash(null); setRefused(null); }}>{keys.length ? '+' : '+ Add key'}</button>}
+                    {!isDefault && <button type="button" className="shortcut-reset" title={`Back to ${item.keys.map(display).join(' · ') || 'no key'}`} onClick={() => setDraft((current) => ({ ...current, [item.id]: [...item.keys] }))}>↺</button>}
+                  </span>
+                </div>
+              );
+            })}
+            {gestures.filter(([, , item]) => item === group).map(([keys, action]) => (
+              <div key={keys} className="shortcut gesture"><span className="shortcut-label">{action}</span><span className="shortcut-keys"><kbd>{keys}</kbd></span></div>
             ))}
           </div>
         ))}

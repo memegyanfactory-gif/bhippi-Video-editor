@@ -779,9 +779,22 @@ canvas.clip-wave { position: absolute; top: 15px; display: block; }
 .shortcuts-table { padding: 10px 16px 16px; columns: 2; column-gap: 24px; }
 .shortcut-group { break-inside: avoid; margin-bottom: 12px; }
 .shortcut-group h4 { margin: 0 0 4px; font-size: 11px; color: var(--blue-hi); text-transform: uppercase; letter-spacing: 0.05em; }
-.shortcut { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 11.5px; }
-.shortcut kbd { min-width: 150px; color: #fff; }
-.shortcut span { color: var(--text-dim); }
+.shortcut { display: flex; align-items: center; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 11.5px; min-height: 26px; }
+.shortcut.recording { background: var(--blue-soft); }
+.shortcut-label { flex: 1; min-width: 0; color: var(--text-dim); }
+.shortcut-keys { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; }
+.shortcut-keys kbd { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 6px; color: #fff; background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: 3px; font: 11px var(--mono); }
+.shortcut.gesture .shortcut-keys kbd { padding-right: 6px; }
+.shortcut-keys kbd.clash { border-color: var(--amber); color: var(--amber); }
+.shortcut-keys kbd button { padding: 0 2px; border: 0; background: none; color: var(--text-faint); cursor: pointer; font-size: 12px; line-height: 1; }
+.shortcut-keys kbd button:hover { color: var(--red); }
+.shortcut-add, .shortcut-reset { padding: 1px 6px; border: 1px dashed var(--line-strong); border-radius: 3px; background: none; color: var(--text-faint); cursor: pointer; font-size: 11px; }
+.shortcut-add:hover, .shortcut-reset:hover { color: var(--text); border-color: var(--text-faint); }
+.shortcut-reset { border-style: solid; }
+.shortcut-press { color: var(--blue-hi); font-size: 11px; }
+.shortcut-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 16px 0; padding: 8px 10px; border-radius: 4px; font-size: 12px; }
+.shortcut-notice.warn { background: var(--red-soft); border: 1px solid var(--amber); color: var(--text); }
+.shortcut-notice kbd { padding: 1px 5px; background: var(--panel-3); border-radius: 3px; font: 11px var(--mono); }
 .export-form { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 6px; }
 .export-summary { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 4px; background: var(--well); color: var(--text-dim); font-size: 11.5px; }
 .quality-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
