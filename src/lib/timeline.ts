@@ -354,6 +354,32 @@ export function healProject(project: Project): Project {
 export const sourceOut = (clip: Clip) => clip.in + clip.duration * clip.speed;
 export const compDuration = (comp: Comp) => comp.clips.reduce((end, clip) => Math.max(end, clipEnd(clip)), 0);
 
+/**
+ * The moment of a comp with the most on screen, for its Project-bin poster: the span where the most
+ * visible picture layers overlap (the longest such span on a tie), a little past its start so entry
+ * animations have landed. Comps often open on an empty or black frame and build up later, so the
+ * first frame — or even the middle — can show nothing.
+ */
+export function busiestTime(comp: Comp): number {
+  const total = compDuration(comp);
+  if (total <= 0) return 0;
+  const shown = new Set(comp.tracks.filter((track) => track.kind === 'video' && !track.hidden).map((track) => track.id));
+  const layers = comp.clips.filter((clip) => clip.enabled && !clip.adjustment && clip.source.type !== 'sfx' && shown.has(clip.trackId) && clip.duration > 0);
+  if (!layers.length) return total / 2;
+  const edges = [...new Set([0, total, ...layers.flatMap((clip) => [clip.start, clipEnd(clip)])])].filter((at) => at >= 0 && at <= total).sort((a, b) => a - b);
+  let best = { count: -1, length: 0, from: 0, to: total };
+  for (let index = 0; index < edges.length - 1; index++) {
+    const from = edges[index];
+    const to = edges[index + 1];
+    if (to - from < 1e-3) continue;
+    const mid = (from + to) / 2;
+    const count = layers.filter((clip) => clip.start <= mid && clipEnd(clip) > mid).length;
+    if (count > best.count || (count === best.count && to - from > best.length)) best = { count, length: to - from, from, to };
+  }
+  // 60% into the span: past most intros, before any outro.
+  return best.from + (best.to - best.from) * 0.6;
+}
+
 export const clipsOn = (comp: Comp, trackId: string) => comp.clips.filter((clip) => clip.trackId === trackId).sort((a, b) => a.start - b.start);
 
 /** `ids` plus every clip linked or grouped with one of them. */

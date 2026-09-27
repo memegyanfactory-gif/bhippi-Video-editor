@@ -15,7 +15,17 @@ const PRE={
 const CLOTH=['#F5F1E8','#2B2D33','#E4574C','#F6A623','#F2D34F','#3FBF7F','#1FA3A0','#3F7FC1','#6B5CE0','#E06FA6','#8A6E52','#7FB3E8'];
 const SKIN=['#FFE3D1','#F9CDB1','#EDB48E','#D99A70','#BD7E55','#9C603E','#7A4630','#55321F','#9BD35A','#6FC2E8','#B58CF0','#F0685A'];
 const HAIRC=['#1D1A1A','#3B2419','#6B3F22','#9C3D1E','#E07B2E','#F2C14E','#EDE3C7','#C4C4C4','#3D6FE0','#F07AA8'];
+const HAIRS=['short','messy','sidepart','bowl','long','bob','ponytail','bun','curly','afro','bald'];
+const TOPS=['tee','shirt','tank','longsleeve','sweater','hoodie'],BOTTOMS=['jeans','trousers','shorts','skirt'];
 const clone=o=>JSON.parse(JSON.stringify(o));
+/** A random character built only from parts the sculpted models can wear. */
+function randomSpec(){const pick=a=>a[Math.floor(Math.random()*a.length)];const colours=n=>[...CLOTH].sort(()=>Math.random()-.5).slice(0,n);
+  const body=pick(['masc','fem','neutral']),age=pick(['kid','teen','adult','adult']),[top,bottom,jacket,shoes]=colours(4);
+  const hair=body==='fem'?pick(['long','bob','ponytail','bun','curly','afro']):body==='masc'?pick(['short','messy','sidepart','bowl','curly','afro',...(age==='adult'?['bald']:[])]):pick(HAIRS.filter(h=>h!=='bald'));
+  return{shape:'classic',age,body,build:pick(['slim','average','average','heavy']),height:pick(['short','average','average','tall']),skin:Math.random()<.15?pick(SKIN.slice(8)):pick(SKIN.slice(0,8)),
+    face:{eyeColor:pick(['#5A3A22','#3F7FC1','#6E7A86','#3FBF7F']),mouth:pick(['smile','grin','smirk','open'])},hair:{style:hair,color:pick(HAIRC.slice(0,age==='kid'?6:10))},
+    top:{kind:pick(TOPS),color:top},outer:Math.random()<.45?{kind:pick(['jacket','bomber','denim','varsity','leather','blazer']),color:jacket}:null,
+    bottom:{kind:pick(body==='fem'?BOTTOMS:BOTTOMS.filter(b=>b!=='skirt')),color:bottom},shoes:{kind:pick(['sneakers','sneakers','boots']),color:shoes},acc:[]};}
 const C=window.BhippiChars;let saved=C.load();
 let spec=saved[0]?C.to3D(saved[0]):clone(PRE.Kai),specName=saved[0]?saved[0].name:'Kai';delete spec.updatedAt;
 function toast(msg,err){const t=$('toast');t.textContent=msg;t.classList.toggle('err',!!err);t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>t.hidden=true,err?4000:2200);}
@@ -62,16 +72,22 @@ function loadShot(s){shot=s;D.load(s);fxBeats=s.fx||[];tNow=0;lastDrawing=-1;}
 function segCtl(label,key,opts,cur,labels={}){return`<div class="row"><h3>${label}</h3><div class="seg">${opts.map(o=>`<button data-k="${key}" data-v="${o}" class="${cur===o?'on':''}">${labels[o]||o}</button>`).join('')}</div></div>`;}
 function sw(label,key,cols,cur){return`<div class="row"><h3>${label}</h3><div class="sw">${cols.map(c=>`<button data-c="${key}" data-v="${c}" style="background:${c}" class="${cur===c?'on':''}" aria-label="${label} ${c}"></button>`).join('')}</div></div>`;}
 function renderSide(){const S=$('side');
-  if(mode==='char'){S.innerHTML=`<div class="row"><h3>My characters</h3><div class="saved">${saved.length?saved.map((c,i)=>`<button class="saved-item${c.name===specName?' on':''}" data-si="${i}"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${esc(c.skin||'#ccc')}"></span>${esc(c.name)}</span><small>${esc(c.age||'')}</small></button>`).join(''):'<small style="color:var(--text-faint)">Nothing saved yet. Name a character above and press Save; characters saved in 2D show here too.</small>'}</div></div><div class="row"><h3>Start from</h3><select id="pre">${Object.keys(PRE).map(k=>`<option ${k===specName?'selected':''}>${k}</option>`).join('')}${PRE[specName]?'':'<option selected disabled>—</option>'}</select></div>`+
-    segCtl('Build','build',['slim','average','heavy'],spec.build||({noodle:'slim',chunky:'heavy'}[spec.shape])||'average',{slim:'Slim',average:'Average',heavy:'Heavy'})+segCtl('Height','height',['short','average','tall'],spec.height||'average',{short:'Short',average:'Average',tall:'Tall'})+segCtl('Age','age',['kid','teen','adult'],spec.age)+segCtl('Body','body',['masc','fem','neutral'],spec.body,{masc:'Masculine',fem:'Feminine',neutral:'Neutral'})+
-    sw('Skin','skin',SKIN,spec.skin)+`<div class="row"><h3>Hair</h3><select id="hair">${['short','messy','sidepart','bowl','long','bob','ponytail','bun','curly','afro','bald'].map(h=>`<option ${spec.hair.style===h?'selected':''}>${h}</option>`).join('')}</select></div>`+sw('Hair colour','hair',HAIRC,spec.hair.color)+
-    sw('Top','top',CLOTH,spec.top.color)+`<div class="row"><h3>Jacket</h3><div class="seg"><button id="jOn" class="${spec.outer?'on':''}">On</button><button id="jOff" class="${spec.outer?'':'on'}">Off</button></div></div>`+(spec.outer?sw('Jacket colour','outer',CLOTH,spec.outer.color):'')+
-    sw('Bottoms','bottom',CLOTH,spec.bottom.color)+sw('Shoes','shoes',CLOTH,spec.shoes.color)+`<p style="color:var(--text-faint);margin:0">A saved character works in both 2D and 3D. <b>Add to project</b> puts a transparent PNG of the current view into the project's media.</p>`;
-    S.querySelectorAll('[data-si]').forEach(b=>b.onclick=()=>{const c=saved[+b.dataset.si];spec=C.to3D(c);delete spec.updatedAt;specName=c.name;$('name').value=c.name;rebuild();});
-    S.querySelector('#pre').onchange=e=>{specName=e.target.value;spec=clone(PRE[specName]);$('name').value='';rebuild();};
+  if(mode==='char'){const card=(title,body)=>`<section class="card"><div class="card-title">${title}</div>${body}</section>`;
+    const pick=(label,id,opts,cur)=>`<div class="row"><h3>${label}</h3><select id="${id}">${opts.map(o=>`<option ${cur===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+    S.innerHTML=card('Library',`<div class="row"><h3>My characters</h3>${saved.length?`<div class="saved">${saved.map((c,i)=>`<button class="saved-item${c.name===specName?' on':''}" data-si="${i}"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${esc(c.skin||'#ccc')}"></span>${esc(c.name)}</span><small>${esc(c.age||'')}</small></button>`).join('')}</div>`:'<div class="empty">Nothing saved yet. Name a character and press Save, or roll a Random one. Characters saved in 2D show here too.</div>'}</div>
+      <div class="row"><h3>Start from</h3><div class="presets">${Object.keys(PRE).map(k=>`<button data-pre="${k}" class="${k===specName?'on':''}">${k}</button>`).join('')}</div></div>`)+
+    card('Body',segCtl('Build','build',['slim','average','heavy'],spec.build||({noodle:'slim',chunky:'heavy'}[spec.shape])||'average',{slim:'Slim',average:'Average',heavy:'Heavy'})+segCtl('Height','height',['short','average','tall'],spec.height||'average',{short:'Short',average:'Average',tall:'Tall'})+segCtl('Age','age',['kid','teen','adult'],spec.age,{kid:'Kid',teen:'Teen',adult:'Adult'})+segCtl('Body','body',['masc','fem','neutral'],spec.body,{masc:'Masculine',fem:'Feminine',neutral:'Neutral'})+sw('Skin','skin',SKIN,spec.skin))+
+    card('Hair',pick('Style','hair',HAIRS,spec.hair.style)+sw('Colour','hair',HAIRC,spec.hair.color))+
+    card('Outfit',pick('Top','topKind',TOPS,spec.top.kind)+sw('Top colour','top',CLOTH,spec.top.color)+`<div class="row"><h3>Jacket</h3><div class="seg"><button id="jOn" class="${spec.outer?'on':''}">On</button><button id="jOff" class="${spec.outer?'':'on'}">Off</button></div></div>`+(spec.outer?sw('Jacket colour','outer',CLOTH,spec.outer.color):'')+
+      pick('Bottoms','bottomKind',BOTTOMS,spec.bottom.kind)+sw('Bottoms colour','bottom',CLOTH,spec.bottom.color)+sw('Shoes','shoes',CLOTH,spec.shoes.color))+
+    `<p class="note">A saved character works in both 2D and 3D. <b>Add to project</b> puts a transparent PNG of the current view into the project's media.</p>`;
+    S.querySelectorAll('[data-si]').forEach(b=>b.onclick=()=>{const c=saved[+b.dataset.si];spec=C.to3D(c);delete spec.updatedAt;specName=c.name;$('name').value=c.name;syncHeader();rebuild();});
+    S.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{specName=b.dataset.pre;spec=clone(PRE[specName]);$('name').value='';syncHeader();rebuild();});
     S.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{spec[b.dataset.k]=b.dataset.v;rebuild();});
     S.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{const k=b.dataset.c,v=b.dataset.v;if(k==='skin')spec.skin=v;else spec[k].color=v;rebuild();});
     S.querySelector('#hair').onchange=e=>{spec.hair.style=e.target.value;rebuild();};
+    S.querySelector('#topKind').onchange=e=>{spec.top.kind=e.target.value;rebuild();};
+    S.querySelector('#bottomKind').onchange=e=>{spec.bottom.kind=e.target.value;rebuild();};
     S.querySelector('#jOn').onclick=()=>{spec.outer={kind:'jacket',color:'#E4574C'};rebuild();};S.querySelector('#jOff').onclick=()=>{spec.outer=null;rebuild();};}
   if(mode==='moves'){S.innerHTML=`<div class="row"><h3>Move library · ${Object.keys(K.MOVES).length} moves</h3><div class="moves">${Object.entries(K.MOVES).map(([k,m])=>`<button class="mv ${k===moveSel?'on':''}" data-mv="${k}"><b>${k}</b><span>${m.doc}</span></button>`).join('')}</div></div>
     <div class="row"><h3>Camera moves</h3><div class="moves">${Object.entries(K.CAMERA).map(([k,m])=>`<div class="mv"><b>${k}</b><span>${m.doc}</span></div>`).join('')}</div></div>
@@ -87,11 +103,16 @@ function renderSide(){const S=$('side');
     S.querySelector('#copy').onclick=()=>{try{navigator.clipboard.writeText(src.value).catch(()=>src.select());}catch(e){src.select();}};
     S.querySelector('#tools').textContent=JSON.stringify(K.TOOLS,null,1);S.querySelector('#cat').textContent=JSON.stringify(K.catalog(),null,1);setEx(Object.keys(EXAMPLES)[0]);}
 }
+function icons(){try{window.lucide&&lucide.createIcons({attrs:{'stroke-width':1.8}});}catch(e){}}
 function rebuild(){if(mode==='char')loadShot(charShot());else if(mode==='moves')loadShot(moveShot());renderSide();}
 $('modes').querySelectorAll('button').forEach(b=>b.onclick=()=>{mode=b.dataset.m;$('modes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
   $('hint').textContent=mode==='char'?'Drag to orbit · move the pointer and they look at it':mode==='moves'?'Click a move to preview it · drag to orbit':'Scripts use only library names, which is what the AI writes';
   if(mode==='char')loadShot(charShot());if(mode==='moves')loadShot(moveShot());renderSide();});
 $('name').value=saved[0]?saved[0].name:'';
+// A brand-new character with a name nobody uses yet, so Save adds it rather than overwriting one.
+$('rand').onclick=()=>{spec=randomSpec();specName=C.randomName([...saved.map(c=>c.name),...Object.keys(PRE),$('name').value]);$('name').value=specName;syncHeader();
+  if(mode==='shots')document.querySelector('[data-m="char"]').click();else rebuild();
+  const b=$('rand');b.classList.remove('rolling');void b.offsetWidth;b.classList.add('rolling');setTimeout(()=>b.classList.remove('rolling'),400);};
 function syncHeader(){const ex=findSaved($('name').value);$('save').textContent=ex?'Update':'Save';$('del').disabled=!ex;}
 $('name').addEventListener('input',syncHeader);syncHeader();
 $('save').onclick=()=>{const n=$('name').value.trim();if(!n){toast('Give your character a name first',true);$('name').focus();return;}
@@ -142,6 +163,6 @@ function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;const dur=sh
 $('play').onclick=()=>{playing=!playing;$('play').textContent=playing?'Pause':'Play';};
 $('scrub').oninput=()=>{if(mode==='char')return;tNow=$('scrub').value/1000*(shot.duration||8);lastDrawing=-1;playing=false;$('play').textContent='Play';};
 $('twos').onclick=()=>{twos=true;$('twos').classList.add('on');$('ones').classList.remove('on');};$('ones').onclick=()=>{twos=false;$('ones').classList.add('on');$('twos').classList.remove('on');};
-loadShot(charShot());renderSide();resize();requestAnimationFrame(frame);
+loadShot(charShot());renderSide();icons();resize();requestAnimationFrame(frame);
 window.__studio={mode:m=>{document.querySelector(`[data-m="${m}"]`).click();},seek:t=>{tNow=t;lastDrawing=-1;playing=false;},pick:mv=>{moveSel=mv;loadShot(moveShot());renderSide();},example:k=>{const sel=document.getElementById('ex');sel.value=k;sel.onchange({target:sel});}};
 };

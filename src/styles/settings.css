@@ -26,6 +26,8 @@
 .settings-body h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 5px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
 .settings-body p { margin: 0 0 10px; color: var(--text-dim); font-size: 12.5px; line-height: 1.5; }
 .settings-intro p { max-width: 640px; margin-bottom: 0; }
+.provider-intro-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.provider-update-all-status { margin: 0 0 4px; }
 .settings-intro + * { margin-top: 18px; }
 
 /* The older pages' own group headings, brought in line with the section titles below. */

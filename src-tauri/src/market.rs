@@ -23,7 +23,8 @@ use std::time::Duration;
 /// (`node scripts/plugins-keygen.mjs` in the website). Empty until the key is made: then nothing
 /// from the marketplace installs, because nothing can be verified.
 const PLUGIN_PUBLIC_KEY: &str = "";
-const MAX_PACKAGE_BYTES: usize = 6 * 1024 * 1024;
+/// A package zip (src/plugins/package.ts MAX_PACKAGE_BYTES).
+const MAX_PACKAGE_BYTES: usize = 24 * 1024 * 1024;
 
 type CommandResult<T> = Result<T, String>;
 
@@ -84,8 +85,19 @@ fn writable(path: &str) -> bool {
         || path.strip_prefix("p/").and_then(|rest| rest.strip_suffix("/rate").or_else(|| rest.strip_suffix("/report"))).is_some_and(plugin_id)
 }
 
+/// What the UI shows while bhippi.com has no marketplace yet (market.ts isClosed matches it).
+pub(crate) const MARKET_CLOSED: &str = "The plugin marketplace is not open on bhippi.com yet.";
+/// What every marketplace action says without a Google account (PluginMarket.tsx shows the Connect button on it).
+pub(crate) const SIGNED_OUT: &str = "Connect your Google account to get, rate and review plugins.";
+
 async fn answer(response: reqwest::Response) -> CommandResult<Value> {
     let status = response.status().as_u16();
+    // Before the marketplace is deployed, bhippi.com answers its routes with the website's own
+    // page: HTML, not JSON. That is "not open yet", not a broken answer.
+    let json = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|kind| kind.contains("json"));
+    if !json {
+        return Err(if status == 200 || status == 404 { MARKET_CLOSED.to_owned() } else { format!("bhippi.com answered {status}; try again in a minute.") });
+    }
     let value: Value = response.json().await.map_err(|error| format!("bhippi.com sent an unreadable answer: {error}"))?;
     if status >= 400 && status != 422 {
         return Err(value.get("message").and_then(Value::as_str).unwrap_or("bhippi.com returned an error.").to_owned());
@@ -140,8 +152,12 @@ pub async fn market_download(id: String, version: String) -> CommandResult<Verif
     if !simple(&id, "-_") || !simple(&version, ".-") {
         return Err("That is not a marketplace plugin.".to_owned());
     }
+    // Plugins belong to a Google account: it is who counts as one install, and who can rate it.
+    let (token, _) = license::credentials();
+    let token = token.ok_or(SIGNED_OUT)?;
     let response = client(60)
         .get(format!("{}/p/{id}/{version}/download", market_base()))
+        .bearer_auth(token)
         .send()
         .await
         .map_err(|error| format!("Could not reach bhippi.com: {error}"))?;
@@ -208,7 +224,7 @@ pub async fn market_post(path: String, body: Value) -> CommandResult<Value> {
         return Err("That is too long.".to_owned());
     }
     let (token, _) = license::credentials();
-    let token = token.ok_or("Sign in with Google (Settings › Account) first.")?;
+    let token = token.ok_or(SIGNED_OUT)?;
     let response = client(15)
         .post(format!("{}/{path}", market_base()))
         .bearer_auth(token)

@@ -67,7 +67,9 @@ describe('plugin network and page', () => {
   });
 
   it('gives a plugin no network unless granted', () => {
-    expect(pluginCsp(plugin().permissions)).toContain("connect-src 'none'");
+    // Only its own blob:/data: assets: nothing that leaves the machine.
+    expect(pluginCsp(plugin().permissions)).toContain('connect-src blob: data:;');
+    expect(pluginCsp(plugin().permissions)).not.toMatch(/connect-src[^;]*(https?|wss?):/);
     expect(pluginCsp({ tools: [], network: ['api.example.com'], chat: false })).toContain('connect-src https://api.example.com wss://api.example.com');
     expect(pluginCsp(plugin().permissions)).toContain("default-src 'none'");
   });
@@ -92,7 +94,7 @@ describe('plugin library', () => {
     expect(validatePlugin(plugin({ permissions: { tools: ['nope'], network: [], chat: false } }), KNOWN)).toMatch(/not a Bhippi tool/);
     expect(validatePlugin(plugin({ permissions: { tools: ['save_plugin'], network: [], chat: false } }), KNOWN)).toMatch(/cannot be given/);
     expect(validatePlugin(plugin({ permissions: { tools: [], network: ['not a host'], chat: false } }), KNOWN)).toMatch(/is not a host/);
-    expect(validatePlugin(plugin({ html: 'x'.repeat(1024 * 1024 + 1) }), KNOWN)).toMatch(/limit/);
+    expect(validatePlugin(plugin({ html: 'x'.repeat(24 * 1024 * 1024 + 1) }), KNOWN)).toMatch(/limit/);
   });
 
   it('makes ids from names without clashing', () => {

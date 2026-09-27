@@ -25,6 +25,8 @@ export type MarketPlugin = {
   name: string;
   summary: string;
   icon: string | null;
+  /** The package's logo.svg picture (src/plugins/logo.ts), when bhippi.com sends one. */
+  logo?: string | null;
   category: string;
   author: string;
   version: string | null;
@@ -38,8 +40,17 @@ export type MarketPlugin = {
   rating: { average: number; count: number } | null;
 };
 
-export type Publisher = { handle: string; name: string; verified: boolean };
-export type Review = { stars: number; review: string; version: string | null; at: number; by: string };
+export type Publisher = { handle: string; name: string; verified: boolean; picture?: string | null };
+/** One rating, tied to the Google account that wrote it: its first name (or publisher name) and photo. */
+export type Review = { stars: number; review: string; version: string | null; at: number; by: string; picture?: string | null; handle?: string | null };
+export type Reviews = {
+  reviews: Review[];
+  /** How many visible ratings gave 5, 4, 3, 2 and 1 stars. */
+  breakdown?: number[];
+  mine: { stars: number; review: string; version?: string | null; at?: number } | null;
+  /** The signed-in account, or null when no Google account is connected. */
+  viewer?: { name: string | null } | null;
+};
 export const REPORT_REASONS = [
   { id: 'malicious', label: 'It does something harmful or sneaky' },
   { id: 'privacy', label: 'It sends my data somewhere it should not' },
@@ -67,13 +78,19 @@ export const mySubmissions = () => api.marketGet<{ publisher: Publisher | null; 
 
 export const withdraw = (versionId: string) => api.marketWithdraw(versionId);
 
-export const reviewsOf = (id: string) => api.marketGet<{ reviews: Review[]; mine: { stars: number; review: string } | null }>(`p/${id}/reviews`);
+/** Whether a marketplace call failed because bhippi.com has no marketplace yet (market.rs MARKET_CLOSED). */
+export const isClosed = (failure: unknown) => /not open on bhippi\.com yet/.test(failure instanceof Error ? failure.message : String(failure));
+
+export const reviewsOf = (id: string) => api.marketGet<Reviews>(`p/${id}/reviews`);
+/** Whether a marketplace call failed because no Google account is connected (market.rs SIGNED_OUT). */
+export const isSignedOut = (failure: unknown) => /Connect your Google account|Sign in to Bhippi first/.test(failure instanceof Error ? failure.message : String(failure));
 /** One rating per account per plugin; rating again replaces it. */
 export const rate = (id: string, stars: number, review: string, version?: string) => api.marketPost(`p/${id}/rate`, { stars, review: review.trim().slice(0, 1000), version });
 export const reportPlugin = (id: string, reason: (typeof REPORT_REASONS)[number]['id'], details: string, version?: string) => api.marketPost(`p/${id}/report`, { reason, details: details.trim().slice(0, 2000), version });
-export const myPublisher = () => api.marketGet<{ publisher: (Publisher & { bio: string }) | null; suggestedName: string }>('publisher');
+export type MyAccount = { name: string; email: string; picture: string | null };
+export const myPublisher = () => api.marketGet<{ publisher: (Publisher & { bio: string }) | null; account?: MyAccount; suggestedName: string }>('publisher');
 export const savePublisher = (handle: string, displayName: string, bio: string) =>
-  api.marketPost<{ publisher: (Publisher & { bio: string }) | null; suggestedName: string }>('publisher', { handle: handle.trim().toLowerCase(), displayName: displayName.trim(), bio: bio.trim() });
+  api.marketPost<{ publisher: (Publisher & { bio: string }) | null; account?: MyAccount; suggestedName: string }>('publisher', { handle: handle.trim().toLowerCase(), displayName: displayName.trim(), bio: bio.trim() });
 
 const fromBase64 = (text: string) => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 const toBase64 = (bytes: Uint8Array) => {

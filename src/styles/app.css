@@ -136,7 +136,12 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--blue); width: 
 
 /* ── app frame ──────────────────────────────────────────────────────────── */
 .app { display: flex; flex-direction: column; height: 100vh; background: var(--seam); }
-.menubar { display: flex; align-items: center; height: 28px; background: var(--panel); padding-left: 8px; flex: none; }
+:root { --menubar-h: 28px; }
+/* The title bar (logo, menus, minimize / maximize / close) stays the same and on top in every view:
+   full-window workspaces and modal backdrops start below it instead of covering it. */
+.menubar { position: relative; z-index: 1500; display: flex; align-items: center; height: var(--menubar-h); background: var(--panel); padding-left: 8px; flex: none; }
+:root .plugin-maker, :root .sb-fs, :root .brain-overlay, :root .learning-overlay, :root .characters-overlay, :root .mk-backdrop,
+:root .modal-backdrop, :root .onboarding, :root .fx-console-overlay, :root .fx-add-overlay { top: var(--menubar-h); }
 .menubar-logo { margin-right: 6px; }
 .menubar-item { height: 22px; padding: 0 8px; border: 0; border-radius: 3px; background: transparent; color: var(--text); font-size: 12px; }
 .menubar-item:hover, .menubar-item.open { background: var(--panel-4); }
@@ -390,7 +395,8 @@ button.timecode:hover:not(:disabled) { color: var(--blue-hi); text-decoration: u
 /* The navigator under the tracks is the only horizontal scrollbar; vertical stays, thin. */
 .tl-scroll::-webkit-scrollbar:horizontal { height: 0; }
 .tl-scroll::-webkit-scrollbar:vertical { width: 8px; }
-.tl-content { position: relative; }
+/* Nothing inside (a playhead or marker past the end) may widen the scroll area beyond the lanes. */
+.tl-content { position: relative; overflow: clip; }
 /* Stacking, low to high: lanes and clips, drag overlays, the track heads, the ruler, the playhead.
    The heads and the ruler are opaque, so anything scrolled under them is hidden rather than drawn
    across the buttons. */
@@ -799,7 +805,7 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .gen-chip-message { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .gen-chip-bar { flex: none; width: 100px; }
 .gen-chip-percent { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
-.toasts { position: fixed; right: 14px; bottom: 34px; display: flex; flex-direction: column; gap: 6px; z-index: 250000; width: 340px; }
+.toasts { position: fixed; right: 14px; bottom: calc(34px + var(--corner-stack-h, 0px)); display: flex; flex-direction: column; gap: 6px; z-index: 250000; width: 340px; }
 .toast { display: flex; gap: 9px; align-items: flex-start; padding: 9px 9px 9px 11px; background: var(--overlay); border: 1px solid var(--line-strong); border-radius: 5px; box-shadow: var(--lift); }
 .toast-icon { flex: none; margin-top: 1px; }
 .toast.tone-success .toast-icon { color: var(--green); }
@@ -3040,16 +3046,6 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .cmd-args { color: var(--text-faint); font-weight: 400; }
 .cmd-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 11px; }
 
-/* ── the look switch, inside the thinking popover ─────────────────────── */
-.awesome-switch { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 7px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--text-dim); font-size: 11px; cursor: pointer; transition: color 0.15s ease, border-color 0.15s ease; }
-.awesome-switch:hover { color: var(--text); border-color: var(--line-strong); }
-.awesome-switch.on { color: var(--busy); border-color: color-mix(in srgb, var(--busy) 45%, transparent); }
-.awesome-label { flex: 1; text-align: left; }
-.awesome-track { flex: none; width: 24px; height: 13px; border-radius: 999px; background: var(--panel-4); position: relative; transition: background-color 0.15s ease; }
-.awesome-switch.on .awesome-track { background: var(--busy); }
-.awesome-dot { position: absolute; top: 1px; left: 1px; width: 11px; height: 11px; border-radius: 50%; background: var(--text-dim); transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease; }
-.awesome-switch.on .awesome-dot { transform: translateX(11px); background: #fff; }
-
 /* ── a question the assistant is waiting on ─────────────────────────────
    The app's own surface, not a blue wash: this is Bhippi speaking, not an alert. One question at
    a time, its answers as real targets, and the skip on its own line so it is never the fast path. */
@@ -3590,6 +3586,23 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .ws-left + .splitter.vertical, .ws-side + .splitter.vertical { background: var(--panel); width: 8px; }
 .ws-left + .splitter.vertical:hover, .ws-side + .splitter.vertical:hover { background: var(--panel-3); }
 
+/* With the Plugins column open the slab is rounded on that side too, so it reads as its own
+   surface like the chat — same rim of light, mirrored. */
+.ws-main.beside-plugins {
+  border-radius: 14px;
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.13),
+    inset -1px 0 0 rgba(255, 255, 255, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    inset 2px 0 6px -4px rgba(255, 255, 255, 0.28),
+    inset -2px 0 6px -4px rgba(255, 255, 255, 0.28);
+}
+.ws-main.beside-plugins + .splitter.vertical { background: var(--panel); width: 8px; }
+.ws-main.beside-plugins + .splitter.vertical:hover { background: var(--panel-3); }
+.ws-plugins > .panel-frame { background: var(--panel); border: 0; border-radius: 0; }
+.ws-plugins > .panel-frame.focused { border-color: transparent; }
+
 /* Transcription panel */
 .transcript-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .transcript-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex: none; }
@@ -3619,9 +3632,18 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
    the panels rather than a panel that happens to be rounded, and keeps working whichever panel
    is in the corner. */
 .ws-main { padding-left: 6px; }
-/* Inside the slab every edge is straight: the seams between panels are lines, not gaps with
-   rounded ends. The only curve is the slab's own, cut by its clip. */
+/* Inside the slab the seams between panels are straight lines; only the panels in the slab's
+   corners curve, concentric with it (slab radius 14 − its 6px padding = 8), so each corner reads
+   as one clean rounded edge. The right-hand corners are rounded only when the slab is. */
 .ws-main .panel-frame { border-radius: 0; }
+.ws-main .ws-top > :first-child,
+.ws-main .ws-top > :first-child > .panel-frame { border-top-left-radius: 8px; }
+.ws-main .ws-bottom > :first-child,
+.ws-main .ws-bottom > :first-child > .panel-frame { border-bottom-left-radius: 8px; }
+.ws-main.beside-plugins .ws-top > :last-child,
+.ws-main.beside-plugins .ws-top > :last-child > .panel-frame { border-top-right-radius: 8px; }
+.ws-main.beside-plugins .ws-bottom > :last-child,
+.ws-main.beside-plugins .ws-bottom > :last-child > .panel-frame { border-bottom-right-radius: 8px; }
 
 /* The chat's dock toggle, beside the mode tabs. */
 .header-dock { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0; margin-left: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-faint); cursor: pointer; line-height: 0; }
@@ -3985,15 +4007,19 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 /* ── first-run onboarding ───────────────────────────────────────────────── */
 .onboarding { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, 0.62); backdrop-filter: blur(6px); animation: onboarding-fade 240ms ease-out; }
 .onboarding-card { width: min(640px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-strong, var(--line)); border-radius: 10px; box-shadow: var(--lift); overflow: hidden; animation: onboarding-rise 320ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-.onboarding-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.onboarding-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); container-type: inline-size; }
+.onboarding-head > .btn { flex-shrink: 0; white-space: nowrap; }
+/* The stepper sizes itself to the room beside "Skip setup": connectors stretch to fill the row, and when
+   every name will not fit only the current step keeps its name (the rest show on hover). */
 .onboarding-steps { display: flex; align-items: center; gap: 6px; flex: 1; margin: 0; padding: 0; list-style: none; min-width: 0; }
-.onboarding-steps li { display: flex; align-items: center; gap: 6px; color: var(--text-faint); font-size: 11.5px; }
-.onboarding-steps li + li::before { content: ''; width: 18px; height: 1px; background: var(--line-strong, var(--line)); margin-right: 2px; }
-.onboarding-dot { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line-strong, var(--line)); font-size: 10px; font-weight: 600; transition: background 200ms, border-color 200ms, color 200ms; }
+.onboarding-steps li { display: flex; align-items: center; gap: 6px; flex: none; min-width: 0; color: var(--text-faint); font-size: 11.5px; white-space: nowrap; }
+.onboarding-steps li + li { flex: 1 1 auto; }
+.onboarding-steps li + li::before { content: ''; flex: 1 1 18px; min-width: 10px; height: 1px; background: var(--line-strong, var(--line)); margin-right: 2px; }
+.onboarding-dot { flex-shrink: 0; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line-strong, var(--line)); font-size: 10px; font-weight: 600; transition: background 200ms, border-color 200ms, color 200ms; }
 .onboarding-steps li.current { color: var(--text); }
 .onboarding-steps li.current .onboarding-dot { background: var(--blue); border-color: var(--blue); color: #fff; }
 .onboarding-steps li.past .onboarding-dot { background: var(--blue-soft, var(--panel-2)); border-color: var(--blue); color: var(--blue); }
-@media (max-width: 620px) { .onboarding-step-name { display: none; } .onboarding-steps li.current .onboarding-step-name { display: inline; } }
+@container (max-width: 720px) { .onboarding-steps li:not(.current) .onboarding-step-name { display: none; } }
 .onboarding-panel { padding: 22px 24px 8px; overflow-y: auto; min-height: 300px; }
 .onboarding-panel.from-right { animation: onboarding-in-right 280ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .onboarding-panel.from-left { animation: onboarding-in-left 280ms cubic-bezier(0.2, 0.8, 0.2, 1); }
@@ -4029,6 +4055,8 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .onboarding-model-title { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text); }
 .onboarding-model-blurb { color: var(--text-faint); font-size: 11.5px; line-height: 1.4; }
 .onboarding-model-blurb.error { color: var(--red); }
+.onboarding-model-found { display: flex; align-items: flex-start; gap: 5px; margin-top: 4px; color: var(--green); font-size: 11.5px; line-height: 1.4; }
+.onboarding-model-found svg { flex-shrink: 0; margin-top: 2px; }
 .onboarding-model-size { flex: none; color: var(--text-dim); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .onboarding-choice { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px 48px; }
 .onboarding-choice label { display: flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px; color: var(--text-dim); cursor: pointer; transition: border-color 140ms, color 140ms; }

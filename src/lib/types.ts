@@ -494,7 +494,7 @@ export type ProviderInfo = {
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 export type Job = {
   id: string;
-  kind: 'export' | 'media' | 'install' | 'transcribe' | 'model' | 'speech' | 'generation' | 'collect';
+  kind: 'export' | 'media' | 'install' | 'transcribe' | 'model' | 'speech' | 'generation' | 'collect' | 'ai-pack';
   label: string;
   status: JobStatus;
   progress: number;
@@ -670,7 +670,6 @@ export type Settings = {
   /** How much of the project Bhippi AI may change on its own; see lib/permissions.ts. */
   permission: string | null;
   /** The chat's animated look. Surface only — it changes nothing about what the AI does. */
-  awesomeLook: boolean | null;
   ffmpegPath: string | null;
   /** Blender for headless 3D renders; found automatically when unset. */
   blenderPath?: string | null;
@@ -724,7 +723,7 @@ export type MeterPrefs = {
 
 export type WorkspaceLayout = {
   chatWidth: number;
-  /** The Transcription panel beside the chat. */
+  /** The Storyboard & Transcription panel at the left of the editing area's top row. */
   transcriptWidth: number;
   topHeight: number;
   sourceWidth: number;
@@ -734,7 +733,26 @@ export type WorkspaceLayout = {
   pluginsWidth?: number;
   hidden: PanelId[];
   meters?: MeterPrefs;
+  /** Set once the Storyboard & Transcription panel moved into the editing area and became off by default. */
+  storyboardDocked?: boolean;
+  /** Set once the editor started opening with Storyboard & Transcription and the Source Monitor closed. */
+  sourceClosed?: boolean;
+  /** Plugins dragged into the editing area as panels of their own, in the order they sit (src/plugins/dock.tsx). */
+  docked?: DockedPlugin[];
 };
+
+/** Where a docked plugin sits: the start or end of the editing area's top (monitors) or bottom (timeline) row. */
+export type DockSlot = 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
+/** A built-in panel of the editing area a plugin can dock against. */
+export type DockAnchor = 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'tools' | 'timeline' | 'meters';
+/** Which edge of its anchor a docked plugin sits on: beside it (left/right) or stacked with it (top/bottom). */
+export type DockSide = 'left' | 'right' | 'top' | 'bottom';
+/**
+ * A docked plugin. With an anchor it sits on that panel's edge; `slot` is where it falls back to
+ * (the matching end of the anchor's row) while the anchor panel is hidden, and the whole placement
+ * for layouts saved before anchors existed. `height` sizes a plugin stacked above or below its anchor.
+ */
+export type DockedPlugin = { id: string; slot: DockSlot; width: number; anchor?: DockAnchor; side?: DockSide; height?: number };
 
 export type ExportOptions = {
   output: string;

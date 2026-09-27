@@ -3,18 +3,35 @@
 // plugin_validate reads the draft, plugin_save bundles it into the installed plugin, plugin_test
 // and plugin_screenshot run it against a scratch copy of the project (testRunner.ts).
 
+import { convertFileSrc } from '@tauri-apps/api/core';
 import catalog from '../lib/ai-tools.json';
 import type { ToolResult } from '../lib/types';
-import { callPluginAction, pluginRunning } from './bridge';
+import { base64ToBytes, bytesToBase64, isBase64, isBinaryFile, mimeOf } from './assets';
+import { callPluginAction, fileAllowed, pluginEditor, pluginRunning } from './bridge';
 import { PLUGIN_SDK_REFERENCE } from './brief';
-import { bundleDraft, draftStore, ensureDraft, isDraftFile, readDraft, REQUIRED_FILES, validateDraft, type DraftCheck } from './drafts';
+import { bundleDraft, draftStore, ensureDraft, isDraftFile, MAX_DRAFT_FILE_BYTES, readDraft, REQUIRED_FILES, validateDraft, type DraftCheck } from './drafts';
+import { findLibrary, LIBRARIES, loadLibrary } from './libraries';
 import { isPluginRead, isSensitiveTool, pluginIdFor, PLUGIN_FORBIDDEN, PLUGIN_ID } from './rules';
 import { findPlugin, loadPlugins, patchPlugin, pluginStore, clearLogs, removePlugin, savePlugin } from './store';
+import { LOGO_FILE, logoImage } from './logo';
 import { EXAMPLES, scaffold, TEMPLATES, type TemplateId } from './templates';
 import type { Plugin, PluginPermissions } from './types';
 
 /** The Plugin Maker's draft and check tools. */
-export const MAKER_TOOLS = new Set(['plugin_scaffold', 'plugin_list_files', 'plugin_read_file', 'plugin_write_file', 'plugin_delete_file', 'plugin_validate', 'plugin_test', 'plugin_screenshot', 'plugin_save', 'plugin_examples', 'plugin_tool_catalog']);
+export const MAKER_TOOLS = new Set(['plugin_scaffold', 'plugin_list_files', 'plugin_read_file', 'plugin_write_file', 'plugin_delete_file', 'plugin_validate', 'plugin_test', 'plugin_screenshot', 'plugin_save', 'plugin_examples', 'plugin_tool_catalog', 'plugin_add_library', 'plugin_add_asset']);
+
+/** Reads a file the plugin may take in as an asset (plugin_add_asset); the app's asset protocol in Bhippi. */
+let readMedia: (path: string) => Promise<Uint8Array> = async (path) => {
+  const response = await fetch(convertFileSrc(path));
+  if (!response.ok) throw new Error(`${path} could not be read (${response.status})`);
+  return new Uint8Array(await response.arrayBuffer());
+};
+/** For tests: where plugin_add_asset reads files from. */
+export const setMediaReader = (read: typeof readMedia) => {
+  readMedia = read;
+};
+
+const librariesList = () => LIBRARIES.map((library) => `${library.id} (${library.name} ${library.version}, ${library.license}): ${library.about}`);
 
 export const PLUGIN_TOOLS = new Set(['list_plugins', 'get_plugin', 'save_plugin', 'delete_plugin', 'plugin_logs', 'call_plugin_action', 'plugin_sdk_reference', 'show_plugin', ...MAKER_TOOLS]);
 
@@ -82,7 +99,7 @@ export async function saveDraft(id: string, files: Record<string, string>, known
   const now = new Date().toISOString();
   const { manifest } = check;
   const plugin: Plugin = {
-    version: 1, format: 2, pkg: existing?.pkg, id, name: manifest.name, description: manifest.description, icon: manifest.icon, html: bundled.html,
+    version: 1, format: 2, pkg: existing?.pkg, id, name: manifest.name, description: manifest.description, icon: manifest.icon, logo: logoImage(files[LOGO_FILE]) ?? undefined, html: bundled.html,
     permissions: manifest.permissions, background: manifest.background,
     enabled: existing?.enabled ?? true, panel: manifest.showAsPanel,
     author: existing?.author ?? 'ai', createdAt: existing?.createdAt ?? now, updatedAt: now,
@@ -145,6 +162,12 @@ export async function runPluginAiTool(name: string, args: Args, known: ReadonlyS
       if (typeof draft === 'string') return fail(draft);
       const file = str(args, 'file') ?? '';
       if (draft.files[file] === undefined) return fail(`The draft of “${draft.id}” has no ${file || 'file by that name'}. It has: ${Object.keys(draft.files).join(', ')}.`);
+      if (isBinaryFile(file)) {
+        const bytes = base64ToBytes(draft.files[file]).length;
+        return done(`${file} is a binary asset (${mimeOf(file)}, ${Math.round(bytes / 1024)} KB): the page reads it with bhippi.asset("${file}") or bhippi.assetBytes("${file}").`, { id: draft.id, file, binary: true, mime: mimeOf(file), bytes });
+      }
+      const library = findLibrary(file);
+      if (library) return done(`${file} is the ${library.name} ${library.version} library Bhippi ships (${Math.round(draft.files[file].length / 1024)} KB); its source is not shown. ${library.usage}`, { id: draft.id, file, library: library.id });
       return done(`${file} (${draft.files[file].length} characters)`, { id: draft.id, file, content: draft.files[file] });
     }
 
@@ -152,10 +175,62 @@ export async function runPluginAiTool(name: string, args: Args, known: ReadonlyS
       const draft = await draftOf(args);
       if (typeof draft === 'string') return fail(draft);
       const file = str(args, 'file') ?? '';
-      if (!isDraftFile(file)) return fail(`“${file}” is not a draft file name: letters, digits, - _ . and a .html, .js, .css, .json, .md, .svg or .txt ending, no folders.`);
+      if (!isDraftFile(file)) return fail(`“${file}” is not a draft file name: letters, digits, - _ . and a code/text ending (.html .js .css .json .md .svg .txt .gltf) or an asset ending (.png .jpg .webp .gif .avif .glb .bin .woff .woff2 .ttf .otf .wav .mp3 .ogg .m4a .mp4 .webm .wasm), no folders.`);
       if (typeof args.content !== 'string') return fail('plugin_write_file needs the whole file as content');
-      await draftStore.write(draft.id, file, args.content);
-      return done(`Wrote ${file} (${args.content.length} characters) in the draft of “${draft.id}”. It runs after plugin_save.`, { id: draft.id, file });
+      if (findLibrary(file)) return fail(`${file} is a library Bhippi ships: add it with plugin_add_library, not by writing it.`);
+      const base64 = args.encoding === 'base64';
+      let content = args.content;
+      if (isBinaryFile(file)) {
+        content = content.replace(/^data:[^,]*;base64,/, '').replace(/\s+/g, '');
+        if (!base64 && !isBase64(content)) return fail(`${file} is a binary file: pass its bytes as base64 with encoding "base64".`);
+        if (!isBase64(content)) return fail(`The content of ${file} is not valid base64.`);
+        if (base64ToBytes(content).length > MAX_DRAFT_FILE_BYTES) return fail(`${file} is larger than ${MAX_DRAFT_FILE_BYTES / 1024 / 1024} MB.`);
+      } else if (base64) {
+        if (!isBase64(content.replace(/\s+/g, ''))) return fail(`The content of ${file} is not valid base64.`);
+        content = new TextDecoder().decode(base64ToBytes(content.replace(/\s+/g, '')));
+      }
+      await draftStore.write(draft.id, file, content);
+      return done(`Wrote ${file} (${isBinaryFile(file) ? `${Math.round(base64ToBytes(content).length / 1024)} KB` : `${content.length} characters`}) in the draft of “${draft.id}”. It runs after plugin_save.`, { id: draft.id, file });
+    }
+
+    case 'plugin_add_library': {
+      const draft = await draftOf(args);
+      if (typeof draft === 'string') return fail(draft);
+      const wanted = str(args, 'library') ?? '';
+      const library = findLibrary(wanted);
+      if (!library) return fail(`${wanted ? `No library “${wanted}”. ` : ''}Libraries Bhippi ships:\n${librariesList().join('\n')}`);
+      try {
+        const code = await loadLibrary(library);
+        await draftStore.write(draft.id, library.file, code);
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : String(error));
+      }
+      return done(`Added ${library.name} ${library.version} to the draft of “${draft.id}” as ${library.file} (${library.license}; checked against the copy Bhippi was built with). ${library.usage}`, { id: draft.id, file: library.file, global: library.global });
+    }
+
+    case 'plugin_add_asset': {
+      const draft = await draftOf(args);
+      if (typeof draft === 'string') return fail(draft);
+      const path = str(args, 'path') ?? '';
+      const editor = pluginEditor();
+      if (!path) return fail('plugin_add_asset needs the path of a project media file (get_project lists them).');
+      if (!editor) return fail('Assets can only be added in the Bhippi app.');
+      const host = editor.host();
+      const assetPaths = [...host.assets().values()].map((asset) => asset.path);
+      if (!fileAllowed(path, assetPaths, editor.projectPath())) return fail("plugin_add_asset takes the project's own media, or a file in the project's folder.");
+      const original = path.split(/[\\/]/).pop() ?? '';
+      const clean = (name: string) => name.normalize('NFKD').replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^[-.]+|-+(?=\.)/g, '').slice(-64);
+      const name = clean(str(args, 'name') ?? original);
+      if (!isDraftFile(name) || !isBinaryFile(name)) return fail(`“${name}” is not an asset name: keep a picture, model, font, sound, clip or wasm ending (.png .jpg .webp .gif .avif .glb .bin .woff .woff2 .ttf .otf .wav .mp3 .ogg .m4a .mp4 .webm .wasm).`);
+      let bytes: Uint8Array;
+      try {
+        bytes = await readMedia(path);
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : String(error));
+      }
+      if (bytes.length > MAX_DRAFT_FILE_BYTES) return fail(`${original} is ${(bytes.length / 1024 / 1024).toFixed(1)} MB; an asset is limited to ${MAX_DRAFT_FILE_BYTES / 1024 / 1024} MB. Use a smaller or compressed copy.`);
+      await draftStore.write(draft.id, name, bytesToBase64(bytes));
+      return done(`Added ${name} (${Math.round(bytes.length / 1024)} KB) to the draft of “${draft.id}”. The page reads it with bhippi.asset("${name}") (a URL) or bhippi.assetBytes("${name}"), or <img data-bhippi-src="${name}">. It is bundled at plugin_save.`, { id: draft.id, file: name, bytes: bytes.length });
     }
 
     case 'plugin_delete_file': {
@@ -209,7 +284,7 @@ export async function runPluginAiTool(name: string, args: Args, known: ReadonlyS
 
     case 'plugin_examples': {
       const id = str(args, 'id');
-      if (!id) return done(`${EXAMPLES.length} reviewed examples; pass an id for the source.`, { examples: EXAMPLES.map((example) => ({ id: example.id, title: example.title, about: example.about })), templates: TEMPLATES });
+      if (!id) return done(`${EXAMPLES.length} reviewed examples; pass an id for the source. Libraries plugin_add_library can add: ${LIBRARIES.map((library) => library.id).join(', ')}.`, { examples: EXAMPLES.map((example) => ({ id: example.id, title: example.title, about: example.about })), templates: TEMPLATES, libraries: librariesList() });
       const example = EXAMPLES.find((item) => item.id === id);
       if (!example) return fail(`No example “${id}”. There are: ${EXAMPLES.map((item) => item.id).join(', ')}.`);
       return done(`${example.title}: ${example.about}`, { id: example.id, files: example.files });

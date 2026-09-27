@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Characters banner — original app artwork</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#17151d;color:#f4edf9;font:14px/1.5 system-ui,sans-serif;padding:24px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:20px}h1{font-size:20px;margin:0}p{margin:4px 0;color:#aaa2b8}
+    button,a{font:inherit;border:0;border-radius:7px;padding:10px 16px;background:#cfff86;color:#203217;font-weight:650;cursor:pointer;text-decoration:none;display:inline-block}button:disabled{opacity:.5;cursor:wait}
+    #preview{line-height:0;box-shadow:0 12px 50px #0005}#preview>svg{width:100%;height:auto;display:block}#download[hidden]{display:none}#status{margin-top:16px}
+  </style>
+</head>
+<body>
+  <header><div><h1>Original cast. Original artwork.</h1><p>Direct renders from the Characters library — no AI-redrawn faces or outfits.</p></div><button id="export" disabled>Create full-size PNG</button></header>
+  <main id="preview" aria-label="Characters promotional banner"></main>
+  <p id="status" role="status">Loading original character artwork…</p>
+  <a id="download" hidden download="characters-banner-original-cast.png">Download PNG · 3000 × 1000</a>
+  <script src="/characters/shared.js"></script>
+  <script src="/characters/engine2d.js"></script>
+  <script src="/characters/presets2d.js"></script>
+  <script>
+    (async()=>{
+      const ns='http://www.w3.org/2000/svg';
+      const E=window.CharEngine,C=window.BhippiChars;
+      const saved=C.load(),names=new Set(saved.map(s=>s.name.toLowerCase()));
+      const cast=[...saved,...window.CharPresets.EXAMPLES.filter(s=>!names.has(s.name.toLowerCase()))];
+      const $=id=>document.getElementById(id);
+      const make=(tag,attrs={},text)=>{const el=document.createElementNS(ns,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));if(text!==undefined)el.textContent=text;return el;};
+      const svg=make('svg',{xmlns:ns,width:3000,height:1000,viewBox:'0 0 3000 1000',role:'img','aria-label':'More than 500 characters — original app cast'});
+      svg.innerHTML=`<defs>
+        <linearGradient id="banner-bg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#F6F0FF"/><stop offset="1" stop-color="#E9DCF9"/></linearGradient>
+        <linearGradient id="banner-gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#FFE980"/><stop offset="1" stop-color="#FFCB36"/></linearGradient>
+        <clipPath id="banner-frame"><rect width="3000" height="1000"/></clipPath>
+      </defs>
+      <g clip-path="url(#banner-frame)">
+        <rect width="3000" height="1000" fill="url(#banner-bg)"/>
+        <path d="M-170 170 C140 -135 400 40 500 170 S770 315 930 95" fill="none" stroke="#23C899" stroke-width="100" opacity=".88"/>
+        <path d="M2060 35 C2300 240 2430 -120 2650 20 S2930 170 3130 -40" fill="none" stroke="#F97E99" stroke-width="70" opacity=".8"/>
+        <path d="M-110 955 Q250 760 620 957 T1250 990" fill="none" stroke="#F97E99" stroke-width="70" opacity=".8"/>
+        <path d="M1860 1050 C2180 825 2440 1080 2600 900 S2920 820 3110 935" fill="none" stroke="#23C899" stroke-width="96" opacity=".88"/>
+        <ellipse cx="475" cy="493" rx="460" ry="43" fill="#D6C3E8" opacity=".4"/>
+        <ellipse cx="2525" cy="493" rx="460" ry="43" fill="#D6C3E8" opacity=".4"/>
+        <ellipse cx="475" cy="978" rx="460" ry="40" fill="#CDB7E2" opacity=".4"/>
+        <ellipse cx="2525" cy="978" rx="460" ry="40" fill="#CDB7E2" opacity=".4"/>
+      </g>`;
+      $('preview').appendChild(svg);
+      // Background decoration is independent of the character art. No redraw,
+      // palette replacement, outline filter, flip, or nonuniform scaling is used.
+      const stars=[[46,542,22],[888,491,27],[1080,139,21],[1940,833,26],[2898,523,23],[2030,200,20],[1260,864,17],[1770,91,18],[985,824,20],[2260,535,19]];
+      for(const[x,y,r]of stars)svg.appendChild(make('path',{d:`M ${x} ${y-r} Q ${x+r*.24} ${y-r*.24} ${x+r} ${y} Q ${x+r*.24} ${y+r*.24} ${x} ${y+r} Q ${x-r*.24} ${y+r*.24} ${x-r} ${y} Q ${x-r*.24} ${y-r*.24} ${x} ${y-r}Z`,fill:'#F5C648'}));
+      const artwork=make('g',{'clip-path':'url(#banner-frame)','data-original-cast':true});svg.appendChild(artwork);
+      const left=cast.slice(0,Math.ceil(cast.length/2)),right=cast.slice(Math.ceil(cast.length/2));
+      let index=0;
+      for(const[side,group]of [left,right].entries()){
+        const columns=Math.ceil(group.length/2),start=side===0?40:2080;
+        for(let row=0;row<2;row++){
+          const pieces=group.slice(row*columns,(row+1)*columns).map(character=>{
+            const spec=C.to2D(character,E.defaults());
+            const wrapper=make('g',{'data-character':spec.name,role:'img','aria-label':spec.name});
+            wrapper.innerHTML=E.render(spec,{id:`banner-cast-${index++}`,t:0,yaw:.18,headYaw:0,headPitch:0,hand:false,stance:spec.stance,shadow:false});
+            artwork.appendChild(wrapper);return{wrapper,b:wrapper.getBBox()};
+          });
+          // One uniform scale for the entire tier retains relative ages/heights:
+          // a child cannot grow adult-sized and a wide figure cannot shrink alone.
+          const gap=14,total=pieces.reduce((n,p)=>n+p.b.width,0);
+          const scale=Math.min(424/Math.max(...pieces.map(p=>p.b.height)),(880-gap*(pieces.length-1))/total);
+          let cursor=start+(880-total*scale-gap*(pieces.length-1))/2;
+          pieces.forEach(({wrapper,b},col)=>{
+            const baseline=(row?967:480)+[0,8,-8,3,-3][col%5];
+            wrapper.setAttribute('transform',`translate(${cursor-b.x*scale} ${baseline-(b.y+b.height)*scale}) scale(${scale})`);
+            cursor+=b.width*scale+gap;
+          });
+        }
+      }
+      const title=make('g',{'text-anchor':'middle','font-family':'Arial Black, Arial, sans-serif','font-weight':900,fill:'#392046'});
+      title.appendChild(make('text',{x:1500,y:294,'font-size':82,'letter-spacing':5},'MORE THAN'));
+      title.appendChild(make('text',{x:1500,y:629,'font-size':425,'letter-spacing':-15,fill:'#392046',stroke:'#392046','stroke-width':22,'stroke-linejoin':'round','paint-order':'stroke'},'500'));
+      title.appendChild(make('text',{x:1492,y:615,'font-size':425,'letter-spacing':-15,fill:'url(#banner-gold)',stroke:'#392046','stroke-width':11,'stroke-linejoin':'round','paint-order':'stroke'},'500'));
+      title.appendChild(make('text',{x:1500,y:752,'font-size':98,'letter-spacing':1},'CHARACTERS'));
+      title.appendChild(make('path',{d:'M1120 802 Q1490 840 1880 797',fill:'none',stroke:'#25C699','stroke-width':18,'stroke-linecap':'round'}));
+      svg.appendChild(title);
+      // Use the approved icon as a small unchanged badge, not a style reference
+      // that could restyle any member of the actual app cast.
+      const blob=await(await fetch('/characters/character-plugin-icon.png')).blob();
+      const icon=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(blob);});
+      svg.appendChild(make('image',{x:1425,y:68,width:150,height:150,href:icon}));
+      document.documentElement.dataset.ready='true';
+      document.documentElement.dataset.characterCount=String(cast.length);
+      $('status').textContent=`${cast.length} original app characters · unchanged artwork · 3000 × 1000 pixels`;
+      $('export').disabled=false;
+      $('export').onclick=async()=>{
+        $('export').disabled=true;$('status').textContent='Rendering full-size PNG…';
+        try{
+          const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)],{type:'image/svg+xml;charset=utf-8'}));
+          const image=new Image();await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});
+          const canvas=document.createElement('canvas');canvas.width=3000;canvas.height=1000;canvas.getContext('2d').drawImage(image,0,0);URL.revokeObjectURL(url);
+          $('download').href=canvas.toDataURL('image/png');$('download').hidden=false;
+          $('status').textContent=`Ready · ${cast.length} original app characters · 3000 × 1000 PNG`;
+        }catch(error){$('status').textContent=`Could not export: ${error.message||error}`;}
+        finally{$('export').disabled=false;}
+      };
+    })().catch(error=>{document.getElementById('status').textContent=String(error);});
+  </script>
+</body>
+</html>

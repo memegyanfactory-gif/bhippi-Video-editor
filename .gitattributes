@@ -1,0 +1,2 @@
+# Plugin libraries are pinned by SHA-256 (src/plugins/libraries.ts): never convert their line endings.
+public/plugin-libs/** -text

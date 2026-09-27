@@ -22,6 +22,57 @@ export const SDK_SOURCE = String.raw`
   var ready = new Promise(function (resolve) { readyResolve = resolve; });
   /** Acceptance checks (bhippi.test): run only when the Plugin Maker tests the plugin. */
   var checks = [];
+  /** Decoded assets by name: { bytes, mime, url }. */
+  var assetCache = {};
+  var domReady = new Promise(function (resolve) {
+    if (document.readyState !== 'loading') resolve();
+    else document.addEventListener('DOMContentLoaded', function () { resolve(); });
+  });
+
+  /** The page's assets: blocks plugin_save wrote at the end of the page (src/plugins/assets.ts). */
+  function assetNodes() {
+    return Array.prototype.slice.call(document.querySelectorAll('script[data-bhippi-asset]'));
+  }
+  function assetEntry(name) {
+    return domReady.then(function () {
+      name = String(name);
+      if (assetCache[name]) return assetCache[name];
+      var node = assetNodes().filter(function (item) { return item.getAttribute('data-bhippi-asset') === name; })[0];
+      if (!node) throw new Error('This plugin has no asset "' + name + '" (bhippi.assets() lists them)');
+      var binary = atob((node.textContent || '').replace(/\s+/g, ''));
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      assetCache[name] = { bytes: bytes, mime: node.getAttribute('data-mime') || 'application/octet-stream', url: null };
+      return assetCache[name];
+    });
+  }
+  function assetUrl(name) {
+    return assetEntry(name).then(function (entry) {
+      if (!entry.url) entry.url = URL.createObjectURL(new Blob([entry.bytes], { type: entry.mime }));
+      return entry.url;
+    });
+  }
+  // <img data-bhippi-src="logo.png">, <video>, <audio>, <source>: pointed at their asset once the page has loaded.
+  domReady.then(function () {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-bhippi-src]'), function (element) {
+      assetUrl(element.getAttribute('data-bhippi-src')).then(function (url) { element.setAttribute('src', url); }, function (error) { console.error(error.message); });
+    });
+  });
+
+  var MEDIA_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'video/mp4': 'mp4', 'video/webm': 'webm', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a' };
+  /** Blob, ArrayBuffer, typed array, canvas or data: URL → { bytes: ArrayBuffer, type }. */
+  function mediaBytes(data) {
+    if (data instanceof ArrayBuffer) return Promise.resolve({ bytes: data, type: '' });
+    if (ArrayBuffer.isView(data)) return Promise.resolve({ bytes: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), type: '' });
+    if (typeof Blob !== 'undefined' && data instanceof Blob) return data.arrayBuffer().then(function (bytes) { return { bytes: bytes, type: data.type }; });
+    if (data && typeof data.toBlob === 'function') {
+      return new Promise(function (resolve, reject) {
+        data.toBlob(function (blob) { blob ? resolve(mediaBytes(blob)) : reject(new Error('The canvas could not be read (is it tainted?)')); }, 'image/png');
+      });
+    }
+    if (typeof data === 'string' && /^data:/.test(data)) return fetch(data).then(function (response) { return response.blob(); }).then(mediaBytes);
+    return Promise.reject(new Error('importMedia takes a Blob, ArrayBuffer, typed array, canvas or data: URL'));
+  }
 
   function withTimeout(promise, ms, what) {
     return new Promise(function (resolve, reject) {
@@ -225,6 +276,28 @@ export const SDK_SOURCE = String.raw`
     },
     /** A notification in the editor. tone: 'info' | 'success' | 'error'. */
     toast: function (message, tone) { return call('toast', { message: String(message), tone: tone || 'info' }); },
+    /**
+     * The plugin's own assets (pictures, models, fonts, sounds, clips, wasm, data files in its draft).
+     * asset(name) → a blob URL for <img>/<video>/CSS/loaders; assetBytes → an ArrayBuffer (glTF,
+     * WebAssembly); assetText → the text of a json/svg/txt/gltf file; assets() → every name.
+     */
+    asset: assetUrl,
+    assetBytes: function (name) { return assetEntry(name).then(function (entry) { return entry.bytes.slice().buffer; }); },
+    assetText: function (name) { return assetEntry(name).then(function (entry) { return new TextDecoder().decode(entry.bytes); }); },
+    assets: function () { return domReady.then(function () { return assetNodes().map(function (node) { return node.getAttribute('data-bhippi-asset'); }); }); },
+    /**
+     * Hands a still, clip or sound the plugin made to the project: saved under Generated/Plugins and
+     * imported with import_media (which must be in the plugin's permissions). data is a Blob,
+     * ArrayBuffer, typed array, canvas or data: URL; options.name its file name (png, jpg, webp,
+     * gif, mp4, webm, mov, wav, mp3, ogg, m4a, flac). Resolves with import_media's result.
+     */
+    importMedia: function (data, options) {
+      var wanted = String((options && options.name) || 'Plugin media').replace(/[^A-Za-z0-9 _.-]+/g, ' ').trim().slice(0, 80) || 'Plugin media';
+      return mediaBytes(data).then(function (media) {
+        var name = /\.[A-Za-z0-9]{2,5}$/.test(wanted) ? wanted : wanted + '.' + (MEDIA_TYPES[media.type] || 'png');
+        return call('importMedia', { name: name, bytes: media.bytes });
+      });
+    },
     /** Offers the user a message for the Bhippi AI chat; it is sent only when they click Send (needs the chat permission). */
     chat: function (message) { return call('chat', { message: String(message) }); },
     /** A project media file (or a file in the project folder) → URL an <img>/<video> in the plugin can show. */
@@ -232,7 +305,8 @@ export const SDK_SOURCE = String.raw`
     /**
      * Listens for 'project' (the project changed), 'session' (another project was opened, a new one
      * started, or it was saved under a new file — projectStorage has already switched), 'selection',
-     * 'playhead' (a few times a second while it moves), 'theme'. Returns a function that stops listening.
+     * 'playhead' (a few times a second while it moves), 'theme', 'export' ({ status: 'started' | 'done'
+     * | 'error' | 'cancelled', file: the output's file name or null }). Returns a function that stops listening.
      */
     on: function (event, fn) {
       (listeners[event] = listeners[event] || []).push(fn);

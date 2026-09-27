@@ -54,21 +54,73 @@ details summary{cursor:pointer;color:var(--text-dim)}
 .dot{width:14px;height:14px;border-radius:50%;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.3)}
 .toast{position:fixed;left:50%;top:58px;transform:translateX(-50%);z-index:20;background:var(--green);color:#08140b;font-weight:600;padding:6px 12px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:var(--red);color:#fff}
+/* ── layout polish: header zones, random button, side tabs and cards, stage hint, scrollbars ── */
+.hdr{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px}
+.hdr-side{display:flex;align-items:center;gap:6px;min-width:0}
+.hdr-side.end{justify-content:flex-end}
+.hdr .name-field{margin-left:0}
+.name-field input:hover{border-color:var(--text-faint)}
+.name-field input:focus{border-color:var(--blue-line);outline:none;box-shadow:0 0 0 2px var(--blue-soft)}
+.btn{transition:background .15s,border-color .15s,color .15s}
+.btn svg{width:14px;height:14px}
+.btn.icon{width:28px;padding:0;justify-content:center}
+.btn.random{height:32px;padding:0 16px;border-radius:999px;font-weight:600;background:var(--panel-3);border:1px solid var(--blue-line);color:var(--text);box-shadow:0 0 0 3px var(--blue-soft)}
+.btn.random:hover{background:var(--blue-soft);border-color:var(--blue-hi)}
+.btn.random svg{width:16px;height:16px;color:var(--blue-hi);transition:transform .35s}
+.btn.random:hover svg{transform:rotate(-20deg)}
+.btn.random.rolling svg{transform:rotate(360deg)}
+.body{grid-template-columns:340px 1fr}
+.side-wrap{display:flex;flex-direction:column;min-height:0;background:var(--panel);border-right:1px solid var(--seam)}
+.side-wrap .modes{display:grid;grid-template-columns:repeat(3,1fr);margin:12px 12px 0;flex-shrink:0}
+.side-wrap .modes button{padding:6px 0;font-weight:600}
+.side-wrap .modes button:hover:not(.on){color:var(--text)}
+.side{border-right:0;background:none;gap:12px}
+.card{display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--panel-2);border:1px solid var(--line,#2f2f2f);border-radius:8px}
+.card-title{font-size:12px;font-weight:600;color:var(--text)}
+.card .row{gap:7px}
+.seg{display:flex;width:100%}
+.seg button{flex:1 1 auto;padding:5px 8px;text-align:center}
+.seg button:hover:not(.on){color:var(--text);background:var(--panel-4)}
+.card .sw{gap:4px}.card .sw button{width:20px;height:20px}
+select{width:100%}
+.presets{display:flex;flex-wrap:wrap;gap:5px}
+.presets button{height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--line-strong);background:var(--panel-3);color:var(--text-dim);cursor:pointer}
+.presets button:hover{color:var(--text);border-color:var(--text-faint)}
+.presets button.on{background:var(--blue-soft);border-color:var(--blue-line);color:var(--text)}
+.saved-item{background:none;border-color:transparent}
+.saved-item:hover{background:var(--panel-3)}
+.empty{padding:10px;border:1px dashed var(--line-strong);border-radius:6px;color:var(--text-faint);font-size:11px;line-height:1.5}
+.note{margin:0;color:var(--text-faint);font-size:11px;line-height:1.5}
+.stage .hint{position:absolute;right:12px;bottom:12px;margin:0;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.6);color:#6a5a7c;font-size:11px;pointer-events:none}
+.cap,.sub{pointer-events:none}
+.tl .btn{min-width:64px;justify-content:center}
+.tl .seg{width:auto}
+*{scrollbar-width:thin;scrollbar-color:var(--panel-4) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--panel-4);border-radius:10px;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:var(--text-faint)}
+@media (max-width:900px){.body{grid-template-columns:1fr}.side-wrap{border-right:0}}
+@media (max-width:760px){.btn.random span.lbl{display:none}.hdr{grid-template-columns:minmax(0,1fr) auto auto}.name-field input{width:110px}}
+@media (prefers-reduced-motion:reduce){.btn.random svg{transition:none}}
 </style>
 </head><body>
 <div class="app"><div class="toast" id="toast" hidden></div>
   <header class="hdr">
-    <nav class="modes" id="modes"><button data-m="char" class="on">Character</button><button data-m="moves">Moves</button><button data-m="shots">Shots</button></nav>
-    <span class="hint" id="hint">Loading sculpted characters…</span>
-    <div class="name-field"><input id="name" placeholder="Name your character" maxlength="24" aria-label="Character name"><button class="btn primary" id="save">Save</button><button class="btn" id="del" title="Delete this saved character">Delete</button><button class="btn primary" id="use" title="Add a transparent PNG of this character to the project's media">+ Add to project</button></div>
+    <div class="hdr-side name-field"><input id="name" placeholder="Name your character" maxlength="24" aria-label="Character name"><button class="btn primary" id="save">Save</button><button class="btn icon" id="del" title="Delete this saved character" aria-label="Delete this saved character"><i data-lucide="trash-2"></i></button></div>
+    <button class="btn random" id="rand" title="Make a brand-new random character"><i data-lucide="dices"></i><span class="lbl">Random character</span></button>
+    <div class="hdr-side end"><button class="btn primary" id="use" title="Add a transparent PNG of this character to the project's media"><i data-lucide="plus"></i>Add to project</button></div>
   </header>
   <div class="body">
-    <aside class="side" id="side"></aside>
+    <aside class="side-wrap">
+      <nav class="modes" id="modes"><button data-m="char" class="on">Character</button><button data-m="moves">Moves</button><button data-m="shots">Shots</button></nav>
+      <div class="side" id="side"></div>
+    </aside>
     <main class="center">
-      <div class="stage" id="stage"><canvas id="gl"></canvas><canvas id="fx"></canvas><div class="cap" id="cap"></div><div class="sub" id="sub"></div></div>
-      <div class="tl"><button class="btn" id="play">Pause</button><input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline"><span class="time" id="time">0.00 s</span>
+      <div class="stage" id="stage"><canvas id="gl"></canvas><canvas id="fx"></canvas><div class="cap" id="cap"></div><div class="sub" id="sub"></div><span class="hint" id="hint">Loading sculpted characters…</span></div>
+      <div class="tl"><button class="btn" id="play" title="Play or pause">Pause</button><input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline"><span class="time" id="time">0.00 s</span>
         <span class="seg"><button id="twos" class="on">On twos</button><button id="ones">On ones</button></span></div>
     </main>
   </div>
 </div>
-<script src="shared.js"></script><script src="vendor/three-bundle.js"></script><script src="toon3d.js"></script><script src="toonkit.js"></script><script src="rig3d.js"></script><script src="studio3d.js"></script><script src="boot3d.js"></script></body></html>
+<script src="vendor/lucide.min.js"></script><script src="shared.js"></script><script src="vendor/three-bundle.js"></script><script src="toon3d.js"></script><script src="toonkit.js"></script><script src="rig3d.js"></script><script src="studio3d.js"></script><script src="boot3d.js"></script></body></html>

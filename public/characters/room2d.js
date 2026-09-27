@@ -46,19 +46,25 @@ $('new').onclick=()=>{spec=E.defaults();current='';$('name').value='';refreshAll
 // ---------- saved rail ----------
 function list(){const names=new Set(saved.map(c=>c.name.toLowerCase()));return[...saved,...EXAMPLES.filter(c=>!names.has(c.name.toLowerCase())).map(c=>({...c,example:1}))];}
 function portrait(s,cls){const r=E.rigFor(s);const R=95*r.hs;return`<svg class="${cls}" viewBox="${Math.round(-R)} ${Math.round(r.headC[1]-R*.95)} ${Math.round(2*R)} ${Math.round(2*R)}">${E.render(s,{t:0,stance:'relaxed',fast:true})}</svg>`;}
-function renderSaved(){$('saved').innerHTML=list().map((c,i)=>`<button class="saved-item${c.name===current?' on':''}" data-i="${i}">${portrait(c,'av')}<div><b>${esc(c.name)}</b><small>${LBL[c.age]}${c.example?'<span class="tag">Example</span>':''}</small></div></button>`).join('');
+function renderSaved(){const all=list(),item=(c,i)=>`<button class="saved-item${c.name===current?' on':''}" data-i="${i}">${portrait(c,'av')}<div><b>${esc(c.name)}</b><small>${LBL[c.age]} · ${LBL[c.shape||'classic']}</small></div></button>`;
+  const mine=all.map((c,i)=>[c,i]).filter(([c])=>!c.example),ex=all.map((c,i)=>[c,i]).filter(([c])=>c.example);
+  $('saved').innerHTML=(mine.length?mine.map(([c,i])=>item(c,i)).join(''):`<p class="rail-empty">Name a character and press Save, or roll a Random one. Saved characters work in 2D and 3D.</p>`)+
+    (ex.length?`<div class="rail-group">Examples</div>`+ex.map(([c,i])=>item(c,i)).join(''):'');
   $('saved').querySelectorAll('.saved-item').forEach(b=>b.onclick=()=>{const c=list()[+b.dataset.i];spec=clone(c);delete spec.example;delete spec.updatedAt;current=c.name;$('name').value=c.name;refreshAll();});}
 
-// ---------- identity bar ----------
-function segCtl(label,key,opts){return`<div class="ctl"><span>${label}</span><div class="seg">${opts.map(o=>`<button data-k="${key}" data-v="${o}" class="${spec[key]===o?'on':''}">${LBL[o]||o}</button>`).join('')}</div></div>`;}
-function renderId(){
-  $('idbar').innerHTML=segCtl('Type','species',CAT.species)+segCtl('Shape','shape',CAT.shape)+segCtl('Age','age',CAT.age)+segCtl('Body','body',CAT.body)+segCtl('Build','build',CAT.build)+
-    `<div class="ctl"><span>Skin</span><div class="sw">${[...CAT.skin,...CAT.fantasy].map(c=>`<button data-skin="${c}" style="background:${c}" class="${spec.skin===c?'on':''}" aria-label="Skin ${c}"></button>`).join('')}</div></div>`+
-    segCtl('Style','style',CAT.style)+`<button class="btn" id="rand"><i data-lucide="dices"></i>Surprise me</button>`;
-  $('idbar').querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{spec[b.dataset.k]=b.dataset.v;refreshAll();});
-  $('idbar').querySelectorAll('[data-skin]').forEach(b=>b.onclick=()=>{spec.skin=b.dataset.skin;refreshAll();});
-  $('rand').onclick=()=>{const n=$('name').value;spec=E.randomSpec();spec.name=n;refreshAll();startAction('hop');};
+// ---------- body tab ----------
+function segCtl(label,key,opts){return section(label,'',`<div class="seg">${opts.map(o=>`<button data-k="${key}" data-v="${o}" class="${spec[key]===o?'on':''}" aria-pressed="${spec[key]===o}">${LBL[o]||o}</button>`).join('')}</div>`);}
+function renderBody(){
+  return `<div class="body-grid">`+segCtl('Type','species',CAT.species)+segCtl('Shape','shape',CAT.shape)+segCtl('Age','age',CAT.age)+segCtl('Body','body',CAT.body)+segCtl('Build','build',CAT.build)+
+    section('Skin','',`<div class="sw">${[...CAT.skin,...CAT.fantasy].map(c=>`<button data-skin="${c}" style="background:${c}" class="${spec.skin===c?'on':''}" aria-label="Skin ${c}"></button>`).join('')}</div>`)+
+    segCtl('Drawing style','style',CAT.style)+`</div>`;
 }
+// A brand-new character with a name nobody uses yet, so Save adds it rather than overwriting one.
+function randomCharacter(){const pick=a=>a[Math.floor(Math.random()*a.length)];
+  spec=E.randomSpec();spec.shape=pick(['classic','classic','classic',...CAT.shape.filter(x=>x!=='classic')]);spec.style=pick(CAT.style);
+  spec.name=C.randomName([...list().map(c=>c.name),$('name').value]);current='';$('name').value=spec.name;refreshAll();startAction('hop');
+  const b=$('rand');b.classList.remove('rolling');void b.offsetWidth;b.classList.add('rolling');setTimeout(()=>b.classList.remove('rolling'),400);}
+$('rand').onclick=randomCharacter;
 
 // ---------- action bar ----------
 const STANCES=[['relaxed','Relaxed'],['hip','Hand on hip'],['peace','Peace'],['pocket','Pockets'],['cross','Arms crossed'],['think','Thinking'],['shrug','Shrug'],['hold','Holding']];
@@ -71,7 +77,7 @@ function renderAct(){
 }
 
 // ---------- wardrobe ----------
-const TABS=[['face','smile','Face'],['hair','scissors','Hair'],['top','shirt','Tops'],['bottom','layers','Bottoms'],['shoes','footprints','Shoes'],['acc','sparkles','Extras'],['motion','clapperboard','Motion']];
+const TABS=[['body','person-standing','Body'],['face','smile','Face'],['hair','scissors','Hair'],['top','shirt','Tops'],['bottom','layers','Bottoms'],['shoes','footprints','Shoes'],['acc','sparkles','Extras'],['motion','clapperboard','Motion']];
 const MOVES=[['idle','wind','Idle','Breath & weight shift'],['wave','hand','Wave','Lift, greet & settle'],['hop','arrow-up','Hop','Anticipate & land'],['walk','footprints','Walk','Contact & passing'],['run','move-right','Run','Drive & follow-through'],['celebrate','party-popper','Celebrate','A full-body cheer'],['talk','message-circle','Talk','Expression & gestures'],['point','pointer','Point','Lead with the eyes'],['surprise','zap','Surprise','Anticipation & a take'],['nod','check','Nod','Head & hair overlap'],['shrug','move-horizontal','Shrug','Shoulders & palms'],['think','lightbulb','Think','Settle into a thought']];
 function renderMotion(){const settings=motionSettings();return `<div class="motion-intro"><h2>Bring them to life.</h2><p>Preview an action, tune its character, then pause and inspect every drawing.</p></div>`+
   section('Performance','<span class="hint">Click to preview</span>',`<div class="move-grid">${MOVES.map(([id,ic,name,desc])=>`<button class="move-card${playback.type===id?' on':''}" data-move="${id}" aria-pressed="${playback.type===id}"><i data-lucide="${ic}"></i><span><strong>${name}</strong><small>${desc}</small></span></button>`).join('')}</div>`)+
@@ -94,6 +100,7 @@ function renderWard(){
   $('tabs').querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;renderWard();});
   let h='';
   if(tab==='motion')h=renderMotion();
+  if(tab==='body')h=renderBody();
   const faceGrid=(title,key,opts,kind='head')=>section(title,'',`<div class="tiles">${opts.map(o=>tile(o,variant(s=>{s.face[key]=o;if(key!=='facialHair')s.acc=s.acc.filter(a=>!['sunglasses'].includes(a));}),kind,spec.face[key]===o,`data-face="${key}" data-v="${o}"`)).join('')}</div>`);
   if(tab==='face'){h+=faceGrid('Face shape','shape',CAT.faceShape)+faceGrid('Ears','ears',CAT.ears)+faceGrid('Eyes','eyes',CAT.eyes)+section('Eye colour','',swatches('eyeColor',CAT.eyeColor,spec.face.eyeColor))+faceGrid('Eyebrows','brows',CAT.brows)+faceGrid('Nose','nose',CAT.nose)+faceGrid('Mouth','mouth',CAT.mouth)+faceGrid('Facial hair','facialHair',CAT.facialHair);}
   if(tab==='hair'){h+=section('Hair colour','',swatches('hair',CAT.hairColor,spec.hair.color))+section('Hairstyle','',`<div class="tiles">${CAT.hair.map(o=>tile(o,variant(s=>{s.hair.style=o;s.acc=s.acc.filter(a=>!['cap','beanie'].includes(a));}),'head',spec.hair.style===o,`data-hair="${o}"`)).join('')}</div>`);}
@@ -115,6 +122,8 @@ function renderWard(){
     $('ink').onchange=e=>changeMotion('ink',e.target.value==='drawn');
     $('onion').onchange=e=>{playback.onion=e.target.checked;view.dirty=true;};
   }
+  W.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{spec[b.dataset.k]=b.dataset.v;refreshAll();});
+  W.querySelectorAll('[data-skin]').forEach(b=>b.onclick=()=>{spec.skin=b.dataset.skin;refreshAll();});
   W.querySelectorAll('[data-face]').forEach(b=>b.onclick=()=>{spec.face[b.dataset.face]=b.dataset.v;refreshAll();});
   W.querySelectorAll('[data-hair]').forEach(b=>b.onclick=()=>{spec.hair.style=b.dataset.hair;refreshAll();});
   W.querySelectorAll('[data-top]').forEach(b=>b.onclick=()=>{spec.top.kind=b.dataset.top;refreshAll();});
@@ -129,7 +138,7 @@ function renderWard(){
   icons();
 }
 function icons(){try{window.lucide&&lucide.createIcons({attrs:{'stroke-width':1.8}});}catch(e){}}
-function refreshAll(){playback.transition=null;view.dirty=true;renderId();renderAct();renderWard();renderSaved();syncHeader();syncTransport();icons();}
+function refreshAll(){playback.transition=null;view.dirty=true;renderAct();renderWard();renderSaved();syncHeader();syncTransport();icons();}
 
 // ---------- live stage ----------
 const stageEl=$('stage');

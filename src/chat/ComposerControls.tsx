@@ -1,7 +1,7 @@
 // The two choices that sit under the message box: how hard the model should think, and what it
 // may change without asking. Both are ported from the Bhippi desktop app's composer — the effort slider with its
 // animated rail, and the permission list where each posture says what it actually does.
-import { Check, ChevronDown, Gauge, Hand, ShieldAlert, Sparkles, Zap } from 'lucide-react';
+import { Check, ChevronDown, Gauge, Hand, ShieldAlert, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Portal } from '../components/Portal';
 import { EFFORTS, PERMISSION_MODES, type Effort, type PermissionMode } from '../lib/permissions';
@@ -142,11 +142,9 @@ function SpeedRail({ steps, index, sends, onPick }: { steps: SpeedStep[]; index:
   );
 }
 
-export function ThinkingSlider({ effort, levels, awesome, onAwesome, onSelect, speeds = [], speedAt = -1, sends = null, onSpeed }: {
+export function ThinkingSlider({ effort, levels, onSelect, speeds = [], speedAt = -1, sends = null, onSpeed }: {
   effort: Effort;
   levels: Effort[];
-  awesome: boolean;
-  onAwesome: (on: boolean) => void;
   onSelect: (effort: Effort) => void;
   /** The chosen model's sizes, fastest first; fewer than two means no speed rail. */
   speeds?: SpeedStep[];
@@ -274,20 +272,6 @@ export function ThinkingSlider({ effort, levels, awesome, onAwesome, onSelect, s
           {sends && <p className="speed-model" title={sends}>Sends <b>{sends}</b></p>}
           </>}
 
-          {/* Looks only. It changes nothing about the model, the tools or the edits — it is here
-              because this is where the animation it borrows comes from. */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={awesome}
-            className={`awesome-switch${awesome ? ' on' : ''}`}
-            onClick={() => onAwesome(!awesome)}
-            title="Animate the chat while Bhippi AI writes. Looks only — nothing else changes."
-          >
-            <Sparkles size={12} />
-            <span className="awesome-label">Awesome look</span>
-            <span className="awesome-track"><span className="awesome-dot" /></span>
-          </button>
         </div></Portal>
       )}
     </div>

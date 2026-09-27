@@ -4,6 +4,11 @@
 //! frame — its own document, with the plugin's own content security policy, and no way to reach
 //! Bhippi's IPC. Everything a plugin does to the project goes back through the UI's plugin bridge
 //! (src/plugins/bridge.ts), which applies the same permission rules as the AI.
+//!
+//! Pages can be large (assets are bundled into them), so the library does not hold them: each page
+//! and each earlier revision is kept once as `plugins/sources/<sha256>.html`, and the library names
+//! it by `htmlHash`. `plugins_load` puts the pages back, so the UI sees whole plugins. A library
+//! written before this (pages inline) still loads, and is split out on its next save.
 
 use crate::store;
 use crate::AppState;
@@ -13,10 +18,14 @@ use tauri::State;
 
 type CommandResult<T> = Result<T, String>;
 
-/// A page bigger than this is not a panel; it is a mistake (or a pasted bundle of fonts).
-const MAX_PAGE_BYTES: usize = 4 * 1024 * 1024;
+/// The bundled page (24 MB, rules.ts MAX_PLUGIN_HTML) with the SDK and policy composed around it.
+const MAX_PAGE_BYTES: usize = 25 * 1024 * 1024;
+/// The library without its pages.
 const MAX_LIBRARY_BYTES: usize = 32 * 1024 * 1024;
-const MAX_STORAGE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_STORAGE_BYTES: usize = 64 * 1024 * 1024;
+/// A page no library names is removed on a save only once it is this old, so a page written for a
+/// save still on its way is never taken.
+const SOURCE_GRACE: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// Plugin ids become file names, so they are held to a plain alphabet.
 fn valid_id(id: &str) -> bool {
@@ -29,25 +38,114 @@ fn folder(state: &AppState) -> CommandResult<PathBuf> {
     Ok(dir)
 }
 
-#[tauri::command]
-pub fn plugins_load(state: State<'_, Arc<AppState>>) -> serde_json::Value {
-    let value: serde_json::Value = store::read_json(&state.paths.root.join("plugins.json"));
-    if value.is_array() { value } else { serde_json::json!([]) }
+fn valid_hash(hash: &str) -> bool {
+    hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
-#[tauri::command]
-pub fn plugins_save(state: State<'_, Arc<AppState>>, plugins: serde_json::Value) -> CommandResult<()> {
+fn sources_dir(root: &std::path::Path) -> PathBuf {
+    root.join("plugins").join("sources")
+}
+
+/// Keeps one page as a source file and answers its hash. The same page is written once.
+pub(crate) fn source_put(root: &std::path::Path, html: &str) -> CommandResult<String> {
+    if html.len() > MAX_PAGE_BYTES {
+        return Err(format!("The plugin page is {} KB; the limit is {} KB", html.len() / 1024, MAX_PAGE_BYTES / 1024));
+    }
+    let hash = sha256_hex(html.as_bytes());
+    let dir = sources_dir(root);
+    let path = dir.join(format!("{hash}.html"));
+    if !path.exists() {
+        std::fs::create_dir_all(&dir).map_err(|error| format!("Could not create the plugin sources folder: {error}"))?;
+        let staged = dir.join(format!(".{hash}.{}", ulid::Ulid::new()));
+        std::fs::write(&staged, html).map_err(|error| format!("Could not write the plugin page: {error}"))?;
+        std::fs::rename(&staged, &path).map_err(|error| format!("Could not write the plugin page: {error}"))?;
+    }
+    Ok(hash)
+}
+
+/// Puts `html` back into an entry that names its page by `htmlHash`. False when the page is gone.
+fn fill_page(root: &std::path::Path, entry: &mut serde_json::Value) -> bool {
+    let Some(hash) = entry.get("htmlHash").and_then(|v| v.as_str()).map(str::to_owned) else {
+        return entry.get("html").is_some_and(|v| v.is_string());
+    };
+    if !valid_hash(&hash) {
+        return false;
+    }
+    match std::fs::read_to_string(sources_dir(root).join(format!("{hash}.html"))) {
+        Ok(html) => {
+            entry["html"] = serde_json::Value::String(html);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+pub(crate) fn library_load(root: &std::path::Path) -> serde_json::Value {
+    let mut value: serde_json::Value = store::read_json(&root.join("plugins.json"));
+    let Some(items) = value.as_array_mut() else { return serde_json::json!([]) };
+    for item in items.iter_mut() {
+        if !fill_page(root, item) {
+            item["html"] = serde_json::Value::String(MISSING_PAGE.to_owned());
+        }
+        if let Some(revisions) = item.get_mut("revisions").and_then(|v| v.as_array_mut()) {
+            revisions.retain_mut(|revision| fill_page(root, revision));
+        }
+    }
+    value
+}
+
+const MISSING_PAGE: &str = "<p style=\"padding:12px\">This plugin's page is missing from disk. Open it in the Plugin Maker and save it again.</p>";
+
+pub(crate) fn library_save(root: &std::path::Path, plugins: &serde_json::Value) -> CommandResult<()> {
     let items = plugins.as_array().ok_or("Plugins must be a list")?;
     if items.len() > 500 || plugins.to_string().len() > MAX_LIBRARY_BYTES {
         return Err("The plugin library exceeds its storage limit".to_owned());
     }
+    let mut used = std::collections::HashSet::new();
     for item in items {
         let id = item.get("id").and_then(|v| v.as_str()).unwrap_or_default();
         if !valid_id(id) {
             return Err(format!("“{id}” is not a valid plugin id"));
         }
+        let revisions = item.get("revisions").and_then(|v| v.as_array()).into_iter().flatten();
+        for entry in std::iter::once(item).chain(revisions) {
+            if let Some(hash) = entry.get("htmlHash").and_then(|v| v.as_str()) {
+                if !valid_hash(hash) || !sources_dir(root).join(format!("{hash}.html")).exists() {
+                    return Err(format!("The page of “{id}” was not stored before the library was saved"));
+                }
+                used.insert(hash.to_owned());
+            }
+        }
     }
-    store::write_json(&state.paths.root.join("plugins.json"), &plugins)
+    store::write_json(&root.join("plugins.json"), plugins)?;
+    // Pages no plugin or revision names any more (and staging files a crash left behind).
+    if let Ok(entries) = std::fs::read_dir(sources_dir(root)) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let hash = name.trim_start_matches('.').split('.').next().unwrap_or_default().to_owned();
+            let old = entry.metadata().and_then(|meta| meta.modified()).is_ok_and(|at| at.elapsed().is_ok_and(|age| age > SOURCE_GRACE));
+            if old && (name.starts_with('.') || !used.contains(&hash)) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn plugins_load(state: State<'_, Arc<AppState>>) -> serde_json::Value {
+    library_load(&state.paths.root)
+}
+
+#[tauri::command]
+pub fn plugins_save(state: State<'_, Arc<AppState>>, plugins: serde_json::Value) -> CommandResult<()> {
+    library_save(&state.paths.root, &plugins)
+}
+
+/// Stores one plugin page (or earlier revision) for the library to name by hash.
+#[tauri::command]
+pub fn plugin_source_put(state: State<'_, Arc<AppState>>, html: String) -> CommandResult<String> {
+    source_put(&state.paths.root, &html)
 }
 
 /// Writes a plugin's composed page and returns its path, for the asset protocol to serve.
@@ -107,13 +205,45 @@ pub fn plugin_storage_save(state: State<'_, Arc<AppState>>, id: String, data: se
 // ---------------------------------------------------------------------------------------------
 // Drafts: the files the Plugin Maker writes a plugin as (docs/PLUGIN-PLATFORM-PLAN.md, Phase 1).
 // One flat folder per plugin, `plugin-drafts/<id>/`; `plugin_save` in the UI bundles them into the
-// plugin's page. Names are held to a plain alphabet and a few text types, so a draft can never
-// reach outside its folder or hold anything but source.
+// plugin's page. Names are held to a plain alphabet and known types, so a draft can never reach
+// outside its folder. Binary assets (src/plugins/assets.ts) are real bytes on disk and base64 over
+// IPC; their size and hash are those of the bytes.
 
-const MAX_DRAFT_FILES: usize = 40;
-const MAX_DRAFT_FILE_BYTES: usize = 1024 * 1024;
-const MAX_DRAFT_BYTES: usize = 4 * 1024 * 1024;
-const DRAFT_TYPES: &[&str] = &["html", "js", "css", "json", "md", "svg", "txt"];
+const MAX_DRAFT_FILES: usize = 120;
+const MAX_DRAFT_FILE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_DRAFT_BYTES: usize = 16 * 1024 * 1024;
+const TEXT_TYPES: &[&str] = &["html", "js", "css", "json", "md", "svg", "txt", "gltf"];
+const BINARY_TYPES: &[&str] = &[
+    "png", "jpg", "jpeg", "webp", "gif", "avif", "glb", "bin", "woff", "woff2", "ttf", "otf", "wav", "mp3", "ogg", "m4a", "mp4", "webm", "wasm",
+];
+
+fn extension(name: &str) -> String {
+    name.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase()).unwrap_or_default()
+}
+
+pub(crate) fn is_binary_file(name: &str) -> bool {
+    BINARY_TYPES.contains(&extension(name).as_str())
+}
+
+/// A draft file's bytes from what the UI sends: base64 for a binary file, the text itself otherwise.
+fn decode_file(name: &str, content: &str) -> CommandResult<Vec<u8>> {
+    use base64::Engine;
+    if is_binary_file(name) {
+        base64::engine::general_purpose::STANDARD.decode(content.trim()).map_err(|_| format!("{name} is a binary file: send its bytes as base64"))
+    } else {
+        Ok(content.as_bytes().to_vec())
+    }
+}
+
+/// A file read from disk as the UI holds it: base64 for a binary file, UTF-8 text otherwise.
+fn encode_file(name: &str, bytes: Vec<u8>) -> CommandResult<String> {
+    use base64::Engine;
+    if is_binary_file(name) {
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    } else {
+        String::from_utf8(bytes).map_err(|_| format!("{name} is not UTF-8 text"))
+    }
+}
 
 /// `index.html`, `app.js`, `spec.md` … — no folders, no leading dot, a known text type.
 pub(crate) fn valid_draft_file(name: &str) -> bool {
@@ -122,7 +252,11 @@ pub(crate) fn valid_draft_file(name: &str) -> bool {
         && !name.starts_with('.')
         && !name.contains("..")
         && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-    plain && name.rsplit_once('.').is_some_and(|(stem, ext)| !stem.is_empty() && DRAFT_TYPES.contains(&ext.to_ascii_lowercase().as_str()))
+    plain
+        && name.rsplit_once('.').is_some_and(|(stem, ext)| {
+            let ext = ext.to_ascii_lowercase();
+            !stem.is_empty() && (TEXT_TYPES.contains(&ext.as_str()) || BINARY_TYPES.contains(&ext.as_str()))
+        })
 }
 
 fn draft_dir(root: &std::path::Path, id: &str) -> CommandResult<PathBuf> {
@@ -134,7 +268,7 @@ fn draft_dir(root: &std::path::Path, id: &str) -> CommandResult<PathBuf> {
 
 fn draft_path(root: &std::path::Path, id: &str, file: &str) -> CommandResult<PathBuf> {
     if !valid_draft_file(file) {
-        return Err(format!("“{file}” is not a draft file name (letters, digits, - _ . and one of: {})", DRAFT_TYPES.join(", ")));
+        return Err(format!("“{file}” is not a draft file name (letters, digits, - _ . and one of: {}, {})", TEXT_TYPES.join(", "), BINARY_TYPES.join(", ")));
     }
     Ok(draft_dir(root, id)?.join(file))
 }
@@ -162,11 +296,13 @@ pub(crate) fn draft_list(root: &std::path::Path, id: &str) -> CommandResult<Vec<
 
 pub(crate) fn draft_read(root: &std::path::Path, id: &str, file: &str) -> CommandResult<String> {
     let path = draft_path(root, id, file)?;
-    std::fs::read_to_string(&path).map_err(|_| format!("The draft of “{id}” has no {file}"))
+    let bytes = std::fs::read(&path).map_err(|_| format!("The draft of “{id}” has no {file}"))?;
+    encode_file(file, bytes)
 }
 
 pub(crate) fn draft_write(root: &std::path::Path, id: &str, file: &str, content: &str) -> CommandResult<()> {
     let path = draft_path(root, id, file)?;
+    let content = decode_file(file, content)?;
     if content.len() > MAX_DRAFT_FILE_BYTES {
         return Err(format!("{file} is {} KB; a draft file is limited to {} KB", content.len() / 1024, MAX_DRAFT_FILE_BYTES / 1024));
     }
@@ -226,6 +362,61 @@ pub fn plugin_draft_remove(state: State<'_, Arc<AppState>>, id: String) -> Comma
 }
 
 // ---------------------------------------------------------------------------------------------
+// Media a plugin makes (`bhippi.importMedia`): a still, a clip or a sound, written under the
+// project's Generated/Plugins/<id>/ folder. The UI imports it with import_media afterwards, so the
+// plugin's permissions, the user's permission mode and the undo step all apply as for any tool.
+
+const MEDIA_TYPES: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "mp4", "webm", "mov", "wav", "mp3", "ogg", "m4a", "flac"];
+const MAX_MEDIA_BYTES: usize = 512 * 1024 * 1024;
+
+/// `Render 2.png`: plain characters, a media type, no folders.
+pub(crate) fn valid_media_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 96
+        && !name.starts_with(['.', ' '])
+        && !name.contains("..")
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' '))
+        && name.rsplit_once('.').is_some_and(|(stem, _)| !stem.trim().is_empty())
+        && MEDIA_TYPES.contains(&extension(name).as_str())
+}
+
+pub(crate) fn media_save(dir: &std::path::Path, id: &str, name: &str, bytes: &[u8]) -> CommandResult<String> {
+    if !valid_id(id) {
+        return Err(format!("“{id}” is not a valid plugin id"));
+    }
+    if !valid_media_name(name) {
+        return Err(format!("“{name}” is not a media file name (letters, digits, spaces, - _ . and one of: {})", MEDIA_TYPES.join(", ")));
+    }
+    if bytes.is_empty() || bytes.len() > MAX_MEDIA_BYTES {
+        return Err(format!("A plugin's media file must be 1 byte to {} MB", MAX_MEDIA_BYTES / 1024 / 1024));
+    }
+    let folder = dir.join(id);
+    std::fs::create_dir_all(&folder).map_err(|error| format!("Could not create {}: {error}", folder.display()))?;
+    let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+    let mut path = folder.join(name);
+    for n in 2.. {
+        if !path.exists() {
+            break;
+        }
+        path = folder.join(format!("{} {n}.{ext}", stem.trim()));
+    }
+    std::fs::write(&path, bytes).map_err(|error| format!("Could not write {}: {error}", path.display()))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// The file's bytes are the raw request body; the plugin and the name are the `x-plugin-id` and
+/// `x-name` headers. Answers the written file's path.
+#[tauri::command]
+pub fn plugin_media_save(state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> CommandResult<String> {
+    let header = |name: &str| request.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned).ok_or_else(|| format!("missing {name} header"));
+    let id = header("x-plugin-id")?;
+    let name = header("x-name")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("The media must be sent as raw bytes".to_owned()) };
+    let dir = crate::storage::dir(&state, crate::storage::Category::Generated)?.join("Plugins");
+    media_save(&dir, &id, &name, bytes)
+}
+
+// ---------------------------------------------------------------------------------------------
 // Installed packages (docs/PLUGIN-PLATFORM-PLAN.md, Phase 2): each version a plugin was installed
 // at, unpacked as `plugin-packages/<id>/<version>/`, so an update can be rolled back. A version is
 // written into a fresh `.incoming-*` folder and renamed into place only once every file is on disk,
@@ -265,14 +456,17 @@ pub(crate) fn package_install(root: &std::path::Path, id: &str, version: &str, f
         return Err(format!("A package holds 1–{} files", MAX_DRAFT_FILES + 2));
     }
     let mut total = 0;
+    let mut decoded = std::collections::BTreeMap::new();
     for (name, text) in files {
         if !valid_draft_file(name) {
             return Err(format!("“{name}” is not a package file name"));
         }
-        if text.len() > MAX_DRAFT_FILE_BYTES {
+        let bytes = decode_file(name, text)?;
+        if bytes.len() > MAX_DRAFT_FILE_BYTES {
             return Err(format!("{name} is larger than {} KB", MAX_DRAFT_FILE_BYTES / 1024));
         }
-        total += text.len();
+        total += bytes.len();
+        decoded.insert(name.clone(), bytes);
     }
     if total > MAX_DRAFT_BYTES + 64 * 1024 {
         return Err(format!("The package is larger than {} KB", MAX_DRAFT_BYTES / 1024));
@@ -283,9 +477,9 @@ pub(crate) fn package_install(root: &std::path::Path, id: &str, version: &str, f
     let written = (|| -> CommandResult<std::collections::BTreeMap<String, String>> {
         std::fs::create_dir_all(&incoming).map_err(|error| format!("Could not stage the package: {error}"))?;
         let mut hashes = std::collections::BTreeMap::new();
-        for (name, text) in files {
-            std::fs::write(incoming.join(name), text).map_err(|error| format!("Could not write {name}: {error}"))?;
-            hashes.insert(name.clone(), sha256_hex(text.as_bytes()));
+        for (name, bytes) in &decoded {
+            std::fs::write(incoming.join(name), bytes).map_err(|error| format!("Could not write {name}: {error}"))?;
+            hashes.insert(name.clone(), sha256_hex(bytes));
         }
         let target = dir.join(version);
         if target.exists() {
@@ -345,9 +539,9 @@ pub(crate) fn package_read(root: &std::path::Path, id: &str, version: &str) -> C
         if !valid_draft_file(&name) || !entry.metadata().is_ok_and(|meta| meta.is_file()) {
             continue;
         }
-        let text = std::fs::read_to_string(entry.path()).map_err(|error| format!("Could not read {name}: {error}"))?;
-        hashes.insert(name.clone(), sha256_hex(text.as_bytes()));
-        files.insert(name, text);
+        let bytes = std::fs::read(entry.path()).map_err(|error| format!("Could not read {name}: {error}"))?;
+        hashes.insert(name.clone(), sha256_hex(&bytes));
+        files.insert(name.clone(), encode_file(&name, bytes)?);
     }
     Ok((files, hashes))
 }
@@ -405,7 +599,7 @@ mod tests {
     #[test]
     fn draft_files_stay_in_their_folder_and_limits() {
         use super::*;
-        for good in ["index.html", "app.js", "style.css", "manifest.json", "spec.md", "icon.svg", "my-part_2.js"] {
+        for good in ["index.html", "app.js", "style.css", "manifest.json", "spec.md", "icon.svg", "my-part_2.js", "model.glb", "wood.PNG", "font.woff2", "physics.wasm"] {
             assert!(valid_draft_file(good), "{good}");
         }
         let long = format!("{}.js", "a".repeat(64));
@@ -420,11 +614,60 @@ mod tests {
         assert!(draft_write(&root, "../evil", "index.html", "x").is_err());
         assert!(draft_write(&root, "shots", "../../x.js", "x").is_err());
         assert!(draft_write(&root, "shots", "big.js", &"x".repeat(MAX_DRAFT_FILE_BYTES + 1)).is_err());
+        // A binary asset travels as base64 and lands as its real bytes.
+        draft_write(&root, "shots", "dot.png", "iVBORw0KGgo=").unwrap();
+        assert_eq!(std::fs::read(draft_dir(&root, "shots").unwrap().join("dot.png")).unwrap(), b"\x89PNG\r\n\x1a\n");
+        assert_eq!(draft_read(&root, "shots", "dot.png").unwrap(), "iVBORw0KGgo=");
+        assert!(draft_write(&root, "shots", "bad.png", "not base64!").is_err());
+        draft_delete(&root, "shots", "dot.png").unwrap();
         draft_delete(&root, "shots", "app.js").unwrap();
         assert_eq!(draft_list(&root, "shots").unwrap().len(), 1);
         draft_remove(&root, "shots").unwrap();
         assert!(draft_list(&root, "shots").unwrap().is_empty());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pages_live_outside_the_library_and_come_back_on_load() {
+        use super::*;
+        let root = std::env::temp_dir().join(format!("bhippi-sources-{}", ulid::Ulid::new()));
+        let page = source_put(&root, "<p>big page</p>").unwrap();
+        let old = source_put(&root, "<p>old page</p>").unwrap();
+        assert_eq!(source_put(&root, "<p>big page</p>").unwrap(), page, "the same page is stored once");
+        let library = serde_json::json!([
+            { "id": "shots", "htmlHash": page, "revisions": [{ "at": "x", "note": "n", "htmlHash": old }] },
+            { "id": "legacy", "html": "<p>inline</p>" },
+        ]);
+        library_save(&root, &library).unwrap();
+        let loaded = library_load(&root);
+        assert_eq!(loaded[0]["html"], "<p>big page</p>");
+        assert_eq!(loaded[0]["revisions"][0]["html"], "<p>old page</p>");
+        assert_eq!(loaded[1]["html"], "<p>inline</p>", "a library from before still loads");
+        let missing = "0".repeat(64);
+        assert!(library_save(&root, &serde_json::json!([{ "id": "x", "htmlHash": missing }])).is_err(), "a page must be stored first");
+        assert!(library_save(&root, &serde_json::json!([{ "id": "x", "htmlHash": "../../evil" }])).is_err());
+        std::fs::remove_file(sources_dir(&root).join(format!("{old}.html"))).unwrap();
+        assert_eq!(library_load(&root)[0]["revisions"].as_array().unwrap().len(), 0, "a lost revision is dropped, not faked");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn plugin_media_stays_in_its_folder() {
+        use super::*;
+        for good in ["Render.png", "shot 2.mp4", "voice_take-1.wav"] {
+            assert!(valid_media_name(good), "{good}");
+        }
+        for bad in ["", "../x.png", "a/b.png", "a\\b.png", ".png", "x.exe", "x.html", "x.js", "x..png"] {
+            assert!(!valid_media_name(bad), "{bad}");
+        }
+        let dir = std::env::temp_dir().join(format!("bhippi-media-{}", ulid::Ulid::new()));
+        let first = media_save(&dir, "shots", "Render.png", b"png").unwrap();
+        let second = media_save(&dir, "shots", "Render.png", b"png").unwrap();
+        assert_ne!(first, second, "a second file never overwrites the first");
+        assert!(second.ends_with("Render 2.png"));
+        assert!(media_save(&dir, "../x", "Render.png", b"png").is_err());
+        assert!(media_save(&dir, "shots", "Render.png", b"").is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

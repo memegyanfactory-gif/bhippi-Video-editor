@@ -6,6 +6,8 @@
 //                edit workflow (Quick edit rules: the local-generation switch still holds),
 //                then runTool — the same function Bhippi AI's calls go through. Each edit is
 //                one Undo step, labelled with the plugin's name. Calls run one at a time per frame.
+//   importMedia → the same checks as the import_media tool it ends in; the file is written under
+//                Generated/Plugins/<id>/ (plugins.rs) and imported with import_media.
 //   project, session, comp, selection, playhead, storage, projectStorage, toast, chat, fileUrl,
 //   subscribe, expose.
 //
@@ -61,7 +63,10 @@ export const setPluginEditor = (next: PluginEditor) => {
 export const pluginEditor = () => editor;
 
 const TAG = 'bhippi-plugin';
-type Subscription = 'project' | 'selection' | 'playhead' | 'theme' | 'session';
+type Subscription = 'project' | 'selection' | 'playhead' | 'theme' | 'session' | 'export';
+const SUBSCRIPTIONS: Subscription[] = ['project', 'selection', 'playhead', 'theme', 'session', 'export'];
+/** The largest file a plugin may hand the project with bhippi.importMedia. */
+export const MAX_PLUGIN_MEDIA_BYTES = 512 * 1024 * 1024;
 type Data = Record<string, unknown>;
 
 /** A test frame's world (testRunner.ts): everything it touches is its own. */
@@ -355,6 +360,34 @@ const HANDLERS: Record<string, Handler> = {
       return result;
     });
   },
+  importMedia: (frame, params) => {
+    spend(frame, 'tool');
+    const name = typeof params.name === 'string' ? params.name.trim() : '';
+    const bytes = params.bytes instanceof ArrayBuffer ? new Uint8Array(params.bytes) : null;
+    if (!bytes?.length) throw new Error('importMedia needs the file: a Blob, ArrayBuffer, typed array, canvas or data: URL');
+    if (bytes.length > MAX_PLUGIN_MEDIA_BYTES) throw new Error(`importMedia takes files up to ${MAX_PLUGIN_MEDIA_BYTES / 1024 / 1024} MB`);
+    const run = frame.queue.then(async () => {
+      // Asked before anything is written: the manifest, then the user's permission mode.
+      const current = editorFor(frame)!;
+      const plugin = pluginFor(frame);
+      const refused = !plugin ? 'This plugin is turned off.' : pluginToolRefusal(plugin.permissions, 'import_media', current.known) ?? (() => {
+        const mode = allowTool(current.permission(), 'import_media');
+        return mode.ok ? null : mode.reason.replace(/Bhippi AI/g, 'Bhippi');
+      })();
+      const skipped = frame.sandbox?.skip('import_media');
+      if (refused || skipped) {
+        log(frame, 'call', `${refused ? '✕' : '⏭'} importMedia ${name}: ${refused ?? skipped}`);
+        frame.sandbox?.calls.push({ name: 'import_media', ok: false, ...(refused ? {} : { skipped: true }), error: (refused ?? skipped)! });
+        throw new Error((refused ?? skipped)!);
+      }
+      const path = await api.pluginMediaSave(frame.pluginId, name, bytes);
+      const result = await runPluginTool(frame, 'import_media', { paths: [path] });
+      if (!result.ok) throw new Error(String(result.error));
+      return result;
+    });
+    frame.queue = run.catch(() => undefined);
+    return run;
+  },
   tools: (frame) => editorFor(frame)!.toolSpecs().map((spec) => ({ name: spec.name, description: spec.description, input_schema: spec.input_schema })),
   'selection.get': (frame) => editorFor(frame)!.host().selection(),
   'selection.set': (frame, params) => {
@@ -428,7 +461,7 @@ const HANDLERS: Record<string, Handler> = {
   },
   subscribe: (frame, params) => {
     const event = params.event as Subscription;
-    if (!['project', 'selection', 'playhead', 'theme', 'session'].includes(event)) throw new Error(`There is no “${String(params.event)}” event (project, selection, playhead, theme, session).`);
+    if (!SUBSCRIPTIONS.includes(event)) throw new Error(`There is no “${String(params.event)}” event (${SUBSCRIPTIONS.join(', ')}).`);
     frame.subscriptions.add(event);
     return true;
   },
@@ -503,6 +536,11 @@ export const pluginEvents = {
   },
   playhead(time: number) {
     for (const frame of liveFrames()) if (frame.subscriptions.has('playhead')) send(frame, { type: 'event', event: 'playhead', data: time });
+  },
+  /** An export started or ended. Only the output's file name reaches a plugin, never its folder. */
+  export(status: 'started' | 'done' | 'error' | 'cancelled', output: string | null) {
+    const file = output ? output.split(/[\\/]/).pop() ?? null : null;
+    for (const frame of liveFrames()) if (frame.subscriptions.has('export')) send(frame, { type: 'event', event: 'export', data: { status, file } });
   },
   theme() {
     const tokens = themeTokens();

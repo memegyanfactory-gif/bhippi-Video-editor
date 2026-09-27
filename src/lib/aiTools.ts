@@ -101,7 +101,8 @@ export type ToolHost = {
   /** Reads a script aloud, imports the take and returns it. */
   speak: (text: string, voice: string | null, mode: string, name?: string) => Promise<Asset>;
   /** Puts a question to the editor and waits for the answer; the card goes away if `signal` aborts. */
-  ask: (question: { question: string; options: string[]; context: string | null }, signal?: AbortSignal) => Promise<string>;
+  /** `turnId`: the turn asking, so the host can show the question in that turn's own chat. */
+  ask: (question: { question: string; options: string[]; context: string | null }, signal?: AbortSignal, turnId?: string) => Promise<string>;
   /** The assistant's permission mode; Full access answers its own questions. */
   permission?: () => PermissionMode;
   /** Sets the active project reference guideline. */
@@ -171,7 +172,7 @@ async function askShortsFormat(host: ToolHost, args: Args, turnId: string | unde
       question: 'Which screen should the shorts be made for?',
       options: SHORT_FORMAT_OPTIONS,
       context: 'Every short is cut, reframed and animated for this frame shape.',
-    }, signal);
+    }, signal, turnId ?? host.turnId);
     chosen = orientationFromAnswer(answer);
   }
   if (chosen) {
@@ -2536,7 +2537,7 @@ ${notes.trim()}${paletteLine}
           autoDecided: true,
         });
       }
-      const answer = await host.ask({ question, options, context: str(args, 'context') ?? null }, signal);
+      const answer = await host.ask({ question, options, context: str(args, 'context') ?? null }, signal, turnId ?? host.turnId);
       return done(`asked: ${question.slice(0, 60)}`, { answer });
     }
 
@@ -2607,7 +2608,7 @@ ${notes.trim()}${paletteLine}
           question: 'What frame size should this video be?',
           options: COMP_SIZE_OPTIONS.map((option) => option.label),
           context: 'The timeline has no picture yet, so there is no size to take from the footage. Everything is built for this frame.',
-        }, signal);
+        }, signal, turnId ?? host.turnId);
         size = frameSizeFromText(answer);
       }
       if (signal?.aborted) return fail('Cancelled.');

@@ -1960,6 +1960,22 @@ fn model_download(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -
     Ok(job_id)
 }
 
+/// Looks for catalogue models this computer already has (another app's Whisper, a Kokoro pack
+/// in Downloads, an older Bhippi folder) and starts using them in place. Answers the ids found
+/// and the refreshed status.
+#[tauri::command]
+async fn models_scan(app: AppHandle, state: State<'_, Arc<AppState>>) -> CommandResult<(Vec<String>, models::SpeechStatus)> {
+    let root = state.paths.models.clone();
+    let others: Vec<PathBuf> = app.path().document_dir().map(|documents| vec![documents.join("Bhippi").join("models")]).unwrap_or_default();
+    let found = tauri::async_runtime::spawn_blocking(move || models::scan(&root, &others))
+        .await
+        .map_err(|error| error.to_string())?;
+    if !found.is_empty() {
+        let _ignored = app.emit(models::MODELS_EVENT, ());
+    }
+    Ok((found.into_iter().map(str::to_owned).collect(), speech_status_of(state.inner())))
+}
+
 #[tauri::command]
 fn model_delete(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> CommandResult<models::SpeechStatus> {
     models::remove(&state.paths.models, &id)?;
@@ -2640,11 +2656,12 @@ fn valid_note_name(name: &str) -> bool {
         && !name.starts_with('.')
 }
 
-/// A comp's poster frame: the middle of the comp rendered small, cached under
-/// a deterministic name so the Project panel can show what is inside a comp
-/// without touching the project schema.
+/// A comp's poster frame: `time` (the Project panel picks the busiest moment;
+/// the middle when absent) rendered small, cached under a deterministic name so
+/// the Project panel can show what is inside a comp without touching the
+/// project schema.
 #[tauri::command]
-async fn comp_poster(state: State<'_, Arc<AppState>>, project: Project, comp_id: String) -> CommandResult<String> {
+async fn comp_poster(state: State<'_, Arc<AppState>>, project: Project, comp_id: String, time: Option<f64>) -> CommandResult<String> {
     let tools = state.tools();
     let ffmpeg = tools.ffmpeg()?.to_path_buf();
     let comp = project.comp(&comp_id).ok_or("that comp is not in the project")?;
@@ -2659,7 +2676,7 @@ async fn comp_poster(state: State<'_, Arc<AppState>>, project: Project, comp_id:
     }
     let options = ExportOptions { output: output.display().to_string(), comp_id, resolution: Some(360), fps: None, quality: "draft".to_owned(), in_to_out: false, format: "mp4".to_owned(), encoder: None, ..Default::default() };
     let sfx_dir = state.paths.sfx.clone();
-    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, total / 2.0)?;
+    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Still, time.filter(|at| at.is_finite()).map_or(total / 2.0, |at| at.clamp(0.0, (total - 0.01).max(0.0))))?;
     let work = state.paths.work.join(format!("poster-{}", store::new_id()));
     std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
     for (name, contents) in &plan.files {
@@ -2865,6 +2882,56 @@ async fn provider_update(app: AppHandle, state: State<'_, Arc<AppState>>, id: St
     start_provider_maintenance(app, state.inner().clone(), id, true)
 }
 
+/// Updates every installed provider Bhippi can update, one after another in a single job, then
+/// re-reads every provider's model list (cloud and local ones included). Answers the job id, or
+/// None when nothing is installed that Bhippi can update (the model lists are still re-read).
+#[tauri::command]
+async fn provider_update_all(app: AppHandle, state: State<'_, Arc<AppState>>) -> CommandResult<Option<String>> {
+    let state = state.inner().clone();
+    let targets: Vec<&'static bhippi_providers::ProviderSpec> = state
+        .providers
+        .read()
+        .map_err(lock_error)?
+        .iter()
+        .filter(|provider| provider.installed)
+        .filter_map(|provider| bhippi_providers::spec(&provider.id).filter(|spec| spec.install.is_some()))
+        .collect();
+    if targets.is_empty() {
+        detect_providers(&app, &state).await;
+        return Ok(None);
+    }
+    let mut maintenance = state.provider_maintenance.lock().map_err(lock_error)?;
+    if *maintenance { return Err("Another provider installation or update is running. Try again when it finishes.".into()); }
+    if !state.turns.lock().map_err(lock_error)?.is_empty() { return Err("Wait for the current AI request to finish before updating providers.".into()); }
+    *maintenance = true;
+    drop(maintenance);
+    let job = state.jobs.start("install", "Updating all AI providers".to_owned(), false);
+    let job_id = job.id().to_owned();
+    tauri::async_runtime::spawn(async move {
+        let count = targets.len();
+        let mut failed = Vec::new();
+        for (index, spec) in targets.iter().enumerate() {
+            let Some(recipe) = spec.install else { continue };
+            let at = index as f64 / count as f64;
+            job.progress(at, format!("Updating {} ({}/{count})", spec.label, index + 1));
+            let mut report = |line: &str| job.progress(at, format!("{}: {}", spec.label, line.chars().take(140).collect::<String>()));
+            if let Err(reason) = bhippi_providers::run_recipe_with(&recipe, &mut report).await {
+                failed.push(format!("{}: {}", spec.label, reason.lines().last().unwrap_or(&reason)));
+            }
+        }
+        detect_providers(&app, &state).await;
+        if failed.len() == count {
+            job.fail(format!("No provider could be updated. {}", failed.join("; ")));
+        } else if failed.is_empty() {
+            job.done(format!("Updated {count} provider{}", if count == 1 { "" } else { "s" }), None);
+        } else {
+            job.done(format!("Updated {} of {count}. Failed: {}", count - failed.len(), failed.join("; ")), None);
+        }
+        if let Ok(mut busy) = state.provider_maintenance.lock() { *busy = false; }
+    });
+    Ok(Some(job_id))
+}
+
 fn start_provider_maintenance(app: AppHandle, state: Arc<AppState>, id: String, update: bool) -> CommandResult<String> {
     let spec = bhippi_providers::spec(&id).ok_or("unknown provider")?;
     let recipe = spec.install.ok_or_else(|| format!("{} cannot be installed from Bhippi", spec.label))?;
@@ -2879,7 +2946,9 @@ fn start_provider_maintenance(app: AppHandle, state: Arc<AppState>, id: String, 
     let job_id = job.id().to_owned();
     tauri::async_runtime::spawn(async move {
         job.progress(0.1, recipe.display());
-        match bhippi_providers::run_recipe(&recipe).await {
+        // Every line the installer prints (and Node.js setup, when npm is missing) shows on the job.
+        let mut report = |line: &str| job.progress(0.5, line.chars().take(160).collect::<String>());
+        match bhippi_providers::run_recipe_with(&recipe, &mut report).await {
             Ok(tail) => {
                 job.done(if tail.is_empty() { "Installed".to_owned() } else { tail }, None);
                 detect_providers(&app, &state).await;
@@ -3141,11 +3210,44 @@ async fn chat_wait_subagent(
 // ───────────────────────────── startup ─────────────────────────────
 
 
+/// Opens the editor maximized, which fills the screen's work area and leaves the taskbar in view
+/// (fullscreen would cover it). The size it restores down to is first fitted inside that work area
+/// too, so a size saved on a bigger screen, or the configured default on a small or scaled one,
+/// never runs under the taskbar or off the screen.
+fn open_maximized(window: &tauri::WebviewWindow) {
+    let _ignored = window.set_fullscreen(false);
+    if let Ok(Some(monitor)) = window.current_monitor().or_else(|_| window.primary_monitor()) {
+        let area = *monitor.work_area();
+        if let (Ok(size), Ok(place)) = (window.outer_size(), window.outer_position()) {
+            let width = size.width.min(area.size.width * 9 / 10);
+            let height = size.height.min(area.size.height * 9 / 10);
+            let fits = place.x >= area.position.x
+                && place.y >= area.position.y
+                && place.x + width as i32 <= area.position.x + area.size.width as i32
+                && place.y + height as i32 <= area.position.y + area.size.height as i32;
+            if width != size.width || height != size.height {
+                let _ignored = window.set_size(tauri::PhysicalSize::new(width, height));
+            }
+            if !fits {
+                let x = area.position.x + (area.size.width - width) as i32 / 2;
+                let y = area.position.y + (area.size.height - height) as i32 / 2;
+                let _ignored = window.set_position(tauri::PhysicalPosition::new(x, y));
+            }
+        }
+    }
+    let _ignored = window.maximize();
+    // The window starts hidden (tauri.conf.json) so it never shows at the wrong size first.
+    let _ignored = window.show();
+}
+
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // The config's windows exist by now; give each a taskbar icon drawn at the taskbar's size.
     #[cfg(windows)]
     for window in app.webview_windows().values() {
         window_icon::install(&window.as_ref().window());
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        open_maximized(&window);
     }
     let root = app.path().app_data_dir()?;
     let default_storage = storage::default_root(app.handle(), &root);
@@ -3350,7 +3452,13 @@ pub fn run() {
                 let _ignored = app.emit("bhippi://open-file", file);
             }
         }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Only the restored-down size and place are remembered: the window always opens maximized
+        // (open_maximized), never fullscreen over the taskbar.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(tauri_plugin_window_state::StateFlags::SIZE | tauri_plugin_window_state::StateFlags::POSITION)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(setup)
@@ -3491,6 +3599,7 @@ pub fn run() {
             speech_preview,
             speech_generate,
             model_download,
+            models_scan,
             model_delete,
             library_relink,
             library_adopt,
@@ -3545,6 +3654,8 @@ pub fn run() {
             plugins::plugin_pkg_versions,
             plugins::plugin_pkg_read,
             plugins::plugin_pkg_remove,
+            plugins::plugin_source_put,
+            plugins::plugin_media_save,
             market::market_get,
             market::market_download,
             market::market_revocations,
@@ -3569,6 +3680,7 @@ pub fn run() {
             provider_set_key,
             provider_install,
             provider_update,
+            provider_update_all,
             chat_read_images,
             chat_send,
             chat_tool_result,

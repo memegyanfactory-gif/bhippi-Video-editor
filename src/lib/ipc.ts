@@ -247,10 +247,12 @@ export type ModelInfo = {
   /** False when no prebuilt exists for this platform — then it can only be located. */
   downloadable: boolean;
   license: string;
+  /** Already on this computer (another app's copy, an older Bhippi folder) and used where it is. */
+  external?: boolean;
 };
 
 /** Whether the program that runs a model was found, and where it came from. */
-export type RuntimeStatus = { found: boolean; path: string | null; source: 'downloaded' | 'custom' | 'system' | '' };
+export type RuntimeStatus = { found: boolean; path: string | null; source: 'downloaded' | 'custom' | 'system' | 'found' | '' };
 
 export type SpeechStatus = {
   models: ModelInfo[];
@@ -495,6 +497,8 @@ export const api = {
   speechStatus: () => invoke<SpeechStatus>('speech_status'),
   /** Starts a download; returns its job id and reports on `bhippi://job`. */
   modelDownload: (id: string) => invoke<string>('model_download', { id }),
+  /** Looks for catalogue models this computer already has and starts using them in place: the ids found, and the new status. */
+  modelsScan: () => invoke<[string[], SpeechStatus]>('models_scan'),
   modelDelete: (id: string) => invoke<SpeechStatus>('model_delete', { id }),
   /** Points Bhippi at a whisper.cpp or Piper program installed by hand; null goes back to auto. */
   speechLocate: (runtime: 'whisper' | 'tts', path: string | null) => invoke<SpeechStatus>('speech_locate', { runtime, path }),
@@ -612,7 +616,12 @@ export const api = {
   chatLogLoad: (scope?: string) => invoke<unknown[]>('chat_log_load', { scope: scope ?? null }),
   chatLogSave: (messages: unknown[], scope?: string) => invoke<void>('chat_log_save', { messages, scope: scope ?? null }),
   pluginsLoad: () => invoke<import('../plugins/types').Plugin[]>('plugins_load'),
-  pluginsSave: (plugins: import('../plugins/types').Plugin[]) => invoke<void>('plugins_save', { plugins }),
+  /** The library, with each page (and earlier revision) named by `htmlHash` once stored with pluginSourcePut. */
+  pluginsSave: (plugins: unknown[]) => invoke<void>('plugins_save', { plugins }),
+  /** Stores one plugin page outside the library; returns its SHA-256, which the library names it by. */
+  pluginSourcePut: (html: string) => invoke<string>('plugin_source_put', { html }),
+  /** Writes a file a plugin made (bhippi.importMedia) under Generated/Plugins/<id>/; returns its path. */
+  pluginMediaSave: (id: string, name: string, bytes: Uint8Array) => invoke<string>('plugin_media_save', bytes, { headers: { 'x-plugin-id': id, 'x-name': name } }),
   /** Writes a plugin's composed page and returns its file path (served through the asset protocol). */
   pluginPageWrite: (id: string, html: string) => invoke<string>('plugin_page_write', { id, html }),
   pluginFilesRemove: (id: string) => invoke<void>('plugin_files_remove', { id }),
@@ -639,7 +648,7 @@ export const api = {
   exportPreview: (jobId: string) => invoke<string | null>('export_preview', { jobId }),
   exportFrame: (project: Project, compId: string, time: number, output: string, shortSide?: number) => invoke<string>('export_frame', { project: prepareEffectExport(project,compId), compId, time, output, shortSide: shortSide ?? null }),
   /** A comp's poster frame: middle of the comp, small, cached by comp id. */
-  compPoster: (project: Project, compId: string) => invoke<string>('comp_poster', { project, compId }),
+  compPoster: (project: Project, compId: string, time?: number) => invoke<string>('comp_poster', { project, compId, time: time ?? null }),
   /** AI-written notes and todo lists living beside the project. */
   workspaceNotes: () => invoke<{ name: string; path: string; size: number; modified: number }[]>('workspace_notes'),
   workspaceNoteDelete: (name: string) => invoke<void>('workspace_note_delete', { name }),
@@ -698,6 +707,8 @@ export const api = {
   providerStart: (id: string) => invoke<ProviderInfo[]>('provider_start', { id }),
   providerInstall: (id: string) => invoke<string>('provider_install', { id }),
   providerUpdate: (id: string) => invoke<string>('provider_update', { id }),
+  /** Updates every installed provider Bhippi can update, one after another, then re-reads every model list. Null when there was nothing to update. */
+  providerUpdateAll: () => invoke<string | null>('provider_update_all'),
 
   chatReadImages: (paths: string[]) => invoke<string[]>('chat_read_images', { paths }),
   chatSend: (request: ChatRequest) => invoke<void>('chat_send', { request }),

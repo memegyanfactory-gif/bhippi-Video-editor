@@ -14,6 +14,7 @@ pub mod anthropic;
 pub mod catalog;
 pub mod cli;
 mod command;
+mod node;
 pub mod detect;
 pub mod effort;
 pub mod error;
@@ -54,46 +55,89 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(900);
 ///
 /// Returns the last few output lines so the UI can show what happened.
 pub async fn run_recipe(recipe: &InstallSpec) -> std::result::Result<String, String> {
+    run_recipe_with(recipe, &mut |_| {}).await
+}
+
+/// [`run_recipe`], reporting each line of output (and each setup step) to `progress` as it
+/// happens. An npm recipe first makes sure npm runs on a new-enough Node, fetching Bhippi's
+/// own Node when the computer has none (see `node.rs`), so a fresh PC can still install.
+pub async fn run_recipe_with(
+    recipe: &InstallSpec,
+    progress: &mut (dyn FnMut(&str) + Send),
+) -> std::result::Result<String, String> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
     // npm global installs share a prefix; serialize concurrent installs.
     static INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _guard = INSTALL_LOCK.lock().await;
+    if recipe.program == "npm" {
+        node::ensure_npm(progress).await?;
+    }
     let resolved = resolve_command(recipe.program).ok_or_else(|| {
         format!(
             "{} is not available. Install it first, then restart Bhippi.",
             recipe.program
         )
     })?;
+    progress(&recipe.display());
     let mut command = resolved.command();
     command
         .args(recipe.args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .stdin(std::process::Stdio::null());
-    let output = tokio::time::timeout(INSTALL_TIMEOUT, command.output())
-        .await
-        .map_err(|_| "timed out after 900s".to_owned())?
-        .map_err(|error| error.to_string())?;
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
 
-    let mut tail = String::new();
-    for stream in [&output.stdout, &output.stderr] {
-        let text = String::from_utf8_lossy(stream);
-        let lines: Vec<&str> = text
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .collect();
-        for line in &lines[lines.len().saturating_sub(3)..] {
-            if !tail.is_empty() {
-                tail.push_str(" · ");
+    // Both streams feed one channel, so lines arrive in the order the installer printed them.
+    let (sender, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();
+    if let Some(stdout) = child.stdout.take() {
+        let sender = sender.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if sender.send(line).is_err() { break; }
             }
-            tail.push_str(line.trim());
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let sender = sender.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if sender.send(line).is_err() { break; }
+            }
+        });
+    }
+    drop(sender);
+
+    let mut recent: Vec<String> = Vec::new();
+    let deadline = tokio::time::sleep(INSTALL_TIMEOUT);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            line = lines.recv() => match line {
+                Some(line) => {
+                    let line = line.trim();
+                    if line.is_empty() { continue; }
+                    progress(line);
+                    recent.push(line.to_owned());
+                    if recent.len() > 3 { recent.remove(0); }
+                }
+                None => break,
+            },
+            () = &mut deadline => {
+                let _ignored = child.kill().await;
+                return Err("timed out after 900s".to_owned());
+            }
         }
     }
-    let tail = tail.chars().take(400).collect::<String>();
-    if output.status.success() {
+    let status = child.wait().await.map_err(|error| error.to_string())?;
+    let tail = recent.join(" · ").chars().take(400).collect::<String>();
+    if status.success() {
         Ok(tail)
     } else if tail.is_empty() {
-        Err(format!("exited with {}", output.status))
+        Err(format!("exited with {status}"))
     } else {
-        Err(format!("{} ({tail})", output.status))
+        Err(format!("{status} ({tail})"))
     }
 }

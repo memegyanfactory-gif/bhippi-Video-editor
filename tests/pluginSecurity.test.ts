@@ -41,8 +41,9 @@ describe('what "*" never covers', () => {
 describe('the strict page policy (format 2)', () => {
   it('allows only the plugin’s own inline code: no CDN, no eval, no blob scripts', () => {
     const strict = pluginCsp(none, true);
-    expect(strict).toContain("script-src 'unsafe-inline';");
-    expect(strict).not.toMatch(/cdn|unpkg|unsafe-eval|blob: https|googleapis/);
+    // WebAssembly compiles; eval() and remote or blob: scripts do not run.
+    expect(strict).toContain("script-src 'unsafe-inline' 'wasm-unsafe-eval';");
+    expect(strict).not.toMatch(/cdn|unpkg|'unsafe-eval'|blob: https|googleapis/);
     expect(pluginCsp(none)).toContain('https://cdn.jsdelivr.net');
   });
 

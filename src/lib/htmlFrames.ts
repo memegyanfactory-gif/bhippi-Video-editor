@@ -213,7 +213,7 @@ export async function renderHtmlCompStill(comp: Comp, width = 480): Promise<stri
     // Cards bring their words in at different moments (a one-second chapter card shows its title
     // only in the last fifth), so a few moments are tried and the one showing the most is kept.
     let best: { url: string; detail: number } | null = null;
-    for (const fraction of [0.5, 0.75, 0.92]) {
+    for (const fraction of [0.35, 0.5, 0.65, 0.8, 0.92]) {
       const sheet = await mounted.draw(clip.duration * fraction);
       context.fillStyle = '#16171a';
       context.fillRect(0, 0, out.width, out.height);

@@ -30,8 +30,6 @@ export type CommandContext = {
   effort: Effort;
   /** A short description of what the model is told about the project. */
   describeContext: () => string;
-  toggleAwesome: () => void;
-  awesome: boolean;
   /** Reference films on this machine, for `/ref`. */
   references: { id: string; name: string; pack: string | null; cutEvery: number }[];
   /** Edits from here on follow that reference; its guideline goes into every turn's context. */
@@ -106,12 +104,6 @@ export const COMMANDS: Command[] = [
     summary: 'Manage AI providers and keys',
     group: 'Settings',
     run: (context) => context.openProviders(),
-  },
-  {
-    name: '/awesome',
-    summary: 'Turn the animated look on or off',
-    group: 'Settings',
-    run: (context) => context.toggleAwesome(),
   },
   {
     name: '/undo',

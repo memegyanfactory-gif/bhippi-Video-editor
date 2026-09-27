@@ -8357,7 +8357,7 @@
     },
     {
       "name": "plugin_write_file",
-      "description": "Create or replace one file of a plugin's draft (whole contents). Nothing runs until plugin_save.",
+      "description": "Create or replace one file of a plugin's draft (whole contents). Nothing runs until plugin_save. Code and text: .html .js .css .json .md .svg .txt .gltf. Assets (bundled into the page, read with bhippi.asset): .png .jpg .webp .gif .avif .glb .bin .woff .woff2 .ttf .otf .wav .mp3 .ogg .m4a .mp4 .webm .wasm, sent as base64. To copy a project media file in, use plugin_add_asset; for three.js, plugin_add_library.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -8367,15 +8367,67 @@
           },
           "file": {
             "type": "string",
-            "description": "A file name in the draft: letters, digits, - _ . only, no folders (manifest.json, spec.md, index.html, app.js, style.css, …)."
+            "description": "A file name in the draft: letters, digits, - _ . only, no folders (manifest.json, spec.md, index.html, app.js, style.css, texture.png, …)."
           },
           "content": {
-            "type": "string"
+            "type": "string",
+            "description": "The whole file. For an asset (binary) file: its bytes as base64."
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "utf8",
+              "base64"
+            ],
+            "description": "How content is written: utf8 (default) or base64 (required for binary assets)."
           }
         },
         "required": [
           "file",
           "content"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_add_library",
+      "description": "Copy a library Bhippi ships into a plugin's draft (plugins cannot load code from a CDN). The copy is checked against the pinned hash and becomes a draft file, e.g. three.min.js; add <script src=\"three.min.js\"></script> to index.html before app.js. Omit library to list them (three: three.js 3D with OrbitControls, TransformControls, GLTFLoader, GLTFExporter).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          },
+          "library": {
+            "type": "string",
+            "description": "The library id, e.g. three."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plugin_add_asset",
+      "description": "Copy one of the project's media files (a picture, model, font, sound, clip or wasm; up to 8 MB) into a plugin's draft as an asset. The page reads it with bhippi.asset(name) (a blob URL), bhippi.assetBytes(name) or <img data-bhippi-src=\"name\">. It is bundled at plugin_save.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The plugin id. Omit for the plugin open in the Plugin Maker."
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path of a project media file (get_project lists them) or a file in the project's folder."
+          },
+          "name": {
+            "type": "string",
+            "description": "The asset's name in the draft (keeps a known ending such as .png or .glb). Default: the file's own name."
+          }
+        },
+        "required": [
+          "path"
         ],
         "additionalProperties": false
       }

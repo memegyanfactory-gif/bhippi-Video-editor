@@ -46,6 +46,8 @@ export type Plugin = {
   description: string;
   /** One emoji or a short glyph for the panel tab. */
   icon?: string;
+  /** The uploaded logo (the draft's logo.svg, src/plugins/logo.ts) as a PNG/JPEG data URL; shown instead of `icon`. */
+  logo?: string;
   /** The plugin's page: an HTML document or fragment with inline <script> and <style>. */
   html: string;
   permissions: PluginPermissions;

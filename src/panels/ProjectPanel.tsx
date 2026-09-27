@@ -13,7 +13,7 @@ import { bytes, capitalize, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
 import { api, fileSrc } from '../lib/ipc';
 import { playSfx } from '../lib/sfx';
-import { compDuration, ITEM_LABEL, tracksOf, usage } from '../lib/timeline';
+import { busiestTime, compDuration, ITEM_LABEL, tracksOf, usage } from '../lib/timeline';
 import type { Asset, ClipSource, Comp, FxSnapshot, ItemKind, Preset, Project, ProjectItem, SfxKind, TransitionKind } from '../lib/types';
 import { AVAILABLE_EFFECTS as ALL_EFFECTS, type EffectDefinition } from '../lib/effectsCatalog';
 import { FXConsolePanel } from './FXConsolePanel';
@@ -110,13 +110,48 @@ const ITEM_ICON: Record<ItemKind, typeof Video> = {
   'color-matte': LayoutTemplate, 'black-video': LayoutTemplate, 'transparent-video': LayoutTemplate, 'bars-and-tone': LayoutTemplate, 'adjustment-layer': SlidersHorizontal, countdown: Clapperboard,
 };
 
+/**
+ * Comp id → a short hash of everything its poster depends on: its clips, tracks and size, plus the
+ * same for every comp nested in it (editing a nested comp changes the parent's picture too).
+ */
+function compSignatures(comps: Comp[]): Map<string, string> {
+  const byId = new Map(comps.map((comp) => [comp.id, comp]));
+  const own = new Map(comps.map((comp) => [comp.id, hashText(JSON.stringify([comp.width, comp.height, comp.tracks, comp.clips]))]));
+  const out = new Map<string, string>();
+  const visit = (id: string, trail: Set<string>): string => {
+    const done = out.get(id);
+    if (done) return done;
+    const comp = byId.get(id);
+    if (!comp || trail.has(id)) return '';
+    trail.add(id);
+    const nested = comp.clips.flatMap((clip) => (clip.source.type === 'comp' ? [visit(clip.source.compId, trail)] : []));
+    trail.delete(id);
+    const key = nested.length ? hashText(`${own.get(id)}|${nested.join(',')}`) : own.get(id) ?? '';
+    out.set(id, key);
+    return key;
+  };
+  for (const comp of comps) visit(comp.id, new Set());
+  return out;
+}
+
+/** FNV-1a, as hex: cheap change detection, not security. */
+function hashText(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
+}
+
 function BinTab({ project, history, assets, folder, onFolder, selection, onSelect, onDragStart, onOpenComp, onOpenInSource, onEntryMenu, onPanelMenu, onImport, onNewComp, onNewFolder, onDelete, onRename }: Props) {
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'icon' | 'list'>('icon');
   const [size, setSize] = useState(132);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [posters, setPosters] = useState<Record<string, string>>({});
-  const posterDone = useRef<Set<string>>(new Set());
+  /** Comp id → the contents signature its poster was last drawn from. */
+  const posterDone = useRef<Map<string, string>>(new Map());
   const counts = useMemo(() => usage(project), [project]);
   const assetMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
@@ -168,32 +203,60 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
     else if (entry.type === 'media' && !entry.offline) onOpenInSource(entry.id);
   };
 
-  // Comp posters: what is inside each comp, rendered once per session plus on
-  // demand. Rendering every comp on every edit would stall the panel, so a
-  // stale poster stays until its refresh button is pressed.
-  const refreshPoster = (compId: string) => {
-    posterDone.current.add(compId);
-    const comp = history.current().comps.find((entry) => entry.id === compId);
+  // Comp posters: what is inside each comp, at its busiest moment (comps often open on an empty
+  // frame and build up later). Every comp gets one as soon as it has clips, and it is redrawn a
+  // moment after its contents (or a comp nested in it) change — one render at a time, so a burst
+  // of edits costs one render per comp, not one per edit.
+  const renderPoster = async (compId: string) => {
+    const current = history.current();
+    const comp = current.comps.find((entry) => entry.id === compId);
+    if (!comp || compDuration(comp) <= 0) return;
     // A motion-graphic comp (HTML only) is drawn here, as the preview draws it: the FFmpeg poster
     // has no frames for HTML and rendered those cards black.
-    if (comp && comp.clips.some((clip) => clip.source.type === 'html') && !comp.clips.some((clip) => clip.source.type === 'media')) {
-      void renderHtmlCompStill(comp)
-        .then((still) => { if (still) setPosters((current) => ({ ...current, [compId]: still })); })
-        .catch(() => undefined);
+    if (comp.clips.some((clip) => clip.source.type === 'html') && !comp.clips.some((clip) => clip.source.type === 'media')) {
+      const still = await renderHtmlCompStill(comp);
+      if (still) setPosters((shown) => ({ ...shown, [compId]: still }));
       return;
     }
-    void api.compPoster(history.current(), compId)
-      .then((path) => setPosters((current) => ({ ...current, [compId]: path })))
-      .catch(() => undefined);
+    const path = await api.compPoster(current, compId, busiestTime(comp));
+    // Same file each time: the version query makes the tile load the new picture.
+    setPosters((shown) => ({ ...shown, [compId]: `${fileSrc(path)}?v=${Date.now()}` }));
+  };
+  const posterQueue = useRef<string[]>([]);
+  const posterBusy = useRef(false);
+  const drainPosters = async () => {
+    if (posterBusy.current) return;
+    posterBusy.current = true;
+    try {
+      for (let next = posterQueue.current.shift(); next; next = posterQueue.current.shift()) {
+        await renderPoster(next).catch(() => undefined);
+      }
+    } finally {
+      posterBusy.current = false;
+    }
+  };
+  const refreshPoster = (compId: string) => {
+    if (!posterQueue.current.includes(compId)) posterQueue.current.push(compId);
+    void drainPosters();
   };
 
+  const posterKeys = useMemo(() => compSignatures(project.comps), [project.comps]);
   useEffect(() => {
-    for (const item of project.comps) {
-      if (!posterDone.current.has(item.id) && compDuration(item) > 0) refreshPoster(item.id);
-    }
-    // Posters follow comp identity: they refresh when the project (and only
-    // then) is swapped or rebuilt.
-  }, [project.comps.length, project.name]);
+    const timer = window.setTimeout(() => {
+      for (const comp of project.comps) {
+        const key = posterKeys.get(comp.id);
+        if (compDuration(comp) <= 0) {
+          // Emptied: back to the placeholder rather than a picture of what was there.
+          if (posterDone.current.delete(comp.id)) setPosters((shown) => { const rest = { ...shown }; delete rest[comp.id]; return rest; });
+          continue;
+        }
+        if (!key || posterDone.current.get(comp.id) === key) continue;
+        posterDone.current.set(comp.id, key);
+        refreshPoster(comp.id);
+      }
+    }, posterDone.current.size ? 1200 : 0);
+    return () => window.clearTimeout(timer);
+  }, [posterKeys]);
 
   // Delete and Ctrl+A work on the visible bin entries when the panel has
   // focus. Handled here (with propagation stopped) so Delete never also hits
@@ -248,7 +311,9 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
         <button type="button" className="icon-btn small" onClick={onImport} title="Import (Ctrl+I)"><Upload size={14} /></button>
         <span className="bin-count">{entries.length} items</span>
       </div>
-      <div className="bin-body">
+      <div className="bin-body"
+        // Double-clicking empty space in the bin opens Import, as in Premiere.
+        onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest('.tile, .bin-row, .dropzone, button, input, thead')) onImport(); }}>
         {entries.length === 0 ? (
           <button type="button" className="dropzone" onClick={onImport}>
             <Upload size={24} />
@@ -401,7 +466,7 @@ export function EntryThumb({ entry, poster, onPoster }: { entry: BinEntry; poste
     return (
       <div className="tile-comp">
         {poster ? (
-          <img src={poster.startsWith('data:') ? poster : fileSrc(poster)} alt="" draggable={false} className="tile-poster" />
+          <img src={poster} alt="" draggable={false} className="tile-poster" />
         ) : (
           <>
             <Clapperboard size={20} />

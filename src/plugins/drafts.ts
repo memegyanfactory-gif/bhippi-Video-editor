@@ -4,12 +4,19 @@
 // they are tested without a webview.
 
 import { api } from '../lib/ipc';
+import { assetBlocks, DRAFT_TYPES, fileSize, isAssetFile } from './assets';
+import { findLibrary } from './libraries';
 import { isPluginRead, isSensitiveTool, MAX_PLUGIN_HTML, networkSources, PLUGIN_FORBIDDEN } from './rules';
 import type { DraftFiles, DraftManifest } from './templates';
+import { LOGO_FILE, logoImage } from './logo';
 import type { Plugin } from './types';
 
+/** Kept in step with plugins.rs: one file, the whole draft, and how many files it holds. */
+export const MAX_DRAFT_FILE_BYTES = 8 * 1024 * 1024;
+export const MAX_DRAFT_BYTES = 16 * 1024 * 1024;
+export const MAX_DRAFT_FILES = 120;
+
 export const DRAFT_FILE = /^(?!\.)(?!.*\.\.)[A-Za-z0-9_.-]{1,64}$/;
-const DRAFT_TYPES = ['html', 'js', 'css', 'json', 'md', 'svg', 'txt'];
 export const isDraftFile = (name: string) => DRAFT_FILE.test(name) && DRAFT_TYPES.includes(name.split('.').pop()!.toLowerCase()) && name.lastIndexOf('.') > 0;
 /** Files a draft always has: they cannot be deleted. */
 export const REQUIRED_FILES = ['manifest.json', 'index.html'];
@@ -154,7 +161,11 @@ export function bundleDraft(files: DraftFiles): { html: string; error: null } | 
     return `<style>\n${inlineStyle(read(href))}\n</style>`;
   });
   if (missing.length) return { html: null, error: `index.html references files the draft does not have: ${missing.join(', ')}.` };
-  return { html, error: null };
+  // Assets go last, as blocks that never run: bhippi.asset(name) reads them (assets.ts).
+  const assets = assetBlocks(files);
+  return { html: assets ? `${html}
+${assets}
+` : html, error: null };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -209,11 +220,15 @@ export function validateDraft(files: DraftFiles, known: ReadonlySet<string>): Dr
   for (const name of refs.local) if (files[name.replace(/^\.\//, '')] === undefined) problems.push(`index.html references ${name}, which the draft does not have.`);
 
   // Everything that runs: the page and every script, whether referenced or not (a stray file is harmless but flagged).
-  const code = Object.entries(files).filter(([name]) => /\.(js|html)$/i.test(name));
+  // A library Bhippi ships (libraries.ts) is not the plugin's code: its tool calls, network and
+  // TODOs are not linted (the sandbox still holds it to the plugin's permissions at run time).
+  const code = Object.entries(files).filter(([name]) => /\.(js|html)$/i.test(name) && !findLibrary(name));
   const all = code.map(([, text]) => text).join('\n');
   for (const [name, text] of code) if (REMOTE_IMPORT.test(text)) problems.push(`${name} imports code from the network: bundle it instead.`);
   const unreferenced = Object.keys(files).filter((name) => /\.(js|css)$/i.test(name) && !refs.local.some((ref) => ref.replace(/^\.\//, '') === name));
   if (unreferenced.length) warnings.push(`Not referenced by index.html, so never loaded: ${unreferenced.join(', ')}.`);
+  const unusedAssets = Object.keys(files).filter((name) => isAssetFile(name) && !all.includes(name));
+  if (unusedAssets.length) warnings.push(`Assets the code never names, bundled for nothing: ${unusedAssets.join(', ')} (use bhippi.asset("name") or data-bhippi-src="name", or delete them).`);
 
   const calls = [...new Set([...all.matchAll(TOOL_CALL)].map((match) => match[2]))].sort();
   const literal = [...all.matchAll(TOOL_CALL)].length;
@@ -246,6 +261,8 @@ export function validateDraft(files: DraftFiles, known: ReadonlySet<string>): Dr
   }
   if (manifest?.permissions.chat && !/bhippi\s*\.\s*chat\s*\(/.test(all)) warnings.push('chat is allowed but the code never calls bhippi.chat(): turn it off.');
 
+  if (files[LOGO_FILE] !== undefined && !logoImage(files[LOGO_FILE])) problems.push(`${LOGO_FILE} is not a logo the Plugin Maker made: upload the image again in Details › Logo, or delete the file.`);
+
   const spec = files['spec.md'];
   if (spec === undefined) warnings.push('No spec.md: write the contract first (what it does, UI, tools, permissions, acceptance checks).');
   else {
@@ -264,7 +281,9 @@ export function validateDraft(files: DraftFiles, known: ReadonlySet<string>): Dr
   const bundled = problems.length ? null : bundleDraft(files);
   if (bundled?.error) problems.push(bundled.error);
   const bytes = bundled?.html?.length ?? Object.values(files).reduce((sum, text) => sum + text.length, 0);
-  if (bytes > MAX_PLUGIN_HTML) problems.push(`The bundled page is ${Math.round(bytes / 1024)} KB; the limit is ${MAX_PLUGIN_HTML / 1024} KB.`);
+  if (bytes > MAX_PLUGIN_HTML) problems.push(`The bundled page is ${(bytes / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_PLUGIN_HTML / 1024 / 1024} MB. Shrink the assets (smaller pictures, compressed models) or drop unused ones.`);
+  const draftBytes = Object.entries(files).reduce((sum, [name, text]) => sum + fileSize(name, text), 0);
+  if (draftBytes > MAX_DRAFT_BYTES) problems.push(`The draft is ${(draftBytes / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_DRAFT_BYTES / 1024 / 1024} MB.`);
 
   return { ok: !problems.length, problems, warnings, manifest, calls, missing, unused, checks, bytes };
 }

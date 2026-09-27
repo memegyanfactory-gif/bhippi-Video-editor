@@ -103,9 +103,6 @@ export function GeneralSettings({ settings, onSettings, providers, info, onTab, 
         <Row title="Pixel avatar" hint="A little producer who acts out what Bhippi AI is doing on your timeline.">
           <Toggle checked={settings.avatar === true} onChange={(on) => set({ avatar: on })} label="Pixel avatar" />
         </Row>
-        <Row title="Animated chat" hint="The chat's moving look. Surface only.">
-          <Toggle checked={settings.awesomeLook ?? false} onChange={(on) => set({ awesomeLook: on })} label="Animated chat" />
-        </Row>
         <Row title="RAM preview cache" hint="Keeps rendered frames in memory so playback of effects-heavy parts stays smooth.">
           {cacheOn && (
             <select value={settings.previewCacheMb ?? 1536} onChange={(event) => set({ previewCacheMb: Number(event.target.value) })} aria-label="Preview cache size">

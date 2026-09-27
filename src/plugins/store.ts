@@ -60,13 +60,53 @@ async function publishPage(plugin: Plugin): Promise<string> {
 
 let loading: Promise<Plugin[]> | null = null;
 
+/**
+ * Pages already stored outside the library (plugins.rs `plugins/sources/`), page → hash, so a save
+ * sends only pages that are new. The library names each page and revision by its hash.
+ */
+const stored = new Map<string, string>();
+type Stored = { htmlHash?: string };
+
+/** Takes the hashes the loaded library carried, so the pages are not sent again. */
+function remember(plugin: Plugin): Plugin {
+  const { htmlHash, ...rest } = plugin as Plugin & Stored;
+  if (htmlHash) stored.set(plugin.html, htmlHash);
+  const revisions = rest.revisions?.map((revision) => {
+    const { htmlHash: hash, ...kept } = revision as typeof revision & Stored;
+    if (hash) stored.set(revision.html, hash);
+    return kept;
+  });
+  return revisions ? { ...rest, revisions } : rest;
+}
+
+async function pageRef(html: string): Promise<string> {
+  const known = stored.get(html);
+  if (known) return known;
+  const hash = await api.pluginSourcePut(html);
+  stored.set(html, hash);
+  return hash;
+}
+
+/** The library as it is written: every page stored first, then named by its hash. */
+async function slimLibrary(plugins: Plugin[]): Promise<unknown[]> {
+  const slim = await Promise.all(plugins.map(async ({ html, revisions, ...rest }) => ({
+    ...rest,
+    htmlHash: await pageRef(html),
+    ...(revisions ? { revisions: await Promise.all(revisions.map(async ({ html: page, ...revision }) => ({ ...revision, htmlHash: await pageRef(page) }))) } : {}),
+  })));
+  // Forget pages nothing names any more, so they can be let go.
+  const live = new Set(plugins.flatMap((plugin) => [plugin.html, ...(plugin.revisions ?? []).map((revision) => revision.html)]));
+  for (const page of [...stored.keys()]) if (!live.has(page)) stored.delete(page);
+  return slim;
+}
+
 export function loadPlugins(): Promise<Plugin[]> {
   if (state.loaded) return Promise.resolve(state.plugins);
   loading ??= (async () => {
     let plugins: Plugin[] = [];
     try {
       const saved = await api.pluginsLoad();
-      plugins = Array.isArray(saved) ? saved.filter((item) => item && typeof item.id === 'string' && typeof item.html === 'string') : [];
+      plugins = Array.isArray(saved) ? saved.filter((item) => item && typeof item.id === 'string' && typeof item.html === 'string').map(remember) : [];
     } catch {
       // Outside the app (tests, the browser harness) there is no library yet.
     }
@@ -77,13 +117,20 @@ export function loadPlugins(): Promise<Plugin[]> {
   return loading;
 }
 
+/** Library writes, one at a time and in order, so an older library never lands after a newer one. */
+let writing: Promise<unknown> = Promise.resolve();
+
 async function persist(plugins: Plugin[]) {
   set({ plugins });
-  try {
-    await api.pluginsSave(plugins);
-  } catch (error) {
-    if (inTauri()) throw error;
-  }
+  const write = writing.then(async () => {
+    try {
+      await api.pluginsSave(inTauri() ? await slimLibrary(plugins) : plugins);
+    } catch (error) {
+      if (inTauri()) throw error;
+    }
+  });
+  writing = write.catch(() => undefined);
+  await write;
 }
 
 export const findPlugin = (id: string) => state.plugins.find((plugin) => plugin.id === id) ?? null;
@@ -105,7 +152,7 @@ export async function savePlugin(next: Plugin, known: ReadonlySet<string>, note 
 }
 
 /** Changes a plugin's switches (panel, enabled, background) without touching its page. */
-export async function patchPlugin(id: string, change: Partial<Pick<Plugin, 'panel' | 'enabled' | 'background' | 'permissions' | 'name' | 'description' | 'icon' | 'revoked'>>) {
+export async function patchPlugin(id: string, change: Partial<Pick<Plugin, 'panel' | 'enabled' | 'background' | 'permissions' | 'name' | 'description' | 'icon' | 'logo' | 'revoked'>>) {
   await loadPlugins();
   const current = findPlugin(id);
   if (!current) throw new Error(`No plugin “${id}”`);

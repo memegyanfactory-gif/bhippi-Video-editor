@@ -106,6 +106,7 @@ export function Panel({
   children,
   className = '',
   extra,
+  onTabPointerDown,
 }: {
   id: string;
   tabs: { id: string; label: ReactNode }[];
@@ -113,27 +114,30 @@ export function Panel({
   onTab?: (id: string) => void;
   menu?: MenuItem[];
   maximized: boolean;
-  onMaximize: () => void;
+  /** Absent for a panel that cannot fill the workspace (a docked plugin). */
+  onMaximize?: () => void;
   onClose?: () => void;
   focused: boolean;
   onFocus: () => void;
   children: ReactNode;
   className?: string;
   extra?: ReactNode;
+  /** A press on a tab, for tabs that can be dragged somewhere else (a plugin into the editing area). */
+  onTabPointerDown?: (id: string, event: ReactPointerEvent) => void;
 }) {
   const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const items: MenuItem[] = [
     ...menu,
     ...(menu.length ? [{ separator: true } as MenuItem] : []),
-    { label: maximized ? 'Restore Panel Size' : 'Maximize Panel', shortcut: '`', onSelect: onMaximize },
+    ...(onMaximize ? [{ label: maximized ? 'Restore Panel Size' : 'Maximize Panel', shortcut: '`', onSelect: onMaximize } as MenuItem] : []),
     ...(onClose ? [{ label: 'Close Panel', onSelect: onClose } as MenuItem] : []),
   ];
   return (
-    <section className={`panel-frame${focused ? ' focused' : ''} ${className}`} data-panel={id} onPointerDownCapture={onFocus} onDoubleClick={(event) => (event.target as HTMLElement).classList.contains('panel-tabs') && onMaximize()}>
+    <section className={`panel-frame${focused ? ' focused' : ''} ${className}`} data-panel={id} onPointerDownCapture={onFocus} onDoubleClick={(event) => (event.target as HTMLElement).classList.contains('panel-tabs') && onMaximize?.()}>
       <header className="panel-tabs">
         {tabs.map((tab) => (
           <div key={tab.id} className={`panel-tab${tab.id === active ? ' active' : ''}`}>
-            <button type="button" className="panel-tab-label" onClick={() => onTab?.(tab.id)}>
+            <button type="button" className="panel-tab-label" onClick={() => onTab?.(tab.id)} onPointerDown={onTabPointerDown && ((event) => onTabPointerDown(tab.id, event))}>
               {tab.label}
             </button>
             {tab.id === active && (

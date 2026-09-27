@@ -294,7 +294,7 @@ pub const CATALOG: &[ProviderSpec] = &[
             "claude",
             Some(InstallSpec {
                 program: NPM,
-                args: &["install", "-g", "@anthropic-ai/claude-code"],
+                args: &["install", "-g", "@anthropic-ai/claude-code@latest"],
             }),
             "https://claude.com/claude-code",
         )
@@ -320,7 +320,7 @@ pub const CATALOG: &[ProviderSpec] = &[
             "codex",
             Some(InstallSpec {
                 program: NPM,
-                args: &["install", "-g", "@openai/codex"],
+                args: &["install", "-g", "@openai/codex@latest"],
             }),
             "https://developers.openai.com/codex/cli",
         )
@@ -338,7 +338,7 @@ pub const CATALOG: &[ProviderSpec] = &[
             "opencode",
             Some(InstallSpec {
                 program: NPM,
-                args: &["install", "-g", "opencode-ai"],
+                args: &["install", "-g", "opencode-ai@latest"],
             }),
             "https://opencode.ai",
         )
@@ -365,7 +365,7 @@ pub const CATALOG: &[ProviderSpec] = &[
             "grok",
             Some(InstallSpec {
                 program: NPM,
-                args: &["install", "-g", "@xai-official/grok"],
+                args: &["install", "-g", "@xai-official/grok@latest"],
             }),
             "https://x.ai",
         )

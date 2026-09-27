@@ -15,9 +15,10 @@
         "title": "Bhippi Video Editor",
         "width": 1480,
         "height": 920,
-        "minWidth": 1100,
-        "minHeight": 680,
+        "minWidth": 1024,
+        "minHeight": 600,
         "center": true,
+        "visible": false,
         "decorations": false,
         "resizable": true,
         "backgroundColor": "#0b0b0f",
@@ -48,6 +49,19 @@
   },
   "bundle": {
     "active": true,
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "icons/installer/header.bmp",
+        "uninstallerHeaderImage": "icons/installer/header.bmp",
+        "sidebarImage": "icons/installer/sidebar.bmp"
+      },
+      "wix": {
+        "bannerPath": "icons/installer/banner.bmp",
+        "dialogImagePath": "icons/installer/dialog.bmp"
+      }
+    },
     "targets": [
       "nsis",
       "msi"

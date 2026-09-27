@@ -20,8 +20,16 @@ A plugin is a **draft**: a small folder of files you edit with `plugin_write_fil
 - `index.html`: the page. It may pull in `app.js` and `style.css` with
   `<script src="app.js"></script>` and `<link rel="stylesheet" href="style.css">`. `plugin_save`
   inlines them into one page.
-- Other `.js` / `.css` files you reference the same way. No other file types are loaded at run
-  time.
+- Other `.js` / `.css` files you reference the same way.
+- **Assets**: pictures, models, fonts, sounds, clips and wasm (`.png .jpg .webp .gif .avif .glb
+  .bin .woff .woff2 .ttf .otf .wav .mp3 .ogg .m4a .mp4 .webm .wasm`, up to 8 MB each) and data
+  (`.json .svg .txt .gltf`). Copy a project media file in with `plugin_add_asset`, or write one as
+  base64 (`plugin_write_file` with `encoding: "base64"`). The page reads them with
+  `bhippi.asset(name)` / `bhippi.assetBytes(name)`.
+- **Libraries**: `plugin_add_library` copies a library Bhippi ships (checked by hash) into the
+  draft. `three` is three.js for 3D (with OrbitControls, TransformControls, GLTFLoader and
+  GLTFExporter), as `three.min.js`: reference it before `app.js`. Never paste a library in by hand.
+- A draft holds up to 120 files and 16 MB; the bundled page may be 24 MB.
 
 `plugin_save` bundles the draft into the installed plugin and reloads its preview. Editing an
 installed plugin that has no draft yet starts one from it automatically.
@@ -47,8 +55,9 @@ installed plugin that has no draft yet starts one from it automatically.
    - the **Judge's score** (0–100) with fixes.
 5. **`plugin_screenshot`** once the tests pass: look at the panel at narrow and wide widths.
    Fix anything cramped, overflowing, unreadable or unstyled.
-6. **Repeat** 3–5 until the Judge passes (80+) or it has run 3 times. Then stop and say what is
-   still weak.
+6. **Repeat** 3–5 until the Judge passes (80+). For a small plugin stop after 3 runs; for a big
+   one (a 3D tool, an editor, many parts) keep going for up to 10 runs, fixing the biggest
+   problem each time. Then stop and say what is still weak.
 7. **Finish** with 2–3 lines: what the plugin does, how to use it, and its permissions.
 
 ## Rules for the code
@@ -60,8 +69,10 @@ installed plugin that has no draft yet starts one from it automatically.
   means the user's permission mode or the plugin's permissions said no: show the reason and
   don't retry in a loop.
 - Debounce reactions to `bhippi.on('project')`.
-- **No remote scripts** (no CDN `<script src="https://…">`): write the code yourself or keep it
-  small. The only network access is to hosts in `permissions.network`.
+- **No remote scripts** (no CDN `<script src="https://…">`): write the code yourself or use
+  `plugin_add_library`. The only network access is to hosts in `permissions.network`.
+- To hand a result to the project (a render, a still, a sound), use
+  `bhippi.importMedia(blob, { name })` and list `import_media` in `permissions.tools`.
 - Never hard-code secrets. Keys the user types go in `bhippi.storage`.
 - **Look like Bhippi:**
   - use the editor's CSS variables (`var(--panel)`, `var(--text)`, `var(--line)`,

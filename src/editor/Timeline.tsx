@@ -508,7 +508,7 @@ export function Timeline(props: Props) {
     if (event.button !== 0) return;
     playhead.setPlaying(false);
     capture(event, { kind: 'scrub' });
-    playhead.set(snapped(timeAt(event.clientX), new Set(), { shiftKey: !event.shiftKey }));
+    playhead.set(clamp(snapped(timeAt(event.clientX), new Set(), { shiftKey: !event.shiftKey }), 0, total));
   };
 
   const onPointerMove = (nativeEvent: ReactPointerEvent) => {
@@ -531,7 +531,9 @@ export function Timeline(props: Props) {
     switch (active.kind) {
       case 'scrub':
       case 'playhead':
-        playhead.set(clamp(snapped(at, new Set(), { shiftKey: !event.shiftKey }), 0, Math.max(total, at)));
+        // Stops at the end of the edit: letting it run on stretched the scroll area, and edge-scroll
+        // then chased it into empty space.
+        playhead.set(clamp(snapped(at, new Set(), { shiftKey: !event.shiftKey }), 0, total));
         return;
       case 'pan':
         if (node) {

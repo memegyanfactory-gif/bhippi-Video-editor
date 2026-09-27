@@ -21,6 +21,7 @@ export const PLUGIN_FORBIDDEN = new Set([
   // The Plugin Maker's own tools: a plugin never builds or runs plugins.
   'plugin_scaffold', 'plugin_list_files', 'plugin_read_file', 'plugin_write_file', 'plugin_delete_file',
   'plugin_validate', 'plugin_test', 'plugin_screenshot', 'plugin_save', 'plugin_examples', 'plugin_tool_catalog',
+  'plugin_add_library', 'plugin_add_asset',
 ]);
 
 /**
@@ -52,8 +53,11 @@ export const PLUGIN_SENSITIVE = new Set([
 
 export const isSensitiveTool = (name: string) => PLUGIN_SENSITIVE.has(name) || name.startsWith('mcp__') || isDestructiveTool(name);
 
-export const MAX_PLUGIN_HTML = 1024 * 1024;
+/** The bundled page, assets included (as base64). Pages live outside the library file (plugins.rs). */
+export const MAX_PLUGIN_HTML = 24 * 1024 * 1024;
 export const MAX_REVISIONS = 10;
+/** Earlier pages kept, all together: big plugins keep fewer. */
+export const MAX_REVISION_BYTES = 48 * 1024 * 1024;
 
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -98,7 +102,7 @@ export function validatePlugin(plugin: Plugin, known: ReadonlySet<string>): stri
   if (!PLUGIN_ID.test(plugin.id)) return `“${plugin.id}” is not a valid plugin id (lower-case letters, digits, - and _).`;
   if (!plugin.name?.trim() || plugin.name.trim().length > 60) return 'A plugin needs a name of 1–60 characters.';
   if (typeof plugin.html !== 'string' || !plugin.html.trim()) return 'A plugin needs its page (html).';
-  if (plugin.html.length > MAX_PLUGIN_HTML) return `The plugin page is ${Math.round(plugin.html.length / 1024)} KB; the limit is ${MAX_PLUGIN_HTML / 1024} KB. Load libraries from a CDN instead of pasting them in.`;
+  if (plugin.html.length > MAX_PLUGIN_HTML) return `The plugin page is ${(plugin.html.length / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_PLUGIN_HTML / 1024 / 1024} MB. Shrink its assets (smaller pictures, compressed models) or drop unused ones.`;
   for (const name of plugin.permissions.tools) {
     if (name === '*') continue;
     if (PLUGIN_FORBIDDEN.has(name)) return `${name} cannot be given to a plugin.`;
@@ -121,13 +125,15 @@ const CDNS = 'https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpk
  */
 export function pluginCsp(permissions: PluginPermissions, strict = false): string {
   const network = permissions.network.flatMap((entry) => networkSources(entry) ?? []);
-  const connect = network.length ? network.join(' ') : "'none'";
+  // blob: and data: never leave the page: they are how it reads its own assets (bhippi.asset).
+  const connect = [...network, 'blob:', 'data:'].join(' ');
   const remote = strict ? '' : ` ${CDNS}`;
   return [
     "default-src 'none'",
-    strict ? "script-src 'unsafe-inline'" : `script-src 'unsafe-inline' 'unsafe-eval' blob:${remote}`,
+    // 'wasm-unsafe-eval' compiles WebAssembly the plugin carries; it does not allow eval().
+    strict ? "script-src 'unsafe-inline' 'wasm-unsafe-eval'" : `script-src 'unsafe-inline' 'unsafe-eval' blob:${remote}`,
     `style-src 'unsafe-inline'${strict ? '' : ` https://fonts.googleapis.com${remote}`}`,
-    `font-src data:${strict ? '' : ` https://fonts.gstatic.com${remote}`}`,
+    `font-src data: blob:${strict ? '' : ` https://fonts.gstatic.com${remote}`}`,
     `img-src data: blob: asset: http://asset.localhost ${network.join(' ')}`.trim(),
     'media-src data: blob: asset: http://asset.localhost',
     `connect-src ${connect}`,
@@ -177,5 +183,8 @@ ${body}
 export function withRevision(previous: Plugin, next: Plugin, note: string): Plugin {
   if (previous.html === next.html) return { ...next, revisions: previous.revisions ?? [] };
   const revisions = [{ at: previous.updatedAt, html: previous.html, note }, ...(previous.revisions ?? [])].slice(0, MAX_REVISIONS);
+  let bytes = 0;
+  const kept = revisions.findIndex((revision) => (bytes += revision.html.length) > MAX_REVISION_BYTES);
+  if (kept > 0) revisions.length = kept;
   return { ...next, revision: previous.revision + 1, revisions };
 }

@@ -257,6 +257,8 @@ pub struct ModelInfo {
     /// False when no prebuilt exists for this platform — then it can only be detected.
     pub downloadable: bool,
     pub license: String,
+    /// Found already on this computer (see [`scan`]) and used where it is, not downloaded by Bhippi.
+    pub external: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -343,6 +345,9 @@ fn locate(root: &Path, folder: &str, names: &[String], explicit: Option<&str>) -
     if let Some(path) = find_under(&root.join(folder), &names, 3) {
         return RuntimeStatus { found: true, path: Some(path.display().to_string()), source: "downloaded".to_owned() };
     }
+    if let Some(path) = CATALOG.iter().find(|item| item.marker == folder).and_then(|item| external_path(root, item)) {
+        return RuntimeStatus { found: true, path: Some(path.display().to_string()), source: "found".to_owned() };
+    }
     if let Some(path) = on_path(&names) {
         return RuntimeStatus { found: true, path: Some(path.display().to_string()), source: "system".to_owned() };
     }
@@ -372,7 +377,12 @@ fn entry(id: &str) -> Option<&'static Entry> {
     CATALOG.iter().find(|entry| entry.id == id)
 }
 
+/// Bhippi's own copy first, then one [`scan`] found elsewhere on this computer.
 fn installed_path(root: &Path, item: &Entry) -> Option<PathBuf> {
+    own_path(root, item).or_else(|| external_path(root, item))
+}
+
+fn own_path(root: &Path, item: &Entry) -> Option<PathBuf> {
     if item.archive {
         return match item.kind {
             Kind::SttRuntime => find_under(&root.join(item.marker), &exe_names(WHISPER_NAMES), 3),
@@ -406,7 +416,9 @@ pub fn status(root: &Path, whisper_path: Option<&str>, tts_path: Option<&str>) -
     let models = CATALOG
         .iter()
         .map(|item| {
-            let path = installed_path(root, item);
+            let own = own_path(root, item);
+            let external = own.is_none() && external_path(root, item).is_some();
+            let path = own.or_else(|| external_path(root, item));
             ModelInfo {
                 id: item.id.to_owned(),
                 kind: item.kind,
@@ -419,6 +431,7 @@ pub fn status(root: &Path, whisper_path: Option<&str>, tts_path: Option<&str>) -
                 recommended: item.recommended,
                 downloadable: !item.files.is_empty(),
                 license: item.license.to_owned(),
+                external,
             }
         })
         .collect();
@@ -428,6 +441,101 @@ pub fn status(root: &Path, whisper_path: Option<&str>, tts_path: Option<&str>) -
         tts: locate(root, "bin/kokoro", &kokoro_names(), tts_path),
         folder: root.display().to_string(),
     }
+}
+
+// ───────────────────────────── already on this computer ─────────────────────────────
+
+/// What [`scan`] found outside the models folder: catalogue id → the file (or voice-pack folder)
+/// Bhippi uses in place. Nothing is copied, so a model the user already has costs no disk space.
+const FOUND_FILE: &str = "found-elsewhere.json";
+
+fn read_found(root: &Path) -> std::collections::BTreeMap<String, PathBuf> {
+    std::fs::read(root.join(FOUND_FILE)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+}
+
+fn write_found(root: &Path, found: &std::collections::BTreeMap<String, PathBuf>) -> Result<(), String> {
+    std::fs::create_dir_all(root).map_err(|error| error.to_string())?;
+    let text = serde_json::to_vec_pretty(found).map_err(|error| error.to_string())?;
+    std::fs::write(root.join(FOUND_FILE), text).map_err(|error| error.to_string())
+}
+
+/// A recorded copy, while it is still there and still whole.
+fn external_path(root: &Path, item: &Entry) -> Option<PathBuf> {
+    read_found(root).remove(item.id).filter(|path| usable(item, path))
+}
+
+/// Whether `path` is something Bhippi can run as this entry.
+fn usable(item: &Entry, path: &Path) -> bool {
+    match item.kind {
+        Kind::TtsVoice => path.join(KOKORO_MARKER_FILE).is_file() && path.join("model.onnx").is_file() && path.join("tokens.txt").is_file(),
+        _ => path.is_file(),
+    }
+}
+
+/// Where people and other apps commonly keep these models, each with how deep to look.
+fn common_places(other_roots: &[PathBuf]) -> Vec<(PathBuf, usize)> {
+    let mut places: Vec<(PathBuf, usize)> = other_roots.iter().map(|dir| (dir.clone(), 4)).collect();
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
+    if let Some(hub) = std::env::var_os("HF_HOME").map(|dir| PathBuf::from(dir).join("hub")) {
+        places.push((hub, 3));
+    }
+    if let Some(home) = &home {
+        places.push((home.join(".cache").join("huggingface").join("hub"), 3));
+        places.push((home.join("Downloads"), 2));
+        places.push((home.join("models"), 3));
+        places.push((home.join("whisper.cpp").join("models"), 1));
+        places.push((home.join("sherpa-onnx"), 3));
+        places.push((home.join(".bhippi").join("models"), 4));
+    }
+    if let Some(appdata) = std::env::var_os("APPDATA").map(PathBuf::from) {
+        places.push((appdata.join("Subtitle Edit").join("Whisper"), 3));
+    }
+    places.into_iter().filter(|(dir, _)| dir.is_dir()).collect()
+}
+
+/// Looks for catalogue models already on this computer and records each one it can use, so
+/// setup ticks it as there instead of downloading it again. Weights are matched by their exact
+/// file name (and the Kokoro pack by its files); the whisper.cpp and Kokoro engines are only
+/// taken from another Bhippi models folder in `other_roots`, because the Kokoro binding is built
+/// for one sherpa-onnx release and any other build could crash it. Answers the ids found.
+pub fn scan(root: &Path, other_roots: &[PathBuf]) -> Vec<&'static str> {
+    let places = common_places(other_roots);
+    let mut found = read_found(root);
+    let mut added = Vec::new();
+    for item in CATALOG.iter().filter(|item| !item.files.is_empty()) {
+        if own_path(root, item).is_some() || external_path(root, item).is_some() {
+            continue;
+        }
+        let hit = match item.kind {
+            Kind::SttRuntime | Kind::TtsRuntime => other_roots.iter().find_map(|other| {
+                let names = if item.kind == Kind::SttRuntime { exe_names(WHISPER_NAMES) } else { kokoro_names() };
+                find_under(&other.join(item.marker), &names, 3)
+            }),
+            Kind::TtsVoice => places.iter().find_map(|(dir, depth)| {
+                find_under(dir, &[KOKORO_MARKER_FILE.to_owned()], *depth)
+                    .and_then(|file| file.parent().map(Path::to_path_buf))
+                    .filter(|pack| usable(item, pack))
+            }),
+            _ => {
+                let Some(name) = Path::new(item.marker).file_name().map(|name| name.to_string_lossy().into_owned()) else { continue };
+                places
+                    .iter()
+                    .find_map(|(dir, depth)| find_under(dir, std::slice::from_ref(&name), *depth))
+                    .filter(|path| usable(item, path))
+                    // A half-finished download of a big model is not the model.
+                    .filter(|path| std::fs::metadata(path).is_ok_and(|meta| meta.len() >= u64::from(item.size_mb) * 1024 * 1024 * 8 / 10))
+            }
+        };
+        // Bhippi's own models folder is never "elsewhere".
+        if let Some(path) = hit.filter(|path| !path.starts_with(root)) {
+            found.insert(item.id.to_owned(), path);
+            added.push(item.id);
+        }
+    }
+    if !added.is_empty() {
+        let _ignored = write_found(root, &found);
+    }
+    added
 }
 
 // ───────────────────────────── downloading ─────────────────────────────
@@ -576,6 +684,12 @@ pub fn remove(root: &Path, id: &str) -> Result<(), String> {
     let Some(item) = entry(id) else {
         return Err(format!("no such model: {id}"));
     };
+    // A copy found elsewhere belongs to the user or another app: Bhippi only stops using it.
+    if own_path(root, item).is_none() && external_path(root, item).is_some() {
+        let mut found = read_found(root);
+        found.remove(id);
+        return write_found(root, &found);
+    }
     if item.archive {
         // The voice pack's marker is the shared `tts` folder; only its own unpacked folder goes.
         let dir = if item.kind == Kind::TtsVoice {
@@ -680,5 +794,28 @@ mod tests {
     fn sizes_read_the_way_people_write_them() {
         assert_eq!(human(5 * 1024 * 1024), "5 MB");
         assert_eq!(human(3 * 1024 * 1024 * 1024 / 2), "1.5 GB");
+    }
+
+    #[test]
+    fn a_voice_pack_found_elsewhere_is_used_in_place_and_never_deleted() {
+        let base = std::env::temp_dir().join(format!("bhippi-found-{}", crate::store::new_id()));
+        let root = base.join("models");
+        let other = base.join("older-bhippi");
+        let pack = other.join("tts").join("kokoro-multi-lang-v1_0");
+        std::fs::create_dir_all(&pack).unwrap();
+        for file in ["voices.bin", "model.onnx", "tokens.txt"] {
+            std::fs::write(pack.join(file), b"x").unwrap();
+        }
+        let found = super::scan(&root, std::slice::from_ref(&other));
+        assert!(found.contains(&"kokoro-v1"));
+        let status = super::status(&root, None, None);
+        let voice = status.models.iter().find(|model| model.id == "kokoro-v1").unwrap();
+        assert!(voice.installed && voice.external);
+        assert_eq!(super::kokoro_model_dir(&root), Some(pack.clone()));
+        // "Remove" forgets it; the user's files stay.
+        super::remove(&root, "kokoro-v1").unwrap();
+        assert!(pack.join("model.onnx").is_file());
+        assert!(!super::status(&root, None, None).models.iter().any(|model| model.id == "kokoro-v1" && model.installed));
+        let _ignored = std::fs::remove_dir_all(&base);
     }
 }

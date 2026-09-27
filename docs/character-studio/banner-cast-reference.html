@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Characters — full cast reference</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1500px; background: #f3edff; }
+    body { font-family: Arial, sans-serif; color: #30234c; }
+    main { display: grid; grid-template-columns: repeat(5, 300px); width: 1500px; }
+    figure { width: 300px; height: 350px; margin: 0; padding: 12px 12px 0; border: 1px solid #e2d6f5; }
+    figure:nth-child(even) { background: #ede5fa; }
+    svg { display: block; width: 274px; height: 302px; overflow: visible; }
+    figcaption { height: 34px; text-align: center; font-size: 20px; line-height: 34px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main id="cast" aria-label="All available Characters, each shown in full"></main>
+  <script src="/characters/shared.js"></script>
+  <script src="/characters/engine2d.js"></script>
+  <script src="/characters/presets2d.js"></script>
+  <script>
+    (() => {
+      const library = window.BhippiChars;
+      const engine = window.CharEngine;
+      const saved = library.load();
+      const savedNames = new Set(saved.map(character => character.name.toLowerCase()));
+      const characters = [
+        ...saved,
+        ...window.CharPresets.EXAMPLES.filter(character => !savedNames.has(character.name.toLowerCase()))
+      ];
+      const cast = document.getElementById('cast');
+      const namespace = 'http://www.w3.org/2000/svg';
+
+      for (const character of characters) {
+        const spec = library.to2D(character, engine.defaults());
+        const card = document.createElement('figure');
+        const drawing = document.createElementNS(namespace, 'svg');
+        drawing.setAttribute('role', 'img');
+        drawing.setAttribute('aria-label', spec.name);
+        drawing.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        const artwork = document.createElementNS(namespace, 'g');
+        artwork.innerHTML = engine.render(spec, {
+          t: 0,
+          yaw: 0.18,
+          headYaw: 0,
+          headPitch: 0,
+          hand: false,
+          stance: spec.stance
+        });
+        drawing.appendChild(artwork);
+        const caption = document.createElement('figcaption');
+        caption.textContent = spec.name;
+        card.append(drawing, caption);
+        cast.appendChild(card);
+
+        // Fit the actual drawing, including tall hats, raised hands and every shoe.
+        const bounds = artwork.getBBox();
+        const padding = Math.max(bounds.height * 0.055, 22);
+        drawing.setAttribute('viewBox', [
+          bounds.x - padding,
+          bounds.y - padding,
+          bounds.width + padding * 2,
+          bounds.height + padding * 2
+        ].join(' '));
+      }
+      document.documentElement.dataset.characterCount = String(characters.length);
+      document.documentElement.dataset.ready = 'true';
+    })();
+  </script>
+</body>
+</html>

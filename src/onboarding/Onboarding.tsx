@@ -39,6 +39,8 @@ type Item = {
   pack?: boolean;
   sizeMb: number;
   installed: boolean;
+  /** Parts of it this computer already had (found by the scan), which Bhippi uses instead of downloading. */
+  found: string[];
   /** Why it cannot be chosen here, if it cannot. */
   unavailable?: string;
 };
@@ -71,16 +73,30 @@ export function Onboarding({ onPatch, onDone }: Props) {
   const [genJobs, setGenJobs] = useState<Record<string, { jobId?: string; waiting?: boolean; error?: string }>>({});
   const live = useLiveJobs();
   const [buddy, setBuddy] = useState<Character | null>(null);
+  /** True while the computer is searched for models it already has. */
+  const [scanning, setScanning] = useState(true);
 
   useEffect(() => {
     void api.storageInfo().then((info) => { setStorage(info); registerStorageRoot(info.root); }).catch(() => undefined);
-    void api.speechStatus().then((status) => {
-      setModels(status.models);
-      const firstVoice = status.models.find((model) => model.kind === 'tts-voice' && model.recommended && model.languages.includes('en'))
-        ?? status.models.find((model) => model.kind === 'tts-voice' && model.recommended)
-        ?? status.models.find((model) => model.kind === 'tts-voice');
+    // Models this computer already has (another app's Whisper, a Kokoro pack in Downloads, an
+    // older Bhippi folder) are found first, so they are ticked as there instead of downloaded again.
+    const read = (models_: ModelInfo[]) => {
+      setModels(models_);
+      const voices = models_.filter((model) => model.kind === 'tts-voice');
+      const firstVoice = voices.find((model) => model.installed)
+        ?? voices.find((model) => model.recommended && model.languages.includes('en'))
+        ?? voices.find((model) => model.recommended)
+        ?? voices[0];
       setVoice(firstVoice?.id ?? null);
-    }).catch(() => undefined);
+      // A Whisper model already here wins over downloading the recommended one.
+      const have = WHISPER_CHOICES.find((id) => id === WHISPER_RECOMMENDED && models_.some((model) => model.id === id && model.installed))
+        ?? WHISPER_CHOICES.find((id) => models_.some((model) => model.id === id && model.installed));
+      if (have) setWhisper(have);
+    };
+    // The plain status shows the list straight away; the scan's answer replaces it (never the reverse).
+    let scanned = false;
+    void api.speechStatus().then((status) => { if (!scanned) read(status.models); }).catch(() => undefined);
+    void api.modelsScan().then(([, status]) => { scanned = true; read(status.models); }).catch(() => undefined).finally(() => setScanning(false));
     void aiPackApi.status().then(setPack).catch(() => setPack(null));
     void api.localMediaStatus().then((status) => setLocalInstalled(new Set(status.tasks.filter((row) => row.configured).map((row) => row.task)))).catch(() => undefined);
   }, []);
@@ -88,6 +104,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
   const byId = useMemo(() => new Map(models.map((model) => [model.id, model])), [models]);
   const pending = (ids: string[]) => ids.filter((id) => byId.get(id) && !byId.get(id)!.installed);
   const mb = (ids: string[]) => pending(ids).reduce((sum, id) => sum + (byId.get(id)?.sizeMb ?? 0), 0);
+  const foundOf = (ids: string[]) => ids.map((id) => byId.get(id)).filter((model): model is ModelInfo => !!model?.external).map((model) => model.label);
 
   const items: Item[] = useMemo(() => {
     const matte = models.find((model) => model.kind === 'matte' && model.recommended) ?? models.find((model) => model.kind === 'matte');
@@ -95,12 +112,12 @@ export function Onboarding({ onPatch, onDone }: Props) {
     const transcribeIds = ['whisper-runtime', whisper];
     const voiceIds = ['kokoro-runtime', ...(voice ? [voice] : [])];
     const list: Item[] = [
-      { id: 'roto', icon: Scissors, title: 'Roto · subject separation', blurb: 'Cuts a person out of their background, frame by frame, on this computer. Needed for text behind a subject and the Magic eraser.', models: rotoIds, sizeMb: mb(rotoIds), installed: rotoIds.length > 0 && pending(rotoIds).length === 0 },
-      { id: 'transcribe', icon: Mic, title: 'Transcription · Whisper', blurb: 'Speech to timed words for captions and text-based editing, offline.', models: transcribeIds, sizeMb: mb(transcribeIds), installed: pending(transcribeIds).length === 0 && models.length > 0 },
-      { id: 'voice', icon: AudioLines, title: 'Voice · Kokoro', blurb: 'Natural, studio-clean voice-overs in English, Hindi and Hinglish, offline. Optional — ElevenLabs or OpenAI voices are used instead when you add a key.', models: voiceIds, sizeMb: mb(voiceIds), installed: pending(voiceIds).length === 0 && models.length > 0 },
+      { id: 'roto', icon: Scissors, title: 'Roto · subject separation', blurb: 'Cuts a person out of their background, frame by frame, on this computer. Needed for text behind a subject and the Magic eraser.', models: rotoIds, sizeMb: mb(rotoIds), installed: rotoIds.length > 0 && pending(rotoIds).length === 0, found: foundOf(rotoIds) },
+      { id: 'transcribe', icon: Mic, title: 'Transcription · Whisper', blurb: 'Speech to timed words for captions and text-based editing, offline.', models: transcribeIds, sizeMb: mb(transcribeIds), installed: pending(transcribeIds).length === 0 && models.length > 0, found: foundOf(transcribeIds) },
+      { id: 'voice', icon: AudioLines, title: 'Voice · Kokoro', blurb: 'Natural, studio-clean voice-overs in English, Hindi and Hinglish, offline. Optional — ElevenLabs or OpenAI voices are used instead when you add a key.', models: voiceIds, sizeMb: mb(voiceIds), installed: pending(voiceIds).length === 0 && models.length > 0, found: foundOf(voiceIds) },
       {
         id: 'ai', icon: Cpu, title: `AI pack${pack?.cuda ? ' · uses your NVIDIA GPU' : ''}`, blurb: `${AI_PACK_FEATURES} — the Python runtime, PyTorch and the models, installed in one go. Optional; the rest of Bhippi works without it.`,
-        models: [], pack: true, sizeMb: pack?.remainingMb ?? 4000,
+        models: [], pack: true, sizeMb: pack?.remainingMb ?? 4000, found: [],
         installed: aiPackReady(pack),
         unavailable: pack === null ? 'Could not check the AI pack — install it later in Settings › Local media.' : undefined,
       },
@@ -265,7 +282,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
         <header className="onboarding-head">
           <ol className="onboarding-steps" aria-label="Setup steps">
             {STEPS.map((name, index) => (
-              <li key={name} className={index === step ? 'current' : index < step ? 'past' : ''} aria-current={index === step ? 'step' : undefined}>
+              <li key={name} className={index === step ? 'current' : index < step ? 'past' : ''} aria-current={index === step ? 'step' : undefined} title={name}>
                 <span className="onboarding-dot">{index < step ? <Check size={10} /> : index + 1}</span>
                 <span className="onboarding-step-name">{name}</span>
               </li>
@@ -319,6 +336,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
               <p className="onboarding-lead">Recommended picks are ticked. They download in the background — you can start editing straight away.</p>
               {genPending.length > 0 && <p className="muted small"><Sparkles size={12} /> Also downloading from your generation choice: {genPending.map((task) => LOCAL_MODELS.find((m) => m.task === task)?.label ?? task).join(', ')} (with the AI pack).</p>}
               {!models.length && <p className="muted small"><LoaderCircle size={12} className="spin" /> Reading the model catalogue…</p>}
+              {models.length > 0 && scanning && <p className="muted small"><LoaderCircle size={12} className="spin" /> Checking this computer for models you already have…</p>}
               <div className="onboarding-models">
                 {items.map((item) => {
                   const on = chosen.has(item.id) && !item.unavailable;
@@ -334,8 +352,15 @@ export function Onboarding({ onPatch, onDone }: Props) {
                             {item.id === 'roto' && !item.installed && <span className="pill tone-ok">Recommended</span>}
                           </span>
                           <span className="onboarding-model-blurb">{item.unavailable ?? item.blurb}</span>
+                          {item.found.length > 0 && (
+                            <span className="onboarding-model-found"><Check size={11} /> Already on this computer: {item.found.join(', ')}. Bhippi will use {item.found.length === 1 ? 'it' : 'them'}{item.installed ? '' : ' and only download the rest'}.</span>
+                          )}
                         </span>
-                        <span className="onboarding-model-size">{item.installed ? <span className="pill tone-ok"><Check size={11} /> Installed</span> : item.unavailable ? 'Later' : `~${size(item.sizeMb)}`}</span>
+                        <span className="onboarding-model-size">
+                          {item.installed
+                            ? <span className="pill tone-ok" title={item.found.length ? 'Found on this computer — no download needed' : undefined}><Check size={11} /> {item.found.length ? 'Found on this PC' : 'Installed'}</span>
+                            : item.unavailable ? 'Later' : `~${size(item.sizeMb)}`}
+                        </span>
                       </label>
                       {item.id === 'transcribe' && on && !item.installed && (
                         <div className="onboarding-choice" role="radiogroup" aria-label="Whisper model">
@@ -346,7 +371,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
                               <label key={id} className={whisper === id ? 'selected' : ''}>
                                 <input type="radio" name="whisper" checked={whisper === id} onChange={() => setWhisper(id)} />
                                 <span>{model.label.replace(/^Whisper /, '')}{id === WHISPER_RECOMMENDED ? ' · recommended' : ''}</span>
-                                <em>{size(model.sizeMb)}{model.installed ? ' · installed' : ''}</em>
+                                <em>{size(model.sizeMb)}{model.external ? ' · on this PC' : model.installed ? ' · installed' : ''}</em>
                               </label>
                             );
                           })}

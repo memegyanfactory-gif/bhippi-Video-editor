@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Characters — the whole crowd</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#17151d;color:#f4edf9;font:14px/1.5 system-ui,sans-serif;padding:24px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:20px}h1{font-size:20px;margin:0}p{margin:4px 0;color:#aaa2b8}
+    button,a{font:inherit;border:0;border-radius:7px;padding:10px 16px;background:#cfff86;color:#203217;font-weight:650;cursor:pointer;text-decoration:none;display:inline-block}button:disabled{opacity:.5;cursor:wait}
+    #preview{line-height:0;box-shadow:0 12px 50px #0005}#preview>svg{width:100%;height:auto;display:block}#download[hidden]{display:none}#status{margin-top:16px}
+  </style>
+</head>
+<body>
+  <header><div><h1>One big crowd. The same original characters.</h1><p>64 appearances of the original 20 app designs. No redraws or new characters.</p></div><button id="export" disabled>Create full-size PNG</button></header>
+  <main id="preview" aria-label="Characters crowd banner"></main>
+  <p id="status" role="status">Arranging the original cast…</p>
+  <a id="download" hidden download="characters-banner-crowd.png">Download PNG · 3000 × 1000</a>
+  <script src="/characters/shared.js"></script>
+  <script src="/characters/engine2d.js"></script>
+  <script src="/characters/presets2d.js"></script>
+  <script>
+    (async()=>{
+      const ns='http://www.w3.org/2000/svg',E=window.CharEngine,C=window.BhippiChars;
+      // Lock this composition to the same approved twenty preset identities.
+      // Do not generate random outfits, change expressions, or import other art.
+      const cast=window.CharPresets.EXAMPLES.map(c=>C.to2D(c,E.defaults()));
+      const $=id=>document.getElementById(id);
+      const make=(tag,attrs={},text)=>{const el=document.createElementNS(ns,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));if(text!==undefined)el.textContent=text;return el;};
+      const svg=make('svg',{xmlns:ns,width:3000,height:1000,viewBox:'0 0 3000 1000',role:'img','aria-label':'500+ characters — a crowd of original app characters'});
+      svg.innerHTML=`<defs>
+        <linearGradient id="crowd-bg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#F5EDFF"/><stop offset="1" stop-color="#DFC6F2"/></linearGradient>
+        <linearGradient id="crowd-gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#FFEC77"/><stop offset="1" stop-color="#FFD13F"/></linearGradient>
+        <clipPath id="crowd-frame"><rect width="3000" height="1000"/></clipPath>
+      </defs>`;
+      $('preview').appendChild(svg);
+      const scene=make('g',{'clip-path':'url(#crowd-frame)'});svg.appendChild(scene);
+      scene.innerHTML=`<rect width="3000" height="1000" fill="url(#crowd-bg)"/>
+        <path d="M-120 260 Q300 -70 710 260 T1230 120" fill="none" stroke="#36C69B" stroke-width="118"/>
+        <path d="M2170 40 Q2540 260 3100 50" fill="none" stroke="#F991AB" stroke-width="110"/>
+        <path d="M-50 650 Q430 910 1000 570" fill="none" stroke="#F991AB" stroke-width="90"/>
+        <path d="M2050 610 Q2590 990 3100 600" fill="none" stroke="#36C69B" stroke-width="120"/>
+        <ellipse cx="1500" cy="1070" rx="1750" ry="240" fill="#C6AEDB" opacity=".4"/>`;
+      let instance=0;
+      const records=[];
+      const wobble=[-9,12,-16,6,18,-4,9,-12,14,-7,2,-18];
+      function person(parent,identity,x,headCenterY,scale,layer){
+        const spec=cast[identity],rig=E.rigFor(spec);
+        const group=make('g',{'data-character':spec.name,'data-layer':layer,role:'img','aria-label':spec.name});
+        group.innerHTML=E.render(spec,{id:`crowd-person-${instance++}`,t:0,yaw:.18,headYaw:0,headPitch:0,hand:false,stance:spec.stance,shadow:false});
+        // A common uniform scale per depth layer keeps the original proportions.
+        // Position using the actual head center rather than stretching bodies.
+        group.setAttribute('transform',`translate(${x} ${headCenterY-rig.headC[1]*scale}) scale(${scale})`);
+        parent.appendChild(group);records.push({name:spec.name,layer,x,y:headCenterY,scale});
+      }
+      const back=make('g',{'data-crowd-layer':'back'});scene.appendChild(back);
+      // A continuous horizon of faces establishes the size of the crowd.
+      for(let i=0;i<24;i++)person(back,(i*7+3)%20,32+i*128,117+wobble[i%12],.66,'back');
+      const middle=make('g',{'data-crowd-layer':'middle'});scene.appendChild(middle);
+      const middleIds=[[10,4,7,17,0,14,8,12],[9,1,15,6,13,3,19,11]];
+      for(let side=0;side<2;side++)for(let i=0;i<8;i++){
+        person(middle,middleIds[side][i],(side?2090:32)+i*128,355+wobble[(i+side*4)%12],.91,'middle');
+      }
+      const near=make('g',{'data-crowd-layer':'near'});scene.appendChild(near);
+      const nearIds=[[2,16,11,5,18],[0,14,8,12,7]];
+      for(let side=0;side<2;side++)for(let i=0;i<5;i++){
+        person(near,nearIds[side][i],(side?2150:90)+i*190,605+wobble[(i+side*3)%12],1.19,'near');
+      }
+      // The central negative-space badge protects the title from the dense crowd.
+      const badge=make('g',{transform:'translate(1500 454) rotate(-3)'});scene.appendChild(badge);
+      badge.innerHTML=`<path d="M-512 -240 Q-540 -282 -482 -303 L482 -303 Q532 -294 520 -243 L499 249 Q485 289 438 285 L-468 269 Q-523 265 -518 218Z" fill="#392046"/>
+        <path d="M-527 -255 Q-555 -297 -497 -318 L467 -318 Q517 -309 505 -258 L484 234 Q470 274 423 270 L-483 254 Q-538 250 -533 203Z" fill="#FFF7E6"/>
+        <path d="M-500 -218 Q-40 -250 480 -219" fill="none" stroke="#EEE0F5" stroke-width="3"/>
+        <path d="M-501 239 Q-90 208 459 236" fill="none" stroke="#EEE0F5" stroke-width="3"/>`;
+      const title=make('g',{'text-anchor':'middle','font-family':'Arial Black, Arial, sans-serif','font-weight':900});badge.appendChild(title);
+      // Compact two-line hierarchy; offsets add dimensional type, not character effects.
+      title.appendChild(make('text',{x:4,y:53,'font-size':337,'letter-spacing':-17,fill:'#392046',stroke:'#392046','stroke-width':21,'stroke-linejoin':'round','paint-order':'stroke'},'500+'));
+      title.appendChild(make('text',{x:-5,y:38,'font-size':337,'letter-spacing':-17,fill:'url(#crowd-gold)',stroke:'#392046','stroke-width':8,'stroke-linejoin':'round','paint-order':'stroke'},'500+'));
+      title.appendChild(make('path',{d:'M-508 88 L504 74 L487 214 L-515 228Z',fill:'#392046'}));
+      title.appendChild(make('text',{x:-2,y:183,'font-size':112,'letter-spacing':1,fill:'#FFF7E6'},'CHARACTERS'));
+      // A few graphic accents sit only in clear margins, away from faces.
+      for(const[x,y,r]of [[977,259,27],[2040,220,29],[997,698,20],[2020,682,21]]){
+        scene.appendChild(make('path',{d:`M${x} ${y-r}Q${x+r*.25} ${y-r*.25} ${x+r} ${y}Q${x+r*.25} ${y+r*.25} ${x} ${y+r}Q${x-r*.25} ${y+r*.25} ${x-r} ${y}Q${x-r*.25} ${y-r*.25} ${x} ${y-r}Z`,fill:'#FFD449'}));
+      }
+      const front=make('g',{'data-crowd-layer':'front'});scene.appendChild(front);
+      // Foreground silhouettes continue off-canvas, like a crowd beyond the frame.
+      // Tall foreground hats stay outside the headline's reading area.
+      const frontIds=[4,6,1,9,15,3,10,19,13,17,2,16,11,5];
+      for(let i=0;i<frontIds.length;i++)person(front,frontIds[i],38+i*226,864+wobble[(i+2)%12],1.44,'front');
+      document.documentElement.dataset.ready='true';
+      document.documentElement.dataset.characterCount=String(cast.length);
+      document.documentElement.dataset.crowdCount=String(records.length);
+      $('status').textContent=`${records.length} crowd members · ${cast.length} original designs · 3000 × 1000 pixels`;
+      $('export').disabled=false;
+      $('export').onclick=async()=>{
+        $('export').disabled=true;$('status').textContent='Rendering full-size PNG…';
+        try{
+          const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)],{type:'image/svg+xml;charset=utf-8'}));
+          const image=new Image();await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});
+          const canvas=document.createElement('canvas');canvas.width=3000;canvas.height=1000;canvas.getContext('2d').drawImage(image,0,0);URL.revokeObjectURL(url);
+          $('download').href=canvas.toDataURL('image/png');$('download').hidden=false;
+          $('status').textContent=`Ready · ${records.length} crowd members · ${cast.length} original designs · 3000 × 1000 PNG`;
+        }catch(error){$('status').textContent=`Could not export: ${error.message||error}`;}
+        finally{$('export').disabled=false;}
+      };
+    })().catch(error=>{document.getElementById('status').textContent=String(error);});
+  </script>
+</body>
+</html>

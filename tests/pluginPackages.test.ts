@@ -72,10 +72,10 @@ describe('packing and reading', () => {
     for (const name of ['../evil.js', 'sub/dir.js', 'run.exe', '.env']) {
       expect((await readPackage(zipSync({ ...base, [name]: strToU8('x') }))).problems.join('\n'), name).toMatch(/is not an allowed file/);
     }
-    const huge = zipSync({ ...base, 'big.js': new Uint8Array(1024 * 1024 + 1) });
+    const huge = zipSync({ ...base, 'big.js': new Uint8Array(8 * 1024 * 1024 + 1) });
     expect((await readPackage(huge)).problems.join('\n')).toMatch(/big\.js is larger than/);
-    const many = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${i}.js`, strToU8('1')]));
-    expect((await readPackage(zipSync({ ...base, ...many }))).problems.join('\n')).toMatch(/has \d+ files; the limit is 42/);
+    const many = Object.fromEntries(Array.from({ length: 130 }, (_, i) => [`f${i}.js`, strToU8('1')]));
+    expect((await readPackage(zipSync({ ...base, ...many }))).problems.join('\n')).toMatch(/has \d+ files; the limit is 122/);
     expect((await readPackage(strToU8('not a zip'))).problems.join('\n')).toMatch(/not a readable zip/);
   });
 

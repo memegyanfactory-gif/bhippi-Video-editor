@@ -64,5 +64,12 @@ function useInProject(payload){
 /** Tells the editor a character was saved, so it can say so. */
 function notify(type,data){if(host)try{host.postMessage({source:'bhippi-characters',type,...data},location.origin==='null'?'*':location.origin);}catch(e){}}
 
-window.BhippiChars={KEY,load,save,upsert,remove,onChange,to2D,to3D,useInProject,notify,inEditor:!!host,clone};
+// ---------- random names for the Random character button ----------
+const NAMES=['Ava','Bo','Cleo','Dex','Eli','Fern','Gus','Hana','Ivo','Juno','Kit','Lila','Milo','Nia','Otto','Pip','Quinn','Rosa','Sol','Tess','Uma','Vic','Wren','Yara','Zane','Ari','Bea','Cy','Dot','Ezra','Faye','Gio','Ines','Jax','Kiki','Lou','Mae','Nico','Ola','Remy','Sage','Theo','Vera','Wes','Zuri'];
+/** A name no character in `taken` already uses, so saving a random character never overwrites one. */
+function randomName(taken){const used=new Set((taken||[]).map(n=>String(n).toLowerCase()));const free=NAMES.filter(n=>!used.has(n.toLowerCase()));
+  if(free.length)return free[Math.floor(Math.random()*free.length)];
+  const base=NAMES[Math.floor(Math.random()*NAMES.length)];for(let i=2;;i++)if(!used.has(`${base} ${i}`.toLowerCase()))return`${base} ${i}`;}
+
+window.BhippiChars={KEY,load,save,upsert,remove,onChange,to2D,to3D,useInProject,notify,inEditor:!!host,clone,randomName};
 })();

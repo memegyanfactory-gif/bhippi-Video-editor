@@ -7,6 +7,7 @@
 
 import type { ToolHost } from '../lib/aiTools';
 import type { History } from '../lib/history';
+import { api, fileSrc } from '../lib/ipc';
 import type { Project, ToolResult } from '../lib/types';
 import type { PluginChecker } from './aiTools';
 import { connectSandboxFrame, pluginEditor, type PluginEditor, type Sandbox } from './bridge';
@@ -121,6 +122,25 @@ function scratchEditor(live: PluginEditor, host: ToolHost): PluginEditor {
 
 type Run = { report: TestReport; images: { width: number; image: string }[] };
 
+const inTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+let testSeq = 0;
+
+/**
+ * Where a test frame loads its page from. In the app, a file served by the asset protocol, like a
+ * live plugin's page: a blob: page would inherit the editor's own content security policy (no
+ * inline scripts), so neither the SDK nor the plugin would ever run. Outside the app, a blob.
+ */
+async function testPage(html: string): Promise<{ url: string; dispose: () => void }> {
+  if (inTauri()) {
+    // Not a plugin id (those start with a letter or digit), so it can never replace a real page.
+    const id = `_test-${Date.now().toString(36)}-${++testSeq}`;
+    const path = await api.pluginPageWrite(id, html);
+    return { url: fileSrc(path), dispose: () => void api.pluginFilesRemove(id).catch(() => undefined) };
+  }
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  return { url, dispose: () => URL.revokeObjectURL(url) };
+}
+
 const frameTick = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -148,13 +168,13 @@ export async function runPlugin(plugin: Plugin, options: { waitMs: number; check
   frame.tabIndex = -1;
   // Off screen, not hidden: a hidden page has no layout to picture.
   frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${options.widths[0] ?? 480}px;height:720px;border:0;pointer-events:none;`;
-  const url = URL.createObjectURL(new Blob([composePage(sandbox.plugin)], { type: 'text/html' }));
+  const page = await testPage(composePage(sandbox.plugin));
   const started = Date.now();
   document.body.appendChild(frame);
   const connection = { current: null as ReturnType<typeof connectSandboxFrame> | null };
   // Connect before the page runs, so its first message is heard.
   if (frame.contentWindow) connection.current = connectSandboxFrame(frame.contentWindow, sandbox);
-  frame.src = url;
+  frame.src = page.url;
   const images: { width: number; image: string }[] = [];
   let checks: TestReport['checks'] = [];
   try {
@@ -177,7 +197,7 @@ export async function runPlugin(plugin: Plugin, options: { waitMs: number; check
   } finally {
     connection.current?.disconnect();
     frame.remove();
-    URL.revokeObjectURL(url);
+    page.dispose();
   }
 
   const report: TestReport = {
@@ -205,7 +225,9 @@ export const pluginChecker: PluginChecker = {
     const lines = [
       `Judge: ${verdict.score}/100 (pass mark 80) for “${plugin.name}” — ${verdict.pass ? 'PASS' : 'below the mark'}.`,
       verdict.criteria.map((item) => `${item.label} ${Math.round(item.score * item.weight)}/${item.weight} (${item.note})`).join('; '),
-      report.loaded ? `Ran against a scratch copy of the project: ${report.calls} call${report.calls === 1 ? '' : 's'}, ${report.edits} edit${report.edits === 1 ? '' : 's'} to the copy, the real project untouched.` : 'It never connected: nothing ran.',
+      report.loaded
+        ? `Ran against a scratch copy of the project: ${report.calls} call${report.calls === 1 ? '' : 's'}, ${report.edits} edit${report.edits === 1 ? '' : 's'} to the copy, the real project untouched.`
+        : `It never connected: the page's scripts did not run far enough to load the bhippi SDK within 8 s.${report.errors.length ? ` Errors: ${report.errors.join(' | ')}` : ' No script error was reported, so check the page for a syntax error before any code runs, or a script that blocks forever.'}`,
       ...(report.skipped.length ? [`Skipped during the test (they run for the user): ${report.skipped.join(', ')}.`] : []),
       ...(failing.length ? [`Failing checks: ${failing.map((item) => `“${item.name}”: ${item.error ?? 'failed'}`).join(' | ')}`] : []),
       ...(verdict.fixes.length ? ['Fix, in order:', ...verdict.fixes.map((fix) => `- ${fix}`)] : ['Nothing to fix. Take a plugin_screenshot to check the look.']),

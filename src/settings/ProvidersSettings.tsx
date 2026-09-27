@@ -75,6 +75,9 @@ function addHint(row: ProviderInfo) {
   return 'Add API key';
 }
 
+/** The job provider_update_all runs under (lib.rs). */
+const UPDATE_ALL_JOB = 'Updating all AI providers';
+
 export function ProvidersSettings({ providers, onProviders, settings, onSettings, jobs }: {
   providers: ProviderInfo[];
   onProviders: (rows: ProviderInfo[]) => void;
@@ -187,6 +190,19 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
     } catch (error) { toast({ tone: 'error', title: 'Could not update provider', body: errorText(error) }); }
   };
 
+  /** The providers "Update all" updates: installed CLIs Bhippi knows how to update. The rest only re-read their models. */
+  const updatable = present.filter((row) => row.kind === 'cli' && row.installed && row.installCommand);
+  const allJob = jobs.filter((job) => job.kind === 'install' && job.label === UPDATE_ALL_JOB).at(-1);
+  const updatingAll = allJob?.status === 'running';
+  const updateAll = async () => {
+    try {
+      const job = await api.providerUpdateAll();
+      toast(job
+        ? { tone: 'info', title: `Updating ${updatable.length} AI provider${updatable.length === 1 ? '' : 's'}`, body: 'One after another; every model list refreshes when they finish.' }
+        : { tone: 'success', title: 'Model lists refreshed', body: 'No installed provider needs Bhippi to update it.' });
+    } catch (error) { toast({ tone: 'error', title: 'Could not update the providers', body: errorText(error) }); }
+  };
+
   const keyForm = (row: ProviderInfo) => (
     <form className="key-form" onSubmit={(event) => { event.preventDefault(); void saveKey(row, keys[row.id] ?? ''); }}>
       <KeyRound size={13} />
@@ -231,10 +247,16 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
           <h3>AI providers</h3>
           <p>{ready ? `${ready} provider${ready === 1 ? '' : 's'} ready.` : 'No AI provider is ready yet — the offline command parser still works.'} Models are read from each provider automatically; pick one from the model menu in the chat.</p>
         </div>
-        <button type="button" className="btn" onClick={() => void refresh()} disabled={refreshing} title="Re-detect providers and re-read every model list">
-          {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />} Refresh
-        </button>
+        <div className="provider-intro-actions">
+          <button type="button" className="btn btn-primary" onClick={() => void updateAll()} disabled={refreshing || installing.size > 0 || updatingAll} title={updatable.length ? `Update ${updatable.map((row) => row.label).join(', ')}, then re-read every model list` : 'Re-read every model list (no installed provider needs Bhippi to update it)'}>
+            {updatingAll ? <LoaderCircle size={14} className="spin" /> : <Download size={14} />} Update all
+          </button>
+          <button type="button" className="btn" onClick={() => void refresh()} disabled={refreshing} title="Re-detect providers and re-read every model list">
+            {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />} Refresh
+          </button>
+        </div>
       </div>
+      {allJob && <p className="provider-update-status provider-update-all-status" role="status">{updatingAll && <LoaderCircle size={12} className="spin" />}{allJob.status === 'error' ? 'Update all failed: ' : allJob.status === 'done' ? 'Update all finished: ' : ''}{allJob.message}</p>}
       {GROUPS.map((group) => {
         const rows = present.filter((row) => row.kind === group.kind);
         if (!rows.length) return null;

@@ -4,8 +4,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { CircleCheck, Film, LoaderCircle, Mic, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { CircleCheck, Film, LoaderCircle, Mic, Puzzle, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { actionLogger } from './lib/actionLogger';
 import { crashReporter } from './lib/crashReporter';
 import { TerminalPanel } from './panels/TerminalPanel';
@@ -20,7 +20,7 @@ import { automaticRotoEngine } from './lib/rotoEngine';
 import { flushSync } from 'react-dom';
 import { RENDERED_EFFECTS } from './lib/effectSupport';
 import { LearningWorkspace } from './panels/LearningWorkspace';
-import { ChatPanel, type ChatApi, type ToolRun } from './chat/ChatPanel';
+import { ChatPanel, type ChatActivity, type ChatApi, type ToolRun } from './chat/ChatPanel';
 import { StoryboardViewer } from './chat/StoryboardViewer';
 import { steer } from './chat/steer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
@@ -72,7 +72,7 @@ import {
 } from './lib/timeline';
 import { isLayeredComp, splitMotionComps } from './lib/motionStack';
 import { isHtmlLayered, splitHtmlComp } from './lib/htmlLayers';
-import type { AppInfo, Asset, Clip, ClipSource, Comp, ExportOptions, BhippiDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase } from './lib/types';
+import type { AppInfo, Asset, Clip, ClipSource, Comp, ExportOptions, BhippiDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase, DockSlot, DockedPlugin, DockAnchor, DockSide } from './lib/types';
 import { ProjectPanel, type DragPayload, type EffectPreset, type ProjectTab } from './panels/ProjectPanel';
 import { PropertiesPanel } from './panels/PropertiesPanel';
 import { EffectControlsPanel } from './panels/EffectControlsPanel';
@@ -89,7 +89,10 @@ import { aspectLabel, describeReformat, reformatComp } from './lib/reformat';
 import { HomeScreen } from './settings/HomeScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { Tour, type TourStepId } from './onboarding/Tour';
-import { registerStorageRoot } from './lib/storage';
+import { registerStorageRoot, UNTITLED_PROJECT } from './lib/storage';
+
+/** “D:\Work\My Reel.bhippi” → “My Reel”. */
+const projectNameFromPath = (path: string) => (path.split(/[\\/]/).pop() ?? '').replace(/\.bhippi$/i, '').trim();
 import { rewritePaths, storyboardDocs } from './lib/projectDocs';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
 import type { GenPlan } from './lib/cloudGen';
@@ -114,11 +117,14 @@ import { checkRevocations } from './plugins/market';
 import { PluginMarket } from './plugins/PluginMarket';
 import { PLUGIN_MAKER_BRIEF, PLUGIN_MAKER_TOOLSET } from './plugins/brief';
 import { harnessRefusal } from './lib/harness';
-import { PluginMaker } from './plugins/PluginMaker';
-import { BackgroundPlugins, panelPlugins, pluginGlyph, PluginsPanelBody } from './plugins/PluginsPanel';
+import { makerActivityKey, MakerStatusBadge, PluginMaker } from './plugins/PluginMaker';
+import { CornerStack, DownloadsBadge } from './components/DownloadsBadge';
+import { BackgroundPlugins, panelPlugins, pluginGlyph, PluginMark, PLUGINS_HOME, PluginsHome, PluginsPanelBody } from './plugins/PluginsPanel';
 import { loadPlugins, patchPlugin, pluginsBrief, usePlugins } from './plugins/store';
+import { ANCHOR_LABEL, ANCHOR_REGION, DOCK_ANCHORS, DOCK_MIN, DOCK_MIN_HEIGHT, DOCK_SLOTS, DockOverlay, SIDE_LABEL, dragToDock, isAnchor, isSide, samePlace, sidesFor, withDocked, type DockDrag, type DockPlace, type DockTarget } from './plugins/dock';
+import { PluginFrame } from './plugins/PluginFrame';
 import { selectedPlugin, setPluginChecker } from './plugins/aiTools';
-import { CHARACTERS_TAB, CharactersIcon, CharactersLauncher, CharactersWindow } from './characters/CharactersWindow';
+import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/CharactersWindow';
 
 /**
  * How narrow each panel may be dragged.
@@ -130,9 +136,9 @@ import { CHARACTERS_TAB, CharactersIcon, CharactersLauncher, CharactersWindow } 
  */
 const PANEL_MIN = { chat: 436, transcript: 240, source: 260, properties: 260, project: 260, plugins: 240, top: 220 } as const;
 
-const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, transcriptWidth: 320, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, pluginsWidth: 360, hidden: [], meters: DEFAULT_METERS };
+const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, transcriptWidth: 320, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, pluginsWidth: 360, hidden: ['transcript', 'source'], meters: DEFAULT_METERS, storyboardDocked: true, sourceClosed: true, docked: [] };
 const EMPTY_SETTINGS: Settings = {
-  disabledProviders: [], providerId: null, model: null, effort: null, permission: null, awesomeLook: false, ffmpegPath: null, chatOpen: true, timelineHeight: null, timelineZoom: null,
+  disabledProviders: [], providerId: null, model: null, effort: null, permission: null, ffmpegPath: null, chatOpen: true, timelineHeight: null, timelineZoom: null,
   disableLocalGeneration: true,
   export: { resolution: null, fps: null, quality: null, folder: null }, layout: null, recentProjects: [], projectPath: null, theme: null,
   ideagraphBin: null, ideagraphBrain: null, ideagraphRecord: null,
@@ -185,15 +191,25 @@ export default function App() {
   const [learningOpen, setLearningOpen] = useState(false);
   /** The Plugin Maker workspace, and the plugin it has open (null: a new one). */
   const [makerOpen, setMakerOpen] = useState(false);
+  // Once opened, the Plugin Maker stays mounted (hidden while the user is back in the editor), so a
+  // build it is running keeps going and its chat, questions and progress are there on return.
+  const [makerMounted, setMakerMounted] = useState(false);
+  useEffect(() => { if (makerOpen) setMakerMounted(true); }, [makerOpen]);
+  /** The Maker chat's latest turn, for the corner badge shown while the Maker is out of sight. */
+  const [makerActivity, setMakerActivity] = useState<ChatActivity>(null);
+  // What the user has already seen of it: anything shown while the Maker is open counts.
+  const [makerSeen, setMakerSeen] = useState('');
+  useEffect(() => { if (makerOpen) setMakerSeen(makerActivityKey(makerActivity)); }, [makerOpen, makerActivity]);
   const [marketOpen, setMarketOpen] = useState(false);
   const [makerPlugin, setMakerPlugin] = useState<string | null>(null);
   const [pluginTab, setPluginTab] = useState<string | null>(null);
+  /** A plugin being dragged toward the editing area to dock it (src/plugins/dock.tsx). */
+  const [dockDrag, setDockDrag] = useState<DockDrag | null>(null);
   const makerChatApi = useRef<ChatApi | null>(null);
   /** The Plugins panel was asked for while it has no plugin tabs, so it shows its empty state. */
   /** The Characters window (a built-in tab of the Plugins panel), and which studio it shows. */
   const [charactersOpen, setCharactersOpen] = useState(false);
   const [charactersMode, setCharactersMode] = useState<'2d' | '3d'>('2d');
-  const [charactersSeen, setCharactersSeen] = useState(0);
   const { plugins } = usePlugins();
   const [loaded, setLoaded] = useState(false);
   const [savedProject, setSavedProject] = useState<Project | null>(null);
@@ -204,7 +220,6 @@ export default function App() {
   const permission = (settings.permission as PermissionMode | null) ?? DEFAULT_PERMISSION;
   const effort = (settings.effort as Effort | null) ?? DEFAULT_EFFORT;
   // Purely a look: remembered with the other chat choices so it survives a restart.
-  const awesome = settings.awesomeLook ?? false;
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(280);
   const [terminalErrorCount, setTerminalErrorCount] = useState(0);
@@ -274,7 +289,15 @@ export default function App() {
     };
   }, [referenceId]);
 
-  const [pendingAsks, setPendingAsks] = useState<{ question: string; options: string[]; context: string | null; answer: (value: string) => void }[]>([]);
+  const [pendingAsks, setPendingAsks] = useState<{ question: string; options: string[]; context: string | null; answer: (value: string) => void; /** Asked by a Plugin Maker turn: shown in the Maker's chat, not the main one. */ maker: boolean }[]>([]);
+  // Each chat shows only its own turns' questions, oldest first.
+  const mainAsks = pendingAsks.filter((item) => !item.maker);
+  const makerAsks = pendingAsks.filter((item) => item.maker);
+  const answerAsk = (item: (typeof pendingAsks)[number] | undefined, value: string) => {
+    if (!item) return;
+    item.answer(value);
+    setPendingAsks((current) => current.filter((entry) => entry !== item));
+  };
   /** The cloud generation plan the AI is waiting on (generate_cloud_media), one at a time. */
   const [pendingGen, setPendingGen] = useState<{ plan: GenPlan; resolve: (plan: GenPlan | null) => void } | null>(null);
   const permissionRef = useRef<PermissionMode>(permission);
@@ -388,8 +411,16 @@ export default function App() {
       // A layout saved before these floors existed is raised to them rather than left overlapping.
       if (stored.layout) {
         const saved = { ...DEFAULT_LAYOUT, ...stored.layout, meters: { ...DEFAULT_METERS, ...(stored.layout.meters ?? {}) } };
+        // Layouts saved before the storyboard moved into the editing area start with it off, once.
+        const storyboardHidden = stored.layout.storyboardDocked ? saved.hidden : [...new Set([...saved.hidden, 'transcript' as PanelId])];
+        // Layouts saved before the editor opened with Storyboard & Transcription and the Source
+        // Monitor closed get both closed once; after that the user's own choice stays.
+        const hiddenPanels = stored.layout.sourceClosed ? storyboardHidden : [...new Set([...storyboardHidden, 'transcript' as PanelId, 'source' as PanelId])];
         setLayout({
           ...saved,
+          hidden: hiddenPanels,
+          storyboardDocked: true,
+          sourceClosed: true,
           chatWidth: Math.max(PANEL_MIN.chat, saved.chatWidth),
           transcriptWidth: Math.max(PANEL_MIN.transcript, saved.transcriptWidth),
           sourceWidth: Math.max(PANEL_MIN.source, saved.sourceWidth),
@@ -397,6 +428,14 @@ export default function App() {
           projectWidth: Math.max(PANEL_MIN.project, saved.projectWidth),
           pluginsWidth: Math.max(PANEL_MIN.plugins, saved.pluginsWidth ?? DEFAULT_LAYOUT.pluginsWidth!),
           topHeight: Math.max(PANEL_MIN.top, saved.topHeight),
+          // Docked plugins: only well-formed entries, once each, no smaller than a dock allows.
+          docked: (Array.isArray(saved.docked) ? saved.docked : [])
+            .filter((item, index, list) => typeof item?.id === 'string' && DOCK_SLOTS.includes(item.slot) && list.findIndex((other) => other?.id === item.id) === index)
+            .map((item) => ({
+              id: item.id, slot: item.slot, width: Math.max(DOCK_MIN, Number(item.width) || DOCK_MIN),
+              ...(isAnchor(item.anchor) && isSide(item.side) && sidesFor(item.anchor).includes(item.side) ? { anchor: item.anchor, side: item.side } : {}),
+              ...(item.height ? { height: Math.max(DOCK_MIN_HEIGHT, Number(item.height) || DOCK_MIN_HEIGHT) } : {}),
+            })),
         });
       }
       if (stored.timelineZoom) setZoom(stored.timelineZoom);
@@ -500,11 +539,11 @@ export default function App() {
     selection: () => selection,
     setSelection,
     permission: () => permissionRef.current,
-    ask: (question: { question: string; options: string[]; context: string | null }, signal?: AbortSignal) =>
+    ask: (question: { question: string; options: string[]; context: string | null }, signal?: AbortSignal, turnId?: string) =>
       new Promise<string>((resolve) => {
         // The turn is waiting on this, so the card stays until it is answered or skipped — or the
         // turn ends (Stop, an error), when nobody is left to read the answer and the card goes.
-        const entry = { ...question, answer: resolve };
+        const entry = { ...question, answer: resolve, maker: !!turnId && makerTurns.current.has(turnId) };
         if (signal?.aborted) return resolve('The turn ended before the editor answered.');
         signal?.addEventListener('abort', () => {
           setPendingAsks((current) => current.filter((item) => item !== entry));
@@ -692,6 +731,17 @@ export default function App() {
   }, [toast]);
   useEffect(() => pluginEvents.project(), [project]);
   useEffect(() => pluginEvents.selection(selection), [selection]);
+  // bhippi.on('export'): when an export starts, and how it ends.
+  useEffect(() => {
+    let last = renderProgress.get();
+    return renderProgress.subscribe(() => {
+      const now = renderProgress.get();
+      const running = now.open && now.status === 'running';
+      if (running && (!(last.open && last.status === 'running') || now.startedAt !== last.startedAt)) pluginEvents.export('started', now.output);
+      else if (!running && now.status !== 'running' && now.status !== last.status) pluginEvents.export(now.status, now.output);
+      last = now;
+    });
+  }, []);
   useEffect(() => {
     let last = 0;
     return playhead.subscribe(() => {
@@ -1055,7 +1105,17 @@ export default function App() {
       // The save gathers every file the project uses (AI downloads, generated media, voice-overs,
       // roto runs, storyboard pictures, the AI's guidelines…) into the folder the .bhippi owns and
       // files each comp's plan under Documents/Storyboard/ — see src-tauri/src/bundle.rs.
-      const base = history.current();
+      let base = history.current();
+      // Saving to a new file (Save As, or the first save of an untitled project) names the project
+      // after that file, so the Project tab and the title bar read what the user typed. A plain Save
+      // to the same file keeps a name set in Project Settings.
+      const stem = projectNameFromPath(target);
+      const samePath = settingsRef.current.projectPath?.toLowerCase() === target.toLowerCase();
+      if (keepPath && stem && base.name !== stem && (!samePath || base.name === UNTITLED_PROJECT)) {
+        const renamed = { ...base, name: stem };
+        history.view((current) => (current === base ? renamed : { ...current, name: stem }));
+        base = renamed;
+      }
       const report = await api.projectFileSave(target, await documentFor(base), keepPath, storyboardDocs(base));
       if (keepPath) {
         // From now on the project reads its media from that folder: point the open project there.
@@ -1121,7 +1181,9 @@ export default function App() {
       // A graphic's script runs with the app's own rights, so the scripts of a file from elsewhere
       // wait until the user says they trust it. Projects made here and the autosave never come
       // through this path.
-      const { project: opened, count: scripts } = quarantineScripts(loadProject(raw.project ?? raw, new Map(library.map((asset) => [asset.id, asset]))));
+      const { project: loaded, count: scripts } = quarantineScripts(loadProject(raw.project ?? raw, new Map(library.map((asset) => [asset.id, asset]))));
+      // A file saved before projects took their file's name still says “Untitled project” inside.
+      const opened = loaded.name === UNTITLED_PROJECT && projectNameFromPath(path) ? { ...loaded, name: projectNameFromPath(path) } : loaded;
       history.reset(opened);
       setSavedProject(opened);
       setSelection([]);
@@ -1282,8 +1344,11 @@ export default function App() {
 
   // ── layout ─────────────────────────────────────────────────────────────
   const hidden = (panel: PanelId) => layout.hidden.includes(panel);
+  // Plugins docked in the editing area are panels there, not tabs in the Plugins panel.
+  const docked = layout.docked ?? [];
+  const dockedIds = new Set(docked.map((item) => item.id));
   // The Plugins panel always has the built-in Characters tab, so it shows unless the user hid it.
-  const shownPlugins = panelPlugins(plugins);
+  const shownPlugins = panelPlugins(plugins, dockedIds);
   const showPlugins = !hidden('plugins');
   const setPanelVisible = (panel: PanelId, visible: boolean) => {
     setLayout((current) => ({ ...current, hidden: visible ? current.hidden.filter((id) => id !== panel) : [...new Set([...current.hidden, panel])] }));
@@ -1292,10 +1357,10 @@ export default function App() {
   // A question from Bhippi AI is answered in the chat, and the turn waits on it: bring the chat
   // back (and out from under a maximized panel) so the card and its options are never hidden.
   useEffect(() => {
-    if (!pendingAsks.length) return;
+    if (!mainAsks.length) return;
     setLayout((current) => (current.hidden.includes('chat') ? { ...current, hidden: current.hidden.filter((id) => id !== 'chat') } : current));
     setMaximized((current) => (current && current !== 'chat' ? null : current));
-  }, [pendingAsks.length]);
+  }, [mainAsks.length]);
   const showPanel = (panel: PanelId, tab?: ProjectTab) => {
     setPanelVisible(panel, true);
     setFocused(panel);
@@ -1307,6 +1372,34 @@ export default function App() {
   const beginResize = () => {
     layoutStart.current = layout;
   };
+
+  // ── plugins docked in the editing area ─────────────────────────────────
+  /** Puts a plugin on one edge of a panel in the editing area, sized so the panels around it keep their room. */
+  const dockPlugin = (id: string, place: DockPlace) => {
+    const plugin = plugins.find((item) => item.id === id);
+    if (plugin && !(plugin.enabled && plugin.panel)) void patchPlugin(id, { enabled: true, panel: true });
+    setLayout((current) => ({ ...current, docked: withDocked(current.docked ?? [], id, place) }));
+  };
+  /** Takes a plugin out of the editing area and shows it as its tab in the Plugins panel again. */
+  const undockPlugin = (id: string) => {
+    setLayout((current) => ({ ...current, docked: (current.docked ?? []).filter((item) => item.id !== id), hidden: current.hidden.filter((panel) => panel !== 'plugins') }));
+    setPluginTab(id);
+  };
+  const dropPlugin = (id: string, target: DockTarget) => {
+    if (target === 'plugins') {
+      if (dockedIds.has(id)) undockPlugin(id);
+    } else if (target) {
+      dockPlugin(id, target);
+    }
+  };
+  const dragPlugin = (id: string, name: string, event: ReactPointerEvent) => dragToDock(event, id, name, setDockDrag, dropPlugin);
+  /** Drags a docked plugin's width (beside a panel) or height (stacked with one); `sign` is which way the splitter grows it. */
+  const resizeDock = (id: string, sign: number, axis: 'width' | 'height' = 'width') => (delta: number) =>
+    setLayout((current) => {
+      const floor = axis === 'width' ? DOCK_MIN : DOCK_MIN_HEIGHT;
+      const start = layoutStart.current.docked?.find((item) => item.id === id)?.[axis] ?? floor;
+      return { ...current, docked: (current.docked ?? []).map((item) => (item.id === id ? { ...item, [axis]: clamp(start + delta * sign, floor, 1200) } : item)) };
+    });
 
   // ── editing helpers ────────────────────────────────────────────────────
   const editComp = (change: (current: Comp) => Comp, label: string) => {
@@ -2855,47 +2948,127 @@ export default function App() {
   );
 
   // The Plugins panel: one tab per plugin shown as a panel, or an invitation to build one.
-  const activePlugin = shownPlugins.find((item) => item.id === pluginTab)?.id ?? CHARACTERS_TAB;
+  const activePlugin = shownPlugins.find((item) => item.id === pluginTab)?.id ?? PLUGINS_HOME;
+  /** The Program monitor and Timeline always show; every other panel can be closed. */
+  const anchorShown = (anchor: DockAnchor) => anchor === 'program' || anchor === 'timeline' || !hidden(anchor);
+  /** "Dock in Editing Area" / "Move To": each open panel, then the edges a plugin can take on it. */
+  const dockMenu = (id: string, current?: DockedPlugin): MenuItem[] =>
+    DOCK_ANCHORS.filter(anchorShown).map((anchor) => ({
+      label: ANCHOR_LABEL[anchor],
+      checked: current?.anchor === anchor,
+      submenu: sidesFor(anchor).map((side): MenuItem => {
+        const here = !!current && samePlace(current, { anchor, side });
+        return { label: SIDE_LABEL[side], checked: here, disabled: here, onSelect: () => dockPlugin(id, { anchor, side }) };
+      }),
+    }));
   const openMaker = (id: string | null) => { setMakerPlugin(id); setMakerOpen(true); };
   const pluginsPanel = panel('plugins', [
-    { id: CHARACTERS_TAB, label: <span className="plugin-tab-label" title="Build 2D and 3D characters for this project"><CharactersIcon size={14} /> Characters</span> },
-    ...shownPlugins.map((item) => ({ id: item.id, label: <span title={item.description}>{pluginGlyph(item)} {item.name}</span> })),
+    { id: PLUGINS_HOME, label: <span className="plugin-tab-label" title="Every plugin you have installed or created"><Puzzle size={13} /> Plugins</span> },
+    ...shownPlugins.map((item) => ({ id: item.id, label: <span className="plugin-tab-label" title={item.description}><PluginMark plugin={item} size={14} /> {item.name}</span> })),
   ], activePlugin, (
-    <PluginsPanelBody active={activePlugin} skip={makerOpen ? makerPlugin : null} onMaker={() => openMaker(null)} onOpenInMaker={openMaker}
-      builtin={{ id: CHARACTERS_TAB, body: <CharactersLauncher onOpen={openCharacters} onCustomPlugin={() => openMaker(null)} refresh={charactersSeen} /> }} />
+    <PluginsPanelBody active={activePlugin} skip={makerOpen ? makerPlugin : null} docked={dockedIds} onMaker={() => openMaker(null)} onOpenInMaker={openMaker}
+      builtin={{ id: PLUGINS_HOME, body: (
+        <PluginsHome onOpen={setPluginTab} onMarket={() => setMarketOpen(true)} onMaker={() => openMaker(null)} onOpenInMaker={openMaker}
+          docked={dockedIds} onDragOut={(plugin, event) => dragPlugin(plugin.id, plugin.name, event)}
+          builtins={[{ id: CHARACTERS_TAB, name: 'Characters', description: 'Build 2D and 3D characters for this project', icon: <CharactersIcon size={48} />, banner: 'characters/character-plugin-icon.png', onOpen: () => openCharacters('2d') }]} />
+      ) }} />
   ), {
     onTab: setPluginTab,
+    // A plugin's tab can be dragged into the editing area to dock it there.
+    onTabPointerDown: (id, event) => {
+      const item = shownPlugins.find((entry) => entry.id === id);
+      if (item) dragPlugin(item.id, item.name, event);
+    },
     menu: [
       { label: 'Custom Plugin…', onSelect: () => openMaker(null) },
       { label: 'Marketplace…', onSelect: () => setMarketOpen(true) },
       ...(shownPlugins.some((item) => item.id === activePlugin) ? [
         { label: 'Edit in Plugin Maker…', onSelect: () => openMaker(activePlugin) },
+        { label: 'Dock in Editing Area', submenu: dockMenu(activePlugin) },
         { label: 'Remove from Panel', onSelect: () => void patchPlugin(activePlugin, { panel: false }) },
       ] : []),
     ],
   });
 
+  /** A plugin docked in the editing area: its own panel, dragged by its tab to move it or send it back. */
+  const dockedPanel = (item: DockedPlugin) => {
+    const plugin = plugins.find((entry) => entry.id === item.id);
+    const name = plugin?.name ?? 'Plugin';
+    return (
+      <Panel id={`plugin:${item.id}`} className="docked-plugin" active={item.id} maximized={false} focused={false} onFocus={() => undefined}
+        tabs={[{ id: item.id, label: <span className="plugin-tab-label" title={`${plugin?.description ? `${plugin.description}\n` : ''}Drag to move it, or onto the Plugins panel to put it back.`}>{plugin && <PluginMark plugin={plugin} size={14} />} {name}</span> }]}
+        onTabPointerDown={(_, event) => dragPlugin(item.id, name, event)}
+        menu={[
+          { label: 'Move To', submenu: dockMenu(item.id, item) },
+          { label: 'Return to Plugins Panel', onSelect: () => undockPlugin(item.id) },
+          ...(plugin ? [{ label: 'Edit in Plugin Maker…', onSelect: () => openMaker(item.id) }] : []),
+        ]}>
+        {makerOpen && makerPlugin === item.id ? (
+          <div className="plugin-frame-empty">“{name}” is open in the Plugin Maker. <button type="button" className="btn" onClick={() => openMaker(item.id)}>Go there</button></div>
+        ) : (
+          <PluginFrame pluginId={item.id} />
+        )}
+      </Panel>
+    );
+  };
+  const dockShown = (item: DockedPlugin) => plugins.some((entry) => entry.id === item.id);
+  /** Plugins docked on a panel's edge while that panel is open; the rest fall back to their row's end. */
+  const onAnchor = (item: DockedPlugin): item is DockedPlugin & DockPlace => !!item.anchor && !!item.side && anchorShown(item.anchor);
+  const docksAt = (anchor: DockAnchor, side: DockSide) => docked.filter((item) => dockShown(item) && onAnchor(item) && item.anchor === anchor && item.side === side);
+  /**
+   * One built-in panel with the plugins docked on its edges. Beside the row's main panel (Program or
+   * Timeline) each cell keeps its splitter on the side facing that main panel, so dragging a splitter
+   * always moves the edge under the pointer while the main panel takes up the difference.
+   * Plugins above or below a panel stack with it in a column that takes the panel's width.
+   */
+  const placeAnchor = (anchor: DockAnchor, body: ReactNode, { width, splitter, bare }: { width?: number; splitter?: ReactNode; bare?: boolean } = {}) => {
+    const region = ANCHOR_REGION[anchor];
+    const grow = region === 'grow';
+    const sideways = (item: DockedPlugin, leading: boolean) => {
+      const cell = <div className="ws-cell ws-dock" style={{ width: item.width }} data-dock-anchor={anchor} data-dock-side={item.side}>{dockedPanel(item)}</div>;
+      const handle = <Splitter direction="vertical" onDrag={resizeDock(item.id, leading ? 1 : -1)} onStart={beginResize} />;
+      return <Fragment key={item.id}>{leading ? <>{cell}{handle}</> : <>{handle}{cell}</>}</Fragment>;
+    };
+    const stacked = (item: DockedPlugin, above: boolean) => {
+      const cell = <div className="ws-cell ws-dock" style={{ height: item.height ?? 240 }} data-dock-anchor={anchor} data-dock-side={item.side}>{dockedPanel(item)}</div>;
+      const handle = <Splitter direction="horizontal" onDrag={resizeDock(item.id, above ? 1 : -1, 'height')} onStart={beginResize} />;
+      return <Fragment key={item.id}>{above ? <>{cell}{handle}</> : <>{handle}{cell}</>}</Fragment>;
+    };
+    const tops = docksAt(anchor, 'top');
+    const bottoms = docksAt(anchor, 'bottom');
+    const size = width === undefined ? undefined : { width };
+    const core = tops.length || bottoms.length ? (
+      <div className={`ws-cell ws-stack${grow ? ' grow' : ''}`} style={size} data-dock-anchor={anchor}>
+        {tops.map((item) => stacked(item, true))}
+        <div className="ws-cell grow">{body}</div>
+        {bottoms.map((item) => stacked(item, false))}
+      </div>
+    ) : (
+      <div className={`ws-cell${grow ? ' grow' : ''}${bare ? ' bare' : ''}`} style={size} data-dock-anchor={anchor}>{body}</div>
+    );
+    return (
+      <>
+        {docksAt(anchor, 'left').map((item) => sideways(item, region !== 'after'))}
+        {region === 'after' && splitter}
+        {core}
+        {region === 'before' && splitter}
+        {docksAt(anchor, 'right').map((item) => sideways(item, region === 'before'))}
+      </>
+    );
+  };
+  /** The docked plugins at one end of a row, each with a splitter on its inner side to resize it. */
+  const dockCells = (slot: DockSlot) =>
+    docked.filter((item) => item.slot === slot && dockShown(item) && !onAnchor(item)).map((item) => {
+      const start = slot.endsWith('start');
+      const cell = <div className="ws-cell ws-dock" style={{ width: item.width }}>{dockedPanel(item)}</div>;
+      const splitter = <Splitter direction="vertical" onDrag={resizeDock(item.id, start ? 1 : -1)} onStart={beginResize} />;
+      return <Fragment key={item.id}>{start ? <>{cell}{splitter}</> : <>{splitter}{cell}</>}</Fragment>;
+    });
+
   const chatPanel = panel('chat', [{ id: 'chat', label: 'Bhippi AI' }, { id: 'providers', label: 'Providers' }], chatTab, (
     <>
       <div className="chat-host" style={{ display: chatTab === 'chat' ? undefined : 'none' }}>
-        {(!!comp?.storyboard?.length || !!comp?.videoBlueprint?.scenes?.length) && (
-          <StoryboardViewer
-            scenes={comp.storyboard ?? []}
-            fps={comp.fps}
-            compName={comp.name}
-            onSeek={(t) => playhead.seek(t)}
-            compId={comp.id}
-            aspect={comp.width / Math.max(1, comp.height)}
-            onRequestFrames={requestFrames}
-            onCardPicture={cardPicture}
-            blueprint={comp.videoBlueprint ?? null}
-            actionLabel={userAdvance(comp.production?.phase) === 'gathering' ? 'Start generating' : userAdvance(comp.production?.phase) === 'editing' ? 'Start editing' : null}
-            onExecuteBlueprint={userAdvance(comp.production?.phase) ? () => advanceProductionPhase(comp.id, userAdvance(comp.production?.phase)!) : undefined}
-            executing={Object.values(toolRuns).flat().some((run) => run.status === 'running')}
-            onPlayToggle={() => playhead.setPlaying(!playhead.isPlaying())}
-            isPlaying={isPlaying}
-          />
-        )}
+        {/* The storyboard lives only in the Storyboard & Transcription panel in the editing area — the chat stays chat. */}
         {/* Once verified there's nothing left to press and nothing left to track — the dock
             vanishes rather than sitting there as a permanent row of green checks. Saving a
             plan for the next task starts a fresh production (see parseProduction), which
@@ -2911,15 +3084,11 @@ export default function App() {
           )}
           effort={effort} onEffort={(value) => saveSettings({ effort: value })}
           permission={permission} onPermission={(value) => saveSettings({ permission: value })}
-          awesome={awesome} onAwesome={(value) => saveSettings({ awesomeLook: value })} onUndo={history.undo} onClear={endConversation}
+          onUndo={history.undo} onClear={endConversation}
           onReference={setReferenceId}
           editStyle={editStyle} onStyle={setEditStyle}
-          ask={pendingAsks[0] ?? null} askCount={pendingAsks.length}
-          onAnswer={(value) => {
-            const [head, ...rest] = pendingAsks;
-            head?.answer(value);
-            setPendingAsks(rest);
-          }}
+          ask={mainAsks[0] ?? null} askCount={mainAsks.length}
+          onAnswer={(value) => answerAsk(mainAsks[0], value)}
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
           genPlan={pendingGen ? { plan: pendingGen.plan, assets: assetMap } : null}
           onGenPlan={(plan) => { pendingGen?.resolve(plan); setPendingGen(null); }}
@@ -3091,19 +3260,31 @@ export default function App() {
   return (
     <div className="app">
       <MenuBar menus={menus} />
-      <BackgroundPlugins panelShown={showPlugins && (!maximizedPanel || maximizedPanel === 'plugins')} skip={makerOpen ? makerPlugin : null} />
+      <BackgroundPlugins panelShown={showPlugins && (!maximizedPanel || maximizedPanel === 'plugins')} docked={dockedIds} dockShown={!maximizedPanel} skip={makerOpen ? makerPlugin : null} />
+      {dockDrag && <DockOverlay drag={dockDrag} />}
       <CharactersWindow open={charactersOpen} mode={charactersMode} onMode={setCharactersMode} onAdded={addCharacter}
-        onClose={() => { setCharactersOpen(false); setCharactersSeen((n) => n + 1); }} />
+        onClose={() => setCharactersOpen(false)} />
       {marketOpen && (
-        <PluginMarket known={KNOWN_TOOLS} onClose={() => setMarketOpen(false)} onOpenInMaker={(id) => { setMarketOpen(false); openMaker(id); }} />
+        <PluginMarket known={KNOWN_TOOLS} onClose={() => setMarketOpen(false)} onOpenInMaker={(id) => { setMarketOpen(false); openMaker(id); }}
+          onOpenCharacters={() => { setMarketOpen(false); openCharacters('2d'); }} />
       )}
-      {makerOpen && (
+      {/* Downloads and the Plugin Maker's build share the bottom-right corner, above the status bar. */}
+      <CornerStack>
+        <DownloadsBadge onCancel={(id) => void cancelJob(id)} />
+        {!makerOpen && (
+          <MakerStatusBadge activity={makerActivity} asking={makerAsks.length > 0} seen={makerSeen} onSeen={setMakerSeen}
+            onOpen={() => setMakerOpen(true)} onCancel={() => makerChatApi.current?.stop()} />
+        )}
+      </CornerStack>
+      {(makerOpen || makerMounted) && (
         <PluginMaker
+          hidden={!makerOpen}
           selected={makerPlugin}
           onSelect={setMakerPlugin}
           onPrompt={(text) => makerChatApi.current?.send(text)}
           onClose={() => setMakerOpen(false)}
-          onMarket={() => { setMakerOpen(false); setMarketOpen(true); }}
+          // The Marketplace opens over the Maker; closing it lands back in the Maker, not the editor.
+          onMarket={() => setMarketOpen(true)}
           known={KNOWN_TOOLS}
           chat={
             <ChatPanel apiRef={makerChatApi} logScope="plugins" persona={PLUGIN_MAKER_BRIEF} lockedMode="quick" harness="plugin-maker" toolset={PLUGIN_MAKER_TOOLSET} label="Plugin Maker chat"
@@ -3112,10 +3293,11 @@ export default function App() {
               providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
               effort={effort} onEffort={(value) => saveSettings({ effort: value })}
               permission={permission} onPermission={(value) => saveSettings({ permission: value })}
-              awesome={awesome} onAwesome={(value) => saveSettings({ awesomeLook: value })} onUndo={history.undo}
+              onUndo={history.undo}
               onReference={setReferenceId} editStyle={null} onStyle={() => undefined}
-              ask={pendingAsks[0] ?? null} askCount={pendingAsks.length}
-              onAnswer={(value) => { const [head, ...rest] = pendingAsks; head?.answer(value); setPendingAsks(rest); }}
+              ask={makerAsks[0] ?? null} askCount={makerAsks.length}
+              onAnswer={(value) => answerAsk(makerAsks[0], value)}
+              onActivity={setMakerActivity}
               connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
           genPlan={pendingGen ? { plan: pendingGen.plan, assets: assetMap } : null}
           onGenPlan={(plan) => { pendingGen?.resolve(plan); setPendingGen(null); }}
@@ -3156,39 +3338,28 @@ export default function App() {
         ) : (
           <>
             {!hidden('chat') && <Splitter direction="vertical" onDrag={resize('chatWidth', PANEL_MIN.chat, 720)} onStart={beginResize} />}
-            {!hidden('transcript') && (
-              <>
-                <div className="ws-side" style={{ width: layout.transcriptWidth }}>{transcriptPanel}</div>
-                <Splitter direction="vertical" onDrag={resize('transcriptWidth', PANEL_MIN.transcript, 900)} onStart={beginResize} />
-              </>
-            )}
-            <div className="ws-main">
+            <div className={`ws-main${showPlugins ? ' beside-plugins' : ''}`}>
               <div className="ws-top" style={{ height: layout.topHeight }}>
-                {!hidden('source') && (
-                  <>
-                    <div className="ws-cell" style={{ width: layout.sourceWidth }}>{sourcePanel}</div>
-                    <Splitter direction="vertical" onDrag={resize('sourceWidth', PANEL_MIN.source, 1200)} onStart={beginResize} />
-                  </>
-                )}
-                <div className="ws-cell grow">{programPanel}</div>
-                {!hidden('properties') && (
-                  <>
-                    <Splitter direction="vertical" onDrag={resize('propertiesWidth', PANEL_MIN.properties, 700, -1)} onStart={beginResize} />
-                    <div className="ws-cell" style={{ width: layout.propertiesWidth }}>{propertiesPanel}</div>
-                  </>
-                )}
+                {dockCells('top-start')}
+                {/* Storyboard & Transcription sits in the editing area beside the monitors, never next to the chat. */}
+                {!hidden('transcript') && placeAnchor('transcript', transcriptPanel, { width: layout.transcriptWidth,
+                  splitter: <Splitter direction="vertical" onDrag={resize('transcriptWidth', PANEL_MIN.transcript, 900)} onStart={beginResize} /> })}
+                {!hidden('source') && placeAnchor('source', sourcePanel, { width: layout.sourceWidth,
+                  splitter: <Splitter direction="vertical" onDrag={resize('sourceWidth', PANEL_MIN.source, 1200)} onStart={beginResize} /> })}
+                {placeAnchor('program', programPanel)}
+                {!hidden('properties') && placeAnchor('properties', propertiesPanel, { width: layout.propertiesWidth,
+                  splitter: <Splitter direction="vertical" onDrag={resize('propertiesWidth', PANEL_MIN.properties, 700, -1)} onStart={beginResize} /> })}
+                {dockCells('top-end')}
               </div>
               <Splitter direction="horizontal" onDrag={resize('topHeight', PANEL_MIN.top, window.innerHeight - 280)} onStart={beginResize} />
               <div className="ws-bottom">
-                {!hidden('project') && (
-                  <>
-                    <div className="ws-cell" style={{ width: layout.projectWidth }}>{projectPanel}</div>
-                    <Splitter direction="vertical" onDrag={resize('projectWidth', PANEL_MIN.project, 900)} onStart={beginResize} />
-                  </>
-                )}
-                {!hidden('tools') && <ToolsPanel tool={tool} onTool={setTool} onAutoRoto={() => void autoRoto()} rotoBusy={rotoBusy} rotoProgress={rotoProgress} />}
-                <div className="ws-cell grow">{timelinePanel}</div>
-                {!hidden('meters') && <AudioMeters prefs={layout.meters ?? DEFAULT_METERS} onPrefs={(meters) => setLayout((current) => ({ ...current, meters }))} mutes={mutes} onMutes={setMuteState} />}
+                {dockCells('bottom-start')}
+                {!hidden('project') && placeAnchor('project', projectPanel, { width: layout.projectWidth,
+                  splitter: <Splitter direction="vertical" onDrag={resize('projectWidth', PANEL_MIN.project, 900)} onStart={beginResize} /> })}
+                {!hidden('tools') && placeAnchor('tools', <ToolsPanel tool={tool} onTool={setTool} onAutoRoto={() => void autoRoto()} rotoBusy={rotoBusy} rotoProgress={rotoProgress} />, { bare: true })}
+                {placeAnchor('timeline', timelinePanel)}
+                {!hidden('meters') && placeAnchor('meters', <AudioMeters prefs={layout.meters ?? DEFAULT_METERS} onPrefs={(meters) => setLayout((current) => ({ ...current, meters }))} mutes={mutes} onMutes={setMuteState} onClose={() => setPanelVisible('meters', false)} />, { bare: true })}
+                {dockCells('bottom-end')}
               </div>
             </div>
             {showPlugins && (

@@ -122,7 +122,13 @@ function phaseInstruction(status: WorkflowPhaseStatus): string {
   return `Call editing_workflow_status first. The production is in the ${phase} phase: finish this phase and end your turn — the user presses ${next} to move on. Do not edit the timeline in this turn.`;
 }
 
-export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void };
+export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void; /** Stops the turn that is running, if any. */ stop: () => void };
+
+/**
+ * Where the chat's latest turn stands, for a host that shows it while the chat is out of sight
+ * (the Plugin Maker's corner badge): working and on which step, or how it ended.
+ */
+export type ChatActivity = { turnId: string; status: 'streaming' | 'done' | 'stopped' | 'error'; step: string | null } | null;
 
 type Props = {
   apiRef: RefObject<ChatApi | null>;
@@ -133,9 +139,6 @@ type Props = {
   /** How hard the model should think, for the providers that take a level. */
   effort: Effort;
   onEffort: (effort: Effort) => void;
-  /** The animated look: nothing but surface, so the chat can be plain when that is wanted. */
-  awesome: boolean;
-  onAwesome: (on: boolean) => void;
   /** Undo the last edit, for `/undo`. */
   onUndo: () => void;
   /** The user started a new conversation (/clear, New Conversation): the host drops per-conversation project state such as the production pipeline. Not fired for a compaction, which continues the same work. */
@@ -147,6 +150,8 @@ type Props = {
   onStyle: (id: StyleId | null) => void;
   /** A question the assistant is waiting on, and the answer going back to it. */
   ask: { question: string; options: string[]; context: string | null } | null;
+  /** Told whenever the latest turn starts, moves on to another step, or ends. */
+  onActivity?: (activity: ChatActivity) => void;
   /** The cloud generation plan the AI is waiting on, with the project's media for thumbnails. */
   genPlan?: { plan: GenPlan; assets: Map<string, Asset> } | null;
   onGenPlan?: (plan: GenPlan | null) => void;
@@ -338,7 +343,9 @@ export function ChatPanel(props: Props) {
       sendRef.current(text);
     },
     load: (saved: unknown[]) => loadTranscript(saved),
+    stop: () => stopRef.current(),
   }), []);
+  const stopRef = useRef<() => void>(() => undefined);
   /** Whether the transcript is following the newest words, set by the reader's own scrolling. */
   const pinned = useRef(true);
   const propsRef = useRef(props);
@@ -350,6 +357,15 @@ export function ChatPanel(props: Props) {
   const turnMeta = useRef(new Map<string, { provider: string; model: string | null; prompt: string }>());
 
   const streaming = messages.some((message) => message.role === 'assistant' && message.status === 'streaming');
+  // The latest turn's state for the host: its status and the step it is on (the newest unfinished
+  // step, else the newest one). Reported only when one of those changes, not on every streamed word.
+  const latest = [...messages].reverse().find((message): message is Assistant => message.role === 'assistant');
+  const latestStep = latest ? ([...latest.steps].reverse().find((step) => !step.done) ?? latest.steps[latest.steps.length - 1]) : undefined;
+  const activityKey = latest ? `${latest.turnId}|${latest.status}|${latestStep ? `${latestStep.verb} ${latestStep.title}`.trim() : ''}` : '';
+  useEffect(() => {
+    if (!props.onActivity) return;
+    props.onActivity(latest ? { turnId: latest.turnId, status: latest.status, step: latestStep ? `${latestStep.verb} ${latestStep.title}`.trim() || null : null } : null);
+  }, [activityKey]);
   const sendRef = useRef<(text: string, mode?: 'full' | 'quick') => void>(() => undefined);
   /** Turns that were themselves an automatic finishing round ('pending' marks the next one sent). */
   const autoFinished = useRef(new Set<string>());
@@ -689,7 +705,7 @@ export function ChatPanel(props: Props) {
   const liftOff = (text: string) => {
     const message = text.trim();
     // Mid-turn, the message goes into the running answer, not up to a bubble of its own.
-    if (!message || !propsRef.current.awesome || streaming) return;
+    if (!message || streaming) return;
     const root = rootRef.current;
     const form = formRef.current;
     const pad = form ? form.offsetHeight + 16 : 104;
@@ -889,7 +905,8 @@ export function ChatPanel(props: Props) {
     props.onChooseModel(nextProvider, nextModel);
   };
 
-  props.apiRef.current = { clear, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript };
+  stopRef.current = () => stop('Stopped by you');
+  props.apiRef.current = { clear, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript, stop: () => stopRef.current() };
   sendRef.current = (text: string, mode?: 'full' | 'quick') => void send(text, undefined, mode);
 
   // The Program monitor's "Send to chat": whatever is in the composer goes, with the annotations.
@@ -979,8 +996,6 @@ export function ChatPanel(props: Props) {
     permission: props.permission,
     effort: props.effort,
     describeContext,
-    toggleAwesome: () => props.onAwesome(!props.awesome),
-    awesome: props.awesome,
     references: references.map((item) => ({ id: item.id, name: item.name, pack: item.pack, cutEvery: item.cutEvery })),
     useReference: (id) => attachReference(id),
     editStyle: props.editStyle,
@@ -1080,7 +1095,7 @@ export function ChatPanel(props: Props) {
   };
 
   return (
-    <div ref={rootRef} className={`chat${props.awesome ? ' awesome' : ''}${streaming ? ' working' : ''}`} aria-label={props.label ?? 'Bhippi AI'}>
+    <div ref={rootRef} className={`chat awesome${streaming ? ' working' : ''}`} aria-label={props.label ?? 'Bhippi AI'}>
 
       <div className="chat-list" ref={listRef}>
         {messages.length === 0 && (
@@ -1249,7 +1264,7 @@ export function ChatPanel(props: Props) {
           void send(draft);
         }}
       >
-        {props.awesome && streaming && <ComposerStreak />}
+        {streaming && <ComposerStreak />}
         {mention && (
           <div className="cmd-panel" role="listbox" aria-label="Choose an edit style or attach a reference">
             {mention.hits.map((item, index) => {
@@ -1420,8 +1435,6 @@ export function ChatPanel(props: Props) {
             <ThinkingSlider
               effort={props.effort}
               levels={levels}
-              awesome={props.awesome}
-              onAwesome={props.onAwesome}
               onSelect={props.onEffort}
               speeds={speeds}
               speedAt={speedIndex(speeds, props.model)}

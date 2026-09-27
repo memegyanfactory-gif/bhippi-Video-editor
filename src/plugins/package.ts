@@ -15,20 +15,23 @@
 import { strToU8, unzipSync, zipSync, type UnzipFileInfo } from 'fflate';
 import appPackage from '../../package.json';
 import { api } from '../lib/ipc';
-import { bundleDraft, draftStore, isDraftFile, manifestOf, parseManifest, readDraft, validateDraft } from './drafts';
+import { base64ToBytes, bytesToBase64, fileBytes, isBinaryFile } from './assets';
+import { bundleDraft, draftStore, isDraftFile, manifestOf, MAX_DRAFT_BYTES, MAX_DRAFT_FILE_BYTES, MAX_DRAFT_FILES, parseManifest, readDraft, validateDraft } from './drafts';
 import { isSensitiveTool, PLUGIN_ID } from './rules';
 import { findPlugin, loadPlugins, savePlugin } from './store';
 import type { DraftFiles, DraftManifest } from './templates';
+import { LOGO_FILE, logoImage } from './logo';
 import type { Plugin, PluginPermissions } from './types';
 
 export const APP_VERSION: string = appPackage.version;
 export const PACKAGE_EXT = '.bhippi-plugin';
 export const LOCK_FILE = 'manifest.lock.json';
 /** The zip itself; its files are held to the draft limits too. */
-export const MAX_PACKAGE_BYTES = 6 * 1024 * 1024;
-const MAX_FILES = 42;
-const MAX_FILE_BYTES = 1024 * 1024;
-const MAX_TOTAL_BYTES = 4 * 1024 * 1024 + 64 * 1024;
+export const MAX_PACKAGE_BYTES = 24 * 1024 * 1024;
+/** A draft's files, plus the package's manifest and lock. */
+const MAX_FILES = MAX_DRAFT_FILES + 2;
+const MAX_FILE_BYTES = MAX_DRAFT_FILE_BYTES;
+const MAX_TOTAL_BYTES = MAX_DRAFT_BYTES + 64 * 1024;
 /** Fixed timestamps, so the same files always pack to the same bytes. */
 const PACK_TIME = new Date('2020-01-01T00:00:00Z');
 
@@ -127,15 +130,19 @@ export function packageManifest(text: string | undefined): { manifest: PackageMa
 // ---------------------------------------------------------------------------------------------
 // Hashes
 
-export async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+export async function sha256Hex(text: string | Uint8Array): Promise<string> {
+  const bytes = typeof text === 'string' ? new TextEncoder().encode(text) : text;
+  const digest = await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
+
+/** A draft file's SHA-256: of its real bytes, so a binary asset hashes as the file it is. */
+export const fileHash = (name: string, text: string) => sha256Hex(fileBytes(name, text));
 
 /** Every file's SHA-256 but the lock's own. */
 export async function lockOf(files: DraftFiles): Promise<Record<string, string>> {
   const lock: Record<string, string> = {};
-  for (const name of Object.keys(files).filter((item) => item !== LOCK_FILE).sort()) lock[name] = await sha256Hex(files[name]);
+  for (const name of Object.keys(files).filter((item) => item !== LOCK_FILE).sort()) lock[name] = await fileHash(name, files[name]);
   return lock;
 }
 
@@ -155,7 +162,7 @@ export async function packPackage(files: DraftFiles, meta: { id: string; version
   delete packed[LOCK_FILE];
   const lock = await lockOf(packed);
   packed[LOCK_FILE] = `${JSON.stringify({ algorithm: 'sha256', files: lock }, null, 2)}\n`;
-  const entries = Object.fromEntries(Object.keys(packed).sort().map((name) => [name, [strToU8(packed[name]), { mtime: PACK_TIME }] as [Uint8Array, { mtime: Date }]]));
+  const entries = Object.fromEntries(Object.keys(packed).sort().map((name) => [name, [isBinaryFile(name) ? base64ToBytes(packed[name]) : strToU8(packed[name]), { mtime: PACK_TIME }] as [Uint8Array, { mtime: Date }]]));
   return { bytes: zipSync(entries, { level: 6 }), manifest, lock };
 }
 
@@ -176,7 +183,7 @@ export async function readPackage(bytes: Uint8Array): Promise<ReadPackage> {
         if (file.name.endsWith('/')) return false;
         count += 1;
         total += file.originalSize;
-        const reason = !isDraftFile(file.name) ? `“${file.name}” is not an allowed file (flat names, .html .js .css .json .md .svg .txt only)`
+        const reason = !isDraftFile(file.name) ? `“${file.name}” is not an allowed file (flat names; code, text, pictures, models, fonts, sounds, clips or wasm only)`
           : file.originalSize > MAX_FILE_BYTES ? `${file.name} is larger than ${MAX_FILE_BYTES / 1024} KB`
           : file.compression !== 0 && file.compression !== 8 ? `${file.name} uses an unsupported compression`
           : null;
@@ -192,6 +199,10 @@ export async function readPackage(bytes: Uint8Array): Promise<ReadPackage> {
   const files: DraftFiles = {};
   const decoder = new TextDecoder('utf-8', { fatal: true });
   for (const [name, data] of Object.entries(raw)) {
+    if (isBinaryFile(name)) {
+      files[name] = bytesToBase64(data);
+      continue;
+    }
     try {
       files[name] = decoder.decode(data);
     } catch {
@@ -233,7 +244,7 @@ export const versionStore = {
     const kept = [...versions].sort((a, b) => b[1].at - a[1].at).slice(0, 3);
     memory.set(id, new Map(kept));
     const hashes: Record<string, string> = {};
-    for (const [name, text] of Object.entries(files)) hashes[name] = await sha256Hex(text);
+    for (const [name, text] of Object.entries(files)) hashes[name] = await fileHash(name, text);
     return hashes;
   },
   async versions(id: string): Promise<{ version: string; installedMs: number }[]> {
@@ -245,7 +256,7 @@ export const versionStore = {
     const entry = memory.get(id)?.get(version);
     if (!entry) throw new Error(`Version ${version} of “${id}” is not installed`);
     const hashes: Record<string, string> = {};
-    for (const [name, text] of Object.entries(entry.files)) hashes[name] = await sha256Hex(text);
+    for (const [name, text] of Object.entries(entry.files)) hashes[name] = await fileHash(name, text);
     return { files: { ...entry.files }, hashes };
   },
   async remove(id: string): Promise<void> {
@@ -281,7 +292,7 @@ async function activate(manifest: PackageManifest, files: DraftFiles, lock: Reco
   const update = !!existing;
   const waitsForReview = !existing || !existing.enabled || widens(existing.permissions, manifest.permissions);
   const plugin: Plugin = {
-    version: 1, format: 2, id: manifest.id, name: manifest.name, description: manifest.description, icon: manifest.icon, html: bundled.html,
+    version: 1, format: 2, id: manifest.id, name: manifest.name, description: manifest.description, icon: manifest.icon, logo: logoImage(files[LOGO_FILE]) ?? undefined, html: bundled.html,
     permissions: manifest.permissions, background: manifest.background, panel: manifest.showAsPanel,
     enabled: !waitsForReview, author: source === 'local' ? existing?.author ?? 'user' : 'user',
     pkg: { version: manifest.version, author: manifest.author?.name, source: source === 'local' ? existing?.pkg?.source ?? 'file' : source, installedAt: now, lockHash: await lockHash(lock) },

@@ -57,6 +57,7 @@
 :root[data-surface="layered"] .ws-left > .panel-chat,
 :root[data-surface="layered"] .ws-left + .splitter.vertical,
 :root[data-surface="layered"] .ws-side + .splitter.vertical,
+:root[data-surface="layered"] .ws-main.beside-plugins + .splitter.vertical,
 :root[data-surface="layered"] .ws-main .splitter { background: transparent; }
 :root[data-surface="layered"] .ws-left + .splitter.vertical:hover,
 :root[data-surface="layered"] .ws-side + .splitter.vertical:hover,

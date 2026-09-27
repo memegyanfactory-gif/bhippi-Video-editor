@@ -1,11 +1,11 @@
-// Characters: Bhippi's built-in character studio. It lives in the Plugins area as its own tab and
+// Characters: Bhippi's built-in character studio. It is listed in the Plugins panel's library and
 // opens as a window with a 2D / 3D switch. Both studios are same-origin pages under
 // public/characters (their sources are in docs/character-studio); they share one saved-character
 // library and hand a finished character to the editor with postMessage, which lands here and
 // becomes a transparent PNG in the project's media.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { api } from '../lib/ipc';
 import type { Asset } from '../lib/types';
 import '../styles/characters.css';
@@ -14,7 +14,6 @@ export const CHARACTERS_TAB = 'builtin-characters';
 
 type Mode = '2d' | '3d';
 const PAGES: Record<Mode, string> = { '2d': 'characters/room2d.html', '3d': 'characters/studio3d.html' };
-const LIBRARY_KEY = 'bhippi.characters.v3';
 
 /** The Characters plugin's icon: a bold 2D avatar with kinetic motion lines. */
 export function CharactersIcon({ size = 16 }: { size?: number }) {
@@ -28,51 +27,6 @@ export function CharactersIcon({ size = 16 }: { size?: number }) {
       aria-hidden="true"
       draggable={false}
     />
-  );
-}
-
-type SavedCharacter = { name: string; skin?: string; age?: string };
-
-function readLibrary(): SavedCharacter[] {
-  try {
-    const list = JSON.parse(localStorage.getItem(LIBRARY_KEY) || '[]');
-    return Array.isArray(list) ? list.filter((item) => item && typeof item.name === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-/** What the Characters tab in the Plugins panel shows: what it does, the saved cast, and the way in. */
-export function CharactersLauncher({ onOpen, onCustomPlugin, refresh }: { onOpen: (mode: Mode) => void; onCustomPlugin: () => void; refresh: number }) {
-  const [saved, setSaved] = useState<SavedCharacter[]>(readLibrary);
-  useEffect(() => {
-    setSaved(readLibrary());
-    const onStorage = (event: StorageEvent) => { if (event.key === LIBRARY_KEY) setSaved(readLibrary()); };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, [refresh]);
-  return (
-    <div className="characters-launcher">
-      {/* The window has its own 2D / 3D switch, so the way in is just the icon and its name. */}
-      <button type="button" className="characters-tile" onClick={() => onOpen('2d')} title="Build 2D and 3D characters for this project">
-        <CharactersIcon size={36} />
-        <span>Characters</span>
-      </button>
-      {saved.length > 0 && (
-        <div className="characters-cast">
-          <span className="characters-cast-title">My characters</span>
-          <div className="characters-cast-list">
-            {saved.slice(0, 24).map((item) => (
-              <button key={item.name} type="button" className="characters-cast-item" onClick={() => onOpen('2d')} title={`Open ${item.name}`}>
-                <span className="characters-dot" style={{ background: item.skin || '#ccc' }} />
-                {item.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      <button type="button" className="btn characters-custom" onClick={onCustomPlugin}><Plus size={13} /> Custom plugin</button>
-    </div>
   );
 }
 

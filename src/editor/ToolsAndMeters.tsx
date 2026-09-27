@@ -252,7 +252,7 @@ function ToolFlyout({ anchor, items, tool, onChoose, onClose }: {
 export const DEFAULT_METERS: MeterPrefs = { range: 60, showValleys: false, colorGradient: true, peaks: 'dynamic' };
 
 /** Peak meters for everything the editor plays: ballistics, peak hold, valleys, clip lights. */
-export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPrefs; onPrefs: (prefs: MeterPrefs) => void; mutes: MuteState; onMutes: (mutes: MuteState) => void }) {
+export function AudioMeters({ prefs, onPrefs, mutes, onMutes, onClose }: { prefs: MeterPrefs; onPrefs: (prefs: MeterPrefs) => void; mutes: MuteState; onMutes: (mutes: MuteState) => void; onClose?: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const prefsRef = useRef(prefs);
@@ -466,6 +466,7 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes }: { prefs: MeterPr
           { separator: true },
           { label: 'Dynamic Peaks', checked: prefs.peaks === 'dynamic', onSelect: () => set({ peaks: 'dynamic' }) },
           { label: 'Static Peaks', checked: prefs.peaks === 'static', onSelect: () => set({ peaks: 'static' }) },
+          ...(onClose ? [{ separator: true } as MenuItem, { label: 'Close Audio Meters', onSelect: onClose }] : []),
         ]} />
       )}
     </div>

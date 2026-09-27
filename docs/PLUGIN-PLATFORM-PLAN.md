@@ -921,3 +921,24 @@ Note: the local wrangler (4.125) is older than `wrangler.jsonc`'s compatibility 
   - 26/26 end-to-end checks pass.
   - Characters, content packs, paid plugins and plugin custom tools are designed above, with
     what each needs first.
+- **2026-09-27:** **Level 2 ("bigger plugins, same trust") done.**
+  - Pages moved out of `plugins.json`: each page and revision is stored once as
+    `plugins/sources/<sha256>.html` and named by `htmlHash`. Old libraries still load.
+  - New limits: 24 MB page, 8 MB per draft file, 16 MB and 120 files per draft, 24 MB packages,
+    64 MB plugin storage. Old versions are capped at 48 MB in total.
+  - Binary assets (pictures, glb, fonts, audio, video, wasm) are real bytes on disk and in
+    packages, and base64 in memory. Locks hash the real bytes. Assets are bundled into the page
+    as blocks that never run, read with `bhippi.asset / assetBytes / assetText / assets` and
+    `data-bhippi-src`.
+  - CSP: `connect-src` and `font-src` allow `blob:` and `data:` (the page's own assets), and
+    strict pages get `'wasm-unsafe-eval'`. `eval` stays blocked.
+  - New Maker tools: `plugin_add_library` (a pinned three.js bundle in `public/plugin-libs/`,
+    built by `scripts/build-plugin-libs.mjs`) and `plugin_add_asset` (a project media file).
+    `plugin_write_file` takes base64.
+  - `bhippi.importMedia` hands stills, clips and sounds back through `import_media` (a plugin
+    permission). `bhippi.on('export')` reports export status and the file name only.
+  - The Maker may run up to 10 fix rounds for big plugins. There's an Assets section in Details.
+  - Keyboard events were left out on purpose: a plugin that hears every key press could read
+    what the user types into the chat.
+  - Still to do: the bhippi.com automated check must accept the new file types and limits
+    before plugins with assets can be published.

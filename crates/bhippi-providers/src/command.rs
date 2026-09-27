@@ -381,9 +381,13 @@ fn candidate_names(name: &str) -> Vec<OsString> {
 }
 
 fn search_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|path| std::env::split_paths(&path).collect())
-        .unwrap_or_default();
+    // Bhippi's own Node (crate::node), once installed, wins over a system Node that may be too old.
+    let mut dirs: Vec<PathBuf> = crate::node::private_bin().into_iter().collect();
+    dirs.extend(
+        std::env::var_os("PATH")
+            .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+            .unwrap_or_default(),
+    );
 
     if cfg!(windows) {
         push_env_child(&mut dirs, "APPDATA", &["npm"]);

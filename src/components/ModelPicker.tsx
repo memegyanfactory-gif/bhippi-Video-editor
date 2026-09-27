@@ -83,7 +83,9 @@ type Option = { provider: string; model: string | null };
 
 type Section = { title: string | null; provider: ProviderInfo; entries: PickerEntry[] };
 
-export function ModelPicker({ providers, providerId, model, onSelect, onManage, open, onOpenChange }: Props) {
+export function ModelPicker({ providers: allProviders, providerId, model, onSelect, onManage, open, onOpenChange }: Props) {
+  // The offline command parser is not listed: it is Bhippi's own fallback, not an AI to choose.
+  const providers = useMemo(() => allProviders.filter((provider) => provider.kind !== 'builtin'), [allProviders]);
   const anchor = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -97,7 +99,7 @@ export function ModelPicker({ providers, providerId, model, onSelect, onManage, 
   const [cursor, setCursor] = useState(0);
   const [busy, setBusy] = useState(false);
   const [position, setPosition] = useState({ left: 8, bottom: 48, width: 440, height: PANEL_HEIGHT });
-  const current = providers.find((provider) => provider.id === providerId);
+  const current = allProviders.find((provider) => provider.id === providerId);
   const tabProvider = providers.find((provider) => provider.id === tab);
 
   const refresh = useCallback(() => {
