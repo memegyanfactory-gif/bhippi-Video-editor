@@ -639,7 +639,7 @@ export const api = {
   marketGet: <T = unknown>(path: string) => invoke<T>('market_get', { path }),
   marketDownload: (id: string, version: string) => invoke<{ bytes: string; lockHash: string; zipSha256: string }>('market_download', { id, version }),
   marketRevocations: () => invoke<{ issuedAt: number; entries: { id: string; version: string; reason: string; revokedAt: number }[] }>('market_revocations'),
-  marketSubmit: (bytes: string, category: string) => invoke<Record<string, unknown>>('market_submit', { bytes, category }),
+  marketSubmit: (bytes: string, category: string, publishAs?: string) => invoke<Record<string, unknown>>('market_submit', { bytes, category, publishAs: publishAs || null }),
   marketWithdraw: (versionId: string) => invoke<{ ok: boolean }>('market_withdraw', { versionId }),
   marketPost: <T = { ok: boolean }>(path: string, body: unknown) => invoke<T>('market_post', { path, body }),
 

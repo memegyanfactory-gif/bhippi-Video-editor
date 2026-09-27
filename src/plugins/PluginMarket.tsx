@@ -2,8 +2,10 @@
 // editor with a sidebar (Discover, categories, Installed, My submissions), rounded app icons,
 // Get / Open / Update buttons, and a detail page with ratings, "What it may do", reviews and
 // versions. Every download is signature-checked in Rust and lock-checked before it installs, and
-// it arrives off until reviewed. While bhippi.com has no marketplace yet, a clearly marked preview
-// shelf of sample plugins stands in (marketSamples.ts) — they can't be installed.
+// it arrives off until reviewed. Bhippi's own built-in plugins (Characters, marketBuiltins.ts) are
+// listed beside the published ones and open with Open; everything else on the shelves is a real
+// listing from bhippi.com, published from My plugins with the name, description, icon, logo and
+// category its publisher chose, under their Google photo and name.
 //
 // Getting, rating and reviewing are tied to the person's Google account (the same sign-in as
 // Settings › Account): one install per account, one rating per account, and every review shows
@@ -11,19 +13,20 @@
 // Google button right there.
 
 import {
-  AudioWaveform, BadgeCheck, ChevronLeft, Compass, Download, FileText, Flag, Gauge, Laugh, Layers, ListVideo, Music, Package, Pencil, Trash2,
-  Palette, Scissors, Search, Share2, ShieldCheck, Sparkles, SquareKanban, Star, Subtitles, Type, Wand2, X, type LucideIcon,
+  BadgeCheck, Check, ChevronLeft, Compass, Download, Flag, ImagePlus, Laugh, Layers, Music, Package, Pencil, Trash2,
+  Scissors, Search, Share2, ShieldCheck, Sparkles, Star, Subtitles, Wand2, X, type LucideIcon,
 } from 'lucide-react';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, errorText } from '../lib/ipc';
 import { GoogleMark, SignIn } from '../license/LicenseGate';
 import { useLicense } from '../license/licenseStore';
 import {
-  browse, CATEGORIES, installFromMarket, isClosed, isSignedOut, listing, myPublisher, mySubmissions, publish, rate, REPORT_REASONS, reportPlugin, reviewsOf, savePublisher, updateFor, withdraw,
+  browse, CATEGORIES, installFromMarket, isClosed, isSignedOut, listing, myPublisher, mySubmissions, publish, rate, REPORT_REASONS, reportPlugin, reviewsOf, savePublisher, SUMMARY_LENGTH, updateFor, withdraw,
   type Category, type MarketListing, type MarketPlugin, type MyAccount, type Publisher, type PublishStep, type Reviews as ReviewsAnswer, type Submission,
 } from './market';
 import { pluginChecker } from './testRunner';
-import { isSample, SAMPLE_PLUGINS, type SamplePlugin } from './marketSamples';
+import { BUILTIN_LISTINGS, isBuiltin, type BuiltinListing } from './marketBuiltins';
+import { logoImage, pickLogo } from './logo';
 import { isSensitiveTool } from './rules';
 import { loadPlugins, removePlugin, usePlugins } from './store';
 import type { Plugin, PluginPermissions } from './types';
@@ -32,7 +35,6 @@ import '../styles/market.css';
 
 type View = { kind: 'discover' } | { kind: 'category'; id: string } | { kind: 'search' } | { kind: 'installed' } | { kind: 'mine' };
 
-const ICONS: Record<string, LucideIcon> = { ListVideo, Subtitles, AudioWaveform, Palette, Scissors, Type, Share2, Laugh, FileText, Gauge, ShieldCheck, SquareKanban };
 const CATEGORY: Record<string, { label: string; icon: LucideIcon; hue: number }> = {
   editing: { label: 'Editing', icon: Scissors, hue: 140 },
   automation: { label: 'Automation', icon: Wand2, hue: 225 },
@@ -59,15 +61,21 @@ const SIGN_IN_WHY = 'Connect your Google account to get, rate and review plugins
 /** The Google account behind the store: who installs, rates and reviews. `ask` opens the Connect sheet. */
 type Account = { signedIn: boolean; name: string; picture: string | null; ask: (why?: string) => void };
 const AccountContext = createContext<Account>({ signedIn: false, name: '', picture: null, ask: () => undefined });
+/** Opens one of Bhippi's built-in plugins (marketBuiltins.ts) by its id. */
+const BuiltinContext = createContext<(id: string) => void>(() => undefined);
 
-/** A rounded-square app icon: a gradient tile with the plugin's glyph (a sample's icon, or a published plugin's emoji). */
+/** Whether a logo may be shown: a published plugin's PNG/JPEG data URL, or a built-in's picture that ships with the app. */
+const showableLogo = (plugin: MarketPlugin) =>
+  !!plugin.logo && (/^data:image\/(png|jpeg);base64,/.test(plugin.logo) || (isBuiltin(plugin) && /^[a-z0-9/_.-]+\.(png|webp)$/.test(plugin.logo)));
+
+/** A rounded-square app icon: the plugin's logo, or its emoji on a gradient tile. */
 export function AppIcon({ plugin, size = 56 }: { plugin: MarketPlugin; size?: number }) {
-  const hue = isSample(plugin) ? plugin.hue : hueOf(plugin.id);
-  const Glyph = isSample(plugin) ? ICONS[plugin.icon] ?? Package : null;
+  const hue = hueOf(plugin.id);
+  const logo = showableLogo(plugin);
   return (
-    <span className="mk-appicon" style={{ width: size, height: size, borderRadius: size * 0.225, background: `linear-gradient(145deg, hsl(${hue} 85% 64%), hsl(${(hue + 38) % 360} 72% 44%))` }} aria-hidden="true">
-      {plugin.logo && /^(data:image\/(png|jpeg);base64,|https:\/\/)/.test(plugin.logo) ? <img src={plugin.logo} alt="" draggable={false} style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }} />
-        : Glyph ? <Glyph size={size * 0.5} strokeWidth={2.2} /> : <span style={{ fontSize: size * 0.5 }}>{plugin.icon ?? '🧩'}</span>}
+    <span className="mk-appicon" style={{ width: size, height: size, borderRadius: size * 0.225, background: logo && isBuiltin(plugin) ? '#2a1f38' : `linear-gradient(145deg, hsl(${hue} 85% 64%), hsl(${(hue + 38) % 360} 72% 44%))` }} aria-hidden="true">
+      {logo ? <img src={plugin.logo!} alt="" draggable={false} style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: isBuiltin(plugin) ? 'contain' : 'cover' }} />
+        : <span style={{ fontSize: size * 0.5 }}>{plugin.icon ?? '🧩'}</span>}
     </span>
   );
 }
@@ -162,7 +170,7 @@ export function PluginMarket({ onClose, onOpenInMaker, onOpenCharacters, known }
       (failure) => {
         if (!live) return;
         setCatalogue([]);
-        // Not open yet is the store's normal state before launch: show the preview shelf, no alarm.
+        // Not open yet is the store's normal state before launch: the built-ins still show, no alarm.
         if (isClosed(failure)) setClosed(true);
         else setError(errorText(failure));
       },
@@ -173,9 +181,11 @@ export function PluginMarket({ onClose, onOpenInMaker, onOpenCharacters, known }
   }, [refresh]);
 
   const installed = useMemo(() => new Map(plugins.map((plugin) => [plugin.id, plugin])), [plugins]);
-  // The shelf: real plugins, or the preview samples while there are none.
-  const preview = catalogue !== null && catalogue.length === 0;
-  const shelf: MarketPlugin[] = preview ? SAMPLE_PLUGINS : catalogue ?? [];
+  // The shelf: Bhippi's built-ins, then everything published on bhippi.com.
+  const shelf: MarketPlugin[] = useMemo(() => [...BUILTIN_LISTINGS, ...(catalogue ?? []).filter((item) => !isBuiltin(item))], [catalogue]);
+  const openBuiltin = useMemo(() => (id: string) => {
+    if (BUILTIN_LISTINGS.some((item) => item.id === id)) onOpenCharacters();
+  }, [onOpenCharacters]);
   const found = useMemo(() => {
     const words = q.trim().toLowerCase();
     return words ? shelf.filter((item) => `${item.name} ${item.summary} ${item.category} ${item.author}`.toLowerCase().includes(words)) : shelf;
@@ -191,6 +201,7 @@ export function PluginMarket({ onClose, onOpenInMaker, onOpenCharacters, known }
 
   return (
     <AccountContext.Provider value={account}>
+    <BuiltinContext.Provider value={openBuiltin}>
     <div className="mk-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="mk-window" role="dialog" aria-modal="true" aria-label="Plugin store">
         <aside className="mk-side">
@@ -215,7 +226,7 @@ export function PluginMarket({ onClose, onOpenInMaker, onOpenCharacters, known }
           </header>
           <div className="mk-scroll">
             {closed && !detail && (view.kind === 'discover' || view.kind === 'category' || view.kind === 'search') && (
-              <p className="mk-preview-note"><Sparkles size={13} /> The plugin store opens soon. These are previews of the kind of plugins coming — build your own in the Plugin Maker and publish it here.</p>
+              <p className="mk-preview-note"><Sparkles size={13} /> Community plugins arrive when the store opens on bhippi.com. Build one in the Plugin Maker and publish it from My plugins: it appears here in the category you choose.</p>
             )}
             {error && <p className="mk-error">{error}<button type="button" onClick={() => { setError(''); changed(); }}>Try again</button></p>}
             {!user && view.kind !== 'mine' && (
@@ -256,6 +267,7 @@ export function PluginMarket({ onClose, onOpenInMaker, onOpenCharacters, known }
         )}
       </div>
     </div>
+    </BuiltinContext.Provider>
     </AccountContext.Provider>
   );
 }
@@ -271,7 +283,7 @@ type ShelfProps = { installed: Map<string, Plugin>; known: ReadonlySet<string>; 
 function Discover({ shelf, onCategory, onOpenCharacters, ...props }: ShelfProps & { shelf: MarketPlugin[]; onCategory: (id: string) => void; onOpenCharacters: () => void }) {
   const byInstalls = [...shelf].sort((a, b) => b.installs - a.installs);
   const byRating = [...shelf].filter((item) => item.rating).sort((a, b) => (b.rating?.average ?? 0) - (a.rating?.average ?? 0));
-  const fresh = [...shelf].sort((a, b) => b.updatedAt - a.updatedAt);
+  const fresh = shelf.filter((item) => !isBuiltin(item)).sort((a, b) => b.updatedAt - a.updatedAt);
   return (
     <>
       {/* The featured banner is Bhippi's own Characters plugin: the cast banner above its app icon, name and Open button. */}
@@ -287,7 +299,7 @@ function Discover({ shelf, onCategory, onOpenCharacters, ...props }: ShelfProps 
           <span className="mk-hero-open">Open</span>
         </span>
       </button>
-      {!shelf.length && <p className="mk-dim">No other plugins yet.</p>}
+      {!shelf.some((item) => !isBuiltin(item)) && <p className="mk-dim">No community plugins yet. Make one in the Plugin Maker and publish it from My plugins.</p>}
       <Section title="Top plugins">
         <div className="mk-rows">{byInstalls.slice(0, 6).map((item, index) => <AppRow key={item.id} item={item} rank={index + 1} {...props} />)}</div>
       </Section>
@@ -304,9 +316,11 @@ function Discover({ shelf, onCategory, onOpenCharacters, ...props }: ShelfProps 
           })}
         </div>
       </Section>
-      <Section title="New and updated">
-        <div className="mk-rows">{fresh.slice(0, 6).map((item) => <AppRow key={item.id} item={item} {...props} />)}</div>
-      </Section>
+      {!!fresh.length && (
+        <Section title="New and updated">
+          <div className="mk-rows">{fresh.slice(0, 6).map((item) => <AppRow key={item.id} item={item} {...props} />)}</div>
+        </Section>
+      )}
     </>
   );
 }
@@ -329,7 +343,7 @@ function AppRow({ item, rank, ...props }: ShelfProps & { item: MarketPlugin; ran
       <span className="mk-row-text">
         <strong>{item.name}</strong>
         <em>{item.summary}</em>
-        <small>{CATEGORY[item.category]?.label ?? item.category}{item.rating && <> · {item.rating.average.toFixed(1)} <Star size={9} className="mk-star-on" /></>}{item.installs > 0 && <> · {installsLabel(item.installs)} installs</>}</small>
+        <small>{CATEGORY[item.category]?.label ?? item.category}{isBuiltin(item) && <> · Built in</>}{item.rating && <> · {item.rating.average.toFixed(1)} <Star size={9} className="mk-star-on" /></>}{item.installs > 0 && <> · {installsLabel(item.installs)} installs</>}</small>
       </span>
       <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
         <GetButton item={item} installed={props.installed.get(item.id) ?? null} known={props.known} onOpenInMaker={props.onOpenInMaker} onChanged={props.onChanged} />
@@ -350,13 +364,14 @@ function AppCard({ item, onOpen }: { item: MarketPlugin; onOpen: (item: MarketPl
   );
 }
 
-/** Get / Open / Update / Soon: installs through the verified path and says what happened. */
+/** Get / Open / Update: installs through the verified path and says what happened. A built-in just opens. */
 function GetButton({ item, installed, known, onOpenInMaker, onChanged, big }: { item: MarketPlugin; installed: Plugin | null; known: ReadonlySet<string>; onOpenInMaker: (id: string) => void; onChanged: () => void; big?: boolean }) {
   const account = useContext(AccountContext);
+  const openBuiltin = useContext(BuiltinContext);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState('');
   const className = `mk-get${big ? ' big' : ''}`;
-  if (isSample(item)) return <button type="button" className={`${className} soon`} disabled title="A preview: not available yet">Soon</button>;
+  if (isBuiltin(item)) return <button type="button" className={`${className} primary`} onClick={() => openBuiltin(item.id)} title="Built into Bhippi">Open</button>;
   const update = installed ? updateFor(installed, item) : null;
   if (installed && !installed.pkg) return <button type="button" className={className} disabled title="You have your own plugin with this id">Yours</button>;
   if (installed && !update) return <button type="button" className={className} onClick={() => onOpenInMaker(item.id)}>{installed.enabled ? 'Open' : 'Review'}</button>;
@@ -388,21 +403,61 @@ function GetButton({ item, installed, known, onOpenInMaker, onChanged, big }: { 
 
 // ─────────────────────────────── the detail page ───────────────────────────────
 
-function Detail({ item, installed, known, onOpenInMaker, onChanged }: { item: MarketPlugin; installed: Plugin | null; known: ReadonlySet<string>; onOpenInMaker: (id: string) => void; onChanged: () => void }) {
+type DetailProps = { item: MarketPlugin; installed: Plugin | null; known: ReadonlySet<string>; onOpenInMaker: (id: string) => void; onChanged: () => void };
+
+function Detail(props: DetailProps) {
+  return isBuiltin(props.item) ? <BuiltinDetail item={props.item} /> : <ListingDetail {...props} />;
+}
+
+/** A plugin that ships with Bhippi: already here, free, opened with Open. */
+function BuiltinDetail({ item }: { item: BuiltinListing }) {
+  const openBuiltin = useContext(BuiltinContext);
+  const Icon = CATEGORY[item.category]?.icon ?? Package;
+  return (
+    <article className="mk-detail">
+      <header className="mk-detail-head">
+        <AppIcon plugin={item} size={104} />
+        <div className="mk-detail-title">
+          <h2>{item.name}</h2>
+          <p>{item.tagline}</p>
+          <p className="mk-dim"><PublisherName publisher={item.publisher} fallback={item.author} /></p>
+          <div className="mk-detail-actions">
+            <button type="button" className="mk-get big primary" onClick={() => openBuiltin(item.id)}>Open</button>
+          </div>
+        </div>
+      </header>
+      <dl className="mk-stats">
+        <div><dd>Free</dd><dt>Price</dt></div>
+        <div><dd><Check size={18} /></dd><dt>Built in</dt></div>
+        <div><dd className="mk-stat-icon"><Icon size={18} /></dd><dt>{CATEGORY[item.category]?.label ?? item.category}</dt></div>
+        <div><dd>—</dd><dt>Nothing to download</dt></div>
+      </dl>
+      <section className="mk-section">
+        <h3>About</h3>
+        <p>{item.about}</p>
+      </section>
+      <section className="mk-section mk-privacy">
+        <h3><ShieldCheck size={15} /> What it may do</h3>
+        <p className="mk-dim">Part of Bhippi itself: it works on the project you have open and adds what you make to your timeline.</p>
+      </section>
+    </article>
+  );
+}
+
+function ListingDetail({ item, installed, known, onOpenInMaker, onChanged }: DetailProps) {
   const [data, setData] = useState<MarketListing | null>(null);
   const [rated, setRated] = useState(0);
   useEffect(() => {
-    if (!isSample(item)) listing(item.id).then(setData, () => setData(null));
+    listing(item.id).then(setData, () => setData(null));
   }, [item, rated]);
   const plugin = data?.plugin ?? item;
-  const sample: SamplePlugin | null = isSample(item) ? item : null;
   return (
     <article className="mk-detail">
       <header className="mk-detail-head">
         <AppIcon plugin={item} size={104} />
         <div className="mk-detail-title">
           <h2>{plugin.name}</h2>
-          <p>{sample?.tagline ?? plugin.summary}</p>
+          <p>{plugin.summary}</p>
           <p className="mk-dim"><PublisherName publisher={plugin.publisher} fallback={plugin.author} /></p>
           <div className="mk-detail-actions">
             <GetButton big item={plugin} installed={installed} known={known} onOpenInMaker={onOpenInMaker} onChanged={onChanged} />
@@ -430,18 +485,17 @@ function Detail({ item, installed, known, onOpenInMaker, onChanged }: { item: Ma
           <dt>Size</dt>
         </div>
       </dl>
-      {sample && <p className="mk-preview-note"><Sparkles size={13} /> A preview of what’s coming to the store. It can’t be installed yet.</p>}
       <section className="mk-section">
         <h3>About</h3>
-        <p>{sample?.about ?? plugin.summary}</p>
+        <p>{plugin.summary}</p>
         {plugin.background && <p className="mk-dim">Keeps running in the background once turned on.</p>}
       </section>
       <section className="mk-section mk-privacy">
         <h3><ShieldCheck size={15} /> What it may do</h3>
         <PermissionSheet permissions={plugin.permissions} />
-        {!sample && <p className="mk-dim">Reviewed by Bhippi and signed. It installs turned off until you read this.</p>}
+        <p className="mk-dim">Reviewed by Bhippi and signed. It installs turned off until you read this.</p>
       </section>
-      <Reviews plugin={plugin} sample={!!sample} installed={installed} onRated={() => setRated((n) => n + 1)} />
+      <Reviews plugin={plugin} installed={installed} onRated={() => setRated((n) => n + 1)} />
       {!!data?.versions.length && (
         <section className="mk-section">
           <h3>Version history</h3>
@@ -452,18 +506,9 @@ function Detail({ item, installed, known, onOpenInMaker, onChanged }: { item: Ma
           </ul>
         </section>
       )}
-      {!sample && <ReportForm id={plugin.id} version={plugin.version ?? undefined} />}
+      <ReportForm id={plugin.id} version={plugin.version ?? undefined} />
     </article>
   );
-}
-
-/**
- * A preview sample's 5-to-1 split, shaped to its average: most at 5 and 4, a thin tail below. Real
- * plugins use bhippi.com's counts.
- */
-function sampleBreakdown({ average, count }: { average: number; count: number }): number[] {
-  const five = Math.min(0.94, Math.max(0, average - 3.89));
-  return [five, 0.94 - five, 0.03, 0.01, 0.02].map((share) => Math.round(share * count));
 }
 
 /**
@@ -471,24 +516,23 @@ function sampleBreakdown({ average, count }: { average: number; count: number })
  * this plugin" (tap a star to start a review), your own review, then everyone's, each with the
  * writer's Google name and photo. Rating needs a connected Google account and the plugin installed.
  */
-function Reviews({ plugin, sample, installed, onRated }: { plugin: MarketPlugin; sample: boolean; installed: Plugin | null; onRated: () => void }) {
+function Reviews({ plugin, installed, onRated }: { plugin: MarketPlugin; installed: Plugin | null; onRated: () => void }) {
   const account = useContext(AccountContext);
   const [data, setData] = useState<ReviewsAnswer | null>(null);
   const [own, setOwn] = useState(0);
   const [writing, setWriting] = useState<number | null>(null);
   const [all, setAll] = useState(false);
   useEffect(() => {
-    if (sample) return;
     let live = true;
     reviewsOf(plugin.id).then((answer) => live && setData(answer), () => live && setData({ reviews: [], mine: null }));
     return () => {
       live = false;
     };
-  }, [plugin.id, sample, own, account.signedIn]);
+  }, [plugin.id, own, account.signedIn]);
 
   const rating = plugin.rating;
   const breakdown = data?.breakdown
-    ?? (data ? [5, 4, 3, 2, 1].map((stars) => data.reviews.filter((item) => item.stars === stars).length) : sample && rating ? sampleBreakdown(rating) : [0, 0, 0, 0, 0]);
+    ?? (data ? [5, 4, 3, 2, 1].map((stars) => data.reviews.filter((item) => item.stars === stars).length) : [0, 0, 0, 0, 0]);
   const most = Math.max(1, ...breakdown);
   const written = data?.reviews.filter((item) => item.review.trim()) ?? [];
   const shown = all ? written : written.slice(0, 3);
@@ -496,7 +540,6 @@ function Reviews({ plugin, sample, installed, onRated }: { plugin: MarketPlugin;
   const yours = !!installed && !installed.pkg;
 
   const rateBlock = (() => {
-    if (sample) return <p className="mk-dim">Ratings and reviews open when this plugin is in the store.</p>;
     if (writing !== null) {
       return <ReviewComposer id={plugin.id} version={installed?.pkg?.version} initialStars={writing} initialText={mine?.review ?? ''} editing={!!mine}
         onCancel={() => setWriting(null)} onSent={() => { setWriting(null); setOwn((n) => n + 1); onRated(); }} />;
@@ -566,7 +609,7 @@ function Reviews({ plugin, sample, installed, onRated }: { plugin: MarketPlugin;
       {written.length > 3 && (
         <button type="button" className="mk-link mk-inline" onClick={() => setAll((value) => !value)}>{all ? 'Show fewer reviews' : `See all ${written.length} reviews`}</button>
       )}
-      {!sample && data && !written.length && !mine && <p className="mk-dim">No written reviews yet.</p>}
+      {data && !written.length && !mine && <p className="mk-dim">No written reviews yet.</p>}
     </section>
   );
 }
@@ -717,6 +760,9 @@ const bump = (version: string | null | undefined) => {
   return match ? `${match[1]}.${match[2]}.${Number(match[3]) + 1}` : '1.0.0';
 };
 
+/** A listing's category, when it is one of the store's. */
+const asCategory = (id: string | null): Category | null => ((CATEGORIES as readonly string[]).includes(id ?? '') ? (id as Category) : null);
+
 const STEP_LABEL: Record<PublishStep, string> = { checking: 'Checking it…', testing: 'Testing it against a copy of your project…', packing: 'Packing it…', sending: 'Sending it to Bhippi…' };
 
 /**
@@ -777,7 +823,9 @@ function MyPlugins({ known, onOpenInMaker }: { known: ReadonlySet<string>; onOpe
         ) : (
           <div className="mk-mine">
             {mine.map((plugin) => (
-              <MinePlugin key={plugin.id} plugin={plugin} submission={latest(plugin.id)} known={known} storeClosed={storeClosed} onOpenInMaker={onOpenInMaker} onPublished={() => setOwn((n) => n + 1)} />
+              <MinePlugin key={plugin.id} plugin={plugin} submission={latest(plugin.id)} listedIn={subs?.listings.find((item) => item.id === plugin.id)?.category ?? null}
+                publisher={{ name: profile?.name ?? account?.name ?? '', picture: profile?.picture ?? account?.picture ?? null, handle: profile?.handle ?? null, verified: !!profile?.verified }}
+                known={known} storeClosed={storeClosed} onOpenInMaker={onOpenInMaker} onPublished={() => setOwn((n) => n + 1)} />
             ))}
           </div>
         )}
@@ -851,22 +899,75 @@ function PersonPhoto({ picture, name, size }: { picture: string | null; name: st
   return <span className="mk-photo mk-photo-letter" style={{ width: size, height: size, fontSize: size * 0.42, background: `hsl(${hueOf(name)} 55% 45%)` }}>{(name.trim()[0] ?? '?').toUpperCase()}</span>;
 }
 
-/** One plugin you made: where it stands in the store, and Publish (or update) with its version and category. */
-function MinePlugin({ plugin, submission, known, storeClosed, onOpenInMaker, onPublished }: { plugin: Plugin; submission: Submission | null; known: ReadonlySet<string>; storeClosed: boolean; onOpenInMaker: (id: string) => void; onPublished: () => void }) {
+/** Who a plugin is published as: the name (the profile's, or one typed in the form) beside the Google photo. */
+type PublishingAs = { name: string; picture: string | null; handle: string | null; verified: boolean };
+
+/**
+ * One plugin you made: where it stands in the store, and Publish (or Update). Publishing opens a
+ * form with everything the listing shows — icon or logo, name, description, category, version, and
+ * the name it goes out under beside your Google photo — plus a live preview of the store row. What
+ * is filled in is written into the plugin itself, so the signed package carries it.
+ */
+function MinePlugin({ plugin, submission, listedIn, publisher, known, storeClosed, onOpenInMaker, onPublished }: {
+  plugin: Plugin;
+  submission: Submission | null;
+  /** The category its listing is already in, if it has one. */
+  listedIn: string | null;
+  publisher: PublishingAs;
+  known: ReadonlySet<string>;
+  storeClosed: boolean;
+  onOpenInMaker: (id: string) => void;
+  onPublished: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [version, setVersion] = useState(bump(submission?.version ?? plugin.pkg?.version ?? null));
-  const [category, setCategory] = useState<Category>('utility');
+  const [category, setCategory] = useState<Category | null>(asCategory(listedIn));
+  const [name, setName] = useState(plugin.name);
+  const [description, setDescription] = useState((plugin.description ?? '').slice(0, SUMMARY_LENGTH));
+  const [emoji, setEmoji] = useState(plugin.icon ?? '');
+  /** A new logo file's text, null to drop the logo, undefined to keep the plugin's. */
+  const [logo, setLogo] = useState<string | null | undefined>(undefined);
+  const [publishAs, setPublishAs] = useState(publisher.name);
+  const [typedName, setTypedName] = useState(false);
   const [step, setStep] = useState<PublishStep | null>(null);
   const [result, setResult] = useState<{ ok: boolean; lines: string[] } | null>(null);
-  const icon: MarketPlugin = { id: plugin.id, name: plugin.name, summary: plugin.description, icon: plugin.icon ?? null, category, author: '', version: null, bhippi: null, size: null, updatedAt: 0, installs: 0, permissions: plugin.permissions, background: plugin.background, publisher: null, rating: null };
+  // The profile and listing arrive after the form may have opened: take them until the publisher chose.
+  useEffect(() => {
+    if (!typedName) setPublishAs(publisher.name);
+  }, [publisher.name, typedName]);
+  useEffect(() => {
+    setCategory((current) => current ?? asCategory(listedIn));
+  }, [listedIn]);
+
+  const shownLogo = logo === undefined ? plugin.logo ?? null : logo ? logoImage(logo) : null;
+  const row: MarketPlugin = { id: plugin.id, name: plugin.name, summary: plugin.description, icon: plugin.icon ?? null, logo: plugin.logo ?? null, category: listedIn ?? 'utility', author: '', version: null, bhippi: null, size: null, updatedAt: 0, installs: 0, permissions: plugin.permissions, background: plugin.background, publisher: null, rating: null };
+  const preview: MarketPlugin = { ...row, name: name.trim() || plugin.name, summary: description.trim(), icon: emoji.trim() || null, logo: shownLogo, category: category ?? 'utility', author: publishAs.trim() || publisher.name };
   const status = submission ? `${STATUS[submission.status]} · ${submission.version}` : 'Not published';
+  const missing = !name.trim() ? 'Give it a name.' : !description.trim() ? 'Add a description.' : !category ? 'Choose a category.' : !version.trim() ? 'Give it a version.' : !publishAs.trim() ? 'Say who publishes it.' : '';
+
+  const chooseLogo = async () => {
+    try {
+      const text = await pickLogo();
+      if (text) setLogo(text);
+    } catch (failure) {
+      setResult({ ok: false, lines: [errorText(failure)] });
+    }
+  };
   const go = async () => {
+    if (!category) return;
     setResult(null);
     try {
-      const outcome = await publish(plugin.id, { version: version.trim(), category, known, checker: pluginChecker, onStep: setStep });
-      setResult(outcome.ok ? { ok: true, lines: [`Version ${outcome.version} is with Bhippi for review. You’ll see it here when it’s live.`] } : { ok: false, lines: outcome.problems });
+      const outcome = await publish(plugin.id, {
+        version: version.trim(), category, known, checker: pluginChecker, onStep: setStep,
+        details: { name, description, icon: emoji, logo },
+        publishAs: publishAs.trim() !== publisher.name ? publishAs.trim() : undefined,
+      });
+      setResult(outcome.ok
+        ? { ok: true, lines: [`Version ${outcome.version} is with Bhippi for review. Once it’s approved it appears in ${CATEGORY[category].label} as “${name.trim()}”, published by ${publishAs.trim()}.`] }
+        : { ok: false, lines: outcome.problems });
       if (outcome.ok) {
         setOpen(false);
+        setLogo(undefined);
         onPublished();
       }
     } catch (failure) {
@@ -878,11 +979,11 @@ function MinePlugin({ plugin, submission, known, storeClosed, onOpenInMaker, onP
   return (
     <div className="mk-mine-item">
       <div className="mk-row">
-        <AppIcon plugin={icon} size={48} />
+        <AppIcon plugin={row} size={48} />
         <span className="mk-row-text">
           <strong>{plugin.name}</strong>
           <em>{plugin.description || 'No description yet'}</em>
-          <small><span className={`mk-status status-${submission?.status ?? 'none'}`}>{status}</span>{submission?.note && <span className="mk-bad"> {submission.note}</span>}</small>
+          <small><span className={`mk-status status-${submission?.status ?? 'none'}`}>{status}</span>{listedIn && <> · {CATEGORY[listedIn]?.label ?? listedIn}</>}{submission?.note && <span className="mk-bad"> {submission.note}</span>}</small>
         </span>
         <RemoveButton
           label="Remove"
@@ -893,19 +994,87 @@ function MinePlugin({ plugin, submission, known, storeClosed, onOpenInMaker, onP
         />
         <button type="button" className="mk-link mk-inline" onClick={() => onOpenInMaker(plugin.id)}>Open in Maker</button>
         {submission?.status !== 'in_review' && (
-          <button type="button" className="mk-get primary" disabled={storeClosed} title={storeClosed ? 'Publishing opens with the store' : undefined} onClick={() => setOpen((value) => !value)}>
+          <button type="button" className="mk-get primary" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
             {submission?.status === 'approved' ? 'Update' : 'Publish'}
           </button>
         )}
       </div>
       {open && (
-        <div className="mk-publish">
-          <div className="mk-line">
-            <label>Version<input value={version} onChange={(event) => setVersion(event.target.value)} placeholder="1.0.0" /></label>
-            <label className="grow">Category<select value={category} onChange={(event) => setCategory(event.target.value as Category)}>{CATEGORIES.map((id) => <option key={id} value={id}>{CATEGORY[id].label}</option>)}</select></label>
+        <div className="mk-publish" role="group" aria-label={`Publish ${plugin.name}`}>
+          {storeClosed && <p className="mk-preview-note"><Sparkles size={13} /> The store on bhippi.com isn’t open yet. You can fill this in now; Publish works as soon as it opens.</p>}
+
+          <div className="mk-pub-field">
+            <span className="mk-pub-label">Icon</span>
+            <div className="mk-pub-icon">
+              <AppIcon plugin={preview} size={64} />
+              <div className="mk-pub-icon-actions">
+                <button type="button" className="mk-get" disabled={!!step} onClick={() => void chooseLogo()}><ImagePlus size={13} /> {shownLogo ? 'Change image…' : 'Upload image…'}</button>
+                {shownLogo && <button type="button" className="mk-link mk-inline" disabled={!!step} onClick={() => setLogo(null)}>Use the emoji instead</button>}
+                <label className="mk-pub-emoji">or an emoji <input value={emoji} maxLength={8} onChange={(event) => setEmoji(event.target.value)} placeholder="🧩" aria-label="Emoji icon" /></label>
+              </div>
+            </div>
           </div>
-          <p className="mk-dim">It’s tested here first and must pass the quality check, then Bhippi reviews it before anyone can install it. It will show with your photo and name.</p>
-          <div className="mk-line"><span className="mk-dim">{step ? STEP_LABEL[step] : ''}</span><button type="button" className="mk-link" disabled={!!step} onClick={() => setOpen(false)}>Cancel</button><button type="button" className="mk-get primary" disabled={!!step || !version.trim()} onClick={() => void go()}>Publish</button></div>
+
+          <label className="mk-pub-field">
+            <span className="mk-pub-label">Name</span>
+            <input value={name} maxLength={60} onChange={(event) => setName(event.target.value)} placeholder="What it’s called in the store" />
+          </label>
+
+          <label className="mk-pub-field">
+            <span className="mk-pub-label">Description <span className="mk-dim">{description.length}/{SUMMARY_LENGTH}</span></span>
+            <textarea rows={3} value={description} maxLength={SUMMARY_LENGTH} onChange={(event) => setDescription(event.target.value)} placeholder="What it does and why someone would want it" />
+          </label>
+
+          <div className="mk-pub-field">
+            <span className="mk-pub-label">Category</span>
+            <div className="mk-pub-cats" role="radiogroup" aria-label="Category">
+              {CATEGORIES.map((id) => {
+                const { label, icon: Icon, hue } = CATEGORY[id];
+                const on = category === id;
+                return (
+                  <button key={id} type="button" role="radio" aria-checked={on} className={`mk-pub-cat${on ? ' on' : ''}`} style={{ ['--hue' as string]: hue }} onClick={() => setCategory(id)}>
+                    <Icon size={14} /> {label}{on && <Check size={13} className="mk-pub-cat-check" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mk-pub-field">
+            <span className="mk-pub-label">Published by</span>
+            <div className="mk-pub-by">
+              <PersonPhoto picture={publisher.picture} name={publishAs || publisher.name || 'You'} size={36} />
+              <input value={publishAs} maxLength={60} onChange={(event) => { setTypedName(true); setPublishAs(event.target.value); }} placeholder="Your name" aria-label="Publish as" />
+              {publisher.verified && publishAs.trim() === publisher.name && <span className="mk-badge"><BadgeCheck size={11} /> Verified</span>}
+            </div>
+            <span className="mk-dim">Shown with your Google photo{publisher.handle ? ` and @${publisher.handle}` : ''}. Change the name to publish under another one{publisher.verified ? ' (a new name is verified again by Bhippi)' : ''}.</span>
+          </div>
+
+          <label className="mk-pub-field mk-pub-version">
+            <span className="mk-pub-label">Version</span>
+            <input value={version} onChange={(event) => setVersion(event.target.value)} placeholder="1.0.0" />
+          </label>
+
+          <div className="mk-pub-field">
+            <span className="mk-pub-label">How it will look in the store</span>
+            <div className="mk-row mk-pub-preview">
+              <AppIcon plugin={preview} size={48} />
+              <span className="mk-row-text">
+                <strong>{preview.name}</strong>
+                <em>{preview.summary || 'Your description shows here.'}</em>
+                <small>{category ? CATEGORY[category].label : 'No category yet'} · {preview.author || 'You'}</small>
+              </span>
+            </div>
+          </div>
+
+          <p className="mk-dim">It’s tested here first and must pass the quality check, then Bhippi reviews it. Once approved it appears in the store, in the category you chose.</p>
+          <div className="mk-line">
+            <span className="mk-dim">{step ? STEP_LABEL[step] : missing}</span>
+            <button type="button" className="mk-link" disabled={!!step} onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="mk-get primary" disabled={!!step || !!missing || storeClosed} title={storeClosed ? 'Publishing opens with the store on bhippi.com' : missing || undefined} onClick={() => void go()}>
+              {submission?.status === 'approved' ? 'Publish update' : 'Publish'}
+            </button>
+          </div>
         </div>
       )}
       {result && <ul className={result.ok ? 'mk-result ok' : 'mk-result bad'}>{result.lines.map((line) => <li key={line}>{line}</li>)}</ul>}

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { BookOpen, ChevronRight, Download, ExternalLink, MoreVertical, Plus, Puzzle, Search, Store, Upload } from 'lucide-react';
 import '../styles/plugins.css';
-import { SAMPLE_PLUGINS, type SamplePlugin } from './marketSamples';
+import { browse, type MarketPlugin } from './market';
 import { PluginFrame } from './PluginFrame';
 import { AppIcon } from './PluginMarket';
 import { patchPlugin, usePlugins } from './store';
@@ -149,7 +149,17 @@ export function PluginsHome({ builtins, docked, onDragOut, onOpen, onMarket, onM
   };
   const featured = builtins.filter((item) => matches(`${item.name} ${item.description}`));
   const mine = plugins.filter((plugin) => matches(`${plugin.name} ${plugin.description ?? ''}`));
-  const discover = SAMPLE_PLUGINS.filter((plugin) => !plugins.some((own) => own.name === plugin.name) && matches(`${plugin.name} ${plugin.tagline} ${plugin.summary}`));
+  // Discover: what is published on bhippi.com and not here yet, fetched the first time the tab opens.
+  const [catalogue, setCatalogue] = useState<MarketPlugin[] | null>(null);
+  useEffect(() => {
+    if (view !== 'discover' || catalogue) return;
+    let live = true;
+    browse().then((data) => live && setCatalogue(data.plugins), () => live && setCatalogue([]));
+    return () => {
+      live = false;
+    };
+  }, [view, catalogue]);
+  const discover = (catalogue ?? []).filter((plugin) => !plugins.some((own) => own.id === plugin.id) && matches(`${plugin.name} ${plugin.summary}`));
   // A new user (no plugin installed or made yet) sees a clean start: the Marketplace, or build one.
   if (loaded && !plugins.length) {
     return (
@@ -239,11 +249,12 @@ export function PluginsHome({ builtins, docked, onDragOut, onOpen, onMarket, onM
         <section className="ph-section">
           <h3>Discover</h3>
           {discover.map((plugin) => <DiscoverCard key={plugin.id} plugin={plugin} onGet={onMarket} />)}
-          {discover.length > 0 && <button type="button" className="ph-link" onClick={onMarket}><Store size={13} /> Browse the Marketplace</button>}
+          {catalogue && !discover.length && !needle && <p className="ph-desc">No community plugins to discover yet. Make one and publish it from the Marketplace’s My plugins.</p>}
+          <button type="button" className="ph-link" onClick={onMarket}><Store size={13} /> Browse the Marketplace</button>
         </section>
       )}
 
-      {needle && (view === 'installed' ? !featured.length && !mine.length : !discover.length) && (
+      {needle && (view === 'installed' ? !featured.length && !mine.length : !!catalogue && !discover.length) && (
         <p className="plugins-home-empty">No plugins match “{query.trim()}”.</p>
       )}
 
@@ -262,13 +273,13 @@ export function PluginsHome({ builtins, docked, onDragOut, onOpen, onMarket, onM
 }
 
 /** A marketplace plugin suggested in the panel; Get opens the Marketplace, where it is installed. */
-function DiscoverCard({ plugin, onGet }: { plugin: SamplePlugin; onGet: () => void }) {
+function DiscoverCard({ plugin, onGet }: { plugin: MarketPlugin; onGet: () => void }) {
   return (
-    <div className="ph-card" title={plugin.about}>
+    <div className="ph-card" title={plugin.summary}>
       <AppIcon plugin={plugin} size={40} />
       <div className="ph-card-text">
         <strong>{plugin.name}</strong>
-        <span className="ph-desc">{plugin.tagline}</span>
+        <span className="ph-desc">{plugin.summary}</span>
         <button type="button" className="ph-get" onClick={onGet}><Download size={13} /> Get</button>
       </div>
       <CardMenu label={plugin.name} items={[{ label: 'View in Marketplace', run: onGet }]} />

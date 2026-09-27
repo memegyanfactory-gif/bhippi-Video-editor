@@ -136,7 +136,8 @@ import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/C
  */
 const PANEL_MIN = { chat: 436, transcript: 240, source: 260, properties: 260, project: 260, plugins: 240, top: 220 } as const;
 
-const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, transcriptWidth: 320, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, pluginsWidth: 360, hidden: ['transcript', 'source'], meters: DEFAULT_METERS, storyboardDocked: true, sourceClosed: true, docked: [] };
+// A fresh install starts with the Plugins panel closed: Plugins › Show Plugins Panel (or Window › Plugins) opens it.
+const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, transcriptWidth: 320, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, pluginsWidth: 360, hidden: ['transcript', 'source', 'plugins'], meters: DEFAULT_METERS, storyboardDocked: true, sourceClosed: true, docked: [] };
 const EMPTY_SETTINGS: Settings = {
   disabledProviders: [], providerId: null, model: null, effort: null, permission: null, ffmpegPath: null, chatOpen: true, timelineHeight: null, timelineZoom: null,
   disableLocalGeneration: true,

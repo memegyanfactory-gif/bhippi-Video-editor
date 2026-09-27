@@ -7,7 +7,7 @@ import catalog from '../src/lib/ai-tools.json';
 const market = vi.hoisted(() => ({
   download: null as null | { bytes: string; lockHash: string; zipSha256: string },
   revocations: { issuedAt: 0, entries: [] as { id: string; version: string; reason: string; revokedAt: number }[] },
-  submitted: [] as { bytes: string; category: string }[],
+  submitted: [] as { bytes: string; category: string; publishAs?: string }[],
 }));
 vi.mock('../src/lib/ipc', async (original) => {
   const real = await original<typeof import('../src/lib/ipc')>();
@@ -17,8 +17,8 @@ vi.mock('../src/lib/ipc', async (original) => {
       ...real.api,
       marketDownload: async () => market.download!,
       marketRevocations: async () => market.revocations,
-      marketSubmit: async (bytes: string, category: string) => {
-        market.submitted.push({ bytes, category });
+      marketSubmit: async (bytes: string, category: string, publishAs?: string) => {
+        market.submitted.push({ bytes, category, publishAs });
         return { ok: true, versionId: 'v-1', report: { warnings: ['Connects to: nothing.'] } };
       },
     },
@@ -126,6 +126,40 @@ describe('publishing', () => {
     expect(read.manifest).toMatchObject({ id, version: '1.2.0', name: 'To publish', permissions: { tools: ['add_marker'] } });
     expect(JSON.parse(await draftStore.read(id, 'manifest.json')).version).toBe('1.2.0');
     expect(findPlugin(id)!.html).toContain('addMarker');
+  });
+
+  it('publishes what the form says: name, description, emoji, logo and category, under the chosen name', async () => {
+    const id = 'to-publish';
+    const png = `data:image/png;base64,${Buffer.from('not really a png').toString('base64')}`;
+    const logo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"><image href="${png}" width="256" height="256"/></svg>\n`;
+    const details = { name: 'Marker Pro', description: 'Drops a marker where the playhead is.', icon: '📍', logo };
+    const outcome = await publish(id, { version: '1.3.0', category: 'utility', details, publishAs: 'Asha Rao', known, checker: passing });
+    expect(outcome).toMatchObject({ ok: true, version: '1.3.0' });
+    const sent = market.submitted.at(-1)!;
+    expect(sent).toMatchObject({ category: 'utility', publishAs: 'Asha Rao' });
+    const read = await readPackage(new Uint8Array(Buffer.from(sent.bytes, 'base64')));
+    expect(read.problems).toEqual([]);
+    expect(read.manifest).toMatchObject({ id, version: '1.3.0', name: 'Marker Pro', description: 'Drops a marker where the playhead is.', icon: '📍' });
+    expect(read.files['logo.svg']).toBe(logo);
+    // The plugin here takes the same details, so the Plugins panel and the listing agree.
+    expect(findPlugin(id)).toMatchObject({ name: 'Marker Pro', icon: '📍', logo: png });
+
+    // Removing the logo, and an empty emoji, leave the package without them.
+    await publish(id, { version: '1.3.1', category: 'fun', details: { ...details, icon: '', logo: null }, known, checker: passing });
+    const again = await readPackage(new Uint8Array(Buffer.from(market.submitted.at(-1)!.bytes, 'base64')));
+    expect(again.files['logo.svg']).toBeUndefined();
+    expect(again.manifest?.icon).toBeUndefined();
+    expect(market.submitted.at(-1)).toMatchObject({ category: 'fun', publishAs: undefined });
+  });
+
+  it('asks for what the listing needs before testing anything', async () => {
+    const before = market.submitted.length;
+    const base = { name: 'X', description: 'Does X.', icon: '' };
+    expect(await publish('to-publish', { version: '2.0.0', category: 'utility', details: { ...base, description: ' ' }, known, checker: passing })).toMatchObject({ ok: false, problems: [expect.stringMatching(/description/)] });
+    expect(await publish('to-publish', { version: '2.0.0', category: 'utility', details: { ...base, name: '' }, known, checker: passing })).toMatchObject({ ok: false, problems: [expect.stringMatching(/name/)] });
+    expect(await publish('to-publish', { version: '2.0.0', category: 'nope' as never, details: base, known, checker: passing })).toMatchObject({ ok: false, problems: [expect.stringMatching(/category/)] });
+    expect(await publish('to-publish', { version: '2.0.0', category: 'utility', details: { ...base, logo: '<svg onload="x()"/>' }, known, checker: passing })).toMatchObject({ ok: false, problems: [expect.stringMatching(/logo/)] });
+    expect(market.submitted).toHaveLength(before);
   });
 
   it('refuses a draft with no acceptance checks', async () => {

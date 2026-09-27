@@ -1030,3 +1030,15 @@ for a new one sends an update back for review (`widens`).
     from the edit's own sound, `add_plugin_clip`, clip settings in the Properties panel, and
     plugins calling each other's actions.
   - Next: plugin effects (frame in, frame out).
+- **2026-09-27:** **Store cleaned up, and publishing fills in the listing.**
+  - The preview shelf of sample plugins is gone (`marketSamples.ts` deleted). The store lists
+    Bhippi's built-in Characters (`marketBuiltins.ts`, Motion, opened with Open) plus real
+    listings only; the Plugins panel's Discover tab reads the real catalogue.
+  - Publishing opens a form: icon (upload an image or an emoji), name, description (280),
+    category (click to choose), version, and "Published by" (Google photo + a name the publisher
+    can change), with a preview of the store row. The details are written into the plugin's
+    manifest and `logo.svg`, so the signed package carries them.
+  - bhippi.com (`migrations/0008_plugin_listing_details.sql`): each version keeps its chosen
+    category and logo; approving it puts name, description, icon, logo and category on the
+    listing, so it lands in the category chosen. `submissions?as=` sets the publisher name.
+    Checked end to end against `wrangler pages dev`. Still to do at go-live: run 0008 remotely.

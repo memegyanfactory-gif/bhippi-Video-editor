@@ -13,6 +13,7 @@
 import { api } from '../lib/ipc';
 import { saveDraft, type PluginChecker } from './aiTools';
 import { draftStore, readDraft, validateDraft } from './drafts';
+import { LOGO_FILE, logoImage } from './logo';
 import { compareSemver, exportPackage, installPackage, parseSemver, readPackage, type InstallOutcome } from './package';
 import { findPlugin, loadPlugins, patchPlugin, pluginStore } from './store';
 import type { Plugin, PluginPermissions } from './types';
@@ -135,22 +136,48 @@ export async function checkRevocations(): Promise<{ plugin: Plugin; reason: stri
 }
 
 export type PublishStep = 'checking' | 'testing' | 'packing' | 'sending';
+/**
+ * What the publisher fills in: it goes into the plugin itself (its manifest and logo.svg), so the
+ * signed package carries it and the listing shows exactly that. `logo` is a logo file's text
+ * (logo.ts), null to remove the logo, or left out to keep it.
+ */
+export type ListingDetails = { name: string; description: string; icon: string; logo?: string | null };
+/** How much of a description the store shows under a plugin's name. */
+export const SUMMARY_LENGTH = 280;
 export type PublishResult = { ok: true; versionId: string; version: string; warnings: string[] } | { ok: false; problems: string[] };
 
 /**
  * Publishes a plugin for review. The gate is the Maker's own: a draft with no problems, and a real
  * test run the Judge passes. `version` becomes the draft manifest's version first.
  */
-export async function publish(pluginId: string, options: { version: string; category: Category; known: ReadonlySet<string>; checker: PluginChecker | null; onStep?: (step: PublishStep) => void }): Promise<PublishResult> {
-  const { version, category, known, checker, onStep } = options;
+export async function publish(pluginId: string, options: { version: string; category: Category; details?: ListingDetails; publishAs?: string; known: ReadonlySet<string>; checker: PluginChecker | null; onStep?: (step: PublishStep) => void }): Promise<PublishResult> {
+  const { version, category, details, publishAs, known, checker, onStep } = options;
   if (!parseSemver(version)) return { ok: false, problems: [`“${version}” is not a version like 1.2.0.`] };
+  if (!(CATEGORIES as readonly string[]).includes(category)) return { ok: false, problems: ['Choose a category for it.'] };
+  if (details) {
+    const name = details.name.trim();
+    if (!name || name.length > 60) return { ok: false, problems: ['Give it a name (up to 60 characters).'] };
+    if (!details.description.trim()) return { ok: false, problems: ['Add a description: it is what people read before they get it.'] };
+    if (details.description.trim().length > SUMMARY_LENGTH) return { ok: false, problems: [`Keep the description to ${SUMMARY_LENGTH} characters.`] };
+    if ([...details.icon.trim()].length > 8) return { ok: false, problems: ['The icon is one emoji.'] };
+    if (typeof details.logo === 'string' && !logoImage(details.logo)) return { ok: false, problems: ['Upload the logo again: that picture could not be used.'] };
+  }
   const plugin = findPlugin(pluginId);
   if (!plugin) return { ok: false, problems: [`No plugin “${pluginId}”.`] };
   onStep?.('checking');
   const draft = await readDraft(pluginId);
   if (!Object.keys(draft).length) return { ok: false, problems: ['Open it in the Plugin Maker first: a published plugin is built from its draft (spec, code and checks).'] };
   const manifest = JSON.parse(draft['manifest.json'] ?? '{}') as Record<string, unknown>;
-  draft['manifest.json'] = `${JSON.stringify({ ...manifest, version }, null, 2)}\n`;
+  const listed: Record<string, unknown> = { ...manifest, version };
+  if (details) {
+    listed.name = details.name.trim();
+    listed.description = details.description.trim();
+    if (details.icon.trim()) listed.icon = details.icon.trim();
+    else delete listed.icon;
+    if (typeof details.logo === 'string') draft[LOGO_FILE] = details.logo;
+    else if (details.logo === null) delete draft[LOGO_FILE];
+  }
+  draft['manifest.json'] = `${JSON.stringify(listed, null, 2)}\n`;
   const check = validateDraft(draft, known);
   if (!check.ok) return { ok: false, problems: check.problems };
   if (!check.checks) return { ok: false, problems: ['Add acceptance checks (bhippi.test) first: the marketplace needs a plugin that proves it works.'] };
@@ -158,6 +185,8 @@ export async function publish(pluginId: string, options: { version: string; cate
   if (!checker) return { ok: false, problems: ['Plugins can only be tested, and so published, in the Bhippi app.'] };
   // What is tested is exactly what is published: the draft, saved with its new version.
   await draftStore.write(pluginId, 'manifest.json', draft['manifest.json']);
+  if (draft[LOGO_FILE] !== undefined) await draftStore.write(pluginId, LOGO_FILE, draft[LOGO_FILE]);
+  else await draftStore.remove(pluginId, LOGO_FILE).catch(() => undefined);
   const saved = await saveDraft(pluginId, draft, known, `Prepared ${version} for the marketplace`);
   if (!saved.ok) return { ok: false, problems: [String(saved.error)] };
   const current = findPlugin(pluginId)!;
@@ -169,7 +198,7 @@ export async function publish(pluginId: string, options: { version: string; cate
   onStep?.('packing');
   const { bytes } = await exportPackage(current);
   onStep?.('sending');
-  const answer = await api.marketSubmit(toBase64(bytes), category);
+  const answer = await api.marketSubmit(toBase64(bytes), category, publishAs?.trim() || undefined);
   const report = answer.report as { problems?: string[]; warnings?: string[] } | undefined;
   if (answer.ok !== true) return { ok: false, problems: [String(answer.message ?? 'bhippi.com did not accept it.'), ...(report?.problems ?? [])] };
   return { ok: true, versionId: String(answer.versionId), version, warnings: report?.warnings ?? [] };

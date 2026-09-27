@@ -20,9 +20,9 @@ use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 /// Raw Ed25519 public key matching bhippi.com's PLUGIN_SIGNING_KEY secret
-/// (`node scripts/plugins-keygen.mjs` in the website). Empty until the key is made: then nothing
-/// from the marketplace installs, because nothing can be verified.
-const PLUGIN_PUBLIC_KEY: &str = "";
+/// (`node scripts/plugins-keygen.mjs` in the website). Nothing from the marketplace installs unless
+/// its signature verifies against this key.
+const PLUGIN_PUBLIC_KEY: &str = "2meIHYuAsIGAhZ1YGdsj2rFXRJKC3ZTAehFtT9Ip5vA=";
 /// A package zip (src/plugins/package.ts MAX_PACKAGE_BYTES).
 const MAX_PACKAGE_BYTES: usize = 24 * 1024 * 1024;
 
@@ -192,8 +192,9 @@ pub async fn market_revocations() -> CommandResult<Value> {
 }
 
 /// Sends a package for review; the answer carries the automated check's report either way.
+/// `publish_as` is the name to publish under when the publisher changed it (else their profile's).
 #[tauri::command]
-pub async fn market_submit(bytes: String, category: String) -> CommandResult<Value> {
+pub async fn market_submit(bytes: String, category: String, publish_as: Option<String>) -> CommandResult<Value> {
     let (token, _) = license::credentials();
     let token = token.ok_or("Publishing needs your Google sign-in: Settings › Account › Sign in with Google.")?;
     let body = STANDARD.decode(bytes).map_err(|_| "The package could not be read.".to_owned())?;
@@ -203,8 +204,14 @@ pub async fn market_submit(bytes: String, category: String) -> CommandResult<Val
     if !category.chars().all(|c| c.is_ascii_lowercase()) || category.is_empty() || category.len() > 20 {
         return Err("That is not a marketplace category.".to_owned());
     }
+    let publish_as: String = publish_as.unwrap_or_default().split_whitespace().collect::<Vec<_>>().join(" ").chars().take(60).collect();
+    let mut query = vec![("category", category)];
+    if !publish_as.is_empty() {
+        query.push(("as", publish_as));
+    }
     let response = client(60)
-        .post(format!("{}/submissions?category={category}", market_base()))
+        .post(format!("{}/submissions", market_base()))
+        .query(&query)
         .bearer_auth(token)
         .header("Content-Type", "application/zip")
         .body(body)
