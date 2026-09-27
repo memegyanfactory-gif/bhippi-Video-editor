@@ -1396,6 +1396,11 @@ export default function App() {
     setLayout((current) => ({ ...current, docked: (current.docked ?? []).filter((item) => item.id !== id), hidden: current.hidden.filter((panel) => panel !== 'plugins') }));
     setPluginTab(id);
   };
+  /** Closes a docked plugin: out of the editing area and not a Plugins panel tab either (Plugins › Show as Panel brings it back). */
+  const closeDockedPlugin = (id: string) => {
+    setLayout((current) => ({ ...current, docked: (current.docked ?? []).filter((item) => item.id !== id) }));
+    void patchPlugin(id, { panel: false });
+  };
   const dropPlugin = (id: string, target: DockTarget) => {
     if (target === 'plugins') {
       if (dockedIds.has(id)) undockPlugin(id);
@@ -2976,9 +2981,9 @@ export default function App() {
         tabs={[{ id: item.id, label: <span className="plugin-tab-label" title={`${plugin?.description ? `${plugin.description}\n` : ''}Drag to move it, or onto the Plugins panel to put it back.`}>{plugin && <PluginMark plugin={plugin} size={14} />} {name}</span> }]}
         onTabPointerDown={(_, event) => dragPlugin(item.id, name, event)}
         menu={[
-          { label: 'Move To', submenu: dockMenu(item.id, item) },
           { label: 'Return to Plugins Panel', onSelect: () => undockPlugin(item.id) },
           ...(plugin ? [{ label: 'Edit in Plugin Maker…', onSelect: () => openMaker(item.id) }] : []),
+          { label: 'Close', onSelect: () => closeDockedPlugin(item.id) },
         ]}>
         {makerOpen && makerPlugin === item.id ? (
           <div className="plugin-frame-empty">“{name}” is open in the Plugin Maker. <button type="button" className="btn" onClick={() => openMaker(item.id)}>Go there</button></div>
