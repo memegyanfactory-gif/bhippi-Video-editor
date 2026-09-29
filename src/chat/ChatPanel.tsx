@@ -1356,6 +1356,21 @@ ${text}` : text));
         {messages.some(message=>message.role==='user'&&message.images?.length)&&<small>Images in this conversation may be sent again to {active?.label||'the selected provider'} as context.</small>}
         {images.length>0&&<><div className="chat-images">{images.map((src,index)=><div key={index}><img src={src} alt={'Image '+(index+1)}/><button type="button" aria-label={'Remove image '+(index+1)} onClick={()=>setImages(current=>current.filter((_,i)=>i!==index))}>×</button></div>)}</div><small>Sending shares these images with {active?.label||'the selected provider'}. Choose a vision-capable model.</small></>}
         {files.some(file=>file.kind!=='image')&&<div className="chat-files">{files.map((file,index)=>file.kind==='image'?null:<span key={index} className="chat-file" title={file.path}>{file.kind==='video'?<Film size={12}/>:file.kind==='audio'?<Music size={12}/>:<FileIcon size={12}/>}<b>{file.name}</b>{file.duration?<em>{file.duration.toFixed(1)} s</em>:null}{file.assetId?<em>in the project</em>:null}<button type="button" aria-label={'Remove '+file.name} onClick={()=>setFiles(current=>current.filter((_,i)=>i!==index))}>×</button></span>)}</div>}
+        {(() => {
+          // After a turn was stopped — by the user, or by switching model mid-answer — one click
+          // hands the job on: the model now chosen reads what was done (handoff.ts) and carries on.
+          const last = messages[messages.length - 1];
+          if (streaming || !last || last.role !== 'assistant' || last.status !== 'stopped' || draft.trim()) return null;
+          const to = active?.label ?? 'this model';
+          return (
+            <div className="composer-continue">
+              <button type="button" className="btn btn-small" onClick={() => void send('Carry on with the task from where the last turn stopped. The work already done is listed above; do not redo it.')}
+                title={`Send the job to ${to}${props.model ? ` · ${props.model}` : ''} to finish, with everything done so far`}>
+                Continue with {to}
+              </button>
+            </div>
+          );
+        })()}
         <textarea
           onPaste={e=>{const files=Array.from(e.clipboardData.files);if(files.some(f=>f.type.startsWith('image/'))){e.preventDefault();void addImages(files);}}}
           onDragOver={e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();}}
@@ -1430,6 +1445,9 @@ ${text}` : text));
             onManage={props.onManageProviders}
             open={pickerOpen}
             onOpenChange={setPickerOpen}
+            // The picker's field had the keyboard and is gone once it closes: without this, what the
+            // user types next reached the editor's shortcuts instead of the message box.
+            onDone={() => window.setTimeout(() => inputRef.current?.focus(), 0)}
           />
           <div className="composer-options">{(levels.length > 0 || speeds.length > 1) && (
             <ThinkingSlider

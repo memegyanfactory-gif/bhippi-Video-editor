@@ -76,6 +76,8 @@ type Props = {
   onManage: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The picker was closed by a choice or Escape: the caller hands the keyboard back (to the composer). */
+  onDone?: () => void;
 };
 
 /** Something the keyboard can land on, in the order it is drawn. */
@@ -83,7 +85,7 @@ type Option = { provider: string; model: string | null };
 
 type Section = { title: string | null; provider: ProviderInfo; entries: PickerEntry[] };
 
-export function ModelPicker({ providers: allProviders, providerId, model, onSelect, onManage, open, onOpenChange }: Props) {
+export function ModelPicker({ providers: allProviders, providerId, model, onSelect, onManage, open, onOpenChange, onDone }: Props) {
   // The offline command parser is not listed: it is Bhippi's own fallback, not an AI to choose.
   const providers = useMemo(() => allProviders.filter((provider) => provider.kind !== 'builtin'), [allProviders]);
   const anchor = useRef<HTMLDivElement>(null);
@@ -215,6 +217,7 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
     }
     onSelect(provider, chosen);
     onOpenChange(false);
+    onDone?.();
   };
 
   useEffect(() => {
@@ -227,6 +230,7 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
       if (event.key === 'Escape') {
         event.preventDefault();
         onOpenChange(false);
+        onDone?.();
       }
     };
     window.addEventListener('pointerdown', outside, true);

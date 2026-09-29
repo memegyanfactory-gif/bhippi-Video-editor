@@ -72,7 +72,18 @@ describe('the transcript a new provider receives', () => {
     const chat = [user('cut this'), CLAUDE('I trimmed the first half and then', 'stopped')];
     const lines = historyFor(chat, 'gemini', 'gemini-3.8-flash');
     expect(lines).toHaveLength(2);
-    expect(lines[1].content).toBe('I trimmed the first half and then');
+    // Its words, and that it did not finish, so the next model carries on instead of starting over.
+    expect(lines[1].content).toBe('I trimmed the first half and then\n\n[This turn was stopped before it finished; carry on from here rather than starting over.]');
+  });
+
+  it('carries the work a turn did, even one that only edited and said nothing', () => {
+    const worked = { ...CLAUDE('', 'stopped'), steps: [{ title: 'Added a title', detail: '"My Story" at 1s' }, { title: 'Cut 3 silences' }] };
+    const lines = historyFor([user('make it tighter'), worked], 'gemini', 'gemini-3.8-flash');
+    expect(lines).toHaveLength(2);
+    expect(lines[1].content).toBe('[Work done in this turn:\n- Added a title — "My Story" at 1s\n- Cut 3 silences]\n\n[This turn was stopped before it finished; carry on from here rather than starting over.]');
+    expect(lines[1].speaker).toBe('Claude Code');
+    // The model it came from is still the one being handed over from.
+    expect(handoffFor([user('x'), worked], 'gemini', 'gemini-3.8-flash')).toMatchObject({ fromLabel: 'Claude Code' });
   });
 
   it('drops a turn that only faulted, and one still being written', () => {

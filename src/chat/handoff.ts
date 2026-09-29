@@ -23,6 +23,8 @@ export type Turn =
       providerId: string;
       providerLabel: string;
       model: string | null;
+      /** The work the turn did (its tool steps), so a model taking over knows what is already done. */
+      steps?: { title: string; detail?: string }[];
     };
 
 export type HistoryLine = { role: 'user' | 'assistant'; content: string; speaker: string | null; images?:string[] };
@@ -31,7 +33,28 @@ export type Handoff = { fromLabel: string; fromModel: string | null };
 
 /** Whether an assistant turn left words worth carrying forward. */
 const spoke = (turn: Turn): boolean =>
-  turn.role === 'assistant' && turn.providerId !== BUILTIN && turn.content.trim() !== '';
+  turn.role === 'assistant' && turn.providerId !== BUILTIN && (turn.content.trim() !== '' || !!turn.steps?.length);
+
+/** How many of a turn's steps travel with it, and how long each may be. */
+const WORK_STEPS = 16;
+const WORK_CHARS = 120;
+
+/**
+ * An assistant turn as the next request reads it: its words, the work it did (a turn that only
+ * edited the timeline has no words, and used to vanish from the history — the model taking over
+ * then redid or contradicted it), and, when it was cut short, that it did not finish.
+ */
+export function carried(turn: Extract<Turn, { role: 'assistant' }>): string {
+  const steps = (turn.steps ?? []).filter((step) => step.title.trim());
+  const work = steps.slice(-WORK_STEPS).map((step) => {
+    const line = step.detail?.trim() ? `${step.title.trim()} — ${step.detail.trim()}` : step.title.trim();
+    return `- ${line.length > WORK_CHARS ? `${line.slice(0, WORK_CHARS - 1)}…` : line}`;
+  });
+  const parts = [turn.content.trim()];
+  if (work.length) parts.push(`[Work done in this turn${steps.length > WORK_STEPS ? ` (last ${WORK_STEPS} of ${steps.length} steps)` : ''}:\n${work.join('\n')}]`);
+  if (turn.status === 'stopped') parts.push('[This turn was stopped before it finished; carry on from here rather than starting over.]');
+  return parts.filter(Boolean).join('\n\n');
+}
 
 /**
  * The provider whose answer the next turn is continuing from, or null when there is none.
@@ -81,13 +104,13 @@ export function historyFor(messages: Turn[], providerId: string | null, model: s
     .filter((turn) =>
       turn.role === 'user'
         ? turn.content.trim() !== ''
-        : (turn.status === 'done' || turn.status === 'stopped') && turn.content.trim() !== '',
+        : (turn.status === 'done' || turn.status === 'stopped') && (turn.content.trim() !== '' || !!turn.steps?.length),
     )
     .map((turn) => ({
       role: turn.role,
       // Monitor annotations sent with a message stay in what later turns read, or "the title I
       // marked" would mean nothing one message on.
-      content: turn.role === 'user' && turn.annotationBrief ? `${turn.content}\n\n${turn.annotationBrief}` : turn.content,
+      content: turn.role === 'user' ? (turn.annotationBrief ? `${turn.content}\n\n${turn.annotationBrief}` : turn.content) : carried(turn),
       ...(turn.role === 'user' && turn.images?.length ? { images: turn.images } : {}),
       speaker:
         turn.role === 'assistant' && (turn.providerId !== providerId || turn.model !== model)
