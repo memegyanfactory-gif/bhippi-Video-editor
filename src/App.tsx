@@ -1113,13 +1113,39 @@ export default function App() {
     }, 700);
   };
 
+  /** Main-chat turns started so far: a phase start checks that its message really began a turn. */
+  const turnStarts = useRef(0);
+  /**
+   * Moves the production to `phase` and tells the model, as one step. It waits for the chat to be
+   * idle first (a message sent while a turn is still closing went into that turn and was lost, so
+   * the phase moved on with nobody working and no button left to press), and if no turn has
+   * started a few seconds later it puts the phase back, so the button is there to press again.
+   */
   const advanceProductionPhase = (compId: string, phase: 'gathering' | 'editing' | ProductionPhase) => {
-    history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: advanceProduction(c.production, phase) } : c)), phase === 'gathering' ? 'Start generating' : 'Start editing');
     const message = phase === 'gathering'
       ? 'Start generating. The plan is approved: begin the GATHER phase now. Call editing_workflow_status, then gather every planned shot one call at a time with its sceneIndex — text-to-video shots 5–7 s from their own script and prompt (generate_cloud_media when cloud generation is on — every generated shot in one call so the editor approves them together — otherwise generate_local_media task video, wait true), images, downloads and scrapes into their research folders, the voice-over (synthesize_speech_voiceover) and the music bed. Retry a failed generation once with a simpler prompt. When everything has a real asset, call finish_gathering and end your turn with a short list of what was gathered. Do not touch the timeline.'
       : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, each beat\'s planned graphic — with a brand kit active, its brand-* recipe via create_motion_scene; otherwise a motion-engine template via create_motion_scene, or a Crimson HTML template via create_motion_graphic where the engine has none; layout_clip where the beat has a side panel, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
-    // A production phase is the full workflow, whatever the composer is set to.
-    window.setTimeout(() => chatApi.current?.send(message, { mode: 'full' }), 50);
+    const label = phase === 'gathering' ? 'Start generating' : 'Start editing';
+    const deliver = (tries: number) => {
+      const chat = chatApi.current;
+      if (!chat) return;
+      if (chat.busy() && tries > 0) {
+        window.setTimeout(() => deliver(tries - 1), 400);
+        return;
+      }
+      const before = history.current().comps.find((c) => c.id === compId)?.production?.phase ?? null;
+      history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: advanceProduction(c.production, phase) } : c)), label);
+      const started = turnStarts.current;
+      // A production phase is the full workflow, whatever the composer is set to.
+      chat.send(message, { mode: 'full' });
+      window.setTimeout(() => {
+        if (turnStarts.current !== started || !before) return;
+        history.commit((current) => updateComp(current, compId, (c) => (c.production && c.production.phase === phase ? { ...c, production: { ...c.production, phase: before } } : c)), `${label} (did not start)`);
+        toast({ tone: 'error', title: 'The assistant did not start', body: `Press ${label} again (the button is above the message box).`, timeout: 8000 });
+      }, 4000);
+    };
+    // Up to a minute for a closing turn to settle.
+    window.setTimeout(() => deliver(150), 50);
   };
 
   /**
@@ -3648,6 +3674,7 @@ export default function App() {
             void recordTurnOutcome(outcome).catch(() => undefined);
           }}
           onStartWorkflow={(turnId, mode, tier) => {
+            turnStarts.current += 1;
             if (tier === 'guided') guidedTurns.current.add(turnId);
             editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true));
           }}

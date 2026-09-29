@@ -87,15 +87,18 @@ export function ProductionBar({ comp, busy, onAdvance, onPolish }: {
         </button>
       )}
       {button && (
+        // Named, not just an icon: this is the one thing the user has to press to move on, and a
+        // bare ▶ read as decoration (people typed "do it" into the chat instead).
         <button
           type="button"
-          className={`production-go${busy ? ' busy' : ''}`}
+          className={`production-go labelled${busy ? ' busy' : ''}`}
           disabled={busy}
           title={busy ? 'Waiting for the assistant…' : `${button.label} — ${button.hint}`}
           aria-label={busy ? 'Waiting for the assistant' : button.label}
           onClick={() => next && onAdvance(next)}
         >
-          {busy ? <LoaderCircle size={14} className="spin" /> : <Play size={14} fill="currentColor" />}
+          {busy ? <LoaderCircle size={14} className="spin" /> : <Play size={13} fill="currentColor" />}
+          <span>{busy ? 'Working…' : button.label}</span>
         </button>
       )}
     </div>

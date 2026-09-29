@@ -140,7 +140,7 @@ function phaseInstruction(status: WorkflowPhaseStatus): string {
   return `Call editing_workflow_status first. The production is in the ${phase} phase: finish this phase and end your turn — the user presses ${next} to move on. Do not edit the timeline in this turn.`;
 }
 
-export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void; /** Stops the turn that is running, if any. */ stop: () => void; /** Puts `text` in the composer (after anything typed) and focuses it, without sending. */ compose: (text: string) => void };
+export type ChatApi = { clear: () => void; focus: () => void; /** True while a turn is running. */ busy: () => boolean; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void; /** Stops the turn that is running, if any. */ stop: () => void; /** Puts `text` in the composer (after anything typed) and focuses it, without sending. */ compose: (text: string) => void };
 
 /**
  * Where the chat's latest turn stands, for a host that shows it while the chat is out of sight
@@ -357,8 +357,11 @@ ${text}` : text));
       input.selectionStart = input.selectionEnd = input.value.length;
     });
   };
+  /** Whether a turn is running, as of the last render (for the host: App waits on it). */
+  const busyRef = useRef(false);
   useImperativeHandle(props.apiRef, () => ({
     compose,
+    busy: () => busyRef.current,
     clear: () => {
       setMessages([]);
       scroll.reset();
@@ -373,8 +376,9 @@ ${text}` : text));
     focus: () => {
       inputRef.current?.focus();
     },
-    send: (text: string) => {
-      sendRef.current(text);
+    // The mode travels with the message: a production phase is the full workflow whatever the composer says.
+    send: (text: string, options?: { mode?: 'full' | 'quick' }) => {
+      sendRef.current(text, options?.mode);
     },
     load: (saved: unknown[]) => loadTranscript(saved),
     stop: () => stopRef.current(),
@@ -389,6 +393,7 @@ ${text}` : text));
   const turnMeta = useRef(new Map<string, { provider: string; model: string | null; prompt: string }>());
 
   const streaming = messages.some((message) => message.role === 'assistant' && message.status === 'streaming');
+  busyRef.current = streaming;
   // The latest turn's state for the host: its status and the step it is on (the newest unfinished
   // step, else the newest one). Reported only when one of those changes, not on every streamed word.
   const latest = [...messages].reverse().find((message): message is Assistant => message.role === 'assistant');
@@ -873,7 +878,7 @@ ${text}` : text));
   };
 
   stopRef.current = () => stop('Stopped by you');
-  props.apiRef.current = { clear, compose, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript, stop: () => stopRef.current() };
+  props.apiRef.current = { clear, compose, busy: () => busyRef.current, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript, stop: () => stopRef.current() };
   sendRef.current = (text: string, mode?: 'full' | 'quick') => void send(text, undefined, mode);
 
   // The Program monitor's "Send to chat": whatever is in the composer goes, with the annotations.
@@ -1642,7 +1647,8 @@ function ThinkingRow({ text, live }: { text: string; live: boolean }) {
   const [started] = useState(() => Date.now());
   const [now, setNow] = useState(started);
   const [took, setTook] = useState<number | null>(null);
-  const [chosen, setChosen] = useState<boolean | null>(null);
+  /** What the user asked for: all of it, or none; null follows the stream (a peek while it thinks). */
+  const [chosen, setChosen] = useState<'full' | 'closed' | null>(null);
   const [lingering, setLingering] = useState(live);
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1659,22 +1665,25 @@ function ThinkingRow({ text, live }: { text: string; live: boolean }) {
     const handle = window.setTimeout(() => setLingering(false), 1000);
     return () => window.clearTimeout(handle);
   }, [live]);
-  // While it streams, the window keeps its newest line in view.
+  // While it streams, the window keeps its newest line in view (opened in full too).
   useEffect(() => {
     if (live && body.current) body.current.scrollTop = body.current.scrollHeight;
   }, [text, live]);
-  const open = chosen ?? lingering;
+  // A peek (the last lines) while it thinks; the whole text once the user opens it; nothing after.
+  const view: 'peek' | 'full' | 'closed' = chosen ?? (lingering ? 'peek' : 'closed');
+  const open = view !== 'closed';
   const seconds = Math.max(1, Math.round((now - started) / 1000));
   return (
-    <div className={`think${open ? ' open' : ''}${live ? ' live' : ''}`}>
-      <button type="button" className="think-btn" onClick={() => setChosen(!open)} aria-expanded={open}>
+    <div className={`think${open ? ' open' : ''}${view === 'peek' ? ' peek' : ''}${view === 'full' ? ' full' : ''}`}>
+      <button type="button" className="think-btn" onClick={() => setChosen(view === 'full' ? 'closed' : 'full')} aria-expanded={view === 'full'}
+        title={view === 'full' ? 'Hide the thinking' : 'Show all of the thinking'}>
         <span className={live ? 'ai-shimmer' : undefined}>{live ? 'Thinking' : took ? `Thought for ${took}s` : 'Thought process'}</span>
         {live && <span className="think-time">· {seconds}s</span>}
         <ChevronRight size={12} className={`think-chevron${open ? ' rotate-90' : ''}`} />
       </button>
       <div className="think-fold" aria-hidden={!open}>
         <div>
-          <div className="think-body" ref={body}>{text}</div>
+          <div className="think-body" ref={body} onClick={view === 'peek' ? () => setChosen('full') : undefined} title={view === 'peek' ? 'Show all of the thinking' : undefined}>{text}</div>
         </div>
       </div>
     </div>

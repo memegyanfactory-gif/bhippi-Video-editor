@@ -3652,6 +3652,8 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
   animation: goPulse 2.4s ease-in-out infinite;
 }
 .production-go:hover:not(:disabled) { transform: scale(1.08); filter: brightness(1.08); }
+.production-go.labelled { width: auto; padding: 0 13px 0 11px; gap: 6px; border-radius: 16px; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.production-go.labelled:hover:not(:disabled) { transform: scale(1.03); }
 .production-go:active:not(:disabled) { transform: scale(0.96); }
 .production-go:disabled { opacity: 0.6; cursor: default; box-shadow: none; animation: none; }
 .production-go.busy { animation: none; }

@@ -106,7 +106,9 @@
 .msg-assistant .think.open .think-fold { grid-template-rows: 1fr; opacity: 1; }
 .msg-assistant .think-fold > div { min-height: 0; overflow: hidden; }
 .msg-assistant .think-body { margin: 4px 0 2px 1px; padding-left: 12px; border-left: 1px solid var(--line-strong); color: var(--text-faint); font-size: 12px; line-height: 1.55; white-space: pre-wrap; max-height: 260px; overflow-y: auto; user-select: text; -webkit-user-select: text; }
-.msg-assistant .think.live .think-body { max-height: 70px; overflow: hidden; -webkit-mask-image: linear-gradient(transparent, #000 22px); mask-image: linear-gradient(transparent, #000 22px); }
+/* While it thinks: a peek at the newest lines. Clicked open: all of it, scrolling when long. */
+.msg-assistant .think.peek .think-body { max-height: 70px; overflow: hidden; -webkit-mask-image: linear-gradient(transparent, #000 22px); mask-image: linear-gradient(transparent, #000 22px); cursor: pointer; }
+.msg-assistant .think.full .think-body { max-height: min(60vh, 560px); }
 .msg-assistant .notes, .msg-assistant .limit-note, .msg-assistant .edits-card, .msg-assistant .fault-card { margin-left: 28px; }
 .msg-assistant .edits-card { border-radius: var(--r2); }
 .msg-assistant .fault-card { border-radius: var(--r2); }
