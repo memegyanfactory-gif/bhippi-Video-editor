@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { modelGroup, pickerEntries, speedIndex, speedSteps, tierFamilies, tierOf } from '../src/lib/modelTiers';
+import { modelGroup, pickerEntries, prettyModel, speedIndex, speedSteps, tierFamilies, tierOf } from '../src/lib/modelTiers';
 import { variantModel } from '../src/lib/modelVariants';
 
 // Lists as the real providers print them on the dev machine (September 2026).
@@ -105,5 +105,16 @@ describe('pickerEntries', () => {
     expect(modelGroup('claude-opus-4-6')).toBe('Claude');
     expect(modelGroup('opus')).toBe('Aliases');
     expect(modelGroup('grok-4.7')).toBe('Grok');
+  });
+});
+
+describe('prettyModel', () => {
+  it('reads ids the way the composer shows them', () => {
+    expect(prettyModel('claude-sonnet-4-5-20250929')).toBe('Claude Sonnet 4.5');
+    expect(prettyModel('claude-opus-5-5')).toBe('Claude Opus 5.5');
+    expect(prettyModel('gpt-5.1-codex-mini')).toBe('GPT 5.1 Codex Mini');
+    expect(prettyModel('openrouter/anthropic/claude-3.5-sonnet')).toBe('Claude 3.5 Sonnet');
+    expect(prettyModel('o3-mini')).toBe('o3 Mini');
+    expect(prettyModel('opus')).toBe('Opus');
   });
 });

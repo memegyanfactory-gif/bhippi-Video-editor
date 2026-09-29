@@ -12,7 +12,7 @@ import { FaultCard } from '../components/FaultCard';
 import { ModelPicker } from '../components/ModelPicker';
 import { useToast } from '../components/ui';
 import { permissionBrief, type Effort, type PermissionMode } from '../lib/permissions';
-import { PermissionMenu, ThinkingSlider } from './ComposerControls';
+import { PermissionMenu, ThinkingMenu, WorkflowMenu } from './ComposerControls';
 import { ChatStatusBar, type AgentRun, type Connection } from './ChatStatusBar';
 import { UsageMeter } from './UsageMeter';
 import * as usage from '../lib/usage';
@@ -39,7 +39,7 @@ import { avatarBus } from '../avatar/bus';
 import type { TurnOutcome } from '../lib/ideagraph';
 import { changeSummary, type TurnChange } from '../lib/turnChanges';
 import { TrainingCard } from './TrainingCard';
-import { BhippiMark, StatusDot, StopGlyph, type MarkState } from './BhippiMark';
+import { BhippiMark, StatusDot, type MarkState } from './BhippiMark';
 import { useChatScroll } from './useChatScroll';
 import { kitsInMessage, kitsMatching, kitTag } from '../lib/kitMention';
 import { brandKitContext } from '../lib/brandKit';
@@ -237,6 +237,8 @@ type Props = {
    */
   harness?: HarnessId;
   placeholder?: string;
+  /** The open project's name, for the empty chat's headline. */
+  projectName?: string;
   label?: string;
   /** This chat takes the Program monitor's annotations (the main chat, not the Plugin Maker's). */
   annotations?: boolean;
@@ -1098,7 +1100,7 @@ ${text}` : text));
           <div className="chat-empty">
             <div className="chat-empty-inner">
               <BhippiMark className="chat-empty-mark" size={52} />
-              <p className="chat-empty-title">What are we making?</p>
+              <h1 className="chat-empty-title">{props.projectName?.trim() ? <>What should we make in <span className="chat-empty-project" title={props.projectName}>{props.projectName.trim()}</span>?</> : 'What are we making?'}</h1>
               <p className="chat-empty-sub">Ask for an edit, a cut, captions or a whole video. Bhippi works on the timeline you have open.</p>
               <div className="chat-empty-chips">
                 {EMPTY_PROMPTS.map((prompt) => (
@@ -1441,45 +1443,60 @@ ${text}` : text));
           rows={2}
           aria-label="Message Bhippi AI"
         />
-        <div className="composer-bar"><button type="button" className="icon-btn" aria-label="Attach files" title="Attach pictures, video or audio — or drop them here" onClick={()=>void pickFiles()}><Paperclip size={15}/></button>
-          <ModelPicker
-            providers={props.providers.filter((provider) => provider.usable && provider.enabled)}
-            providerId={props.providerId}
-            model={props.model}
-            onSelect={chooseModel}
-            onManage={props.onManageProviders}
-            open={pickerOpen}
-            onOpenChange={setPickerOpen}
-            // The picker's field had the keyboard and is gone once it closes: without this, what the
-            // user types next reached the editor's shortcuts instead of the message box.
-            onDone={() => window.setTimeout(() => inputRef.current?.focus(), 0)}
-          />
-          <div className="composer-options">{(levels.length > 0 || speeds.length > 1) && (
-            <ThinkingSlider
-              effort={props.effort}
-              levels={levels}
-              onSelect={props.onEffort}
-              speeds={speeds}
-              speedAt={speedIndex(speeds, props.model)}
-              sends={props.model ? variantModel(active?.models ?? [], props.model, props.effort) : null}
-              onSpeed={(next) => props.providerId && chooseModel(props.providerId, next)}
+        <div className="composer-bar">
+          <div className="composer-pills">
+            <ModelPicker
+              providers={props.providers.filter((provider) => provider.usable && provider.enabled)}
+              providerId={props.providerId}
+              model={props.model}
+              onSelect={chooseModel}
+              onManage={props.onManageProviders}
+              open={pickerOpen}
+              onOpenChange={setPickerOpen}
+              // The picker's field had the keyboard and is gone once it closes: without this, what the
+              // user types next reached the editor's shortcuts instead of the message box.
+              onDone={() => window.setTimeout(() => inputRef.current?.focus(), 0)}
             />
-          )}
-          {!props.lockedMode && <select className="composer-select" aria-label="Editing workflow" title="Auto: asking for a video to be made runs the full workflow (analysis, storyboard, review); a targeted change runs as a quick edit. Full always runs the whole workflow; Quick never does." value={workflowChoice} onChange={(e) => { const next = e.target.value as WorkflowChoice; setWorkflowChoice(next); saveWorkflowChoice(next); }} disabled={streaming}>
-            <option value="auto">Auto workflow</option><option value="full">Full workflow</option><option value="quick">Quick edit</option>
-          </select>}
-          <PermissionMenu mode={props.permission} onSelect={props.onPermission} />
+            {(levels.length > 0 || speeds.length > 1) && (
+              <>
+                <span className="composer-sep" aria-hidden="true" />
+                <ThinkingMenu
+                  effort={props.effort}
+                  levels={levels}
+                  onSelect={props.onEffort}
+                  speeds={speeds}
+                  speedAt={speedIndex(speeds, props.model)}
+                  sends={props.model ? variantModel(active?.models ?? [], props.model, props.effort) : null}
+                  onSpeed={(next) => props.providerId && chooseModel(props.providerId, next)}
+                />
+              </>
+            )}
+            {!props.lockedMode && (
+              <>
+                <span className="composer-sep" aria-hidden="true" />
+                <WorkflowMenu value={workflowChoice} onSelect={(next) => { setWorkflowChoice(next); saveWorkflowChoice(next); }} disabled={streaming} />
+              </>
+            )}
+            <span className="composer-sep" aria-hidden="true" />
+            <PermissionMenu mode={props.permission} onSelect={props.onPermission} />
           </div>
-          {streaming ? (
-            <>
-              {/* Typed while it works: this goes into the running turn rather than waiting for it. */}
-              {draft.trim() && <button type="submit" className="send-btn" title="Add to the running task (Enter)"><ArrowUp size={16} /></button>}
-              <button type="button" className="send-btn stop" onClick={() => stop()} title="Stop" aria-label="Stop Bhippi"><StopGlyph /></button>
-            </>
-          ) : (
-            <button type="submit" className="send-btn" disabled={!draft.trim() && !images.length && !(props.annotations && pendingNotes.length)} title="Send (Enter)"><ArrowUp size={16} /></button>
-          )}
+          <div className="composer-actions">
+            <button type="button" className="icon-btn composer-attach" aria-label="Attach files" title="Attach pictures, video or audio — or drop them here" onClick={() => void pickFiles()}><Paperclip size={16} /></button>
+            {streaming ? (
+              <>
+                {/* Typed while it works: this goes into the running turn rather than waiting for it. */}
+                {draft.trim() && <button type="submit" className="send-btn" title="Add to the running task (Enter)" aria-label="Queue message"><SendArrow /></button>}
+                <button type="button" className="send-btn stop" onClick={() => stop()} title="Stop" aria-label="Stop Bhippi">
+                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
+                </button>
+              </>
+            ) : (
+              <button type="submit" className="send-btn" disabled={!draft.trim() && !images.length && !(props.annotations && pendingNotes.length)} title="Send (Enter)" aria-label="Send"><SendArrow /></button>
+            )}
+          </div>
         </div>
+        {/* The light stream that runs round the composer while Bhippi works (styles/composer.css). */}
+        <span className="composer-stream" aria-hidden="true"><span className="composer-stream-glow"><i /></span><span className="composer-stream-ring" /></span>
       </form>
 
       <ChatStatusBar
@@ -1491,6 +1508,15 @@ ${text}` : text));
         onManageConnections={props.onManageConnections}
       />
     </div>
+  );
+}
+
+/** The send arrow: a thin up-arrow drawn to sit centred in the round button. */
+function SendArrow() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

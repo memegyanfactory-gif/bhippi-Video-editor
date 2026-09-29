@@ -3636,7 +3636,7 @@ export default function App() {
             vanishes rather than sitting there as a permanent row of green checks. Saving a
             plan for the next task starts a fresh production (see parseProduction), which
             brings the dock back. */}
-        <ChatPanel apiRef={chatApi} annotations providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
+        <ChatPanel apiRef={chatApi} annotations projectName={project.name} providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
           productionBar={comp?.production && comp.production.phase !== 'done' && (
             <ProductionBar
               comp={comp}

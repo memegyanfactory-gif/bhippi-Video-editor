@@ -13,6 +13,8 @@ import './styles/themes.css';
 import './styles/terminal.css';
 import './styles/brandkit.css';
 import './styles/license.css';
+// Last, so the composer's rules win over the older ones in app.css.
+import './styles/composer.css';
 
 // A desktop app has no use for the browser's own context menu (Back, Reload, Inspect) — except
 // when the user has text selected, where that menu's "Copy" is the only right-click way to grab

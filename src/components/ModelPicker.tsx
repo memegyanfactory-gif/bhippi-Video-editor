@@ -1,28 +1,38 @@
-// Provider + model picker for the chat composer (adapted from the Bhippi desktop app's UnifiedModelPicker).
+// Provider + model picker for the chat composer.
 //
-// The panel is one fixed height whatever the provider lists — OpenCode alone lists nearly four
-// hundred models — and the list scrolls inside it. Families that come in several sizes (Gemini
-// Pro · Flash · Flash-Lite, Claude Opus · Sonnet · Haiku…) fold into one row with the sizes as
-// pills, sections follow the vendor, recent picks sit on top, and the keyboard drives it all from
-// the search box: ↑ ↓ to move, Enter to choose, Esc to close.
-import { Check, ChevronDown, LoaderCircle, Plus, RefreshCw, Search, Settings2, Star } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+// A quiet pill in the composer (provider glyph, model name, chevron) opens a fixed 360×346 panel:
+// a narrow rail of providers down the left — Favorites first — with one bar that slides to the
+// one in view, and on the right a search on an underline over a flat list of models. Each row is
+// the model's readable name (a NEW tag for models that turned up this week), the provider under
+// it, a Ctrl+1…9 chip on the first nine rows and a star. Providers with long lists (OpenCode
+// alone lists nearly four hundred) show their first section and fold the others into rows that
+// open in place. The keyboard drives all of it from the search box: ↑ ↓ to move, Enter to
+// choose, Ctrl+1…9 to jump, Tab to walk the rail, Esc to close.
+import { Check, ChevronDown, ChevronRight, LoaderCircle, Plus, RefreshCw, Search, Settings2, Star } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/ipc';
 import type { ProviderInfo } from '../lib/types';
 import { splitVariant } from '../lib/modelVariants';
-import { modelTitle, pickerEntries, type PickerEntry } from '../lib/modelTiers';
+import { modelGroup, prettyModel, tierFamilies, tierOf } from '../lib/modelTiers';
+import { pickerModels } from '../lib/modelVariants';
 import { ProviderLogo } from './ProviderLogo';
 import '../styles/models.css';
 
 const FAVORITES_KEY = 'bhippi.favoriteModels.v1';
 const RECENTS_KEY = 'bhippi.recentModels.v1';
+const FIRST_SEEN_KEY = 'bhippi.modelFirstSeen.v1';
 /** A model list older than this is re-read in the background when the picker opens. */
 export const STALE_AFTER_MS = 10 * 60_000;
-/** The panel's height. It never grows with the list; the list scrolls inside it. */
-const PANEL_HEIGHT = 400;
+/** How long a model that just appeared in a provider's list keeps its NEW tag. */
+const NEW_FOR_MS = 7 * 24 * 60 * 60_000;
+const PANEL_WIDTH = 360;
+const PANEL_HEIGHT = 346;
 const SEARCH_LIMIT = 150;
+/** A provider list longer than this shows its first section and folds the rest. */
+const FOLD_AFTER = 14;
 const key = (provider: string, model: string) => `${provider}::${model}`;
+const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 
 function loadList(storageKey: string): string[] {
   try {
@@ -41,6 +51,41 @@ function saveList(storageKey: string, list: string[]) {
   }
 }
 
+/**
+ * When each model was first listed, so a model a provider adds can say NEW for a week. The very
+ * first run records everything as old: a fresh install should not call the whole list new.
+ */
+function firstSeen(providers: ProviderInfo[], now: number): Record<string, number> {
+  let seen: Record<string, number> = {};
+  let fresh = false;
+  try {
+    const raw = localStorage.getItem(FIRST_SEEN_KEY);
+    fresh = raw === null;
+    const value: unknown = JSON.parse(raw ?? '{}');
+    if (value && typeof value === 'object') seen = value as Record<string, number>;
+  } catch {
+    fresh = true;
+  }
+  let changed = false;
+  for (const provider of providers) {
+    for (const id of provider.models) {
+      const k = key(provider.id, id);
+      if (typeof seen[k] !== 'number') {
+        seen[k] = fresh ? 0 : now;
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    try {
+      localStorage.setItem(FIRST_SEEN_KEY, JSON.stringify(seen));
+    } catch {
+      // Only the NEW tags depend on it.
+    }
+  }
+  return seen;
+}
+
 /** Model ids are long; the picker shows the readable tail. */
 export function shortModel(model: string) {
   const base = splitVariant(model)?.base || model;
@@ -51,9 +96,9 @@ export function shortModel(model: string) {
 export function defaultModelLabel(provider: ProviderInfo | undefined) {
   if (!provider) return 'Choose a provider';
   if (provider.kind === 'builtin') return 'Offline commands';
-  if (provider.kind === 'cli') return 'Default model';
+  if (provider.kind === 'cli') return `${provider.label} default`;
   // The backend sends the first listed model when none is picked (recommended ones lead the list).
-  return provider.models[0] ? `Auto (${shortModel(provider.models[0])})` : 'Default model';
+  return provider.models[0] ? `Auto (${prettyModel(provider.models[0])})` : 'Default model';
 }
 
 /** Whether any row's model list is old enough to re-read. */
@@ -80,10 +125,33 @@ type Props = {
   onDone?: () => void;
 };
 
-/** Something the keyboard can land on, in the order it is drawn. */
-type Option = { provider: string; model: string | null };
+/** One model the list can show. */
+type Row = { provider: ProviderInfo; id: string; title: string; group: string };
 
-type Section = { title: string | null; provider: ProviderInfo; entries: PickerEntry[] };
+/** What the list draws, in order: models, the provider's default, and folded sections. */
+type Item =
+  | { type: 'model'; row: Row }
+  | { type: 'default'; provider: ProviderInfo }
+  | { type: 'fold'; group: string; count: number; open: boolean }
+  | { type: 'custom'; provider: ProviderInfo };
+
+/** A provider's models, one row per model: effort variants folded away, sizes kept apart. */
+function rowsOf(provider: ProviderInfo): Row[] {
+  const ids = pickerModels([...new Set(provider.models)]);
+  // A family's sizes (Opus · Sonnet · Haiku) sit next to each other, largest first.
+  const families = tierFamilies(ids);
+  const placed = new Set<string>();
+  const ordered: string[] = [];
+  for (const id of ids) {
+    const family = families.get(tierOf(id).family);
+    if (!family) ordered.push(id);
+    else if (!placed.has(tierOf(id).family)) {
+      placed.add(tierOf(id).family);
+      ordered.push(...[...family].reverse().map((step) => step.id));
+    }
+  }
+  return ordered.map((id) => ({ provider, id, title: prettyModel(id), group: modelGroup(id) }));
+}
 
 export function ModelPicker({ providers: allProviders, providerId, model, onSelect, onManage, open, onOpenChange, onDone }: Props) {
   // The offline command parser is not listed: it is Bhippi's own fallback, not an AI to choose.
@@ -91,6 +159,7 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
   const anchor = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const rail = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState(providerId ?? providers[0]?.id ?? '');
   const [query, setQuery] = useState('');
@@ -98,9 +167,12 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
   const [customOpen, setCustomOpen] = useState(false);
   const [favorites, setFavorites] = useState(() => loadList(FAVORITES_KEY));
   const [recents, setRecents] = useState(() => loadList(RECENTS_KEY));
+  const [unfolded, setUnfolded] = useState<string[]>([]);
   const [cursor, setCursor] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [position, setPosition] = useState({ left: 8, bottom: 48, width: 440, height: PANEL_HEIGHT });
+  const [bar, setBar] = useState<number | null>(null);
+  const [seen, setSeen] = useState<Record<string, number>>({});
+  const [position, setPosition] = useState({ left: 8, bottom: 48, width: PANEL_WIDTH, height: PANEL_HEIGHT });
   const current = allProviders.find((provider) => provider.id === providerId);
   const tabProvider = providers.find((provider) => provider.id === tab);
 
@@ -111,7 +183,11 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
 
   useEffect(() => {
     if (open) {
-      setTab(providerId && providers.some((p) => p.id === providerId) ? providerId : providers[0]?.id ?? '');
+      // Like t3code: Favorites first when there are any, else the provider in use.
+      const inUse = providerId && providers.some((p) => p.id === providerId) ? providerId : providers[0]?.id ?? '';
+      setTab(favorites.length ? 'favorites' : inUse);
+      setUnfolded([]);
+      setSeen(firstSeen(providers, Date.now()));
       window.setTimeout(() => search.current?.focus(), 0);
     } else {
       setQuery('');
@@ -132,7 +208,7 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
     const place = () => {
       const rect = anchor.current?.getBoundingClientRect();
       if (!rect) return;
-      const width = Math.min(440, window.innerWidth - 16);
+      const width = Math.min(PANEL_WIDTH, window.innerWidth - 16);
       const bottom = Math.max(8, window.innerHeight - rect.top + 6);
       const height = Math.max(220, Math.min(PANEL_HEIGHT, window.innerHeight - bottom - 12));
       setPosition({ width, bottom, height, left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) });
@@ -142,67 +218,77 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
     return () => window.removeEventListener('resize', place);
   }, [open]);
 
-  const needle = query.trim().toLowerCase();
+  // The rail's one selection bar slides to the button in view.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const button = rail.current?.querySelector<HTMLElement>('[data-rail-on="true"]');
+    setBar(button ? button.offsetTop + button.offsetHeight / 2 - 10 : null);
+  }, [open, tab, providers.length]);
 
-  // What the list shows, as sections of rows. Built once per input change.
-  const sections = useMemo<Section[]>(() => {
+  const needle = query.trim().toLowerCase();
+  const allRows = useMemo(() => new Map(providers.map((provider) => [provider.id, rowsOf(provider)])), [providers]);
+  const starred = (row: Row) => favorites.includes(key(row.provider.id, row.id));
+
+  // What the list shows, in order. Built once per input change.
+  const items = useMemo<Item[]>(() => {
     if (needle) {
-      return providers.flatMap((provider) => {
-        const words = needle.split(/\s+/);
-        const label = provider.label.toLowerCase();
-        const entries = pickerEntries(provider.models, provider.id === providerId ? model : null)
-          .filter((entry) => words.every((word) => entry.haystack.includes(word) || label.includes(word)));
-        return entries.length ? [{ title: provider.label, provider, entries }] : [];
-      });
+      const words = needle.split(/\s+/);
+      const hits = providers.flatMap((provider) => (allRows.get(provider.id) ?? []).filter((row) => {
+        const hay = `${row.id} ${row.title} ${provider.label}`.toLowerCase();
+        return words.every((word) => hay.includes(word));
+      }));
+      // Favorites first, then the provider's own order.
+      hits.sort((a, b) => Number(starred(b)) - Number(starred(a)));
+      return hits.slice(0, SEARCH_LIMIT).map((row) => ({ type: 'model', row }));
     }
     if (tab === 'favorites') {
-      return providers.flatMap((provider) => {
-        const entries = pickerEntries(provider.models, provider.id === providerId ? model : null)
-          .flatMap((entry) => {
-            const ids = entry.tiers.length ? entry.tiers.map((step) => step.id) : [entry.id];
-            return ids.filter((id) => favorites.includes(key(provider.id, id)))
-              .map((id): PickerEntry => ({ id, title: modelTitle(id), group: entry.group, tiers: [], haystack: id }));
-          });
-        return entries.length ? [{ title: provider.label, provider, entries }] : [];
-      });
+      return providers.flatMap((provider) => (allRows.get(provider.id) ?? []).filter(starred).map((row): Item => ({ type: 'model', row })));
     }
     if (!tabProvider) return [];
-    const entries = pickerEntries(tabProvider.models, tabProvider.id === providerId ? model : null);
+    const rows = allRows.get(tabProvider.id) ?? [];
+    const out: Item[] = [{ type: 'default', provider: tabProvider }];
     const recent = recents
       .filter((item) => item.startsWith(`${tabProvider.id}::`))
-      .map((item) => item.slice(tabProvider.id.length + 2))
-      .filter((id) => tabProvider.models.includes(id))
-      .slice(0, 3)
-      .map((id): PickerEntry => ({ id, title: modelTitle(id), group: 'Recent', tiers: [], haystack: id }));
-    const groups = new Map<string, PickerEntry[]>();
-    for (const entry of entries) groups.set(entry.group, [...(groups.get(entry.group) ?? []), entry]);
-    // Headings only earn their space when there is more than one section to tell apart.
-    const out: Section[] = [];
-    if (recent.length && entries.length > 6) out.push({ title: 'Recent', provider: tabProvider, entries: recent });
-    for (const [group, rows] of groups) out.push({ title: groups.size > 1 || out.length ? group : null, provider: tabProvider, entries: rows });
+      .map((item) => item.slice(tabProvider.id.length + 2));
+    // Favorites, then what was picked lately, then the provider's order.
+    const rank = (row: Row) => (starred(row) ? 0 : recent.includes(row.id) ? 1 : 2);
+    const sorted = [...rows].sort((a, b) => rank(a) - rank(b));
+    if (rows.length <= FOLD_AFTER) out.push(...sorted.map((row): Item => ({ type: 'model', row })));
+    else {
+      // Favorites, recents and the first section show; every other section folds.
+      const first = rows[0]?.group;
+      const shown = sorted.filter((row) => rank(row) < 2 || row.group === first);
+      out.push(...shown.map((row): Item => ({ type: 'model', row })));
+      const rest = new Map<string, Row[]>();
+      for (const row of sorted) if (!shown.includes(row)) rest.set(row.group, [...(rest.get(row.group) ?? []), row]);
+      for (const [group, groupRows] of rest) {
+        const isOpen = unfolded.includes(group);
+        out.push({ type: 'fold', group, count: groupRows.length, open: isOpen });
+        if (isOpen) out.push(...groupRows.map((row): Item => ({ type: 'model', row })));
+      }
+    }
+    if (tabProvider.acceptsCustomModel) out.push({ type: 'custom', provider: tabProvider });
     return out;
-  }, [needle, tab, tabProvider, providers, providerId, model, favorites, recents]);
+  }, [needle, tab, tabProvider, providers, allRows, favorites, recents, unfolded]);
 
-  const showDefault = !needle && tab !== 'favorites' && !!tabProvider;
-  let shown = 0;
-  const trimmed = sections.map((section) => {
-    const room = Math.max(0, SEARCH_LIMIT - shown);
-    const entries = needle ? section.entries.slice(0, room) : section.entries;
-    shown += entries.length;
-    return { ...section, entries };
-  });
-  const hidden = needle ? sections.reduce((sum, section) => sum + section.entries.length, 0) - shown : 0;
+  const hidden = needle ? providers.reduce((sum, provider) => sum + (allRows.get(provider.id) ?? []).filter((row) => needle.split(/\s+/).every((word) => `${row.id} ${row.title} ${provider.label}`.toLowerCase().includes(word))).length, 0) - items.length : 0;
 
-  const options: Option[] = [
-    ...(showDefault && tabProvider ? [{ provider: tabProvider.id, model: null }] : []),
-    ...trimmed.flatMap((section) => section.entries.map((entry) => ({ provider: section.provider.id, model: entry.id }))),
-  ];
+  // Two rows with the same readable name (an alias and its dated snapshot) show their ids.
+  const clashes = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const item of items) if (item.type === 'model') count.set(item.row.title, (count.get(item.row.title) ?? 0) + 1);
+    return count;
+  }, [items]);
+
+  // Ctrl+1…9 belong to the first nine models in view.
+  const jumps = items.flatMap((item, at) => (item.type === 'model' ? [at] : [])).slice(0, 9);
 
   // The cursor starts on the model in use, so Enter on open keeps things as they are.
   useEffect(() => {
     if (!open) return;
-    const at = options.findIndex((option) => option.provider === providerId && sameModel(option.model, model));
-    setCursor(at >= 0 ? at : 0);
+    const at = items.findIndex((item) => item.type === 'model' && item.row.provider.id === providerId && sameModel(item.row.id, model));
+    const fallback = items.findIndex((item) => item.type === 'model');
+    setCursor(at >= 0 ? at : Math.max(0, fallback));
   }, [open, tab, needle]);
 
   useEffect(() => {
@@ -220,6 +306,14 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
     onDone?.();
   };
 
+  const activate = (item: Item | undefined) => {
+    if (!item) return;
+    if (item.type === 'model') choose(item.row.provider.id, item.row.id);
+    else if (item.type === 'default') choose(item.provider.id, null);
+    else if (item.type === 'fold') setUnfolded((groups) => (groups.includes(item.group) ? groups.filter((g) => g !== item.group) : [...groups, item.group]));
+    else setCustomOpen(true);
+  };
+
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -231,29 +325,37 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
         event.preventDefault();
         onOpenChange(false);
         onDone?.();
+        return;
+      }
+      // Ctrl+1…9 (⌘ on a Mac) picks that row, wherever the focus is inside the picker.
+      if ((isMac ? event.metaKey : event.ctrlKey) && !event.shiftKey && !event.altKey && /^[1-9]$/.test(event.key)) {
+        const at = jumps[Number(event.key) - 1];
+        if (at === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        activate(items[at]);
       }
     };
     window.addEventListener('pointerdown', outside, true);
-    window.addEventListener('keydown', keys);
+    window.addEventListener('keydown', keys, true);
     return () => {
       window.removeEventListener('pointerdown', outside, true);
-      window.removeEventListener('keydown', keys);
+      window.removeEventListener('keydown', keys, true);
     };
-  }, [open, onOpenChange]);
+  }, [open, onOpenChange, items, jumps]);
 
   const navigate = (event: React.KeyboardEvent) => {
-    const last = options.length - 1;
+    const last = items.length - 1;
     if (event.key === 'ArrowDown') setCursor((at) => Math.min(last, at + 1));
     else if (event.key === 'ArrowUp') setCursor((at) => Math.max(0, at - 1));
     else if (event.key === 'PageDown') setCursor((at) => Math.min(last, at + 8));
     else if (event.key === 'PageUp') setCursor((at) => Math.max(0, at - 8));
-    else if (event.key === 'Enter') {
-      const option = options[cursor];
-      if (option) choose(option.provider, option.model);
-    } else if (event.key === 'Tab' && !event.shiftKey && !needle) {
-      // Tab walks the provider rail, which is quicker than the mouse for a handful of providers.
+    else if (event.key === 'Enter') activate(items[cursor]);
+    else if (event.key === 'Tab' && !needle) {
+      // Tab walks the provider rail, quicker than the mouse for a handful of providers.
       const ids = ['favorites', ...providers.map((provider) => provider.id)];
-      setTab(ids[(ids.indexOf(tab) + 1) % ids.length]);
+      const step = event.shiftKey ? ids.length - 1 : 1;
+      setTab(ids[(ids.indexOf(tab) + step) % ids.length]);
     } else return;
     event.preventDefault();
   };
@@ -265,153 +367,160 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
     saveList(FAVORITES_KEY, next);
   };
 
-  const label = model ? shortModel(model) : defaultModelLabel(current);
-  let index = showDefault ? 1 : 0;
+  const label = model ? prettyModel(splitVariant(model)?.base || model) : defaultModelLabel(current);
+  const now = Date.now();
+  const jumpLabel = (at: number) => {
+    const n = jumps.indexOf(at);
+    return n < 0 ? null : isMac ? `⌘${n + 1}` : `Ctrl+${n + 1}`;
+  };
 
   return (
     <div ref={anchor} className="picker-anchor">
-      <button type="button" className={`picker-trigger${open ? ' active' : ''}`} onClick={() => onOpenChange(!open)} title={`${current?.label ?? 'Provider'} · ${model ?? 'default'}`}>
-        <ProviderLogo id={providerId ?? 'bhippi'} size={16} />
-        <span className="picker-provider">{current?.label ?? 'Choose provider'}</span>
-        <span className="picker-model">{label}</span>
-        <ChevronDown size={12} />
+      <button
+        type="button"
+        className={`composer-pill picker-trigger${open ? ' active' : ''}`}
+        onClick={() => onOpenChange(!open)}
+        title={`${current?.label ?? 'Provider'} · ${model ?? 'default model'}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <span className="picker-trigger-main">
+          <ProviderLogo id={providerId ?? 'bhippi'} size={16} />
+          <span className="picker-model">{label}</span>
+        </span>
+        <ChevronDown size={14} strokeWidth={2.25} className="pill-chevron" />
       </button>
       {open &&
         createPortal(
-          <div ref={panel} className="popover picker-panel mp" role="dialog" aria-label="Choose AI provider and model" style={{ position: 'fixed', ...position }}>
-            <div className="picker-rail mp-rail">
-              <button type="button" className={`picker-rail-btn${tab === 'favorites' ? ' active' : ''}`} title="Favorites" onClick={() => { setTab('favorites'); setQuery(''); }}>
-                <Star size={14} />
-              </button>
-              {providers.map((provider) => (
-                <button key={provider.id} type="button" title={`${provider.label} · ${provider.models.length} model${provider.models.length === 1 ? '' : 's'}`} className={`picker-rail-btn${tab === provider.id ? ' active' : ''}`} onClick={() => { setTab(provider.id); setQuery(''); search.current?.focus(); }}>
-                  <ProviderLogo id={provider.id} size={18} />
+          <div ref={panel} className="mp2 menu-glass" role="dialog" aria-label="Choose AI provider and model" style={{ position: 'fixed', ...position }}>
+            {!needle && (
+              <div className="mp2-rail" ref={rail} role="tablist" aria-orientation="vertical" aria-label="Providers">
+                <button type="button" role="tab" aria-selected={tab === 'favorites'} data-rail-on={tab === 'favorites'} className="mp2-rail-btn" title="Favorites" onClick={() => { setTab('favorites'); search.current?.focus(); }}>
+                  <Star size={18} fill="currentColor" />
                 </button>
-              ))}
-            </div>
-            <div className="picker-main mp-main">
-              <label className="picker-search">
-                <Search size={13} />
+                <div className="mp2-rail-rule" />
+                {providers.map((provider) => (
+                  <button key={provider.id} type="button" role="tab" aria-selected={tab === provider.id} data-rail-on={tab === provider.id} title={`${provider.label} · ${provider.models.length} model${provider.models.length === 1 ? '' : 's'}`} className="mp2-rail-btn" onClick={() => { setTab(provider.id); search.current?.focus(); }}>
+                    <ProviderLogo id={provider.id} size={20} />
+                  </button>
+                ))}
+                <span className="mp2-rail-fill" />
+                <button type="button" className="mp2-rail-btn small" onClick={refresh} disabled={busy} title="Re-read every provider's model list">
+                  {busy ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+                </button>
+                <button type="button" className="mp2-rail-btn small" onClick={() => { onOpenChange(false); onManage(); }} title="Manage providers">
+                  <Settings2 size={15} />
+                </button>
+                {bar !== null && <span className="mp2-rail-bar" style={{ top: bar }} />}
+              </div>
+            )}
+            <div className="mp2-main">
+              <div className="mp2-search">
+                <Search size={15} />
                 <input
                   ref={search}
-                  placeholder="Search every provider's models…"
+                  placeholder="Search models..."
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   onKeyDown={navigate}
                   role="combobox"
                   aria-expanded="true"
-                  aria-controls="mp-list"
-                  aria-activedescendant={`mp-option-${cursor}`}
+                  aria-controls="mp2-list"
+                  aria-activedescendant={`mp2-option-${cursor}`}
+                  spellCheck={false}
                 />
-              </label>
-              <div className="mp-heading">
-                <strong>{needle ? 'Search' : tab === 'favorites' ? 'Favorites' : tabProvider?.label}</strong>
-                <span>
-                  {needle
-                    ? `${shown + hidden} match${shown + hidden === 1 ? '' : 'es'}`
-                    : tab !== 'favorites' && tabProvider
-                      ? `${tabProvider.models.length} model${tabProvider.models.length === 1 ? '' : 's'}${tabProvider.version ? ` · ${tabProvider.version}` : tabProvider.detectedPort ? ` · port ${tabProvider.detectedPort}` : ''}`
-                      : ''}
-                </span>
-                <button type="button" className="mp-icon" onClick={refresh} disabled={busy} title="Re-read every provider's model list">
-                  {busy ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />}
-                </button>
               </div>
-              <div className="mp-list" id="mp-list" role="listbox" ref={list} aria-label="Models">
-                {showDefault && tabProvider && (
-                  <div
-                    id="mp-option-0"
-                    data-option={0}
-                    role="option"
-                    aria-selected={tabProvider.id === providerId && !model}
-                    className={`mp-row${cursor === 0 ? ' cursor' : ''}${tabProvider.id === providerId && !model ? ' selected' : ''}`}
-                    onClick={() => choose(tabProvider.id, null)}
-                    onPointerMove={() => setCursor(0)}
-                  >
-                    <span className="mp-row-text">
-                      <span className="mp-title">{tabProvider.kind === 'builtin' ? 'Offline command parser' : tabProvider.kind === 'cli' ? 'Use default model' : defaultModelLabel(tabProvider)}</span>
-                      <span className="mp-sub">{tabProvider.kind === 'cli' ? `Whatever ${tabProvider.label} is set to` : tabProvider.kind === 'builtin' ? 'Instant, no AI — direct edit commands' : tabProvider.models[0] ? `Bhippi's pick for ${tabProvider.label}: ${tabProvider.models[0]}` : 'The provider has not listed its models yet'}</span>
-                    </span>
-                    {tabProvider.id === providerId && !model && <Check size={13} className="mp-check" />}
-                  </div>
-                )}
-                {trimmed.map((section, sectionAt) => (
-                  <Fragment key={`${section.provider.id}:${section.title ?? sectionAt}`}>
-                    {section.title && <div className="mp-group" role="presentation">{section.title}</div>}
-                    {section.entries.map((entry) => {
-                      const at = index++;
-                      const provider = section.provider;
-                      const inUse = provider.id === providerId;
-                      const selected = inUse && (sameModel(entry.id, model) || entry.tiers.some((step) => sameModel(step.id, model)));
-                      const starred = favorites.includes(key(provider.id, entry.id));
-                      return (
-                        <div
-                          key={`${provider.id}:${section.title}:${entry.id}`}
-                          id={`mp-option-${at}`}
-                          data-option={at}
-                          role="option"
-                          aria-selected={selected}
-                          title={entry.tiers.length ? entry.tiers.map((step) => step.id).join(' · ') : entry.id}
-                          className={`mp-row${cursor === at ? ' cursor' : ''}${selected ? ' selected' : ''}`}
-                          onClick={() => choose(provider.id, entry.id)}
-                          onPointerMove={() => { if (cursor !== at) setCursor(at); }}
+              <div className="mp2-list" id="mp2-list" role="listbox" ref={list} aria-label="Models">
+                {items.map((item, at) => {
+                  const common = {
+                    id: `mp2-option-${at}`,
+                    'data-option': at,
+                    onPointerMove: () => { if (cursor !== at) setCursor(at); },
+                  };
+                  if (item.type === 'fold') {
+                    return (
+                      <div key={`fold:${item.group}`} {...common} role="option" aria-selected={false} aria-expanded={item.open} className={`mp2-row fold${cursor === at ? ' cursor' : ''}`} onClick={() => activate(item)}>
+                        <span className="mp2-copy">
+                          <span className="mp2-name">{item.group}</span>
+                          <span className="mp2-sub">{item.count} model{item.count === 1 ? '' : 's'}</span>
+                        </span>
+                        <ChevronRight size={16} className={`mp2-fold-chevron${item.open ? ' open' : ''}`} />
+                      </div>
+                    );
+                  }
+                  if (item.type === 'custom') {
+                    return customOpen ? (
+                      <form key="custom" className="mp2-custom" onSubmit={(event) => { event.preventDefault(); if (custom.trim()) choose(item.provider.id, custom.trim()); }}>
+                        <input autoFocus placeholder="Exact model id…" value={custom} onChange={(event) => setCustom(event.target.value)} aria-label="Custom model id" spellCheck={false} />
+                        <button type="submit" className="btn btn-small" disabled={!custom.trim()}>Use</button>
+                      </form>
+                    ) : (
+                      <div key="custom" {...common} role="option" aria-selected={false} className={`mp2-row${cursor === at ? ' cursor' : ''}`} onClick={() => activate(item)}>
+                        <span className="mp2-copy">
+                          <span className="mp2-name mp2-with-icon"><Plus size={12} /> Custom model id</span>
+                          <span className="mp2-sub">Any id {item.provider.label} accepts</span>
+                        </span>
+                      </div>
+                    );
+                  }
+                  if (item.type === 'default') {
+                    const on = item.provider.id === providerId && !model;
+                    return (
+                      <div key="default" {...common} role="option" aria-selected={on} className={`mp2-row${cursor === at ? ' cursor' : ''}${on ? ' selected' : ''}`} onClick={() => activate(item)}>
+                        <span className="mp2-copy">
+                          <span className="mp2-name">{item.provider.kind === 'cli' ? 'Default model' : defaultModelLabel(item.provider)}</span>
+                          <span className="mp2-sub"><ProviderLogo id={item.provider.id} size={12} />{item.provider.kind === 'cli' ? `Whatever ${item.provider.label} is set to` : item.provider.label}</span>
+                        </span>
+                        {on && <Check size={13} className="mp2-check" />}
+                      </div>
+                    );
+                  }
+                  const { row } = item;
+                  const on = row.provider.id === providerId && sameModel(row.id, model);
+                  const star = starred(row);
+                  const fresh = (seen[key(row.provider.id, row.id)] ?? 0) > now - NEW_FOR_MS;
+                  const jump = jumpLabel(at);
+                  return (
+                    <div
+                      key={`${row.provider.id}:${row.id}`}
+                      {...common}
+                      role="option"
+                      aria-selected={on}
+                      title={row.id}
+                      className={`mp2-row${cursor === at ? ' cursor' : ''}${on ? ' selected' : ''}`}
+                      onClick={() => activate(item)}
+                    >
+                      <span className="mp2-copy">
+                        <span className="mp2-name-line">
+                          <span className="mp2-name">{row.title}</span>
+                          {fresh && <span className="mp2-new">New</span>}
+                        </span>
+                        <span className="mp2-sub">
+                          <ProviderLogo id={row.provider.id} size={12} />
+                          {row.provider.label}{(clashes.get(row.title) ?? 0) > 1 ? ` · ${shortModel(row.id)}` : ''}
+                        </span>
+                      </span>
+                      <span className="mp2-end">
+                        {jump && <kbd className="mp2-kbd">{jump}</kbd>}
+                        <button
+                          type="button"
+                          className={`mp2-star${star ? ' on' : ''}`}
+                          title={star ? 'Remove from favorites' : 'Add to favorites'}
+                          aria-label={star ? 'Remove from favorites' : 'Add to favorites'}
+                          onClick={(event) => { event.stopPropagation(); toggleFavorite(row.provider.id, row.id); }}
                         >
-                          <span className="mp-row-text">
-                            <span className="mp-title">{entry.title}</span>
-                            {(needle || tab === 'favorites') && <span className="mp-sub">{provider.label}</span>}
-                            {!needle && tab !== 'favorites' && entry.tiers.length === 0 && entry.title !== entry.id && <span className="mp-sub">{entry.id}</span>}
-                          </span>
-                          {entry.tiers.length > 0 && (
-                            <span className="mp-tiers" role="group" aria-label="Size">
-                              {entry.tiers.map((step) => {
-                                const on = inUse && sameModel(step.id, model);
-                                return (
-                                  <button
-                                    key={step.id}
-                                    type="button"
-                                    className={`mp-tier${on ? ' on' : ''}`}
-                                    title={step.id}
-                                    onClick={(event) => { event.stopPropagation(); choose(provider.id, step.id); }}
-                                  >
-                                    {step.label}
-                                  </button>
-                                );
-                              })}
-                            </span>
-                          )}
-                          {selected && entry.tiers.length === 0 && <Check size={13} className="mp-check" />}
-                          <button
-                            type="button"
-                            className={`picker-star mp-star${starred ? ' on' : ''}`}
-                            title={starred ? 'Remove favorite' : 'Add to favorites'}
-                            onClick={(event) => { event.stopPropagation(); toggleFavorite(provider.id, entry.id); }}
-                          >
-                            <Star size={12} fill={starred ? 'currentColor' : 'none'} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </Fragment>
-                ))}
-                {hidden > 0 && <div className="picker-empty">{hidden} more — keep typing to narrow it down.</div>}
-                {options.length === 0 && (
-                  <div className="picker-empty">
-                    {needle ? 'No matching models.' : tab === 'favorites' ? 'Star a model to keep it here.' : busy ? 'Reading the model list…' : 'This provider listed no models. Refresh, or use a custom id.'}
+                          <Star size={12} fill={star ? 'currentColor' : 'none'} />
+                        </button>
+                      </span>
+                    </div>
+                  );
+                })}
+                {hidden > 0 && <div className="mp2-empty">{hidden} more — keep typing to narrow it down.</div>}
+                {items.length === 0 && (
+                  <div className="mp2-empty">
+                    {needle ? 'No models found' : tab === 'favorites' ? 'Star a model to keep it here.' : busy ? 'Reading the model list…' : 'This provider listed no models.'}
                   </div>
                 )}
-              </div>
-              <div className="mp-foot">
-                {!needle && tabProvider?.acceptsCustomModel && tab !== 'favorites' && (customOpen ? (
-                  <form className="picker-custom mp-custom" onSubmit={(event) => { event.preventDefault(); if (custom.trim()) choose(tabProvider.id, custom.trim()); }}>
-                    <input autoFocus placeholder="Exact model id…" value={custom} onChange={(event) => setCustom(event.target.value)} aria-label="Custom model id" />
-                    <button type="submit" className="btn btn-small" disabled={!custom.trim()}>Use</button>
-                  </form>
-                ) : (
-                  <button type="button" className="mp-link" onClick={() => setCustomOpen(true)}><Plus size={12} /> Custom id</button>
-                ))}
-                <button type="button" className="mp-link" onClick={() => { onOpenChange(false); onManage(); }}>
-                  <Settings2 size={12} /> Manage providers
-                </button>
               </div>
             </div>
           </div>,
@@ -421,7 +530,7 @@ export function ModelPicker({ providers: allProviders, providerId, model, onSele
   );
 }
 
-/** Whether two ids are the same model, ignoring an effort suffix (the slider picks that). */
+/** Whether two ids are the same model, ignoring an effort suffix (the thinking menu picks that). */
 function sameModel(a: string | null, b: string | null) {
   if (a === null || b === null) return a === b;
   return a === b || (splitVariant(a)?.base || a) === (splitVariant(b)?.base || b);

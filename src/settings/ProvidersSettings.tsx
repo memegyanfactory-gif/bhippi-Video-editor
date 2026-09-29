@@ -1,23 +1,17 @@
 // Settings › AI providers.
 //
-// Only what this computer actually has is listed: a CLI on PATH, a model server that answered,
-// an API key that is saved. Everything else Bhippi knows how to reach waits behind "Add
-// provider", one click away, instead of a wall of "not running" and "needs an API key" rows.
-import { Check, ChevronDown, Cloud, Cpu, Download, ExternalLink, KeyRound, Link2, LoaderCircle, Play, Plus, RefreshCw, Sparkles, Terminal, TriangleAlert } from 'lucide-react';
-import { useState } from 'react';
+// Two panes: every provider this computer has down the left (name, version, one status line and
+// the switch that shows it in the chat), and the chosen one's settings on the right. Only what is
+// actually here is listed — a CLI on PATH, a model server that answered, a saved key; everything
+// else Bhippi can reach waits behind "Add provider" instead of a wall of "not running" rows.
+import { Check, ChevronDown, Download, ExternalLink, KeyRound, Link2, LoaderCircle, Play, Plus, RefreshCw, TriangleAlert } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ProviderLogo } from '../components/ProviderLogo';
 import { Toggle, useToast } from '../components/ui';
 import { api, errorText } from '../lib/ipc';
 import { pickerEntries } from '../lib/modelTiers';
-import type { Job, ProviderInfo, ProviderKind, Settings } from '../lib/types';
+import type { Job, ProviderInfo, Settings } from '../lib/types';
 import '../styles/models.css';
-
-const GROUPS: { kind: ProviderKind; title: string; icon: typeof Terminal; blurb: string }[] = [
-  { kind: 'cli', title: 'Coding agents', icon: Terminal, blurb: 'CLIs you are already signed in to. Bhippi runs them per message in an empty workspace — they cannot touch your files.' },
-  { kind: 'local_server', title: 'Local models', icon: Cpu, blurb: 'Model servers running on this computer. Private and free.' },
-  { kind: 'cloud_api', title: 'Cloud APIs', icon: Cloud, blurb: 'Your own keys, stored in the Windows Credential Manager, never in project files.' },
-  { kind: 'builtin', title: 'Built in', icon: Sparkles, blurb: 'Always available, works offline.' },
-];
 
 /** The port each local server listens on out of the box — the placeholder for a custom address. */
 const DEFAULT_PORT: Record<string, number> = { ollama: 11434, lmstudio: 1234, llamacpp: 8080, vllm: 8000, jan: 1337 };
@@ -90,11 +84,17 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [addOpen, setAddOpen] = useState<string | null>(null);
+  /** The provider whose details fill the right-hand pane. */
+  const [selected, setSelected] = useState<string | null>(null);
+  /** Ticks so "Checked 4 min ago" stays true while the page is open. */
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [starting, setStarting] = useState<string | null>(null);
   const [endpoints, setEndpoints] = useState<Record<string, string>>(() => ({ ...(settings.localEndpoints ?? {}) }));
   const [savingEndpoint, setSavingEndpoint] = useState<string | null>(null);
-  const [connectOpen, setConnectOpen] = useState<string | null>(null);
   const installing = new Set(jobs.filter((job) => job.kind === 'install' && job.status === 'running').map((job) => job.label.replace(/^(Installing|Updating) /, '')));
   const ready = providers.filter((row) => row.usable && row.kind !== 'builtin').length;
   const present = providers.filter(isSetUp);
@@ -121,7 +121,6 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
       if (!value.trim()) toast({ tone: 'info', title: `${row.label} key removed` });
       else if (updated?.usable) {
         toast({ tone: 'success', title: `${row.label} connected`, body: `${updated.models.length} models found` });
-        setAddOpen(null);
       } else toast({ tone: 'error', title: `${row.label} key not accepted`, body: updated?.health.state === 'unavailable' ? updated.health.reason : 'Check the key and try again.' });
     } catch (error) {
       toast({ tone: 'error', title: 'Could not save the key', body: errorText(error) });
@@ -225,127 +224,223 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
     );
   };
 
-  /** Address + optional key for a local server, folded away unless it is needed. */
-  const connection = (row: ProviderInfo) => {
-    const open = connectOpen === row.id || needsKey(row) || Boolean(settings.localEndpoints?.[row.id]);
-    if (!open) return <button type="button" className="btn btn-small btn-ghost provider-connection-toggle" onClick={() => setConnectOpen(row.id)}>Running on a different port or computer?</button>;
+  // The pane shows one provider at a time: the one clicked, else the first real one this computer has.
+  const shown = [...present, ...absent].find((row) => row.id === selected)
+    ?? present.find((row) => row.kind !== 'builtin')
+    ?? present[0]
+    ?? absent[0];
+
+  const listRow = (row: ProviderInfo, setUp: boolean) => {
+    const state = status(row, installing.has(row.label));
+    const on = shown?.id === row.id;
     return (
-      <div className="provider-connection">
-        {endpointForm(row)}
-        {(needsKey(row) || row.keySource) && keyForm(row)}
-        <p className="muted">Bhippi checks the usual port{row.id === 'lmstudio' ? ' and the port set in LM Studio' : ''} by itself. Only set an address if {row.label} runs on another port or another computer.</p>
+      <div
+        key={row.id}
+        role="option"
+        aria-selected={on}
+        tabIndex={0}
+        className={`prov-item${on ? ' on' : ''}${!setUp || (row.kind !== 'builtin' && !row.enabled) ? ' dim' : ''}`}
+        onClick={() => setSelected(row.id)}
+        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(row.id); } }}
+      >
+        <ProviderLogo id={row.id} size={18} />
+        <span className="prov-item-copy">
+          <span className="prov-item-name"><b>{row.label}</b>{setUp && row.version && <code>{shortVersion(row.version)}</code>}</span>
+          <span className="prov-item-status">{setUp ? statusLine(row, state.label) : addHint(row)}</span>
+        </span>
+        {setUp && row.kind !== 'builtin' && (
+          <span className="prov-item-toggle" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+            <Toggle checked={row.enabled} onChange={(enabled) => void setEnabled(row, enabled)} label={`Show ${row.label} in the chat`} />
+          </span>
+        )}
       </div>
     );
   };
 
-  const opened = absent.find((row) => row.id === addOpen);
+  const detail = (row: ProviderInfo) => {
+    const state = status(row, installing.has(row.label));
+    const setUp = isSetUp(row);
+    const updateJob = jobs.filter((job) => job.kind === 'install' && [`Updating ${row.label}`, `Installing ${row.label}`].includes(job.label)).at(-1);
+    const models = row.usable && row.models.length > 0 && row.kind !== 'builtin';
+    return (
+      <section className="prov-detail" aria-label={row.label}>
+        <header className="prov-detail-head">
+          <ProviderLogo id={row.id} size={18} />
+          <h4>{row.label}</h4>
+          {setUp && <span className={`pill tone-${state.tone}`}>{state.tone === 'ok' ? <Check size={11} /> : state.tone === 'error' ? <TriangleAlert size={11} /> : null}{state.label}</span>}
+          <span className="prov-detail-spacer" />
+          {row.version && <code className="prov-version">{shortVersion(row.version)}</code>}
+        </header>
+
+        <div className="prov-card">
+          <Field title="Status" desc={statusDetail(row, setUp)}>
+            {row.homepage && (
+              <button type="button" className="icon-btn small" onClick={() => void api.openUrl(row.homepage!)} title={row.kind === 'cloud_api' ? 'Manage keys' : 'Website'}><ExternalLink size={13} /></button>
+            )}
+          </Field>
+          {setUp && row.kind !== 'builtin' && (
+            <Field title="Show in chat" desc="List this provider's models in the chat's model menu.">
+              <Toggle checked={row.enabled} onChange={(enabled) => void setEnabled(row, enabled)} label={`Show ${row.label} in the chat`} />
+            </Field>
+          )}
+          {models && (
+            <Field title={`${row.models.length} model${row.models.length === 1 ? '' : 's'}`} desc={<span className="provider-models-line" title={row.models.join('\n')}>{modelsLine(row)}</span>}>
+              <button type="button" className="btn btn-small" disabled={refreshing} onClick={() => void refresh()} title="Re-read this provider's model list">
+                {refreshing ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />} Refresh
+              </button>
+            </Field>
+          )}
+        </div>
+
+        {row.kind === 'cli' && (
+          <>
+            <h5 className="prov-section">Runtime</h5>
+            <div className="prov-card">
+              {row.installCommand && (
+                <Field title={row.installed ? 'Update' : 'Install'} desc={<code className="prov-code">{row.installCommand}</code>}>
+                  {row.installed
+                    ? <button type="button" className="btn btn-small" disabled={installing.size > 0} onClick={() => void update(row)}>{installing.has(row.label) ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />} Update</button>
+                    : <button type="button" className="btn btn-small btn-primary" disabled={installing.has(row.label)} onClick={() => void install(row)}><Download size={12} /> Install</button>}
+                </Field>
+              )}
+              {!row.installCommand && !row.installed && <Field title="Install" desc="Install it from its website, then press Refresh." />}
+              {row.installed && row.installCommand && (
+                <Field title="Auto-update" desc="Update it once a day while Bhippi is idle.">
+                  <Toggle
+                    checked={(settings.autoUpdateProviders ?? []).includes(row.id)}
+                    onChange={(checked) => onSettings({ ...settings, autoUpdateProviders: checked ? [...new Set([...(settings.autoUpdateProviders ?? []), row.id])] : (settings.autoUpdateProviders ?? []).filter((id) => id !== row.id) })}
+                    label={`Auto-update ${row.label}`}
+                  />
+                </Field>
+              )}
+              {updateJob && (
+                <p className="provider-update-status prov-note" role="status">{updateJob.status === 'running' && <LoaderCircle size={12} className="spin" />}{updateJob.status === 'error' ? 'Update/install failed: ' : updateJob.status === 'done' ? 'Finished: ' : `${updateJob.label}: `}{updateJob.message}</p>
+              )}
+            </div>
+          </>
+        )}
+
+        {row.kind === 'local_server' && (
+          <>
+            <h5 className="prov-section">Connection</h5>
+            <div className="prov-card">
+              <Field title="Server" desc={row.detectedPort ? (row.baseUrl ?? `localhost:${row.detectedPort}`) : (LOCAL_SETUP[row.id] ?? `Start ${row.label} and load a model, then press Refresh.`)}>
+                {row.canStart && !row.detectedPort
+                  ? <button type="button" className="btn btn-small" disabled={starting !== null} onClick={() => void start(row)}>{starting === row.id ? <LoaderCircle size={12} className="spin" /> : <Play size={12} />} Start server</button>
+                  : !row.usable && <button type="button" className="btn btn-small" disabled={refreshing} onClick={() => void refresh()}>{refreshing ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />} Check again</button>}
+              </Field>
+              <Field wide title="Address" desc={`Bhippi checks the usual port${row.id === 'lmstudio' ? ' and the port set in LM Studio' : ''} by itself. Only set one if ${row.label} runs on another port or computer.`}>
+                {endpointForm(row)}
+              </Field>
+              {(needsKey(row) || row.keySource) && (
+                <Field wide title="API key" desc={`Only if you set one in ${row.label}.`}>{keyForm(row)}</Field>
+              )}
+            </div>
+          </>
+        )}
+
+        {row.kind === 'cloud_api' && (
+          <>
+            <h5 className="prov-section">Credentials</h5>
+            <div className="prov-card">
+              <Field wide title="API key" desc={row.keySource === 'env' ? `Read from ${row.keyEnv}. Paste one here to override it.` : row.keySource === 'keychain' ? 'Saved in the Windows Credential Manager, never in project files.' : 'Stored in the Windows Credential Manager, never in project files. Its models are read as soon as it is saved.'}>
+                {keyForm(row)}
+              </Field>
+            </div>
+          </>
+        )}
+      </section>
+    );
+  };
 
   return (
-    <>
-      <div className="settings-intro">
+    <div className="prov">
+      <div className="prov-top">
         <div>
           <h3>AI providers</h3>
-          <p>{ready ? `${ready} provider${ready === 1 ? '' : 's'} ready.` : 'No AI provider is ready yet — the offline command parser still works.'} Models are read from each provider automatically; pick one from the model menu in the chat.</p>
+          <p>{ready ? `${ready} provider${ready === 1 ? '' : 's'} ready.` : 'No AI provider is ready yet — the offline command parser still works.'} Pick a model from the model menu in the chat.</p>
         </div>
-        <div className="provider-intro-actions">
-          <button type="button" className="btn btn-primary" onClick={() => void updateAll()} disabled={refreshing || installing.size > 0 || updatingAll} title={updatable.length ? `Update ${updatable.map((row) => row.label).join(', ')}, then re-read every model list` : 'Re-read every model list (no installed provider needs Bhippi to update it)'}>
-            {updatingAll ? <LoaderCircle size={14} className="spin" /> : <Download size={14} />} Update all
+        <div className="prov-top-actions">
+          <button type="button" className="prov-checked" onClick={() => void refresh()} disabled={refreshing} title="Re-detect providers and re-read every model list">
+            <RefreshCw size={12} className={refreshing ? 'spin' : undefined} />
+            {refreshing ? 'Checking…' : `Checked ${checkedAgo(providers, now)}`}
           </button>
-          <button type="button" className="btn" onClick={() => void refresh()} disabled={refreshing} title="Re-detect providers and re-read every model list">
-            {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />} Refresh
+          <button type="button" className="icon-btn small" onClick={() => void updateAll()} disabled={refreshing || installing.size > 0 || updatingAll} title={updatable.length ? `Update ${updatable.map((row) => row.label).join(', ')}, then re-read every model list` : 'Re-read every model list (no installed provider needs Bhippi to update it)'} aria-label="Update all providers">
+            {updatingAll ? <LoaderCircle size={13} className="spin" /> : <Download size={13} />}
           </button>
+          {absent.length > 0 && (
+            <button type="button" className={`icon-btn small${adding ? ' active' : ''}`} onClick={() => setAdding(!adding)} title={`Add a provider (${absent.length} more Bhippi can reach)`} aria-label="Add provider" aria-expanded={adding}>
+              <Plus size={14} />
+            </button>
+          )}
         </div>
       </div>
       {allJob && <p className="provider-update-status provider-update-all-status" role="status">{updatingAll && <LoaderCircle size={12} className="spin" />}{allJob.status === 'error' ? 'Update all failed: ' : allJob.status === 'done' ? 'Update all finished: ' : ''}{allJob.message}</p>}
-      {GROUPS.map((group) => {
-        const rows = present.filter((row) => row.kind === group.kind);
-        if (!rows.length) return null;
-        return (
-          <section key={group.kind} className="provider-group">
-            <h4><group.icon size={14} /> {group.title}</h4>
-            <p className="group-blurb">{group.blurb}</p>
-            {rows.map((row) => {
-              const state = status(row, installing.has(row.label));
-              const updateJob = jobs.filter(job => job.kind === 'install' && [ `Updating ${row.label}`, `Installing ${row.label}` ].includes(job.label)).at(-1);
-              return (
-                <div key={row.id} className={`provider-row${row.usable ? ' ready' : ''}`}>
-                  <ProviderLogo id={row.id} size={28} />
-                  <div className="provider-main">
-                    <div className="provider-title">
-                      <strong>{row.label}</strong>
-                      <span className={`pill tone-${state.tone}`}>{state.tone === 'ok' ? <Check size={11} /> : state.tone === 'error' ? <TriangleAlert size={11} /> : null}{state.label}</span>
-                    </div>
-                    {row.kind === 'cli' && row.installed && row.installCommand && <label className="provider-auto-update"><input type="checkbox" checked={(settings.autoUpdateProviders ?? []).includes(row.id)} onChange={event => onSettings({ ...settings, autoUpdateProviders: event.target.checked ? [...new Set([...(settings.autoUpdateProviders ?? []), row.id])] : (settings.autoUpdateProviders ?? []).filter(id => id !== row.id) })} /> Auto-update daily when idle</label>}
-                    {updateJob && <p className="provider-update-status" role="status">{updateJob.status === 'running' && <LoaderCircle size={12} className="spin" />}{updateJob.status === 'error' ? 'Update/install failed: ' : updateJob.status === 'done' ? 'Finished: ' : `${updateJob.label}: `}{updateJob.message}</p>}
-                    <div className="provider-detail">
-                      {row.version && <span>{row.version}</span>}
-                      {row.detectedPort && <span>localhost:{row.detectedPort}</span>}
-                      {row.usable && row.models.length > 0 && row.kind !== 'builtin' && <span>{row.models.length} model{row.models.length === 1 ? '' : 's'}</span>}
-                      {row.keySource && <span>key from {row.keySource === 'env' ? row.keyEnv : 'Credential Manager'}</span>}
-                      {!row.usable && row.health.state !== 'healthy' && row.health.state !== 'disabled' && <span className="muted">{row.health.reason}</span>}
-                    </div>
-                    {row.usable && row.models.length > 0 && row.kind !== 'builtin' && <div className="provider-models-line" title={row.models.join('\n')}>{modelsLine(row)}</div>}
-                    {row.kind === 'cloud_api' && keyForm(row)}
-                    {row.kind === 'local_server' && !row.usable && connection(row)}
-                  </div>
-                  <div className="provider-actions">
-                    {row.kind === 'local_server' && row.canStart && !row.detectedPort && <button type="button" className="btn btn-small" disabled={starting !== null} onClick={() => void start(row)}>{starting === row.id ? <LoaderCircle size={12} className="spin" /> : <Play size={12} />} Start server</button>}
-                    {row.kind === 'local_server' && !row.usable && !row.canStart && <button type="button" className="btn btn-small" disabled={refreshing} onClick={() => void refresh()}>{refreshing ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />} Check again</button>}
-                    {row.kind === 'cli' && row.installed && row.installCommand && <button type="button" className="btn btn-small" disabled={installing.size > 0} onClick={() => void update(row)}>{installing.has(row.label) ? <LoaderCircle size={12} className="spin" /> : <RefreshCw size={12} />} Update</button>}
-                    {row.kind === 'cloud_api' && <button type="button" className="btn btn-small" disabled={refreshing} onClick={() => void refresh()} title="Re-read this key's model list">Refresh models</button>}
-                    {((row.kind === 'cli' && row.installed && !row.installCommand) || row.kind === 'local_server') && row.homepage && <button type="button" className="btn btn-small" onClick={() => void api.openUrl(row.homepage!)}>Open app site</button>}
-                    {row.kind === 'builtin' && <span className="muted">Updates with Bhippi</span>}
-                    {row.homepage && (
-                      <button type="button" className="icon-btn small" onClick={() => void api.openUrl(row.homepage!)} title={row.kind === 'cloud_api' ? 'Manage keys' : 'Website'}><ExternalLink size={13} /></button>
-                    )}
-                    {row.kind !== 'builtin' && <Toggle checked={row.enabled} onChange={(enabled) => void setEnabled(row, enabled)} label={`Show ${row.label} in the chat`} />}
-                  </div>
-                </div>
-              );
-            })}
-          </section>
-        );
-      })}
 
-      {absent.length > 0 && (
-        <section className="provider-add">
-          <button type="button" className="btn provider-add-toggle" onClick={() => { setAdding(!adding); setAddOpen(null); }} aria-expanded={adding}>
-            <Plus size={13} /> Add provider <span className="muted">({absent.length})</span> <ChevronDown size={12} style={{ transform: adding ? 'rotate(180deg)' : undefined }} />
-          </button>
-          {adding && (
-            <>
-              <div className="provider-add-list" role="list">
-                {absent.map((row) => (
-                  <button key={row.id} type="button" role="listitem" className={`provider-add-item${addOpen === row.id ? ' open' : ''}`} onClick={() => setAddOpen(addOpen === row.id ? null : row.id)}>
-                    <ProviderLogo id={row.id} size={18} />
-                    <span><strong>{row.label}</strong><small>{addHint(row)}</small></span>
-                  </button>
-                ))}
-              </div>
-              {opened && (
-                <div className="provider-row provider-add-detail">
-                  <ProviderLogo id={opened.id} size={28} />
-                  <div className="provider-main">
-                    <div className="provider-title"><strong>{opened.label}</strong></div>
-                    {opened.kind === 'cloud_api' && <>{keyForm(opened)}<p className="muted">Its models are read from the API as soon as the key is saved.</p></>}
-                    {opened.kind === 'cli' && <div className="provider-detail">{opened.installCommand ? <code>{opened.installCommand}</code> : <span>Install it from its website, then press Refresh.</span>}</div>}
-                    {opened.kind === 'local_server' && <><p className="muted">{LOCAL_SETUP[opened.id] ?? `Start ${opened.label} and load a model, then press Refresh.`}</p>{endpointForm(opened)}</>}
-                  </div>
-                  <div className="provider-actions">
-                    {opened.kind === 'cli' && opened.installCommand && (
-                      <button type="button" className="btn btn-small" onClick={() => void install(opened)} disabled={installing.has(opened.label)}><Download size={12} /> Install</button>
-                    )}
-                    {opened.kind === 'local_server' && <button type="button" className="btn btn-small" disabled={refreshing} onClick={() => void refresh()}><RefreshCw size={12} /> Refresh</button>}
-                    {opened.homepage && (
-                      <button type="button" className="btn btn-small" onClick={() => void api.openUrl(opened.homepage!)}><ExternalLink size={12} /> {opened.kind === 'cloud_api' ? 'Get a key' : 'Website'}</button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
+      <div className="prov-shell">
+        <div className="prov-list" role="listbox" aria-label="Providers">
+          {present.map((row) => listRow(row, true))}
+          {absent.length > 0 && (
+            <button type="button" className="prov-add" onClick={() => setAdding(!adding)} aria-expanded={adding}>
+              <Plus size={12} /> {adding ? 'Hide' : 'Add provider'} <span className="muted">{absent.length}</span>
+              <ChevronDown size={12} style={{ marginLeft: 'auto', transform: adding ? 'rotate(180deg)' : undefined }} />
+            </button>
           )}
-        </section>
-      )}
-    </>
+          {adding && absent.map((row) => listRow(row, false))}
+        </div>
+        {shown ? detail(shown) : <section className="prov-detail"><p className="muted">No providers found. Press Refresh.</p></section>}
+      </div>
+    </div>
+  );
+}
+
+/** "2.1.283 (Claude Code)" → "v2.1.283". */
+function shortVersion(version: string) {
+  const number = version.match(/\d+(?:\.\d+)+/)?.[0];
+  return number ? `v${number}` : version;
+}
+
+/** The line under a provider's name in the list: its state, then what it holds. */
+function statusLine(row: ProviderInfo, state: string) {
+  if (row.kind !== 'builtin' && !row.enabled) return 'Hidden from chat';
+  if (row.kind === 'builtin') return 'Ready · works offline';
+  if (!row.usable) return state;
+  return [state, row.models.length ? `${row.models.length} model${row.models.length === 1 ? '' : 's'}` : null, row.keySource === 'env' ? row.keyEnv : null].filter(Boolean).join(' · ');
+}
+
+/** What the Status row says: where the provider was found and anything wrong with it. */
+function statusDetail(row: ProviderInfo, setUp: boolean) {
+  if (row.kind === 'builtin') return 'Always available and offline: direct edit commands, no AI. Updates with Bhippi.';
+  const parts: string[] = [];
+  if (!setUp) parts.push(row.kind === 'cli' ? 'Not installed on this computer.' : row.kind === 'local_server' ? 'Not running on this computer.' : 'No API key saved yet.');
+  if (row.detectedPort) parts.push(`Answering at localhost:${row.detectedPort}.`);
+  if (row.keySource) parts.push(`Key from ${row.keySource === 'env' ? row.keyEnv : 'the Credential Manager'}.`);
+  if (setUp && !row.usable && row.health.state !== 'healthy' && row.health.state !== 'disabled') parts.push(row.health.reason);
+  if (row.usable && row.health.state === 'degraded') parts.push(row.health.reason);
+  if (row.kind === 'cli' && setUp) parts.push('Runs per message in an empty workspace — it cannot touch your files.');
+  return parts.join(' ') || 'Ready.';
+}
+
+/** "just now", "4 min ago", "2 h ago" — when the newest model list was read. */
+function checkedAgo(providers: ProviderInfo[], now: number) {
+  const newest = Math.max(0, ...providers.map((row) => Date.parse(row.detectedAt)).filter(Number.isFinite));
+  if (!newest) return 'never';
+  const seconds = Math.max(0, Math.round((now - newest) / 1000));
+  if (seconds < 45) return 'just now';
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} min ago`;
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)} h ago`;
+  return `${Math.round(seconds / 86_400)} d ago`;
+}
+
+/** One settings row: a bold title and a line of help on the left, its control on the right (or below, `wide`). */
+function Field({ title, desc, wide, children }: { title: string; desc?: ReactNode; wide?: boolean; children?: ReactNode }) {
+  return (
+    <div className={`prov-field${wide ? ' wide' : ''}`}>
+      <div className="prov-field-copy">
+        <b>{title}</b>
+        {desc && <p>{desc}</p>}
+      </div>
+      {children && <div className="prov-field-control">{children}</div>}
+    </div>
   );
 }

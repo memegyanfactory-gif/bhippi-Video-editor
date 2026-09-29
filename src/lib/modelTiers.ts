@@ -203,3 +203,30 @@ function familyTitle(family: string, tiers: SpeedStep[]): string {
   if (tail) return tail;
   return tiers.every((step) => !/\d/.test(step.id)) ? 'Latest (aliases)' : shortTail(tiers[0].id);
 }
+
+const UPPER = new Set(['gpt', 'oss', 'glm', 'qwq', 'vl', 'ai', 'r1', 'v3', 'v4', 'it']);
+
+/**
+ * How a model reads in the composer: `claude-sonnet-4-5-20250929` → "Claude Sonnet 4.5",
+ * `gpt-5.1-codex-mini` → "GPT 5.1 Codex Mini", `gemini-2.5-flash-lite` → "Gemini 2.5 Flash Lite".
+ * Dates are dropped (the raw id is always one hover away), runs of single numbers become a
+ * version, and the rest is capitalised.
+ */
+export function prettyModel(id: string): string {
+  const tail = shortTail(id).replace(/^~/, '').replace(/:(latest|free)$/i, '');
+  const words: string[] = [];
+  for (const token of tail.split(/[-_ ]+/).filter(Boolean)) {
+    if (/^\d{6,8}$/.test(token) || /^\d{4}-\d{2}-\d{2}$/.test(token)) continue;
+    const previous = words[words.length - 1];
+    // `4` `5` → "4.5", but "GPT 5" + "1" (a single version) after a word stays a word apart.
+    if (/^\d{1,2}$/.test(token) && previous && /^\d+(\.\d+)*$/.test(previous)) {
+      words[words.length - 1] = `${previous}.${token}`;
+      continue;
+    }
+    const lower = token.toLowerCase();
+    if (UPPER.has(lower)) words.push(lower.toUpperCase());
+    else if (/^o\d/.test(lower) || /^\d/.test(token) || /[A-Z]/.test(token.slice(1))) words.push(token);
+    else words.push(lower[0].toUpperCase() + lower.slice(1));
+  }
+  return words.join(' ') || tail;
+}

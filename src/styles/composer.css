@@ -1,0 +1,167 @@
+/* ── The chat composer: one rounded card, the message on top and a row of quiet pills under it ──
+   Model · Thinking · Workflow · Access on the left, attach and a round send on the right, thin
+   seams between the pills. Loaded after app.css (main.tsx), so these rules replace the older
+   composer ones there. */
+
+/* ── the light stream: while Bhippi works, a comet of ember light runs round the composer ──
+   A conic gradient turned by a registered angle, masked to a ring the width of the border. The
+   glow is the same ring blurred — the blur sits on a wrapper because a filter on the masked
+   element itself would be cut back to the ring. */
+@property --stream-angle { syntax: '<angle>'; inherits: true; initial-value: 0deg; }
+
+.composer-stream { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity 0.4s ease; z-index: 2; }
+.chat.working .composer-stream { opacity: 1; animation: stream-orbit 2.6s linear infinite; }
+.composer-stream-ring,
+.composer-stream-glow > i { position: absolute; inset: 0; border-radius: inherit; padding: 1.5px;
+  background: conic-gradient(from var(--stream-angle),
+    transparent 0turn, transparent 0.5turn,
+    color-mix(in srgb, var(--ai-deep) 60%, transparent) 0.72turn,
+    var(--ai) 0.9turn, var(--ai-hi) 0.975turn, #fff4e6 0.995turn, transparent 1turn),
+    linear-gradient(var(--ai-soft), var(--ai-soft));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+.composer-stream-glow { position: absolute; inset: -4px; border-radius: calc(var(--composer-radius, 18px) + 4px); filter: blur(7px); opacity: 0.75; }
+.composer-stream-glow > i { padding: 4px; background: conic-gradient(from var(--stream-angle), transparent 0turn, transparent 0.62turn, var(--ai-deep) 0.8turn, var(--ai) 0.93turn, var(--ai-hi) 0.99turn, transparent 1turn); }
+@keyframes stream-orbit { to { --stream-angle: 1turn; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat.working .composer-stream { animation: none; }
+  .composer-stream-ring { background: var(--ai-line); }
+  .composer-stream-glow { display: none; }
+}
+
+/* ── the card ── */
+.chat .composer {
+  --composer-radius: 18px;
+  --hover-fill: color-mix(in srgb, var(--text) 7%, transparent);
+  container-type: inline-size;
+  margin: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
+  border-radius: var(--composer-radius);
+  background: color-mix(in srgb, var(--panel-2) 72%, var(--panel-3));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 12px 28px -18px rgba(0, 0, 0, 0.7);
+  transition: border-color 0.2s ease, box-shadow 0.2s var(--ease-out);
+}
+.chat .composer:focus-within { border-color: color-mix(in srgb, var(--text) 16%, transparent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 0 0 3px color-mix(in srgb, var(--text) 3%, transparent), 0 12px 28px -18px rgba(0, 0, 0, 0.7); }
+.chat.working .composer { border-color: color-mix(in srgb, var(--ai) 18%, transparent); }
+.chat .composer textarea { display: block; width: 100%; min-height: 58px; max-height: 208px; padding: 2px 4px; font-size: 13px; line-height: 1.6; }
+.chat .composer textarea::placeholder { color: var(--text-faint); opacity: 0.85; }
+
+/* ── the footer: pills on the left, attach and send on the right ── */
+.chat .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.composer-pills { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; margin: -4px -4px -4px -8px; padding: 4px; overflow-x: auto; scrollbar-width: none; }
+.composer-pills::-webkit-scrollbar { display: none; }
+.composer-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.composer-sep { flex: none; width: 1px; height: 16px; margin: 0 3px; background: var(--line-strong); }
+
+.composer-pill { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-dim); font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color 0.12s ease, color 0.12s ease, transform 0.1s ease; }
+.composer-pill > svg { flex: none; color: var(--text-faint); margin: 0 -1px; }
+.composer-pill:hover:not(:disabled), .composer-pill.active { background: var(--hover-fill, color-mix(in srgb, var(--text) 7%, transparent)); color: var(--text); }
+.composer-pill:hover:not(:disabled) > svg, .composer-pill.active > svg { color: var(--text-dim); }
+.composer-pill:active:not(.active):not(:disabled) { transform: scale(0.97); }
+.composer-pill:disabled { opacity: 0.64; }
+.composer-pill .pill-chevron { margin-left: -2px; opacity: 0.85; }
+.pill-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.composer-pill.access-full > svg:first-child { color: color-mix(in srgb, var(--red) 70%, var(--text-dim)); }
+
+/* The model pill gives way first when the row is short. */
+.chat .composer-bar .picker-anchor { flex: 0 1 auto; min-width: 52px; display: flex; }
+.chat .composer-bar .picker-trigger { flex: 0 1 auto; width: auto; max-width: min(230px, 100%); min-width: 52px; justify-content: space-between; overflow: hidden; }
+.picker-trigger-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.chat .composer-bar .picker-model { flex: 1 1 auto; min-width: 0; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.composer-attach { width: 28px; height: 28px; border-radius: 8px; color: var(--text-faint); }
+.composer-attach:hover:not(:disabled) { background: var(--hover-fill); color: var(--text); }
+
+.chat .send-btn { position: relative; isolation: isolate; flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; overflow: hidden; background: var(--blue); color: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--blue) 24%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  transition: transform 150ms var(--spring), background-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease; }
+.chat .send-btn:hover:not(:disabled) { background: var(--blue-hi); transform: scale(1.05); }
+.chat .send-btn:active:not(:disabled) { transform: scale(0.94); box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.08); transition-duration: 60ms; }
+.chat .send-btn:disabled { background: var(--blue); color: #fff; opacity: 0.45; box-shadow: none; }
+.chat .send-btn.stop { background: color-mix(in srgb, var(--red) 88%, transparent); color: #fff; box-shadow: 0 1px 2px color-mix(in srgb, var(--red) 24%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16); }
+.chat .send-btn.stop:hover { background: var(--red); }
+
+/* A narrow chat column keeps every control: the workflow and access pills fall back to their icons. */
+@container (max-width: 400px) {
+  .composer-pill.icon-when-narrow .pill-text { display: none; }
+}
+
+/* ── the empty chat's headline: "What should we make in <project>?" ── */
+.chat-empty .chat-empty-title { margin: 0; color: var(--text); font-size: 20px; font-weight: 400; line-height: 1.3; letter-spacing: -0.02em; text-wrap: balance; }
+.chat-empty-project { display: inline-block; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; font-weight: 500;
+  text-decoration: underline dotted color-mix(in srgb, var(--text) 30%, transparent); text-underline-offset: 4px; text-decoration-thickness: from-font; }
+
+/* ── menus: glass, a 4px inset, plain rows, the current one lightly filled ── */
+.menu-glass { z-index: 2400; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--text) 10%, transparent); border-radius: 10px;
+  background: color-mix(in srgb, var(--overlay) 90%, transparent);
+  backdrop-filter: blur(16px) saturate(1.08); -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.22);
+  transform-origin: bottom left; animation: menu-in 140ms var(--ease-out); }
+@keyframes menu-in { from { opacity: 0; transform: translateY(3px) scale(0.98); } }
+
+.pill-menu { position: fixed; width: max-content; max-width: min(300px, calc(100vw - 16px)); padding: 4px; overflow-y: auto; color: var(--text); font-size: 13px; }
+.pill-menu-head { padding: 6px 8px 4px; color: var(--text-faint); font-size: 11.5px; font-weight: 500; }
+.pill-menu-rule { height: 1px; margin: 4px 8px; background: var(--line-strong); }
+.pill-menu-item { display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: 100%; min-height: 28px; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; outline: none; transition: background-color 0.1s ease; }
+.pill-menu-item.tall { padding: 6px 8px; }
+.pill-menu-item:hover, .pill-menu-item:focus-visible { background: color-mix(in srgb, var(--text) 6%, transparent); box-shadow: none; }
+.pill-menu-item.selected { background: color-mix(in srgb, var(--text) 9%, transparent); }
+.pill-menu-item.selected:hover, .pill-menu-item.selected:focus-visible { background: color-mix(in srgb, var(--text) 12%, transparent); }
+.pill-menu-label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.pill-menu-item.tall .pill-menu-label { font-weight: 600; }
+.pill-menu-label > svg { flex: none; color: var(--text-faint); }
+.pill-menu-badge { display: inline-flex; align-items: center; height: 16px; min-width: 16px; margin-left: 2px; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--text) 14%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--text) 4%, transparent); color: var(--text); font-size: 10px; font-weight: 500; line-height: 1; }
+.pill-menu-desc { max-width: 240px; color: var(--text-faint); font-size: 11.5px; line-height: 16px; white-space: normal; }
+
+/* ── the model picker: rail | search over a flat list ── */
+.mp2 { display: flex; overflow: hidden; padding: 0; color: var(--text); }
+.mp2-rail { position: relative; flex: none; width: 44px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px; overflow-y: auto; scrollbar-width: none; background: color-mix(in srgb, var(--deep) 40%, transparent); }
+.mp2-rail::-webkit-scrollbar { display: none; }
+.mp2-rail-btn { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--text-dim); cursor: pointer; transition: background-color 0.12s ease, color 0.12s ease; }
+.mp2-rail-btn:hover:not(:disabled), .mp2-rail-btn:focus-visible { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); box-shadow: none; }
+.mp2-rail-btn[aria-selected="true"] { color: var(--text); }
+.mp2-rail-btn.small { height: 28px; color: var(--text-faint); }
+.mp2-rail-rule { flex: none; width: 28px; border-bottom: 1px solid color-mix(in srgb, var(--line-strong) 80%, transparent); }
+.mp2-rail-fill { flex: 1; min-height: 4px; }
+.mp2-rail-bar { position: absolute; right: 0; width: 3px; height: 20px; border-radius: 999px 0 0 999px; background: var(--blue); transition: top 200ms ease-out; pointer-events: none; }
+
+.mp2-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid color-mix(in srgb, var(--line-strong) 75%, transparent); background: color-mix(in srgb, var(--text) 2%, transparent); }
+.mp2-search { flex: none; display: flex; align-items: center; gap: 6px; margin: 10px 12px 0; padding-bottom: 6px; border-bottom: 1px solid color-mix(in srgb, var(--line-strong) 80%, transparent); color: var(--text-faint); transition: border-color 0.15s ease; }
+.mp2-search:focus-within { border-color: var(--blue-line); }
+.mp2-search input { flex: 1; min-width: 0; height: 24px; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 13px; outline: none; box-shadow: none; }
+.mp2-search input::placeholder { color: var(--text-faint); }
+
+.mp2-list { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 2px; padding: 6px 6px 8px 8px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 14px), transparent 100%); }
+.mp2-row { flex: none; display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 4px 4px 8px; border-radius: 6px; cursor: pointer; transition: background-color 0.08s ease; }
+.mp2-row.cursor { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.mp2-row.selected { background: color-mix(in srgb, var(--text) 9%, transparent); }
+.mp2-row.selected.cursor { background: color-mix(in srgb, var(--text) 12%, transparent); }
+.mp2-row.fold { padding-right: 8px; }
+.mp2-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mp2-name-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mp2-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 12px; font-weight: 600; line-height: 1.375; }
+.mp2-with-icon { display: inline-flex; align-items: center; gap: 5px; }
+.mp2-new { flex: none; padding: 2px 3px; border: 1px solid color-mix(in srgb, var(--blue-hi) 35%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--blue-hi) 15%, transparent); color: var(--blue-hi); font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em; line-height: 1; text-transform: uppercase; }
+.mp2-sub { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; color: color-mix(in srgb, var(--text-faint) 85%, var(--text-dim)); font-size: 11.5px; line-height: 1.375; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp2-sub > :first-child { flex: none; }
+.mp2-end { flex: none; display: flex; align-items: center; gap: 6px; }
+.mp2-kbd { display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 20px; padding: 0 5px; border: 0; border-radius: 4px; background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text-faint); font-family: var(--font); font-size: 11px; font-weight: 500; }
+.mp2-star { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--text-faint); cursor: pointer; }
+.mp2-star:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.mp2-star.on { color: var(--gold); }
+.mp2-check { flex: none; margin-right: 6px; color: var(--blue-hi); }
+.mp2-fold-chevron { flex: none; color: var(--text-faint); transition: transform 0.15s ease; }
+.mp2-fold-chevron.open { transform: rotate(90deg); }
+.mp2-empty { padding: 10px 8px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
+.mp2-custom { flex: none; display: flex; gap: 6px; padding: 4px 2px 4px 4px; }
+.mp2-custom input { flex: 1; min-width: 0; height: 26px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-glass { animation: none; }
+  .mp2-rail-bar { transition: none; }
+}
