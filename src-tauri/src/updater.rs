@@ -4,9 +4,9 @@
 //! licensed copy of Bhippi, proven by the Google sign-in's token or the pasted key (license.rs).
 //! The installer lands in the data folder's `updates` and is kept only when it is a newer version,
 //! a Windows program, and matches the SHA-256 (and size) the site published; without a published
-//! checksum nothing is kept. It runs only when the user says so: the NSIS installer in passive
-//! update mode (`/P /UPDATE /R`) replaces this install and starts the new version, while Bhippi
-//! exits so nothing holds its files.
+//! checksum nothing is kept. It runs only when the user says so: the NSIS installer in silent
+//! update mode (`/S /UPDATE /R`) replaces this install with no window of its own and starts the new
+//! version, while Bhippi exits so nothing holds its files. The install is per-user, so no UAC prompt.
 use crate::license;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -475,8 +475,8 @@ fn remove_old_installers(dir: &Path, current: &str) {
     }
 }
 
-/// Runs a downloaded installer and closes Bhippi so it can replace the app. The frontend saves
-/// the project first; the installer starts the new version when it is done.
+/// Runs a downloaded installer silently and closes Bhippi so it can replace the app. The frontend
+/// saves the project first; the installer starts the new version when it is done.
 #[tauri::command]
 pub fn update_install(app: AppHandle, path: String) -> CommandResult<()> {
     let dir = updates_dir(&app)?;
@@ -490,7 +490,7 @@ pub fn update_install(app: AppHandle, path: String) -> CommandResult<()> {
     }
     // Started by its name in the updates folder: the file that was checked, as a plain path the
     // installer is happy to see as its own (not the `\\?\` form canonicalize gives).
-    std::process::Command::new(dir.join(&name)).args(["/P", "/UPDATE", "/R"]).spawn().map_err(|error| format!("Couldn’t start the installer: {error}"))?;
+    std::process::Command::new(dir.join(&name)).args(["/S", "/UPDATE", "/R"]).spawn().map_err(|error| format!("Couldn’t start the installer: {error}"))?;
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(600)).await;
         app.exit(0);

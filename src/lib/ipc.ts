@@ -420,7 +420,7 @@ export const api = {
   updateStatus: () => invoke<UpdateStatus>('update_status'),
   /** Stops the download under way (nothing when there is none); its `updateDownload` rejects. */
   updateCancel: () => invoke<void>('update_cancel'),
-  /** Runs a downloaded installer and closes Bhippi; the installer starts the new version. */
+  /** Runs a downloaded installer silently and closes Bhippi; the installer starts the new version. */
   updateInstall: (path: string) => invoke<void>('update_install', { path }),
   /** A file path passed on the command line (double-clicking a .bhippi file). */
   startupFile: () => invoke<string | null>('startup_file'),

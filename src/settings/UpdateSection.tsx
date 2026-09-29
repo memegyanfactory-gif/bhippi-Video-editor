@@ -24,7 +24,7 @@ export function UpdateSection({ version, settings, onSettings }: { version?: str
     : view.kind === 'current' ? [have && `${have}, the newest version`, checkedAt && `checked ${ago(checkedAt)}`].filter(Boolean).join(' · ')
     : view.kind === 'available' ? [have, info?.size ? `${formatBytes(info.size)} download` : ''].filter(Boolean).join(' · ')
     : view.kind === 'downloading' ? 'Keep working — Bhippi will say when it’s ready.'
-    : view.kind === 'ready' ? 'Installing closes Bhippi, saves your project first, and opens the new version when it’s done.'
+    : view.kind === 'ready' ? 'Updating saves your project, closes Bhippi, and reopens the new version a few seconds later.'
     : view.kind === 'installing' ? 'Bhippi will close and reopen.'
     : view.kind === 'idle' ? [have, 'not checked yet'].filter(Boolean).join(' · ')
     : have;

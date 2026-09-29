@@ -61,9 +61,9 @@ export function updateTitle(view: UpdateView, latest: string | null | undefined)
     case 'available': return `${next} is available`;
     case 'downloading': return `Downloading ${latest ? `Bhippi ${latest}` : 'the update'}`;
     case 'ready': return `${next} is ready`;
-    case 'installing': return 'Starting the installer…';
+    case 'installing': return 'Updating Bhippi…';
     case 'error':
-      return view.retry === 'check' ? 'Couldn’t check for updates' : view.retry === 'download' ? 'The download didn’t finish' : 'The installer didn’t start';
+      return view.retry === 'check' ? 'Couldn’t check for updates' : view.retry === 'download' ? 'The download didn’t finish' : 'The update didn’t start';
   }
 }
 
