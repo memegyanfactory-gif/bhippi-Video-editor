@@ -19,6 +19,7 @@ import { ChatMirror, type Desire } from './mirror';
 import { GLYPH_H, drawText, textWidth, wrap } from './pixelFont';
 import { CAT_NAP, FPS, KENNEL, poseAt, type AnimName, type AnimOptions } from './poses';
 import { ART_H, ART_W, CHARACTERS, CAT_TOP, CX, FEET_Y, HAIR_TOP, TORSO_Y, handPoint, paint, type Character, type Gear } from './sprite';
+import { releaseOf, startSwing, stepSwing, swingDegrees, swingStretch, type Swing } from './swing';
 
 /** Screen pixels per art pixel. */
 export const SCALE = 2;
@@ -26,6 +27,10 @@ const S = SCALE;
 /** The art row the mouse holds when it picks the avatar up (a fistful of hair). */
 const HOLD_Y = HAIR_TOP + 9;
 const GRAVITY = 2600;
+/** The art row of the body's centre of mass: what swings on the grip, and what it spins about in the air. */
+const COM_Y = 48;
+/** The centre of mass in the body element's own pixels (the rotation origin whenever it is not held). */
+const COM_LOCAL = { x: CX * S, y: COM_Y * S };
 /**
  * What counts as reaching into the edit while the AI works: grabbing a clip or a track control,
  * dragging a layer in a monitor, changing a value in the inspector. Playing, seeking, scrolling
@@ -136,6 +141,10 @@ export class AvatarEngine {
   private facing: 1 | -1 = 1;
   private angle = 0;
   private angleVel = 0;
+  /** In the hand: the body hanging from the grip (swing.ts). */
+  private swing: Swing | null = null;
+  /** Degrees per second it turns while flying after a throw. */
+  private spin = 0;
   private travel: Leg | null = null;
   /** The legs still to go after the current one (run along a level, then hop down). */
   private legs: Omit<Leg, 't0' | 'from'>[] = [];
@@ -166,7 +175,7 @@ export class AvatarEngine {
   private tag: CouncilRole | null = null;
   private particles: Particle[] = [];
   private lastJob: JobKind | null = null;
-  private styled = new WeakMap<HTMLElement, Partial<Record<'transform' | 'display' | 'opacity', string>>>();
+  private styled = new WeakMap<HTMLElement, Partial<Record<'transform' | 'display' | 'opacity' | 'transformOrigin', string>>>();
   private fxDirty = false;
   private timers: number[] = [];
 
@@ -810,6 +819,9 @@ export class AvatarEngine {
     this.legs = [];
     const pointer = { x: event.clientX, y: event.clientY };
     this.held = { start: performance.now(), startPos: pointer, origin: { ...this.pos }, midAir, grab: { x: this.pos.x - pointer.x, y: this.pos.y - pointer.y }, lifted: 0, pointer, moved: 0, lastLine: 0, samples: [] };
+    // It hangs from the very point under the pointer, posed exactly as it is: no jump, no turn.
+    this.swing = startSwing(pointer, this.centreOfMass(), this.angle);
+    this.spin = 0;
     this.hitbox.classList.add('grabbing');
   };
 
@@ -832,13 +844,15 @@ export class AvatarEngine {
     this.hitbox.classList.remove('grabbing');
     const now = performance.now();
     this.lastActive = now;
+    const swing = this.swing;
+    this.swing = null;
     if (!held.lifted && held.midAir) {
       // Caught mid-fall and let go without a lift: it carries on falling from where it hung.
       this.vel = { x: 0, y: 0 };
       this.mode = 'falling';
       return;
     }
-    if (!held.lifted) {
+    if (!held.lifted || !swing) {
       // A click, not a lift: a giggle where it stands, then back to work.
       this.mode = 'free';
       this.angle = 0;
@@ -847,16 +861,33 @@ export class AvatarEngine {
       this.interrupt(this.makeJob('poked', { line: pick(LINES.poked), minMs: 700 }));
       return;
     }
-    // Only the last moment of the drag throws it; a pause before letting go is a plain drop.
-    const recent = held.samples.filter((s) => now - s.t < 90);
-    const first = recent[0];
-    const last = recent[recent.length - 1];
-    const span = first && last ? Math.max(16, last.t - first.t) / 1000 : 1;
-    this.vel = first && last ? { x: clamp((last.x - first.x) / span, -1600, 1600), y: clamp((last.y - first.y) / span, -1600, 1200) } : { x: 0, y: 0 };
+    // Let go: it flies on with its body's real velocity (the hand's, plus the swing) and keeps
+    // turning at the rate it was swinging. A still hand is a plain drop.
+    const thrown = releaseOf(swing);
+    this.vel = { x: clamp(thrown.velocity.x, -1600, 1600), y: clamp(thrown.velocity.y, -1500, 1300) };
+    this.spin = thrown.spin;
+    // Its feet are where the centre of mass sits over them, as it is turned now.
+    this.pos = { x: swing.bob.x, y: swing.bob.y + (FEET_Y - COM_Y) * S };
     this.mode = 'falling';
     this.fallFrom = this.pos.y;
     this.bubble = null;
   };
+
+  /** The body's centre of mass on screen (it turns about it when not held). */
+  private centreOfMass() {
+    return { x: this.pos.x, y: this.pos.y - (FEET_Y - COM_Y) * S };
+  }
+
+  /** The grip in the body element's own pixels: the centre of mass minus the rod. */
+  private gripLocal(swing: Swing) {
+    return { x: COM_LOCAL.x - swing.arm.x, y: COM_LOCAL.y - swing.arm.y };
+  }
+
+  /** Where its feet reference sits when the grip is at the pointer (the element is placed from it). */
+  private feetFromGrip(swing: Swing) {
+    const grip = this.gripLocal(swing);
+    return { x: swing.pivot.x - grip.x + CX * S, y: swing.pivot.y - grip.y + FEET_Y * S };
+  }
 
   private settleAngle(dt: number) {
     this.angleVel = 0;
@@ -867,20 +898,17 @@ export class AvatarEngine {
   private updateHeld(dt: number, now: number) {
     const held = this.held;
     if (!held?.lifted) return;
-    // Lifted: the hair slides under the cursor over a few frames, then it hangs from there.
-    const k = clamp((now - held.lifted) / 120, 0, 1);
-    const hang = { x: 0, y: (FEET_Y - HOLD_Y) * S };
-    this.pos = { x: held.pointer.x + held.grab.x + (hang.x - held.grab.x) * k, y: held.pointer.y + held.grab.y + (hang.y - held.grab.y) * k };
+    // Lifted: it hangs from where it was grabbed and the physics does the rest — a shake swings
+    // it, circles wind it up (fast enough and it goes right round the cursor), a yank stretches it.
+    held.samples = held.samples.filter((s) => now - s.t < 90);
+    if (this.swing) {
+      stepSwing(this.swing, held.pointer, dt, { gravity: GRAVITY });
+      this.angle = swingDegrees(this.swing);
+      this.pos = this.feetFromGrip(this.swing);
+    }
     this.sitting = false;
     this.setAnim('dangle', now);
     this.tag = null;
-    // Swing from the grip: pulled against the direction the mouse moves. A mouse held still
-    // leaves no fresh samples, so it swings back to hanging straight.
-    const samples = (held.samples = held.samples.filter((s) => now - s.t < 90));
-    const vx = samples.length > 1 ? (samples[samples.length - 1].x - samples[0].x) / Math.max(0.016, (samples[samples.length - 1].t - samples[0].t) / 1000) : 0;
-    const target = clamp(-vx * 0.05, -50, 50) + Math.sin(now / 90) * 6;
-    this.angleVel += ((target - this.angle) * 60 - this.angleVel * 9) * dt;
-    this.angle += this.angleVel * dt;
     if (now - held.lastLine > 1100) {
       held.lastLine = now;
       this.say(pick(LINES.grabbed), 1100, 'laugh');
@@ -914,18 +942,32 @@ export class AvatarEngine {
     this.pos.y += this.vel.y * dt;
     if (this.pos.x < 24 || this.pos.x > window.innerWidth - 24) {
       this.vel.x *= -0.5;
+      // A wall knocks the spin back the other way.
+      this.spin *= -0.6;
       this.pos.x = clamp(this.pos.x, 24, window.innerWidth - 24);
     }
-    this.angle *= 1 - Math.min(1, dt * 8);
+    // Thrown spinning, it turns on through the air, slowed by the air; without a spin it rights itself.
+    if (Math.abs(this.spin) > 30) {
+      this.angle += this.spin * dt;
+      this.spin *= Math.exp(-1.1 * dt);
+    } else {
+      this.spin = 0;
+      const upright = Math.round(this.angle / 360) * 360;
+      this.angle = upright + (this.angle - upright) * (1 - Math.min(1, dt * 8));
+    }
     this.setAnim(this.vel.y < 0 ? 'jump' : 'fall', now);
     if (this.vel.x) this.facing = this.vel.x > 0 ? 1 : -1;
     const ground = this.groundBelow(this.pos.x, before);
     if (this.pos.y >= ground && this.vel.y > 0) {
       this.pos.y = ground;
       this.mode = 'free';
-      this.angle = 0;
+      // Whatever turn it came down on, it gets up the short way round; on its head, it is dizzy.
+      const tilt = ((((this.angle + 180) % 360) + 360) % 360) - 180;
+      const onItsHead = Math.abs(tilt) > 100 || Math.abs(this.spin) > 540;
+      this.angle = tilt;
       this.angleVel = 0;
-      const height = ground - this.fallFrom;
+      this.spin = 0;
+      const height = onItsHead ? Math.max(ground - this.fallFrom, 300) : ground - this.fallFrom;
       this.dust(this.pos.x, this.pos.y, height > 120 ? 10 : 5);
       this.homeOverride = { ...this.pos };
       this.parked = false;
@@ -1161,7 +1203,7 @@ export class AvatarEngine {
   // ── drawing ───────────────────────────────────────────────────────────────
 
   /** Writes a style only when it changed, so an idle avatar costs no style work at all. */
-  private put(el: HTMLElement, prop: 'transform' | 'display' | 'opacity', value: string) {
+  private put(el: HTMLElement, prop: 'transform' | 'display' | 'opacity' | 'transformOrigin', value: string) {
     const seen = this.styled.get(el) ?? {};
     if (seen[prop] === value) return;
     seen[prop] = value;
@@ -1178,7 +1220,19 @@ export class AvatarEngine {
     }
     const left = Math.round(this.pos.x - CX * S);
     const top = Math.round(this.pos.y - FEET_Y * S);
-    this.put(this.body, 'transform', `translate3d(${left}px, ${top}px, 0) rotate(${this.angle.toFixed(1)}deg)`);
+    const swing = this.mode === 'held' ? this.swing : null;
+    const origin = swing ? this.gripLocal(swing) : COM_LOCAL;
+    this.put(this.body, 'transformOrigin', `${origin.x.toFixed(1)}px ${origin.y.toFixed(1)}px`);
+    let turn = `rotate(${this.angle.toFixed(1)}deg)`;
+    if (swing) {
+      // A yank stretches it along the grip, a push squashes it (a little: it is a body, not a rope).
+      const stretch = clamp(swingStretch(swing), -0.15, 0.3) * 0.5;
+      if (Math.abs(stretch) > 0.01) {
+        const axis = ((Math.atan2(swing.arm.y, swing.arm.x) * 180) / Math.PI).toFixed(1);
+        turn += ` rotate(${axis}deg) scale(${(1 + stretch).toFixed(3)}, ${(1 - stretch * 0.35).toFixed(3)}) rotate(${-Number(axis)}deg)`;
+      }
+    }
+    this.put(this.body, 'transform', `translate3d(${left}px, ${top}px, 0) ${turn}`);
     this.put(this.sprite, 'transform', this.facing < 0 ? 'scaleX(-1)' : '');
     // The shadow stays on the surface under a hop, and fades the higher it goes.
     const groundY = this.travel ? this.travel.from.y + (this.travel.to.y - this.travel.from.y) * clamp((now - this.travel.t0) / this.travel.dur, 0, 1) : this.pos.y;
