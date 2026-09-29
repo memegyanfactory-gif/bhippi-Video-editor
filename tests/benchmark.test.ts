@@ -38,6 +38,30 @@ function gate(prompt: string, genres: string[]): string {
   return out.join('\n');
 }
 
+/** Mirrors chat.rs `gate_workflow` for a production: Quick-only sections out, the markers stripped. */
+function gateWorkflow(prompt: string): string {
+  const lines = prompt.split(/\r?\n/);
+  const comment = (line: string) => line.trimStart().startsWith('<!--');
+  const marker = (line: string) => line.trim().match(/^<!-- workflow:(.*)-->$/)?.[1].trim().split(/\s+/) ?? null;
+  const starts = [0];
+  lines.forEach((line, at) => {
+    if (!line.startsWith('## ')) return;
+    let start = at;
+    while (start > 0 && comment(lines[start - 1])) start--;
+    if (starts[starts.length - 1] !== start) starts.push(start);
+  });
+  starts.push(lines.length);
+  const out: string[] = [];
+  for (let i = 0; i + 1 < starts.length; i++) {
+    const section = lines.slice(starts[i], starts[i + 1]);
+    const head: string[] = [];
+    for (const line of section) { if (!comment(line)) break; head.push(line); }
+    if (!head.every((line) => marker(line)?.includes('full') ?? true)) continue;
+    out.push(...section.filter((line) => marker(line) === null));
+  }
+  return out.join('\n');
+}
+
 const tokens = (text: string) => Math.round(text.length / 4);
 const BASELINE = tokens(PROMPT) + tokens(JSON.stringify(tools));
 
@@ -47,7 +71,7 @@ function overhead(brief: string, phase: string | null) {
   const set = routeTools(brief, [], null, phase);
   const full = new Set(set.full);
   const catalogue = tokens(JSON.stringify(tools.map((tool) => (full.has(tool.name) ? tool : slim(tool)))));
-  const prompt = tokens(gate(PROMPT, set.genres)) + tokens(JSON.stringify(set.playbook ?? {}));
+  const prompt = tokens(gate(gateWorkflow(PROMPT), set.genres)) + tokens(JSON.stringify(set.playbook ?? {}));
   return { set, full, catalogue, prompt, step: prompt + catalogue };
 }
 

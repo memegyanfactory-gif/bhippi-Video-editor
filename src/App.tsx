@@ -44,13 +44,15 @@ import { ProgramMonitor, type ProgramApi } from './editor/ProgramMonitor';
 import { SourceMonitor, type SourceApi, type SourceRange } from './editor/SourceMonitor';
 import { DEFAULT_DISPLAY, dropClips, dropIntoEmpty, LABELS, Timeline, type DisplaySettings, type IncomingDrag, type TimelineApi } from './editor/Timeline';
 import { AudioMeters, DEFAULT_METERS, ToolsPanel, TOOL_LABEL } from './editor/ToolsAndMeters';
-import { aiContext, generatedFolderId, runTool, TOOL_SPECS, warmCustomTools } from './lib/aiTools';
+import { aiContext, generatedFolderId, quickContext, rootFolderId, runTool, TOOL_SPECS, warmCustomTools } from './lib/aiTools';
+import { AI_WORK_BIN, aiWorkOutputDir, readyOutputs } from './lib/aiWork';
+import { scopeFromClips } from './lib/quickScope';
 import { repairArgs } from './lib/argRepair';
 import { readDedupeFor } from './lib/readDedupe';
 import { configureTrace, toolEvent, trace } from './lib/turnTrace';
 import { ledgerBrief, projectKey } from './lib/tokenLedger';
 import { customToolsBrief } from './lib/customTools';
-import { brandKitContext, resolveActiveKit } from './lib/brandKit';
+import { brandKitContext, brandKitQuickContext, resolveActiveKit } from './lib/brandKit';
 import { recordTurnOutcome, type TurnOutcome } from './lib/ideagraph';
 import { applyTheme, resolveGlass, resolveMotion, resolveTheme } from './lib/theme';
 import { allowTool, DEFAULT_EFFORT, DEFAULT_PERMISSION, type Effort, type PermissionMode } from './lib/permissions';
@@ -159,6 +161,8 @@ const DOCK_PANEL_MIN: Partial<Record<string, number>> = { program: 320, timeline
 const PANEL_NAMES: Record<string, string> = { project: 'Project', source: 'Source Monitor', program: 'Program Monitor', properties: 'Properties', timeline: 'Timeline', meters: 'Audio Meters', tools: 'Tools', storyboard: 'Storyboard', transcript: 'Transcription', plugins: 'Plugins', effects: 'Effects', subtitles: 'Subtitles', graphics: 'Graphics', audio: 'Audio', 'effect-controls': 'Effect Controls' };
 /** A tab of a stacked frame that belongs to another panel than the one showing (see `panel`). */
 const STACK_TAB = 'dock:';
+/** How long a Full-workflow turn may work with no plan saved before Bhippi reminds it to save one. */
+const PLAN_NUDGE_MS = 10 * 60_000;
 
 /**
  * A saved layout made current: its dock tree, or — for a layout saved before panels could be
@@ -728,6 +732,57 @@ export default function App() {
       return saved;
     },
   }), [history, assetMap, selection, refreshAssets]);
+  // What a CLI agent finishes in <project>/AI Work/Output comes into the "AI Work" bin as it appears
+  // (src/lib/aiWork.ts): looked at every few seconds while a turn runs, and again as it ends, so the
+  // work shows in the Project panel instead of piling up on disk where nobody sees it.
+  const aiWorkSizes = useRef(new Map<string, number>());
+  const aiWorkLooking = useRef(false);
+  const syncAiWork = useCallback(async () => {
+    const projectDir = projectDirRef.current;
+    if (!projectDir || aiWorkLooking.current) return;
+    aiWorkLooking.current = true;
+    try {
+      const listing = await api.fsListDirectory(aiWorkOutputDir(projectDir), true, 3, 500).catch(() => null);
+      if (!listing) return;
+      const { ready, sizes } = readyOutputs(listing.entries, assetsRef.current.map((asset) => asset.path), aiWorkSizes.current);
+      aiWorkSizes.current = sizes;
+      if (!ready.length) return;
+      const folder = rootFolderId(history.current(), (change) => history.commit(change, 'AI Work Folder'), AI_WORK_BIN);
+      const imported = await toolHost.importMedia(ready, folder);
+      actionLogger.ai(`AI Work: brought ${imported.length} finished file${imported.length === 1 ? '' : 's'} into the Project panel`, { paths: ready });
+    } catch (error) {
+      actionLogger.error(`AI Work: could not bring the finished files in: ${errorText(error)}`, { error });
+    } finally {
+      aiWorkLooking.current = false;
+    }
+  }, [history, toolHost]);
+  // The timers below run once for the app's life and read the latest callbacks through refs: the
+  // history changes with every edit, and a timer restarted on each one might never fire mid-turn.
+  const syncAiWorkRef = useRef(syncAiWork);
+  syncAiWorkRef.current = syncAiWork;
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  useEffect(() => {
+    const timer = window.setInterval(() => { if (chatApi.current?.busy()) void syncAiWorkRef.current(); }, 4000);
+    return () => window.clearInterval(timer);
+  }, []);
+  // A Full-workflow turn that has worked for ten minutes with no plan saved is reminded, once, to
+  // save it: until then the user sees no storyboard, no scenes and no Start button, only a turn
+  // that seems to do nothing (29 Sep: 50 minutes of rendering with nothing in the project).
+  const latestTurn = useRef<{ turnId: string; at: number; nudged: boolean } | null>(null);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const turn = latestTurn.current;
+      if (!turn || turn.nudged || !chatApi.current?.busy() || Date.now() - turn.at < PLAN_NUDGE_MS) return;
+      const flow = editWorkflows.current.get(turn.turnId);
+      const state = flow?.mode === 'full' ? flow.status(historyRef.current.current()) : null;
+      if (!state || state.phase !== null || state.blueprintSaved || state.blueprintPlan || state.storyboardCurrent) return;
+      turn.nudged = true;
+      steer.nudge(turn.turnId, 'This Full-workflow turn has worked for 10 minutes and no plan is saved yet, so the user sees nothing: no storyboard, no scenes, no Start button. Save the plan now (save_video_blueprint from scratch, save_storyboard on footage; a scene you will make with your own renderer is mediaSource "render"), then end the turn with its summary so the user can review it and press Start generating.');
+      actionLogger.ai('Plan reminder: a Full-workflow turn has run 10 minutes without saving a plan', { turnId: turn.turnId });
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   /**
    * Separates the subject of the selected clip from its background, and remembers it against the
    * asset. The model must be explicitly downloaded in Model Center; the matte and subject track are cached,
@@ -1531,9 +1586,34 @@ export default function App() {
   // through a ref, so the listener is not torn down and re-added on every edit.
   const closeState = useRef({ savedProject, path: settings.projectPath, current: history.current, save: saveProject });
   closeState.current = { savedProject, path: settings.projectPath, current: history.current, save: saveProject };
+  /** The user already chose to stop the AI's turn and close: the second close request goes on. */
+  const stopTurnAndClose = useRef(false);
   useEffect(() => {
     const window_ = getCurrentWindow();
     const pending = window_.onCloseRequested((event) => {
+      // Closing mid-turn stops the AI: say so first. The chat is saved as it goes and the AI's
+      // finished pieces are in the project's AI Work folder, so stopping keeps what was done, and
+      // the turn reopens as interrupted with Continue to carry on.
+      if (chatApi.current?.busy() && !stopTurnAndClose.current) {
+        event.preventDefault();
+        setDialog(
+          <ConfirmDialog
+            title="Bhippi AI is still working"
+            top
+            body="Closing stops this turn. Everything it has done so far is kept: the chat is saved, and finished pieces are in the project's AI Work folder. Next time, press Continue to carry on from there."
+            confirmLabel="Stop and close"
+            onConfirm={() => {
+              setDialog(null);
+              stopTurnAndClose.current = true;
+              chatApi.current?.stop();
+              // A moment for the stopped transcript to be written, then the usual close (which still asks about unsaved changes).
+              window.setTimeout(() => void window_.close(), 800);
+            }}
+            onClose={() => setDialog(null)}
+          />,
+        );
+        return;
+      }
       const { savedProject: saved, path, current } = closeState.current;
       // A clean close (the next launch will not offer crash recovery).
       markRunning(false);
@@ -1913,6 +1993,8 @@ export default function App() {
     const start = Math.min(...clips.map((clip) => clip.start));
     const end = Math.max(...clips.map(clipEnd));
     const names = [...new Set(clips.map((clip) => clip.name ?? sourceInfo(project, assetMap, clip.source).name))].slice(0, 3).join(', ');
+    // The clips go with the message as a scope chip: Auto runs it as a Quick edit that works there.
+    chatApi.current?.attachScope(scopeFromClips(project, assetMap, comp, clips.map((clip) => clip.id)));
     chatApi.current?.compose(`About the ${clips.length === 1 ? 'selected clip' : `${clips.length} selected clips`} (${names}${clips.length > 3 ? '…' : ''}, ${timecode(start, fps)}–${timecode(end, fps)}): `);
   };
 
@@ -3655,8 +3737,18 @@ export default function App() {
           connections={connections} agents={agents} onStopAgent={stopAgent} onManageConnections={() => setSettingsTab('providers')}
           genPlan={pendingGen ? { plan: pendingGen.plan, assets: assetMap } : null}
           onGenPlan={(plan) => { pendingGen?.resolve(plan); setPendingGen(null); }}
-          onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', tokenBudget: ledgerBrief(projectKey(projectDirRef.current)), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
+          onManageProviders={() => setSettingsTab('providers')} getContext={(turn) => {
+            const kit = resolveActiveKit(settingsRef.current.brandKits, history.current());
+            const kits = settingsRef.current.brandKits?.kits ?? [];
+            // A Quick edit changes what is there: the scoped part of the timeline and the kit's look,
+            // not the reference film, the other kits and the storyboard a production plans with.
+            const quick = turn?.mode === 'quick';
+            const summary = quick ? quickContext(history.current(), assetMap, selection, turn?.scope ?? null) : aiContext(history.current(), assetMap, selection);
+            return { ...(summary as object), ...(quick ? {} : { reference: referenceBrief }), ...(editStyle ? { editStyle } : {}), brandKit: kit ? (quick ? brandKitQuickContext(kit) : brandKitContext(kit)) : null, ...(quick ? {} : { brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })) }), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', tokenBudget: ledgerBrief(projectKey(projectDirRef.current)), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel. Your own shell and file tools start in its "AI Work" subfolder (the aiWork path): keep scripts, caches and test renders there. Put every finished piece meant for the edit (a rendered scene, a still, a stem) in "AI Work/Output" (the aiWorkOutput path): Bhippi brings each new file there into the "AI Work" bin of the Project panel as it appears, so the user sees the work arrive. Never leave finished work only in a scratch folder.', aiWork: aiWorkOutputDir(projectDirRef.current).replace(/[\\/]Output$/, ''), aiWorkOutput: aiWorkOutputDir(projectDirRef.current) } : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
+            // A render finished in the turn's last seconds: two looks, so its size is seen settled.
+            void syncAiWorkRef.current();
+            window.setTimeout(() => void syncAiWorkRef.current(), 2500);
             if (outcome.turnId && turnSnapshots.current.has(outcome.turnId)) {
               const after = history.current();
               // The turn is one undo step, named after what was asked (unless the user edited meanwhile).
@@ -3673,10 +3765,11 @@ export default function App() {
             if (settingsRef.current.ideagraphRecord === false) return;
             void recordTurnOutcome(outcome).catch(() => undefined);
           }}
-          onStartWorkflow={(turnId, mode, tier) => {
+          onStartWorkflow={(turnId, mode, tier, scope) => {
             turnStarts.current += 1;
+            latestTurn.current = { turnId, at: Date.now(), nudged: false };
             if (tier === 'guided') guidedTurns.current.add(turnId);
-            editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true));
+            editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true, true, scope ?? null));
           }}
           workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
           onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)}
@@ -3685,7 +3778,8 @@ export default function App() {
           onUpdateKit={(kitId, change) => { const doc = settingsRef.current.brandKits; if (doc) saveSettings({ brandKits: { ...doc, kits: doc.kits.map((kit) => (kit.id === kitId ? { ...change(kit), updatedAt: new Date().toISOString() } : kit)) } }); }}
           highlightedTurn={aiHighlight?.turnId ?? null}
           onHighlightTurn={(turnId) => { const changes = turnId ? turnChanges.current.get(turnId) ?? [] : []; const ids = changes.filter((change) => change.kind !== 'removed').map((change) => change.clipId); setAiHighlight(turnId && ids.length ? { turnId, clipIds: new Set(ids) } : null); }}
-          productionActive={() => { const current = history.current(); const active = current.comps.find((item) => item.id === current.activeCompId); return !!active?.production && active.production.phase !== 'done'; }} />
+          productionActive={() => { const current = history.current(); const active = current.comps.find((item) => item.id === current.activeCompId); return !!active?.production && active.production.phase !== 'done'; }}
+          canvasBlank={() => { const current = history.current(); const active = current.comps.find((item) => item.id === current.activeCompId); return !active || !active.clips.some((clip) => active.tracks.find((track) => track.id === clip.trackId)?.kind === 'video'); }} />
       </div>
       {chatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void settingsStore.setProviderEnabled(row.id, enabled).then(setProviders)} />}
     </>

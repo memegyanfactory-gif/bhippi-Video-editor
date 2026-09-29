@@ -447,6 +447,15 @@ export function brandKitContext(kit: BrandKit) {
   };
 }
 
+/**
+ * The kit for a Quick edit: what a change to one layer needs (colours, type, logos, layout, what it
+ * learned), not the voice, motion, imagery and guideline a production plans with.
+ */
+export function brandKitQuickContext(kit: BrandKit) {
+  const { id, name, style, summary, colors, typography, logos, layout, learned, learnedNote } = brandKitContext(kit) as ReturnType<typeof brandKitContext> & { learned?: unknown; learnedNote?: string };
+  return { id, name, style, summary, colors, typography, logos, layout, ...(learned ? { learned, learnedNote } : {}), more: 'Binding for every graphic and text. get_brand_kit {"section":"…"} for the voice, motion, imagery, audio or guideline when the change needs them.' };
+}
+
 export function brandKitSummary(kit: BrandKit): string {
   const theme = brandKitTheme(kit);
   return [

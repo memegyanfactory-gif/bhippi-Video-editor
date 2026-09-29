@@ -12,8 +12,14 @@ export type Steer = { id: string; text: string };
 
 const inbox = new Map<string, Steer[]>();
 const listeners = new Set<(turnId: string, ids: string[]) => void>();
+/** Bhippi's own reminders for a running turn (not the user's words), by turn. */
+const nudges = new Map<string, string[]>();
 
 export const steer = {
+  /** A reminder from Bhippi itself, read with the turn's next tool result like a steer. */
+  nudge(turnId: string, text: string) {
+    nudges.set(turnId, [...(nudges.get(turnId) ?? []), text]);
+  },
   /** Waits for the next tool result of `turnId`. */
   push(turnId: string, item: Steer) {
     inbox.set(turnId, [...(inbox.get(turnId) ?? []), item]);
@@ -35,6 +41,9 @@ export const steer = {
    * they went. Returns the result unchanged when nothing is waiting.
    */
   attach<T extends object>(turnId: string, result: T): T {
+    const reminders = nudges.get(turnId) ?? [];
+    nudges.delete(turnId);
+    if (reminders.length) result = { ...result, bhippiNote: reminders.join('\n\n') };
     const items = steer.take(turnId);
     if (!items.length) return result;
     for (const listener of listeners) listener(turnId, items.map((item) => item.id));

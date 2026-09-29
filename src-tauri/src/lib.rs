@@ -3342,8 +3342,16 @@ fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, mut request: ChatR
     // nudges. A harness turn is not about the video, so the editing memory stays out of it.
     if harness.is_none() && ideagraph::learning_on(&state.settings()) {
         if let Some(context) = request.context.as_object_mut() {
-            context.insert("brain".to_owned(), brain::brief(&ideagraph::brain_dir(&state), &request.message));
+            let quick = context.get("editingWorkflow").and_then(serde_json::Value::as_str) == Some("quick");
+            let dir = ideagraph::brain_dir(&state);
+            let brief = if quick { brain::quick_brief(&dir, &request.message) } else { brain::brief(&dir, &request.message) };
+            context.insert("brain".to_owned(), brief);
         }
+    }
+    // An editor turn's CLI agent starts in the project's AI Work folder, so the scripts, renders and
+    // scratch files it makes with its own tools belong to the project, not to the app's data folder.
+    if harness.is_none() {
+        request.workspace = storage::dir(&state, storage::Category::AiWork).ok();
     }
     let (stop_sender, stop) = tokio::sync::watch::channel(false);
     let handle = TurnHandle { stop: stop_sender, row: row.clone(), model: request.model.clone() };
@@ -3480,6 +3488,7 @@ async fn chat_spawn_subagent(
         return Err("subagents need an AI model; the offline command parser cannot run a free-form task".to_owned());
     }
     spec.model = spec.model.or(parent_model);
+    spec.workspace = storage::dir(&state, storage::Category::AiWork).ok();
     let keys = tauri::async_runtime::spawn_blocking(keychain_keys)
         .await
         .unwrap_or_default();

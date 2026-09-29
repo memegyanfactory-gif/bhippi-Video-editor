@@ -159,6 +159,17 @@ fn toml_string(text: &str) -> String {
     out
 }
 
+/// A turn cut off when the app closed carries on in the same Claude Code session (`--resume`),
+/// with everything it read, ran and wrote still in its memory. Only an id shaped like one.
+fn resume_flag_args(spec: &ProviderSpec, req: &CompletionRequest) -> Vec<OsString> {
+    match req.resume.as_deref() {
+        Some(id) if spec.id == "claude" && !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
+            vec![OsString::from("--resume"), OsString::from(id)]
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Claude Code's own tools, all taken away from a sealed turn.
 const CLAUDE_BUILT_INS: &[&str] = &[
     "Bash", "BashOutput", "KillShell", "Edit", "MultiEdit", "Write", "NotebookEdit", "Read", "Glob", "Grep", "LS",
@@ -406,6 +417,7 @@ impl CliProvider {
         let mut extra = effort_flag_args(spec, req);
         extra.extend(model_flag_args(spec, req));
         extra.extend(mcp_flag_args(spec, req, mcp_file));
+        extra.extend(resume_flag_args(spec, req));
         // A backend that reads stdin has nothing in argv to displace, so extra flags go
         // after the recipe. Otherwise they go in front of the vendor's first flag — after a
         // leading subcommand, before `{prompt}` — so a flag can never swallow the prompt.
@@ -504,7 +516,7 @@ impl Provider for CliProvider {
             argv.push(file.path().as_os_str().to_owned());
         }
         if self.spec.id == "claude" && !images.is_empty() { argv.extend([OsString::from("--input-format"),OsString::from("stream-json")]); }
-        let mut command = self.resolved.command();
+        let mut command = self.resolved.command_in(req.workspace.as_deref());
         command.args(&argv);
         // OpenCode reads its per-turn config from the environment; the other wirings travel in argv.
         if self.spec.mcp == Some(McpWiring::OpenCodeConfigFile) && server.is_some() {
@@ -782,6 +794,7 @@ async fn forward(tx: &mpsc::Sender<Result<Delta>>, event: TranscriptEvent) -> Op
             weekly_used: report.weekly.map(|window| window.utilization),
             weekly_resets_at: report.weekly.and_then(|window| window.resets_at),
         },
+        TranscriptEvent::Session(id) => Delta::Session { id },
         TranscriptEvent::Failure(reason) => return Some(reason),
     };
     let _ignored = tx.send(Ok(delta)).await;
@@ -807,6 +820,24 @@ mod tests {
             command: std::path::PathBuf::from(r"C:\Program Files\Bhippi's\bhippi.exe"),
             args: vec!["--mcp-bridge".to_owned(), "50123".to_owned(), "tok-1".to_owned()],
         }
+    }
+
+    /// A turn cut off when the app closed resumes its Claude Code session; nothing else does.
+    #[test]
+    fn a_cut_off_claude_turn_resumes_its_session() {
+        let argv = |id: &str, resume: Option<&str>| -> Vec<String> {
+            let mut request = CompletionRequest::new("", vec![Message::user("hi".to_owned())]);
+            request.resume = resume.map(str::to_owned);
+            CliProvider::argv_for_request(get(id), &request, "hi", Path::new("p"), Path::new("m"))
+                .into_iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect()
+        };
+        let claude = argv("claude", Some("532fdf93-79d3-4d0f-bc60-8111d1432ba7"));
+        assert!(claude.windows(2).any(|pair| pair == ["--resume", "532fdf93-79d3-4d0f-bc60-8111d1432ba7"]), "{claude:?}");
+        assert!(!argv("claude", None).contains(&"--resume".to_owned()));
+        assert!(!argv("claude", Some("x; rm -rf /")).contains(&"--resume".to_owned()), "only an id shaped like one");
+        assert!(!argv("codex", Some("abc")).contains(&"--resume".to_owned()));
     }
 
     fn mcp_argv(id: &str) -> Vec<String> {

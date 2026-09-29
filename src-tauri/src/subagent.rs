@@ -36,6 +36,9 @@ pub struct SubagentSpec {
     /// The project summary the parent turn sees, so the worker knows the timeline it works on.
     #[serde(default)]
     pub context: Option<serde_json::Value>,
+    /// The project's AI Work folder, where the worker's CLI starts. Set by the backend, never the UI.
+    #[serde(skip)]
+    pub workspace: Option<std::path::PathBuf>,
 }
 
 fn default_max_rounds() -> u32 {
@@ -128,7 +131,7 @@ impl Supervisor {
         stop: (watch::Sender<bool>, watch::Receiver<bool>),
     ) -> Result<String, String> {
         let (stop_sender, stop_receiver) = stop;
-        let SubagentSpec { parent_turn_id, task, label, model, persona, context: project, max_rounds } = spec;
+        let SubagentSpec { parent_turn_id, task, label, model, persona, context: project, max_rounds, workspace } = spec;
         let (parent_id, entry_label) = (parent_turn_id.clone(), label.clone());
         let tool_count = Arc::new(AtomicUsize::new(0));
         context.executor = Arc::new(Counted { inner: context.executor, calls: tool_count.clone() });
@@ -154,6 +157,9 @@ impl Supervisor {
                 max_rounds: Some(max_rounds as usize),
                 // A worker is never given a harness's tools: the Plugin Maker cannot spawn workers.
                 harness: None,
+                // A worker writes where its lead does: the project's AI Work folder.
+                workspace,
+                resume_session: None,
             };
 
             // Emit the initial "running" update.

@@ -5,7 +5,7 @@ import { modelVariants, variantModel } from '../lib/modelVariants';
 import { rememberTurnPrompt } from '../lib/turnPrompts';
 import { speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowDown, ArrowUp, ChevronRight, CircleHelp, File as FileIcon, Film, Laugh, MapPin, Music, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronRight, CircleHelp, Crosshair, File as FileIcon, Film, Laugh, MapPin, Music, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
@@ -47,7 +47,8 @@ import type { TrainedKit } from '../lib/brandKit/learnings';
 
 /** m:ss for a place on the timeline. */
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
-import { routeWorkflow, savedWorkflowChoice, saveWorkflowChoice, type WorkflowChoice } from '../lib/workflowRoute';
+import { mergeScopes, scopeBrief, scopeFromAnnotations, scopeLabel, type QuickScope } from '../lib/quickScope';
+import { continuesTheJob, routeWorkflow, savedWorkflowChoice, saveWorkflowChoice, type RouteSignals, type WorkflowChoice, type WorkflowMode } from '../lib/workflowRoute';
 import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 
 export type { ToolRun } from './Activity';
@@ -72,6 +73,10 @@ export type ChatMessage =
       thinking: string;
       steps: Step[];
       status: 'streaming' | 'done' | 'stopped' | 'error';
+      /** The editing workflow this turn ran in. Absent on turns saved before it was recorded. */
+      mode?: WorkflowMode;
+      /** The CLI vendor's conversation id (Claude Code's session), so a cut-off turn can be resumed. */
+      sessionId?: string;
       notes: string[];
       fault: TurnFault | null;
       usage: Usage | null;
@@ -93,6 +98,41 @@ export type ChatMessage =
     };
 
 type Assistant = Extract<ChatMessage, { role: 'assistant' }>;
+
+/** A saved message as it reopens: an answer still writing when the app closed is interrupted, not lost. */
+export function reopened(item: ChatMessage): ChatMessage {
+  if (item.role !== 'assistant' || item.status !== 'streaming') return item;
+  return {
+    ...item,
+    status: 'stopped',
+    steps: item.steps.map((step) => ({ ...step, done: true })),
+    notes: [...item.notes, 'Bhippi closed while this answer was being written. What it did so far is kept; Continue carries on from there.'],
+  };
+}
+
+/**
+ * What Auto routing reads from the conversation: when the last answer stopped or failed, the
+ * workflow it ran in and the request it was working on, so "carry on" (the Continue button, a
+ * handover to another model) resumes the same job in the same workflow.
+ */
+export function routeSignals(messages: ChatMessage[], base: RouteSignals): RouteSignals {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'assistant' || (last.status !== 'stopped' && last.status !== 'error')) return base;
+  let ask: string | null = null;
+  for (let i = messages.length - 2; i >= 0; i--) {
+    const item = messages[i];
+    if (item.role === 'user' && !continuesTheJob(item.content)) { ask = item.content; break; }
+  }
+  // The newest answer on this job that recorded its workflow: a handover turn saved before the
+  // workflow was recorded defers to an earlier one on the same job.
+  let mode: WorkflowMode | null = null;
+  for (let i = messages.length - 1; i >= 0 && !mode; i--) {
+    const item = messages[i];
+    if (item.role === 'user' && !continuesTheJob(item.content)) break;
+    if (item.role === 'assistant' && item.mode) mode = item.mode;
+  }
+  return { ...base, unfinished: { mode, ask } };
+}
 
 /** One row of the `@` list: an edit style, or a reference film. */
 type MentionHit = { kind: 'style'; style: StyleDef } | { kind: 'reference'; ref: ReferenceFilm } | { kind: 'kit'; kit: TrainedKit };
@@ -140,7 +180,7 @@ function phaseInstruction(status: WorkflowPhaseStatus): string {
   return `Call editing_workflow_status first. The production is in the ${phase} phase: finish this phase and end your turn — the user presses ${next} to move on. Do not edit the timeline in this turn.`;
 }
 
-export type ChatApi = { clear: () => void; focus: () => void; /** True while a turn is running. */ busy: () => boolean; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void; /** Stops the turn that is running, if any. */ stop: () => void; /** Puts `text` in the composer (after anything typed) and focuses it, without sending. */ compose: (text: string) => void };
+export type ChatApi = { clear: () => void; focus: () => void; /** True while a turn is running. */ busy: () => boolean; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void; /** Stops the turn that is running, if any. */ stop: () => void; /** Puts `text` in the composer (after anything typed) and focuses it, without sending. */ compose: (text: string) => void; /** Points the next message at clips the user picked ("Ask Bhippi AI about this clip"): a Quick edit's scope. */ attachScope: (scope: QuickScope | null) => void };
 
 /**
  * Where the chat's latest turn stands, for a host that shows it while the chat is out of sight
@@ -185,12 +225,14 @@ type Props = {
   permission: PermissionMode;
   onPermission: (mode: PermissionMode) => void;
   onManageProviders: () => void;
-  /** The project summary sent with each turn (src/lib/aiTools.ts `aiContext`). */
-  getContext: () => unknown;
+  /** The project summary for a turn (src/lib/aiTools.ts `aiContext`); a Quick edit gets the slim one, scoped to what the user pointed at. */
+  getContext: (turn?: { mode: WorkflowMode; scope: QuickScope | null }) => unknown;
   /** `tier`: whether this turn's model runs guided (modelProfile.ts), so its calls are held to templates. */
-  onStartWorkflow: (turnId: string, mode: 'full' | 'quick', tier?: 'full' | 'guided') => void;
+  onStartWorkflow: (turnId: string, mode: 'full' | 'quick', tier?: 'full' | 'guided', scope?: QuickScope | null) => void;
   /** Whether the active comp has a planned production under way (Auto then keeps the full workflow). */
   productionActive?: () => boolean;
+  /** Whether the open comp has no picture yet (empty, or audio only): Auto routes a brief there to Full. */
+  canvasBlank?: () => boolean;
   workflowStatus: (turnId: string) => {
     mode: string; structurallyVerified: boolean; phase?: string | null;
     gather?: { ready: number; total: number; pending: string[] } | null;
@@ -332,6 +374,9 @@ export function ChatPanel(props: Props) {
   const [commandsHidden, setCommandsHidden] = useState(false);
   /** Typed while a turn was still streaming: it goes as soon as the turn ends. */
   const [queued, setQueued] = useState<string | null>(null);
+  /** Clips the user pointed the next message at (a Quick edit's scope); a ref too, for `send`. */
+  const [scopeChip, setScopeChip] = useState<QuickScope | null>(null);
+  const scopeRef = useRef<QuickScope | null>(null);
   const [askDraft, setAskDraft] = useState('');
   const [loaded, setLoaded] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -344,7 +389,7 @@ export function ChatPanel(props: Props) {
   /** Replaces the transcript with one a .bhippi file carried, and makes it the saved chat log. */
   const loadTranscript = (saved: unknown[]) => {
     const valid = (saved as ChatMessage[]).filter((item) => item && (item.role === 'user' || item.role === 'assistant'));
-    setMessages(valid.map((item) => (item.role === 'assistant' && item.status === 'streaming' ? { ...item, status: 'stopped' } : item)));
+    setMessages(valid.map(reopened));
     scroll.reset();
     void api.chatLogSave(valid, props.logScope).catch(() => undefined);
   };
@@ -361,8 +406,14 @@ ${text}` : text));
   };
   /** Whether a turn is running, as of the last render (for the host: App waits on it). */
   const busyRef = useRef(false);
+  const attachScope = (next: QuickScope | null) => {
+    scopeRef.current = next;
+    setScopeChip(next);
+    if (next) inputRef.current?.focus();
+  };
   useImperativeHandle(props.apiRef, () => ({
     compose,
+    attachScope,
     busy: () => busyRef.current,
     clear: () => {
       setMessages([]);
@@ -372,6 +423,8 @@ ${text}` : text));
       setFiles([]);
       setQueued(null);
       setAttached(null);
+      scopeRef.current = null;
+      setScopeChip(null);
       if (props.annotations) annotations.reset();
       void api.chatLogSave([], props.logScope).catch(() => undefined);
     },
@@ -452,7 +505,7 @@ ${text}` : text));
     api.chatLogLoad(props.logScope)
       .then((saved) => {
         const valid = (saved as ChatMessage[]).filter((item) => item && (item.role === 'user' || item.role === 'assistant'));
-        setMessages(valid.map((item) => (item.role === 'assistant' && item.status === 'streaming' ? { ...item, status: 'stopped' } : item)));
+        setMessages(valid.map(reopened));
         // What each provider last said about its plan is in this transcript; without replaying it
         // the meter would claim to know nothing while the number sits a few lines above it.
         for (const item of valid) {
@@ -472,9 +525,17 @@ ${text}` : text));
       .finally(() => setLoaded(true));
   }, []);
 
+  // The transcript is saved as it changes, and every few seconds while a turn is writing, so
+  // closing the app mid-turn loses nothing that was already said or done (it reopens as
+  // interrupted, and Continue carries on).
+  const lastSaved = useRef(0);
   useEffect(() => {
-    if (!loaded || streaming) return;
-    const handle = window.setTimeout(() => void api.chatLogSave(messages, propsRef.current.logScope).catch(() => undefined), 300);
+    if (!loaded) return;
+    const wait = streaming ? Math.max(0, 5000 - (Date.now() - lastSaved.current)) : 300;
+    const handle = window.setTimeout(() => {
+      lastSaved.current = Date.now();
+      void api.chatLogSave(messages, propsRef.current.logScope).catch(() => undefined);
+    }, wait);
     return () => window.clearTimeout(handle);
   }, [messages, loaded, streaming]);
 
@@ -592,6 +653,8 @@ ${text}` : text));
                 : [...message.steps, { id: delta.id, verb: delta.verb, title: delta.title, detail: delta.detail, done: delta.done, at: Date.now() }];
               return { ...message, steps };
             }
+            case 'session':
+              return { ...message, sessionId: delta.id };
             case 'limit': {
               const used = Math.max(delta.sessionUsed ?? 0, delta.weeklyUsed ?? 0);
               // The meter in the bar keeps the full reading, per provider, across restarts.
@@ -699,7 +762,7 @@ ${text}` : text));
     };
   }, [patch]);
 
-  const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick') => {
+  const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick', resumeSession?: string) => {
     const attachedImages=[...imagesRef.current];
     const attachedFiles=[...filesRef.current];
     // Annotations from the Program monitor go with the next message that starts a turn; mid-turn
@@ -710,7 +773,13 @@ ${text}` : text));
       if (streaming && propsRef.current.annotations && annotations.list().length) toast({ tone: 'info', title: 'Annotations are waiting', body: 'They go with your next message once this response finishes.' });
       return;
     }
-    const mode = propsRef.current.lockedMode ?? modeOverride ?? routeWorkflow(workflowChoice, message, propsRef.current.productionActive?.() ?? false);
+    // What the user pointed at: clips picked on the timeline, the layers under their annotations.
+    const pointed = mergeScopes(scopeRef.current, scopeFromAnnotations(notes));
+    const mode = propsRef.current.lockedMode ?? modeOverride ?? routeWorkflow(workflowChoice, message, routeSignals(messages, {
+      productionActive: propsRef.current.productionActive?.() ?? false,
+      scoped: !!pointed,
+      blank: propsRef.current.canvasBlank?.() ?? false,
+    }));
     const taken = notes.length ? annotations.take() : [];
     const brief = annotationBrief(taken);
     // Each annotation's frame, outlined, for models that can see — after the user's own images.
@@ -750,17 +819,21 @@ ${text}` : text));
     // Bhippi's own media first, and compact tool results (modelProfile.ts, chat.rs).
     const profile = modelTier(providerId, model, propsRef.current.guidedMode);
     const guided = profile.tier === 'guided' && !propsRef.current.toolset;
-    propsRef.current.onStartWorkflow(turnId, mode, guided ? 'guided' : 'full');
+    // A Quick edit works where the user pointed; a production is never narrowed to one spot.
+    const scope = mode === 'quick' ? pointed : null;
+    scopeRef.current = null;
+    setScopeChip(null);
+    propsRef.current.onStartWorkflow(turnId, mode, guided ? 'guided' : 'full', scope);
     const history = historyFor(messages, providerId, model);
     // Who the new model is relieving, read straight off the transcript — so a cleared chat has
     // nobody to hand over from and starts clean.
     const handoff = handoffFor(messages, providerId, model);
     const provider = propsRef.current.providers.find((item) => item.id === providerId);
     turnMeta.current.set(turnId, { provider: provider?.label ?? 'Bhippi', model, prompt: message });
-    const extra = [hiddenExtra, brief, filesBrief(attachedFiles)].filter(Boolean).join('\n\n');
+    const extra = [hiddenExtra, brief, scope ? scopeBrief(scope) : null, filesBrief(attachedFiles)].filter(Boolean).join('\n\n');
     const assistant: Assistant = {
       id: uid(), role: 'assistant', turnId, providerId: providerId ?? 'bhippi', providerLabel: provider?.label ?? 'Bhippi', model,
-      content: '', thinking: '', steps: [], status: 'streaming', notes: [], fault: null, usage: null, elapsedMs: null, limit: null,
+      content: '', thinking: '', steps: [], status: 'streaming', mode, notes: [], fault: null, usage: null, elapsedMs: null, limit: null,
     };
     // Your message goes to the top of the panel and the answer grows beneath it (useChatScroll).
     scroll.anchorNext();
@@ -772,10 +845,14 @@ ${text}` : text));
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
       const phase = propsRef.current.workflowStatus(turnId)?.phase;
-      const toolset = propsRef.current.toolset ?? routeTools(message, messages.filter((m) => m.role === 'user').map((m) => m.content), tagged?.id ?? propsRef.current.editStyle, phase, guided);
-      trace(turnId, { ev: 'turn_sent', harness: propsRef.current.harness ?? 'editor', providerId, model, effort: level, messageChars: message.length, images: sentImages.length, historyTurns: history.length, phase: phase ?? null, permission: propsRef.current.permission, editStyle: tagged?.id ?? propsRef.current.editStyle ?? null, genres: toolset.genres, toolsWhole: toolset.full.length, playbook: toolset.playbook?.id ?? null, tier: profile.tier });
+      const routed = propsRef.current.toolset ?? routeTools(message, messages.filter((m) => m.role === 'user').map((m) => m.content), tagged?.id ?? propsRef.current.editStyle, phase, guided);
+      // A playbook is what a production plans from; a Quick edit changes one thing and does not need it.
+      const toolset = mode === 'quick' ? { ...routed, playbook: undefined } : routed;
       const standing = propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId));
-      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), ...kitOverride, toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, modelTier: profile.tier, workflowInstruction: guided ? `${GUIDED_BRIEF}\n\n${standing}` : standing }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}), ...(propsRef.current.harness ? { harness: propsRef.current.harness } : {}) });
+      const context = { ...(getContext({ mode, scope }) as object), ...(tagged ? { editStyle: tagged.id } : {}), ...kitOverride, toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, modelTier: profile.tier, workflowInstruction: guided ? `${GUIDED_BRIEF}\n\n${standing}` : standing };
+      // The workflow and the context's size on every turn, so what a Quick edit saves can be measured.
+      trace(turnId, { ev: 'turn_sent', harness: propsRef.current.harness ?? 'editor', providerId, model, effort: level, mode, scoped: !!scope, contextChars: JSON.stringify(context).length, messageChars: message.length, images: sentImages.length, historyTurns: history.length, phase: phase ?? null, permission: propsRef.current.permission, editStyle: tagged?.id ?? propsRef.current.editStyle ?? null, genres: toolset.genres, toolsWhole: toolset.full.length, playbook: toolset.playbook?.id ?? null, tier: profile.tier });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}), ...(propsRef.current.harness ? { harness: propsRef.current.harness } : {}), ...(resumeSession ? { resumeSession } : {}) });
       setImages([]);
       setFiles([]);
     } catch (error) {
@@ -805,7 +882,8 @@ ${text}` : text));
   const remedy = (message: Assistant, action: TurnFault['remedy']) => {
     if (action === 'retry') {
       const last = lastUserMessage(message.id);
-      if (last) void send(last.content, [retryNote(message, propsRef.current.tools[message.turnId] ?? [], propsRef.current.workflowStatus(message.turnId)), last.annotationBrief].filter(Boolean).join('\n\n'));
+      // A retry is the same job: on Auto it keeps the workflow the failed turn ran in.
+      if (last) void send(last.content, [retryNote(message, propsRef.current.tools[message.turnId] ?? [], propsRef.current.workflowStatus(message.turnId)), last.annotationBrief].filter(Boolean).join('\n\n'), workflowChoice === 'auto' ? message.mode : undefined);
     } else if (action === 'switch_provider') {
       setPickerOpen(true);
     } else if (action === 'compact') {
@@ -880,7 +958,7 @@ ${text}` : text));
   };
 
   stopRef.current = () => stop('Stopped by you');
-  props.apiRef.current = { clear, compose, busy: () => busyRef.current, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript, stop: () => stopRef.current() };
+  props.apiRef.current = { clear, compose, attachScope, busy: () => busyRef.current, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript, stop: () => stopRef.current() };
   sendRef.current = (text: string, mode?: 'full' | 'quick') => void send(text, undefined, mode);
 
   // The Program monitor's "Send to chat": whatever is in the composer goes, with the annotations.
@@ -1339,6 +1417,14 @@ ${text}` : text));
             <button type="button" onClick={() => props.onStyle(null)} aria-label={`Turn off the ${activeStyle.label} style`}><X size={11} /></button>
           </div>
         )}
+        {scopeChip && (
+          <div className="attached-ref attached-scope" title="This message is about these clips: a Quick edit works only there">
+            <Crosshair size={11} />
+            <span className="attached-name">{scopeLabel(scopeChip)}</span>
+            <span className="attached-detail">{streaming ? 'goes with your next message' : 'goes with this message'}</span>
+            <button type="button" onClick={() => { scopeRef.current = null; setScopeChip(null); }} aria-label="Stop pointing at these clips"><X size={11} /></button>
+          </div>
+        )}
         {props.annotations && pendingNotes.length > 0 && (
           <div className="annot-queue" aria-label="Annotations waiting to be sent">
             <div className="annot-queue-head">
@@ -1371,7 +1457,7 @@ ${text}` : text));
           const to = active?.label ?? 'this model';
           return (
             <div className="composer-continue">
-              <button type="button" className="btn btn-small" onClick={() => void send('Carry on with the task from where the last turn stopped. The work already done is listed above; do not redo it.')}
+              <button type="button" className="btn btn-small" onClick={() => void send('Carry on with the task from where the last turn stopped. The work already done is listed above; do not redo it.', undefined, undefined, last.sessionId && last.providerId === 'claude' && props.providerId === 'claude' ? last.sessionId : undefined)}
                 title={`Send the job to ${to}${props.model ? ` · ${props.model}` : ''} to finish, with everything done so far`}>
                 Continue with {to}
               </button>
@@ -1589,6 +1675,7 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
       <div className="msg-meta">
         <span className="msg-avatar bhippi"><BhippiMark state={mark} size={20} /></span>
         <span className="msg-who">Bhippi</span>
+        {message.mode && <span className={`msg-mode mode-${message.mode}`} title={message.mode === 'full' ? 'Full workflow: plan, gather, edit and polish' : 'Quick edit: only the change asked for, no workflow'}>{message.mode === 'full' ? 'Full workflow' : 'Quick edit'}</span>}
         {message.status === 'stopped' && <span className="msg-flag">Stopped</span>}
       </div>
       {message.thinking && <ThinkingRow text={message.thinking} live={thinkingLive} />}

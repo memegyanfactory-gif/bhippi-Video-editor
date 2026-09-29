@@ -49,10 +49,13 @@ pub enum Category {
     Guidelines,
     /// Headless-Blender renders (PNG sequences with alpha plus camera tracks).
     ThreeD,
+    /// Where a CLI agent (Claude Code, Codex…) starts, so the scripts, renders and scratch files it
+    /// makes with its own tools belong to the project instead of the app's data folder.
+    AiWork,
 }
 
 impl Category {
-    pub const ALL: [Category; 16] = [
+    pub const ALL: [Category; 17] = [
         Category::Project,
         Category::Footage,
         Category::Downloads,
@@ -69,6 +72,7 @@ impl Category {
         Category::Research,
         Category::Guidelines,
         Category::ThreeD,
+        Category::AiWork,
     ];
 
     /// The id the frontend names it by (mirrors `src/lib/storage.ts`).
@@ -90,6 +94,7 @@ impl Category {
             Category::Research => "research",
             Category::Guidelines => "guidelines",
             Category::ThreeD => "3d-renders",
+            Category::AiWork => "ai-work",
         }
     }
 
@@ -112,6 +117,7 @@ impl Category {
             Category::Research => "Documents/Research",
             Category::Guidelines => "Documents/Guidelines",
             Category::ThreeD => "3D renders",
+            Category::AiWork => "AI Work",
         }
     }
 

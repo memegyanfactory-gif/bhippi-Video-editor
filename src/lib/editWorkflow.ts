@@ -3,6 +3,7 @@ import { describeUncovered, uncoveredSpans } from './coverage';
 import { councilMember, councilReview } from './council';
 import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } from './types';
 import { compDuration, needsFrameSize } from './timeline';
+import type { QuickScope } from './quickScope';
 
 type Args = Record<string, unknown>;
 export type StoryboardSceneInput = { start: number; end: number; intent?: unknown; visual?: unknown; audio?: unknown; evidence?: unknown; refs?: unknown };
@@ -82,9 +83,11 @@ export function videoBlueprintContentError(scenes: VideoBlueprintSceneInput[], k
     const source = text('mediaSource').trim();
     if (text('narration').trim().length < 10) problems.push(`Scene ${n}: narration needs the spoken text for this beat (≥10 chars).`);
     else if (text('visual').trim().length < 40) problems.push(`Scene ${n}: visual needs ≥40 chars of visual direction for this beat. Currently ${text('visual').trim().length} chars.`);
-    else if (!['generate', 'download', 'existing'].includes(source)) problems.push(`Scene ${n}: mediaSource must be "generate", "download", or "existing".`);
+    else if (!['generate', 'download', 'existing', 'render'].includes(source)) problems.push(`Scene ${n}: mediaSource must be "generate", "download", "existing" or "render".`);
     else if (text('audio').trim().length < 20) problems.push(`Scene ${n}: audio needs ≥20 chars of sound design for this beat. Currently ${text('audio').trim().length} chars.`);
     else if (source === 'generate' && text('visualPrompt').trim().length < 20) problems.push(`Scene ${n}: visualPrompt needs a ≥20-char generation prompt when mediaSource is "generate".`);
+    // A scene the agent renders itself says what it will render, so the plan the user approves shows it.
+    else if (source === 'render' && text('visualPrompt').trim().length < 20) problems.push(`Scene ${n}: a "render" scene needs visualPrompt saying what you will render and how (≥20 chars).`);
     // A download is found while gathering: a URL when the plan already has one, otherwise what to search for.
     else if (source === 'download' && !text('mediaUrl').trim() && text('visualPrompt').trim().length < 12) problems.push(`Scene ${n}: a "download" scene needs mediaUrl, or visualPrompt saying what footage to find (≥12 chars) — the gather phase searches for it.`);
     else if (source === 'existing') {
@@ -435,8 +438,16 @@ export class EditWorkflow {
   private shortsQa = new Set<string>();
   /** The workflow comp is a short made earlier: its source plan stands in for a storyboard. */
   private shortComp = false;
-  /** `askFrameSize` is off for plugins: they cannot ask the user, so they are never held for the size. */
-  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false, readonly askFrameSize = true) {
+  /** Every clip that existed when the turn began: one not among them was made by this turn, so it is the turn's to change. */
+  private startClips = new Set<string>();
+  /** Clips outside a Quick edit's scope the model was already asked about once: a second call goes through. */
+  private scopeWarned = new Set<string>();
+  /**
+   * `askFrameSize` is off for plugins: they cannot ask the user, so they are never held for the size.
+   * `scope` is what a Quick edit's user pointed at (src/lib/quickScope.ts): edits stay there.
+   */
+  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false, readonly askFrameSize = true, readonly scope: QuickScope | null = null) {
+    for (const each of project.comps) for (const clip of each.clips) this.startClips.add(clip.id);
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
     this.shortComp = !!comp?.short;
@@ -559,7 +570,7 @@ export class EditWorkflow {
     // picks the frame before anything is planned or built, in Quick edit too.
     const sizeGate = this.sizeGate(name, project, args);
     if (sizeGate) return sizeGate;
-    if (this.mode === 'quick') return null;
+    if (this.mode === 'quick') return this.scopeGate(name, args, project);
     // A tool's documentation changes nothing: refusing it (before a plan, mid-gather) only makes models guess parameters.
     if (name === 'editing_workflow_status' || name === 'verify_edit_workflow' || name === 'tool_help') return null;
     // The comp this turn started on was deleted (the user cleared the project): carry on with the
@@ -619,6 +630,43 @@ export class EditWorkflow {
     if (!this.capabilities && ['rotoscope_clip', 'depth_occlusion_clip'].includes(name)) return 'Call local_media_capabilities before choosing a local model. Unsupported tasks must be reported as unavailable.';
     if (name.startsWith('mcp__')) return 'External tools cannot bypass this workflow. Use the native editing tools, or select Quick edit for a separate explicitly scoped task.';
     return null;
+  }
+  /**
+   * A Quick edit with a scope changes what the user pointed at: the scope's clips, the layers of the
+   * motion comps they hold, and anything this turn made. The first edit of another clip is paused
+   * with the reason; the same call again goes through (the model then says why in its reply). Reads
+   * never are.
+   */
+  private scopeGate(name: string, args: Args, project: Project): string | null {
+    if (!this.scope || ALWAYS_TOOLS.has(name) || preparation.has(name)) return null;
+    const ids = [args.clipId, ...(Array.isArray(args.clipIds) ? args.clipIds : [])].filter((id): id is string => typeof id === 'string');
+    if (!ids.length) return null;
+    const allowed = new Set(this.scope.clips.map((clip) => clip.clipId));
+    const byId = new Map(project.comps.map((comp) => [comp.id, comp]));
+    const open = (compId: string, seen: Set<string>) => {
+      const comp = byId.get(compId);
+      if (!comp || seen.has(compId)) return;
+      seen.add(compId);
+      allowed.add(compId);
+      for (const clip of comp.clips) {
+        allowed.add(clip.id);
+        if (clip.source.type === 'comp') open(clip.source.compId, seen);
+      }
+    };
+    const seen = new Set<string>();
+    for (const comp of project.comps) for (const clip of comp.clips) if (allowed.has(clip.id) && clip.source.type === 'comp') open(clip.source.compId, seen);
+    const outside = ids.filter((id) => !allowed.has(id) && this.startClips.has(id) && !this.scopeWarned.has(id));
+    if (!outside.length) return null;
+    for (const id of outside) this.scopeWarned.add(id);
+    const names = outside.map((id) => {
+      for (const comp of project.comps) {
+        const clip = comp.clips.find((item) => item.id === id);
+        if (clip) return `"${clip.name ?? id}" (${id})`;
+      }
+      return id;
+    });
+    const pointed = this.scope.clips.map((clip) => `"${clip.name}"`).join(', ') || `${this.scope.range.start}s–${this.scope.range.end}s`;
+    return `${names.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside this Quick edit: the user pointed at ${pointed}. Change only what they pointed at. If this change truly needs ${outside.length === 1 ? 'that clip' : 'those clips'} too, call the same tool again and say why in your reply.`;
   }
   /** Whether the user still has to pick the frame: the comp has no picture to take a size from and nobody chose one. */
   frameSizePending(project: Project): boolean {

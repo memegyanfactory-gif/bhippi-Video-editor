@@ -991,9 +991,10 @@
                   "enum": [
                     "generate",
                     "download",
-                    "existing"
+                    "existing",
+                    "render"
                   ],
-                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId)."
+                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId) | render (you render it into AI Work/Output while gathering, then attach_production_asset; visualPrompt = what)."
                 },
                 "visualPrompt": {
                   "type": "string"

@@ -10,7 +10,7 @@
 
 export type StorageCategoryId =
   | 'project' | 'footage' | 'downloads' | 'generated' | 'voice-overs' | 'recordings' | 'sfx'
-  | 'roto' | 'tracking' | 'clean-plates' | 'renders' | 'exports' | 'storyboard' | 'research' | 'guidelines' | '3d-renders';
+  | 'roto' | 'tracking' | 'clean-plates' | 'renders' | 'exports' | 'storyboard' | 'research' | 'guidelines' | '3d-renders' | 'ai-work';
 
 export type StorageCategory = { id: StorageCategoryId; folder: string; label: string; blurb: string };
 
@@ -32,6 +32,7 @@ export const STORAGE_CATEGORIES: readonly StorageCategory[] = [
   { id: 'research', folder: 'Documents/Research', label: 'Research', blurb: 'References and pages gathered while planning' },
   { id: 'guidelines', folder: 'Documents/Guidelines', label: 'Guidelines', blurb: 'Guidelines, plans and todo lists the AI writes' },
   { id: '3d-renders', folder: '3D renders', label: '3D renders', blurb: 'Frames rendered in headless Blender' },
+  { id: 'ai-work', folder: 'AI Work', label: 'AI Work', blurb: 'Scripts, renders and scratch files the AI makes with its own tools' },
 ];
 
 export const UNTITLED_PROJECT = 'Untitled project';

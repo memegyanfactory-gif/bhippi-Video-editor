@@ -177,6 +177,12 @@ pub struct ChatRequest {
     /// `None` is the timeline editor. `chat_send` refuses a name that is not a harness.
     #[serde(default)]
     pub harness: Option<String>,
+    /// Where a CLI agent starts (the project's `AI Work` folder). Set by `chat_send`, never by the UI.
+    #[serde(skip)]
+    pub workspace: Option<std::path::PathBuf>,
+    /// The Claude Code session of a turn cut off when the app closed, to carry on with `--resume`.
+    #[serde(default)]
+    pub resume_session: Option<String>,
 }
 
 /// The harness a request runs under; `None` for the editor. An unknown name was refused by
@@ -397,6 +403,53 @@ fn gate_genres(prompt: &str, genres: Option<&Vec<Value>>) -> String {
     out
 }
 
+/// The words of a `<!-- workflow: … -->` marker ("full", "motion"), or `None` for any other line.
+fn workflow_marker(line: &str) -> Option<Vec<&str>> {
+    line.trim().strip_prefix("<!-- workflow:").and_then(|rest| rest.strip_suffix("-->")).map(|rest| rest.split_whitespace().collect())
+}
+
+/// Keeps the sections the turn's workflow uses. A `## ` section with `<!-- workflow: full -->`
+/// among the comments right above its heading is for a production only (the pipeline, the crew,
+/// the council, playbooks); `<!-- workflow: full motion -->` keeps it for a Quick edit too when its
+/// scope may hold a motion scene; `<!-- workflow: quick -->` is for a Quick edit only. A dropped
+/// section takes its own `<!-- only: … -->` line with it, so `gate_genres` (which runs after) never
+/// applies that line to the next section. The markers themselves never reach the model.
+fn gate_workflow(prompt: &str, quick: bool, motion: bool) -> String {
+    let lines: Vec<&str> = prompt.lines().collect();
+    let is_comment = |line: &str| line.trim_start().starts_with("<!--");
+    // Where each section begins: its heading, or the marker comments directly above it.
+    let mut starts = vec![0];
+    for (at, line) in lines.iter().enumerate() {
+        if line.starts_with("## ") {
+            let mut start = at;
+            while start > 0 && is_comment(lines[start - 1]) {
+                start -= 1;
+            }
+            if starts.last() != Some(&start) {
+                starts.push(start);
+            }
+        }
+    }
+    starts.push(lines.len());
+    let mut out = String::with_capacity(prompt.len());
+    for pair in starts.windows(2) {
+        let section = &lines[pair[0]..pair[1]];
+        let keep = section
+            .iter()
+            .take_while(|line| is_comment(line))
+            .filter_map(|line| workflow_marker(line))
+            .all(|words| if quick { words.contains(&"quick") || (motion && words.contains(&"motion")) } else { words.contains(&"full") });
+        if !keep {
+            continue;
+        }
+        for line in section.iter().filter(|line| workflow_marker(line).is_none()) {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 /// How a CLI agent starts Bhippi's MCP bridge for this turn: port, token, and the turn's toolset
 /// so the bridge lists the same catalogue the native and text paths send.
 fn bridge_args(port: u16, token: &str, context: &Value, harness: Option<&crate::harness::Harness>) -> Vec<String> {
@@ -434,7 +487,12 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     let brief = edit_style(req).and_then(|id| style_brief(&id).map(|brief| (id, brief)));
     // A harness brings its own prompt in place of copilot.md (the Plugin Maker's has no timeline in it).
     let harness = harness_of(req);
-    let mut base = gate_genres(harness.map_or(PROMPT, |h| h.prompt), req.context.pointer("/toolset/genres").and_then(Value::as_array));
+    // A Quick edit gets the prompt without the production pipeline, and without the motion engine
+    // when what the user pointed at holds no motion scene (with no scope, the ask could be one).
+    let quick = req.context.get("editingWorkflow").and_then(Value::as_str) == Some("quick");
+    let motion = req.context.pointer("/quickScope/motion").and_then(Value::as_bool).unwrap_or(true);
+    let workflow = gate_workflow(harness.map_or(PROMPT, |h| h.prompt), quick, motion);
+    let mut base = gate_genres(&workflow, req.context.pointer("/toolset/genres").and_then(Value::as_array));
     if let Some((id, brief)) = &brief {
         let body = brief.lines().filter(|line| !line.starts_with("Persona:")).collect::<Vec<_>>().join("\n");
         let section = format!(
@@ -529,6 +587,8 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     request.read_only = harness.is_some() || req.context.pointer("/permission/mode").and_then(Value::as_str) == Some("plan");
     // Not even reading: a harness's own tools are the whole world it works in.
     request.sealed = harness.is_some();
+    request.workspace = req.workspace.clone();
+    request.resume = req.resume_session.clone();
     if mode == ToolMode::Native {
         request.tools = match harness {
             Some(harness) => harness.catalogue(),
@@ -1443,7 +1503,52 @@ kept
             persona: None,
             max_rounds: None,
             harness: None,
+            workspace: None,
+            resume_session: None,
         }
+    }
+
+    /// A Quick edit's prompt leaves out the production pipeline; a production keeps all of it, and
+    /// no workflow marker ever reaches the model.
+    #[test]
+    fn a_quick_edit_gets_the_prompt_without_the_pipeline() {
+        let full = super::gate_workflow(super::PROMPT, false, false);
+        let quick = super::gate_workflow(super::PROMPT, true, false);
+        let quick_motion = super::gate_workflow(super::PROMPT, true, true);
+        for text in [&full, &quick, &quick_motion] {
+            assert!(!text.contains("<!-- workflow"), "markers stay out of the prompt");
+            assert!(text.contains("## Quick edit") && text.contains("## Bhippi basics") && text.contains("## BRAND KIT"));
+        }
+        assert!(!full.contains("## This turn is a Quick edit") && quick.contains("## This turn is a Quick edit") && quick_motion.contains("## This turn is a Quick edit"));
+        for heading in ["## How Bhippi works", "## THE CREW", "## THE COUNCIL", "### PLAN", "## SHORTS", "## PRODUCT / SAAS VIDEO", "## REMOTION KIT"] {
+            assert!(full.contains(heading) && !quick.contains(heading) && !quick_motion.contains(heading), "{heading}");
+        }
+        for heading in ["## MOTION ENGINE", "## CRIMSON", "## REACT BITS"] {
+            assert!(full.contains(heading) && quick_motion.contains(heading) && !quick.contains(heading), "{heading}");
+        }
+        assert!(quick.len() * 2 < full.len(), "quick {} vs full {}", quick.len(), full.len());
+    }
+
+    /// A dropped section takes its genre line with it, so genres still gate the sections that stay.
+    #[test]
+    fn genres_still_gate_what_a_quick_edit_keeps() {
+        let quick = super::gate_workflow(super::PROMPT, true, true);
+        let meme = super::gate_genres(&quick, Some(&vec![json!("meme")]));
+        let plain = super::gate_genres(&quick, Some(&vec![json!("edit")]));
+        assert!(meme.contains("## EDIT STYLES") && !plain.contains("## EDIT STYLES"));
+        assert!(plain.contains("## Quick edit") && plain.contains("## MOTION ENGINE") && !plain.contains("## REACT BITS"));
+    }
+
+    /// 29 Sep: Opus built a whole film in AppData\agent-workspace, where the project never saw it.
+    /// The CLI now starts in the project's AI Work folder that `chat_send` hands the request.
+    #[test]
+    fn a_cli_turn_starts_in_the_folder_the_request_names() {
+        let row = row("claude", true);
+        let mut req = request("make the launch film");
+        assert_eq!(super::build_request(&req, &row, super::ToolMode::Mcp).workspace, None);
+        let folder = std::path::PathBuf::from("C:/Bhippi/Film/AI Work");
+        req.workspace = Some(folder.clone());
+        assert_eq!(super::build_request(&req, &row, super::ToolMode::Mcp).workspace, Some(folder));
     }
 
     #[test]

@@ -59,7 +59,7 @@ export interface StoryboardScene extends BeatDetail {
   /** Blueprint asset state for this scene (blueprint mode only). */
   status?: 'pending' | 'generating' | 'ready';
   /** Where this scene's visual comes from (blueprint mode only). */
-  mediaSource?: 'generate' | 'download' | 'existing';
+  mediaSource?: 'generate' | 'download' | 'existing' | 'render';
 }
 
 export type BlueprintAssetStatus = 'pending' | 'generating' | 'ready';
@@ -70,7 +70,7 @@ export interface BlueprintSceneView extends BeatDetail {
   title?: string;
   narration: string;
   visual: string;
-  mediaSource: 'generate' | 'download' | 'existing';
+  mediaSource: 'generate' | 'download' | 'existing' | 'render';
   audio: string;
   status?: BlueprintAssetStatus;
   thumbnail?: string;

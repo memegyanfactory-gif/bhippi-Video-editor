@@ -13,6 +13,9 @@
 .msg-assistant .msg-avatar { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
 .msg-assistant .msg-who { letter-spacing: 0.01em; }
 .msg-assistant .msg-flag { padding: 1px 6px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); font-size: 10px; font-weight: 600; }
+/* Which editing workflow the turn ran in: a production (plan → gather → edit) or one quick change. */
+.msg-assistant .msg-mode { padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 600; background: rgba(255, 255, 255, 0.06); color: var(--text-faint); }
+.msg-assistant .msg-mode.mode-full { background: var(--blue-soft, rgba(80, 140, 255, 0.14)); color: var(--blue, #7aa7ff); }
 
 /* ── Your own messages: a soft rounded bubble, its actions underneath on hover ── */
 .chat-list .msg-user-row { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 86%; min-width: 0; }

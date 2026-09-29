@@ -22,6 +22,8 @@ export type ChatRequest = {
   persona?: string;
   /** The harness the turn runs under (src/lib/harnesses.json); omitted for the timeline editor. */
   harness?: string;
+  /** A Claude Code session cut off when the app closed: the turn carries on in it (`--resume`). */
+  resumeSession?: string;
 };
 
 export type ChatAttachment = { path: string; name: string; kind: 'image' | 'video' | 'audio' | 'other'; images: string[]; times: number[]; duration: number | null; error: string | null };

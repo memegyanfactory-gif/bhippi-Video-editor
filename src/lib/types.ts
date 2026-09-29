@@ -226,7 +226,8 @@ export type Transition = {
   alignment: 'center' | 'start' | 'end';
 };
 
-export type VideoBlueprintMediaSource = 'generate' | 'download' | 'existing';
+/** `render`: the agent makes the scene with its own renderer (a script run with its shell tools) while gathering. */
+export type VideoBlueprintMediaSource = 'generate' | 'download' | 'existing' | 'render';
 export type VideoBlueprintAssetStatus = 'pending' | 'generating' | 'ready';
 export type VideoBlueprintStatus = 'draft' | 'ready' | 'executing' | 'done';
 
@@ -529,6 +530,7 @@ export type Delta =
   | { kind: 'step'; id: string; verb: string; title: string; detail: string; done: boolean }
   | { kind: 'usage'; inputTokens: number; outputTokens: number }
   | { kind: 'limit'; status: string; sessionUsed: number | null; sessionResetsAt: number | null; weeklyUsed: number | null; weeklyResetsAt: number | null }
+  | { kind: 'session'; id: string }
   | { kind: 'done'; stopReason: string };
 
 export type TurnFault = {

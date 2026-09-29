@@ -948,6 +948,16 @@ Act on brain.nudges first when they apply. Never mention the brain unless asked.
 /// What one chat turn is told: the curated memory, the user model, the skills index,
 /// what the brain recalls about this prompt, weak tools and pending nudges (delivered once).
 pub fn brief(dir: &Path, prompt: &str) -> Value {
+    brief_sized(dir, prompt, 15, 4)
+}
+
+/// `brief` for a Quick edit: the memory and the user model whole (they are how this user works),
+/// but a short skills index and fewer recalled episodes, since the change is one thing.
+pub fn quick_brief(dir: &Path, prompt: &str) -> Value {
+    brief_sized(dir, prompt, 5, 2)
+}
+
+fn brief_sized(dir: &Path, prompt: &str, skill_count: usize, related_count: usize) -> Value {
     let Ok(_guard) = LOCK.lock() else { return Value::Null };
     let mut graph = load(dir);
     let texts = |kind: &str| -> Vec<String> {
@@ -967,7 +977,7 @@ pub fn brief(dir: &Path, prompt: &str) -> Value {
     skills.sort_by(|a, b| b.0.total_cmp(&a.0));
     let skills: Vec<Value> = skills
         .into_iter()
-        .take(15)
+        .take(skill_count)
         .map(|(_, n)| {
             let total = n.wins + n.fails;
             json!({
@@ -978,7 +988,7 @@ pub fn brief(dir: &Path, prompt: &str) -> Value {
             })
         })
         .collect();
-    let related = recall_in(&graph, prompt, 4, &["episode".into(), "memory".into(), "user".into()]);
+    let related = recall_in(&graph, prompt, related_count, &["episode".into(), "memory".into(), "user".into()]);
     let weak: Vec<String> = graph
         .nodes
         .iter()

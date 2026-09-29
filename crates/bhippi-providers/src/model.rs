@@ -222,6 +222,11 @@ pub struct CompletionRequest {
     /// taken away, reading too. A harness turn (the Plugin Maker) builds through its own tools and
     /// has no business on the disk.
     pub sealed: bool,
+    /// The folder a CLI agent starts in: the open project's `AI Work` folder, so what it makes with
+    /// its own shell and file tools belongs to the project. `None` uses the shared agent workspace.
+    pub workspace: Option<std::path::PathBuf>,
+    /// A Claude Code session to carry on (`--resume`): a turn cut off when the app closed.
+    pub resume: Option<String>,
 }
 
 impl CompletionRequest {
@@ -240,6 +245,8 @@ impl CompletionRequest {
             activity: None,
             read_only: false,
             sealed: false,
+            workspace: None,
+            resume: None,
         }
     }
 
@@ -300,6 +307,10 @@ pub enum Delta {
         session_resets_at: Option<i64>,
         weekly_used: Option<f32>,
         weekly_resets_at: Option<i64>,
+    },
+    /// The CLI vendor's id for this conversation, so the turn can be resumed if it is cut off.
+    Session {
+        id: String,
     },
     Done {
         stop_reason: StopReason,

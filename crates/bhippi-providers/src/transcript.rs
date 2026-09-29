@@ -63,6 +63,9 @@ pub enum TranscriptEvent {
     Limit(LimitReport),
     /// The vendor reported a failure, in its own words, for classification upstream.
     Failure(String),
+    /// The vendor's id for this conversation (Claude Code's `session_id`, Codex's `thread_id`,
+    /// Gemini's `session_id`), once per turn, so a turn cut off by closing the app can be resumed.
+    Session(String),
 }
 
 /// One rolling allowance and how much of it is gone.
@@ -228,6 +231,8 @@ pub struct Reader {
     /// speaks, calls a tool, then speaks again sends two messages, and joining them bare reads
     /// "Checking the timeline.Added the title."
     break_pending: bool,
+    /// The vendor's conversation id has been passed on (it is announced once per turn).
+    session_told: bool,
 }
 
 impl Reader {
@@ -243,6 +248,7 @@ impl Reader {
             diagnostic: Vec::new(),
             spoke: false,
             break_pending: false,
+            session_told: false,
         }
     }
 
@@ -326,6 +332,12 @@ impl Reader {
         }
         if let Some(report) = event_limits(&event) {
             out.push(TranscriptEvent::Limit(report));
+        }
+        if !self.session_told {
+            if let Some(id) = event_session(&event) {
+                self.session_told = true;
+                out.push(TranscriptEvent::Session(id));
+            }
         }
         self.collect_text(&event, &mut out);
         collect_tools(&event, &mut out);
@@ -888,6 +900,19 @@ fn value_summary(value: &Value) -> String {
 /// Only Claude Code reports these today, under `rate_limit_event`. The shape is read
 /// defensively — a vendor that renames `unifiedWindows` tomorrow degrades to "no report"
 /// rather than to a wrong number on a gauge the user is trusting.
+/// The conversation id a vendor announces when it starts: Claude Code's `system`/`init` and
+/// Gemini's `init` carry `session_id`, Codex's `thread.started` carries `thread_id`.
+fn event_session(event: &Value) -> Option<String> {
+    let kind = event.get("type").and_then(Value::as_str)?;
+    let id = match kind {
+        "system" if event.get("subtype").and_then(Value::as_str) == Some("init") => event.get("session_id"),
+        "init" => event.get("session_id"),
+        "thread.started" => event.get("thread_id"),
+        _ => None,
+    }?;
+    id.as_str().map(str::trim).filter(|id| !id.is_empty()).map(str::to_owned)
+}
+
 fn event_limits(event: &Value) -> Option<LimitReport> {
     if event.get("type").and_then(Value::as_str) != Some("rate_limit_event") {
         return None;
@@ -1012,7 +1037,8 @@ pub fn read(transcript: Transcript, stdout: &str) -> Answer {
                 TranscriptEvent::Failure(reason) => answer.failure = Some(reason),
                 TranscriptEvent::Thought(_)
                 | TranscriptEvent::Tool { .. }
-                | TranscriptEvent::Limit(_) => {}
+                | TranscriptEvent::Limit(_)
+                | TranscriptEvent::Session(_) => {}
             }
         }
     };
@@ -1148,6 +1174,27 @@ mod tests {
         "
 ",
     );
+
+    /// A turn cut off when the app closes is resumed by the id the vendor announced as it started,
+    /// passed on once however often the vendor repeats it.
+    #[test]
+    fn the_session_id_is_passed_on_once() {
+        let sessions = |text: &str| -> Vec<String> {
+            let mut reader = Reader::new(Transcript::JsonLines);
+            text.lines().flat_map(|line| reader.push_line(line)).filter_map(|event| match event {
+                TranscriptEvent::Session(id) => Some(id),
+                _ => None,
+            }).collect()
+        };
+        let claude = concat!(
+            r#"{"type":"system","subtype":"init","session_id":"532fdf93-79d3","tools":["Read"]}"#, "\n",
+            r#"{"type":"system","subtype":"init","session_id":"532fdf93-79d3"}"#, "\n",
+        );
+        assert_eq!(sessions(claude), vec!["532fdf93-79d3".to_owned()]);
+        assert_eq!(sessions(r#"{"type":"thread.started","thread_id":"t-1"}"#), vec!["t-1".to_owned()]);
+        assert_eq!(sessions(r#"{"type":"init","session_id":"abc","model":"gemini-x"}"#), vec!["abc".to_owned()]);
+        assert!(sessions(CLAUDE_STREAM).is_empty(), "no id, nothing to resume");
+    }
 
     #[test]
     fn gemini_stream_json_says_pong_once_with_its_usage_and_steps() {

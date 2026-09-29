@@ -1,4 +1,5 @@
 import type { PermissionMode } from './permissions';
+import { clipsNearScope, type QuickScope } from './quickScope';
 import { makeStickFigure } from './stickFigure';
 import { describeUncovered, newlyUncovered, uncoveredSpans } from './coverage';
 import { fillBackground } from './fillBackground';
@@ -305,7 +306,7 @@ function clipSummary(project: Project, assets: AssetMap, comp: Comp, clip: Clip)
 }
 
 /** One comp in full: what `get_comp` answers with. */
-export function compDetail(project: Project, assets: AssetMap, comp: Comp, plan = false) {
+export function compDetail(project: Project, assets: AssetMap, comp: Comp, plan = false, only?: ReadonlySet<string>) {
   const ranged = comp.inPoint !== null && comp.outPoint !== null && comp.outPoint > comp.inPoint;
   return {
     id: comp.id,
@@ -331,7 +332,8 @@ export function compDetail(project: Project, assets: AssetMap, comp: Comp, plan 
       audible: track.kind === 'audio' ? audible(comp, track) : undefined,
       clips: comp.clips.filter((clip) => clip.trackId === track.id).length,
     })),
-    clips: [...comp.clips].sort((a, b) => a.start - b.start).map((clip) => clipSummary(project, assets, comp, clip)),
+    clips: [...comp.clips].filter((clip) => !only || only.has(clip.id)).sort((a, b) => a.start - b.start).map((clip) => clipSummary(project, assets, comp, clip)),
+    ...(only ? { clipsShown: `${comp.clips.filter((clip) => only.has(clip.id)).length} of ${comp.clips.length}: the Quick edit's scope and what sits beside it. get_comp reads the rest.` } : {}),
     transitions: comp.transitions.map((transition) => {
       const window = transitionWindow(comp, transition);
       return { id: transition.id, kind: transition.kind, track: trackLabel(comp, transition.trackId), at: window ? round(window.at) : null, duration: round(transition.duration), alignment: transition.alignment, fromClip: transition.fromClip, toClip: transition.toClip };
@@ -402,6 +404,30 @@ export function aiContext(project: Project, assets: AssetMap, selection: string[
     activeComp: active ? compDetail(project, assets, active) : null,
     frame: active ? frameBrief(active) : null,
     layoutRules: LAYOUT_RULES,
+  };
+}
+
+/**
+ * The project summary for a Quick edit: what the change needs, not what a production plans with.
+ * The storyboard and blueprint digests stay out; with a scope (clips or annotations the user
+ * pointed at) only the scope's clips and their neighbours are listed, with the media they use.
+ */
+export function quickContext(project: Project, assets: AssetMap, selection: string[], scope: QuickScope | null) {
+  const full = aiContext(project, assets, selection);
+  const active = project.comps.find((comp) => comp.id === (scope?.compId ?? project.activeCompId)) ?? project.comps[0];
+  if (!active) return full;
+  const only = scope ? clipsNearScope(active, scope) : undefined;
+  const detail = { ...compDetail(project, assets, active, false, only), storyboard: undefined, blueprint: undefined };
+  if (!only) return { ...full, activeComp: detail };
+  const used = new Set(active.clips.filter((clip) => only.has(clip.id)).flatMap((clip) => (clip.source.type === 'media' ? [clip.source.assetId] : clip.source.type === 'item' ? [clip.source.itemId] : clip.source.type === 'comp' ? [clip.source.compId] : [])));
+  return {
+    ...full,
+    comps: full.comps.filter((comp) => comp.id === active.id || used.has(comp.id)),
+    media: full.media.filter((media) => used.has(media.id)),
+    items: full.items.filter((item) => used.has(item.id)),
+    folders: [],
+    activeComp: detail,
+    quickScope: scope,
   };
 }
 
@@ -544,13 +570,18 @@ function portraitSlots(clip: Clip, comp: Comp, assets: AssetMap): Record<string,
  * the user (or an earlier turn) already made it.
  */
 export function generatedFolderId(project: Project, commit: (change: (current: Project) => Project) => void): string {
-  const existing = project.folders.find((folder) => folder.name === 'Generated' && !folder.parentId);
+  return rootFolderId(project, commit, 'Generated');
+}
+
+/** A root Project panel folder by name, made when missing. Idempotent like `generatedFolderId`. */
+export function rootFolderId(project: Project, commit: (change: (current: Project) => Project) => void, name: string): string {
+  const existing = project.folders.find((folder) => folder.name === name && !folder.parentId);
   if (existing) return existing.id;
   const id = uid();
-  commit((current) => (current.folders.some((folder) => folder.id === id || (folder.name === 'Generated' && !folder.parentId))
+  commit((current) => (current.folders.some((folder) => folder.id === id || (folder.name === name && !folder.parentId))
     ? current
-    : { ...current, folders: [...current.folders, { id, name: 'Generated', parentId: null }] }));
-  return project.folders.find((folder) => folder.name === 'Generated' && !folder.parentId)?.id ?? id;
+    : { ...current, folders: [...current.folders, { id, name, parentId: null }] }));
+  return project.folders.find((folder) => folder.name === name && !folder.parentId)?.id ?? id;
 }
 
 type Commit = (change: (current: Project) => Project) => void;
@@ -1324,7 +1355,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const script = blueprint.script;
       const checklist = [
         `1. Voice-over: synthesize_speech_voiceover with the full blueprint script (${script.length} chars)${blueprint.narrator?.voice ? ` using voice ${blueprint.narrator.voice}` : ''}, autoPlace into the Generated folder.`,
-        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
+        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : s.mediaSource === 'render' ? `place the scene you rendered (AI Work/Output)` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
         `${scenes.length + 2}. Wait for ALL ${manifest.length} manifest assets to be imported into the Generated folder.`,
         `${scenes.length + 3}. Assembly: place voice-over on A1, visual clips scene-by-scene on V1/V2, add motion graphics + transitions + music bed with ducking, then verify_edit_workflow.`,
       ];
