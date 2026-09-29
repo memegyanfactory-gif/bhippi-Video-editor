@@ -37,7 +37,8 @@ describe('what a key press runs, with the default keys', () => {
   it('reads shifted digits and symbols from the physical key, whatever the layout types', () => {
     expect(commandFor(defaults, press('?', 'Slash', { ctrl: true, shift: true }))).toBe('duplicate');
     expect(commandFor(defaults, press('#', 'Digit3', { shift: true }))).toBe('panel3');
-    expect(commandFor(defaults, press('(', 'Digit9', { shift: true }))).toBeNull();
+    expect(commandFor(defaults, press('(', 'Digit9', { shift: true }))).toBe('panel9');
+    expect(commandFor(defaults, press(')', 'Digit0', { shift: true }))).toBeNull();
     expect(commandFor(defaults, press('3', 'Digit3'))).toBeNull();
     // An AZERTY "a" is the physical Q key: it runs what Q runs.
     expect(commandFor(defaults, press('a', 'KeyQ'))).toBe('rippleTrimPrevious');

@@ -31,7 +31,7 @@ export function MotionTemplates({ history, assets, clipSelection }: { history: H
     const result = nestLooseMotionScenes(history.current(), comp.id);
     if (!result.count) return;
     history.commit(() => result.project, 'Put Motion Scenes into Comps');
-    toast({ tone: 'success', title: `${result.count} motion scene${result.count === 1 ? '' : 's'} moved into comps`, body: 'Find them in the AI Motion bin; double-click a nested clip to edit it.', timeout: 3500 });
+    toast({ tone: 'success', title: `${result.count} motion scene${result.count === 1 ? '' : 's'} moved into comps`, body: 'Find them in the AI Motion bin; double-click a comp clip to edit it.', timeout: 3500 });
   };
   return (
     <div className="effects-section">

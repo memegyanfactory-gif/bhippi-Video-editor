@@ -73,6 +73,11 @@ pub struct Settings {
     pub local_media_models: std::collections::HashMap<String, String>,
     /// When true the AI does not call local image/video generation on its own.
     pub disable_local_generation: Option<bool>,
+    /// `auto`, `full` or `guided`: how much of a production the model runs itself (src/lib/modelProfile.ts).
+    pub ai_guided_mode: Option<String>,
+    /// Layouts saved by name (Window › Workspaces) and the one in use; shapes owned by the UI.
+    pub workspaces: Option<serde_json::Value>,
+    pub workspace_name: Option<String>,
     /// Where project folders are made; `Documents/Bhippi` when unset (see storage.rs).
     pub storage_root: Option<String>,
     /// Copy imported media into the project's Footage folder instead of referencing it in place.

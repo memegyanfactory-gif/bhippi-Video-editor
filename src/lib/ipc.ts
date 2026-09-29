@@ -24,6 +24,14 @@ export type ChatRequest = {
   harness?: string;
 };
 
+export type ChatAttachment = { path: string; name: string; kind: 'image' | 'video' | 'audio' | 'other'; images: string[]; times: number[]; duration: number | null; error: string | null };
+export type ScoreMood = 'energetic' | 'chill' | 'cinematic' | 'corporate' | 'playful' | 'dark';
+export type ScoreSpec = { duration: number; bpm: number; mood: ScoreMood; root?: number; minor?: boolean; drops?: number[]; noDrop?: boolean; accents?: number[]; intensity?: number; seed?: number };
+/** Beats, downbeats and drops are seconds from the start of the file. */
+export type ComposedScore = { path: string; bpm: number; duration: number; beats: number[]; downbeats: number[]; drops: number[]; arrangement: string };
+export type PlateStyle = 'glow' | 'gradient' | 'paper' | 'grain';
+export type PlateSpec = { style: PlateStyle; width: number; height: number; seconds: number; fps?: number; colors?: string[] };
+
 /** A compressed JPEG of the Bhippi window (base64). */
 export type SupportScreenshot = { data: string; mime: string; width: number; height: number; bytes: number };
 export type SupportLogs = { appLog: string | null; previousLog: string | null; crashLog: string | null; hangLog: string | null };
@@ -516,6 +524,8 @@ export const api = {
   libraryRetry: (id: string) => invoke<void>('library_retry', { id }),
   /** Points a library entry at a new file (Link Media). */
   libraryRelink: (id: string, path: string) => invoke<Asset>('library_relink', { id, path }),
+  /** Any files for the chat: pictures as data URLs (converted and shrunk to fit), a video as frames from across it, with each file's kind and length. */
+  chatPrepareAttachments: (paths: string[], frames?: number) => invoke<ChatAttachment[]>('chat_prepare_attachments', { paths, frames }),
   /** Makes sure every asset of an opened project file exists in the library; returns old id → asset. */
   libraryAdopt: (assets: Asset[]) => invoke<Record<string, Asset>>('library_adopt', { assets }),
 
@@ -682,6 +692,10 @@ export const api = {
     invoke<{ integratedLufs: number; rangeLu: number; truePeakDb: number; duration: number }>('audio_loudness', { assetId, start, end }),
   /** Saves a voice-over recording and imports it. */
   saveRecording: (bytes: number[], extension: string) => invoke<Asset>('save_recording', { bytes, extension }),
+  /** Composes a music bed (src-tauri/src/score.rs) into Generated/Music: its path and exact beat grid. */
+  composeScore: (spec: ScoreSpec, name: string) => invoke<ComposedScore>('compose_score', { spec, name }),
+  /** Renders a background plate (src-tauri/src/plates.rs) into Generated/Backgrounds; answers its path. */
+  renderPlate: (spec: PlateSpec, name: string) => invoke<string>('render_plate', { spec, name }),
   /** Saves a character still (PNG) from the Characters window into the project and imports it. */
   saveCharacterImage: (bytes: number[], name: string) => invoke<Asset>('save_character_image', { bytes, name }),
   /** A fresh folder under the work dir for one motion graphic's rendered export frames. */

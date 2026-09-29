@@ -720,6 +720,107 @@ impl ToolExecutor for Counted {
     }
 }
 
+/// Whether this turn's model runs guided (src/lib/modelProfile.ts): its tool results come back
+/// compact, so a smaller model reads what matters instead of drowning in scene JSON.
+fn guided(context: &Value) -> bool {
+    context.get("modelTier").and_then(Value::as_str) == Some("guided")
+}
+
+/// A guided turn's executor: every result compacted by [`compact_result`] before any transport
+/// (native, MCP bridge, text protocol) carries it.
+struct Compact {
+    inner: Arc<dyn ToolExecutor>,
+}
+
+impl ToolExecutor for Compact {
+    fn call(&self, name: String, args: Value) -> BoxFuture<'static, Value> {
+        let call = self.inner.call(name, args);
+        Box::pin(async move {
+            let mut result = call.await;
+            compact_result(&mut result);
+            result
+        })
+    }
+}
+
+/// A result under this size, serialised, reaches a guided model whole.
+const COMPACT_BUDGET: usize = 6 * 1024;
+/// …and a larger one is cut back towards this.
+const COMPACT_TARGET: usize = 14 * 1024;
+/// Frames a guided model gets per result: two, with the rest in words (`frameNotes`).
+const COMPACT_IMAGES: usize = 2;
+/// Fields a model steers by: never cut.
+const STEERING: [&str; 10] = ["ok", "summary", "error", "id", "userMessage", "clipId", "compId", "assetId", "frameNotes", "unchanged"];
+
+/// Compacts a result for a guided model: long strings keep their head and tail, long lists their
+/// first dozen items, objects deeper than four levels become a count of their keys; if it is still
+/// large, its biggest fields are dropped with a note naming them. The fields in [`STEERING`] stay
+/// whole, and at most [`COMPACT_IMAGES`] frames go along.
+pub(crate) fn compact_result(result: &mut Value) {
+    if let Some(Value::Array(images)) = result.get_mut("images") {
+        images.truncate(COMPACT_IMAGES);
+    }
+    let images = result.as_object_mut().and_then(|map| map.remove("images"));
+    if result.to_string().len() > COMPACT_BUDGET {
+        fn walk(value: &mut Value, depth: usize) {
+            match value {
+                Value::String(text) if text.len() > 1200 => {
+                    let mut head = 700;
+                    while !text.is_char_boundary(head) {
+                        head -= 1;
+                    }
+                    let mut tail = text.len() - 300;
+                    while !text.is_char_boundary(tail) {
+                        tail += 1;
+                    }
+                    *text = format!("{}…{} chars omitted…{}", &text[..head], tail - head, &text[tail..]);
+                }
+                Value::Array(items) => {
+                    let total = items.len();
+                    if total > 12 {
+                        items.truncate(12);
+                        items.push(json!(format!("… {} more", total - 12)));
+                    }
+                    items.iter_mut().for_each(|item| walk(item, depth + 1));
+                }
+                Value::Object(map) if depth >= 4 => {
+                    let keys: Vec<String> = map.keys().take(6).cloned().collect();
+                    *value = json!(format!("{{{} keys: {}{}}}", map.len(), keys.join(", "), if map.len() > 6 { ", …" } else { "" }));
+                }
+                Value::Object(map) => {
+                    for (key, item) in map.iter_mut() {
+                        if !STEERING.contains(&key.as_str()) {
+                            walk(item, depth + 1);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk(result, 0);
+        if let Some(map) = result.as_object_mut() {
+            let mut sizes: Vec<(String, usize)> = map.iter().filter(|(key, _)| !STEERING.contains(&key.as_str())).map(|(key, value)| (key.clone(), value.to_string().len())).collect();
+            sizes.sort_by(|a, b| b.1.cmp(&a.1));
+            let mut total: usize = map.values().map(|value| value.to_string().len()).sum();
+            let mut dropped = Vec::new();
+            for (key, size) in sizes {
+                if total <= COMPACT_TARGET || size < 400 {
+                    break;
+                }
+                map.remove(&key);
+                total -= size;
+                dropped.push(format!("{key} ({size} chars)"));
+            }
+            if !dropped.is_empty() {
+                map.insert("omitted".to_owned(), json!(format!("Shortened for this model: {}. The summary has what matters; call the tool again with a narrower request if you need one of them.", dropped.join(", "))));
+            }
+        }
+    }
+    if let (Some(images), Some(map)) = (images, result.as_object_mut()) {
+        map.insert("images".to_owned(), images);
+    }
+}
+
 /// What a turn has gathered so far, across every round.
 #[derive(Default)]
 struct Progress {
@@ -1043,6 +1144,8 @@ pub async fn run_turn(
     let TurnContext { row, keys, executor, mcp } = context;
     // Every call of a harness turn — native, text protocol, MCP bridge, offline — passes this gate.
     let executor = crate::harness::scope(executor, harness_of(&req));
+    // A guided model reads compact results; a frontier model keeps every detail.
+    let executor: Arc<dyn ToolExecutor> = if guided(&req.context) { Arc::new(Compact { inner: executor }) } else { executor };
     // A model the backend no longer lists falls back to its default instead of failing the turn.
     let mut req = req;
     req.model = effective_model(&row, req.model.as_deref());
@@ -1701,6 +1804,27 @@ kept
     }
 
     #[test]
+    fn a_guided_model_gets_compact_results_with_their_steering_fields_whole() {
+        // A get_motion_scene full:true answer: layers of scene JSON the model never needs whole.
+        let layers: Vec<serde_json::Value> = (0..40).map(|i| json!({"id": format!("l{i}"), "type": "text", "transform": {"position": {"k": [{"t": 0, "v": [1, 2]}]}}, "text": {"text": "word ".repeat(40)}})).collect();
+        let summary = "“[Motion] Hook” — 4 layer clips, 5.00 s. ".repeat(3);
+        let mut result = json!({"ok": true, "summary": summary, "clipId": "c1", "scene": {"layers": layers}, "outline": "o".repeat(3000), "images": ["data:image/png;base64,A", "data:image/png;base64,B", "data:image/png;base64,C"]});
+        let before = result.to_string().len();
+        super::compact_result(&mut result);
+        let after = result.to_string().len();
+        assert!(before > 12_000 && after < before / 3, "{before} → {after}");
+        assert_eq!((&result["ok"], &result["summary"], &result["clipId"]), (&json!(true), &json!(summary), &json!("c1")));
+        assert_eq!(result["images"].as_array().map(Vec::len), Some(2));
+        // A small result reaches the model untouched.
+        let mut small = json!({"ok": true, "summary": "done", "items": (0..20).collect::<Vec<_>>()});
+        let copy = small.clone();
+        super::compact_result(&mut small);
+        assert_eq!(small, copy);
+        // Only a turn marked guided gets it.
+        assert!(super::guided(&json!({"modelTier": "guided"})) && !super::guided(&json!({"modelTier": "full"})) && !super::guided(&json!({})));
+    }
+
+    #[test]
     fn a_native_round_gets_an_output_cap_that_fits_the_model() {
         let req = request("hi");
         let mut anthropic = row_of("anthropic", ProviderKind::CloudApi, true);
@@ -1838,15 +1962,17 @@ Only licence-clear media.".to_owned());
 
     #[test]
     fn the_system_prompt_leads_with_the_todo_rule() {
-        // The todo-first workflow is a standing order, not a suggestion: the first
-        // section names the file, the checkbox syntax and the check-off discipline,
-        // and it sits before every other instruction so no provider misses it.
-        assert!(super::PROMPT.contains("## Todo list first — always"), "the todo rule exists");
+        // The todo-first workflow is a standing order for real work, not a suggestion: the
+        // section names the file, the checkbox syntax and the check-off discipline, and it
+        // sits before every other instruction so no provider misses it — right after the rule
+        // that reads the message first, so a greeting gets a reply instead of a todo list.
+        assert!(super::PROMPT.contains("## Todo list first — for real work"), "the todo rule exists");
         assert!(super::PROMPT.contains("todos/todo-"), "the todo file path convention exists");
         assert!(super::PROMPT.contains("- [ ]") && super::PROMPT.contains("- [x]"), "the checkbox discipline exists");
+        let understand_at = super::PROMPT.find("## Understand the message first").expect("understand");
         let todo_at = super::PROMPT.find("## Todo list first").expect("rule");
         let workflow_at = super::PROMPT.find("## How Bhippi works").expect("workflow");
-        assert!(todo_at < workflow_at, "the todo rule comes first");
+        assert!(understand_at < todo_at && todo_at < workflow_at, "understanding, then the todo rule, come first");
     }
 
     /// A real CLI agent turn, end to end through the MCP bridge:

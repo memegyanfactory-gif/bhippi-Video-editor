@@ -12,6 +12,7 @@
 // filters, gradients, masks and system fonts this way; backdrop-filter and external resources
 // do not survive, which is why the Crimson templates avoid both.
 import gsap from 'gsap';
+import { adoptLooseTweens, frameRender, seekLooseAnimations, type FrameRender } from './htmlTime';
 import { api } from './ipc';
 import { openFrameWriter, type FrameWriter, type InflightFrame } from './pngEncoder';
 import { renderProgress } from './renderProgress';
@@ -78,6 +79,22 @@ function snapshot(root: HTMLElement, width: number, height: number, scale = 1): 
   const clone = root.cloneNode(true) as HTMLElement;
   const pseudoRules: string[] = [];
   freezeStyles(root, clone, pseudoRules, { n: 0 });
+  // A canvas a graphic draws on (its script's render function) keeps its pixels only as an image.
+  const liveCanvases = root.querySelectorAll('canvas');
+  clone.querySelectorAll('canvas').forEach((copy, index) => {
+    const live = liveCanvases[index];
+    if (!live) return;
+    try {
+      const image = document.createElement('img');
+      image.setAttribute('src', live.toDataURL('image/png'));
+      image.setAttribute('style', copy.getAttribute('style') ?? '');
+      image.setAttribute('width', String(live.width));
+      image.setAttribute('height', String(live.height));
+      copy.replaceWith(image);
+    } catch {
+      // A tainted canvas (a cross-origin image drawn on it) cannot be read; it stays as it is.
+    }
+  });
   clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
   for (const script of clone.querySelectorAll('script')) script.remove();
   const style = document.createElement('style');
@@ -114,11 +131,13 @@ function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'wi
   document.body.appendChild(host);
 
   let timeline: gsap.core.Timeline | null = null;
+  const taken = new WeakSet<Animation>();
+  let render: FrameRender | null = null;
   if (source.js) {
     try {
       const tl = gsap.timeline({ paused: true });
       const runner = new Function('container', 'gsap', 'timeline', 'time', 'duration', 'progress', source.js);
-      runner(stage, gsap, tl, 0, duration, 0);
+      render = frameRender(adoptLooseTweens(gsap, tl, () => runner(stage, gsap, tl, 0, duration, 0)));
       if (tl.getChildren().length > 0) timeline = tl;
     } catch (error) {
       console.warn('Bhippi motion graphic script failed while rendering frames:', error);
@@ -141,6 +160,8 @@ function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'wi
     host.style.setProperty('--stage-h', `${canvas.height}px`);
     host.style.setProperty('--u', (canvas.width / 1920).toFixed(4));
     timeline?.seek(elapsed, false);
+    seekLooseAnimations(stage, elapsed, taken);
+    try { render?.(elapsed, duration > 0 ? elapsed / duration : 0); } catch (error) { console.warn('Bhippi motion graphic render failed while rendering frames:', error); }
     await nextPaint();
     const image = await decode(snapshot(stage, canvas.width, canvas.height, scale));
     context.clearRect(0, 0, sheet.width, sheet.height);

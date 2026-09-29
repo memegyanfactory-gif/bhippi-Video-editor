@@ -85,10 +85,11 @@ export function videoBlueprintContentError(scenes: VideoBlueprintSceneInput[], k
     else if (!['generate', 'download', 'existing'].includes(source)) problems.push(`Scene ${n}: mediaSource must be "generate", "download", or "existing".`);
     else if (text('audio').trim().length < 20) problems.push(`Scene ${n}: audio needs ≥20 chars of sound design for this beat. Currently ${text('audio').trim().length} chars.`);
     else if (source === 'generate' && text('visualPrompt').trim().length < 20) problems.push(`Scene ${n}: visualPrompt needs a ≥20-char generation prompt when mediaSource is "generate".`);
-    else if (source === 'download' && !text('mediaUrl').trim()) problems.push(`Scene ${n}: mediaUrl is required when mediaSource is "download".`);
+    // A download is found while gathering: a URL when the plan already has one, otherwise what to search for.
+    else if (source === 'download' && !text('mediaUrl').trim() && text('visualPrompt').trim().length < 12) problems.push(`Scene ${n}: a "download" scene needs mediaUrl, or visualPrompt saying what footage to find (≥12 chars) — the gather phase searches for it.`);
     else if (source === 'existing') {
       const id = text('assetId').trim();
-      if (!id) problems.push(`Scene ${n}: assetId is required when mediaSource is "existing".`);
+      if (!id) problems.push(`Scene ${n}: an "existing" scene needs the assetId of media already in the project (get_project lists them) — or use "download" / "generate" with a visualPrompt.`);
       else if (knownIds && !knownIds.has(id)) problems.push(`Scene ${n}: asset "${id}" is not imported. Import it first, then reference its real asset ID.`);
     }
   });
@@ -245,6 +246,19 @@ const GATHER_TOOLS = new Set([
   'get_meme_media',
   'cutout_image',
 ]);
+
+/** Bhippi's built-in score and background plates: gathered media while gathering, edits after. */
+const BUILTIN_MEDIA = new Set(['compose_music', 'make_background']);
+
+/** Tools that make a composition: the way forward in a project that has none. */
+const MAKES_COMP = new Set(['choose_comp_size', 'create_comp']);
+
+/** Tools that run a local model: local_media_capabilities comes first so the model is known to exist. */
+const LOCAL_MODEL_TOOLS = new Set(['generate_local_media', 'rotoscope_clip', 'depth_occlusion_clip', 'erase_subject_clip', 'track_people', 'add_text_behind_subject', 'add_media_behind_subject', 'reveal_subject']);
+
+/** A plate or score Bhippi rendered itself (make_background, compose_music, the guided build). */
+export const bhippiMade = (asset: Pick<Asset, 'name'> & { path?: string }) =>
+  /Background Plate( \d+)?\.mp4$/i.test(asset.name) || /[\\/]Generated[\\/](Backgrounds|Music)[\\/]/i.test(asset.path ?? '');
 
 /** `generate_local_media` tasks the "disable local generation" setting turns off — image and
  * video only; local voice/music (`task: "audio"`) and the erase model are unaffected. */
@@ -410,6 +424,8 @@ export class EditWorkflow {
   private qaIssues: { kind: string; a: string; b: string }[] = [];
   /** The waivers the pending verify_edit_workflow call carries (verify itself only sees the project). */
   private pendingWaivers: unknown[] = [];
+  /** verify_edit_workflow's `asks`: what the model says the user asked, and what did each. */
+  private pendingAsks: unknown[] | null = null;
   /**
    * Shorts made this turn (create_shorts). Each is a comp of its own whose plan is the short itself,
    * so this turn may edit them all; verify checks every one.
@@ -428,6 +444,8 @@ export class EditWorkflow {
     this.sources = (comp?.clips ?? []).filter(c => c.enabled && c.source.type === 'media' && !comp.tracks.find(t => t.id === c.trackId)?.hidden && !comp.tracks.find(t => t.id === c.trackId)?.muted).flatMap(c => {
       if (c.source.type !== 'media') return [];
       const asset = assets.get(c.source.assetId);
+      // Bhippi's own plates and scores (make_background, compose_music) hold nothing to transcribe or scan.
+      if (asset && bhippiMade(asset)) return [];
       // The production's own chosen music bed is never dialogue — forcing it through
       // analyze_clip_speech blocked editing outright on a machine with no transcription engine
       // configured, for a Kevin MacLeod instrumental track that has nothing to transcribe.
@@ -450,6 +468,9 @@ export class EditWorkflow {
       if (receipts.planned) this.planned = timing(comp);
       this.inspected = timing(comp);
     }
+    // A comp with a saved storyboard is planned: a follow-up edit updates it when it must, and is
+    // never sent back to save one (which re-opened the whole plan phase mid-edit).
+    if (comp?.storyboard?.length && !this.planned) this.planned = timing(comp);
   }
   /**
    * Whether the production is past planning and gathering with its analysis on record: the plan
@@ -530,13 +551,24 @@ export class EditWorkflow {
     // A hard switch, not a phase gate: checked before the quick-mode bypass so a one-off Quick
     // edit turn cannot route around the setting either.
     if (this.disableLocalGeneration && name === 'generate_local_media' && LOCAL_GENERATION_TASKS.has(String(args.task))) return LOCAL_GENERATION_OFF;
-    if (name === 'verify_edit_workflow') this.pendingWaivers = Array.isArray(args.acceptedQaIssues) ? args.acceptedQaIssues : [];
+    if (name === 'verify_edit_workflow') {
+      this.pendingWaivers = Array.isArray(args.acceptedQaIssues) ? args.acceptedQaIssues : [];
+      this.pendingAsks = Array.isArray(args.asks) ? args.asks : null;
+    }
     // A timeline with no picture (empty, or audio only) has no size to take from footage: the user
     // picks the frame before anything is planned or built, in Quick edit too.
-    const sizeGate = this.sizeGate(name, project);
+    const sizeGate = this.sizeGate(name, project, args);
     if (sizeGate) return sizeGate;
     if (this.mode === 'quick') return null;
-    if (name === 'editing_workflow_status' || name === 'verify_edit_workflow') return null;
+    // A tool's documentation changes nothing: refusing it (before a plan, mid-gather) only makes models guess parameters.
+    if (name === 'editing_workflow_status' || name === 'verify_edit_workflow' || name === 'tool_help') return null;
+    // The comp this turn started on was deleted (the user cleared the project): carry on with the
+    // open one, and with none at all let the model make one — never refuse the only way forward.
+    if (!this.comp(project)) {
+      const open = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
+      if (open) this.compId = open.id;
+      else return ALWAYS_TOOLS.has(name) || preparation.has(name) || MAKES_COMP.has(name) ? null : 'The project has no composition yet (it was cleared). Make one first: choose_comp_size (asks the size and creates it) or create_comp.';
+    }
     const comp = this.comp(project);
     if (!comp) return 'The workflow composition no longer exists. Start a new turn for another composition.';
     // A short made this turn is planned by create_shorts itself: edit it freely (it is in scope).
@@ -546,7 +578,8 @@ export class EditWorkflow {
     if (scope && typeof args.compId === 'string' && !scope.some(c => c.id === args.compId || c.name === args.compId)) return this.outOfScope(comp);
     const gate = this.phaseGate(name, args, comp);
     if (gate) return gate;
-    if (preparation.has(name)) return null;
+    // Reads, catalogues, notes and the storyboard debate edit nothing: they never wait on the edit prerequisites.
+    if (preparation.has(name) || ALWAYS_TOOLS.has(name)) return null;
     if (project.activeCompId !== this.compId) return 'Return to the workflow composition before editing. This turn cannot silently edit a different active timeline.';
     const clipIds = [args.clipId, ...(Array.isArray(args.clipIds) ? args.clipIds : [])].filter((id): id is string => typeof id === 'string');
     // A clip of a nested comp, or a nested comp's own id (update_motion_scene takes either as clipId).
@@ -568,9 +601,12 @@ export class EditWorkflow {
       const more = state.frameReviewPending.length > 4 ? ` plus ${state.frameReviewPending.length - 4} more clip(s) from editing_workflow_status` : '';
       return `Frame scan missing — run now, one clip per call, text-only (no images): ${shown}${more}. Request images only later, for the one batch needing roto points or behind-subject placement.`;
     }
-    // Local-model discovery must happen before planning, so the storyboard's visual
-    // thinking names real installed adapters (image/video/audio/depth) instead of wishes.
-    if (!state.capabilitiesChecked) return 'Call local_media_capabilities before saving the storyboard or editing, so the visual plan uses the actual installed image/video/audio/depth models.';
+    // The guided build's beats are the plan: it uses no local model and saves the storyboard itself.
+    if (name === 'build_edit_from_brief' && !state.blueprintActive) return null;
+    // Local-model discovery must happen before planning, so the storyboard's visual thinking
+    // names real installed adapters instead of wishes — and before a local model runs. Ordinary
+    // edits (move, delete, fill a background) never needed it.
+    if (!state.capabilitiesChecked && (name === 'save_storyboard' || name === 'save_video_blueprint' || LOCAL_MODEL_TOOLS.has(name))) return 'Call local_media_capabilities before saving the storyboard or editing, so the visual plan uses the actual installed image/video/audio/depth models.';
     if (name === 'save_storyboard' || name === 'save_video_blueprint') return null;
     // Shorts: the picked moments (with their scores and reasons) are the plan, one comp per short.
     if (name === 'create_shorts') return null;
@@ -595,10 +631,12 @@ export class EditWorkflow {
    * the frame size of a comp that has no picture: the question comes first, before any planning,
    * research, notes or building.
    */
-  private sizeGate(name: string, project: Project): string | null {
+  private sizeGate(name: string, project: Project, args: Args = {}): string | null {
     // Shorts are built in comps of their own, at the frame choose_shorts_format asks for.
     // Library lookups are harmless; notes, research and builds wait for the answer.
-    if (name === 'create_shorts' || (ALWAYS_TOOLS.has(name) && !HELD_FOR_SIZE.has(name)) || !this.frameSizePending(project)) return null;
+    // create_comp that names its shape answers the size question itself.
+    const shaped = name === 'create_comp' && ['width', 'height', 'preset', 'format', 'orientation', 'fromCompId'].some(key => args[key] !== undefined);
+    if (name === 'create_shorts' || shaped || (ALWAYS_TOOLS.has(name) && !HELD_FOR_SIZE.has(name)) || !this.frameSizePending(project)) return null;
     return 'Ask the frame size first: the timeline has no picture (empty or audio only), so its size is only the default. Call choose_comp_size now — before any plan, research, note or build — it asks the user and sets the comp; then carry on with the task.';
   }
   /** Whether a call works on a short made this turn: by compId, by its clips, or on the open short. */
@@ -648,7 +686,8 @@ export class EditWorkflow {
       return null;
     }
     if (phase === 'gathering') {
-      if (GATHER_TOOLS.has(name) || preparation.has(name) || gatherMedia || scrapeMedia) return null;
+      // Bhippi's own score and plates are gathered media too (they only import while gathering).
+      if (GATHER_TOOLS.has(name) || BUILTIN_MEDIA.has(name) || preparation.has(name) || gatherMedia || scrapeMedia) return null;
       return 'Gathering phase: no timeline edits until the user presses Start editing. Generate or download every planned shot (one text-to-video shot per call, 5-7 s, with sceneIndex so it attaches to the plan), the voice-over and the music, then call finish_gathering and end your turn.';
     }
     if (phase === 'gathered') {
@@ -677,8 +716,8 @@ export class EditWorkflow {
       if (source) this.transcripts.add(source.assetId);
     }
     if (!result.ok) return;
-    // The comp choose_comp_size made, when the project had none, is this turn's comp.
-    if (name === 'choose_comp_size' && !this.comp(project) && typeof result.compId === 'string') this.compId = result.compId;
+    // The comp choose_comp_size or create_comp made, when the project had none, is this turn's comp.
+    if ((name === 'choose_comp_size' || name === 'create_comp') && !this.comp(project) && typeof result.compId === 'string') this.compId = result.compId;
     const comp = this.comp(project);
     if (!comp) return;
     if ((name === 'get_comp' && result.id === this.compId) || (name === 'get_project' && (result.activeComp as { id?: string })?.id === this.compId)) { this.inspected = timing(comp); this.reviewedActions = this.actions.length; }
@@ -712,6 +751,8 @@ export class EditWorkflow {
     if (name === 'create_shorts' && Array.isArray(result.shorts)) {
       for (const short of result.shorts as { compId?: unknown }[]) if (typeof short?.compId === 'string') this.shorts.add(short.compId);
     }
+    // A new version of an edit (create_comp fromCompId) is already built: this turn refits and QA's it, like a short.
+    if (name === 'create_comp' && typeof args.fromCompId === 'string' && typeof result.compId === 'string') this.shorts.add(result.compId);
     if (name === 'run_frame_qa') {
       const qaComp = typeof args.compId === 'string' ? project.comps.find(c => c.id === args.compId || c.name === args.compId)?.id : project.activeCompId;
       if (qaComp && this.shorts.has(qaComp)) this.shortsQa.add(qaComp);
@@ -802,6 +843,9 @@ export class EditWorkflow {
     if (['hook', 'punch-ins', 'captions'].includes(recipe)) this.proVisual = true;
     // Designed sound counts: shaped music/SFX automation or built-in accents.
     if (name === 'score_audio_clip' || name === 'add_sound_effect' || name === 'generate_selection_sound') this.soundPass = true;
+    // A placed score is a designed music bed; the guided build lays graphics, cues, music and its own storyboard.
+    if (name === 'compose_music' && result.placed === true) this.soundPass = true;
+    if (name === 'build_edit_from_brief') { this.proVisual = true; this.soundPass = true; this.storyboardRefs = true; }
     if (recipe === 'music-bed') this.soundPass = true;
     const audioTracks = comp.tracks.filter(t => t.kind === 'audio');
     if (audioTracks.length > 1 && comp.clips.some(c => c.enabled && comp.tracks.find(t => t.id === c.trackId)?.kind === 'audio' && c.trackId !== audioTracks[0].id)) {
@@ -811,8 +855,33 @@ export class EditWorkflow {
       this.actions.push(name);
       this.finished = false;
       this.inspected = timing(comp);
-      if (this.planned) this.planned = timing(comp);
+      // The guided build saved its own storyboard for what it laid down.
+      if (this.planned || name === 'build_edit_from_brief') this.planned = timing(comp);
     }
+  }
+  /**
+   * Whether the turn did what the user asked, not just what the workflow asks: the model lists
+   * each thing their message asks for with the call that did it this turn ("not possible: why",
+   * "already done: …" or "answered: …" otherwise). A turn that changed nothing cannot claim an
+   * edit. The receipts, QA and the Judge measure how good the timeline is; only this ties it back
+   * to the request. Null when it holds, or when there is no user message to hold it to.
+   */
+  private unansweredAsks(prompt?: string): string | null {
+    if (this.mode !== 'full' || !prompt?.trim()) return null;
+    const quote = prompt.trim().replace(/\s+/g, ' ').slice(0, 600);
+    const asks = (this.pendingAsks ?? []).flatMap(raw => {
+      const a = (raw && typeof raw === 'object' ? raw : {}) as Args;
+      return typeof a.ask === 'string' && a.ask.trim() ? [{ ask: a.ask.trim(), done: typeof a.done === 'string' ? a.done.trim() : '' }] : [];
+    });
+    if (!asks.length) return `Before verifying, re-read the user's message and list what it asks for in asks: [{"ask": "…", "done": "<the tool call that did it this turn>"}] — one entry per request, and "not possible: <why>" for what cannot be done. Their message: "${quote}"`;
+    const excused = /^(not possible|cannot|can't|already done|answered|n\/a)\b[\s:—-]*\S.{6,}/i;
+    const used = new Set(this.actions);
+    const open = asks.filter(({ done }) => !excused.test(done) && ![...used].some(tool => done.includes(tool)));
+    if (open.length) {
+      const nothing = !this.actions.length ? ' This turn has not changed the timeline at all.' : '';
+      return `Not done yet:${nothing} ${open.map(({ ask, done }) => `"${ask}" (${done ? `"${done}" names no call that succeeded this turn` : 'nothing did it'})`).join('; ')}. Do these now with the tools, then verify again with each done naming the call that did it. Calls that succeeded this turn: ${[...used].join(', ') || 'none'}. Their message: "${quote}"`;
+    }
+    return null;
   }
   /** Shorts made this turn: every one must exist, be sound, be QA'd, and hold nothing the council blocks. */
   private verifyShorts(project: Project, assets?: Map<string, Asset>): ToolResult {
@@ -834,12 +903,14 @@ export class EditWorkflow {
     });
     const open = this.mode === 'full' ? this.qaIssues.filter(issue => !waivers.some(w => w.kind === issue.kind && w.a === issue.a)) : [];
     if (open.length) problems.push(`the last frame-QA pass is not clear: ${open.slice(0, 6).map(issue => `${issue.kind} "${issue.a}"`).join('; ')} — fix and run it again, or pass acceptedQaIssues with a reason`);
-    if (problems.length) return { ok: false, error: `The shorts are not finished:\n${problems.map(p => `- ${p}`).join('\n')}` };
+    if (problems.length) return { ok: false, error: `The new comps are not finished:\n${problems.map(p => `- ${p}`).join('\n')}` };
     this.finished = true;
-    return { ok: true, summary: `All ${this.shorts.size} shorts checked: cut, framed, QA'd and signed off by the council. This does not verify rendered frames or music taste.` };
+    return { ok: true, summary: `All ${this.shorts.size} new comp${this.shorts.size === 1 ? '' : 's'} checked: framed, QA'd and signed off by the council. This does not verify rendered frames or music taste.` };
   }
-  verify(project: Project, assets?: Map<string, Asset>): ToolResult {
+  verify(project: Project, assets?: Map<string, Asset>, prompt?: string): ToolResult {
     if (this.shorts.size) return this.verifyShorts(project, assets);
+    const unasked = this.unansweredAsks(prompt);
+    if (unasked) return { ok: false, error: unasked };
     const status = this.status(project), comp = this.comp(project);
     const phase = this.phase(project);
     if (phase === 'plan-ready' || phase === 'gathering' || phase === 'gathered') return { ok: false, error: `Nothing to verify yet: the production is in the ${phase} phase. verify_edit_workflow belongs to the end of the editing phase, after the user has pressed Start editing and the timeline is assembled.` };

@@ -12,7 +12,7 @@
 import { AVAILABLE_EFFECTS } from './effectsCatalog';
 import { createAppliedEffect } from './effectFilters';
 import { mogrtCanvas } from './motionGraphics';
-import { isLayeredComp, logicalScene, restack } from './motionStack';
+import { isLayeredComp, logicalScene, restack, stackComps } from './motionStack';
 import { findTemplate } from '../motion/kit';
 import { buildInBrand } from '../motion/kit/brandify';
 import { fitToSafeArea } from '../motion/safeArea';
@@ -265,4 +265,58 @@ export function describeReformat(report: ReformatReport, mode: ReformatMode): st
   if (report.carried.length) parts.push(`${report.carried.length} carried across and kept in the safe area`);
   if (report.skipped.length) parts.push(`left as they were: ${report.skipped.join(', ')}`);
   return parts.length ? parts.join('; ') : 'nothing inside needed changing';
+}
+
+/**
+ * A full copy of comp `compId` named `name`: fresh track, clip, link, group, transition and marker
+ * ids, and its own copies of the layered "[Motion]" comps it holds (with their precomps), so
+ * reformatting the copy rebuilds those graphics instead of skipping them as shared, and never
+ * touches the original. Plain nested comps stay shared. Null when there is no such comp.
+ */
+export function duplicateComp(project: Project, compId: string, name: string): { project: Project; compId: string } | null {
+  const comp = project.comps.find((entry) => entry.id === compId);
+  if (!comp) return null;
+  const copies = new Map<string, string>();
+  const video = new Set(tracksOf(comp, 'video').map((track) => track.id));
+  for (const clip of comp.clips) {
+    if (clip.source.type !== 'comp' || !video.has(clip.trackId)) continue;
+    const innerId = clip.source.compId;
+    const inner = project.comps.find((entry) => entry.id === innerId);
+    if (!inner || !isLayeredComp(inner)) continue;
+    for (const entry of stackComps(project, inner.id)) if (!copies.has(entry.id)) copies.set(entry.id, uid());
+  }
+  copies.set(comp.id, uid());
+
+  const repoint = (source: Clip['source']): Clip['source'] => {
+    if (source.type === 'comp') return copies.has(source.compId) ? { ...source, compId: copies.get(source.compId)! } : source;
+    if (source.type !== 'motion' || !source.scene.layers.some((layer) => layer.type === 'precomp' && layer.comp && copies.has(layer.comp))) return source;
+    const layers = source.scene.layers.map((layer) => (layer.type === 'precomp' && layer.comp && copies.has(layer.comp) ? { ...layer, comp: copies.get(layer.comp) } : layer));
+    return { ...source, scene: { ...source.scene, layers } };
+  };
+  const clone = (source: Comp, id: string, label: string): Comp => {
+    const tracks = new Map(source.tracks.map((track) => [track.id, uid()]));
+    const clips = new Map(source.clips.map((clip) => [clip.id, uid()]));
+    const links = new Map<string, string>();
+    const groups = new Map<string, string>();
+    const fresh = (map: Map<string, string>, key: string | null) => (key ? (map.get(key) ?? (map.set(key, uid()), map.get(key)!)) : null);
+    const clipId = (key: string | null) => (key ? (clips.get(key) ?? key) : null);
+    return {
+      ...source,
+      id,
+      name: label,
+      tracks: source.tracks.map((track) => ({ ...track, id: tracks.get(track.id)! })),
+      clips: source.clips.map((clip) => ({ ...clip, id: clips.get(clip.id)!, trackId: tracks.get(clip.trackId) ?? clip.trackId, linkId: fresh(links, clip.linkId), groupId: fresh(groups, clip.groupId), source: repoint(clip.source) })),
+      transitions: source.transitions.map((transition) => ({ ...transition, id: uid(), trackId: tracks.get(transition.trackId) ?? transition.trackId, fromClip: clipId(transition.fromClip), toClip: clipId(transition.toClip) })),
+      markers: source.markers.map((marker) => ({ ...marker, id: uid() })),
+      sourceVideo: source.sourceVideo ? (tracks.get(source.sourceVideo) ?? null) : null,
+      sourceAudio: source.sourceAudio ? (tracks.get(source.sourceAudio) ?? null) : null,
+    };
+  };
+
+  const added = project.comps.flatMap((entry) => {
+    const id = copies.get(entry.id);
+    if (!id) return [];
+    return [clone(entry, id, entry.id === comp.id ? name : `${entry.name} · ${name}`)];
+  });
+  return { project: { ...project, comps: [...project.comps, ...added] }, compId: copies.get(comp.id)! };
 }

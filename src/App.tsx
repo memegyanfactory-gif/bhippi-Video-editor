@@ -1,11 +1,12 @@
 // The editor shell: the Premiere workspace, its menus and keymap, the context menus, the dialogs,
 // project files, and the bridge between Bhippi AI's tool calls and the project.
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { turnPrompt } from './lib/turnPrompts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { CircleCheck, Film, LoaderCircle, Mic, Puzzle, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { CircleCheck, Film, LoaderCircle, MessageSquare, Mic, Puzzle, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { actionLogger } from './lib/actionLogger';
 import { crashReporter } from './lib/crashReporter';
 import { TerminalPanel } from './panels/TerminalPanel';
@@ -72,7 +73,7 @@ import {
 } from './lib/timeline';
 import { isLayeredComp, splitMotionComps } from './lib/motionStack';
 import { isHtmlLayered, splitHtmlComp } from './lib/htmlLayers';
-import type { AppInfo, Asset, Clip, ClipSource, Comp, ExportOptions, BhippiDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase, DockSlot, DockedPlugin, DockAnchor, DockSide } from './lib/types';
+import type { AppInfo, Asset, Clip, ClipSource, Comp, ExportOptions, BhippiDocument, ItemKind, Job, PanelId, Project, ProviderInfo, Settings, Tool, ToolResult, WorkspaceLayout, ProductionPhase } from './lib/types';
 import { ProjectPanel, type DragPayload, type EffectPreset, type ProjectTab } from './panels/ProjectPanel';
 import { PropertiesPanel } from './panels/PropertiesPanel';
 import { EffectControlsPanel } from './panels/EffectControlsPanel';
@@ -121,7 +122,8 @@ import { CornerStack, DownloadsBadge } from './components/DownloadsBadge';
 import { BackgroundPlugins, panelPlugins, PluginClipRenderers, pluginGlyph, PluginMark, PLUGINS_HOME, PluginsHome, PluginsPanelBody } from './plugins/PluginsPanel';
 import { pluginClipIds } from './plugins/clipRender';
 import { loadPlugins, patchPlugin, pluginsBrief, usePlugins } from './plugins/store';
-import { ANCHOR_LABEL, ANCHOR_REGION, DOCK_ANCHORS, DOCK_MIN, DOCK_MIN_HEIGHT, DOCK_SLOTS, DockOverlay, SIDE_LABEL, dragToDock, isAnchor, isSide, samePlace, sidesFor, withDocked, type DockDrag, type DockPlace, type DockTarget } from './plugins/dock';
+import { DockArea, PanelDragOverlay, usePanelDrag } from './components/DockArea';
+import { defaultTree, movePanel, panelsIn, readTree, removePanel, resizeSplit, showPanel as showInTree, type DockDrop, type DockNode, type DockPanelId } from './lib/dockTree';
 import { PluginFrame } from './plugins/PluginFrame';
 import { selectedPlugin, setPluginChecker } from './plugins/aiTools';
 import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/CharactersWindow';
@@ -135,9 +137,33 @@ import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/C
  * thinking, permission and send, side by side without wrapping.
  */
 const PANEL_MIN = { chat: 436, transcript: 240, source: 260, properties: 260, project: 260, plugins: 240, top: 220 } as const;
+/** The smallest a panel of the editing area may be dragged, px along its row or column. */
+const DOCK_PANEL_MIN: Partial<Record<string, number>> = { program: 320, timeline: 280, storyboard: 240, transcript: 240, source: 260, properties: 260, project: 240, plugins: 240 };
+/** Panel names for the Window menu, drag labels and drop hints. */
+const PANEL_NAMES: Record<string, string> = { project: 'Project', source: 'Source Monitor', program: 'Program Monitor', properties: 'Properties', timeline: 'Timeline', meters: 'Audio Meters', tools: 'Tools', storyboard: 'Storyboard', transcript: 'Transcription', plugins: 'Plugins' };
+
+/**
+ * A saved layout made current: its dock tree, or — for a layout saved before panels could be
+ * dragged anywhere — the old fixed rows rebuilt as one (what was closed stays closed).
+ */
+function layoutTree(saved: Partial<WorkspaceLayout>): DockNode | null {
+  const stored = readTree(saved.tree);
+  if (stored) return stored;
+  const hidden = new Set(saved.hidden ?? DEFAULT_LAYOUT.hidden);
+  let tree: DockNode | null = defaultTree();
+  for (const panel of ['properties', 'project', 'meters', 'tools'] as const) if (hidden.has(panel)) tree = removePanel(tree, panel);
+  // The old Storyboard & Transcription panel comes back as the Storyboard panel.
+  if (!hidden.has('transcript')) tree = showInTree(tree, 'storyboard');
+  if (!hidden.has('source')) tree = showInTree(tree, 'source');
+  if (!hidden.has('plugins')) tree = showInTree(tree, 'plugins');
+  for (const item of saved.docked ?? []) if (typeof item?.id === 'string') tree = showInTree(tree, `plugin:${item.id}`);
+  return tree;
+}
 
 // A fresh install starts with the Plugins panel closed: Plugins › Show Plugins Panel (or Window › Plugins) opens it.
 const DEFAULT_LAYOUT: WorkspaceLayout = { chatWidth: 448, transcriptWidth: 320, topHeight: 460, sourceWidth: 460, propertiesWidth: 330, projectWidth: 340, pluginsWidth: 360, hidden: ['transcript', 'source', 'plugins'], meters: DEFAULT_METERS, storyboardDocked: true, sourceClosed: true, docked: [] };
+/** A fresh default layout: its own dock tree (ids are per layout). */
+const freshLayout = (): WorkspaceLayout => ({ ...DEFAULT_LAYOUT, hidden: [], tree: defaultTree() });
 const EMPTY_SETTINGS: Settings = {
   disabledProviders: [], providerId: null, model: null, effort: null, permission: null, ffmpegPath: null, chatOpen: true, timelineHeight: null, timelineZoom: null,
   disableLocalGeneration: true,
@@ -174,6 +200,26 @@ function describeArgs(args: Record<string, unknown>): string {
     .join(' · ');
 }
 
+/** Where files dragged in from Explorer would land, and what dropping them there does. */
+type FileHover = { zone: 'chat' | 'sketch' | 'timeline' | 'bin' | 'project'; rect: { left: number; top: number; width: number; height: number } | null; title: string; detail: string; what: string; key: string };
+
+const PICTURE_EXT = /\.(png|jpe?g|webp|gif|bmp|tiff?|avif|heic|heif)$/i;
+const VIDEO_EXT = /\.(mp4|mov|mkv|webm|avi|m4v|wmv|mts|m2ts|flv|mpe?g|3gp)$/i;
+const AUDIO_EXT = /\.(mp3|wav|m4a|aac|flac|ogg|opus|wma|aiff?)$/i;
+
+/** "2 videos and a picture", from the dragged paths. */
+function describeFiles(paths: string[]): string {
+  const count = (test: RegExp) => paths.filter((path) => test.test(path)).length;
+  const parts: string[] = [];
+  const add = (n: number, one: string, many: string) => { if (n) parts.push(n === 1 ? one : `${n} ${many}`); };
+  add(count(VIDEO_EXT), 'a video', 'videos');
+  add(count(PICTURE_EXT), 'a picture', 'pictures');
+  add(count(AUDIO_EXT), 'an audio file', 'audio files');
+  const other = paths.length - count(VIDEO_EXT) - count(PICTURE_EXT) - count(AUDIO_EXT);
+  add(other, paths.some((path) => path.toLowerCase().endsWith('.bhippi')) && other === 1 ? 'a Bhippi project' : 'a file', 'files');
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0] ?? 'files';
+}
+
 /** Whether a screen point is over a timeline panel — geometry, since a drag overlay may cover it. */
 const overTimeline = (x: number, y: number) => [...document.querySelectorAll<HTMLElement>('.timeline')].some((node) => {
   const rect = node.getBoundingClientRect();
@@ -205,7 +251,6 @@ export default function App() {
   const [makerPlugin, setMakerPlugin] = useState<string | null>(null);
   const [pluginTab, setPluginTab] = useState<string | null>(null);
   /** A plugin being dragged toward the editing area to dock it (src/plugins/dock.tsx). */
-  const [dockDrag, setDockDrag] = useState<DockDrag | null>(null);
   const makerChatApi = useRef<ChatApi | null>(null);
   /** The Plugins panel was asked for while it has no plugin tabs, so it shows its empty state. */
   /** The Characters window (a built-in tab of the Plugins panel), and which studio it shows. */
@@ -324,10 +369,9 @@ export default function App() {
   const [mutes, setMuteState] = useState<MuteState>(NO_MUTES);
   const [focused, setFocused] = useState<PanelId>('timeline');
   const [maximized, setMaximized] = useState<PanelId | null>(null);
-  const [layout, setLayout] = useState<WorkspaceLayout>(DEFAULT_LAYOUT);
+  const [layout, setLayout] = useState<WorkspaceLayout>(freshLayout);
   const [projectTab, setProjectTab] = useState<ProjectTab>('project');
   const [chatTab, setChatTab] = useState<'chat' | 'providers'>('chat');
-  const [sideTab, setSideTab] = useState<'storyboard' | 'transcript'>('storyboard');
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceRanges, setSourceRanges] = useState<Record<string, SourceRange>>({});
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
@@ -361,7 +405,9 @@ export default function App() {
   }, [licenseBlocked]);
   const [incoming, setIncoming] = useState<IncomingDrag | null>(null);
   const [dragLabel, setDragLabel] = useState<string | null>(null);
-  const [fileHover, setFileHover] = useState(false);
+  const [fileHover, setFileHover] = useState<FileHover | null>(null);
+  /** What is being dragged in, from the drag's enter event (the later events carry no paths). */
+  const draggedFiles = useRef('files');
   const [toolRuns, setToolRuns] = useState<Record<string, ToolRun[]>>({});
   const [recordingTrack, setRecordingTrack] = useState<string | null>(null);
   const clipboard = useRef<Clipboard>(null);
@@ -409,34 +455,16 @@ export default function App() {
       settingsStore.apply(stored);
       // A fresh install is marked so the welcome tour follows the setup; older installs stay unset.
       if (!stored.onboarded && stored.tourSeen == null) settingsStore.save({ tourSeen: false });
-      // A layout saved before these floors existed is raised to them rather than left overlapping.
+      // The layout the last session left, its panels where the user put them (a layout from before
+      // panels could be dragged anywhere is rebuilt as a tree once, keeping what was closed closed).
       if (stored.layout) {
         const saved = { ...DEFAULT_LAYOUT, ...stored.layout, meters: { ...DEFAULT_METERS, ...(stored.layout.meters ?? {}) } };
-        // Layouts saved before the storyboard moved into the editing area start with it off, once.
-        const storyboardHidden = stored.layout.storyboardDocked ? saved.hidden : [...new Set([...saved.hidden, 'transcript' as PanelId])];
-        // Layouts saved before the editor opened with Storyboard & Transcription and the Source
-        // Monitor closed get both closed once; after that the user's own choice stays.
-        const hiddenPanels = stored.layout.sourceClosed ? storyboardHidden : [...new Set([...storyboardHidden, 'transcript' as PanelId, 'source' as PanelId])];
         setLayout({
           ...saved,
-          hidden: hiddenPanels,
-          storyboardDocked: true,
-          sourceClosed: true,
+          hidden: saved.hidden.includes('chat') ? ['chat'] : [],
           chatWidth: Math.max(PANEL_MIN.chat, saved.chatWidth),
-          transcriptWidth: Math.max(PANEL_MIN.transcript, saved.transcriptWidth),
-          sourceWidth: Math.max(PANEL_MIN.source, saved.sourceWidth),
-          propertiesWidth: Math.max(PANEL_MIN.properties, saved.propertiesWidth),
-          projectWidth: Math.max(PANEL_MIN.project, saved.projectWidth),
-          pluginsWidth: Math.max(PANEL_MIN.plugins, saved.pluginsWidth ?? DEFAULT_LAYOUT.pluginsWidth!),
-          topHeight: Math.max(PANEL_MIN.top, saved.topHeight),
-          // Docked plugins: only well-formed entries, once each, no smaller than a dock allows.
-          docked: (Array.isArray(saved.docked) ? saved.docked : [])
-            .filter((item, index, list) => typeof item?.id === 'string' && DOCK_SLOTS.includes(item.slot) && list.findIndex((other) => other?.id === item.id) === index)
-            .map((item) => ({
-              id: item.id, slot: item.slot, width: Math.max(DOCK_MIN, Number(item.width) || DOCK_MIN),
-              ...(isAnchor(item.anchor) && isSide(item.side) && sidesFor(item.anchor).includes(item.side) ? { anchor: item.anchor, side: item.side } : {}),
-              ...(item.height ? { height: Math.max(DOCK_MIN_HEIGHT, Number(item.height) || DOCK_MIN_HEIGHT) } : {}),
-            })),
+          tree: layoutTree(stored.layout) ?? defaultTree(),
+          docked: [],
         });
       }
       if (stored.timelineZoom) setZoom(stored.timelineZoom);
@@ -859,7 +887,7 @@ export default function App() {
               : 'Workflow initialized. Call get_comp next to inspect the comp timeline before planning or editing.';
             result = { ok: true as const, summary, workflow: st };
           }
-          else if (call.name === 'verify_edit_workflow') result = workflow.verify(project, hostRef.current.assets());
+          else if (call.name === 'verify_edit_workflow') result = workflow.verify(project, hostRef.current.assets(), turnPrompt(call.turnId));
           else {
             const host = hostRef.current;
             const turnWorkflow = workflow;
@@ -948,6 +976,31 @@ export default function App() {
     if (target?.production) history.commit((current) => updateComp(current, target.id, (c) => ({ ...c, production: null })), 'New conversation');
     editWorkflows.current.clear();
   };
+  /**
+   * Full access runs the pipeline through: a turn that ends with the plan saved, or with
+   * everything gathered, presses Start generating / Start editing itself — once per step, never
+   * after a stop, an error or while a question waits for the user. Other modes wait for the button.
+   */
+  const autoAdvanced = useRef(new Set<string>());
+  const pendingAsksRef = useRef(mainAsks);
+  pendingAsksRef.current = mainAsks;
+  const autoAdvance = (outcome: TurnOutcome) => {
+    if (outcome.stopped || outcome.faultKind) return;
+    if (((settingsRef.current.permission as PermissionMode | null) ?? DEFAULT_PERMISSION) !== 'full') return;
+    window.setTimeout(() => {
+      const current = history.current();
+      const target = current.comps.find((item) => item.id === current.activeCompId);
+      const phase = target?.production?.phase;
+      const next = phase === 'plan-ready' ? 'gathering' : phase === 'gathered' ? 'editing' : null;
+      if (!target || !next || pendingAsksRef.current.length) return;
+      const key = `${target.id}:${next}:${target.production?.updatedAt ?? 0}`;
+      if (autoAdvanced.current.has(key)) return;
+      autoAdvanced.current.add(key);
+      toast({ tone: 'info', title: next === 'gathering' ? 'Full access: generating now' : 'Full access: editing now', body: 'Bhippi carries on without waiting for the button. Switch to Auto-edit to review each step first.', timeout: 4500 });
+      advanceProductionPhase(target.id, next);
+    }, 700);
+  };
+
   const advanceProductionPhase = (compId: string, phase: 'gathering' | 'editing' | ProductionPhase) => {
     history.commit((current) => updateComp(current, compId, (c) => (c.production ? { ...c, production: advanceProduction(c.production, phase) } : c)), phase === 'gathering' ? 'Start generating' : 'Start editing');
     const message = phase === 'gathering'
@@ -1351,18 +1404,24 @@ export default function App() {
   }, [updateNews, toast]);
 
   // ── layout ─────────────────────────────────────────────────────────────
-  const hidden = (panel: PanelId) => layout.hidden.includes(panel);
+  /** The editing area's dock tree (lib/dockTree.ts); every panel but the chat lives in it. */
+  const tree = useMemo(() => readTree(layout.tree), [layout.tree]);
+  const treeOf = (current: WorkspaceLayout) => readTree(current.tree);
+  const openPanels = useMemo(() => new Set<string>(panelsIn(tree)), [tree]);
+  const hidden = (panel: PanelId) => (panel === 'chat' ? layout.hidden.includes('chat') : !openPanels.has(panel));
   // Plugins docked in the editing area are panels there, not tabs in the Plugins panel.
-  const docked = layout.docked ?? [];
-  const dockedIds = new Set(docked.map((item) => item.id));
+  const dockedIds = useMemo(() => new Set([...openPanels].filter((panel) => panel.startsWith('plugin:')).map((panel) => panel.slice(7))), [openPanels]);
   // Plugins that draw a clip in this project keep a hidden page running to draw it (clipRender.ts).
   const clipPluginKey = pluginClipIds(project).join(',');
   const clipPlugins = useMemo(() => (clipPluginKey ? clipPluginKey.split(',') : []), [clipPluginKey]);
   // The Plugins panel always has the built-in Characters tab, so it shows unless the user hid it.
   const shownPlugins = panelPlugins(plugins, dockedIds);
   const showPlugins = !hidden('plugins');
+  /** The tree after `change`, for the layout state. */
+  const editTree = (change: (current: DockNode | null) => DockNode | null) => setLayout((current) => ({ ...current, tree: change(treeOf(current)) }));
   const setPanelVisible = (panel: PanelId, visible: boolean) => {
-    setLayout((current) => ({ ...current, hidden: visible ? current.hidden.filter((id) => id !== panel) : [...new Set([...current.hidden, panel])] }));
+    if (panel === 'chat') setLayout((current) => ({ ...current, hidden: visible ? current.hidden.filter((id) => id !== 'chat') : [...new Set([...current.hidden, 'chat' as PanelId])] }));
+    else editTree((current) => (visible ? showInTree(current, panel as DockPanelId) : removePanel(current, panel as DockPanelId)));
     if (!visible && maximized === panel) setMaximized(null);
   };
   // A question from Bhippi AI is answered in the chat, and the turn waits on it: bring the chat
@@ -1384,38 +1443,65 @@ export default function App() {
     layoutStart.current = layout;
   };
 
+  // ── panels dragged anywhere in the editing area ───────────────────────
+  const dockAreaRef = useRef<HTMLDivElement>(null);
+  const panelName = useCallback((panel: DockPanelId) => PANEL_NAMES[panel] ?? (panel.startsWith('plugin:') ? plugins.find((item) => item.id === panel.slice(7))?.name ?? 'Plugin' : panel), [plugins]);
+  const dropPanel = useCallback((panel: DockPanelId, drop: DockDrop) => {
+    if (panel.startsWith('plugin:')) {
+      const id = panel.slice(7);
+      // Dropped back on the Plugins panel: it goes back to being one of its tabs.
+      if (drop.panel === 'plugins' && drop.edge === 'center') {
+        editTree((current) => removePanel(current, panel));
+        setPluginTab(id);
+        return;
+      }
+      const plugin = plugins.find((item) => item.id === id);
+      if (plugin && !(plugin.enabled && plugin.panel)) void patchPlugin(id, { enabled: true, panel: true });
+    }
+    editTree((current) => movePanel(current, panel, drop));
+    setMaximized(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plugins]);
+  const { drag: panelDrag, begin: beginPanelDrag } = usePanelDrag(dockAreaRef, panelName, dropPanel);
+
   // ── plugins docked in the editing area ─────────────────────────────────
-  /** Puts a plugin on one edge of a panel in the editing area, sized so the panels around it keep their room. */
-  const dockPlugin = (id: string, place: DockPlace) => {
+  /** Puts a plugin in the editing area as a panel of its own (on the right edge; drag it anywhere from there). */
+  const dockPlugin = (id: string) => {
     const plugin = plugins.find((item) => item.id === id);
     if (plugin && !(plugin.enabled && plugin.panel)) void patchPlugin(id, { enabled: true, panel: true });
-    setLayout((current) => ({ ...current, docked: withDocked(current.docked ?? [], id, place) }));
+    editTree((current) => showInTree(current, `plugin:${id}`));
   };
   /** Takes a plugin out of the editing area and shows it as its tab in the Plugins panel again. */
   const undockPlugin = (id: string) => {
-    setLayout((current) => ({ ...current, docked: (current.docked ?? []).filter((item) => item.id !== id), hidden: current.hidden.filter((panel) => panel !== 'plugins') }));
+    editTree((current) => showInTree(removePanel(current, `plugin:${id}`), 'plugins'));
     setPluginTab(id);
   };
   /** Closes a docked plugin: out of the editing area and not a Plugins panel tab either (Plugins › Show as Panel brings it back). */
   const closeDockedPlugin = (id: string) => {
-    setLayout((current) => ({ ...current, docked: (current.docked ?? []).filter((item) => item.id !== id) }));
+    editTree((current) => removePanel(current, `plugin:${id}`));
     void patchPlugin(id, { panel: false });
   };
-  const dropPlugin = (id: string, target: DockTarget) => {
-    if (target === 'plugins') {
-      if (dockedIds.has(id)) undockPlugin(id);
-    } else if (target) {
-      dockPlugin(id, target);
-    }
+  const dragPlugin = (id: string, _name: string, event: ReactPointerEvent) => beginPanelDrag(`plugin:${id}`, event);
+
+  // ── named workspaces (Window › Workspaces) ─────────────────────────────
+  const workspaces = settings.workspaces ?? [];
+  const saveWorkspaceAs = () => setDialog(
+    <RenameDialog title="Save Workspace As" name={settings.workspaceName ?? 'My workspace'} onClose={() => setDialog(null)} onSubmit={(name) => {
+      setDialog(null);
+      const clean = name.trim();
+      if (!clean) return;
+      saveSettings({ workspaces: [...workspaces.filter((item) => item.name !== clean), { name: clean, layout: { ...layout } }], workspaceName: clean });
+      toast({ tone: 'success', title: `Workspace “${clean}” saved`, body: 'Pick it any time from Window › Workspaces.', timeout: 3000 });
+    }} />,
+  );
+  const applyWorkspace = (name: string) => {
+    const saved = workspaces.find((item) => item.name === name);
+    if (!saved) return;
+    setLayout({ ...DEFAULT_LAYOUT, ...saved.layout, hidden: saved.layout.hidden?.includes('chat') ? ['chat'] : [], tree: layoutTree(saved.layout) ?? defaultTree(), docked: [] });
+    setMaximized(null);
+    saveSettings({ workspaceName: name });
   };
-  const dragPlugin = (id: string, name: string, event: ReactPointerEvent) => dragToDock(event, id, name, setDockDrag, dropPlugin);
-  /** Drags a docked plugin's width (beside a panel) or height (stacked with one); `sign` is which way the splitter grows it. */
-  const resizeDock = (id: string, sign: number, axis: 'width' | 'height' = 'width') => (delta: number) =>
-    setLayout((current) => {
-      const floor = axis === 'width' ? DOCK_MIN : DOCK_MIN_HEIGHT;
-      const start = layoutStart.current.docked?.find((item) => item.id === id)?.[axis] ?? floor;
-      return { ...current, docked: (current.docked ?? []).map((item) => (item.id === id ? { ...item, [axis]: clamp(start + delta * sign, floor, 1200) } : item)) };
-    });
+  const deleteWorkspace = (name: string) => saveSettings({ workspaces: workspaces.filter((item) => item.name !== name), workspaceName: settings.workspaceName === name ? null : settings.workspaceName ?? null });
 
   // ── editing helpers ────────────────────────────────────────────────────
   const editComp = (change: (current: Comp) => Comp, label: string) => {
@@ -1490,6 +1576,28 @@ export default function App() {
       if (errorText(error).includes('FFmpeg')) setSettingsTab('media');
     }
   }, [assets, binFolder, history, landDrop, nestComps, refreshAssets, toast]);
+
+  /**
+   * Files attached to a chat message: into the project's media (a "Chat attachments" bin), never
+   * onto the timeline — the AI places them when the user asks. Answers what is now in the project.
+   */
+  const importForChat = useCallback(async (paths: string[]) => {
+    const result = await api.libraryImport(paths);
+    const all = [...result.imported, ...result.existing];
+    if (result.imported.length) setAssets((current) => [...current, ...result.imported.filter((asset) => !current.some((item) => item.id === asset.id))]);
+    void refreshAssets();
+    if (all.length) {
+      history.commit((current) => {
+        const fresh = all.filter((asset) => !current.media.some((ref) => ref.assetId === asset.id));
+        if (!fresh.length) return current;
+        let folder = current.folders.find((item) => item.name === 'Chat attachments' && !item.parentId);
+        const folders = folder ? current.folders : [...current.folders, (folder = { id: uid(), name: 'Chat attachments', parentId: null })];
+        return { ...current, folders, media: [...current.media, ...fresh.map((asset) => ({ assetId: asset.id, folderId: folder!.id, offline: false }))] };
+      }, 'Attach to chat');
+    }
+    for (const failure of result.failed.slice(0, 3)) toast({ tone: 'error', title: `Could not import ${failure.path.split(/[\\/]/).pop()}`, body: failure.reason });
+    return all.map((asset) => ({ id: asset.id, name: asset.name, path: asset.path }));
+  }, [history, refreshAssets, toast]);
 
   const openCharacters = (mode?: '2d' | '3d') => {
     if (mode) setCharactersMode(mode);
@@ -1585,7 +1693,7 @@ export default function App() {
     if (!board || !comp) return;
     const pasted = pasteClips(history.current(), comp.id, board, playhead.get(), insert ? 'insert' : 'overwrite');
     if (pasted.ids.length) history.commit(() => pasted.project, insert ? 'Paste Insert' : 'Paste');
-    if (pasted.skipped.length) toast({ tone: 'info', title: 'Not pasted', body: `${pasted.skipped.length} nested comp${pasted.skipped.length === 1 ? '' : 's'} would end up inside ${pasted.skipped.length === 1 ? 'itself' : 'themselves'}.` });
+    if (pasted.skipped.length) toast({ tone: 'info', title: 'Not pasted', body: `${pasted.skipped.length} comp${pasted.skipped.length === 1 ? '' : 's'} would end up inside ${pasted.skipped.length === 1 ? 'itself' : 'themselves'}.` });
     if (pasted.ids.length) setSelection(pasted.ids);
   };
 
@@ -1930,7 +2038,7 @@ export default function App() {
     }
     if (!target) return;
     if (payload.source.type === 'comp' && wouldCycle(project, comp.id, payload.source.compId)) {
-      toast({ tone: 'error', title: 'That would nest a comp inside itself' });
+      toast({ tone: 'error', title: 'That would put a comp inside itself' });
       return;
     }
     const result = dropClips(project, assetMap, comp, { kind: 'source', source: payload.source, label: payload.label, in: payload.in, duration: payload.duration, x: event.clientX, y: event.clientY, ctrl: event.ctrlKey }, target, nestComps);
@@ -1940,13 +2048,48 @@ export default function App() {
   };
 
   // ── files dropped from Explorer ────────────────────────────────────────
+  /** The area under the pointer while files are dragged in, and what a drop there does. */
+  const hoverAt = (x: number, y: number, what: string): FileHover => {
+    const under = document.elementFromPoint(x, y);
+    const box = (node: Element | null | undefined) => {
+      const rect = node?.getBoundingClientRect();
+      return rect && rect.width > 0 ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null;
+    };
+    const chat = under?.closest('.chat');
+    if (chat) return { zone: 'chat', rect: box(chat), what, title: 'Attach to your message', detail: 'Pictures go to the AI; videos and audio are added to the project and shared as frames.', key: 'chat' };
+    const sketch = under?.closest('.sketch-editor');
+    if (sketch) return { zone: 'sketch', rect: box(sketch), what, title: 'Add to the sketch', detail: 'Dropped pictures go on the storyboard card.', key: 'sketch' };
+    if (overTimeline(x, y)) {
+      const target = timelineApi.current?.dropTarget(x, y);
+      const timeline = [...document.querySelectorAll('.timeline')].find((node) => { const r = node.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; });
+      if (!comp) return { zone: 'timeline', rect: box(timeline), what, title: 'Start a comp with these', detail: 'A new comp at the first video’s size, the clips end to end from 00:00.', key: 'timeline-new' };
+      if (!comp.clips.length) return { zone: 'timeline', rect: box(timeline), what, title: 'Place on the timeline', detail: `“${comp.name}” takes the first video's size; clips go end to end from 00:00.`, key: 'timeline-empty' };
+      const at = target ? timecode(target.time, comp.fps) : null;
+      const track = target?.trackId ? trackLabel(comp, target.trackId) : target ? `a new ${target.kind} track` : null;
+      return { zone: 'timeline', rect: box(timeline), what, title: 'Place on the timeline', detail: at ? `At ${at}${track ? ` on ${track}` : ''}, one after another.` : 'Where you let go.', key: `timeline-${at}-${track}` };
+    }
+    const bin = under?.closest('.bin');
+    if (bin) {
+      const folder = binFolder ? project.folders.find((item) => item.id === binFolder)?.name : null;
+      return { zone: 'bin', rect: box(bin), what, title: 'Import into the Project panel', detail: folder ? `Into the “${folder}” folder. Nothing goes on the timeline.` : 'Into the project. Nothing goes on the timeline.', key: `bin-${binFolder}` };
+    }
+    return { zone: 'project', rect: null, what, title: what === 'a Bhippi project' ? 'Open this project' : 'Import into the project', detail: 'Drop on the timeline to place it, on the chat to show it to the AI.', key: 'project' };
+  };
+  const hoverAtRef = useRef(hoverAt);
+  hoverAtRef.current = hoverAt;
+
   useEffect(() => {
     const pending = getCurrentWebview().onDragDropEvent((event) => {
       const payload = event.payload;
-      if (payload.type === 'enter' || payload.type === 'over') setFileHover(true);
-      else if (payload.type === 'leave') setFileHover(false);
+      if (payload.type === 'enter' || payload.type === 'over') {
+        if (payload.type === 'enter') draggedFiles.current = describeFiles(payload.paths);
+        const ratio = window.devicePixelRatio || 1;
+        const next = hoverAtRef.current(payload.position.x / ratio, payload.position.y / ratio, draggedFiles.current);
+        // `over` fires on every mouse move: only a new place or time re-renders.
+        setFileHover((current) => (current?.key === next.key ? current : next));
+      } else if (payload.type === 'leave') setFileHover(null);
       else if (payload.type === 'drop') {
-        setFileHover(false);
+        setFileHover(null);
         if (licenseStore.get().blocked) return;
         const ratio = window.devicePixelRatio || 1;
         const point = { x: payload.position.x / ratio, y: payload.position.y / ratio };
@@ -2033,7 +2176,7 @@ export default function App() {
       { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', disabled: !grouped, onSelect: () => editComp((current) => setGrouped(current, ids, false), 'Ungroup') },
       { label: 'Synchronize…', disabled: ids.length < 2, onSelect: () => setDialog(<SynchronizeDialog onClose={() => setDialog(null)} onSubmit={(mode) => { setDialog(null); editComp((current) => synchronize(current, ids, mode), 'Synchronize'); }} />) },
       { label: 'Merge Clips…', disabled: ids.length < 2, onSelect: () => nest(ids, 'Merged Clip', true) },
-      { label: 'Nest…', onSelect: () => setDialog(<RenameDialog title="Nest" name="Nested Comp" onClose={() => setDialog(null)} onSubmit={(name) => { setDialog(null); nest(ids, name, true); }} />) },
+      { label: 'Make Comp…', onSelect: () => setDialog(<RenameDialog title="Make Comp" name="New Comp" onClose={() => setDialog(null)} onSubmit={(name) => { setDialog(null); nest(ids, name, true); }} />) },
       { label: 'Make Subcomp', onSelect: () => nest(ids, `${comp.name} Sub`, false) },
       { label: 'Multi-Camera', disabled: true },
       { separator: true },
@@ -2077,7 +2220,7 @@ export default function App() {
       { label: 'Fill frame', onSelect: () => setFit('fill') },
       { label: 'Adjustment Layer', checked: clip.adjustment, onSelect: () => editComp((current) => ({ ...current, clips: current.clips.map((item) => (ids.includes(item.id) ? { ...item, adjustment: !clip.adjustment } : item)) }), 'Adjustment Layer') },
       { separator: true },
-      { label: 'Link Media…', disabled: !asset, onSelect: () => void relink(clip) },
+      { label: 'Link Media…', disabled: clip.source.type !== 'media', onSelect: () => void relink(clip) },
       { label: 'Make Offline…', disabled: !asset, onSelect: () => asset && history.commit((current) => ({ ...current, media: current.media.map((ref) => (ref.assetId === asset.id ? { ...ref, offline: true } : ref)) }), 'Make Offline') },
       { label: 'Rename…', onSelect: () => setDialog(<RenameDialog title="Rename Clip" name={clip.name ?? sourceInfo(project, assetMap, clip.source).name} onClose={() => setDialog(null)} onSubmit={(name) => { setDialog(null); editComp((current) => ({ ...current, clips: current.clips.map((item) => (item.id === clip.id ? { ...item, name } : item)) }), 'Rename'); }} />) },
       { label: 'Reveal in Project', onSelect: () => {
@@ -2102,7 +2245,7 @@ export default function App() {
     if (!comp) return;
     const result = nestClips(history.current(), comp.id, ids, name, replace);
     if (!result) return;
-    history.commit(() => result.project, replace ? 'Nest' : 'Make Subcomp');
+    history.commit(() => result.project, replace ? 'Make Comp' : 'Make Subcomp');
     setSelection(result.clipIds);
     if (!replace) openComp(result.compId);
   };
@@ -2165,14 +2308,18 @@ export default function App() {
   };
 
   const relink = async (clip: Clip) => {
-    if (clip.source.type !== 'media') return;
-    const asset = assetMap.get(clip.source.assetId);
-    const picked = await openDialog({ title: `Link media for ${asset?.name ?? 'clip'}`, multiple: false, filters: [{ name: 'Media', extensions: info?.extensions ?? ['mp4'] }] });
+    if (clip.source.type === 'media') await relinkAsset(clip.source.assetId);
+  };
+
+  /** Points an offline (or any) media entry at a file the user picks; every clip of it follows. */
+  const relinkAsset = async (assetId: string) => {
+    const asset = assetMap.get(assetId);
+    const picked = await openDialog({ title: `Link media for ${asset?.name ?? 'offline media'}`, multiple: false, filters: [{ name: 'Media', extensions: info?.extensions ?? ['mp4'] }] });
     if (typeof picked !== 'string') return;
     try {
-      await api.libraryRelink(clip.source.assetId, picked);
+      await api.libraryRelink(assetId, picked);
       await refreshAssets();
-      history.commit((current) => ({ ...current, media: current.media.map((ref) => (ref.assetId === (clip.source as { assetId: string }).assetId ? { ...ref, offline: false } : ref)) }), 'Link Media');
+      history.commit((current) => ({ ...current, media: current.media.map((ref) => (ref.assetId === assetId ? { ...ref, offline: false } : ref)) }), 'Link Media');
       toast({ tone: 'success', title: 'Media relinked', body: picked.split(/[\\/]/).pop() });
     } catch (error) {
       toast({ tone: 'error', title: 'Could not link that file', body: errorText(error) });
@@ -2354,7 +2501,12 @@ export default function App() {
     const compEntry = project.comps.find((item) => ids.includes(item.id));
     const assetEntry = assets.find((asset) => ids.includes(asset.id));
     const itemEntry = project.items.find((item) => ids.includes(item.id));
+    // Media entries of the selection, found or not: an offline one may have no library record left.
+    const mediaIds = project.media.filter((ref) => ids.includes(ref.assetId)).map((ref) => ref.assetId);
+    const offlineIds = mediaIds.filter((id) => offline.has(id) || !assetMap.get(id) || assetMap.get(id)?.missing);
     showMenu(event, [
+      // Offline media leads with the fix.
+      ...(offlineIds.length ? [{ label: offlineIds.length > 1 ? `Link Media… (${offlineIds.length} offline, one at a time)` : 'Link Media…', onSelect: () => void (async () => { for (const id of offlineIds) await relinkAsset(id); })() } as MenuItem, { separator: true } as MenuItem] : []),
       ...(compEntry ? [{ label: 'Open in Timeline', onSelect: () => openComp(compEntry.id) } as MenuItem, { label: 'Comp Settings…', onSelect: () => { openComp(compEntry.id); compSettings(); } } as MenuItem] : []),
       ...(assetEntry ? [{ label: 'Open in Source Monitor', onSelect: () => openInSource(assetEntry.id) } as MenuItem] : []),
       { label: 'Rename…', onSelect: () => setDialog(
@@ -2393,6 +2545,7 @@ export default function App() {
       { separator: true },
       ...(assetEntry ? [
         { label: 'Reveal in Explorer', onSelect: () => void api.revealPath(assetEntry.path) } as MenuItem,
+        ...(!offlineIds.includes(assetEntry.id) ? [{ label: 'Link Media…', onSelect: () => void relinkAsset(assetEntry.id) } as MenuItem] : []),
         { label: 'Make Offline…', onSelect: () => history.commit((current) => ({ ...current, media: current.media.map((ref) => (ids.includes(ref.assetId) ? { ...ref, offline: true } : ref)) }), 'Make Offline') } as MenuItem,
       ] : []),
       { label: 'Delete', shortcut: 'Delete', onSelect: () => deleteBinItems(ids) },
@@ -2405,6 +2558,7 @@ export default function App() {
     { label: 'New Comp…', shortcut: 'Ctrl+N', onSelect: newCompDialog },
     { label: 'New Folder', shortcut: 'Ctrl+/', onSelect: newFolder },
     { label: 'New Item', submenu: newItemMenu },
+    ...(offline.size || project.media.some((ref) => !assetMap.get(ref.assetId) || assetMap.get(ref.assetId)?.missing) ? [{ label: 'Link Offline Media…', onSelect: () => void (async () => { for (const ref of project.media) if (offline.has(ref.assetId) || !assetMap.get(ref.assetId) || assetMap.get(ref.assetId)?.missing) await relinkAsset(ref.assetId); })() } as MenuItem] : []),
     { separator: true },
     { label: 'Import…', shortcut: 'Ctrl+I', onSelect: () => void pickFiles() },
     { label: 'Find…', shortcut: 'Ctrl+F', onSelect: () => (document.querySelector('[data-role="bin-search"]') as HTMLInputElement | null)?.focus() },
@@ -2488,7 +2642,7 @@ export default function App() {
       },
       { label: 'Group', shortcut: 'Ctrl+G', disabled: selection.length < 2, onSelect: () => editComp((current) => setGrouped(current, selection, true), 'Group') },
       { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', disabled: !selectedClips.some((clip) => clip.groupId), onSelect: () => editComp((current) => setGrouped(current, selection, false), 'Ungroup') },
-      { label: 'Nest…', disabled: !selection.length, onSelect: () => setDialog(<RenameDialog title="Nest" name="Nested Comp" onClose={() => setDialog(null)} onSubmit={(name) => { setDialog(null); nest(selection, name, true); }} />) },
+      { label: 'Make Comp…', disabled: !selection.length, onSelect: () => setDialog(<RenameDialog title="Make Comp" name="New Comp" onClose={() => setDialog(null)} onSubmit={(name) => { setDialog(null); nest(selection, name, true); }} />) },
       { separator: true },
       { label: 'Add Frame Hold', disabled: !selection.length, onSelect: () => editComp((current) => addFrameHold(current, selection, playhead.get()), 'Add Frame Hold') },
       { label: 'Scale to Frame Size', disabled: !selection.length, onSelect: () => editComp((current) => ({ ...current, clips: current.clips.map((clip) => (selection.includes(clip.id) ? { ...clip, transform: { ...clip.transform, fit: 'fit', scale: 100 } } : clip)) }), 'Scale to Frame Size') },
@@ -2597,13 +2751,23 @@ export default function App() {
       })),
     ] },
     { label: 'Window', items: [
-      ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['transcript', 'Storyboard & Transcription', 'Shift+8'], ['chat', 'Bhippi AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
+      ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['storyboard', 'Storyboard', 'Shift+8'], ['transcript', 'Transcription', 'Shift+9'], ['chat', 'Bhippi AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
         label, shortcut, checked: !hidden(id), onSelect: () => setPanelVisible(id, hidden(id)),
       })),
       { label: 'Plugins', checked: showPlugins, onSelect: () => setPanelVisible('plugins', !showPlugins) },
       { separator: true },
       { label: maximized ? 'Restore Panel Size' : 'Maximize Panel Under Cursor', shortcut: '`', onSelect: () => toggleMax(maximized ?? focused) },
-      { label: 'Reset Workspace', onSelect: () => { setLayout(DEFAULT_LAYOUT); setMaximized(null); } },
+      { label: 'Workspaces', submenu: [
+        ...workspaces.map((item): MenuItem => ({ label: item.name, checked: settings.workspaceName === item.name, onSelect: () => applyWorkspace(item.name) })),
+        ...(workspaces.length ? [{ separator: true } as MenuItem] : []),
+        { label: 'Save Workspace As…', onSelect: saveWorkspaceAs },
+        ...(settings.workspaceName && workspaces.some((item) => item.name === settings.workspaceName) ? [
+          { label: `Update “${settings.workspaceName}”`, onSelect: () => saveSettings({ workspaces: workspaces.map((item) => (item.name === settings.workspaceName ? { ...item, layout: { ...layout } } : item)) }) } as MenuItem,
+          { label: `Reset to “${settings.workspaceName}”`, onSelect: () => applyWorkspace(settings.workspaceName!) } as MenuItem,
+        ] : []),
+        ...(workspaces.length ? [{ label: 'Delete Workspace', submenu: workspaces.map((item): MenuItem => ({ label: item.name, onSelect: () => deleteWorkspace(item.name) })) } as MenuItem] : []),
+      ] },
+      { label: 'Reset to Default Workspace', onSelect: () => { setLayout((current) => ({ ...freshLayout(), chatWidth: current.chatWidth, meters: current.meters })); setMaximized(null); saveSettings({ workspaceName: null }); } },
     ] },
     { label: 'Help', items: [
       { label: 'Keyboard Shortcuts', shortcut: 'Ctrl+Alt+K', onSelect: () => setShortcutsOpen(true) },
@@ -2671,7 +2835,7 @@ export default function App() {
         setSelection(result.ids);
       }
     };
-    const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools', 'transcript'];
+    const panels: PanelId[] = ['project', 'source', 'timeline', 'program', 'properties', 'meters', 'tools', 'storyboard', 'transcript'];
     const sourceFocused = focused === 'source' && !!sourceAsset;
     const step = (frames: number) => (sourceFocused ? sourceApi.current?.step(frames) : programApi.current?.step(frames));
     const sourceRange = () => sourceAsset && (sourceRanges[sourceAsset.id] ?? { in: 0, out: sourceAsset.kind === 'image' ? STILL_DEFAULT : sourceAsset.duration });
@@ -2817,9 +2981,10 @@ export default function App() {
         case 'volumeUp6': return () => clipVolume(6);
         // Timeline
         case 'snap': return () => setSnapping((value) => !value);
-        case 'zoomIn': return () => timelineApi.current?.zoomBy(1.3);
-        case 'zoomOut': return () => timelineApi.current?.zoomBy(1 / 1.3);
-        case 'zoomFit': return () => timelineApi.current?.toggleFit();
+        // Zoom keys act on the focused panel, as in Premiere: the monitor under focus zooms its picture.
+        case 'zoomIn': return () => (focused === 'program' ? programApi.current?.zoomStep(1) : focused === 'source' ? sourceApi.current?.zoomStep(1) : timelineApi.current?.zoomBy(1.3));
+        case 'zoomOut': return () => (focused === 'program' ? programApi.current?.zoomStep(-1) : focused === 'source' ? sourceApi.current?.zoomStep(-1) : timelineApi.current?.zoomBy(1 / 1.3));
+        case 'zoomFit': return () => (focused === 'program' ? programApi.current?.zoomFit() : focused === 'source' ? sourceApi.current?.zoomFit() : timelineApi.current?.toggleFit());
         case 'videoTaller': return () => trackHeights('video', 16);
         case 'videoShorter': return () => trackHeights('video', -16);
         case 'audioTaller': return () => trackHeights('audio', 16);
@@ -2924,25 +3089,15 @@ export default function App() {
   const hasStoryboard = !!comp?.storyboard?.length || !!comp?.videoBlueprint?.scenes?.length;
 
   const panel = (id: PanelId, tabs: { id: string; label: ReactNode }[], active: string, children: ReactNode, extras: Partial<Parameters<typeof Panel>[0]> = {}) => (
-    <Panel id={id} tabs={tabs} active={active} maximized={maximized === id} onMaximize={() => toggleMax(id)} onClose={id === 'timeline' || id === 'program' ? undefined : () => setPanelVisible(id, false)} focused={focused === id} onFocus={() => setFocused(id)} {...extras}>
+    <Panel id={id} tabs={tabs} active={active} maximized={maximized === id} onMaximize={() => toggleMax(id)} onClose={id === 'timeline' || id === 'program' ? undefined : () => setPanelVisible(id, false)} focused={focused === id} onFocus={() => setFocused(id)}
+      // Any editing-area panel is moved by dragging one of its tabs (DockArea.tsx); the chat stays put.
+      onTabPointerDown={id === 'chat' ? undefined : (_tab, event) => beginPanelDrag(id as DockPanelId, event)} {...extras}>
       {children}
     </Panel>
   );
 
   // The Plugins panel: one tab per plugin shown as a panel, or an invitation to build one.
   const activePlugin = shownPlugins.find((item) => item.id === pluginTab)?.id ?? PLUGINS_HOME;
-  /** The Program monitor and Timeline always show; every other panel can be closed. */
-  const anchorShown = (anchor: DockAnchor) => anchor === 'program' || anchor === 'timeline' || !hidden(anchor);
-  /** "Dock in Editing Area" / "Move To": each open panel, then the edges a plugin can take on it. */
-  const dockMenu = (id: string, current?: DockedPlugin): MenuItem[] =>
-    DOCK_ANCHORS.filter(anchorShown).map((anchor) => ({
-      label: ANCHOR_LABEL[anchor],
-      checked: current?.anchor === anchor,
-      submenu: sidesFor(anchor).map((side): MenuItem => {
-        const here = !!current && samePlace(current, { anchor, side });
-        return { label: SIDE_LABEL[side], checked: here, disabled: here, onSelect: () => dockPlugin(id, { anchor, side }) };
-      }),
-    }));
   const openMaker = (id: string | null) => { setMakerPlugin(id); setMakerOpen(true); };
   const pluginsPanel = panel('plugins', [
     { id: PLUGINS_HOME, label: <span className="plugin-tab-label" title="Every plugin you have installed or created"><Puzzle size={13} /> Plugins</span> },
@@ -2959,25 +3114,27 @@ export default function App() {
     // A plugin's tab can be dragged into the editing area to dock it there.
     onTabPointerDown: (id, event) => {
       const item = shownPlugins.find((entry) => entry.id === id);
+      // A plugin's tab drags that plugin out; the Plugins tab moves the whole panel.
       if (item) dragPlugin(item.id, item.name, event);
+      else beginPanelDrag('plugins', event);
     },
     menu: [
       { label: 'Custom Plugin…', onSelect: () => openMaker(null) },
       { label: 'Marketplace…', onSelect: () => setMarketOpen(true) },
       ...(shownPlugins.some((item) => item.id === activePlugin) ? [
         { label: 'Edit in Plugin Maker…', onSelect: () => openMaker(activePlugin) },
-        { label: 'Dock in Editing Area', submenu: dockMenu(activePlugin) },
+        { label: 'Dock in Editing Area', onSelect: () => dockPlugin(activePlugin) },
         { label: 'Remove from Panel', onSelect: () => void patchPlugin(activePlugin, { panel: false }) },
       ] : []),
     ],
   });
 
   /** A plugin docked in the editing area: its own panel, dragged by its tab to move it or send it back. */
-  const dockedPanel = (item: DockedPlugin) => {
+  const dockedPanel = (item: { id: string }) => {
     const plugin = plugins.find((entry) => entry.id === item.id);
     const name = plugin?.name ?? 'Plugin';
     return (
-      <Panel id={`plugin:${item.id}`} className="docked-plugin" active={item.id} maximized={false} focused={false} onFocus={() => undefined}
+      <Panel id={`plugin:${item.id}`} className="docked-plugin" active={item.id} maximized={false} focused={false} onFocus={() => undefined} onClose={() => closeDockedPlugin(item.id)}
         tabs={[{ id: item.id, label: <span className="plugin-tab-label" title={`${plugin?.description ? `${plugin.description}\n` : ''}Drag to move it, or onto the Plugins panel to put it back.`}>{plugin && <PluginMark plugin={plugin} size={14} />} {name}</span> }]}
         onTabPointerDown={(_, event) => dragPlugin(item.id, name, event)}
         menu={[
@@ -2993,60 +3150,6 @@ export default function App() {
       </Panel>
     );
   };
-  const dockShown = (item: DockedPlugin) => plugins.some((entry) => entry.id === item.id);
-  /** Plugins docked on a panel's edge while that panel is open; the rest fall back to their row's end. */
-  const onAnchor = (item: DockedPlugin): item is DockedPlugin & DockPlace => !!item.anchor && !!item.side && anchorShown(item.anchor);
-  const docksAt = (anchor: DockAnchor, side: DockSide) => docked.filter((item) => dockShown(item) && onAnchor(item) && item.anchor === anchor && item.side === side);
-  /**
-   * One built-in panel with the plugins docked on its edges. Beside the row's main panel (Program or
-   * Timeline) each cell keeps its splitter on the side facing that main panel, so dragging a splitter
-   * always moves the edge under the pointer while the main panel takes up the difference.
-   * Plugins above or below a panel stack with it in a column that takes the panel's width.
-   */
-  const placeAnchor = (anchor: DockAnchor, body: ReactNode, { width, splitter, bare }: { width?: number; splitter?: ReactNode; bare?: boolean } = {}) => {
-    const region = ANCHOR_REGION[anchor];
-    const grow = region === 'grow';
-    const sideways = (item: DockedPlugin, leading: boolean) => {
-      const cell = <div className="ws-cell ws-dock" style={{ width: item.width }} data-dock-anchor={anchor} data-dock-side={item.side}>{dockedPanel(item)}</div>;
-      const handle = <Splitter direction="vertical" onDrag={resizeDock(item.id, leading ? 1 : -1)} onStart={beginResize} />;
-      return <Fragment key={item.id}>{leading ? <>{cell}{handle}</> : <>{handle}{cell}</>}</Fragment>;
-    };
-    const stacked = (item: DockedPlugin, above: boolean) => {
-      const cell = <div className="ws-cell ws-dock" style={{ height: item.height ?? 240 }} data-dock-anchor={anchor} data-dock-side={item.side}>{dockedPanel(item)}</div>;
-      const handle = <Splitter direction="horizontal" onDrag={resizeDock(item.id, above ? 1 : -1, 'height')} onStart={beginResize} />;
-      return <Fragment key={item.id}>{above ? <>{cell}{handle}</> : <>{handle}{cell}</>}</Fragment>;
-    };
-    const tops = docksAt(anchor, 'top');
-    const bottoms = docksAt(anchor, 'bottom');
-    const size = width === undefined ? undefined : { width };
-    const core = tops.length || bottoms.length ? (
-      <div className={`ws-cell ws-stack${grow ? ' grow' : ''}`} style={size} data-dock-anchor={anchor}>
-        {tops.map((item) => stacked(item, true))}
-        <div className="ws-cell grow">{body}</div>
-        {bottoms.map((item) => stacked(item, false))}
-      </div>
-    ) : (
-      <div className={`ws-cell${grow ? ' grow' : ''}${bare ? ' bare' : ''}`} style={size} data-dock-anchor={anchor}>{body}</div>
-    );
-    return (
-      <>
-        {docksAt(anchor, 'left').map((item) => sideways(item, region !== 'after'))}
-        {region === 'after' && splitter}
-        {core}
-        {region === 'before' && splitter}
-        {docksAt(anchor, 'right').map((item) => sideways(item, region === 'before'))}
-      </>
-    );
-  };
-  /** The docked plugins at one end of a row, each with a splitter on its inner side to resize it. */
-  const dockCells = (slot: DockSlot) =>
-    docked.filter((item) => item.slot === slot && dockShown(item) && !onAnchor(item)).map((item) => {
-      const start = slot.endsWith('start');
-      const cell = <div className="ws-cell ws-dock" style={{ width: item.width }}>{dockedPanel(item)}</div>;
-      const splitter = <Splitter direction="vertical" onDrag={resizeDock(item.id, start ? 1 : -1)} onStart={beginResize} />;
-      return <Fragment key={item.id}>{start ? <>{cell}{splitter}</> : <>{splitter}{cell}</>}</Fragment>;
-    });
-
   const chatPanel = panel('chat', [{ id: 'chat', label: 'Bhippi AI' }, { id: 'providers', label: 'Providers' }], chatTab, (
     <>
       <div className="chat-host" style={{ display: chatTab === 'chat' ? undefined : 'none' }}>
@@ -3065,7 +3168,7 @@ export default function App() {
             />
           )}
           effort={effort} onEffort={(value) => saveSettings({ effort: value })}
-          permission={permission} onPermission={(value) => saveSettings({ permission: value })}
+          permission={permission} onPermission={(value) => saveSettings({ permission: value })} guidedMode={settings.aiGuidedMode ?? 'auto'} onImportFiles={importForChat}
           onUndo={history.undo} onClear={endConversation}
           onReference={setReferenceId}
           editStyle={editStyle} onStyle={setEditStyle}
@@ -3076,6 +3179,7 @@ export default function App() {
           onGenPlan={(plan) => { pendingGen?.resolve(plan); setPendingGen(null); }}
           onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', tokenBudget: ledgerBrief(projectKey(projectDirRef.current)), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
+            autoAdvance(outcome);
             // The brain learns from every turn (on unless turned off); recording never disturbs the chat.
             if (settingsRef.current.ideagraphRecord === false) return;
             void recordTurnOutcome(outcome).catch(() => undefined);
@@ -3096,8 +3200,8 @@ export default function App() {
 
   // Reloads the Transcription panel whenever any transcription finishes (the AI's included).
   const transcriptRefresh = Object.values(jobs).filter((job) => job.kind === 'transcribe' && job.status === 'done').map((job) => job.id).join(',');
-  const transcriptPanel = panel('transcript', [{ id: 'storyboard', label: 'Storyboard' }, { id: 'transcript', label: 'Transcription' }], sideTab, (
-    sideTab === 'storyboard' ? (
+  // The storyboard and the transcription are two panels, each placed and closed on its own.
+  const storyboardPanel = panel('storyboard', [{ id: 'storyboard', label: 'Storyboard' }], 'storyboard', (
       hasStoryboard && comp ? (
         <StoryboardViewer
           variant="panel"
@@ -3119,10 +3223,10 @@ export default function App() {
       ) : (
         <div className="transcript-empty"><span>No storyboard for this comp yet. Ask Bhippi AI to plan the video — each scene then shows here with its frame.</span></div>
       )
-    ) : (
-      <TranscriptPanel project={project} comp={comp} assets={assetMap} refreshKey={transcriptRefresh} />
-    )
-  ), { onTab: (id) => setSideTab(id as 'storyboard' | 'transcript') });
+  ));
+  const transcriptPanel = panel('transcript', [{ id: 'transcript', label: 'Transcription' }], 'transcript', (
+    <TranscriptPanel project={project} comp={comp} assets={assetMap} refreshKey={transcriptRefresh} />
+  ));
 
   const programPanel = panel('program', [{ id: 'program', label: `Program: ${comp?.name ?? '—'}` }], 'program', (
     <ProgramMonitor project={project} comp={comp} assets={assetMap} offline={offline} history={history} selection={selection} onSelect={setSelection} tool={tool} onTool={setTool}
@@ -3245,7 +3349,27 @@ export default function App() {
     }
   }, [toast]);
 
-  const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, transcript: transcriptPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null, plugins: pluginsPanel };
+  /** The handle a tab-less panel (tools, meters) is dragged by. */
+  const grip = (id: DockPanelId) => <div className="dock-grip" title={`Drag to move ${PANEL_NAMES[id]}`} onPointerDown={(event) => beginPanelDrag(id, event)} />;
+  /** One panel of the editing area, by its dock id. */
+  const dockPanel = (id: DockPanelId): ReactNode => {
+    if (id.startsWith('plugin:')) return plugins.some((entry) => entry.id === id.slice(7)) ? dockedPanel({ id: id.slice(7) }) : <div className="plugin-frame-empty">This plugin is not installed.</div>;
+    switch (id) {
+      case 'project': return projectPanel;
+      case 'source': return sourcePanel;
+      case 'program': return programPanel;
+      case 'properties': return propertiesPanel;
+      case 'timeline': return timelinePanel;
+      case 'storyboard': return storyboardPanel;
+      case 'transcript': return transcriptPanel;
+      case 'plugins': return pluginsPanel;
+      case 'tools': return <div className="dock-bare" data-panel="tools">{grip('tools')}<ToolsPanel tool={tool} onTool={setTool} onAutoRoto={() => void autoRoto()} rotoBusy={rotoBusy} rotoProgress={rotoProgress} /></div>;
+      case 'meters': return <div className="dock-bare" data-panel="meters">{grip('meters')}<AudioMeters prefs={layout.meters ?? DEFAULT_METERS} onPrefs={(meters) => setLayout((current) => ({ ...current, meters }))} mutes={mutes} onMutes={setMuteState} onClose={() => setPanelVisible('meters', false)} /></div>;
+      default: return null;
+    }
+  };
+
+  const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, storyboard: storyboardPanel, transcript: transcriptPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null, plugins: pluginsPanel };
   const maximizedPanel = maximized && maximizedContent[maximized] ? maximized : null;
 
   return (
@@ -3253,7 +3377,7 @@ export default function App() {
       <MenuBar menus={menus} />
       <PluginClipRenderers pluginIds={clipPlugins} />
       <BackgroundPlugins panelShown={showPlugins && (!maximizedPanel || maximizedPanel === 'plugins')} docked={dockedIds} dockShown={!maximizedPanel} skip={makerOpen ? makerPlugin : null} />
-      {dockDrag && <DockOverlay drag={dockDrag} />}
+      <PanelDragOverlay drag={panelDrag} />
       <CharactersWindow open={charactersOpen} mode={charactersMode} onMode={setCharactersMode} onAdded={addCharacter}
         onClose={() => setCharactersOpen(false)} />
       {marketOpen && (
@@ -3330,36 +3454,12 @@ export default function App() {
         ) : (
           <>
             {!hidden('chat') && <Splitter direction="vertical" onDrag={resize('chatWidth', PANEL_MIN.chat, 720)} onStart={beginResize} />}
-            <div className={`ws-main${showPlugins ? ' beside-plugins' : ''}`}>
-              <div className="ws-top" style={{ height: layout.topHeight }}>
-                {dockCells('top-start')}
-                {/* Storyboard & Transcription sits in the editing area beside the monitors, never next to the chat. */}
-                {!hidden('transcript') && placeAnchor('transcript', transcriptPanel, { width: layout.transcriptWidth,
-                  splitter: <Splitter direction="vertical" onDrag={resize('transcriptWidth', PANEL_MIN.transcript, 900)} onStart={beginResize} /> })}
-                {!hidden('source') && placeAnchor('source', sourcePanel, { width: layout.sourceWidth,
-                  splitter: <Splitter direction="vertical" onDrag={resize('sourceWidth', PANEL_MIN.source, 1200)} onStart={beginResize} /> })}
-                {placeAnchor('program', programPanel)}
-                {!hidden('properties') && placeAnchor('properties', propertiesPanel, { width: layout.propertiesWidth,
-                  splitter: <Splitter direction="vertical" onDrag={resize('propertiesWidth', PANEL_MIN.properties, 700, -1)} onStart={beginResize} /> })}
-                {dockCells('top-end')}
-              </div>
-              <Splitter direction="horizontal" onDrag={resize('topHeight', PANEL_MIN.top, window.innerHeight - 280)} onStart={beginResize} />
-              <div className="ws-bottom">
-                {dockCells('bottom-start')}
-                {!hidden('project') && placeAnchor('project', projectPanel, { width: layout.projectWidth,
-                  splitter: <Splitter direction="vertical" onDrag={resize('projectWidth', PANEL_MIN.project, 900)} onStart={beginResize} /> })}
-                {!hidden('tools') && placeAnchor('tools', <ToolsPanel tool={tool} onTool={setTool} onAutoRoto={() => void autoRoto()} rotoBusy={rotoBusy} rotoProgress={rotoProgress} />, { bare: true })}
-                {placeAnchor('timeline', timelinePanel)}
-                {!hidden('meters') && placeAnchor('meters', <AudioMeters prefs={layout.meters ?? DEFAULT_METERS} onPrefs={(meters) => setLayout((current) => ({ ...current, meters }))} mutes={mutes} onMutes={setMuteState} onClose={() => setPanelVisible('meters', false)} />, { bare: true })}
-                {dockCells('bottom-end')}
-              </div>
+            <div className="ws-main">
+              {/* Every panel of the editing area, where the user put it (lib/dockTree.ts). */}
+              <DockArea tree={tree} areaRef={dockAreaRef} render={dockPanel}
+                onResize={(splitId, sizes) => editTree((current) => resizeSplit(current, splitId, sizes))}
+                minSize={(panel) => DOCK_PANEL_MIN[panel] ?? (panel.startsWith('plugin:') ? 240 : 160)} />
             </div>
-            {showPlugins && (
-              <>
-                <Splitter direction="vertical" onDrag={resize('pluginsWidth', PANEL_MIN.plugins, 900, -1)} onStart={beginResize} />
-                <div className="ws-side ws-plugins" style={{ width: layout.pluginsWidth ?? DEFAULT_LAYOUT.pluginsWidth }}>{pluginsPanel}</div>
-              </>
-            )}
           </>
         )}
       </main>
@@ -3429,7 +3529,16 @@ export default function App() {
 
       {dragLabel && incoming && <div className="drag-ghost" style={{ left: incoming.x + 12, top: incoming.y + 12 }}><Film size={13} /> {dragLabel}</div>}
       {fileHover && (
-        <div className="file-drop"><Upload size={36} /><strong>Drop to import</strong><span>Drop on the timeline to place it there</span></div>
+        <div className={`file-drop zone-${fileHover.zone}`} aria-live="polite">
+          <div className="file-drop-target" style={fileHover.rect ? { left: fileHover.rect.left, top: fileHover.rect.top, width: fileHover.rect.width, height: fileHover.rect.height } : undefined}>
+            <div className="file-drop-card">
+              {fileHover.zone === 'chat' ? <MessageSquare size={22} /> : fileHover.zone === 'timeline' ? <Film size={22} /> : <Upload size={22} />}
+              <strong>{fileHover.title}</strong>
+              <span>{fileHover.detail}</span>
+              <em>{fileHover.what}</em>
+            </div>
+          </div>
+        </div>
       )}
       {menu && <MenuList items={menu.items} anchor={menu.anchor} onClose={() => setMenu(null)} />}
       {dialog}

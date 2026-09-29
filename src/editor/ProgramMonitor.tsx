@@ -1,6 +1,7 @@
 // The Program monitor: the active comp at the playhead, the transport, and direct manipulation —
 // click a picture to select it, drag its Motion handles, draw shapes and masks, type text.
 import { ArrowLeftToLine, ArrowRightToLine, BarChart3, Camera, Film, Heart, MapPin, MessageCircle, MoreHorizontal, Music2, Pause, Play, Repeat, Send, StepBack, StepForward, Upload, Wrench } from 'lucide-react';
+import { MAX_ZOOM, MIN_ZOOM, stepZoom, toggleFit, wheelDelta, wheelZoom } from '../lib/monitorZoom';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import { MenuList, type MenuItem } from '../components/workspace';
 import { clamp, parseTimecode, timecode } from '../lib/editor';
@@ -21,7 +22,9 @@ import type { MotionScene } from '../motion/types';
 import { rememberScopes, ScopesPanel, scopesVisible } from '../color/ScopesPanel';
 import { drawRuler, GUIDE_COLOR, GuideEditor, loadGuidePrefs, loadGuides, newGuideId, RULER_SIZE, saveGuidePrefs, saveGuides, snapBox, snapTo, type Guide, type GuideAxis, type GuidePrefs } from './MonitorRulers';
 
-export type ProgramApi = { toggle: () => void; step: (frames: number) => void; shuttle: (direction: 1 | -1 | 0) => void; playAround: () => void; playInToOut: () => void; getStage: () => HTMLDivElement | null };
+export type ProgramApi = { toggle: () => void; step: (frames: number) => void; shuttle: (direction: 1 | -1 | 0) => void; playAround: () => void; playInToOut: () => void; getStage: () => HTMLDivElement | null;
+  /** `=` / `-` over the monitor: the next zoom level in or out; `\`: Fit, or 100% from Fit. */
+  zoomStep: (direction: 1 | -1) => void; zoomFit: () => void };
 
 type Props = {
   project: Project;
@@ -53,8 +56,6 @@ const budgetLabel = (mb: number) => `${+(mb / 1024).toFixed(1)} GB`;
 const ZOOMS: { label: string; value: number }[] = [
   { label: 'Fit', value: 0 }, { label: '10%', value: 0.1 }, { label: '25%', value: 0.25 }, { label: '50%', value: 0.5 }, { label: '75%', value: 0.75 }, { label: '100%', value: 1 }, { label: '150%', value: 1.5 }, { label: '200%', value: 2 }, { label: '400%', value: 4 }, { label: '800%', value: 8 },
 ];
-const MIN_ZOOM = 0.05;
-const MAX_ZOOM = 8;
 
 /** Preview render resolution, After Effects-style: fewer pixels to composite while playing, at
  * the cost of a softer picture. Export always renders full quality — see render.rs, which builds
@@ -217,12 +218,13 @@ export function ProgramMonitor(props: Props) {
   }, [zoom]);
   const wheelRef = useRef<(event: WheelEvent) => void>(() => undefined);
   wheelRef.current = (event: WheelEvent) => {
-    // Ctrl/Alt + wheel (and a trackpad pinch, which arrives as Ctrl + wheel) zooms; a plain wheel
-    // scrolls the zoomed picture, Shift + wheel sideways.
-    if (!(event.ctrlKey || event.altKey || event.metaKey)) return;
+    // Premiere's monitor: the wheel (or a trackpad pinch) zooms at the pointer, Alt around the
+    // centre, Shift faster; zooming through Fit stops on it. A sideways trackpad swipe pans.
+    if (!event.shiftKey && !event.ctrlKey && Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+    const delta = wheelDelta(event);
+    if (!delta) return;
     event.preventDefault();
-    const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
-    zoomTo(scale * Math.exp(-clamp(delta, -120, 120) * 0.002), event);
+    zoomTo(wheelZoom(zoom, fitScale, delta, event.shiftKey), event.altKey ? undefined : event);
   };
   useEffect(() => {
     const node = frameRef.current;
@@ -476,7 +478,8 @@ export function ProgramMonitor(props: Props) {
     stopRef.current = loopRef.current ? null : { at: out, returnTo: null };
     playhead.setPlaying(true, 1);
   }, []);
-  props.apiRef.current = { toggle, step, shuttle, playAround, playInToOut, getStage: () => stageRef.current };
+  props.apiRef.current = { toggle, step, shuttle, playAround, playInToOut, getStage: () => stageRef.current,
+    zoomStep: (direction) => zoomTo(stepZoom(zoom, fitScale, direction)), zoomFit: () => zoomTo(toggleFit(zoom)) };
 
   // ── direct manipulation ────────────────────────────────────────────────
   const selectedClip = comp?.clips.find((clip) => clip.id === selection[0] && comp.tracks.find((track) => track.id === clip.trackId)?.kind === 'video');
@@ -995,7 +998,7 @@ export function ProgramMonitor(props: Props) {
         ) : (
           <button type="button" className="timecode" onClick={() => setEditingTime(timecode(time, fps))} title="Playhead position — click to type (+/- for relative)">{timecode(time, fps)}</button>
         )}
-        <select className="monitor-select" value={zoom} onChange={(event) => zoomTo(Number(event.target.value))} aria-label="Zoom level" title="Select Zoom Level · Ctrl+scroll zooms at the pointer · middle-drag or the Hand tool pans">
+        <select className="monitor-select" value={zoom} onChange={(event) => zoomTo(Number(event.target.value))} aria-label="Zoom level" title="Zoom level · scroll to zoom at the pointer (Shift faster, Alt from the centre) · middle-drag or the Hand tool (H) pans · = and - step, \ fits">
           {ZOOMS.map((item) => <option key={item.label} value={item.value}>{item.value === 0 && zoom === 0 ? `Fit (${Math.round(scale * 100)}%)` : item.label}</option>)}
           {zoom !== 0 && !ZOOMS.some((item) => item.value === zoom) && <option value={zoom}>{`${Math.round(zoom * 100)}%`}</option>}
         </select>

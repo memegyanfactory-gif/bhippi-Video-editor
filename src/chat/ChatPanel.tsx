@@ -5,7 +5,8 @@ import { modelVariants, variantModel } from '../lib/modelVariants';
 import { rememberTurnPrompt } from '../lib/turnPrompts';
 import { speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, Copy, Laugh, MapPin, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
+import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, File as FileIcon, Film, Laugh, MapPin, Music, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { ModelPicker } from '../components/ModelPicker';
@@ -17,19 +18,21 @@ import { UsageMeter } from './UsageMeter';
 import * as usage from '../lib/usage';
 import { projectKey, recordTurn } from '../lib/tokenLedger';
 import { routeTools, type Toolset } from '../lib/toolRouter';
+import { GUIDED_BRIEF, modelTier, type GuidedSetting } from '../lib/modelProfile';
 import type { HarnessId } from '../lib/harness';
 import { trace } from '../lib/turnTrace';
 import { type Interjection, type Step, type TextSegment, type ToolRun } from './Activity';
 import { steer } from './steer';
-import { AnswerBody } from './AnswerBody';
+import { AnswerBody, type SteerActions } from './AnswerBody';
+import { ATTACHABLE, filesBrief, MAX_CHAT_IMAGES, pictureUrl, samePath, type ChatFile } from './attachments';
+import { CopyAction } from './CopyAction';
 import { appendText, settleText } from './segments';
 import { CommandPanel, panelOrder } from './CommandPanel';
 import { COMMANDS, matchCommands, type CommandContext } from './commands';
 import { handoffFor, historyFor, seesImages } from './handoff';
 import { annotationBrief, annotationLabel, annotations, sentAnnotation, usePendingAnnotations, type SentAnnotation } from '../lib/annotations';
-import { copyText } from '../lib/clipboard';
 import { uid } from '../lib/editor';
-import { api, errorText, events, type ReferenceFilm } from '../lib/ipc';
+import { api, errorText, events, type ChatAttachment, type ReferenceFilm } from '../lib/ipc';
 import { findStyle, styleInMessage, stylesMatching, type StyleDef, type StyleId } from '../lib/styles';
 import { actionLogger } from '../lib/actionLogger';
 import { avatarBus } from '../avatar/bus';
@@ -39,7 +42,7 @@ import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 export type { ToolRun } from './Activity';
 
 export type ChatMessage =
-  | { id: string; role: 'user'; content: string; at: number; images?: string[]; /** Monitor annotations sent with it: shown as chips, and their brief kept for later turns. */ annotations?: SentAnnotation[]; annotationBrief?: string }
+  | { id: string; role: 'user'; content: string; at: number; images?: string[]; /** Videos, audio and pictures attached from disk, shown as chips. */ files?: { name: string; kind: ChatAttachment['kind'] }[]; /** Monitor annotations sent with it: shown as chips, and their brief kept for later turns. */ annotations?: SentAnnotation[]; annotationBrief?: string }
   | {
       id: string;
       role: 'assistant';
@@ -110,10 +113,14 @@ const endsAtButton = (status: WorkflowPhaseStatus) => ['plan', 'planning', 'plan
  * those phases are told to finish their own work and end the turn.
  */
 export function workflowInstruction(status: WorkflowPhaseStatus): string {
-  // The frame is the user's call and everything is built for it: the question is the first thing the turn does.
-  const size = status?.frameSizeNeeded ? 'FIRST, before any other tool, plan, note or research: call choose_comp_size — the timeline has no picture yet, so the user picks the frame size — and wait for the answer (it does not ask when the request already names the size). Only a turn that just answers a question skips it. Then: ' : '';
-  return size + phaseInstruction(status);
+  // Understand the message before acting on it: chat gets a reply, only a request to build or edit
+  // gets the workflow. The frame is the user's call, so a build on an empty timeline asks it first.
+  const size = status?.frameSizeNeeded ? ' The timeline has no picture yet: before building, planning, notes or research for it, call choose_comp_size with a question worded for their request and the shape you would recommend (it skips the question when their words already settle the shape).' : '';
+  return `${UNDERSTAND_FIRST}${size} For a request to make or change the video: ${phaseInstruction(status)}`;
 }
+
+/** Every turn starts by reading what the person actually wants. */
+const UNDERSTAND_FIRST = 'Read the message and work out what the person wants before any tool. A greeting, thanks, small talk or a question about the app, the project or editing gets a short, natural reply in their tone, using what you know of the project (what is open, what was just made) where it helps — no tools, no todo list, no workflow, no questions about the video. When a request is vague, ask about the one thing that matters for it in your own words, tied to what they said, not a scripted form.';
 
 function phaseInstruction(status: WorkflowPhaseStatus): string {
   if (!endsAtButton(status)) return 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.';
@@ -193,6 +200,10 @@ type Props = {
   persona?: string;
   lockedMode?: 'full' | 'quick';
   instruction?: string;
+  /** Settings → General: whether models run the full production or the guided one (modelProfile.ts). */
+  guidedMode?: GuidedSetting;
+  /** Imports files attached to a message into the project (not the timeline), so the AI can use them by id. */
+  onImportFiles?: (paths: string[]) => Promise<{ id: string; name: string; path: string }[]>;
   /** A fixed toolset that replaces the router's (the Plugin Maker's: no genres, no timeline playbooks). */
   toolset?: Toolset;
   /**
@@ -277,17 +288,60 @@ export function ChatPanel(props: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [images,setImages]=useState<string[]>([]);
-  const imageInput=useRef<HTMLInputElement>(null);
   const imagesRef=useRef(images);imagesRef.current=images;
-  async function addImages(files: File[]) {
-    try {
-      if(files.length+imagesRef.current.length>4)throw new Error('Attach at most four images.');
-      const urls=await Promise.all(files.map(file=>new Promise<string>((resolve,reject)=>{
-        if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>4*1024*1024)return reject(new Error('Use PNG, JPEG, or WebP files up to 4 MB.'));
-        const reader=new FileReader();reader.onerror=()=>reject(new Error('Could not read '+file.name));reader.onload=()=>resolve(String(reader.result));reader.readAsDataURL(file);
-      })));
-      setImages(current=>[...current,...urls].slice(0,4));
-    }catch(error){toast({tone:'error',title:'Image attachment',body:errorText(error)});}
+  /** Files attached to the next message besides its pictures: videos, audio and anything else (and where each picture came from). */
+  const [files,setFiles]=useState<ChatFile[]>([]);
+  const filesRef=useRef(files);filesRef.current=files;
+  /**
+   * Pictures pasted or dropped as browser files (screenshots from the clipboard): any image type
+   * and size, shrunk to a JPEG when it is not PNG/JPEG/WebP or too big to send as it is.
+   */
+  async function addImages(dropped: File[]) {
+    const pictures=dropped.filter(file=>file.type.startsWith('image/'));
+    if(pictures.length<dropped.length)toast({tone:'info',title:'Drop videos from File Explorer',body:'Videos and audio attach when dragged from File Explorer or picked with the paperclip.'});
+    const room=MAX_CHAT_IMAGES-imagesRef.current.length;
+    if(pictures.length>room)toast({tone:'info',title:`${MAX_CHAT_IMAGES} pictures per message`,body:`Only the first ${Math.max(0,room)} were attached.`});
+    const urls:string[]=[];
+    for(const file of pictures.slice(0,Math.max(0,room))){
+      try{urls.push(await pictureUrl(file));}catch(error){toast({tone:'error',title:`Could not attach ${file.name||'the picture'}`,body:errorText(error)});}
+    }
+    if(urls.length)setImages(current=>[...current,...urls].slice(0,MAX_CHAT_IMAGES));
+  }
+  /**
+   * Files from disk (File Explorer drops, the paperclip): pictures go along as pictures; videos and
+   * audio are imported into the project, so the AI can put them in the edit by id, and a video
+   * also sends a few frames from across it so a model that sees can tell what is in it.
+   */
+  async function attachPaths(paths: string[]) {
+    if(!paths.length)return;
+    let prepared:ChatAttachment[];
+    try{prepared=await api.chatPrepareAttachments(paths,3);}catch(error){toast({tone:'error',title:'Could not attach those files',body:errorText(error)});return;}
+    const media=prepared.filter(item=>item.kind==='video'||item.kind==='audio');
+    let imported:{id:string;name:string;path:string}[]=[];
+    if(media.length&&propsRef.current.onImportFiles){
+      try{imported=await propsRef.current.onImportFiles(media.map(item=>item.path));}catch(error){toast({tone:'error',title:'Could not import into the project',body:errorText(error)});}
+    }
+    const sees=seesImages(propsRef.current.providerId);
+    const pictures=[...imagesRef.current];
+    const added:ChatFile[]=[];
+    let dropped=0;
+    for(const item of prepared){
+      if(item.error&&!item.images.length&&item.kind!=='audio')toast({tone:'error',title:`Could not read ${item.name}`,body:item.error});
+      const asset=imported.find(entry=>samePath(entry.path,item.path));
+      if(item.kind==='image'){
+        if(!item.images.length)continue;
+        if(pictures.length>=MAX_CHAT_IMAGES){dropped++;continue;}
+        pictures.push(item.images[0]);
+        added.push({name:item.name,kind:'image',path:item.path,frames:0});
+        continue;
+      }
+      const frames=sees?item.images.slice(0,Math.max(0,MAX_CHAT_IMAGES-pictures.length)):[];
+      pictures.push(...frames);
+      added.push({name:item.name,kind:item.kind,path:item.path,assetId:asset?.id,duration:item.duration??undefined,times:item.times.slice(0,frames.length),frames:frames.length});
+    }
+    if(dropped)toast({tone:'info',title:`${MAX_CHAT_IMAGES} pictures per message`,body:`${dropped} more ${dropped===1?'was':'were'} left out.`});
+    setImages(pictures);
+    if(added.length)setFiles(current=>[...current,...added]);
   }
   useEffect(()=>{
     const pending=getCurrentWebview().onDragDropEvent(event=>{
@@ -298,10 +352,14 @@ export function ChatPanel(props: Props) {
       // Another chat (the Plugin Maker's) may be drawn over this one; the drop is for the one on top.
       const hit=document.elementFromPoint(point.x/ratio,point.y/ratio);
       if(hit&&!rootRef.current?.contains(hit))return;
-      if(event.payload.paths.length+imagesRef.current.length>4){toast({tone:'error',title:'Too many images',body:'Attach at most four images.'});return;}
-      void api.chatReadImages(event.payload.paths).then(urls=>setImages(current=>[...current,...urls].slice(0,4))).catch(error=>toast({tone:'error',title:'Image attachment',body:errorText(error)}));
+      void attachPaths(event.payload.paths);
     });return()=>{void pending.then(off=>off()).catch(()=>undefined);};
   },[]);
+  /** The paperclip: any picture, video or audio from disk. */
+  const pickFiles=async()=>{
+    const picked=await openDialog({multiple:true,title:'Attach to the message',filters:[{name:'Pictures, video and audio',extensions:ATTACHABLE}]});
+    if(Array.isArray(picked))void attachPaths(picked);else if(typeof picked==='string')void attachPaths([picked]);
+  };
   const [pickerOpen, setPickerOpen] = useState(false);
   const [levels, setLevels] = useState<Effort[]>([]);
   const [references, setReferences] = useState<ReferenceFilm[]>([]);
@@ -331,6 +389,7 @@ export function ChatPanel(props: Props) {
       setMessages([]);
       setDraft('');
       setImages([]);
+      setFiles([]);
       setQueued(null);
       setAttached(null);
       if (props.annotations) annotations.reset();
@@ -677,9 +736,13 @@ export function ChatPanel(props: Props) {
           // one automatic finishing round (never a second: that one reports whatever it reached).
           const status = propsRef.current.workflowStatus(event.turnId);
           const edited = runs.some((run) => run.changedProject);
+          // A follow-up edit of a finished production, or an edit with no production at all, is held
+          // to the same finish; only the plan and gather phases end at the user's button.
+          const editing = !status?.phase || status.phase === 'editing' || status.phase === 'polishing' || status.phase === 'done';
           if (!event.stopped && !event.fault && edited && status && status.mode === 'full' && !status.structurallyVerified
-            && (status.phase === 'editing' || status.phase === 'polishing') && !autoFinished.current.has(event.turnId)) {
-            const finish = `[Automatic finishing round: the last turn ended before verify_edit_workflow.] ${continuePrompt(status)}`;
+            && editing && !autoFinished.current.has(event.turnId)) {
+            const asked = meta.prompt && !meta.prompt.startsWith('[Automatic finishing round') ? ` The user's request, which verify_edit_workflow's asks must cover: "${meta.prompt.slice(0, 800)}"` : '';
+            const finish = `[Automatic finishing round: the last turn ended before verify_edit_workflow.] ${continuePrompt(status)}${asked}`;
             setTimeout(() => {
               autoFinished.current.add('pending');
               sendRef.current(finish);
@@ -740,10 +803,11 @@ export function ChatPanel(props: Props) {
   const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick') => {
     const mode = propsRef.current.lockedMode ?? modeOverride ?? workflowMode;
     const attachedImages=[...imagesRef.current];
+    const attachedFiles=[...filesRef.current];
     // Annotations from the Program monitor go with the next message that starts a turn; mid-turn
     // they wait, since a steer is words only.
     const notes = propsRef.current.annotations && !streaming ? annotations.list() : [];
-    const message = text.trim() || (attachedImages.length ? 'Please inspect the attached images.' : notes.length ? (notes.length === 1 ? 'Please apply my annotation.' : `Please apply my ${notes.length} annotations.`) : '');
+    const message = text.trim() || (attachedFiles.some((file) => file.kind !== 'image') ? 'Please look at the attached files.' : attachedImages.length ? 'Please inspect the attached images.' : notes.length ? (notes.length === 1 ? 'Please apply my annotation.' : `Please apply my ${notes.length} annotations.`) : '');
     if (!message) {
       if (streaming && propsRef.current.annotations && annotations.list().length) toast({ tone: 'info', title: 'Annotations are waiting', body: 'They go with your next message once this response finishes.' });
       return;
@@ -752,9 +816,9 @@ export function ChatPanel(props: Props) {
     const brief = annotationBrief(taken);
     // Each annotation's frame, outlined, for models that can see — after the user's own images.
     const snapshots = seesImages(propsRef.current.providerId) ? taken.flatMap((item) => (item.snapshot ? [item.snapshot] : [])) : [];
-    const sentImages = [...attachedImages, ...snapshots].slice(0, 4);
+    const sentImages = [...attachedImages, ...snapshots].slice(0, MAX_CHAT_IMAGES);
     if (streaming) {
-      if(sentImages.length){toast({tone:'info',title:'Images ready',body:'Send these images after the current response finishes.'});return;}
+      if(sentImages.length||attachedFiles.length){toast({tone:'info',title:'Attachments ready',body:'They go with your next message once this response finishes.'});return;}
       // The Claude app's behaviour: a message typed while it works goes into the running turn and
       // the model folds it into what it is doing (src/chat/steer.ts), rather than waiting for the end.
       const running = [...messages].reverse().find((item): item is Assistant => item.role === 'assistant' && item.status === 'streaming');
@@ -787,13 +851,13 @@ export function ChatPanel(props: Props) {
     const handoff = handoffFor(messages, providerId, model);
     const provider = propsRef.current.providers.find((item) => item.id === providerId);
     turnMeta.current.set(turnId, { provider: provider?.label ?? 'Bhippi', model, prompt: message });
-    const extra = [hiddenExtra, brief].filter(Boolean).join('\n\n');
+    const extra = [hiddenExtra, brief, filesBrief(attachedFiles)].filter(Boolean).join('\n\n');
     const assistant: Assistant = {
       id: uid(), role: 'assistant', turnId, providerId: providerId ?? 'bhippi', providerLabel: provider?.label ?? 'Bhippi', model,
       content: '', thinking: '', steps: [], status: 'streaming', notes: [], fault: null, usage: null, elapsedMs: null, limit: null,
     };
     pinned.current = true;
-    setMessages((items) => [...items, { id: uid(), role: 'user', content: message, at: Date.now(), images: sentImages, ...(taken.length ? { annotations: taken.map(sentAnnotation), annotationBrief: brief } : {}) }, assistant]);
+    setMessages((items) => [...items, { id: uid(), role: 'user', content: message, at: Date.now(), images: sentImages, ...(attachedFiles.length ? { files: attachedFiles.map((file) => ({ name: file.name, kind: file.kind })) } : {}), ...(taken.length ? { annotations: taken.map(sentAnnotation), annotationBrief: brief } : {}) }, assistant]);
     setDraft('');
     actionLogger.user(`Chat Prompt: "${message.length > 80 ? message.slice(0, 77) + '...' : message}"`, { turnId, provider: provider?.label ?? 'Bhippi', model, images: sentImages.length });
     try {
@@ -801,10 +865,16 @@ export function ChatPanel(props: Props) {
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
       const phase = propsRef.current.workflowStatus(turnId)?.phase;
-      const toolset = propsRef.current.toolset ?? routeTools(message, messages.filter((m) => m.role === 'user').map((m) => m.content), tagged?.id ?? propsRef.current.editStyle, phase);
-      trace(turnId, { ev: 'turn_sent', harness: propsRef.current.harness ?? 'editor', providerId, model, effort: level, messageChars: message.length, images: sentImages.length, historyTurns: history.length, phase: phase ?? null, permission: propsRef.current.permission, editStyle: tagged?.id ?? propsRef.current.editStyle ?? null, genres: toolset.genres, toolsWhole: toolset.full.length, playbook: toolset.playbook?.id ?? null });
-      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, workflowInstruction: propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId)) }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}), ...(propsRef.current.harness ? { harness: propsRef.current.harness } : {}) });
+      // How much of the craft this model carries: a guided model gets the one-call build and
+      // Bhippi's own media first, and compact tool results (modelProfile.ts, chat.rs).
+      const profile = modelTier(providerId, model, propsRef.current.guidedMode);
+      const guided = profile.tier === 'guided' && !propsRef.current.toolset;
+      const toolset = propsRef.current.toolset ?? routeTools(message, messages.filter((m) => m.role === 'user').map((m) => m.content), tagged?.id ?? propsRef.current.editStyle, phase, guided);
+      trace(turnId, { ev: 'turn_sent', harness: propsRef.current.harness ?? 'editor', providerId, model, effort: level, messageChars: message.length, images: sentImages.length, historyTurns: history.length, phase: phase ?? null, permission: propsRef.current.permission, editStyle: tagged?.id ?? propsRef.current.editStyle ?? null, genres: toolset.genres, toolsWhole: toolset.full.length, playbook: toolset.playbook?.id ?? null, tier: profile.tier });
+      const standing = propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId));
+      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, modelTier: profile.tier, workflowInstruction: guided ? `${GUIDED_BRIEF}\n\n${standing}` : standing }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}), ...(propsRef.current.harness ? { harness: propsRef.current.harness } : {}) });
       setImages([]);
+      setFiles([]);
     } catch (error) {
       actionLogger.error(`Chat Send Error: ${errorText(error)}`, { turnId, error });
       // The backend rejects with a message; a thrown Error means building the request failed here,
@@ -1094,6 +1164,21 @@ export function ChatPanel(props: Props) {
     return true;
   };
 
+  // What every message the user sent offers on hover — a plain message and one sent mid-turn alike.
+  const steerActions: SteerActions = {
+    edit: (text) => {
+      setDraft(text);
+      requestAnimationFrame(() => {
+        const input = inputRef.current;
+        if (!input) return;
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      });
+    },
+    send: (text) => void send(text),
+    streaming,
+  };
+
   return (
     <div ref={rootRef} className={`chat awesome${streaming ? ' working' : ''}`} aria-label={props.label ?? 'Bhippi AI'}>
 
@@ -1116,6 +1201,7 @@ export function ChatPanel(props: Props) {
                     ))}
                   </div>
                 )}
+                {!!message.files?.some((file) => file.kind !== 'image') && <div className="chat-files">{message.files.filter((file) => file.kind !== 'image').map((file, index) => <span key={index} className="chat-file">{file.kind === 'video' ? <Film size={12} /> : file.kind === 'audio' ? <Music size={12} /> : <FileIcon size={12} />}<b>{file.name}</b></span>)}</div>}
                 {!!message.images?.length && <div className="chat-images">{message.images.map((src,index)=><img key={index} src={src} alt={"Attached image "+(index+1)} />)}</div>}
               </div>
               <div className="msg-actions">
@@ -1124,15 +1210,7 @@ export function ChatPanel(props: Props) {
                   className="msg-action"
                   title="Edit — put this message back in the composer"
                   aria-label="Edit message"
-                  onClick={() => {
-                    setDraft(message.content);
-                    requestAnimationFrame(() => {
-                      const input = inputRef.current;
-                      if (!input) return;
-                      input.focus();
-                      input.setSelectionRange(input.value.length, input.value.length);
-                    });
-                  }}
+                  onClick={() => steerActions.edit(message.content)}
                 >
                   <Pencil size={13} />
                 </button>
@@ -1154,6 +1232,7 @@ export function ChatPanel(props: Props) {
               message={message}
               latest={message.id === lastAnswerId}
               onDropSteer={(id) => dropSteer(message.turnId, id)}
+              steerActions={steerActions}
               workflow={props.workflowStatus(message.turnId)}
               tools={props.tools[message.turnId] ?? []}
               canRevert={props.canRevert(message.turnId)}
@@ -1352,9 +1431,9 @@ export function ChatPanel(props: Props) {
             </ul>
           </div>
         )}
-        <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={e=>{void addImages(Array.from(e.target.files||[]));e.target.value='';}} />
         {messages.some(message=>message.role==='user'&&message.images?.length)&&<small>Images in this conversation may be sent again to {active?.label||'the selected provider'} as context.</small>}
         {images.length>0&&<><div className="chat-images">{images.map((src,index)=><div key={index}><img src={src} alt={'Image '+(index+1)}/><button type="button" aria-label={'Remove image '+(index+1)} onClick={()=>setImages(current=>current.filter((_,i)=>i!==index))}>×</button></div>)}</div><small>Sending shares these images with {active?.label||'the selected provider'}. Choose a vision-capable model.</small></>}
+        {files.some(file=>file.kind!=='image')&&<div className="chat-files">{files.map((file,index)=>file.kind==='image'?null:<span key={index} className="chat-file" title={file.path}>{file.kind==='video'?<Film size={12}/>:file.kind==='audio'?<Music size={12}/>:<FileIcon size={12}/>}<b>{file.name}</b>{file.duration?<em>{file.duration.toFixed(1)} s</em>:null}{file.assetId?<em>in the project</em>:null}<button type="button" aria-label={'Remove '+file.name} onClick={()=>setFiles(current=>current.filter((_,i)=>i!==index))}>×</button></span>)}</div>}
         <textarea
           onPaste={e=>{const files=Array.from(e.clipboardData.files);if(files.some(f=>f.type.startsWith('image/'))){e.preventDefault();void addImages(files);}}}
           onDragOver={e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();}}
@@ -1421,7 +1500,7 @@ export function ChatPanel(props: Props) {
           rows={2}
           aria-label="Message Bhippi AI"
         />
-        <div className="composer-bar"><button type="button" className="icon-btn" aria-label="Attach images" title="Attach images" onClick={()=>imageInput.current?.click()}><Paperclip size={15}/></button>
+        <div className="composer-bar"><button type="button" className="icon-btn" aria-label="Attach files" title="Attach pictures, video or audio — or drop them here" onClick={()=>void pickFiles()}><Paperclip size={15}/></button>
           <ModelPicker
             providers={props.providers.filter((provider) => provider.usable && provider.enabled)}
             providerId={props.providerId}
@@ -1498,33 +1577,6 @@ function continuePrompt(status: WorkflowPhaseStatus): string {
   return `Continue the EDIT/POLISH phase only. ${shared} Work just the next unfinished 5–12s batch — cuts, levels, beats, transitions, roto/erase, motion graphics, sound — run judge_edit (it runs the frame pass and scores the cut; fix its list and judge again until it passes or its rounds run out), then get_comp + verify_edit_workflow. Do not redo batches already on the timeline.`;
 }
 
-/** A copy button that says it worked. */
-function CopyAction({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const toast = useToast();
-  return (
-    <button
-      type="button"
-      className={`msg-action${copied ? ' copied' : ''}`}
-      title={copied ? 'Copied' : label}
-      aria-label={label}
-      disabled={!text.trim()}
-      onClick={() => {
-        void copyText(text).then((done) => {
-          if (!done) {
-            toast({ tone: 'error', title: 'Copy failed', body: 'Select the text and press Ctrl+C instead.' });
-            return;
-          }
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1100);
-        });
-      }}
-    >
-      {copied ? <Check size={13} /> : <Copy size={13} />}
-    </button>
-  );
-}
-
 type WorkflowView = { mode: string; structurallyVerified: boolean; phase?: string | null; nextUserAction?: string | null; phaseClosedThisTurn?: string | null } | null;
 
 /** Where a full-workflow turn left the edit, in one line — or nothing, for a turn that did no work (a greeting, a question). */
@@ -1537,7 +1589,7 @@ function workflowLine(workflow: WorkflowView, worked: boolean): { tone: 'ok' | '
   return { tone: 'warn', text: 'The workflow is not finished — some stages have not run or could not be verified.' };
 }
 
-function AssistantMessage({ message, latest, workflow, tools, canRevert, onRevert, onRemedy, onContinue, onDropSteer }: { message: Assistant; latest: boolean; workflow: WorkflowView; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void; onDropSteer: (id: string) => void }) {
+function AssistantMessage({ message, latest, workflow, tools, canRevert, onRevert, onRemedy, onContinue, onDropSteer, steerActions }: { message: Assistant; latest: boolean; workflow: WorkflowView; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void; onDropSteer: (id: string) => void; steerActions?: SteerActions }) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const visible = message.content;
   const seconds = message.elapsedMs !== null ? `${(message.elapsedMs / 1000).toFixed(1)}s` : null;
@@ -1570,6 +1622,7 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
         streaming={streaming}
         thinking={!!message.thinking}
         onDropSteer={onDropSteer}
+        steerActions={steerActions}
       />
       {line && (
         <div className={`workflow-note ${line.tone}`} role="status">

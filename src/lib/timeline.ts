@@ -65,6 +65,12 @@ export function frameSizeFromText(text: string): { width: number; height: number
   if (/\b1\s*[:x/]\s*1\b|\bsquare\b/.test(lower)) found.add('square');
   if (/\b4\s*[:x/]\s*5\b|\bportrait 4/.test(lower)) found.add('portrait');
   else if (/\bportrait\b/.test(lower) && !found.has('vertical')) found.add('vertical');
+  // No shape named: where it is going settles it (a reel is 9:16, a YouTube video 16:9). A short
+  // form wins over the platform ("YouTube Shorts").
+  if (!found.size) {
+    if (/\b(reels?|shorts|tik ?toks?|insta(gram)? stor(y|ies))\b/.test(lower)) found.add('vertical');
+    else if (/\byoutube\b/.test(lower)) found.add('1080p');
+  }
   if (found.size !== 1) return null;
   const { width, height } = preset([...found][0]);
   return { width, height };

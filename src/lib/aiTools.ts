@@ -45,10 +45,12 @@ import { renderMotionStill } from '../motion/exportFrames';
 import { renderHtmlStill } from './htmlFrames';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, placement, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
 import { safeFor } from './layout';
-import { aspectLabel, describeReformat, FRAME_PRESETS, orientationOf, reformatComp, RESOLUTION_TIERS, scaleTo, type ReformatMode } from './reformat';
+import { aspectLabel, describeReformat, duplicateComp, FRAME_PRESETS, orientationOf, reformatComp, RESOLUTION_TIERS, scaleTo, type ReformatMode } from './reformat';
 import { autoLayout, captionBand, fillCell, pipBox, splitCells, type SplitLayout } from './splitScreen';
 import type { History } from './history';
-import { api, errorText, type Transcript } from './ipc';
+import { api, errorText, type ComposedScore, type PlateSpec, type ScoreMood, type ScoreSpec, type Transcript } from './ipc';
+import { planBuild, SCORE_MOODS, type BriefBeat } from './guidedBuild';
+import { bpmFromText, moodFromText, placeMusicBed, placePlate } from './builtinMedia';
 import { cloudPrefs, genApi, pickModel, usableConnectors, type GenPlan, type GenPlanItem } from './cloudGen';
 import { describe as describeDiff, runProgram, type Op, type Program } from './editProgram';
 import { buildRecipe, findRecipe, recipeCatalogue, registerCustomRecipe, setCustomRecipes } from './recipes';
@@ -207,6 +209,7 @@ const str = (args: Args, key: string): string | undefined => {
 };
 const bool = (args: Args, key: string): boolean | undefined => (typeof args[key] === 'boolean' ? (args[key] as boolean) : undefined);
 const list = (args: Args, key: string): string[] => (Array.isArray(args[key]) ? (args[key] as unknown[]).filter((item): item is string => typeof item === 'string') : []);
+const numbers = (args: Args, key: string): number[] => (Array.isArray(args[key]) ? (args[key] as unknown[]).filter((item): item is number => typeof item === 'number' && Number.isFinite(item)) : []);
 /**
  * The answers an ask_user offers, however the model sent them: an array of strings or of
  * `{label}` objects, a JSON array in a string, or one string with an answer per line (or split by
@@ -418,7 +421,7 @@ export function frameBrief(comp: Comp) {
 /** What every turn is reminded of about the frame: it is read each turn with the project. */
 const LAYOUT_RULES = [
   'Motion scenes open as layered "[Motion]" comps: one clip per layer on its own track, so the user can open one and change any layer. Edit them with update_motion_scene (clipId = the comp clip, the comp or a layer clip; patches by layer id); split_motion_layers opens older single-clip ones.',
-  'Know the frame before designing: `frame` gives the active comp size, aspect, orientation, safe area and the layouts that suit it. Design for that shape: a 9:16 comp is not a squeezed 16:9 one. To change the shape use update_comp {format | orientation | resolution, reframe: fill | blur | fit | keep}; it re-fits the footage and rebuilds the motion graphics for the new canvas. For two or more pictures at once use split_screen (stacked in tall frames, side by side in wide ones).',
+  'Know the frame before designing: `frame` gives the active comp size, aspect, orientation, safe area and the layouts that suit it. Design for that shape: a 9:16 comp is not a squeezed 16:9 one. To change the shape use update_comp {format | orientation | resolution, reframe: fill | blur | fit | keep}; it re-fits the footage and rebuilds the motion graphics for the new canvas. When the user wants a NEW comp in another shape for an edit already made ("make a portrait version", "new comp in 9:16 and adjust everything"), use create_comp {fromCompId, format | orientation, reframe}: it copies every clip, graphic, shape, caption and sound into the new comp and refits them, leaving the original as it was; never rebuild it by hand in an empty comp. For two or more pictures at once use split_screen (stacked in tall frames, side by side in wide ones).',
   'Everything rests inside the frame: panels, cards, type and reduced footage sit inside the safe area (16:9: 5% sides, 6% top/bottom; 9:16: 6% left, 13% right, 12% top, 20% bottom; 4:5, 3:4 and 1:1: 6% all round), never against or past an edge. layout_clip slots, split_screen and fitted motion scenes already do; a hand-set x/y/scale must too.',
   'No blank frames: when the project has a designed background plate (a generated gradient on V1), full-frame templates go over it with background "none" — a light brand stage covering it reads as a white screen. Reduced footage always has a designed background behind it, never flat white or black.',
   'Finish every edit with the polish pass: run_frame_qa over the range (it renders real frames with the motion graphics and reports off-frame, safe-area, blank-frame, black-edge and overlap problems), fix each at its source, run it again until clear.',
@@ -541,6 +544,71 @@ export function generatedFolderId(project: Project, commit: (change: (current: P
     ? current
     : { ...current, folders: [...current.folders, { id, name: 'Generated', parentId: null }] }));
   return project.folders.find((folder) => folder.name === 'Generated' && !folder.parentId)?.id ?? id;
+}
+
+type Commit = (change: (current: Project) => Project) => void;
+
+/** Composes a score (src-tauri/src/score.rs) and imports it into Generated. */
+async function composeMusicAsset(host: ToolHost, project: Project, commit: Commit, spec: ScoreSpec, name: string): Promise<{ asset: Asset; score: ComposedScore }> {
+  const score = await api.composeScore(spec, name);
+  const [asset] = await host.importMedia([score.path], generatedFolderId(project, commit));
+  if (!asset) throw new Error('the score was written but could not be imported');
+  return { asset, score };
+}
+
+/** Renders a background plate (src-tauri/src/plates.rs) and imports it into Generated. */
+async function plateAsset(host: ToolHost, project: Project, commit: Commit, spec: PlateSpec, name: string): Promise<Asset> {
+  const path = await api.renderPlate(spec, name);
+  const [asset] = await host.importMedia([path], generatedFolderId(project, commit));
+  if (!asset) throw new Error('the plate was rendered but could not be imported');
+  return asset;
+}
+
+/**
+ * Fills what gathering left empty with Bhippi's own media, so no plan goes into editing with
+ * nothing: missing music gets a score composed from the plan's music prompt, and every missing
+ * picture shot shares one designed plate. Voice-overs and downloads that need real content are
+ * left for the model. Answers what was filled.
+ */
+async function fillMissingWithBuiltins(host: ToolHost, project: Project, commit: Commit, comp: Comp): Promise<string[]> {
+  const production = comp.production;
+  if (!production) return [];
+  const filled: string[] = [];
+  const scenes = planScenes(comp);
+  const length = Math.max(production.brief?.targetSeconds ?? 0, ...scenes.map((scene) => (scene as { end?: number }).end ?? 0)) || 30;
+  const prompt = [production.music?.prompt, production.script, production.brief?.goal].filter(Boolean).join(' ');
+  const mood = moodFromText(production.music?.prompt) ?? moodFromText(prompt) ?? 'energetic';
+  const editLive = (change: (current: Comp) => Comp) => commit((current) => updateComp(current, comp.id, change));
+  if (production.music && production.music.source !== 'none' && production.music.source !== 'existing' && !production.music.assetId) {
+    try {
+      const { asset, score } = await composeMusicAsset(host, project, commit, { duration: clamp(length + 1, 4, 600), bpm: bpmFromText(production.music.prompt) ?? planBuild([], { mood }).bpm, mood }, `${comp.name} score`);
+      editLive((current) => (current.production ? { ...current, production: { ...current.production, music: { ...(current.production.music ?? { source: 'generate' as const }), assetId: asset.id, status: 'ready' as const, bpm: score.bpm, beats: score.beats }, updatedAt: Date.now() } } : current));
+      filled.push(`music — a composed ${score.arrangement} (“${asset.name}”)`);
+    } catch (error) {
+      filled.push(`music could not be composed (${errorText(error)})`);
+    }
+  }
+  const missingPictures: { scene: number; shot: number | null }[] = [];
+  scenes.forEach((scene, i) => {
+    const shots = scene.shots ?? [];
+    const legacy = scene as { mediaSource?: string; assetId?: string };
+    if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing' && !legacy.assetId) missingPictures.push({ scene: i, shot: null });
+    shots.forEach((shot, j) => { if (!shot.assetId && (shot.kind === 'video' || shot.kind === 'image' || shot.kind === 'download' || shot.kind === 'scrape')) missingPictures.push({ scene: i, shot: j }); });
+  });
+  if (missingPictures.length) {
+    try {
+      const kit = activeBrandKit(host, project);
+      const style: PlateSpec['style'] = mood === 'playful' ? 'paper' : mood === 'chill' || mood === 'corporate' ? 'gradient' : mood === 'dark' ? 'grain' : 'glow';
+      const asset = await plateAsset(host, project, commit, { style, width: comp.width, height: comp.height, seconds: clamp(length + 1, 2, 120), fps: Math.round(Math.min(60, comp.fps)), colors: kit ? motionBrandFromKit(kit).gradient : [] }, `${comp.name} ${style}`);
+      for (const missing of missingPictures) {
+        editLive((current) => attachAsset(current, { sceneIndex: missing.scene, shotIndex: missing.shot }, asset.id)?.comp ?? current);
+      }
+      filled.push(`${missingPictures.length} picture shot${missingPictures.length === 1 ? '' : 's'} — a designed ${style} background plate (“${asset.name}”) to build the graphics on`);
+    } catch (error) {
+      filled.push(`pictures could not be rendered (${errorText(error)})`);
+    }
+  }
+  return filled;
 }
 
 const ITEM_KINDS: Record<string, ItemKind> = {
@@ -2616,10 +2684,13 @@ ${notes.trim()}${paletteLine}
       const stated = frameSizeFromText(turnPrompt(turnId ?? host.turnId));
       let size = stated;
       if (!size) {
+        // The model words the question for this request and puts the likeliest shape first.
+        const recommended = COMP_SIZE_OPTIONS.find((option) => option.id === str(args, 'recommended'));
+        const options = recommended ? [`${recommended.label} — recommended`, ...COMP_SIZE_OPTIONS.filter((option) => option !== recommended).map((option) => option.label)] : COMP_SIZE_OPTIONS.map((option) => option.label);
         const answer = await host.ask({
-          question: 'What frame size should this video be?',
-          options: COMP_SIZE_OPTIONS.map((option) => option.label),
-          context: 'The timeline has no picture yet, so there is no size to take from the footage. Everything is built for this frame.',
+          question: str(args, 'question') ?? 'What shape should this video be?',
+          options,
+          context: str(args, 'context') ?? 'Everything gets built for this frame, so it is worth picking before I start.',
         }, signal, turnId ?? host.turnId);
         size = frameSizeFromText(answer);
       }
@@ -2748,6 +2819,34 @@ ${notes.trim()}${paletteLine}
 
     case 'create_comp': {
       const preset = COMP_PRESETS.find((item) => item.id === str(args, 'preset'));
+      const fromId = str(args, 'fromCompId');
+      if (fromId) {
+        // A new version of an existing edit: copy everything in it, then reformat the copy for its shape.
+        const from = project.comps.find((comp) => comp.id === fromId || comp.name === fromId);
+        if (!from) return fail(`there is no comp “${fromId}” to copy`);
+        const shaped = frameFromArgs(args, preset ?? from);
+        const size = { width: Math.round(clamp(num(args, 'width') ?? shaped.width, 16, 8192)), height: Math.round(clamp(num(args, 'height') ?? shaped.height, 16, 8192)) };
+        const mode: ReformatMode = (['fill', 'blur', 'fit', 'keep'] as const).find((m) => m === str(args, 'reframe')) ?? 'fill';
+        const resized = size.width !== from.width || size.height !== from.height;
+        const rate = num(args, 'fps');
+        const open = bool(args, 'open') !== false;
+        let made: Comp | null = null;
+        let reformatted: ReturnType<typeof reformatComp> | null = null;
+        commit((current) => {
+          const copied = duplicateComp(current, from.id, str(args, 'name') ?? `${from.name} ${orientationOf(size.width, size.height)}`);
+          if (!copied) return current;
+          reformatted = resized ? reformatComp(copied.project, copied.compId, size, mode) : null;
+          const base = reformatted?.project ?? copied.project;
+          const comps = base.comps.map((comp) => (comp.id === copied.compId ? (made = { ...comp, sizeChosen: true, ...(rate ? { fps: clamp(rate, 1, 240) } : {}) }) : comp));
+          return { ...base, comps, activeCompId: open ? copied.compId : base.activeCompId, openCompIds: open ? [...base.openCompIds, copied.compId] : base.openCompIds };
+        });
+        if (!made) return fail(`could not copy “${from.name}”`);
+        made = made as Comp;
+        const shape = `${made.width}×${made.height} (${aspectLabel(made.width, made.height)} ${orientationOf(made.width, made.height)})`;
+        const report = (reformatted as ReturnType<typeof reformatComp> | null)?.report;
+        const note = report ? ` ${describeReformat(report, mode)}.` : '';
+        return done(`Created comp “${made.name}” (${shape}, ${made.fps} fps) as a copy of “${from.name}” with its ${made.clips.length} clips.${note} “${from.name}” is unchanged.${resized ? ' Run run_frame_qa {"compId"} on the new comp and fix anything it finds (text or shapes near the edges, footage cropped off the subject).' : ''}`, { compId: made.id, width: made.width, height: made.height, aspect: aspectLabel(made.width, made.height) });
+      }
       const shaped = frameFromArgs(args, { width: preset?.width ?? 1920, height: preset?.height ?? 1080 });
       const width = num(args, 'width') ?? shaped.width;
       const height = num(args, 'height') ?? shaped.height;
@@ -2769,7 +2868,7 @@ ${notes.trim()}${paletteLine}
         activeCompId: open ? next.id : current.activeCompId,
         openCompIds: open ? [...current.openCompIds, next.id] : current.openCompIds,
       }));
-      return done(`Created comp “${next.name}” (${next.width}×${next.height}, ${next.fps} fps)${cursor ? ` with ${list(args, 'mediaIds').length} clips` : ''}`, { compId: next.id });
+      return done(`Created comp “${next.name}” (${next.width}×${next.height}, ${next.fps} fps)${cursor ? ` with ${list(args, 'mediaIds').length} clips` : ' — it is empty. For a version of an existing edit in this shape (everything in it carried across and refitted), use create_comp with fromCompId instead'}`, { compId: next.id });
     }
 
     case 'update_comp': {
@@ -3276,10 +3375,10 @@ ${notes.trim()}${paletteLine}
       const ids = list(args, 'clipIds');
       const first = ids.map((id) => findClipIn(project, id)).find((entry) => entry);
       if (!first) return fail('none of those clips exist');
-      const result = nestClips(project, first.comp.id, ids, str(args, 'name') ?? 'Nested Comp');
+      const result = nestClips(project, first.comp.id, ids, str(args, 'name') ?? 'New Comp');
       if (!result) return fail('those clips could not be nested');
       host.history.commit(() => result.project, label);
-      return done(`Nested ${ids.length} clips into “${str(args, 'name') ?? 'Nested Comp'}”`, { compId: result.compId, clipIds: result.clipIds });
+      return done(`Made a comp of ${ids.length} clips: “${str(args, 'name') ?? 'New Comp'}”`, { compId: result.compId, clipIds: result.clipIds });
     }
 
     case 'link_clips': {
@@ -3538,18 +3637,160 @@ ${notes.trim()}${paletteLine}
       return done(`Attached ${assets.get(assetId)?.name ?? assetId} to ${attached.attached}. Gathered ${report.ready}/${report.total}.${report.missing.length ? ` Still missing: ${report.missing.slice(0, 6).join('; ')}.` : ' Everything is gathered — call finish_gathering.'}`, { ready: report.ready, total: report.total, missing: report.missing });
     }
 
+    case 'compose_music': {
+      // A bespoke score (src-tauri/src/score.rs): what strong models used to script by hand.
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const mood = (SCORE_MOODS as string[]).includes(str(args, 'mood') ?? '') ? (str(args, 'mood') as ScoreMood) : moodFromText(str(args, 'mood') ?? comp.production?.music?.prompt) ?? 'energetic';
+      const length = num(args, 'duration') ?? (compDuration(comp) > 0.5 ? compDuration(comp) : comp.production?.brief?.targetSeconds ?? 30);
+      const bpm = num(args, 'bpm') ?? bpmFromText(str(args, 'mood')) ?? bpmFromText(comp.production?.music?.prompt) ?? planBuild([], { mood }).bpm;
+      const spec: ScoreSpec = { duration: clamp(length, 2, 600), bpm, mood, ...(num(args, 'root') !== undefined ? { root: num(args, 'root')! } : {}), ...(bool(args, 'minor') !== undefined ? { minor: bool(args, 'minor')! } : {}), drops: numbers(args, 'drops'), noDrop: bool(args, 'noDrop') === true, accents: numbers(args, 'accents'), ...(num(args, 'intensity') !== undefined ? { intensity: clamp(num(args, 'intensity')!, 0, 1) } : {}) };
+      let made: { asset: Asset; score: ComposedScore };
+      try {
+        made = await composeMusicAsset(host, project, commit, spec, str(args, 'name') ?? `${comp.name} ${mood}`);
+      } catch (error) {
+        return fail(`Could not compose the score: ${errorText(error)}`);
+      }
+      const { asset, score } = made;
+      const phase = comp.production?.phase;
+      const gathering = phase === 'planning' || phase === 'plan-ready' || phase === 'gathering' || phase === 'gathered';
+      const place = bool(args, 'place') ?? !gathering;
+      let placed = '';
+      editComp(comp, (current) => {
+        let next: Comp = current.production ? { ...current, production: { ...current.production, music: { ...(current.production.music ?? { source: 'generate' as const }), assetId: asset.id, status: 'ready' as const, bpm: score.bpm, beats: score.beats }, updatedAt: Date.now() } } : current;
+        if (place) {
+          const start = num(args, 'start') ?? 0;
+          const laid = placeMusicBed(next, asset.id, start, score.duration, { db: num(args, 'db') ?? -6, name: `${asset.name}` });
+          next = laid.comp;
+          placed = ` Laid on the timeline from ${start.toFixed(2)} s as the music bed (clip ${laid.clipId}, ${num(args, 'db') ?? -6} dB, faded in and out); its beats are already stored, so snap_cuts_to_beats works without analysis. Balance it under any voice with level_audio.`;
+        }
+        return next;
+      });
+      return done(`Composed “${asset.name}” (${score.duration.toFixed(1)} s): ${score.arrangement}.${placed}${!place && comp.production ? ' Attached as the production\'s music.' : ''}`, { assetId: asset.id, bpm: score.bpm, beats: score.beats.slice(0, 64), downbeats: score.downbeats, drops: score.drops, placed: place });
+    }
+
+    case 'make_background': {
+      // A designed, moving plate (src-tauri/src/plates.rs) instead of flat black under graphics.
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const style = (['glow', 'gradient', 'paper', 'grain'] as const).find((s) => s === str(args, 'style')) ?? 'glow';
+      const brand = activeBrandKit(host, project);
+      const colors = list(args, 'colors').length ? list(args, 'colors') : brand ? motionBrandFromKit(brand).gradient : [];
+      const seconds = num(args, 'duration') ?? Math.max(4, compDuration(comp) || 10);
+      let asset: Asset;
+      try {
+        asset = await plateAsset(host, project, commit, { style, width: comp.width, height: comp.height, seconds: clamp(seconds, 1, 120), fps: Math.round(Math.min(60, comp.fps)), colors }, str(args, 'name') ?? `${comp.name} ${style}`);
+      } catch (error) {
+        return fail(`Could not render the plate: ${errorText(error)}`);
+      }
+      const phase = comp.production?.phase;
+      const place = bool(args, 'place') ?? !(phase === 'planning' || phase === 'plan-ready' || phase === 'gathering' || phase === 'gathered');
+      let clipId: string | null = null;
+      if (place) {
+        const start = num(args, 'start') ?? 0;
+        editComp(comp, (current) => {
+          const laid = placePlate(current, asset.id, start, seconds);
+          clipId = laid.clipId;
+          return laid.comp;
+        });
+      }
+      return done(`Rendered “${asset.name}” (${style}, ${comp.width}×${comp.height}, ${seconds.toFixed(1)} s)${place ? `, laid under everything on V1 (clip ${clipId}). Give full-frame brand templates background "none" so they sit on it` : ' — attach it to a scene with attach_production_asset, or place it later'}.`, { assetId: asset.id, clipId, placed: place });
+    }
+
+    case 'build_edit_from_brief': {
+      // The guided build: the model writes the words and the feel; code does timing, templates,
+      // transitions, sound, music and the background (guidedBuild.ts).
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const brief = (Array.isArray(args.beats) ? args.beats : []).filter((b): b is BriefBeat => !!b && typeof b === 'object' && typeof (b as BriefBeat).text === 'string' && (b as BriefBeat).text.trim().length > 0);
+      if (brief.length < 1 || brief.length > 16) return fail('Give 1–16 beats, each {text, kind?: title|statement|stat|list|quote|lower-third|end, kicker?, subtitle?, points?, value?, suffix?, cta?}. One idea per beat, few words.');
+      const genre = str(args, 'genre') ?? inferGenres(project, comp)[0] ?? 'motion';
+      const book = playbook(PLAYBOOK_FOR[genre as Genre] ?? genre);
+      const moodArg = str(args, 'mood');
+      const plan = planBuild(brief, { mood: (SCORE_MOODS as string[]).includes(moodArg ?? '') ? (moodArg as ScoreMood) : moodFromText(moodArg ?? comp.production?.music?.prompt), bpm: num(args, 'bpm') ?? bpmFromText(comp.production?.music?.prompt), genre, pacing: book?.pacing ?? null, targetSeconds: num(args, 'targetSeconds') ?? comp.production?.brief?.targetSeconds ?? null });
+      const start = num(args, 'start') ?? 0;
+      const video = new Set(tracksOf(comp, 'video').map((t) => t.id));
+      const hasPicture = comp.clips.some((clip) => video.has(clip.trackId) && clip.enabled);
+      const notes: string[] = [];
+      // 1. The graphics: one sequence, every beat a template, transitions with their own sound cues.
+      const kitForMotion = activeBrandKit(host, project);
+      const motionCtx = { project: host.history.current(), assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: kitForMotion ? motionBrandFromKit(kitForMotion) : null, signal, prompt: turnPrompt(turnId ?? host.turnId) };
+      const sequence = await runMotionTool('create_motion_sequence', {
+        compId: comp.id, start, title: str(args, 'title') ?? 'Guided build',
+        beats: plan.beats.map((beat) => ({ template: beat.template, params: beat.params, hold: beat.hold, name: beat.name })),
+        transitions: plan.transitions, sfx: true,
+      }, motionCtx);
+      if (!sequence.ok) return fail(`The graphics could not be built: ${sequence.error}`);
+      const cuts = Array.isArray(sequence.cuts) ? (sequence.cuts as number[]) : [];
+      const starts = Array.isArray(sequence.starts) ? (sequence.starts as number[]) : [];
+      const live = host.history.current().comps.find((c) => c.id === comp.id) ?? comp;
+      const seqClip = live.clips.find((clip) => clip.id === sequence.clipId);
+      const length = seqClip ? seqClip.start + seqClip.duration - start : plan.seconds;
+      // 2. The music: composed to this length, dropping on the chosen beat, a crash on every cut.
+      let musicNote = 'music: skipped';
+      if (bool(args, 'music') !== false) {
+        const existing = comp.production?.music?.assetId && assets.get(comp.production.music.assetId);
+        try {
+          let musicId: string;
+          let beats: number[] = [];
+          if (existing) {
+            musicId = existing.id;
+            musicNote = `music: the gathered “${existing.name}”`;
+          } else {
+            const dropAt = plan.dropBeat !== null && starts[plan.dropBeat] !== undefined ? starts[plan.dropBeat] - start : null;
+            const made = await composeMusicAsset(host, host.history.current(), commit, { duration: length + 0.5, bpm: plan.bpm, mood: plan.mood, drops: dropAt ? [dropAt] : [], noDrop: dropAt === null, accents: cuts.map((t) => t - start) }, `${comp.name} ${plan.mood}`);
+            musicId = made.asset.id;
+            beats = made.score.beats;
+            musicNote = `music: composed ${made.score.arrangement}`;
+          }
+          const current = host.history.current().comps.find((c) => c.id === comp.id) ?? comp;
+          editComp(current, (c) => {
+            const laid = placeMusicBed(c, musicId, start, length + 0.5, { db: hasPicture ? -18 : -6 });
+            return laid.comp.production ? { ...laid.comp, production: { ...laid.comp.production, music: { ...(laid.comp.production.music ?? { source: 'generate' as const }), assetId: musicId, status: 'ready' as const, bpm: plan.bpm, ...(beats.length ? { beats } : {}) } } } : laid.comp;
+          });
+        } catch (error) {
+          notes.push(`the music could not be made (${errorText(error)}) — add one with compose_music`);
+        }
+      }
+      // 3. The background: a designed plate when nothing else is under the graphics.
+      let plateNote = 'background: over the existing picture';
+      if (!hasPicture && bool(args, 'background') !== false) {
+        try {
+          const colors = kitForMotion ? motionBrandFromKit(kitForMotion).gradient : [];
+          const asset = await plateAsset(host, host.history.current(), commit, { style: plan.plate, width: comp.width, height: comp.height, seconds: clamp(length + 0.5, 1, 120), fps: Math.round(Math.min(60, comp.fps)), colors }, `${comp.name} ${plan.plate}`);
+          const current = host.history.current().comps.find((c) => c.id === comp.id) ?? comp;
+          editComp(current, (c) => placePlate(c, asset.id, start, length + 0.5).comp);
+          plateNote = `background: a ${plan.plate} plate`;
+        } catch (error) {
+          notes.push(`the background plate could not be rendered (${errorText(error)}) — run fill_background`);
+        }
+      }
+      // 4. The plan, as a storyboard, so the edit is held to it.
+      const board: NonNullable<Comp['storyboard']> = plan.beats.map((beat, i) => ({
+        start: starts[i] ?? start, end: cuts[i] ?? (starts[i + 1] ?? start + length), title: beat.name, intent: brief[i].text, visual: `${beat.template} on the ${plan.plate} plate`, audio: `${plan.mood} score${plan.dropBeat === i ? ', drop' : ''}`, evidence: 'guided build',
+        mogrt: { template: beat.template, headline: brief[i].text, durationSeconds: beat.hold }, transition: i > 0 ? { kind: plan.transitions[i - 1], onBeat: true } : null,
+      }));
+      const after = host.history.current().comps.find((c) => c.id === comp.id) ?? comp;
+      editComp(after, (c) => ({ ...c, storyboard: board }));
+      const table = plan.beats.map((beat, i) => `${i + 1}. ${(starts[i] ?? 0).toFixed(2)}s ${beat.template} “${beat.name}” holds ${beat.hold.toFixed(2)}s${i > 0 ? ` (in: ${plan.transitions[i - 1]})` : ''}`).join('\n');
+      return done(`Built the edit from ${brief.length} beats (${length.toFixed(1)} s, ${plan.mood} at ${plan.bpm} BPM${plan.dropBeat !== null ? `, drop on beat ${plan.dropBeat + 1}` : ''}):\n${table}\n${musicNote}; ${plateNote}.${notes.length ? ` Not done: ${notes.join('; ')}.` : ''} Next: run_frame_qa, fix what it lists (change a beat's words with update_motion_scene patches or rebuild with new beats), then judge_edit and verify_edit_workflow.`, { clipId: sequence.clipId, compId: sequence.compId, starts, cuts, mood: plan.mood, bpm: plan.bpm, seconds: length });
+    }
+
     case 'finish_gathering': {
       const comp = pickComp(project, args);
       if (!comp?.production) return fail('No production plan on this comp.');
       if (comp.production.phase !== 'gathering') return fail(`The production is in the ${comp.production.phase} phase; finish_gathering only closes the gathering phase.`);
-      const report = gatherReport(comp);
+      // Nothing the plan needs is left empty: missing music gets a composed score and missing
+      // pictures a designed plate, made here, before the gate counts what is missing.
+      const filled = await fillMissingWithBuiltins(host, project, commit, comp);
+      const report = gatherReport(filled.length ? host.history.current().comps.find((c) => c.id === comp.id) ?? comp : comp);
       const force = bool(args, 'acceptMissing') === true;
       if (report.missing.length && !force) return fail(`${report.missing.length} planned shot(s) still have no asset: ${report.missing.slice(0, 8).join('; ')}. Generate or download them (pass sceneIndex so they attach), retry a failed one with a simpler prompt, or — only if the user agrees — call again with acceptMissing: true and say what was dropped.`);
       const jobs = await api.jobsList();
       const running = jobs.filter((job) => job.status === 'running' && (job.kind === 'generation' || job.kind === 'media' || job.kind === 'speech'));
       if (running.length) return fail(`${running.length} generation job(s) are still running (${running.map((job) => job.label).join(', ')}). Wait for them (generation_job / import_generated_media), then finish.`);
       editComp(comp, current => ({ ...current, production: current.production ? { ...advance(current.production, 'gathered'), updatedAt: Date.now() } : current.production }));
-      return done(`Gathering finished: ${report.ready}/${report.total} shots ready${report.missing.length ? `, ${report.missing.length} dropped` : ''}. END YOUR TURN now with a short list of what was gathered (asset names per scene, voice-over, music). The user presses Start editing.`, { ready: report.ready, total: report.total, dropped: report.missing });
+      return done(`Gathering finished: ${report.ready}/${report.total} shots ready${report.missing.length ? `, ${report.missing.length} dropped` : ''}.${filled.length ? ` Filled by Bhippi: ${filled.join('; ')}.` : ''} END YOUR TURN now with a short list of what was gathered (asset names per scene, voice-over, music). The user presses Start editing.`, { ready: report.ready, total: report.total, dropped: report.missing });
     }
 
     case 'run_frame_qa': {
@@ -3576,7 +3817,9 @@ ${notes.trim()}${paletteLine}
       // Rendered frames — motion scenes and HTML graphics drawn in, as the export draws them — for
       // the blank-frame check and for the model's own eyes.
       const frameCount = Math.round(clamp(num(args, 'frames') ?? 12, 0, 24));
-      const spread = Array.from({ length: frameCount }, (_, i) => Math.round((from + ((i + 0.5) * (to - from)) / Math.max(1, frameCount)) * 100) / 100);
+      // Asked-for moments are the frames rendered; otherwise frames spread over the range.
+      const asked = Array.isArray(args.times) ? times.slice(0, frameCount) : null;
+      const spread = asked ?? Array.from({ length: frameCount }, (_, i) => Math.round((from + ((i + 0.5) * (to - from)) / Math.max(1, frameCount)) * 100) / 100);
       const firstIssues = [...new Set(issues.map((issue) => issue.at))].slice(0, 4);
       const stillTimes = [...new Set([...firstIssues, ...spread])].filter((t) => t >= 0 && t < duration).sort((x, y) => x - y);
       let images: string[] = [];

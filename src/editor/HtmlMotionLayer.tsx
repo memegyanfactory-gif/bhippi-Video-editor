@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react';
 import gsap from 'gsap';
 import { usesCompCanvas } from '../lib/motionGraphics';
+import { adoptLooseTweens, frameRender, seekLooseAnimations, type FrameRender } from '../lib/htmlTime';
 
 export type HtmlMotionSource = {
   html: string;
@@ -34,6 +35,10 @@ export function HtmlMotionLayer({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
+  /** CSS animations that ran on their own, now seeked to the playhead (lib/htmlTime.ts). */
+  const takenRef = useRef(new WeakSet<Animation>());
+  /** The script's own per-frame drawing, when it returned one. */
+  const renderRef = useRef<FrameRender | null>(null);
 
   const elapsed = Math.max(0, Math.min(clipDuration, time - clipStart));
   const progress = clipDuration > 0 ? elapsed / clipDuration : 0;
@@ -59,13 +64,17 @@ export function HtmlMotionLayer({
   useEffect(() => {
     if (!containerRef.current) return;
     timelineRef.current = null;
+    renderRef.current = null;
 
     if (source.js) {
       try {
         const tl = gsap.timeline({ paused: true });
         // Execute the user/agent script passing container and gsap
         const runner = new Function('container', 'gsap', 'timeline', 'time', 'duration', 'progress', source.js);
-        runner(containerRef.current, gsap, tl, elapsed, clipDuration, progress);
+        const container = containerRef.current;
+        // Tweens the script starts outside `timeline` join it, so the playhead drives them too.
+        renderRef.current = frameRender(adoptLooseTweens(gsap, tl, () => runner(container, gsap, tl, elapsed, clipDuration, progress)));
+        renderRef.current?.(elapsed, progress);
 
         // Check if script populated tl or set window.__bhippi_timeline
         if (tl.getChildren().length > 0) {
@@ -107,7 +116,9 @@ export function HtmlMotionLayer({
     if (timelineRef.current) {
       timelineRef.current.seek(elapsed, false);
     }
-  }, [elapsed]);
+    seekLooseAnimations(containerRef.current, elapsed, takenRef.current);
+    try { renderRef.current?.(elapsed, progress); } catch (err) { console.warn('Bhippi Motion Graphic render error:', err); }
+  }, [elapsed, markup, source.css]);
 
   const cssVariables = useMemo<CSSProperties>(
     () => ({

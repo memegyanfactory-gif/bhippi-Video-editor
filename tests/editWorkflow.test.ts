@@ -35,7 +35,10 @@ describe('enforced editorial pipeline', () => {
     expect(f.flow.before('add_text', {}, f.project)).toContain('Read');
     f.read(); expect(f.flow.before('add_text', {}, f.project)).toContain('analyze_clip_speech');
     f.speech(); expect(f.flow.before('add_text', {}, f.project)).toContain('inspect_clip_frames');
-    f.frames(); expect(f.flow.before('add_text', {}, f.project)).toContain('local_media_capabilities');
+    // The model check guards the plan and local models, not ordinary edits.
+    f.frames(); expect(f.flow.before('add_text', {}, f.project)).toContain('storyboard');
+    expect(f.flow.before('save_storyboard', {}, f.project)).toContain('local_media_capabilities');
+    expect(f.flow.before('rotoscope_clip', {}, f.project)).toContain('local_media_capabilities');
     f.caps(); expect(f.flow.before('add_text', {}, f.project)).toContain('storyboard');
     f.plan(); expect(f.flow.before('add_text', {}, f.project)).toBeNull();
   });
@@ -257,5 +260,38 @@ describe('shorts in the full workflow', () => {
     flow.record('inspect_clip_frames', { clipId: f.clip.id }, { ok: true, frames: [0, 1, 2, 3, 4, 5], images: Array(6).fill('x') }, f.project);
     flow.record('local_media_capabilities', {}, { ok: true }, f.project);
     expect(flow.before('add_text', {}, f.project)).toBeNull();
+  });
+});
+
+describe('the workflow holds the edit to the request, not just to its receipts', () => {
+  it('asks the model to list what the user asked, and refuses asks no call of this turn did', () => {
+    const f = fixture();
+    f.read(); f.speech(); f.frames(); f.caps(); f.plan();
+    const prompt = 'Make the title bigger and add a whoosh on every cut';
+    f.flow.before('verify_edit_workflow', {}, f.project);
+    expect((f.flow.verify(f.project, undefined, prompt) as { error: string }).error).toContain('re-read the user');
+    f.flow.before('verify_edit_workflow', { asks: [{ ask: 'bigger title', done: 'update_clip scale 130' }, { ask: 'whoosh on cuts', done: 'add_sound_effect ×4' }] }, f.project);
+    const refused = (f.flow.verify(f.project, undefined, prompt) as { error: string }).error;
+    expect(refused).toContain('Not done yet');
+    expect(refused).toContain(prompt);
+    f.flow.record('update_clip', {}, { ok: true }, f.project);
+    f.flow.record('add_sound_effect', {}, { ok: true }, f.project);
+    f.flow.before('verify_edit_workflow', { asks: [{ ask: 'bigger title', done: 'update_clip scale 130' }, { ask: 'a 4K export', done: 'not possible: exporting is the user’s button' }] }, f.project);
+    const after = f.flow.verify(f.project, undefined, prompt) as { ok: boolean; error?: string };
+    expect(after.error ?? '').not.toMatch(/Not done yet|re-read the user/);
+    // No user message to hold it to (a subagent, a plugin): the check stands aside.
+    f.flow.before('verify_edit_workflow', {}, f.project);
+    expect((f.flow.verify(f.project) as { error?: string }).error ?? '').not.toMatch(/re-read the user/);
+  });
+
+  it('never scans Bhippi\'s own plates, and treats a saved storyboard as the plan of a follow-up turn', () => {
+    const project = newProject(), comp = project.comps[0];
+    const v1 = tracksOf(comp, 'video')[0].id;
+    comp.clips = [newClip({ trackId: v1, start: 0, duration: 10, source: { type: 'media', assetId: 'plate' } })];
+    comp.storyboard = [{ start: 0, end: 10, intent: 'hook', visual: 'title', audio: 'score', evidence: 'guided build' }];
+    const flow = new EditWorkflow(project, new Map([['plate', { id: 'plate', kind: 'video', hasAudio: false, name: 'Comp 1 glow Background Plate.mp4' } as Asset]]));
+    expect(flow.status(project).frameReviewPending).toEqual([]);
+    flow.record('get_comp', {}, { ok: true, id: comp.id }, project);
+    expect(flow.before('update_clip', { clipId: comp.clips[0].id }, project)).toBeNull();
   });
 });

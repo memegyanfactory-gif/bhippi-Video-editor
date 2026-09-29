@@ -37,6 +37,8 @@ mod settings;
 mod speech;
 mod sfx;
 mod sfx_library;
+mod score;
+mod plates;
 mod store;
 mod subtitles;
 mod tools;
@@ -382,8 +384,11 @@ async fn library_relink(app: AppHandle, state: State<'_, Arc<AppState>>, id: Str
     fresh.id = id.clone();
     {
         let mut items = state.library.lock().map_err(lock_error)?;
-        let slot = items.iter_mut().find(|asset| asset.id == id).ok_or("that media is not in the project")?;
-        *slot = fresh.clone();
+        // A project can name media the library lost track of: linking it adds it back under its id.
+        match items.iter_mut().find(|asset| asset.id == id) {
+            Some(slot) => *slot = fresh.clone(),
+            None => items.push(fresh.clone()),
+        }
         state.save_library(&items)?;
     }
     allow_asset(&app, &fresh);
@@ -2239,6 +2244,58 @@ async fn save_recording(app: AppHandle, state: State<'_, Arc<AppState>>, bytes: 
     Ok(asset)
 }
 
+/// Where a generated file lands: `<Generated>/<folder>/<name><suffix>.<ext>`, never overwriting.
+fn generated_path(state: &AppState, folder: &str, name: &str, fallback: &str, suffix: &str, ext: &str) -> Result<std::path::PathBuf, String> {
+    let dir = storage::dir(state, storage::Category::Generated)?.join(folder);
+    std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let stem = match storage::sanitize(name) {
+        stem if stem.is_empty() => fallback.to_owned(),
+        stem => stem,
+    };
+    let mut path = dir.join(format!("{stem}{suffix}.{ext}"));
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{stem}{suffix} {n}.{ext}"));
+        n += 1;
+    }
+    Ok(path)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ComposedScore {
+    path: String,
+    #[serde(flatten)]
+    score: score::Score,
+}
+
+/// Composes a music bed (score.rs) into Generated/Music; the caller imports the file.
+#[tauri::command]
+async fn compose_score(state: State<'_, Arc<AppState>>, spec: score::ScoreSpec, name: String) -> CommandResult<ComposedScore> {
+    let path = generated_path(&state, "Music", &name, "Score", " Music", "wav")?;
+    let rendered = tauri::async_runtime::spawn_blocking(move || {
+        let score = score::render(&spec);
+        std::fs::write(&path, score::wav_bytes(&score.frames)).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+        Ok::<_, String>((score, path))
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let (score, path) = rendered;
+    Ok(ComposedScore { path: path.display().to_string(), score })
+}
+
+/// Renders a background plate (plates.rs) with FFmpeg into Generated/Backgrounds; answers its path.
+#[tauri::command]
+async fn render_plate(state: State<'_, Arc<AppState>>, spec: plates::PlateSpec, name: String) -> CommandResult<String> {
+    let path = generated_path(&state, "Backgrounds", &name, "Plate", " Background Plate", "mp4")?;
+    let output = path.display().to_string();
+    let args = plates::args(&spec, &output)?;
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let tools = state.tools();
+    tools::run(tools.ffmpeg()?, &refs, None).await.map_err(|error| format!("FFmpeg could not render the plate: {error}"))?;
+    Ok(output)
+}
+
 /// Saves a character still from the Characters window (a transparent PNG) into the project's
 /// Generated/Characters folder and imports it.
 #[tauri::command]
@@ -2978,6 +3035,121 @@ fn chat_read_images(paths: Vec<String>) -> CommandResult<Vec<String>> {
     }).collect()
 }
 
+/// A file the user dropped or picked for the chat, made ready for the model: pictures as data URLs
+/// (any format or size, converted and shrunk to fit), a video as a few frames from across it, and
+/// every file's kind and length so the model can be told what it is.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatAttachment {
+    path: String,
+    name: String,
+    /// `image`, `video`, `audio` or `other`.
+    kind: &'static str,
+    images: Vec<String>,
+    /// Seconds each video frame in `images` was taken at.
+    times: Vec<f64>,
+    duration: Option<f64>,
+    error: Option<String>,
+}
+
+const CHAT_IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif", "heic", "heif", "jfif"];
+const CHAT_VIDEO_EXTS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi", "m4v", "wmv", "mts", "m2ts", "flv", "mpg", "mpeg", "3gp", "gif"];
+const CHAT_AUDIO_EXTS: &[&str] = &["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus", "wma", "aiff", "aif"];
+/// A picture sent as-is must be under this; larger ones are shrunk to a JPEG.
+const CHAT_IMAGE_BYTES: u64 = 3_500_000;
+
+fn data_url(bytes: &[u8]) -> Option<String> {
+    use base64::Engine;
+    let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.starts_with(&[255, 216, 255]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "image/webp"
+    } else {
+        return None;
+    };
+    Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+/// One frame of `path` (at `at` seconds for a video) as a JPEG no wider than `width`.
+async fn chat_frame(ffmpeg: &std::path::Path, path: &str, at: Option<f64>, width: u32, out: &std::path::Path) -> Result<String, String> {
+    let out_text = out.display().to_string();
+    let seek = at.map(|t| format!("{t:.3}"));
+    let scale = format!("scale='min({width},iw)':-2");
+    let mut args: Vec<&str> = vec!["-hide_banner", "-nostdin", "-loglevel", "error", "-y"];
+    if let Some(seek) = seek.as_deref() {
+        args.extend(["-ss", seek]);
+    }
+    args.extend(["-i", path, "-frames:v", "1", "-vf", scale.as_str(), "-q:v", "4", out_text.as_str()]);
+    tools::run(ffmpeg, &args, None).await?;
+    let bytes = std::fs::read(out).map_err(|error| error.to_string())?;
+    let _ = std::fs::remove_file(out);
+    data_url(&bytes).ok_or_else(|| "FFmpeg wrote no picture".to_owned())
+}
+
+#[tauri::command]
+async fn chat_prepare_attachments(state: State<'_, Arc<AppState>>, paths: Vec<String>, frames: Option<usize>) -> CommandResult<Vec<ChatAttachment>> {
+    let tools = state.tools();
+    let dir = std::env::temp_dir().join("bhippi-chat");
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let frames = frames.unwrap_or(4).clamp(1, 8);
+    let mut out = Vec::new();
+    for (index, path) in paths.into_iter().take(12).enumerate() {
+        let file = std::path::Path::new(&path);
+        let name = file.file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
+        let ext = file.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let mut item = ChatAttachment { path: path.clone(), name, kind: "other", images: Vec::new(), times: Vec::new(), duration: None, error: None };
+        let still = |n: usize| dir.join(format!("{}-{index}-{n}.jpg", std::process::id()));
+        // A GIF is a picture when small and still, a clip otherwise: probe it like a video.
+        let duration = if CHAT_VIDEO_EXTS.contains(&ext.as_str()) || CHAT_AUDIO_EXTS.contains(&ext.as_str()) {
+            match tools.ffprobe() {
+                Ok(ffprobe) => tools::run(ffprobe, &["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", &path], None).await.ok().and_then(|text| text.trim().parse::<f64>().ok()).filter(|d| d.is_finite() && *d > 0.0),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+        if CHAT_IMAGE_EXTS.contains(&ext.as_str()) && !(ext == "gif" && duration.is_some_and(|d| d > 0.2)) {
+            item.kind = "image";
+            let direct = (size <= CHAT_IMAGE_BYTES).then(|| std::fs::read(&path).ok()).flatten().and_then(|bytes| data_url(&bytes));
+            match direct {
+                Some(url) => item.images.push(url),
+                None => match tools.ffmpeg() {
+                    Ok(ffmpeg) => match chat_frame(ffmpeg, &path, None, 1600, &still(0)).await {
+                        Ok(url) => item.images.push(url),
+                        Err(error) => item.error = Some(format!("could not read this picture ({error})")),
+                    },
+                    Err(error) => item.error = Some(error),
+                },
+            }
+        } else if CHAT_VIDEO_EXTS.contains(&ext.as_str()) {
+            item.kind = "video";
+            item.duration = duration;
+            if let Ok(ffmpeg) = tools.ffmpeg() {
+                let length = duration.unwrap_or(0.0);
+                let count = if length < 1.0 { 1 } else { frames };
+                for n in 0..count {
+                    let at = if count == 1 { 0.0 } else { length * (0.08 + 0.84 * n as f64 / (count - 1) as f64) };
+                    match chat_frame(ffmpeg, &path, Some(at), 768, &still(n)).await {
+                        Ok(url) => {
+                            item.images.push(url);
+                            item.times.push((at * 100.0).round() / 100.0);
+                        }
+                        Err(error) => item.error = Some(format!("frames could not be read ({error})")),
+                    }
+                }
+            }
+        } else if CHAT_AUDIO_EXTS.contains(&ext.as_str()) {
+            item.kind = "audio";
+            item.duration = duration;
+        }
+        out.push(item);
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 fn chat_send(app: AppHandle, state: State<'_, Arc<AppState>>, mut request: ChatRequest) -> CommandResult<()> {
     let maintenance = state.provider_maintenance.lock().map_err(lock_error)?;
@@ -3629,6 +3801,8 @@ pub fn run() {
             audio_peak,
             audio_loudness,
             save_recording,
+            compose_score,
+            render_plate,
             save_character_image,
             mogrt_frames_begin,
             mogrt_frame_write,
@@ -3698,6 +3872,7 @@ pub fn run() {
             provider_update,
             provider_update_all,
             chat_read_images,
+            chat_prepare_attachments,
             chat_send,
             plugin_ask,
             chat_tool_result,

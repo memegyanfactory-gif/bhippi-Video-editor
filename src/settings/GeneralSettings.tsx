@@ -25,6 +25,12 @@ type Props = {
 
 const CACHE_SIZES = [512, 1024, 1536, 2048, 3072, 4096];
 
+const GUIDED_HINTS: Record<'auto' | 'full' | 'guided', string> = {
+  auto: 'Frontier models (Claude, GPT-5, Gemini Pro) build everything themselves. Small, free and local models get guided: Bhippi builds the edit from their brief and keeps their tool results short.',
+  full: 'Every model plans and builds the whole edit itself, at full detail. Best with frontier models.',
+  guided: 'Every model writes the brief and Bhippi builds the edit: templates, timing on the beat, transitions, music and background.',
+};
+
 export function GeneralSettings({ settings, onSettings, providers, info, onTab, onTour }: Props) {
   const toast = useToast();
   const [storage, setStorage] = useState<StorageInfo | null>(null);
@@ -88,6 +94,13 @@ export function GeneralSettings({ settings, onSettings, providers, info, onTab, 
           <div className="segmented" role="radiogroup" aria-label="AI permission">
             {PERMISSION_MODES.map((mode) => (
               <button key={mode.id} type="button" role="radio" aria-checked={permission === mode.id} className={permission === mode.id ? 'active' : ''} onClick={() => set({ permission: mode.id })}>{mode.label}</button>
+            ))}
+          </div>
+        </Row>
+        <Row title="How models build" hint={GUIDED_HINTS[settings.aiGuidedMode ?? 'auto']}>
+          <div className="segmented" role="radiogroup" aria-label="How models build">
+            {(['auto', 'full', 'guided'] as const).map((id) => (
+              <button key={id} type="button" role="radio" aria-checked={(settings.aiGuidedMode ?? 'auto') === id} className={(settings.aiGuidedMode ?? 'auto') === id ? 'active' : ''} onClick={() => set({ aiGuidedMode: id })}>{id === 'auto' ? 'Automatic' : id === 'full' ? 'Full' : 'Guided'}</button>
             ))}
           </div>
         </Row>

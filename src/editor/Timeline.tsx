@@ -1023,7 +1023,7 @@ export function Timeline(props: Props) {
           <PlayheadTimecode fps={fps} onEdit={(currentTime) => setEditingTime(timecode(currentTime, fps))} />
         )}
         <div className="tl-toolbar-buttons">
-          <button type="button" className={`tl-tool${props.nestComps ? ' active' : ''}`} onClick={() => props.onNestComps(!props.nestComps)} title="Insert and overwrite comps as nests or individual clips"><Film size={14} /></button>
+          <button type="button" className={`tl-tool${props.nestComps ? ' active' : ''}`} onClick={() => props.onNestComps(!props.nestComps)} title="Insert and overwrite comps as one comp clip, or as their individual clips"><Film size={14} /></button>
           <button type="button" className={`tl-tool${snapping ? ' active' : ''}`} onClick={() => props.onSnapping(!snapping)} title="Snap in Timeline (S)"><Magnet size={14} /></button>
           <button type="button" className={`tl-tool${props.linkedSelection ? ' active' : ''}`} onClick={() => props.onLinkedSelection(!props.linkedSelection)} title="Linked Selection"><Link2 size={14} /></button>
           <button type="button" className="tl-tool" onClick={props.onAddMarker} title="Add Marker (M)"><Bookmark size={14} /></button>

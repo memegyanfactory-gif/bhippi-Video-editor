@@ -48,7 +48,11 @@ describe('frame size comes first on a timeline with no picture', () => {
     expect(flow.before('brain_remember', {}, project)).toContain('choose_comp_size');
     expect(flow.before('list_characters', {}, project)).toBeNull();
     expect(flow.status(project).frameSizeNeeded).toBe(true);
-    expect(workflowInstruction(flow.status(project))).toMatch(/^FIRST.*choose_comp_size/);
+    const text = workflowInstruction(flow.status(project));
+    expect(text).toContain('choose_comp_size');
+    // The message is understood before anything is asked: chat gets a reply, not the size question.
+    expect(text).toMatch(/^Read the message/);
+    expect(text.indexOf('greeting')).toBeLessThan(text.indexOf('choose_comp_size'));
     comp.sizeChosen = true;
     expect(flow.status(project).frameSizeNeeded).toBe(false);
     expect(workflowInstruction(flow.status(project))).not.toContain('choose_comp_size');
@@ -73,5 +77,39 @@ describe('frame size comes first on a timeline with no picture', () => {
     expect(frameSizeFromText('portrait 4:5 for the feed')).toEqual({ width: 1080, height: 1350 });
     expect(frameSizeFromText('edit this podcast audio')).toBeNull();
     expect(frameSizeFromText('square or vertical, not sure')).toBeNull();
+  });
+
+  it('takes the shape from where the video is going, so it does not ask what the request already says', () => {
+    expect(frameSizeFromText('make a reel about my cafe')).toEqual({ width: 1080, height: 1920 });
+    expect(frameSizeFromText('cut this into a TikTok')).toEqual({ width: 1080, height: 1920 });
+    expect(frameSizeFromText('a YouTube Shorts video on AI')).toEqual({ width: 1080, height: 1920 });
+    expect(frameSizeFromText('edit my youtube video intro')).toEqual({ width: 1920, height: 1080 });
+    expect(frameSizeFromText('hi')).toBeNull();
+    expect(frameSizeFromText('make a short video about dogs')).toBeNull();
+  });
+});
+
+describe('a project the user cleared', () => {
+  it('lets the model make a comp and carries on, instead of refusing everything', () => {
+    const project = { ...newProject(), comps: [], activeCompId: null, openCompIds: [] } as unknown as ReturnType<typeof newProject>;
+    const flow = new EditWorkflow(project, new Map());
+    expect(flow.before('get_comp', {}, project)).toBeNull();
+    expect(flow.before('choose_comp_size', {}, project)).toBeNull();
+    expect(flow.before('create_comp', { name: 'Reel', format: 'portrait-9-16' }, project)).toBeNull();
+    expect(flow.before('add_text', { text: 'hi' }, project)).toMatch(/choose_comp_size|no composition/);
+    // The comp it made becomes the turn's comp.
+    const made = newProject().comps[0];
+    const after = { ...project, comps: [made], activeCompId: made.id } as typeof project;
+    flow.record('choose_comp_size', {}, { ok: true, compId: made.id }, after);
+    expect(flow.status(after).compId).toBe(made.id);
+  });
+
+  it('follows the open comp when the one the turn started on was deleted', () => {
+    const project = newProject();
+    const flow = new EditWorkflow(project, new Map());
+    const fresh = newProject().comps[0];
+    const replaced = { ...project, comps: [fresh], activeCompId: fresh.id };
+    expect(flow.before('get_comp', {}, replaced)).toBeNull();
+    expect(flow.status(replaced).compId).toBe(fresh.id);
   });
 });

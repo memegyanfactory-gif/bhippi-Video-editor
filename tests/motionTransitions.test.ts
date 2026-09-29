@@ -9,6 +9,7 @@ vi.mock('../src/lib/ipc', () => ({
 import { compileSequence, normalizeTransition, TRANSITION_HELP, TRANSITION_KINDS, type SeqBeat } from '../src/motion/sequence';
 import { validateScene } from '../src/motion/validate';
 import { runMotionTool, type MotionToolContext } from '../src/lib/motionTools';
+import { planBuild, SCORE_MOODS } from '../src/lib/guidedBuild';
 import { newProject, updateComp } from '../src/lib/timeline';
 import type { Project } from '../src/lib/types';
 import type { Key, Layer, MotionScene, Vec } from '../src/motion/types';
@@ -113,6 +114,23 @@ describe('create_motion_sequence', () => {
     expect(result.error).toBeUndefined();
     expect(result.cuts[0]).toBeCloseTo(3.5, 3);
     expect(get().comps.some((c) => c.name === '[Motion] Explainer')).toBe(true);
+  });
+
+  it('builds every mood of a guided brief (build_edit_from_brief\'s plan) without an error', async () => {
+    const brief = [
+      { text: 'Edit video with AI' }, { text: 'Type what you want. Watch it happen.' }, { text: 'faster first cut', value: 10, suffix: 'x' },
+      { text: 'What you get', points: ['Motion graphics', 'Music on the beat', 'Captions'] }, { text: 'Jane Doe', kind: 'lower-third' as const, subtitle: 'Founder' },
+      { text: '“It edits like a pro”', kind: 'quote' as const }, { text: 'Try Bhippi free', cta: 'bhippi.com' },
+    ];
+    for (const mood of SCORE_MOODS) {
+      const plan = planBuild(brief, { mood });
+      const { ctx, get } = harness(newProject());
+      const result = await runMotionTool('create_motion_sequence', { beats: plan.beats.map((b) => ({ template: b.template, params: b.params, hold: b.hold, name: b.name })), transitions: plan.transitions, sfx: true, title: 'Guided build' }, ctx) as { ok: boolean; error?: string; starts: number[]; cuts: number[]; clipId?: string };
+      expect(result.error, mood).toBeUndefined();
+      expect(result.starts, mood).toHaveLength(brief.length);
+      expect(result.clipId, mood).toBeTruthy();
+      expect(get().comps.some((c) => c.name === '[Motion] Guided build'), mood).toBe(true);
+    }
   });
 
   it('refuses unknown transitions and empty beats', async () => {

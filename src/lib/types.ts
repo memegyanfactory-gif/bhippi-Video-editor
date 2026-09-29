@@ -652,6 +652,12 @@ export type Settings = {
    * topics with none to find) instead of generating images/video with local models. Local
    * generation stays reachable — this only turns off the AI calling it automatically. */
   disableLocalGeneration?: boolean | null;
+  /** How models run a production: `auto` (by model), `full` (every model runs it all itself) or
+   * `guided` (the one-call build, Bhippi's own media first and compact results). src/lib/modelProfile.ts */
+  aiGuidedMode?: 'auto' | 'full' | 'guided' | null;
+  /** Layouts saved by name (Window › Workspaces), and the one in use. The current layout itself is `layout`. */
+  workspaces?: SavedWorkspace[] | null;
+  workspaceName?: string | null;
   /** Where project folders are made (see src/lib/storage.ts); Documents/Bhippi when unset. */
   storageRoot?: string | null;
   /** Copy imported media into the project's Footage folder instead of referencing it in place. */
@@ -717,7 +723,7 @@ export type Settings = {
   shortcuts?: Record<string, string[]> | null;
 };
 
-export type PanelId = 'chat' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools' | 'plugins';
+export type PanelId = 'chat' | 'storyboard' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools' | 'plugins';
 
 export type MeterPrefs = {
   range: 120 | 96 | 72 | 60 | 48 | 24;
@@ -744,7 +750,12 @@ export type WorkspaceLayout = {
   sourceClosed?: boolean;
   /** Plugins dragged into the editing area as panels of their own, in the order they sit (src/plugins/dock.tsx). */
   docked?: DockedPlugin[];
+  /** The editing area as a dock tree (src/lib/dockTree.ts): where every open panel sits. Replaces the fixed rows above. */
+  tree?: unknown;
 };
+
+/** A layout the user saved under a name (Window › Workspaces). */
+export type SavedWorkspace = { name: string; layout: WorkspaceLayout };
 
 /** Where a docked plugin sits: the start or end of the editing area's top (monitors) or bottom (timeline) row. */
 export type DockSlot = 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';

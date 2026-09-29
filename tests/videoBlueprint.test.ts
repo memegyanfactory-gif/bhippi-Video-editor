@@ -58,7 +58,9 @@ describe('videoBlueprintContentError', () => {
   });
   it('requires a generation prompt, download URL, or imported asset per source', () => {
     expect(videoBlueprintContentError([{ ...goodScene(0, 6), visualPrompt: 'short' }] as never)).toContain('visualPrompt');
-    expect(videoBlueprintContentError([{ ...goodScene(0, 6), mediaSource: 'download' }] as never)).toContain('mediaUrl');
+    // A download names a URL, or what to search for while gathering.
+    expect(videoBlueprintContentError([{ ...goodScene(0, 6), mediaSource: 'download', visualPrompt: '' }] as never)).toContain('mediaUrl');
+    expect(videoBlueprintContentError([{ ...goodScene(0, 6), mediaSource: 'download', visualPrompt: 'aerial drone shot of a city at night' }] as never)).toBeNull();
     expect(videoBlueprintContentError([{ ...goodScene(0, 6), mediaSource: 'existing' }] as never)).toContain('assetId');
     expect(videoBlueprintContentError(
       [{ ...goodScene(0, 6), mediaSource: 'existing', assetId: 'invented' }] as never,

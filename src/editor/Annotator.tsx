@@ -151,7 +151,7 @@ export function useAnnotator(options: Options): { overlay: ReactNode; bar: React
       end: clip.start + clip.duration,
       localTime: local,
       sourceTime: source.type === 'media' ? (clip.hold ?? clip.in + local * clip.speed) : null,
-      source: source.type === 'media' ? (assets.get(source.assetId)?.path ?? info.name) : source.type === 'comp' ? `nested comp "${info.name}" (compId ${source.compId})` : null,
+      source: source.type === 'media' ? (assets.get(source.assetId)?.path ?? info.name) : source.type === 'comp' ? `comp "${info.name}" (compId ${source.compId})` : null,
       text: source.type === 'text' ? [source.text, source.subtitle].filter(Boolean).join(' / ') : source.type === 'html' ? (source.title ?? source.template ?? null) : null,
       transform: {
         x: animated(clip, 'x', time, clip.transform.x),

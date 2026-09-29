@@ -135,9 +135,9 @@ export const COMMANDS: Command[] = [
   command('Editing', 'volumeUp6', 'Clip volume up 6 dB', ['Shift+]']),
 
   command('Timeline', 'snap', 'Snap in timeline', ['S']),
-  command('Timeline', 'zoomIn', 'Zoom in', ['=', 'Num+']),
-  command('Timeline', 'zoomOut', 'Zoom out', ['-', 'Num-']),
-  command('Timeline', 'zoomFit', 'Zoom to the whole comp (again to go back)', ['\\']),
+  command('Timeline', 'zoomIn', 'Zoom in (the timeline, or the focused monitor)', ['=', 'Num+']),
+  command('Timeline', 'zoomOut', 'Zoom out (the timeline, or the focused monitor)', ['-', 'Num-']),
+  command('Timeline', 'zoomFit', 'Zoom to the whole comp, or fit the focused monitor (again to go back)', ['\\']),
   command('Timeline', 'allTaller', 'Expand all tracks', ['Shift+=']),
   command('Timeline', 'allShorter', 'Minimize all tracks', ['Shift+-']),
   command('Timeline', 'videoTaller', 'Taller video tracks', ['Ctrl+=', 'Ctrl+Num+']),
@@ -152,7 +152,8 @@ export const COMMANDS: Command[] = [
   command('Panels', 'panel5', 'Properties', ['Shift+5']),
   command('Panels', 'panel6', 'Audio meters', ['Shift+6']),
   command('Panels', 'panel7', 'Tools', ['Shift+7']),
-  command('Panels', 'panel8', 'Transcription', ['Shift+8']),
+  command('Panels', 'panel8', 'Storyboard', ['Shift+8']),
+  command('Panels', 'panel9', 'Transcription', ['Shift+9']),
   command('Panels', 'maximize', 'Maximize the panel under the cursor (or the focused one)', ['`', 'Shift+`']),
   command('Panels', 'escape', 'Deselect and go back to the Selection tool', ['Escape']),
 ];

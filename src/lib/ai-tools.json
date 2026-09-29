@@ -12,13 +12,13 @@
     },
     {
       "name": "verify_edit_workflow",
-      "description": "Final check of the editing phase: requires a current timeline read, a plan, no pending jobs or unplaced generations, a pro visual pass, a sound pass, and a run_frame_qa after the last edit that came back clear — or whose remaining issues are intentional designs (a title behind the subject, a reveal) each waived in acceptedQaIssues with a reason. Blank frames can never be waived. Marks the production done. Does not certify render, matte or music quality — say what still needs eyes.",
+      "description": "Final check of the editing phase: requires a current timeline read, a plan, no pending jobs or unplaced generations, a pro visual pass, a sound pass, a clear run_frame_qa after the last edit (intended designs waived in acceptedQaIssues with a reason; blank frames never), and asks covering everything the user asked. Marks the production done. Does not certify render, matte or music quality; say what needs eyes.",
       "input_schema": {
         "type": "object",
         "properties": {
           "acceptedQaIssues": {
             "type": "array",
-            "description": "Issues from the last run_frame_qa that are intended, one per issue: its kind and a (the graphic's name, as reported) and why it is right. Anything not waived here must be fixed first. blank-frame cannot be waived.",
+            "description": "Issues from the last run_frame_qa that are intended: its kind, a (as reported) and why it is right. Anything else must be fixed first.",
             "items": {
               "type": "object",
               "properties": {
@@ -35,11 +35,10 @@
                 },
                 "a": {
                   "type": "string",
-                  "description": "The issue's `a` exactly as run_frame_qa reported it."
+                  "description": "As run_frame_qa reported it."
                 },
                 "reason": {
-                  "type": "string",
-                  "description": "Why this is the intended design."
+                  "type": "string"
                 }
               },
               "required": [
@@ -48,6 +47,25 @@
                 "reason"
               ],
               "additionalProperties": false
+            }
+          },
+          "asks": {
+            "type": "array",
+            "description": "Each thing the user asked, with the call that did it this turn (or \"not possible: why\").",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ask": {
+                  "type": "string"
+                },
+                "done": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ask",
+                "done"
+              ]
             }
           }
         },
@@ -65,7 +83,9 @@
             "description": "The tool's name, e.g. color_grade."
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "additionalProperties": false
       }
     },
@@ -75,11 +95,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "brief": { "type": "string", "description": "What the video is, for whom, and what it must achieve (the user's ask in full)." },
-          "seconds": { "type": "number", "description": "Planned length when the timeline is still empty." },
-          "compId": { "type": "string" }
+          "brief": {
+            "type": "string",
+            "description": "What the video is, for whom, and what it must achieve (the user's ask in full)."
+          },
+          "seconds": {
+            "type": "number",
+            "description": "Planned length when the timeline is still empty."
+          },
+          "compId": {
+            "type": "string"
+          }
         },
-        "required": ["brief"],
+        "required": [
+          "brief"
+        ],
         "additionalProperties": false
       }
     },
@@ -89,13 +119,30 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "compId": { "type": "string" },
+          "compId": {
+            "type": "string"
+          },
           "genres": {
             "type": "array",
-            "items": { "type": "string", "enum": ["saas", "motion", "character2d", "3d", "documentary", "meme", "edit", "shorts"] },
+            "items": {
+              "type": "string",
+              "enum": [
+                "saas",
+                "motion",
+                "character2d",
+                "3d",
+                "documentary",
+                "meme",
+                "edit",
+                "shorts"
+              ]
+            },
             "description": "The kinds of video this is (toolset.genres in the project summary); inferred from the timeline when omitted."
           },
-          "frames": { "type": "number", "description": "Contact frames to render (default 8)." }
+          "frames": {
+            "type": "number",
+            "description": "Contact frames to render (default 8)."
+          }
         },
         "additionalProperties": false
       }
@@ -292,7 +339,7 @@
           "speed": {
             "type": "number",
             "minimum": 0.5,
-            "maximum": 2.0,
+            "maximum": 2,
             "description": "Speaking speed multiplier (default 1.0, range 0.5-2.0)."
           },
           "autoPlace": {
@@ -945,7 +992,8 @@
                     "generate",
                     "download",
                     "existing"
-                  ]
+                  ],
+                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId)."
                 },
                 "visualPrompt": {
                   "type": "string"
@@ -1889,12 +1937,26 @@
     },
     {
       "name": "create_comp",
-      "description": "Creates a new comp (sequence) in the Project panel and, by default, opens it in the timeline. Optionally lays media back to back from 00:00 on V1/A1.",
+      "description": "Creates a new comp (sequence) in the Project panel and, by default, opens it in the timeline. Optionally lays media back to back from 00:00 on V1/A1. With fromCompId it makes a new version of an existing edit instead: every clip, motion graphic, shape, caption, transition and sound is copied into the new comp and refitted for its shape (format / orientation / resolution, reframe), and the original is left unchanged. Use this for \"make a portrait / 9:16 / square version\"; an empty comp is only for starting from scratch.",
       "input_schema": {
         "type": "object",
         "properties": {
           "name": {
             "type": "string"
+          },
+          "fromCompId": {
+            "type": "string",
+            "description": "Comp (id or name) to copy into the new comp. Its content is carried across and refitted for the new shape; orientation turns its current shape (16:9 becomes 9:16)."
+          },
+          "reframe": {
+            "type": "string",
+            "enum": [
+              "fill",
+              "blur",
+              "fit",
+              "keep"
+            ],
+            "description": "With fromCompId: what footage does in the new shape (default fill). Use blur when the whole wide picture matters (slides, gameplay, landscapes)."
           },
           "preset": {
             "type": "string",
@@ -2091,10 +2153,29 @@
     },
     {
       "name": "choose_comp_size",
-      "description": "Asks the user what frame size the video should be (16:9, 9:16, 1:1, 4:5, 4K) and waits for the answer, then sets the comp to it (or creates a comp when there is none). Call it FIRST, before any planning or editing, whenever the timeline has no picture yet — empty, or only audio — and the user has not chosen a size: the size cannot be taken from footage, and every graphic and shot is built for it. It asks even in Full access (the frame is the user's call) unless the user's message already named the size. Other tools are refused until it has run.",
+      "description": "Asks the user the video's frame size (16:9, 9:16, 1:1, 4:5, 4K), waits, then sets the comp (or creates one). Only for a request to make or change a video while the timeline has no picture (empty or audio only) and no size was chosen — never for a greeting, question or chat. Call it before building, research or notes for that video. It does not ask when the request settles the shape (a size or ratio, a reel / Shorts / TikTok, a YouTube video). Building tools are refused until it has run.",
       "input_schema": {
         "type": "object",
         "properties": {
+          "question": {
+            "type": "string",
+            "description": "Your own short, friendly question tied to their request, e.g. \"Is this recipe video for Reels or YouTube?\" No jargon."
+          },
+          "context": {
+            "type": "string",
+            "description": "One line on why it matters for this video."
+          },
+          "recommended": {
+            "type": "string",
+            "enum": [
+              "1080p",
+              "vertical",
+              "square",
+              "portrait",
+              "4k"
+            ],
+            "description": "The shape you would pick; offered first. 1080p = 16:9, vertical = 9:16, square, portrait = 4:5, 4k."
+          },
           "compId": {
             "type": "string",
             "description": "Normally left out: the open comp."
@@ -3025,7 +3106,7 @@
     },
     {
       "name": "nest_clips",
-      "description": "Premiere's Nest: moves clips into a new comp (keeping their relative timing and tracks) and replaces them with one clip of that comp.",
+      "description": "Make Comp: moves clips into a new comp (keeping their relative timing and tracks) and replaces them with one clip of that comp.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -4406,7 +4487,7 @@
     },
     {
       "name": "create_motion_graphic",
-      "description": "Creates a motion graphic as a nested MOGRT comp on the track above the footage. It animates in the preview AND exports as rendered frames with alpha. Two systems: (1) CRIMSON templates (information design, the house style) — hook-promise (opening promise), ribbon-title (chapter), teaching-card (kicker + heading + rows), side-panel (rules beside a reframed presenter; then layout_clip the footage to the other side), connected-map (hub + nodes), numbered-lanes (roadmap with giant numerals), editorial-quote (one accent word), comparison (A/B), stat-chart (animated bars + counting numbers, pass values), timeline-roadmap, cursor-demo (node → interface → click → card), chapter-marker (corner label), caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news. (2) REACT BITS — template \"react-bits\" with `bit` = one of 205 pieces (32 text animations, 38 animations, 45 components, 33 micro-interactions, 57 backgrounds; browse with react_bits list/describe) and `props`; or compose with `background` (a background bit) + `layers` [{bit, props, layout, at, until}]. Pieces default to the Crimson theme; `theme` (crimson | dark | light | mono | ember) and accentColor retint. Legacy: lower-third/kinetic-title/stat-callout/feature-badge/social-callout; custom (your own html/css/js). Rows are 'Heading — explanation'. One idea per graphic; give it a reading hold (durations default to the template's or the bit's).",
+      "description": "Creates a motion graphic as a nested MOGRT comp on the track above the footage. It previews and exports with alpha. Two systems: (1) CRIMSON templates (information design, the house style) — hook-promise (opening promise), ribbon-title (chapter), teaching-card (kicker + heading + rows), side-panel (beside a presenter; layout_clip the footage opposite), connected-map (hub + nodes), numbered-lanes (roadmap with giant numerals), editorial-quote (one accent word), comparison (A/B), stat-chart (animated bars + counting numbers, pass values), timeline-roadmap, cursor-demo (node → interface → click → card), chapter-marker (corner label), caption-phrase, crimson-lower-third, cubes-reveal, countdown, breaking-news. (2) REACT BITS — template \"react-bits\" with `bit` = one of 205 pieces (browse with react_bits list/describe) and `props`; or compose with `background` (a background bit) + `layers` [{bit, props, layout, at, until}]. Pieces default to the Crimson theme; `theme` (crimson | dark | light | mono | ember) and accentColor retint. Legacy: lower-third/kinetic-title/stat-callout/feature-badge/social-callout. (3) custom: your own html/css/js, anything a web page can do — it follows the playhead (scrub, pause, export). If QA flags one, fix that element; never swap it for a plainer template. Rows are 'Heading — explanation'. One idea per graphic, with a reading hold.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -4462,15 +4543,15 @@
           },
           "html": {
             "type": "string",
-            "description": "Custom HTML markup when using template 'custom' or overriding markup."
+            "description": "Your markup for template custom (or to override a template's)."
           },
           "css": {
             "type": "string",
-            "description": "Custom CSS styling with animations, flexbox/grid, and glassmorphic styles."
+            "description": "Any CSS: @keyframes, transitions, grid, filters, blend modes; animations run on the timeline clock."
           },
           "js": {
             "type": "string",
-            "description": "Optional GSAP animation timeline script. Receives (container, gsap, timeline, time, duration, progress)."
+            "description": "Runs once with (container, gsap, timeline, time, duration, progress); GSAP tweens follow the playhead; return render(time, progress) to draw each frame."
           },
           "start": {
             "type": "number",
@@ -5405,7 +5486,7 @@
     },
     {
       "name": "finish_gathering",
-      "description": "GATHER phase: closes gathering once every planned shot, the voice-over and the music have real asset ids and no generation job is running. Fails with the missing list otherwise. After it succeeds, END YOUR TURN; the user presses Start editing.",
+      "description": "GATHER phase: closes gathering once every planned shot, the voice-over and the music have real asset ids and no generation job is running. Missing music is composed and missing picture shots get a designed background plate automatically before the check, so nothing goes into editing empty. Fails with the missing list otherwise. After it succeeds, END YOUR TURN; the user presses Start editing.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5417,6 +5498,222 @@
             "description": "Only with the user's agreement: close with some shots dropped."
           }
         }
+      }
+    },
+    {
+      "name": "compose_music",
+      "description": "Composes a bespoke music bed in about a second with Bhippi's own synthesiser (no generator needed): drums, pumping sub, pad, arp, a riser into each drop, mastered to about -14 LUFS. Its exact beat grid is stored, so snap_cuts_to_beats needs no analysis. Planning/gathering: attaches as the production's music; editing: laid on a free audio track, faded. Use it whenever there is no music or generation failed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "mood": {
+            "type": "string",
+            "description": "energetic (launches, showreels; a drop) | chill (vlogs, tutorials) | cinematic (documentary, trailers) | corporate (SaaS, brand) | playful (fun, food, memes) | dark (tension) — or words (\"upbeat corporate\")."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Seconds (default: the timeline, or the plan target)."
+          },
+          "bpm": {
+            "type": "number",
+            "description": "50–200 (each mood has a default)."
+          },
+          "drops": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Seconds from its start where it drops (snapped to the bar)."
+          },
+          "noDrop": {
+            "type": "boolean",
+            "description": "A steady bed."
+          },
+          "accents": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Seconds for a crash: your cuts."
+          },
+          "root": {
+            "type": "integer"
+          },
+          "minor": {
+            "type": "boolean"
+          },
+          "intensity": {
+            "type": "number"
+          },
+          "place": {
+            "type": "boolean",
+            "description": "Lay it on the timeline (default only while editing)."
+          },
+          "start": {
+            "type": "number"
+          },
+          "db": {
+            "type": "number",
+            "description": "Placed level (-6 alone; -18 under a voice)."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "make_background",
+      "description": "Renders a slowly moving background plate for the frame so graphics never sit on flat black: glow (dark stage, breathing glow), gradient (drifting colours), paper (riso stock), grain (flat colour, grain). Brand colours unless given. Editing: laid on V1 under everything; gathering: imported to attach.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "glow",
+              "gradient",
+              "paper",
+              "grain"
+            ]
+          },
+          "colors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "#rrggbb (glow: background, glow)."
+          },
+          "duration": {
+            "type": "number"
+          },
+          "place": {
+            "type": "boolean"
+          },
+          "start": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "build_edit_from_brief",
+      "description": "Builds a whole motion edit from a short brief in ONE call — the reliable way to make a video from scratch. You give the beats (what each one says) and the feel; Bhippi picks the template for each beat, holds each one long enough to read on the music's beat grid inside the genre's pacing, chooses transitions with their sound effects, composes a score that drops on the big beat with a crash on every cut, lays a designed background plate under it (when there is no footage), and saves the storyboard. Afterwards run run_frame_qa, fix what it lists, then judge_edit and verify_edit_workflow. Prefer it to building scenes, keyframes and sound one by one.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "beats": {
+            "type": "array",
+            "description": "1–16 beats in order. One idea per beat; headlines of 2–7 words read best.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "The headline (for a stat: its label; for a lower-third: the name)."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "title",
+                    "statement",
+                    "stat",
+                    "list",
+                    "quote",
+                    "lower-third",
+                    "end"
+                  ],
+                  "description": "Guessed when left out: a value makes a stat, points a list, a cta or the last beat the end card, the first a title."
+                },
+                "kicker": {
+                  "type": "string",
+                  "description": "Small label above the headline."
+                },
+                "subtitle": {
+                  "type": "string"
+                },
+                "accentWord": {
+                  "type": "string",
+                  "description": "The word set in the accent colour."
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "list: up to 5 short points."
+                },
+                "value": {
+                  "type": "string",
+                  "description": "stat: the number that counts up, e.g. \"87\" or \"2.5\"."
+                },
+                "prefix": {
+                  "type": "string"
+                },
+                "suffix": {
+                  "type": "string",
+                  "description": "stat: e.g. \"%\" or \"x\"."
+                },
+                "cta": {
+                  "type": "string",
+                  "description": "end: the call to action."
+                },
+                "hold": {
+                  "type": "number",
+                  "description": "Seconds, only to override the planned reading time."
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "mood": {
+            "type": "string",
+            "description": "energetic | chill | cinematic | corporate | playful | dark, or words (\"upbeat, techy\"). Sets the music, the transitions and the background."
+          },
+          "genre": {
+            "type": "string",
+            "description": "motion | saas | documentary | meme | edit | shorts … — the pacing it is held to; inferred when left out."
+          },
+          "targetSeconds": {
+            "type": "number",
+            "description": "Stretch the beats towards this length (never below reading time)."
+          },
+          "bpm": {
+            "type": "number"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds (default 0)."
+          },
+          "music": {
+            "type": "boolean",
+            "description": "false to skip the music (default: compose one, or use the gathered music)."
+          },
+          "background": {
+            "type": "boolean",
+            "description": "false to skip the background plate."
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "beats"
+        ]
       }
     },
     {
@@ -5910,16 +6207,74 @@
             "items": {
               "type": "object",
               "properties": {
-                "t": { "type": "number", "description": "Start, in scene seconds (a number, e.g. 1.5)." },
-                "do": { "type": "string", "enum": ["idle", "wave", "point", "look", "hop", "leap", "walk", "sneak", "run", "celebrate", "shrug", "nod", "shake", "facepalm", "surprise", "think", "type", "talk", "expression", "turn"] },
-                "duration": { "type": "number", "description": "Seconds (a number)." },
-                "to": { "description": "point/look: [x, y] scene px. walk/sneak/run/leap: a scene x, [x, y], or a number of px." },
-                "hand": { "type": "string", "enum": ["left", "right"] },
-                "text": { "type": "string" },
-                "expression": { "type": "string", "enum": ["normal", "happy", "sad", "wide", "determined", "closed", "unsure", "side"] },
-                "amount": { "type": "number", "description": "turn: -1 (left) … 1 (right)." }
+                "t": {
+                  "type": "number",
+                  "description": "Start, in scene seconds (a number, e.g. 1.5)."
+                },
+                "do": {
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "wave",
+                    "point",
+                    "look",
+                    "hop",
+                    "leap",
+                    "walk",
+                    "sneak",
+                    "run",
+                    "celebrate",
+                    "shrug",
+                    "nod",
+                    "shake",
+                    "facepalm",
+                    "surprise",
+                    "think",
+                    "type",
+                    "talk",
+                    "expression",
+                    "turn"
+                  ]
+                },
+                "duration": {
+                  "type": "number",
+                  "description": "Seconds (a number)."
+                },
+                "to": {
+                  "description": "point/look: [x, y] scene px. walk/sneak/run/leap: a scene x, [x, y], or a number of px."
+                },
+                "hand": {
+                  "type": "string",
+                  "enum": [
+                    "left",
+                    "right"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "expression": {
+                  "type": "string",
+                  "enum": [
+                    "normal",
+                    "happy",
+                    "sad",
+                    "wide",
+                    "determined",
+                    "closed",
+                    "unsure",
+                    "side"
+                  ]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "turn: -1 (left) … 1 (right)."
+                }
               },
-              "required": ["t", "do"]
+              "required": [
+                "t",
+                "do"
+              ]
             },
             "description": "Timed actions [{t (scene s), do, duration?, to?, hand?, text?, words?, expression?, amount?}]. do: idle, wave, point, look, hop, leap, walk, sneak, run, celebrate, shrug, nod, shake, facepalm, surprise, think, type, talk, expression, turn. point/look to [x,y] scene px; walk/sneak/run/leap to a scene x or [x,y] (or a number of px); talk with text (or lip_sync_character); expression: normal|happy|sad|wide|determined|closed|unsure|side."
           },
@@ -5996,16 +6351,74 @@
             "items": {
               "type": "object",
               "properties": {
-                "t": { "type": "number", "description": "Start, in scene seconds (a number, e.g. 1.5)." },
-                "do": { "type": "string", "enum": ["idle", "wave", "point", "look", "hop", "leap", "walk", "sneak", "run", "celebrate", "shrug", "nod", "shake", "facepalm", "surprise", "think", "type", "talk", "expression", "turn"] },
-                "duration": { "type": "number", "description": "Seconds (a number)." },
-                "to": { "description": "point/look: [x, y] scene px. walk/sneak/run/leap: a scene x, [x, y], or a number of px." },
-                "hand": { "type": "string", "enum": ["left", "right"] },
-                "text": { "type": "string" },
-                "expression": { "type": "string", "enum": ["normal", "happy", "sad", "wide", "determined", "closed", "unsure", "side"] },
-                "amount": { "type": "number", "description": "turn: -1 (left) … 1 (right)." }
+                "t": {
+                  "type": "number",
+                  "description": "Start, in scene seconds (a number, e.g. 1.5)."
+                },
+                "do": {
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "wave",
+                    "point",
+                    "look",
+                    "hop",
+                    "leap",
+                    "walk",
+                    "sneak",
+                    "run",
+                    "celebrate",
+                    "shrug",
+                    "nod",
+                    "shake",
+                    "facepalm",
+                    "surprise",
+                    "think",
+                    "type",
+                    "talk",
+                    "expression",
+                    "turn"
+                  ]
+                },
+                "duration": {
+                  "type": "number",
+                  "description": "Seconds (a number)."
+                },
+                "to": {
+                  "description": "point/look: [x, y] scene px. walk/sneak/run/leap: a scene x, [x, y], or a number of px."
+                },
+                "hand": {
+                  "type": "string",
+                  "enum": [
+                    "left",
+                    "right"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "expression": {
+                  "type": "string",
+                  "enum": [
+                    "normal",
+                    "happy",
+                    "sad",
+                    "wide",
+                    "determined",
+                    "closed",
+                    "unsure",
+                    "side"
+                  ]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "turn: -1 (left) … 1 (right)."
+                }
               },
-              "required": ["t", "do"]
+              "required": [
+                "t",
+                "do"
+              ]
             },
             "description": "Timed actions [{t (scene s), do, duration?, to?, hand?, text?, words?, expression?, amount?}]. do: idle, wave, point, look, hop, leap, walk, sneak, run, celebrate, shrug, nod, shake, facepalm, surprise, think, type, talk, expression, turn. point/look to [x,y] scene px; walk/sneak/run/leap to a scene x or [x,y] (or a number of px); talk with text (or lip_sync_character); expression: normal|happy|sad|wide|determined|closed|unsure|side."
           },

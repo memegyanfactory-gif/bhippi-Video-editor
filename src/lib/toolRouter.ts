@@ -24,16 +24,25 @@ export const CORE_TOOLS = [
   'run_frame_qa', 'judge_edit', 'consult_council', 'check_pacing', 'write_file', 'edit_file',
 ] as const;
 
+/** Bhippi's own score and background plates: no generator needed. Whole for the graphics-led kinds of video. */
+const BUILTIN_MEDIA = ['compose_music', 'make_background'];
+
+/**
+ * What a model on the guided tier (modelProfile.ts) gets whole besides the kind of video's tools:
+ * the one-call build and Bhippi's own media, which carry the craft a weaker model gets wrong.
+ */
+export const GUIDED_TOOLS = ['build_edit_from_brief', ...BUILTIN_MEDIA];
+
 export const GENRE_TOOLS: Record<Genre, readonly string[]> = {
   saas: [
     'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'extract_brand_from_url', 'scrape_web_page', 'online_research',
     'get_brand_guideline', 'apply_brand_kit', 'check_brand_compliance', 'create_motion_sequence', 'add_fx', 'search_icons', 'react_bits',
-    'synthesize_speech_voiceover', 'add_voiceover', 'add_shape',
+    'synthesize_speech_voiceover', 'add_voiceover', 'add_shape', ...BUILTIN_MEDIA,
   ],
   motion: [
     'create_motion_graphic', 'create_motion_sequence', 'add_fx', 'list_drawn_styles', 'check_motion_arcs', 'react_bits', 'remotion_kit',
     'import_lottie', 'list_transitions', 'svg_to_shape', 'search_icons', 'nest_motion_scenes', 'split_motion_layers', 'add_shape',
-    'analyze_reference_video', 'save_style_profile', 'get_brand_guideline',
+    'analyze_reference_video', 'save_style_profile', 'get_brand_guideline', ...BUILTIN_MEDIA,
   ],
   character2d: [
     'list_characters', 'list_character_actions', 'create_character', 'animate_character', 'lip_sync_character', 'create_motion_sequence',
@@ -95,7 +104,7 @@ const GATHER_ONLY = ['execute_blueprint', 'attach_production_asset', 'finish_gat
 const EDIT_ONLY = [
   'place_clip', 'update_clip', 'delete_clips', 'split_clips', 'remove_range', 'add_tracks', 'add_transition', 'seamless_transition', 'set_keyframes',
   'add_marker', 'undo', 'run_frame_qa', 'judge_edit', 'add_captions', 'set_caption_style', 'level_audio', 'add_sound_effect', 'place_sfx',
-  'create_motion_scene', 'update_motion_scene', 'get_motion_scene',
+  'create_motion_scene', 'update_motion_scene', 'get_motion_scene', 'build_edit_from_brief',
 ];
 
 function forPhase(full: Set<string>, phase: string | null | undefined) {
@@ -112,7 +121,7 @@ export type Toolset = { genres: Genre[]; full: string[]; playbook?: { id: string
  * The kinds of video in this ask (the message first, then recent asks for a follow-up like
  * "continue"), and the tools to send whole for them.
  */
-export function routeTools(message: string, earlier: string[] = [], editStyle?: string | null, phase?: string | null): Toolset {
+export function routeTools(message: string, earlier: string[] = [], editStyle?: string | null, phase?: string | null, guided = false): Toolset {
   const detect = (text: string) => (Object.keys(SIGNALS) as Genre[]).filter((genre) => SIGNALS[genre].test(text));
   let genres = detect(message);
   if (!genres.length) genres = detect(earlier.slice(-4).join('\n'));
@@ -121,6 +130,7 @@ export function routeTools(message: string, earlier: string[] = [], editStyle?: 
   if (!genres.length) genres = ['edit', 'motion'];
   const full = new Set<string>(CORE_TOOLS);
   for (const genre of genres) for (const tool of GENRE_TOOLS[genre]) full.add(tool);
+  if (guided) for (const tool of GUIDED_TOOLS) full.add(tool);
   forPhase(full, phase);
   // A drawn look (riso, sketchbook, paper) opens with the hand-made playbook built from the drawn films.
   const drawn = /\b(hand[- ]?drawn|hand[- ]?made|riso|sketch(book)?|doodle|paper|ink|crayon|pencil)\b/i.test(`${message}\n${earlier.slice(-4).join('\n')}`);

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { placement } from '../src/lib/editor';
 import { FEED_SAFE, frameOf, SAFE, safeFor, SOCIAL_SAFE } from '../src/lib/layout';
-import { aspectLabel, carryScene, orientationOf, presetOf, reformatComp, scaleTo, swapped } from '../src/lib/reformat';
+import { explodeScene } from '../src/lib/motionStack';
+import { aspectLabel, carryScene, duplicateComp, orientationOf, presetOf, reformatComp, scaleTo, swapped } from '../src/lib/reformat';
 import { autoLayout, captionBand, fillCell, pipBox, splitCells } from '../src/lib/splitScreen';
 import { newClip, newComp, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
@@ -152,5 +153,42 @@ describe('reformatting a real edit', () => {
     expect(out.clips.find((c) => c.id === punch.id)?.transform.fit).toBe('fill');
     expect(out.clips.find((c) => c.id === punch.id)?.keyframes.scale).toEqual(punch.keyframes.scale);
     expect(out.clips.find((c) => c.id === card.id)?.transform.fit).toBe('fit');
+  });
+});
+
+describe('a new comp in another shape from an existing edit', () => {
+  it('copies everything, reshapes the copy and its graphics, and leaves the original alone', () => {
+    const project = newProject();
+    const comp = project.comps[0];
+    const [v1, v2] = tracksOf(comp, 'video').map((track) => track.id);
+    const scene = {
+      version: 1, width: 1920, height: 1080, duration: 2,
+      layers: [{ id: 'box', type: 'solid', color: '#123', size: [300, 200], transform: { position: [1700, 540] } }, { id: 'title', type: 'text', text: { text: 'Hi', size: 90, color: '#fff' }, transform: { position: [1700, 540] } }],
+    } as unknown as MotionScene;
+    const layered = explodeScene(scene, { name: '[Motion] Hi', fps: 30 });
+    const footage = newClip({ trackId: v1, start: 0, duration: 4, source: { type: 'media', assetId: 'a' } });
+    const graphic = newClip({ trackId: v2, start: 0, duration: 2, source: { type: 'comp', compId: layered.comp.id } });
+    comp.clips = [footage, graphic];
+    comp.transitions = [{ id: 'tr', trackId: v1, kind: 'cross-dissolve', fromClip: footage.id, toClip: null, duration: 0.5, alignment: 'end' }];
+    project.comps.push(layered.comp);
+
+    const copied = duplicateComp(project, comp.id, 'Portrait')!;
+    const out = reformatComp(copied.project, copied.compId, portrait, 'fill');
+    const made = out.project.comps.find((entry) => entry.id === copied.compId)!;
+    expect([made.width, made.height]).toEqual([1080, 1920]);
+    expect(made.clips).toHaveLength(2);
+    expect(made.clips.every((clip) => clip.id !== footage.id && clip.id !== graphic.id)).toBe(true);
+    const tracks = new Set(made.tracks.map((track) => track.id));
+    expect(made.clips.every((clip) => tracks.has(clip.trackId))).toBe(true);
+    expect(made.transitions[0].fromClip).toBe(made.clips.find((clip) => clip.source.type === 'media')?.id);
+    // The motion graphic got its own copy, reshaped for portrait — not skipped as shared.
+    const inner = made.clips.find((clip) => clip.source.type === 'comp')!.source as { compId: string };
+    expect(inner.compId).not.toBe(layered.comp.id);
+    const innerComp = out.project.comps.find((entry) => entry.id === inner.compId)!;
+    expect([innerComp.width, innerComp.height]).toEqual([1080, 1920]);
+    expect(out.report.skipped).toEqual([]);
+    // The original and its graphic are as they were.
+    expect(out.project.comps.find((entry) => entry.id === comp.id)).toEqual(comp);
+    expect(out.project.comps.find((entry) => entry.id === layered.comp.id)).toEqual(layered.comp);
   });
 });

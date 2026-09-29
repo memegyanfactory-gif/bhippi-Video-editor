@@ -55,7 +55,9 @@ export type Item =
       ms: number | null;
     };
 
-const titleCase = (name: string) => name.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
+/** Tools whose names say it differently from the editor's own words. */
+const SHOWN_AS: Record<string, string> = { nest_clips: 'Make comp', nest_motion_scenes: 'Put motion scenes into comps' };
+const titleCase = (name: string) => SHOWN_AS[name] ?? name.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
 
 /**
  * Conversations saved before this block existed have steps with no timestamp. They keep the order
