@@ -5,6 +5,7 @@ import { api } from '../lib/ipc';
 import { isLayerClip, stackGroups, standaloneScene, type StackGroup } from '../lib/motionStack';
 import { openFrameWriter, type FrameWriter, type InflightFrame } from '../lib/pngEncoder';
 import { renderProgress } from '../lib/renderProgress';
+import { clipFrameWindow, type ExportRange } from '../lib/exportWindow';
 import { clipEnd, compClocks, exportFrameRate, newClip, newTrack } from '../lib/timeline';
 import type { Asset, Clip, Comp, Project, Track } from '../lib/types';
 import { MotionRenderer } from './gl/renderer';
@@ -38,12 +39,15 @@ function exportRenderer(assets: Asset[]): MotionRenderer {
  * Renders one motion clip's frames (clip-local, at the comp rate) to `dir/%05d.png`. With
  * `options.renderer` it draws on that renderer (which the caller disposes) instead of its own.
  */
-export async function renderMotionClipFrames(source: MotionSource, clip: Clip, comp: Pick<Comp, 'fps'>, assets: Asset[], options: { fps?: number; scale?: number; signal?: AbortSignal; renderer?: MotionRenderer; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: OffscreenCanvas | HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void } = {}): Promise<RenderedFrames> {
+export async function renderMotionClipFrames(source: MotionSource, clip: Clip, comp: Pick<Comp, 'fps'>, assets: Asset[], options: { fps?: number; scale?: number; signal?: AbortSignal; renderer?: MotionRenderer; /** Only these frames (an In→Out export); every frame when unset. */ window?: { first: number; last: number }; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: OffscreenCanvas | HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void } = {}): Promise<RenderedFrames> {
   const fps = exportFrameRate(options.fps ?? comp.fps);
   // Above 1 the scene is drawn at the export's size (an export larger than the comp), not upscaled.
   const scale = Math.max(1, options.scale ?? 1);
   let size = { width: Math.round(source.scene.width * scale), height: Math.round(source.scene.height * scale) };
-  const frames = Math.max(1, Math.round(clip.duration * fps));
+  const all = Math.max(1, Math.round(clip.duration * fps));
+  const first = options.window?.first ?? 0;
+  const last = Math.min(all - 1, options.window?.last ?? all - 1);
+  const frames = last - first + 1;
   const dir = await api.mogrtFramesBegin(clip.id);
   const renderer = options.renderer ?? exportRenderer(assets);
   renderer.bank.fps = fps;
@@ -54,7 +58,7 @@ export async function renderMotionClipFrames(source: MotionSource, clip: Clip, c
   try {
     // Frame i's PNG is encoded (on workers) and written while frame i+1 renders.
     writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames), options.signal, options.onInflight);
-    for (let index = 0; index < frames; index++) {
+    for (let index = first; index <= last; index++) {
       cancelled();
       const local = index / fps;
       // The preview's scene time (Compositor 'motion': sourceTimeAt, held inside the scene) — a
@@ -72,7 +76,8 @@ export async function renderMotionClipFrames(source: MotionSource, clip: Clip, c
     await writer?.close();
     if (!options.renderer) renderer.dispose();
   }
-  return { dir, fps, frames, ...size };
+  // Frames before `first` are never read in a windowed export (see htmlFrames).
+  return { dir, fps, frames: last + 1, ...size };
 }
 
 /** Frames a motion clip renders to at export (at the export's frame rate when it sets one). */
@@ -177,7 +182,7 @@ function withRendered(project: Project, targets: MotionTarget[], rendered: Map<s
 }
 
 /** A copy of the project whose motion pictures carry rendered frame sequences. */
-export async function renderMotionScenesForExport(project: Project, compId: string, assets: Asset[], options: { fps?: number; scale?: number; signal?: AbortSignal; onProgress?: (message: string) => void; onItem?: (title: string, index: number, count: number, frames: number) => void; onFrame?: (done: number, total: number) => void; onCanvas?: (canvas: OffscreenCanvas | HTMLCanvasElement) => void } = {}): Promise<Project> {
+export async function renderMotionScenesForExport(project: Project, compId: string, assets: Asset[], options: { fps?: number; scale?: number; signal?: AbortSignal; /** In→Out: only the frames the range shows (clips of the exported comp itself). */ range?: ExportRange | null; onProgress?: (message: string) => void; onItem?: (title: string, index: number, count: number, frames: number) => void; onFrame?: (done: number, total: number) => void; onCanvas?: (canvas: OffscreenCanvas | HTMLCanvasElement) => void } = {}): Promise<Project> {
   const targets = motionClipsForExport(project, compId);
   if (!targets.length) return project;
   const rendered = new Map<string, RenderedFrames>();
@@ -187,9 +192,14 @@ export async function renderMotionScenesForExport(project: Project, compId: stri
   try {
     for (const [i, target] of targets.entries()) {
       const title = target.source.title ?? 'motion scene';
-      options.onItem?.(title, i + 1, targets.length, motionFrameCount(target.clip, target.comp, options.fps));
+      // Clips inside nested comps render whole: a parent clip's speed changes their timing.
+      const fps = exportFrameRate(options.fps ?? target.comp.fps);
+      const window = target.comp.id === compId ? clipFrameWindow(target.clip.start, target.clip.duration, fps, options.range) : clipFrameWindow(0, target.clip.duration, fps);
+      if (!window) continue;
+      options.onItem?.(title, i + 1, targets.length, window.last - window.first + 1);
       try {
         rendered.set(target.clip.id, await renderMotionClipFrames(target.source, target.clip, target.comp, assets, {
+          window,
           fps: options.fps,
           scale: options.scale,
           signal: options.signal,

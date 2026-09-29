@@ -335,6 +335,14 @@ export type BrandKit = Brand & {
   notes: string;
   /** The detailed guideline; derived from the tokens when absent (`guidelineOf`). */
   guideline?: BrandGuideline | null;
+  /** What the kit learned from references (`/train`; lib/brandKit/learnings.ts). */
+  learnings?: import('./learnings').KitLearning[];
+  /** The references it was trained on. */
+  sources?: import('./learnings').TrainingSource[];
+  /** Learnings a newer measurement replaced, most recent first. */
+  learningHistory?: import('./learnings').KitLearning[];
+  /** Opt-in: offer to learn from the user's corrections to AI edits. */
+  learnFromCorrections?: boolean;
 };
 
 /** What Settings persists. */

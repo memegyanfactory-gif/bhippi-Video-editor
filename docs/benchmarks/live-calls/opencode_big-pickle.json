@@ -1,0 +1,305 @@
+{
+ "model": "opencode/big-pickle",
+ "calls": [
+  {
+   "brief": "lower-third",
+   "attempts": [
+    {
+     "args": {
+      "template": "crimson-lower-third",
+      "title": "Priya Raman",
+      "subtitle": "Head of Growth at Finlo",
+      "layout": "lower-third",
+      "duration": 5
+     }
+    }
+   ]
+  },
+  {
+   "brief": "hook",
+   "attempts": [
+    {
+     "args": {
+      "template": "hook-promise",
+      "title": "Save Your First $10,000 in One Year",
+      "subtitle": "Even on a small salary",
+      "accentColor": "#E8483F",
+      "kicker": "THE ONE-YEAR MONEY PLAN",
+      "start": 0.6,
+      "duration": 6
+     }
+    }
+   ]
+  },
+  {
+   "brief": "chart",
+   "attempts": [
+    {
+     "args": {
+      "template": "stat-chart",
+      "title": "Revenue by Year",
+      "subtitle": "FY2021 – FY2024",
+      "rows": [
+       "2021 — $12M",
+       "2022 — $19M",
+       "2023 — $31M",
+       "2024 — $48M"
+      ],
+      "values": [
+       12,
+       19,
+       31,
+       48
+      ],
+      "activeIndex": 3,
+      "badge": "2024 HIGHLIGHT",
+      "layout": "fullscreen",
+      "duration": 6
+     }
+    }
+   ]
+  },
+  {
+   "brief": "teaching",
+   "attempts": [
+    {
+     "args": {
+      "template": "teaching-card",
+      "kicker": "MONEY RULE",
+      "title": "The 50/30/20 Budget Rule",
+      "subtitle": "Split every rupee, and the month plans itself",
+      "rows": [
+       "50% Needs — rent, groceries, fuel, bills, minimum debt payments",
+       "30% Wants — dining out, subscriptions, shopping, travel",
+       "20% Savings — emergency fund, investments, extra debt payoff"
+      ],
+      "layout": "centre-card"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "compare",
+   "attempts": [
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs. Buying",
+      "subtitle": "Two ways to pay for a home",
+      "accentColor": "#C8102E",
+      "rows": [
+       "Renting — A monthly payment buys only the use of someone else's home. No equity builds, and it resets the moment you move.",
+       "Buying — Part of every payment builds equity you keep, even after you sell."
+      ],
+      "duration": 8,
+      "layout": "centre-card"
+     },
+     "error": "A rows item is 122 characters; comparison fits 60 per item (100 at its smallest type). Shorten the items to at most 100 characters, or use \"Heading — detail\" with a short heading. Its slots: title (text, required, ≤40 chars); subtitle (text, ≤80 chars); kicker (text, ≤50 chars: small label above the title); rows (list, required, 2–2 items, ≤60 chars each: exactly two: side A, side B); accentColor (color: #rrggbb, readable on a dark plate)."
+    },
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs. Buying",
+      "subtitle": "Two ways to pay for a home",
+      "accentColor": "#C8102E",
+      "kicker": "SIDE BY SIDE",
+      "rows": [
+       "Renting — No equity, and it resets the day you move",
+       "Buying — Part of every payment builds equity you keep"
+      ],
+      "duration": 8,
+      "layout": "centre-card"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "news",
+   "attempts": [
+    {
+     "args": {
+      "template": "breaking-news",
+      "title": "Markets fall 4% after central bank rate decision",
+      "badge": "BREAKING",
+      "kicker": "MARKETS",
+      "start": 2,
+      "duration": 6
+     }
+    }
+   ]
+  },
+  {
+   "brief": "quote",
+   "attempts": [
+    {
+     "args": {
+      "template": "editorial-quote",
+      "title": "Discipline is choosing what you want most over what you want now.",
+      "accentWord": "discipline",
+      "accentColor": "#E5231F",
+      "layout": "fullscreen",
+      "duration": 6
+     }
+    }
+   ]
+  },
+  {
+   "brief": "chapter",
+   "attempts": [
+    {
+     "args": {
+      "template": "chapter-marker",
+      "title": "Chapter 3",
+      "subtitle": "Investing Basics",
+      "badge": "03",
+      "layout": "top-right",
+      "accentColor": "#E63946"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "roadmap",
+   "attempts": [
+    {
+     "args": {
+      "template": "numbered-lanes",
+      "title": "Five Steps to Launch",
+      "subtitle": "From first customer conversation to compounding growth",
+      "kicker": "LAUNCH ROADMAP",
+      "rows": [
+       "Research — Talk to customers, size the real problem, and name who pays for it",
+       "Prototype — Build the smallest version that proves the idea can work at all",
+       "Test — Put it in front of real users and fix what breaks before it ships",
+       "Launch — Ship to an audience you own, with the story already written",
+       "Grow — Double down on the channel that worked, then make retention carry it"
+      ],
+      "activeIndex": 0,
+      "accentColor": "#C8102E",
+      "layout": "fullscreen",
+      "cameraMove": "none",
+      "start": 0,
+      "duration": 10
+     },
+     "error": "A rows item is 77 characters; numbered-lanes fits 40 per item (66 at its smallest type). Shorten the items to at most 66 characters, or use \"Heading — detail\" with a short heading. Its slots: title (text, required, ≤40 chars); subtitle (text, ≤80 chars); kicker (text, ≤28 chars: small label above the title); rows (list, required, 2–6 items, ≤40 chars each: one short line each; \"Head — detail\" splits into two); activeIndex (number, 0–5: the row to highlight, from 0); accentColor (color: #rrggbb, readable on a dark plate)."
+    },
+    {
+     "args": {
+      "template": "numbered-lanes",
+      "title": "Five Steps to Launch",
+      "subtitle": "From first customer conversation to compounding growth",
+      "kicker": "LAUNCH ROADMAP",
+      "rows": [
+       "Research — Talk to customers, name who pays",
+       "Prototype — Build the smallest version that works",
+       "Test — Real users first, fix what breaks",
+       "Launch — Ship to an audience you own",
+       "Grow — Double down, then make it retain"
+      ],
+      "activeIndex": 0,
+      "accentColor": "#C8102E",
+      "layout": "fullscreen",
+      "cameraMove": "none",
+      "start": 0,
+      "duration": 10
+     }
+    }
+   ]
+  },
+  {
+   "brief": "countdown",
+   "attempts": [
+    {
+     "args": {
+      "template": "countdown",
+      "title": "10",
+      "subtitle": "Counting down to the reveal",
+      "start": null,
+      "duration": 10,
+      "track": "v2",
+      "asNestedComp": true,
+      "layout": "fullscreen"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "panel",
+   "attempts": [
+    {
+     "args": {
+      "template": "side-panel",
+      "title": "4 rules for writing hooks",
+      "kicker": "HOOKS",
+      "accentColor": "#14B8A6",
+      "layout": "side-panel-right",
+      "rows": [
+       "Be specific — name the exact number, tool or outcome, never 'most people'",
+       "Open a loop — pose the question the video answers in the first 3 seconds",
+       "Promise a payoff — tell them what they'll know or be able to do by the end",
+       "Cut the intro — no context, no credentials, no 'hey guys'; start on the payoff"
+      ],
+      "activeIndex": 0
+     },
+     "error": "A rows item is 78 characters; side-panel fits 40 per item (66 at its smallest type). Shorten the items to at most 66 characters, or use \"Heading — detail\" with a short heading. Its slots: title (text, required, ≤30 chars); subtitle (text, ≤50 chars); kicker (text, ≤24 chars: small label above the title); rows (list, required, ≤5 items, ≤40 chars each: one short line each; \"Head — detail\" splits into two); activeIndex (number, 0–5: the row to highlight, from 0); accentColor (color: #rrggbb, readable on a dark plate)."
+    },
+    {
+     "args": {
+      "template": "side-panel",
+      "title": "4 rules for writing hooks",
+      "kicker": "HOOKS",
+      "accentColor": "#14B8A6",
+      "layout": "side-panel-right",
+      "rows": [
+       "Be specific — name the exact number or tool",
+       "Open a loop — pose the question up front",
+       "Promise a payoff — say what they'll know",
+       "Cut the intro — start on the payoff"
+      ],
+      "activeIndex": 0
+     }
+    }
+   ]
+  },
+  {
+   "brief": "timeline",
+   "attempts": [
+    {
+     "args": {
+      "template": "timeline-roadmap",
+      "title": "Company History",
+      "subtitle": "From a garage project to one million users",
+      "kicker": "OUR STORY",
+      "rows": [
+       "2015 — Founded by three engineers with a shared studio desk",
+       "2017 — First official office opens in a converted warehouse",
+       "2021 — IPO on the public market",
+       "2024 — One million users across 40 countries"
+      ],
+      "activeIndex": 3,
+      "duration": 9,
+      "layout": "fullscreen"
+     },
+     "error": "A rows item is 59 characters; timeline-roadmap fits 24 per item (40 at its smallest type). Shorten the items to at most 40 characters, or use \"Heading — detail\" with a short heading. Its slots: title (text, required, ≤40 chars); subtitle (text, ≤80 chars); kicker (text, ≤28 chars: small label above the title); rows (list, required, 2–6 items, ≤24 chars each: dates or stages in order); activeIndex (number, 0–5: the row to highlight, from 0); accentColor (color: #rrggbb, readable on a dark plate)."
+    },
+    {
+     "args": {
+      "template": "timeline-roadmap",
+      "title": "Company History",
+      "subtitle": "Garage project to one million users",
+      "kicker": "OUR STORY",
+      "rows": [
+       "2015 — Founded",
+       "2017 — First office",
+       "2021 — IPO listing",
+       "2024 — 1M users"
+      ],
+      "activeIndex": 3,
+      "duration": 9,
+      "layout": "fullscreen"
+     }
+    }
+   ]
+  }
+ ]
+}

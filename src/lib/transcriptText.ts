@@ -11,7 +11,8 @@ import type { AssetMap } from './timeline';
 import { timecode } from './editor';
 import type { Comp } from './types';
 
-export type Line = { start: number; end: number; text: string; speaker?: number };
+/** A line of the transcript; `words` are its words with their place in the list `toLines` was given. */
+export type Line = { start: number; end: number; text: string; speaker?: number; words: { text: string; index: number }[] };
 
 /** A pause at least this long starts a new line. */
 const PAUSE = 0.8;
@@ -22,7 +23,7 @@ const SOFT_CHARS = 70;
 export function toLines(words: TranscriptWord[]): Line[] {
   const lines: Line[] = [];
   let current: Line | null = null;
-  for (const word of words) {
+  for (const [index, word] of words.entries()) {
     const text = word.text.trim();
     if (!text) continue;
     const breakHere = current && (
@@ -33,10 +34,11 @@ export function toLines(words: TranscriptWord[]): Line[] {
     );
     if (!current || breakHere) {
       if (current) lines.push(current);
-      current = { start: word.start, end: word.end, text, speaker: word.speaker };
+      current = { start: word.start, end: word.end, text, speaker: word.speaker, words: [{ text, index }] };
     } else {
       current.text = /^[,.!?;:…%)\]]/.test(text) ? `${current.text}${text}` : `${current.text} ${text}`;
       current.end = word.end;
+      current.words.push({ text, index });
     }
   }
   if (current) lines.push(current);
@@ -49,7 +51,7 @@ export function toLines(words: TranscriptWord[]): Line[] {
  */
 export function timelineWords(comp: Comp, assets: AssetMap, transcripts: ReadonlyMap<string, Transcript>): TranscriptWord[] {
   const byAsset = new Map([...transcripts].map(([id, transcript]) => [id, transcript.words]));
-  return wordsOnTimeline(comp, assets, byAsset).map((word) => ({ text: word.word, start: word.start, end: word.end }));
+  return wordsOnTimeline(comp, assets, byAsset).map((word) => ({ text: word.word, start: word.start, end: word.end, ...(word.origin ? { origin: word.origin } : {}) }));
 }
 
 /** Plain text for the clipboard or a .txt file. */
@@ -78,5 +80,51 @@ export const transcriptFileName = (name: string) => `${name.replace(/[\\/:*?"<>|
 /** Speaker ids matter only when there is more than one voice; one speaker needs no label. */
 export function withoutSoloSpeaker(words: TranscriptWord[]): TranscriptWord[] {
   const speakers = new Set(words.map((word) => word.speaker).filter((speaker) => speaker !== undefined));
-  return speakers.size > 1 ? words : words.map((word) => ({ text: word.text, start: word.start, end: word.end }));
+  return speakers.size > 1 ? words : words.map((word) => ({ text: word.text, start: word.start, end: word.end, ...(word.origin ? { origin: word.origin } : {}) }));
+}
+
+/**
+ * The timeline ranges that cutting the chosen words removes, latest first (so each cut leaves the
+ * earlier ones where they were). A run of chosen words is cut from its first word's start to where
+ * the next word starts, taking the pause after it too, so the edit keeps the speaker's rhythm; the
+ * last words of the transcript are cut to their own end.
+ */
+export function cutRangesForWords(words: TranscriptWord[], chosen: ReadonlySet<number>): { start: number; end: number }[] {
+  const ranges: { start: number; end: number }[] = [];
+  let index = 0;
+  while (index < words.length) {
+    if (!chosen.has(index)) { index++; continue; }
+    const first = index;
+    while (index + 1 < words.length && chosen.has(index + 1)) index++;
+    const next = words[index + 1];
+    ranges.push({ start: words[first].start, end: next ? Math.max(words[index].end, next.start) : words[index].end });
+    index++;
+  }
+  return ranges.sort((a, b) => b.start - a.start);
+}
+
+const bare = (token: string) => token.toLocaleLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
+
+/**
+ * The caption clips of `comp` with a word the user corrected in the transcript: in each caption
+ * on screen at the word's timeline time (`at`), the first word that reads `from` (ignoring case and
+ * punctuation, which stays) becomes `to`. `comp` itself when no caption had it.
+ */
+export function correctCaptions(comp: Comp, at: number, from: string, to: string): Comp {
+  const want = bare(from);
+  if (!want || bare(to) === want && from.trim() === to.trim()) return comp;
+  let changed = false;
+  const clips = comp.clips.map((clip) => {
+    if (clip.source.type !== 'text' || clip.source.preset !== 'caption' || at < clip.start - 0.05 || at > clip.start + clip.duration + 0.05) return clip;
+    const tokens = clip.source.text.split(/(\s+)/);
+    const index = tokens.findIndex((token) => bare(token) === want);
+    if (index < 0) return clip;
+    const token = tokens[index];
+    const lead = /^[^\p{L}\p{N}']*/u.exec(token)?.[0] ?? '';
+    const tail = /[^\p{L}\p{N}']*$/u.exec(token)?.[0] ?? '';
+    tokens[index] = to.trim() ? `${lead}${to.trim()}${tail}` : '';
+    changed = true;
+    return { ...clip, source: { ...clip.source, text: tokens.join('').replace(/\s{2,}/g, ' ').trim() } };
+  });
+  return changed ? { ...comp, clips } : comp;
 }

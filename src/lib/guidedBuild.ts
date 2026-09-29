@@ -9,11 +9,34 @@ import type { ScoreMood, PlateStyle } from './ipc';
 import type { PacingTarget } from './pacing';
 import type { TransitionKind } from '../motion/sequence';
 
-export type BeatKind = 'title' | 'statement' | 'stat' | 'list' | 'quote' | 'lower-third' | 'end';
+export type BeatKind = 'title' | 'statement' | 'stat' | 'list' | 'quote' | 'lower-third' | 'end' | 'chapter' | 'question' | 'steps' | 'logo';
+export const BEAT_KINDS: BeatKind[] = ['title', 'statement', 'stat', 'list', 'quote', 'lower-third', 'end', 'chapter', 'question', 'steps', 'logo'];
+
+/** Other words a model uses for a beat kind. */
+const KIND_ALIASES: Record<string, BeatKind> = {
+  hook: 'title', headline: 'title', intro: 'title', opener: 'title', heading: 'title',
+  line: 'statement', point: 'statement', text: 'statement', message: 'statement', claim: 'statement',
+  number: 'stat', metric: 'stat', figure: 'stat', counter: 'stat',
+  bullets: 'list', points: 'list', tips: 'list', rules: 'list', checklist: 'list',
+  process: 'steps', roadmap: 'steps', stages: 'steps', 'how-to': 'steps',
+  section: 'chapter', part: 'chapter',
+  ask: 'question', q: 'question',
+  name: 'lower-third', speaker: 'lower-third', 'lower third': 'lower-third', lowerthird: 'lower-third',
+  cta: 'end', outro: 'end', 'end-card': 'end', 'end card': 'end', closing: 'end', subscribe: 'end',
+  ident: 'logo', sting: 'logo', 'logo-sting': 'logo',
+  saying: 'quote', 'pull-quote': 'quote',
+};
+
+/** A beat kind from the model's word for it, or null. */
+export function beatKind(word: string | undefined): BeatKind | null {
+  const w = (word ?? '').trim().toLowerCase().replace(/_/g, '-');
+  return (BEAT_KINDS as string[]).includes(w) ? (w as BeatKind) : KIND_ALIASES[w] ?? KIND_ALIASES[w.replace(/-/g, ' ')] ?? null;
+}
 
 /** One beat of the brief, in the model's words. */
 export type BriefBeat = {
-  kind?: BeatKind;
+  /** One of BEAT_KINDS, or another word for one ("hook", "bullets", "cta"). */
+  kind?: BeatKind | string;
   /** The headline (the stat's label for `stat`, the name for `lower-third`). */
   text: string;
   kicker?: string;
@@ -73,12 +96,14 @@ const words = (text: string | undefined) => (text ?? '').split(/\s+/).filter(Boo
 
 /** The words a viewer has to read on this beat. */
 function readWords(beat: BriefBeat): number {
-  return words(beat.text) + words(beat.kicker) + words(beat.subtitle) + (beat.points ?? []).reduce((n, point) => n + words(point), 0) + words(beat.cta);
+  return words(beat.text) + words(beat.kicker) + words(beat.subtitle) + (Array.isArray(beat.points) ? beat.points : []).reduce((n, point) => n + words(point), 0) + words(beat.cta);
 }
 
 /** The kind a beat reads as when the brief leaves it out. */
 function kindOf(beat: BriefBeat, index: number, count: number): BeatKind {
-  if (beat.kind) return beat.kind;
+  const named = beatKind(beat.kind);
+  if (named) return named;
+  if (/\?\s*$/.test(beat.text)) return 'question';
   if (beat.value !== undefined && beat.value !== '') return 'stat';
   if (beat.points?.length) return 'list';
   if (beat.cta || (index === count - 1 && count > 2)) return 'end';
@@ -104,6 +129,16 @@ export function beatTemplate(beat: BriefBeat, kind: BeatKind, hold: number): { t
     }
     case 'list':
       return { template: 'brand-panel', params: { title: beat.text, points: (beat.points ?? []).slice(0, 5), side: 'left', duration } };
+    case 'steps':
+      // Numbered, so the order reads: "1  Research".
+      return { template: 'brand-panel', params: { title: beat.text, points: (beat.points ?? []).slice(0, 5).map((point, i) => `${i + 1}  ${point.replace(/^\s*\d+[.)]\s*/, '')}`), side: 'left', duration } };
+    case 'chapter':
+      return { template: 'brand-title', params: { title: beat.text, kicker: beat.kicker ?? 'CHAPTER', subtitle: beat.subtitle ?? '', accentWord: accentOf(beat), background: 'none', duration } };
+    case 'question':
+      // The question mark carries the accent, so the beat reads as a question, not a claim.
+      return { template: 'brand-title', params: { title: /\?\s*$/.test(beat.text) ? beat.text : `${beat.text}?`, kicker: beat.kicker ?? '', subtitle: beat.subtitle ?? '', accentWord: accentOf(beat), background: 'none', duration } };
+    case 'logo':
+      return { template: 'brand-logo-sting', params: { name: beat.text, tagline: beat.subtitle ?? '', background: 'none', duration } };
     case 'lower-third':
       return { template: 'brand-lower-third', params: { name: beat.text, role: beat.subtitle ?? beat.kicker ?? '', duration } };
     case 'end':
@@ -132,7 +167,7 @@ export function planBuild(brief: BriefBeat[], options: { mood?: ScoreMood | null
   const kinds = brief.map((beat, i) => kindOf(beat, i, count));
   let holds = brief.map((beat, i) => {
     if (beat.hold && beat.hold > 0) return beat.hold;
-    const reading = readWords(beat) / wps + 0.6 + (kinds[i] === 'list' ? 0.35 * (beat.points?.length ?? 0) : 0) + (kinds[i] === 'stat' ? 0.8 : 0) + (kinds[i] === 'end' ? 1.0 : 0);
+    const reading = readWords(beat) / wps + 0.6 + (kinds[i] === 'list' || kinds[i] === 'steps' ? 0.35 * (beat.points?.length ?? 0) : 0) + (kinds[i] === 'stat' ? 0.8 : 0) + (kinds[i] === 'end' ? 1.0 : 0);
     return Math.max(minSwap, reading);
   });
   // Stretch evenly towards a requested length (never below reading time).

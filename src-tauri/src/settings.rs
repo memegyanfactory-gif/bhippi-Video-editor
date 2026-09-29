@@ -11,6 +11,9 @@ pub struct ExportPrefs {
     /// `draft` · `standard` · `high`.
     pub quality: Option<String>,
     pub folder: Option<String>,
+    /// The project Exports folder that was current when `folder` was chosen: `folder` applies to
+    /// that project only, and another project renders into its own Exports folder.
+    pub folder_for: Option<String>,
     /// An export format id (render::codec::FORMATS) — the UI owns the list.
     pub format: Option<String>,
     /// `rgb` · `rgba`.

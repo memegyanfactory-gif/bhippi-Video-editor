@@ -303,6 +303,93 @@ pub fn autosave_backup(state: &AppState, project: &crate::project::Project) {
     if let Err(error) = crate::files::write_document(&path, &document) {
         tracing::warn!(%error, "project autosave copy failed");
     }
+    keep_version(&folder, &project.name, &document);
+}
+
+/// Timestamped versions kept per project (File › Restore from Backup…), newest last.
+const VERSIONS_KEPT: usize = 20;
+/// How often a new version is kept, while the project keeps changing.
+const VERSION_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// A version of the project at most every five minutes in `Project/Backups/<name> <date time>.bhippi`,
+/// the newest 20 kept: the rolling autosave only ever holds the last minute, so "this morning's
+/// version" was gone by the afternoon.
+fn keep_version(folder: &Path, name: &str, document: &crate::files::Document) {
+    static LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    {
+        let Ok(mut last) = LAST.lock() else { return };
+        if last.is_some_and(|when| when.elapsed() < VERSION_EVERY) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+    }
+    let backups = folder.join("Backups");
+    if std::fs::create_dir_all(&backups).is_err() {
+        return;
+    }
+    let stem = sanitize(name);
+    let path = backups.join(format!("{stem} {}.bhippi", chrono::Local::now().format("%Y-%m-%d %H.%M.%S")));
+    if let Err(error) = crate::files::write_document(&path, document) {
+        tracing::warn!(%error, "project version backup failed");
+        return;
+    }
+    let mut versions = versions_of(&backups, &stem);
+    versions.sort();
+    let excess = versions.len().saturating_sub(VERSIONS_KEPT);
+    for old in versions.into_iter().take(excess) {
+        let _ignored = std::fs::remove_file(old);
+    }
+}
+
+/// The version files of project `stem` in `backups` (named `<stem> <yyyy-mm-dd hh.mm.ss>.bhippi`).
+fn versions_of(backups: &Path, stem: &str) -> Vec<PathBuf> {
+    let prefix = format!("{stem} ");
+    std::fs::read_dir(backups)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+                    file.starts_with(&prefix) && file.ends_with(".bhippi") && file[prefix.len()..].chars().next().is_some_and(|c| c.is_ascii_digit())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One backup of the open project, for File › Restore from Backup….
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Backup {
+    pub path: String,
+    /// When it was written, RFC 3339.
+    pub saved_at: String,
+    pub size: u64,
+    /// The rolling autosave (the last minute) rather than a kept version.
+    pub rolling: bool,
+}
+
+/// The open project's backups, newest first: the rolling autosave and the kept versions.
+pub fn backups(state: &AppState, name: &str) -> Vec<Backup> {
+    let Ok(folder) = dir(state, Category::Project) else { return Vec::new() };
+    let stem = sanitize(name);
+    let mut paths: Vec<(PathBuf, bool)> = versions_of(&folder.join("Backups"), &stem).into_iter().map(|path| (path, false)).collect();
+    let rolling = folder.join(format!("{stem} (autosave).bhippi"));
+    if rolling.is_file() {
+        paths.push((rolling, true));
+    }
+    let mut out: Vec<(std::time::SystemTime, Backup)> = paths
+        .into_iter()
+        .filter_map(|(path, rolling)| {
+            let meta = std::fs::metadata(&path).ok()?;
+            let modified = meta.modified().ok()?;
+            let saved_at: chrono::DateTime<chrono::Utc> = modified.into();
+            Some((modified, Backup { path: path.display().to_string(), saved_at: saved_at.to_rfc3339(), size: meta.len(), rolling }))
+        })
+        .collect();
+    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out.into_iter().map(|(_, backup)| backup).collect()
 }
 
 /// Deletes what a generation job wrote into the open project (Generated/<kind>/<id>, or a Clean
@@ -519,6 +606,19 @@ pub async fn pick_folder(app: AppHandle, title: String, directory: Option<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn versions_belong_to_their_own_project_only() {
+        let dir = std::env::temp_dir().join(format!("bhippi-versions-{}", crate::store::new_id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        for name in ["My Proj 2026-09-29 10.00.00.bhippi", "My Proj 2026-09-29 10.05.00.bhippi", "My Proj (autosave).bhippi", "My Project 2026-09-29 10.00.00.bhippi", "My Proj notes.txt"] {
+            std::fs::write(dir.join(name), b"{}").expect("file");
+        }
+        let mut found: Vec<String> = versions_of(&dir, "My Proj").iter().map(|path| path.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        found.sort();
+        assert_eq!(found, ["My Proj 2026-09-29 10.00.00.bhippi", "My Proj 2026-09-29 10.05.00.bhippi"]);
+        let _ignored = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn storage_sanitise_makes_safe_folder_names() {

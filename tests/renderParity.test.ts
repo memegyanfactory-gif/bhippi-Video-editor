@@ -149,6 +149,7 @@ describe('text texture cache', () => {
       incomplete: 0,
       canvases: { clear: () => undefined },
       uploads: new Map(),
+      uploaded: new Map(),
       textCache: new WeakMap(),
       textSignatures: new Map(),
       gl: { maxTexture: 8192, upload: (_source: unknown, existing?: object) => existing ?? {}, acquire: (w: number, h: number) => ({ w, h, tex: {} }), pass: () => undefined, release: () => undefined, deleteTexture: () => undefined },
@@ -178,6 +179,35 @@ describe('text texture cache', () => {
     draw(renderer, dark);
     draw(renderer, { ...dark, stroke: { color: '#fff', width: 4 } });
     expect(rasters.text).toBe(2);
+  });
+});
+
+describe('footage texture uploads', () => {
+  it('sends a still or a parked video frame to the GPU once, and a new frame again', () => {
+    let uploads = 0;
+    let key = 'file:///still.png';
+    const renderer = Object.create(RealRenderer.prototype) as InstanceType<typeof RealRenderer>;
+    Object.assign(renderer, {
+      incomplete: 0,
+      uploads: new Map(),
+      uploaded: new Map(),
+      bank: { frame: () => ({ image: {}, width: 1920, height: 1080, key }) },
+      gl: { maxTexture: 8192, upload: (_source: unknown, existing?: object) => { uploads++; return existing ?? {}; }, acquire: (w: number, h: number) => ({ w, h, tex: {} }), pass: () => undefined, release: () => undefined, deleteTexture: () => undefined },
+    });
+    const layer = { id: 'bg', type: 'footage', source: { asset: 'a' } } as unknown as Layer;
+    const scene = { width: 1920, height: 1080, duration: 2, layers: [layer] } as unknown as MotionScene;
+    const L = { layer, index: 0, active: true, size: [1920, 1080], matrix: identity(), blurMatrices: [], opacity: 1, is3D: false, depth: 0, masks: [], effects: [], time: 1 } as unknown as ResolvedLayer;
+    const draw = () => (renderer as unknown as { content: (...args: unknown[]) => unknown }).content(scene, {}, L, 1, 0, 30);
+    draw();
+    draw();
+    expect(uploads).toBe(1);
+    key = 'file:///clip.mp4@1.0000';
+    draw();
+    draw();
+    expect(uploads).toBe(2);
+    key = 'file:///clip.mp4@1.0333';
+    draw();
+    expect(uploads).toBe(3);
   });
 });
 

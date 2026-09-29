@@ -7,6 +7,7 @@ import { MOTION_TEMPLATES } from '../motion/kit';
 import type { History } from '../lib/history';
 import { nestLooseMotionScenes, placeTemplateByHand, TEMPLATE_FOOTAGE } from '../lib/motionTools';
 import { playhead } from '../lib/playhead';
+import { thumbnailUrl } from '../lib/templateExamples';
 import type { Asset } from '../lib/types';
 
 export function MotionTemplates({ history, assets, clipSelection }: { history: History; assets: Asset[]; clipSelection: string[] }) {
@@ -39,13 +40,17 @@ export function MotionTemplates({ history, assets, clipSelection }: { history: H
         Motion templates <span className="muted">— GPU engine, at the playhead; footage templates use the selected clip</span>
         {loose > 0 && <><div className="toolbar-spacer" /><button type="button" className="btn btn-small" onClick={nest} title="Each loose motion scene becomes its own [Motion] comp, placed where it was">Put {loose} motion scene{loose === 1 ? '' : 's'} into comps</button></>}
       </div>
-      <div className="chips" style={{ flexWrap: 'wrap' }}>
-        {MOTION_TEMPLATES.map((spec) => (
-          <button key={spec.id} type="button" className="chip" disabled={busy !== null} onClick={() => void place(spec.id)}
-            title={`${spec.use}${TEMPLATE_FOOTAGE[spec.id] ? `\nUses the selected clip as ${TEMPLATE_FOOTAGE[spec.id]}.` : ''}\n${spec.technique}`}>
-            <Sparkles size={11} /> {spec.label}
-          </button>
-        ))}
+      <div className="mt-grid">
+        {MOTION_TEMPLATES.map((spec) => {
+          const thumb = thumbnailUrl(spec.id);
+          return (
+            <button key={spec.id} type="button" className="mt-card" disabled={busy !== null} onClick={() => void place(spec.id)}
+              title={`${spec.use}${TEMPLATE_FOOTAGE[spec.id] ? `\nUses the selected clip as ${TEMPLATE_FOOTAGE[spec.id]}.` : ''}\n${spec.technique}`}>
+              {thumb ? <img src={thumb} alt="" loading="lazy" draggable={false} /> : <span className="mt-card-blank"><Sparkles size={16} />{TEMPLATE_FOOTAGE[spec.id] ? <em>uses footage</em> : null}</span>}
+              <span className="mt-card-label">{spec.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

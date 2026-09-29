@@ -1,8 +1,9 @@
 // The Program monitor: the active comp at the playhead, the transport, and direct manipulation —
 // click a picture to select it, drag its Motion handles, draw shapes and masks, type text.
+import { proxyMode, useProxyMode } from '../lib/proxyMode';
 import { ArrowLeftToLine, ArrowRightToLine, BarChart3, Camera, Film, Heart, MapPin, MessageCircle, MoreHorizontal, Music2, Pause, Play, Repeat, Send, StepBack, StepForward, Upload, Wrench } from 'lucide-react';
 import { MAX_ZOOM, MIN_ZOOM, stepZoom, toggleFit, wheelDelta, wheelZoom } from '../lib/monitorZoom';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import { MenuList, type MenuItem } from '../components/workspace';
 import { clamp, parseTimecode, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
@@ -109,6 +110,13 @@ export function polygonPoints(width: number, height: number, sides: number) {
 
 export function ProgramMonitor(props: Props) {
   const { project, comp, assets, history, selection, tool } = props;
+  const useProxies = useProxyMode();
+  // Files in this comp with a proxy made for speed (not one they need to play at all).
+  const proxiesInComp = useMemo(() => {
+    if (!comp) return 0;
+    const ids = new Set(comp.clips.flatMap((clip) => (clip.source.type === 'media' ? [clip.source.assetId] : [])));
+    return [...ids].filter((id) => { const asset = assets.get(id); return !!asset?.proxy && asset.preview === 'native'; }).length;
+  }, [comp, assets]);
   const time = usePlayhead();
   const playing = usePlaying();
   const rate = useRate();
@@ -1016,6 +1024,15 @@ export function ProgramMonitor(props: Props) {
           {QUALITIES.map((item) => <option key={item.label} value={item.value}>{item.label}</option>)}
           <option value="custom">Custom…</option>
         </select>
+        {proxiesInComp > 0 && (
+          // Premiere's Toggle Proxies: preview from the lighter copies, or the originals to check
+          // focus and grain. Exports always use the originals.
+          <button type="button" className={`monitor-proxy${useProxies ? ' on' : ''}`} aria-pressed={useProxies}
+            onClick={() => proxyMode.set(!useProxies)}
+            title={useProxies ? `Previewing ${proxiesInComp} clip${proxiesInComp === 1 ? '' : 's'} from proxies. Click to view the originals (exports always use the originals).` : 'Viewing the originals. Click to preview from the proxies (smoother playback).'}>
+            {useProxies ? 'PROXY' : 'ORIGINAL'}
+          </button>
+        )}
         {customQuality && (
           <input
             className="timecode-input"

@@ -294,3 +294,33 @@ describe('subtitlesEngine: Layer Creation and Placement', () => {
     expect((captions[1].source as { style?: string }).style).toBe('beastone');
   });
 });
+
+describe('karaoke word timings', () => {
+  it('keeps when each shown word starts, gluing split-off punctuation to its word', async () => {
+    const { buildWatchfiwnCues, cueWordOffsets } = await import('../src/lib/subtitlesEngine');
+    const [cue] = buildWatchfiwnCues([
+      { start: 1, end: 1.3, word: 'Make' },
+      { start: 1.8, end: 2.0, word: 'it' },
+      { start: 2.0, end: 2.3, word: 'pop' },
+      { start: 2.3, end: 2.35, word: '!' },
+    ]);
+    expect(cue.text).toBe('Make it pop!');
+    expect(cueWordOffsets(cue)).toEqual([0, 0.8, 1]);
+    // Ends too: "pop!" ends where the split-off "!" ends.
+    const { cueWordEnds } = await import('../src/lib/subtitlesEngine');
+    expect(cueWordEnds(cue)).toEqual([0.3, 1, 1.35]);
+  });
+
+  it('highlights the word being said, not an even share, and falls back after an edit', async () => {
+    const { wordStates, findStyle } = await import('../src/lib/captionStyles');
+    const style = findStyle('hormozi')!;
+    const graphic = { id: 'c', text: 'make it pop', subtitle: '', start: 1, duration: 3, preset: 'caption' as const, color: '#FFFFFF', wordStarts: [1, 3.2, 3.5] };
+    const activeAt = (time: number, value = graphic) => wordStates(value, style, time).findIndex((word) => word.active);
+    // Even sharing would move to "it" at 2.0 s; the speaker is still on "make" until 3.2 s.
+    expect(activeAt(2.5)).toBe(0);
+    expect(activeAt(3.3)).toBe(1);
+    expect(activeAt(3.6)).toBe(2);
+    // Four words now, three timings: shared evenly (0.75 s each), so 2.5 s is the third word.
+    expect(activeAt(2.5, { ...graphic, text: 'make it pop now' })).toBe(2);
+  });
+});

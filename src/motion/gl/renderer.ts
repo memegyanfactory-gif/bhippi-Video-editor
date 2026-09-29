@@ -62,6 +62,8 @@ export class MotionRenderer {
   readonly bank: MediaBank;
   private canvases = new CanvasCache();
   private uploads = new Map<string, WebGLTexture>();
+  /** What each upload slot holds (a footage or matte frame's key), so an unchanged picture is not re-sent to the GPU. */
+  private uploaded = new Map<string, string>();
   /** Laid-out text per text *data object* (scenes are immutable, so an edit is a new object) and time. */
   private textCache = new WeakMap<object, Map<string, TextFrame>>();
   /** The last raster of each text layer: re-used only for the same text data object and the same glyph picture. */
@@ -81,13 +83,19 @@ export class MotionRenderer {
     }
   }
 
-  private upload(key: string, source: TexImageSource): WebGLTexture {
-    const tex = this.gl.upload(source, this.uploads.get(key));
-    if (!this.uploads.has(key)) {
+  /** `content` names the picture in `source` (a still's URL, a video's URL@time): the same content is not uploaded again. */
+  private upload(key: string, source: TexImageSource, content?: string): WebGLTexture {
+    const existing = this.uploads.get(key);
+    if (existing && content !== undefined && this.uploaded.get(key) === content) return existing;
+    const tex = this.gl.upload(source, existing);
+    if (content !== undefined) this.uploaded.set(key, content);
+    else this.uploaded.delete(key);
+    if (!existing) {
       this.uploads.set(key, tex);
       if (this.uploads.size > 96) {
         const [oldKey, oldTex] = this.uploads.entries().next().value!;
         this.uploads.delete(oldKey);
+        this.uploaded.delete(oldKey);
         this.gl.deleteTexture(oldTex);
       }
     }
@@ -160,7 +168,7 @@ export class MotionRenderer {
         const time = sourceTime(layer.source, L.time);
         const picture = this.bank.frame(layer.source, time);
         if (!picture) { this.incomplete++; return null; }
-        const tex = this.upload(`f:${picture.key.split('@')[0]}`, picture.image);
+        const tex = this.upload(`f:${picture.key.split('@')[0]}`, picture.image, picture.key);
         const fit = layer.fit ?? 'cover';
         const sw = picture.width;
         const sh = picture.height;
@@ -169,7 +177,7 @@ export class MotionRenderer {
         const dh = sh * k;
         const uFit = [((dw - w) / 2) / dw, ((dh - h) / 2) / dh, w / dw, h / dh];
         const matteFrame = layer.source.matte ? this.bank.matteFrame(layer.source.matte, time) : null;
-        const matteTex = matteFrame ? this.upload(`m:${layer.id}`, matteFrame.image) : null;
+        const matteTex = matteFrame ? this.upload(`m:${layer.id}`, matteFrame.image, matteFrame.key) : null;
         if (layer.source.matte && !matteTex) this.incomplete++;
         target = gl.acquire(W, H);
         gl.pass('footage', S.FOOTAGE_FS, target, { uTex: tex, uMatte: matteTex, uFit, uHasMatte: matteTex ? 1 : 0, uCutout: layer.source.cutout && !wantsMatteFx ? 1 : 0, uMatteMode: 0 });
@@ -500,6 +508,7 @@ export class MotionRenderer {
     this.bank.dispose();
     for (const tex of this.uploads.values()) this.gl.deleteTexture(tex);
     this.uploads.clear();
+    this.uploaded.clear();
     this.canvases.clear();
     this.gl.dispose();
   }

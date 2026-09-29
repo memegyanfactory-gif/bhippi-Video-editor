@@ -58,7 +58,11 @@ impl<'a> Graph<'a> {
                     continue;
                 }
                 if let Some(label) = self.voice(clip, (from, to), &Crossfade { head, tail, curve }, t0, depth)? {
-                    voices.push(label);
+                    let track = comp.tracks.iter().find(|track| track.id == track_id);
+                    voices.push(match track.and_then(track_stage) {
+                        Some(stage) => self.chain(&[label], &stage),
+                        None => label,
+                    });
                 }
             }
         }
@@ -257,3 +261,34 @@ mod tests {
         assert!(pan(Channels::Mono).is_some_and(|filter| filter.contains("0.5*c0+0.5*c1")));
     }
 }
+
+/// A track's fader and balance as filters (None at unity and centre). Balance, not equal-power
+/// panning: the far side keeps full level and the near side is turned down, as the preview does.
+fn track_stage(track: &crate::project::Track) -> Option<String> {
+    let mut parts = Vec::new();
+    if track.gain.abs() > 1e-3 {
+        parts.push(format!("volume={}dB", num(track.gain.clamp(-60.0, 24.0))));
+    }
+    let pan = track.pan.clamp(-1.0, 1.0);
+    if pan.abs() > 1e-3 {
+        let (left, right) = ((1.0 - pan).min(1.0), (1.0 + pan).min(1.0));
+        parts.push(format!("pan=stereo|c0={}*c0|c1={}*c1", num(left), num(right)));
+    }
+    (!parts.is_empty()).then(|| parts.join(","))
+}
+
+#[cfg(test)]
+mod track_stage_tests {
+    use super::track_stage;
+    use crate::project::fixtures;
+
+    #[test]
+    fn a_track_fader_and_balance_become_filters_only_when_set() {
+        let mut track = fixtures::track("a1", crate::project::TrackKind::Audio);
+        assert_eq!(track_stage(&track), None);
+        track.gain = -6.0;
+        track.pan = 0.5;
+        assert_eq!(track_stage(&track).as_deref(), Some("volume=-6dB,pan=stereo|c0=0.5*c0|c1=1*c1"));
+    }
+}
+

@@ -304,7 +304,7 @@ mod tests {
     use crate::project::{Graphic, Preset};
 
     fn graphic(preset: Preset, style: Option<&str>) -> Graphic {
-        Graphic { id: "t".into(), text: "hello there".into(), subtitle: String::new(), start: 2.0, duration: 3.0, preset, color: "#FFFFFF".into(), style: style.map(str::to_owned) }
+        Graphic { id: "t".into(), text: "hello there".into(), subtitle: String::new(), start: 2.0, duration: 3.0, preset, color: "#FFFFFF".into(), style: style.map(str::to_owned), word_starts: None }
     }
 
     fn events(text: &str) -> Vec<String> {

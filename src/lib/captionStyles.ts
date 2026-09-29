@@ -22,13 +22,20 @@ export const baseFill = (style: CaptionStyle) => (style.gradient && style.color2
 
 export type WordState = { text: string; active: boolean; lit: boolean; index: number };
 
-/** Which word is being "said" at `time`: the caption's duration shared evenly between its words. */
+/**
+ * Which word is being "said" at `time`: from the transcript's word timings when the caption has
+ * them (and its words have not been changed since), otherwise the duration shared evenly.
+ * Matches the export (src-tauri/src/caption_styles.rs `events`).
+ */
 export function wordStates(graphic: Graphic, style: CaptionStyle, time: number): WordState[] {
   const text = style.uppercase ? graphic.text.toUpperCase() : graphic.text;
   const words = text.split(/\s+/).filter(Boolean);
   const karaoke = !!(style.highlight || style.highlightBox);
+  const starts = graphic.wordStarts?.length === words.length ? graphic.wordStarts : null;
   const step = graphic.duration / Math.max(1, words.length);
-  const active = karaoke ? Math.min(words.length - 1, Math.max(0, Math.floor((time - graphic.start) / step))) : -1;
+  const active = !karaoke ? -1
+    : starts ? starts.reduce((found, at, index) => (index > 0 && time >= at ? index : found), 0)
+    : Math.min(words.length - 1, Math.max(0, Math.floor((time - graphic.start) / step)));
   return words.map((word, index) => ({
     text: word,
     index,
@@ -57,6 +64,10 @@ export const categoryBrief = (category: string): string => {
       return 'Heavy type that shouts — adverts, sport, hype, motivation';
     case 'Neon & Glow':
       return 'Glowing type — night-time footage, gaming, music, anything dark and lit';
+    case 'Motion Text':
+      return 'Animated title-card templates for single lines — hooks, quotes, key claims, chapter openers';
+    case 'Motion Graphics':
+      return 'Designed motion-graphics captions with their own effects — promos, reels, launches, anything that should feel produced';
     case 'Clean & Minimal':
       return 'Quiet, small, out of the way — tutorials, interviews, corporate, documentary';
     case 'Retro & Comic':

@@ -203,7 +203,7 @@ fn item(id: &str, kind: ItemKind, color: &str, duration: f64) -> ProjectItem {
 }
 
 fn text(content: &str, subtitle: &str, preset: Preset, color: &str, style: Option<&str>) -> ClipSource {
-    ClipSource::Text { text: content.to_owned(), subtitle: subtitle.to_owned(), preset, color: color.to_owned(), style: style.map(str::to_owned), vertical: false }
+    ClipSource::Text { text: content.to_owned(), subtitle: subtitle.to_owned(), preset, color: color.to_owned(), style: style.map(str::to_owned), vertical: false, words: None, word_ends: None }
 }
 
 fn tracks(video: usize, audio: usize) -> Vec<Track> {
@@ -488,7 +488,7 @@ fn build_odds_and_ends(video: &Asset) -> Project {
     );
     spinner.keyframes.rotation = vec![key(0.0, 0.0, Easing::Ease), key(0.8, 180.0, Easing::Ease)];
     spinner.keyframes.x = vec![key(0.0, -0.2, Easing::Hold), key(0.8, 0.2, Easing::Linear)];
-    let mut stacked = clip("stacked", "v2", 1.0, 1.0, ClipSource::Text { text: "up".to_owned(), subtitle: String::new(), preset: Preset::Title, color: "#FFFFFF".to_owned(), style: None, vertical: true });
+    let mut stacked = clip("stacked", "v2", 1.0, 1.0, ClipSource::Text { text: "up".to_owned(), subtitle: String::new(), preset: Preset::Title, color: "#FFFFFF".to_owned(), style: None, vertical: true, words: None, word_ends: None });
     stacked.transform = Transform { x: -0.3, scale: 60.0, rotation: 12.0, opacity: 80.0, ..Transform::default() };
 
     // An ordinary clip acting as an adjustment layer, masked and fading its effect in.

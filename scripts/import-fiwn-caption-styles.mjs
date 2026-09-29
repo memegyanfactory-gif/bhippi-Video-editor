@@ -5,9 +5,9 @@
 //
 //   node scripts/import-fiwn-caption-styles.mjs [path-to-FIWN]
 //
-// FIWN's "dynamic layout" presets drive canvas engines there; here they are imported through their
-// typography (colour, outline, glow, highlight, entrance animation), so every preset is available
-// and renders the same in the preview and the export. Styles added in Bhippi that FIWN does not
+// Every style draws with FIWN's own renderer (src/lib/fiwn, synced by scripts/sync-fiwn-captions.mjs),
+// dynamic layouts included; this list is the catalogue the UI and the AI read, and its typography
+// (colour, outline, glow, highlight, entrance) is the libass fallback used by the draft export. Styles added in Bhippi that FIWN does not
 // have (the Meme set) are kept. Fonts are mapped to families that ship with Windows, because Bhippi renders
 // offline and the export (libass) must use the same face as the preview.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -15,7 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const fiwn = resolve(process.argv[2] ?? 'C:/Work/VSCode/FIWN');
+const fiwn = resolve(process.argv[2] ?? 'D:/FIWN');
 const source = readFileSync(join(fiwn, 'public/editor-app/js/editor/subtitles.js'), 'utf8');
 
 function objectLiteral(name) {
@@ -72,7 +72,9 @@ const TRENDING = ['hormozi', 'karaoke', 'beastone', 'boxword', 'wordFocus', 'kin
 
 function category(id, s) {
   if (TRENDING.includes(id)) return 'Trending';
-  if (s.dynamicLayout || String(id).startsWith('dyn')) return 'Dynamic';
+  // FIWN's own families where it names them.
+  if (s.category === 'Motion Graphics' || s.category === 'Motion Text') return s.category;
+  if (s.dynamicLayout || s.category === 'Dynamic' || String(id).startsWith('dyn')) return 'Dynamic';
   if (s.highlightBox || s.captionCard || s.bgOn) return 'Boxed & Chips';
   if (s.glow) return 'Neon & Glow';
   if (s.highlightWords || s.progressiveHighlight) return 'Word by word';
@@ -96,8 +98,13 @@ function tags(s) {
   return list;
 }
 
+// FIWN's Motion text templates (bundled into src/lib/fiwn/vendor by sync-fiwn-captions.mjs): each is
+// a caption style that draws the line as a designed title card, over FIWN's base caption style.
+const { buildFiwnTextCatalog } = await import(new URL('../src/lib/fiwn/vendor/templates.js', import.meta.url).href);
+const TEMPLATE_STYLES = buildFiwnTextCatalog().map((template) => [`fiwnText-${template.id}`, { label: template.name, category: 'Motion Text', tier: 'free' }]);
+
 const styles = [];
-for (const [id, preset] of Object.entries(PRESETS)) {
+for (const [id, preset] of [...Object.entries(PRESETS), ...TEMPLATE_STYLES]) {
   const s = { ...BASE, ...preset };
   const anim = { ...NO_ANIM, ...(preset.anim ?? {}) };
   const card = s.captionCard ? hex(s.captionCardColor) : null;
@@ -105,6 +112,10 @@ for (const [id, preset] of Object.entries(PRESETS)) {
     id,
     label: s.label,
     category: category(id, s),
+    // Drawn by FIWN's renderer (src/lib/fiwn); the fields below are its libass fallback.
+    fiwn: true,
+    dynamic: s.dynamicLayout ?? null,
+    ease: anim.ease ?? 'overshoot',
     tags: tags(s),
     tier: s.tier ?? 'free',
     sourceFont: s.font,
@@ -147,10 +158,11 @@ try {
   // first import
 }
 const imported = new Set(styles.map((style) => style.id));
-const kept = previous.styles.filter((style) => !imported.has(style.id));
+// Bhippi's own styles (the Meme set) share the schema: drawn by Bhippi, not by FIWN's renderer.
+const kept = previous.styles.filter((style) => !imported.has(style.id)).map((style) => ({ ...style, fiwn: false, dynamic: null, ease: style.ease ?? 'overshoot' }));
 styles.push(...kept);
 
-const order = ['Trending', 'Dynamic', 'Word by word', 'Boxed & Chips', 'Bold & Punchy', 'Neon & Glow', 'Clean & Minimal', 'Retro & Comic', 'Cinematic & Editorial', ...new Set(kept.map((style) => style.category))];
+const order = ['Trending', 'Dynamic', 'Motion Graphics', 'Motion Text', 'Word by word', 'Boxed & Chips', 'Bold & Punchy', 'Neon & Glow', 'Clean & Minimal', 'Retro & Comic', 'Cinematic & Editorial', ...new Set(kept.map((style) => style.category))];
 styles.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category) || (a.category === 'Trending' ? TRENDING.indexOf(a.id) - TRENDING.indexOf(b.id) : 0));
 writeFileSync(target, `${JSON.stringify({ source: 'WatchFIWN STYLE_PRESETS (imported read-only)', categories: order, styles }, null, 2)}\n`);
 const counts = Object.fromEntries(order.map((name) => [name, styles.filter((s) => s.category === name).length]));

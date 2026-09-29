@@ -262,6 +262,47 @@ async fn settings_save(state: State<'_, Arc<AppState>>, settings: Settings) -> C
     Ok(settings)
 }
 
+/// Saves only the settings named in `patch` (top-level keys), merged over the stored ones. Frequent
+/// saves (timeline zoom, panel layout) then do not send the whole settings, brand-kit logos included,
+/// both ways across IPC every time.
+#[tauri::command]
+async fn settings_patch(state: State<'_, Arc<AppState>>, patch: serde_json::Map<String, serde_json::Value>) -> CommandResult<()> {
+    let mut ffmpeg_changed = false;
+    let mut ffmpeg_path = None;
+    let mut valid = true;
+    state.update_settings(|current| match merge_settings(current, &patch) {
+        Some(next) => {
+            ffmpeg_changed = current.ffmpeg_path != next.ffmpeg_path;
+            ffmpeg_path = next.ffmpeg_path.clone();
+            *current = next;
+        }
+        None => valid = false,
+    })?;
+    if !valid {
+        return Err("Those settings are not valid.".into());
+    }
+    if ffmpeg_changed {
+        let tools = tools::resolve(ffmpeg_path.as_deref()).await;
+        *state.tools.write().map_err(lock_error)? = tools;
+    }
+    Ok(())
+}
+
+/// `current` with the top-level keys of `patch` replaced (null puts a key back to its default), or
+/// None when the result is not valid settings.
+fn merge_settings(current: &Settings, patch: &serde_json::Map<String, serde_json::Value>) -> Option<Settings> {
+    let mut value = serde_json::to_value(current).ok()?;
+    let object = value.as_object_mut()?;
+    for (key, field) in patch {
+        if field.is_null() {
+            object.remove(key);
+        } else {
+            object.insert(key.clone(), field.clone());
+        }
+    }
+    serde_json::from_value(value).ok()
+}
+
 #[tauri::command]
 async fn ffmpeg_refresh(state: State<'_, Arc<AppState>>) -> CommandResult<ToolStatus> {
     let tools = tools::resolve(state.settings().ffmpeg_path.as_deref()).await;
@@ -497,9 +538,20 @@ fn merge_derived(slot: &mut Asset, derived: &Asset) {
 /// One job per asset at a time: import, relink and the startup backfill can all ask at once,
 /// and two FFmpeg runs encoding one proxy file leave it corrupt.
 fn prepare_media(app: AppHandle, state: Arc<AppState>, asset: Asset) {
+    /// How many files are prepared at once. Each preparation decodes its file several times (and
+    /// may transcode a proxy): forty phone clips imported together used to start forty FFmpeg
+    /// transcodes at once and stall the machine. A quarter of the cores, at least two.
+    static SLOTS: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
+    let slots = SLOTS
+        .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(std::thread::available_parallelism().map_or(2, |cores| (cores.get() / 4).max(2)))))
+        .clone();
     let Some(claim) = Preparing::claim(&state.preparing, &asset.id) else { return };
     tauri::async_runtime::spawn(async move {
         let job = state.jobs.start("media", format!("Preparing {}", asset.name), false);
+        job.progress(0.0, "Waiting to prepare (other files first)");
+        // Held until this preparation is done; a closed semaphore never happens, so a failed
+        // acquire just prepares without a slot rather than never.
+        let _slot = slots.acquire_owned().await.ok();
         let tools = state.tools();
         let derived = library::derive(&tools, &asset, &state.paths.thumbnails, &state.paths.proxies, |fraction, step| {
             job.progress(fraction, step);
@@ -1887,6 +1939,13 @@ fn transcripts_cached(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Vec<
     ids.iter().filter_map(|id| transcribe::cached(&state.paths.thumbnails, id)).collect()
 }
 
+/// Saves the user's corrections to an asset's transcript (Transcript panel), so captions and
+/// the AI read the fixed words from then on.
+#[tauri::command]
+fn transcript_edit_words(state: State<'_, Arc<AppState>>, asset_id: String, edits: Vec<transcribe::WordEdit>) -> Result<transcribe::Transcript, String> {
+    transcribe::edit_cached(&state.paths.thumbnails, &asset_id, &edits).ok_or_else(|| "that file has no transcript yet".to_owned())
+}
+
 /// The words spoken in one asset, transcribed once and cached beside its other derived files.
 #[tauri::command]
 async fn transcribe_asset(
@@ -2125,12 +2184,60 @@ fn library_retry(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) ->
     Ok(())
 }
 
+/// File › Restore from Backup…: the open project's backups, newest first.
+#[tauri::command]
+fn project_backups(state: State<'_, Arc<AppState>>, name: String) -> Vec<storage::Backup> {
+    storage::backups(&state, &name)
+}
+
+/// Project panel › Create Proxy: a lighter copy of a video for the preview (see
+/// `library::make_proxy`), as a job. The preview uses it while "Use proxies" is on; exports never do.
+#[tauri::command]
+fn library_make_proxy(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> CommandResult<()> {
+    let asset = state.assets_by_id().remove(&id).ok_or("that media is no longer in the library")?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let job = state.jobs.start("media", format!("Making a proxy of {}", asset.name), false);
+        job.progress(0.1, "Encoding the proxy");
+        match library::make_proxy(&state.tools(), &asset, &state.paths.proxies).await {
+            Ok(path) => {
+                let saved = state.library.lock().map_err(lock_error).and_then(|mut items| {
+                    if let Some(item) = items.iter_mut().find(|item| item.id == asset.id) {
+                        item.proxy = Some(path.clone());
+                        allow_asset(&app, item);
+                    }
+                    state.save_library(&items)
+                });
+                let _ignored = app.emit(LIBRARY_EVENT, ());
+                match saved {
+                    Ok(()) => job.done("Proxy ready", None),
+                    Err(error) => job.fail(error),
+                }
+            }
+            Err(error) => job.fail(error),
+        }
+    });
+    Ok(())
+}
+
 // ───────────────────────────── project ─────────────────────────────
 
-/// The autosaved session project, raw: the UI migrates older shapes itself.
+/// The autosaved session project, raw: the UI migrates older shapes itself. A path to a file that
+/// is gone is relinked to the copy a save gathered into the project folder (`bundle::heal`).
 #[tauri::command]
-fn project_load(state: State<'_, Arc<AppState>>) -> serde_json::Value {
-    store::read_json(&state.paths.project_file())
+async fn project_load(state: State<'_, Arc<AppState>>) -> CommandResult<serde_json::Value> {
+    let state = state.inner().clone();
+    off_ui_thread(move || {
+        let mut value: serde_json::Value = store::read_json(&state.paths.project_file());
+        let name = value.get("name").and_then(serde_json::Value::as_str).unwrap_or(storage::UNTITLED).to_owned();
+        let folder = storage::project_dir_for(&storage::root(&state), &name, state.settings().project_path.as_deref());
+        let refs = bundle::project_refs(&value, "");
+        if !refs.is_empty() && folder.is_dir() {
+            bundle::heal(&mut value, &refs, &folder);
+        }
+        Ok(value)
+    })
+    .await
 }
 
 /// Autosave, off the UI thread (a big project takes tens of milliseconds to check and write).
@@ -2217,6 +2324,18 @@ async fn detect_scenes(state: State<'_, Arc<AppState>>, asset_id: String, start:
 async fn audio_peak(state: State<'_, Arc<AppState>>, asset_id: String, start: f64, end: f64) -> CommandResult<f64> {
     let asset = state.assets_by_id().remove(&asset_id).ok_or("that media is no longer in the project")?;
     files::audio_peak(&state.tools(), Path::new(&asset.path), start, end).await
+}
+
+/// A reversed clip's sound for the preview: the media range played backwards, cached beside the
+/// proxies (derived data, keyed by asset and range) and opened to the webview.
+#[tauri::command]
+async fn audio_reversed(app: AppHandle, state: State<'_, Arc<AppState>>, asset_id: String, start: f64, end: f64) -> CommandResult<String> {
+    let asset = state.assets_by_id().remove(&asset_id).ok_or("that media is no longer in the project")?;
+    let name = format!("{}-reversed-{}-{}.wav", storage::sanitize(&asset_id), (start.max(0.0) * 1000.0).round() as u64, (end.max(0.0) * 1000.0).round() as u64);
+    let out = state.paths.proxies.join(name);
+    files::reversed_audio(&state.tools(), Path::new(&asset.path), start, end, &out).await?;
+    let _ignored = app.asset_protocol_scope().allow_file(&out);
+    Ok(out.display().to_string())
 }
 
 /// EBU R128 loudness of a media range: integrated LUFS, loudness range LU, true peak dBTP.
@@ -2543,6 +2662,9 @@ fn export_preview(job_id: String) -> Option<String> {
 async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: Project, options: ExportOptions) -> CommandResult<String> {
     /// How many ffmpeg exports burn at once; further renders queue behind them.
     const MAX_CONCURRENT_EXPORTS: usize = 2;
+    /// The render slots. A job is `Running` from the moment it is queued, so counting running jobs
+    /// counted the queue too: three waiting exports each saw two others and none ever started.
+    static EXPORT_SLOTS: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
     let tools = state.tools();
     let ffmpeg = tools.ffmpeg()?.to_path_buf();
     let output = PathBuf::from(&options.output);
@@ -2583,7 +2705,6 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
         previews.insert(job_id.clone(), preview_dir.clone());
     }
     let queue_id = job_id.clone();
-    let jobs = state.jobs.clone();
     let env = tools::FfmpegEnv { fontconfig_file: state.fontconfig.clone() };
     let output_text = output.display().to_string();
     let app_handle = app.clone();
@@ -2592,15 +2713,22 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
         // The render queue: at most two ffmpeg exports burn at once; the rest
         // wait with an honest message instead of melting the machine. Waiting
         // renders stay cancellable.
-        while jobs.list().iter().filter(|other| other.kind == "export" && other.status == crate::jobs::JobStatus::Running && other.id != queue_id).count() >= MAX_CONCURRENT_EXPORTS {
+        // Held until this task ends, so the slot frees however the render finishes.
+        let slots = EXPORT_SLOTS.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_EXPORTS))).clone();
+        let _slot = loop {
             if *job.cancel.borrow() {
                 job.fail("Cancelled while queued");
                 let _ignored = app_handle.emit(LIBRARY_EVENT, ());
                 return;
             }
-            job.progress(0.0, "Queued — waiting for a render slot");
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        }
+            match slots.clone().try_acquire_owned() {
+                Ok(permit) => break permit,
+                Err(_) => {
+                    job.progress(0.0, "Queued — waiting for a render slot");
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
+        };
         let result: CommandResult<render::RenderPlan> = async {
             let write_files = |plan: &render::RenderPlan| plan.files.iter().try_for_each(|(name, contents)| std::fs::write(work.join(name), contents)).map_err(|error| error.to_string());
             let mut rendering = rendering;
@@ -2839,11 +2967,43 @@ async fn detect_providers(app: &AppHandle, state: &AppState) -> Vec<ProviderInfo
     if provider_cache::remember(&rows, &mut cache) {
         let _ignored = store::write_json(&cache_file, &cache);
     }
+    // Models released since this build (Claude Code cannot list its own): from the registry as
+    // last read, which is read again in the background once it is a few hours old.
+    let saved: provider_cache::SavedRegistry = store::read_json(&provider_cache::registry_file(&state.paths.root));
+    bhippi_providers::registry::merge(&mut rows, &saved.registry);
+    if saved.is_stale(chrono::Utc::now()) {
+        refresh_model_registry(app.clone());
+    }
     if let Ok(mut current) = state.providers.write() {
         current.clone_from(&rows);
     }
     let _ignored = app.emit(PROVIDERS_EVENT, &rows);
     rows
+}
+
+/// Reads the model registry again, saves it, and adds any model it newly lists to the providers
+/// on screen. One read at a time; a failure (offline) keeps the saved registry until next time.
+fn refresh_model_registry(app: AppHandle) {
+    static READING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if READING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let fetched = bhippi_providers::registry::fetch().await;
+        READING.store(false, std::sync::atomic::Ordering::SeqCst);
+        let Ok(registry) = fetched else { return };
+        let state = app.state::<Arc<AppState>>();
+        let saved = provider_cache::SavedRegistry { fetched_at: Some(chrono::Utc::now()), registry };
+        let _ignored = store::write_json(&provider_cache::registry_file(&state.paths.root), &saved);
+        let rows = {
+            let Ok(mut current) = state.providers.write() else { return };
+            if !bhippi_providers::registry::merge(&mut current, &saved.registry) {
+                return;
+            }
+            current.clone()
+        };
+        let _ignored = app.emit(PROVIDERS_EVENT, &rows);
+    });
 }
 
 #[tauri::command]
@@ -3718,6 +3878,7 @@ pub fn run() {
             support::support_outbox_count,
             app_info,
             settings_get,
+            settings_patch,
             settings_save,
             ffmpeg_refresh,
             reveal_path,
@@ -3780,6 +3941,7 @@ pub fn run() {
             transcribe_engine_options,
             transcribe_asset,
             transcripts_cached,
+            transcript_edit_words,
             speech_status,
             speech_locate,
             speech_voices,
@@ -3799,6 +3961,9 @@ pub fn run() {
             startup_file,
             detect_scenes,
             audio_peak,
+            audio_reversed,
+            library_make_proxy,
+            project_backups,
             audio_loudness,
             save_recording,
             compose_score,
@@ -3887,6 +4052,34 @@ pub fn run() {
     if let Err(error) = result {
         eprintln!("Bhippi could not start: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod settings_patch_tests {
+    use super::merge_settings;
+    use crate::settings::Settings;
+
+    #[test]
+    fn a_patch_replaces_only_the_keys_it_names() {
+        let current = Settings { ffmpeg_path: Some("C:/ffmpeg.exe".into()), ..Settings::default() };
+        let patch = serde_json::json!({ "timelineZoom": 42.0 });
+        let next = merge_settings(&current, patch.as_object().unwrap()).expect("valid");
+        assert_eq!(next.ffmpeg_path.as_deref(), Some("C:/ffmpeg.exe"));
+        assert_eq!(serde_json::to_value(&next).unwrap()["timelineZoom"], serde_json::json!(42.0));
+    }
+
+    #[test]
+    fn null_puts_a_key_back_to_its_default() {
+        let current = Settings { ffmpeg_path: Some("C:/ffmpeg.exe".into()), ..Settings::default() };
+        let patch = serde_json::json!({ "ffmpegPath": null });
+        assert_eq!(merge_settings(&current, patch.as_object().unwrap()).expect("valid").ffmpeg_path, None);
+    }
+
+    #[test]
+    fn a_patch_of_the_wrong_shape_is_refused() {
+        let patch = serde_json::json!({ "ffmpegPath": 12 });
+        assert!(merge_settings(&Settings::default(), patch.as_object().unwrap()).is_none());
     }
 }
 

@@ -210,7 +210,7 @@ export function FieldOptionsDialog({ clip, onClose, onSubmit }: { clip: Clip; on
 }
 
 const ATTRIBUTES: [keyof AttributeSet, string][] = [
-  ['motion', 'Motion (position, scale, rotation, fit)'], ['opacity', 'Opacity'], ['crop', 'Crop'], ['effects', 'Effects (colour, blur, flips)'], ['mask', 'Mask'], ['speed', 'Speed / Duration'], ['volume', 'Level'], ['audio', 'Audio channels and Enhance Speech'],
+  ['motion', 'Motion (position, scale, rotation, fit)'], ['opacity', 'Opacity'], ['crop', 'Crop'], ['effects', 'Effects (effect stack, colour grade, LUTs, blur, flips)'], ['mask', 'Mask'], ['speed', 'Speed / Duration'], ['volume', 'Level'], ['audio', 'Audio channels and Enhance Speech'],
 ];
 
 export function AttributesDialog({ title, action, onClose, onSubmit }: { title: string; action: string; onClose: () => void; onSubmit: (set: AttributeSet) => void }) {

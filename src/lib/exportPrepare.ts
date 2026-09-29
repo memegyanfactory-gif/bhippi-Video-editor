@@ -4,7 +4,10 @@
 import { motionClipsForExport, renderMotionScenesForExport, renderMotionStill } from '../motion/exportFrames';
 import { prepareEffectExport } from './effectExport';
 import { htmlClipsForExport, renderHtmlStill, renderMotionGraphicsForExport } from './htmlFrames';
+import { fiwnCaptionsForExport, renderFiwnCaptionsForExport } from './fiwn/export';
+import { renderProgress } from './renderProgress';
 import type { Asset, Comp, Project } from './types';
+import type { ExportRange } from './exportWindow';
 
 type Hooks = {
   /** The export's frame rate (the comp's when unset): graphics animate at it, up to 60. */
@@ -12,7 +15,11 @@ type Hooks = {
   /** Above 1, graphics are drawn that much larger than the comp (an export above the comp's size). */
   scale?: number;
   signal?: AbortSignal;
-  onStage?: (stage: 'graphics' | 'scenes') => void;
+  onStage?: (stage: 'graphics' | 'scenes' | 'captions') => void;
+  /** Burn WatchFIWN-look captions in with the classic look (libass) instead of rendering them. */
+  fastCaptions?: boolean;
+  /** In→Out: only the frames inside the range are rendered. */
+  range?: ExportRange | null;
   onItem?: (title: string, index: number, count: number, frames: number) => void;
   onFrame?: (done: number, total: number) => void;
   onCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas) => void;
@@ -25,7 +32,10 @@ export async function prerenderForExport(project: Project, compId: string, asset
   if (htmlClipsForExport(project, compId).length) hooks.onStage?.('graphics');
   const graphics = await renderMotionGraphicsForExport(project, compId, hooks);
   if (motionClipsForExport(project, compId).length) hooks.onStage?.('scenes');
-  return renderMotionScenesForExport(graphics, compId, assets, hooks);
+  const scenes = await renderMotionScenesForExport(graphics, compId, assets, hooks);
+  if (hooks.fastCaptions || !fiwnCaptionsForExport(scenes, compId).length) return scenes;
+  hooks.onStage?.('captions');
+  return renderFiwnCaptionsForExport(scenes, compId, { ...hooks, onInflight: renderProgress.inflight });
 }
 
 /**
@@ -41,5 +51,6 @@ export function exportScale(comp: Pick<Comp, 'width' | 'height'>, resolution: nu
 
 /** Export Frame: the graphics and scenes of `compId` rendered at `at` only, as the preview shows them there. */
 export async function prerenderStill(project: Project, compId: string, at: number, assets: Asset[]): Promise<Project> {
-  return renderHtmlStill(await renderMotionStill(project, compId, [at], assets), compId, [at]);
+  const stills = await renderHtmlStill(await renderMotionStill(project, compId, [at], assets), compId, [at]);
+  return renderFiwnCaptionsForExport(stills, compId, { times: [at] });
 }

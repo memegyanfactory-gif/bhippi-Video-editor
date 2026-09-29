@@ -233,6 +233,18 @@ const OUTDATED: &[&str] = &[
     "unsupported version",
 ];
 
+/// A CLI too old for the model it was asked to run ("2.1.280 or newer is required"): an update
+/// fixes it, choosing another model only hides it. Checked before the model needles, since the
+/// same sentence names the model.
+const NEEDS_NEWER: &[&str] = &[
+    "or newer is required",
+    "or later is required",
+    "requires a newer version",
+    "requires version",
+    "newer version of claude code",
+    "upgrade to the latest version",
+];
+
 const MISSING: &[&str] = &[
     "not found",
     "no such file",
@@ -383,6 +395,9 @@ pub fn classify(reason: &str) -> FaultKind {
     }
     if says(QUOTA) {
         return FaultKind::QuotaExhausted;
+    }
+    if says(NEEDS_NEWER) {
+        return FaultKind::Outdated;
     }
     if says(&[
         "model_not_found",
@@ -553,7 +568,7 @@ pub fn advise_as(spec: &ProviderSpec, kind: FaultKind, reason: &str) -> Advice {
         }
         FaultKind::Outdated => (
             "CLI out of date".to_owned(),
-            format!("This build of {label} does not understand the options Bhippi sends."),
+            format!("This build of {label} is too old for what Bhippi asked of it — a newer option, or a newly released model."),
             "Update it to the latest version — this is a one-click fix.".to_owned(),
             Remedy::Update,
             Some("Update now".to_owned()),
@@ -722,6 +737,17 @@ mod tests {
     }
 
     /// Real failure text, verbatim from each vendor, must land on the right fault.
+    #[test]
+    fn a_cli_too_old_for_a_new_model_is_told_to_update() {
+        for reason in [
+            "claude-sonnet-5-5 requires Claude Code 2.1.290 or newer is required",
+            "Model claude-opus-5-5: 2.1.280 or newer is required",
+            "This model requires a newer version of Claude Code.",
+        ] {
+            assert_eq!(classify(reason), FaultKind::Outdated, "{reason}");
+        }
+    }
+
     #[test]
     fn invalid_models_offer_selection_instead_of_reinstall_or_retry() {
         for reason in [

@@ -10,7 +10,9 @@ import { canPreview, mediaSrc } from './Compositor';
 import { MAX_ZOOM, MIN_ZOOM, stepZoom, toggleFit, wheelDelta, wheelZoom, ZOOM_STEPS } from '../lib/monitorZoom';
 
 export type SourceRange = { in: number; out: number };
-export type SourceApi = { toggle: () => void; step: (frames: number) => void; markIn: () => void; markOut: () => void; markClip: () => void; time: () => number;
+export type SourceApi = { toggle: () => void; step: (frames: number) => void;
+  /** J / K / L: -1 plays backwards (again: faster), 0 stops, 1 forwards (again: faster, up to 8x). */
+  shuttle: (direction: 1 | -1 | 0) => void; markIn: () => void; markOut: () => void; markClip: () => void; time: () => number;
   /** `=` / `-` with the Source monitor focused: the next zoom level; `\`: Fit, or 100% from Fit. */
   zoomStep: (direction: 1 | -1) => void; zoomFit: () => void };
 
@@ -22,12 +24,16 @@ type Props = {
   onDragOut: (payload: { source: ClipSource; label: string; in: number; duration: number; videoOnly?: boolean; audioOnly?: boolean }, event: ReactPointerEvent) => void;
   patch: { video: string | null; audio: string | null };
   apiRef: RefObject<SourceApi | null>;
+  /** Where to park once this asset is showing (Match Frame); a new nonce parks again. */
+  parkAt?: { assetId: string; time: number; nonce: number } | null;
 };
 
-export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patch, apiRef }: Props) {
+export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patch, apiRef, parkAt }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [time, setTime] = useState(0);
+  /** Shuttle speed: negative plays backwards (J), 1 is normal. */
+  const [rate, setRate] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [space, setSpace] = useState({ width: 400, height: 300 });
   const [editingTime, setEditingTime] = useState<string | null>(null);
@@ -62,7 +68,8 @@ export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patc
     return () => observer.disconnect();
   }, []);
 
-  // The video element is the clock while playing; the time state follows it.
+  // The video element is the clock while playing forwards; the time state follows it. Backwards
+  // (J), browsers cannot play video, so the frames are stepped at the shuttle's rate instead.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !src) return;
@@ -70,8 +77,26 @@ export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patc
       video.pause();
       return;
     }
-    void video.play().catch(() => setPlaying(false));
     let frame = 0;
+    if (rate < 0) {
+      video.pause();
+      let last = performance.now();
+      const back = (now: number) => {
+        const next = Math.max(0, video.currentTime - ((now - last) / 1000) * -rate);
+        last = now;
+        if (!video.seeking) video.currentTime = next;
+        setTime(next);
+        if (next <= 0) {
+          setPlaying(false);
+          return;
+        }
+        frame = requestAnimationFrame(back);
+      };
+      frame = requestAnimationFrame(back);
+      return () => cancelAnimationFrame(frame);
+    }
+    video.playbackRate = rate;
+    void video.play().catch(() => setPlaying(false));
     const tick = () => {
       setTime(video.currentTime);
       if (video.ended || video.currentTime >= length - 0.01) {
@@ -82,7 +107,7 @@ export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patc
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, src, length]);
+  }, [playing, src, length, rate]);
 
   const seek = useCallback((value: number) => {
     const next = clamp(value, 0, length);
@@ -91,11 +116,28 @@ export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patc
     if (video && src) video.currentTime = next;
   }, [length, src]);
 
+  // Match Frame: parked on the matched frame once its asset shows (after the reset to 0 above).
+  useEffect(() => {
+    if (!parkAt || !asset || parkAt.assetId !== asset.id) return;
+    setPlaying(false);
+    seek(parkAt.time);
+    // A new nonce is a new request; the asset and its length arriving complete an earlier one.
+  }, [parkAt?.nonce, asset?.id, length]);
+
   const toggle = useCallback(() => {
     if (!asset || !src) return;
     if (!playing && time >= length - 0.02) seek(0);
+    setRate(1);
     setPlaying((value) => !value);
   }, [asset, src, playing, time, length, seek]);
+  const shuttle = useCallback((direction: 1 | -1 | 0) => {
+    if (!asset || !src) return;
+    if (direction === 0) return setPlaying(false);
+    const same = playing && Math.sign(rate) === direction;
+    setRate(same ? Math.min(8, Math.abs(rate) * 2) * direction : direction);
+    if (direction > 0 && !playing && time >= length - 0.02) seek(0);
+    setPlaying(true);
+  }, [asset, src, playing, rate, time, length, seek]);
   const step = useCallback((frames: number) => {
     setPlaying(false);
     seek(Math.round(time * fps + frames) / fps);
@@ -170,7 +212,7 @@ export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patc
     panRef.current = null;
     setPanning(false);
   };
-  apiRef.current = { toggle, step, markIn, markOut, markClip, time: () => time, zoomStep: (direction) => zoomTo(stepZoom(zoom, fitScale, direction)), zoomFit: () => zoomTo(toggleFit(zoom)) };
+  apiRef.current = { toggle, step, shuttle, markIn, markOut, markClip, time: () => time, zoomStep: (direction) => zoomTo(stepZoom(zoom, fitScale, direction)), zoomFit: () => zoomTo(toggleFit(zoom)) };
   const percent = (value: number) => `${length > 0 ? (value / length) * 100 : 0}%`;
   const scrub = (clientX: number, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();

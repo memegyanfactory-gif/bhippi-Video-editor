@@ -27,9 +27,11 @@ import { steer } from './chat/steer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ResourceMonitor } from './components/ResourceMonitor';
 import { GenerationJobsMenu } from './components/GenerationJobsMenu';
-import { htmlClipsForExport, htmlFrameCount } from './lib/htmlFrames';
-import { motionClipsForExport, motionFrameCount } from './motion/exportFrames';
+import { htmlClipsForExport } from './lib/htmlFrames';
+import { motionClipsForExport } from './motion/exportFrames';
 import { exportScale, prerenderForExport, prerenderStill } from './lib/exportPrepare';
+import { fiwnCaptionsForExport } from './lib/fiwn/export';
+import { clipFrameWindow } from './lib/exportWindow';
 import { renderProgress, type RenderStage } from './lib/renderProgress';
 import { sfxClipFields, sfxTrack } from './lib/sfxLevels';
 import { RenderWindow } from './components/RenderWindow';
@@ -58,6 +60,19 @@ import { NO_MUTES, setMutes, type MuteState } from './lib/audio';
 import type { CaptionStyle } from './lib/captionStyles';
 import { capitalize, clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, parseCaptions, safeFileName, STILL_DEFAULT, timecode, uid } from './lib/editor';
 import { useHistory } from './lib/history';
+import { isUnsaved } from './lib/unsaved';
+import { diffTurn, type TurnChange } from './lib/turnChanges';
+import { fillerIndices, silentRanges, speechClips } from './lib/cleanup';
+import { loadPeaks, type Peaks } from './lib/peaks';
+import { correctCaptions, cutRangesForWords, timelineWords } from './lib/transcriptText';
+
+import { HistoryDialog } from './settings/HistoryDialog';
+import { guidedRefusal } from './lib/modelProfile';
+import { suggestFromCorrection } from './lib/correctionLearning';
+import { addLearnings } from './lib/brandKit/learnings';
+import { RestoreBackupDialog } from './settings/RestoreBackupDialog';
+import { captionCues, toSrt, toVtt } from './lib/captionFiles';
+import { TrackMixDialog } from './settings/TrackMixDialog';
 import { api, errorText, events, type McpStatus } from './lib/ipc';
 import { updater, useUpdaterPick } from './lib/updater';
 import { playhead, usePlaying } from './lib/playhead';
@@ -66,7 +81,7 @@ import { StickFigureDialog } from './components/StickFigureDialog';
 import { generateSelectionSound } from './lib/generateSound';
 import { registerSfx } from './lib/sfx';
 import {
-  addFrameHold, addTracks, addTransition, clipEnd, clipsForSource, closeGap, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, gapAt, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
+  addFrameHold, addTracks, addTransition, clipEnd, exportFrameRate, fitToFillSpeed, slideClip, slipClip, threePointEdit, trimEdge, whereSourcePlays, type TrimMode, clipsForSource, closeGap, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, gapAt, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
   newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, pasteClips, placeClips, quarantineScripts, razor, removeAttributes, removeClips, removeRange, replaceSource, restoreScripts, setGrouped, setLinked, setSpeed, sourceInfo,
   sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, trackOf, tracksOf, transitionsOnSelection, trimToPlayhead, updateComp, updateTrack, withLinked, wouldCycle,
   type AssetMap, type ClipboardEntry,
@@ -86,11 +101,12 @@ import {
 import { ExportDialog } from './settings/ExportDialog';
 import { RenderQueueDialog } from './settings/RenderQueueDialog';
 import { channelForFormat, findFormat } from './lib/exportPresets';
-import { aspectLabel, describeReformat, reformatComp } from './lib/reformat';
+import { duplicateComp as copyComp, aspectLabel, describeReformat, reformatComp } from './lib/reformat';
 import { HomeScreen } from './settings/HomeScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { Tour, type TourStepId } from './onboarding/Tour';
 import { registerStorageRoot, UNTITLED_PROJECT } from './lib/storage';
+import { exportFolderFor } from './lib/exportFolder';
 
 /** “D:\Work\My Reel.bhippi” → “My Reel”. */
 const projectNameFromPath = (path: string) => (path.split(/[\\/]/).pop() ?? '').replace(/\.bhippi$/i, '').trim();
@@ -123,7 +139,7 @@ import { BackgroundPlugins, panelPlugins, PluginClipRenderers, pluginGlyph, Plug
 import { pluginClipIds } from './plugins/clipRender';
 import { loadPlugins, patchPlugin, pluginsBrief, usePlugins } from './plugins/store';
 import { DockArea, PanelDragOverlay, usePanelDrag } from './components/DockArea';
-import { defaultTree, movePanel, panelsIn, readTree, removePanel, resizeSplit, showPanel as showInTree, type DockDrop, type DockNode, type DockPanelId } from './lib/dockTree';
+import { activatePanel, defaultTree, frameOf, leafPanels, movePanel, panelsIn, readTree, removePanel, resizeSplit, showPanel as showInTree, withSplitPanels, type DockDrop, type DockNode, type DockPanelId } from './lib/dockTree';
 import { PluginFrame } from './plugins/PluginFrame';
 import { selectedPlugin, setPluginChecker } from './plugins/aiTools';
 import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/CharactersWindow';
@@ -138,9 +154,11 @@ import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/C
  */
 const PANEL_MIN = { chat: 436, transcript: 240, source: 260, properties: 260, project: 260, plugins: 240, top: 220 } as const;
 /** The smallest a panel of the editing area may be dragged, px along its row or column. */
-const DOCK_PANEL_MIN: Partial<Record<string, number>> = { program: 320, timeline: 280, storyboard: 240, transcript: 240, source: 260, properties: 260, project: 240, plugins: 240 };
+const DOCK_PANEL_MIN: Partial<Record<string, number>> = { program: 320, timeline: 280, storyboard: 240, transcript: 240, source: 260, properties: 260, project: 240, plugins: 240, effects: 220, subtitles: 240, graphics: 240, audio: 220, 'effect-controls': 260 };
 /** Panel names for the Window menu, drag labels and drop hints. */
-const PANEL_NAMES: Record<string, string> = { project: 'Project', source: 'Source Monitor', program: 'Program Monitor', properties: 'Properties', timeline: 'Timeline', meters: 'Audio Meters', tools: 'Tools', storyboard: 'Storyboard', transcript: 'Transcription', plugins: 'Plugins' };
+const PANEL_NAMES: Record<string, string> = { project: 'Project', source: 'Source Monitor', program: 'Program Monitor', properties: 'Properties', timeline: 'Timeline', meters: 'Audio Meters', tools: 'Tools', storyboard: 'Storyboard', transcript: 'Transcription', plugins: 'Plugins', effects: 'Effects', subtitles: 'Subtitles', graphics: 'Graphics', audio: 'Audio', 'effect-controls': 'Effect Controls' };
+/** A tab of a stacked frame that belongs to another panel than the one showing (see `panel`). */
+const STACK_TAB = 'dock:';
 
 /**
  * A saved layout made current: its dock tree, or — for a layout saved before panels could be
@@ -148,7 +166,8 @@ const PANEL_NAMES: Record<string, string> = { project: 'Project', source: 'Sourc
  */
 function layoutTree(saved: Partial<WorkspaceLayout>): DockNode | null {
   const stored = readTree(saved.tree);
-  if (stored) return stored;
+  // Saved before Effects, Subtitles, Graphics, Audio and Effect Controls were panels of their own.
+  if (stored) return saved.panelsSplit ? stored : withSplitPanels(stored);
   const hidden = new Set(saved.hidden ?? DEFAULT_LAYOUT.hidden);
   let tree: DockNode | null = defaultTree();
   for (const panel of ['properties', 'project', 'meters', 'tools'] as const) if (hidden.has(panel)) tree = removePanel(tree, panel);
@@ -187,15 +206,26 @@ type ContextMenu = { anchor: DOMRect; items: MenuItem[] } | null;
  * It is what the call was *asked* for, shown while it runs and before there is any result — three
  * fields is enough to tell two calls apart without turning the chat into a JSON dump.
  */
+/**
+ * What a tool call was asked to do, for its row in the chat while it runs. Written for the person
+ * reading it: ids are left out when there is anything else to say, keys become words, and times
+ * read as the timeline shows them ("start 0:04.2", not "start: 4.2").
+ */
+const ARG_ID = /^ids?$|Ids?$/;
+const ARG_TIME = /^(start|end|at|time|from|to|in|out|duration|seconds|offset)$|(Start|End|Time|At|Seconds|Duration)$/;
+const argWords = (key: string) => key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
+const argTime = (seconds: number) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
 function describeArgs(args: Record<string, unknown>): string {
-  return Object.entries(args)
-    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+  const given = Object.entries(args).filter(([, value]) => value !== null && value !== undefined && value !== '');
+  const readable = given.filter(([name]) => !ARG_ID.test(name));
+  return (readable.length ? readable : given)
     .slice(0, 3)
     .map(([name, value]) => {
-      if (Array.isArray(value)) return `${name}: ${value.length}`;
-      if (typeof value === 'object') return name;
+      if (Array.isArray(value)) return `${value.length} ${argWords(name)}`;
+      if (typeof value === 'object') return argWords(name);
+      if (typeof value === 'number' && ARG_TIME.test(name) && value >= 0) return `${argWords(name)} ${argTime(value)}`;
       const text = String(value);
-      return `${name}: ${text.length > 44 ? `${text.slice(0, 44)}…` : text}`;
+      return `${argWords(name)}: ${text.length > 44 ? `${text.slice(0, 44)}…` : text}`;
     })
     .join(' · ');
 }
@@ -225,6 +255,23 @@ const overTimeline = (x: number, y: number) => [...document.querySelectorAll<HTM
   const rect = node.getBoundingClientRect();
   return rect.width > 0 && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 });
+
+/** Crash detection: set while Bhippi runs, cleared by a clean close. Still set at launch = the last session ended uncleanly. */
+const RUNNING_KEY = 'bhippi.session.running';
+function endedUncleanly(): boolean {
+  try {
+    return localStorage.getItem(RUNNING_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+function markRunning(running: boolean) {
+  try {
+    localStorage.setItem(RUNNING_KEY, String(running));
+  } catch {
+    // Without storage there is no crash notice; nothing else depends on it.
+  }
+}
 
 export default function App() {
   const toast = useToast();
@@ -370,7 +417,6 @@ export default function App() {
   const [focused, setFocused] = useState<PanelId>('timeline');
   const [maximized, setMaximized] = useState<PanelId | null>(null);
   const [layout, setLayout] = useState<WorkspaceLayout>(freshLayout);
-  const [projectTab, setProjectTab] = useState<ProjectTab>('project');
   const [chatTab, setChatTab] = useState<'chat' | 'providers'>('chat');
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceRanges, setSourceRanges] = useState<Record<string, SourceRange>>({});
@@ -382,8 +428,24 @@ export default function App() {
   const tourOffered = useRef(false);
   /** The open project's folder under the storage root (storage.rs), for paths built in the UI. */
   const projectDirRef = useRef<string | null>(null);
-  const [inspectorTab, setInspectorTab] = useState<'properties' | 'effects'>('properties');
   const [exportOpen, setExportOpen] = useState(false);
+  /** The edit point keyboard trims act on (a clip's In or Out), selected by clicking an edge or Shift+T. */
+  const [selectedEdit, setSelectedEdit] = useState<{ clipId: string; edge: 'in' | 'out' } | null>(null);
+  /** K held down (J/L then step frames: slow jog). Tracked from the physical key, as the keymap reads keys. */
+  const kHeld = useRef(false);
+  useEffect(() => {
+    const down = (event: KeyboardEvent) => { if (event.code === 'KeyK' && !event.ctrlKey && !event.metaKey && !event.altKey) kHeld.current = true; };
+    const up = (event: KeyboardEvent) => { if (event.code === 'KeyK') kHeld.current = false; };
+    const blur = () => { kHeld.current = false; };
+    window.addEventListener('keydown', down, true);
+    window.addEventListener('keyup', up, true);
+    window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', down, true); window.removeEventListener('keyup', up, true); window.removeEventListener('blur', blur); };
+  }, []);
+  /** Where Match Frame parks the Source monitor (a new nonce parks again). */
+  const [sourcePark, setSourcePark] = useState<{ assetId: string; time: number; nonce: number } | null>(null);
+  /** Edit › History…: every undo step, to jump to. */
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [fxConsoleOpen, setFxConsoleOpen] = useState(false);
@@ -422,10 +484,23 @@ export default function App() {
   // Read through refs at each event, so a turn traces into the project that was open when it began.
   configureTrace({ enabled: () => settingsRef.current.turnTraces !== false, project: () => projectDirRef.current });
   const layoutStart = useRef(layout);
+  const restoreBackupRef = useRef<(path: string) => Promise<void>>(async () => undefined);
+  /** The latest history and file opener, for handlers registered once. */
+  const live = useRef<{ history: typeof history; openProjectFile: (path: string, fromRecents?: boolean) => Promise<void> }>(null!);
   const turnSnapshots = useRef(new Map<string, Project>());
+  /** The project as each AI turn left it, so Revert knows whether anything changed since. */
+  const turnResults = useRef(new Map<string, Project>());
+  /** What each AI turn changed (lib/turnChanges.ts), for the chat's change list. */
+  const turnChanges = useRef(new Map<string, TurnChange[]>());
+  /** Corrections already offered as learnings this session (lib/correctionLearning.ts), by key. */
+  const offeredCorrections = useRef(new Set<string>());
+  /** The clips the last AI turn added or changed, tinted on the timeline until the next turn or until hidden. */
+  const [aiHighlight, setAiHighlight] = useState<{ turnId: string; clipIds: Set<string> } | null>(null);
   const editWorkflows = useRef(new Map<string, EditWorkflow>());
   /** Turns started from the Plugin Maker's chat (docs/PLUGIN-PLATFORM-PLAN.md). */
   const makerTurns = useRef(new Set<string>());
+  /** Turns whose model runs guided (modelProfile.ts): their graphics come from templates only. */
+  const guidedTurns = useRef(new Set<string>());
   const renderOriginals = useRef(new Map<string, Clip['source']>());
   const recorder = useRef<{ stop: () => void } | null>(null);
   const stageRefProxy = useMemo(() => ({ get current() { return programApi.current?.getStage() ?? null; } }), []);
@@ -434,7 +509,7 @@ export default function App() {
   const offline = useMemo(() => new Set(project.media.filter((ref) => ref.offline).map((ref) => ref.assetId)), [project.media]);
   const comp = useMemo(() => project.comps.find((item) => item.id === project.activeCompId) ?? project.comps[0], [project]);
   const sourceAsset = sourceId ? assetMap.get(sourceId) : undefined;
-  const dirty = !!savedProject && savedProject !== project;
+  const dirty = isUnsaved(project, savedProject, settings.projectPath);
   const selectedClips = useMemo(() => (comp ? comp.clips.filter((clip) => selection.includes(clip.id)) : []), [comp, selection]);
   const fps = comp?.fps ?? 30;
   const frame = 1 / fps;
@@ -464,6 +539,7 @@ export default function App() {
           hidden: saved.hidden.includes('chat') ? ['chat'] : [],
           chatWidth: Math.max(PANEL_MIN.chat, saved.chatWidth),
           tree: layoutTree(stored.layout) ?? defaultTree(),
+          panelsSplit: true,
           docked: [],
         });
       }
@@ -473,6 +549,13 @@ export default function App() {
       const opened = loadProject(loadedProject, map);
       history.reset(opened);
       setSavedProject(opened);
+      // The last session did not close cleanly (a crash, a power cut, a kill): what is on screen
+      // is its last autosave, which may hold edits never saved to the project file.
+      if (endedUncleanly() && (opened.media.length || opened.comps.some((comp) => comp.clips.length))) {
+        if (stored.projectPath) setSavedProject({ ...opened });
+        toast({ tone: 'info', title: 'Bhippi closed unexpectedly last time', body: 'Your work is back as of the last autosave (every half second). Older versions are in File › Restore from Backup….', timeout: 12000, actions: [{ label: 'Show backups', run: () => setDialog(<RestoreBackupDialog projectName={opened.name} onClose={() => setDialog(null)} onRestore={(path) => { setDialog(null); void restoreBackupRef.current(path); }} />) }] });
+      }
+      markRunning(true);
       jobsStore.reset(jobList);
       setJobs(Object.fromEntries(jobList.map((job) => [job.id, job])));
       setLoaded(true);
@@ -487,6 +570,9 @@ export default function App() {
 
   useEffect(() => setMutes(mutes), [mutes]);
 
+  // Backend events, subscribed once. They read the latest history and file opener through a ref:
+  // re-subscribing on every edit (history changes with each one) left a gap in which a job event —
+  // "export complete", a finished generation — could arrive with nobody listening.
   useEffect(() => {
     const subscriptions = [
       events.library(() => {
@@ -505,11 +591,11 @@ export default function App() {
           const unsubscribe = licenseStore.subscribe(() => {
             if (licenseStore.get().blocked) return;
             unsubscribe();
-            void openProjectFile(path);
+            void live.current.openProjectFile(path);
           });
           return;
         }
-        void openProjectFile(path);
+        void live.current.openProjectFile(path);
       }),
       events.job((job) => {
         // A progress tick updates the store (and the progress bars reading it) and nothing else.
@@ -532,9 +618,10 @@ export default function App() {
               await refreshAssets();
               const all = [...res.imported, ...res.existing];
               if (all.length > 0) {
-                const currentProject = history.current();
-                const targetFolder = generatedFolderId(currentProject, (fn) => history.commit(fn, 'Generated Folder'));
-                history.commit((current) => ({
+                const { history: latest } = live.current;
+                const currentProject = latest.current();
+                const targetFolder = generatedFolderId(currentProject, (fn) => latest.commit(fn, 'Generated Folder'));
+                latest.commit((current) => ({
                   ...current,
                   media: [
                     ...current.media.map((ref) =>
@@ -559,7 +646,7 @@ export default function App() {
       }),
     ];
     return () => subscriptions.forEach((pending) => void pending.then((unlisten) => unlisten()));
-  }, [refreshAssets, toast, history]);
+  }, [refreshAssets, toast]);
 
   // ── AI tool calls ──────────────────────────────────────────────────────
   const toolHost = useMemo(() => ({
@@ -835,7 +922,10 @@ export default function App() {
       const call = { ...sent, args: repairArgs(sent.name, sent.args) };
       const controller = new AbortController();
       toolAborts.current.set(call.callId, { turnId: call.turnId, controller });
-      if (!turnSnapshots.current.has(call.turnId)) turnSnapshots.current.set(call.turnId, hostRef.current.history.current());
+      if (!turnSnapshots.current.has(call.turnId)) {
+        turnSnapshots.current.set(call.turnId, hostRef.current.history.current());
+        setAiHighlight((current) => (current && current.turnId !== call.turnId ? null : current));
+      }
       // Reads of the project are how the assistant looks at the screen; listing them as work would
       // bury the edits under noise. Everything else goes up the moment it starts, so a call that is
       // taking its time is visibly taking its time rather than simply absent.
@@ -859,7 +949,8 @@ export default function App() {
       // choice, not the model's.
       const maker = makerTurns.current.has(call.turnId);
       const outside = maker ? harnessRefusal('plugin-maker', call.name) : null;
-      const permitted = outside ? { ok: false as const, reason: outside } : allowTool(permissionRef.current, call.name);
+      const guidedBlock = !outside && guidedTurns.current.has(call.turnId) ? guidedRefusal(call.name, (call.args && typeof call.args === 'object' ? call.args : {}) as Record<string, unknown>) : null;
+      const permitted = outside ? { ok: false as const, reason: outside } : guidedBlock ? { ok: false as const, reason: guidedBlock } : allowTool(permissionRef.current, call.name);
       let workflow = editWorkflows.current.get(call.turnId);
       if (!workflow) {
         // Rebuilt after "New conversation" cleared it mid-turn: a Plugin Maker turn stays quick and never asks for a frame size.
@@ -902,6 +993,8 @@ export default function App() {
               if (outsideHarness) return outsideHarness;
               const allowed = allowTool(permissionRef.current, name);
               if (!allowed.ok) return allowed.reason;
+              const rawStep = guidedTurns.current.has(call.turnId) ? guidedRefusal(name, stepArgs) : null;
+              if (rawStep) return rawStep;
               return turnWorkflow.before(name, stepArgs, hostRef.current.history.current());
             },
             record: (name: string, stepArgs: Record<string, unknown>, stepResult: ToolResult) => turnWorkflow.record(name, stepArgs, stepResult, hostRef.current.history.current()),
@@ -944,7 +1037,7 @@ export default function App() {
         const status = result.ok ? ('done' as const) : permitted.ok ? ('failed' as const) : ('denied' as const);
         setToolRuns((current) => ({
           ...current,
-          [call.turnId]: (current[call.turnId] ?? []).map((run) => (run.callId === call.callId ? { ...run, summary, status, ms, changedProject } : run)),
+          [call.turnId]: (current[call.turnId] ?? []).map((run) => (run.callId === call.callId ? { ...run, summary, status, ms, changedProject, ...(result.ok && call.name === 'train_brand_kit' && typeof result.kitId === 'string' && typeof result.sourceId === 'string' ? { training: { kitId: result.kitId, sourceId: result.sourceId } } : {}) } : run)),
         }));
       }
       // Anything the user typed while this turn works goes back with this result, so the model reads it now.
@@ -956,12 +1049,31 @@ export default function App() {
     return () => void pending.then((unlisten) => unlisten());
   }, []);
 
-  const revertTurn = (turnId: string) => {
+  /**
+   * Puts the project back to before an AI turn. Straight away when nothing has changed since the
+   * turn ended; otherwise it asks first, because the snapshot is the whole project — the user's
+   * own edits and any later turn since would go with it (one Ctrl+Z brings them back).
+   */
+  const revertTurn = (turnId: string): Promise<boolean> => {
     const snapshot = turnSnapshots.current.get(turnId);
-    if (!snapshot) return false;
-    history.commit(snapshot, 'Revert AI edits');
-    turnSnapshots.current.delete(turnId);
-    return true;
+    if (!snapshot) return Promise.resolve(false);
+    const apply = () => {
+      history.commit(snapshot, 'Revert AI edits');
+      turnSnapshots.current.delete(turnId);
+      turnResults.current.delete(turnId);
+      return true;
+    };
+    const after = turnResults.current.get(turnId);
+    if (after && after === history.current()) return Promise.resolve(apply());
+    return new Promise((resolve) => setDialog(
+      <ConfirmDialog
+        title="Revert these AI edits?"
+        body="The project has changed since this turn — your own edits, or a later AI turn. Reverting puts the whole project back to how it was before this turn, so those later changes are undone too. Ctrl+Z straight after brings them back."
+        confirmLabel="Revert anyway"
+        onConfirm={() => { setDialog(null); resolve(apply()); }}
+        onClose={() => { setDialog(null); resolve(false); }}
+      />,
+    ));
   };
 
   /**
@@ -1006,7 +1118,8 @@ export default function App() {
     const message = phase === 'gathering'
       ? 'Start generating. The plan is approved: begin the GATHER phase now. Call editing_workflow_status, then gather every planned shot one call at a time with its sceneIndex — text-to-video shots 5–7 s from their own script and prompt (generate_cloud_media when cloud generation is on — every generated shot in one call so the editor approves them together — otherwise generate_local_media task video, wait true), images, downloads and scrapes into their research folders, the voice-over (synthesize_speech_voiceover) and the music bed. Retry a failed generation once with a simpler prompt. When everything has a real asset, call finish_gathering and end your turn with a short list of what was gathered. Do not touch the timeline.'
       : 'Start editing. Everything is gathered: begin the EDIT phase now. Call editing_workflow_status and get_comp, then (from scratch) execute_blueprint or (footage) work the saved storyboard beat by beat: cuts and pacing, level_audio, analyze_music_beats + snap_cuts_to_beats, seamless_transition on beats, rotoscope_clip → erase_subject_clip → add_text_behind_subject where planned, each beat\'s planned graphic — with a brand kit active, its brand-* recipe via create_motion_scene; otherwise a motion-engine template via create_motion_scene, or a Crimson HTML template via create_motion_graphic where the engine has none; layout_clip where the beat has a side panel, SFX on events, captions. Then POLISH: run_frame_qa, fix every overlap, run it again until clear, and finish with get_comp + verify_edit_workflow. Do not stop until verify passes or you have named the exact blocker.';
-    window.setTimeout(() => chatApi.current?.send(message), 50);
+    // A production phase is the full workflow, whatever the composer is set to.
+    window.setTimeout(() => chatApi.current?.send(message, { mode: 'full' }), 50);
   };
 
   /**
@@ -1033,11 +1146,14 @@ export default function App() {
   // ── persistence ────────────────────────────────────────────────────────
   /** Why the last autosave was refused, so one broken project is reported once, not per edit. */
   const saveFault = useRef<string | null>(null);
+  /** Set once the window is closing without saving, so a waiting autosave cannot bring the discarded edits back. */
+  const discarding = useRef(false);
   useEffect(() => {
     if (!loaded) return;
-    const snapshot = healProject(project);
     const handle = window.setTimeout(() => {
-      api.projectSave(snapshot)
+      if (discarding.current) return;
+      // Healed here, once the edits have settled, not synchronously on every change (each frame of a drag).
+      api.projectSave(healProject(project))
         .then(() => {
           void api.storageProjectDir().then((dir) => { projectDirRef.current = dir; }).catch(() => undefined);
           // Coming back from a refused save is worth saying; staying saved is not.
@@ -1107,10 +1223,16 @@ export default function App() {
   }, [comp]);
 
   // The color theme is surface only: Minimalist flattens the chrome, nothing else changes.
+  // Only when the look itself changes: settings also save the layout and zoom every few hundred ms,
+  // and each of those used to re-apply the theme and notify every plugin page.
+  const theme = resolveTheme(settings);
+  const glass = resolveGlass(settings);
+  const motion = resolveMotion(settings);
+  const themeKey = JSON.stringify([theme, glass, motion]);
   useEffect(() => {
-    applyTheme(resolveTheme(settings), resolveGlass(settings), resolveMotion(settings));
+    applyTheme(theme, glass, motion);
     pluginEvents.theme();
-  }, [settings]);
+  }, [themeKey]);
 
   // ── project files ──────────────────────────────────────────────────────
   /**
@@ -1260,7 +1382,17 @@ export default function App() {
         const doc = settingsRef.current.brandKits ?? { kits: [], activeId: null };
         if (!doc.kits.some((entry) => entry.id === kit.id)) saveSettings({ brandKits: { kits: [...doc.kits, kit], activeId: doc.activeId ?? kit.id } });
       }
-      if (Array.isArray(extras?.chat) && extras.chat.length) chatApi.current?.load(extras.chat);
+      // The chat is the file's own: one without a transcript opens with an empty chat, not the
+      // previous project's (which the next save would otherwise write into this file). The last
+      // project's AI turns go too, so an old Revert cannot put that project back over this one.
+      chatApi.current?.load(Array.isArray(extras?.chat) ? extras.chat : []);
+      turnSnapshots.current.clear();
+      turnResults.current.clear();
+      turnChanges.current.clear();
+      setAiHighlight(null);
+      editWorkflows.current.clear();
+      setToolRuns({});
+      setPendingAsks([]);
       setMode('edit');
       if (scripts) askToRunScripts(scripts, opened);
       toast({ tone: 'success', title: 'Project opened', body: path.split(/[\\/]/).pop(), timeout: 2500 });
@@ -1268,6 +1400,29 @@ export default function App() {
       toast({ tone: 'error', title: 'Could not open that project', body: errorText(error) });
     }
   };
+
+  // What the once-subscribed backend events call (see the subscription effect above).
+  live.current = { history, openProjectFile };
+
+  /** File › Restore from Backup…: a backup loaded into the open project as one undo step. */
+  const restoreBackup = async (path: string) => {
+    try {
+      const raw = (await api.projectFileRead(path)) as BhippiDocument;
+      const bundled = Array.isArray(raw.assets) ? raw.assets : [];
+      if (bundled.length) await api.libraryAdopt(bundled).catch(() => ({}));
+      const library = await api.libraryList();
+      setAssets(library);
+      const restored = loadProject(raw.project ?? raw, new Map(library.map((asset) => [asset.id, asset])));
+      // The open project keeps its own name and file; only its contents go back.
+      const current = history.current();
+      history.commit(() => ({ ...restored, name: current.name }), 'Restore Backup');
+      toast({ tone: 'success', title: 'Backup restored', body: 'Ctrl+Z undoes it. Save to keep it in the project file.', timeout: 5000 });
+    } catch (error) {
+      toast({ tone: 'error', title: 'Could not restore that backup', body: errorText(error) });
+    }
+  };
+
+  restoreBackupRef.current = restoreBackup;
 
   const hasHeldScripts = project.comps.some((comp) => comp.clips.some((clip) => clip.source.type === 'html' && !!clip.source.quarantinedJs));
   /** Puts back the graphic scripts an opened file held back (File › Enable Graphic Scripts). */
@@ -1334,33 +1489,49 @@ export default function App() {
       playhead.seek(0);
       chatApi.current?.clear();
       turnSnapshots.current.clear();
+      turnResults.current.clear();
+      turnChanges.current.clear();
+      setAiHighlight(null);
       editWorkflows.current.clear();
       renderOriginals.current.clear();
       setMode('edit');
       toast({ tone: 'info', title: 'New project', body: 'Started a fresh, clean, empty project.', timeout: 2000 });
     }, 'New project');
 
-  // Closing the window asks about unsaved work.
+  // Closing the window asks about unsaved work in a project that has a file. An untitled project
+  // closes without asking: the session autosave is its copy and reopens it next launch.
+  // "Close without saving" puts the session back to the file as last saved; otherwise the autosave
+  // would reopen the discarded edits next launch, marked as saved. Registered once and read
+  // through a ref, so the listener is not torn down and re-added on every edit.
+  const closeState = useRef({ savedProject, path: settings.projectPath, current: history.current, save: saveProject });
+  closeState.current = { savedProject, path: settings.projectPath, current: history.current, save: saveProject };
   useEffect(() => {
     const window_ = getCurrentWindow();
     const pending = window_.onCloseRequested((event) => {
-      if (!savedProject || savedProject === history.current()) return;
+      const { savedProject: saved, path, current } = closeState.current;
+      // A clean close (the next launch will not offer crash recovery).
+      markRunning(false);
+      if (!path || !saved || saved === current()) return;
       event.preventDefault();
       setDialog(
         <ConfirmDialog
           title="Close Bhippi"
           top
-          body={`Save changes to “${history.current().name}” before closing?`}
+          body={`Save changes to “${current().name}” before closing?`}
           confirmLabel="Save and close"
           discardLabel="Close without saving"
-          onConfirm={() => { setDialog(null); void saveProject().then((ok: boolean) => { if (ok) void window_.destroy(); }); }}
-          onDiscard={() => { setDialog(null); void window_.destroy(); }}
-          onClose={() => setDialog(null)}
+          onConfirm={() => { setDialog(null); void closeState.current.save().then((ok: boolean) => { if (ok) void window_.destroy(); }); }}
+          onDiscard={() => {
+            setDialog(null);
+            discarding.current = true;
+            void api.projectSave(healProject(saved)).catch(() => undefined).finally(() => void window_.destroy());
+          }}
+          onClose={() => { markRunning(true); setDialog(null); }}
         />,
       );
     });
     return () => void pending.then((unlisten) => unlisten());
-  }, [savedProject, history]);
+  }, []);
 
   // Updates from bhippi.com (lib/updater.ts): checked in the background once the project is in.
   // Installing closes Bhippi, so the work is saved first. A project with a file is saved to it when
@@ -1431,10 +1602,11 @@ export default function App() {
     setLayout((current) => (current.hidden.includes('chat') ? { ...current, hidden: current.hidden.filter((id) => id !== 'chat') } : current));
     setMaximized((current) => (current && current !== 'chat' ? null : current));
   }, [mainAsks.length]);
+  /** Opens a panel (or brings its tab to the front); `tab` names one of the panels that were Project's tabs. */
   const showPanel = (panel: PanelId, tab?: ProjectTab) => {
-    setPanelVisible(panel, true);
-    setFocused(panel);
-    if (tab) setProjectTab(tab);
+    const target: PanelId = tab && tab !== 'project' ? tab : panel;
+    setPanelVisible(target, true);
+    setFocused(target);
   };
   const toggleMax = (panel: PanelId) => setMaximized((current) => (current === panel ? null : panel));
   const resize = (key: keyof Omit<WorkspaceLayout, 'hidden' | 'meters'>, min: number, max: number, sign = 1) => (delta: number) =>
@@ -1497,7 +1669,7 @@ export default function App() {
   const applyWorkspace = (name: string) => {
     const saved = workspaces.find((item) => item.name === name);
     if (!saved) return;
-    setLayout({ ...DEFAULT_LAYOUT, ...saved.layout, hidden: saved.layout.hidden?.includes('chat') ? ['chat'] : [], tree: layoutTree(saved.layout) ?? defaultTree(), docked: [] });
+    setLayout({ ...DEFAULT_LAYOUT, ...saved.layout, hidden: saved.layout.hidden?.includes('chat') ? ['chat'] : [], tree: layoutTree(saved.layout) ?? defaultTree(), panelsSplit: true, docked: [] });
     setMaximized(null);
     saveSettings({ workspaceName: name });
   };
@@ -1619,20 +1791,154 @@ export default function App() {
     if (picked) await importFiles(Array.isArray(picked) ? picked : [picked]);
   }, [importFiles, info]);
 
-  const sourceEdit = (asset: Asset, range: SourceRange, mode: 'insert' | 'overwrite') => {
+  /**
+   * Insert / Overwrite from the Source monitor, by Premiere's three-point rules (lib/timeline.ts
+   * `threePointEdit`): the timeline's In and Out, when marked, decide where it lands and how long
+   * it is; otherwise the playhead. `fit` (Fit to Fill) retimes the whole source range to the
+   * timeline In→Out instead.
+   */
+  const sourceEdit = (asset: Asset, range: SourceRange, mode: 'insert' | 'overwrite', fit = false) => {
     if (!comp) return;
-    const at = playhead.get();
-    const clips = clipsForSource(project, assetMap, { type: 'media', assetId: asset.id }, { start: at, videoTrack: comp.sourceVideo, audioTrack: comp.sourceAudio, in: range.in, duration: Math.max(frame, range.out - range.in) });
+    const marks = { in: comp.inPoint, out: comp.outPoint };
+    const speed = fit ? fitToFillSpeed(marks, range) : null;
+    if (fit && !speed) return toast({ tone: 'info', title: 'Mark In and Out in the timeline first', body: 'Fit to Fill plays the source In→Out across the timeline In→Out.' });
+    const available = asset.kind === 'image' || !asset.duration ? Infinity : asset.duration - range.in;
+    const edit = speed
+      ? { start: marks.in!, in: range.in, duration: Math.max(frame, range.out - range.in), note: null }
+      : threePointEdit(marks, playhead.get(), range, available, frame);
+    const clips = clipsForSource(project, assetMap, { type: 'media', assetId: asset.id }, { start: edit.start, videoTrack: comp.sourceVideo, audioTrack: comp.sourceAudio, in: edit.in, duration: edit.duration });
     if (!clips.length) return toast({ tone: 'info', title: 'Nothing to edit in', body: 'Patch a track in the timeline header first.' });
-    editComp(() => placeClips(comp, clips, mode), mode === 'insert' ? 'Insert' : 'Overwrite');
-    setSelection(clips.map((clip) => clip.id));
-    playhead.seek(at + clips[0].duration);
+    const ids = clips.map((clip) => clip.id);
+    // From the comp as it is now (an AI edit may have landed since this render), not the render's copy.
+    editComp((current) => {
+      const placed = placeClips(current, clips, mode);
+      return speed ? setSpeed(placed, ids, { speed, duration: marks.out! - marks.in!, limit }) : placed;
+    }, speed ? 'Fit to Fill' : mode === 'insert' ? 'Insert' : 'Overwrite');
+    setSelection(ids);
+    playhead.seek(speed ? marks.out! : edit.start + edit.duration);
+    if (edit.note) toast({ tone: 'info', title: mode === 'insert' ? 'Inserted' : 'Overwritten', body: edit.note, timeout: 4000 });
   };
 
   const openInSource = (assetId: string, range?: SourceRange) => {
     setSourceId(assetId);
     if (range) setSourceRanges((current) => ({ ...current, [assetId]: range }));
     showPanel('source');
+  };
+
+  // ── one-click clean-ups (lib/cleanup.ts) ───────────────────────────────
+  /** Extracts `ranges` (latest first) from the active comp as one undo step. */
+  const cutRanges = (ranges: { start: number; end: number }[], label: string) => {
+    if (!comp || !ranges.length) return;
+    editComp((current) => ranges.reduce((next, range) => removeRange(next, range.start, range.end, 'extract'), current), label);
+  };
+  const removeSilences = async () => {
+    if (!comp) return;
+    const clips = speechClips(comp);
+    const assetIds = [...new Set(clips.map((clip) => (clip.source as { assetId: string }).assetId))];
+    const loaded = new Map<string, Peaks>();
+    for (const id of assetIds) {
+      const path = assetMap.get(id)?.peaks;
+      const peaks = path ? await loadPeaks(path) : null;
+      if (peaks) loaded.set(id, peaks);
+    }
+    if (!loaded.size) return toast({ tone: 'info', title: 'No speech to check', body: clips.length ? 'The audio levels are still being prepared; try again in a moment.' : 'Remove Silences looks at dialogue on audio tracks (not music or effects).' });
+    const ranges = silentRanges(comp, assetMap, (id) => loaded.get(id) ?? null);
+    if (!ranges.length) return toast({ tone: 'info', title: 'No long pauses found', body: 'Nothing quieter than −38 dB for 0.6 s or more.', timeout: 3000 });
+    const seconds = ranges.reduce((sum, range) => sum + range.end - range.start, 0);
+    cutRanges(ranges, 'Remove Silences');
+    toast({ tone: 'success', title: `Removed ${ranges.length} silence${ranges.length === 1 ? '' : 's'}`, body: `${seconds.toFixed(1)} s shorter. Ctrl+Z puts them back.`, timeout: 4000 });
+  };
+  const removeFillers = async () => {
+    if (!comp) return;
+    const ids = [...new Set(speechClips(comp).map((clip) => (clip.source as { assetId: string }).assetId))];
+    const found = ids.length ? await api.transcriptsCached(ids).catch(() => []) : [];
+    if (!found.length) return toast({ tone: 'info', title: 'Transcribe first', body: 'Remove Filler Words reads the transcript: open Window › Transcription and press Transcribe.' });
+    const words = timelineWords(comp, assetMap, new Map(found.map((transcript) => [transcript.assetId, transcript])));
+    const fillers = fillerIndices(words);
+    if (!fillers.size) return toast({ tone: 'info', title: 'No filler words found', timeout: 3000 });
+    cutRanges(cutRangesForWords(words, fillers), 'Remove Filler Words');
+    toast({ tone: 'success', title: `Removed ${fillers.size} filler word${fillers.size === 1 ? '' : 's'}`, body: 'Ctrl+Z puts them back.', timeout: 4000 });
+  };
+  /** A 9:16 copy of the comp, reframed to fill (the original stays as it is), opened. */
+  const makeVerticalCopy = () => {
+    if (!comp) return;
+    let report = '';
+    let madeId: string | null = null;
+    history.commit((current) => {
+      const copied = copyComp(current, comp.id, `${comp.name} Vertical`);
+      if (!copied) return current;
+      const reformatted = reformatComp(copied.project, copied.compId, { width: 1080, height: 1920 }, 'fill');
+      report = describeReformat(reformatted.report, 'fill');
+      madeId = copied.compId;
+      return { ...reformatted.project, activeCompId: copied.compId, openCompIds: [...reformatted.project.openCompIds, copied.compId] };
+    }, 'Make Vertical Copy');
+    if (madeId) toast({ tone: 'success', title: 'Vertical copy made', body: `${report}. The original comp is unchanged.`, timeout: 5000 });
+  };
+
+  /**
+   * Right-click › Ask Bhippi AI: the chat opens with the clips named (and selected, which the AI
+   * reads as `selectedClipIds`), ready for the request. Nothing is sent until the user does.
+   */
+  const askAboutClips = (clips: Clip[]) => {
+    if (!clips.length || !comp) return;
+    setSelection(clips.map((clip) => clip.id));
+    setPanelVisible('chat', true);
+    setChatTab('chat');
+    const start = Math.min(...clips.map((clip) => clip.start));
+    const end = Math.max(...clips.map(clipEnd));
+    const names = [...new Set(clips.map((clip) => clip.name ?? sourceInfo(project, assetMap, clip.source).name))].slice(0, 3).join(', ');
+    chatApi.current?.compose(`About the ${clips.length === 1 ? 'selected clip' : `${clips.length} selected clips`} (${names}${clips.length > 3 ? '…' : ''}, ${timecode(start, fps)}–${timecode(end, fps)}): `);
+  };
+
+  /** File › Export › Captions: the active comp's captions as SubRip or WebVTT. */
+  const hasCaptions = !!comp?.clips.some((clip) => clip.source.type === 'text' && clip.source.preset === 'caption');
+  const exportCaptions = async (format: 'srt' | 'vtt') => {
+    if (!comp) return;
+    const cues = captionCues(comp);
+    if (!cues.length) return toast({ tone: 'info', title: 'No captions in this comp' });
+    const folder = exportFolderFor(settingsRef.current.export, await api.storageDir('exports').catch(() => null));
+    const path = await api.pickSavePath(`Save captions (.${format})`, `${safeFileName(comp.name)}.${format}`, format === 'srt' ? 'SubRip captions' : 'WebVTT captions', [format], folder);
+    if (!path) return;
+    try {
+      await api.fsWriteFile(path, format === 'srt' ? toSrt(cues) : toVtt(cues), true);
+      toast({ tone: 'success', title: `Saved ${cues.length} captions`, body: path.split(/[\\/]/).pop(), timeout: 3000, actions: [{ label: 'Show in folder', run: () => void api.revealPath(path) }] });
+    } catch (error) {
+      toast({ tone: 'error', title: 'Could not save the captions', body: errorText(error) });
+    }
+  };
+
+  // Opt-in (the active kit's Learnings): after an AI turn, a correction by the user that reads as a
+  // preference is offered as a learning for the kit — never saved without the click.
+  useEffect(() => {
+    const kit = resolveActiveKit(settingsRef.current.brandKits ?? null, project);
+    if (!kit?.learnFromCorrections || !aiHighlight) return;
+    const afterTurn = turnResults.current.get(aiHighlight.turnId);
+    if (!afterTurn || afterTurn === project || history.undoLabel.startsWith('AI: ')) return;
+    const timer = window.setTimeout(() => {
+      const suggestion = suggestFromCorrection(afterTurn, history.current(), aiHighlight.clipIds);
+      if (!suggestion || offeredCorrections.current.has(suggestion.key)) return;
+      offeredCorrections.current.add(suggestion.key);
+      toast({
+        tone: 'info', title: `Remember this for “${kit.name}”?`, body: `${suggestion.why} Next time: ${suggestion.learning.text.toLowerCase()}.`, timeout: 12000,
+        actions: [{ label: 'Remember', run: () => {
+          const doc = settingsRef.current.brandKits;
+          if (!doc) return;
+          const current = doc.kits.find((entry) => entry.id === kit.id);
+          if (!current) return;
+          const { kit: trained } = addLearnings(current, { kind: 'file', label: 'Your corrections' }, [suggestion.learning]);
+          saveSettings({ brandKits: { ...doc, kits: doc.kits.map((entry) => (entry.id === kit.id ? trained : entry)) } });
+        } }, { label: 'Not this', run: () => undefined }],
+      });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [project]);
+
+  /** A change the AI made, from the chat's list: its comp open, the playhead on it, the clip selected. */
+  const jumpToChange = (change: TurnChange) => {
+    if (history.current().activeCompId !== change.compId) openComp(change.compId);
+    playhead.seek(change.start);
+    timelineApi.current?.reveal(change.start);
+    if (change.kind !== 'removed') setSelection([change.clipId]);
   };
 
   const openComp = (compId: string) => {
@@ -1733,6 +2039,54 @@ export default function App() {
     if (target !== null) playhead.seek(target);
   };
 
+  /**
+   * Keyboard trimming. An edit point is selected by clicking a clip's edge (without dragging) or
+   * with Shift+T; Ctrl+Left/Right then trim it by frames in the active tool's mode (Ripple tool:
+   * ripple, Rolling tool: roll, Rate Stretch: stretch; otherwise a plain trim), and the playhead
+   * follows the edit.
+   */
+  const trimMode = (): TrimMode => (tool === 'ripple' ? 'ripple' : tool === 'rolling' ? 'rolling' : tool === 'rate-stretch' ? 'stretch' : 'normal');
+  const selectNearestEdit = () => {
+    const current = history.current().comps.find((item) => item.id === comp?.id);
+    if (!current) return;
+    const at = playhead.get();
+    const tracks = targetedTracks();
+    let best: { clipId: string; edge: 'in' | 'out'; time: number } | null = null;
+    for (const clip of current.clips) {
+      if (tracks.length && !tracks.includes(clip.trackId)) continue;
+      for (const [edge, time] of [['in', clip.start], ['out', clipEnd(clip)]] as const) {
+        const distance = Math.abs(time - at);
+        const bestDistance = best ? Math.abs(best.time - at) : Infinity;
+        // At a cut (an Out and an In at the same time) the outgoing clip's Out is chosen.
+        if (distance < bestDistance - 1e-9 || (Math.abs(distance - bestDistance) < 1e-9 && edge === 'out')) best = { clipId: clip.id, edge, time };
+      }
+    }
+    if (!best) return;
+    setSelectedEdit({ clipId: best.clipId, edge: best.edge });
+    playhead.seek(best.time);
+  };
+  const trimSelectedEdit = (frames: number) => {
+    if (!comp || !selectedEdit) return toast({ tone: 'info', title: 'Select an edit point first', body: 'Click a clip edge, or press Shift+T for the one nearest the playhead.', timeout: 3000 });
+    const current = history.current().comps.find((item) => item.id === comp.id);
+    const clip = current?.clips.find((item) => item.id === selectedEdit.clipId);
+    if (!current || !clip) return setSelectedEdit(null);
+    const edgeTime = selectedEdit.edge === 'in' ? clip.start : clipEnd(clip);
+    const mode = trimMode();
+    const next = trimEdge(current, clip.id, selectedEdit.edge, edgeTime + frames * frame, mode, limit, { alone: !linkedSelection });
+    if (next === current) return;
+    editComp(() => next, mode === 'ripple' ? 'Ripple Trim' : mode === 'rolling' ? 'Rolling Edit' : mode === 'stretch' ? 'Rate Stretch' : 'Trim');
+    const moved = next.clips.find((item) => item.id === clip.id);
+    if (moved) playhead.seek(selectedEdit.edge === 'in' ? moved.start : clipEnd(moved));
+  };
+  const slipOrSlide = (kind: 'slip' | 'slide', frames: number) => {
+    if (!comp || !selection.length) return;
+    const current = history.current().comps.find((item) => item.id === comp.id);
+    if (!current) return;
+    let next = current;
+    for (const id of selection) next = kind === 'slip' ? slipClip(next, id, frames * frame, limit) : slideClip(next, id, frames * frame, limit);
+    if (next !== current) editComp(() => next, kind === 'slip' ? 'Slip' : 'Slide');
+  };
+
   const nudge = (frames: number, tracksToo = false) => {
     if (!comp || !selection.length) return;
     const shift = tracksToo ? { video: frames > 0 ? 1 : -1, audio: frames > 0 ? 1 : -1 } : { video: 0, audio: 0 };
@@ -1788,7 +2142,7 @@ export default function App() {
       }),
     }), `Apply ${effect.label}`);
 
-    setInspectorTab('effects');
+    showPanelRef.current('effect-controls');
     toast({ tone: 'success', title: `Applied ${effect.label}`, body: `Configured on layer. Inspected in Effect Controls.`, timeout: 2500 });
   };
 
@@ -1896,21 +2250,31 @@ export default function App() {
     const { output: _output, compId: _compId, inToOut: _inToOut, ...last } = options;
     void _output; void _compId; void _inToOut;
     const current = settingsRef.current.export;
-    saveSettings({ export: { ...current, resolution: options.resolution, fps: options.fps, quality: options.quality, folder, format: options.format, channel: channelForFormat(options.format) ?? 'rgb', encoder: options.encoder ?? null, last, preset } });
+    // The folder is remembered for this project only (lib/exportFolder.ts).
+    const folderFor = await api.storageDir('exports').catch(() => null);
+    saveSettings({ export: { ...current, resolution: options.resolution, fps: options.fps, quality: options.quality, folder, folderFor, format: options.format, channel: channelForFormat(options.format) ?? 'rgb', encoder: options.encoder ?? null, last, preset } });
     // One render window for the whole export (no toast per frame): pre-render stages, then the
     // FFmpeg encode job, with a live picture of the frame being rendered.
     const project = history.current();
     // Audio-only formats render no picture: nothing to pre-render.
     const picture = findFormat(options.format).video;
-    const graphicsTargets = picture ? htmlClipsForExport(project, options.compId) : [];
-    const sceneTargets = picture ? motionClipsForExport(project, options.compId) : [];
-    const stages: RenderStage[] = [...(graphicsTargets.length ? ['graphics' as const] : []), ...(sceneTargets.length ? ['scenes' as const] : []), 'encoding'];
     // Graphics are drawn at the export's frame rate and size, not the comp's: a 60 fps or 4K export
     // of a 30 fps 1080p comp gets 60 fps, 4K graphics instead of held or upscaled frames.
     const exported = project.comps.find((entry) => entry.id === options.compId);
     const fps = options.fps ?? undefined;
     const scale = exported ? exportScale(exported, options.resolution) : 1;
-    const totalFrames = graphicsTargets.reduce((sum, t) => sum + htmlFrameCount(t.clip, t.comp, fps), 0) + sceneTargets.reduce((sum, t) => sum + motionFrameCount(t.clip, t.comp, fps), 0);
+    // In→Out renders only the graphics frames inside the range (lib/exportWindow.ts).
+    const range = options.inToOut && exported && exported.inPoint !== null && exported.outPoint !== null && exported.outPoint > exported.inPoint ? { start: exported.inPoint, end: exported.outPoint } : null;
+    const framesOf = (target: { clip: Clip; comp: Comp }) => {
+      const top = target.comp.id === options.compId;
+      const window = clipFrameWindow(top ? target.clip.start : 0, target.clip.duration, exportFrameRate(fps ?? target.comp.fps), top ? range : null);
+      return window ? window.last - window.first + 1 : 0;
+    };
+    const graphicsTargets = picture ? htmlClipsForExport(project, options.compId).filter((t) => framesOf(t) > 0) : [];
+    const sceneTargets = picture ? motionClipsForExport(project, options.compId).filter((t) => framesOf(t) > 0) : [];
+    const captionTargets = picture && !options.fastCaptions ? fiwnCaptionsForExport(project, options.compId).filter((t) => framesOf(t) > 0) : [];
+    const stages: RenderStage[] = [...(graphicsTargets.length ? ['graphics' as const] : []), ...(sceneTargets.length ? ['scenes' as const] : []), ...(captionTargets.length ? ['captions' as const] : []), 'encoding'];
+    const totalFrames = [...graphicsTargets, ...sceneTargets, ...captionTargets].reduce((sum, target) => sum + framesOf(target), 0);
     const signal = renderProgress.start(stages, totalFrames, options.output);
     const onItem = (title: string, index: number, count: number, frames: number) => renderProgress.item(title, index, count, frames);
     const onFrame = (done: number) => renderProgress.frame(done);
@@ -1919,8 +2283,16 @@ export default function App() {
       // Motion graphics are live DOM in the preview; the export gets them as rendered frames
       // with alpha, so cards, charts and panels animate in the MP4 exactly as they do here.
       // Motion scenes (the GPU engine) render frame-exact off-screen with the preview's own code.
-      const prepared = picture ? await prerenderForExport(project, options.compId, assetsRef.current, { fps, scale, signal, onStage: (stage) => renderProgress.stage(stage), onItem, onFrame, onCanvas }) : project;
+      const prepared = picture ? await prerenderForExport(project, options.compId, assetsRef.current, { fps, scale, signal, range, fastCaptions: options.fastCaptions, onStage: (stage) => renderProgress.stage(stage), onItem, onFrame, onCanvas }) : project;
       if (signal.aborted) throw new Error('export cancelled');
+      // Captions beside the video (same name), when asked for in the Export dialog.
+      if (options.captionsSidecar && exported) {
+        const cues = captionCues(exported, range);
+        if (cues.length) {
+          const sidecar = options.output.replace(/\.[^.\\/]+$/, '') + `.${options.captionsSidecar}`;
+          await api.fsWriteFile(sidecar, options.captionsSidecar === 'srt' ? toSrt(cues) : toVtt(cues), true).catch((error) => toast({ tone: 'error', title: 'Could not save the captions file', body: errorText(error) }));
+        }
+      }
       const jobId = await api.exportStart(prepared, options);
       renderProgress.encoding(jobId);
     } catch (error) {
@@ -2110,6 +2482,15 @@ export default function App() {
     setMenu({ anchor: new DOMRect(event.clientX, event.clientY, 0, 0), items: [...items, ...extra] });
   };
 
+  /** Paste Attributes… onto these clips from the first copied clip (the clip menu and Ctrl+Alt+V). */
+  const pasteAttributesDialog = (ids: string[]) => setDialog(
+    <AttributesDialog title="Paste Attributes" action="Paste" onClose={() => setDialog(null)} onSubmit={(set) => {
+      setDialog(null);
+      const from = clipboard.current?.clips[0]?.clip;
+      if (from) editComp((current) => pasteAttributes(current, ids, from, set, limit), 'Paste Attributes');
+    }} />,
+  );
+
   const clipMenu = (event: { clientX: number; clientY: number }, clipId: string, at: number) => {
     if (!comp) return;
     const clip = comp.clips.find((item) => item.id === clipId);
@@ -2123,14 +2504,11 @@ export default function App() {
     const audioClips = clips.filter((item) => tracksOf(comp, 'audio').some((track) => track.id === item.trackId) || (item.source.type === 'media' && assetMap.get((item.source as { assetId: string }).assetId)?.hasAudio));
     const setFit = (fit: 'fit' | 'fill') => editComp((current) => ({ ...current, clips: current.clips.map((item) => (ids.includes(item.id) ? { ...item, transform: { ...item.transform, fit, scale: 100 } } : item)) }), fit === 'fit' ? 'Fit to Frame' : 'Fill Frame');
     showMenu(event, [
+      { label: `Ask Bhippi AI about ${clips.length === 1 ? 'this clip' : `these ${clips.length} clips`}…`, onSelect: () => askAboutClips(clips) },
+      { separator: true },
       { label: 'Cut', shortcut: 'Ctrl+X', onSelect: () => copySelection(true) },
       { label: 'Copy', shortcut: 'Ctrl+C', onSelect: () => copySelection(false) },
-      { label: 'Paste Attributes…', shortcut: 'Ctrl+Alt+V', disabled: !clipboard.current?.clips.length, onSelect: () => setDialog(
-        <AttributesDialog title="Paste Attributes" action="Paste" onClose={() => setDialog(null)} onSubmit={(set) => {
-          setDialog(null);
-          const from = clipboard.current?.clips[0]?.clip;
-          if (from) editComp((current) => pasteAttributes(current, ids, from, set, limit), 'Paste Attributes');
-        }} />) },
+      { label: 'Paste Attributes…', shortcut: 'Ctrl+Alt+V', disabled: !clipboard.current?.clips.length, onSelect: () => pasteAttributesDialog(ids) },
       { label: 'Remove Attributes…', onSelect: () => setDialog(
         <AttributesDialog title="Remove Attributes" action="Remove" onClose={() => setDialog(null)} onSubmit={(set) => {
           setDialog(null);
@@ -2329,7 +2707,7 @@ export default function App() {
   /** Renders one clip (with its effects) to a new file and points the clip at it. */
   const renderAndReplace = async (clip: Clip) => {
     if (!comp) return;
-    const folder = settingsRef.current.export.folder ?? '';
+    const folder = exportFolderFor(settingsRef.current.export, await api.storageDir('exports').catch(() => null)) ?? '';
     const name = `${safeFileName(comp.name)}-${clip.id.slice(0, 6)}.mp4`;
     const path = await saveDialog({ title: 'Render and Replace', defaultPath: folder ? `${folder}\\${name}` : name, filters: [{ name: 'MP4 video', extensions: ['mp4'] }] });
     if (!path) return;
@@ -2366,6 +2744,7 @@ export default function App() {
     if (!track) return;
     showMenu(event, [
       { label: 'Rename…', onSelect: () => setDialog(<RenameDialog title="Rename Track" name={track.name || trackLabel(comp, trackId)} onClose={() => setDialog(null)} onSubmit={(name) => { setDialog(null); editComp((current) => updateTrack(current, trackId, { name }), 'Rename Track'); }} />) },
+      ...(track.kind === 'audio' ? [{ label: 'Track Volume & Pan…', onSelect: () => setDialog(<TrackMixDialog name={track.name || trackLabel(comp, trackId)} gain={track.gain ?? 0} pan={track.pan ?? 0} onClose={() => setDialog(null)} onPreview={(mix) => history.preview((current) => updateComp(current, comp.id, (target) => updateTrack(target, trackId, mix)))} onSubmit={() => { setDialog(null); history.settle('Track Volume & Pan'); }} onCancel={() => { history.cancel(); setDialog(null); }} />) } as MenuItem] : []),
       { separator: true },
       { label: `Add ${track.kind === 'video' ? 'Video' : 'Audio'} Track`, onSelect: () => editComp((current) => addTracks(current, track.kind, 1, trackId).comp, 'Add Track') },
       { label: 'Add Tracks…', onSelect: () => setDialog(<RenameDialog title="Add Tracks" name="1" onClose={() => setDialog(null)} onSubmit={(value) => { setDialog(null); editComp((current) => addTracks(current, track.kind, Math.max(1, Math.min(20, Number(value) || 1)), trackId).comp, 'Add Tracks'); }} />) },
@@ -2501,16 +2880,22 @@ export default function App() {
     const compEntry = project.comps.find((item) => ids.includes(item.id));
     const assetEntry = assets.find((asset) => ids.includes(asset.id));
     const itemEntry = project.items.find((item) => ids.includes(item.id));
+    const folderEntry = project.folders.find((item) => ids.includes(item.id));
     // Media entries of the selection, found or not: an offline one may have no library record left.
     const mediaIds = project.media.filter((ref) => ids.includes(ref.assetId)).map((ref) => ref.assetId);
     const offlineIds = mediaIds.filter((id) => offline.has(id) || !assetMap.get(id) || assetMap.get(id)?.missing);
+    const videoIds = mediaIds.filter((id) => assetMap.get(id)?.kind === 'video' && !assetMap.get(id)?.missing);
     showMenu(event, [
       // Offline media leads with the fix.
       ...(offlineIds.length ? [{ label: offlineIds.length > 1 ? `Link Media… (${offlineIds.length} offline, one at a time)` : 'Link Media…', onSelect: () => void (async () => { for (const id of offlineIds) await relinkAsset(id); })() } as MenuItem, { separator: true } as MenuItem] : []),
       ...(compEntry ? [{ label: 'Open in Timeline', onSelect: () => openComp(compEntry.id) } as MenuItem, { label: 'Comp Settings…', onSelect: () => { openComp(compEntry.id); compSettings(); } } as MenuItem] : []),
       ...(assetEntry ? [{ label: 'Open in Source Monitor', onSelect: () => openInSource(assetEntry.id) } as MenuItem] : []),
-      { label: 'Rename…', onSelect: () => setDialog(
-        <RenameDialog title="Rename" name={compEntry?.name ?? itemEntry?.name ?? assetEntry?.name ?? ''} onClose={() => setDialog(null)} onSubmit={(name) => {
+      // A lighter copy for smooth previews (4K, long-GOP): the monitor's PROXY toggle switches to it.
+      ...(videoIds.length ? [{ label: videoIds.length > 1 ? `Create Proxies (${videoIds.length})` : assetMap.get(videoIds[0])?.proxy && assetMap.get(videoIds[0])?.preview === 'native' ? 'Re-create Proxy' : 'Create Proxy', onSelect: () => { for (const id of videoIds) void api.libraryMakeProxy(id).catch((error) => toast({ tone: 'error', title: 'Could not make a proxy', body: errorText(error) })); toast({ tone: 'info', title: `Making ${videoIds.length === 1 ? 'a proxy' : `${videoIds.length} proxies`}`, body: 'Previews switch to it when it is ready (the PROXY toggle on the Program monitor).', timeout: 4000 }); } } as MenuItem] : []),
+      // One comp, item or folder at a time: media names come from the file (a media entry has no
+      // name of its own to change), and one name typed for many entries would give them all it.
+      { label: 'Rename…', disabled: ids.length !== 1 || !(compEntry || itemEntry || folderEntry), onSelect: () => setDialog(
+        <RenameDialog title="Rename" name={compEntry?.name ?? itemEntry?.name ?? folderEntry?.name ?? ''} onClose={() => setDialog(null)} onSubmit={(name) => {
           setDialog(null);
           history.commit((current) => ({
             ...current,
@@ -2519,11 +2904,12 @@ export default function App() {
             folders: current.folders.map((item) => (ids.includes(item.id) ? { ...item, name } : item)),
           }), 'Rename');
         }} />) },
-      { label: 'Duplicate', disabled: !compEntry && !itemEntry, onSelect: () => history.commit((current) => ({
-        ...current,
-        comps: compEntry ? [...current.comps, { ...compEntry, id: uid(), name: `${compEntry.name} copy`, clips: compEntry.clips.map((clip) => ({ ...clip, id: uid() })) }] : current.comps,
-        items: itemEntry ? [...current.items, { ...itemEntry, id: uid(), name: `${itemEntry.name} copy` }] : current.items,
-      }), 'Duplicate') },
+      { label: 'Duplicate', disabled: !compEntry && !itemEntry, onSelect: () => history.commit((current) => {
+        // A comp is copied whole (lib/reformat.ts): fresh track, clip, link, group and transition
+        // ids, its own copies of the layered motion comps it holds.
+        const copied = compEntry ? copyComp(current, compEntry.id, `${compEntry.name} copy`)?.project ?? current : current;
+        return { ...copied, items: itemEntry ? [...copied.items, { ...itemEntry, id: uid(), name: `${itemEntry.name} copy` }] : copied.items };
+      }, 'Duplicate') },
       { separator: true },
       { label: 'New Folder with Selection', onSelect: () => setDialog(<RenameDialog title="New Folder" name="Folder" onClose={() => setDialog(null)} onSubmit={(name) => {
         setDialog(null);
@@ -2587,8 +2973,11 @@ export default function App() {
       { label: 'Export', submenu: [
         { label: 'Media…', shortcut: 'Ctrl+M', disabled: !hasClips, onSelect: () => setExportOpen(true) },
         { label: 'Frame…', shortcut: 'Ctrl+Shift+E', disabled: !hasClips, onSelect: () => void exportFrame() },
+        { label: 'Captions (.srt)…', disabled: !hasCaptions, onSelect: () => void exportCaptions('srt') },
+        { label: 'Captions (.vtt)…', disabled: !hasCaptions, onSelect: () => void exportCaptions('vtt') },
       ] },
       { separator: true },
+      { label: 'Restore from Backup…', onSelect: () => setDialog(<RestoreBackupDialog projectName={history.current().name} onClose={() => setDialog(null)} onRestore={(path) => { setDialog(null); void restoreBackup(path); }} />) },
       { label: 'Project Settings…', onSelect: projectSettings },
       { label: 'Enable Graphic Scripts', disabled: !hasHeldScripts, onSelect: enableScripts },
       { label: 'Open Project Folder', onSelect: () => void api.storageOpen(null).catch((error) => toast({ tone: 'error', title: 'Could not open the project folder', body: errorText(error) })) },
@@ -2599,6 +2988,7 @@ export default function App() {
     { label: 'Edit', items: [
       { label: `Undo${history.undoLabel && history.canUndo ? ` ${history.undoLabel}` : ''}`, shortcut: 'Ctrl+Z', disabled: !history.canUndo, onSelect: history.undo },
       { label: `Redo${history.redoLabel ? ` ${history.redoLabel}` : ''}`, shortcut: 'Ctrl+Shift+Z', disabled: !history.canRedo, onSelect: history.redo },
+      { label: 'History…', disabled: !history.canUndo && !history.canRedo, onSelect: () => setHistoryOpen(true) },
       { separator: true },
       { label: 'Cut', shortcut: 'Ctrl+X', disabled: !selection.length, onSelect: () => copySelection(true) },
       { label: 'Copy', shortcut: 'Ctrl+C', disabled: !selection.length, onSelect: () => copySelection(false) },
@@ -2653,10 +3043,17 @@ export default function App() {
         if (clip?.source.type === 'media') openInSource(clip.source.assetId, { in: clip.in, out: sourceOut(clip) });
       } },
       { label: 'Match Frame', shortcut: 'F', disabled: !comp, onSelect: matchFrame },
+      { label: 'Reverse Match Frame', shortcut: 'Shift+R', disabled: !comp || !sourceAsset, onSelect: reverseMatchFrame },
+      { label: 'Fit to Fill (Overwrite)', disabled: !sourceAsset || comp?.inPoint == null || comp?.outPoint == null, onSelect: () => { if (sourceAsset) sourceEdit(sourceAsset, sourceRanges[sourceAsset.id] ?? { in: 0, out: sourceAsset.kind === 'image' ? STILL_DEFAULT : sourceAsset.duration }, 'overwrite', true); } },
     ] },
     { label: 'Comp', items: [
       { label: 'Create Stick Figure…', disabled: !comp, onSelect:()=>setDialog(<StickFigureDialog onClose={()=>setDialog(null)} onCreate={(motion,duration,color,thickness)=>{if(!comp)return;const figure=makeStickFigure(comp.width,comp.height,comp.fps,motion,duration,color,thickness);history.commit(current=>({...current,comps:[...current.comps,figure],activeCompId:figure.id,openCompIds:[...current.openCompIds,figure.id]}),'Create Stick Figure');setDialog(null);setSelection([]);}}/>) },
       { label: 'Comp Settings…', disabled: !comp, onSelect: compSettings },
+      { separator: true },
+      { label: 'Remove Silences', disabled: !hasClips, onSelect: () => void removeSilences() },
+      { label: 'Remove Filler Words', disabled: !hasClips, onSelect: () => void removeFillers() },
+      { label: 'Make Vertical Copy (9:16)', disabled: !hasClips || !comp || comp.height > comp.width, onSelect: makeVerticalCopy },
+      { separator: true },
       { label: 'Add Edit', shortcut: 'Ctrl+K', disabled: !hasClips, onSelect: () => addEdit(false) },
       { label: 'Add Edit to All Tracks', shortcut: 'Ctrl+Shift+K', disabled: !hasClips, onSelect: () => addEdit(true) },
       { label: 'Trim Edit', submenu: [
@@ -2751,7 +3148,7 @@ export default function App() {
       })),
     ] },
     { label: 'Window', items: [
-      ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['storyboard', 'Storyboard', 'Shift+8'], ['transcript', 'Transcription', 'Shift+9'], ['chat', 'Bhippi AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
+      ...([['project', 'Project', 'Shift+1'], ['source', 'Source Monitor', 'Shift+2'], ['timeline', 'Timeline', 'Shift+3'], ['program', 'Program Monitor', 'Shift+4'], ['properties', 'Properties', 'Shift+5'], ['meters', 'Audio Meters', 'Shift+6'], ['tools', 'Tools', 'Shift+7'], ['storyboard', 'Storyboard', 'Shift+8'], ['transcript', 'Transcription', 'Shift+9'], ['effects', 'Effects', ''], ['effect-controls', 'Effect Controls', ''], ['subtitles', 'Subtitles', ''], ['graphics', 'Graphics', ''], ['audio', 'Audio', ''], ['chat', 'Bhippi AI', 'Ctrl+Alt+L']] as [PanelId, string, string][]).map(([id, label, shortcut]) => ({
         label, shortcut, checked: !hidden(id), onSelect: () => setPanelVisible(id, hidden(id)),
       })),
       { label: 'Plugins', checked: showPlugins, onSelect: () => setPanelVisible('plugins', !showPlugins) },
@@ -2785,9 +3182,24 @@ export default function App() {
     const clip = comp.clips.find((item) => item.start <= at && clipEnd(item) > at && item.source.type === 'media' && targetedTracks().includes(item.trackId))
       ?? comp.clips.find((item) => item.start <= at && clipEnd(item) > at && item.source.type === 'media');
     if (clip?.source.type === 'media') {
+      const sourceTime = sourceTimeAt(clip, at);
       openInSource(clip.source.assetId, { in: clip.in, out: sourceOut(clip) });
-      toast({ tone: 'info', title: 'Matched frame', body: `${timecode(sourceTimeAt(clip, at), fps)} in the source`, timeout: 2000 });
+      // Parked on the very frame, not the start of the clip.
+      setSourcePark({ assetId: clip.source.assetId, time: sourceTime, nonce: Date.now() });
+      toast({ tone: 'info', title: 'Matched frame', body: `${timecode(sourceTime, fps)} in the source`, timeout: 2000 });
     }
+  }
+
+  /** Reverse Match Frame: where the Source monitor's frame plays in this comp; playhead there, clip selected. */
+  function reverseMatchFrame() {
+    if (!comp || !sourceAsset) return;
+    const t = sourceApi.current?.time() ?? 0;
+    const at = playhead.get();
+    const hits = whereSourcePlays(comp, sourceAsset.id, t, at);
+    if (!hits.length) return toast({ tone: 'info', title: 'Not in this comp', body: `${timecode(t, sourceAsset.fps ?? fps)} of ${sourceAsset.name} is not used in ${comp.name}.`, timeout: 3000 });
+    playhead.seek(hits[0].time);
+    timelineApi.current?.reveal(hits[0].time);
+    setSelection([hits[0].clip.id]);
   }
 
   const markerDialog = (markerId: string) => {
@@ -2885,7 +3297,7 @@ export default function App() {
         // Edit
         case 'undo': return history.undo;
         case 'redo': return history.redo;
-        case 'pasteAttributes': return () => selectedClips[0] && clipMenu({ clientX: 200, clientY: 200 }, selectedClips[0].id, playhead.get());
+        case 'pasteAttributes': return () => { if (selectedClips.length && clipboard.current?.clips.length) pasteAttributesDialog(selectedClips.map((clip) => clip.id)); };
         case 'pasteInsert': return () => paste(true);
         case 'paste': return () => paste(false);
         case 'copy': return () => copySelection(false);
@@ -2918,9 +3330,11 @@ export default function App() {
         case 'newTitle': return () => addText('title');
         // Playback
         case 'playToggle': return () => (sourceFocused ? sourceApi.current?.toggle() : programApi.current?.toggle());
-        case 'shuttleBack': return () => programApi.current?.shuttle(-1);
-        case 'shuttleStop': return () => programApi.current?.shuttle(0);
-        case 'shuttleForward': return () => programApi.current?.shuttle(1);
+        // J / K / L drive the focused monitor. With K held, J and L step one frame each (and keep
+        // stepping while held, through key repeat): Premiere's slow jog.
+        case 'shuttleBack': return () => (kHeld.current ? step(-1) : sourceFocused ? sourceApi.current?.shuttle(-1) : programApi.current?.shuttle(-1));
+        case 'shuttleStop': return () => (sourceFocused ? sourceApi.current?.shuttle(0) : programApi.current?.shuttle(0));
+        case 'shuttleForward': return () => (kHeld.current ? step(1) : sourceFocused ? sourceApi.current?.shuttle(1) : programApi.current?.shuttle(1));
         case 'playAround': return () => programApi.current?.playAround();
         case 'playInToOut': return () => programApi.current?.playInToOut();
         case 'stepBack': return () => step(-1);
@@ -2953,6 +3367,7 @@ export default function App() {
         // Editing
         case 'insert': return () => { const range = sourceRange(); if (sourceAsset && range) sourceEdit(sourceAsset, range, 'insert'); };
         case 'overwrite': return () => { const range = sourceRange(); if (sourceAsset && range) sourceEdit(sourceAsset, range, 'overwrite'); };
+        case 'fitToFill': return () => { const range = sourceRange(); if (sourceAsset && range) sourceEdit(sourceAsset, range, 'overwrite', true); };
         case 'addEdit': return () => addEdit(false);
         case 'addEditAll': return () => addEdit(true);
         case 'rippleTrimPrevious': return () => trimAtPlayhead('previous', true);
@@ -2969,6 +3384,16 @@ export default function App() {
         case 'ungroup': return () => editComp((current) => setGrouped(current, selection, false), 'Ungroup');
         case 'gain': return () => selectedClips.length && gainDialog(selectedClips);
         case 'matchFrame': return matchFrame;
+        case 'reverseMatchFrame': return reverseMatchFrame;
+        case 'selectNearestEdit': return selectNearestEdit;
+        case 'trimBack': return () => trimSelectedEdit(-1);
+        case 'trimForward': return () => trimSelectedEdit(1);
+        case 'trimBack5': return () => trimSelectedEdit(-5);
+        case 'trimForward5': return () => trimSelectedEdit(5);
+        case 'slipLeft': return () => slipOrSlide('slip', -1);
+        case 'slipRight': return () => slipOrSlide('slip', 1);
+        case 'slideLeft': return () => slipOrSlide('slide', -1);
+        case 'slideRight': return () => slipOrSlide('slide', 1);
         case 'nudgeLeft': return () => nudge(-1);
         case 'nudgeRight': return () => nudge(1);
         case 'nudgeLeft5': return () => nudge(-5);
@@ -2993,7 +3418,7 @@ export default function App() {
         case 'allShorter': return () => trackHeights('all', -40);
         // Panels
         case 'maximize': return maximizeUnderCursor;
-        case 'escape': return () => { setSelection([]); setTransitionSelection(null); setTool('select'); };
+        case 'escape': return () => { setSelection([]); setTransitionSelection(null); setSelectedEdit(null); setTool('select'); };
         default: {
           const panel = /^panel(\d)$/.exec(name);
           return panel ? () => showPanel(panels[Number(panel[1]) - 1]) : null;
@@ -3088,13 +3513,38 @@ export default function App() {
   const cardPicture = (index: number, picture: { thumbnail: string; sketch?: unknown }) => { if (comp) history.commit((current) => withCardPicture(current, comp.id, index, picture), picture.sketch ? `Storyboard sketch · scene ${index + 1}` : `Storyboard photo · scene ${index + 1}`); };
   const hasStoryboard = !!comp?.storyboard?.length || !!comp?.videoBlueprint?.scenes?.length;
 
-  const panel = (id: PanelId, tabs: { id: string; label: ReactNode }[], active: string, children: ReactNode, extras: Partial<Parameters<typeof Panel>[0]> = {}) => (
-    <Panel id={id} tabs={tabs} active={active} maximized={maximized === id} onMaximize={() => toggleMax(id)} onClose={id === 'timeline' || id === 'program' ? undefined : () => setPanelVisible(id, false)} focused={focused === id} onFocus={() => setFocused(id)}
-      // Any editing-area panel is moved by dragging one of its tabs (DockArea.tsx); the chat stays put.
-      onTabPointerDown={id === 'chat' ? undefined : (_tab, event) => beginPanelDrag(id as DockPanelId, event)} {...extras}>
-      {children}
-    </Panel>
-  );
+  /**
+   * A panel's tabs as its frame shows them: when other panels share the frame (a stack), each of
+   * them is one more tab — a click brings it to the front, a drag takes that panel out. The
+   * panel's own tabs (a plugin list, a chat's Providers) behave as before.
+   */
+  const stackTabs = (id: PanelId, tabs: { id: string; label: ReactNode }[], onTab?: (tab: string) => void, onTabPointerDown?: (tab: string, event: React.PointerEvent) => void) => {
+    const frame = id === 'chat' ? null : frameOf(tree, id as DockPanelId);
+    const members = frame ? leafPanels(frame) : [id as DockPanelId];
+    return {
+      tabs: members.flatMap((member) => (member === id ? tabs : [{ id: `${STACK_TAB}${member}`, label: panelName(member) }])),
+      onTab: (tab: string) => {
+        if (tab.startsWith(STACK_TAB)) { const member = tab.slice(STACK_TAB.length) as DockPanelId; editTree((current) => activatePanel(current, member)); setFocused(member as PanelId); }
+        else onTab?.(tab);
+      },
+      onTabPointerDown: (tab: string, event: React.PointerEvent) => {
+        if (tab.startsWith(STACK_TAB)) beginPanelDrag(tab.slice(STACK_TAB.length) as DockPanelId, event);
+        else if (onTabPointerDown) onTabPointerDown(tab, event);
+        else if (id !== 'chat') beginPanelDrag(id as DockPanelId, event);
+      },
+    };
+  };
+  const panel = (id: PanelId, tabs: { id: string; label: ReactNode }[], active: string, children: ReactNode, extras: Partial<Parameters<typeof Panel>[0]> = {}) => {
+    const { onTab, onTabPointerDown, ...rest } = extras;
+    // Any editing-area panel is moved by dragging one of its tabs (DockArea.tsx); the chat stays put.
+    const stacked = stackTabs(id, tabs, onTab, onTabPointerDown ?? undefined);
+    return (
+      <Panel id={id} tabs={stacked.tabs} active={active} maximized={maximized === id} onMaximize={() => toggleMax(id)} onClose={id === 'timeline' || id === 'program' ? undefined : () => setPanelVisible(id, false)} focused={focused === id} onFocus={() => setFocused(id)}
+        onTab={stacked.onTab} onTabPointerDown={id === 'chat' ? onTabPointerDown : stacked.onTabPointerDown} {...rest}>
+        {children}
+      </Panel>
+    );
+  };
 
   // The Plugins panel: one tab per plugin shown as a panel, or an invitation to build one.
   const activePlugin = shownPlugins.find((item) => item.id === pluginTab)?.id ?? PLUGINS_HOME;
@@ -3133,10 +3583,12 @@ export default function App() {
   const dockedPanel = (item: { id: string }) => {
     const plugin = plugins.find((entry) => entry.id === item.id);
     const name = plugin?.name ?? 'Plugin';
+    // It shares its frame like any panel: the other panels there are tabs beside it.
+    const stacked = stackTabs(`plugin:${item.id}` as PanelId, [{ id: item.id, label: <span className="plugin-tab-label" title={`${plugin?.description ? `${plugin.description}\n` : ''}Drag to move it, or onto the Plugins panel to put it back.`}>{plugin && <PluginMark plugin={plugin} size={14} />} {name}</span> }], undefined, (_, event) => dragPlugin(item.id, name, event));
     return (
       <Panel id={`plugin:${item.id}`} className="docked-plugin" active={item.id} maximized={false} focused={false} onFocus={() => undefined} onClose={() => closeDockedPlugin(item.id)}
-        tabs={[{ id: item.id, label: <span className="plugin-tab-label" title={`${plugin?.description ? `${plugin.description}\n` : ''}Drag to move it, or onto the Plugins panel to put it back.`}>{plugin && <PluginMark plugin={plugin} size={14} />} {name}</span> }]}
-        onTabPointerDown={(_, event) => dragPlugin(item.id, name, event)}
+        tabs={stacked.tabs} onTab={stacked.onTab}
+        onTabPointerDown={stacked.onTabPointerDown}
         menu={[
           { label: 'Return to Plugins Panel', onSelect: () => undockPlugin(item.id) },
           ...(plugin ? [{ label: 'Edit in Plugin Maker…', onSelect: () => openMaker(item.id) }] : []),
@@ -3179,21 +3631,41 @@ export default function App() {
           onGenPlan={(plan) => { pendingGen?.resolve(plan); setPendingGen(null); }}
           onManageProviders={() => setSettingsTab('providers')} getContext={() => { const kit = resolveActiveKit(settingsRef.current.brandKits, history.current()); const kits = settingsRef.current.brandKits?.kits ?? []; return { ...(aiContext(history.current(), assetMap, selection) as object), reference: referenceBrief, ...(editStyle ? { editStyle } : {}), brandKit: kit ? brandKitContext(kit) : null, brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', tokenBudget: ledgerBrief(projectKey(projectDirRef.current)), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel.' } : null }; }} tools={toolRuns}
           onTurnDone={(outcome: TurnOutcome) => {
+            if (outcome.turnId && turnSnapshots.current.has(outcome.turnId)) {
+              const after = history.current();
+              // The turn is one undo step, named after what was asked (unless the user edited meanwhile).
+              const asked = outcome.prompt.replace(/\s+/g, ' ').trim();
+              history.squashTurn(turnSnapshots.current.get(outcome.turnId)!, `AI: "${asked.length > 48 ? `${asked.slice(0, 47)}…` : asked}"`);
+              turnResults.current.set(outcome.turnId, after);
+              const changes = diffTurn(turnSnapshots.current.get(outcome.turnId)!, after, (clip) => clip.name ?? sourceInfo(after, assetMap, clip.source).name);
+              turnChanges.current.set(outcome.turnId, changes);
+              const shown = changes.filter((change) => change.kind !== 'removed').map((change) => change.clipId);
+              setAiHighlight(shown.length ? { turnId: outcome.turnId, clipIds: new Set(shown) } : null);
+            }
             autoAdvance(outcome);
             // The brain learns from every turn (on unless turned off); recording never disturbs the chat.
             if (settingsRef.current.ideagraphRecord === false) return;
             void recordTurnOutcome(outcome).catch(() => undefined);
           }}
-          onStartWorkflow={(turnId, mode) => editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true))}
+          onStartWorkflow={(turnId, mode, tier) => {
+            if (tier === 'guided') guidedTurns.current.add(turnId);
+            editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true));
+          }}
           workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
-          onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)} />
+          onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)}
+          changesFor={(turnId) => turnChanges.current.get(turnId) ?? []} onJumpToChange={jumpToChange}
+          brandKits={() => settingsRef.current.brandKits?.kits ?? []}
+          onUpdateKit={(kitId, change) => { const doc = settingsRef.current.brandKits; if (doc) saveSettings({ brandKits: { ...doc, kits: doc.kits.map((kit) => (kit.id === kitId ? { ...change(kit), updatedAt: new Date().toISOString() } : kit)) } }); }}
+          highlightedTurn={aiHighlight?.turnId ?? null}
+          onHighlightTurn={(turnId) => { const changes = turnId ? turnChanges.current.get(turnId) ?? [] : []; const ids = changes.filter((change) => change.kind !== 'removed').map((change) => change.clipId); setAiHighlight(turnId && ids.length ? { turnId, clipIds: new Set(ids) } : null); }}
+          productionActive={() => { const current = history.current(); const active = current.comps.find((item) => item.id === current.activeCompId); return !!active?.production && active.production.phase !== 'done'; }} />
       </div>
       {chatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void settingsStore.setProviderEnabled(row.id, enabled).then(setProviders)} />}
     </>
   ), { onTab: (id) => setChatTab(id as 'chat' | 'providers'), menu: [{ label: 'New Conversation', onSelect: () => { chatApi.current?.clear(); endConversation(); } }, { label: 'Manage AI Providers…', onSelect: () => setSettingsTab('providers') }], className: 'panel-chat' });
 
   const sourcePanel = panel('source', [{ id: 'source', label: `Source: ${sourceAsset?.name ?? '(no clips)'}` }], 'source', (
-    <SourceMonitor asset={sourceAsset} range={sourceAsset ? sourceRanges[sourceAsset.id] : undefined} onRange={(range) => sourceAsset && setSourceRanges((current) => ({ ...current, [sourceAsset.id]: range }))}
+    <SourceMonitor parkAt={sourcePark} asset={sourceAsset} range={sourceAsset ? sourceRanges[sourceAsset.id] : undefined} onRange={(range) => sourceAsset && setSourceRanges((current) => ({ ...current, [sourceAsset.id]: range }))}
       onInsert={(asset, range, mode) => sourceEdit(asset, range, mode)} onDragOut={(item, event) => startPanelDrag({ kind: 'source', source: item.source, label: item.label, in: item.in, duration: item.duration }, event)}
       patch={{ video: comp?.sourceVideo ?? null, audio: comp?.sourceAudio ?? null }} apiRef={sourceApi} />
   ), { menu: [{ label: 'Close Clip', onSelect: () => setSourceId(null), disabled: !sourceAsset }] });
@@ -3225,7 +3697,16 @@ export default function App() {
       )
   ));
   const transcriptPanel = panel('transcript', [{ id: 'transcript', label: 'Transcription' }], 'transcript', (
-    <TranscriptPanel project={project} comp={comp} assets={assetMap} refreshKey={transcriptRefresh} />
+    <TranscriptPanel project={project} comp={comp} assets={assetMap} refreshKey={transcriptRefresh}
+      onCutRanges={(ranges, words) => {
+        // Latest first, so each cut leaves the earlier ones where they were; one undo step.
+        editComp((current) => ranges.reduce((next, range) => removeRange(next, range.start, range.end, 'extract'), current), `Cut ${words} Word${words === 1 ? '' : 's'}`);
+        if (ranges.length) playhead.seek(Math.min(...ranges.map((range) => range.start)));
+      }}
+      onWordCorrected={(at, from, to) => {
+        // The correction reaches the captions already on the timeline (only when one has the word).
+        if (comp && correctCaptions(comp, at, from, to) !== comp) editComp((current) => correctCaptions(current, at, from, to), 'Correct Caption Word');
+      }} />
   ));
 
   const programPanel = panel('program', [{ id: 'program', label: `Program: ${comp?.name ?? '—'}` }], 'program', (
@@ -3236,40 +3717,32 @@ export default function App() {
       onPreviewCache={(next) => saveSettings({ previewCacheEnabled: next.enabled, previewCacheMb: next.budgetMb })} />
   ), { menu: [{ label: 'Export Frame…', onSelect: () => void exportFrame(), disabled: !hasClips }, { label: 'Clear In and Out', onSelect: clearInOut }] });
 
-  const propertiesPanel = panel(
-    'properties',
-    [
-      { id: 'properties', label: 'Properties' },
-      { id: 'effects', label: 'Effect Controls' },
-    ],
-    inspectorTab,
-    inspectorTab === 'effects' ? (
-      <EffectControlsPanel
-        project={project}
-        comp={comp}
-        assets={assetMap}
-        history={history}
-        selection={selection}
-        onOpenFXConsole={() => {
-          setFxConsoleAnchor(getLiveMousePos());
-          setFxConsoleOpen(true);
-        }}
-      />
-    ) : (
-      <PropertiesPanel
-        project={project}
-        comp={comp}
-        assets={assetMap}
-        history={history}
-        selection={selection}
-        transition={transitionSelection}
-        onOpenGraphics={() => showPanel('project', 'graphics')}
-        onSpeedDialog={() => selectedClips[0] && speedDialog(selectedClips[0], selection)}
-        onAudioGain={() => gainDialog(selectedClips)}
-      />
-    ),
-    { onTab: (id) => setInspectorTab(id as 'properties' | 'effects') }
-  );
+  const propertiesPanel = panel('properties', [{ id: 'properties', label: 'Properties' }], 'properties', (
+    <PropertiesPanel
+      project={project}
+      comp={comp}
+      assets={assetMap}
+      history={history}
+      selection={selection}
+      transition={transitionSelection}
+      onOpenGraphics={() => showPanel('graphics')}
+      onSpeedDialog={() => selectedClips[0] && speedDialog(selectedClips[0], selection)}
+      onAudioGain={() => gainDialog(selectedClips)}
+    />
+  ));
+  const effectControlsPanel = panel('effect-controls', [{ id: 'effect-controls', label: 'Effect Controls' }], 'effect-controls', (
+    <EffectControlsPanel
+      project={project}
+      comp={comp}
+      assets={assetMap}
+      history={history}
+      selection={selection}
+      onOpenFXConsole={() => {
+        setFxConsoleAnchor(getLiveMousePos());
+        setFxConsoleOpen(true);
+      }}
+    />
+  ));
 
   // Files every loose bin entry into its category folder (Footage, B-roll, Motion Graphics…).
   const organizeBinNow = () => {
@@ -3279,8 +3752,9 @@ export default function App() {
     toast({ tone: 'success', title: `Filed ${moved.length} item${moved.length === 1 ? '' : 's'}`, body: describeMoved(moved), timeout: 4000 });
   };
 
-  const projectPanel = panel('project', [{ id: 'project', label: `Project: ${project.name}` }, { id: 'effects', label: 'Effects' }, { id: 'subtitles', label: 'Subtitles' }, { id: 'graphics', label: 'Graphics' }, { id: 'audio', label: 'Audio' }], projectTab, (
-    <ProjectPanel tab={projectTab} project={project} assets={assets} history={history} folder={binFolder} onFolder={setBinFolder} selection={binSelection} onSelect={setBinSelection}
+  /** The Project panel's body, showing one of its sections: the bin, Effects, Subtitles, Graphics or Audio — each its own dockable panel. */
+  const projectBody = (tab: ProjectTab) => (
+    <ProjectPanel tab={tab} project={project} assets={assets} history={history} folder={binFolder} onFolder={setBinFolder} selection={binSelection} onSelect={setBinSelection}
       clipSelection={selection} onDragStart={startPanelDrag} onOpenComp={openComp} onOpenInSource={(id) => openInSource(id)} onEntryMenu={binEntryMenu} onPanelMenu={binPanelMenu}
       onImport={() => void pickFiles()} onNewComp={newCompDialog} onNewFolder={newFolder} onNewItem={newItemDialog} onDelete={deleteBinItems}
       onRename={(id, name) => history.commit((current) => ({
@@ -3297,10 +3771,15 @@ export default function App() {
       }}
       onReimportSnapshot={(snap) => void reimportSnapshot(snap)}
       onSeek={(seconds) => playhead.set(seconds)} />
-  ), { onTab: (id) => setProjectTab(id as ProjectTab), menu: [{ label: 'New Comp…', onSelect: newCompDialog }, { label: 'New Item', submenu: newItemMenu.slice(2) }, { label: 'Import…', onSelect: () => void pickFiles() }, { separator: true }, { label: 'Organize Bin into Folders', onSelect: organizeBinNow }] });
+  );
+  const projectPanel = panel('project', [{ id: 'project', label: `Project: ${project.name}` }], 'project', projectBody('project'), { menu: [{ label: 'New Comp…', onSelect: newCompDialog }, { label: 'New Item', submenu: newItemMenu.slice(2) }, { label: 'Import…', onSelect: () => void pickFiles() }, { separator: true }, { label: 'Organize Bin into Folders', onSelect: organizeBinNow }] });
+  const effectsPanel = panel('effects', [{ id: 'effects', label: 'Effects' }], 'effects', projectBody('effects'));
+  const subtitlesPanel = panel('subtitles', [{ id: 'subtitles', label: 'Subtitles' }], 'subtitles', projectBody('subtitles'));
+  const graphicsPanel = panel('graphics', [{ id: 'graphics', label: 'Graphics' }], 'graphics', projectBody('graphics'));
+  const audioPanel = panel('audio', [{ id: 'audio', label: 'Audio' }], 'audio', projectBody('audio'));
 
   const timelinePanel = panel('timeline', [{ id: 'timeline', label: comp?.name ?? 'Timeline' }], 'timeline', (
-    <Timeline project={project} assets={assetMap} comp={comp} history={history} selection={selection} onSelect={setSelection} transition={transitionSelection} onSelectTransition={setTransitionSelection}
+    <Timeline project={project} assets={assetMap} comp={comp} history={history} selection={selection} onSelect={(ids) => { setSelection(ids); setSelectedEdit(null); }} aiChanged={aiHighlight?.clipIds} selectedEdit={selectedEdit} onSelectEdit={(clipId, edge) => setSelectedEdit({ clipId, edge })} transition={transitionSelection} onSelectTransition={setTransitionSelection}
       tool={tool} onTool={setTool} zoom={zoom} onZoom={setZoom} snapping={snapping} onSnapping={setSnapping} linkedSelection={linkedSelection} onLinkedSelection={setLinkedSelection}
       nestComps={nestComps} onNestComps={setNestComps} display={display} onDisplay={setDisplay} onActivateComp={(id) => history.view((current) => ({ ...current, activeCompId: id }))}
       onCloseComp={closeComp} onOpenComp={openComp} onOpenInSource={openInSource} onClipMenu={(event, clipId, at) => clipMenu(event, clipId, at)} onTrackMenu={trackMenu} onEmptyMenu={emptyMenu}
@@ -3359,6 +3838,11 @@ export default function App() {
       case 'source': return sourcePanel;
       case 'program': return programPanel;
       case 'properties': return propertiesPanel;
+      case 'effect-controls': return effectControlsPanel;
+      case 'effects': return effectsPanel;
+      case 'subtitles': return subtitlesPanel;
+      case 'graphics': return graphicsPanel;
+      case 'audio': return audioPanel;
       case 'timeline': return timelinePanel;
       case 'storyboard': return storyboardPanel;
       case 'transcript': return transcriptPanel;
@@ -3369,7 +3853,7 @@ export default function App() {
     }
   };
 
-  const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, storyboard: storyboardPanel, transcript: transcriptPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null, plugins: pluginsPanel };
+  const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, storyboard: storyboardPanel, transcript: transcriptPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null, plugins: pluginsPanel, effects: effectsPanel, subtitles: subtitlesPanel, graphics: graphicsPanel, audio: audioPanel, 'effect-controls': effectControlsPanel };
   const maximizedPanel = maximized && maximizedContent[maximized] ? maximized : null;
 
   return (
@@ -3546,6 +4030,7 @@ export default function App() {
       {tour && !onboarding && <Tour onStep={tourStep} onDone={endTour} />}
       {settingsTab && <LiveJobs>{(live) => <SettingsModal onTour={startTour} tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
       <ErrorBoundary scope="Render window"><RenderWindow /></ErrorBoundary>
+      {historyOpen && <HistoryDialog steps={history.steps} onJump={(steps) => history.jump(steps)} onClose={() => setHistoryOpen(false)} />}
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder, preset) => void startExport(options, folder, preset)} onPrefs={(patch) => saveSettings({ export: { ...settingsRef.current.export, ...patch } })} />}
       {queueOpen && <LiveJobs>{(live) => <RenderQueueDialog jobs={live} onClose={() => setQueueOpen(false)} onQueue={() => { setQueueOpen(false); setExportOpen(true); }} onCancel={(id) => void api.jobCancel(id)} onReveal={(path) => void api.revealPath(path)} onOpen={(path) => void api.openPath(path)} />}</LiveJobs>}
       {shortcutsOpen && <ShortcutsDialog overrides={settings.shortcuts} onSave={(shortcuts) => void saveSettings({ shortcuts })} onClose={() => setShortcutsOpen(false)} />}

@@ -93,6 +93,41 @@ async fn ffmpeg_stdout(tools: &Tools, args: &[String]) -> Result<String, String>
     }
 }
 
+/// A media range's sound played backwards, as a WAV at `out` (kept: a second call reuses it).
+///
+/// The preview plays a reversed clip's sound from this file, forwards, so it matches the export's
+/// `areverse` instead of going silent. Written to a part file first, so a stopped run never
+/// leaves half a file that later reads as done.
+pub async fn reversed_audio(tools: &Tools, path: &Path, start: f64, end: f64, out: &Path) -> Result<(), String> {
+    if out.is_file() {
+        return Ok(());
+    }
+    let span = (end - start).max(0.0);
+    if span <= 0.0 {
+        return Err("that clip has no length to reverse".to_owned());
+    }
+    let part = out.with_extension("part.wav");
+    let args = [
+        "-y".to_owned(),
+        "-ss".to_owned(),
+        format!("{:.4}", start.max(0.0)),
+        "-t".to_owned(),
+        format!("{span:.4}"),
+        "-i".to_owned(),
+        path.display().to_string(),
+        "-vn".to_owned(),
+        "-af".to_owned(),
+        "areverse".to_owned(),
+        "-ac".to_owned(),
+        "2".to_owned(),
+        "-ar".to_owned(),
+        "48000".to_owned(),
+        part.display().to_string(),
+    ];
+    ffmpeg_stdout(tools, &args).await?;
+    std::fs::rename(&part, out).map_err(|error| format!("could not keep the reversed sound: {error}"))
+}
+
 /// Scene Edit Detection: the source times where the picture changes, in seconds.
 ///
 /// The analysis runs on a small scaled copy — it only has to find cuts, not look at them — and

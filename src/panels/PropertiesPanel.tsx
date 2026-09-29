@@ -10,10 +10,10 @@ import { CAPTION_STYLES, styleLabel } from '../lib/captionStyles';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, parseTimecode, presetLabel, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
 import { api } from '../lib/ipc';
-import { removeKey, setKey, valueAt } from '../lib/keyframes';
+import { EASINGS, EFFECT_KEYED, removeKey, setKey, valueAt } from '../lib/keyframes';
 import { playhead, usePlayhead } from '../lib/playhead';
 import { clipEnd, clipName, COMP_PRESETS, focusClip, FRAME_RATES, ITEM_LABEL, moveClipTo, slipClip, sourceInfo, sourceLimit, trackLabel, transitionLabel, transitionWindow, updateComp, type AssetMap } from '../lib/timeline';
-import type { Clip, Comp, Effects, Keyframe, KeyframedProperty as Property, Mask, PluginClipSource, Project, Transform, Transition } from '../lib/types';
+import type { Easing, Clip, Comp, EffectKeyProperty, Effects, Keyframe, KeyframedProperty as Property, Mask, PluginClipSource, Project, Transform, Transition } from '../lib/types';
 import { withDefaults } from '../plugins/bridge';
 import { usePlugins } from '../plugins/store';
 
@@ -123,12 +123,15 @@ export function PropertiesPanel(props: Props) {
   return comp ? <CompProperties {...props} comp={comp} /> : <div className="props"><div className="props-note">Open a comp to see its properties.</div></div>;
 }
 
-/** A keyframable row: the value, a stopwatch, and keyframe navigation at the playhead. */
+const EASING_LABEL: Record<Easing, string> = { linear: 'Linear', hold: 'Hold', ease: 'Ease', 'ease-in': 'Ease In', 'ease-out': 'Ease Out', 'ease-in-out': 'Ease In & Out', overshoot: 'Overshoot' };
+
+/** A keyframable row: the value, a stopwatch, keyframe navigation at the playhead, and the easing of the keyframe there. */
 function Animated({ clip, comp, history, property, label, value, onChange, format, parse, step = 1, min = -Infinity, max = Infinity, decimals = 1, suffix = '', disabled }: {
   clip: Clip;
   comp: Comp;
   history: History;
-  property: Property;
+  /** A transform/volume property (clip.keyframes) or an Effects setting (clip.effectKeys). */
+  property: Property | EffectKeyProperty;
   label: string;
   value: number;
   onChange: (value: number, commit: boolean) => void;
@@ -143,12 +146,15 @@ function Animated({ clip, comp, history, property, label, value, onChange, forma
 }) {
   const time = usePlayhead();
   const local = clamp(time - clip.start, 0, clip.duration);
-  const keys = clip.keyframes[property];
+  const effect = (EFFECT_KEYED as string[]).includes(property);
+  const keys = effect ? clip.effectKeys?.[property as EffectKeyProperty] ?? [] : clip.keyframes[property as Property];
+  const withKeys = (item: Clip, next: Keyframe[]): Clip => (effect ? { ...item, effectKeys: { ...item.effectKeys, [property]: next } } : { ...item, keyframes: { ...item.keyframes, [property]: next } });
   const animated = keys.length > 0;
   const shown = animated ? (valueAt(keys, local) ?? value) : value;
-  const at = keys.some((key) => Math.abs(key.time - local) < 0.5 / comp.fps);
+  const atKey = keys.find((key) => Math.abs(key.time - local) < 0.5 / comp.fps);
+  const at = !!atKey;
   const setKeys = (next: Keyframe[], label_: string) =>
-    history.commit((current) => updateComp(current, comp.id, (target) => ({ ...target, clips: target.clips.map((item) => (item.id === clip.id ? { ...item, keyframes: { ...item.keyframes, [property]: next } } : item)) })), label_);
+    history.commit((current) => updateComp(current, comp.id, (target) => ({ ...target, clips: target.clips.map((item) => (item.id === clip.id ? withKeys(item, next) : item)) })), label_);
 
   return (
     <Row
@@ -173,6 +179,15 @@ function Animated({ clip, comp, history, property, label, value, onChange, forma
                 const next = keys.find((key) => key.time > local + 1e-4);
                 if (next) playhead.seek(clip.start + next.time);
               }}>›</button>
+              {atKey && (
+                // The curve from this keyframe to the next (a keyframe's easing shapes the segment
+                // it starts, in the preview and the export alike).
+                <select className="key-ease" aria-label={`${label} easing`} title="How the value moves from this keyframe to the next"
+                  value={atKey.easing}
+                  onChange={(event) => setKeys(keys.map((key) => (key === atKey ? { ...key, easing: event.target.value as Easing } : key)), `${EASING_LABEL[event.target.value as Easing]} ${label}`)}>
+                  {EASINGS.map((easing) => <option key={easing} value={easing}>{EASING_LABEL[easing]}</option>)}
+                </select>
+              )}
             </>
           )}
         </span>
@@ -190,7 +205,7 @@ function Animated({ clip, comp, history, property, label, value, onChange, forma
         disabled={disabled}
         onChange={(next) => {
           if (animated) {
-            history.preview((current) => updateComp(current, comp.id, (target) => ({ ...target, clips: target.clips.map((item) => (item.id === clip.id ? { ...item, keyframes: { ...item.keyframes, [property]: setKey(keys, local, next, comp.fps) } } : item)) })));
+            history.preview((current) => updateComp(current, comp.id, (target) => ({ ...target, clips: target.clips.map((item) => (item.id === clip.id ? withKeys(item, setKey(keys, local, next, comp.fps)) : item)) })));
           } else onChange(next, false);
         }}
         onCommit={() => history.settle(label)}
@@ -307,12 +322,13 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
           </Section>
 
           <Section title="Effects" onReset={() => setEffects({ ...DEFAULT_EFFECTS })} defaultOpen={false}>
-            <Row label="Brightness"><ScrubNumber value={clip.effects.brightness} min={-100} max={100} step={0.5} disabled={disabled} onChange={(brightness) => setEffects({ brightness }, false)} onCommit={() => history.settle('Effects')} /></Row>
-            <Row label="Contrast"><ScrubNumber value={clip.effects.contrast} min={-100} max={100} step={0.5} disabled={disabled} onChange={(contrast) => setEffects({ contrast }, false)} onCommit={() => history.settle('Effects')} /></Row>
-            <Row label="Saturation"><ScrubNumber value={clip.effects.saturation} min={0} max={300} step={0.5} suffix=" %" disabled={disabled} onChange={(saturation) => setEffects({ saturation }, false)} onCommit={() => history.settle('Effects')} /></Row>
-            <Row label="Hue"><ScrubNumber value={clip.effects.hue} min={-180} max={180} step={0.5} suffix=" °" disabled={disabled} onChange={(hue) => setEffects({ hue }, false)} onCommit={() => history.settle('Effects')} /></Row>
+            {/* The stopwatch keyframes a setting over the clip, as the transform rows do (clip.effectKeys). */}
+            <Animated clip={clip} comp={comp} history={history} property="brightness" label="Brightness" value={clip.effects.brightness} min={-100} max={100} step={0.5} disabled={disabled} onChange={(brightness) => setEffects({ brightness }, false)} />
+            <Animated clip={clip} comp={comp} history={history} property="contrast" label="Contrast" value={clip.effects.contrast} min={-100} max={100} step={0.5} disabled={disabled} onChange={(contrast) => setEffects({ contrast }, false)} />
+            <Animated clip={clip} comp={comp} history={history} property="saturation" label="Saturation" value={clip.effects.saturation} min={0} max={300} step={0.5} suffix=" %" disabled={disabled} onChange={(saturation) => setEffects({ saturation }, false)} />
+            <Animated clip={clip} comp={comp} history={history} property="hue" label="Hue" value={clip.effects.hue} min={-180} max={180} step={0.5} suffix=" °" disabled={disabled} onChange={(hue) => setEffects({ hue }, false)} />
             <Row label="Invert"><ScrubNumber value={clip.effects.invert} min={0} max={100} step={1} suffix=" %" disabled={disabled} onChange={(invert) => setEffects({ invert }, false)} onCommit={() => history.settle('Effects')} /></Row>
-            <Row label="Blur"><ScrubNumber value={clip.effects.blur} min={0} max={200} step={0.5} suffix=" px" disabled={disabled} onChange={(blur) => setEffects({ blur }, false)} onCommit={() => history.settle('Effects')} /></Row>
+            <Animated clip={clip} comp={comp} history={history} property="blur" label="Blur" value={clip.effects.blur} min={0} max={200} step={0.5} suffix=" px" disabled={disabled} onChange={(blur) => setEffects({ blur }, false)} />
             <Row label="Flip">
               <button type="button" className={`btn btn-small${clip.effects.flipH ? ' btn-primary' : ''}`} disabled={disabled} onClick={() => setEffects({ flipH: !clip.effects.flipH })}>Horizontal</button>
               <button type="button" className={`btn btn-small${clip.effects.flipV ? ' btn-primary' : ''}`} disabled={disabled} onClick={() => setEffects({ flipV: !clip.effects.flipV })}>Vertical</button>

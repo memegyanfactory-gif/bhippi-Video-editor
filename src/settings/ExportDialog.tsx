@@ -8,12 +8,14 @@ import { Bookmark, Film, FolderOpen, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../components/ui';
 import { api } from '../lib/ipc';
+import { exportFolderFor } from '../lib/exportFolder';
 import { safeFileName, timecode, uid } from '../lib/editor';
 import {
   applyPreset, BUILT_IN_PRESETS, estimateAudioKbps, estimateBytes, estimateVideoMbps, EXPORT_FORMATS, findFormat, FORMAT_GROUPS, formatBytes,
   LOUDNESS_TARGETS, matchesPreset, outputSize, recommendResolution, RESOLUTION_PRESETS, toOptions, withExtension,
 } from '../lib/exportPresets';
 import { compDuration } from '../lib/timeline';
+import { fiwnCaptionsForExport } from '../lib/fiwn/export';
 import type { Comp, ExportFormat, ExportOptions, ExportPrefs, ExportSettings, Project, SavedExportPreset, ToolStatus } from '../lib/types';
 
 const RATES = [null, 23.976, 24, 25, 29.97, 30, 50, 59.94, 60];
@@ -57,17 +59,26 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport,
   const [naming, setNaming] = useState<string | null>(null);
   const def = findFormat(settings.format);
   const [name, setName] = useState(`${safeFileName(comp.name || project.name)}.${def.ext}`);
-  const [folder, setFolder] = useState(prefs.folder ?? '');
+  // Empty until this project's Exports folder is known: the folder chosen last belongs to the
+  // project it was chosen in (lib/exportFolder.ts).
+  const [folder, setFolder] = useState('');
   const [inToOut, setInToOut] = useState(false);
   // Read fresh: detection runs in the background at launch and may finish after the app loads.
   const [tools, setTools] = useState<ToolStatus | null>(null);
   useEffect(() => { void api.appInfo().then((info) => setTools(info.ffmpeg)).catch(() => undefined); }, []);
 
   useEffect(() => {
-    if (folder) return;
-    // The project's Exports folder by default; the system Videos folder if that is unavailable.
-    void api.storageDir('exports').then(setFolder).catch(() => videoDir().then(setFolder)).catch(() => undefined);
-  }, [folder]);
+    let live = true;
+    const use = (next: string | null) => { if (live && next) setFolder((current) => current || next); };
+    // The folder chosen last in this project, else its Exports folder; the system Videos folder
+    // if neither is available.
+    void api.storageDir('exports')
+      .then((exports) => use(exportFolderFor(prefs, exports)))
+      .catch(() => (prefs.folder ? use(prefs.folder) : videoDir().then(use)))
+      .catch(() => undefined);
+    return () => { live = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opening
+  }, []);
 
   const ranged = comp.inPoint !== null && comp.outPoint !== null && comp.outPoint > comp.inPoint;
   const total = compDuration(comp);
@@ -158,6 +169,9 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport,
     ? `${{ aac: 'AAC', opus: 'Opus', mp3: 'MP3', flac: 'FLAC', pcm16: 'PCM 16-bit', pcm24: 'PCM 24-bit' }[def.audio]}${['aac', 'opus', 'mp3'].includes(def.audio) ? ` ${Math.round(estimateAudioKbps(settings))} kbit/s` : ''} · ${((settings.sampleRate ?? 48000) / 1000).toFixed(1).replace('.0', '')} kHz${settings.loudness ? ` · normalised to ${settings.loudness} LUFS` : ''}`
     : 'No audio';
   const chaptersPossible = ['mp4', 'mov', 'webm', 'm4a'].includes(def.ext) && comp.markers.length > 0;
+  const hasCaptionClips = comp.clips.some((clip) => clip.source.type === 'text' && clip.source.preset === 'caption');
+  // Only worth offering when this export draws WatchFIWN-look captions.
+  const captionsPossible = !!def.video && fiwnCaptionsForExport(project, comp.id).length > 0;
 
   return (
     <Modal title="Export Settings" onClose={onClose} width={900} footer={
@@ -165,7 +179,7 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport,
         <span className="muted">{timecode(length, comp.fps)} · ≈{formatBytes(estimate)}</span>
         <div className="toolbar-spacer" />
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn btn-primary" onClick={submit} disabled={!name.trim() || total <= 0 || !!bitrateError || !available(settings.format)}><Film size={14} /> Export</button>
+        <button type="button" className="btn btn-primary" onClick={submit} disabled={!folder || !name.trim() || total <= 0 || !!bitrateError || !available(settings.format)}><Film size={14} /> Export</button>
       </>
     }>
       <div className="export-cols">
@@ -378,6 +392,19 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport,
             </div>
             {chaptersPossible && (
               <label className="export-check"><input type="checkbox" checked={settings.chapters !== false} onChange={(event) => update({ chapters: event.target.checked })} /> Timeline markers as chapters ({comp.markers.length})</label>
+            )}
+            {hasCaptionClips && !!def.video && (
+              <label className="export-check" title="Saves the captions next to the video, with the same name — for YouTube, Vimeo and players that show subtitles">
+                <input type="checkbox" checked={!!settings.captionsSidecar} onChange={(event) => update({ captionsSidecar: event.target.checked ? 'srt' : null })} /> Also save captions
+                {settings.captionsSidecar && (
+                  <select className="export-inline-select" value={settings.captionsSidecar} onChange={(event) => update({ captionsSidecar: event.target.value as 'srt' | 'vtt' })} aria-label="Caption file format">
+                    <option value="srt">.srt</option><option value="vtt">.vtt</option>
+                  </select>
+                )}
+              </label>
+            )}
+            {captionsPossible && (
+              <label className="export-check" title="Captions are drawn frame by frame with the WatchFIWN renderer, exactly as the monitor shows them. Fast captions burns them in with the simpler classic look instead: a quick draft."><input type="checkbox" checked={!!settings.fastCaptions} onChange={(event) => update({ fastCaptions: event.target.checked })} /> Fast captions (draft look)</label>
             )}
           </section>
         </div>

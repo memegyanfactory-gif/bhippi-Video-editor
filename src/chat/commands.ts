@@ -38,6 +38,12 @@ export type CommandContext = {
   editStyle: StyleId | null;
   setStyle: (id: StyleId | null) => void;
   canRevert: boolean;
+  /** Brand kits on this machine, for `/train @Kit`. */
+  brandKits: { id: string; name: string }[];
+  /** Starts a turn showing `visible` as the user's message, with `hidden` instructions only the model reads (a quick edit). */
+  sendInstructed: (visible: string, hidden: string) => void;
+  /** Whether the composer holds attached files or images (they go with the turn). */
+  hasAttachments: boolean;
 };
 
 export type Command = {
@@ -134,6 +140,21 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: '/train',
+    args: '[@Kit] link, website or note',
+    summary: 'Teach a brand kit from a reference — a video, link, website, images or this timeline',
+    group: 'Project',
+    options: (context) => context.brandKits.map((kit) => `@${kit.name.replace(/\s+/g, '')}`),
+    run: (context, argument) => {
+      const plan = trainingRequest(argument, context.brandKits, context.hasAttachments);
+      if ('error' in plan) {
+        context.say(plan.error);
+        return;
+      }
+      context.sendInstructed(plan.visible, plan.hidden);
+    },
+  },
+  {
     name: '/ref',
     args: 'name',
     summary: 'Edit to a reference film — its look, its pacing, its hook',
@@ -217,3 +238,41 @@ export function matchCommands(draft: string): { query: string; argument: string;
 }
 
 export const GROUP_ORDER: CommandGroup[] = ['Chat', 'Project', 'Settings'];
+
+/**
+ * What `/train` asks for: the kit (`@Name`, else the project's), what to learn from (a link, a
+ * website, "this timeline", or the attached files), the message the user sees and the instructions
+ * the model follows. Pure, so it is tested.
+ */
+export function trainingRequest(argument: string, kits: { id: string; name: string }[], hasAttachments: boolean): { visible: string; hidden: string; kitId: string | null } | { error: string } {
+  let rest = argument.trim();
+  let kit: { id: string; name: string } | null = null;
+  const tag = rest.match(/^@(\S+)\s*/);
+  if (tag) {
+    const wanted = tag[1].toLowerCase();
+    kit = kits.find((entry) => entry.name.replace(/\s+/g, '').toLowerCase() === wanted) ?? kits.find((entry) => entry.name.toLowerCase().startsWith(wanted)) ?? null;
+    if (!kit) return { error: `There is no brand kit called "${tag[1]}". ${kits.length ? `There is ${kits.map((entry) => `@${entry.name.replace(/\s+/g, '')}`).join(', ')}.` : 'Make one in Settings › Brand kit first.'}` };
+    rest = rest.slice(tag[0].length).trim();
+  }
+  const url = rest.match(/https?:\/\/\S+/)?.[0] ?? null;
+  const timeline = /\b(this )?timeline\b|\bthis (edit|video|comp)\b/i.test(rest);
+  if (!url && !timeline && !hasAttachments) {
+    return { error: 'What should the kit learn from? Paste a link (YouTube, Instagram, TikTok, a website), attach videos or images, or write `/train this timeline`.' };
+  }
+  const from = url ?? (hasAttachments ? 'the attached files' : 'this timeline');
+  const kitWords = kit ? `the brand kit "${kit.name}" (id ${kit.id})` : "the project's brand kit (list_brand_kits if unsure which)";
+  const visible = `/train ${kit ? `@${kit.name} ` : ''}— learn from ${from}${rest && rest !== url ? `: ${rest.replace(url ?? '', '').trim()}` : ''}`.trim();
+  const hidden = [
+    `TRAINING (/train). Study the reference and teach ${kitWords}. Do not change the timeline.`,
+    'Measure first:',
+    '- a video file or a video link (YouTube, Instagram, TikTok, X, direct): if it is a link, download_online_media with asReference true; then analyze_reference_video on it and keep the reference id it returns;',
+    '- a website: extract_brand_from_url;',
+    '- images: look at them closely;',
+    '- "this timeline": get_comp, then inspect_clip_frames on a few representative shots.',
+    'Then call train_brand_kit ONCE with source {kind, label: what the user gave, ref}, referenceId when you have one (its measured cut rate and palette are added for you), and 3–12 learnings: short, specific, reusable rules across pacing, color, type, layout, motion, captions, audio, voice, do, dont — taken from what you measured and saw, never generic advice. Put measured numbers or hex colours in value.',
+    'End with two lines: what the kit learned, and that the user can review or undo it in the card below.',
+    rest ? `The user added: ${rest}` : '',
+  ].filter(Boolean).join('\n');
+  return { visible, hidden, kitId: kit?.id ?? null };
+}
+

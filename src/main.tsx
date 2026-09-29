@@ -6,6 +6,7 @@ import { SupportLayer } from './components/SupportLayer';
 import { ToastProvider } from './components/ui';
 import { LicenseGate } from './license/LicenseGate';
 import './fonts/bundled.css';
+import './fonts/fiwn.css';
 import './styles/app.css';
 import './styles/color.css';
 import './styles/themes.css';

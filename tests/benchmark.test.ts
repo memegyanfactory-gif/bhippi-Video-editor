@@ -71,7 +71,11 @@ describe('benchmark: overhead per step, by kind of video', () => {
     for (const row of rows) {
       expect(row.step, `${row.id}: ${row.step} tokens vs baseline ${BASELINE}`).toBeLessThan(BASELINE * 0.75);
       // The regression gate: a change that makes any brief's step overhead grow past this fails.
-      expect(row.step, row.id).toBeLessThan(44_000);
+      // Raised from 44,000 on 2026-09-29 for `list_caption_styles` (+46 tokens a step), the one
+      // tool that lets a model choose among the 139 WatchFIWN caption styles by look and use.
+      // Raised to 44,250 the same day for `add_graphic` (its one-line slim entry, ~+16 a step over
+      // the gate), the one-call graphic tool that small models use instead of raw templates.
+      expect(row.step, row.id).toBeLessThan(44_250);
     }
   });
 

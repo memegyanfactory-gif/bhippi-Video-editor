@@ -67,10 +67,54 @@ export function restoreWindows(root: ParentNode | null, opened: ReadonlySet<numb
   });
 }
 
-/** `live`: the text is still streaming, so every code window keeps its newest line in view. */
+/** Words brought in per chunk at most; a bigger jump (a pasted block, a reload) just appears. */
+const MAX_FADING_WORDS = 90;
+
+/**
+ * Wraps the words after the first `from` characters of `root`'s text in `<span class="w">`, so only
+ * what has just arrived fades in (chat-messages.css). The HTML is rebuilt whole on every chunk, so
+ * the words already on screen come back as plain text and do not animate again. Code is left
+ * alone: it scrolls in its own window and never animates.
+ */
+export function fadeNewWords(root: HTMLElement, from: number) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const fresh: { node: Text; start: number }[] = [];
+  let seen = 0;
+  for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+    const length = node.data.length;
+    if (seen + length > from && !node.parentElement?.closest('pre, code, button')) fresh.push({ node, start: Math.max(0, from - seen) });
+    seen += length;
+  }
+  let words = 0;
+  for (const { node } of fresh) words += node.data.split(/\s+/).filter(Boolean).length;
+  if (words > MAX_FADING_WORDS) return;
+  let index = 0;
+  for (const { node, start } of fresh) {
+    const head = node.data.slice(0, start);
+    const tail = node.data.slice(start);
+    const parts = document.createDocumentFragment();
+    if (head) parts.append(head);
+    for (const piece of tail.split(/(\s+)/)) {
+      if (!piece) continue;
+      if (/^\s+$/.test(piece)) { parts.append(piece); continue; }
+      const word = document.createElement('span');
+      word.className = 'w';
+      // A short stagger across the chunk, never more than a third of a second behind the stream.
+      word.style.animationDelay = `${Math.min(index * 14, 320)}ms`;
+      word.textContent = piece;
+      parts.append(word);
+      index++;
+    }
+    node.replaceWith(parts);
+  }
+}
+
+/** `live`: the text is still streaming, so every code window keeps its newest line in view and new words fade in. */
 export const Markdown = memo(function Markdown({ text, live = false }: { text: string; live?: boolean }) {
   const root = useRef<HTMLDivElement>(null);
   const opened = useRef(new Set<number>());
+  /** How much of the text was on screen after the last chunk. */
+  const shown = useRef(0);
   const html = useMemo(
     () =>
       DOMPurify.sanitize(marked.parse(text, { async: false }) as string, {
@@ -81,7 +125,14 @@ export const Markdown = memo(function Markdown({ text, live = false }: { text: s
       }),
     [text],
   );
-  useLayoutEffect(() => restoreWindows(root.current, opened.current, live), [html, live]);
+  useLayoutEffect(() => {
+    restoreWindows(root.current, opened.current, live);
+    const node = root.current;
+    if (!node) return;
+    const total = node.textContent?.length ?? 0;
+    if (live && total > shown.current) fadeNewWords(node, shown.current);
+    shown.current = total;
+  }, [html, live]);
   return (
     <div
       ref={root}

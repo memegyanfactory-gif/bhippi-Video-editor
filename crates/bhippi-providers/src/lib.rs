@@ -24,6 +24,7 @@ pub mod model;
 pub mod ollama;
 pub mod openai_compat;
 pub mod provider;
+pub mod registry;
 mod sse;
 pub mod transcript;
 pub mod zen;

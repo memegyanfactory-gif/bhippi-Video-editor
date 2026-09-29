@@ -31,7 +31,7 @@ const BUILTIN_MEDIA = ['compose_music', 'make_background'];
  * What a model on the guided tier (modelProfile.ts) gets whole besides the kind of video's tools:
  * the one-call build and Bhippi's own media, which carry the craft a weaker model gets wrong.
  */
-export const GUIDED_TOOLS = ['build_edit_from_brief', ...BUILTIN_MEDIA];
+export const GUIDED_TOOLS = ['build_edit_from_brief', 'add_graphic', ...BUILTIN_MEDIA];
 
 export const GENRE_TOOLS: Record<Genre, readonly string[]> = {
   saas: [

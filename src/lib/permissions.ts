@@ -8,8 +8,8 @@ export type PermissionMode = 'plan' | 'edit' | 'full';
 
 export const PERMISSION_MODES: { id: PermissionMode; label: string; hint: string }[] = [
   { id: 'plan', label: 'Plan only', hint: 'Reads the project and answers; makes no edits' },
-  { id: 'edit', label: 'Auto-edit', hint: 'Adds and changes clips; will not delete your work' },
-  { id: 'full', label: 'Full access', hint: 'Also deletes clips, tracks, comps and media' },
+  { id: 'edit', label: 'Auto-edit', hint: 'Adds, changes and cuts clips (all undoable); never deletes media, tracks or comps' },
+  { id: 'full', label: 'Full access', hint: 'Also deletes tracks, comps, media and plugins' },
 ];
 
 export const DEFAULT_PERMISSION: PermissionMode = 'edit';
@@ -22,7 +22,7 @@ export function permissionBrief(mode: PermissionMode) {
       questions: 'Ask with ask_user (with options) only when the answer changes the plan and you cannot sensibly choose yourself.',
     },
     edit: {
-      may: 'Auto-edit: add and change clips, text, effects and media freely. Do not delete clips, tracks, comps or media.',
+      may: 'Auto-edit: add, change, trim, cut and remove clips, text, effects and transitions freely (every timeline edit is undoable). Do not delete tracks, comps, project media or plugins.',
       questions: 'Ask with ask_user (with options) only when the answer changes the edit and you cannot sensibly choose yourself; otherwise decide and say what you chose.',
     },
     full: {
@@ -36,6 +36,7 @@ export function permissionBrief(mode: PermissionMode) {
 /** Tools that only look at the project. Always allowed. */
 const READS = new Set([
   'tool_help',
+  'list_caption_styles',
   'online_research',
   'scrape_web_page',
   'capture_product_ui',
@@ -113,16 +114,23 @@ export const isReadTool = (name: string) =>
     // The frame size is the user's own answer, so even Plan only may ask it and apply it.
     'choose_comp_size'].includes(name);
 
-/** Whether a tool throws work away (Full access only). */
+/** Whether a tool throws work away (plugins ask before using one). */
 export const isDestructiveTool = (name: string) => DESTRUCTIVE.has(name);
+
+/**
+ * What only Full access may do: delete things that are not timeline edits — tracks, comps, media,
+ * plugins. Removing clips, ranges and transitions is an ordinary, undoable edit, and `apply_edit`
+ * can do it anyway, so Auto-edit allows it rather than pretending to guard it.
+ */
+const FULL_ONLY = new Set(['delete_project_items', 'delete_tracks', 'delete_plugin']);
 
 export const allowTool = (mode: PermissionMode, name: string): { ok: true } | { ok: false; reason: string } => {
   if (isReadTool(name)) return { ok: true };
   if (mode === 'plan') {
     return { ok: false, reason: 'Bhippi AI is in Plan only mode, so it cannot change the project. Describe the edit you would make, or ask the user to switch to Auto-edit.' };
   }
-  if (mode === 'edit' && DESTRUCTIVE.has(name)) {
-    return { ok: false, reason: 'Bhippi AI is in Auto-edit mode, which does not delete anything. Say what you would remove and ask the user to switch to Full access, or achieve it without deleting.' };
+  if (mode === 'edit' && FULL_ONLY.has(name)) {
+    return { ok: false, reason: 'Bhippi AI is in Auto-edit mode, which does not delete tracks, comps, project media or plugins. Say what you would delete and ask the user to switch to Full access.' };
   }
   return { ok: true };
 };

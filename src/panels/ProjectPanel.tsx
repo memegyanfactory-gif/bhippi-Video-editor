@@ -114,9 +114,20 @@ const ITEM_ICON: Record<ItemKind, typeof Video> = {
  * Comp id → a short hash of everything its poster depends on: its clips, tracks and size, plus the
  * same for every comp nested in it (editing a nested comp changes the parent's picture too).
  */
+// Per comp object: an unchanged comp (the same object, thanks to structural sharing) is not hashed again.
+const ownSignatures = new WeakMap<Comp, string>();
+function ownSignature(comp: Comp): string {
+  let key = ownSignatures.get(comp);
+  if (key === undefined) {
+    key = hashText(JSON.stringify([comp.width, comp.height, comp.tracks, comp.clips]));
+    ownSignatures.set(comp, key);
+  }
+  return key;
+}
+
 function compSignatures(comps: Comp[]): Map<string, string> {
   const byId = new Map(comps.map((comp) => [comp.id, comp]));
-  const own = new Map(comps.map((comp) => [comp.id, hashText(JSON.stringify([comp.width, comp.height, comp.tracks, comp.clips]))]));
+  const own = new Map(comps.map((comp) => [comp.id, ownSignature(comp)]));
   const out = new Map<string, string>();
   const visit = (id: string, trail: Set<string>): string => {
     const done = out.get(id);
@@ -240,9 +251,11 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
     void drainPosters();
   };
 
-  const posterKeys = useMemo(() => compSignatures(project.comps), [project.comps]);
+  // Worked out once the project has settled (not on every frame of a drag), and only for comps
+  // that changed.
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      const posterKeys = compSignatures(project.comps);
       for (const comp of project.comps) {
         const key = posterKeys.get(comp.id);
         if (compDuration(comp) <= 0) {
@@ -256,7 +269,7 @@ function BinTab({ project, history, assets, folder, onFolder, selection, onSelec
       }
     }, posterDone.current.size ? 1200 : 0);
     return () => window.clearTimeout(timer);
-  }, [posterKeys]);
+  }, [project.comps]);
 
   // Delete and Ctrl+A work on the visible bin entries when the panel has
   // focus. Handled here (with propagation stopped) so Delete never also hits
@@ -540,7 +553,7 @@ function GraphicsTab({ project, assets, history, clipSelection, onAddText, onCap
   }, [category, query]);
 
   return (
-    <div className="effects">
+    <div className="effects effects-page">
       <div className="effects-section">
         <div className="effects-title">Titles <span className="muted">— adds at the playhead on a free track</span></div>
         <div className="title-presets">
@@ -623,7 +636,7 @@ const EFFECTS: { kind: SfxKind; hint: string }[] = [
 function AudioTab({ onAddSfx, onDragStart, project, assets }: Props) {
   const music = assets.filter((asset) => asset.kind === 'audio' && project.media.some((ref) => ref.assetId === asset.id));
   return (
-    <div className="effects">
+    <div className="effects effects-page">
       <div className="effects-section">
         <div className="effects-title">Sound effects <span className="muted">— adds at the playhead on a free audio track</span></div>
         <div className="sfx-list">

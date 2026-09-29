@@ -1,7 +1,7 @@
 // The editing area drawn from its dock tree (lib/dockTree.ts), and the drag that rearranges it.
 //
 // Press a panel's tab and drag: the panel under the pointer lights up on the side it would go —
-// left, right, above or below it, or the whole panel to swap the two — and near the area's own
+// left, right, above or below it, or the whole panel to join it as a tab — and near the area's own
 // edge a full-height or full-width strip. Let go to put it there; Escape, or letting go outside
 // the area (over the chat), leaves everything as it was. Splitters between panels resize them.
 import { Fragment, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
@@ -110,7 +110,9 @@ export function dropAt(area: HTMLElement, x: number, y: number, dragged: DockPan
   const near: [DockEdge, number][] = [['left', rx], ['right', 1 - rx], ['top', ry], ['bottom', 1 - ry]];
   const [edge, distance] = near.sort((a, b) => a[1] - b[1])[0];
   const name = names(target);
-  if (distance > EDGE_BAND) return { drop: { panel: target, edge: 'center' }, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, where: `Swap with ${name}` };
+  // The middle: a tab in that panel's frame (the bare tool strip and meters swap instead).
+  const swaps = FIXED_PANELS.has(target) || FIXED_PANELS.has(dragged);
+  if (distance > EDGE_BAND) return { drop: { panel: target, edge: 'center' }, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, where: swaps ? `Swap with ${name}` : `Tab with ${name}` };
   const rect = edge === 'left' ? { left: r.left, top: r.top, width: r.width / 2, height: r.height }
     : edge === 'right' ? { left: r.left + r.width / 2, top: r.top, width: r.width / 2, height: r.height }
     : edge === 'top' ? { left: r.left, top: r.top, width: r.width, height: r.height / 2 }

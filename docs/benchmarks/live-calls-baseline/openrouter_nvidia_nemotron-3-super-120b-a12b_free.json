@@ -1,0 +1,262 @@
+{
+ "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+ "calls": [
+  {
+   "brief": "lower-third",
+   "attempts": [
+    {
+     "args": {
+      "template": "crimson-lower-third",
+      "title": "Priya Raman",
+      "subtitle": "Head of Growth at Finlo"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "hook",
+   "attempts": [
+    {
+     "args": {
+      "template": "hook-promise",
+      "title": "Save your first $10,000 in one year",
+      "subtitle": "Even on a small salary"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "chart",
+   "attempts": [
+    {
+     "args": {
+      "template": "stat-chart",
+      "title": "Revenue",
+      "subtitle": "Annual Revenue (Millions)",
+      "rows": [
+       "2021",
+       "2022",
+       "2023",
+       "2024"
+      ],
+      "values": [
+       12,
+       19,
+       31,
+       48
+      ],
+      "activeIndex": 3
+     },
+     "error": "The graphic built, but: subtitle dropped (annual, (millions) not shown)"
+    },
+    {
+     "args": {
+      "template": "stat-chart",
+      "title": "Revenue\nAnnual Revenue (Millions)",
+      "subtitle": "",
+      "rows": [
+       "2021",
+       "2022",
+       "2023",
+       "2024"
+      ],
+      "values": [
+       12,
+       19,
+       31,
+       48
+      ],
+      "activeIndex": 3
+     }
+    }
+   ]
+  },
+  {
+   "brief": "teaching",
+   "attempts": [
+    {
+     "args": {
+      "template": "teaching-card",
+      "title": "50/30/20 Budget Rule",
+      "subtitle": "How to allocate your income",
+      "rows": [
+       "Needs — 50% of income for essentials",
+       "Wants — 30% for discretionary spending",
+       "Savings — 20% for future goals"
+      ]
+     },
+     "error": "The graphic built, but: subtitle dropped (how, allocate, your not shown)"
+    },
+    {
+     "args": {
+      "template": "teaching-card",
+      "title": "50/30/20 Budget Rule",
+      "subtitle": "How to allocate your income.",
+      "rows": [
+       "Needs — 50% of income for essentials",
+       "Wants — 30% for discretionary spending",
+       "Savings — 20% for future goals"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "brief": "compare",
+   "attempts": [
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs Buying a Home",
+      "rows": [
+       "Upfront Costs — Lower for renting, higher for buying",
+       "Monthly Payments — Rent vs mortgage + taxes",
+       "Equity — None vs building equity",
+       "Flexibility — High for renting, low for buying",
+       "Maintenance — Landlord vs owner responsibility",
+       "Tax Benefits — Limited vs mortgage interest deduction"
+      ],
+      "asNestedComp": true
+     },
+     "error": "The graphic built, but: rows: 4 of 6 items silently dropped"
+    },
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs Buying a Home",
+      "rows": [
+       "Upfront Costs — Lower for renting, higher for buying",
+       "Monthly Payments — Rent vs mortgage + taxes",
+       "Equity — None vs building equity",
+       "Flexibility — High for renting, low for buying",
+       "Maintenance — Landlord vs owner responsibility",
+       "Tax Benefits — Limited vs mortgage interest deduction"
+      ],
+      "asNestedComp": true
+     }
+    }
+   ]
+  },
+  {
+   "brief": "news",
+   "attempts": [
+    {
+     "args": {
+      "template": "breaking-news",
+      "title": "Markets fall 4% after the central bank rate decision"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "quote",
+   "attempts": [
+    {
+     "args": null,
+     "reply": "te\": \"custom\",\n  \"title\": \"Discipline is choosing what you want most over what you want now.\",\n  \"accentColor\": \"#FF0000\",\n  \"html\": '<div class=\"quote\"><span class=\"accent\">Discipline</span> is choosing what you want most over what you want now.</div>',\n  \"css\": \".quote { font-size: 72px; text-align: center; line-height: 1.4; } .accent { color: #FF0000; font-style: italic; }\",\n  \"duration\": 5\n}\r\n"
+    }
+   ]
+  },
+  {
+   "brief": "chapter",
+   "attempts": [
+    {
+     "args": {
+      "template": "chapter-marker",
+      "title": "Chapter 3",
+      "subtitle": "Investing basics"
+     },
+     "error": "The graphic built, but: subtitle dropped (investing, basics not shown)"
+    },
+    {
+     "args": {
+      "template": "chapter-marker",
+      "kicker": "Chapter 3",
+      "title": "Investing basics"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "roadmap",
+   "attempts": [
+    {
+     "args": {
+      "template": "numbered-lanes",
+      "title": "Product Launch Roadmap",
+      "rows": [
+       "Research — Understand market needs",
+       "Prototype — Build initial version",
+       "Test — Validate with users",
+       "Launch — Release to market",
+       "Grow — Scale and iterate"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "brief": "countdown",
+   "attempts": [
+    {
+     "args": {
+      "template": "countdown",
+      "title": "Countdown",
+      "duration": 10
+     }
+    }
+   ]
+  },
+  {
+   "brief": "panel",
+   "attempts": [
+    {
+     "args": {
+      "template": "side-panel",
+      "title": "Hook Writing Rules",
+      "subtitle": "4 Rules",
+      "accentColor": "#008080",
+      "rows": [
+       "Be specific — be specific",
+       "Open a loop — open a loop",
+       "Promise a payoff — promise a payoff",
+       "Cut the intro — cut the intro"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "brief": "timeline",
+   "attempts": [
+    {
+     "args": {
+      "template": "timeline-roadmap",
+      "title": "Company History",
+      "subtitle": "Key Milestones",
+      "rows": [
+       "2015 — Founded",
+       "2017 — First Office",
+       "2021 — IPO",
+       "2024 — One Million Users"
+      ]
+     },
+     "error": "The graphic built, but: subtitle dropped (key, milestones not shown)"
+    },
+    {
+     "args": {
+      "template": "timeline-roadmap",
+      "title": "Company History",
+      "kicker": "Key Milestones",
+      "rows": [
+       "2015 — Founded",
+       "2017 — First Office",
+       "2021 — IPO",
+       "2024 — One Million Users"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

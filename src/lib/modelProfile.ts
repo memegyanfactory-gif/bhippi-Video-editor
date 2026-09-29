@@ -43,7 +43,22 @@ export function modelTier(providerId: string | null | undefined, model: string |
 export const GUIDED_BRIEF = [
   'GUIDED MODE (this model gets Bhippi\'s strongest defaults): keep your own work to the words and the feel; let the tools do the craft.',
   '- A video from scratch, a promo, a reel, a showreel, an explainer made of titles: plan the beats (one idea each, 2–7 words), then ONE build_edit_from_brief call builds it — templates, timing on the beat, transitions with sound, a composed score and a background. Do not build scenes, keyframes or sound one by one.',
+  '- One graphic on an existing edit (a title, lower third, stat, list, quote, timeline…): add_graphic {kind, text, points?, value?, at}. It picks the template and fits the words; read its "Auto-fixed" note.',
   '- No music, or music generation/download failed: compose_music. Flat or black background: make_background. Never fake music with sound effects.',
   '- Fix what run_frame_qa lists with small, specific calls; do not hand-edit keyframe paths; if a beat is wrong, rebuild with new beats. Then judge_edit and verify_edit_workflow.',
   '- Read tool results by their summary; do not re-read whole scenes to look for problems.',
 ].join('\n');
+
+/**
+ * Why a guided turn may not make this call, or null. A weaker model's raw HTML or hand-written
+ * scene is where graphics break (docs/TRAIN-AND-TEMPLATES-PLAN.md Part B), so on the guided tier
+ * graphics come from templates, which are checked and fitted; the user can switch to Full.
+ */
+export function guidedRefusal(name: string, args: Record<string, unknown>): string | null {
+  const raw = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
+  const nudge = 'Use add_graphic {kind, text, …} (it picks and fits the template), or a template id with create_motion_graphic / create_motion_scene. The user can allow raw authoring by setting the AI to Full in Settings → General.';
+  if (name === 'create_motion_graphic' && (args.template === 'custom' || raw(args.html) || raw(args.css) || raw(args.js))) return `Guided mode: this model builds graphics from templates, not raw HTML/CSS/JS. ${nudge}`;
+  if (name === 'create_motion_scene' && !raw(args.template) && args.scene && typeof args.scene === 'object') return `Guided mode: this model builds scenes from templates, not a hand-written scene. ${nudge}`;
+  if (name === 'create_motion_sequence' && Array.isArray(args.beats) && args.beats.some((beat) => !!beat && typeof beat === 'object' && 'scene' in (beat as object) && !raw((beat as Record<string, unknown>).template))) return `Guided mode: each beat is a template ({template, params}), not a hand-written scene. For a whole video use build_edit_from_brief. ${nudge}`;
+  return null;
+}

@@ -284,7 +284,10 @@ impl<'a> Graph<'a> {
         let length = asset.duration.max(0.0);
         let step = 1.0 / source_fps;
         let path = asset.path.clone();
-        let deinterlace = if clip.deinterlace { "yadif," } else { "" };
+        // HDR footage is tone-mapped to SDR first (when this FFmpeg can), as its proxy was.
+        let tonemap = if asset.hdr.is_some() { crate::tools::tonemap_filters() } else { "" };
+        let deinterlace_owned = format!("{tonemap}{}", if clip.deinterlace { "yadif," } else { "" });
+        let deinterlace = deinterlace_owned.as_str();
         let speed = if (clip.speed - 1.0).abs() > 1e-9 { format!("setpts=(PTS-STARTPTS)/{},", num(clip.speed)) } else { String::new() };
         let covered = frames as f64 / fps * clip.speed;
         let edge = source_time(clip, tau);
@@ -567,6 +570,89 @@ impl<'a> Graph<'a> {
         Some(format!("sendcmd=f={name},colorchannelmixer@o{id}=aa={}", num(start.clamp(0.0, 1.0))))
     }
 
+    /// The clip's colour effects. Settings with keyframes (`Clip::effect_keys`) are driven per
+    /// frame by one `sendcmd`, stage by stage in the order CSS applies them (the preview's
+    /// `cssFilter`): brightness and contrast as one channel mix (the offset rides on alpha, which
+    /// is opaque here), saturation, hue, invert (never keyed), blur.
+    fn clip_effects(&mut self, clip: &Clip, height: u32, tau: f64) -> Vec<String> {
+        let Some(keys) = clip.effect_keys.as_ref().filter(|keys| !keys.is_empty()) else {
+            return effects(&clip.effects, height, "");
+        };
+        let fx = &clip.effects;
+        let t = time_expr("T", tau);
+        let id = self.unique();
+        let track = |list: &[Keyframe], still: f64| keyframe_expr(list, &t).unwrap_or_else(|| num(still));
+        let first = |list: &[Keyframe], still: f64| keyframe_value(list, tau).unwrap_or(still);
+        let coef = |expr: String| format!("clip({expr},-2,2)");
+        let mut commands: Vec<String> = Vec::new();
+        let mut stages: Vec<String> = Vec::new();
+        let stage = |name: String, params: Vec<(&str, String, f64)>, commands: &mut Vec<String>, stages: &mut Vec<String>| {
+            for (param, expr, _) in &params {
+                commands.push(format!("{name} {param} '{expr}'"));
+            }
+            let initial: Vec<String> = params.iter().map(|(param, _, value)| format!("{param}={}", num(*value))).collect();
+            stages.push(format!("{name}={}", initial.join(":")));
+        };
+        if !keys.brightness.is_empty() || !keys.contrast.is_empty() || fx.brightness != 0.0 || fx.contrast != 0.0 {
+            let (b, c) = (format!("(1+({})/100)", track(&keys.brightness, fx.brightness)), format!("(1+({})/100)", track(&keys.contrast, fx.contrast)));
+            let (b0, c0) = (1.0 + first(&keys.brightness, fx.brightness) / 100.0, 1.0 + first(&keys.contrast, fx.contrast) / 100.0);
+            let gain = coef(format!("{b}*{c}"));
+            let offset = coef(format!("0.5*(1-{c})"));
+            let params = vec![("rr", gain.clone(), (b0 * c0).clamp(-2.0, 2.0)), ("gg", gain.clone(), (b0 * c0).clamp(-2.0, 2.0)), ("bb", gain, (b0 * c0).clamp(-2.0, 2.0)), ("ra", offset.clone(), (0.5 * (1.0 - c0)).clamp(-2.0, 2.0)), ("ga", offset.clone(), (0.5 * (1.0 - c0)).clamp(-2.0, 2.0)), ("ba", offset, (0.5 * (1.0 - c0)).clamp(-2.0, 2.0))];
+            stage(format!("colorchannelmixer@bc{id}"), params, &mut commands, &mut stages);
+        }
+        if !keys.saturation.is_empty() || (fx.saturation - 100.0).abs() > 1e-9 {
+            let s = format!("(({})/100)", track(&keys.saturation, fx.saturation));
+            let s0 = first(&keys.saturation, fx.saturation) / 100.0;
+            let rows = [[(0.213, 0.787), (0.715, -0.715), (0.072, -0.072)], [(0.213, -0.213), (0.715, 0.285), (0.072, -0.072)], [(0.213, -0.213), (0.715, -0.715), (0.072, 0.928)]];
+            let names = [["rr", "rg", "rb"], ["gr", "gg", "gb"], ["br", "bg", "bb"]];
+            let mut params = Vec::new();
+            for (row, pairs) in rows.iter().enumerate() {
+                for (column, (base, k)) in pairs.iter().enumerate() {
+                    params.push((names[row][column], coef(format!("{}+{}*{s}", num(*base), num(*k))), (base + k * s0).clamp(-2.0, 2.0)));
+                }
+            }
+            stage(format!("colorchannelmixer@s{id}"), params, &mut commands, &mut stages);
+        }
+        if !keys.hue.is_empty() || fx.hue != 0.0 {
+            let h = format!("(({})*PI/180)", track(&keys.hue, fx.hue));
+            let h0 = first(&keys.hue, fx.hue).to_radians();
+            // The CSS hue-rotate matrix: base + cos·c + sin·s per coefficient.
+            let rows = [
+                [(0.213, 0.787, -0.213), (0.715, -0.715, -0.715), (0.072, -0.072, 0.928)],
+                [(0.213, -0.213, 0.143), (0.715, 0.285, 0.140), (0.072, -0.072, -0.283)],
+                [(0.213, -0.213, -0.787), (0.715, -0.715, 0.715), (0.072, 0.928, 0.072)],
+            ];
+            let names = [["rr", "rg", "rb"], ["gr", "gg", "gb"], ["br", "bg", "bb"]];
+            let mut params = Vec::new();
+            for (row, triples) in rows.iter().enumerate() {
+                for (column, (base, c, s)) in triples.iter().enumerate() {
+                    params.push((names[row][column], coef(format!("{}+{}*cos({h})+{}*sin({h})", num(*base), num(*c), num(*s))), (base + c * h0.cos() + s * h0.sin()).clamp(-2.0, 2.0)));
+                }
+            }
+            stage(format!("colorchannelmixer@h{id}"), params, &mut commands, &mut stages);
+        }
+        if fx.invert > 0.0 {
+            let mut only = Effects::default();
+            only.invert = fx.invert;
+            stages.extend(effects(&only, height, ""));
+        }
+        if !keys.blur.is_empty() || fx.blur > 0.0 {
+            let scale = f64::from(height) / 1080.0;
+            let expr = format!("max(0,({})*{})", track(&keys.blur, fx.blur), num(scale));
+            stage(format!("gblur@b{id}"), vec![("sigma", expr, (first(&keys.blur, fx.blur) * scale).max(0.0))], &mut commands, &mut stages);
+        }
+        if stages.is_empty() {
+            return stages;
+        }
+        if !commands.is_empty() {
+            // Flags belong to each command: every one is `[expr]`, evaluated per frame.
+            let name = self.file("fxkeys", "txt", format!("0-86400 [expr] {};\n", commands.join(", [expr] ")).into_bytes());
+            stages.insert(0, format!("sendcmd=f={name}"));
+        }
+        stages
+    }
+
     /// Crops, colours, rotates and positions a source into a full frame.
     fn place(&mut self, clip: &Clip, frame: Frame, source: Source, tau: f64, frames: u64) -> Option<String> {
         let transform = &clip.transform;
@@ -683,7 +769,7 @@ impl<'a> Graph<'a> {
         if pw < scaled_w || ph < scaled_h {
             parts.push(format!("crop={pw}:{ph}:{px}:{py}"));
         }
-        parts.extend(effects(&clip.effects, frame.h, ""));
+        parts.extend(self.clip_effects(clip, frame.h, tau));
         parts.extend(self.stack_effects(clip, frame.h, ""));
         if let Some(alpha) = self.opacity(clip, tau) {
             parts.push(alpha);
@@ -730,7 +816,7 @@ impl<'a> Graph<'a> {
             parts.push(cut);
         }
         parts.push(format!("scale={}:{}:flags={}", (crop_w * factor).round().max(1.0), (crop_h * factor).round().max(1.0), self.scaler));
-        parts.extend(effects(&clip.effects, frame.h, ""));
+        parts.extend(self.clip_effects(clip, frame.h, tau));
         parts.extend(self.stack_effects(clip, frame.h, ""));
         if let Some(alpha) = self.opacity(clip, tau) {
             parts.push(alpha);

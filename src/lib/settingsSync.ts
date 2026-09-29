@@ -1,8 +1,8 @@
 // The settings this window holds, kept in step with the backend's copy.
 //
-// Every save sends the whole object, but the backend also writes some settings itself — a
-// provider switched off, a speech program located. Unless those writes are read back, the next
-// save of anything (the timeline zoom saves itself every few seconds) puts the old values back.
+// A save sends only the keys it changes: the settings hold brand kits with their logos (megabytes),
+// and the timeline zoom and panel layout save themselves often. Sending only the patch also keeps
+// what the backend wrote itself — a provider switched off, a speech program located.
 import { api } from './ipc';
 import type { ProviderInfo, Settings } from './types';
 
@@ -31,7 +31,9 @@ export function settingsSync(defaults: Settings, ref: { current: Settings }, onC
     save: (patch) => {
       ref.current = { ...ref.current, ...patch };
       onChange(ref.current);
-      api.settingsSave(ref.current).catch(() => undefined);
+      // A key set to undefined is cleared: JSON would drop it, so it goes as null (the default).
+      const sent = Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value === undefined ? null : value]));
+      api.settingsPatch(sent as Partial<Settings>).catch(() => undefined);
     },
     apply,
     reload,

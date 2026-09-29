@@ -69,3 +69,27 @@ describe('Properties › Start', () => {
     expect(rest).toEqual([[7, 10, 7]]);
   });
 });
+
+describe('an AI turn as one undo step', () => {
+  it('folds the turn\'s steps into one, named after the request', async () => {
+    const { squashTurnStep } = await import('../src/lib/history');
+    const start = newProject();
+    let state = historyStart(start);
+    state = commitStep(state, (p) => ({ ...p, name: 'a' }), 'AI: add_text');
+    state = commitStep(state, (p) => ({ ...p, name: 'b' }), 'AI: place_clip');
+    const folded = squashTurnStep(state, start, 'AI: "make an intro"');
+    expect(folded.past).toHaveLength(1);
+    expect(folded.presentLabel).toBe('AI: "make an intro"');
+    expect(undoStep(folded).present).toBe(start);
+  });
+
+  it('leaves the steps apart when the user edited during the turn', async () => {
+    const { squashTurnStep } = await import('../src/lib/history');
+    const start = newProject();
+    let state = historyStart(start);
+    state = commitStep(state, (p) => ({ ...p, name: 'a' }), 'AI: add_text');
+    state = commitStep(state, (p) => ({ ...p, name: 'mine' }), 'Trim');
+    state = commitStep(state, (p) => ({ ...p, name: 'b' }), 'AI: place_clip');
+    expect(squashTurnStep(state, start, 'AI: "x"')).toBe(state);
+  });
+});

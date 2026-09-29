@@ -32,7 +32,7 @@ export const PLUGIN_FORBIDDEN = new Set([
  */
 export const PLUGIN_READS = new Set([
   'get_project', 'get_comp', 'get_motion_scene', 'tool_help', 'plugin_sdk_reference', 'list_effects', 'list_transitions',
-  'list_motion_templates', 'list_recipes', 'list_characters', 'list_character_actions', 'list_drawn_styles', 'list_3d_presets',
+  'list_motion_templates', 'list_caption_styles', 'list_recipes', 'list_characters', 'list_character_actions', 'list_drawn_styles', 'list_3d_presets',
   'list_ui_kinds', 'list_brand_kits', 'get_brand_kit', 'get_brand_guideline', 'list_custom_tools', 'check_pacing',
   'check_motion_arcs', 'motion_guide', 'search_icons', 'svg_to_shape',
 ]);

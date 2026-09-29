@@ -1,0 +1,108 @@
+/* ── The Bhippi mark, the step circles and the stop orbit (src/chat/BhippiMark.tsx) ──────────
+   One motion family for everything that says "Bhippi is working": the logo's two halves turning.
+   Ember is the assistant's colour (--ai in app.css); blue is left to the editor and to "your move". */
+
+.mk { display: block; flex: none; overflow: visible; }
+.mk-ring, .mk-half, .mk-b { transform-box: view-box; transform-origin: 50% 50%; }
+.mk-arc { fill: none; stroke-width: 17; }
+.mk-hl { fill: none; stroke-width: 6; opacity: 0.6; }
+.mk-b { stroke: #ffc98a; stroke-opacity: 0.55; stroke-width: 1.8; stroke-linejoin: round; }
+
+/* Thinking: the ring turns and its halves breathe apart, like an aperture. */
+.mk[data-s='thinking'] .mk-ring { animation: mk-spin 1.8s var(--ease-swing) infinite; }
+.mk[data-s='thinking'] .mk-l { animation: mk-open-l 0.9s ease-in-out infinite alternate; }
+.mk[data-s='thinking'] .mk-r { animation: mk-open-r 0.9s ease-in-out infinite alternate; }
+.mk[data-s='thinking'] .mk-b { animation: mk-breathe 1.8s ease-in-out infinite; }
+/* Editing: a quarter turn at a time, like a reel advancing. */
+.mk[data-s='editing'] .mk-ring { animation: mk-ratchet 2.4s infinite; }
+.mk[data-s='editing'] .mk-b { animation: mk-nudge 0.6s var(--ease-out) infinite; }
+/* Done: the halves swing shut with a little overshoot and one warm glow, once. */
+.mk[data-s='done'] .mk-ring { animation: mk-close 0.75s var(--spring-bouncy) both; }
+.mk[data-s='done'] .mk-l { animation: mk-shut-l 0.55s var(--spring-bouncy) both; }
+.mk[data-s='done'] .mk-r { animation: mk-shut-r 0.55s var(--spring-bouncy) both; }
+.mk[data-s='done'] { animation: mk-flash 1s var(--ease-out); }
+/* Waiting on you: held slightly open, drifting. */
+.mk[data-s='waiting'] .mk-l { animation: mk-wait-l 2.8s ease-in-out infinite alternate; }
+.mk[data-s='waiting'] .mk-r { animation: mk-wait-r 2.8s ease-in-out infinite alternate; }
+/* Stopped: grey and parted, still. */
+.mk[data-s='stopped'] { filter: grayscale(1) brightness(0.8); opacity: 0.8; }
+.mk[data-s='stopped'] .mk-l { transform: translateX(-3px); }
+.mk[data-s='stopped'] .mk-r { transform: translateX(3px); }
+
+@keyframes mk-spin { to { transform: rotate(360deg); } }
+@keyframes mk-open-l { to { transform: translateX(-4.5px); } }
+@keyframes mk-open-r { to { transform: translateX(4.5px); } }
+@keyframes mk-breathe { 50% { transform: scale(0.88); } }
+@keyframes mk-nudge { 0% { transform: scale(1); } 18% { transform: scale(0.9); } 45%, 100% { transform: scale(1); } }
+@keyframes mk-ratchet {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.3, 1.5, 0.5, 1); }
+  20% { transform: rotate(90deg); }
+  25% { transform: rotate(90deg); animation-timing-function: cubic-bezier(0.3, 1.5, 0.5, 1); }
+  45% { transform: rotate(180deg); }
+  50% { transform: rotate(180deg); animation-timing-function: cubic-bezier(0.3, 1.5, 0.5, 1); }
+  70% { transform: rotate(270deg); }
+  75% { transform: rotate(270deg); animation-timing-function: cubic-bezier(0.3, 1.5, 0.5, 1); }
+  95%, 100% { transform: rotate(360deg); }
+}
+@keyframes mk-close { from { transform: rotate(-80deg); } to { transform: rotate(0deg); } }
+@keyframes mk-shut-l { from { transform: translateX(-6px); } to { transform: none; } }
+@keyframes mk-shut-r { from { transform: translateX(6px); } to { transform: none; } }
+@keyframes mk-flash {
+  0% { filter: drop-shadow(0 0 0 rgba(255, 179, 92, 0)); }
+  35% { filter: drop-shadow(0 0 5px rgba(255, 179, 92, 0.9)); }
+  100% { filter: drop-shadow(0 0 0 rgba(255, 179, 92, 0)); }
+}
+@keyframes mk-wait-l { from { transform: translateX(-1.5px); } to { transform: translateX(-3.5px); } }
+@keyframes mk-wait-r { from { transform: translateX(1.5px); } to { transform: translateX(3.5px); } }
+
+/* ── Step circles ── */
+.sd { position: relative; display: inline-block; flex: none; vertical-align: middle; }
+.sd svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.sd svg * { fill: none; stroke-linecap: round; stroke-linejoin: round; transition: opacity 0.18s ease, stroke 0.2s ease; }
+.sd .sd-bg { stroke: none; opacity: 0; }
+.sd .sd-track { stroke: var(--line-hi); stroke-width: 1.5; opacity: 0; }
+.sd .sd-spin { transform-box: view-box; transform-origin: 50% 50%; opacity: 0; }
+.sd .sd-spin path { stroke: var(--ai); stroke-width: 1.9; }
+.sd .sd-ring { stroke-width: 1.5; stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke-dashoffset 0.3s var(--ease-out), opacity 0.18s ease; }
+.sd .sd-tick, .sd .sd-x { stroke-width: 1.7; stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke-dashoffset 0.26s var(--ease-out) 0.14s, opacity 0.15s ease; }
+.sd .sd-core { fill: var(--blue); stroke: none; opacity: 0; }
+.sd[data-state='queued'] .sd-track { opacity: 1; stroke-dasharray: 2.2 2.6; }
+.sd[data-state='running'] .sd-track { opacity: 1; stroke: var(--ai-soft); }
+.sd[data-state='running'] .sd-spin { opacity: 1; animation: sd-turn 1.1s var(--ease-swing) infinite; }
+.sd[data-state='done'] .sd-bg { opacity: 1; fill: var(--green-soft); }
+.sd[data-state='done'] .sd-ring { stroke: rgba(63, 185, 80, 0.55); stroke-dashoffset: 0; }
+.sd[data-state='done'] .sd-tick { stroke: var(--green); stroke-dashoffset: 0; }
+.sd[data-state='done'] { animation: sd-pop 0.3s var(--ease-out); }
+.sd[data-state='failed'] .sd-bg { opacity: 1; fill: var(--red-soft); }
+.sd[data-state='failed'] .sd-ring { stroke: rgba(255, 93, 93, 0.6); stroke-dashoffset: 0; }
+.sd[data-state='failed'] .sd-x { stroke: var(--red); stroke-dashoffset: 0; }
+.sd[data-state='denied'] .sd-track { opacity: 1; stroke-dasharray: 2.2 2.6; }
+.sd[data-state='denied'] .sd-x { stroke: var(--text-faint); stroke-dashoffset: 0; opacity: 0.8; }
+.sd[data-state='waiting'] .sd-ring { stroke: var(--blue-hi); stroke-dashoffset: 0; }
+.sd[data-state='waiting'] .sd-core { opacity: 1; }
+.sd[data-state='stopped'] .sd-track { opacity: 1; }
+@keyframes sd-turn { to { transform: rotate(360deg); } }
+@keyframes sd-pop { 50% { transform: scale(1.14); } }
+
+/* ── The stop button's orbit ── */
+.stop-glyph rect { fill: currentColor; }
+.stop-glyph .stop-orbit { transform-box: view-box; transform-origin: 50% 50%; animation: sd-turn 1.8s var(--ease-swing) infinite; }
+.stop-glyph .stop-orbit path { fill: none; stroke: var(--ai); stroke-width: 2; stroke-linecap: round; }
+
+/* ── A label with a light passing over it: the step running now, "Thinking" ──
+   A soft warm band clipped to the letters. Without background-clip support it is just the text. */
+.ai-shimmer {
+  color: var(--text-dim);
+  background: linear-gradient(100deg, var(--text-dim) 34%, color-mix(in oklab, var(--ai-hi) 45%, var(--text-dim)) 43%, #fff0dc 50%, color-mix(in oklab, var(--ai-hi) 45%, var(--text-dim)) 57%, var(--text-dim) 66%) 0 0 / 260% 100% no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: ai-shimmer 1.7s linear infinite;
+}
+@keyframes ai-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mk, .mk *, .sd, .sd *, .stop-glyph .stop-orbit { animation: none !important; }
+  .sd svg * { transition: none; }
+  .ai-shimmer { animation: none; background: none; -webkit-text-fill-color: currentColor; }
+}

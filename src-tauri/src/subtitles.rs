@@ -206,6 +206,7 @@ mod tests {
             preset,
             color: "#FFC53D".to_owned(),
             style: None,
+            word_starts: None,
         }
     }
 

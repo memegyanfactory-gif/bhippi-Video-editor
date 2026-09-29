@@ -262,7 +262,7 @@ pub struct Ctx {
     pub move_previous: bool,
     pub storage_root: PathBuf,
     pub app_data: PathBuf,
-    /// Scratch places whose files move rather than copy (work folder, agent workspace, temp).
+    /// Scratch places whose files move rather than copy (the work folder, temp).
     pub movable: Vec<PathBuf>,
     /// App places never collected (built-in SFX, models, proxies, the install folder).
     pub skip: Vec<PathBuf>,
@@ -691,13 +691,58 @@ pub fn resolve(value: &mut Value, bhippi_dir: &Path) {
     }
 }
 
-/// Opens a `.bhippi`, with its relative paths made absolute again.
+/// Opens a `.bhippi`, with its relative paths made absolute again (and any file a save gathered
+/// into its folder relinked, see [`heal`]).
 pub fn read(path: &Path) -> Result<Document, String> {
     let document = crate::files::read_document(path)?;
     let bhippi_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let mut value = serde_json::to_value(&document).map_err(|error| error.to_string())?;
     resolve(&mut value, &bhippi_dir);
+    if let Some(folder) = crate::storage::saved_folder(path) {
+        let mut refs = asset_refs(value.get("assets").unwrap_or(&Value::Null));
+        refs.extend(project_refs(value.get("project").unwrap_or(&Value::Null), "/project"));
+        heal(&mut value, &refs, &folder);
+    }
     serde_json::from_value(value).map_err(|error| format!("that is not a Bhippi project: {error}"))
+}
+
+/// Points references to files that are gone at the copy a save gathered into the project folder:
+/// `<project>/<its category folder>/<name>`, else the one file of that name anywhere in the
+/// project folder. An AI script that kept writing its old scratch path after a save, or a project
+/// saved by a build that moved scratch files, opens whole again. Returns how many were relinked.
+pub fn heal(value: &mut Value, refs: &[Ref], project: &Path) -> usize {
+    let mut by_name: Option<HashMap<String, Vec<PathBuf>>> = None;
+    let mut healed = 0;
+    for reference in refs {
+        if reference.path.exists() {
+            continue;
+        }
+        let Some(name) = reference.path.file_name() else { continue };
+        let filed = project.join(reference.hint.folder()).join(name);
+        let found = if filed.is_file() {
+            Some(filed)
+        } else {
+            let index = by_name.get_or_insert_with(|| {
+                let mut index: HashMap<String, Vec<PathBuf>> = HashMap::new();
+                for file in files_in(project) {
+                    if let Some(file_name) = file.file_name() {
+                        index.entry(file_name.to_string_lossy().to_lowercase()).or_default().push(file);
+                    }
+                }
+                index
+            });
+            // Two files of that name: which one it was cannot be told, so it stays missing.
+            match index.get(&name.to_string_lossy().to_lowercase()).map(Vec::as_slice) {
+                Some([only]) => Some(only.clone()),
+                _ => None,
+            }
+        };
+        if let (Some(found), Some(slot)) = (found, value.pointer_mut(&reference.pointer)) {
+            *slot = Value::String(found.display().to_string());
+            healed += 1;
+        }
+    }
+    healed
 }
 
 /// Writes a `.bhippi` with the paths inside its project folder stored relative to it.
@@ -1078,7 +1123,9 @@ pub async fn project_file_save(
         previous: separate.then_some(previous),
         storage_root: storage::root(&state),
         app_data: state.paths.root.clone(),
-        movable: vec![state.paths.work.clone(), state.paths.agent_workspace.clone(), std::env::temp_dir()],
+        // Not the agent workspace: the AI's scripts keep reading and writing their files there
+        // after a save, so those are copied (as other app data is), never moved away.
+        movable: vec![state.paths.work.clone(), std::env::temp_dir()],
         skip,
         copy_imports: settings.copy_imports == Some(true),
         allow_move: keep_path,
@@ -1294,6 +1341,37 @@ mod tests {
     }
 
     #[test]
+    fn bundle_relinks_files_a_save_gathered_and_leaves_ambiguous_ones() {
+        let base = temp("heal");
+        let project = base.join("Launch");
+        put(&project.join("Generated/Images/b1.png"), b"ui");
+        put(&project.join("Research/deep/plate.png"), b"plate");
+        put(&project.join("Research/a/twice.png"), b"a");
+        put(&project.join("Research/b/twice.png"), b"b");
+        put(&base.join("kept.png"), b"still here");
+        let gone = |name: &str| base.join("AppData/agent-workspace/ui").join(name).display().to_string();
+        let kept = base.join("kept.png").display().to_string();
+        let mut value = serde_json::json!({ "comps": [{ "clips": [{ "source": { "scene": { "layers": [
+            { "source": { "path": gone("b1.png") } },
+            { "source": { "path": gone("plate.png") } },
+            { "source": { "path": gone("twice.png") } },
+            { "source": { "path": gone("never-saved.png") } },
+            { "source": { "path": kept.clone() } },
+            { "text": { "text": gone("b1.png") } },
+        ] } } }] }] });
+        let refs = project_refs(&value, "");
+        assert_eq!(heal(&mut value, &refs, &project), 2);
+        let layers = &value["comps"][0]["clips"][0]["source"]["scene"]["layers"];
+        assert_eq!(layers[0]["source"]["path"], project.join("Generated").join("Images").join("b1.png").display().to_string());
+        assert_eq!(layers[1]["source"]["path"], project.join("Research").join("deep").join("plate.png").display().to_string());
+        assert_eq!(layers[2]["source"]["path"], gone("twice.png"), "two candidates: left for the user to relink");
+        assert_eq!(layers[3]["source"]["path"], gone("never-saved.png"));
+        assert_eq!(layers[4]["source"]["path"], kept);
+        assert_eq!(layers[5]["text"]["text"], gone("b1.png"), "words are never rewritten");
+        let _ignored = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
     fn bundle_decides_what_moves_copies_or_stays() {
         let base = temp("decide");
         let c = ctx(&base);
@@ -1310,6 +1388,8 @@ mod tests {
         assert_eq!(decide(&c, &base.join("AppData/storyboard/s.png"), Hint::Storyboard), transfer("Documents/Storyboard/s.png", Op::Copy));
         assert_eq!(decide(&c, &base.join("AppData/roto/run1"), Hint::Roto), transfer("Roto/run1", Op::Copy));
         assert_eq!(decide(&c, &base.join("AppData/sfx/whoosh.wav"), Hint::Audio), Decision::Leave);
+        // The AI's workspace is copied: its scripts still use those files after the save.
+        assert_eq!(decide(&c, &base.join("AppData/agent-workspace/launch/ui/b1.png"), Hint::Image), transfer("Generated/Images/b1.png", Op::Copy));
         // Imported originals follow "copy imports"; AI notes are always gathered.
         assert_eq!(decide(&c, &base.join("Videos/camera.mp4"), Hint::Video), Decision::Leave);
         assert_eq!(decide(&Ctx { copy_imports: true, ..c.clone() }, &base.join("Videos/camera.mp4"), Hint::Video), transfer("Footage/camera.mp4", Op::Copy));

@@ -6,6 +6,7 @@
 // variables, a compact context object for the system prompt, and the brand board graphic the
 // Settings panel previews and the AI can place on the timeline.
 
+import { learningsBrief } from './learnings';
 import { brandSummary, brandVars, type Brand, type TypeScale } from '../brand';
 import { TIMING } from '../motion';
 import { RBX_BASE_CSS, esc, px, type BitTheme } from '../rbx/core';
@@ -440,6 +441,8 @@ export function brandKitContext(kit: BrandKit) {
         recipes: g.recipes.map((r) => `${r.id} → ${r.template ?? 'custom'} [${r.moves.join(' → ')}]`),
       };
     })(),
+    // What the kit learned from the user's references (/train), most confident first, budgeted.
+    ...(learningsBrief(kit).length ? { learned: learningsBrief(kit), learnedNote: 'Learned from the user\'s own references (/train): follow these like the rest of the kit; where one conflicts with a generic default, the learned rule wins.' } : {}),
     howToUse: 'Binding for every graphic, text and generation. Motion scenes (create_motion_scene) are built in the brand automatically; the brand-* templates render the guideline moves and layouts exactly. get_brand_guideline for the frame-by-frame moves, layouts and recipes; update_brand_kit {"section":"guideline"} to tailor it to this video; check_brand_compliance before verifying; get_brand_kit {"section":"…"} for any other section. theme "brand" on create_motion_graphic and add_text use it automatically; brand_kit_prompt for generation prefixes; render_brand_board to show it.',
   };
 }
@@ -595,10 +598,12 @@ export function retintGraphicHtml(html: string, kit: BrandKit): string {
     return `${open}${next}${close}`;
   });
   const crimson = brandKitCrimson(kit);
-  out = out.replace(/(<div class="mgc" style=")([^"]*)(")/, (_m, open: string, style: string, close: string) => {
+  // A light kit's dark text needs a backing where a template sits straight on the footage (.onfoot).
+  const light = !isDark(theme.bg);
+  out = out.replace(/(<div class="mgc)(" style=")([^"]*)(")/, (_m, cls: string, open: string, style: string, close: string) => {
     const base = style.replace(/--mg-accent:[^;"]*/, `--mg-accent:${crimson.accent}`);
     const extra = Object.entries(crimson.tokens).filter(([k]) => k !== '--accent').map(([k, v]) => `${k}:${v}`).join(';');
-    return `${open}${base};${extra};font-family:${crimson.fontStack.replace(/"/g, "'")}${close}`;
+    return `${cls}${light ? ' light' : ''}${open}${base};${extra};font-family:${crimson.fontStack.replace(/"/g, "'")}${close}`;
   });
   return out;
 }

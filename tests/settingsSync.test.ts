@@ -2,14 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Settings } from '../src/lib/types';
 
 // The backend's settings file: provider_set_enabled writes to it itself, as the real one does.
-const backend = vi.hoisted(() => ({ settings: null as unknown as Settings, saved: [] as Settings[] }));
+const backend = vi.hoisted(() => ({ settings: null as unknown as Settings, saved: [] as Partial<Settings>[] }));
 vi.mock('../src/lib/ipc', () => ({
   api: {
     settingsGet: vi.fn(async () => backend.settings),
-    settingsSave: vi.fn(async (settings: Settings) => {
-      backend.saved.push(settings);
-      backend.settings = settings;
-      return settings;
+    settingsPatch: vi.fn(async (patch: Partial<Settings>) => {
+      backend.saved.push(patch);
+      backend.settings = { ...backend.settings, ...patch };
     }),
     providerSetEnabled: vi.fn(async (id: string, enabled: boolean) => {
       const others = backend.settings.disabledProviders.filter((item) => item !== id);
@@ -34,9 +33,10 @@ describe('settings the backend writes itself', () => {
     const store = settingsSync(defaults, ref, () => undefined);
     await store.setProviderEnabled('ollama', false);
     store.save({ timelineZoom: 42 });
-    const sent = backend.saved[backend.saved.length - 1];
-    expect(sent.disabledProviders).toEqual(['ollama']);
-    expect(sent.timelineZoom).toBe(42);
+    // Only the zoom is sent: the backend's own write stays.
+    expect(backend.saved.at(-1)).toEqual({ timelineZoom: 42 });
+    expect(backend.settings.disabledProviders).toEqual(['ollama']);
+    expect(backend.settings.timelineZoom).toBe(42);
   });
 
   it('two saves in one tick both land', () => {
@@ -45,7 +45,8 @@ describe('settings the backend writes itself', () => {
     const store = settingsSync(defaults, ref, (next) => seen.push(next));
     store.save({ timelineZoom: 3 });
     store.save({ disabledProviders: ['groq'] });
-    expect(backend.saved[1]).toMatchObject({ timelineZoom: 3, disabledProviders: ['groq'] });
+    expect(backend.settings).toMatchObject({ timelineZoom: 3, disabledProviders: ['groq'] });
+    expect(ref.current).toMatchObject({ timelineZoom: 3, disabledProviders: ['groq'] });
     expect(seen[1]).toBe(ref.current);
   });
 });

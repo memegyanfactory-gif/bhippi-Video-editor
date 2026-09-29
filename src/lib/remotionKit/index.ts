@@ -5,6 +5,7 @@
 // preview links — but not its Remotion source, which the marketplace does not publish. So a preset
 // is a brief: `rebuildPlan` names the Bhippi template that recreates it and fills that template's
 // arguments from the preset's defaults, and the AI adapts copy and colours to the edit.
+import { CRIMSON_SLOTS } from '../templateSlots';
 import data from './presets.json';
 
 export type RemotionKitParam = {
@@ -130,6 +131,15 @@ export function describePreset(p: RemotionKitPreset) {
   const args: Record<string, unknown> = { template: pick.template, title: title ?? p.name, duration: p.seconds };
   if (subtitle) args.subtitle = subtitle;
   if (rest.length && ['teaching-card', 'stat-chart', 'timeline-roadmap', 'comparison', 'connected-map'].includes(pick.template)) args.rows = rest.slice(0, 6);
+  // A template that needs rows (and a chart its values) refuses without them: samples to replace.
+  const rowSlot = CRIMSON_SLOTS[pick.template]?.rows;
+  if (rowSlot?.kind === 'list' && rowSlot.required && ((args.rows as string[] | undefined) ?? []).length < (rowSlot.min ?? 1)) {
+    args.rows = ['Point one', 'Point two', 'Point three'].slice(0, Math.max(rowSlot.min ?? 1, Math.min(3, rowSlot.maxItems)));
+  }
+  if (pick.template === 'stat-chart') {
+    args.rows = (args.rows as string[]).map((label) => label.slice(0, 16));
+    args.values = (args.rows as string[]).map((_, i) => 30 + i * 25);
+  }
   if (pick.bit && !pick.background) { args.bit = pick.bit; args.props = { text: title ?? p.name }; }
   if (pick.background) args.layers = [{ bit: pick.bit, props: { text: title ?? p.name }, layout: 'centre-card', at: 0.3 }];
   if (pick.background) args.background = pick.background;
@@ -152,6 +162,8 @@ export function describePreset(p: RemotionKitPreset) {
       example: { tool: 'create_motion_graphic', args },
       notes: [
         'Replace the placeholder copy with lines from the transcript/script; keep the preset\'s pacing and look.',
+        ...(rowSlot?.kind === 'list' && rowSlot.required && pick.template !== 'stat-chart' ? ['The rows are samples: write the real points.'] : []),
+        ...(pick.template === 'stat-chart' ? ['The rows and values are samples: use the real labels and figures from the source, one value per row.'] : []),
         'The active brand kit overrides the preset\'s colours and fonts; without one, the preset colours above are a good palette.',
         pick.template === 'custom' ? 'For "custom", write deterministic html/css/js driven by --elapsed (no external files) that follows the description, colours and timing.' : 'For a richer AE-grade version, create_motion_scene with a motion template, or template "custom" with your own html.',
         `Designed at ${p.width}x${p.height}; for the other orientation, reflow the layout rather than scaling.`,

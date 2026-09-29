@@ -46,6 +46,8 @@ export type MotionGraphicParams = {
   duration?: number;
   /** Canvas the markup is designed for (follows the comp's aspect). */
   canvas?: { width: number; height: number };
+  /** Per-slot type scale for text the auto-fix found long for its box (templateFix.ts). */
+  fit?: Record<string, number>;
   params?: Record<string, string | number | boolean>;
   /** React Bits: the piece to place (template "react-bits"). */
   bit?: string;
@@ -151,7 +153,7 @@ export function buildMotionGraphic(params: MotionGraphicParams): MotionGraphicBu
     const built = buildCrimsonTemplate({
       template, title: params.title, subtitle: params.subtitle, kicker: params.kicker, rows: params.rows, values: params.values,
       metric: params.metric, badge: params.badge, accent: params.accentColor ?? (brand ? brandKitCrimson(brand).accent : undefined), accentWord: params.accentWord, activeIndex: params.activeIndex,
-      layout: params.layout, duration: params.duration, cameraMove: params.cameraMove, canvas: params.canvas,
+      layout: params.layout, duration: params.duration, cameraMove: params.cameraMove, canvas: params.canvas, fit: params.fit,
     });
     if (built) {
       const html = brand ? retintGraphicHtml(built.html, brand) : built.html;

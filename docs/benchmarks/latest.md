@@ -1,17 +1,17 @@
 # Step overhead by kind of video
 
-Before any work, one step used to carry the whole prompt and every tool: **~69,105 tokens**. Measured 2026-09-26 (tokens ≈ bytes ÷ 4).
+Before any work, one step used to carry the whole prompt and every tool: **~73,747 tokens**. Measured 2026-09-29 (tokens ≈ bytes ÷ 4).
 
 Edit-phase steps (most of a production). Plan-phase steps shown for comparison.
 
 | Brief | Genres | Tools whole | Prompt | Catalogue | Per edit step | Saving | Per plan step |
 |---|---|---|---|---|---|---|---|
-| saas-ad | saas | 60 | 11,893 | 24,140 | 36,033 | 48% | 33,649 |
-| saas-characters-drawn | saas, motion, character2d | 77 | 13,160 | 29,149 | 42,309 | 39% | 39,926 |
-| motion-graphics | motion | 60 | 11,228 | 23,962 | 35,190 | 49% | 32,807 |
-| character-story | motion, character2d | 68 | 11,426 | 26,325 | 37,751 | 45% | 35,368 |
-| 3d-promo | saas, 3d | 68 | 11,893 | 26,440 | 38,333 | 45% | 35,950 |
-| documentary | documentary | 61 | 9,609 | 23,314 | 32,923 | 52% | 30,540 |
-| meme | meme | 58 | 9,401 | 25,508 | 34,909 | 49% | 32,526 |
-| podcast-edit | edit | 65 | 9,999 | 23,398 | 33,397 | 52% | 31,013 |
-| shorts | shorts | 51 | 9,999 | 20,993 | 30,992 | 55% | 28,608 |
+| saas-ad | saas | 62 | 12,164 | 25,671 | 37,835 | 49% | 35,480 |
+| saas-characters-drawn | saas, motion, character2d | 79 | 13,431 | 30,737 | 44,168 | 40% | 41,813 |
+| motion-graphics | motion | 62 | 11,499 | 25,497 | 36,996 | 50% | 34,641 |
+| character-story | motion, character2d | 70 | 11,697 | 27,912 | 39,609 | 46% | 37,255 |
+| 3d-promo | saas, 3d | 70 | 12,164 | 27,971 | 40,135 | 46% | 37,781 |
+| documentary | documentary | 61 | 9,880 | 24,382 | 34,262 | 54% | 31,908 |
+| meme | meme | 58 | 9,672 | 26,576 | 36,248 | 51% | 33,893 |
+| podcast-edit | edit | 65 | 10,270 | 24,465 | 34,735 | 53% | 32,381 |
+| shorts | shorts | 51 | 10,270 | 22,060 | 32,330 | 56% | 29,976 |

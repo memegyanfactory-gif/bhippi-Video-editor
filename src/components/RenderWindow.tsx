@@ -11,6 +11,7 @@ import { overallProgress, renderProgress, useRenderProgress, type RenderStage } 
 const STAGE_LABEL: Record<RenderStage, string> = {
   graphics: 'Motion graphics',
   scenes: 'Motion scenes (GPU)',
+  captions: 'Captions (WatchFIWN)',
   encoding: 'Encoding video',
 };
 

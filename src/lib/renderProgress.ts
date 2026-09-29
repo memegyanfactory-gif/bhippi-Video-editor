@@ -9,7 +9,7 @@ import { useSyncExternalStore } from 'react';
 import { api } from './ipc';
 import type { InflightFrame } from './pngEncoder';
 
-export type RenderStage = 'graphics' | 'scenes' | 'encoding';
+export type RenderStage = 'graphics' | 'scenes' | 'captions' | 'encoding';
 export type RenderStatus = 'running' | 'done' | 'error' | 'cancelled';
 
 export type RenderState = {
@@ -80,7 +80,7 @@ const prerendering = () => state.open && state.status === 'running' && state.sta
 /** What is rendering, for the stall report: `motion 3/15 "Channel avatar bug"`. */
 export function stageLabel(s: RenderState): string {
   if (s.stage === 'encoding') return 'the FFmpeg encode';
-  return `${s.stage === 'graphics' ? 'graphic' : 'motion'} ${s.itemIndex}/${s.itemCount} "${s.item}"`;
+  return `${s.stage === 'graphics' ? 'graphic' : s.stage === 'captions' ? 'caption' : 'motion'} ${s.itemIndex}/${s.itemCount} "${s.item}"`;
 }
 
 /** Something moved: the stall (if any) is over. */

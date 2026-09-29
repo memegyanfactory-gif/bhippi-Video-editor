@@ -6,7 +6,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { MenuList, type MenuItem } from '../components/workspace';
-import { levels, type MuteState } from '../lib/audio';
+import { levels, loudness, type MuteState } from '../lib/audio';
 import type { MeterPrefs, Tool } from '../lib/types';
 
 type ToolDef = { id: Tool | 'remix' | 'mask-object' | 'auto-roto'; label: string; key?: string; icon: ReactNode; disabled?: string };
@@ -445,6 +445,7 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes, onClose }: { prefs
           onMutes({ ...mutes, solo: next });
         }}
       />
+      <LoudnessReadout />
       {menu && (
         <MenuList anchor={menu} onClose={() => setMenu(null)} items={[
           { label: 'Reset Indicators', onSelect: () => reset.current++ },
@@ -472,3 +473,22 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes, onClose }: { prefs
     </div>
   );
 }
+
+/**
+ * EBU R128 loudness of what is playing: momentary (M, ~400 ms) and short-term (S, 3 s) LUFS, the
+ * numbers export normalisation targets (−14 YouTube, −16 podcasts, −23 broadcast). Updated a few
+ * times a second, straight to the DOM so the editor does not re-render for it.
+ */
+function LoudnessReadout() {
+  const node = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const format = (value: number) => (Number.isFinite(value) && value > -70 ? value.toFixed(1) : '—');
+    const timer = window.setInterval(() => {
+      const { momentary, shortTerm } = loudness();
+      if (node.current) node.current.textContent = `M ${format(momentary)} · S ${format(shortTerm)} LUFS`;
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, []);
+  return <div ref={node} className="meter-lufs" title="Loudness (EBU R128): M = momentary, S = short-term (3 s). Export › Loudness normalisation targets these: −14 LUFS for YouTube and Spotify, −16 for podcasts, −23 for broadcast.">M — · S — LUFS</div>;
+}
+

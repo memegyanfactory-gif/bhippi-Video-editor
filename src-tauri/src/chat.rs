@@ -614,6 +614,23 @@ pub(crate) fn shorten_result(result: &mut Value) {
     }
 }
 
+/// How many times one round is sent again after a transient failure (waits of 2, 4, 8 s).
+const MAX_RETRIES: u32 = 3;
+
+/// Whether a failure is the kind that clears by itself within seconds: a dropped or refused
+/// connection, a timeout, a crashed process, or a server that is overloaded or erroring (5xx).
+/// A spent usage allowance, bad credentials or a full context window never are.
+fn transient(reason: &str) -> bool {
+    use bhippi_providers::FaultKind;
+    let said = reason.to_ascii_lowercase();
+    match bhippi_providers::classify(reason) {
+        FaultKind::Network | FaultKind::Timeout | FaultKind::Crashed => true,
+        FaultKind::RateLimitedSession => ["overloaded", "529", "capacity"].iter().any(|word| said.contains(word)) && !said.contains("usage limit"),
+        FaultKind::Unknown => ["overloaded", "internal server error", " 500", " 502", " 503", " 504", " 529"].iter().any(|word| said.contains(word)),
+        _ => false,
+    }
+}
+
 fn fault_for(row: &ProviderInfo, reason: &str) -> TurnFault {
     let advice = bhippi_providers::spec(&row.id).map_or_else(
         || bhippi_providers::fault::Advice {
@@ -957,14 +974,33 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
     /// model answers without calling anything.
     async fn native(&mut self, provider: &dyn Provider, req: &ChatRequest, executor: &dyn ToolExecutor) {
         let mut request = build_request(req, self.row, ToolMode::Native);
+        let mut retries = 0;
         for round in 0..self.max_rounds {
-            let Round { text, calls, thinking, stop_reason } = match self.round(provider, request.clone(), None).await {
-                Ok(done) => done,
-                Err(Interrupt::Refused(reason)) if round == 0 && rejects_tools(&reason) => {
-                    tracing::info!(provider = %self.row.id, %reason, "tools refused; using the text protocol");
-                    return self.text(provider, build_request(req, self.row, ToolMode::Text), executor).await;
+            let Round { text, calls, thinking, stop_reason } = loop {
+                let shown = self.progress.reply.len();
+                match self.round(provider, request.clone(), None).await {
+                    Ok(done) => break done,
+                    Err(Interrupt::Refused(reason)) if round == 0 && rejects_tools(&reason) => {
+                        tracing::info!(provider = %self.row.id, %reason, "tools refused; using the text protocol");
+                        return self.text(provider, build_request(req, self.row, ToolMode::Text), executor).await;
+                    }
+                    // A busy server or a dropped connection: the same round again after a short
+                    // wait, so one blip does not end a long edit. Only while nothing of the round
+                    // has reached the chat — a retry must never show the same words twice.
+                    Err(Interrupt::Refused(reason) | Interrupt::Failed(reason))
+                        if retries < MAX_RETRIES && transient(&reason) && self.progress.reply.len() == shown && !self.stopped() =>
+                    {
+                        retries += 1;
+                        let wait = std::time::Duration::from_secs(2_u64.pow(retries));
+                        tracing::warn!(provider = %self.row.id, %reason, retries, "transient provider failure; retrying");
+                        let mut stop = self.stop.clone();
+                        tokio::select! {
+                            () = tokio::time::sleep(wait) => {}
+                            () = stop_pressed(&mut stop) => return self.interrupted(Interrupt::Stopped),
+                        }
+                    }
+                    Err(interrupt) => return self.interrupted(interrupt),
                 }
-                Err(interrupt) => return self.interrupted(interrupt),
             };
             let cut_off = stop_reason == StopReason::MaxTokens;
             if calls.is_empty() {
@@ -1264,7 +1300,17 @@ pub async fn ask_once(row: &ProviderInfo, keys: &ApiKeys, req: AskRequest) -> Re
 
 #[cfg(test)]
 mod tests {
-    use super::{build_request, mode_for, resolve_row, run_turn, ChatEvent, ChatRequest, McpLink, Progress, ToolMode, Turn};
+    use super::{build_request, mode_for, resolve_row, run_turn, transient, ChatEvent, ChatRequest, McpLink, Progress, ToolMode, Turn};
+
+    #[test]
+    fn only_failures_that_clear_by_themselves_are_retried() {
+        for blip in ["overloaded_error: Overloaded", "HTTP 529 overloaded", "error sending request: connection reset by peer", "503 Service Unavailable", "the request timed out", "Internal server error"] {
+            assert!(transient(blip), "{blip}");
+        }
+        for lasting in ["You've hit your usage limit; resets at 5pm", "401 invalid x-api-key", "prompt is too long: 210000 tokens > 200000 maximum", "model not found"] {
+            assert!(!transient(lasting), "{lasting}");
+        }
+    }
     use crate::ai_tools::testing::FakeExecutor;
     use async_trait::async_trait;
     use futures_util::StreamExt;

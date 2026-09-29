@@ -44,16 +44,16 @@ Acceptance (run_frame_qa + look at the frames): one focal point at phone size; e
 
 /** Base CSS every Crimson template shares. `--u` scales the 1920-wide design to the canvas. */
 export const CRIMSON_BASE_CSS = `
-.mgc{position:absolute;inset:0;overflow:hidden;font-family:Inter,Arial,Helvetica,sans-serif;color:${CRIMSON.tokens.white};font-synthesis:none;text-rendering:geometricPrecision;-webkit-font-smoothing:antialiased;
+.mgc{position:absolute;inset:0;overflow:hidden;font-family:Inter,Arial,Helvetica,sans-serif;color:var(--white);font-synthesis:none;text-rendering:geometricPrecision;-webkit-font-smoothing:antialiased;
  --void:${CRIMSON.tokens.void};--ox:${CRIMSON.tokens.oxblood};--burg:${CRIMSON.tokens.burgundy};--panel:${CRIMSON.tokens.panel};--glow:${CRIMSON.tokens.glow};--accent:var(--mg-accent,${CRIMSON.tokens.accent});--rim:${CRIMSON.tokens.rim};--white:${CRIMSON.tokens.white};--muted:${CRIMSON.tokens.muted};--pink:${CRIMSON.tokens.pink};
  --eo:${CRIMSON.ease.out};--ep:${CRIMSON.ease.panel};--ef:${CRIMSON.ease.flow};--ei:${CRIMSON.ease.inout};
  --t:calc(var(--elapsed,0) * -1s);--exit:calc(var(--duration,4s) - 0.28s - var(--elapsed,0) * 1s)}
 .mgc *{box-sizing:border-box;margin:0}
-.mgc .bg{position:absolute;inset:-4%;background:radial-gradient(ellipse 65% 48% at 50% 110%,#c94548 0%,#941d1f 34%,transparent 76%),radial-gradient(ellipse 32% 35% at 101% 91%,#bc5152 0%,transparent 80%),linear-gradient(180deg,#1c0000 8%,#250707 59%,#5d1416 100%)}
+.mgc .bg{position:absolute;inset:-4%;background:radial-gradient(ellipse 65% 48% at 50% 110%,var(--accent) 0%,var(--glow) 34%,transparent 76%),radial-gradient(ellipse 32% 35% at 101% 91%,var(--accent) 0%,transparent 80%),linear-gradient(180deg,var(--ox) 8%,var(--burg) 59%,var(--panel) 100%)}
 .mgc .bg.soft{opacity:.92}
 .mgc .vig{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 calc(210px*var(--u)) calc(36px*var(--u)) #08000065}
 .mgc .stage{position:absolute;left:0;right:0;top:calc(50% - 540px*var(--u));height:calc(1080px*var(--u))}
-.mgc .glass{position:absolute;border:calc(2px*var(--u)) solid #ffd8d35c;border-radius:calc(24px*var(--u));background:linear-gradient(135deg,#fff0e917 0%,#ffffff05 44%,#9a172e48 100%),linear-gradient(180deg,#1a0407d9,#12030aeb);box-shadow:inset 0 1px 1px #fff7,inset 0 0 calc(30px*var(--u)) #f8c1be12,0 0 calc(10px*var(--u)) #ffd0c047,0 calc(20px*var(--u)) calc(70px*var(--u)) #1200004d}
+.mgc .glass{position:absolute;border:calc(2px*var(--u)) solid color-mix(in srgb,var(--white) 36%,transparent);border-radius:calc(24px*var(--u));background:linear-gradient(135deg,color-mix(in srgb,var(--white) 9%,transparent) 0%,#ffffff05 44%,color-mix(in srgb,var(--glow) 28%,transparent) 100%),linear-gradient(180deg,color-mix(in srgb,var(--void) 85%,transparent),color-mix(in srgb,var(--void) 92%,transparent));box-shadow:inset 0 1px 1px #fff7,inset 0 0 calc(30px*var(--u)) color-mix(in srgb,var(--white) 7%,transparent),0 0 calc(10px*var(--u)) color-mix(in srgb,var(--white) 28%,transparent),0 calc(20px*var(--u)) calc(70px*var(--u)) #1200004d}
 .mgc .glass:before{content:"";position:absolute;inset:calc(6px*var(--u));pointer-events:none;border-radius:calc(18px*var(--u));border:1px solid #fff1}
 .mgc .kicker{font-size:calc(${CRIMSON.type.kicker}px*var(--u));letter-spacing:.16em;text-transform:uppercase;opacity:.74;font-weight:500}
 .mgc .hero{font-size:calc(${CRIMSON.type.hero}px*var(--u));line-height:.99;font-weight:700;letter-spacing:-.055em}
@@ -64,8 +64,12 @@ export const CRIMSON_BASE_CSS = `
 .mgc .cap{font-size:calc(${CRIMSON.type.caption}px*var(--u));line-height:1.2;font-weight:600;letter-spacing:-.022em;text-shadow:0 2px calc(12px*var(--u)) #000c}
 .mgc .num{font-variant-numeric:tabular-nums}
 .mgc .accent{color:var(--accent)}
+.mgc .onfoot{text-shadow:0 calc(2px*var(--u)) calc(14px*var(--u)) #0009}
+.mgc .onglow{text-shadow:0 calc(4px*var(--u)) calc(30px*var(--u)) #000a}
+.mgc.light .onfoot{text-shadow:none;background:color-mix(in srgb,var(--void) 90%,transparent);padding:calc(14px*var(--u)) calc(22px*var(--u));border-radius:calc(10px*var(--u))}
+.mgc.light .onglow{text-shadow:0 0 calc(10px*var(--u)) var(--void),0 0 calc(34px*var(--u)) var(--void)}
 .mgc .serif{font-family:Georgia,'Times New Roman',serif;font-weight:400;font-style:italic;letter-spacing:-.04em}
-.mgc .rule{height:calc(2px*var(--u));background:#ffd8d3a0;transform-origin:left}
+.mgc .rule{height:calc(2px*var(--u));background:color-mix(in srgb,var(--white) 63%,transparent);transform-origin:left}
 .mgc .a{animation-fill-mode:both;animation-play-state:paused;animation-delay:calc(var(--t) + var(--d,0s))}
 .mgc .rise{animation-name:mg-rise;animation-duration:.66s;animation-timing-function:var(--eo)}
 .mgc .panel-in{animation-name:mg-panel-in;animation-duration:.53s;animation-timing-function:var(--ep)}
@@ -132,19 +136,19 @@ const full = () => ({ x: 0, y: 0, width: 1, height: 1 });
 export const CRIMSON_TEMPLATES: TemplateSpec[] = [
   { id: 'hook-promise', label: 'Hook promise', use: 'The opening 0–6 s: a 3–7 word promise the video delivers, a support line, a red underline that becomes the next ribbon.', params: ['title', 'subtitle', 'kicker'], seconds: 6, box: () => ({ x: 0.1, y: 0.28, width: 0.8, height: 0.44 }), fullFrame: true },
   { id: 'ribbon-title', label: 'Ribbon chapter title', use: 'A chapter or section change: a luminous curved line draws in, the title appears in word groups, holds, hands off.', params: ['title', 'subtitle', 'kicker'], seconds: 6, box: () => ({ x: 0.12, y: 0.28, width: 0.76, height: 0.44 }), fullFrame: true },
-  { id: 'teaching-card', label: 'Teaching card', use: 'Explain a term or a principle: kicker, heading, then 2–4 rows revealed in the order they are spoken; only the current row bright.', params: ['title', 'kicker', 'rows', 'metric'], seconds: 7, box: (l) => (l === 'centre-card' || l === 'fullscreen' ? centre : sideBox(l)) },
-  { id: 'side-panel', label: 'Presenter side panel', use: 'Rules or steps while the presenter keeps talking: reframe the footage to 55% on one side (layout_clip) and stack rows on the other. Rows can be added progressively.', params: ['title', 'kicker', 'rows'], seconds: 8, box: sideBox, wantsSplit: true },
+  { id: 'teaching-card', label: 'Teaching card', use: 'Explain a term or a principle: kicker, heading, then 2–4 rows revealed in the order they are spoken; only the current row bright.', params: ['title', 'subtitle', 'kicker', 'rows', 'metric'], seconds: 7, box: (l) => (l === 'centre-card' || l === 'fullscreen' ? centre : sideBox(l)) },
+  { id: 'side-panel', label: 'Presenter side panel', use: 'Rules or steps while the presenter keeps talking: reframe the footage to 55% on one side (layout_clip) and stack rows on the other. Rows can be added progressively.', params: ['title', 'subtitle', 'kicker', 'rows'], seconds: 8, box: sideBox, wantsSplit: true },
   { id: 'connected-map', label: 'Connected map', use: 'Relationships: a hub with up to 4 nodes; each connector draws, then its card becomes legible, in narration order.', params: ['title', 'rows', 'kicker'], seconds: 7, box: () => ({ x: 0.06, y: 0.14, width: 0.88, height: 0.76 }), fullFrame: true },
-  { id: 'numbered-lanes', label: 'Numbered lanes roadmap', use: 'A list that is a journey: giant numerals on a luminous floor with dotted dividers and reflections; one camera travel to the active lane.', params: ['title', 'rows', 'activeIndex'], seconds: 7, box: () => ({ x: 0.06, y: 0.14, width: 0.88, height: 0.76 }), fullFrame: true },
+  { id: 'numbered-lanes', label: 'Numbered lanes roadmap', use: 'A list that is a journey: giant numerals on a luminous floor with dotted dividers and reflections; one camera travel to the active lane.', params: ['title', 'subtitle', 'rows', 'activeIndex'], seconds: 7, box: () => ({ x: 0.06, y: 0.14, width: 0.88, height: 0.76 }), fullFrame: true },
   { id: 'editorial-quote', label: 'Editorial quote', use: 'One sharp sentence over a defocused plate, with ONE serif-italic accent word and a red underline. Emphasis, not captions.', params: ['title', 'accentWord', 'subtitle'], seconds: 5, box: () => ({ x: 0.1, y: 0.3, width: 0.8, height: 0.4 }), fullFrame: true },
-  { id: 'comparison', label: 'Comparison', use: 'Fair A/B: two matched cards, identical treatment, revealed together; the difference stated in the kicker.', params: ['title', 'rows', 'kicker'], seconds: 7, box: () => ({ x: 0.06, y: 0.16, width: 0.88, height: 0.7 }), fullFrame: true },
-  { id: 'stat-chart', label: 'Stat chart', use: 'A verified statistic: 2–6 bars rising with staggered ease-out and numbers counting to real values; the key bar in accent.', params: ['title', 'kicker', 'rows', 'values', 'activeIndex'], seconds: 7, box: (l) => (l === 'side-panel-left' || l === 'side-panel-right' ? sideBox(l) : { x: 0.12, y: 0.14, width: 0.76, height: 0.76 }) },
-  { id: 'timeline-roadmap', label: 'Timeline', use: 'Dates or stages in order: a horizontal line with markers and labels; the camera travels as the voice moves along it.', params: ['title', 'rows', 'activeIndex'], seconds: 7, box: () => ({ x: 0.05, y: 0.25, width: 0.9, height: 0.5 }), fullFrame: true },
+  { id: 'comparison', label: 'Comparison', use: 'Fair A/B: two matched cards, identical treatment, revealed together; the difference stated in the kicker.', params: ['title', 'subtitle', 'rows', 'kicker'], seconds: 7, box: () => ({ x: 0.06, y: 0.16, width: 0.88, height: 0.7 }), fullFrame: true },
+  { id: 'stat-chart', label: 'Stat chart', use: 'A verified statistic: 2–6 bars rising with staggered ease-out and numbers counting to real values; the key bar in accent.', params: ['title', 'subtitle', 'kicker', 'rows', 'values', 'activeIndex'], seconds: 7, box: (l) => (l === 'side-panel-left' || l === 'side-panel-right' ? sideBox(l) : { x: 0.12, y: 0.14, width: 0.76, height: 0.76 }) },
+  { id: 'timeline-roadmap', label: 'Timeline', use: 'Dates or stages in order: a horizontal line with markers and labels; the camera travels as the voice moves along it.', params: ['title', 'subtitle', 'rows', 'activeIndex'], seconds: 7, box: () => ({ x: 0.05, y: 0.25, width: 0.9, height: 0.5 }), fullFrame: true },
   { id: 'cursor-demo', label: 'Cursor demo', use: 'Demonstrate a product or an idea becoming a thing: node → tile → interface, a cursor arrives on a curve, clicks, the response expands into the card. Causal order, one settle.', params: ['title', 'subtitle', 'rows', 'kicker'], seconds: 7, box: () => ({ x: 0.15, y: 0.15, width: 0.7, height: 0.7 }), fullFrame: true },
-  { id: 'chapter-marker', label: 'Chapter marker', use: 'A small "01 / SECTION" label in a corner while the presenter talks.', params: ['title', 'kicker'], seconds: 4, box: cornerBox },
+  { id: 'chapter-marker', label: 'Chapter marker', use: 'A small "01 / SECTION" label in a corner while the presenter talks.', params: ['title', 'subtitle', 'kicker'], seconds: 4, box: cornerBox },
   { id: 'caption-phrase', label: 'Caption phrase', use: 'A spoken phrase as a designed caption in the lower zone; one accent word; stable line breaks.', params: ['title', 'accentWord'], seconds: 3, box: () => ({ x: 0.12, y: 0.78, width: 0.76, height: 0.12 }) },
   { id: 'crimson-lower-third', label: 'Crimson lower third', use: 'Name and role bottom-left with a red rule; 3–4 s.', params: ['title', 'subtitle'], seconds: 4, box: lowerBox },
-  { id: 'cubes-reveal', label: 'Cubes reveal', use: 'Reveal moment: a grid of tiles falls away top to bottom over ~1.2 s to unveil what is under it (pair with reveal_subject).', params: ['accent', 'rows'], seconds: 1.4, box: full, fullFrame: true },
+  { id: 'cubes-reveal', label: 'Cubes reveal', use: 'Reveal moment: a grid of tiles falls away top to bottom over ~1.2 s to unveil what is under it (pair with reveal_subject).', params: ['accent'], seconds: 1.4, box: full, fullFrame: true },
   { id: 'countdown', label: 'Countdown', use: 'A numeric countdown or timer with the Crimson type.', params: ['title', 'metric'], seconds: 5, box: () => ({ x: 0.3, y: 0.3, width: 0.4, height: 0.4 }) },
   { id: 'breaking-news', label: 'Breaking news bar', use: 'A full-width lower bar with a red tag and headline for urgent context.', params: ['title', 'subtitle', 'badge'], seconds: 5, box: () => ({ x: 0, y: 0.78, width: 1, height: 0.16 }) },
 ];
@@ -174,16 +178,19 @@ export type CrimsonParams = {
   cameraMove?: 'none' | 'push-in' | 'travel';
   /** Canvas size the markup is designed for; templates are written for 1920 wide and scale by --u. */
   canvas?: { width: number; height: number };
+  /** Per-slot type scale (title, subtitle, kicker, rows) for text the auto-fix found long for its box. */
+  fit?: Record<string, number>;
 };
 
 const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const px = (n: number) => `calc(${n}px * var(--u))`;
 const d = (seconds: number) => `--d:${seconds.toFixed(2)}s`;
 /** Whole words staggered 100 ms, letters intact. */
-const words = (text: string, from = 0, step: number = CRIMSON.timing.stagger) => text.split(/\s+/).filter(Boolean).map((w, i) => `<span style="${d(from + i * step)}">${esc(w)}&nbsp;</span>`).join('');
-const accentWords = (text: string, accentWord: string | undefined, from = 0) => text.split(/\s+/).filter(Boolean).map((w, i) => {
+const sized = (scale?: number) => (scale && scale < 1 ? `;font-size:${scale}em` : '');
+const words = (text: string, from = 0, step: number = CRIMSON.timing.stagger, scale?: number) => text.split(/\s+/).filter(Boolean).map((w, i) => `<span data-slot="title" style="${d(from + i * step)}${sized(scale)}">${esc(w)}&nbsp;</span>`).join('');
+const accentWords = (text: string, accentWord: string | undefined, from = 0, scale?: number) => text.split(/\s+/).filter(Boolean).map((w, i) => {
   const hit = accentWord && w.replace(/[^\w]/g, '').toLowerCase() === accentWord.replace(/[^\w]/g, '').toLowerCase();
-  return `<span class="${hit ? 'serif accent' : ''}" style="${d(from + i * CRIMSON.timing.stagger)}">${esc(w)}&nbsp;</span>`;
+  return `<span data-slot="title" class="${hit ? 'serif accent' : ''}" style="${d(from + i * CRIMSON.timing.stagger)}${sized(scale)}">${esc(w)}&nbsp;</span>`;
 }).join('');
 const rowsOf = (rows: string[] | undefined, fallback: string[]) => (rows && rows.length ? rows.slice(0, 6) : fallback);
 
@@ -195,6 +202,9 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
   const title = params.title ?? '';
   const subtitle = params.subtitle ?? '';
   const kicker = params.kicker ?? '';
+  const fit = params.fit ?? {};
+  /** Text for `slot`, tagged for the layout check (graphicCheck.ts) and set smaller when the auto-fix found it long for its box (templateFix.ts). */
+  const fitted = (slot: string, text: string) => `<span data-slot="${slot}"${fit[slot] && fit[slot] < 1 ? ` style="font-size:${fit[slot]}em"` : ''}>${esc(text)}</span>`;
   const accent = params.accent && /^#[0-9a-f]{6}$/i.test(params.accent) ? params.accent : CRIMSON.tokens.accent;
   const seconds = params.duration && params.duration > 0 ? params.duration : spec.seconds;
   const side = layout === 'side-panel-left' || layout === 'top-left' ? 'left' : 'right';
@@ -229,10 +239,10 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       // A tall frame keeps the right 13% for the platform's like/comment/share rail.
       if (portrait) box = { ...box, width: 1 - 260 / 1920 - box.x };
       html = wrap(`${bgPlate}<div class="${cam} x" style="position:absolute;inset:0"><div style="position:absolute;left:${px(200)};right:${portrait ? px(260) : px(200)};top:${portrait ? '22%' : '30%'}">
-        ${kicker ? `<div class="kicker a rise" style="${d(0.1)}">${esc(kicker)}</div>` : ''}
-        <div class="hero words" style="margin-top:${px(28)}">${words(title, 0.35)}</div>
+        ${kicker ? `<div class="kicker a rise" style="${d(0.1)}">${fitted('kicker', kicker)}</div>` : ''}
+        <div class="hero words" style="margin-top:${px(28)}">${words(title, 0.35, undefined, fit.title)}</div>
         <div class="rule a grow" style="width:${px(160)};margin-top:${px(44)};${d(1.3)}"></div>
-        ${subtitle ? `<div class="body a rise" style="margin-top:${px(28)};max-width:${px(1200)};color:var(--muted);${d(1.55)}">${esc(subtitle)}</div>` : ''}
+        ${subtitle ? `<div class="body a rise" style="margin-top:${px(28)};max-width:${px(1200)};color:var(--muted);${d(1.55)}">${fitted('subtitle', subtitle)}</div>` : ''}
       </div></div>`);
       break;
     }
@@ -240,14 +250,14 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       if (portrait) box = { ...box, width: Math.min(box.width, 1 - 260 / 1920 - box.x) };
       html = wrap(`${bgPlate}<div class="${cam} x" style="position:absolute;inset:0">
         <svg viewBox="0 0 1920 1080" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
-          <path class="a draw" pathLength="1" d="M-40,720 C420,700 620,330 980,420 S1500,760 1980,560" fill="none" stroke="#dc4b58" stroke-width="26" stroke-linecap="round" style="filter:blur(15px);opacity:.3;${d(0.3)}"/>
-          <path class="a draw" pathLength="1" d="M-40,720 C420,700 620,330 980,420 S1500,760 1980,560" fill="none" stroke="#9b2038" stroke-width="14" stroke-linecap="round" style="${d(0.3)}"/>
-          <path class="a draw" pathLength="1" d="M-40,720 C420,700 620,330 980,420 S1500,760 1980,560" fill="none" stroke="#e47683" stroke-width="5" stroke-linecap="round" style="${d(0.3)}"/>
+          <path class="a draw" pathLength="1" d="M-40,720 C420,700 620,330 980,420 S1500,760 1980,560" fill="none" stroke-width="26" stroke-linecap="round" style="stroke:var(--accent);filter:blur(15px);opacity:.3;${d(0.3)}"/>
+          <path class="a draw" pathLength="1" d="M-40,720 C420,700 620,330 980,420 S1500,760 1980,560" fill="none" stroke-width="14" stroke-linecap="round" style="stroke:var(--glow);${d(0.3)}"/>
+          <path class="a draw" pathLength="1" d="M-40,720 C420,700 620,330 980,420 S1500,760 1980,560" fill="none" stroke-width="5" stroke-linecap="round" style="stroke:var(--pink);${d(0.3)}"/>
         </svg>
         <div style="position:absolute;left:${px(280)};right:${portrait ? px(260) : px(190)};top:${portrait ? '26%' : '31%'}">
-          ${kicker ? `<div class="kicker a rise" style="${d(0.6)}">${esc(kicker)}</div>` : ''}
-          <div class="hero words" style="margin-top:${px(24)}">${words(title, 0.85, 0.12)}</div>
-          ${subtitle ? `<div class="small a rise" style="margin-top:${px(40)};font-size:${px(32)};${d(1.5)}">${esc(subtitle)}</div>` : ''}
+          ${kicker ? `<div class="kicker a rise" style="${d(0.6)}">${fitted('kicker', kicker)}</div>` : ''}
+          <div class="hero words" style="margin-top:${px(24)}">${words(title, 0.85, 0.12, fit.title)}</div>
+          ${subtitle ? `<div class="small a rise" style="margin-top:${px(40)};font-size:${px(32)};${d(1.5)}">${fitted('subtitle', subtitle)}</div>` : ''}
         </div></div>`);
       break;
     }
@@ -266,13 +276,14 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const list = rows.map((row, i) => {
         const [head, ...rest] = row.split(/\s[—–-]\s/);
         return `<div class="a rise" style="${d(1.05 + i * 0.22)};margin-bottom:${px(22)};opacity:${i === active ? 1 : 0.55}">
-          <div style="display:flex;gap:${px(22)};align-items:baseline"><span class="small num" style="min-width:${px(56)};color:var(--accent)">${String(i + 1).padStart(2, '0')}</span><span class="row">${esc(head)}</span></div>
-          ${rest.length ? `<div class="small" style="margin-left:${px(78)};margin-top:${px(4)}">${esc(rest.join(' — '))}</div>` : ''}</div>`;
+          <div style="display:flex;gap:${px(22)};align-items:baseline"><span class="small num" style="min-width:${px(56)};color:var(--accent)">${String(i + 1).padStart(2, '0')}</span><span class="row">${fitted('rows', head)}</span></div>
+          ${rest.length ? `<div class="small" style="margin-left:${px(78)};margin-top:${px(4)}">${fitted('rows', rest.join(' — '))}</div>` : ''}</div>`;
       }).join('');
       html = wrap(`${banded ? stage : '<div class="x" style="position:absolute;inset:0">'}<div class="glass a panel-in" style="${geometry};${d(0.05)}">
         <div class="num" style="position:absolute;right:${px(56)};top:${px(40)};font-size:${px(114)};font-weight:700;letter-spacing:-.05em;opacity:.13">${esc(kicker ? kicker.replace(/\D/g, '').slice(0, 2) || '01' : '01')}</div>
-        ${kicker ? `<div class="kicker a fade" style="${d(0.45)}">${esc(kicker)}</div>` : ''}
-        <div class="heading a rise" style="margin-top:${px(12)};margin-bottom:${px(38)};font-size:${px(isSide ? 58 : 65)};${d(0.5)}">${esc(title)}</div>
+        ${kicker ? `<div class="kicker a fade" style="${d(0.45)}">${fitted('kicker', kicker)}</div>` : ''}
+        <div class="heading a rise" style="margin-top:${px(12)};margin-bottom:${px(38)};font-size:${px(isSide ? 58 : 65)};${d(0.5)}">${fitted('title', title)}</div>
+        ${subtitle ? `<div class="small a rise" style="margin-top:${px(-24)};margin-bottom:${px(34)};${d(0.62)}">${fitted('subtitle', subtitle)}</div>` : ''}
         ${list}
         ${params.metric ? `<div class="hero num a rise" style="font-size:${px(96)};margin-top:${px(12)};${d(1.2 + rows.length * 0.22)}">${esc(params.metric)}</div>` : ''}
       </div></div>`);
@@ -285,19 +296,19 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const nodes = rows.map((row, i) => {
         const [head, ...rest] = row.split(/\s[—–-]\s/);
         const spot = spots[i];
-        return `<div class="glass a panel-in" style="left:${px(spot.x)};top:${px(spot.y - 115)};width:${px(410)};height:${px(230)};padding:${px(32)} ${px(36)};${d(1.15 + i * 0.9)}">
-          <div class="kicker">0${i + 1}</div><div class="heading" style="font-size:${px(52)};margin-top:${px(16)}">${esc(head)}</div>${rest.length ? `<div class="small" style="margin-top:${px(6)}">${esc(rest.join(' '))}</div>` : ''}</div>`;
+        return `<div class="glass a panel-in" style="left:${px(spot.x)};top:${px(spot.y - 115)};width:${px(410)};min-height:${px(230)};padding:${px(32)} ${px(36)};${d(1.15 + i * 0.9)}">
+          <div class="kicker">0${i + 1}</div><div class="heading" style="font-size:${px(52)};margin-top:${px(16)}">${fitted('rows', head)}</div>${rest.length ? `<div class="small" style="margin-top:${px(6)}">${fitted('rows', rest.join(' '))}</div>` : ''}</div>`;
       }).join('');
       const paths = rows.map((_, i) => {
         const spot = spots[i];
         const tx = spot.x < hub.x ? spot.x + 410 : spot.x;
         const mx = (hub.x + tx) / 2;
-        return `<path class="a draw" pathLength="1" d="M${hub.x},${hub.y} C${mx},${hub.y} ${mx},${spot.y} ${tx},${spot.y}" style="${d(0.7 + i * 0.9)}"/><circle class="a fade" cx="${tx}" cy="${spot.y}" r="7" fill="#ffded7" style="${d(1.3 + i * 0.9)}"/>`;
+        return `<path class="a draw" pathLength="1" d="M${hub.x},${hub.y} C${mx},${hub.y} ${mx},${spot.y} ${tx},${spot.y}" style="${d(0.7 + i * 0.9)}"/><circle class="a fade" cx="${tx}" cy="${spot.y}" r="7" style="fill:var(--white);${d(1.3 + i * 0.9)}"/>`;
       }).join('');
       banded = true;
       html = wrap(`${bgPlate}${stage}
-        <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${esc(kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${esc(title)}</div></div>
-        <svg viewBox="0 0 1920 1080" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:#f4dad5aa;stroke-width:2;stroke-linecap:round">${paths}</svg>
+        <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${fitted('kicker', kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${fitted('title', title)}</div></div>
+        <svg viewBox="0 0 1920 1080" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:color-mix(in srgb,var(--white) 67%,transparent);stroke-width:2;stroke-linecap:round">${paths}</svg>
         <div class="glass a panel-in" style="left:${px(hub.x - 95)};top:${px(hub.y - 92)};width:${px(190)};height:${px(185)};border-radius:${px(22)};display:flex;align-items:center;justify-content:center;${d(0.3)}"><div class="heading" style="font-size:${px(40)}">${esc(kicker ? kicker.slice(0, 6) : '●')}</div></div>
         ${nodes}</div>`);
       break;
@@ -307,29 +318,29 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const active = Math.min(rows.length - 1, Math.max(0, params.activeIndex ?? 0));
       const laneW = 1480 / rows.length;
       const travel = params.cameraMove === 'travel' && rows.length > 3 ? -(active * laneW - (1480 - laneW) / 2) * 0.5 : 0;
-      const lanes = rows.map((row, i) => `<div style="position:relative;width:${px(laneW)};padding:0 ${px(22)};border-left:${px(2)} dotted #f9d8d07a;height:100%;${i === active ? 'color:var(--white)' : 'color:var(--muted)'}">
-          <div class="small a rise" style="max-width:${px(laneW - 60)};font-size:${px(26)};${d(1.1 + i * 0.12)}${i === active ? ';color:var(--white)' : ''}">${esc(row)}</div>
-          <div class="num a rise" style="position:absolute;bottom:${px(-18)};font-size:${px(Math.min(254, laneW * 0.86))};line-height:1;font-weight:700;letter-spacing:-.07em;opacity:${i === active ? 1 : 0.42};${d(0.65 + i * 0.12)}">${i + 1}</div>
-          <div class="num" style="position:absolute;top:${px(470)};font-size:${px(Math.min(254, laneW * 0.86))};line-height:1;font-weight:700;letter-spacing:-.07em;transform:scaleY(-1);opacity:.12;filter:blur(${px(5)});mask-image:linear-gradient(0deg,#000,transparent 73%);-webkit-mask-image:linear-gradient(0deg,#000,transparent 73%)">${i + 1}</div>
-          <div class="a fade" style="position:absolute;left:${px(-7)};bottom:${px(-7)};width:${px(12)};height:${px(12)};background:#fff3ea;transform:rotate(45deg);box-shadow:0 0 ${px(14)} #ffe2c5;${d(0.9)}"></div>
+      const lanes = rows.map((row, i) => `<div style="position:relative;width:${px(laneW)};padding:0 ${px(22)};border-left:${px(2)} dotted color-mix(in srgb,var(--white) 48%,transparent);height:100%;${i === active ? 'color:var(--white)' : 'color:var(--muted)'}">
+          <div class="small a rise" style="max-width:${px(laneW - 60)};font-size:${px(26)};${d(1.1 + i * 0.12)}${i === active ? ';color:var(--white)' : ''}">${fitted('rows', row)}</div>
+          <div class="num a rise" data-deco style="position:absolute;bottom:${px(-18)};font-size:${px(Math.min(254, laneW * 0.86))};line-height:1;font-weight:700;letter-spacing:-.07em;opacity:${i === active ? 1 : 0.42};${d(0.65 + i * 0.12)}">${i + 1}</div>
+          <div class="num" data-deco style="position:absolute;top:${px(470)};font-size:${px(Math.min(254, laneW * 0.86))};line-height:1;font-weight:700;letter-spacing:-.07em;transform:scaleY(-1);opacity:.12;filter:blur(${px(5)});mask-image:linear-gradient(0deg,#000,transparent 73%);-webkit-mask-image:linear-gradient(0deg,#000,transparent 73%)">${i + 1}</div>
+          <div class="a fade" style="position:absolute;left:${px(-7)};bottom:${px(-7)};width:${px(12)};height:${px(12)};background:var(--white);transform:rotate(45deg);box-shadow:0 0 ${px(14)} var(--white);${d(0.9)}"></div>
         </div>`).join('');
       banded = true;
       html = wrap(`${bgPlate}${stage}
-        <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${esc(kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${esc(title)}</div></div>
+        <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${fitted('kicker', kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${fitted('title', title)}</div>${subtitle ? `<div class="small a rise" style="margin-top:${px(10)};max-width:${px(1100)};${d(0.3)}">${fitted('subtitle', subtitle)}</div>` : ''}</div>
         <div class="cam" style="position:absolute;inset:0;--travel:${px(travel)};animation-name:mg-travel;animation-duration:1.1s;animation-timing-function:var(--ei);animation-delay:calc(var(--t) + 1.5s)">
-          <div class="rule a grow" style="position:absolute;left:${px(100)};right:${px(100)};top:${px(807)};transform-origin:center;box-shadow:0 0 ${px(10)} ${px(3)} #e8877a6b;background:#e9c6bc;${d(0.1)}"></div>
+          <div class="rule a grow" style="position:absolute;left:${px(100)};right:${px(100)};top:${px(807)};transform-origin:center;box-shadow:0 0 ${px(10)} ${px(3)} color-mix(in srgb,var(--accent) 42%,transparent);background:var(--white);${d(0.1)}"></div>
           <div style="position:absolute;left:${px(220)};right:${px(220)};top:${px(340)};height:${px(466)};display:flex">${lanes}</div>
         </div></div>`);
       break;
     }
     case 'editorial-quote': {
       if (portrait) box = { ...box, width: 1 - 260 / 1920 - box.x };
-      html = wrap(`${spec.fullFrame && layout === 'fullscreen' ? '<div class="a fade" style="position:absolute;inset:0;background:linear-gradient(90deg,#140006a0,#0a000040),linear-gradient(0deg,#060000b3,transparent 40%);--alpha:1"></div>' : ''}
+      html = wrap(`${spec.fullFrame && layout === 'fullscreen' ? '<div class="a fade" style="position:absolute;inset:0;background:linear-gradient(90deg,color-mix(in srgb,var(--void) 63%,transparent),color-mix(in srgb,var(--void) 25%,transparent)),linear-gradient(0deg,color-mix(in srgb,var(--void) 70%,transparent),transparent 40%);--alpha:1"></div>' : ''}
         <div class="x" style="position:absolute;left:${px(230)};right:${portrait ? px(260) : px(190)};top:${portrait ? '30%' : '34%'}">
-          ${kicker ? `<div class="kicker a rise" style="${d(0.1)}">${esc(kicker)}</div>` : ''}
-          <div class="hero words" style="font-size:${px(112)};margin-top:${px(20)}">${accentWords(title, params.accentWord, 0.3)}</div>
+          ${kicker ? `<div class="kicker a rise" style="${d(0.1)}">${fitted('kicker', kicker)}</div>` : ''}
+          <div class="hero words" style="font-size:${px(112)};margin-top:${px(20)}">${accentWords(title, params.accentWord, 0.3, fit.title)}</div>
           <div class="rule a grow" style="width:${px(220)};margin-top:${px(40)};background:var(--accent);height:${px(4)};${d(1.4)}"></div>
-          ${subtitle ? `<div class="small a rise" style="margin-top:${px(26)};font-size:${px(30)};${d(1.6)}">${esc(subtitle)}</div>` : ''}
+          ${subtitle ? `<div class="small a rise" style="margin-top:${px(26)};font-size:${px(30)};${d(1.6)}">${fitted('subtitle', subtitle)}</div>` : ''}
         </div>`);
       break;
     }
@@ -338,12 +349,12 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const cards = rows.map((row, i) => {
         const [head, ...rest] = row.split(/\s[—–-]\s/);
         return `<div class="glass a panel-in" style="position:relative;flex:1;height:${px(560)};padding:${px(48)} ${px(52)};${d(0.5 + i * 0.12)}">
-          <div class="kicker">${i === 0 ? 'A' : 'B'}</div><div class="heading a rise" style="margin-top:${px(18)};font-size:${px(60)};${d(0.9 + i * 0.12)}">${esc(head)}</div>
-          ${rest.length ? `<div class="body a rise" style="margin-top:${px(22)};color:var(--muted);${d(1.15 + i * 0.12)}">${esc(rest.join(' — '))}</div>` : ''}</div>`;
+          <div class="kicker">${i === 0 ? 'A' : 'B'}</div><div class="heading a rise" style="margin-top:${px(18)};font-size:${px(60)};${d(0.9 + i * 0.12)}">${fitted('rows', head)}</div>
+          ${rest.length ? `<div class="body a rise" style="margin-top:${px(22)};color:var(--muted);${d(1.15 + i * 0.12)}">${fitted('rows', rest.join(' — '))}</div>` : ''}</div>`;
       }).join('');
       banded = true;
       html = wrap(`${bgPlate}${stage}
-        <div style="position:absolute;left:${px(120)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${esc(kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${esc(title)}</div></div>
+        <div style="position:absolute;left:${px(120)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${fitted('kicker', kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${fitted('title', title)}</div>${subtitle ? `<div class="small a rise" style="margin-top:${px(10)};max-width:${px(1100)};${d(0.3)}">${fitted('subtitle', subtitle)}</div>` : ''}</div>
         <div style="position:absolute;left:${px(120)};right:${px(120)};top:${px(300)};display:flex;gap:${px(48)}">${cards}</div></div>`);
       break;
     }
@@ -362,33 +373,36 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
         const h = Math.round((values[i] / max) * 100);
         return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:${px(14)}">
           <div class="num a rise" style="font-size:${px(isSide ? 34 : 44)};font-weight:600;${d(0.9 + i * 0.14)};color:${i === active ? 'var(--white)' : 'var(--muted)'}">${esc(params.metric && i === active ? params.metric : String(Math.round(values[i])))}</div>
-          <div style="width:${px(isSide ? 72 : 110)};height:${h}%;border-radius:${px(10)} ${px(10)} ${px(4)} ${px(4)};background:${i === active ? 'linear-gradient(180deg,var(--accent),#7a1622)' : 'linear-gradient(180deg,#9a4a52aa,#4a141aaa)'};box-shadow:${i === active ? `0 0 ${px(24)} #d34b5566` : 'none'};transform-origin:bottom;animation:mg-bar .8s var(--eo) both paused;animation-delay:calc(var(--t) + ${(0.5 + i * 0.14).toFixed(2)}s)"></div>
-          <div class="small" style="font-size:${px(isSide ? 24 : 28)};${i === active ? 'color:var(--white)' : ''}">${esc(label)}</div></div>`;
+          <div style="width:${px(isSide ? 72 : 110)};height:${h}%;border-radius:${px(10)} ${px(10)} ${px(4)} ${px(4)};background:${i === active ? 'linear-gradient(180deg,var(--accent),var(--panel))' : 'linear-gradient(180deg,color-mix(in srgb,var(--glow) 67%,transparent),color-mix(in srgb,var(--panel) 67%,transparent))'};box-shadow:${i === active ? `0 0 ${px(24)} color-mix(in srgb,var(--accent) 40%,transparent)` : 'none'};transform-origin:bottom;animation:mg-bar .8s var(--eo) both paused;animation-delay:calc(var(--t) + ${(0.5 + i * 0.14).toFixed(2)}s)"></div>
+          <div class="small" style="font-size:${px(isSide ? 24 : 28)};${i === active ? 'color:var(--white)' : ''}">${fitted('rows', label)}</div></div>`;
       }).join('');
       html = wrap(`${banded ? stage : '<div class="x" style="position:absolute;inset:0">'}<div class="glass a panel-in" style="${geometry};padding:${px(48)} ${px(56)};display:flex;flex-direction:column;${d(0.05)}">
-        ${kicker ? `<div class="kicker a fade" style="${d(0.4)}">${esc(kicker)}</div>` : ''}
-        <div class="heading a rise" style="margin-top:${px(10)};font-size:${px(isSide ? 52 : 64)};${d(0.45)}">${esc(title)}</div>
-        <div style="flex:1;display:flex;align-items:flex-end;gap:${px(24)};margin-top:${px(40)};border-bottom:${px(2)} solid #ffd8d366;padding-bottom:${px(14)}">${bars}</div>
+        ${kicker ? `<div class="kicker a fade" style="${d(0.4)}">${fitted('kicker', kicker)}</div>` : ''}
+        <div class="heading a rise" style="margin-top:${px(10)};font-size:${px(isSide ? 52 : 64)};${d(0.45)}">${fitted('title', title)}</div>
+        ${subtitle ? `<div class="small a rise" style="margin-top:${px(8)};${d(0.55)}">${fitted('subtitle', subtitle)}</div>` : ''}
+        <div style="flex:1;display:flex;align-items:flex-end;gap:${px(24)};margin-top:${px(40)};border-bottom:${px(2)} solid color-mix(in srgb,var(--white) 40%,transparent);padding-bottom:${px(14)}">${bars}</div>
       </div></div>`);
       break;
     }
     case 'timeline-roadmap': {
       const rows = rowsOf(params.rows, ['2019 — Idea', '2021 — First users', '2023 — Growth', '2025 — Today']).slice(0, 6);
       const active = Math.min(rows.length - 1, Math.max(0, params.activeIndex ?? rows.length - 1));
-      const gap = 1600 / Math.max(1, rows.length - 1);
-      const travel = params.cameraMove === 'travel' && rows.length > 3 ? -(active * gap - 800) * 0.45 : 0;
+      // The line spans 260–1660 so the end labels (up to 400 wide, centred on their marks) stay in frame.
+      const gap = 1400 / Math.max(1, rows.length - 1);
+      const labelW = Math.min(gap * 0.9, 400);
+      const travel = params.cameraMove === 'travel' && rows.length > 3 ? -(active * gap - 700) * 0.45 : 0;
       const marks = rows.map((row, i) => {
         const [when, ...rest] = row.split(/\s[—–-]\s/);
-        return `<div style="position:absolute;left:${px(160 + i * gap)};top:${px(500)};width:${px(gap * 0.9)};transform:translateX(-${px(gap * 0.45)});text-align:center;${i === active ? '' : 'opacity:.55'}">
-          <div class="a fade" style="width:${px(18)};height:${px(18)};border-radius:50%;background:${i === active ? 'var(--accent)' : '#ffded7'};margin:0 auto ${px(26)};box-shadow:0 0 ${px(16)} ${i === active ? 'var(--accent)' : '#f56b6b88'};${d(0.6 + i * 0.25)}"></div>
-          <div class="heading num a rise" style="font-size:${px(56)};${d(0.75 + i * 0.25)}">${esc(when)}</div>
-          ${rest.length ? `<div class="small a rise" style="margin-top:${px(8)};${d(0.95 + i * 0.25)}">${esc(rest.join(' '))}</div>` : ''}</div>`;
+        return `<div style="position:absolute;left:${px(260 + i * gap - labelW / 2)};top:${px(500)};width:${px(labelW)};text-align:center;${i === active ? '' : 'opacity:.55'}">
+          <div class="a fade" style="width:${px(18)};height:${px(18)};border-radius:50%;background:${i === active ? 'var(--accent)' : 'var(--white)'};margin:0 auto ${px(26)};box-shadow:0 0 ${px(16)} ${i === active ? 'var(--accent)' : 'color-mix(in srgb,var(--accent) 53%,transparent)'};${d(0.6 + i * 0.25)}"></div>
+          <div class="heading num a rise" style="font-size:${px(56)};${d(0.75 + i * 0.25)}">${fitted('rows', when)}</div>
+          ${rest.length ? `<div class="small a rise" style="margin-top:${px(8)};${d(0.95 + i * 0.25)}">${fitted('rows', rest.join(' '))}</div>` : ''}</div>`;
       }).join('');
       banded = true;
       html = wrap(`${bgPlate}${stage}
-        <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${esc(kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${esc(title)}</div></div>
+        <div style="position:absolute;left:${px(86)};top:${px(120)}">${kicker ? `<div class="kicker a fade" style="${d(0.1)}">${fitted('kicker', kicker)}</div>` : ''}<div class="heading a rise" style="${d(0.15)}">${fitted('title', title)}</div>${subtitle ? `<div class="small a rise" style="margin-top:${px(10)};max-width:${px(1100)};${d(0.3)}">${fitted('subtitle', subtitle)}</div>` : ''}</div>
         <div class="cam" style="position:absolute;inset:0;--travel:${px(travel)};animation-name:mg-travel;animation-duration:1.2s;animation-timing-function:var(--ei);animation-delay:calc(var(--t) + 1.4s)">
-          <div class="rule a grow" style="position:absolute;left:${px(160)};width:${px(1600)};top:${px(508)};background:#e9c6bc;box-shadow:0 0 ${px(10)} ${px(3)} #e8877a6b;${d(0.2)}"></div>${marks}
+          <div class="rule a grow" style="position:absolute;left:${px(260)};width:${px(1400)};top:${px(508)};background:var(--white);box-shadow:0 0 ${px(10)} ${px(3)} color-mix(in srgb,var(--accent) 42%,transparent);${d(0.2)}"></div>${marks}
         </div></div>`);
       break;
     }
@@ -396,15 +410,15 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const rows = rowsOf(params.rows, ['Prompt typed', 'Result ready']).slice(0, 3);
       banded = true;
       html = wrap(`${bgPlate}${stage}
-        <div class="a fade" style="position:absolute;left:50%;top:50%;width:${px(26)};height:${px(26)};margin:${px(-13)};border-radius:50%;background:#ffded7;box-shadow:0 0 ${px(24)} var(--accent);${d(0.1)};animation-name:mg-fade"></div>
+        <div class="a fade" style="position:absolute;left:50%;top:50%;width:${px(26)};height:${px(26)};margin:${px(-13)};border-radius:50%;background:var(--white);box-shadow:0 0 ${px(24)} var(--accent);${d(0.1)};animation-name:mg-fade"></div>
         <div class="glass a panel-in" style="left:${px(560)};top:${px(300)};width:${px(800)};height:${px(480)};padding:${px(44)} ${px(52)};${d(0.75)}">
-          ${kicker ? `<div class="kicker a fade" style="${d(1.2)}">${esc(kicker)}</div>` : ''}
-          <div class="heading a rise" style="margin-top:${px(14)};font-size:${px(56)};${d(1.3)}">${esc(title)}</div>
-          <div class="body a rise" style="margin-top:${px(26)};padding:${px(16)} ${px(22)};border-radius:${px(12)};border:1px solid #ffd8d34d;background:#0d0206aa;color:var(--muted);${d(1.9)}"><span style="display:inline-block;overflow:hidden;white-space:nowrap;vertical-align:bottom;max-width:100%;animation:mg-type .9s steps(24,end) both paused;animation-delay:calc(var(--t) + 2.3s)">${esc(subtitle || rows[0])}</span></div>
-          <div style="display:flex;gap:${px(16)};margin-top:${px(26)}">${rows.slice(1).map((row, i) => `<div class="a rise" style="padding:${px(12)} ${px(24)};border-radius:100px;border:1px solid #f9838352;background:linear-gradient(180deg,#a8353b88,#590305cc);font-size:${px(26)};${d(4.1 + i * 0.15)}">${esc(row)}</div>`).join('')}</div>
+          ${kicker ? `<div class="kicker a fade" style="${d(1.2)}">${fitted('kicker', kicker)}</div>` : ''}
+          <div class="heading a rise" style="margin-top:${px(14)};font-size:${px(56)};${d(1.3)}">${fitted('title', title)}</div>
+          <div class="body a rise" style="margin-top:${px(26)};padding:${px(16)} ${px(22)};border-radius:${px(12)};border:1px solid color-mix(in srgb,var(--white) 30%,transparent);background:color-mix(in srgb,var(--void) 67%,transparent);color:var(--muted);${d(1.9)}"><span style="display:inline-block;overflow:hidden;white-space:nowrap;vertical-align:bottom;max-width:100%;animation:mg-type .9s steps(24,end) both paused;animation-delay:calc(var(--t) + 2.3s)">${esc(subtitle || rows[0])}</span></div>
+          <div style="display:flex;gap:${px(16)};margin-top:${px(26)}">${(subtitle ? rows : rows.slice(1)).map((row, i) => `<div class="a rise" style="padding:${px(12)} ${px(24)};border-radius:100px;border:1px solid color-mix(in srgb,var(--accent) 32%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--glow) 53%,transparent),color-mix(in srgb,var(--panel) 80%,transparent));font-size:${px(26)};${d(4.1 + i * 0.15)}">${fitted('rows', row)}</div>`).join('')}</div>
         </div>
         <div style="position:absolute;left:${px(1180)};top:${px(700)};animation:mg-cursor 1.7s var(--ei) both paused;animation-delay:calc(var(--t) + 2.6s)">
-          <svg width="${px(38)}" height="${px(46)}" viewBox="0 0 19 23"><path d="M1 1 L1 18 L5.5 13.8 L8.3 20.4 L11.2 19.1 L8.4 12.6 L14.4 12.4 Z" fill="#fff" stroke="#3a0308" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          <svg width="${px(38)}" height="${px(46)}" viewBox="0 0 19 23"><path style="stroke:var(--void)" d="M1 1 L1 18 L5.5 13.8 L8.3 20.4 L11.2 19.1 L8.4 12.6 L14.4 12.4 Z" fill="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
         </div>
         <div style="position:absolute;left:${px(1185)};top:${px(705)};width:${px(60)};height:${px(60)};margin:${px(-30)};border-radius:50%;border:${px(3)} solid var(--accent);animation:mg-ripple .7s ease-out both paused;animation-delay:calc(var(--t) + 4.0s)"></div>
       </div>`);
@@ -416,9 +430,10 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const inset = band < 1 ? `${(margin * 100).toFixed(2)}%` : px(96);
       const corner = side === 'left' ? `left:${inset}` : `right:${inset}`;
       if (band < 1) box = { ...box, x: side === 'left' ? safe.left : 1 - safe.right - box.width, y: edgeShare(74, 12), height: box.height * band };
-      html = wrap(`<div class="x" style="position:absolute;top:${edge(74, 12)};${corner};text-align:${side}">
+      html = wrap(`<div class="x onfoot" style="position:absolute;top:${edge(74, 12)};${corner};text-align:${side}">
         <div class="kicker a push" style="${d(0.05)}">${esc(kicker || 'CHAPTER')}</div>
-        <div class="heading a rise" style="font-size:${px(40)};margin-top:${px(8)};${d(0.2)}">${esc(title)}</div>
+        <div class="heading a rise" style="font-size:${px(40)};margin-top:${px(8)};${d(0.2)}">${fitted('title', title)}</div>
+        ${subtitle ? `<div class="small a rise" style="font-size:${px(24)};margin-top:${px(4)};${d(0.3)}">${fitted('subtitle', subtitle)}</div>` : ''}
         <div class="rule a grow" style="width:${px(90)};margin-top:${px(12)};background:var(--accent);${side === 'right' ? 'margin-left:auto;transform-origin:right' : ''};${d(0.45)}"></div></div>`);
       break;
     }
@@ -426,17 +441,17 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       // 9:16: above the bottom 20% (caption, handle, audio) and clear of the right-hand rail.
       if (band < 1) box = above(portrait ? { ...box, width: 1 - 260 / 1920 - box.x } : box, edgeShare(112, 21));
       html = wrap(`<div class="x" style="position:absolute;left:${px(210)};right:${portrait ? px(260) : px(210)};bottom:${edge(112, 21)};text-align:center">
-        <div class="cap words" style="display:inline-block;padding:${px(10)} ${px(26)};border-radius:${px(12)};background:#0c000466">${accentWords(title, params.accentWord, 0.05)}</div>
+        <div class="cap words" style="display:inline-block;padding:${px(10)} ${px(26)};border-radius:${px(12)};background:color-mix(in srgb,var(--void) 40%,transparent)">${accentWords(title, params.accentWord, 0.05, fit.title)}</div>
       </div>`);
       break;
     }
     case 'crimson-lower-third': {
       if (band < 1) box = above(box, edgeShare(120, 20));
-      html = wrap(`<div class="x" style="position:absolute;left:${px(96)};bottom:${edge(120, 20)}">
+      html = wrap(`<div class="x onfoot" style="position:absolute;left:${px(96)};bottom:${edge(120, 20)}">
         <div class="rule a grow" style="width:${px(6)};height:${px(120)};position:absolute;left:0;top:${px(4)};background:var(--accent);transform-origin:top;${d(0.05)}"></div>
         <div style="padding-left:${px(30)}">
-          <div class="heading a push" style="font-size:${px(58)};${d(0.15)}">${esc(title)}</div>
-          ${subtitle ? `<div class="small a push" style="font-size:${px(30)};margin-top:${px(8)};${d(0.3)}">${esc(subtitle)}</div>` : ''}
+          <div class="heading a push" style="font-size:${px(58)};${d(0.15)}">${fitted('title', title)}</div>
+          ${subtitle ? `<div class="small a push" style="font-size:${px(30)};margin-top:${px(8)};${d(0.3)}">${fitted('subtitle', subtitle)}</div>` : ''}
         </div></div>`);
       break;
     }
@@ -446,25 +461,25 @@ export function buildCrimsonTemplate(params: CrimsonParams): { html: string; css
       const tiles: string[] = [];
       for (let r = 0; r < rowsN; r++) for (let c = 0; c < cols; c++) {
         const jitter = ((c * 7 + r * 13) % 5) * 0.03;
-        tiles.push(`<div style="animation:mg-tile-fall .32s var(--ei) both paused;animation-delay:calc(var(--t) + ${(0.05 + r * 0.14 + jitter).toFixed(2)}s);background:linear-gradient(135deg,#2a0a0f,#12030a);border:1px solid #ffd8d31f"></div>`);
+        tiles.push(`<div style="animation:mg-tile-fall .32s var(--ei) both paused;animation-delay:calc(var(--t) + ${(0.05 + r * 0.14 + jitter).toFixed(2)}s);background:linear-gradient(135deg,var(--void),var(--void));border:1px solid color-mix(in srgb,var(--white) 12%,transparent)"></div>`);
       }
       html = wrap(`<div style="position:absolute;inset:0;display:grid;grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rowsN},1fr)">${tiles.join('')}</div>`);
       break;
     }
     case 'countdown': {
       const from = Math.max(1, Math.min(99, parseInt(params.metric ?? '5', 10) || 5));
-      const digits = Array.from({ length: from }, (_, i) => from - i).map((n, i) => `<div class="hero num a rise" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:${px(360)};${d(i * 1)};animation-name:mg-count-step">${n}</div>`).join('');
+      const digits = Array.from({ length: from }, (_, i) => from - i).map((n, i) => `<div class="hero num a rise onglow" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:${px(360)};${d(i * 1)};animation-name:mg-count-step">${n}</div>`).join('');
       css = `@keyframes mg-count-step{0%{opacity:0;transform:scale(.7)}12%{opacity:1;transform:scale(1)}88%{opacity:1;transform:scale(1.04)}100%{opacity:0;transform:scale(1.1)}}.mgc .a[style*="mg-count-step"]{animation-duration:1s;animation-timing-function:var(--ei)}`;
       banded = true;
-      html = wrap(`${stage}${digits}${title ? `<div class="kicker a fade" style="position:absolute;left:0;right:0;bottom:${px(160)};text-align:center;${d(0.1)}">${esc(title)}</div>` : ''}</div>`);
+      html = wrap(`${stage}${digits}${title ? `<div class="kicker a fade onglow" style="position:absolute;left:0;right:0;bottom:${px(160)};text-align:center;${d(0.1)}">${fitted('title', title)}</div>` : ''}</div>`);
       break;
     }
     case 'breaking-news': {
       if (band < 1) box = above(box, edgeShare(70, 21));
       html = wrap(`<div class="x" style="position:absolute;left:0;right:0;bottom:${edge(70, 21)}">
-        <div class="a push" style="display:inline-block;padding:${px(10)} ${px(26)};background:var(--accent);color:#fff;font-weight:700;letter-spacing:.14em;font-size:${px(26)};${d(0.05)}">${esc(params.badge || 'BREAKING')}</div>
-        <div class="a grow" style="background:linear-gradient(90deg,#1a0407f2,#12030aeb);border-top:${px(2)} solid #ffd8d35c;padding:${px(24)} ${px(60)};transform-origin:left;${d(0.15)}">
-          <div class="heading" style="font-size:${px(54)}">${esc(title)}</div>${subtitle ? `<div class="small" style="margin-top:${px(6)}">${esc(subtitle)}</div>` : ''}
+        <div class="a push" style="display:inline-block;margin-left:${px(60)};padding:${px(10)} ${px(26)};background:var(--accent);color:#fff;font-weight:700;letter-spacing:.14em;font-size:${px(26)};${d(0.05)}">${esc(params.badge || 'BREAKING')}</div>
+        <div class="a grow" style="background:linear-gradient(90deg,color-mix(in srgb,var(--void) 95%,transparent),color-mix(in srgb,var(--void) 92%,transparent));border-top:${px(2)} solid color-mix(in srgb,var(--white) 36%,transparent);padding:${px(24)} ${px(60)};transform-origin:left;${d(0.15)}">
+          <div class="heading" style="font-size:${px(54)}">${fitted('title', title)}</div>${subtitle ? `<div class="small" style="margin-top:${px(6)}">${fitted('subtitle', subtitle)}</div>` : ''}
         </div></div>`);
       break;
     }

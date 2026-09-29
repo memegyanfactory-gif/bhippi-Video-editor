@@ -3150,6 +3150,25 @@
       }
     },
     {
+      "name": "list_caption_styles",
+      "description": "Caption styles with their look and the videos they fit. Filter by category or words (\"podcast\", \"neon\"); then set_caption_style.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "set_caption_style",
       "description": "Makes a WatchFIWN caption style the project default and, unless applyToAll is false, restyles every caption clip.",
       "input_schema": {
@@ -3351,7 +3370,12 @@
               "scale",
               "rotation",
               "opacity",
-              "volume"
+              "volume",
+              "brightness",
+              "contrast",
+              "saturation",
+              "blur",
+              "hue"
             ]
           },
           "keyframes": {
@@ -4483,6 +4507,109 @@
           "command"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "add_graphic",
+      "description": "The simple way to add ONE graphic: say what it is (kind) and its words; the template is picked, filled and fitted for you, and the result says what was adjusted. kinds: title (hook/opening), chapter, lower-third (text = name, subtitle = role), stat (value + text label), chart (points = bar labels + values), list (points; side left/right puts it beside the presenter), steps, timeline (points \"2019 — Founded\"), quote, compare (two points), news, countdown (value), caption, map, end (cta), logo.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "title",
+              "chapter",
+              "lower-third",
+              "stat",
+              "chart",
+              "list",
+              "steps",
+              "timeline",
+              "quote",
+              "compare",
+              "news",
+              "countdown",
+              "caption",
+              "map",
+              "end",
+              "logo"
+            ],
+            "description": "What the graphic is."
+          },
+          "text": {
+            "type": "string",
+            "description": "The main words on screen (the name for lower-third, the label for stat)."
+          },
+          "subtitle": {
+            "type": "string",
+            "description": "A second line (the role for lower-third)."
+          },
+          "kicker": {
+            "type": "string",
+            "description": "A small label above."
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "list/steps/timeline/compare/chart/map lines, short; \"Heading — detail\" adds a line under a heading."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "chart: one real number per point."
+          },
+          "value": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "stat: the real number; countdown: where it starts."
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "suffix": {
+            "type": "string",
+            "description": "stat: e.g. \"%\"."
+          },
+          "accentWord": {
+            "type": "string",
+            "description": "One word of the text to colour."
+          },
+          "cta": {
+            "type": "string",
+            "description": "end: the call to action."
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "description": "list: put it beside the presenter."
+          },
+          "color": {
+            "type": "string",
+            "description": "Accent colour (a name or #hex); the brand kit colour by default."
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline seconds it starts."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Seconds; the template's reading time by default."
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ]
       }
     },
     {
@@ -5631,11 +5758,15 @@
                     "statement",
                     "stat",
                     "list",
+                    "steps",
                     "quote",
+                    "question",
+                    "chapter",
                     "lower-third",
-                    "end"
+                    "end",
+                    "logo"
                   ],
-                  "description": "Guessed when left out: a value makes a stat, points a list, a cta or the last beat the end card, the first a title."
+                  "description": "Guessed when left out: value → stat, points → list, \"?\" → question, cta or last → end, first → title. steps = numbered points."
                 },
                 "kicker": {
                   "type": "string",
@@ -7571,6 +7702,107 @@
             "description": "Composition to check; the active one when omitted."
           }
         },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "train_brand_kit",
+      "description": "Saves what a reference taught into a brand kit (/train). Measure first: analyze_reference_video for videos and links (pass its id as referenceId: the measured cut rate and palette are added for you), extract_brand_from_url for websites, look at images. Then send 3–12 short rules, each {area: pacing|color|type|layout|motion|captions|audio|voice|do|dont, text: one rule (8–200 chars), value?: measured numbers or lists}. Rules another reference already taught are strengthened, not repeated.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "video",
+                  "link",
+                  "image",
+                  "website",
+                  "timeline",
+                  "file"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "label"
+            ]
+          },
+          "referenceId": {
+            "type": "string"
+          },
+          "learnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "area": {
+                  "type": "string",
+                  "enum": [
+                    "pacing",
+                    "color",
+                    "type",
+                    "layout",
+                    "motion",
+                    "captions",
+                    "audio",
+                    "voice",
+                    "do",
+                    "dont"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "area",
+                "text"
+              ]
+            }
+          }
+        },
+        "required": [
+          "source",
+          "learnings"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "forget_training",
+      "description": "Undoes one /train: removes what a brand kit learned only from that source (sourceId from train_brand_kit).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceId"
+        ],
         "additionalProperties": false
       }
     },

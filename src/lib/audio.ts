@@ -15,6 +15,8 @@ type Bus = {
   master: GainNode;
   left: AnalyserNode;
   right: AnalyserNode;
+  /** The master, K-weighted (EBU R128), per channel: what the LUFS meter reads. */
+  loud: [AnalyserNode, AnalyserNode];
   /** Per-ear gains after the meters, for the meters' solo buttons. */
   ears: [GainNode, GainNode];
 };
@@ -53,7 +55,25 @@ function getBus(): Bus | null {
     ears[0].connect(merger, 0, 0);
     ears[1].connect(merger, 0, 1);
     merger.connect(ctx.destination);
-    bus = { ctx, program, source, master, left, right, ears };
+    // Loudness: the master through the K-weighting (a +4 dB shelf above ~1.7 kHz, then a ~38 Hz
+    // high-pass), read over ~400 ms windows — EBU R128's momentary loudness.
+    const shelf = ctx.createBiquadFilter();
+    shelf.type = 'highshelf';
+    shelf.frequency.value = 1681.97;
+    shelf.gain.value = 4;
+    const rumble = ctx.createBiquadFilter();
+    rumble.type = 'highpass';
+    rumble.frequency.value = 38.13;
+    rumble.Q.value = 0.5;
+    const weighted = ctx.createChannelSplitter(2);
+    const loud: [AnalyserNode, AnalyserNode] = [ctx.createAnalyser(), ctx.createAnalyser()];
+    for (const analyser of loud) analyser.fftSize = 32768;
+    master.connect(shelf);
+    shelf.connect(rumble);
+    rumble.connect(weighted);
+    weighted.connect(loud[0], 0);
+    weighted.connect(loud[1], 1);
+    bus = { ctx, program, source, master, left, right, ears, loud };
     // Created before the user has clicked anything (the mute state is applied at startup), the
     // context starts suspended and every clip routed through it is silent while its element
     // "plays". Any click or key is a gesture that may start it; Windows also suspends it on an
@@ -98,6 +118,8 @@ export function setMutes(mutes: MuteState) {
 export class ClipChain {
   private readonly input: AudioNode;
   private readonly gain: GainNode;
+  /** The track's balance: each side's own gain (the far side stays at full level). */
+  private readonly balance: [GainNode, GainNode];
   private readonly highpass: BiquadFilterNode;
   private readonly compressor: DynamicsCompressorNode;
   private channels: Channels | null = null;
@@ -115,7 +137,19 @@ export class ClipChain {
     this.compressor.ratio.value = 3;
     this.compressor.attack.value = 0.005;
     this.compressor.release.value = 0.12;
-    this.gain.connect(output);
+    // gain → split → per-side balance → merge → out (balance law, as the export's `pan` filter).
+    const split = ctx.createChannelSplitter(2);
+    const merge = ctx.createChannelMerger(2);
+    this.balance = [ctx.createGain(), ctx.createGain()];
+    this.gain.channelCount = 2;
+    this.gain.channelCountMode = 'explicit';
+    this.gain.channelInterpretation = 'speakers';
+    this.gain.connect(split);
+    split.connect(this.balance[0], 0);
+    split.connect(this.balance[1], 1);
+    this.balance[0].connect(merge, 0, 0);
+    this.balance[1].connect(merge, 0, 1);
+    merge.connect(output);
   }
 
   private static elements = new WeakMap<HTMLMediaElement, ClipChain>();
@@ -146,9 +180,13 @@ export class ClipChain {
     return chain;
   }
 
-  configure({ channels, enhance, gain }: { channels: Channels; enhance: boolean; gain: number }) {
+  configure({ channels, enhance, gain, pan = 0 }: { channels: Channels; enhance: boolean; gain: number; pan?: number }) {
     const target = Math.max(0, Math.min(8, gain));
     if (Math.abs(this.gain.gain.value - target) > 1e-4) this.gain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.015);
+    const side = Math.max(-1, Math.min(1, pan));
+    const [left, right] = [Math.min(1, 1 - side), Math.min(1, 1 + side)];
+    if (Math.abs(this.balance[0].gain.value - left) > 1e-4) this.balance[0].gain.setTargetAtTime(left, this.ctx.currentTime, 0.015);
+    if (Math.abs(this.balance[1].gain.value - right) > 1e-4) this.balance[1].gain.setTargetAtTime(right, this.ctx.currentTime, 0.015);
     if (channels === this.channels && enhance === this.enhance) return;
     this.channels = channels;
     this.enhance = enhance;
@@ -263,3 +301,31 @@ export function levels(): Levels {
   const right = measure(bus.right, scratch);
   return { peak: [left.peak, right.peak], valley: [left.valley, right.valley], rms: [left.rms, right.rms] };
 }
+
+let loudScratch: Float32Array | null = null;
+/** Momentary loudness readings (energy, time), for the short-term (3 s) average. */
+const momentaryHistory: { at: number; energy: number }[] = [];
+
+/**
+ * Loudness of the master in LUFS (EBU R128): momentary (the last ~400 ms) and short-term (the
+ * last 3 s), −∞ when silent. What export normalisation targets (−14 for YouTube, −16 podcasts…).
+ */
+export function loudness(): { momentary: number; shortTerm: number } {
+  if (!bus) return { momentary: -Infinity, shortTerm: -Infinity };
+  const window = Math.min(bus.loud[0].fftSize, Math.round(bus.ctx.sampleRate * 0.4));
+  loudScratch ??= new Float32Array(bus.loud[0].fftSize);
+  let energy = 0;
+  for (const analyser of bus.loud) {
+    analyser.getFloatTimeDomainData(loudScratch);
+    let sum = 0;
+    for (let index = loudScratch.length - window; index < loudScratch.length; index++) sum += loudScratch[index] * loudScratch[index];
+    energy += sum / window;
+  }
+  const now = performance.now();
+  momentaryHistory.push({ at: now, energy });
+  while (momentaryHistory.length && now - momentaryHistory[0].at > 3000) momentaryHistory.shift();
+  const shortEnergy = momentaryHistory.reduce((sum, item) => sum + item.energy, 0) / Math.max(1, momentaryHistory.length);
+  const lufs = (value: number) => (value > 1e-10 ? -0.691 + 10 * Math.log10(value) : -Infinity);
+  return { momentary: lufs(energy), shortTerm: lufs(shortEnergy) };
+}
+

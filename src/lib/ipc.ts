@@ -236,7 +236,7 @@ export type McpStatus = {
 export type TypesafeChoice = { id: string; confidence: number; probabilities: Record<string, number> };
 
 /** One word as the transcriber heard it, in seconds from the start of the source file. */
-export type TranscriptWord = { text: string; start: number; end: number; speaker?: number };
+export type TranscriptWord = { text: string; start: number; end: number; speaker?: number; /** Where a timeline word was spoken: its file and source seconds (for corrections). */ origin?: { assetId: string; start: number; end: number } };
 
 /** One downloadable piece of offline speech: a runtime, a Whisper model, or a voice. */
 export type ModelKind = 'matte' | 'matte-candidate' | 'stt-runtime' | 'stt-model' | 'tts-runtime' | 'tts-voice';
@@ -386,6 +386,8 @@ export const api = {
   appInfo: () => invoke<AppInfo>('app_info'),
   settingsGet: () => invoke<Settings>('settings_get'),
   settingsSave: (settings: Settings) => invoke<Settings>('settings_save', { settings }),
+  /** Saves only these top-level settings, merged over the stored ones. */
+  settingsPatch: (patch: Partial<Settings>) => invoke<void>('settings_patch', { patch }),
   ideagraphStatus: () => invoke<{ status: string; gaps: { total: number; areas: { name: string; count: number }[]; gaps: string[]; unclassified: number } | null; pending: string }>('ideagraph_status'),
   ideagraphIngest: (text: string, source: string) => invoke<string>('ideagraph_ingest', { text, source }),
   ideagraphInit: () => invoke<string>('ideagraph_init'),
@@ -500,6 +502,8 @@ export const api = {
   transcribeAsset: (id: string, language: string) => invoke<Transcript>('transcribe_asset', { id, language }),
   /** Transcripts already made for these assets; transcribes nothing. */
   transcriptsCached: (ids: string[]) => invoke<Transcript[]>('transcripts_cached', { ids }),
+  /** Saves corrections typed in the Transcript panel; each word is found by its source timing. Empty text deletes it. */
+  transcriptEditWords: (assetId: string, edits: { start: number; end: number; text: string }[]) => invoke<Transcript>('transcript_edit_words', { assetId, edits }),
 
   /** The offline speech catalogue, what is downloaded, and whether the runtimes were found. */
   speechStatus: () => invoke<SpeechStatus>('speech_status'),
@@ -522,6 +526,8 @@ export const api = {
   libraryImport: (paths: string[]) => invoke<ImportResult>('library_import', { paths }),
   libraryRemove: (id: string) => invoke<void>('library_remove', { id }),
   libraryRetry: (id: string) => invoke<void>('library_retry', { id }),
+  /** Project panel › Create Proxy: a lighter preview copy of a video (a job). */
+  libraryMakeProxy: (id: string) => invoke<void>('library_make_proxy', { id }),
   /** Points a library entry at a new file (Link Media). */
   libraryRelink: (id: string, path: string) => invoke<Asset>('library_relink', { id, path }),
   /** Any files for the chat: pictures as data URLs (converted and shrunk to fit), a video as frames from across it, with each file's kind and length. */
@@ -601,6 +607,8 @@ export const api = {
     invoke<string | null>('pick_open_path', { title, filterName, extensions }),
   /** Reads and writes `.bhippi` project files. */
   projectFileRead: (path: string) => invoke<unknown>('project_file_read', { path }),
+  /** The open project's backups, newest first (File › Restore from Backup…). */
+  projectBackups: (name: string) => invoke<{ path: string; savedAt: string; size: number; rolling: boolean }[]>('project_backups', { name }),
   /** Which of these project files still exist, in the same order. */
   projectFilesExist: (paths: string[]) => invoke<boolean[]>('project_files_exist', { paths }),
   projectFileWrite: (path: string, document: unknown) => invoke<void>('project_file_write', { path, document }),
@@ -687,6 +695,8 @@ export const api = {
   detectScenes: (assetId: string, start: number, end: number, sensitivity: number) => invoke<number[]>('detect_scenes', { assetId, start, end, sensitivity }),
   /** The loudest peak of a media range, in dBFS. */
   audioPeak: (assetId: string, start: number, end: number) => invoke<number>('audio_peak', { assetId, start, end }),
+  /** A media range's sound played backwards (a cached WAV path), for previewing reversed clips. */
+  audioReversed: (assetId: string, start: number, end: number) => invoke<string>('audio_reversed', { assetId, start, end }),
   /** EBU R128 loudness of a media range: integrated LUFS, loudness range LU, true peak dBTP. */
   audioLoudness: (assetId: string, start: number, end: number) =>
     invoke<{ integratedLufs: number; rangeLu: number; truePeakDb: number; duration: number }>('audio_loudness', { assetId, start, end }),

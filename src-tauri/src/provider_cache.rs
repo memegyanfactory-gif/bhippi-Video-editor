@@ -66,9 +66,30 @@ pub fn remember(rows: &[ProviderInfo], cache: &mut ModelCache) -> bool {
     changed
 }
 
+/// The model registry (models.dev) as last read: what vendors have released, for the providers
+/// that cannot list their own models (see `bhippi_providers::registry`).
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub struct SavedRegistry {
+    pub fetched_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub registry: bhippi_providers::registry::Registry,
+}
+
+/// How long a read registry is trusted before it is read again: a launch shows up within this.
+const REGISTRY_FRESH_HOURS: i64 = 6;
+
+pub fn registry_file(root: &Path) -> PathBuf {
+    root.join("model-registry.json")
+}
+
+impl SavedRegistry {
+    pub fn is_stale(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.fetched_at.is_none_or(|at| now - at > chrono::Duration::hours(REGISTRY_FRESH_HOURS))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{fill, remember, ModelCache};
+    use super::{fill, remember, ModelCache, SavedRegistry};
     use bhippi_providers::{Health, ProviderInfo, ProviderKind};
 
     fn row(id: &str, kind: ProviderKind, models: &[&str], health: Health) -> ProviderInfo {
@@ -116,6 +137,15 @@ mod tests {
         assert_eq!(rows[0].models, ["grok-4.7", "grok-4.7-fast", "grok-4"]);
         // A degraded row is never remembered, so the fallback cannot overwrite the real list.
         assert!(!remember(&rows, &mut cache));
+    }
+
+    #[test]
+    fn the_registry_is_read_again_after_six_hours() {
+        let now = chrono::Utc::now();
+        assert!(SavedRegistry::default().is_stale(now), "never read");
+        let read = SavedRegistry { fetched_at: Some(now - chrono::Duration::hours(1)), ..SavedRegistry::default() };
+        assert!(!read.is_stale(now));
+        assert!(read.is_stale(now + chrono::Duration::hours(6)));
     }
 
     #[test]

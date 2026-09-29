@@ -1,0 +1,195 @@
+{
+ "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+ "calls": [
+  {
+   "brief": "lower-third",
+   "attempts": [
+    {
+     "args": {
+      "template": "crimson-lower-third",
+      "title": "Priya Raman",
+      "subtitle": "Head of Growth at Finlo"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "hook",
+   "attempts": [
+    {
+     "args": {
+      "template": "hook-promise",
+      "title": "Save Your First $10,000 in One Year",
+      "subtitle": "Even on a Small Salary"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "chart",
+   "attempts": [
+    {
+     "args": {
+      "template": "stat-chart",
+      "title": "Revenue",
+      "subtitle": "Annual",
+      "rows": [
+       "2021 — 12M",
+       "2022 — 19M",
+       "2023 — 31M",
+       "2024 — 48M"
+      ],
+      "values": [
+       12,
+       19,
+       31,
+       48
+      ],
+      "activeIndex": 3
+     }
+    }
+   ]
+  },
+  {
+   "brief": "teaching",
+   "attempts": [
+    {
+     "args": {
+      "template": "teaching-card",
+      "title": "50/30/20 Budget Rule",
+      "subtitle": "Needs • Wants • Savings",
+      "rows": [
+       "Needs — Essential expenses (rent, utilities, groceries, etc.)",
+       "Wants — Discretionary spending (dining, entertainment, hobbies)",
+       "Savings — Emergency fund, retirement, debt repayment"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "brief": "compare",
+   "attempts": [
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs Buying",
+      "subtitle": "A fair comparison"
+     },
+     "error": "comparison needs rows. Its slots: title (text, required, ≤40 chars); subtitle (text, ≤80 chars); kicker (text, ≤50 chars: small label above the title); rows (list, required, 2–2 items, ≤60 chars each: exactly two: side A, side B); accentColor (color: #rrggbb, readable on a dark plate)."
+    },
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs Buying",
+      "subtitle": "A fair comparison",
+      "rows": [
+       "Renting — Lower upfront costs, flexible, no maintenance",
+       "Buying — Builds equity, stable, tax benefits"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "brief": "news",
+   "attempts": [
+    {
+     "args": {
+      "template": "breaking-news",
+      "title": "Markets Fall 4%",
+      "subtitle": "After Central Bank Rate Decision"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "quote",
+   "attempts": [
+    {
+     "args": null,
+     "reply": "\u001b[0m\r\n> build · nvidia/nemotron-3-super-120b-a12b:free\r\n\u001b[0m\r\n"
+    }
+   ]
+  },
+  {
+   "brief": "chapter",
+   "attempts": [
+    {
+     "args": {
+      "template": "chapter-marker",
+      "title": "Chapter 3",
+      "subtitle": "Investing basics"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "roadmap",
+   "attempts": [
+    {
+     "args": {
+      "template": "numbered-lanes",
+      "title": "Product Launch Roadmap",
+      "rows": [
+       "Research — Investigate market and user needs",
+       "Prototype — Build initial versions",
+       "Test — Validate with users",
+       "Launch — Release to market",
+       "Grow — Scale and iterate"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "brief": "countdown",
+   "attempts": [
+    {
+     "args": {
+      "template": "countdown",
+      "title": "Countdown",
+      "duration": 10
+     }
+    }
+   ]
+  },
+  {
+   "brief": "panel",
+   "attempts": [
+    {
+     "args": {
+      "template": "side-panel",
+      "title": "Hook Writing Rules",
+      "rows": [
+       "Be Specific — Use concrete details",
+       "Open a Loop — Pose a question or cliffhanger",
+       "Promise a Payoff — Tell what they’ll gain",
+       "Cut the Intro — Jump straight into the content"
+      ],
+      "accentColor": "#008080",
+      "useBrand": true,
+      "layout": "side-panel-right"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "timeline",
+   "attempts": [
+    {
+     "args": {
+      "template": "timeline-roadmap",
+      "title": "Company History",
+      "rows": [
+       "2015 — Founded",
+       "2017 — First Office",
+       "2021 — IPO",
+       "2024 — One Million Users"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

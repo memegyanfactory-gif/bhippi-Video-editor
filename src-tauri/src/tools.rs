@@ -27,6 +27,24 @@ pub struct ToolStatus {
     pub formats: Vec<String>,
 }
 
+/// Whether this FFmpeg can tone-map HDR (PQ / HLG) footage to SDR: it needs the `zscale` (zimg)
+/// and `tonemap` filters, which the bundled BtbN build has but a minimal build may not. Set when
+/// the tools are found; the proxy maker and the export read it.
+static TONEMAP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[must_use]
+pub fn tonemap_available() -> bool {
+    TONEMAP.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The filters that tone-map an HDR (PQ or HLG) picture to Rec.709 SDR, ending in 8-bit 4:2:0;
+/// empty when this FFmpeg cannot. Hable keeps highlights from clipping; desaturation is off so skin
+/// keeps its colour.
+#[must_use]
+pub fn tonemap_filters() -> &'static str {
+    if tonemap_available() { "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p," } else { "" }
+}
+
 /// Hardware H.264 encoders in order of preference, with the name the UI shows.
 pub const GPU_ENCODERS: [(&str, &str); 3] = [("h264_nvenc", "NVIDIA NVENC"), ("h264_qsv", "Intel Quick Sync"), ("h264_amf", "AMD AMF")];
 
@@ -219,6 +237,8 @@ pub async fn resolve(explicit: Option<&str>) -> Tools {
                 .to_owned()
         });
     let encoders = run(&ffmpeg, &["-hide_banner", "-encoders"], None).await.unwrap_or_default();
+    let filters = run(&ffmpeg, &["-hide_banner", "-filters"], None).await.unwrap_or_default();
+    TONEMAP.store(filters.contains(" zscale ") && filters.contains(" tonemap "), std::sync::atomic::Ordering::Relaxed);
     let x264 = encoders.contains("libx264");
     let gpu = detect_gpu_encoder(&ffmpeg, &encoders).await;
     let vendor = gpu.and_then(|name| name.strip_prefix("h264_"));

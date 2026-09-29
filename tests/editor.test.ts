@@ -264,6 +264,16 @@ describe('razor, speed, holds, links, nest', () => {
     expect(rippled.clips.find((clip) => clip.id === first[0].id)?.duration).toBe(8);
   });
 
+  it('speed with ripple on a linked pair shifts later material once, keeping it in sync', () => {
+    const { comp, first, second } = twoPairs();
+    const slow = setSpeed(comp, first.map((clip) => clip.id), { speed: 0.5, ripple: true, limit });
+    for (const clip of first) expect(slow.clips.find((item) => item.id === clip.id)?.duration).toBe(8);
+    // The next pair starts where the retimed pair now ends — no gap, both halves together.
+    for (const clip of second) expect(slow.clips.find((item) => item.id === clip.id)?.start).toBe(8);
+    const fast = setSpeed(comp, first.map((clip) => clip.id), { speed: 2, ripple: true, limit });
+    for (const clip of second) expect(fast.clips.find((item) => item.id === clip.id)?.start).toBe(2);
+  });
+
   it('reverse playback reads the source backwards, and a frame hold freezes one frame', () => {
     const clip = newClip({ trackId: 't', start: 10, duration: 4, in: 2, source: media, reverse: true });
     expect(sourceTimeAt(clip, 10)).toBe(6);

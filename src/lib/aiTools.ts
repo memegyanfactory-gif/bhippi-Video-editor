@@ -16,7 +16,11 @@ import { summarizePersonTracks, trackPeopleAsset } from './personTracks';import 
 import { adaptRhythmProgram } from './learning';
 import { storyboardContentError, videoBlueprintContentError, type StoryboardSceneInput, type VideoBlueprintSceneInput } from './editWorkflow';
 import { createMotionGraphicComp, mogrtCanvas } from './motionGraphics';
-import { CRIMSON_GUIDELINE_NOTES, CRIMSON_PALETTE, templateCatalogue, templateSpec, type MogrtLayout } from './motionGuide';
+import { CRIMSON_GUIDELINE_NOTES, CRIMSON_PALETTE, CRIMSON_TEMPLATES, templateCatalogue, templateSpec, type MogrtLayout } from './motionGuide';
+import { CRIMSON_SLOTS, describeSlots, missingSlots, resolveTemplateId } from './templateSlots';
+import { fitScales, fixSummary, fixTemplateArgs, listOf } from './templateFix';
+import { graphicCall } from './addGraphic';
+import { checkGraphic, issuesText, refit } from './graphicCheckRun';
 import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, type ReactBitsLayer } from './rbx';
 import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
 import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
@@ -49,7 +53,7 @@ import { aspectLabel, describeReformat, duplicateComp, FRAME_PRESETS, orientatio
 import { autoLayout, captionBand, fillCell, pipBox, splitCells, type SplitLayout } from './splitScreen';
 import type { History } from './history';
 import { api, errorText, type ComposedScore, type PlateSpec, type ScoreMood, type ScoreSpec, type Transcript } from './ipc';
-import { planBuild, SCORE_MOODS, type BriefBeat } from './guidedBuild';
+import { BEAT_KINDS, planBuild, SCORE_MOODS, type BriefBeat } from './guidedBuild';
 import { bpmFromText, moodFromText, placeMusicBed, placePlate } from './builtinMedia';
 import { cloudPrefs, genApi, pickModel, usableConnectors, type GenPlan, type GenPlanItem } from './cloudGen';
 import { describe as describeDiff, runProgram, type Op, type Program } from './editProgram';
@@ -59,15 +63,18 @@ import {
   substituteTemplate, customToolToRecipe, recordToolUsage, customToolKind, substituteStepArgs, setCustomToolEnv,
   type CustomTool, type CustomToolParam, type ToolStep,
 } from './customTools';
-import { EASINGS, EMPTY_KEYFRAMES } from './keyframes';
+import { EASINGS, EFFECT_KEYED, EMPTY_KEYFRAMES } from './keyframes';
 import { playhead } from './playhead';
 import {
   addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, COMP_SIZE_OPTIONS, deleteBinEntries, frameSizeFromText, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
   newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
+import { findStyle } from './captionStyles';
+import { learnedValue } from './brandKit/learnings';
+import { parseRbStyle } from './reactbits';
 import { SFX_KINDS } from './types';
-import type { Asset, Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
+import type { Asset, Clip, ClipSource, Comp, Easing, EffectKeyProperty, Effects, ItemKind, Keyframe, KeyframedProperty, Mask, Production, ProductionBeat, ProductionShot, Project, ProjectItem, Settings, Track, TrackKind, Transform, TransitionKind, ToolResult, VideoBlueprint, VideoBlueprintAsset, VideoBlueprintScene } from './types';
 import { playbook } from './motionDirection';
 import { PLUGIN_TOOLS, runPluginAiTool } from '../plugins/aiTools';
 import { findGenerator, findPlugin, pluginStore } from '../plugins/store';
@@ -358,7 +365,7 @@ export function aiContext(project: Project, assets: AssetMap, selection: string[
   const counts = usage(project);
   const active = project.comps.find((comp) => comp.id === project.activeCompId) ?? project.comps[0];
   return {
-    project: { name: project.name, captionStyle: project.captionStyle, activeCompId: active?.id ?? null },
+    project: { name: project.name, captionStyle: project.captionStyle, captionLook: project.captionLook === 'fiwn' ? 'watchfiwn (FIWN renderer: real fonts, animations, dynamic layouts)' : 'classic', activeCompId: active?.id ?? null },
     playhead: round(playhead.get()),
     selectedClipIds: selection,
     comps: project.comps.map((comp) => ({
@@ -3152,7 +3159,9 @@ ${notes.trim()}${paletteLine}
       const cues = (Array.isArray(args.cues) ? args.cues : []).filter((cue): cue is { start: number; end: number; text: string } =>
         !!cue && typeof cue === 'object' && typeof (cue as Args).start === 'number' && typeof (cue as Args).end === 'number' && typeof (cue as Args).text === 'string' && (cue as { end: number }).end > (cue as { start: number }).start);
       if (!cues.length) return fail('no usable cues');
-      const style = str(args, 'style') ?? project.captionStyle;
+      // The style asked for, else the project's, else the caption style the brand kit learned.
+      const learnedCaption = (() => { const kit = activeBrandKit(host, project); const value = kit ? learnedValue(kit, 'captions', 'captionStyle') : undefined; return typeof value === 'string' && findStyle(value) ? value : undefined; })();
+      const style = str(args, 'style') ?? project.captionStyle ?? learnedCaption;
       const first = Math.min(...cues.map((cue) => cue.start));
       const last = Math.max(...cues.map((cue) => cue.end));
       const target = trackFor(comp, str(args, 'track'), 'video') ?? aboveTrack(comp, first, last);
@@ -3399,9 +3408,23 @@ ${notes.trim()}${paletteLine}
       return done(grouped ? `Grouped ${ids.length} clips` : 'Ungrouped');
     }
 
+    case 'list_caption_styles': {
+      const { styleBriefs } = await import('./fiwn/briefs');
+      const all = styleBriefs({ category: str(args, 'category'), query: str(args, 'query') });
+      const limit = Math.round(clamp(num(args, 'limit') ?? 40, 1, 150));
+      const styles = all.slice(0, limit).map(({ id, label, category, look, when }) => ({ id, label, category, look, when }));
+      return done(`${all.length} caption style${all.length === 1 ? '' : 's'}${all.length > styles.length ? ` (first ${styles.length}; narrow with category or query)` : ''}. The project's caption look is ${project.captionLook === 'fiwn' ? 'WatchFIWN: each draws with its real fonts and animation' : 'classic: simpler typography; the user can switch to the WatchFIWN look in the Subtitles tab'}. Apply one with set_caption_style {"style":"<id>"}.`, { styles });
+    }
+
     case 'set_caption_style': {
       const style = str(args, 'style');
       if (!style) return fail('style is required');
+      // A made-up id would restyle every caption to nothing: name the closest real ones instead.
+      if (!findStyle(parseRbStyle(style).base ?? style)) {
+        const { styleBriefs } = await import('./fiwn/briefs');
+        const near = styleBriefs({ query: style.replace(/[^a-z0-9]+/gi, ' ').trim().split(' ')[0] }).slice(0, 6).map((brief) => brief.id);
+        return fail(`there is no caption style "${style}". ${near.length ? `Close ones: ${near.join(', ')}. ` : ''}See list_caption_styles for every id.`);
+      }
       const applyToAll = bool(args, 'applyToAll') !== false;
       let touched = 0;
       commit((current) => ({
@@ -3449,8 +3472,15 @@ ${notes.trim()}${paletteLine}
 
     case 'undo': {
       const steps = Math.round(clamp(num(args, 'steps') ?? 1, 1, 50));
-      for (let index = 0; index < steps; index++) host.history.undo();
-      return done(`Undid ${steps} step${steps === 1 ? '' : 's'}`);
+      // Only the assistant's own steps, from the top of the history: an edit the user made in the
+      // meantime is theirs, and the assistant's undo must never take it away.
+      const labels = [host.history.steps.present, ...[...host.history.steps.past].reverse()];
+      const own = labels.findIndex((label) => !label.startsWith('AI: '));
+      const available = own < 0 ? labels.length : own;
+      const count = Math.min(steps, available);
+      if (!count) return fail(`the last change ("${host.history.steps.present}") was made by the user, not by you — it is theirs to undo. Change the project back with the edit tools instead.`);
+      for (let index = 0; index < count; index++) host.history.undo();
+      return done(count < steps ? `Undid ${count} of your step${count === 1 ? '' : 's'}; the step before that was the user's own edit, so it was left alone` : `Undid ${count} step${count === 1 ? '' : 's'}`);
     }
 
     case 'add_transition': {
@@ -3479,9 +3509,11 @@ ${notes.trim()}${paletteLine}
 
     case 'set_keyframes': {
       const found = findClipIn(project, str(args, 'clipId') ?? '');
-      const property = str(args, 'property') as KeyframedProperty | undefined;
+      const property = str(args, 'property') as KeyframedProperty | EffectKeyProperty | undefined;
       if (!found) return fail('no clip with that id');
-      if (!property || !(property in EMPTY_KEYFRAMES)) return fail('unknown property');
+      // Transform and volume keys live in clip.keyframes; the Effects settings in clip.effectKeys.
+      const effectKey = (EFFECT_KEYED as string[]).includes(property ?? '');
+      if (!property || (!(property in EMPTY_KEYFRAMES) && !effectKey)) return fail(`unknown property; use one of ${[...Object.keys(EMPTY_KEYFRAMES), ...EFFECT_KEYED].join(', ')}`);
       if (!Array.isArray(args.keyframes)) return fail('keyframes must be an array of {time, value, easing?}; pass [] to clear');
       // Every entry parses or nothing is written: a dropped entry used to clear the property and report success.
       const numeric = (value: unknown) => (typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN);
@@ -3496,7 +3528,7 @@ ${notes.trim()}${paletteLine}
         keys.push({ time: Math.max(0, time), value, easing });
       }
       keys.sort((a, b) => a.time - b.time);
-      editComp(found.comp, (current) => ({ ...current, clips: current.clips.map((clip) => (clip.id === found.clip.id ? { ...clip, keyframes: { ...clip.keyframes, [property]: keys } } : clip)) }));
+      editComp(found.comp, (current) => ({ ...current, clips: current.clips.map((clip) => (clip.id !== found.clip.id ? clip : effectKey ? { ...clip, effectKeys: { ...clip.effectKeys, [property]: keys } } : { ...clip, keyframes: { ...clip.keyframes, [property]: keys } })) }));
       return done(keys.length ? `${keys.length} ${property} keyframes on ${clipName(project, assets, found.clip)}` : `Cleared ${property} keyframes`);
     }
 
@@ -3702,12 +3734,19 @@ ${notes.trim()}${paletteLine}
       // transitions, sound, music and the background (guidedBuild.ts).
       const comp = pickComp(project, args);
       if (!comp) return fail('Choose a composition.');
-      const brief = (Array.isArray(args.beats) ? args.beats : []).filter((b): b is BriefBeat => !!b && typeof b === 'object' && typeof (b as BriefBeat).text === 'string' && (b as BriefBeat).text.trim().length > 0);
-      if (brief.length < 1 || brief.length > 16) return fail('Give 1–16 beats, each {text, kind?: title|statement|stat|list|quote|lower-third|end, kicker?, subtitle?, points?, value?, suffix?, cta?}. One idea per beat, few words.');
+      // Points sent as one string ("a, b, c") are split, as the template tools do (templateFix.ts).
+      const brief = (Array.isArray(args.beats) ? args.beats : []).filter((b): b is BriefBeat => !!b && typeof b === 'object' && typeof (b as BriefBeat).text === 'string' && (b as BriefBeat).text.trim().length > 0)
+        .map((b) => (b.points !== undefined && !Array.isArray(b.points) ? { ...b, points: listOf(b.points) } : b));
+      if (brief.length < 1 || brief.length > 16) return fail(`Give 1–16 beats, each {text, kind?: ${BEAT_KINDS.join('|')}, kicker?, subtitle?, points?, value?, suffix?, cta?}. One idea per beat, few words.`);
       const genre = str(args, 'genre') ?? inferGenres(project, comp)[0] ?? 'motion';
       const book = playbook(PLAYBOOK_FOR[genre as Genre] ?? genre);
       const moodArg = str(args, 'mood');
-      const plan = planBuild(brief, { mood: (SCORE_MOODS as string[]).includes(moodArg ?? '') ? (moodArg as ScoreMood) : moodFromText(moodArg ?? comp.production?.music?.prompt), bpm: num(args, 'bpm') ?? bpmFromText(comp.production?.music?.prompt), genre, pacing: book?.pacing ?? null, targetSeconds: num(args, 'targetSeconds') ?? comp.production?.brief?.targetSeconds ?? null });
+      // A reference film's pacing when one is active; otherwise the cut rate the brand kit learned
+      // from the user's references (/train) sets how long each beat holds at least.
+      const kitForPace = activeBrandKit(host, project);
+      const learnedCut = kitForPace ? learnedValue(kitForPace, 'pacing', 'cutEvery') : undefined;
+      const learnedPace = typeof learnedCut === 'number' && learnedCut > 0 ? { swapGap: [Math.max(0.8, learnedCut * 0.8), learnedCut * 1.5] as [number, number] } : null;
+      const plan = planBuild(brief, { mood: (SCORE_MOODS as string[]).includes(moodArg ?? '') ? (moodArg as ScoreMood) : moodFromText(moodArg ?? comp.production?.music?.prompt), bpm: num(args, 'bpm') ?? bpmFromText(comp.production?.music?.prompt), genre, pacing: book?.pacing ?? learnedPace, targetSeconds: num(args, 'targetSeconds') ?? comp.production?.brief?.targetSeconds ?? null });
       const start = num(args, 'start') ?? 0;
       const video = new Set(tracksOf(comp, 'video').map((t) => t.id));
       const hasPicture = comp.clips.some((clip) => video.has(clip.trackId) && clip.enabled);
@@ -3831,7 +3870,10 @@ ${notes.trim()}${paletteLine}
         const shots: { at: number; path: string }[] = [];
         try {
           const dir = await api.mogrtFramesBegin('qa');
-          const prepared = await renderHtmlStill(await renderMotionStill(project, comp.id, stillTimes, [...assets.values()]), comp.id, stillTimes);
+          // Captions as the export draws them (the WatchFIWN look), so QA checks what ships.
+          // Loaded here, not with the tool catalogue: the caption renderer is only needed for QA.
+          const { renderFiwnCaptionsForExport } = await import('./fiwn/export');
+          const prepared = await renderFiwnCaptionsForExport(await renderHtmlStill(await renderMotionStill(project, comp.id, stillTimes, [...assets.values()]), comp.id, stillTimes), comp.id, { times: stillTimes });
           for (const [i, t] of stillTimes.entries()) {
             const path = await api.exportFrame(prepared, comp.id, t, `${dir}/qa-${String(i).padStart(2, '0')}.png`, 540);
             shots.push({ at: t, path });
@@ -4319,24 +4361,45 @@ ${notes.trim()}${paletteLine}
       );
     }
 
+    case 'add_graphic': {
+      // One graphic from a plain kind and its words: the template is picked and filled here
+      // (addGraphic.ts), then built and fitted by the template tool (auto-fix, templateFix.ts).
+      const call = graphicCall({
+        kind: str(args, 'kind') ?? '', text: str(args, 'text'), subtitle: str(args, 'subtitle'), kicker: str(args, 'kicker'), points: args.points ?? args.items ?? args.rows,
+        values: args.values, value: args.value, prefix: str(args, 'prefix'), suffix: str(args, 'suffix'), accentWord: str(args, 'accentWord'), cta: str(args, 'cta'),
+        side: str(args, 'side'), color: str(args, 'color') ?? str(args, 'accentColor'), at: num(args, 'at') ?? num(args, 'start'), duration: num(args, 'duration'),
+      }, !!activeBrandKit(host, project));
+      if ('error' in call) return fail(call.error);
+      const made = await runTool(host, call.tool, { ...call.args, ...(str(args, 'compId') ? { compId: str(args, 'compId') } : {}) }, signal, turnId);
+      return made.ok ? { ...made, summary: `${call.kind} → ${call.template}: ${made.summary}`, template: call.template } : { ...made, error: `${call.kind} (${call.template}): ${made.error}` };
+    }
+
     case 'create_motion_graphic': {
       const comp = pickComp(project, args);
       if (!comp) return fail('No composition found.');
-      // The house lower third, not the legacy one, when the model names no template.
-      const template = str(args, 'template') || 'crimson-lower-third';
-      const title = str(args, 'title') || 'BHIPPI MOTION';
-      const subtitle = str(args, 'subtitle') || '';
+      // The house lower third, not the legacy one, when the model names no template. An id written
+      // loosely ("Hook promise", "STAT_CHART") is read as the template it names.
+      const named = str(args, 'template') || 'crimson-lower-third';
+      const template = resolveTemplateId(named, [...CRIMSON_TEMPLATES, ...['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout', 'react-bits', 'custom', ...CARD_TEMPLATES].map((id) => ({ id }))]) ?? named;
+      // What a weaker model sends, made into what the house template takes (templateFix.ts): other
+      // words for a slot, lists as one string, colour names, text a little long for its box.
+      const fixed = CRIMSON_SLOTS[template] && !str(args, 'html') ? fixTemplateArgs(template, CRIMSON_SLOTS[template], args, { plate: CRIMSON_PALETTE[0] }) : null;
+      if (fixed?.error) return fail(`${fixed.error}${fixSummary(fixed.notes)} Its slots: ${describeSlots(CRIMSON_SLOTS[template])}.`);
+      const a: Args = fixed?.args ?? args;
+      // A house template shows no placeholder: its schema asks for what it needs instead.
+      const title = str(a, 'title') || (CRIMSON_SLOTS[template] ? '' : 'BHIPPI MOTION');
+      const subtitle = str(a, 'subtitle') || '';
       // Crimson and React Bits keep their own accent when none is given; the legacy set falls back to sky in the builder.
-      const accentColor = str(args, 'accentColor') || undefined;
-      const bit = str(args, 'bit') || undefined;
-      const props = record(args, 'props') ?? undefined;
-      const theme = str(args, 'theme') || undefined;
+      const accentColor = str(a, 'accentColor') || undefined;
+      const bit = str(a, 'bit') || undefined;
+      const props = record(a, 'props') ?? undefined;
+      const theme = str(a, 'theme') || undefined;
       // The active brand kit colours React Bits pieces and Crimson templates unless the caller opts out.
-      const brand = bool(args, 'useBrand') === false ? null : activeBrandKit(host, project);
-      const backgroundArg = args.background;
+      const brand = bool(a, 'useBrand') === false ? null : activeBrandKit(host, project);
+      const backgroundArg = a.background;
       const background = typeof backgroundArg === 'string' && backgroundArg.trim() ? backgroundArg : backgroundArg && typeof backgroundArg === 'object' && !Array.isArray(backgroundArg) && typeof (backgroundArg as Args).bit === 'string' ? ({ bit: (backgroundArg as Args).bit as string, props: record(backgroundArg as Args, 'props') } as ReactBitsLayer) : undefined;
-      const layers = Array.isArray(args.layers)
-        ? (args.layers as unknown[]).filter((item): item is Args => !!item && typeof item === 'object' && !Array.isArray(item) && typeof (item as Args).bit === 'string').map((item): ReactBitsLayer => ({
+      const layers = Array.isArray(a.layers)
+        ? (a.layers as unknown[]).filter((item): item is Args => !!item && typeof item === 'object' && !Array.isArray(item) && typeof (item as Args).bit === 'string').map((item): ReactBitsLayer => ({
           bit: item.bit as string,
           props: record(item, 'props'),
           layout: MOGRT_LAYOUTS.has(String(item.layout)) ? (String(item.layout) as MogrtLayout) : undefined,
@@ -4345,28 +4408,32 @@ ${notes.trim()}${paletteLine}
         }))
         : undefined;
       // Never a placeholder number: a stat on screen is a claim.
-      const metric = str(args, 'metric') || undefined;
+      const metric = str(a, 'metric') || undefined;
       if (template === 'stat-callout' && !metric) return fail('stat-callout needs a real, verified metric (the number exactly as the source states it); without one use a title or teaching-card template.');
-      const badge = str(args, 'badge') || '';
-      const html = str(args, 'html') || undefined;
-      const css = str(args, 'css') || undefined;
-      const js = str(args, 'js') || undefined;
-      const duration = num(args, 'duration');
-      const start = num(args, 'start');
-      const track = str(args, 'track');
-      const asNestedComp = bool(args, 'asNestedComp') ?? true;
-      const kicker = str(args, 'kicker') || undefined;
-      const rows = Array.isArray(args.rows) ? (args.rows as unknown[]).filter((r): r is string => typeof r === 'string').slice(0, 6) : undefined;
-      const values = Array.isArray(args.values) ? (args.values as unknown[]).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)).slice(0, 6) : undefined;
-      const accentWord = str(args, 'accentWord') || undefined;
-      const activeIndex = num(args, 'activeIndex');
-      const layout = MOGRT_LAYOUTS.has(String(args.layout)) ? (String(args.layout) as MogrtLayout) : undefined;
-      const cameraMove = (['none', 'push-in', 'travel'] as const).find((item) => item === str(args, 'cameraMove'));
+      const badge = str(a, 'badge') || '';
+      const html = str(a, 'html') || undefined;
+      const css = str(a, 'css') || undefined;
+      const js = str(a, 'js') || undefined;
+      const duration = num(a, 'duration');
+      const start = num(a, 'start');
+      const track = str(a, 'track');
+      const asNestedComp = bool(a, 'asNestedComp') ?? true;
+      const kicker = str(a, 'kicker') || undefined;
+      const rows = Array.isArray(a.rows) ? (a.rows as unknown[]).filter((r): r is string => typeof r === 'string').slice(0, 6) : undefined;
+      const values = Array.isArray(a.values) ? (a.values as unknown[]).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)).slice(0, 6) : undefined;
+      const accentWord = str(a, 'accentWord') || undefined;
+      const activeIndex = num(a, 'activeIndex');
+      const layout = MOGRT_LAYOUTS.has(String(a.layout)) ? (String(a.layout) as MogrtLayout) : undefined;
+      const cameraMove = (['none', 'push-in', 'travel'] as const).find((item) => item === str(a, 'cameraMove'));
       const reactBits = isReactBitsTemplate(template) && !templateSpec(template);
       if (template !== 'custom' && !templateSpec(template) && !reactBits && !isRoastCardTemplate(template) && !['lower-third', 'kinetic-title', 'stat-callout', 'feature-badge', 'social-callout'].includes(template)) return fail(`Unknown template "${template}". Crimson templates:\n${templateCatalogue()}\nReact Bits: template "react-bits" with bit/props or layers — browse with react_bits {"action":"list"}. @funny cards: ${CARD_TEMPLATES.join(', ')} (their fields in "params").`);
+      // A house template never shows placeholder text: a slot it needs and was not given is asked for.
+      const slots = CRIMSON_SLOTS[template];
+      const missing = slots && !html ? missingSlots(slots, { title: str(a, 'title'), subtitle, kicker, rows, values, metric, badge }) : [];
+      if (slots && missing.length) return fail(`${template} needs ${missing.join(' and ')}. Its slots: ${describeSlots(slots)}.`);
 
       try {
-        const result = createMotionGraphicComp(project, {
+        const graphicOpts = {
           template,
           title,
           subtitle,
@@ -4395,7 +4462,25 @@ ${notes.trim()}${paletteLine}
           brand,
           targetCompId: comp.id,
           canvas: mogrtCanvas(comp),
-        });
+          fit: fixed ? fitScales(fixed.adjustments) : undefined,
+        };
+
+        let result = createMotionGraphicComp(project, graphicOpts);
+        // Render check (graphicCheckRun.ts): a house template is laid out at its hold frame; a slot
+        // that spills out of its card or the frame is set smaller for one rebuild, and anything
+        // still wrong is reported so the model can shorten it.
+        let layoutNote = '';
+        if (CRIMSON_SLOTS[template] && !html) {
+          const canvas = mogrtCanvas(comp);
+          const issues = await checkGraphic(result.bundle, canvas, result.duration);
+          const present = Object.keys(CRIMSON_SLOTS[template]).filter((slot) => { const v = (graphicOpts as Record<string, unknown>)[slot]; return Array.isArray(v) ? v.length > 0 : !!v; });
+          const again = issues?.length ? refit(graphicOpts.fit ?? {}, issues, canvas, present) : null;
+          if (issues?.length && again) {
+            result = createMotionGraphicComp(project, { ...graphicOpts, fit: again });
+            const left = await checkGraphic(result.bundle, canvas, result.duration);
+            layoutNote = left?.length ? ` Layout check: ${issuesText(left)} even after setting it smaller — shorten that text.` : ` Layout check: ${Object.keys(again).filter((slot) => again[slot] !== graphicOpts.fit?.[slot]).join(', ')} set smaller to stay inside its card and the frame.`;
+          } else if (issues?.length) layoutNote = ` Layout check: ${issuesText(issues)}.`;
+        }
 
         host.history.commit(() => result.project, label);
         host.setSelection([result.newClipId]);
@@ -4407,8 +4492,9 @@ ${notes.trim()}${paletteLine}
         const hint = spec?.wantsSplit ? ` Reframe the footage beside it: layout_clip {"clipId": <footage>, "slot": "${(layout ?? 'side-panel-right') === 'side-panel-left' ? 'right-55' : 'left-55'}", "at": ${result.start}}.` : '';
         const what = reactBits ? `React Bits (${[background && (typeof background === 'string' ? background : background.bit), ...(layers?.map((l) => l.bit) ?? (bit ? [bit] : template !== 'react-bits' ? [template] : []))].filter(Boolean).join(' + ')})` : result.bundle.template;
         return done(
-          `Created ${what} motion graphic "${title}" on ${trackName} at ${result.start}s (${result.duration}s)${asNestedComp ? ` inside comp "${result.mogrtComp?.name}"` : ''}. It animates in the preview and exports as rendered frames.${hint}`,
+          `Created ${what} motion graphic "${title}" on ${trackName} at ${result.start}s (${result.duration}s)${asNestedComp ? ` inside comp "${result.mogrtComp?.name}"` : ''}. It animates in the preview and exports as rendered frames.${hint}${fixSummary(fixed?.notes ?? [])}${layoutNote}`,
           {
+            ...(fixed?.adjustments.length ? { adjustments: fixed.adjustments } : {}),
             clipId: result.newClipId,
             compId: result.mogrtComp?.id,
             targetCompId: result.targetCompId,

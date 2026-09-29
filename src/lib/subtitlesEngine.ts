@@ -71,6 +71,8 @@ export type TimedWord = {
   start: number;
   end: number;
   word: string;
+  /** The file it was spoken in and its source seconds (wordsOnTimeline). */
+  origin?: { assetId: string; start: number; end: number };
 };
 
 export type SubtitleCue = {
@@ -98,6 +100,38 @@ function appendWord(line: string, word: string): string {
   if (/^[,.;:!?%…)}\]}]/.test(word) || /^['’]/.test(word)) return line + word;
   if (/^[(\[{]$/.test(word)) return line + word;
   return `${line} ${word}`;
+}
+
+/**
+ * When each word a cue shows starts, in seconds from the cue's start, so karaoke highlights land
+ * on the word being said. Punctuation the transcriber split off is glued to its word (as
+ * `appendWord` shows it) and shares that word's time. Null when the words cannot be matched up.
+ */
+export function cueWordOffsets(cue: SubtitleCue): number[] | null {
+  if (!cue.words?.length) return null;
+  const offsets: number[] = [];
+  let line = '';
+  for (const word of cue.words) {
+    const next = appendWord(line, word.word);
+    if (!line || next !== line + word.word) offsets.push(Math.round(Math.max(0, word.start - cue.start) * 1000) / 1000);
+    line = next;
+  }
+  return offsets.length === cue.text.split(/\s+/).filter(Boolean).length ? offsets : null;
+}
+
+/** When each word a cue shows ends, in seconds from the cue's start (glued punctuation extends its word). */
+export function cueWordEnds(cue: SubtitleCue): number[] | null {
+  if (!cue.words?.length) return null;
+  const ends: number[] = [];
+  let line = '';
+  for (const word of cue.words) {
+    const next = appendWord(line, word.word);
+    const offset = Math.round(Math.max(0, word.end - cue.start) * 1000) / 1000;
+    if (!line || next !== line + word.word) ends.push(offset);
+    else ends[ends.length - 1] = Math.max(ends[ends.length - 1], offset);
+    line = next;
+  }
+  return ends.length === cue.text.split(/\s+/).filter(Boolean).length ? ends : null;
 }
 
 /**
@@ -196,6 +230,7 @@ export function wordsOnTimeline(
         word: clean,
         start: Math.max(clip.start, Math.round(at * 1000) / 1000),
         end: Math.min(clipEnd(clip), Math.max(at + 0.04, Math.round(until * 1000) / 1000)),
+        origin: { assetId: asset.id, start: word.start, end: word.end },
       });
     }
   }
@@ -294,6 +329,8 @@ export function generateProjectSubtitles(
         source: textSource('caption', {
           text: cue.text,
           style: styleId ?? undefined,
+          words: cueWordOffsets(cue),
+          wordEnds: cueWordEnds(cue),
         }),
       }),
     );

@@ -17,6 +17,8 @@ export type TurnToolSummary = {
 };
 
 export type TurnOutcome = {
+  /** The chat turn this outcome closes. */
+  turnId?: string;
   provider: string;
   model: string | null;
   prompt: string;

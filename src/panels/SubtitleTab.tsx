@@ -30,6 +30,18 @@ import {
 import type { Asset, Comp, Project } from '../lib/types';
 import type { History } from '../lib/history';
 import { api, type TranscriptWord } from '../lib/ipc';
+import { fiwnStyle } from '../lib/fiwn';
+import { styleBrief } from '../lib/fiwn/briefs';
+import { FiwnStyleSample } from '../editor/FiwnCaption';
+
+/** A style card's tooltip: its name and family, and for WatchFIWN styles what it looks like and fits. */
+function styleTitle(style: CaptionStyle): string {
+  const brief = styleBrief(style.id);
+  const head = `${style.label} · ${style.category}`;
+  return brief ? `${head}
+${brief.look}
+Fits: ${brief.when}` : `${head}${style.tags.length ? ` · ${style.tags.join(', ')}` : ''}`;
+}
 
 type Props = {
   project: Project;
@@ -58,6 +70,8 @@ export function SubtitleTab({
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [language, setLanguage] = useState<string>('en');
+  /** The style card under the pointer: its WatchFIWN sample plays. */
+  const [hovered, setHovered] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [generating, setGenerating] = useState<boolean>(false);
@@ -385,6 +399,24 @@ export function SubtitleTab({
         }}
       />
 
+      {/* The project's caption look: WatchFIWN's own renderer (new projects), or the classic look
+          older projects were made with — kept until the user switches, so nothing changes under them. */}
+      <div className="sub-look">
+        <span className="sub-look-label">Caption look</span>
+        <div className="segmented">
+          <button type="button" className={project.captionLook === 'fiwn' ? 'active' : ''} aria-pressed={project.captionLook === 'fiwn'}
+            title="WatchFIWN's own renderer: its real fonts, animations and dynamic layouts, in the monitor and the export"
+            onClick={() => project.captionLook !== 'fiwn' && history.commit((current) => ({ ...current, captionLook: 'fiwn' }), 'Use the WatchFIWN caption look')}>
+            WatchFIWN
+          </button>
+          <button type="button" className={project.captionLook !== 'fiwn' ? 'active' : ''} aria-pressed={project.captionLook !== 'fiwn'}
+            title="The simpler look captions had before: same styles, system fonts, quicker to export"
+            onClick={() => project.captionLook === 'fiwn' && history.commit((current) => ({ ...current, captionLook: 'classic' }), 'Use the classic caption look')}>
+            Classic
+          </button>
+        </div>
+      </div>
+
       <div className="sub-tabs">
         <div className="sub-tabs-group">
           <button
@@ -484,20 +516,29 @@ export function SubtitleTab({
                   type="button"
                   className={`style-card ${isSelected ? 'active' : ''}${suggestion?.id === style.id ? ' suggested' : ''}`}
                   onClick={() => onCaptionStyle(style)}
-                  title={`${style.label} · ${style.category}${style.tags.length ? ` · ${style.tags.join(', ')}` : ''}`}
+                  onPointerEnter={() => setHovered(style.id)}
+                  onPointerLeave={() => setHovered((current) => (current === style.id ? null : current))}
+                  title={styleTitle(style)}
                 >
                   {/* Visual Preview Swatch */}
                   <div className="style-sample">
-                    <StyledCaptionText
-                      style={style}
-                      elapsed={null}
-                      words={['Make', 'it', 'pop'].map((text, index) => ({
-                        text: style.uppercase ? text.toUpperCase() : text,
-                        index,
-                        active: index === 1,
-                        lit: !!style.highlight && (style.progressive ? index <= 1 : index === 1),
-                      }))}
-                    />
+                    {(() => {
+                      const classic = (
+                        <StyledCaptionText
+                          style={style}
+                          elapsed={null}
+                          words={['Make', 'it', 'pop'].map((text, index) => ({
+                            text: style.uppercase ? text.toUpperCase() : text,
+                            index,
+                            active: index === 1,
+                            lit: !!style.highlight && (style.progressive ? index <= 1 : index === 1),
+                          }))}
+                        />
+                      );
+                      // On the WatchFIWN look the card shows the style as FIWN draws it, animating on hover.
+                      const fiwn = project.captionLook === 'fiwn' ? fiwnStyle(style.id) : undefined;
+                      return fiwn ? <FiwnStyleSample style={fiwn} playing={hovered === style.id} fallback={classic} /> : classic;
+                    })()}
                   </div>
 
                   {/* Label & Details */}

@@ -11,8 +11,10 @@
 // "Worked for 3.1s · 13 steps · 1 failed" — and, while it is live, that line names the step that
 // is running right now. Opening it shows a small timeline; any row opens again for what was asked
 // and what came back. Nothing is thrown away, it is only folded.
-import { Brain, Check, ChevronRight, CircleSlash, Download, Eye, FileText, Film, Music, Pencil, Scissors, Search, Sparkles, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react';
+import { Brain, ChevronRight, Download, Eye, FileText, Film, Music, Pencil, Scissors, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { toolLabel } from '../lib/toolLabels';
+import { StatusDot, type DotState } from './BhippiMark';
 
 /** A tool call, from the moment it starts rather than when it finishes. */
 export type ToolRun = {
@@ -28,6 +30,8 @@ export type ToolRun = {
   at: number;
   /** How long it took, once it is over. */
   ms: number | null;
+  /** A brand kit training (train_brand_kit): the kit and source, for the review card. */
+  training?: { kitId: string; sourceId: string };
 };
 
 /** A step the model announced. */
@@ -55,9 +59,8 @@ export type Item =
       ms: number | null;
     };
 
-/** Tools whose names say it differently from the editor's own words. */
-const SHOWN_AS: Record<string, string> = { nest_clips: 'Make comp', nest_motion_scenes: 'Put motion scenes into comps' };
-const titleCase = (name: string) => SHOWN_AS[name] ?? name.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
+/** A step the model announced is already in words; only its first letter is raised. */
+const titleCase = (name: string) => name.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
 
 /**
  * Conversations saved before this block existed have steps with no timestamp. They keep the order
@@ -79,7 +82,7 @@ export function toItems(steps: Step[], runs: ToolRun[]): Item[] {
       kind: 'tool' as const,
       key: `t-${run.callId}`,
       at: when(run.at, steps.length + index),
-      label: titleCase(run.name),
+      label: toolLabel(run.name),
       detail: run.status === 'running' ? run.request : run.summary || run.request,
       body: [run.request && `Asked: ${run.request}`, run.summary && `Result: ${run.summary}`].filter(Boolean).join('\n'),
       request: run.request,
@@ -96,7 +99,7 @@ export function toItems(steps: Step[], runs: ToolRun[]): Item[] {
     const active = inspections.some(run => run.status === 'running');
     return [...items.filter(item => !ids.has(item.key)), {
       kind: 'tool' as const, key: 'frame-inspections', at: inspections[0].at,
-      label: 'Inspect clip frames', detail: `${completed} batches completed${active ? ' · inspecting…' : ''}${failed ? ` · ${failed} failed` : ''}`,
+      label: toolLabel('inspect_clip_frames'), detail: `${completed} batches completed${active ? ' · inspecting…' : ''}${failed ? ` · ${failed} failed` : ''}`,
       body: inspections.map((run, index) => `${index + 1}. ${run.status}: ${run.request}\n${run.summary}`).join('\n\n'),
       status: active ? 'running' as const : failed ? 'failed' as const : 'done' as const,
       ms: inspections.reduce((sum, run) => sum + (run.ms ?? 0), 0),
@@ -225,14 +228,8 @@ const KINDS: [RegExp, LucideIcon][] = [
 ];
 export const kindIcon = (label: string): LucideIcon => KINDS.find(([pattern]) => pattern.test(label))?.[1] ?? Wrench;
 
-/** The dot on a row: a pulse while it runs, a warning or a stop sign when it did not work, otherwise what kind of work it was. */
-const icon = (state: string, label: string) => {
-  if (state === 'running') return <span className="wk-pulse" />;
-  if (state === 'failed') return <TriangleAlert size={10} strokeWidth={2.4} />;
-  if (state === 'denied') return <CircleSlash size={10} strokeWidth={2.4} />;
-  const Kind = kindIcon(label);
-  return <Kind size={10} strokeWidth={2.2} />;
-};
+/** A row's state as its circle shows it (src/chat/BhippiMark.tsx). */
+const dotState = (state: string): DotState => (state === 'running' || state === 'failed' || state === 'denied' ? state : 'done');
 
 /** Seconds since `from`, ticking once a second while `on`. */
 function useElapsed(from: number, on: boolean) {
@@ -290,7 +287,7 @@ function RowView({ row, expanded, toggle }: { row: Row; expanded: Set<string>; t
   const ms = members.reduce((sum, item) => sum + (item.kind === 'tool' ? item.ms ?? 0 : 0), 0);
   return (
     <li className={`wk-row ${state}${isOpen ? ' open' : ''}`}>
-      <span className="wk-dot" aria-hidden="true">{icon(state, lead.label)}</span>
+      <span className="wk-dot"><StatusDot state={dotState(state)} /></span>
       <div className="wk-row-main">
         <button
           type="button"
@@ -325,12 +322,13 @@ function RowView({ row, expanded, toggle }: { row: Row; expanded: Set<string>; t
  */
 export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: ToolRun[]; streaming: boolean }) {
   const items = toItems(steps, runs);
-  const [open, setOpen] = useState(false);
-  // Once opened the list stays mounted, so closing it can slide shut instead of vanishing.
-  const [seen, setSeen] = useState(false);
+  // Open while the stretch is live, so each step shows up as it starts; folded to one line once it
+  // is over, so the answer comes first. A click decides it from then on.
+  const [chosen, setChosen] = useState<boolean | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const running = items.filter((item) => !isOver(item)).length;
   const live = streaming && running > 0;
+  const open = chosen ?? live;
   const elapsed = useElapsed(items[0]?.at ?? 0, live);
   if (items.length === 0) return null;
 
@@ -343,23 +341,29 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
       else next.add(key);
       return next;
     });
+  const progress = (
+    <span className="wk-head-meta">
+      {count > 1 && <>{count - running} of {count}</>}
+      {elapsed >= 1000 && <>{count > 1 ? ' · ' : ''}{duration(elapsed)}</>}
+    </span>
+  );
 
   return (
     <div className={`work${live ? ' live' : ''}${open ? ' open' : ''}${failed ? ' has-failed' : ''}`}>
-      <button type="button" className="wk-head" aria-expanded={open} onClick={() => { setSeen(true); setOpen((value) => !value); }}>
-        <span className="wk-head-icon" aria-hidden="true">
-          {live ? <span className="wk-orbit" /> : failed ? <TriangleAlert size={11} strokeWidth={2.2} /> : <Check size={11} strokeWidth={2.5} />}
-        </span>
-        {current ? (
+      <button type="button" className="wk-head" aria-expanded={open} onClick={() => setChosen(!open)}>
+        <StatusDot state={live ? 'running' : failed ? 'failed' : 'done'} size={14} />
+        {live && open ? (
+          <>
+            <span className="wk-headline ai-shimmer">Working</span>
+            {progress}
+          </>
+        ) : current ? (
           <>
             <span key={current.key} className="wk-now-wrap">
-              <span className="wk-now">{current.label}</span>
+              <span className="wk-now ai-shimmer">{current.label}</span>
               {current.detail && <span className="wk-now-detail">{current.detail}</span>}
             </span>
-            <span className="wk-head-meta">
-              {count > 1 && <>{count - running} of {count}</>}
-              {elapsed >= 1000 && <>{count > 1 ? ' · ' : ''}{duration(elapsed)}</>}
-            </span>
+            {progress}
           </>
         ) : (
           <>
@@ -370,16 +374,13 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
         )}
         <ChevronRight size={12} className={`wk-chevron${open ? ' rotate-90' : ''}`} />
       </button>
-      {live && <span className="wk-progress" aria-hidden="true" />}
       <div className="wk-collapse" aria-hidden={!open}>
         <div className="wk-collapse-inner">
-          {(open || seen) && (
-            <ul className="wk-list">
-              {groupRows(items).map((row) => (
-                <RowView key={row.key} row={row} expanded={expanded} toggle={toggle} />
-              ))}
-            </ul>
-          )}
+          <ul className="wk-list">
+            {groupRows(items).map((row) => (
+              <RowView key={row.key} row={row} expanded={expanded} toggle={toggle} />
+            ))}
+          </ul>
         </div>
       </div>
     </div>

@@ -170,5 +170,53 @@ async function onion(name: string, t0: number, t1: number, count = 8, scale = 0.
   return { url: out.toDataURL('image/jpeg', 0.88), issues: report.issues };
 }
 
+/**
+ * `?thumbs`: every kit template that needs no footage, built from its example (templateExamples.ts)
+ * or its defaults and drawn at its hold frame as a 320×180 JPEG, into <pre id="thumbs"> as JSON
+ * for scripts/make-template-thumbs.mjs.
+ */
+async function thumbs() {
+  const { MOTION_TEMPLATES } = await import('../kit');
+  const { BRAND_EXAMPLES } = await import('../../lib/templateExamples');
+  const out: Record<string, string> = {};
+  const skipped: string[] = [];
+  for (const spec of MOTION_TEMPLATES) {
+    if (Object.values(spec.params).some((prose) => /^footage/.test(prose) && /required/.test(prose))) { skipped.push(spec.id); continue; }
+    try {
+      const duration = await tpl(`thumb-${spec.id}`, spec.id, BRAND_EXAMPLES[spec.id] ?? {});
+      const scene = LAB_SCENES[`thumb-${spec.id}`]();
+      // The busiest of a few moments (most contrast): some templates are between beats at any one time.
+      let best: { url: string; spread: number } | null = null;
+      for (const share of [0.62, 0.45, 0.8, 0.3]) {
+        const t = Math.max(0, Math.min(duration * share, duration - 0.3));
+        await renderer.bank.prepareExact(scene, t);
+        renderer.draw(scene, t, { scale: 320 / scene.width, fps: 30 });
+        const small = document.createElement('canvas');
+        small.width = 320;
+        small.height = 180;
+        const ctx = small.getContext('2d')!;
+        ctx.fillStyle = '#20242b';
+        ctx.fillRect(0, 0, 320, 180);
+        ctx.drawImage(canvas, 0, 0, 320, 180);
+        const px = ctx.getImageData(0, 0, 320, 180).data;
+        let sum = 0;
+        let sq = 0;
+        for (let i = 0; i < px.length; i += 16) { const l = px[i] * 0.3 + px[i + 1] * 0.59 + px[i + 2] * 0.11; sum += l; sq += l * l; }
+        const n = px.length / 16;
+        const spread = Math.sqrt(Math.max(0, sq / n - (sum / n) ** 2));
+        if (!best || spread > best.spread) best = { url: small.toDataURL('image/jpeg', 0.8), spread };
+      }
+      if (best && best.spread > 6) out[spec.id] = best.url; else skipped.push(`${spec.id} (blank without footage)`);
+    } catch (error) {
+      skipped.push(`${spec.id} (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+  const pre = document.createElement('pre');
+  pre.id = 'thumbs';
+  pre.textContent = JSON.stringify({ thumbs: out, skipped });
+  document.body.appendChild(pre);
+}
+
 Object.assign(window, { lab: { ui, seq, put, tpl, onion, loadUser, exportTest, frame: (name: string, t: number, scale = 0.5) => frame(LAB_SCENES[name](), t, scale), sheet, timing, scenes: Object.keys(LAB_SCENES) } });
 document.title = 'Motion Lab ready';
+if (params.has('thumbs')) void thumbs().then(() => { document.title = 'thumbs done'; });

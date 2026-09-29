@@ -9,6 +9,8 @@ import { findStyle, wordStates } from '../lib/captionStyles';
 import { findRbCard, parseRbStyle, rbEntrance } from '../lib/reactbits';
 import type { Graphic } from '../lib/types';
 import { StyledCaptionText } from './StyledCaption';
+import { FiwnCaption } from './FiwnCaption';
+import { fiwnStyle } from '../lib/fiwn';
 
 const FADE = 0.16;
 
@@ -53,15 +55,18 @@ export function TextLayer({ graphic, time }: { graphic: Graphic; time: number })
   const card = findRbCard(graphic.style);
   const cardClass = card ? ` rb-card rb-card-${card.treatment}` : '';
   const captionStyle = graphic.preset === 'caption' ? findStyle(base ?? graphic.style) : undefined;
-  if (captionStyle) {
-    return (
-      <Frame graphic={graphic} elapsed={elapsed} placement="ov-styled" fade={0.14}>
-        <div className="cap-anchor" style={{ top: `${captionStyle.posY}%` }}>
-          <StyledCaptionText style={captionStyle} words={wordStates(graphic, captionStyle, time)} elapsed={elapsed} motionId={motionId} />
-        </div>
-      </Frame>
-    );
-  }
+  const classic = captionStyle ? (
+    <Frame graphic={graphic} elapsed={elapsed} placement="ov-styled" fade={0.14}>
+      <div className="cap-anchor" style={{ top: `${captionStyle.posY}%` }}>
+        <StyledCaptionText style={captionStyle} words={wordStates(graphic, captionStyle, time)} elapsed={elapsed} motionId={motionId} />
+      </div>
+    </Frame>
+  ) : null;
+  // The WatchFIWN look: FIWN's own renderer draws the caption (its own entrance, easing and exit),
+  // falling back to the classic look if it cannot.
+  const fiwn = graphic.preset === 'caption' && graphic.look === 'fiwn' ? fiwnStyle(base ?? graphic.style) : undefined;
+  if (fiwn) return <FiwnCaption graphic={graphic} style={fiwn} time={time} fallback={classic} />;
+  if (classic) return classic;
   // Word-level entrance shared by the plain presets: the catalogue animation by
   // default, the React-Bits motion when one is named. Paused + negative delay,
   // so playback and scrubbing show exactly the frame for the moment.

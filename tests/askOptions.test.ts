@@ -25,7 +25,12 @@ describe('permission modes', () => {
     expect(allowTool('plan', 'ask_user').ok).toBe(true);
     expect(allowTool('plan', 'apply_edit').ok).toBe(false);
     expect(allowTool('edit', 'apply_edit').ok).toBe(true);
-    expect(allowTool('edit', 'delete_clips').ok).toBe(false);
+    // Removing clips is an undoable timeline edit; deleting tracks, comps or media is not.
+    expect(allowTool('edit', 'delete_clips').ok).toBe(true);
+    expect(allowTool('edit', 'remove_range').ok).toBe(true);
+    expect(allowTool('edit', 'delete_tracks').ok).toBe(false);
+    expect(allowTool('edit', 'delete_project_items').ok).toBe(false);
+    expect(allowTool('full', 'delete_tracks').ok).toBe(true);
     expect(allowTool('full', 'delete_clips').ok).toBe(true);
   });
   it('tells the model the mode and when to ask', () => {

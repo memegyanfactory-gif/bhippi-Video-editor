@@ -75,6 +75,26 @@ export function squashStep(current: State, before: Project, label: string): Stat
   return { ...current, past: current.past.slice(0, at + 1), presentLabel: label, future: [] };
 }
 
+/**
+ * An AI turn's steps folded into one undo step named `label` — but only when every step since
+ * `before` is the assistant's (`AI: …`). A user edit made while the turn ran keeps the steps
+ * apart, so undoing the turn can never take the user's own work with it.
+ */
+export function squashTurnStep(current: State, before: Project, label: string): State {
+  if (current.pending || current.present === before) return current;
+  let at = -1;
+  for (let index = current.past.length - 1; index >= 0; index--) {
+    if (current.past[index].project === before) {
+      at = index;
+      break;
+    }
+  }
+  if (at < 0) return current;
+  const folded = [...current.past.slice(at + 1).map((entry) => entry.label), current.presentLabel];
+  if (!folded.every((name) => name.startsWith('AI: '))) return current;
+  return squashStep(current, before, label);
+}
+
 export function undoStep(current: State): State {
   const base = current.pending ?? current.present;
   if (current.past.length === 0) return current.pending ? { ...current, present: base, pending: null } : current;
@@ -139,6 +159,9 @@ export function useHistory(initial: Project) {
   /** Makes everything since `before` one undo step (see `squashStep`). */
   const squash = useCallback((before: Project, label: string) => setState((current) => squashStep(current, before, label)), []);
 
+  /** Makes an AI turn one undo step, when nobody else edited meanwhile (see `squashTurnStep`). */
+  const squashTurn = useCallback((before: Project, label: string) => setState((current) => squashTurnStep(current, before, label)), []);
+
   const redo = useCallback(() => {
     setState((current) => {
       if (current.future.length === 0) return current;
@@ -170,10 +193,11 @@ export function useHistory(initial: Project) {
       redo,
       jump,
       squash,
+      squashTurn,
       current: () => stateRef.current.present,
       gesture: () => stateRef.current.pending !== null,
     }),
-    [state, commit, preview, settle, cancel, view, reset, undo, redo, jump, squash],
+    [state, commit, preview, settle, cancel, view, reset, undo, redo, jump, squash, squashTurn],
   );
 }
 

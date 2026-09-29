@@ -49,6 +49,9 @@ pub struct Asset {
     /// Computed on every listing: the original file is gone.
     #[serde(default)]
     pub missing: bool,
+    /// `pq` or `hlg` when the video is HDR (tone-mapped for the preview and the export).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hdr: Option<String>,
 }
 
 const VIDEO_EXTENSIONS: &[&str] = &[
@@ -70,6 +73,31 @@ fn extension(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// The proxy's picture filters: scaled to at most `height` lines, and tone-mapped to SDR when the
+/// source is HDR (and this FFmpeg can), so HDR footage does not preview washed out.
+fn proxy_filter(asset: &Asset, height: u32) -> String {
+    let tonemap = if asset.hdr.is_some() { crate::tools::tonemap_filters() } else { "" };
+    format!("scale=-2:'min({height},ih)',{tonemap}format=yuv420p")
+}
+
+/// A proxy made on request (Project panel › Create Proxy) for a file that plays natively but is
+/// heavy to decode (4K, long-GOP): half the lines up to 1080, H.264 at a light setting. The
+/// preview reads it while "Use proxies" is on; exports always read the original.
+pub async fn make_proxy(tools: &Tools, asset: &Asset, proxies: &Path) -> Result<String, String> {
+    let ffmpeg = tools.ffmpeg()?;
+    if asset.kind != AssetKind::Video {
+        return Err("only video files get proxies".to_owned());
+    }
+    let (target, part) = proxy_files(proxies, &asset.id, asset.kind);
+    let height = (asset.height / 2).clamp(360, 1080);
+    let encoder = if tools.status.x264 { "libx264" } else { "mpeg4" };
+    let filter = proxy_filter(asset, height);
+    let part_text = part.display().to_string();
+    let args = ["-hide_banner", "-loglevel", "error", "-y", "-i", asset.path.as_str(), "-vf", filter.as_str(), "-c:v", encoder, "-preset", "veryfast", "-crf", "23", "-g", "30", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", part_text.as_str()];
+    let encoded = crate::tools::run(ffmpeg, &args, None).await.is_ok();
+    publish_proxy(encoded, &part, &target).ok_or_else(|| "FFmpeg could not make the proxy".to_owned())
+}
+
 /// What FFprobe says about one file.
 #[derive(Debug, Default, PartialEq)]
 pub struct Probe {
@@ -82,6 +110,8 @@ pub struct Probe {
     pub pix_fmt: Option<String>,
     pub audio_codec: Option<String>,
     pub format: String,
+    /// `pq` or `hlg` for HDR video (its colour transfer), None for SDR.
+    pub hdr: Option<String>,
 }
 
 /// Parses `ffprobe -show_format -show_streams -of json`. Pure, so it is tested with fixtures.
@@ -170,6 +200,13 @@ pub fn parse_probe(json: &str, ext: &str) -> Result<Probe, String> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_owned(),
+        // HDR video: PQ (HDR10, Dolby Vision base) or HLG (phones record this). It plays washed out
+        // unless it is tone-mapped, so it always gets a tone-mapped proxy and the export maps it too.
+        hdr: video.and_then(|stream| text(stream, "color_transfer")).and_then(|transfer| match transfer.as_str() {
+            "smpte2084" => Some("pq".to_owned()),
+            "arib-std-b67" => Some("hlg".to_owned()),
+            _ => None,
+        }),
     })
 }
 
@@ -220,7 +257,8 @@ pub async fn import(tools: &Tools, path: &Path) -> Result<Asset, String> {
         return Err("the file is empty".to_owned());
     }
     let probe = probe_file(tools, path).await?;
-    let native = plays_natively(&probe, &ext);
+    // HDR plays washed out in the webview: it previews from a tone-mapped proxy instead.
+    let native = plays_natively(&probe, &ext) && probe.hdr.is_none();
     let canonical = dunce_path(path);
     Ok(Asset {
         id: crate::store::new_id(),
@@ -246,6 +284,7 @@ pub async fn import(tools: &Tools, path: &Path) -> Result<Asset, String> {
         proxy: None,
         preview: if native { "native" } else { "pending" }.to_owned(),
         missing: false,
+        hdr: probe.hdr,
     })
 }
 
@@ -378,7 +417,7 @@ pub async fn derive(
         } else {
             let encoder = if tools.status.x264 { "libx264" } else { "mpeg4" };
             vec![
-                "-vf".into(), "scale=-2:'min(720,ih)',format=yuv420p".into(),
+                "-vf".into(), proxy_filter(asset, 720),
                 "-c:v".into(), encoder.into(), "-preset".into(), "veryfast".into(), "-crf".into(), "26".into(),
                 "-g".into(), "30".into(), "-c:a".into(), "aac".into(), "-b:a".into(), "128k".into(),
                 "-movflags".into(), "+faststart".into(), part_text,
@@ -540,6 +579,17 @@ mod tests {
         "format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","duration":"12.500000"}}"#;
 
     #[test]
+    fn hdr_video_is_detected_by_its_colour_transfer() {
+        let hlg = r#"{"streams":[{"codec_type":"video","codec_name":"hevc","width":3840,"height":2160,"pix_fmt":"yuv420p10le","color_transfer":"arib-std-b67","avg_frame_rate":"30/1"}],"format":{"duration":"5.0"}}"#;
+        let pq = hlg.replace("arib-std-b67", "smpte2084");
+        let sdr = hlg.replace("arib-std-b67", "bt709");
+        assert_eq!(parse_probe(hlg, "mov").expect("hlg").hdr.as_deref(), Some("hlg"));
+        assert_eq!(parse_probe(&pq, "mov").expect("pq").hdr.as_deref(), Some("pq"));
+        assert_eq!(parse_probe(&sdr, "mov").expect("sdr").hdr, None);
+        assert_eq!(parse_probe(H264_MP4, "mp4").expect("h264").hdr, None);
+    }
+
+    #[test]
     fn derived_files_count_only_when_present_and_nonempty() {
         assert!(!derived_ok(&None));
         assert!(!derived_ok(&Some("/definitely/not/here.jpg".to_owned())));
@@ -576,6 +626,7 @@ mod tests {
             proxy: None,
             preview: "native".to_owned(),
             missing: false,
+            hdr: None,
         }
     }
 

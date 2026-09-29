@@ -3,19 +3,21 @@
 // recursively, generated items, text, shapes, masks, effects, adjustment layers, keyframes and
 // transitions. Every clip that is on screen (or about to be) keeps its own media element, kept in
 // step with the playhead.
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { beep, ClipChain, startTone } from '../lib/audio';
 import { registerClock } from '../lib/masterClock';
 import { acquireMedia, releaseMedia } from '../lib/mediaPool';
 import { cssFilter, placement } from '../lib/editor';
 import { computeAppliedEffects } from '../lib/effectFilters';
-import { fileSrc } from '../lib/ipc';
-import { animated } from '../lib/keyframes';
+import { api, fileSrc } from '../lib/ipc';
+import { previewPath } from '../lib/proxyMode';
+import { animated, effectsAt } from '../lib/keyframes';
 import { rbBackgroundFromName, rbBackgroundStyle } from '../lib/reactbits';
 import { sfxSrc } from '../lib/sfx';
-import { audible, clipEnd, sourceInfo, sourceTimeAt, tracksOf, transitionWindow, type AssetMap } from '../lib/timeline';
+import { audible, clipEnd, sourceInfo, sourceOut, sourceTimeAt, tracksOf, transitionWindow, type AssetMap } from '../lib/timeline';
 import type { AppliedEffect, Asset, Clip, Comp, Mask, Project, ProjectItem, Transition } from '../lib/types';
 import { TextLayer, textAnchor } from './Overlay';
+import { textGraphic } from '../lib/textGraphic';
 import { RotoPreview } from './RotoPreview';
 import { MagicMaskLayer } from './MagicMaskLayer';
 import { wholeClipEffects } from '../lib/magicMask';
@@ -33,7 +35,7 @@ import { syncProjectLuts } from '../lib/luts';
 const isGrade = (fx: AppliedEffect) => fx.enabled && fx.effectId === 'lumetri-color';
 
 /** What the webview should load for an asset: its preview proxy when one exists. */
-export const mediaSrc = (asset: Asset | undefined) => (asset ? fileSrc(asset.proxy ?? asset.path) : '');
+export const mediaSrc = (asset: Asset | undefined) => (asset ? fileSrc(previewPath(asset)) : '');
 
 export const canPreview = (asset: Asset | undefined) =>
   !!asset && !asset.missing && (asset.kind === 'image' || asset.preview === 'native' || asset.preview === 'ready');
@@ -445,7 +447,7 @@ function Layer(props: LayerProps) {
   const grade: GradeSpec | null = gpuCapable ? composeGrades([...(whole ?? []).filter(isGrade).map((fx) => ({ ...gradeLut(fx.params), mix: 1 })), ...inherited]) : null;
   // Effects limited to a Magic Mask draw in MagicMaskLayer, under this whole-clip filter.
   const applied = computeAppliedEffects(clip.id, gpuCapable ? whole?.filter((fx) => !isGrade(fx)) : whole, stageH);
-  const baseFilter = cssFilter(clip.effects, stageH);
+  const baseFilter = cssFilter(effectsAt(clip, sampleAt), stageH);
   // A nested comp's own layers take the grades above it themselves.
   const inheritedFilters = !gpuCapable && clip.source.type !== 'comp' ? inherited.flatMap((entry) => entry.filters) : [];
   // Blur keeps the picture's edges, as the export's does (edgeBlur.tsx).
@@ -496,7 +498,8 @@ function Layer(props: LayerProps) {
   }
 
   switch (clip.source.type) {
-    case 'text': {      const graphic = { id: clip.id, text: clip.source.text, subtitle: clip.source.subtitle, preset: clip.source.preset, color: clip.source.color, style: clip.source.style, start: clip.start, duration: clip.duration };
+    case 'text': {
+      const graphic = textGraphic(project, clip as Parameters<typeof textGraphic>[1]);
       return (
         <div className={`layer text-layer${clip.source.vertical ? ' vertical' : ''}`} data-clip-id={depth === 0 ? clip.id : undefined}
           style={{ inset: 0, opacity, zIndex, transformOrigin: textAnchor(clip.source.preset, clip.source.style), transform: `translate(${transform.x * stageW}px, ${transform.y * stageH}px) rotate(${transform.rotation}deg) scale(${transform.scale / 100})${appliedTransform}`, filter, ...transition.style, ...hidden, ['--short' as string]: `${Math.min(stageW, stageH)}px`, ['--h' as string]: `${stageH}px` }}>
@@ -656,7 +659,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
     if (computed.svgDefs.length > 0) {
       allDefs.push(...computed.svgDefs);
     }
-    blurRadii.push(...keepEdges([cssFilter(clip.effects, props.stageH), ...computed.cssFilters].filter(Boolean).join(' ')).radii);
+    blurRadii.push(...keepEdges([cssFilter(effectsAt(clip, props.time), props.stageH), ...computed.cssFilters].filter(Boolean).join(' ')).radii);
   }
   allDefs.push(...edgeBlurDefs(blurRadii));
 
@@ -700,7 +703,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
         // pass); a masked adjustment keeps the filter form, since a mask cannot follow them there.
         const adjGrades = gpu && !clip.mask ? (wholeClipEffects(clip) ?? []).filter(isGrade) : [];
         const adjApplied = computeAppliedEffects(clip.id, adjGrades.length ? wholeClipEffects(clip)?.filter((fx) => !isGrade(fx)) : wholeClipEffects(clip), props.stageH);
-        const adjBaseFilter = cssFilter(clip.effects, props.stageH);
+        const adjBaseFilter = cssFilter(effectsAt(clip, props.time), props.stageH);
         const adjFilter = [adjBaseFilter, ...adjApplied.cssFilters].filter(Boolean).join(' ') || undefined;
         const adjTransform = adjApplied.transforms.length ? adjApplied.transforms.join(' ') : undefined;
         const adjOpacity = (clip.transform.opacity ?? 100) / 100;
@@ -780,14 +783,17 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
 
 // ───────────────────────────── sound ─────────────────────────────
 
-type Voice = { key: string; clip: Clip; comp: Comp; sourceTime: number; gain: number; active: boolean; depth: number };
+type Voice = { key: string; clip: Clip; comp: Comp; sourceTime: number; gain: number; active: boolean; depth: number; /** The track's balance (-1…1). */ pan: number };
 
 /** Every audio clip that sounds (or is about to) at `time`, nested comps flattened. */
-function collectVoices(project: Project, comp: Comp, time: number, gain: number, playing: boolean, path: string, depth: number, out: Voice[]) {
+function collectVoices(project: Project, comp: Comp, time: number, gain: number, playing: boolean, path: string, depth: number, out: Voice[], pan = 0) {
   if (depth > MAX_DEPTH) return;
   const states = transitionStates(comp, time);
   for (const track of tracksOf(comp, 'audio')) {
     if (!audible(comp, track)) continue;
+    // The track's fader (dB) and balance, as the export applies them per track.
+    const trackGain = 10 ** ((track.gain ?? 0) / 20);
+    const trackPan = Math.max(-1, Math.min(1, pan + (track.pan ?? 0)));
     for (const clip of comp.clips) {
       if (clip.trackId !== track.id || !clip.enabled || clip.hold !== null) continue;
       const active = activeAt(comp, clip, time);
@@ -802,13 +808,13 @@ function collectVoices(project: Project, comp: Comp, time: number, gain: number,
       // Prerolled sound waits on its first frame, like the picture (see Layer).
       const offset = time < clip.start ? (time - clip.start) * clip.speed : time > clipEnd(clip) ? (time - clipEnd(clip)) * clip.speed : 0;
       const sourceTime = active ? Math.max(0, sourceTimeAt(clip, time) + offset) : sourceWhenAppearing(comp, clip);
-      const level = gain * fade * animated(clip, 'volume', time, clip.volume);
+      const level = gain * trackGain * fade * animated(clip, 'volume', time, clip.volume);
       if (clip.source.type === 'comp') {
         const child = project.comps.find((entry) => entry.id === (clip.source as { compId: string }).compId);
-        if (child && active) collectVoices(project, child, sourceTime, level, playing, `${path}/${clip.id}`, depth + 1, out);
+        if (child && active) collectVoices(project, child, sourceTime, level, playing, `${path}/${clip.id}`, depth + 1, out, trackPan);
         continue;
       }
-      out.push({ key: `${path}/${clip.id}`, clip, comp, sourceTime, gain: level, active, depth });
+      out.push({ key: `${path}/${clip.id}`, clip, comp, sourceTime, gain: level, active, depth, pan: trackPan });
     }
   }
 }
@@ -819,7 +825,7 @@ function MediaVoice({ src, voice, playing, rate, time }: { src: string; voice: V
   // longer rebuilds the chain — that rebuild was an audible gap at every edit point.
   const holder = useMediaElement<HTMLAudioElement>('audio', src, voice.sourceTime, (element) => {
     const chain = ClipChain.for(element);
-    chain?.configure({ channels: clip.channels, enhance: clip.enhanceSpeech, gain: voice.active ? voice.gain : 0 });
+    chain?.configure({ channels: clip.channels, enhance: clip.enhanceSpeech, gain: voice.active ? voice.gain : 0, pan: voice.pan });
     if (playing && rate > 0 && voice.active && !clip.reverse) {
       // Drift is taken up the way the picture's is (see VideoElement), more gently: every track
       // converges on the playhead, so a talking head's picture and its own sound stay together.
@@ -861,6 +867,29 @@ function BeepVoice({ voice, playing, duration }: { voice: Voice; playing: boolea
   return null;
 }
 
+/**
+ * A reversed clip's sound. The backend writes the clip's source range played backwards once
+ * (cached), and it plays forwards here like any other clip, so the preview is no longer silent
+ * where the export (`areverse`) has sound. Silent only until that file is ready.
+ */
+function ReversedVoice({ assetId, voice, playing, rate, time }: { assetId: string; voice: Voice; playing: boolean; rate: number; time: number }) {
+  const { clip } = voice;
+  const start = clip.in;
+  const end = sourceOut(clip);
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    setSrc(null);
+    api.audioReversed(assetId, start, end).then((path) => { if (live) setSrc(fileSrc(path)); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [assetId, start, end]);
+  if (!src) return null;
+  // The reversed file starts at the clip's out point, so its time is how far the playhead is
+  // into the clip, in source seconds: sourceOut − (source time read backwards).
+  const forward: Voice = { ...voice, sourceTime: Math.max(0, end - voice.sourceTime), clip: { ...clip, reverse: false } };
+  return <MediaVoice src={src} voice={forward} playing={playing} rate={rate} time={time} />;
+}
+
 /** The program's sound at `time`. Renders no markup of its own beyond hidden audio elements. */
 export function CompAudio({ project, assets, comp, time, playing, rate, offline }: Frame & { comp: Comp; time: number }) {
   const voices = useMemo(() => {
@@ -875,6 +904,7 @@ export function CompAudio({ project, assets, comp, time, playing, rate, offline 
         if (source.type === 'media') {
           const asset = assets.get(source.assetId);
           if (!asset || asset.missing || offline.has(source.assetId) || !canPreview(asset)) return null;
+          if (voice.clip.reverse && voice.clip.hold === null) return <ReversedVoice key={voice.key} assetId={asset.id} voice={voice} playing={playing} rate={rate} time={time} />;
           return <MediaVoice key={voice.key} src={mediaSrc(asset)} voice={voice} playing={playing} rate={rate} time={time} />;
         }
         if (source.type === 'sfx') return <MediaVoice key={voice.key} src={sfxSrc(source.kind)} voice={voice} playing={playing} rate={rate} time={time} />;

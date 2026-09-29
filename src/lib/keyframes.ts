@@ -1,11 +1,14 @@
 // Keyframe evaluation shared by the preview, the timeline rubber bands and the properties panel.
 // Mirrors src-tauri/src/render.rs: a keyframe's easing shapes the segment that starts at it, and
 // the value holds before the first and after the last keyframe.
-import type { Clip, Easing, Keyframe, KeyframedProperty, Keyframes } from './types';
+import type { Clip, EffectKeyProperty, EffectKeys, Effects, Easing, Keyframe, KeyframedProperty, Keyframes } from './types';
 
 export const EMPTY_KEYFRAMES: Keyframes = { x: [], y: [], scale: [], rotation: [], opacity: [], volume: [] };
 
 export const KEYFRAMED: KeyframedProperty[] = ['x', 'y', 'scale', 'rotation', 'opacity', 'volume'];
+
+/** The Effects settings that take keyframes (clip.effectKeys). */
+export const EFFECT_KEYED: EffectKeyProperty[] = ['brightness', 'contrast', 'saturation', 'blur', 'hue'];
 
 /** Every easing a keyframe may carry, in the order the properties panel offers them. */
 export const EASINGS: Easing[] = ['linear', 'hold', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'overshoot'];
@@ -50,6 +53,18 @@ export function animated(clip: Clip, property: KeyframedProperty, time: number, 
   return valueAt(clip.keyframes[property], time - clip.start) ?? fallback;
 }
 
+/** A clip's Effects at timeline time `time`: each keyframed setting at its value there. */
+export function effectsAt(clip: Clip, time: number): Effects {
+  const keys = clip.effectKeys;
+  if (!keys) return clip.effects;
+  let out = clip.effects;
+  for (const property of EFFECT_KEYED) {
+    const value = valueAt(keys[property] ?? [], time - clip.start);
+    if (value !== null && value !== out[property]) out = { ...out, [property]: value };
+  }
+  return out;
+}
+
 export const hasKeyframes = (clip: Clip, property?: KeyframedProperty) =>
   property ? clip.keyframes[property].length > 0 : KEYFRAMED.some((name) => clip.keyframes[name].length > 0);
 
@@ -73,18 +88,23 @@ export function removeKey(keys: Keyframe[], time: number, fps: number): Keyframe
 export function shiftKeys(keyframes: Keyframes, delta: number): Keyframes {
   if (Math.abs(delta) < 1e-9) return keyframes;
   const out = { ...keyframes };
-  for (const property of KEYFRAMED) {
-    const keys = keyframes[property];
-    if (!keys.length) continue;
-    const moved = keys.map((key) => ({ ...key, time: key.time - delta }));
-    const kept = moved.filter((key) => key.time > 1e-6);
-    if (kept.length === moved.length) {
-      out[property] = moved;
-      continue;
-    }
-    const head = valueAt(keys, delta) ?? keys[0].value;
-    const before = [...moved].reverse().find((key) => key.time <= 1e-6);
-    out[property] = [{ time: 0, value: head, easing: before?.easing ?? 'linear' }, ...kept];
-  }
+  for (const property of KEYFRAMED) out[property] = shiftTrack(keyframes[property], delta);
   return out;
+}
+
+/** One track of keys for a head moved by `delta`: see shiftKeys. */
+function shiftTrack(keys: Keyframe[], delta: number): Keyframe[] {
+  if (!keys.length) return keys;
+  const moved = keys.map((key) => ({ ...key, time: key.time - delta }));
+  const kept = moved.filter((key) => key.time > 1e-6);
+  if (kept.length === moved.length) return moved;
+  const head = valueAt(keys, delta) ?? keys[0].value;
+  const before = [...moved].reverse().find((key) => key.time <= 1e-6);
+  return [{ time: 0, value: head, easing: before?.easing ?? 'linear' }, ...kept];
+}
+
+/** shiftKeys for a clip's effect keyframes. */
+export function shiftEffectKeys(keys: EffectKeys | undefined, delta: number): EffectKeys | undefined {
+  if (!keys || Math.abs(delta) < 1e-9) return keys;
+  return Object.fromEntries(Object.entries(keys).map(([property, track]) => [property, shiftTrack(track ?? [], delta)])) as EffectKeys;
 }

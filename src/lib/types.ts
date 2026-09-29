@@ -71,6 +71,9 @@ export type Easing = 'linear' | 'hold' | 'ease' | 'ease-in' | 'ease-out' | 'ease
 export type Keyframe = { time: number; value: number; easing: Easing };
 export type KeyframedProperty = 'x' | 'y' | 'scale' | 'rotation' | 'opacity' | 'volume';
 export type Keyframes = Record<KeyframedProperty, Keyframe[]>;
+/** Effect settings that can be keyframed; times are clip-relative, as in `Keyframes`. */
+export type EffectKeyProperty = 'brightness' | 'contrast' | 'saturation' | 'blur' | 'hue';
+export type EffectKeys = Partial<Record<EffectKeyProperty, Keyframe[]>>;
 
 export type Interpolation = 'sampling' | 'blending' | 'optical-flow';
 export type Channels = 'stereo' | 'mono' | 'left' | 'right' | 'swap';
@@ -81,7 +84,7 @@ export type ClipSource =
   | { type: 'media'; assetId: string }
   | { type: 'comp'; compId: string }
   | { type: 'item'; itemId: string }
-  | { type: 'text'; text: string; subtitle: string; preset: Preset; color: string; style: string | null; vertical: boolean }
+  | { type: 'text'; text: string; subtitle: string; preset: Preset; color: string; style: string | null; vertical: boolean; /** When each word starts, seconds into the caption (transcribed captions); karaoke follows it. */ words?: number[] | null; /** When each word ends, in the same caption time. */ wordEnds?: number[] | null }
   | { type: 'sfx'; kind: SfxKind }
   | { type: 'shape'; shape: ShapeKind; sides: number; fill: string | null; stroke: string | null; strokeWidth: number; width: number; height: number; cornerRadius: number }
   | { type: 'html'; html: string; css?: string; js?: string; /** A script held back from a project file opened from elsewhere, until the user trusts it. */ quarantinedJs?: string; title?: string; template?: string; /** Where the graphic draws, fractions of the frame (frame QA). */ box?: { x: number; y: number; width: number; height: number }; /** PNG sequence rendered for export (dir/%05d.png with alpha); never set in the saved project. */ frames?: { dir: string; fps: number; frames: number; width: number; height: number }; /** Drawn by a plugin's generator instead of this markup (src/plugins/generators.ts). */ plugin?: PluginClipSource }
@@ -127,6 +130,8 @@ export type Clip = {
   /** Objects picked with the Magic Mask tool (lib/magicMask.ts); effects can be limited to them. */
   magicMasks?: MagicMask[];
   keyframes: Keyframes;
+  /** Keyframes on the Effects settings (brightness, contrast, saturation, blur, hue); absent on most clips. */
+  effectKeys?: EffectKeys;
   channels: Channels;
   enhanceSpeech: boolean;
   audioType: AudioType | null;
@@ -195,6 +200,10 @@ export type Track = {
   /** Insert and ripple edits elsewhere move this track too. */
   syncLock: boolean;
   height: number;
+  /** Audio: the track's fader, dB (0 = unity). */
+  gain?: number;
+  /** Audio: balance, -1 left … 0 centre … 1 right. */
+  pan?: number;
 };
 
 export type Marker = { id: string; time: number; name: string; color: string };
@@ -426,13 +435,19 @@ export type Project = {
   provenance?: Record<string, import('./council').Provenance> | null;
   /** LUTs imported into the project for the Color Studio (lib/luts.ts), resampled to 33³. */
   luts?: ProjectLut[];
+  /**
+   * How styled captions draw: 'fiwn' with WatchFIWN's own renderer (src/lib/fiwn), or 'classic',
+   * the look projects had before it. Unset reads as classic, so older projects look as they did;
+   * new projects start on 'fiwn'.
+   */
+  captionLook?: 'fiwn' | 'classic' | null;
 };
 
 /** An imported LUT: its values as base64 little-endian 16-bit integers, red fastest. */
 export type ProjectLut = { id: string; name: string; size: number; data: string };
 
 /** Text timing in the shape the caption renderers take. */
-export type Graphic = { id: string; text: string; subtitle: string; start: number; duration: number; preset: Preset; color: string; style?: string | null };
+export type Graphic = { id: string; text: string; subtitle: string; start: number; duration: number; preset: Preset; color: string; style?: string | null; /** When each word starts on the timeline (a transcribed caption's real timings). */ wordStarts?: number[]; /** When each word ends on the timeline. */ wordEnds?: number[]; /** Which caption renderer draws it (the project's caption look). */ look?: 'fiwn' | 'classic' };
 
 export type AssetKind = 'video' | 'audio' | 'image';
 export type Asset = {
@@ -457,6 +472,8 @@ export type Asset = {
   proxy: string | null;
   preview: 'native' | 'pending' | 'ready' | 'failed';
   missing: boolean;
+  /** `pq` / `hlg` for HDR video: previewed from a tone-mapped proxy and tone-mapped in the export. */
+  hdr?: 'pq' | 'hlg' | null;
 };
 
 export type Health =
@@ -571,6 +588,8 @@ export type SavedExportPreset = { id: string; label: string; settings: Partial<E
 
 export type ExportPrefs = {
   resolution: number | null; fps: number | null; quality: string | null; folder: string | null; format?: ExportFormat | null; channel?: 'rgb' | 'rgba' | null; encoder?: ExportEncoder | null;
+  /** The project Exports folder that was current when `folder` was chosen: `folder` applies to that project only (lib/exportFolder.ts). */
+  folderFor?: string | null;
   /** The settings of the last export, restored when the dialog opens. */
   last?: Partial<ExportSettings> | null;
   /** The preset the last export started from. */
@@ -723,7 +742,8 @@ export type Settings = {
   shortcuts?: Record<string, string[]> | null;
 };
 
-export type PanelId = 'chat' | 'storyboard' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools' | 'plugins';
+export type PanelId = 'chat' | 'storyboard' | 'transcript' | 'source' | 'program' | 'properties' | 'project' | 'timeline' | 'meters' | 'tools' | 'plugins'
+  | 'effects' | 'subtitles' | 'graphics' | 'audio' | 'effect-controls';
 
 export type MeterPrefs = {
   range: 120 | 96 | 72 | 60 | 48 | 24;
@@ -752,6 +772,8 @@ export type WorkspaceLayout = {
   docked?: DockedPlugin[];
   /** The editing area as a dock tree (src/lib/dockTree.ts): where every open panel sits. Replaces the fixed rows above. */
   tree?: unknown;
+  /** Set once Effects, Subtitles, Graphics, Audio and Effect Controls are panels of their own in `tree`. */
+  panelsSplit?: boolean;
 };
 
 /** A layout the user saved under a name (Window › Workspaces). */
@@ -805,6 +827,13 @@ export type ExportOptions = {
   loudness?: number | null;
   /** Timeline markers as chapters (MP4, MOV, WebM, M4A). */
   chapters?: boolean;
+  /**
+   * WatchFIWN-look captions burned in quickly with the classic look (libass) instead of drawn
+   * frame by frame with FIWN's renderer: a draft, much faster on long captioned videos.
+   */
+  fastCaptions?: boolean;
+  /** Also save the comp's captions beside the video, as .srt or .vtt (same name). */
+  captionsSidecar?: 'srt' | 'vtt' | null;
 };
 
 /** Timeline selection: clip ids in the active comp. */

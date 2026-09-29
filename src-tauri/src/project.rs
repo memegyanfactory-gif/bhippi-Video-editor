@@ -389,6 +389,33 @@ impl Keyframes {
     }
 }
 
+/// Keyframes on the Effects settings (`Clip::effect_keys`), clip-relative like [`Keyframes`].
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EffectKeys {
+    pub brightness: Vec<Keyframe>,
+    pub contrast: Vec<Keyframe>,
+    pub saturation: Vec<Keyframe>,
+    pub blur: Vec<Keyframe>,
+    pub hue: Vec<Keyframe>,
+}
+
+impl EffectKeys {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        [&self.brightness, &self.contrast, &self.saturation, &self.blur, &self.hue].iter().all(|list| list.is_empty())
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        for list in [&self.brightness, &self.contrast, &self.saturation, &self.blur, &self.hue] {
+            if list.len() > 2000 || list.iter().any(|key| !key.time.is_finite() || !key.value.is_finite() || key.time < 0.0) {
+                return Err("a clip effect keyframe is invalid".to_owned());
+            }
+        }
+        Ok(())
+    }
+}
+
 /// How frames are made when a clip's speed does not match the output rate.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -450,6 +477,15 @@ pub enum ClipSource {
         /// Vertical Type: characters stacked top to bottom.
         #[serde(default)]
         vertical: bool,
+        /// When each word starts, in seconds into the caption's own time (captions made from a
+        /// transcript). Karaoke highlights follow them; absent, or out of step with the words
+        /// after an edit, the caption's time is shared evenly.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        words: Option<Vec<f64>>,
+        /// When each word ends, in the same caption time (WatchFIWN's captions group phrases and
+        /// hold highlights by it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        word_ends: Option<Vec<f64>>,
     },
     /// A built-in sound effect.
     Sfx { kind: SfxKind },
@@ -646,6 +682,9 @@ pub struct Clip {
     pub magic_masks: Vec<MagicMask>,
     #[serde(default)]
     pub keyframes: Keyframes,
+    /// Keyframes on brightness, contrast, saturation, blur and hue; absent on most clips.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_keys: Option<EffectKeys>,
     #[serde(default)]
     pub channels: Channels,
     /// Speech cleanup: high-pass, denoise and gentle compression.
@@ -704,6 +743,12 @@ pub struct Track {
     /// Header height in pixels (UI only).
     #[serde(default = "track_height")]
     pub height: f64,
+    /// Audio: the track's fader, dB (0 unity).
+    #[serde(default)]
+    pub gain: f64,
+    /// Audio: balance, -1 (left) … 0 (centre) … 1 (right).
+    #[serde(default)]
+    pub pan: f64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1035,6 +1080,10 @@ pub struct Project {
     /// never reads them: every grade arrives already baked into its own table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub luts: Option<serde_json::Value>,
+    /// How styled captions draw: `fiwn` (WatchFIWN's renderer, src/lib/fiwn) or unset / `classic`
+    /// (the look projects had before it). The UI owns the values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption_look: Option<String>,
 }
 
 pub const VERSION: u32 = 3;
@@ -1073,6 +1122,7 @@ impl Default for Project {
             active_brand_kit_id: None,
             provenance: None,
             luts: None,
+            caption_look: None,
         }
     }
 }
@@ -1091,6 +1141,9 @@ pub struct Graphic {
     pub color: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
+    /// When each word starts on the timeline (a transcribed caption's real word timings).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub word_starts: Option<Vec<f64>>,
 }
 
 impl Graphic {
@@ -1098,7 +1151,7 @@ impl Graphic {
     #[must_use]
     pub fn from_clip(clip: &Clip) -> Option<Self> {
         match &clip.source {
-            ClipSource::Text { text, subtitle, preset, color, style, .. } => Some(Self {
+            ClipSource::Text { text, subtitle, preset, color, style, words, .. } => Some(Self {
                 id: clip.id.clone(),
                 text: text.clone(),
                 subtitle: subtitle.clone(),
@@ -1107,6 +1160,8 @@ impl Graphic {
                 preset: *preset,
                 color: color.clone(),
                 style: style.clone(),
+                // Caption time → timeline, through a trimmed head (`in`) and the clip's speed.
+                word_starts: words.as_ref().map(|offsets| offsets.iter().map(|offset| clip.start + (offset - clip.in_point) / clip.speed.max(1e-6)).collect()),
             }),
             // HTML motion graphics are GSAP/CSS in the preview, which ffmpeg
             // cannot rasterise — but dropping them silently loses the card's
@@ -1132,6 +1187,7 @@ impl Graphic {
                     preset: Preset::Title,
                     color: "#FFFFFF".to_owned(),
                     style: None,
+                    word_starts: None,
                 })
             }
             _ => None,
@@ -1325,6 +1381,9 @@ fn validate_comp(comp: &Comp, comp_ids: &HashSet<&str>, item_ids: &HashSet<&str>
         clip.transform.validate()?;
         clip.effects.validate()?;
         clip.keyframes.validate()?;
+        if let Some(keys) = &clip.effect_keys {
+            keys.validate()?;
+        }
         if clip.hold.is_some_and(|time| !time.is_finite() || time < 0.0) {
             return Err(format!("a frame hold in \"{name}\" is invalid"));
         }
@@ -1439,7 +1498,7 @@ pub mod fixtures {
 
     #[must_use]
     pub fn track(id: &str, kind: TrackKind) -> Track {
-        Track { id: id.to_owned(), kind, name: String::new(), locked: false, hidden: false, muted: false, solo: false, targeted: true, sync_lock: true, height: 48.0 }
+        Track { id: id.to_owned(), kind, name: String::new(), locked: false, hidden: false, muted: false, solo: false, targeted: true, sync_lock: true, height: 48.0, gain: 0.0, pan: 0.0 }
     }
 
     #[must_use]
@@ -1471,6 +1530,7 @@ pub mod fixtures {
             roto_corrections: Vec::new(),
             magic_masks: Vec::new(),
             keyframes: Keyframes::default(),
+            effect_keys: None,
             channels: Channels::default(),
             enhance_speech: false,
             audio_type: None,
@@ -1518,6 +1578,20 @@ mod tests {
 
     fn media(id: &str) -> ClipSource {
         ClipSource::Media { asset_id: id.to_owned() }
+    }
+
+    #[test]
+    fn caption_word_timings_survive_a_save_and_reach_the_export() {
+        let json = r##"{"type":"text","text":"make it pop","preset":"caption","color":"#FFFFFF","style":"hormozi","words":[0,2.2,2.5],"wordEnds":[0.4,2.4,2.9]}"##;
+        let source: ClipSource = serde_json::from_str(json).expect("caption source");
+        let saved = serde_json::to_string(&source).expect("saved");
+        assert!(saved.contains(r#""words":[0.0,2.2,2.5]"#) && saved.contains(r#""wordEnds":[0.4,2.4,2.9]"#), "{saved}");
+        // Trimmed by 1 s at the head and played at 2×, placed at 10 s: caption time → timeline.
+        let mut caption = clip("c", "v2", 10.0, 1.5, source);
+        caption.in_point = 1.0;
+        caption.speed = 2.0;
+        let graphic = Graphic::from_clip(&caption).expect("text");
+        assert_eq!(graphic.word_starts, Some(vec![9.5, 10.6, 10.75]));
     }
 
     #[test]
@@ -1585,7 +1659,7 @@ mod tests {
 
     #[test]
     fn sources_must_suit_their_track_and_exist() {
-        let text = ClipSource::Text { text: "Hi".into(), subtitle: String::new(), preset: Preset::Title, color: "#FFFFFF".into(), style: None, vertical: false };
+        let text = ClipSource::Text { text: "Hi".into(), subtitle: String::new(), preset: Preset::Title, color: "#FFFFFF".into(), style: None, vertical: false, words: None, word_ends: None };
         let on_audio = project(vec![comp("c", vec![clip("t", "a1", 0.0, 1.0, text)])]);
         assert!(on_audio.validate_shape().is_err());
         let sfx_on_video = project(vec![comp("c", vec![clip("s", "v1", 0.0, 1.0, ClipSource::Sfx { kind: SfxKind::Pop })])]);
@@ -1643,7 +1717,7 @@ mod tests {
         fast.speed = 2.0;
         assert!((fast.source_out() - 5.0).abs() < 1e-9);
         assert!((fast.end() - 5.0).abs() < 1e-9);
-        let text = clip("t", "v2", 1.0, 2.5, ClipSource::Text { text: "Hi".into(), subtitle: "there".into(), preset: Preset::Caption, color: "#FFFFFF".into(), style: Some("hormozi".into()), vertical: false });
+        let text = clip("t", "v2", 1.0, 2.5, ClipSource::Text { text: "Hi".into(), subtitle: "there".into(), preset: Preset::Caption, color: "#FFFFFF".into(), style: Some("hormozi".into()), vertical: false, words: None, word_ends: None });
         let graphic = Graphic::from_clip(&text).expect("text");
         assert_eq!((graphic.start, graphic.duration, graphic.style.as_deref()), (1.0, 2.5, Some("hormozi")));
         assert!(Graphic::from_clip(&fast).is_none());

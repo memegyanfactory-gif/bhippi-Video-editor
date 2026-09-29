@@ -200,6 +200,8 @@ export function toOptions(settings: ExportSettings, output: string, compId: stri
     sampleRate: def.audio ? settings.sampleRate : null,
     loudness: def.audio ? settings.loudness : null,
     chapters: settings.chapters ?? true,
+    fastCaptions: def.video ? !!settings.fastCaptions : false,
+    captionsSidecar: def.video ? settings.captionsSidecar ?? null : null,
   };
 }
 

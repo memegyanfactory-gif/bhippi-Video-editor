@@ -29,6 +29,8 @@ function setup(seconds: number, extra: (ids: { v1: string; v2: string; a1: strin
 }
 
 const notesOf = (review: ReturnType<typeof councilReview>, member: CouncilRole) => review.notes.filter((note) => note.member === member);
+/** The comp made a planned production (the user asked for a produced video): taste rules hold it. */
+const produced = <T extends { comp: { production?: unknown } }>(value: T): T => { value.comp.production = { phase: 'editing', mode: 'footage', gates: {} }; return value; };
 
 describe('the council', () => {
   it('has five seats, each with a brief a worker can run under', () => {
@@ -59,8 +61,11 @@ describe('the council', () => {
 });
 
 describe('the Animator', () => {
-  it('holds a talking head with no designed motion, frame by frame', () => {
-    const { project, assets, comp } = setup(12);
+  it('advises on a plain edit, and holds a planned production, with no designed motion, frame by frame', () => {
+    const plain = setup(12);
+    const advice = notesOf(councilReview(plain.project, plain.assets, plain.comp, ['animator']), 'animator').find((note) => note.at?.[0] === 0);
+    expect(advice?.severity).toBe('fix');
+    const { project, assets, comp } = produced(setup(12));
     const review = councilReview(project, assets, comp, ['animator']);
     const dead = notesOf(review, 'animator').find((note) => note.at?.[0] === 0);
     expect(dead?.severity).toBe('block');
@@ -107,8 +112,10 @@ describe('the Director', () => {
 });
 
 describe('the Audio Guru', () => {
-  it('holds a long cut with no music, and flags a bed at full level with no ducking', () => {
-    const bare = setup(20);
+  it('holds a long produced cut with no music (a plain edit may be dry), and flags a bed at full level with no ducking', () => {
+    const dry = setup(20);
+    expect(notesOf(councilReview(dry.project, dry.assets, dry.comp, ['audio']), 'audio')[0].severity).toBe('fix');
+    const bare = produced(setup(20));
     expect(notesOf(councilReview(bare.project, bare.assets, bare.comp, ['audio']), 'audio')[0].severity).toBe('block');
     const bed = asset('bed', 'music bed.mp3', { kind: 'audio', width: 0, height: 0 });
     const loud = setup(20, ({ a1, a2 }) => [
@@ -323,7 +330,7 @@ describe('council tools', () => {
   }
 
   it('consult_council reports each seat in its own words', async () => {
-    const { project, assets } = setup(12);
+    const { project, assets } = produced(setup(12));
     const result = await runTool(host(project, assets), 'consult_council', {});
     expect(result.ok).toBe(true);
     if (!result.ok) return;

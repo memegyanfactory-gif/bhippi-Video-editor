@@ -3,7 +3,7 @@
 use super::{keyframe_expr, keyframe_value, plan, ExportOptions, Output, Rate, RenderPlan};
 use crate::library::{Asset, AssetKind};
 use crate::project::fixtures::{clip, comp, project};
-use crate::project::{Clip, ClipSource, Comp, Easing, Effects, ItemKind, Keyframe, Marker, Mask, MaskShape, Preset, Project, ProjectItem, ShapeKind, SfxKind, Transform, Transition, TransitionKind};
+use crate::project::{Clip, ClipSource, Comp, Easing, EffectKeys, Effects, ItemKind, Keyframe, Marker, Mask, MaskShape, Preset, Project, ProjectItem, ShapeKind, SfxKind, Transform, Transition, TransitionKind};
 use std::collections::HashMap;
 
 /// An asset the renderer can plan against: `validate_media` insists the file is really there.
@@ -32,6 +32,7 @@ fn asset(id: &str, kind: AssetKind, duration: f64) -> Asset {
         proxy: None,
         preview: "native".to_owned(),
         missing: false,
+        hdr: None,
     }
 }
 
@@ -193,7 +194,7 @@ fn the_picture_extras_reach_the_graph_as_files() {
     );
     shape.mask = Some(Mask { shape: MaskShape::Rectangle, x: 0.0, y: 0.0, width: 0.5, height: 1.0, points: Vec::new(), feather: 8.0, inverted: false });
     shape.keyframes.opacity = vec![Keyframe { time: 0.0, value: 0.0, easing: Easing::Linear }, Keyframe { time: 2.0, value: 100.0, easing: Easing::Linear }];
-    let title = clip("t", "v2", 2.0, 2.0, ClipSource::Text { text: "Hi".into(), subtitle: String::new(), preset: Preset::Title, color: "#FFFFFF".into(), style: None, vertical: false });
+    let title = clip("t", "v2", 2.0, 2.0, ClipSource::Text { text: "Hi".into(), subtitle: String::new(), preset: Preset::Title, color: "#FFFFFF".into(), style: None, vertical: false, words: None, word_ends: None });
     let project = project(vec![comp("c", vec![clip("a", "v1", 0.0, 4.0, media("m")), shape, title])]);
     let plan = build(&project, &assets, &options("c"), Output::Video, 0.0).expect("plan");
     let names: Vec<&str> = plan.files.iter().map(|(name, _)| name.as_str()).collect();
@@ -504,7 +505,7 @@ fn keys_export_with_the_preview_formulas_and_every_offered_effect_plans() {
 #[test]
 fn text_is_sized_by_its_em_and_burned_straight_onto_the_picture() {
     let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
-    let title = clip("t", "v2", 0.0, 2.0, ClipSource::Text { text: "Hi".into(), subtitle: "there".into(), preset: Preset::Title, color: "#FFFFFF".into(), style: None, vertical: false });
+    let title = clip("t", "v2", 0.0, 2.0, ClipSource::Text { text: "Hi".into(), subtitle: "there".into(), preset: Preset::Title, color: "#FFFFFF".into(), style: None, vertical: false, words: None, word_ends: None });
     let plan = build(&project(vec![comp("c", vec![clip("a", "v1", 0.0, 2.0, media("m")), title])]), &assets, &options("c"), Output::Video, 0.0).expect("plan");
     let script = plan.files.iter().find(|(name, _)| name.ends_with(".ass")).map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned()).expect("a script");
     // CSS: 0.105 × 1080 = 113 px of em. libass fits Segoe UI's win height (1.3301 em) into \fs.
@@ -556,4 +557,76 @@ fn every_export_is_stamped_with_bhippi_provenance_and_marker_chapters() {
     assert!(comment.contains("Hook@0.5s"), "named chapter: {comment}");
     assert!(comment.contains("Marker@1.5s"), "unnamed chapters still listed: {comment}");
     assert!(plan.args.iter().any(|arg| arg.starts_with("encoder=Bhippi")), "{:?}", plan.args);
+}
+
+#[test]
+fn keyframed_effects_are_driven_per_frame_in_css_order() {
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let mut project = project(vec![comp("c", vec![clip("a", "v1", 0.0, 2.0, media("m"))])]);
+    let key = |time: f64, value: f64| Keyframe { time, value, easing: Easing::Linear };
+    let clip = &mut project.comps[0].clips[0];
+    clip.effects.invert = 20.0;
+    clip.effect_keys = Some(EffectKeys { brightness: vec![key(0.0, 0.0), key(2.0, 50.0)], blur: vec![key(0.0, 0.0), key(1.0, 8.0)], ..EffectKeys::default() });
+    let plan = build(&project, &assets, &options("c"), Output::Video, 0.0).expect("plan");
+    let text = graph(&plan);
+    let mut last = 0;
+    for filter in ["sendcmd=f=fxkeys", "colorchannelmixer@bc", "lutrgb", "gblur@b"] {
+        let at = text.find(filter).unwrap_or_else(|| panic!("{filter} missing from {text}"));
+        assert!(at >= last, "{filter} is out of order in {text}");
+        last = at;
+    }
+    assert!(!text.contains("colorchannelmixer@s") && !text.contains("colorchannelmixer@h"), "untouched stages are left out: {text}");
+    let commands = String::from_utf8(plan.files.iter().find(|(name, _)| name.starts_with("fxkeys")).expect("the command file").1.clone()).unwrap();
+    assert_eq!(commands.matches("[expr] ").count(), 7, "every command is evaluated per frame: {commands}");
+    assert!(commands.starts_with("0-86400 [expr] ") && commands.contains(" rr '") && commands.contains(" ra '") && commands.contains(" sigma '"), "{commands}");
+    if std::env::var("BHIPPI_PRINT_FX").is_ok() {
+        eprintln!("{text}\n{commands}");
+    }
+    // Keyframes survive a save: the field round-trips and stays absent when unused.
+    let saved = serde_json::to_string(&project.comps[0].clips[0]).unwrap();
+    assert!(saved.contains("\"effectKeys\""));
+    let plain = serde_json::to_string(&clip_without_keys()).unwrap();
+    assert!(!plain.contains("effectKeys"));
+}
+
+fn clip_without_keys() -> Clip {
+    clip("b", "v1", 0.0, 1.0, media("m"))
+}
+
+#[test]
+fn every_keyed_effect_stage_runs_in_ffmpeg() {
+    // Skipped where FFmpeg is not installed; the graph test above holds the shape.
+    if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+        return;
+    }
+    let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);
+    let mut project = project(vec![comp("c", vec![clip("a", "v1", 0.0, 1.0, media("m"))])]);
+    let key = |time: f64, value: f64| Keyframe { time, value, easing: Easing::EaseOut };
+    project.comps[0].clips[0].effect_keys = Some(EffectKeys {
+        brightness: vec![key(0.0, -20.0), key(1.0, 20.0)],
+        contrast: vec![key(0.0, 10.0), key(1.0, -10.0)],
+        saturation: vec![key(0.0, 0.0), key(1.0, 200.0)],
+        blur: vec![key(0.0, 6.0), key(1.0, 0.0)],
+        hue: vec![key(0.0, 0.0), key(1.0, 90.0)],
+    });
+    let plan = build(&project, &assets, &options("c"), Output::Video, 0.0).expect("plan");
+    let text = graph(&plan);
+    let from = text.find("sendcmd=f=").expect("sendcmd");
+    let to = text[from..].find(",setsar").map(|at| from + at).expect("end of the chain");
+    let chain = &text[from..to];
+    for stage in ["colorchannelmixer@bc", "colorchannelmixer@s", "colorchannelmixer@h", "gblur@b"] {
+        assert!(chain.contains(stage), "{stage} missing: {chain}");
+    }
+    let dir = std::env::temp_dir().join(format!("bhippi-fxkeys-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, bytes) in &plan.files {
+        std::fs::write(dir.join(name), bytes).unwrap();
+    }
+    let output = std::process::Command::new("ffmpeg")
+        .current_dir(&dir)
+        .args(["-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=192x108:d=1:r=30", "-vf", &format!("format=gbrap,{chain}"), "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg runs");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(output.status.success() && output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
 }

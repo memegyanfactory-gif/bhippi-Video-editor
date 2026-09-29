@@ -5,9 +5,9 @@ import { modelVariants, variantModel } from '../lib/modelVariants';
 import { rememberTurnPrompt } from '../lib/turnPrompts';
 import { speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Brain, Check, ChevronRight, CircleHelp, CircleStop, File as FileIcon, Film, Laugh, MapPin, Music, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronRight, CircleHelp, File as FileIcon, Film, Laugh, MapPin, Music, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { ModelPicker } from '../components/ModelPicker';
 import { useToast } from '../components/ui';
@@ -37,6 +37,17 @@ import { findStyle, styleInMessage, stylesMatching, type StyleDef, type StyleId 
 import { actionLogger } from '../lib/actionLogger';
 import { avatarBus } from '../avatar/bus';
 import type { TurnOutcome } from '../lib/ideagraph';
+import { changeSummary, type TurnChange } from '../lib/turnChanges';
+import { TrainingCard } from './TrainingCard';
+import { BhippiMark, StatusDot, StopGlyph, type MarkState } from './BhippiMark';
+import { useChatScroll } from './useChatScroll';
+import { kitsInMessage, kitsMatching, kitTag } from '../lib/kitMention';
+import { brandKitContext } from '../lib/brandKit';
+import type { TrainedKit } from '../lib/brandKit/learnings';
+
+/** m:ss for a place on the timeline. */
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+import { routeWorkflow, savedWorkflowChoice, saveWorkflowChoice, type WorkflowChoice } from '../lib/workflowRoute';
 import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 
 export type { ToolRun } from './Activity';
@@ -84,7 +95,7 @@ export type ChatMessage =
 type Assistant = Extract<ChatMessage, { role: 'assistant' }>;
 
 /** One row of the `@` list: an edit style, or a reference film. */
-type MentionHit = { kind: 'style'; style: StyleDef } | { kind: 'reference'; ref: ReferenceFilm };
+type MentionHit = { kind: 'style'; style: StyleDef } | { kind: 'reference'; ref: ReferenceFilm } | { kind: 'kit'; kit: TrainedKit };
 
 /**
  * The hidden note a retry sends with the prompt again. A turn that got somewhere is continued, not
@@ -129,7 +140,7 @@ function phaseInstruction(status: WorkflowPhaseStatus): string {
   return `Call editing_workflow_status first. The production is in the ${phase} phase: finish this phase and end your turn — the user presses ${next} to move on. Do not edit the timeline in this turn.`;
 }
 
-export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void; /** Stops the turn that is running, if any. */ stop: () => void };
+export type ChatApi = { clear: () => void; focus: () => void; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void; /** Stops the turn that is running, if any. */ stop: () => void; /** Puts `text` in the composer (after anything typed) and focuses it, without sending. */ compose: (text: string) => void };
 
 /**
  * Where the chat's latest turn stands, for a host that shows it while the chat is out of sight
@@ -176,7 +187,10 @@ type Props = {
   onManageProviders: () => void;
   /** The project summary sent with each turn (src/lib/aiTools.ts `aiContext`). */
   getContext: () => unknown;
-  onStartWorkflow: (turnId: string, mode: 'full' | 'quick') => void;
+  /** `tier`: whether this turn's model runs guided (modelProfile.ts), so its calls are held to templates. */
+  onStartWorkflow: (turnId: string, mode: 'full' | 'quick', tier?: 'full' | 'guided') => void;
+  /** Whether the active comp has a planned production under way (Auto then keeps the full workflow). */
+  productionActive?: () => boolean;
   workflowStatus: (turnId: string) => {
     mode: string; structurallyVerified: boolean; phase?: string | null;
     gather?: { ready: number; total: number; pending: string[] } | null;
@@ -186,8 +200,19 @@ type Props = {
   /** Fires once per finished turn so the host can record the outcome (IdeaGraph brain). */
   onTurnDone?: (outcome: TurnOutcome) => void;
   /** Puts the project back to where it was before a turn's edits; false when it has moved on. */
-  onRevert: (turnId: string) => boolean;
+  /** Resolves true once reverted; false when there was nothing to revert or the user said no. */
+  onRevert: (turnId: string) => boolean | Promise<boolean>;
   canRevert: (turnId: string) => boolean;
+  /** What a turn changed on the timelines (lib/turnChanges.ts), listed under its answer. */
+  changesFor?: (turnId: string) => TurnChange[];
+  onJumpToChange?: (change: TurnChange) => void;
+  /** Brand kits (for `/train @Kit` and the training review card). */
+  brandKits?: () => TrainedKit[];
+  /** Changes one brand kit (the training card's Remove / Undo training). */
+  onUpdateKit?: (kitId: string, change: (kit: TrainedKit) => TrainedKit) => void;
+  /** The turn whose changes are tinted on the timeline; setting null hides the tint. */
+  highlightedTurn?: string | null;
+  onHighlightTurn?: (turnId: string | null) => void;
   /** The production phase dock, docked low right above the composer rather than the transcript. */
   productionBar?: ReactNode;
   /**
@@ -218,70 +243,6 @@ type Props = {
 };
 
 
-/** A light running round the composer's outline while a turn is being written.
- *
- * Drawn as an SVG outline rather than a gradient behind a border-shaped mask: a gradient has to
- * rotate about the centre, so on a box this wide the bright part crosses it as a diagonal bar
- * instead of following the edge. A dash running along the outline is the thing itself.
- * `pathLength` renormalises the perimeter to 100, so the dash lengths in the stylesheet are
- * percentages of it and the streak holds its shape at any panel width. */
-function ComposerStreak() {
-  return (
-    <svg className="composer-streak" aria-hidden="true">
-      <rect className="rail" x="0.5" y="0.5" width="calc(100% - 1px)" height="calc(100% - 1px)" rx="6" ry="6" pathLength="100" />
-      <rect className="tail" x="0.5" y="0.5" width="calc(100% - 1px)" height="calc(100% - 1px)" rx="6" ry="6" pathLength="100" />
-      <rect className="head" x="0.5" y="0.5" width="calc(100% - 1px)" height="calc(100% - 1px)" rx="6" ry="6" pathLength="100" />
-    </svg>
-  );
-}
-
-/** One sent message taking off from the composer and landing in the transcript.
- *
- * `pad` is the composer's top edge off the bottom of the panel and `rise` the climb from there;
- * ChatPanel measures both against the live layout, so the rocket leaves the real chat bar and
- * lands in the real transcript however the panel has been dragged. Everything else — the flash,
- * the shock, the fire, the smoke, the flight — is in the stylesheet under `.launch`; this only
- * lays out the pieces and hands each one its angle, reach and delay. */
-function Launch({ text, pad, rise, drift }: { text: string; pad: number; rise: number; drift: number }) {
-  const vars = { '--pad': `${pad}px`, '--rise': `${rise}px`, '--drift': `${drift}px` } as CSSProperties;
-  return (
-    <div className="launch" style={vars} aria-hidden="true">
-      <span className="launch-flash" />
-      <span className="launch-shock" />
-      {/* Smoke stays behind after the craft has gone, which is what makes it read as a launch. */}
-      {Array.from({ length: 12 }).map((_, index) => (
-        <span
-          key={index}
-          className={`launch-puff p-${index % 3}`}
-          style={{
-            '--x': `${18 + (index / 11) * 64}%`,
-            '--dx': `${(index % 5) * 13 - 26}px`,
-            animationDelay: `${index * 26}ms`,
-          } as CSSProperties}
-        />
-      ))}
-      {/* Fire: thrown out of the pad, mostly downward and sideways, never straight through it. */}
-      {Array.from({ length: 22 }).map((_, index) => (
-        <span
-          key={index}
-          className={`launch-spark k-${index % 5}`}
-          style={{
-            '--a': `${10 + (index / 21) * 160 + (index % 3) * 5}deg`,
-            '--r': `${38 + (index % 5) * 16}px`,
-            '--d': `${(index % 6) * 22}ms`,
-          } as CSSProperties}
-        />
-      ))}
-      <div className="launch-craft">
-        <span className="craft-body">
-          <span className="craft-text">{text}</span>
-          <span className="craft-flame" />
-        </span>
-      </div>
-      <span className="launch-impact" />
-    </div>
-  );
-}
 
 export function ChatPanel(props: Props) {
   const toast = useToast();
@@ -367,8 +328,6 @@ export function ChatPanel(props: Props) {
   // Which command row the keyboard is on, and whether Escape has closed the panel for this draft.
   const [commandRow, setCommandRow] = useState(0);
   const [commandsHidden, setCommandsHidden] = useState(false);
-  /** One sent message taking off: what it said, and the two distances the flight needs. */
-  const [launch, setLaunch] = useState<{ id: number; text: string; pad: number; rise: number; drift: number } | null>(null);
   /** Typed while a turn was still streaming: it goes as soon as the turn ends. */
   const [queued, setQueued] = useState<string | null>(null);
   const [askDraft, setAskDraft] = useState('');
@@ -376,17 +335,33 @@ export function ChatPanel(props: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const reserveRef = useRef<HTMLDivElement>(null);
+  const scroll = useChatScroll(listRef, reserveRef);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   /** Replaces the transcript with one a .bhippi file carried, and makes it the saved chat log. */
   const loadTranscript = (saved: unknown[]) => {
     const valid = (saved as ChatMessage[]).filter((item) => item && (item.role === 'user' || item.role === 'assistant'));
     setMessages(valid.map((item) => (item.role === 'assistant' && item.status === 'streaming' ? { ...item, status: 'stopped' } : item)));
+    scroll.reset();
     void api.chatLogSave(valid, props.logScope).catch(() => undefined);
   };
+  /** Text into the composer (after anything typed), focused with the caret at the end; not sent. */
+  const compose = (text: string) => {
+    setDraft((current) => (current.trim() ? `${current.trimEnd()}
+${text}` : text));
+    requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      input.selectionStart = input.selectionEnd = input.value.length;
+    });
+  };
   useImperativeHandle(props.apiRef, () => ({
+    compose,
     clear: () => {
       setMessages([]);
+      scroll.reset();
       setDraft('');
       setImages([]);
       setFiles([]);
@@ -405,8 +380,6 @@ export function ChatPanel(props: Props) {
     stop: () => stopRef.current(),
   }), []);
   const stopRef = useRef<() => void>(() => undefined);
-  /** Whether the transcript is following the newest words, set by the reader's own scrolling. */
-  const pinned = useRef(true);
   const propsRef = useRef(props);
   propsRef.current = props;
   const levelsRef = useRef<Effort[]>([]);
@@ -428,7 +401,8 @@ export function ChatPanel(props: Props) {
   const sendRef = useRef<(text: string, mode?: 'full' | 'quick') => void>(() => undefined);
   /** Turns that were themselves an automatic finishing round ('pending' marks the next one sent). */
   const autoFinished = useRef(new Set<string>());
-  const [workflowMode, setWorkflowMode] = useState<'full' | 'quick'>('full');
+  /** Auto (the default) runs a request to make a video as Full and a targeted change as Quick; remembered. */
+  const [workflowChoice, setWorkflowChoice] = useState<WorkflowChoice>(savedWorkflowChoice);
   const active = props.providers.find((provider) => provider.id === props.providerId);
   /** The chosen model's sizes (Flash-Lite · Flash · Pro…), for the speed rail. */
   const speeds = speedSteps(active?.models ?? [], props.model);
@@ -497,45 +471,6 @@ export function ChatPanel(props: Props) {
     return () => window.clearTimeout(handle);
   }, [messages, loaded, streaming]);
 
-  // Following the newest words takes two things. New content is one: that is the effect below.
-  // The other is the transcript losing height under a turn that is still writing — the composer
-  // grows as a draft wraps, and the stream bar and the queued note appear and go. Each takes
-  // room from the list without a message changing, which is how the last line ends up half cut
-  // off with no way to reach it. A ResizeObserver on the list catches every one of them.
-  useEffect(() => {
-    const node = listRef.current;
-    if (!node) return;
-    const follow = () => {
-      if (pinned.current) node.scrollTop = node.scrollHeight;
-    };
-    // Scrolling away stops it following; coming back within a line or two starts it again.
-    const onScroll = () => {
-      pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120;
-    };
-    node.addEventListener('scroll', onScroll, { passive: true });
-    const observer = new ResizeObserver(follow);
-    observer.observe(node);
-    const content = new MutationObserver(follow);
-    content.observe(node, { childList: true, subtree: true, characterData: true });
-    node.addEventListener('load', follow, true);
-    follow();
-    return () => {
-      node.removeEventListener('scroll', onScroll);
-      observer.disconnect();
-      content.disconnect();
-      node.removeEventListener('load', follow, true);
-    };
-  }, []);
-
-  useEffect(() => {
-    const node = listRef.current;
-    if (!node || !pinned.current) return;
-    // A frame later, so markdown that reflows after it mounts is measured at its real height.
-    const frame = requestAnimationFrame(() => {
-      node.scrollTop = node.scrollHeight;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [messages, props.tools]);
 
   const patch = useCallback((turnId: string, change: (message: Assistant) => Assistant) => {
     setMessages((items) => items.map((item) => (item.role === 'assistant' && item.turnId === turnId ? change(item) : item)));
@@ -723,6 +658,7 @@ export function ChatPanel(props: Props) {
         if (meta) {
           const runs = propsRef.current.tools[event.turnId] ?? [];
           propsRef.current.onTurnDone?.({
+            turnId: event.turnId,
             provider: meta.provider,
             model: meta.model,
             prompt: meta.prompt,
@@ -756,52 +692,7 @@ export function ChatPanel(props: Props) {
     };
   }, [patch]);
 
-  /**
-   * Measures the flight and starts it. The overlay takes itself back out when it lands.
-   *
-   * The craft lands on the message it *is* — so the climb is measured to where that message
-   * actually ends up, not to a fixed height. A short prompt sent into a full transcript lands a
-   * few dozen pixels up; the first message of a conversation flies most of the panel. The drift
-   * is the same idea sideways: a user message sits right-aligned, so the flight curves over to it
-   * rather than going straight up and then jumping.
-   */
-  const liftOff = (text: string) => {
-    const message = text.trim();
-    // Mid-turn, the message goes into the running answer, not up to a bubble of its own.
-    if (!message || streaming) return;
-    const root = rootRef.current;
-    const form = formRef.current;
-    const pad = form ? form.offsetHeight + 16 : 104;
-    const start = { id: Date.now(), text: message.length > 46 ? `${message.slice(0, 45)}…` : message, pad, rise: 0, drift: 0 };
-
-    // The message is not in the DOM until React has committed it, so the target is measured on
-    // the next frame and the flight begins then.
-    requestAnimationFrame(() => {
-      const list = listRef.current;
-      const bubbles = list?.querySelectorAll<HTMLElement>('.msg-user');
-      const bubble = bubbles?.[bubbles.length - 1];
-      const rootBox = root?.getBoundingClientRect();
-      let rise = root ? Math.max(90, root.clientHeight - pad - 76) : 220;
-      let drift = 0;
-      if (bubble && rootBox) {
-        const target = bubble.getBoundingClientRect();
-        // From the top of the composer to the middle of the bubble, and across to its centre.
-        rise = Math.max(56, rootBox.bottom - pad - (target.top + target.height / 2));
-        drift = target.left + target.width / 2 - (rootBox.left + rootBox.width / 2);
-      }
-      setLaunch({ ...start, rise, drift });
-    });
-  };
-
-  // The flight is 1.42s; this clears the overlay once it is over, so nothing animates at rest.
-  useEffect(() => {
-    if (!launch) return;
-    const handle = window.setTimeout(() => setLaunch(null), 1600);
-    return () => window.clearTimeout(handle);
-  }, [launch]);
-
   const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick') => {
-    const mode = propsRef.current.lockedMode ?? modeOverride ?? workflowMode;
     const attachedImages=[...imagesRef.current];
     const attachedFiles=[...filesRef.current];
     // Annotations from the Program monitor go with the next message that starts a turn; mid-turn
@@ -812,6 +703,7 @@ export function ChatPanel(props: Props) {
       if (streaming && propsRef.current.annotations && annotations.list().length) toast({ tone: 'info', title: 'Annotations are waiting', body: 'They go with your next message once this response finishes.' });
       return;
     }
+    const mode = propsRef.current.lockedMode ?? modeOverride ?? routeWorkflow(workflowChoice, message, propsRef.current.productionActive?.() ?? false);
     const taken = notes.length ? annotations.take() : [];
     const brief = annotationBrief(taken);
     // Each annotation's frame, outlined, for models that can see — after the user's own images.
@@ -830,7 +722,6 @@ export function ChatPanel(props: Props) {
       } else {
         setQueued((current) => [current, message].filter(Boolean).join('\n\n'));
       }
-      pinned.current = true;
       setDraft('');
       return;
     }
@@ -838,13 +729,21 @@ export function ChatPanel(props: Props) {
     // "@funny" typed into a message switches the style on. The host's context is a render behind
     // the state change, so this send carries the style itself.
     const tagged = styleInMessage(message);
+    // "@KitName" tags a brand kit for this turn: it replaces the project's kit in what the model
+    // reads, with what the kit has learned (lib/kitMention.ts).
+    const taggedKit = kitsInMessage(message, propsRef.current.brandKits?.() ?? [])[0];
+    const kitOverride = taggedKit ? { brandKit: brandKitContext(taggedKit), brandKitTagged: `The user tagged @${kitTag(taggedKit.name)}: follow the "${taggedKit.name}" brand kit (and what it has learned) for this turn, whatever the project's kit is.` } : {};
     if (tagged && tagged.id !== propsRef.current.editStyle) propsRef.current.onStyle(tagged.id);
     const providerModels=propsRef.current.providers.find(p=>p.id===providerId)?.models||[];
     const model=variantModel(providerModels,propsRef.current.model,propsRef.current.effort);
     const turnId = uid();
     if (autoFinished.current.delete('pending')) autoFinished.current.add(turnId);
     rememberTurnPrompt(turnId, message);
-    propsRef.current.onStartWorkflow(turnId, mode);
+    // How much of the craft this model carries: a guided model gets the one-call build and
+    // Bhippi's own media first, and compact tool results (modelProfile.ts, chat.rs).
+    const profile = modelTier(providerId, model, propsRef.current.guidedMode);
+    const guided = profile.tier === 'guided' && !propsRef.current.toolset;
+    propsRef.current.onStartWorkflow(turnId, mode, guided ? 'guided' : 'full');
     const history = historyFor(messages, providerId, model);
     // Who the new model is relieving, read straight off the transcript — so a cleared chat has
     // nobody to hand over from and starts clean.
@@ -856,7 +755,8 @@ export function ChatPanel(props: Props) {
       id: uid(), role: 'assistant', turnId, providerId: providerId ?? 'bhippi', providerLabel: provider?.label ?? 'Bhippi', model,
       content: '', thinking: '', steps: [], status: 'streaming', notes: [], fault: null, usage: null, elapsedMs: null, limit: null,
     };
-    pinned.current = true;
+    // Your message goes to the top of the panel and the answer grows beneath it (useChatScroll).
+    scroll.anchorNext();
     setMessages((items) => [...items, { id: uid(), role: 'user', content: message, at: Date.now(), images: sentImages, ...(attachedFiles.length ? { files: attachedFiles.map((file) => ({ name: file.name, kind: file.kind })) } : {}), ...(taken.length ? { annotations: taken.map(sentAnnotation), annotationBrief: brief } : {}) }, assistant]);
     setDraft('');
     actionLogger.user(`Chat Prompt: "${message.length > 80 ? message.slice(0, 77) + '...' : message}"`, { turnId, provider: provider?.label ?? 'Bhippi', model, images: sentImages.length });
@@ -865,14 +765,10 @@ export function ChatPanel(props: Props) {
       // is safe; an empty list means this provider has no such setting at all.
       const level = !modelVariants(providerModels,model).length && levelsRef.current.includes(propsRef.current.effort) ? propsRef.current.effort : null;
       const phase = propsRef.current.workflowStatus(turnId)?.phase;
-      // How much of the craft this model carries: a guided model gets the one-call build and
-      // Bhippi's own media first, and compact tool results (modelProfile.ts, chat.rs).
-      const profile = modelTier(providerId, model, propsRef.current.guidedMode);
-      const guided = profile.tier === 'guided' && !propsRef.current.toolset;
       const toolset = propsRef.current.toolset ?? routeTools(message, messages.filter((m) => m.role === 'user').map((m) => m.content), tagged?.id ?? propsRef.current.editStyle, phase, guided);
       trace(turnId, { ev: 'turn_sent', harness: propsRef.current.harness ?? 'editor', providerId, model, effort: level, messageChars: message.length, images: sentImages.length, historyTurns: history.length, phase: phase ?? null, permission: propsRef.current.permission, editStyle: tagged?.id ?? propsRef.current.editStyle ?? null, genres: toolset.genres, toolsWhole: toolset.full.length, playbook: toolset.playbook?.id ?? null, tier: profile.tier });
       const standing = propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId));
-      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, modelTier: profile.tier, workflowInstruction: guided ? `${GUIDED_BRIEF}\n\n${standing}` : standing }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}), ...(propsRef.current.harness ? { harness: propsRef.current.harness } : {}) });
+      await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context: { ...(getContext() as object), ...(tagged ? { editStyle: tagged.id } : {}), ...kitOverride, toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, modelTier: profile.tier, workflowInstruction: guided ? `${GUIDED_BRIEF}\n\n${standing}` : standing }, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}), ...(propsRef.current.harness ? { harness: propsRef.current.harness } : {}) });
       setImages([]);
       setFiles([]);
     } catch (error) {
@@ -947,6 +843,7 @@ export function ChatPanel(props: Props) {
   const clear = (options?: { keepProduction?: boolean }) => {
     if (streaming) stop();
     setMessages([]);
+    scroll.reset();
     // Nothing is being carried over, so the next turn is a first turn: no handover note, and the
     // queued message from the old conversation does not arrive in the new one.
     setQueued(null);
@@ -976,7 +873,7 @@ export function ChatPanel(props: Props) {
   };
 
   stopRef.current = () => stop('Stopped by you');
-  props.apiRef.current = { clear, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript, stop: () => stopRef.current() };
+  props.apiRef.current = { clear, compose, focus: () => inputRef.current?.focus(), send: (text: string, options?: { mode?: 'full' | 'quick' }) => sendRef.current(text, options?.mode), load: loadTranscript, stop: () => stopRef.current() };
   sendRef.current = (text: string, mode?: 'full' | 'quick') => void send(text, undefined, mode);
 
   // The Program monitor's "Send to chat": whatever is in the composer goes, with the annotations.
@@ -986,7 +883,6 @@ export function ChatPanel(props: Props) {
   const annotationSendRef = useRef<() => void>(() => undefined);
   annotationSendRef.current = () => {
     if (runIfCommand(draftRef.current)) return;
-    liftOff(draftRef.current || (annotations.list().length === 1 ? 'Please apply my annotation.' : 'Please apply my annotations.'));
     void send(draftRef.current);
   };
   useEffect(() => (props.annotations ? annotations.onSendRequest(() => annotationSendRef.current()) : undefined), [props.annotations]);
@@ -1050,12 +946,16 @@ export function ChatPanel(props: Props) {
 
   const commandContext: CommandContext = {
     clear,
+    brandKits: (props.brandKits?.() ?? []).map((kit) => ({ id: kit.id, name: kit.name })),
+    // Training is not a production: a quick edit, whatever the composer is set to.
+    sendInstructed: (visible, hidden) => void send(visible, hidden, 'quick'),
+    hasAttachments: imagesRef.current.length + filesRef.current.length > 0,
     compact,
     say,
     send: (text) => void send(text),
     undo: () => props.onUndo(),
     revertLastTurn: () => {
-      if (lastTurn && props.onRevert(lastTurn.turnId)) say('Put the project back to before those edits.');
+      if (lastTurn) void Promise.resolve(props.onRevert(lastTurn.turnId)).then((done) => { if (done) say('Put the project back to before those edits.'); });
       else say('There is nothing of mine left to revert — press Ctrl+Z to step back instead.');
     },
     openModelPicker: () => setPickerOpen(true),
@@ -1092,6 +992,7 @@ export function ChatPanel(props: Props) {
     const hits: MentionHit[] = [
       ...stylesMatching(query).map((style) => ({ kind: 'style' as const, style })),
       ...references.filter((item) => item.name.toLowerCase().startsWith(query)).map((ref) => ({ kind: 'reference' as const, ref })),
+      ...kitsMatching(query, props.brandKits?.() ?? []).map((kit) => ({ kind: 'kit' as const, kit })),
     ];
     return hits.length ? { at: match.index + match[1].length, query, hits } : null;
   })();
@@ -1104,6 +1005,9 @@ export function ChatPanel(props: Props) {
     if (found.kind === 'style') {
       setDraft(`${draft.slice(0, mention.at)}${found.style.label} `);
       props.onStyle(found.style.id);
+    } else if (found.kind === 'kit') {
+      // A tag in the message: this turn follows that kit (see send).
+      setDraft(`${draft.slice(0, mention.at)}@${kitTag(found.kit.name)} `);
     } else {
       setDraft(`${draft.slice(0, mention.at)}@${found.ref.name} `);
       attachReference(found.ref.id);
@@ -1180,12 +1084,24 @@ export function ChatPanel(props: Props) {
   };
 
   return (
-    <div ref={rootRef} className={`chat awesome${streaming ? ' working' : ''}`} aria-label={props.label ?? 'Bhippi AI'}>
+    <div ref={rootRef} className={`chat${streaming ? ' working' : ''}`} aria-label={props.label ?? 'Bhippi AI'}>
 
-      <div className="chat-list" ref={listRef}>
-        {messages.length === 0 && (
-          // An empty chat says nothing: the mark and name, barely there, and room to start typing.
-          <div className="chat-empty" aria-hidden="true"><div><img src="/bhippi.png" alt="" /><span>Bhippi</span></div></div>
+      <div className="chat-scroll-wrap">
+      <div className="chat-list" ref={listRef} role="log" aria-label="Conversation">
+        {messages.length === 0 && loaded && (
+          // An empty chat: the mark, one question, and a few things to ask for.
+          <div className="chat-empty">
+            <div className="chat-empty-inner">
+              <BhippiMark className="chat-empty-mark" size={52} />
+              <p className="chat-empty-title">What are we making?</p>
+              <p className="chat-empty-sub">Ask for an edit, a cut, captions or a whole video. Bhippi works on the timeline you have open.</p>
+              <div className="chat-empty-chips">
+                {EMPTY_PROMPTS.map((prompt) => (
+                  <button key={prompt} type="button" className="chat-chip" onClick={() => compose(prompt)}>{prompt}</button>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
         {messages.map((message) =>
           message.role === 'user' ? (
@@ -1236,15 +1152,31 @@ export function ChatPanel(props: Props) {
               workflow={props.workflowStatus(message.turnId)}
               tools={props.tools[message.turnId] ?? []}
               canRevert={props.canRevert(message.turnId)}
+              changes={props.changesFor?.(message.turnId) ?? []}
+              onJump={props.onJumpToChange}
+              highlighted={!!props.highlightedTurn && props.highlightedTurn === message.turnId}
+              kits={props.brandKits?.() ?? []}
+              onUpdateKit={props.onUpdateKit}
+              onHighlight={props.onHighlightTurn ? (on) => props.onHighlightTurn?.(on ? message.turnId : null) : undefined}
               onRevert={() => {
-                if (props.onRevert(message.turnId)) patch(message.turnId, (item) => ({ ...item, notes: [...item.notes, 'Edits reverted'] }));
-                else toast({ tone: 'info', title: 'Use Undo instead', body: 'The project changed after these edits, so press Ctrl+Z to step back.' });
+                void Promise.resolve(props.onRevert(message.turnId)).then((done) => {
+                  if (done) patch(message.turnId, (item) => ({ ...item, notes: [...item.notes, 'Edits reverted'] }));
+                });
               }}
               onRemedy={(action) => remedy(message, action)}
               onContinue={() => void send(continuePrompt(props.workflowStatus(message.turnId)))}
+              asking={!!props.ask && message.id === lastAnswerId}
             />
           ),
         )}
+        {/* Room held open under the newest answer so your message can sit at the top (useChatScroll). */}
+        <div className="chat-reserve" ref={reserveRef} aria-hidden="true" />
+      </div>
+      <button type="button" className={`chat-jump${scroll.away ? ' show' : ''}${streaming ? ' live' : ''}`} onClick={scroll.jump} tabIndex={scroll.away ? 0 : -1} aria-hidden={!scroll.away}>
+        <i className="chat-jump-dot" />
+        <span>Jump to latest</span>
+        <ArrowDown size={13} />
+      </button>
       </div>
 
       {props.genPlan && props.onGenPlan && (
@@ -1317,19 +1249,6 @@ export function ChatPanel(props: Props) {
         </div>
       )}
 
-      {launch && <Launch key={launch.id} {...launch} />}
-
-      {streaming && (
-        <div className="chat-stream-bar" aria-hidden="true">
-          <div className="particle-field">
-            {Array.from({ length: 42 }).map((_, column) => (
-              <div key={column} className="particle-col">
-                <span className={`particle c-${(column * 3) % 5}`} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {props.productionBar}
 
@@ -1339,19 +1258,17 @@ export function ChatPanel(props: Props) {
         onSubmit={(event) => {
           event.preventDefault();
           if (runIfCommand(draft)) return;
-          liftOff(draft);
           void send(draft);
         }}
       >
-        {streaming && <ComposerStreak />}
         {mention && (
           <div className="cmd-panel" role="listbox" aria-label="Choose an edit style or attach a reference">
             {mention.hits.map((item, index) => {
               const active = index === Math.min(commandRow, mention.hits.length - 1);
               // One heading per kind, at its first row; the rows keep one running index for the arrows.
-              const heading = index === 0 || mention.hits[index - 1].kind !== item.kind ? (item.kind === 'style' ? 'Style' : 'Reference') : null;
+              const heading = index === 0 || mention.hits[index - 1].kind !== item.kind ? (item.kind === 'style' ? 'Style' : item.kind === 'kit' ? 'Brand kit' : 'Reference') : null;
               return (
-                <div key={item.kind === 'style' ? `style:${item.style.id}` : `ref:${item.ref.id}`} className="cmd-section">
+                <div key={item.kind === 'style' ? `style:${item.style.id}` : item.kind === 'kit' ? `kit:${item.kit.id}` : `ref:${item.ref.id}`} className="cmd-section">
                   {heading && <div className="cmd-group">{heading}</div>}
                   <button
                     type="button"
@@ -1368,6 +1285,11 @@ export function ChatPanel(props: Props) {
                       <>
                         <span className="cmd-name">{item.style.label}<span className="cmd-args"> style</span></span>
                         <span className="cmd-summary">{item.style.description}{item.style.id === props.editStyle ? ' · on' : ''}</span>
+                      </>
+                    ) : item.kind === 'kit' ? (
+                      <>
+                        <span className="cmd-name">@{kitTag(item.kit.name)}</span>
+                        <span className="cmd-summary">brand kit for this message{item.kit.learnings?.length ? ` · learned ${item.kit.learnings.length} things` : ''}</span>
                       </>
                     ) : (
                       <>
@@ -1491,7 +1413,6 @@ export function ChatPanel(props: Props) {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               if (runIfCommand(draft)) return;
-              liftOff(draft);
               void send(draft);
             }
             if (event.key === 'Escape') (event.target as HTMLTextAreaElement).blur();
@@ -1521,8 +1442,8 @@ export function ChatPanel(props: Props) {
               onSpeed={(next) => props.providerId && chooseModel(props.providerId, next)}
             />
           )}
-          {!props.lockedMode && <select className="composer-select" aria-label="Editing workflow" title="Full workflow enforces transcript, every-frame review and a timed storyboard. Quick edit is for a targeted change." value={workflowMode} onChange={e => setWorkflowMode(e.target.value as 'full' | 'quick')} disabled={streaming}>
-            <option value="full">Full workflow</option><option value="quick">Quick edit</option>
+          {!props.lockedMode && <select className="composer-select" aria-label="Editing workflow" title="Auto: asking for a video to be made runs the full workflow (analysis, storyboard, review); a targeted change runs as a quick edit. Full always runs the whole workflow; Quick never does." value={workflowChoice} onChange={(e) => { const next = e.target.value as WorkflowChoice; setWorkflowChoice(next); saveWorkflowChoice(next); }} disabled={streaming}>
+            <option value="auto">Auto workflow</option><option value="full">Full workflow</option><option value="quick">Quick edit</option>
           </select>}
           <PermissionMenu mode={props.permission} onSelect={props.onPermission} />
           </div>
@@ -1530,7 +1451,7 @@ export function ChatPanel(props: Props) {
             <>
               {/* Typed while it works: this goes into the running turn rather than waiting for it. */}
               {draft.trim() && <button type="submit" className="send-btn" title="Add to the running task (Enter)"><ArrowUp size={16} /></button>}
-              <button type="button" className="send-btn stop" onClick={() => stop()} title="Stop"><CircleStop size={16} /></button>
+              <button type="button" className="send-btn stop" onClick={() => stop()} title="Stop" aria-label="Stop Bhippi"><StopGlyph /></button>
             </>
           ) : (
             <button type="submit" className="send-btn" disabled={!draft.trim() && !images.length && !(props.annotations && pendingNotes.length)} title="Send (Enter)"><ArrowUp size={16} /></button>
@@ -1549,6 +1470,9 @@ export function ChatPanel(props: Props) {
     </div>
   );
 }
+
+/** What an empty chat offers to start with; a tap puts it in the composer to edit or send. */
+const EMPTY_PROMPTS = ['Cut the dead air', 'Add bold captions', 'Make a 9:16 short from the best 30 seconds'];
 
 /**
  * What "Continue Workflow" tells the model to do next. One generic paragraph covering every
@@ -1589,30 +1513,36 @@ function workflowLine(workflow: WorkflowView, worked: boolean): { tone: 'ok' | '
   return { tone: 'warn', text: 'The workflow is not finished — some stages have not run or could not be verified.' };
 }
 
-function AssistantMessage({ message, latest, workflow, tools, canRevert, onRevert, onRemedy, onContinue, onDropSteer, steerActions }: { message: Assistant; latest: boolean; workflow: WorkflowView; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void; onDropSteer: (id: string) => void; steerActions?: SteerActions }) {
-  const [thinkingOpen, setThinkingOpen] = useState(false);
+function AssistantMessage({ message, latest, workflow, tools, canRevert, onRevert, onRemedy, onContinue, onDropSteer, steerActions, changes: changesProp = [], onJump, highlighted = false, onHighlight, kits = [], onUpdateKit, asking = false }: { message: Assistant; latest: boolean; asking?: boolean; workflow: WorkflowView; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; changes?: TurnChange[]; onJump?: (change: TurnChange) => void; highlighted?: boolean; onHighlight?: (on: boolean) => void; kits?: TrainedKit[]; onUpdateKit?: (kitId: string, change: (kit: TrainedKit) => TrainedKit) => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void; onDropSteer: (id: string) => void; steerActions?: SteerActions }) {
   const visible = message.content;
   const seconds = message.elapsedMs !== null ? `${(message.elapsedMs / 1000).toFixed(1)}s` : null;
   const streaming = message.status === 'streaming';
   // Every answer is Bhippi's; which provider wrote it stays out of the header.
   const changes = tools.filter((run) => run.status === 'done' && run.changedProject).length;
+  const timelineChanges = changes > 0 ? changesProp : [];
   const line = streaming ? null : workflowLine(workflow, tools.length > 0);
   const meta = [message.model, seconds].filter(Boolean).join(' · ');
+  const working = tools.some((run) => run.status === 'running') || message.steps.some((step) => !step.done);
+  const thinkingLive = streaming && !visible && !working;
+  // The mark plays "done" only for a turn seen finishing here, not for every answer a reload brings back.
+  const wasStreaming = useRef(streaming);
+  const [finishedHere, setFinishedHere] = useState(false);
+  useEffect(() => {
+    if (wasStreaming.current && message.status === 'done') setFinishedHere(true);
+    wasStreaming.current = streaming;
+  }, [message.status, streaming]);
+  const mark: MarkState = message.status === 'stopped' || message.status === 'error' ? 'stopped'
+    : asking ? 'waiting'
+    : streaming ? (working ? 'editing' : visible ? 'idle' : 'thinking')
+    : finishedHere ? 'done' : 'idle';
   return (
     <div className={`msg msg-assistant status-${message.status}${latest ? ' latest' : ''}`}>
       <div className="msg-meta">
-        <span className="msg-avatar bhippi"><img src="/bhippi.png" alt="" /></span>
+        <span className="msg-avatar bhippi"><BhippiMark state={mark} size={20} /></span>
         <span className="msg-who">Bhippi</span>
         {message.status === 'stopped' && <span className="msg-flag">Stopped</span>}
       </div>
-      {message.thinking && (
-        <button type="button" className={`thinking${streaming && !visible ? ' live' : ''}`} onClick={() => setThinkingOpen((value) => !value)} aria-expanded={thinkingOpen}>
-          <Brain size={12} className="thinking-icon" />
-          <span className="thinking-label">{streaming && !visible ? 'Thinking' : 'Thought process'}</span>
-          <ChevronRight size={12} className={`thinking-chevron${thinkingOpen ? ' rotate-90' : ''}`} />
-        </button>
-      )}
-      {thinkingOpen && <div className="thinking-body">{message.thinking}</div>}
+      {message.thinking && <ThinkingRow text={message.thinking} live={thinkingLive} />}
       <AnswerBody
         content={visible}
         segments={message.segments}
@@ -1637,11 +1567,39 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
       {changes > 0 && !streaming && (
         <div className="edits-card">
           <div className="edits-head">
-            <Check size={13} /> {changes} project change{changes === 1 ? '' : 's'} applied
-            {canRevert && <button type="button" className="btn btn-small btn-ghost" onClick={onRevert}><RotateCcw size={12} /> Revert</button>}
+            <StatusDot state="done" size={14} />
+            <span>{changes} change{changes === 1 ? '' : 's'} on the timeline</span>
+            {canRevert && <button type="button" className="edits-undo" onClick={onRevert} title="Put the project back to before this answer's edits"><RotateCcw size={12} /> Undo turn</button>}
           </div>
+          {timelineChanges.length > 0 && (
+            <details className="edits-list">
+              <summary>
+                On the timeline: {changeSummary(timelineChanges)}
+                {onHighlight && (
+                  <button type="button" className="edits-show" onClick={(event) => { event.preventDefault(); onHighlight(!highlighted); }} title={highlighted ? 'Stop tinting these clips on the timeline' : 'Tint these clips on the timeline'}>
+                    {highlighted ? 'Hide on timeline' : 'Show on timeline'}
+                  </button>
+                )}
+              </summary>
+              <ul>
+                {timelineChanges.slice(0, 40).map((change) => (
+                  <li key={`${change.compId}-${change.clipId}`}>
+                    <button type="button" className={`edits-item ${change.kind}`} disabled={!onJump} onClick={() => onJump?.(change)} title={change.kind === 'removed' ? 'Go to where it was' : 'Go to it and select it'}>
+                      <span className="edits-kind">{change.kind}</span>
+                      <span className="edits-name">{change.name}</span>
+                      <span className="edits-at">{clock(change.start)}</span>
+                    </button>
+                  </li>
+                ))}
+                {timelineChanges.length > 40 && <li className="edits-more">…and {timelineChanges.length - 40} more</li>}
+              </ul>
+            </details>
+          )}
         </div>
       )}
+      {onUpdateKit && tools.filter((run) => run.training).map((run) => (
+        <TrainingCard key={run.callId} kit={kits.find((kit) => kit.id === run.training!.kitId)} sourceId={run.training!.sourceId} onChange={onUpdateKit} />
+      ))}
       {message.notes.length > 0 && <div className="notes">{message.notes.map((note, index) => <div key={index}>{note}</div>)}</div>}
       {message.limit && message.limit.used >= 0.8 && (
         <div className="limit-note">{message.providerLabel} plan usage at {Math.round(message.limit.used * 100)}%</div>
@@ -1657,3 +1615,50 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
   );
 }
 
+/**
+ * The model's reasoning, as one row. While it thinks the row shimmers, counts the seconds, and
+ * shows its last few lines scrolling past; a second after it stops it folds to "Thought for 5s",
+ * one click away. A reloaded answer has no clock to go by, so it just says "Thought process".
+ */
+function ThinkingRow({ text, live }: { text: string; live: boolean }) {
+  const [started] = useState(() => Date.now());
+  const [now, setNow] = useState(started);
+  const [took, setTook] = useState<number | null>(null);
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const [lingering, setLingering] = useState(live);
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!live) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [live]);
+  useEffect(() => {
+    if (live) {
+      setLingering(true);
+      return;
+    }
+    if (lingering) setTook(Math.max(1, Math.round((Date.now() - started) / 1000)));
+    const handle = window.setTimeout(() => setLingering(false), 1000);
+    return () => window.clearTimeout(handle);
+  }, [live]);
+  // While it streams, the window keeps its newest line in view.
+  useEffect(() => {
+    if (live && body.current) body.current.scrollTop = body.current.scrollHeight;
+  }, [text, live]);
+  const open = chosen ?? lingering;
+  const seconds = Math.max(1, Math.round((now - started) / 1000));
+  return (
+    <div className={`think${open ? ' open' : ''}${live ? ' live' : ''}`}>
+      <button type="button" className="think-btn" onClick={() => setChosen(!open)} aria-expanded={open}>
+        <span className={live ? 'ai-shimmer' : undefined}>{live ? 'Thinking' : took ? `Thought for ${took}s` : 'Thought process'}</span>
+        {live && <span className="think-time">· {seconds}s</span>}
+        <ChevronRight size={12} className={`think-chevron${open ? ' rotate-90' : ''}`} />
+      </button>
+      <div className="think-fold" aria-hidden={!open}>
+        <div>
+          <div className="think-body" ref={body}>{text}</div>
+        </div>
+      </div>
+    </div>
+  );
+}

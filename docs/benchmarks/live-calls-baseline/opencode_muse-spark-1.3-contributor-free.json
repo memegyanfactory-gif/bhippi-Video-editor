@@ -1,0 +1,252 @@
+{
+ "model": "opencode/muse-spark-1.3-contributor-free",
+ "calls": [
+  {
+   "brief": "lower-third",
+   "attempts": [
+    {
+     "args": {
+      "template": "crimson-lower-third",
+      "title": "Priya Raman",
+      "subtitle": "Head of Growth at Finlo"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "hook",
+   "attempts": [
+    {
+     "args": {
+      "template": "hook-promise",
+      "title": "Save Your First $10,000 in One Year",
+      "subtitle": "Even on a small salary"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "chart",
+   "attempts": [
+    {
+     "args": {
+      "template": "stat-chart",
+      "title": "Revenue Growth",
+      "subtitle": "Million dollars",
+      "rows": [
+       "2021 — $12M",
+       "2022 — $19M",
+       "2023 — $31M",
+       "2024 — $48M"
+      ],
+      "values": [
+       12,
+       19,
+       31,
+       48
+      ],
+      "activeIndex": 3
+     },
+     "error": "The graphic built, but: subtitle dropped (million, dollars not shown)"
+    },
+    {
+     "args": {
+      "template": "stat-chart",
+      "title": "Revenue Growth",
+      "subtitle": "In million dollars",
+      "kicker": "MILLION DOLLARS",
+      "rows": [
+       "2021 — $12 million dollars",
+       "2022 — $19 million dollars",
+       "2023 — $31 million dollars",
+       "2024 — $48 million dollars"
+      ],
+      "values": [
+       12,
+       19,
+       31,
+       48
+      ],
+      "activeIndex": 3
+     }
+    }
+   ]
+  },
+  {
+   "brief": "teaching",
+   "attempts": [
+    {
+     "args": {
+      "template": "teaching-card",
+      "title": "50/30/20 Budget Rule",
+      "kicker": "BUDGET BASICS",
+      "rows": [
+       "50% Needs — rent, bills, groceries & essentials",
+       "30% Wants — dining out, travel & fun",
+       "20% Savings — debt payoff, emergency fund & investing"
+      ],
+      "layout": "centre-card"
+     },
+     "error": "The graphic built, but: rows: 1 item overflow (50 chars fit)"
+    },
+    {
+     "args": {
+      "template": "teaching-card",
+      "title": "50/30/20 Budget Rule",
+      "kicker": "BUDGET BASICS",
+      "rows": [
+       "50% Needs — rent, bills, groceries & essentials",
+       "30% Wants — dining out, travel & fun",
+       "20% Savings — debt, emergency fund & investing"
+      ],
+      "layout": "centre-card"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "compare",
+   "attempts": [
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs Buying a Home",
+      "subtitle": "Same goal: a place to live",
+      "kicker": "FAIR COMPARISON",
+      "rows": [
+       "Renting — Flexibility, lower upfront cost, maintenance covered",
+       "Buying — Builds equity, more stability, higher upfront cost + upkeep"
+      ],
+      "layout": "fullscreen"
+     },
+     "error": "The graphic built, but: subtitle dropped (same, goal:, place not shown); rows: 2 items overflow (60 chars fit)"
+    },
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs Buying a Home",
+      "kicker": "FAIR COMPARISON",
+      "rows": [
+       "Renting — Flexible, low upfront, no maintenance",
+       "Buying — Equity, stability, high upfront + upkeep"
+      ],
+      "layout": "fullscreen"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "news",
+   "attempts": [
+    {
+     "args": {
+      "template": "breaking-news",
+      "title": "Markets fall 4% after the central bank rate decision",
+      "badge": "BREAKING NEWS"
+     },
+     "error": "The graphic built, but: badge overflows: 13 chars where 12 fit"
+    },
+    {
+     "args": {
+      "template": "breaking-news",
+      "title": "Markets fall 4% after the central bank rate decision",
+      "badge": "BREAKING"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "quote",
+   "attempts": [
+    {
+     "args": {
+      "template": "editorial-quote",
+      "title": "Discipline is choosing what you want most over what you want now.",
+      "accentWord": "Discipline",
+      "accentColor": "#FF0000"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "chapter",
+   "attempts": [
+    {
+     "args": {
+      "template": "chapter-marker",
+      "title": "Investing basics",
+      "kicker": "CHAPTER 3"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "roadmap",
+   "attempts": [
+    {
+     "args": {
+      "template": "numbered-lanes",
+      "title": "Five Steps to Launch a Product",
+      "kicker": "ROADMAP",
+      "rows": [
+       "Research — Understand the market",
+       "Prototype — Build the first version",
+       "Test — Validate with users",
+       "Launch — Ship to market",
+       "Grow — Scale what works"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "brief": "countdown",
+   "attempts": [
+    {
+     "args": {
+      "template": "countdown",
+      "title": "10",
+      "duration": 10
+     }
+    }
+   ]
+  },
+  {
+   "brief": "panel",
+   "attempts": [
+    {
+     "args": {
+      "template": "side-panel",
+      "title": "4 Rules for Writing Hooks",
+      "kicker": "HOOKS",
+      "rows": [
+       "Be specific",
+       "Open a loop",
+       "Promise a payoff",
+       "Cut the intro"
+      ],
+      "accentColor": "#14B8A6",
+      "layout": "side-panel-right"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "timeline",
+   "attempts": [
+    {
+     "args": {
+      "template": "timeline-roadmap",
+      "title": "Company History",
+      "rows": [
+       "2015 — Founded",
+       "2017 — First office",
+       "2021 — IPO",
+       "2024 — One million users"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -396,6 +396,49 @@ async fn upload_audio(tools: &Tools, source: &str, work: &Path, asset_id: &str, 
     Ok(Audio { bytes, extension })
 }
 
+/// A correction the user typed in the Transcript panel: the word spoken from `start` to `end`
+/// (source seconds) reads `text` from now on. Empty text deletes the word.
+#[derive(Clone, Debug, Deserialize)]
+pub struct WordEdit {
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+}
+
+/// Applies `edits` to `transcript` (each word found by its timing), keeping `text` in step.
+/// Returns how many words changed.
+pub fn apply_edits(transcript: &mut Transcript, edits: &[WordEdit]) -> usize {
+    let mut changed = 0;
+    for edit in edits {
+        let Some(index) = transcript.words.iter().position(|word| (word.start - edit.start).abs() < 1e-3 && (word.end - edit.end).abs() < 1e-3) else {
+            continue;
+        };
+        let text = edit.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if text.is_empty() {
+            transcript.words.remove(index);
+        } else if transcript.words[index].text.trim() != text {
+            transcript.words[index].text = text;
+        } else {
+            continue;
+        }
+        changed += 1;
+    }
+    if changed > 0 {
+        transcript.text = transcript.words.iter().map(|word| word.text.trim()).filter(|text| !text.is_empty()).collect::<Vec<_>>().join(" ");
+    }
+    changed
+}
+
+/// Saves corrections to an asset's cached transcript; the corrected transcript, or None when
+/// the asset has none.
+pub fn edit_cached(thumbnails: &Path, asset_id: &str, edits: &[WordEdit]) -> Option<Transcript> {
+    let mut transcript = cached(thumbnails, asset_id)?;
+    if apply_edits(&mut transcript, edits) > 0 {
+        remember(thumbnails, &transcript);
+    }
+    Some(transcript)
+}
+
 /// Keeps a finished transcript beside the asset's other derived files.
 fn remember(thumbnails: &Path, transcript: &Transcript) {
     if let Ok(text) = serde_json::to_string(transcript) {
@@ -1553,5 +1596,25 @@ mod chain_tests {
         assert_eq!(transcript.words[1].speaker, Some(2));
         assert!(transcript.diarized);
         assert_eq!(transcript.language, "auto");
+    }
+}
+
+#[cfg(test)]
+mod word_edit_tests {
+    use super::{apply_edits, Transcript, TimedWord, WordEdit};
+
+    fn transcript() -> Transcript {
+        let word = |text: &str, start: f64, end: f64| TimedWord { text: text.to_owned(), start, end, speaker: None };
+        Transcript { asset_id: "a".to_owned(), provider: "test".to_owned(), language: "en".to_owned(), words: vec![word("hello", 0.0, 0.4), word("wurld", 0.5, 0.9), word("um", 1.0, 1.1)], text: "hello wurld um".to_owned(), diarized: false }
+    }
+
+    #[test]
+    fn corrections_find_the_word_by_its_timing_and_keep_the_text_in_step() {
+        let mut t = transcript();
+        let edits = [WordEdit { start: 0.5, end: 0.9, text: " world ".to_owned() }, WordEdit { start: 1.0, end: 1.1, text: String::new() }, WordEdit { start: 5.0, end: 5.5, text: "x".to_owned() }];
+        assert_eq!(apply_edits(&mut t, &edits), 2);
+        assert_eq!(t.text, "hello world");
+        assert_eq!(t.words.len(), 2);
+        assert_eq!(apply_edits(&mut t, &[WordEdit { start: 0.0, end: 0.4, text: "hello".to_owned() }]), 0, "unchanged text is not an edit");
     }
 }

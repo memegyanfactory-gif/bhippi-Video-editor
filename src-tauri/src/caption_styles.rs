@@ -179,7 +179,15 @@ pub fn events(graphic: &Graphic, style: &CaptionStyle, width: u32, height: u32) 
     let shadow = if style.shadow { fs * 0.06 } else { 0.0 };
 
     let mut lines = Vec::new();
-    let intervals: Vec<(f64, f64, Option<usize>)> = if karaoke {
+    // A transcribed caption knows when each word is said; one edited since (word count changed)
+    // falls back to the even share.
+    let spoken = graphic.word_starts.as_ref().filter(|starts| starts.len() == words.len());
+    let intervals: Vec<(f64, f64, Option<usize>)> = if let (true, Some(starts)) = (karaoke, spoken) {
+        let at = |index: usize| if index == 0 { start } else { starts[index].clamp(start, end) };
+        (0..words.len())
+            .map(|index| (at(index), if index + 1 == words.len() { end } else { at(index + 1).max(at(index)) }, Some(index)))
+            .collect()
+    } else if karaoke {
         (0..words.len())
             .map(|index| (start + step * index as f64, if index + 1 == words.len() { end } else { start + step * (index + 1) as f64 }, Some(index)))
             .collect()
@@ -294,7 +302,7 @@ mod tests {
     use crate::project::{Graphic, Preset};
 
     fn caption(text: &str, style: &str) -> Graphic {
-        Graphic { id: "c".into(), text: text.into(), subtitle: String::new(), start: 1.0, duration: 3.0, preset: Preset::Caption, color: "#FFFFFF".into(), style: Some(style.into()) }
+        Graphic { id: "c".into(), text: text.into(), subtitle: String::new(), start: 1.0, duration: 3.0, preset: Preset::Caption, color: "#FFFFFF".into(), style: Some(style.into()), word_starts: None }
     }
 
     #[test]
@@ -323,6 +331,21 @@ mod tests {
         assert!(lines[0].contains("MAKE"), "uppercase applies");
         assert!(lines[1].contains("\\1c&H00E6FF&"), "the active word is yellow: {}", lines[1]);
         assert!(lines[2].contains("\\fad(0,140)"), "only the last event fades out");
+    }
+
+    #[test]
+    fn karaoke_follows_real_word_timings_and_falls_back_when_the_words_changed() {
+        let style = find("hormozi").expect("hormozi");
+        // "make" at 1.0, a long pause, "it" at 3.2, "pop" at 3.5 (caption 1.0–4.0).
+        let timed = Graphic { word_starts: Some(vec![1.0, 3.2, 3.5]), ..caption("make it pop", "hormozi") };
+        let lines = events(&timed, style, 1080, 1920);
+        assert_eq!(lines.len(), 3, "{lines:#?}");
+        assert!(lines[0].contains(",0:00:01.00,0:00:03.20,"), "{}", lines[0]);
+        assert!(lines[1].contains(",0:00:03.20,0:00:03.50,"), "{}", lines[1]);
+        // Edited to four words: the three timings no longer fit, so the time is shared evenly.
+        let edited = Graphic { word_starts: Some(vec![1.0, 3.2, 3.5]), ..caption("make it pop now", "hormozi") };
+        let lines = events(&edited, style, 1080, 1920);
+        assert!(lines[1].contains(",0:00:01.75,"), "{}", lines[1]);
     }
 
     #[test]

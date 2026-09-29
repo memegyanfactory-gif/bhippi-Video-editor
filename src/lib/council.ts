@@ -141,7 +141,7 @@ export const SEAT_TOOLS: Record<CouncilRole, ReadonlySet<string>> = {
     'synthesize_speech_voiceover', 'analyze_clip_speech', 'podcast_cut', 'search_sfx', 'place_sfx',
   ]),
   animator: new Set([
-    'create_motion_scene', 'update_motion_scene', 'render_3d_scene', 'create_ui_screen', 'update_ui_screen', 'create_motion_sequence', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'import_lottie', 'create_motion_graphic', 'set_keyframes', 'add_text', 'reveal_subject',
+    'create_motion_scene', 'update_motion_scene', 'render_3d_scene', 'create_ui_screen', 'update_ui_screen', 'create_motion_sequence', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'import_lottie', 'create_motion_graphic', 'add_graphic', 'set_keyframes', 'add_text', 'reveal_subject',
     'add_text_behind_subject', 'add_media_behind_subject', 'rotoscope_clip', 'erase_subject_clip', 'nest_motion_scenes', 'react_bits', 'add_captions',
     'cutout_image', 'detect_faces', 'key_green_screen',
   ]),
@@ -409,8 +409,10 @@ function reviewAnimator(ctx: Ctx, out: CouncilNote[]): { density: number; frames
     out.push({
       member: 'animator',
       // On a roast the Comedian holds the cut over dead zones (the @funny 8 s band counts cuts and
-      // cutaways too); the Animator still asks for designed motion but does not block.
-      severity: length > 6 && !comp.roast ? 'block' : 'fix',
+      // cutaways too); the Animator still asks for designed motion but does not block. Taste only
+      // holds a planned production: an interview, tutorial or plain edit is advised, never forced
+      // to grow a graphic every few seconds.
+      severity: length > 6 && !comp.roast && !!comp.production ? 'block' : 'fix',
       at: [from, to],
       text: `${span(from, to)} is ${length.toFixed(1)} s (${frames} frames) with no designed motion on screen.`,
       fix: `Build a graphic for what is said there (create_motion_scene or a brand-* template, landing on the spoken words), or key a push-in/drift on the shot — one designed element at least every 3 s.`,
@@ -562,7 +564,8 @@ function reviewAudio(ctx: Ctx, out: CouncilNote[]) {
   const sfx = audible.filter(isSfx);
   if (end < 1) return;
   if (end >= 15 && !music.length && production?.music?.source !== 'none') {
-    out.push({ member: 'audio', severity: 'block', text: `No music bed under ${Math.round(end)} s of picture.`, fix: 'Lay the planned music on its own audio track, level it 18–24 dB under the voice, fade it in and out — or set the plan\'s music to none if the video is meant to be dry.' });
+    // Only a planned production holds for music; a plain edit (a talk, an interview) may be dry.
+    out.push({ member: 'audio', severity: production ? 'block' : 'fix', text: `No music bed under ${Math.round(end)} s of picture.`, fix: 'Lay the planned music on its own audio track, level it 18–24 dB under the voice, fade it in and out — or set the plan\'s music to none if the video is meant to be dry.' });
   }
   for (const clip of music) {
     const volumeKeys = clip.keyframes?.volume ?? [];

@@ -4,6 +4,7 @@
 // Reads are allowed in every phase; writes go through the host's settings callbacks so the panel,
 // the tools and the system prompt always see the same document.
 
+import { addLearnings, forgetSource, LEARNING_AREAS, type NewLearning } from './brandKit/learnings';
 import type { ToolHost } from './aiTools';
 import {
   ARCHETYPES, BRAND_KIT_SECTIONS, DAISY_THEMES, HOUSE_ARCHETYPE, assetDataUrl, assetText, brandBoard, brandKitContext, brandKitPrompt, brandKitSummary, brandKitTheme,
@@ -34,6 +35,7 @@ export const BRAND_KIT_TOOLS = new Set([
   'list_brand_kits', 'get_brand_kit', 'list_brand_archetypes', 'create_brand_kit', 'update_brand_kit', 'delete_brand_kit',
   'set_active_brand_kit', 'apply_brand_kit', 'brand_kit_prompt', 'render_brand_board', 'import_brand_logo', 'export_brand_kit', 'import_brand_kit',
   'get_brand_guideline', 'extract_brand_from_url', 'check_brand_compliance',
+  'train_brand_kit', 'forget_training',
 ]);
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
@@ -357,6 +359,59 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
       if (error) return fail(error);
       if (bool(args, 'activate') !== false) ctx.commit((current) => ({ ...current, activeBrandKitId: result.id }), 'Brand kit');
       return done(`Imported brand kit "${result.name}".`, { kit: publicKit(result), context: brandKitContext(result) });
+    }
+
+    case 'train_brand_kit': {
+      // /train (docs/TRAIN-AND-TEMPLATES-PLAN.md Part A): what a reference taught, into the kit.
+      const kit = kitOf(host, project, args);
+      if (!kit) return noKit(str(args, 'id') ?? str(args, 'query'));
+      const source = record(args, 'source');
+      const kinds = ['video', 'link', 'image', 'website', 'timeline', 'file'] as const;
+      const kind = kinds.find((value) => value === source?.kind);
+      const label = typeof source?.label === 'string' ? source.label.trim() : '';
+      if (!kind || !label) return fail(`source must be {"kind": ${kinds.map((value) => `"${value}"`).join(' | ')}, "label": "<what the user gave>", "ref"?: "<path or URL>"}.`);
+      const raw = Array.isArray(args.learnings) ? (args.learnings as unknown[]) : [];
+      const accepted: NewLearning[] = [];
+      const rejected: string[] = [];
+      for (const [index, entry] of raw.entries()) {
+        const item = entry && typeof entry === 'object' ? (entry as Args) : {};
+        const area = LEARNING_AREAS.find((value) => value === item.area);
+        const text = typeof item.text === 'string' ? item.text.trim() : '';
+        const value = item.value && typeof item.value === 'object' && !Array.isArray(item.value)
+          ? Object.fromEntries(Object.entries(item.value as Args).filter(([, v]) => typeof v === 'number' || typeof v === 'string' || (Array.isArray(v) && v.every((x) => typeof x === 'string')))) as NewLearning['value']
+          : undefined;
+        if (!area) rejected.push(`#${index + 1}: area must be one of ${LEARNING_AREAS.join(', ')}`);
+        else if (text.length < 8 || text.length > 200) rejected.push(`#${index + 1}: text must be one rule of 8–200 characters`);
+        else accepted.push({ area, text, value: value && Object.keys(value).length ? value : undefined });
+      }
+      // Measured before described: a reference analysed with analyze_reference_video brings its
+      // real cut rate and palette, so those never depend on the model's reading.
+      const referenceId = str(args, 'referenceId');
+      if (referenceId) {
+        const film = (await api.refsList().catch(() => [])).find((entry) => entry.id === referenceId);
+        if (!film) return fail(`No analysed reference "${referenceId}". analyze_reference_video gives its id.`);
+        if (film.cutEvery > 0) accepted.unshift({ area: 'pacing', text: `Cuts about every ${film.cutEvery.toFixed(1)} s (measured over ${film.cuts.length} cuts)`, value: { cutEvery: Math.round(film.cutEvery * 100) / 100 }, confidence: 0.7 });
+        if (film.palette.length) accepted.unshift({ area: 'color', text: `Palette measured from the footage: ${film.palette.slice(0, 6).join(', ')}`, value: { palette: film.palette.slice(0, 6) }, confidence: 0.7 });
+      }
+      if (!accepted.length) return fail(`Nothing to learn: ${rejected.join('; ') || 'send learnings [{area, text, value?}]'}.`);
+      const trained = addLearnings(kit, { kind, label, ref: typeof source?.ref === 'string' ? source.ref : referenceId }, accepted);
+      const error = await saveDoc(host, { ...doc, kits: doc.kits.map((k) => (k.id === kit.id ? trained.kit : k)) });
+      if (error) return fail(error);
+      const taught = (trained.kit.learnings ?? []).filter((learning) => learning.sourceIds.includes(trained.sourceId));
+      return done(
+        `Trained "${kit.name}" from ${label}: ${trained.added} new, ${trained.strengthened} strengthened (other references agreed), ${trained.replaced} replaced by newer measurements.${rejected.length ? ` Skipped: ${rejected.join('; ')}.` : ''} The user can review them in the chat card and in Settings › Brand kit › Learnings.`,
+        { kitId: kit.id, sourceId: trained.sourceId, learnings: taught.map(({ area, text, confidence }) => ({ area, text, confidence })) },
+      );
+    }
+
+    case 'forget_training': {
+      const kit = kitOf(host, project, args);
+      if (!kit) return noKit(str(args, 'id'));
+      const sourceId = str(args, 'sourceId');
+      if (!sourceId || !(kit.sources ?? []).some((source) => source.id === sourceId)) return fail(`"${kit.name}" was not trained on "${sourceId ?? ''}". get_brand_kit {"section": "learnings"} lists its sources.`);
+      const error = await saveDoc(host, { ...doc, kits: doc.kits.map((k) => (k.id === kit.id ? forgetSource(k, sourceId) : k)) });
+      if (error) return fail(error);
+      return done(`Forgot what "${kit.name}" learned from that source.`, { kitId: kit.id, sourceId });
     }
 
     case 'get_brand_guideline': {

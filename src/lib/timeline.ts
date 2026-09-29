@@ -6,7 +6,7 @@
 // can undo any of them as one step.
 import { normalizeEffectClip } from './effectState';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TEXT, DEFAULT_TRANSFORM, FPS, isHexColor, SFX_LENGTH, STILL_DEFAULT, uid } from './editor';
-import { EMPTY_KEYFRAMES, shiftKeys } from './keyframes';
+import { EMPTY_KEYFRAMES, shiftEffectKeys, shiftKeys } from './keyframes';
 import { findRbCard, parseRbStyle } from './reactbits';
 import type { Asset, Clip, ClipSource, Comp, Folder, ItemKind, Marker, MediaRef, Preset, Project, ProjectItem, SfxKind, Track, TrackKind, Transition, TransitionKind } from './types';
 
@@ -105,7 +105,7 @@ export function newComp({ name, width = 1920, height = 1080, fps = FPS }: { name
 
 export function newProject(name = 'Untitled project'): Project {
   const comp = newComp({ name: 'Comp 1' });
-  return { version: 3, name, comps: [comp], items: [], media: [], folders: [], activeCompId: comp.id, openCompIds: [comp.id], captionStyle: null, activeBrandKitId: null };
+  return { version: 3, name, comps: [comp], items: [], media: [], folders: [], activeCompId: comp.id, openCompIds: [comp.id], captionStyle: null, activeBrandKitId: null, captionLook: 'fiwn' };
 }
 
 /**
@@ -164,7 +164,7 @@ export function newClip(fields: Pick<Clip, 'trackId' | 'start' | 'duration' | 's
   };
 }
 
-export function textSource(preset: Preset, options: { text?: string; subtitle?: string; color?: string; style?: string | null; vertical?: boolean } = {}): ClipSource {
+export function textSource(preset: Preset, options: { text?: string; subtitle?: string; color?: string; style?: string | null; vertical?: boolean; words?: number[] | null; wordEnds?: number[] | null } = {}): ClipSource {
   // Caption clips keep any style id. Other presets keep only React-Bits motion /
   // card tokens (bare `rb-*` ids) so entrances like `rb-decrypted` survive the
   // round trip; catalogue caption style ids on a title would be meaningless.
@@ -181,6 +181,8 @@ export function textSource(preset: Preset, options: { text?: string; subtitle?: 
     color: isHexColor(options.color) ? options.color.toUpperCase() : preset === 'caption' ? '#FFFFFF' : '#FFC53D',
     style: preset === 'caption' ? (options.style ?? null) : keepMotion,
     vertical: !!options.vertical,
+    ...(options.words?.length ? { words: options.words } : {}),
+    ...(options.wordEnds?.length && options.wordEnds.length === options.words?.length ? { wordEnds: options.wordEnds } : {}),
   };
 }
 
@@ -540,6 +542,7 @@ function tail(clip: Clip, from: number, ctx: Ctx, newId: boolean): Clip {
     in: advance(clip, offset),
     duration: clipEnd(clip) - from,
     keyframes: shiftKeys(clip.keyframes, offset),
+    ...(clip.effectKeys ? { effectKeys: shiftEffectKeys(clip.effectKeys, offset) } : {}),
   };
   if (newId) ctx.tails.set(clip.id, piece.id);
   return piece;
@@ -919,6 +922,7 @@ export function trimEdge(comp: Comp, clipId: string, edge: 'in' | 'out', target:
     ...item,
     in: item.hold !== null || item.reverse ? item.in : item.in + amount * item.speed,
     keyframes: shiftKeys(item.keyframes, amount),
+    ...(item.effectKeys ? { effectKeys: shiftEffectKeys(item.effectKeys, amount) } : {}),
   });
   const extendTail = (item: Clip, amount: number): Clip => (item.reverse && item.hold === null ? { ...item, in: item.in - amount * item.speed } : item);
 
@@ -1019,7 +1023,7 @@ export function slideClip(comp: Comp, clipId: string, dt: number, limit: (clip: 
   for (const { item, previous, next } of plan) {
     changes.set(item.id, { ...item, start: item.start + delta });
     if (previous) changes.set(previous.id, { ...previous, duration: previous.duration + delta });
-    if (next) changes.set(next.id, { ...next, start: next.start + delta, in: next.hold !== null || next.reverse ? next.in : next.in + delta * next.speed, duration: next.duration - delta, keyframes: shiftKeys(next.keyframes, delta) });
+    if (next) changes.set(next.id, { ...next, start: next.start + delta, in: next.hold !== null || next.reverse ? next.in : next.in + delta * next.speed, duration: next.duration - delta, keyframes: shiftKeys(next.keyframes, delta), ...(next.effectKeys ? { effectKeys: shiftEffectKeys(next.effectKeys, delta) } : {}) });
   }
   return tidy({ ...comp, clips: comp.clips.map((item) => changes.get(item.id) ?? item) });
 }
@@ -1036,21 +1040,34 @@ export function razor(comp: Comp, time: number, tracks: string[] | null, clipIds
 /** Speed/Duration: the source range stays the same unless a duration is given. Without ripple the clip is cut short rather than overlap the next one. */
 export function setSpeed(comp: Comp, ids: string[], options: { speed: number; duration?: number; ripple?: boolean; reverse?: boolean; maintainPitch?: boolean; interpolation?: Clip['interpolation']; limit: (clip: Clip) => number }): Comp {
   let next = comp;
+  const rate = clamp(options.speed, 0.05, 20);
+  const chosen = new Set(ids);
+  const done = new Set<string>();
   for (const id of ids) {
+    if (done.has(id)) continue;
     const clip = next.clips.find((item) => item.id === id);
     if (!clip || trackOf(next, clip.trackId)?.locked) continue;
-    const rate = clamp(options.speed, 0.05, 20);
-    const wanted = options.duration ?? (clip.duration * clip.speed) / rate;
-    const maxBySource = clip.hold !== null ? Infinity : (options.limit(clip) - clip.in) / rate;
-    let duration = Math.max(MIN_DURATION, Math.min(wanted, maxBySource));
-    const { after } = bounds(next.clips, clip);
+    // Linked halves retimed together (same span) are one unit: one duration, and later material
+    // ripples once. Retimed clip by clip, a linked A/V pair shifted everything after it twice.
+    const unit = next.clips.filter((item) => item.id === clip.id || (
+      !!clip.linkId && item.linkId === clip.linkId && chosen.has(item.id) && !done.has(item.id)
+      && Math.abs(item.start - clip.start) < EPS && Math.abs(item.duration - clip.duration) < EPS
+      && !trackOf(next, item.trackId)?.locked
+    ));
+    const members = new Set(unit.map((item) => item.id));
+    for (const member of members) done.add(member);
+    let duration = Math.max(MIN_DURATION, Math.min(...unit.map((item) => {
+      const wanted = options.duration ?? (item.duration * item.speed) / rate;
+      const maxBySource = item.hold !== null ? Infinity : (options.limit(item) - item.in) / rate;
+      return Math.min(wanted, maxBySource);
+    })));
     let clips = next.clips;
-    if (options.ripple) clips = [...rippleTracks(clips.filter((item) => item.id !== clip.id), clipEnd(clip), clip.start + duration - clipEnd(clip), syncIds(next, [clip.trackId])), clip];
-    else duration = Math.min(duration, after - clip.start);
+    if (options.ripple) clips = [...rippleTracks(clips.filter((item) => !members.has(item.id)), clipEnd(clip), clip.start + duration - clipEnd(clip), syncIds(next, unit.map((item) => item.trackId))), ...unit];
+    else duration = Math.min(duration, ...unit.map((item) => bounds(next.clips, item).after - item.start));
     const scale = duration / clip.duration;
     next = {
       ...next,
-      clips: clips.map((item) => (item.id !== clip.id ? item : {
+      clips: clips.map((item) => (!members.has(item.id) ? item : {
         ...item,
         speed: rate,
         duration,
@@ -1148,7 +1165,15 @@ export function pasteAttributes(comp: Comp, ids: string[], from: Clip, attribute
         out.keyframes.opacity = from.keyframes.opacity;
       }
       if (attributes.crop) Object.assign(out.transform, { cropLeft: from.transform.cropLeft, cropTop: from.transform.cropTop, cropRight: from.transform.cropRight, cropBottom: from.transform.cropBottom });
-      if (attributes.effects) out.effects = { ...from.effects };
+      if (attributes.effects) {
+        out.effects = { ...from.effects };
+        // The effect stack (Color Studio grade, LUTs, curves, every Effect Controls effect), each
+        // with a fresh id. An effect limited to one of the source clip's Magic Masks stays behind:
+        // that mask belongs to the other clip and would draw nothing here.
+        out.appliedEffects = (from.appliedEffects ?? [])
+          .filter((effect) => !effect.maskId)
+          .map((effect) => ({ ...effect, id: uid(), params: { ...effect.params } }));
+      }
       if (attributes.mask) out.mask = from.mask ? { ...from.mask, points: [...from.mask.points] } : null;
       if (attributes.volume) {
         out.volume = from.volume;
@@ -1585,4 +1610,95 @@ export function restoreScripts(project: Project): Project {
     const { quarantinedJs, ...rest } = source;
     return { ...rest, js: quarantinedJs };
   });
+}
+
+// ───────────────────────────── three-point editing ─────────────────────────────
+
+export type ThreePoint = { start: number; in: number; duration: number; note: string | null };
+
+/**
+ * Where a source edit (Insert / Overwrite) lands, Premiere's three-point rules: the timeline's
+ * In and Out, when marked, decide the place and length; otherwise the playhead.
+ *   timeline In + Out → fills In→Out from the source In (the source Out gives way)
+ *   timeline In only  → starts at In, the source range's length
+ *   timeline Out only → back-timed: ends at Out
+ *   neither           → starts at the playhead
+ * `available` is how much source there is from the source In (a shorter source fills less, and
+ * says so in `note`).
+ */
+export function threePointEdit(timeline: { in: number | null; out: number | null }, playhead: number, source: { in: number; out: number }, available: number, frame: number): ThreePoint {
+  const wanted = Math.max(frame, source.out - source.in);
+  const tIn = timeline.in;
+  const tOut = timeline.out;
+  if (tIn !== null && tOut !== null && tOut - tIn >= frame) {
+    const span = tOut - tIn;
+    const duration = Math.min(span, Math.max(frame, available));
+    return { start: tIn, in: source.in, duration, note: duration < span - frame / 2 ? `The source runs out ${(span - duration).toFixed(2)} s before the timeline Out.` : null };
+  }
+  if (tIn !== null) return { start: tIn, in: source.in, duration: wanted, note: null };
+  if (tOut !== null) {
+    // Back-timed: ends at Out. Too close to 0 to fit, the head is trimmed off instead.
+    const duration = Math.min(wanted, Math.max(frame, tOut));
+    return { start: Math.max(0, tOut - duration), in: source.in + (wanted - duration), duration, note: duration < wanted - frame / 2 ? 'Trimmed at the head to end at the timeline Out.' : null };
+  }
+  return { start: playhead, in: source.in, duration: wanted, note: null };
+}
+
+/** Fit to Fill: the speed that plays the source range across the timeline In→Out exactly. */
+export function fitToFillSpeed(timeline: { in: number | null; out: number | null }, source: { in: number; out: number }): number | null {
+  if (timeline.in === null || timeline.out === null || timeline.out <= timeline.in || source.out <= source.in) return null;
+  return (source.out - source.in) / (timeline.out - timeline.in);
+}
+
+/**
+ * Reverse Match Frame: every place in `comp` where `sourceTime` of an asset plays, as the clip and
+ * its timeline time, nearest to `near` first. Held frames match nothing (they show one frame).
+ */
+export function whereSourcePlays(comp: Comp, assetId: string, sourceTime: number, near: number): { clip: Clip; time: number }[] {
+  return comp.clips
+    .filter((clip) => clip.source.type === 'media' && clip.source.assetId === assetId && clip.hold === null && sourceTime >= clip.in - 1e-6 && sourceTime <= sourceOut(clip) + 1e-6)
+    .map((clip) => ({ clip, time: clip.start + (clip.reverse ? sourceOut(clip) - sourceTime : sourceTime - clip.in) / Math.max(1e-6, clip.speed) }))
+    .sort((a, b) => Math.abs(a.time - near) - Math.abs(b.time - near));
+}
+
+/**
+ * Rearrange (Ctrl+drag): the clips are lifted out with their gap closed, then inserted at their
+ * new place, so reordering shots is one move instead of move + close gap. `dt` is how far the
+ * drag moved them, measured on the timeline before the lift; a drop past where they were lands
+ * where it was aimed after the gap closes. Transitions between the moved clips go with them.
+ */
+export function rearrangeClips(comp: Comp, ids: string[], dt: number): { comp: Comp; ids: string[] } | null {
+  const chosen = new Set(ids);
+  const moving = comp.clips.filter((clip) => chosen.has(clip.id));
+  if (!moving.length) return null;
+  const locked = lockedIds(comp);
+  if (moving.some((clip) => locked.has(clip.trackId))) return null;
+  const from = Math.min(...moving.map((clip) => clip.start));
+  const span = Math.max(...moving.map(clipEnd)) - from;
+  let to = Math.max(0, from + dt);
+  // Dropped inside where it already was: nothing to rearrange.
+  if (to > from - EPS && to < from + span - EPS) return null;
+  // Everything after the lifted span moves up by its length.
+  if (to >= from + span) to -= span;
+  const lifted = removeClips(comp, ids, true);
+  const placed = moving.map((clip) => ({ ...clip, start: clip.start - from + to }));
+  const carried = comp.transitions.filter((transition) => [transition.fromClip, transition.toClip].every((id) => !id || chosen.has(id)) && (transition.fromClip || transition.toClip));
+  const next = placeClips(lifted, placed, 'insert');
+  return { comp: tidy({ ...next, transitions: [...next.transitions.filter((transition) => !carried.some((item) => item.id === transition.id)), ...carried] }), ids: placed.map((clip) => clip.id) };
+}
+
+/**
+ * How far a linked clip has slipped out of sync with its partner (Premiere's red "+12" badge),
+ * in frames at `fps`: where their shared source would line up, compared. 0 when in sync, not
+ * linked, or linked to a clip of another source (a merged or synchronised pair lines up by hand).
+ */
+export function syncOffsetFrames(comp: Comp, clip: Clip, fps: number): number {
+  if (!clip.linkId || clip.source.type !== 'media') return 0;
+  const assetId = clip.source.assetId;
+  const partner = comp.clips.find((other) => other.id !== clip.id && other.linkId === clip.linkId && other.source.type === 'media' && other.source.assetId === assetId);
+  if (!partner || clip.reverse !== partner.reverse || Math.abs(clip.speed - partner.speed) > 1e-6) return 0;
+  // Where source time 0 would sit on the timeline, for each; linked halves share it when in sync.
+  const zero = (item: Clip) => item.start - item.in / Math.max(1e-6, item.speed);
+  const frames = Math.round((zero(clip) - zero(partner)) * fps);
+  return Math.abs(frames) >= 1 ? frames : 0;
 }

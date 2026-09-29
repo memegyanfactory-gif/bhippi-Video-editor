@@ -9,15 +9,14 @@
 .chat-list > .msg-assistant + .msg-user-row, .chat-list > .msg-user-row + .msg-assistant { margin-top: 6px; }
 .msg-assistant .msg-meta { gap: 7px; font-size: 12px; font-weight: 600; color: var(--text); min-height: 20px; }
 .msg-assistant .msg-meta .muted { color: var(--text-faint); font-weight: 400; }
-.msg-assistant .msg-avatar { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--panel-3); box-shadow: 0 0 0 1px var(--line-strong); }
-.msg-assistant .msg-avatar > * { border-radius: 50%; }
-.msg-assistant .msg-avatar.bhippi img { width: 20px; height: 20px; object-fit: cover; display: block; }
+/* The avatar is the mark itself, moving with the turn (src/chat/BhippiMark.tsx). */
+.msg-assistant .msg-avatar { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
 .msg-assistant .msg-who { letter-spacing: 0.01em; }
 .msg-assistant .msg-flag { padding: 1px 6px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); font-size: 10px; font-weight: 600; }
 
 /* ── Your own messages: a soft rounded bubble, its actions underneath on hover ── */
 .chat-list .msg-user-row { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 86%; min-width: 0; }
-.chat-list .msg-user-row .msg-user { align-self: auto; max-width: 100%; padding: 8px 13px; border: 0; border-radius: 16px 16px 4px 16px; background: var(--bubble, #2f3b4d); font-size: 13px; line-height: 1.5; }
+.chat-list .msg-user-row .msg-user { align-self: auto; max-width: 100%; padding: 8px 13px; border: 1px solid var(--bubble-line, #3c4d66); border-radius: var(--r3) var(--r3) var(--r1) var(--r3); background: var(--bubble, #2f3b4d); font-size: 13px; line-height: 1.5; }
 .chat-list .msg-user-row .msg-user .chat-images { margin: 6px 0 2px; }
 
 /* The action row: edit · copy · send again under a message, copy and details under an answer.
@@ -33,7 +32,7 @@
 .msg-actions-meta { margin-left: 6px; color: var(--text-faint); font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Where a full-workflow turn left the edit: one line, with Continue when it is unfinished. */
-.msg-assistant .workflow-note { display: flex; align-items: center; gap: 10px; margin-left: 26px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); color: var(--text-dim); font-size: 11.5px; line-height: 1.45; }
+.msg-assistant .workflow-note { display: flex; align-items: center; gap: 10px; margin-left: 28px; padding: 7px 10px; border-radius: var(--r2); border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); color: var(--text-dim); font-size: 11.5px; line-height: 1.45; }
 .msg-assistant .workflow-note > span { flex: 1; min-width: 0; }
 .msg-assistant .workflow-note.ok { border-color: rgba(63, 185, 80, 0.28); }
 .msg-assistant .workflow-note.next { border-color: var(--blue-line); }
@@ -43,28 +42,27 @@
 
 /* A message sent while the turn worked: your words, right-aligned inside the answer, and where they stand. */
 .steer-note { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 86%; margin: 2px 0; animation: wk-in 220ms ease both; }
-.steer-bubble { padding: 7px 12px; border-radius: 14px 14px 4px 14px; background: var(--bubble, #2f3b4d); color: var(--text); font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.steer-bubble { padding: 7px 12px; border-radius: var(--r3) var(--r3) var(--r1) var(--r3); background: var(--bubble, #2f3b4d); color: var(--text); font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .steer-note.waiting .steer-bubble { opacity: 0.72; outline: 1px dashed var(--line-strong); outline-offset: -1px; background: transparent; }
 .steer-state { display: flex; align-items: center; gap: 4px; color: var(--text-faint); font-size: 10.5px; }
 .steer-note.delivered .steer-state { color: var(--green, #6cc26c); }
 .steer-state button { margin-left: 4px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; }
 .steer-state button:hover { background: rgba(255, 255, 255, 0.07); color: var(--text); }
 
-/* The streaming edge light is replaced by the ring around the mark (app.css, awesome mode) and the
-   live step in the work line: the purple bar down the whole turn read as a border, not motion. */
-.chat.awesome .chat-list .msg-assistant.status-streaming { padding-left: 0; }
-.chat.awesome .chat-list .msg-assistant.status-streaming::before { content: none; display: none; }
-/* Only the words being written carry the sheen, not every earlier paragraph of the turn. */
-.chat.awesome .msg-assistant.status-streaming .answer-seg:not(.live) .markdown > :last-child { animation: none; background-image: none; }
-
-.msg-assistant .answer { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-left: 26px; }
+.msg-assistant .answer { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-left: 28px; }
 .msg-assistant .answer:empty { display: none; }
 .msg-assistant .answer-seg { min-width: 0; }
-.msg-assistant .answer .typing { display: flex; align-items: center; gap: 4px; height: 20px; padding: 0; animation: wk-in 240ms ease both; }
-.msg-assistant .answer .typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--text-dim); opacity: 0.3; animation: typing-wave 1.3s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
-.msg-assistant .answer .typing span:nth-child(2) { animation-delay: 0.16s; }
-.msg-assistant .answer .typing span:nth-child(3) { animation-delay: 0.32s; }
-@keyframes typing-wave { 0%, 60%, 100% { opacity: 0.28; transform: translateY(0); } 30% { opacity: 0.95; transform: translateY(-3px); } }
+/* Between steps, before the next words: the caret dot on its own, where the text will arrive. */
+.msg-assistant .answer .typing { display: flex; align-items: center; height: 20px; padding: 0; animation: wk-in 240ms ease both; }
+.msg-assistant .answer .typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--ai); box-shadow: 0 0 8px var(--ai-glow); animation: ai-caret 1s ease-in-out infinite; }
+
+/* Words arriving: each new word comes out of a 4px blur (Markdown.tsx wraps only the new ones), and
+   an ember dot sits where the text is being written. */
+.msg-assistant .markdown .w { animation: w-in 240ms var(--ease-out) both; }
+@keyframes w-in { from { opacity: 0; filter: blur(4px); } }
+.msg-assistant .answer-seg.live .markdown > :last-child::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 5px; border-radius: 50%; background: var(--ai); vertical-align: 1px; box-shadow: 0 0 8px var(--ai-glow); animation: ai-caret 1s ease-in-out infinite; }
+.msg-assistant .answer-seg.live .markdown > :is(ul, ol, table, .md-code, pre, blockquote):last-child::after { content: none; }
+@keyframes ai-caret { 50% { opacity: 0.35; transform: scale(0.8); } }
 
 /* ── Prose ── */
 .msg-assistant .markdown { max-width: 72ch; font-size: 13px; line-height: 1.62; color: var(--text); letter-spacing: 0.003em; }
@@ -97,46 +95,35 @@
 .msg-assistant .markdown .md-code pre { padding: 10px 12px; font-size: 11.5px; line-height: 1.55; }
 .msg-assistant .markdown .md-code pre code { font-family: var(--mono); }
 
-/* Thinking toggle: same quiet chip family as the work line. While the model is still thinking the
-   word carries a slow sheen and the mark breathes; afterwards it settles to plain text. */
-.msg-assistant .thinking { display: inline-flex; align-items: center; gap: 6px; margin-left: 18px; padding: 4px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-faint); font: inherit; font-size: 12px; cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease; }
-.msg-assistant .thinking:hover { background: rgba(255, 255, 255, 0.045); color: var(--text-dim); }
-.msg-assistant .thinking-chevron { transition: transform 0.18s ease; opacity: 0.7; }
-.msg-assistant .thinking.live { color: var(--text-dim); }
-.msg-assistant .thinking.live .thinking-icon { color: var(--blue-hi); animation: think-breathe 1.8s ease-in-out infinite; }
-.msg-assistant .thinking.live .thinking-label { font-weight: 550; background: linear-gradient(90deg, var(--text-faint) 0%, var(--text-faint) 35%, var(--text) 50%, var(--text-faint) 65%, var(--text-faint) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: wk-shimmer 2.2s linear infinite; }
-.msg-assistant .thinking-body { margin-left: 26px; padding: 2px 0 2px 12px; border-left: 2px solid var(--line-strong); color: var(--text-faint); font-size: 12px; line-height: 1.6; animation: wk-in 200ms ease both; }
-@keyframes think-breathe { 0%, 100% { opacity: 0.55; transform: scale(0.94); } 50% { opacity: 1; transform: scale(1.06); } }
-.msg-assistant .notes, .msg-assistant .limit-note, .msg-assistant .edits-card, .msg-assistant .fault-card { margin-left: 26px; }
-.msg-assistant .edits-card { border-radius: 7px; }
-.msg-assistant .fault-card { border-radius: 7px; }
+/* Thinking: one row with a running timer. While it lasts, a three-line window shows the reasoning
+   scrolling past with its top faded; a second after it ends the row folds to "Thought for 5s". */
+.msg-assistant .think { display: flex; flex-direction: column; margin-left: 28px; }
+.msg-assistant .think-btn { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 0; border: 0; border-radius: var(--r1); background: transparent; color: var(--text-dim); font: inherit; font-size: 12.5px; cursor: pointer; }
+.msg-assistant .think-btn:hover { color: var(--text); }
+.msg-assistant .think-time { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.msg-assistant .think-chevron { color: var(--text-faint); transition: transform 0.18s var(--ease-out); }
+.msg-assistant .think-fold { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.24s var(--ease-drawer), opacity 0.18s ease; }
+.msg-assistant .think.open .think-fold { grid-template-rows: 1fr; opacity: 1; }
+.msg-assistant .think-fold > div { min-height: 0; overflow: hidden; }
+.msg-assistant .think-body { margin: 4px 0 2px 1px; padding-left: 12px; border-left: 1px solid var(--line-strong); color: var(--text-faint); font-size: 12px; line-height: 1.55; white-space: pre-wrap; max-height: 260px; overflow-y: auto; user-select: text; -webkit-user-select: text; }
+.msg-assistant .think.live .think-body { max-height: 70px; overflow: hidden; -webkit-mask-image: linear-gradient(transparent, #000 22px); mask-image: linear-gradient(transparent, #000 22px); }
+.msg-assistant .notes, .msg-assistant .limit-note, .msg-assistant .edits-card, .msg-assistant .fault-card { margin-left: 28px; }
+.msg-assistant .edits-card { border-radius: var(--r2); }
+.msg-assistant .fault-card { border-radius: var(--r2); }
 
 /* ── A stretch of work, folded ── */
-.work { position: relative; align-self: stretch; min-width: 0; border: 1px solid transparent; border-radius: 8px; margin: 0 -8px; transition: background-color 0.2s ease, border-color 0.2s ease; animation: wk-in 220ms ease both; }
+.work { position: relative; align-self: stretch; min-width: 0; border: 1px solid transparent; border-radius: var(--r2); margin: 0 -8px; transition: background-color 0.2s ease, border-color 0.2s ease; animation: wk-in 220ms ease both; }
 .work.live { border-color: var(--line); background: rgba(255, 255, 255, 0.022); overflow: hidden; }
-/* A hairline of light sliding along the bottom edge while the stretch is live. */
-.wk-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; overflow: hidden; pointer-events: none; }
-.wk-progress::after { content: ''; position: absolute; top: 0; bottom: 0; width: 38%; background: linear-gradient(90deg, transparent, var(--blue-hi), transparent); animation: wk-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-@keyframes wk-sweep { from { left: -40%; } to { left: 100%; } }
 /* Opening and closing the list slides rather than jumps. */
-.wk-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.wk-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.24s var(--ease-drawer); }
 .work.open > .wk-collapse { grid-template-rows: 1fr; }
 .wk-collapse-inner { min-height: 0; overflow: hidden; }
-/* The live mark: a thin ring turning around a steady centre. */
-.wk-orbit { position: relative; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--blue-hi) 25%, transparent); border-top-color: var(--blue-hi); animation: spin 0.85s linear infinite; }
 .wk-now-wrap { flex: 1; display: flex; align-items: baseline; gap: 7px; min-width: 0; animation: wk-swap 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 @keyframes wk-swap { from { opacity: 0; transform: translateY(4px); filter: blur(2px); } }
-/* A running row: a soft dot that pulses outward. */
-.wk-pulse { position: relative; width: 6px; height: 6px; border-radius: 50%; background: var(--blue-hi); }
-.wk-pulse::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--blue-hi); animation: wk-ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite; }
-@keyframes wk-ping { 0% { transform: scale(1); opacity: 0.6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
 .work.open { border-color: var(--line); background: rgba(255, 255, 255, 0.018); }
-.wk-head { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-dim); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.wk-head { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 5px 8px; border: 0; border-radius: var(--r2); background: transparent; color: var(--text-dim); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .wk-head:hover { background: rgba(255, 255, 255, 0.04); color: var(--text); }
 .work.open .wk-head { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-.wk-head-icon { flex: none; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: var(--green); background: var(--green-soft); }
-.work.has-failed .wk-head-icon { color: var(--amber); background: var(--amber-soft); }
-.work.live .wk-head-icon { color: var(--blue-hi); background: var(--blue-soft); }
 .wk-headline { flex: none; font-weight: 550; color: var(--text-dim); }
 .wk-head:hover .wk-headline { color: var(--text); }
 .wk-head-meta { flex: none; color: var(--text-faint); font-variant-numeric: tabular-nums; }
@@ -147,9 +134,8 @@
 .wk-chevron { flex: none; color: var(--text-faint); transition: transform 0.15s ease; }
 
 /* The step running right now, with a light passing over its name. */
-.wk-now { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); background: linear-gradient(90deg, var(--text-dim) 0%, var(--text-dim) 35%, #ffffff 50%, var(--text-dim) 65%, var(--text-dim) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: wk-shimmer 1.9s linear infinite; }
+.wk-now { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .wk-now-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
-@keyframes wk-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 
 /* ── The opened list: a small timeline ── */
 .wk-list, .wk-sub { list-style: none; margin: 0; padding: 0; }
@@ -157,20 +143,16 @@
 .wk-sub { margin: 2px 0 4px; }
 .wk-row { position: relative; display: flex; gap: 8px; min-width: 0; animation: wk-in 220ms ease both; }
 /* The rail joining one row's dot to the next. */
-.wk-row::before { content: ''; position: absolute; left: 7.5px; top: 18px; bottom: -4px; width: 1px; background: var(--line-strong); }
+.wk-row::before { content: ''; position: absolute; left: 7.5px; top: 20px; bottom: -3px; width: 1px; background: var(--line-strong); }
+.wk-row.done::before { background: linear-gradient(rgba(63, 185, 80, 0.35), var(--line-strong)); }
 .wk-row:last-child::before { display: none; }
-.wk-dot { position: relative; z-index: 1; flex: none; display: grid; place-items: center; width: 16px; height: 16px; margin-top: 3px; border-radius: 50%; background: var(--panel); box-shadow: 0 0 0 1px var(--line-strong); color: var(--text-faint); }
-.wk-row.done > .wk-dot { color: var(--text-dim); }
-.wk-row.done:hover > .wk-dot { color: var(--text); }
-.wk-row.running > .wk-dot { color: var(--blue-hi); box-shadow: 0 0 0 1px var(--blue-line); }
-.wk-row.failed > .wk-dot { color: var(--amber); background: #2a2419; box-shadow: 0 0 0 1px rgba(227, 163, 60, 0.45); }
-.wk-row.denied > .wk-dot { color: var(--text-dim); }
+.wk-dot { position: relative; z-index: 1; flex: none; display: grid; place-items: center; width: 16px; height: 16px; margin-top: 3px; border-radius: 50%; background: var(--panel); }
 .wk-row-main { flex: 1; min-width: 0; padding-bottom: 2px; }
-.wk-line { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; padding: 3px 6px; margin: 0 -6px; border: 0; border-radius: 5px; background: transparent; color: var(--text-dim); font: inherit; font-size: 12px; line-height: 1.45; text-align: left; cursor: pointer; }
+.wk-line { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; padding: 3px 6px; margin: 0 -6px; border: 0; border-radius: var(--r1); background: transparent; color: var(--text-dim); font: inherit; font-size: 12px; line-height: 1.45; text-align: left; cursor: pointer; }
 .wk-line:disabled { cursor: default; opacity: 1; color: var(--text-dim); }
 .wk-line:not(:disabled):hover { background: rgba(255, 255, 255, 0.045); }
 .wk-label { flex: none; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; color: var(--text); }
-.wk-row.failed > .wk-row-main > .wk-line .wk-label { color: #eab765; }
+.wk-row.failed > .wk-row-main > .wk-line .wk-label { color: #ff9a9a; }
 .wk-row.denied > .wk-row-main > .wk-line .wk-label { color: var(--text-dim); }
 .wk-times { margin-left: 5px; padding: 0 5px; border-radius: 999px; background: var(--panel-3); color: var(--text-dim); font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wk-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
@@ -180,7 +162,7 @@
 .wk-row.open > .wk-row-main > .wk-line .wk-detail { white-space: normal; overflow: visible; }
 
 /* A row, opened: what was asked, and what came back. */
-.wk-body { display: flex; flex-direction: column; gap: 6px; margin: 3px 0 6px; padding: 8px 10px; border-radius: 6px; background: var(--field); border: 1px solid var(--line); }
+.wk-body { display: flex; flex-direction: column; gap: 6px; margin: 3px 0 6px; padding: 8px 10px; border-radius: var(--r1); background: var(--field); border: 1px solid var(--line); }
 .wk-body-part { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .wk-body-label { color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .wk-body-code, .wk-body-raw { margin: 0; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--text-dim); white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow: auto; }
@@ -193,11 +175,8 @@
 @keyframes wk-in { from { opacity: 0; transform: translateY(-2px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .wk-row, .work, .wk-now-wrap, .thinking-body, .msg-assistant .answer .typing { animation: none; }
-  .wk-now, .msg-assistant .thinking.live .thinking-label { animation: none; -webkit-text-fill-color: currentColor; background: none; }
-  .wk-pulse::after, .wk-progress { display: none; }
-  .wk-orbit, .msg-assistant .thinking.live .thinking-icon { animation: none; }
-  .wk-collapse { transition: none; }
+  .wk-row, .work, .wk-now-wrap, .msg-assistant .answer .typing, .msg-assistant .answer .typing span, .msg-assistant .markdown .w, .msg-assistant .answer-seg.live .markdown > :last-child::after { animation: none; }
+  .wk-collapse, .msg-assistant .think-fold { transition: none; }
 }
 .steer-note:hover .msg-actions { opacity: 1; }
 /* Videos, audio and other files attached to a message (composer and sent bubble). */
@@ -207,3 +186,25 @@
 .chat-file em { font-style: normal; color: var(--text-faint); }
 .chat-file button { margin-left: 2px; padding: 0 3px; border: 0; border-radius: 4px; background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; }
 .chat-file button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+
+/* ── Scrolling: the transcript, the room under the newest answer, and the way back (useChatScroll) ── */
+.chat-scroll-wrap { position: relative; flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.chat-reserve { flex: none; margin-top: -12px; pointer-events: none; }
+.chat-jump { position: absolute; left: 50%; bottom: 10px; z-index: 5; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 13px 0 12px; border: 1px solid var(--line-hi); border-radius: var(--rr); background: var(--panel-3); color: var(--text); font: inherit; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); opacity: 0; pointer-events: none; transform: translate(-50%, 8px) scale(0.96); transition: opacity 0.16s var(--ease-out), transform 0.22s var(--ease-out), background-color 0.12s ease; }
+.chat-jump.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+.chat-jump:hover { background: var(--panel-4); }
+.chat-jump-dot { display: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ai); box-shadow: 0 0 0 3px var(--ai-soft); }
+.chat-jump.live .chat-jump-dot { display: block; }
+
+/* Pills: the empty chat's suggestions. */
+.chat-chip { height: 28px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--rr); background: transparent; color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease; }
+.chat-chip:hover { border-color: var(--ai-line); background: var(--ai-soft); color: var(--text); }
+
+/* What a turn changed: a done circle, the count, and Undo turn; the list folds under it. */
+.edits-undo, .edits-show { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border: 1px solid var(--line-hi); border-radius: var(--rr); background: var(--panel-3); color: var(--text); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: background-color 0.12s ease, transform 0.12s var(--ease-out); }
+.edits-undo { margin-left: auto; background: transparent; border-color: var(--line-strong); color: var(--text-dim); }
+.edits-undo:hover, .edits-show:hover { background: var(--panel-4); color: var(--text); }
+.edits-undo:active, .edits-show:active { transform: scale(0.95); }
+
+/* The stop button's face fills it; the square takes the text colour. */
+.send-btn .stop-glyph { position: absolute; inset: 0; margin: auto; color: var(--text); }

@@ -95,7 +95,6 @@
 .pm-chat { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border: 0; border-radius: 0; }
 .pm-chat .chat, .pm-chat .chat-list { background: transparent; }
 .pm-chat .chat-list { padding-left: 14px; }
-.pm-chat .chat-stream-bar { margin-left: 10px; margin-right: 8px; }
 .pm-chat .composer { margin-left: 10px; background: var(--field); }
 .pm-chat .chat-bar { padding-left: 12px; background: transparent; border-top-color: var(--edge, var(--line)); }
 

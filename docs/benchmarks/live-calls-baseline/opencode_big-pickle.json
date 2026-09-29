@@ -1,0 +1,327 @@
+{
+ "model": "opencode/big-pickle",
+ "calls": [
+  {
+   "brief": "lower-third",
+   "attempts": [
+    {
+     "args": {
+      "template": "crimson-lower-third",
+      "title": "Priya Raman",
+      "subtitle": "Head of Growth at Finlo",
+      "layout": "lower-third"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "hook",
+   "attempts": [
+    {
+     "args": {
+      "template": "hook-promise",
+      "title": "Save Your First $10,000 in One Year",
+      "subtitle": "Even on a small salary",
+      "kicker": "THE $10K CHALLENGE",
+      "layout": "fullscreen",
+      "start": 0,
+      "duration": 6.5
+     }
+    }
+   ]
+  },
+  {
+   "brief": "chart",
+   "attempts": [
+    {
+     "args": {
+      "template": "stat-chart",
+      "title": "Revenue Growth",
+      "subtitle": "2021 – 2024",
+      "rows": [
+       "2021 — $12M",
+       "2022 — $19M",
+       "2023 — $31M",
+       "2024 — $48M"
+      ],
+      "values": [
+       12,
+       19,
+       31,
+       48
+      ],
+      "activeIndex": 3,
+      "layout": "fullscreen",
+      "accentColor": "#C8102E"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "teaching",
+   "attempts": [
+    {
+     "args": {
+      "template": "teaching-card",
+      "title": "The 50/30/20 Rule",
+      "kicker": "MONEY",
+      "subtitle": "How to split every paycheck",
+      "rows": [
+       "50% Needs — rent, food, bills, transport",
+       "30% Wants — dining out, subscriptions, fun",
+       "20% Savings — emergency fund, debt payoff, investing"
+      ],
+      "layout": "side-panel-right",
+      "cameraMove": "none",
+      "duration": 9
+     },
+     "error": "The graphic built, but: subtitle dropped (how, split, every not shown); rows: 1 item overflow (50 chars fit)"
+    },
+    {
+     "args": {
+      "template": "teaching-card",
+      "title": "The 50/30/20 Rule",
+      "kicker": "MONEY",
+      "rows": [
+       "50% Needs — rent, food, bills",
+       "30% Wants — dining, fun",
+       "20% Savings — fund, debt"
+      ],
+      "layout": "side-panel-right",
+      "cameraMove": "none",
+      "duration": 9
+     }
+    }
+   ]
+  },
+  {
+   "brief": "compare",
+   "attempts": [
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs. Buying",
+      "subtitle": "What each one really costs over five years",
+      "badge": "Side by side",
+      "accentColor": "#C8102E",
+      "kicker": "THE HONEST COMPARISON",
+      "layout": "fullscreen",
+      "duration": 9,
+      "cameraMove": "none",
+      "rows": [
+       "Renting — You keep paying the landlord. Build no equity, and the roof is never yours to fix.",
+       "Buying — A large chunk of every payment is your own equity. But repairs, taxes, and upkeep are yours too."
+      ],
+      "values": [],
+      "start": 2
+     },
+     "error": "The graphic built, but: subtitle dropped (what, each, one not shown); badge dropped (side, side not shown); rows: 2 items overflow (60 chars fit)"
+    },
+    {
+     "args": {
+      "template": "comparison",
+      "title": "Renting vs. Buying",
+      "subtitle": "The real cost over five years",
+      "badge": "5-year view",
+      "accentColor": "#C8102E",
+      "kicker": "THE HONEST COMPARISON",
+      "layout": "fullscreen",
+      "duration": 9,
+      "cameraMove": "none",
+      "rows": [
+       "Renting — Rent resets monthly. No equity, no repairs to own.",
+       "Buying — Part of each payment is yours, plus upkeep costs."
+      ],
+      "start": 2
+     }
+    }
+   ]
+  },
+  {
+   "brief": "news",
+   "attempts": [
+    {
+     "args": {
+      "template": "breaking-news",
+      "title": "Markets fall 4%",
+      "subtitle": "Central bank rate decision",
+      "badge": "BREAKING",
+      "layout": "lower-third",
+      "start": 0,
+      "duration": 6
+     }
+    }
+   ]
+  },
+  {
+   "brief": "quote",
+   "attempts": [
+    {
+     "args": {
+      "template": "editorial-quote",
+      "title": "Discipline is choosing what you want most over what you want now.",
+      "accentWord": "discipline",
+      "accentColor": "#E4002B",
+      "layout": "centre-card"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "chapter",
+   "attempts": [
+    {
+     "args": {
+      "template": "chapter-marker",
+      "title": "Chapter 3",
+      "subtitle": "Investing basics"
+     },
+     "error": "The graphic built, but: subtitle dropped (investing, basics not shown)"
+    },
+    {
+     "args": {
+      "template": "chapter-marker",
+      "title": "Chapter 3",
+      "kicker": "Investing basics",
+      "layout": "top-right"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "roadmap",
+   "attempts": [
+    {
+     "args": {
+      "template": "numbered-lanes",
+      "title": "The Path to Launch",
+      "kicker": "FIVE STEPS",
+      "rows": [
+       "Research — Validate the problem and size the market before building",
+       "Prototype — Build the smallest version that proves the core idea",
+       "Test — Put it in front of real users and fix what breaks",
+       "Launch — Ship it publicly and turn attention into signups",
+       "Grow — Scale what works, then iterate on what doesn't"
+      ],
+      "activeIndex": 2
+     },
+     "error": "The graphic built, but: rows: 5 items overflow (40 chars fit)"
+    },
+    {
+     "args": {
+      "template": "numbered-lanes",
+      "title": "The Path to Launch",
+      "kicker": "FIVE STEPS",
+      "rows": [
+       "Research — Size the problem first",
+       "Prototype — Build the smallest proof",
+       "Test — Real users, real fixes",
+       "Launch — Ship and convert attention",
+       "Grow — Scale what works"
+      ],
+      "activeIndex": 2
+     }
+    }
+   ]
+  },
+  {
+   "brief": "countdown",
+   "attempts": [
+    {
+     "args": {
+      "template": "countdown",
+      "title": "10",
+      "subtitle": "Get Ready",
+      "start": 0,
+      "duration": 10,
+      "layout": "fullscreen",
+      "cameraMove": "none",
+      "accentColor": "#E11D2E"
+     },
+     "error": "The graphic built, but: subtitle dropped (get, ready not shown)"
+    },
+    {
+     "args": {
+      "template": "countdown",
+      "title": "10",
+      "badge": "Get Ready",
+      "start": 0,
+      "duration": 10,
+      "layout": "fullscreen",
+      "cameraMove": "none",
+      "accentColor": "#E11D2E"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "panel",
+   "attempts": [
+    {
+     "args": {
+      "template": "side-panel",
+      "title": "4 Rules for Writing Hooks",
+      "accentColor": "#00BFA5",
+      "rows": [
+       "Be specific — ",
+       "Open a loop — ",
+       "Promise a payoff — ",
+       "Cut the intro — "
+      ],
+      "layout": "side-panel-right"
+     }
+    }
+   ]
+  },
+  {
+   "brief": "timeline",
+   "attempts": [
+    {
+     "args": {
+      "template": "timeline-roadmap",
+      "title": "Our Company Journey",
+      "kicker": "COMPANY HISTORY",
+      "rows": [
+       "2015 — Founded by two engineers with a shared studio desk",
+       "2017 — First office opens, team grows to 25 people",
+       "2021 — Initial public offering on the NASDAQ",
+       "2024 — One million users worldwide"
+      ],
+      "values": [
+       2015,
+       2017,
+       2021,
+       2024
+      ],
+      "accentColor": "#C8102E",
+      "layout": "fullscreen",
+      "duration": 8
+     },
+     "error": "The graphic built, but: rows: 4 items overflow (24 chars fit)"
+    },
+    {
+     "args": {
+      "template": "timeline-roadmap",
+      "title": "Our Company Journey",
+      "kicker": "COMPANY HISTORY",
+      "rows": [
+       "2015 — Founded by two engineers",
+       "2017 — First office opens",
+       "2021 — IPO on the NASDAQ",
+       "2024 — One million users"
+      ],
+      "values": [
+       2015,
+       2017,
+       2021,
+       2024
+      ],
+      "accentColor": "#C8102E",
+      "layout": "fullscreen",
+      "duration": 8
+     }
+    }
+   ]
+  }
+ ]
+}

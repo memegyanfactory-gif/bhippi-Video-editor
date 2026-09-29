@@ -1,5 +1,10 @@
 // AI tools for the motion engine (src/motion): build AE-grade motion scenes from templates or
 // raw layer JSON, inspect and patch them, and learn a style from a reference film.
+import { CRIMSON_SLOTS, describeSlots, missingSlots, resolveTemplateId, slotsFor } from './templateSlots';
+import { exampleCall, thumbnailUrl } from './templateExamples';
+import { CRIMSON_TEMPLATES } from './motionGuide';
+import { fixSummary, fixTemplateArgs, toHex } from './templateFix';
+import type { Adjustment } from './templateEval';
 import { MOTION_TEMPLATES, findTemplate } from '../motion/kit';
 import type { KitContext } from '../motion/kit/common';
 import { brandifyScene, buildInBrand } from '../motion/kit/brandify';
@@ -628,12 +633,19 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const beats: SeqBeat[] = [];
       for (const [i, beat] of list.entries()) {
         let scene: MotionScene | null = null;
-        const templateId = str(beat, 'template');
+        const namedBeat = str(beat, 'template');
+        const templateId = namedBeat ? resolveTemplateId(namedBeat, MOTION_TEMPLATES) ?? namedBeat : namedBeat;
         try {
           if (templateId) {
             const spec = findTemplate(templateId);
             if (!spec) return fail(`beats[${i}]: no motion template "${templateId}".`);
-            const raw = obj(beat, 'params') ?? {};
+            // Each beat's params fixed as create_motion_scene fixes them (templateFix.ts).
+            const slots = slotsFor(spec.id, spec.params);
+            const fixed = slots ? fixTemplateArgs(spec.id, slots, obj(beat, 'params') ?? {}) : null;
+            if (slots && fixed?.error) return fail(`beats[${i}]: ${fixed.error} Its params: ${describeSlots(slots)}.`);
+            const raw = fixed?.args ?? obj(beat, 'params') ?? {};
+            const missingBeat = slots ? missingSlots(slots, raw) : [];
+            if (slots && missingBeat.length) return fail(`beats[${i}]: ${spec.id} needs ${missingBeat.join(' and ')} in params. Its params: ${describeSlots(slots)}.`);
             const params = resolveParams(raw, ctx, start);
             // Over the sequence's own background the beats draw no stage of their own.
             if (background && 'background' in spec.params && raw.background === undefined) params.background = 'none';
@@ -778,10 +790,17 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       // The whole catalogue with every param set is ~22 KB; a model re-reads it each round. The
       // list is the menu; params come with a narrow query (a template id, or a word matching few).
       const detailed = !!query && specs.length <= 8;
-      return done(`${specs.length} motion template${specs.length === 1 ? '' : 's'}. ${detailed ? '' : 'Params are listed when you query a template id (list_motion_templates {"query":"<id>"}). '}Build one with create_motion_scene {"template":"<id>","params":{…},"start":<s>}. Footage params accept {"clipId":"…"} (asset, source time and roto matte are filled in) or {"assetId":"…"}.`, {
-        templates: specs.map((spec) => (detailed
-          ? { id: spec.id, label: spec.label, technique: spec.technique, use: spec.use, params: spec.params, seconds: spec.seconds, fullFrame: spec.fullFrame }
-          : { id: spec.id, label: spec.label, use: spec.use, seconds: spec.seconds })),
+      // A house (Crimson) template asked for by id or name: its schema and example, for create_motion_graphic.
+      const house = query ? CRIMSON_TEMPLATES.filter((spec) => spec.id === query || (!exact.length && `${spec.id} ${spec.label}`.toLowerCase().includes(query))).slice(0, 4) : [];
+      // Compact: one line of typed slots (templateSlots.ts); the prose only for footage and nested objects.
+      const described = (spec: (typeof MOTION_TEMPLATES)[number]) => {
+        const slots = slotsFor(spec.id, spec.params) ?? {};
+        const complex = Object.fromEntries(Object.entries(spec.params).filter(([name]) => slots[name]?.kind === 'any'));
+        return { id: spec.id, label: spec.label, technique: spec.technique, use: spec.use, slots: describeSlots(Object.fromEntries(Object.entries(slots).filter(([name]) => !(name in complex)))), ...(Object.keys(complex).length ? { params: complex } : {}), ...(exampleCall(spec.id) ? { example: exampleCall(spec.id) } : {}), ...(thumbnailUrl(spec.id) ? { thumbnail: thumbnailUrl(spec.id) } : {}), seconds: spec.seconds, fullFrame: spec.fullFrame };
+      };
+      return done(`${specs.length} motion template${specs.length === 1 ? '' : 's'}${house.length ? ` and ${house.length} house template${house.length === 1 ? '' : 's'} (create_motion_graphic)` : ''}. ${detailed ? 'Copy an example and change its words; ' : 'Params are listed when you query a template id (list_motion_templates {"query":"<id>"}). '}Build one with create_motion_scene {"template":"<id>","params":{…},"start":<s>}. Footage params accept {"clipId":"…"} (asset, source time and roto matte are filled in) or {"assetId":"…"}.`, {
+        templates: specs.map((spec) => (detailed ? described(spec) : { id: spec.id, label: spec.label, use: spec.use, seconds: spec.seconds })),
+        ...(house.length ? { house: house.map((spec) => ({ id: spec.id, label: spec.label, use: spec.use, tool: 'create_motion_graphic', slots: describeSlots(CRIMSON_SLOTS[spec.id]), example: exampleCall(spec.id), thumbnail: thumbnailUrl(spec.id), seconds: spec.seconds })) } : {}),
         ...(detailed ? { effects: EFFECT_TYPES } : {}),
       });
     }
@@ -794,14 +813,27 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const brand = args.useBrand === false ? null : ctx.brand ?? null;
       const kit: KitContext = { width: comp.width, height: comp.height, ...(brand ? { brand, font: brand.fonts.display } : {}) };
       const accent = str(args, 'accent');
-      if (accent) kit.palette = { accent };
+      if (accent) kit.palette = { accent: toHex(accent) ?? accent };
       let scene: MotionScene;
-      const templateId = str(args, 'template');
+      let fixNotes: string[] = [];
+      let fixAdjustments: Adjustment[] = [];
+      // An id written loosely ("Brand title", "BRAND_TITLE") is read as the template it names.
+      const namedTemplate = str(args, 'template');
+      const templateId = namedTemplate ? resolveTemplateId(namedTemplate, MOTION_TEMPLATES) ?? namedTemplate : namedTemplate;
       let plateNote = '';
       if (templateId) {
         const spec = findTemplate(templateId);
         if (!spec) return fail(`No motion template "${templateId}". Templates: ${MOTION_TEMPLATES.map((s) => s.id).join(', ')}.`);
-        const raw = obj(args, 'params') ?? {};
+        // What a weaker model sends, made into what the template takes (templateFix.ts); text a
+        // template needs and was not given is asked for, never drawn as a placeholder.
+        const slots = slotsFor(spec.id, spec.params);
+        const fixed = slots ? fixTemplateArgs(spec.id, slots, obj(args, 'params') ?? {}) : null;
+        if (slots && fixed?.error) return fail(`${fixed.error}${fixSummary(fixed.notes)} Its params: ${describeSlots(slots)}.`);
+        fixNotes = fixed?.notes ?? [];
+        fixAdjustments = fixed?.adjustments ?? [];
+        const raw = fixed?.args ?? obj(args, 'params') ?? {};
+        const missing = slots ? missingSlots(slots, raw) : [];
+        if (slots && missing.length) return fail(`${spec.id} needs ${missing.join(' and ')} in params. Its params: ${describeSlots(slots)}.`);
         const params = resolveParams(raw, ctx, start);
         // Over a designed background plate a full-frame brand template draws no stage of its own:
         // its light, flat brand stage covered the plate and read as a blank white frame.
@@ -881,7 +913,8 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         });
       } else ctx.editComp(comp, () => next);
       const layers = exploded?.layers.filter((layer) => layer.compId === exploded.comp.id) ?? [];
-      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${exploded ? ` as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin): ${layers.length} layer${layers.length === 1 ? '' : 's'} — ${layers.map((layer) => layer.name).join(', ')} — each a clip on its own track, so the user can open it and move, trim, hide or restyle any layer${exploded.nested.length ? ` (precomps open as their own layered comps)` : ''}` : ''}, on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track` : ''}.${plateNote}${fitReport(fit, safeMargin(args))}${lightStageNote(scene)} Preview and export use the same GPU renderer. Check it with run_frame_qa (it now renders motion graphics into the contact frames); change it with update_motion_scene {"clipId":"${clip.id}"} — params rebuild the template, patches edit a layer by its id.`, {
+      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${exploded ? ` as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin): ${layers.length} layer${layers.length === 1 ? '' : 's'} — ${layers.map((layer) => layer.name).join(', ')} — each a clip on its own track, so the user can open it and move, trim, hide or restyle any layer${exploded.nested.length ? ` (precomps open as their own layered comps)` : ''}` : ''}, on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track` : ''}.${plateNote}${fitReport(fit, safeMargin(args))}${lightStageNote(scene)} Preview and export use the same GPU renderer. Check it with run_frame_qa (it now renders motion graphics into the contact frames); change it with update_motion_scene {"clipId":"${clip.id}"} — params rebuild the template, patches edit a layer by its id.${fixSummary(fixNotes)}`, {
+        ...(fixAdjustments.length ? { adjustments: fixAdjustments } : {}),
         clipId: clip.id, compClipId: clip.id, compId: exploded?.comp.id ?? comp.id, sfxClipIds: sfx,
         layers: exploded?.layers.map(({ layerId, clipId, compId, name, type, start: from, end }) => ({ layerId, clipId, compId, name, type, start: from, end })) ?? [],
         outline: summarizeScene(scene),

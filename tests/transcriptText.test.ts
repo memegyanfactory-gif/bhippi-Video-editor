@@ -58,3 +58,35 @@ describe('the timeline view', () => {
     expect(words[2].start).toBeCloseTo(1);
   });
 });
+
+describe('cutting words out (text-based editing)', () => {
+  const words = [
+    { text: 'So', start: 0, end: 0.3 },
+    { text: 'um', start: 0.5, end: 0.7 },
+    { text: 'this', start: 1.0, end: 1.2 },
+    { text: 'is', start: 1.25, end: 1.4 },
+    { text: 'it', start: 1.5, end: 1.8 },
+  ];
+  it('cuts each run from its first word to where the next word starts, latest first', async () => {
+    const { cutRangesForWords } = await import('../src/lib/transcriptText');
+    expect(cutRangesForWords(words, new Set([1]))).toEqual([{ start: 0.5, end: 1.0 }]);
+    expect(cutRangesForWords(words, new Set([1, 3, 4]))).toEqual([{ start: 1.25, end: 1.8 }, { start: 0.5, end: 1.0 }]);
+    expect(cutRangesForWords(words, new Set())).toEqual([]);
+  });
+});
+
+describe('transcript corrections reach the captions', () => {
+  it('replaces the word in the caption on screen, keeping its punctuation', async () => {
+    const { correctCaptions } = await import('../src/lib/transcriptText');
+    const { newClip, newProject, textSource } = await import('../src/lib/timeline');
+    const comp = newProject().comps[0];
+    const caption = newClip({ id: 'cap', trackId: comp.tracks[0].id, start: 2, duration: 2, source: textSource('caption', { text: 'Hello wurld, again' }) });
+    const other = newClip({ id: 'later', trackId: comp.tracks[0].id, start: 8, duration: 2, source: textSource('caption', { text: 'wurld again' }) });
+    const withCaptions = { ...comp, clips: [caption, other] };
+    const fixed = correctCaptions(withCaptions, 3, 'wurld', 'world');
+    expect(fixed.clips.map((clip) => (clip.source.type === 'text' ? clip.source.text : ''))).toEqual(['Hello world, again', 'wurld again']);
+    expect(correctCaptions(withCaptions, 3, 'missing', 'x')).toBe(withCaptions);
+    const removed = correctCaptions(withCaptions, 3, 'wurld', '');
+    expect(removed.clips[0].source.type === 'text' && removed.clips[0].source.text).toBe('Hello again');
+  });
+});

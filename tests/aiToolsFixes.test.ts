@@ -250,3 +250,26 @@ describe('per-turn instructions', () => {
     expect(retryNote({ content: '', steps: [] }, [run], { phase: 'editing' })).toContain('verify_edit_workflow');
   });
 });
+
+describe('the assistant undo tool', () => {
+  const withSteps = (present: string, past: string[]) => {
+    const undo = vi.fn();
+    const host = { history: { current: () => newProject(), undo, steps: { present, past, future: [] } }, assets: () => new Map(), selection: () => [], setSelection: vi.fn() } as unknown as ToolHost;
+    return { host, undo };
+  };
+
+  it('undoes only its own steps from the top of the history', async () => {
+    const { host, undo } = withSteps('AI: add_text', ['Open', 'Trim', 'AI: place_clip']);
+    const result = await runTool(host, 'undo', { steps: 5 });
+    expect(result.ok).toBe(true);
+    expect(undo).toHaveBeenCalledTimes(2);
+    if (result.ok) expect(result.summary).toContain("user's own edit");
+  });
+
+  it("refuses when the latest step is the user's", async () => {
+    const { host, undo } = withSteps('Ripple Delete', ['Open', 'AI: add_text']);
+    const result = await runTool(host, 'undo', {});
+    expect(result.ok).toBe(false);
+    expect(undo).not.toHaveBeenCalled();
+  });
+});

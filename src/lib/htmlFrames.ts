@@ -11,6 +11,7 @@
 // inside an <svg><foreignObject>, decoded as an image and drawn on a canvas. Chromium renders
 // filters, gradients, masks and system fonts this way; backdrop-filter and external resources
 // do not survive, which is why the Crimson templates avoid both.
+import { clipFrameWindow, type ExportRange } from './exportWindow';
 import gsap from 'gsap';
 import { adoptLooseTweens, frameRender, seekLooseAnimations, type FrameRender } from './htmlTime';
 import { api } from './ipc';
@@ -116,9 +117,20 @@ const decode = (url: string) => new Promise<HTMLImageElement>((resolve, reject) 
  * size each drawn frame has (the design canvas times the scale). */
 type Mounted = { draw: (elapsed: number) => Promise<HTMLCanvasElement>; canvas: { width: number; height: number }; pixels: { width: number; height: number }; unmount: () => void };
 
+/**
+ * How much larger than its design canvas a graphic is drawn for export: enough to match the output's
+ * pixels. The design canvas is at most 1920 wide, so a 4K comp's graphics were drawn at 1080p and
+ * upscaled 2× by FFmpeg — soft titles in a 4K master. `exportScale` is the output over the comp.
+ */
+export function graphicScale(canvas: { width: number; height: number }, comp: { width: number; height: number }, exportScale = 1): number {
+  const output = Math.min(comp.width, comp.height) * exportScale;
+  return Math.min(4, Math.max(exportScale, output / Math.max(1, Math.min(canvas.width, canvas.height))));
+}
+
 /** Mounts `source` off-screen on its design canvas, with its GSAP timeline built but paused. */
-function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'width' | 'height' | 'fps'>, scale = 1): Mounted {
+function mountGraphic(source: HtmlSource, duration: number, comp: Pick<Comp, 'width' | 'height' | 'fps'>, exportScale = 1): Mounted {
   const canvas = usesCompCanvas(source.template) ? mogrtCanvas(comp) : { width: 1920, height: 1080 };
+  const scale = graphicScale(canvas, comp, exportScale);
   const host = document.createElement('div');
   host.className = 'mgt-layer';
   host.style.cssText = `position:fixed;left:-20000px;top:0;width:${canvas.width}px;height:${canvas.height}px;overflow:hidden;pointer-events:none;contain:strict`;
@@ -187,9 +199,12 @@ async function mountFor(source: HtmlSource, duration: number, comp: Pick<Comp, '
  * Renders one HTML clip to `dir/%05d.png` at `fps`, `duration` seconds long, on a canvas the
  * size of the comp's design canvas. Returns what the export needs to overlay it.
  */
-export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; scale?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void; plugin?: PluginTarget } = {}): Promise<RenderedFrames> {
+export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: string; duration: number }, comp: Pick<Comp, 'width' | 'height' | 'fps'>, options: { fps?: number; scale?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void; onInflight?: (frames: InflightFrame[]) => void; plugin?: PluginTarget; /** Only these frames (an In→Out export); every frame when unset. */ window?: { first: number; last: number } } = {}): Promise<RenderedFrames> {
   const fps = exportFrameRate(options.fps ?? comp.fps);
-  const frames = Math.max(1, Math.round(clip.duration * fps));
+  const all = Math.max(1, Math.round(clip.duration * fps));
+  const first = options.window?.first ?? 0;
+  const last = Math.min(all - 1, options.window?.last ?? all - 1);
+  const frames = last - first + 1;
   const dir = await api.mogrtFramesBegin(clip.id);
   const mounted = await mountFor(source, clip.duration, comp, options.scale ?? 1, options.plugin, fps);
   const cancelled = () => { if (options.signal?.aborted) throw new Error('export cancelled'); };
@@ -197,7 +212,7 @@ export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: strin
   try {
     // Frame i's PNG is encoded (on workers) and written while frame i+1 is drawn.
     writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames), options.signal, options.onInflight);
-    for (let index = 0; index < frames; index++) {
+    for (let index = first; index <= last; index++) {
       cancelled();
       const sheet = await mounted.draw(index / fps);
       cancelled();
@@ -209,7 +224,9 @@ export async function renderHtmlClipFrames(source: HtmlSource, clip: { id: strin
     mounted.unmount();
     await writer?.close();
   }
-  return { dir, fps, frames, width: mounted.pixels.width, height: mounted.pixels.height };
+  // The exporter reads frame round(τ·fps) and holds the last one past the end: frames before
+  // `first` are never read in a windowed export.
+  return { dir, fps, frames: last + 1, width: mounted.pixels.width, height: mounted.pixels.height };
 }
 
 /** How much is drawn: summed brightness steps between neighbouring pixels (text and edges score, flat fields do not). */
@@ -328,7 +345,7 @@ function asRenderedBackground(clip: Clip, source: HtmlSource, frames: RenderedFr
 /** Frames an HTML graphic renders to at export. */
 export const htmlFrameCount = (clip: Pick<Clip, 'duration'>, comp: Pick<Comp, 'fps'>, fps?: number) => Math.max(1, Math.round(clip.duration * exportFrameRate(fps ?? comp.fps)));
 
-export async function renderMotionGraphicsForExport(project: Project, compId: string, options: { fps?: number; scale?: number; signal?: AbortSignal; onProgress?: (message: string) => void; onItem?: (title: string, index: number, count: number, frames: number) => void; onFrame?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void } = {}): Promise<Project> {
+export async function renderMotionGraphicsForExport(project: Project, compId: string, options: { fps?: number; scale?: number; signal?: AbortSignal; /** In→Out: only the frames the range shows (clips of the exported comp itself). */ range?: ExportRange | null; onProgress?: (message: string) => void; onItem?: (title: string, index: number, count: number, frames: number) => void; onFrame?: (done: number, total: number) => void; onCanvas?: (canvas: HTMLCanvasElement) => void } = {}): Promise<Project> {
   const targets = htmlClipsForExport(project, compId);
   if (!targets.length) return project;
   const rendered = new Map<string, RenderedFrames>();
@@ -336,8 +353,12 @@ export async function renderMotionGraphicsForExport(project: Project, compId: st
   const merged = mergedMembers(targets);
   for (const [i, target] of targets.entries()) {
     const title = target.source.title ?? 'motion graphic';
-    options.onItem?.(title, i + 1, targets.length, htmlFrameCount(target.clip, target.comp, options.fps));
+    // Clips inside nested comps render whole: a parent clip's speed changes their timing.
+    const window = target.comp.id === compId ? clipFrameWindow(target.clip.start, target.clip.duration, exportFrameRate(options.fps ?? target.comp.fps), options.range) : clipFrameWindow(0, target.clip.duration, exportFrameRate(options.fps ?? target.comp.fps));
+    if (!window) continue;
+    options.onItem?.(title, i + 1, targets.length, window.last - window.first + 1);
     const frames = await renderHtmlClipFrames(target.source, target.clip, target.comp, {
+      window,
       plugin: { project, comp: target.comp, clip: target.clip },
       fps: options.fps,
       scale: options.scale,

@@ -95,8 +95,6 @@ export function AnswerBody({ content, segments, steps, runs, steers = [], stream
       {waiting && (
         <div className="typing" aria-label="Writing">
           <span />
-          <span />
-          <span />
         </div>
       )}
       {pending.map((steer) => <SteerNote key={steer.id} steer={steer} onDrop={onDropSteer} actions={steerActions} />)}

@@ -14,7 +14,7 @@ import { fileSrc } from '../lib/ipc';
 import { setKey, valueAt } from '../lib/keyframes';
 import { playhead, usePlayhead } from '../lib/playhead';
 import {
-  clipEnd, clipName, clipsForSource, compDuration, freeTrack, moveClips, newClip, newComp, placeClips, razor, slideClip, slipClip, snapTargets, sourceInfo, sourceLimit, textSource, trackIndex,
+  clipEnd, clipName, clipsForSource, compDuration, freeTrack, moveClips, rearrangeClips, syncOffsetFrames, newClip, newComp, placeClips, razor, slideClip, slipClip, snapTargets, sourceInfo, sourceLimit, textSource, trackIndex,
   trackLabel, trackSelect, tracksOf, transitionLabel, transitionWindow, trimEdge, updateComp, updateTrack, withLinked, type AssetMap, type TrimMode,
 } from '../lib/timeline';
 import type { Asset, Clip, ClipSource, Comp, Project, Tool, Track, Transition } from '../lib/types';
@@ -52,6 +52,12 @@ export const labelColor = (label: string | null) => (label ? (LABEL_COLORS[label
 export const LABELS = Object.keys(LABEL_COLORS);
 
 type Props = {
+  /** Clips the last AI turn added or changed (tinted until the next turn). */
+  aiChanged?: ReadonlySet<string>;
+  /** The edit point keyboard trims act on. */
+  selectedEdit?: { clipId: string; edge: 'in' | 'out' } | null;
+  /** A clip edge clicked without dragging: select it as the edit point. */
+  onSelectEdit?: (clipId: string, edge: 'in' | 'out') => void;
   project: Project;
   assets: AssetMap;
   comp: Comp | undefined;
@@ -166,9 +172,24 @@ function PlayheadIndicator({
   );
 }
 
+function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const item of items) {
+    const list = out.get(key(item));
+    if (list) list.push(item);
+    else out.set(key(item), [item]);
+  }
+  return out;
+}
+
 export function Timeline(props: Props) {
   const { project, assets, comp, history, selection, tool, zoom, onZoom, snapping, display } = props;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollFrame = useRef(0);
+  // Grouped once per edit rather than filtered once per track (and per clip) on every repaint.
+  const clipsByTrack = useMemo(() => groupBy(comp?.clips ?? [], (clip) => clip.trackId), [comp?.clips]);
+  const transitionsByTrack = useMemo(() => groupBy(comp?.transitions ?? [], (transition) => transition.trackId), [comp?.transitions]);
+  const offlineIds = useMemo(() => new Set(project.media.filter((ref) => ref.offline).map((ref) => ref.assetId)), [project.media]);
   const gesture = useRef<Gesture | null>(null);
   const lastPoint = useRef<Pointer | null>(null);
   const edgeFrame = useRef<number | null>(null);
@@ -257,7 +278,10 @@ export function Timeline(props: Props) {
     const rect = node.getBoundingClientRect();
     if (clientX < rect.left + HEAD || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
     const y = yAt(clientY);
-    const at = timeAt(clientX);
+    // A drop from the Project panel or the Source monitor snaps like a move (clip edges, the
+    // playhead, markers), following the snap toggle. It is worked out while rendering (the
+    // incoming drag's ghost), so it must not set state: its snap line is drawn from the result.
+    const at = snapAt(timeAt(clientX), new Set()).time;
     const row = rowAt(clientY);
     if (row) return { trackId: row.track.id, kind: row.track.kind, index: trackIndex(comp, row.track.id), time: at };
     if (y < (rows.video[0]?.top ?? RULER) + 0.01) return { trackId: null, kind: 'video', index: tracksOf(comp, 'video').length, time: at };
@@ -324,17 +348,42 @@ export function Timeline(props: Props) {
     return () => node.removeEventListener('wheel', onWheel);
   }, [onZoom]);
 
-  // Keep the playhead in view while playing.
+  // Keep the playhead in view: paged along while playing; recentred when a jump (Up/Down to an
+  // edit, Home/End, Q/W, a marker, Match Frame…) lands it off screen. A drag on the timeline
+  // itself keeps it under the pointer, so it is left alone then.
   useEffect(() => {
     const unsub = playhead.subscribe(() => {
       const node = scrollRef.current;
-      if (!node || !playhead.isPlaying()) return;
+      if (!node) return;
       const x = playhead.get() * zoom;
-      if (x > node.scrollLeft + node.clientWidth - HEAD - 30) node.scrollLeft = x - 40;
-      else if (x < node.scrollLeft) node.scrollLeft = Math.max(0, x - 40);
+      const width = node.clientWidth - HEAD;
+      if (playhead.isPlaying()) {
+        if (x > node.scrollLeft + width - 30) node.scrollLeft = x - 40;
+        else if (x < node.scrollLeft) node.scrollLeft = Math.max(0, x - 40);
+        return;
+      }
+      if (gesture.current) return;
+      if (x < node.scrollLeft || x > node.scrollLeft + width) node.scrollLeft = Math.max(0, x - width / 2);
     });
     return () => unsub();
   }, [zoom]);
+
+  // Esc during a drag puts everything back as it was when the drag began, and goes no further
+  // (it would also clear the selection and the tool).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !gesture.current) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      gesture.current = null;
+      history.cancel();
+      setSnapLine(null);
+      stopEdgeScroll();
+      redraw((value) => value + 1);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
 
   if (!comp) {
     return (
@@ -353,12 +402,18 @@ export function Timeline(props: Props) {
     const base = start.comps.find((item) => item.id === comp.id);
     return base ? updateComp(present, comp.id, () => make(base)) : present;
   });
-  const snapped = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }) => {
+  /** Where `value` snaps to, and the snap line to draw (null when it did not snap). Pure: safe during render. */
+  const snapAt = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }): { time: number; line: number | null } => {
     const on = snapping !== !!event?.shiftKey && tool !== 'hand';
-    if (!on) return toFrame(value, fps);
+    if (!on) return { time: toFrame(value, fps), line: null };
     const result = snap(value, snapTargets(comp, exclude, playhead.get()), 10 / zoom);
-    setSnapLine(result !== value ? result : null);
-    return result !== value ? result : toFrame(value, fps);
+    return result !== value ? { time: result, line: result } : { time: toFrame(value, fps), line: null };
+  };
+  /** snapAt for pointer handlers: it also shows the snap line. Never call it while rendering. */
+  const snapped = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }) => {
+    const { time, line } = snapAt(value, exclude, event);
+    setSnapLine(line);
+    return time;
   };
 
   const selectClip = (clip: Clip, event: { shiftKey: boolean; ctrlKey: boolean; altKey: boolean }) => {
@@ -702,12 +757,20 @@ export function Timeline(props: Props) {
     if (active.kind === 'move' && active.moved) {
       const grabKind = comp.tracks.find((track) => track.id === active.grab.trackId)?.kind ?? 'video';
       const shift = grabKind === 'video' ? { video: active.shift, audio: active.shift } : { video: active.shift, audio: active.shift };
-      const result = moveClips(comp, active.ids, active.dt, shift, event.ctrlKey || active.ctrl ? 'insert' : 'overwrite', active.duplicate);
+      // Ctrl+drag on the same tracks rearranges (lift, close the gap, insert), as Premiere does;
+      // across tracks it inserts.
+      const ctrl = event.ctrlKey || active.ctrl;
+      const rearranged = ctrl && !active.duplicate && active.shift === 0 ? rearrangeClips(comp, active.ids, active.dt) : null;
+      const result = rearranged ?? moveClips(comp, active.ids, active.dt, shift, ctrl ? 'insert' : 'overwrite', active.duplicate);
       if (result) {
-        setComp(() => result.comp, active.duplicate ? 'Duplicate' : 'Move');
+        setComp(() => result.comp, active.duplicate ? 'Duplicate' : rearranged ? 'Rearrange' : 'Move');
         props.onSelect(result.ids);
       }
-    } else if (active.kind === 'trim') history.settle(active.mode === 'stretch' ? 'Rate Stretch' : active.mode === 'ripple' ? 'Ripple Trim' : active.mode === 'rolling' ? 'Rolling Edit' : 'Trim');
+    } else if (active.kind === 'trim') {
+      // A click on an edge that trimmed nothing selects it as the edit point for keyboard trims.
+      if (!history.gesture()) props.onSelectEdit?.(active.clipId, active.edge);
+      history.settle(active.mode === 'stretch' ? 'Rate Stretch' : active.mode === 'ripple' ? 'Ripple Trim' : active.mode === 'rolling' ? 'Rolling Edit' : 'Trim');
+    }
     else if (active.kind === 'slip') history.settle('Slip');
     else if (active.kind === 'slide') history.settle('Slide');
     else if (active.kind === 'marker') {
@@ -795,7 +858,7 @@ export function Timeline(props: Props) {
     const track = row.track;
     const selected = selection.includes(clip.id);
     const asset = clip.source.type === 'media' ? assets.get(clip.source.assetId) : undefined;
-    const offline = clip.source.type === 'media' && (!asset || asset.missing || project.media.some((ref) => ref.assetId === (clip.source as { assetId: string }).assetId && ref.offline));
+    const offline = clip.source.type === 'media' && (!asset || asset.missing || offlineIds.has(clip.source.assetId));
     const width = Math.max(3, clip.duration * zoom);
     const kindClass = track.kind === 'audio' ? `a-${clip.source.type}` : `v-${clip.source.type}`;
     const custom = labelColor(clip.label);
@@ -819,7 +882,7 @@ export function Timeline(props: Props) {
       <div
         key={clip.id}
         data-clip-id={clip.id}
-        className={`tl-clip ${kindClass}${selected ? ' selected' : ''}${clip.enabled ? '' : ' disabled'}${offline ? ' offline' : ''}${clip.hold !== null ? ' hold' : ''}`}
+        className={`tl-clip ${kindClass}${selected ? ' selected' : ''}${props.aiChanged?.has(clip.id) ? ' ai-changed' : ''}${clip.enabled ? '' : ' disabled'}${offline ? ' offline' : ''}${clip.hold !== null ? ' hold' : ''}`}
         style={{ left: HEAD + clip.start * zoom, width, top: row.top + 1, height: row.height - 2, ...(custom ? { ['--clip-color' as string]: custom } : {}) }}
         onPointerDown={(event) => onClipDown(event, clip, null)}
         onContextMenu={(event) => {
@@ -847,6 +910,11 @@ export function Timeline(props: Props) {
           <div className="clip-label">
             {display.fxBadges && <span className={`fx-badge${fx ? ' on' : ''}`}>fx</span>}
             {display.names && <span className="clip-name">{clipName(project, assets, clip)}{clip.linkId ? (track.kind === 'video' ? ' [V]' : ' [A]') : ''}</span>}
+            {(() => {
+              // Linked halves that slipped apart: Premiere's red frame-offset badge.
+              const offset = clip.linkId ? syncOffsetFrames(comp, clip, comp.fps) : 0;
+              return offset ? <span className="tl-sync-badge" title={`Out of sync with its linked ${track.kind === 'video' ? 'audio' : 'video'} by ${Math.abs(offset)} frame${Math.abs(offset) === 1 ? '' : 's'}`}>{offset > 0 ? '+' : '−'}{Math.abs(offset)}</span> : null;
+            })()}
             {speed && <span className="clip-speed">{speed}</span>}
             {clip.source.type === 'text' && clip.source.preset === 'caption' && <span className="clip-sub">{findStyle(clip.source.style)?.label ?? 'Caption'}</span>}
           </div>
@@ -873,6 +941,7 @@ export function Timeline(props: Props) {
         )}
         {!track.locked && (tool === 'select' || tool === 'ripple' || tool === 'rolling' || tool === 'rate-stretch') && width > 10 && (
           <>
+            {props.selectedEdit?.clipId === clip.id && <span className={`tl-edit-mark ${props.selectedEdit.edge}`} />}
             <span className={`clip-handle left ${tool}`} onPointerDown={(event) => onClipDown(event, clip, 'in')} />
             <span className={`clip-handle right ${tool}`} onPointerDown={(event) => onClipDown(event, clip, 'out')} />
           </>
@@ -1035,8 +1104,14 @@ export function Timeline(props: Props) {
         ref={scrollRef}
         style={{ cursor, ['--tl-head' as string]: `${HEAD}px` }}
         onScroll={(event) => {
-          const { scrollLeft, scrollTop } = event.currentTarget;
-          setView((current) => (current.left === scrollLeft && current.top === scrollTop ? current : { ...current, left: scrollLeft, top: scrollTop }));
+          // At most one repaint a frame: a wheel or trackpad fires scroll events faster than that.
+          const node = event.currentTarget;
+          if (scrollFrame.current) return;
+          scrollFrame.current = requestAnimationFrame(() => {
+            scrollFrame.current = 0;
+            const { scrollLeft, scrollTop } = node;
+            setView((current) => (current.left === scrollLeft && current.top === scrollTop ? current : { ...current, left: scrollLeft, top: scrollTop }));
+          });
         }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -1077,11 +1152,16 @@ export function Timeline(props: Props) {
           <div className="tl-below" style={{ top: rows.height - 60, width: HEAD + lanesWidth }} onPointerDown={(event) => onLaneDown(event, null)} />
 
           {inX !== null && outX !== null && outX > inX && <div className="tl-range" style={{ left: inX, width: outX - inX, height: rows.height }} />}
-          {allRows.map((row) => comp.clips.filter((clip) => clip.trackId === row.track.id).map((clip) => renderClip(clip, row)))}
-          {allRows.map((row) => comp.transitions.filter((transition) => transition.trackId === row.track.id).map((transition) => renderTransition(transition, row)))}
+          {allRows.map((row) => (clipsByTrack.get(row.track.id) ?? []).map((clip) => renderClip(clip, row)))}
+          {allRows.map((row) => (transitionsByTrack.get(row.track.id) ?? []).map((transition) => renderTransition(transition, row)))}
           {ghostRows()}
           {marquee && <div className="tl-marquee" style={{ left: Math.min(marquee.x0, marquee.x1), top: Math.min(marquee.y0, marquee.y1), width: Math.abs(marquee.x1 - marquee.x0), height: Math.abs(marquee.y1 - marquee.y0) }} />}
-          {snapLine !== null && <div className="tl-snap-line" style={{ left: HEAD + snapLine * zoom, height: rows.height }} />}
+          {(() => {
+            // A drag from outside (bin, Source monitor, files) shows where it snaps without state.
+            const incomingLine = props.incoming && incomingTarget ? snapAt(timeAt(props.incoming.x), new Set()).line : null;
+            const line = snapLine ?? incomingLine;
+            return line !== null && <div className="tl-snap-line" style={{ left: HEAD + line * zoom, height: rows.height }} />;
+          })()}
           {hover && (tool === 'razor' || tool === 'type' || tool === 'vertical-type') && <div className={`tl-hover-line ${tool}`} style={{ left: HEAD + hover.time * zoom, height: rows.height }} />}
           {props.incoming?.kind === 'transition' && incomingTarget && <div className="tl-snap-line transition-drop" style={{ left: HEAD + incomingTarget.time * zoom, height: rows.height }} />}
           {/* Scrolled behind the track heads, the playhead is gone rather than drawn over the buttons. */}

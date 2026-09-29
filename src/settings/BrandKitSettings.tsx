@@ -6,6 +6,7 @@
 // colour theme recolours the selected kit. The right side edits the selected kit and previews its
 // brand board. Persistence is the settings document.
 
+import { KitLearnings } from './KitLearnings';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { HtmlMotionLayer } from '../editor/HtmlMotionLayer';
@@ -445,6 +446,10 @@ function KitEditor({ kit, isDefault, isProject, onPatch, onReplace, onDefault, o
 
       <Section title={SECTION_LABELS.guideline} hint="what the AI builds videos from">
         <BrandGuidelineView kit={kit} onReset={() => onPatch('guideline', { guideline: null })} />
+      </Section>
+
+      <Section title="Learnings" hint={kit.learnings?.length ? `${kit.learnings.filter((learning) => learning.status === 'active').length} in use · from ${kit.sources?.length ?? 0} reference${(kit.sources?.length ?? 0) === 1 ? '' : 's'}` : '/train teaches it'}>
+        <KitLearnings kit={kit} onReplace={(next) => onReplace({ ...next, updatedAt: new Date().toISOString() })} />
       </Section>
 
       <Section title={SECTION_LABELS.identity} hint={kit.style} open>
