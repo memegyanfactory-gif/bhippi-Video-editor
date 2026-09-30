@@ -238,6 +238,48 @@ export type FrameStats = { white: number; dark: number; flat: number; mean: numb
  * brightness (one flat colour).
  */
 /**
+ * Rendered frames tiled into one labelled contact sheet (a JPEG data URL): the way the films that
+ * scored well checked themselves, many moments in one look. Each row starts a new group (a join
+ * strip is one row); a frame that does not load leaves its cell dark.
+ */
+export async function contactSheet(rows: { path: string; label: string }[][], cell = { width: 320, height: 180 }): Promise<string | null> {
+  const columns = Math.max(1, ...rows.map((row) => row.length));
+  if (!rows.length) return null;
+  const label = 18;
+  const canvas = document.createElement('canvas');
+  canvas.width = columns * cell.width;
+  canvas.height = rows.length * (cell.height + label);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#101114';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = '12px sans-serif';
+  ctx.textBaseline = 'middle';
+  for (const [r, row] of rows.entries()) {
+    for (const [c, frame] of row.entries()) {
+      const x = c * cell.width;
+      const y = r * (cell.height + label);
+      try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('frame did not load'));
+          img.src = `${fileSrc(frame.path)}${fileSrc(frame.path).includes('?') ? '&' : '?'}sheet=${Date.now()}`;
+        });
+        ctx.drawImage(image, x, y + label, cell.width, cell.height);
+      } catch {
+        // Left dark: the label still says which moment it was.
+      }
+      ctx.fillStyle = '#e8e8ea';
+      ctx.fillText(frame.label.slice(0, 44), x + 6, y + label / 2);
+      ctx.strokeStyle = '#2a2c31';
+      ctx.strokeRect(x + 0.5, y + 0.5, cell.width - 1, cell.height + label - 1);
+    }
+  }
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+
+/**
  * How far apart the light and dark of each box are on a rendered frame, as a WCAG-style ratio
  * of its 90th to 10th luminance percentile. Legible type on its background spreads the two
  * (white on dark: > 4); type that melts into its background keeps them close (< ~1.8).

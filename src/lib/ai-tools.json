@@ -5896,6 +5896,52 @@
       }
     },
     {
+      "name": "review_frames",
+      "description": "Reviews the edit the way good films are made: frames at every cut, graphic landing, sound cue and marker, plus strips 0.06 s apart across the joins, as contact sheets you look at, and measured checks (murky frames, the same phrase on screen twice, cuts off the beat, sound cues buried under the music, an end card that leaves too soon, reading size). Changes nothing; fix what it lists, then review again.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          },
+          "at": {
+            "type": "string",
+            "enum": [
+              "events",
+              "joins",
+              "both"
+            ],
+            "description": "Which frames: the moments things happen, the joins, or both (default)."
+          },
+          "times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Timeline seconds to look at instead (up to 24)."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Event frames, 4-24 (default 18)."
+          },
+          "joins": {
+            "type": "number",
+            "description": "Join strips, 1-6 (default 3)."
+          },
+          "images": {
+            "type": "boolean",
+            "description": "Attach the contact sheets (default true)."
+          }
+        }
+      }
+    },
+    {
       "name": "organize_bin",
       "description": "File every loose Project-bin entry into its category folder: Footage, B-roll, Motion Graphics ([MOGRT] and graphics-only comps), Generated, Backgrounds, Images, Music, SFX, Voice-over, Audio, Graphics. Reuses existing folders with matching names. Entries already in a folder are left alone. Anything you import, download, generate or build is filed automatically; use this to tidy a bin that was filled before.",
       "input_schema": {

@@ -28,7 +28,8 @@ import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
 import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, type QaIssue } from './production';
 import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
 import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
-import { loadPeaks } from './peaks';
+import { BUCKETS_PER_SECOND, loadPeaks } from './peaks';
+import { cutTimes, darkFinding, eventMoments, JOIN_STEP, joinStrips, offBeatCuts, quietCues, repeatedPhrases, shortEnd, timelineOf, type CueLevel, type Finding, type Moment } from './reviewFrames';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
 import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilRole, type Provenance } from './council';
@@ -46,7 +47,7 @@ import { isRoastCardTemplate } from './roast/cards';
 import { CARD_TEMPLATES } from './roast/types';
 import { MOTION_TEMPLATES, findTemplate } from '../motion/kit';
 import { SFX_GAIN_DB, sfxClipFields, sfxTrack } from './sfxLevels';
-import { blankFinding, boxContrast, collectQaLayers, frameStats, MIN_TEXT_CONTRAST } from './polish';
+import { blankFinding, boxContrast, collectQaLayers, contactSheet, frameStats, MIN_TEXT_CONTRAST } from './polish';
 import { renderMotionStill } from '../motion/exportFrames';
 import { renderHtmlStill } from './htmlFrames';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, placement, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
@@ -3959,6 +3960,107 @@ ${notes.trim()}${paletteLine}
         ? `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: ${problems.length} problem(s). Fix every one, then run it again until it is clear; an intended design (a title set behind the subject, a reveal) is instead waived in verify_edit_workflow's acceptedQaIssues with a reason.${hasSubject ? '' : ' No subject track was available (rotoscope_clip gives one), so subject coverage was not checked.'}${renderNote}\n${lines.join('\n')}\n${pacing.summary}`
         : `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: nothing off the frame or outside the safe area, no overlaps, no blank or black-edged frames.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'}${renderNote}${images.length ? ' Look at the contact frames for what geometry cannot judge (contrast, reading time, taste), then' : ' Then'} verify_edit_workflow. ${pacing.summary}`,
         { pacing: pacing.checks, issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, frameNotes, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
+    }
+
+    case 'review_frames': {
+      // The render → look → fix loop the best films were made in: frames at the moments something
+      // happens and strips across the joins, tiled into contact sheets, plus the numbers the
+      // critics measured by hand (reviewFrames.ts). It changes nothing.
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const duration = compDuration(comp);
+      if (duration <= 0) return fail('The timeline is empty; nothing to review.');
+      const from = clamp(num(args, 'start') ?? 0, 0, Math.max(0, duration - 1 / fps(comp)));
+      const to = clamp(num(args, 'end') ?? duration, from + 1 / fps(comp), duration);
+      const at = str(args, 'at') ?? 'both';
+      const asked = Array.isArray(args.times) ? (args.times as unknown[]).filter((t): t is number => typeof t === 'number' && t >= from && t < to) : [];
+      const events: Moment[] = asked.length
+        ? asked.slice(0, 24).map((t) => ({ at: Math.round(t * 100) / 100, why: 'asked' }))
+        : at === 'joins' ? [] : eventMoments(project, comp, from, to, clamp(num(args, 'limit') ?? 18, 4, 24));
+      const strips = asked.length || at === 'events' ? [] : joinStrips(comp, from, to, clamp(num(args, 'joins') ?? 3, 1, 6));
+      const moments = [...events, ...strips.flat()];
+      if (!moments.length) return fail('Nothing to look at in that range: no cuts, graphics or cues. Pass times:[seconds] to choose the moments.');
+      const times = [...new Set(moments.map((moment) => moment.at))].sort((a, b) => a - b);
+      const layers = await collectQaLayers(project, assets, comp, times, { rotoSubjects: async (runId) => (await api.rotoRead(runId))?.subjects ?? null });
+      const findings: Finding[] = [];
+      // Geometry the frame check already measures (reading size, off-frame, overlaps), from the same layers.
+      const geometry = frameQa(comp, layers, times).filter((issue) => issue.kind === 'small-text' || issue.kind === 'off-frame' || issue.kind === 'caption-collision');
+      findings.push(...repeatedPhrases(layers, times));
+      // Beats, when the music is known, against the picture's cuts.
+      const musicClip = comp.clips.find((clip) => clip.enabled && clip.source.type === 'media' && (clip.source.assetId === comp.production?.music?.assetId || clip.audioType === 'music'));
+      const beats = musicClip && comp.production?.music?.beats?.length ? comp.production.music.beats.map((beat) => timelineOf(musicClip, beat)).filter((t): t is number => t !== null) : [];
+      findings.push(...offBeatCuts(cutTimes(comp, from, to), beats));
+      // Sound cues against the music at their moment, from the waveform levels Bhippi keeps.
+      if (musicClip && musicClip.source.type === 'media') {
+        const musicAsset = assets.get(musicClip.source.assetId);
+        const musicPeaks = musicAsset?.peaks ? await loadPeaks(musicAsset.peaks) : null;
+        const levelOf = (peaks: { data: Uint8Array; buckets: number }, source: number, span: number) => {
+          let top = 0;
+          for (let s = source; s < source + span; s += 0.01) { const i = Math.floor(s * BUCKETS_PER_SECOND); if (i >= 0 && i < peaks.buckets) top = Math.max(top, peaks.data[i * 2 + 1] / 255); }
+          return top > 0 ? 20 * Math.log10(top) : null;
+        };
+        const musicDbAt = (t: number) => {
+          if (!musicPeaks || t < musicClip.start || t >= clipEnd(musicClip)) return null;
+          const level = levelOf(musicPeaks, musicClip.in + (t - musicClip.start) * musicClip.speed, 0.3);
+          return level === null ? null : level + gainToDb(musicClip.volume);
+        };
+        const cues: CueLevel[] = [];
+        for (const clip of comp.clips) {
+          if (!clip.enabled || clip.start < from || clip.start >= to) continue;
+          const isCue = clip.source.type === 'sfx' || clip.audioType === 'sfx';
+          if (!isCue || clip === musicClip) continue;
+          let db: number | null = null;
+          if (clip.source.type === 'media') {
+            const asset = assets.get(clip.source.assetId);
+            const peaks = asset?.peaks ? await loadPeaks(asset.peaks) : null;
+            if (peaks) db = levelOf(peaks, clip.in, Math.min(0.4, clip.duration));
+          } else {
+            // Built-in sounds are drawn near -12 dBFS at unity gain.
+            db = -12;
+          }
+          if (db !== null) cues.push({ at: clip.start, name: clip.name ?? (clip.source.type === 'sfx' ? clip.source.kind : 'sound'), db: db + gainToDb(clip.volume) });
+        }
+        findings.push(...quietCues(cues, musicDbAt));
+      }
+      const end = shortEnd(project, comp, duration);
+      if (end) findings.push(end);
+
+      // The frames, rendered as the export draws them, then tiled: events in rows of six, each join its own row.
+      const shots = new Map<number, string>();
+      let renderNote = '';
+      try {
+        const dir = await api.mogrtFramesBegin('review');
+        const { renderFiwnCaptionsForExport } = await import('./fiwn/export');
+        const prepared = await renderFiwnCaptionsForExport(await renderHtmlStill(await renderMotionStill(project, comp.id, times, [...assets.values()]), comp.id, times), comp.id, { times });
+        for (const [i, t] of times.entries()) {
+          const path = await api.exportFrame(prepared, comp.id, t, `${dir}/review-${String(i).padStart(2, '0')}.png`, 360);
+          shots.set(t, path);
+          const stats = await frameStats(path);
+          const dark = stats ? darkFinding(t, stats.mean) : null;
+          if (dark) findings.push(dark);
+        }
+      } catch (error) {
+        renderNote = ` Frames could not be rendered (${errorText(error)}), so only the measured checks ran.`;
+      }
+      const label = (moment: Moment) => `${timecode(moment.at, fps(comp))} ${moment.why}`;
+      const rowsOf = (list: Moment[], size: number) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, i * size + size));
+      const toRow = (row: Moment[]) => row.filter((moment) => shots.has(moment.at)).map((moment) => ({ path: shots.get(moment.at)!, label: label(moment) }));
+      const sheets = [
+        events.length ? await contactSheet(rowsOf(events, 6).map(toRow).filter((row) => row.length)) : null,
+        strips.length ? await contactSheet(strips.map(toRow).filter((row) => row.length)) : null,
+      ].filter((sheet): sheet is string => !!sheet);
+      const images = bool(args, 'images') === false ? [] : sheets;
+      // One line per darkness run, not per frame.
+      const darks = findings.filter((finding) => finding.kind === 'dark');
+      const measured = [...findings.filter((finding) => finding.kind !== 'dark'), ...(darks.length ? [{ ...darks[0], what: `${darks.length} of ${shots.size} frame(s) are murky-dark (first at ${timecode(darks[0].at!, fps(comp))}: ${darks[0].what})` }] : [])];
+      const lines = [
+        ...measured.map((finding) => `${finding.at !== null ? `${timecode(finding.at, fps(comp))} ` : ''}${finding.kind}: ${finding.what}. Fix: ${finding.fix}.`),
+        ...geometry.slice(0, 8).map((issue) => `${timecode(issue.at, fps(comp))} ${issue.kind}: "${issue.a}". ${issue.suggestion}`),
+      ];
+      return done(
+        `Reviewed ${timecode(from, fps(comp))}–${timecode(to, fps(comp))}: ${events.length} moment(s)${strips.length ? ` and ${strips.length} join strip(s) of ${strips[0].length} frames ${Math.round(JOIN_STEP * 1000)} ms apart` : ''}, in ${sheets.length} contact sheet(s).${renderNote} ${lines.length ? `${lines.length} thing(s) to fix:\n${lines.join('\n')}` : 'Nothing measured is off: no murky frames, doubled phrases, off-beat cuts, buried cues or rushed end card.'}\nNow look at the sheets for what numbers cannot judge (does each moment read, do the joins flow, is it premium), fix, and review again.`,
+        { moments: moments.map((moment) => ({ at: moment.at, why: moment.why })), findings: measured, geometry: geometry.slice(0, 12), images, range: { start: from, end: to } },
+      );
     }
 
     case 'propose_storyboards': {

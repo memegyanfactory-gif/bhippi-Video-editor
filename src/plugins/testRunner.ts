@@ -36,7 +36,7 @@ export const SCRATCH_TOOLS = new Set([
   'nest_motion_scenes', 'split_motion_layers', 'create_stick_figure', 'animate_character', 'create_ui_screen', 'update_ui_screen',
   'apply_brand_kit', 'save_beat_sheet', 'roast_move', 'apply_roast_edl',
   // Local reads of the project and its media.
-  'inspect_clip_frames', 'inspect_source_frames', 'detect_scenes', 'analyze_music_beats', 'score_audio_clip', 'inspect_color',
+  'inspect_clip_frames', 'inspect_source_frames', 'detect_scenes', 'analyze_music_beats', 'review_frames', 'score_audio_clip', 'inspect_color',
   'check_brand_compliance', 'list_brand_archetypes', 'brand_kit_prompt', 'validate_roast_edl', 'edit_dna',
   'local_media_capabilities', 'cloud_generation_capabilities',
 ]);

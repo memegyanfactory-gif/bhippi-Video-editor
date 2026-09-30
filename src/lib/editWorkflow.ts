@@ -212,6 +212,7 @@ const preparation = new Set([
   'finish_gathering',
   'analyze_music_beats',
   'analyze_song',
+  'review_frames',
   // @funny planning: the beat sheet, meme and sound research, receipts, faces and the EDL check
   // change the plan or the libraries, never the timeline. get_meme_media and cutout_image make
   // media, so the phase gate still holds them to GATHER.
@@ -352,6 +353,7 @@ const ALWAYS_TOOLS = new Set([
   'set_playhead',
   'analyze_music_beats',
   'analyze_song',
+  'review_frames',
   // @funny reads: the libraries, captions and the measured edit.
   'search_memes',
   'find_receipt',

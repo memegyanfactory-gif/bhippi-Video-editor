@@ -101,7 +101,9 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // the gate), the one-call graphic tool that small models use instead of raw templates.
       // Raised to 44,300 on 2026-09-30 for `analyze_song` (its one-line slim entry, ~+25 a step),
       // the one call that times every lyric word of a song: every premium film built it by hand.
-      expect(row.step, row.id).toBeLessThan(44_300);
+      // Raised to 44,350 the same day for `review_frames` (its slim entry, ~+24 a step): event frames,
+      // join strips and measured checks, the review loop every premium film was made in.
+      expect(row.step, row.id).toBeLessThan(44_350);
     }
   });
 
