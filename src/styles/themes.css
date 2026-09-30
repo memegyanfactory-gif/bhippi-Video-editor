@@ -15,8 +15,8 @@
 /* ── the layers: wired to tokens once, for every theme ──────────────────── */
 :root {
   --monitor: var(--deep);
-  --home-bg: radial-gradient(circle at 20% 0%, #26303f, #151515 60%);
-  --home-card: rgba(35, 35, 35, 0.9);
+  --home-bg: var(--deep);
+  --home-card: var(--panel);
   --bubble: #2f3b4d;
   --bubble-line: #3c4d66;
   --scroll: #3b3b3b;

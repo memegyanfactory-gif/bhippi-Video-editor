@@ -1,4 +1,4 @@
-import { ArrowRight, Clapperboard, FilePlus2, Film, FolderOpen, Keyboard, Sparkles, Upload } from 'lucide-react';
+import { ArrowRight, Clapperboard, Film, FolderOpen, Keyboard, Plus, Sparkles, Upload } from 'lucide-react';
 import { bytes, timecode } from '../lib/editor';
 import { api } from '../lib/ipc';
 import { compDuration } from '../lib/timeline';
@@ -24,6 +24,13 @@ type Props = {
   onShortcuts: () => void;
 };
 
+/** "D:\Films\Launch.bhippi" → { name: "Launch", folder: "D:\Films" }. */
+function splitPath(path: string) {
+  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
+  const file = path.slice(cut + 1);
+  return { name: file.replace(/\.bhippi$/i, ''), folder: cut > 0 ? path.slice(0, cut) : '' };
+}
+
 export function HomeScreen(props: Props) {
   const exports = props.jobs.filter((job) => job.kind === 'export' && job.status === 'done' && job.result?.path);
   const ready = props.providers.filter((row) => row.usable && row.kind !== 'builtin');
@@ -31,90 +38,94 @@ export function HomeScreen(props: Props) {
   return (
     <div className="home">
       <div className="home-inner">
-        <div className="home-hero">
-          <img src="/bhippi.png" alt="" width={64} height={64} />
-          <div>
-            <h1>Welcome to Bhippi</h1>
-            <p>A local-first video studio with Premiere-style editing and an AI editor that makes real edits.</p>
+        <header className="home-head">
+          <img src="/bhippi.png" alt="" width={40} height={40} />
+          <div className="home-title">
+            <h1>Bhippi</h1>
+            <p>Edit by hand, or ask the AI to make the edit.</p>
           </div>
-        </div>
-        <div className="home-grid">
-          <button type="button" className="home-card primary" onClick={props.onEdit}>
-            <Film size={22} />
-            <strong>Continue editing</strong>
-            <span>{props.project.name} · {comp ? `${comp.name} · ${comp.clips.length} clips · ${timecode(compDuration(comp), comp.fps)}` : 'no comp yet'}</span>
-            <ArrowRight size={16} className="home-go" />
+          <div className="home-actions">
+            <button type="button" className="btn" onClick={props.onOpen}><FolderOpen size={15} />Open</button>
+            <button type="button" className="btn btn-primary" onClick={props.onNewProject}><Plus size={15} />New project</button>
+          </div>
+        </header>
+
+        <button type="button" className="home-card home-current" onClick={props.onEdit}>
+          <span className="home-current-icon"><Film size={20} /></span>
+          <span className="home-current-text">
+            <strong>{props.project.name}</strong>
+            <span>{comp ? `${comp.name} · ${comp.clips.length} clips · ${timecode(compDuration(comp), comp.fps)}` : 'No comp yet'}</span>
+          </span>
+          <span className="home-current-go">Continue editing<ArrowRight size={15} /></span>
+        </button>
+
+        <div className="home-quick">
+          <button type="button" onClick={props.onImport}>
+            <Upload size={15} /><span>Import media</span><small>{props.assetCount} in project</small>
           </button>
-          <button type="button" className="home-card" onClick={props.onOpen}>
-            <FolderOpen size={22} />
-            <strong>Open project</strong>
-            <span>A .bhippi project file</span>
+          <button type="button" onClick={props.onProviders}>
+            <Sparkles size={15} /><span>AI providers</span>
+            {ready.length ? (
+              <small className="home-providers">{ready.slice(0, 4).map((row) => <ProviderLogo key={row.id} id={row.id} size={14} />)}</small>
+            ) : <small>Set up</small>}
           </button>
-          <button type="button" className="home-card" onClick={props.onImport}>
-            <Upload size={22} />
-            <strong>Import media</strong>
-            <span>{props.assetCount} items in the project</span>
-          </button>
-          <button type="button" className="home-card" onClick={props.onNewProject}>
-            <FilePlus2 size={22} />
-            <strong>New project</strong>
-            <span>Start a fresh, clean, empty project</span>
-          </button>
-          <button type="button" className="home-card" onClick={props.onProviders}>
-            <Sparkles size={22} />
-            <strong>AI providers</strong>
-            <span className="home-providers">
-              {ready.length ? ready.slice(0, 6).map((row) => <ProviderLogo key={row.id} id={row.id} size={16} />) : 'Set up Claude, Codex, Gemini, Ollama or an API key'}
-            </span>
-          </button>
-          <button type="button" className="home-card" onClick={props.onShortcuts}>
-            <Keyboard size={22} />
-            <strong>Keyboard shortcuts</strong>
-            <span>Premiere's keymap: J K L, I O, Q W, Ctrl+K and more</span>
+          <button type="button" onClick={props.onShortcuts}>
+            <Keyboard size={15} /><span>Shortcuts</span><small>Premiere keymap</small>
           </button>
         </div>
-        <div className="home-recent">
+
+        <section className="home-section">
           <h2>Recent projects</h2>
-          {props.recents.length === 0 ? (
-            <p className="muted">No recent projects yet — projects you open or save show up here.</p>
-          ) : (
-            props.recents.slice(0, 6).map((path) => {
-              const found = props.recentFound.has(path);
-              const name = path.split(/[\\/]/).pop();
-              return (
-                <div key={path} className={`home-export${found ? '' : ' missing'}`}>
-                  <Clapperboard size={14} />
-                  <button type="button" className="home-export-name link" disabled={!found} onClick={() => found && props.onOpenRecent(path)}
-                    title={found ? path : `Not found: ${path}`}>{name}</button>
-                  {found ? (
-                    <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.revealPath(path)}>Show in folder</button>
-                  ) : (
-                    <>
-                      <span className="muted">Missing</span>
-                      <button type="button" className="btn btn-small btn-ghost" onClick={() => props.onForgetRecent(path)}>Remove</button>
-                    </>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-        <div className="home-recent">
-          <h2>Exported this session</h2>
-          {exports.length === 0 ? (
-            <p className="muted">Nothing exported yet — press Ctrl+M in the editor.</p>
-          ) : (
-            exports.map((job) => (
-              <div key={job.id} className="home-export">
-                <Film size={14} />
-                <span className="home-export-name">{job.result?.path?.split(/[\\/]/).pop()}</span>
-                <span className="muted">{bytes(job.result?.size ?? 0)}</span>
-                <button type="button" className="btn btn-small" onClick={() => job.result?.path && void api.openPath(job.result.path)}>Open</button>
-                <button type="button" className="btn btn-small btn-ghost" onClick={() => job.result?.path && void api.revealPath(job.result.path)}>Show in folder</button>
-              </div>
-            ))
-          )}
-        </div>
+          <div className="home-card home-list">
+            {props.recents.length === 0 ? (
+              <p className="home-empty">Projects you open or save show up here.</p>
+            ) : (
+              props.recents.slice(0, 8).map((path) => {
+                const found = props.recentFound.has(path);
+                const { name, folder } = splitPath(path);
+                return (
+                  <div key={path} className={`home-row${found ? '' : ' missing'}`}>
+                    <Clapperboard size={15} />
+                    <button type="button" className="home-row-name" disabled={!found} onClick={() => found && props.onOpenRecent(path)}
+                      title={found ? path : `Not found: ${path}`}>
+                      <b>{name}</b><small>{found ? folder : 'Missing'}</small>
+                    </button>
+                    <span className="home-row-actions">
+                      {found ? (
+                        <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.revealPath(path)}>Show in folder</button>
+                      ) : (
+                        <button type="button" className="btn btn-small btn-ghost" onClick={() => props.onForgetRecent(path)}>Remove</button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        {exports.length > 0 && (
+          <section className="home-section">
+            <h2>Exported this session</h2>
+            <div className="home-card home-list">
+              {exports.map((job) => {
+                const path = job.result!.path!;
+                const { folder } = splitPath(path);
+                return (
+                  <div key={job.id} className="home-row">
+                    <Film size={15} />
+                    <button type="button" className="home-row-name" onClick={() => void api.openPath(path)} title={path}>
+                      <b>{path.split(/[\\/]/).pop()}</b><small>{bytes(job.result?.size ?? 0)} · {folder}</small>
+                    </button>
+                    <span className="home-row-actions">
+                      <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.revealPath(path)}>Show in folder</button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
