@@ -194,6 +194,8 @@ describe('film recipes', () => {
   it('the guided brief names the recipes in a line; the full tier is not sent to them', () => {
     expect(GUIDED_BRIEF).toMatch(/recipe/);
     for (const recipe of FILM_RECIPES) expect(GUIDED_BRIEF).toContain(recipe);
+    // The real app only shows when the call names a capture: the brief says how.
+    expect(GUIDED_BRIEF).toContain('capture ("bhippi"');
     // A frontier model's toolset is unchanged: the build is not put in front of it.
     expect(routeTools('make a launch film for my app with this song', [], null, null, false).full).not.toContain('build_edit_from_brief');
   });
