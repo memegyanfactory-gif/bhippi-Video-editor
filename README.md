@@ -1,6 +1,6 @@
 # Bhippi Video Editor
 
-Version 1.0.1
+Version 1.0.8
 
 Bhippi Video Editor is a desktop video editor with an AI producer built in. Bhippi looks and cuts like a professional NLE (multi-track timeline, ripple and roll edits, keyframes, nested comps, audio meters) and ships with a co-pilot that plans, gathers, edits and polishes a video through real tools on your timeline. Everything runs on your machine: the models, the media, the render.
 
@@ -10,6 +10,9 @@ Built with Tauri v2 + Rust, React 19 + TypeScript, FFmpeg. MIT licensed.
 
 - **Edit like a pro.** Selection, razor, ripple, roll, rate stretch, slip, slide, pen and type tools; unlimited video and audio tracks; nested sequences; real-time waveforms and meters; undo for everything, including what the AI does.
 - **Let the AI produce.** Ask for a video and the co-pilot works in phases you control with buttons in the chat: **plan** (research, script, shot list, graphics, music) → **Start generating** → **gather** (local video, images, voice-over, downloads) → **Start editing** → **edit and polish** (cuts on speech, levels, beat sync, roto, graphics, captions, frame QA).
+- **Quick edits on finished work.** Draw an annotation on the preview or select a layer on the timeline and send it to the chat: a **Quick** turn works only on that part, with no new plan, so a small fix costs few tokens. Bhippi picks Full or Quick for each message (the chip in the chat shows which, and you can switch it).
+- **AI work stays in the project.** Everything a turn makes (scripts, renders, notes) is saved in the project's `AI Work` folder, the chat saves as it goes, and a stopped turn resumes where it left off, so closing the app loses nothing.
+- **Films in one call.** Film recipes (launch film, product demo, identity film, kinetic explainer, fluid SaaS) build a whole layered film from a few beats: the song is mapped to the lyric word, the real app is captured part by part, words land on the beat, joins and sounds are placed and the film is reviewed frame by frame. Every piece is offered, never forced: strong models can still build their own way.
 - **Generate locally.** Wan 2.1 / LTX text-to-video, SDXL images, SAM 2 / RVM rotoscoping, Depth Anything, Whisper transcription, Piper voice-over, Stable Audio sound effects, LaMa magic eraser. No cloud, no credits.
 - **After Effects-style motion engine.** A WebGL2 compositor draws motion scenes the same way in the preview and the export. It has:
   - layers with bezier-eased keyframes and expressions, parenting, masks, track mattes, 17 blend modes and motion blur;
@@ -18,14 +21,15 @@ Built with Tauri v2 + Rust, React 19 + TypeScript, FFmpeg. MIT licensed.
   - layer styles (bevel, inner shadow and glow, gradient overlay);
   - a type engine for live typing, retyping, scattered glyphs and word-by-word animators timed to the voice-over.
 
-  35 templates cover titles, subject reveals, stats and brand pieces. Timing, eases and beat recipes come from measured professional reference films (`motion_guide`). See [docs/MOTION-ENGINE.md](docs/MOTION-ENGINE.md).
+  60 templates cover titles, subject reveals, stats, brand pieces, kinetic type (fly-through words, slams, whip pans), film pieces (logo lockups, glass marks, connect hubs, glow and flash joins) and product demos (a captured app as 3D layers, window explodes, named cursors). Finish presets add grade, grain, vignette and bloom as one editable layer. Timing, eases and beat recipes come from measured professional reference films (`motion_guide`). See [docs/MOTION-ENGINE.md](docs/MOTION-ENGINE.md).
 - **Real 3D through Blender.** When Blender is installed, the AI renders 3D scenes headless in the background: glass and pearl orbs, gem crystals lit by gradient environments, device heroes, extruded logos. Draft renders use EEVEE; final renders use Cycles on the GPU. The frames come back with alpha and composite under 2D type, together with the camera and object tracks.
 - **HTML motion graphics.** Graphics written as HTML/CSS animate in the preview and export as rendered frames with alpha:
   - **Crimson**, the house motion system: hook titles, teaching cards, side panels, comparisons, stat charts, timelines, lower thirds.
   - **The UI library**: the full React Bits catalogue (205 pieces) plus Animate.css, Open Props, Magic UI, Aceternity and Uiverse-style pieces, all deterministic and exportable. See [docs/REACT-BITS-LIBRARY.md](docs/REACT-BITS-LIBRARY.md).
 - **Brand kits.** Define your brand once in Settings → Brand kit (logo, colours, type, voice, motion, imagery rules, layout, audio). Every graphic, caption, generated image and voice-over follows it, and the AI can create and edit kits itself. See [docs/BRAND-KIT.md](docs/BRAND-KIT.md).
 - **Bring media in.** Import anything FFmpeg reads; download from YouTube, Instagram, TikTok, X and direct links with trimming and cropping; scrape article and page media for research.
-- **Sound design.** 19 synthesised effects (UI ticks, keystrokes and typing beds, whooshes, glass pings, sub drops), levelled under the voice. Music analysis finds beats, bars, 4-bar phrases and drops, and cuts can be snapped to any of them.
+- **Sound design.** 24 synthesised effects (UI ticks and clicks, send pops, keystrokes and typing beds, whooshes, glass pings, cursor taps, sub drops), levelled under the voice and the music; every motion cue can be sounded in one call. Music analysis finds beats, bars, 4-bar phrases, drops and hits, and times each sung lyric word, and cuts can be snapped to any of them.
+- **Built in for the work around the edit.** A real shell terminal panel, and a Usage page (Settings → Usage) with each AI provider's account usage and history, plus a one-click update when a provider's CLI has a new version.
 - **Export.** Presets for YouTube 4K/1080p, Reels/Shorts 9:16, square, ProRes; a background render queue.
 
 ## How it compares
@@ -41,7 +45,7 @@ Bhippi combines four kinds of tools in one app: an editor, a motion-graphics too
 | Plan → gather → edit → polish workflow | ✅ | — | — | Templates | Prompt to clip |
 | Transcript-based cutting and captions | ✅ Local | ✅ | ✅ Studio | ✅ Cloud | — |
 | Beat, bar and phrase-aware cut snapping | ✅ | Partial | Partial | Auto-beat | — |
-| Frame QA (safe area, face overlap, blank frames) | ✅ | — | — | — | — |
+| Frame QA (safe area, face overlap, blank frames, joins, beat sync) | ✅ | — | — | — | — |
 | Download from YouTube, Instagram, TikTok, X | ✅ | — | — | — | — |
 
 **Motion graphics and 3D**
@@ -53,7 +57,7 @@ Bhippi combines four kinds of tools in one app: an editor, a motion-graphics too
 | Vector shapes, trim paths, repeaters, path operations | ✅ | ✅ | Partial | In code | — |
 | Scenes built and revised by the AI from a chat | ✅ | — | — | An LLM writes code | Generative clips |
 | Real 3D (glass, metal, extruded type) | ✅ Your Blender, headless | ✅ Advanced 3D | ✅ Fusion 3D | ✅ Three.js | Generative |
-| Template library | 35 engine templates, 500+ HTML pieces | Marketplace | Templates | Community | — |
+| Template library | 60 engine templates, 500+ HTML pieces | Marketplace | Templates | Community | — |
 | Brand kit that every graphic follows | ✅ | Libraries (manual) | — | — | — |
 
 **Privacy and cost**
@@ -70,15 +74,19 @@ Bhippi combines four kinds of tools in one app: an editor, a motion-graphics too
 
 ## How the AI works
 
-The co-pilot is any model you connect: Claude, OpenAI-compatible APIs, local servers, or coding-agent CLIs (Claude Code, Codex, Gemini). It edits only through Bhippi tools (about 150 of them), so every change is a real, undoable timeline operation. A workflow guard keeps the phases honest: no media generation while planning, no timeline edits before the plan is saved.
+The co-pilot is any model you connect: Claude, OpenAI-compatible APIs, local servers, or coding-agent CLIs (Claude Code, Codex, Gemini). It changes the timeline only through Bhippi tools (over 200 of them), so every edit is a real, undoable operation. Coding-agent CLIs also keep their own tools (files, shell, code), working inside the project's `AI Work` folder, so they can write their own renderer when that makes a better film. A workflow guard keeps the phases honest: no media generation while planning, no timeline edits before the plan is saved.
+
+Bhippi adjusts to the model. A frontier model (Opus, GPT-5, Gemini Pro) runs the whole production at full detail. A smaller, free or local model runs **guided**: the one-call builds (`build_edit_from_brief`, film recipes, `add_graphic`) lead, graphics come from checked templates, and results come back compact. Nothing is taken away from either tier; set it in Settings → General.
 
 Useful tools to know about:
 
 | Area | Tools |
 | --- | --- |
-| Reading | `get_comp`, `analyze_clip_speech`, `inspect_clip_frames`, `run_frame_qa` |
+| Reading | `get_comp`, `analyze_clip_speech`, `inspect_clip_frames`, `run_frame_qa`, `review_frames` |
 | Planning | `online_research`, `save_video_blueprint`, `save_storyboard`, `query_frame_atlas` |
-| Gathering | `generate_local_media`, `synthesize_speech_voiceover`, `download_online_media`, `scrape_videos` |
+| Gathering | `generate_local_media`, `synthesize_speech_voiceover`, `download_online_media`, `scrape_videos`, `capture_app_session` |
+| Music and sound | `analyze_song`, `analyze_music_beats`, `compose_music`, `sound_the_motion` |
+| Whole films | `build_edit_from_brief` (with `recipe`), `add_graphic`, `create_product_demo`, `make_background`, `judge_edit` |
 | Editing | `apply_edit`, `apply_recipe`, `place_clip`, `level_audio`, `snap_cuts_to_beats`, `rotoscope_clip`, `erase_subject_clip` |
 | Motion | `motion_guide`, `list_motion_templates`, `create_motion_scene`, `update_motion_scene`, `search_icons`, `svg_to_shape`, `track_motion` |
 | 3D | `list_3d_presets`, `render_3d_scene` (headless Blender) |
@@ -119,11 +127,14 @@ Where things live:
 | `src/motion/` | The GPU motion engine (scene model, WebGL renderer, vector and type engines, templates) |
 | `src/lib/motionTools.ts`, `src/lib/blender3d.ts` | Motion and 3D AI tools, Blender presets |
 | `src/lib/motionGuide.ts` | Crimson motion system |
+| `src/lib/filmRecipes.ts`, `src/lib/songMap.ts`, `src/lib/reviewFrames.ts` | Film recipes, song and lyric maps, frame review |
+| `src/lib/modelProfile.ts`, `src/lib/workflowRoute.ts` | Full vs guided model tiers; Full vs Quick routing |
 | `src/lib/rbx/` | The animated UI library (React Bits and friends) |
 | `src/lib/brandKit/` | Brand kit model, archetypes, DaisyUI themes, renderers |
 | `src-tauri/src/` | Rust core: project store, FFmpeg render, providers, local model workers, Blender bridge |
 | `src-tauri/prompts/copilot.md` | The co-pilot's system prompt |
-| `docs/` | Plans, references and the research behind the libraries |
+| `docs/` | Plans, references and the research behind the libraries (the motion engine roadmap is `docs/plans/MOTION-ENGINE-MASTER-PLAN.md`) |
+| `docs/benchmark/`, `scripts/film-bench.ts` | Benchmark kit: rebuild reference films with several models and score them blind |
 
 ## License
 
