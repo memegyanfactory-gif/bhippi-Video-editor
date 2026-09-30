@@ -1,0 +1,89 @@
+{
+  "about": "The six 15 s films the film lab made from scratch, as benchmark briefs. Paths starting with ~ are under the owner's home folder. Every tier gets the same brief, word for word, and the same inputs; see README.md.",
+  "films": [
+    {
+      "id": "bhippi-15s",
+      "title": "Meet Bhippi, 15 s launch film",
+      "playbook": "launch-film",
+      "reference": "~/Documents/Bhippi/Film lab/bhippi-15s/ref/ref.mkv (Relume, \"This AI Doesn't Just Build Your Website. It Grows It.\")",
+      "audio": "Meet Bhippi.mp3, 0:00-0:15, faded over the last 0.5 s",
+      "inputs": [
+        { "name": "Meet Bhippi.mp3", "from": "~/Downloads/Meet Bhippi.mp3" },
+        { "name": "lyrics.txt", "from": "docs/benchmark/inputs/meet-bhippi-lyrics.txt" },
+        { "name": "reference.mkv", "from": "~/Documents/Bhippi/Film lab/bhippi-15s/ref/ref.mkv" }
+      ],
+      "brief": "Make a 15-second launch film for Bhippi, 1920x1080 at 30 fps, on the first 15 seconds of \"Meet Bhippi.mp3\" (in the project; the words are in lyrics.txt). Show the real Bhippi app: an editor with a producer inside, connecting your AI, asking it for an edit and watching it work, and end on the Bhippi name. reference.mkv is the style to learn from: its pace, light and polish, not its content. Export it when it is finished.",
+      "baseline": { "score": 84, "render": "~/Documents/Bhippi/Film lab/bhippi-15s/bhippi-15s-v2.mp4", "minutes": null, "note": "v2 after one critique round (v1 76). Scored on the launch variant of the rubric (/130, calibrated); round 0 re-scores it on the film-lab rubric." }
+    },
+    {
+      "id": "crimson-explainer",
+      "title": "Crimson explainer: how Bhippi edits for you",
+      "playbook": "kinetic-explainer",
+      "reference": "~/Downloads/If You ONLY Watch One Motion Design Video, Make It This....mp4 (the Crimson Brief reference)",
+      "audio": "The Liam voice-over (its 9.40-23.10 s) over Meet Bhippi.mp3",
+      "inputs": [
+        { "name": "voiceover.wav", "from": "~/Documents/Bhippi/Film lab/crimson-explainer/audio/vo_cut_raw.wav" },
+        { "name": "Meet Bhippi.mp3", "from": "~/Downloads/Meet Bhippi.mp3" },
+        { "name": "reference.mp4", "from": "~/Downloads/If You ONLY Watch One Motion Design Video, Make It This....mp4" }
+      ],
+      "brief": "Make a 15-second explainer, 1920x1080 at 30 fps, on how Bhippi edits for you, in the style of reference.mp4 (its first 15 seconds: the hook, the word landings, the named cards). The voice-over is voiceover.wav (\"My secret weapon, Bhippi. Just connect your AI providers, upload your project files and describe the edit you want. Bhippi cuts the footage, adds motion graphics, music, sound effects and even animated characters, all automatically.\"); use \"Meet Bhippi.mp3\" for the music and end on its sung line \"Meet Bhippi, the AI video editor\". Show the real Bhippi app. Export it when it is finished.",
+      "baseline": { "score": 75, "render": "~/Documents/Bhippi/Film lab/Renders/crimson-explainer-v2.mp4", "minutes": 258, "note": "v2 (v1 68); about 4.3 h over two rounds and 4,450 lines of the maker's own code." }
+    },
+    {
+      "id": "glass-identity",
+      "title": "Glass identity film",
+      "playbook": "identity-film",
+      "reference": "The \"hi, aflow.\" glass identity film (46.6 s; see ~/Documents/Bhippi/Film lab/glass-identity/BUILD_NOTES.md section 1 and ref_study/)",
+      "audio": "Meet Bhippi.mp3: the spoken intro and the \"Meet Bhippi, the AI video editor\" line",
+      "inputs": [
+        { "name": "Meet Bhippi.mp3", "from": "~/Downloads/Meet Bhippi.mp3" },
+        { "name": "lyrics.txt", "from": "docs/benchmark/inputs/meet-bhippi-lyrics.txt" },
+        { "name": "reference.mp4", "from": "the aflow reference the film lab used" }
+      ],
+      "brief": "Make a 15-second identity film for Bhippi, 1920x1080 at 30 fps, in the style of reference.mp4: the Bhippi mark as glass and light, scene changes made with light rather than cuts. Use the spoken intro of \"Meet Bhippi.mp3\" (\"An editor... with a producer inside. Connect your AI...\") and end on its line \"Meet Bhippi, the AI video editor\" (the words are in lyrics.txt). The mark should act out what the words say. Export it when it is finished.",
+      "baseline": { "score": 66, "render": "~/Documents/Bhippi/Film lab/Renders/glass-identity-v1.mp4", "minutes": null, "note": "Round 1 critique 66 (the maker scored it 82)." }
+    },
+    {
+      "id": "white-saas",
+      "title": "White SaaS product film",
+      "playbook": "product-demo",
+      "reference": "~/Documents/Bhippi/Untitled project/Downloads/reference-white-bg_mp4.mp4 (Workly)",
+      "audio": "Meet Bhippi.mp3 from \"...and watch it work\" through \"Meet Bhippi, the AI video editor\", cut to 15 s on the bars",
+      "inputs": [
+        { "name": "Meet Bhippi.mp3", "from": "~/Downloads/Meet Bhippi.mp3" },
+        { "name": "lyrics.txt", "from": "docs/benchmark/inputs/meet-bhippi-lyrics.txt" },
+        { "name": "reference.mp4", "from": "~/Documents/Bhippi/Untitled project/Downloads/reference-white-bg_mp4.mp4" }
+      ],
+      "brief": "Make a 15-second product film for Bhippi, 1920x1080 at 30 fps, in the style of reference.mp4 (white, one accent colour, UI as tilted planes, transitions that are ideas). Show one real job in the real Bhippi app: someone types what they want, Bhippi's AI cuts the video on the timeline, and we see the result. Use \"Meet Bhippi.mp3\" from \"...and watch it work\" to \"Meet Bhippi, the AI video editor\", cut to 15 seconds on the bars (the words are in lyrics.txt). Export it when it is finished.",
+      "baseline": { "score": null, "render": "~/Documents/Bhippi/Film lab/Renders/white-saas-v1.mp4", "minutes": 69, "note": "v1, never critiqued; about 69 min in its second session after an earlier session was cut off." }
+    },
+    {
+      "id": "fluid-saas",
+      "title": "Fluid SaaS film (Relume grammar)",
+      "playbook": "fluid-saas",
+      "reference": "~/Documents/Bhippi/Film lab/bhippi-15s/ref/ref.mkv (Relume, the same reference the film lab's fluid-saas run studied)",
+      "audio": "Meet Bhippi.mp3, 0:00-0:15",
+      "inputs": [
+        { "name": "Meet Bhippi.mp3", "from": "~/Downloads/Meet Bhippi.mp3" },
+        { "name": "lyrics.txt", "from": "docs/benchmark/inputs/meet-bhippi-lyrics.txt" },
+        { "name": "reference.mkv", "from": "~/Documents/Bhippi/Film lab/bhippi-15s/ref/ref.mkv" }
+      ],
+      "brief": "Make a 15-second film for Bhippi, 1920x1080 at 30 fps, in the grammar of reference.mkv: one line of type per phrase on a light ground, named cursors acting on the words, and the camera flying through a word into the next scene without a cut. Use the first 15 seconds of \"Meet Bhippi.mp3\" (the words are in lyrics.txt) and end on the Bhippi name. Export it when it is finished.",
+      "baseline": { "score": null, "render": null, "minutes": null, "note": "The film lab's run stopped after its reference study (fluid-saas/ref); there is no render to compare." }
+    },
+    {
+      "id": "apple-launch",
+      "title": "Apple-style launch (Manus 2.0 grammar)",
+      "playbook": "launch-film",
+      "reference": "~/Documents/Bhippi/Film lab/apple-launch/ref/manus.mp4 (Manus 2.0 launch)",
+      "audio": "Meet Bhippi.mp3, a 15 s cut the model chooses",
+      "inputs": [
+        { "name": "Meet Bhippi.mp3", "from": "~/Downloads/Meet Bhippi.mp3" },
+        { "name": "lyrics.txt", "from": "docs/benchmark/inputs/meet-bhippi-lyrics.txt" },
+        { "name": "reference.mp4", "from": "~/Documents/Bhippi/Film lab/apple-launch/ref/manus.mp4" }
+      ],
+      "brief": "Make a 15-second launch film for Bhippi, 1920x1080 at 30 fps, in the style of reference.mp4: calm, exact type that lands word by word, a dark open that turns light, the product shown large and clean. Show the real Bhippi app. Choose a 15-second stretch of \"Meet Bhippi.mp3\" that fits (the words are in lyrics.txt) and end on the Bhippi name. Export it when it is finished.",
+      "baseline": { "score": null, "render": null, "minutes": null, "note": "The film lab's run stopped after its reference study (apple-launch/ref, sheets); there is no render to compare." }
+    }
+  ]
+}
