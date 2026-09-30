@@ -63,6 +63,8 @@ const WIDE_FILL = 0.84;
 const FOCUS_FILL = 0.7;
 const BREATHE = 0.012;
 const DWELL = 0.055;
+/** The cursor arrow's height on screen at 1080p: about 1.6x a system pointer, the size the films kept at every zoom. */
+const CURSOR = 30;
 const PRESS_DIP = 86;
 const RING: [number, number] = [16, 86];
 const SLAM = 0.43;
@@ -582,7 +584,7 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
     paths.set(who, [...(paths.get(who) ?? []), { arrive: action.at - (clicks ? DWELL : 0), point, ...(clicks ? { press: action.at } : {}) }]);
   }
   const cursorIds = [...new Set([...declared.map((c) => c.id.toLowerCase()), ...paths.keys()])].filter((who) => paths.has(who));
-  const tagSize = 17 * u;
+  const tagSize = CURSOR * 0.62 * u;
   cursorIds.forEach((who, index) => {
     const own = declared.find((c) => c.id.toLowerCase() === who);
     const actor = ACTORS[who];
@@ -621,7 +623,7 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
     const cursorId = `cursor-${key}`;
     const inAt = appear > 1e-3 ? { in: round(appear) } : {};
     layers.push({ id: cursorId, name: `Cursor · ${label}`, type: 'null', threeD: true, parent: 'window', ...inAt, transform: { position: { k: keys }, scale: { k: onScreenKeys() } } });
-    const arrowScale = 26 * u / 24;
+    const arrowScale = (CURSOR * u) / 24;
     const dip: Key<number>[] = [{ t: 0, v: 100 }];
     for (const press of presses) dip.push({ t: round(press), v: 100, ease: 'cubic-out' }, { t: round(press + 0.05), v: PRESS_DIP, ease: 'sine-in-out' }, { t: round(press + 0.27), v: 100 });
     layers.push({
@@ -631,11 +633,11 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
       effects: [{ type: 'drop-shadow', color: '#000000', opacity: 35, softness: round(6 * u), distance: round(2 * u), direction: 180 }],
     } as Layer);
     // The name tag sits right of the tip and a little below, as the films placed theirs.
-    const pillH = round(28 * u);
-    const pillW = round(labelWidth(label, tagSize) + 22 * u);
-    const pillAt: Vec = [round(17 * u), round(21 * u)];
+    const pillH = round(CURSOR * 1.05 * u);
+    const pillW = round(labelWidth(label, tagSize) + pillH * 0.8);
+    const pillAt: Vec = [round(CURSOR * 0.62 * u), round(CURSOR * 0.78 * u)];
     layers.push({ id: `${cursorId}-tag`, name: `${label} · tag`, type: 'shape', threeD: true, parent: cursorId, ...inAt, motionBlur: true, shutter: 72, transform: { position: [round(pillAt[0] + pillW / 2), round(pillAt[1] + pillH / 2), 0] }, shape: { shape: 'rect', size: [pillW, pillH], radius: round(pillH / 2), fill: color } } as Layer);
-    layers.push({ id: `${cursorId}-label`, name: `${label} · name`, type: 'text', threeD: true, parent: cursorId, ...inAt, motionBlur: true, shutter: 72, transform: { position: [round(pillAt[0] + 11 * u), round(pillAt[1] + pillH / 2), 0] }, text: { text: label, font: 'Inter', weight: 600, size: round(tagSize), color: ink, align: 'left' } });
+    layers.push({ id: `${cursorId}-label`, name: `${label} · name`, type: 'text', threeD: true, parent: cursorId, ...inAt, motionBlur: true, shutter: 72, transform: { position: [round(pillAt[0] + pillH * 0.4), round(pillAt[1] + pillH / 2), 0] }, text: { text: label, font: 'Inter', weight: 600, size: round(tagSize), color: ink, align: 'left' } });
     if (presses.length) {
       // A ring 16 → 86 px on every click, fading as it grows. It waits where the click was on a
       // holder that keeps one size on screen, as the cursor does, so a camera move under it
