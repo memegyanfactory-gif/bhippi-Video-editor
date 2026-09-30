@@ -182,6 +182,24 @@ export type Typed = { text: string; born: number[]; last: number };
  */
 export function typedAt(type: TypeOn, text: string, t: number): Typed {
   const cps = Math.max(1, type.cps ?? 30);
+  if (type.times?.length) {
+    // Each character on its own second; a line break comes with the character after it. Past the
+    // given times the typing carries on at `cps`.
+    const times = type.times;
+    const chars: { ch: string; born: number }[] = [];
+    let k = 0;
+    let lineBreak = false;
+    for (const ch of Array.from(text)) {
+      if (ch === '\n') { lineBreak = true; continue; }
+      const at = k < times.length ? times[k] : times[times.length - 1] + (k - times.length + 1) / cps;
+      if (at > t) break;
+      if (lineBreak && chars.length) chars.push({ ch: '\n', born: at });
+      lineBreak = false;
+      chars.push({ ch, born: at });
+      k++;
+    }
+    return { text: chars.map((c) => c.ch).join(''), born: chars.map((c) => c.born), last: chars.length ? chars[chars.length - 1].born : times[0] };
+  }
   const back = Math.max(1, type.backspaceCps ?? cps * 2);
   const steps = type.script?.length ? type.script : [{ type: text }];
   const chars: { ch: string; born: number }[] = [];
@@ -208,6 +226,23 @@ export function typedAt(type: TypeOn, text: string, t: number): Typed {
   return { text: chars.map((c) => c.ch).join(''), born: chars.map((c) => c.born), last };
 }
 
+/** What typing has put on screen, as text to lay out: the typed prefix (of the spans, keeping their styles) and the caret. */
+function typedData(source: TextLayerData, typed: string, caretKind: NonNullable<TypeOn['caret']>): TextLayerData {
+  const caret = caretKind === 'none' ? '' : caretKind === 'block' ? '█' : '|';
+  if (!source.spans?.length) return { ...source, text: typed + caret };
+  const spans: TextSpan[] = [];
+  let left = Array.from(typed).length;
+  for (const span of source.spans) {
+    if (left <= 0) break;
+    const chars = Array.from(span.text);
+    spans.push({ ...span, text: chars.slice(0, left).join('') });
+    left -= chars.length;
+  }
+  // The caret takes the style of the last typed span.
+  if (caret) spans.push({ ...(spans[spans.length - 1] ?? {}), text: caret, strike: undefined });
+  return { ...source, text: undefined, spans };
+}
+
 /** The text a `retype` shows at t: `to` overwrites the old text left to right. */
 export function retypedAt(from: string, retype: NonNullable<TextLayerData['retype']>, t: number): { text: string; changedAt: number[] } {
   const to = Array.from(retype.to);
@@ -227,9 +262,12 @@ export function layoutText(source: TextLayerData, t: number, measure: Measure, c
   let typed: Typed | null = null;
   let retyped: ReturnType<typeof retypedAt> | null = null;
   const caretKind = source.type?.caret ?? 'none';
-  if (source.type && !source.spans?.length) {
-    typed = typedAt(source.type, source.text ?? '', t);
-    data = { ...source, text: typed.text + (caretKind === 'none' ? '' : caretKind === 'block' ? '\u2588' : '|') };
+  // Rich spans type too, as long as the typing only adds (no script to backspace through them).
+  const typing = source.type && (!source.spans?.length || !source.type.script?.length) ? source.type : null;
+  const fullText = source.spans?.length ? source.spans.map((span) => span.text).join('') : source.text ?? '';
+  if (typing) {
+    typed = typedAt(typing, fullText, t);
+    data = typedData(source, typed.text, caretKind);
   } else if (source.retype && !source.spans?.length) {
     retyped = retypedAt(source.text ?? '', source.retype, t);
     data = { ...source, text: retyped.text };
@@ -266,6 +304,26 @@ export function layoutText(source: TextLayerData, t: number, measure: Measure, c
   });
   const height = y + pad - maxSize * (lineHeightMul - 1) * 0.5;
   const counts = { char: glyphs.length, word: wordIndex + 1, line: lines.length };
+
+  // The line being typed glides to its new place: it sits where its width averaged over the last
+  // `recenter` seconds puts it (earlier moments that had another line count are left out).
+  const align = data.align ?? 'center';
+  if (typing?.recenter && typing.recenter > 0 && align !== 'left' && lines.length) {
+    const last = lines.length - 1;
+    const widthOf = (line: Placed[]) => (line.length ? line[line.length - 1].x + line[line.length - 1].advance : 0);
+    const SAMPLES = 6;
+    let sum = lineWidths[last];
+    let count = 1;
+    for (let j = 1; j <= SAMPLES; j++) {
+      const at = t - (typing.recenter * j) / SAMPLES;
+      const earlier = layoutLines(styledChars(typedData(source, typedAt(typing, fullText, at).text, caretKind), at, ctx), measure, data.box);
+      if (earlier.length !== lines.length) continue;
+      sum += widthOf(earlier[last]);
+      count++;
+    }
+    const shift = (lineWidths[last] - sum / count) * (align === 'center' ? 0.5 : 1);
+    for (const g of glyphs) if (lines.length === 1 || g.line === last) g.dx += shift;
+  }
   const unitOf = (g: GlyphState, by: 'char' | 'word' | 'line') => (by === 'char' ? g.char : by === 'word' ? g.word : g.line);
 
   // Cascade: timed entrance (and exit) per unit.
@@ -332,8 +390,8 @@ export function layoutText(source: TextLayerData, t: number, measure: Measure, c
   }
 
   // Live typing: fade-in, feathered edge, colour front and caret, from each character's age.
-  if (typed && source.type) {
-    const ty = source.type;
+  if (typed && typing) {
+    const ty = typing;
     const born = typed.born.filter((_, i) => typed!.text[i] !== '\n');
     const count = born.length;
     const fadeIn = ty.fadeIn ?? 2 / 30;
@@ -356,7 +414,8 @@ export function layoutText(source: TextLayerData, t: number, measure: Measure, c
         caret.color = ty.caretColor ?? ty.front?.color ?? caret.color;
         const idle = t - typed.last;
         const blink = ty.blink ?? 2;
-        const on = idle < 1 / Math.max(1, ty.cps ?? 30) + 0.05 || blink <= 0 || Math.floor(idle * blink * 2) % 2 === 0;
+        const solid = ty.times?.length ? 0.35 : 1 / Math.max(1, ty.cps ?? 30) + 0.05;
+        const on = idle < solid || blink <= 0 || Math.floor((idle - (ty.times?.length ? solid : 0)) * blink * 2) % 2 === 0;
         caret.opacity *= on ? 1 : 0;
         if (caretKind === 'block') caret.scale *= 0.62;
       }

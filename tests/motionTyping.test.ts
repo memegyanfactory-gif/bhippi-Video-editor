@@ -57,6 +57,47 @@ describe('live typing', () => {
     expect(f.glyphs[2].color).not.toBe('#ffffff');
     expect(f.glyphs[0].color).toBe('#ffffff');
   });
+  it('types on given times, one per character, then carries on at cps', () => {
+    const ty = { times: [0, 0.1, 0.4], cps: 10 };
+    expect(typedAt(ty, 'abcd', 0.05).text).toBe('a');
+    expect(typedAt(ty, 'abcd', 0.39).text).toBe('ab');
+    expect(typedAt(ty, 'abcd', 0.45).text).toBe('abc');
+    expect(typedAt(ty, 'abcd', 0.5).text).toBe('abcd');
+    expect(typedAt(ty, 'abcd', 0.45).last).toBe(0.4);
+    // A line break comes with the character after it.
+    const lines = { times: [0, 0.1, 0.2, 0.3] };
+    expect(typedAt(lines, 'ab\ncd', 0.15).text).toBe('ab');
+    expect(typedAt(lines, 'ab\ncd', 0.25).text).toBe('ab\nc');
+  });
+  it('types rich spans, keeping each span\'s style', () => {
+    const data: TextLayerData = { spans: [{ text: 'Hi ' }, { text: 'there', color: '#ff0000' }], color: '#ffffff', type: { times: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7], fadeIn: 0, caret: 'bar' } };
+    const f = layoutText(data, 0.45, measure);
+    expect(f.glyphs.map((g) => g.ch).join('')).toBe('Hi th|');
+    expect(f.glyphs[0].color).toBe('#ffffff');
+    expect(f.glyphs[3].color).toBe('#ff0000');
+    expect(shown(data, 1)).toBe('Hi there|');
+  });
+  it('glides a centred line to its new centre instead of jumping per key', () => {
+    const times = Array.from({ length: 12 }, (_, i) => 0.1 + i * 0.06);
+    const jumpy: TextLayerData = { text: 'Hello world!', align: 'center', type: { times, fadeIn: 0 } };
+    const smooth: TextLayerData = { ...jumpy, type: { times, fadeIn: 0, recenter: 0.154 } };
+    // Where the first letter sits relative to the layer's centre (the renderer centres the frame).
+    const left = (data: TextLayerData, t: number) => { const f = layoutText(data, t, measure); return f.glyphs[0].x + f.glyphs[0].dx - f.width / 2; };
+    const steps = (data: TextLayerData) => { const out: number[] = []; for (let t = 0.1; t < 0.9; t += 1 / 60) out.push(Math.abs(left(data, t + 1 / 60) - left(data, t))); return Math.max(...out); };
+    expect(steps(jumpy)).toBeCloseTo(5, 5);
+    expect(steps(smooth)).toBeLessThan(2.5);
+    // Once typing stops it settles exactly where the plain layout puts it.
+    expect(left(smooth, 2)).toBeCloseTo(left(jumpy, 2), 5);
+  });
+  it('holds a timed caret solid for 0.35 s after each key, then blinks', () => {
+    const data: TextLayerData = { text: 'ab', type: { times: [0, 0.1], fadeIn: 0, caret: 'bar', blink: 1.65 } };
+    const caret = (t: number) => layoutText(data, t, measure).glyphs.at(-1)!.opacity;
+    expect(caret(0.3)).toBe(1);
+    expect(caret(0.44)).toBe(1);
+    const later = [0.5, 0.7, 0.9, 1.1, 1.3, 1.5].map(caret);
+    expect(later.some((o) => o === 0)).toBe(true);
+    expect(later.some((o) => o === 1)).toBe(true);
+  });
   it('scatters glyphs and brings them home', () => {
     const data: TextLayerData = { text: 'AI', scatter: { at: 0, duration: 0.5, spread: 300 } };
     const start = layoutText(data, 0.01, measure);
