@@ -11,6 +11,7 @@ import { FUN_TEMPLATES } from './funTemplates';
 import { DRAWN_TEMPLATES } from './drawnTemplates';
 import { PRODUCT_TEMPLATES } from './productDemo';
 import { KINETIC_TEMPLATES } from './kineticTemplates';
+import { FILM_TEMPLATES } from './filmTemplates';
 
 export type TemplateSpec = {
   id: string;
@@ -49,7 +50,7 @@ const SUBJECT_REVEAL: TemplateSpec = {
   build: (ctx, params) => subjectReveal(ctx, params as unknown as SubjectRevealParams),
 };
 
-export const MOTION_TEMPLATES: TemplateSpec[] = [...BRAND_TEMPLATES, SUBJECT_REVEAL, ...STAGE_TEMPLATES, ...OVERLAY_TEMPLATES, ...STORY_TEMPLATES, ...FUN_TEMPLATES, ...DRAWN_TEMPLATES, ...KINETIC_TEMPLATES, ...PRODUCT_TEMPLATES];
+export const MOTION_TEMPLATES: TemplateSpec[] = [...BRAND_TEMPLATES, SUBJECT_REVEAL, ...STAGE_TEMPLATES, ...OVERLAY_TEMPLATES, ...STORY_TEMPLATES, ...FUN_TEMPLATES, ...DRAWN_TEMPLATES, ...KINETIC_TEMPLATES, ...FILM_TEMPLATES, ...PRODUCT_TEMPLATES];
 
 export const findTemplate = (id: string) => MOTION_TEMPLATES.find((spec) => spec.id === id);
 

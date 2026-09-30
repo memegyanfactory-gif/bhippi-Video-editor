@@ -107,7 +107,10 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // real product captured as parts in states at 3x, which every premium film rebuilt by hand.
       // Raised to 44,450 the same day for `create_product_demo` (its slim entry, ~+49 a step): the
       // camera through the captured product with named cursors and part states, as editable layers.
-      expect(row.step, row.id).toBeLessThan(44_450);
+      // Raised to 44,500 the same day for `update_motion_scene` finish (~+40 a step) and the
+      // camera-match / glow-handoff / flash-bridge joins in `create_motion_sequence` (~+17): the
+      // launch films' grade as one editable layer and the joins every one of them hid its cuts with.
+      expect(row.step, row.id).toBeLessThan(44_500);
     }
   });
 

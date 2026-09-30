@@ -26,6 +26,7 @@ import { runCharacterTool } from './characterTools';
 import { runLottieTool } from './lottieTools';
 import { GENERIC_TARGET, pacingReport, type PacingTarget } from './pacing';
 import { summarizeProfile, type MotionProfile } from './referenceMotion';
+import { applyFinish, carryFinish, readFinish } from '../motion/finish';
 import { FX_HELP, FX_KINDS, fxLayers, type FxKind, type FxOptions } from '../motion/fx';
 import { evaluateMeasured } from '../motion/measure';
 import { entryBounds } from '../motion/evaluate';
@@ -414,6 +415,8 @@ function backgroundPlate(ctx: MotionToolContext, comp: Comp, from: number, to: n
 
 type SceneEdit = { scene: MotionScene; changes: string[]; retime: number | null; rebuilt: boolean; fitNote: string };
 
+const FINISH_HELP = 'finish is "launch-light", "launch-dark" or {preset, exposure?, bloom?, vignette?, grain?, cardShadow?, shadowColor?}; "none" takes it off.';
+
 /** Applies update_motion_scene's params / scene / removeLayers / addLayers / patches / retime to a copy of `base`, then keeps it inside the safe area. */
 function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneStart: number): SceneEdit | { error: string } {
   let scene: MotionScene = JSON.parse(JSON.stringify(base));
@@ -426,7 +429,8 @@ function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneS
     if (!spec) return { error: 'This scene was not built from a template; patch its layers instead.' };
     const merged = { ...(scene.template?.params ?? {}), ...resolveParams(params, ctx, sceneStart) };
     const brand = args.useBrand === false ? null : ctx.brand ?? scene.brand?.snapshot ?? null;
-    scene = buildInBrand(spec, { width: scene.width, height: scene.height }, merged, brand);
+    // A rebuild keeps the scene's finish (and the user's changes to it).
+    scene = carryFinish(scene, buildInBrand(spec, { width: scene.width, height: scene.height }, merged, brand));
     changes.push(`rebuilt ${templateId} with ${Object.keys(params).join(', ')}`);
     rebuilt = true;
   }
@@ -446,6 +450,12 @@ function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneS
     if (index >= 0) scene.layers.splice(entry.above ? index + 1 : index, 0, layer);
     else scene.layers.push(layer);
     changes.push(`added ${layer.id}`);
+  }
+  if (args.finish !== undefined) {
+    const finish = readFinish(args.finish);
+    if (!finish) return { error: FINISH_HELP };
+    scene = applyFinish(scene, finish);
+    changes.push(finish === 'none' ? 'took the finish off' : `finished with ${finish.preset} (the "finish" layer)`);
   }
   for (const raw of Array.isArray(args.patches) ? (args.patches as unknown[]) : []) {
     const patch = raw as Args;
@@ -469,7 +479,7 @@ function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneS
     scene = { ...(stretch(scene) as MotionScene), width: scene.width, height: scene.height, version: 1 };
     changes.push(`retimed ×${retime}`);
   }
-  if (!changes.length) return { error: 'Nothing to change: give params, patches, addLayers, removeLayers, retime or scene.' };
+  if (!changes.length) return { error: 'Nothing to change: give params, patches, addLayers, removeLayers, finish, retime or scene.' };
   const problems = validateScene(scene);
   if (problems.length) return { error: `The edited scene is not valid: ${problems.slice(0, 8).join(' ')}` };
   const fit = args.fit === false ? null : fitToSafeArea(scene, { margin: safeMargin(args) });
@@ -670,7 +680,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     }
 
     case 'list_transitions':
-      return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition). Give {kind, duration?, direction?, glyph?, mode?, at?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });
+      return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition, or lay the flash-bridge / glow-handoff templates over the cut). Give {kind, duration?, direction?, glyph?, mode?, at?, to?, size?, strength?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });
 
     case 'create_motion_sequence': {
       const comp = ctx.pickComp(project, args);
