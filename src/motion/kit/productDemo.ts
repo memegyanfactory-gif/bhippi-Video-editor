@@ -19,8 +19,11 @@ export type CapturePart = { part: string; state: string; file: string; boxCss: n
 /** A capture_app_session manifest, as far as the demo reads it. */
 export type DemoCapture = { name?: string; dir: string; width: number; height: number; scale: number; parts: CapturePart[] };
 
-/** Where the camera lands at `at`: close on a part (filling `fill` of the frame), or the whole window tilted. */
-export type DemoShot = { at: number; focus?: string; wide?: boolean; fill?: number; tilt?: number[]; move?: number; ease?: Ease };
+/**
+ * Where the camera lands at `at`: close on a part (filling `fill` of the frame; the frame stays on
+ * the app where it can, `centre` aims dead centre), or the whole window tilted.
+ */
+export type DemoShot = { at: number; focus?: string; wide?: boolean; fill?: number; tilt?: number[]; move?: number; ease?: Ease; centre?: boolean };
 export type DemoAction = {
   at: number;
   /** Moves the cursor onto the part and clicks it: a press, a ring, and the part's pressed state when it has one. */
@@ -122,6 +125,24 @@ export type Station = Framing & { t: number; ease: Ease };
 export function framePart(box: { x: number; y: number; w: number; h: number }, frame: { width: number; height: number }, fill: number, maxM = Infinity): Framing {
   const m = clamp(fill * Math.min(frame.width / Math.max(1, box.w), frame.height / Math.max(1, box.h)), 0.2, maxM);
   return { target: [box.x + box.w / 2, box.y + box.h / 2], m, tilt: [0, 0] };
+}
+
+/**
+ * A close-up keeps the frame on the app where it can, the way an operator frames a part near the
+ * window's edge: the camera slides toward the window's inside, but never so far that any of the
+ * part (with a 6% margin) leaves the frame. A tall frame on a wide window then shows the app above
+ * a part at its bottom edge instead of half a frame of empty stage.
+ */
+export function onWindow(framing: Framing, box: { x: number; y: number; w: number; h: number }, frame: { width: number; height: number }, window: [number, number]): Framing {
+  const axis = (aim: number, from: number, size: number, half: number, span: number) => {
+    const inside = span >= 2 * half ? clamp(aim, half, span - half) : span / 2;
+    const margin = half * 0.12;
+    const low = Math.min(from + size - half + margin, from + size / 2);
+    const high = Math.max(from + half - margin, from + size / 2);
+    return clamp(inside, low, high);
+  };
+  const half = [frame.width / 2 / framing.m, frame.height / 2 / framing.m];
+  return { ...framing, target: [axis(framing.target[0], box.x, box.w, half[0], window[0]), axis(framing.target[1], box.y, box.h, half[1], window[1])] };
 }
 
 /**
@@ -446,7 +467,9 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
     const box = boxAt(name, shot.at);
     const framed = framePart(box, frameSize, fill, maxM);
     if (framed.m < fill * Math.min(W / box.w, H / box.h) - 1e-3) notes.push(`${where}: "${name}" is held at ${round(maxM)}x, as close as its ${capture.scale}x pictures stay sharp`);
-    return safe({ ...framed, tilt: tilt([0, 0]) });
+    const angle = tilt([0, 0]);
+    const flat = Math.abs(angle[0]) < 1 && Math.abs(angle[1]) < 1;
+    return safe({ ...(shot.centre || !flat ? framed : onWindow(framed, box, frameSize, [winW, winH])), tilt: angle });
   };
   // The explode owns the camera from its start to the slam: an orbit out, then back to flat on the slam.
   type Plan = { at: number; framing: Framing; move?: number; ease: Ease };
@@ -705,7 +728,7 @@ export const PRODUCT_TEMPLATES: TemplateSpec[] = [
     use: 'The real product doing the real thing, from a capture_app_session capture: the camera lands close on a part, named cursors (You, Bhippi, Claude…) click and type while each part changes state on its frame, then it pulls back to the whole window tilted in 3D; optionally the window comes apart and slams back on a beat. Make it with create_product_demo {capture}; params here rebuild it with new times.',
     params: {
       capture: CAPTURE_PARAM,
-      shots: '{ at, focus?, wide?, fill?, tilt?, move? }[] — where the camera lands and when (a part close up, or the whole window)',
+      shots: '{ at, focus?, wide?, fill?, tilt?, move?, centre? }[] — where the camera lands and when (a part close up, or the whole window)',
       actions: '{ at, click?|hover?|type?|set?, cursor?, until?, words?, text? }[] — what happens on screen',
       cursors: 'string[] — named cursors (you, bhippi, claude, gpt, gemini, local) or { id, label, color }',
       explode: '{ at, slam, depth?, spread?, blur? } — the window comes apart in depth and slams back on slam',

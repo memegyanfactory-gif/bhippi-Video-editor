@@ -7038,7 +7038,7 @@
             "items": {
               "type": "object"
             },
-            "description": "Where the camera lands at `at`: {at, focus: part, fill?} close on a part (fill of the frame, default 0.7) or {at, wide: true} the whole window tilted (fill 0.84); optional tilt [rx, ry] and move (seconds of travel)."
+            "description": "Where the camera lands at `at`: {at, focus: part, fill?} close on a part (fill of the frame, default 0.7; the frame stays on the app where it can, centre: true aims dead centre) or {at, wide: true} the whole window tilted (fill 0.84); optional tilt [rx, ry] and move (seconds of travel)."
           },
           "actions": {
             "type": "array",

@@ -49,12 +49,14 @@ const scaleAt = (frame: ResolvedFrame, id: string, x: number, y: number) => {
 };
 
 describe('product demo: the camera', () => {
-  it('frames a named part at its fill fraction, centred', () => {
-    const scene = demo();
-    const frame = evaluateScene(scene, 1.2, { motionBlur: false });
+  const composerBox = (scene: MotionScene, t: number) => {
+    const frame = evaluateScene(scene, t, { motionBlur: false });
     const composer = entry(frame, 'composer@t07');
-    const [x0, y0] = onScreen(frame, 'composer@t07', 0, 0);
-    const [x1, y1] = onScreen(frame, 'composer@t07', composer.size[0], composer.size[1]);
+    return [...onScreen(frame, 'composer@t07', 0, 0), ...onScreen(frame, 'composer@t07', composer.size[0], composer.size[1])];
+  };
+
+  it('frames a named part at its fill fraction, dead centre when asked', () => {
+    const [x0, y0, x1, y1] = composerBox(demo({ shots: [{ at: 0, focus: 'composer', centre: true }, { at: 3.6, wide: true }] }), 1.2);
     // The hold breathes a little (at most 3.5%), never shrinks.
     expect((x1 - x0) / W).toBeGreaterThanOrEqual(0.7 - 1e-3);
     expect((x1 - x0) / W).toBeLessThan(0.7 * 1.035);
@@ -62,11 +64,28 @@ describe('product demo: the camera', () => {
     expect((y0 + y1) / 2).toBeCloseTo(H / 2, 0);
   });
 
+  it('keeps a close-up on the app, never losing any of the part', () => {
+    // The composer sits in the window's bottom-left corner: centred, the frame would show past the
+    // window's edges. By default the camera slides inside, keeping a 6% margin round the part.
+    // Measured as it lands (0.9 s); the hold's slow push then eats a little of the margin.
+    const [x0, y0, x1, y1] = composerBox(demo(), 0.9);
+    expect((x1 - x0) / W).toBeGreaterThanOrEqual(0.7 - 1e-3);
+    expect(x0).toBeGreaterThanOrEqual(W * 0.06 - 1);
+    expect(y1).toBeLessThanOrEqual(H * 0.94 + 1);
+    expect((x0 + x1) / 2).toBeLessThan(W / 2 - 50);
+    expect((y0 + y1) / 2).toBeGreaterThan(H / 2 + 50);
+    // On a tall frame the app fills the frame above a part at its bottom edge, not empty stage.
+    const tall = buildProductDemo({ width: 1080, height: 1920 }, { capture, variant: 0, shots: [{ at: 0, focus: 'composer', fill: 0.8 }] }).scene;
+    const frame = evaluateScene(tall, 1, { motionBlur: false });
+    const windowBottom = onScreen(frame, 'window@idle', 960, 1080)[1];
+    expect(windowBottom).toBeGreaterThan(1920 * 0.9);
+  });
+
   it('puts a one-node camera at the part centre, zoom / m in front of it', () => {
     const fr = framePart({ x: 40, y: 820, w: 520, h: 200 }, ctx, 0.7);
     expect(fr.m).toBeCloseTo((0.7 * W) / 520, 6);
     expect(fr.target).toEqual([300, 920]);
-    const scene = demo({ settle: false });
+    const scene = demo({ settle: false, shots: [{ at: 0, focus: 'composer', centre: true }, { at: 3.6, wide: true }] });
     const camera = layer(scene, 'camera') as Layer & { type: 'camera' };
     const at = keysAt((camera.transform!.position as { k: Key<Vec>[] }).k, 0);
     const world = windowPoint([300, 920], [960, 540], [0, 0], ctx);
