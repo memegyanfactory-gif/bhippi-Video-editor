@@ -219,8 +219,11 @@ export function placedSounds(project: Project, comp: Comp): PlacedSound[] {
   return out;
 }
 
-/** Where a cue's sound goes: its clip on the top timeline, and the stretch where it is loudest. */
-export type CuePlacement = { kind: SfxKind; start: number; in: number; duration: number; note: string; loud: [number, number] };
+/**
+ * Where a cue's sound goes: its clip on the top timeline, and the stretch where it is loudest.
+ * `cue` is the sound the scene asked for, before any swap: a sound already laid on the cue has it.
+ */
+export type CuePlacement = { kind: SfxKind; cue: string; start: number; in: number; duration: number; note: string; loud: [number, number] };
 
 const HITS: ReadonlySet<string> = new Set(['impact', 'sub', 'boom']);
 
@@ -246,13 +249,13 @@ export function cuePlacements(cues: TimelineCue[], options: { swap?: Partial<Rec
         // It starts on its cue and plays only the last of its build, so the top meets the hit.
         const start = Math.max(0, cue.at);
         const span = hit.at - start;
-        out.push({ kind, start, in: length - span, duration: span, note, loud: [hit.at - Math.min(0.4, span), hit.at] });
+        out.push({ kind, cue: cue.sound, start, in: length - span, duration: span, note, loud: [hit.at - Math.min(0.4, span), hit.at] });
         continue;
       }
     }
     const start = Math.max(0, cue.at);
     const loud: [number, number] = kind === 'riser' ? [start + duration - Math.min(0.4, duration), start + duration] : [Math.max(0, start - 0.05), start + Math.min(duration, 0.4)];
-    out.push({ kind, start, in: 0, duration, note, loud });
+    out.push({ kind, cue: cue.sound, start, in: 0, duration, note, loud });
   }
   return out;
 }

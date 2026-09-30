@@ -191,6 +191,41 @@ describe('sound_the_motion', () => {
     expect(again.summary).toContain('0 placed');
   });
 
+  it('swaps the sound already on a cue instead of doubling it, and a skip silences it', async () => {
+    const { ctx, get } = harness(film());
+    await runMotionTool('sound_the_motion', {}, ctx);
+    const again = await runMotionTool('sound_the_motion', { swap: { click: 'cursor_tap' }, skip: ['whoosh'] }, ctx) as { ok: boolean; summary: string };
+    expect(again.ok).toBe(true);
+    const sounds = get().comps[0].clips.filter((clip) => clip.source.type === 'sfx');
+    // One sound on the click, now the softer tap; nothing left on the skipped whoosh.
+    expect(sounds.map((clip) => [(clip.source as { kind: string }).kind, clip.start])).toEqual([['cursor_tap', 2.5]]);
+    expect(sounds[0].duration).toBeCloseTo(0.08, 6);
+    expect(db(sounds[0].volume) + builtInLoudestDb('cursor_tap')).toBeCloseTo(-32, 0);
+    expect(again.summary).toContain('1 sound on a skipped cue taken off');
+    // Skipping everything that is left still says what it took off.
+    const none = await runMotionTool('sound_the_motion', { swap: { click: 'cursor_tap' }, skip: ['click', 'whoosh'] }, ctx) as { ok: boolean; summary: string };
+    expect(none.ok).toBe(true);
+    expect(none.summary).toContain('taken off');
+    expect(get().comps[0].clips.some((clip) => clip.source.type === 'sfx')).toBe(false);
+  });
+
+  it('trims a riser laid whole on its cue so its top meets the hit', async () => {
+    const project = newProject();
+    const comp = project.comps[0];
+    const [v1] = tracksOf(comp, 'video');
+    const [a1] = tracksOf(comp, 'audio');
+    const motion = newClip({ trackId: v1.id, start: 2, duration: 4, source: { type: 'motion', scene: scene(4, [{ at: 0.5, sound: 'riser' }, { at: 1.7, sound: 'impact' }]), title: 'Drop' } });
+    // create_motion_scene lays each cue's sound whole where the cue starts.
+    const laid = { ...newClip({ trackId: a1.id, start: 2.5, duration: 2, source: { type: 'sfx', kind: 'riser' } }), audioType: 'sfx' as const, volume: 0.1 };
+    comp.clips = [motion, laid];
+    const { ctx, get } = harness(project);
+    await runMotionTool('sound_the_motion', {}, ctx);
+    const riser = get().comps[0].clips.find((clip) => clip.id === laid.id)!;
+    expect(riser.start).toBe(2.5);
+    expect(riser.start + riser.duration).toBeCloseTo(3.7, 6);
+    expect(riser.in + riser.duration).toBeCloseTo(2, 6);
+  });
+
   it('without music, each cue keeps its default level and the reply says so', async () => {
     const { ctx, get } = harness(film(false));
     const result = await runMotionTool('sound_the_motion', {}, ctx) as { ok: boolean; summary: string };

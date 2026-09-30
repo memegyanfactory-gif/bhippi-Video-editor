@@ -37,7 +37,7 @@ import { api, errorText, type Transcript, type TranscriptWord, fetchFile } from 
 import { timelineWords } from './transcriptText';
 import { hasWordRefs, resolveWordTimes } from './wordTimes';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
-import { cueLevel, cuePlacements, isMusicClip, motionCues, musicDbOver, placedSounds, typingCues, type MusicBed } from './cueSound';
+import { cueLevel, cuePlacements, isMusicClip, motionCues, musicDbOver, placedSounds, typingCues, type MusicBed, type PlacedSound } from './cueSound';
 import { loadPeaks } from './peaks';
 import { clipEnd, compDuration, freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
 import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps, stackLossy } from './motionStack';
@@ -1007,23 +1007,37 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       }
       type Row = { clipId: string; at: number; kind: SfxKind; gainDb: number; against: 'music' | 'no-music'; capped: boolean; existing: boolean };
       const rows: Row[] = [];
+      let silenced = 0;
       ctx.commit((current) => {
         const top = current.comps.find((c) => c.id === comp.id);
         if (!top) return current;
-        const placements = cuePlacements(motionCues(current, top, from, to), { swap, skip });
+        const cues = motionCues(current, top, from, to);
+        const placements = cuePlacements(cues, { swap, skip });
         const placed = placedSounds(current, top);
         const taken = new Set<string>();
-        // Gains for sounds already there (create_motion_scene lays each scene's cues), by comp.
-        const gains = new Map<string, Map<string, number>>();
+        // The sound already on a cue (create_motion_scene lays each scene's cues): the kind it
+        // plays now, or the one the cue asked for before this film swapped it.
+        const onCue = (kinds: string[], at: number) => placed.find((sound) => !taken.has(sound.clip.id) && kinds.includes(sound.kind) && Math.abs(sound.at - at) < 0.06);
+        // Changes to those sounds, by comp; null takes one off.
+        const changes = new Map<string, Map<string, Partial<Clip> | null>>();
+        const change = (sound: PlacedSound, patch: Partial<Clip> | null) => changes.set(sound.compId, (changes.get(sound.compId) ?? new Map()).set(sound.clip.id, patch));
         let next = top;
         for (const placement of placements) {
           const level = cueLevel(placement.kind, musicDbOver(beds, placement.loud[0], placement.loud[1]), offsetDb);
           const volume = clamp(10 ** (level.gainDb / 20), 0, 8);
           const row = { at: Math.round(placement.start * 100) / 100, kind: placement.kind, gainDb: level.gainDb, against: level.against, capped: level.capped };
-          const there = placed.find((sound) => !taken.has(sound.clip.id) && sound.kind === placement.kind && Math.abs(sound.at - placement.start) < 0.06);
+          const there = onCue([placement.kind, placement.cue], placement.start);
           if (there) {
             taken.add(there.clip.id);
-            gains.set(there.compId, (gains.get(there.compId) ?? new Map()).set(there.clip.id, volume));
+            // Re-levelled, never doubled: a swapped cue's sound becomes the new one, and a riser
+            // laid whole is trimmed so its top meets the hit, as a fresh one would be.
+            const swapped = there.kind !== placement.kind;
+            const resound = swapped || placement.kind === 'riser';
+            change(there, {
+              volume,
+              ...(resound ? { source: { type: 'sfx' as const, kind: placement.kind }, in: placement.in, duration: placement.duration } : {}),
+              ...(swapped ? { name: sfxClipFields(placement.kind, placement.note).name } : {}),
+            });
             rows.push({ ...row, clipId: there.clip.id, existing: true });
             continue;
           }
@@ -1032,13 +1046,28 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
           next = placeClips(target.comp, [clip], 'overwrite');
           rows.push({ ...row, clipId: clip.id, existing: false });
         }
-        const regain = (c: Comp) => {
-          const change = gains.get(c.id);
-          return change ? { ...c, clips: c.clips.map((clip) => (change.has(clip.id) ? { ...clip, volume: change.get(clip.id)! } : clip)) } : c;
+        // A skipped cue is left silent: the sound already on it goes too.
+        for (const cue of cues) {
+          if (!skip.includes(cue.sound)) continue;
+          const there = onCue([cue.sound, swap[cue.sound] ?? cue.sound], Math.max(0, cue.at));
+          if (!there) continue;
+          taken.add(there.clip.id);
+          change(there, null);
+          silenced++;
+        }
+        const apply = (c: Comp) => {
+          const edits = changes.get(c.id);
+          if (!edits) return c;
+          return { ...c, clips: c.clips.flatMap((clip) => {
+            if (!edits.has(clip.id)) return [clip];
+            const patch = edits.get(clip.id);
+            return patch ? [{ ...clip, ...patch } as Clip] : [];
+          }) };
         };
-        return { ...current, comps: current.comps.map((c) => regain(c.id === top.id ? next : c)) };
+        return { ...current, comps: current.comps.map((c) => apply(c.id === top.id ? next : c)) };
       });
-      if (!rows.length) return fail('Every cue in that range was skipped.');
+      const offNote = silenced ? ` ${silenced} sound${silenced === 1 ? ' on a skipped cue' : 's on skipped cues'} taken off.` : '';
+      if (!rows.length) return silenced ? done(`Every cue in that range was skipped.${offNote}`, { cues: rows, silenced }) : fail('Every cue in that range was skipped.');
       const added = rows.filter((row) => !row.existing).length;
       const capped = rows.filter((row) => row.capped);
       const unscored = rows.filter((row) => row.against === 'no-music').length;
@@ -1047,8 +1076,8 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         return `${kind} ×${of.length} (${Math.min(...of.map((row) => row.gainDb))} to ${Math.max(...of.map((row) => row.gainDb))} dB)`;
       });
       return done(
-        `Sounded ${rows.length} motion cue${rows.length === 1 ? '' : 's'}: ${added} placed on the SFX track, ${rows.length - added} already there set to their new level. ${beds.length ? `Each sits about 6 dB under the music's peak at its moment` : 'There is no music on this timeline, so each keeps its default level under the voice; run this again once the music is in'}: ${kinds.join(', ')}.${capped.length ? ` ${capped.length} could not get that loud without clipping (first at ${timecode(capped[0].at, comp.fps)}): duck the music under them with score_audio_clip.` : ''}${beds.length && unscored ? ` ${unscored} play where no music does and keep their default level.` : ''} Change one like any clip; review_frames checks they are heard.`,
-        { cues: rows },
+        `Sounded ${rows.length} motion cue${rows.length === 1 ? '' : 's'}: ${added} placed on the SFX track, ${rows.length - added} already there set to their new level. ${beds.length ? `Each sits about 6 dB under the music's peak at its moment` : 'There is no music on this timeline, so each keeps its default level under the voice; run this again once the music is in'}: ${kinds.join(', ')}.${capped.length ? ` ${capped.length} could not get that loud without clipping (first at ${timecode(capped[0].at, comp.fps)}): duck the music under them with score_audio_clip.` : ''}${beds.length && unscored ? ` ${unscored} play where no music does and keep their default level.` : ''}${offNote} Change one like any clip; review_frames checks they are heard.`,
+        { cues: rows, ...(silenced ? { silenced } : {}) },
       );
     }
 
