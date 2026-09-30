@@ -25,7 +25,8 @@ import { checkGraphic, issuesText, refit } from './graphicCheckRun';
 import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, type ReactBitsLayer } from './rbx';
 import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
 import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
-import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, type QaIssue } from './production';
+import { advance, attachAsset, attachMedia, frameQa, gatherReport, hasMedia, newProduction, planScenes, qaTimes, type QaIssue } from './production';
+import { loadPasses, passScene, pngHasAlpha, type PassIo } from './renderPasses';
 import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
 import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
 import { BUCKETS_PER_SECOND, loadPeaks } from './peaks';
@@ -42,7 +43,7 @@ import { repairArgs } from './argRepair';
 import { inferGenres, judge, JUDGE_ROUNDS, PASS_MARK } from './judge';
 import { ANGLES, debate, parseProposal } from './director';
 import { GENRE_TOOLS, PLAYBOOK_FOR, routeTools, type Genre } from './toolRouter';
-import { MOTION_TOOLS, runMotionTool } from './motionTools';
+import { fileMotionComps, MOTION_FOLDER, MOTION_TOOLS, runMotionTool } from './motionTools';
 import { ROAST_TOOLS, memeLookup, primeMemeCache, runRoastTool } from './roast/tools';
 import { isRoastCardTemplate } from './roast/cards';
 import { CARD_TEMPLATES } from './roast/types';
@@ -56,7 +57,8 @@ import { safeFor } from './layout';
 import { aspectLabel, describeReformat, duplicateComp, FRAME_PRESETS, orientationOf, reformatComp, RESOLUTION_TIERS, scaleTo, type ReformatMode } from './reformat';
 import { autoLayout, captionBand, fillCell, pipBox, splitCells, type SplitLayout } from './splitScreen';
 import type { History } from './history';
-import { api, errorText, type ComposedScore, type PlateSpec, type ScoreMood, type ScoreSpec, type Transcript } from './ipc';
+import { api, errorText, fetchFile, fileSrc, type ComposedScore, type PlateSpec, type ScoreMood, type ScoreSpec, type Transcript } from './ipc';
+import { explodeScene } from './motionStack';
 import { BEAT_KINDS, planBuild, SCORE_MOODS, type BriefBeat } from './guidedBuild';
 import { bpmFromText, moodFromText, placeMusicBed, placePlate } from './builtinMedia';
 import { cloudPrefs, genApi, pickModel, usableConnectors, type GenPlan, type GenPlanItem } from './cloudGen';
@@ -632,9 +634,9 @@ async function fillMissingWithBuiltins(host: ToolHost, project: Project, commit:
   const missingPictures: { scene: number; shot: number | null }[] = [];
   scenes.forEach((scene, i) => {
     const shots = scene.shots ?? [];
-    const legacy = scene as { mediaSource?: string; assetId?: string };
-    if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing' && !legacy.assetId) missingPictures.push({ scene: i, shot: null });
-    shots.forEach((shot, j) => { if (!shot.assetId && (shot.kind === 'video' || shot.kind === 'image' || shot.kind === 'download' || shot.kind === 'scrape')) missingPictures.push({ scene: i, shot: j }); });
+    const legacy = scene as { mediaSource?: string; assetId?: string; compId?: string };
+    if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing' && !hasMedia(legacy)) missingPictures.push({ scene: i, shot: null });
+    shots.forEach((shot, j) => { if (!hasMedia(shot) && (shot.kind === 'video' || shot.kind === 'image' || shot.kind === 'download' || shot.kind === 'scrape')) missingPictures.push({ scene: i, shot: j }); });
   });
   if (missingPictures.length) {
     try {
@@ -651,6 +653,26 @@ async function fillMissingWithBuiltins(host: ToolHost, project: Project, commit:
   }
   return filled;
 }
+
+/** The disk as render passes need it (renderPasses.ts): the manifest, frame folders, and pass videos unpacked by render_passes.rs. */
+const passIo: PassIo = {
+  readJson: async (path) => {
+    const response = await fetchFile(path, { maxBytes: 1024 * 1024 });
+    if (!response.ok) throw new Error('no such file');
+    return response.json();
+  },
+  list: async (dir) => (await api.fsListDirectory(dir, false, 1, 100_000)).entries.filter((entry) => !entry.isDir).map((entry) => entry.name),
+  unpack: (file) => api.renderPassFrames(file),
+  // The first 64 KB hold the PNG header and any tRNS chunk.
+  alpha: async (file) => {
+    try {
+      const response = await fetch(fileSrc(file), { headers: { Range: 'bytes=0-65535' } });
+      return response.ok ? pngHasAlpha(new Uint8Array(await response.arrayBuffer())) : null;
+    } catch {
+      return null;
+    }
+  },
+};
 
 const ITEM_KINDS: Record<string, ItemKind> = {
   color_matte: 'color-matte', black_video: 'black-video', transparent_video: 'transparent-video', bars_and_tone: 'bars-and-tone', adjustment_layer: 'adjustment-layer', countdown: 'countdown',
@@ -1358,7 +1380,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const script = blueprint.script;
       const checklist = [
         `1. Voice-over: synthesize_speech_voiceover with the full blueprint script (${script.length} chars)${blueprint.narrator?.voice ? ` using voice ${blueprint.narrator.voice}` : ''}, autoPlace into the Generated folder.`,
-        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : s.mediaSource === 'render' ? `place the scene you rendered (AI Work/Output)` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
+        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : s.mediaSource === 'render' ? `render it into AI Work/Output, then attach_production_asset {sceneIndex: ${i}} with passes (its pass manifest: lands as editable layers) or one file's assetId` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
         `${scenes.length + 2}. Wait for ALL ${manifest.length} manifest assets to be imported into the Generated folder.`,
         `${scenes.length + 3}. Assembly: place voice-over on A1, visual clips scene-by-scene on V1/V2, add motion graphics + transitions + music bed with ducking, then verify_edit_workflow.`,
       ];
@@ -3690,12 +3712,31 @@ ${notes.trim()}${paletteLine}
     case 'attach_production_asset': {
       const comp = pickComp(project, args);
       if (!comp?.production) return fail('No production plan on this comp. Save the plan first.');
+      const passes = str(args, 'passes');
       const assetId = str(args, 'assetId') ?? '';
-      if (!assets.has(assetId)) return fail('assetId is not an imported asset; use the id a generation, download or import returned.');
+      if (!passes && !assets.has(assetId)) return fail('assetId is not an imported asset; use the id a generation, download or import returned (or passes: the manifest of a scene you rendered in passes).');
       const sceneIndex = num(args, 'sceneIndex');
       const kind = str(args, 'kind') ?? null;
       const target = kind === 'music' ? { sceneIndex: -1, kind } : sceneIndex === undefined ? null : { sceneIndex: Math.floor(sceneIndex), shotIndex: num(args, 'shotIndex') ?? null, kind };
       if (!target) return fail('Give sceneIndex (0-based) or kind "music".');
+      if (passes) {
+        // A scene the model rendered itself, in passes: stacked as footage layers of one layered
+        // "[Motion]" comp (renderPasses.ts), so the user can still hide, swap or regrade a pass.
+        const scene = target.sceneIndex >= 0 ? planScenes(comp)[target.sceneIndex] : undefined;
+        if (!scene) return fail('Give the sceneIndex (0-based) of the planned scene these passes render.');
+        const loaded = await loadPasses(passes, { width: comp.width, height: comp.height, fps: comp.fps }, passIo);
+        if ('problems' in loaded) return fail(`Fix the passes: ${loaded.problems.slice(0, 8).join(' ')}`);
+        const title = `Scene ${target.sceneIndex + 1}${scene.title ? ` ${scene.title}` : ''} passes`;
+        const exploded = explodeScene(passScene(loaded.manifest, loaded.passes, comp), { name: `[Motion] ${title}`, fps: comp.fps, width: comp.width, height: comp.height });
+        // Passes are the scene's picture: they fill its video shot, never its voice-over.
+        const attached = attachMedia(comp, { ...target, kind: target.kind ?? 'video' }, { compId: exploded.comp.id });
+        if (!attached) return fail('That scene or shot is not in the plan.');
+        commit((current) => updateComp(fileMotionComps(current, [exploded.comp, ...exploded.nested]), comp.id, () => attached.comp));
+        const report = gatherReport(attached.comp);
+        return done(`Stacked ${loaded.passes.length} pass${loaded.passes.length === 1 ? '' : 'es'} as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin), bottom to top: ${loaded.passes.map((pass) => pass.name).join(', ')}. Each is a footage layer on its own track, so the user can hide, swap or regrade any pass. Attached to ${attached.attached}; in the edit nest it where the scene plays: place_clip {"source":{"compId":"${exploded.comp.id}"}}.${loaded.notes.length ? ` Check: ${loaded.notes.join(' ')}` : ''} Gathered ${report.ready}/${report.total}.${report.missing.length ? ` Still missing: ${report.missing.slice(0, 6).join('; ')}.` : ' Everything is gathered — call finish_gathering.'}`, {
+          compId: exploded.comp.id, layers: exploded.layers.map(({ layerId, clipId, name }) => ({ layerId, clipId, name })), ready: report.ready, total: report.total, missing: report.missing,
+        });
+      }
       const attached = attachAsset(comp, target, assetId);
       if (!attached) return fail('That scene or shot is not in the plan.');
       editComp(comp, () => attached.comp);

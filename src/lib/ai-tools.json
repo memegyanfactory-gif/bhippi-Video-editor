@@ -994,7 +994,7 @@
                     "existing",
                     "render"
                   ],
-                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId) | render (you render it into AI Work/Output while gathering, then attach_production_asset; visualPrompt = what)."
+                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId) | render (you render it into AI Work/Output while gathering, then attach_production_asset: its assetId, or passes = a pass manifest so it lands as editable layers; visualPrompt = what)."
                 },
                 "visualPrompt": {
                   "type": "string"
@@ -5589,6 +5589,10 @@
           "assetId": {
             "type": "string"
           },
+          "passes": {
+            "type": "string",
+            "description": "Instead of assetId, for a scene you rendered in passes: path of a manifest {fps, width, height, passes:[{name, dir (numbered PNGs with alpha) | file (ProRes 4444/WebM alpha), blend?}]}, bottom to top (backdrop, product, text, cursor, glow). Stacked as one layered [Motion] comp, a layer per pass."
+          },
           "sceneIndex": {
             "type": "integer"
           },
@@ -5606,10 +5610,7 @@
               "music"
             ]
           }
-        },
-        "required": [
-          "assetId"
-        ]
+        }
       }
     },
     {

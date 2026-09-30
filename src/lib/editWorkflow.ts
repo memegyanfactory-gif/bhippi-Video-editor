@@ -3,6 +3,7 @@ import { describeUncovered, uncoveredSpans } from './coverage';
 import { councilMember, councilReview } from './council';
 import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } from './types';
 import { compDuration, needsFrameSize } from './timeline';
+import { hasMedia } from './production';
 import type { QuickScope } from './quickScope';
 
 type Args = Record<string, unknown>;
@@ -376,19 +377,19 @@ export type WorkflowReceipts = NonNullable<Production['receipts']>;
 export function gatherShots(comp: Comp): { sceneIndex: number; shotIndex: number; label: string; status: string; kind: string }[] {
   const production = comp.production;
   if (!production) return [];
-  const scenes: { shots?: { kind: string; status?: string; script?: string; prompt?: string; url?: string; assetId?: string }[]; mediaSource?: string; assetId?: string; status?: string }[] =
+  const scenes: { shots?: { kind: string; status?: string; script?: string; prompt?: string; url?: string; assetId?: string; compId?: string }[]; mediaSource?: string; assetId?: string; compId?: string; status?: string }[] =
     production.mode === 'scratch' ? (comp.videoBlueprint?.scenes ?? []) : (comp.storyboard ?? []);
   const out: { sceneIndex: number; shotIndex: number; label: string; status: string; kind: string }[] = [];
   scenes.forEach((scene, sceneIndex) => {
     const shots = scene.shots ?? [];
     if (!shots.length && scene.mediaSource && scene.mediaSource !== 'existing') {
-      out.push({ sceneIndex, shotIndex: 0, label: `Scene ${sceneIndex + 1}: ${scene.mediaSource}`, status: scene.assetId ? 'ready' : (scene.status ?? 'pending'), kind: scene.mediaSource });
+      out.push({ sceneIndex, shotIndex: 0, label: `Scene ${sceneIndex + 1}: ${scene.mediaSource}`, status: hasMedia(scene) ? 'ready' : (scene.status ?? 'pending'), kind: scene.mediaSource });
       return;
     }
     shots.forEach((shot, shotIndex) => {
       if (shot.kind === 'existing' || shot.kind === 'sfx') return;
       const text = (shot.script ?? shot.prompt ?? shot.url ?? '').slice(0, 48);
-      out.push({ sceneIndex, shotIndex, label: `Scene ${sceneIndex + 1} shot ${shotIndex + 1} (${shot.kind}): ${text}`, status: shot.assetId ? 'ready' : (shot.status ?? 'pending'), kind: shot.kind });
+      out.push({ sceneIndex, shotIndex, label: `Scene ${sceneIndex + 1} shot ${shotIndex + 1} (${shot.kind}): ${text}`, status: hasMedia(shot) ? 'ready' : (shot.status ?? 'pending'), kind: shot.kind });
     });
   });
   if (production.music && production.music.source !== 'none' && production.music.source !== 'existing') {
