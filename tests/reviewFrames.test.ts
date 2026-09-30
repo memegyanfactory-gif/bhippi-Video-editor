@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cutTimes, darkFinding, eventMoments, JOIN_STEP, joinStrips, offBeatCuts, quietCues, repeatedPhrases, shortEnd, timelineOf } from '../src/lib/reviewFrames';
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { QaLayer } from '../src/lib/production';
+import { allowTool } from '../src/lib/permissions';
 
 const text = (value: string) => ({ type: 'text', text: value, subtitle: '', preset: 'title', color: '#fff', style: null, vertical: false }) as never;
 
@@ -92,5 +93,16 @@ describe('what to measure', () => {
     a.in = 10;
     expect(timelineOf(a, 12)).toBe(2);
     expect(timelineOf(a, 30)).toBeNull();
+  });
+});
+
+describe('what the toolkit may do in Plan only', () => {
+  it('lets the review and the capture look, but not analyze_song save its map on the plan', () => {
+    expect(allowTool('plan', 'review_frames').ok).toBe(true);
+    expect(allowTool('plan', 'capture_app_session').ok).toBe(true);
+    // Like analyze_music_beats, it writes the beat grid on the production and a research note.
+    expect(allowTool('plan', 'analyze_song').ok).toBe(false);
+    expect(allowTool('plan', 'analyze_music_beats').ok).toBe(false);
+    expect(allowTool('edit', 'analyze_song').ok).toBe(true);
   });
 });
