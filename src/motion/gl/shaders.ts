@@ -203,11 +203,15 @@ uniform float uThreshold;
 uniform float uKnee;
 uniform vec3 uTint;
 uniform float uUseTint;
+uniform float uSatWeight;
 void main() {
   vec4 c = texture(uTex, vUv);
   vec3 col = unpremul(c);
   float l = max(max(col.r, col.g), col.b);
   float k = smoothstep(uThreshold - uKnee, uThreshold + uKnee, l);
+  // Saturation weighting: white and grey (UI, type) barely bloom while colour still does.
+  float sat = l > 1e-4 ? (l - min(min(col.r, col.g), col.b)) / l : 0.0;
+  k *= 1.0 - uSatWeight * (1.0 - sat);
   vec3 g = uUseTint > 0.5 ? mix(col, uTint, 0.75) * max(l, 0.35) : col;
   outColor = vec4(g * k * c.a, k * c.a);
 }`;
@@ -298,8 +302,14 @@ void main() {
     c = clamp((c - uA.x) / max(uA.y - uA.x, 1e-4), 0.0, 1.0);
     c = pow(c, vec3(1.0 / max(uA.z, 0.01)));
     c = mix(vec3(uB.x), vec3(uB.y), c);
-  } else if (uOp == 6) { // exposure (stops), offset, gamma
-    c = pow(max(c * exp2(uA.x) + uA.y, 0.0), vec3(1.0 / max(uA.z, 0.01)));
+  } else if (uOp == 6) { // exposure (stops), offset, gamma; uB: linear light, shoulder knee, ceiling (motion/finish.ts toneOf mirrors it)
+    vec3 x = uB.x > 0.5 ? pow(c, vec3(2.2)) : c;
+    x = max(x * exp2(uA.x) + uA.y, 0.0);
+    float m = max(max(x.r, x.g), x.b);
+    // A hue-preserving shoulder: the brightest channel above the knee rolls off towards the ceiling.
+    if (uB.y > 0.0 && uB.z > uB.y && m > uB.y) x *= (uB.y + (uB.z - uB.y) * (1.0 - exp(-(m - uB.y) / (uB.z - uB.y)))) / m;
+    x = uB.x > 0.5 ? pow(x, vec3(1.0 / 2.2)) : x;
+    c = pow(x, vec3(1.0 / max(uA.z, 0.01)));
   } else if (uOp == 7) { // invert amount uC.x
     c = mix(c, 1.0 - c, uC.x);
   } else if (uOp == 8) { // fill with uA.rgb by amount uC.x

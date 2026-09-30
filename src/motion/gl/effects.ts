@@ -94,9 +94,10 @@ function distort(gl: GL, src: Target, op: number, a: number[], time: number, bb:
   return out;
 }
 
-function glow(gl: GL, src: Target, radius: number, intensity: number, threshold: number, tint: string | null, deep: boolean, screen: boolean): Target {
+/** `satWeight` 0–1: how far white and grey are kept out of the bloom (1 = only colour glows; the finish presets' bloom). */
+function glow(gl: GL, src: Target, radius: number, intensity: number, threshold: number, tint: string | null, deep: boolean, screen: boolean, satWeight = 0, knee = 0.1): Target {
   const bright = gl.acquire(src.w, src.h);
-  gl.pass('threshold', S.THRESHOLD_FS, bright, { uTex: src.tex, uThreshold: threshold, uKnee: 0.1, uTint: tint ? rgb(tint) : [1, 1, 1], uUseTint: tint ? 1 : 0 });
+  gl.pass('threshold', S.THRESHOLD_FS, bright, { uTex: src.tex, uThreshold: threshold, uKnee: knee, uTint: tint ? rgb(tint) : [1, 1, 1], uUseTint: tint ? 1 : 0, uSatWeight: Math.min(1, Math.max(0, satWeight)) });
   const g1 = blur(gl, bright, radius * 0.5);
   const g2 = deep ? blur(gl, bright, radius * 1.2) : null;
   const g3 = deep ? blur(gl, bright, radius * 2.8) : null;
@@ -132,7 +133,7 @@ export function applyEffect(gl: GL, src: Target, effect: ResolvedEffect, env: Ef
       return out;
     }
     case 'glow':
-      return glow(gl, src, n(p, 'radius', 30) * d, n(p, 'intensity', 1), n(p, 'threshold', 0), typeof p.color === 'string' ? (p.color as string) : null, b(p, 'deep', true), b(p, 'screen', false));
+      return glow(gl, src, n(p, 'radius', 30) * d, n(p, 'intensity', 1), n(p, 'threshold', 0), typeof p.color === 'string' ? (p.color as string) : null, b(p, 'deep', true), b(p, 'screen', false), n(p, 'saturationWeight', 0), n(p, 'knee', 0.1));
     case 'halation':
       return glow(gl, src, n(p, 'radius', 40) * d, n(p, 'intensity', 0.6), n(p, 'threshold', 0.7), s(p, 'color', '#ff4a1f'), true, true);
     case 'drop-shadow': {
@@ -158,7 +159,7 @@ export function applyEffect(gl: GL, src: Target, effect: ResolvedEffect, env: Ef
     case 'brightness-contrast': return colorOp(gl, src, 3, [n(p, 'brightness', 0) / 100, n(p, 'contrast', 0) / 100, 0, 0]);
     case 'hue-saturation': return colorOp(gl, src, 4, [n(p, 'hue', 0) / 360, 1 + n(p, 'saturation', 0) / 100, n(p, 'lightness', 0) / 100, 0]);
     case 'levels': return colorOp(gl, src, 5, [n(p, 'inBlack', 0) / 255, n(p, 'inWhite', 255) / 255, n(p, 'gamma', 1), 0], [n(p, 'outBlack', 0) / 255, n(p, 'outWhite', 255) / 255, 0, 0]);
-    case 'exposure': return colorOp(gl, src, 6, [n(p, 'exposure', 0), n(p, 'offset', 0), n(p, 'gamma', 1), 0]);
+    case 'exposure': return colorOp(gl, src, 6, [n(p, 'exposure', 0), n(p, 'offset', 0), n(p, 'gamma', 1), 0], [b(p, 'linear', false) ? 1 : 0, n(p, 'knee', 0), n(p, 'ceiling', 0), 0]);
     case 'invert': return colorOp(gl, src, 7, [0, 0, 0, 0], [0, 0, 0, 0], [n(p, 'amount', 100) / 100, 0, 0, 0]);
     case 'fill': return colorOp(gl, src, 8, [...rgb(s(p, 'color', '#ffffff')), 0], [0, 0, 0, 0], [n(p, 'amount', 100) / 100, 0, 0, 0]);
     case 'vignette': return colorOp(gl, src, 9, [n(p, 'amount', 0.45), n(p, 'size', 1.05), n(p, 'softness', 0.75), n(p, 'roundness', 0)]);
