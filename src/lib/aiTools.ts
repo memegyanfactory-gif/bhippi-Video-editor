@@ -30,6 +30,7 @@ import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
 import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
 import { BUCKETS_PER_SECOND, loadPeaks } from './peaks';
 import { bhippiAnswers, captureKey, parseSteps, resolveSelector, sheetParts, standinSource } from './appCapture';
+import { demoNote } from './demoProject';
 import { cutTimes, darkFinding, eventMoments, JOIN_STEP, joinStrips, offBeatCuts, quietCues, repeatedPhrases, shortEnd, timelineOf, type CueLevel, type Finding, type Moment } from './reviewFrames';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
@@ -3974,17 +3975,20 @@ ${notes.trim()}${paletteLine}
       const name = str(args, 'name') ?? (url ? url.replace(/^https?:\/\//, '').split('/')[0] : 'bhippi');
       const base = { url, name, width: num(args, 'width'), height: num(args, 'height'), scale: num(args, 'scale'), ready: str(args, 'ready') ? resolveSelector(str(args, 'ready')!) : undefined, transparent: bool(args, 'transparent'), steps };
       const info = await api.appInfo().catch(() => null);
+      // Demo: whatever of Bhippi would film empty (bins, timeline, chat) shows the demo pack instead.
+      const demo = !url && bool(args, 'demo') === true;
+      let filled: string[] = [];
       try {
         const manifest = await api.appSessionCapture({
           ...base,
-          ...(bool(args, 'reuse') === false ? {} : { key: captureKey(base, info?.version ?? '') }),
-          ...(url ? {} : { standin: standinSource(await bhippiAnswers(project, [...assets.values()])) }),
+          ...(bool(args, 'reuse') === false ? {} : { key: captureKey(base, info?.version ?? '', demo) }),
+          ...(url ? {} : { standin: standinSource(await bhippiAnswers(project, [...assets.values()], { demo, filled: (what) => { filled = what; } })) }),
         });
         const rows = sheetParts(manifest);
         const sheet = rows.length ? await contactSheet(rows.map((row) => row.map((part) => ({ path: `${manifest.dir}/${part.file}`, label: `${part.part} · ${part.state} · ${part.pixels[0]}x${part.pixels[1]}` })))) : null;
         const partNames = [...new Set(manifest.parts.map((part) => part.part))];
         return done(
-          `Captured ${manifest.parts.length} picture(s) of ${partNames.length} part(s) (${partNames.slice(0, 8).join(', ')}) at ${manifest.scale}x into ${manifest.dir}.${manifest.issues.length ? ` Check: ${manifest.issues.slice(0, 5).join('; ')}.` : ' Every part came out at full resolution and every font loaded.'} Each state is its own picture (part__state.png, with its box in manifest.json): import the ones a shot needs, or swap states on the frame a click lands.`,
+          `Captured ${manifest.parts.length} picture(s) of ${partNames.length} part(s) (${partNames.slice(0, 8).join(', ')}) at ${manifest.scale}x into ${manifest.dir}.${manifest.issues.length ? ` Check: ${manifest.issues.slice(0, 5).join('; ')}.` : ' Every part came out at full resolution and every font loaded.'} Each state is its own picture (part__state.png, with its box in manifest.json): import the ones a shot needs, or swap states on the frame a click lands.${demo ? ` ${demoNote(project, filled)}` : ''}`,
           { dir: manifest.dir, url: manifest.url, scale: manifest.scale, parts: manifest.parts, issues: manifest.issues, images: sheet && bool(args, 'images') !== false ? [sheet] : [] },
         );
       } catch (error) { return fail(errorText(error)); }

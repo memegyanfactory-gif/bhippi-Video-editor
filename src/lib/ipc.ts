@@ -432,6 +432,8 @@ export const api = {
   libraryList: () => invoke<Asset[]>('library_list'),
   /** capture_app_session: the product (or Bhippi itself) cut into parts in states (app_capture.rs). */
   appSessionCapture: (request: import('./appCapture').CaptureRequest) => invoke<import('./appCapture').CaptureManifest>('app_session_capture', { request }),
+  /** The demo media pack (demo_pack.rs), made on first use: never added to the library itself. */
+  demoPackMake: () => invoke<Asset[]>('demo_pack_make'),
   /** MCP servers Bhippi connects out to, with what each is lending right now. */
   mcpServers: () => invoke<McpStatus[]>('mcp_servers'),
   /** Adds or replaces a server and connects to it. */

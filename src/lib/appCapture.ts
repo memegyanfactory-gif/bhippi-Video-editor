@@ -3,8 +3,10 @@
 // To capture Bhippi's own interface, its React UI runs in a headless browser with a stand-in for
 // the desktop backend: the same trick every film agent built by hand. The stand-in answers from
 // the real app's state (demo mode): your providers, settings, library and open project, so the
-// captured screens are yours. Named parts (`@composer`, `@send`, `@timeline`…) spare a model from
+// captured screens are yours; with `demo`, an empty library, timeline or chat is filled from the
+// demo media pack (demoProject.ts) so the screens look alive. Named parts (`@composer`, `@send`, `@timeline`…) spare a model from
 // guessing Bhippi's DOM, and a key made from the session lets a capture be reused (the part library).
+import { demoGaps, demoStandIn } from './demoProject';
 import { api } from './ipc';
 import type { Asset, Project } from './types';
 
@@ -82,9 +84,12 @@ export function parseSteps(raw: unknown): { steps: CaptureStep[]; problems: stri
   return { steps, problems };
 }
 
-/** A short stable hash (FNV-1a) of the session: the same capture of the same app version is reused. */
-export function captureKey(request: Omit<CaptureRequest, 'standin' | 'key'>, version: string): string {
-  const text = JSON.stringify([version, request.url ?? 'bhippi', request.width ?? 1920, request.height ?? 1080, request.scale ?? 3, request.transparent ?? false, request.steps]);
+/**
+ * A short stable hash (FNV-1a) of the session: the same capture of the same app version is reused.
+ * A demo capture shows other content than a plain one, so it has its own key.
+ */
+export function captureKey(request: Omit<CaptureRequest, 'standin' | 'key'>, version: string, demo = false): string {
+  const text = JSON.stringify([version, request.url ?? 'bhippi', request.width ?? 1920, request.height ?? 1080, request.scale ?? 3, request.transparent ?? false, request.steps, ...(demo ? ['demo'] : [])]);
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i);
@@ -140,13 +145,20 @@ export function standinSource(answers: Record<string, unknown>): string {
 /**
  * What the stand-in answers, from the real app (demo mode): the user's own settings, providers,
  * library and open project, so the captured screens show their Bhippi. A call that fails leaves
- * its answer empty rather than stopping the capture.
+ * its answer empty rather than stopping the capture. With `demo`, what would film empty is filled
+ * from the demo media pack, made on first use (demoStandIn says what and why); `filled` hears
+ * what was, so the reply can say so.
  */
-export async function bhippiAnswers(project: Project, assets: Asset[]): Promise<Record<string, unknown>> {
+export async function bhippiAnswers(project: Project, assets: Asset[], options: { demo?: boolean; filled?: (what: string[]) => void } = {}): Promise<Record<string, unknown>> {
   const get = async <T>(call: () => Promise<T>) => { try { return await call(); } catch { return null; } };
-  const [settings, providers, info, license, storage] = await Promise.all([
+  const gaps = demoGaps(project);
+  const [settings, providers, info, license, storage, pack] = await Promise.all([
     get(() => api.settingsGet()), get(() => api.providersList()), get(() => api.appInfo()), get(() => api.licenseStatus()), get(() => api.storageInfo()),
+    // FFmpeg runs only when something would film empty; a pack made before is reused at once.
+    options.demo && (gaps.timeline || gaps.bins) ? get(() => api.demoPackMake()) : Promise.resolve(null),
   ]);
+  const shown = options.demo ? demoStandIn(project, assets, pack ?? [], providers ?? []) : { project, assets, chat: [], filled: [] };
+  options.filled?.(shown.filled);
   // Onboarding, the tour and updates would cover the interface being filmed.
   const calm = settings ? { ...settings, onboarded: true, tour: false, tourSeen: true, autoUpdate: false } : null;
   return {
@@ -155,9 +167,9 @@ export async function bhippiAnswers(project: Project, assets: Asset[]): Promise<
     providers_list: providers ?? [],
     app_info: info,
     license_status: license ?? { state: 'active', offline: false, devBuild: false, devBypassAllowed: false, account: null, expiresAt: null, message: null, deviceName: 'Bhippi' },
-    library_list: assets,
-    project_load: project,
-    chat_log_load: [],
+    library_list: shown.assets,
+    project_load: shown.project,
+    chat_log_load: shown.chat,
     storage_info: storage,
     update_status: { state: 'idle' },
     startup_file: null,
