@@ -149,6 +149,12 @@ export function normalizeTransition(t: SeqTransition | TransitionKind | undefine
   return { ...base, duration: Math.max(0, base.duration ?? DEFAULT_DURATION[base.kind] ?? 0.5) } as SeqTransition;
 }
 
+/** Seconds the incoming beat starts before the cut (half an overlapping transition, else 0): a planner that wants cuts on bars needs it. */
+export function transitionLead(t: SeqTransition | TransitionKind | undefined, layout: 'cuts' | 'world' = 'cuts'): number {
+  const tr = normalizeTransition(t, layout);
+  return OVERLAP.has(tr.kind) ? tr.duration! / 2 : 0;
+}
+
 export function compileSequence(spec: SequenceSpec): CompiledSequence {
   const { width: W, height: H } = spec;
   const C: Vec = [W / 2, H / 2];
@@ -183,7 +189,7 @@ export function compileSequence(spec: SequenceSpec): CompiledSequence {
     const hold = spec.beats[i].hold ?? spec.beats[i].scene.duration;
     const T = starts[i] + Math.max(0.2, hold);
     cuts.push(T);
-    const lead = OVERLAP.has(tr.kind) ? tr.duration! / 2 : 0;
+    const lead = transitionLead(tr, layout);
     starts.push(Math.max(starts[i] + 0.1, T - lead));
   }
   const lastHold = spec.beats[n - 1]?.hold ?? spec.beats[n - 1]?.scene.duration ?? 0;

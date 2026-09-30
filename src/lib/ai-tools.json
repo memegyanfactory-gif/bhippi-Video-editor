@@ -5810,7 +5810,7 @@
     },
     {
       "name": "build_edit_from_brief",
-      "description": "Builds a whole motion edit from a short brief in ONE call — the reliable way to make a video from scratch. You give the beats (what each one says) and the feel; Bhippi picks the template for each beat, holds each one long enough to read on the music's beat grid inside the genre's pacing, chooses transitions with their sound effects, composes a score that drops on the big beat with a crash on every cut, lays a designed background plate under it (when there is no footage), and saves the storyboard. Afterwards run run_frame_qa, fix what it lists, then judge_edit and verify_edit_workflow. Prefer it to building scenes, keyframes and sound one by one.",
+      "description": "Builds a whole motion edit from a short brief in ONE call — the reliable way to make a video from scratch. You give the beats (what each one says) and the feel; Bhippi picks the template for each beat, holds each one long enough to read on the music's beat grid inside the genre's pacing, chooses transitions with their sound effects, composes a score that drops on the big beat with a crash on every cut, lays a designed background plate under it (when there is no footage), and saves the storyboard. Afterwards run run_frame_qa, fix what it lists, then judge_edit and verify_edit_workflow. Prefer it to building scenes, keyframes and sound one by one. `recipe` makes a launch, product, identity, explainer or fluid-SaaS film: the real app, words on the song, joins, sound, finish, review.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5840,9 +5840,15 @@
                     "chapter",
                     "lower-third",
                     "end",
-                    "logo"
+                    "logo",
+                    "hook",
+                    "demo",
+                    "feature",
+                    "explode",
+                    "connect",
+                    "fly"
                   ],
-                  "description": "Guessed when left out: value → stat, points → list, \"?\" → question, cta or last → end, first → title. steps = numbered points."
+                  "description": "Guessed when left out: value → stat, points → list, \"?\" → question, cta or last → end, first → title. steps = numbered points. Recipe moments: hook, demo (the app at work), feature (a card), explode (on the drop), connect (points = providers), fly."
                 },
                 "kicker": {
                   "type": "string",
@@ -5880,12 +5886,73 @@
                 "hold": {
                   "type": "number",
                   "description": "Seconds, only to override the planned reading time."
+                },
+                "focus": {
+                  "type": "string",
+                  "description": "demo/feature: the captured part shown."
+                },
+                "at": {
+                  "type": "number",
+                  "description": "Film second this beat starts."
                 }
               },
               "required": [
                 "text"
               ]
             }
+          },
+          "recipe": {
+            "type": "string",
+            "enum": [
+              "launch-film",
+              "product-demo",
+              "identity-film",
+              "kinetic-explainer",
+              "fluid-saas"
+            ],
+            "description": "A whole film in a reference film's manner, from the toolkit."
+          },
+          "style": {
+            "type": "object",
+            "properties": {
+              "palette": {
+                "type": "string",
+                "description": "accent #hex or a name"
+              },
+              "stage": {
+                "type": "string",
+                "enum": [
+                  "light",
+                  "dark",
+                  "peach",
+                  "grid",
+                  "cool",
+                  "crimson"
+                ]
+              },
+              "cadence": {
+                "type": "string",
+                "enum": [
+                  "calm",
+                  "steady",
+                  "brisk"
+                ]
+              },
+              "variant": {
+                "type": "number"
+              }
+            }
+          },
+          "capture": {
+            "type": "string",
+            "description": "A capture_app_session name, or \"bhippi\"."
+          },
+          "song": {
+            "type": "string",
+            "description": "Song assetId or clipId (default: the plan's music)."
+          },
+          "lyrics": {
+            "type": "string"
           },
           "mood": {
             "type": "string",

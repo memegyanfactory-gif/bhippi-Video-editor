@@ -43,6 +43,7 @@ export function modelTier(providerId: string | null | undefined, model: string |
 export const GUIDED_BRIEF = [
   'GUIDED MODE (this model gets Bhippi\'s strongest defaults): keep your own work to the words and the feel; let the tools do the craft.',
   '- A video from scratch, a promo, a reel, a showreel, an explainer made of titles: plan the beats (one idea each, 2–7 words), then ONE build_edit_from_brief call builds it — templates, timing on the beat, transitions with sound, a composed score and a background. Do not build scenes, keyframes or sound one by one.',
+  '- A launch, product, identity or explainer film (the real app, a song, a logo): the same ONE call with recipe (launch-film, product-demo, identity-film, kinetic-explainer, fluid-saas), style {palette, stage, cadence} and each beat\'s moment (hook, demo, feature, explode, connect, logo, end). It captures the app, lands the words on the song, sounds, grades and reviews the film.',
   '- One graphic on an existing edit (a title, lower third, stat, list, quote, timeline…): add_graphic {kind, text, points?, value?, at}. It picks the template and fits the words; read its "Auto-fixed" note.',
   '- No music, or music generation/download failed: compose_music. Flat or black background: make_background. Never fake music with sound effects.',
   '- Fix what run_frame_qa lists with small, specific calls; do not hand-edit keyframe paths; if a beat is wrong, rebuild with new beats. Then judge_edit and verify_edit_workflow.',
