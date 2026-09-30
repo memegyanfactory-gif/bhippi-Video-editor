@@ -485,6 +485,8 @@ export const api = {
   /** Measures a reference film's motion (cuts, hidden cuts, swaps, fitted eases, camera, twos, audio peaks) as an `analysis` job; its result names `profile` and `peaks`. */
   referenceMotionStart: (path: string, maxSeconds?: number) => invoke<string>('reference_motion_start', { path, maxSeconds: maxSeconds ?? null }),
   blenderRenderStart: (request: unknown, name?: string) => invoke<string>('blender_render_start', { request, name: name ?? null }),
+  /** A render pass delivered as a video with alpha (ProRes 4444, WebM), unpacked into a PNG run beside it (render_passes.rs). */
+  renderPassFrames: (path: string) => invoke<{ dir: string; frames: number; fps: number; width: number; height: number; alpha: boolean }>('render_pass_frames', { path }),
   /** Whether a TypeSafe key is present, so a judgment can be offered at all. */
   typesafeReady: () => invoke<boolean>('typesafe_ready'),
   /** Files the TypeSafe key; an empty string removes it. Returns whether judgments are ready. */
