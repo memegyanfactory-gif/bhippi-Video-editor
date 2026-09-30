@@ -150,6 +150,10 @@ describe('film recipes', () => {
     expect(dark.finish.preset).toBe('launch-dark');
     expect(dark.accent).toBe('#12b886');
     expect(dark.beats.find((b) => b.moment === 'connect')!.params.accent).toBe('#12b886');
+    // A named palette tints the glass mark; without one the mark keeps its own material.
+    const glass = (plan: ReturnType<typeof planFilm>) => plan.beats.find((b) => b.template === 'glass-mark')?.params;
+    expect(glass(planFilm('identity-film', brief, { style: { palette: 'mint' } }))).toMatchObject({ material: 'tinted', tint: '#2ec4a0' });
+    expect(glass(planFilm('identity-film', brief))?.material).toBeUndefined();
     const light = planFilm('fluid-saas', brief, {});
     expect(light.finish.preset).toBe('launch-light');
     expect(dark.seconds).toBeGreaterThan(light.seconds);

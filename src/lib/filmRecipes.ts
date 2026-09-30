@@ -433,6 +433,7 @@ export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style
   const voiced = (i: number) => (lines[i] && song ? { words: lines[i]!.words, offset: round(song.at + starts[i]) } : {});
   const sceneTimes = (i: number, filter?: (word: string) => boolean) => (lines[i] && song ? lines[i]!.words.filter((w) => !filter || filter(w.text)).map((w) => round(w.start - song.at - starts[i])).filter((t) => t >= 0) : []);
 
+  // The logo keeps its own material (ember glass for Bhippi's mark) unless the film names a palette.
   const beats: FilmPlannedBeat[] = brief.map((beat, i) => {
     const moment = moments[i];
     const hold = holds[i];
@@ -477,7 +478,7 @@ export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style
           const at = round(Math.min(0.6, hold * 0.2));
           if (template === 'glass-mark') {
             const tagTimes = sceneTimes(i).slice(-wordsOf(beat.subtitle).length || undefined);
-            return { template, params: { wordmark: beat.text, tagline: beat.subtitle ?? '', ...(beat.subtitle && tagTimes.length === wordsOf(beat.subtitle).length ? { taglineTimes: tagTimes } : {}), landing: pick(taste.landings, variant, 'landing'), stage: filmStage(stage), ...(recipe === 'launch-film' ? {} : { material: 'tinted', tint: accent }), at, beats: barsIn(i), side: pick(['below', 'right'] as const, variant, 'side'), duration: hold } };
+            return { template, params: { wordmark: beat.text, tagline: beat.subtitle ?? '', ...(beat.subtitle && tagTimes.length === wordsOf(beat.subtitle).length ? { taglineTimes: tagTimes } : {}), landing: pick(taste.landings, variant, 'landing'), stage: filmStage(stage), ...(style.palette ? { material: 'tinted', tint: accent } : {}), at, beats: barsIn(i), side: pick(['below', 'right'] as const, variant, 'side'), duration: hold } };
           }
           return { template, params: { name: beat.text, tagline: beat.subtitle ?? '', ...voiced(i), at, look, beats: barsIn(i), push: pick([3.5, 4.5, 2.5], variant, 'push'), duration: hold } };
         }
