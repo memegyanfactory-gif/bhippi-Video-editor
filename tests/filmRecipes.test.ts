@@ -8,6 +8,8 @@ vi.mock('../src/lib/ipc', () => ({
 
 import { accentOf, bhippiSession, FILM_RECIPES, planFilm, safeFixes, songFromAnalysis, type FilmBeat, type FilmSong } from '../src/lib/filmRecipes';
 import { parseSteps } from '../src/lib/appCapture';
+import { GUIDED_BRIEF } from '../src/lib/modelProfile';
+import { routeTools } from '../src/lib/toolRouter';
 import { runMotionTool, type MotionToolContext } from '../src/lib/motionTools';
 import { logicalScene } from '../src/lib/motionStack';
 import { newProject, updateComp } from '../src/lib/timeline';
@@ -185,4 +187,10 @@ describe('film recipes', () => {
     expect(safeFixes([{ kind: 'repeated-phrase', at: 0 }], { preset: 'launch-light' })).toEqual([]);
   });
 
+  it('the guided brief names the recipes in a line; the full tier is not sent to them', () => {
+    expect(GUIDED_BRIEF).toMatch(/recipe/);
+    for (const recipe of FILM_RECIPES) expect(GUIDED_BRIEF).toContain(recipe);
+    // A frontier model's toolset is unchanged: the build is not put in front of it.
+    expect(routeTools('make a launch film for my app with this song', [], null, null, false).full).not.toContain('build_edit_from_brief');
+  });
 });

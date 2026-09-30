@@ -87,6 +87,8 @@ export type FilmPlan = {
   drop: number | null;
   dropBeat: number | null;
   plate: { style: 'glow' | 'gradient' | 'paper' | 'grain'; colors: string[] };
+  /** The stage's own colour, under every beat of the sequence, so no frame is ever empty. */
+  background: string;
   seconds: number;
   /** What the recipe decided and why, one line each, for the reply. */
   notes: string[];
@@ -511,7 +513,7 @@ export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style
   notes.push(`variant ${variant}: ${stage} stage, ${cadence} cadence, accent ${accent}`);
   return {
     recipe, variant, stage, accent, cadence, mood: taste.mood, bpm, beats, transitions, starts, cuts: cutsAt, finish,
-    drop: drop === null ? null : round(drop), dropBeat, plate: PLATES[stage], seconds: filmEnd, notes,
+    drop: drop === null ? null : round(drop), dropBeat, plate: PLATES[stage], background: PLATES[stage].colors[1], seconds: filmEnd, notes,
   };
 }
 
