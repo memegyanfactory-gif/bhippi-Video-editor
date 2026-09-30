@@ -7589,6 +7589,9 @@
           "retime": {
             "type": "number"
           },
+          "finish": {
+            "description": "The scene's finish adjustment layer: launch-light | launch-dark | {preset, exposure?, bloom?, vignette?, grain?, cardShadow?} | none."
+          },
           "scene": {
             "type": "object",
             "additionalProperties": true
