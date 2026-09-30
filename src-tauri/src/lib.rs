@@ -62,6 +62,7 @@ mod bundle;
 mod cutout;
 mod blender;
 mod ui_screen;
+mod vocal;
 mod ref_motion;
 mod trace;
 mod harness;
@@ -1947,34 +1948,57 @@ fn transcript_edit_words(state: State<'_, Arc<AppState>>, asset_id: String, edit
 }
 
 /// The words spoken in one asset, transcribed once and cached beside its other derived files.
+/// `vocal`: a song. The centre-panned lead vocal is pulled out first (vocal.rs), so sung lines are
+/// heard under the mix; that transcript is cached apart from the plain one.
 #[tauri::command]
 async fn transcribe_asset(
     state: State<'_, Arc<AppState>>,
     id: String,
     language: String,
+    vocal: Option<bool>,
 ) -> CommandResult<transcribe::Transcript> {
     let asset = state.assets_by_id().remove(&id).ok_or("that media is no longer in the library")?;
     if !asset.has_audio {
         return Err("that file has no sound to transcribe".into());
     }
-    let job = state.jobs.start("transcribe", format!("Transcribing {}", asset.name), false);
+    let vocal = vocal.unwrap_or(false);
+    let cache_id = if vocal { format!("{}~vocal", asset.id) } else { asset.id.clone() };
+    let job = state.jobs.start("transcribe", format!("Transcribing {}{}", asset.name, if vocal { " (vocal)" } else { "" }), false);
     let tools = state.tools();
     let prefs = state.settings().speech;
+    // The vocal stem is only made when this song's vocal transcript is not cached already.
+    let mut stem: Option<std::path::PathBuf> = None;
+    if vocal && transcribe::cached(&state.paths.thumbnails, &cache_id).is_none() {
+        job.progress(0.05, "Separating the vocal");
+        match vocal::vocal_wav(&tools, &asset.path, &state.paths.work, &asset.id).await {
+            Ok(path) => stem = Some(path),
+            Err(error) => {
+                job.fail(error.clone());
+                return Err(error);
+            }
+        }
+    }
+    let source = stem.as_ref().map_or_else(|| asset.path.clone(), |path| path.display().to_string());
     let result = transcribe::transcribe(
         &tools,
         &state.paths.thumbnails,
         &state.paths.work,
         &state.paths.models,
         &prefs,
-        &asset.id,
-        &asset.path,
+        &cache_id,
+        &source,
         &language,
         |fraction, step| job.progress(fraction, step),
     )
     .await;
+    if let Some(path) = stem {
+        let _ignored = std::fs::remove_file(path);
+    }
     match result {
-        Ok(transcript) => {
+        Ok(mut transcript) => {
             job.done(format!("{} words", transcript.words.len()), None);
+            // The caller asked about the asset, not about its cache entry.
+            transcript.asset_id = asset.id.clone();
             Ok(transcript)
         }
         Err(error) => {

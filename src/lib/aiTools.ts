@@ -27,6 +27,7 @@ import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTool
 import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
 import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, type QaIssue } from './production';
 import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
+import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
 import { loadPeaks } from './peaks';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
@@ -4167,6 +4168,53 @@ ${notes.trim()}${paletteLine}
         sfxId = sfx.id;
       }
       return done(`${style} transition at ${timecode(time, fps(comp))} on ${trackLabel(comp, track.track.id)}: ${outgoing ? `outgoing ${outgoing.name ?? outgoing.id} pushes ${punch}%` : ''}${incoming ? `, incoming ${incoming.name ?? incoming.id} settles from ${punch}%` : ''}${sfxId ? ', whoosh 0.25 s before the cut' : ''}. Keyframes use ease-in/ease-out so the move is weighted; it exports.`, { outgoingId: outgoing?.id ?? null, incomingId: incoming?.id ?? null, sfxClipId: sfxId, seconds });
+    }
+
+    case 'analyze_song': {
+      // One call for everything a film cut to a song needs: beats, bars, phrases, drops, hits, the
+      // user's lyrics with a time for every word (songMap.ts), sections and cut points. Every
+      // premium film so far built this by hand; here any model gets it in one call.
+      const comp = pickComp(project, args);
+      let asset: Asset | undefined;
+      const clipRef = str(args, 'clipId');
+      if (clipRef) {
+        const found = findClipIn(project, clipRef);
+        if (found?.clip.source.type === 'media') asset = assets.get(found.clip.source.assetId);
+      }
+      if (!asset && str(args, 'assetId')) asset = assets.get(str(args, 'assetId') ?? '');
+      if (!asset && comp?.production?.music?.assetId) asset = assets.get(comp.production.music.assetId);
+      if (!asset) return fail('Give the song assetId or clipId (or attach the music to the plan first).');
+      if (!asset.peaks) return fail(`${asset.name} has no waveform analysis yet; wait for its import to finish, then retry.`);
+      const peaks = await loadPeaks(asset.peaks);
+      if (!peaks) return fail('The waveform data could not be read.');
+      const analysis = detectBeats(peaks, { minBpm: num(args, 'minBpm'), maxBpm: num(args, 'maxBpm') });
+      const structure = musicStructure(peaks, analysis, 0);
+      const lyrics = str(args, 'lyrics')?.trim() || null;
+      let heard: HeardWord[] = [];
+      let hearing = '';
+      if (bool(args, 'transcribe') ?? true) {
+        try {
+          const transcript = await api.transcribeAsset(asset.id, str(args, 'language') ?? 'auto', bool(args, 'vocal') ?? true);
+          heard = transcript.words.map((word) => ({ text: word.text, start: word.start, end: word.end }));
+        } catch (error) {
+          hearing = ` No transcript (${errorText(error)}), so ${lyrics ? 'the lyrics are spread over the song by length only; treat word times as rough' : 'there are no words'}.`;
+        }
+      }
+      const map = buildSongMap(peaks, analysis, structure, lyrics, heard, analysis.duration);
+      if (comp?.production && (!comp.production.music?.assetId || comp.production.music.assetId === asset.id)) {
+        editComp(comp, current => ({ ...current, production: current.production ? { ...current.production, music: { ...(current.production.music ?? { source: 'existing' as const }), assetId: asset!.id, status: 'ready', bpm: analysis.bpm, beats: analysis.beats.slice(0, 4000) }, updatedAt: Date.now() } : current.production }));
+      }
+      // Kept as a research note, so a later turn reads the map instead of analysing the song again.
+      const note = await api.projectDocWrite('research', `Song map - ${asset.name}`, songMapMarkdown(asset.name, map)).catch(() => null);
+      const placed = map.lines.reduce((count, line) => count + line.words.filter((word) => !word.heard).length, 0);
+      return done(
+        `${asset.name}: ${map.bpm} BPM, ${map.bars.length} bars, ${map.sections.length} section(s), ${map.lines.length} line(s)${lyrics ? `, ${Math.round(map.heardShare * 100)}% of the lyric heard (${placed} word(s) placed between heard ones)` : ''}, ${map.drops.length} drop(s), ${map.hits.length} hits, ${map.cuts.length} cut points.${hearing} Times are source seconds of the song: land each word's graphic on its time, cut on \`cuts\`, accent \`hits\`.${note ? ` The full map is saved as ${note}.` : ''}`,
+        {
+          assetId: asset.id, bpm: map.bpm, heardShare: map.heardShare, sections: map.sections, drops: map.drops, stops: map.stops,
+          lines: map.lines.map((line) => ({ text: line.text, section: line.section, start: line.start, end: line.end, timed: line.words.map((word) => `${word.start.toFixed(2)} ${word.text}${word.heard ? '' : '*'}`).join(' ') })),
+          cuts: map.cuts, bars: map.bars.slice(0, 96), phrases: map.phrases, hits: map.hits.slice(0, 160), hitCount: map.hits.length, beatCount: map.beats.length,
+        },
+      );
     }
 
     case 'analyze_music_beats': {

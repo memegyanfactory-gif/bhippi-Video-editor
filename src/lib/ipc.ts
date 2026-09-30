@@ -501,7 +501,8 @@ export const api = {
   /** Every transcription engine, in Auto's order, for the Settings choice. */
   transcribeEngineOptions: () => invoke<TranscribeEngineOption[]>('transcribe_engine_options'),
   /** The words spoken in one asset, in source time. Transcribed once, then cached. */
-  transcribeAsset: (id: string, language: string) => invoke<Transcript>('transcribe_asset', { id, language }),
+  /** `vocal`: a song; the lead vocal is separated first so sung lines are heard (cached apart). */
+  transcribeAsset: (id: string, language: string, vocal = false) => invoke<Transcript>('transcribe_asset', { id, language, vocal }),
   /** Transcripts already made for these assets; transcribes nothing. */
   transcriptsCached: (ids: string[]) => invoke<Transcript[]>('transcripts_cached', { ids }),
   /** Saves corrections typed in the Transcript panel; each word is found by its source timing. Empty text deletes it. */

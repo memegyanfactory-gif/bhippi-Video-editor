@@ -146,6 +146,7 @@ export const TOOL_LABELS: Record<string, string> = {
   split_screen: 'Making a split screen',
   seamless_transition: 'Adding a seamless cut',
   analyze_music_beats: 'Finding the music beats',
+  analyze_song: 'Mapping the song',
   snap_cuts_to_beats: 'Snapping cuts to the beat',
   level_audio: 'Leveling the audio',
   erase_subject_clip: 'Erasing the subject',

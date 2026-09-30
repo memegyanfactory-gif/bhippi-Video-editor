@@ -110,7 +110,7 @@ const DESTRUCTIVE = new Set([
 
 /** Whether a tool only looks — allowed in every mode, and to every plugin without asking. */
 export const isReadTool = (name: string) =>
-  READS.has(name) || ['editing_workflow_status', 'verify_edit_workflow', 'analyze_clip_speech', 'inspect_clip_frames', 'inspect_source_frames', 'choose_shorts_format',
+  READS.has(name) || ['editing_workflow_status', 'verify_edit_workflow', 'analyze_clip_speech', 'inspect_clip_frames', 'inspect_source_frames', 'analyze_song', 'choose_shorts_format',
     // The frame size is the user's own answer, so even Plan only may ask it and apply it.
     'choose_comp_size'].includes(name);
 

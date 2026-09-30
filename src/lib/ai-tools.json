@@ -6137,6 +6137,45 @@
       }
     },
     {
+      "name": "analyze_song",
+      "description": "Maps a song: beats, bars, drops, hits and each lyric word's time. In one call: tempo, beats, bars, 4-bar phrases, drops, the hits worth an accent, and, given the lyrics, every word with its time (the lead vocal is separated so sung lines are heard; words the engine misses are placed between heard ones and marked *), grouped into lines and sections from [Section] headers, plus cut points (section starts on bars, line starts, bars). Times are source seconds of the song. Saves the full map as a research note. Use it before planning any edit timed to music with words.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "clipId": {
+            "type": "string"
+          },
+          "compId": {
+            "type": "string"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "The words as the user gave them, one line per line; [Verse 1] style headers name sections."
+          },
+          "vocal": {
+            "type": "boolean",
+            "description": "Separate the lead vocal before transcribing (default true; false for plain speech)."
+          },
+          "transcribe": {
+            "type": "boolean",
+            "description": "Default true. False: beats and structure only, lyrics spread by length."
+          },
+          "language": {
+            "type": "string"
+          },
+          "minBpm": {
+            "type": "number"
+          },
+          "maxBpm": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
       "name": "snap_cuts_to_beats",
       "description": "Moves every video cut and overlay entrance within `tolerance` seconds onto the nearest music beat. A cut between two clips is rolled (the outgoing end and the incoming start move together; linked audio stays, so it becomes a J/L split), so no gaps are created; an edge beside a gap is trimmed and overlays are moved; nothing overlaps. Uses the plan's analysed music placed on the timeline, or explicit beats in timeline seconds.",
       "input_schema": {

@@ -99,7 +99,9 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // tool that lets a model choose among the 139 WatchFIWN caption styles by look and use.
       // Raised to 44,250 the same day for `add_graphic` (its one-line slim entry, ~+16 a step over
       // the gate), the one-call graphic tool that small models use instead of raw templates.
-      expect(row.step, row.id).toBeLessThan(44_250);
+      // Raised to 44,300 on 2026-09-30 for `analyze_song` (its one-line slim entry, ~+25 a step),
+      // the one call that times every lyric word of a song: every premium film built it by hand.
+      expect(row.step, row.id).toBeLessThan(44_300);
     }
   });
 
