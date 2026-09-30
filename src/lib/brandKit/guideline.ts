@@ -3,6 +3,7 @@
 // moves keyed frame by frame. `guidelineOf(kit)` is what every consumer reads: the one derived here,
 // with whatever the AI or the user refined (all a kit keeps) merged over it. The motion engine's `brand-*`
 // templates (src/motion/kit/brandTemplates.ts) render `moves` and `layouts` literally.
+import { normalizeGradients } from './gradients';
 import type {
   BrandGuideline, BrandKit, BrandLayoutSpec, BrandMove, FrameState, LayoutZone, MoveElement, MoveKey, MoveRole, SceneRecipe, TypeStep,
 } from './types';
@@ -287,7 +288,7 @@ export function deriveGuideline(kit: BrandKit): BrandGuideline {
   const c = brandColors(kit);
   const stageDark = dark(c.background);
   const gradient = stageGradient(c, stageDark);
-  const brandGradient = kit.colors.gradients[0]?.stops?.length ? kit.colors.gradients[0].stops : [c.primary, c.accent];
+  const brandGradient = normalizeGradients(kit.colors.gradients)[0]?.stops ?? [c.primary, c.accent];
   const m = kit.motionGuide;
   const fl = feel(kit);
   return {

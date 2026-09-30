@@ -7,6 +7,7 @@
 // Settings panel previews and the AI can place on the timeline.
 
 import { learningsBrief } from './learnings';
+import { normalizeGradients, normalizeKitGradients } from './gradients';
 import { brandSummary, brandVars, type Brand, type TypeScale } from '../brand';
 import { TIMING } from '../motion';
 import { RBX_BASE_CSS, esc, px, type BitTheme } from '../rbx/core';
@@ -300,7 +301,7 @@ export function mergeBrandKit(kit: BrandKit, section: BrandKitSection | 'all', p
   const allowed = section === 'all' ? null : new Set<string>(SECTION_KEYS[section] as string[]);
   // A guideline an older Bhippi saved whole is cut to its refinements against the kit before this
   // edit, the one it was derived from, so the edit reaches everything nobody refined.
-  let next: BrandKit = { ...compactGuideline(kit) };
+  let next: BrandKit = { ...compactGuideline(normalizeKitGradients(kit)) };
   for (const [key, value] of Object.entries(patch)) {
     const target = section === 'all' ? key : allowed?.has(key) ? key : SECTION_KEYS[section][0];
     const current = (next as unknown as Record<string, unknown>)[target];
@@ -324,7 +325,7 @@ export function mergeBrandKit(kit: BrandKit, section: BrandKitSection | 'all', p
   if (section === 'typography' || section === 'all') {
     next = { ...next, fonts: { display: next.typography.display.family, body: next.typography.body.family, mono: next.typography.mono.family }, type: next.typography.scale };
   }
-  return { ...next, updatedAt: now() };
+  return { ...normalizeKitGradients(next), updatedAt: now() };
 }
 
 export function validateBrandKit(kit: unknown): string[] {
@@ -395,7 +396,7 @@ export function brandedPrompt(kit: BrandKit, prompt: string, negative: string | 
 export function brandKitVars(kit: BrandKit, shortSide = 1080): Record<string, string> {
   const vars: Record<string, string> = { ...brandVars(kit, shortSide) };
   for (const token of kit.colors.tokens) vars[`--bk-${token.role === 'custom' ? token.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : token.role}`] = token.hex;
-  kit.colors.gradients.forEach((g, i) => { vars[`--bk-gradient-${i + 1}`] = `linear-gradient(${g.angle}deg, ${g.stops.join(', ')})`; });
+  normalizeGradients(kit.colors.gradients).forEach((g, i) => { vars[`--bk-gradient-${i + 1}`] = `linear-gradient(${g.angle}deg, ${g.stops.join(', ')})`; });
   vars['--bk-display'] = fontStack(kit.typography.display);
   vars['--bk-heading'] = fontStack(kit.typography.heading);
   vars['--bk-body'] = fontStack(kit.typography.body);
@@ -412,6 +413,7 @@ export function brandKitVars(kit: BrandKit, shortSide = 1080): Record<string, st
 
 /** The compact object the system prompt receives when a kit is active — never the raw kit. */
 export function brandKitContext(kit: BrandKit) {
+  kit = normalizeKitGradients(kit);
   const theme = brandKitTheme(kit);
   return {
     id: kit.id,
@@ -486,7 +488,7 @@ export function brandBoard(kit: BrandKit, canvas: { width: number; height: numbe
   const portrait = canvas.height > canvas.width;
   const vars = Object.entries({ ...brandKitVars(kit, Math.min(canvas.width, canvas.height) / u), '--u': u.toFixed(4), '--bg': theme.bg, '--fg': theme.fg, '--muted': theme.muted, '--accent': theme.accent, '--accent2': theme.accent2, '--card': theme.card, '--line': theme.line }).map(([k, v]) => `${k}:${v}`).join(';');
   const swatches = kit.colors.tokens.slice(0, 8).map((t, i) => `<div class="a rise bk-sw" style="--d:${(0.5 + i * 0.07).toFixed(2)}s"><i style="background:${t.hex};${isDark(t.hex) === isDark(theme.bg) ? `box-shadow:inset 0 0 0 1px ${theme.line}` : ''}"></i><b>${esc(t.name)}</b><span class="mono">${esc(t.hex.toUpperCase())}</span></div>`).join('');
-  const gradient = kit.colors.gradients[0];
+  const gradient = normalizeGradients(kit.colors.gradients)[0];
   const sample = kit.voiceGuide.samples[0] ?? kit.tagline ?? kit.name;
   const disp = kit.typography.display;
   // Escaped: the font stacks carry double quotes ("Palatino Linotype", …), which would otherwise end
@@ -541,7 +543,7 @@ export function importBrandKit(text: string): BrandKit | { error: string } {
     const value = JSON.parse(text) as unknown;
     if (!isRecord(value)) return { error: 'not a brand kit object' };
     const base = newBrandKit({ style: typeof value.style === 'string' ? value.style : undefined, name: typeof value.name === 'string' ? value.name : undefined });
-    const merged = { ...deepMerge(base, value), id: typeof value.id === 'string' && value.id ? value.id : uid(), version: BRAND_KIT_VERSION, updatedAt: now() } as BrandKit;
+    const merged = normalizeKitGradients({ ...deepMerge(base, value), id: typeof value.id === 'string' && value.id ? value.id : uid(), version: BRAND_KIT_VERSION, updatedAt: now() } as BrandKit);
     const errors = validateBrandKit(merged);
     return errors.length ? { error: errors.join('; ') } : merged;
   } catch (error) {
@@ -554,8 +556,8 @@ export function resolveActiveKit(doc: BrandKitDoc | null | undefined, project?: 
   if (!doc?.kits?.length) return null;
   const id = project?.activeBrandKitId ?? doc.activeId;
   const found = doc.kits.find((k) => k.id === id) ?? (project?.activeBrandKitId ? doc.kits.find((k) => k.id === doc.activeId) : undefined);
-  if (found) return found;
-  return doc.kits.length === 1 ? doc.kits[0] : null;
+  if (found) return normalizeKitGradients(found);
+  return doc.kits.length === 1 ? normalizeKitGradients(doc.kits[0]) : null;
 }
 
 /** How well a kit matches free text (a brand name, a product, an industry, a style word). */

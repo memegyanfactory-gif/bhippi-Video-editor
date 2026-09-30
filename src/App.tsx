@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { actionLogger } from './lib/actionLogger';
 import { crashReporter } from './lib/crashReporter';
 import { TerminalPanel } from './panels/TerminalPanel';
+import { ProviderUpdates } from './components/ProviderUpdates';
 import { EditWorkflow } from './lib/editWorkflow';
 import { TranscriptPanel } from './panels/TranscriptPanel';
 import { jobsStore, LiveJobs } from './lib/jobsStore';
@@ -295,6 +296,7 @@ export default function App() {
   useEffect(() => { if (makerOpen) setMakerMounted(true); }, [makerOpen]);
   /** The Maker chat's latest turn, for the corner badge shown while the Maker is out of sight. */
   const [makerActivity, setMakerActivity] = useState<ChatActivity>(null);
+  const [chatActivity, setChatActivity] = useState<ChatActivity>(null);
   // What the user has already seen of it: anything shown while the Maker is open counts.
   const [makerSeen, setMakerSeen] = useState('');
   useEffect(() => { if (makerOpen) setMakerSeen(makerActivityKey(makerActivity)); }, [makerOpen, makerActivity]);
@@ -3719,6 +3721,7 @@ export default function App() {
             plan for the next task starts a fresh production (see parseProduction), which
             brings the dock back. */}
         <ChatPanel apiRef={chatApi} annotations projectName={project.name} providers={providers} providerId={providerId} model={model} onChooseModel={(id, chosen) => saveSettings({ providerId: id, model: chosen })}
+          onActivity={setChatActivity}
           productionBar={comp?.production && comp.production.phase !== 'done' && (
             <ProductionBar
               comp={comp}
@@ -3991,6 +3994,7 @@ export default function App() {
       )}
       {/* Downloads and the Plugin Maker's build share the bottom-right corner, above the status bar. */}
       <CornerStack>
+        <ProviderUpdates providers={providers} onModels={() => setSettingsTab('providers')} onProviders={setProviders} busy={chatActivity?.status === 'streaming' || Object.values(toolRuns).some((runs) => runs.some((run) => run.status === 'running')) || makerActivity?.status === 'streaming'} />
         <DownloadsBadge onCancel={(id) => void cancelJob(id)} />
         {!makerOpen && (
           <MakerStatusBadge activity={makerActivity} asking={makerAsks.length > 0} seen={makerSeen} onSeen={setMakerSeen}
@@ -4071,6 +4075,7 @@ export default function App() {
 
       <TerminalPanel
         open={terminalOpen}
+        cwd={projectDirRef.current ?? undefined}
         onClose={() => setTerminalOpen(false)}
         height={terminalHeight}
         onHeightChange={setTerminalHeight}

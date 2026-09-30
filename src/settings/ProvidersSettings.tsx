@@ -12,6 +12,8 @@ import { api, errorText } from '../lib/ipc';
 import { pickerEntries } from '../lib/modelTiers';
 import type { Job, ProviderInfo, Settings } from '../lib/types';
 import '../styles/models.css';
+import '../styles/providers.css';
+import { Search, Activity } from 'lucide-react';
 
 /** The port each local server listens on out of the box — the placeholder for a custom address. */
 const DEFAULT_PORT: Record<string, number> = { ollama: 11434, lmstudio: 1234, llamacpp: 8080, vllm: 8000, jan: 1337 };
@@ -72,20 +74,22 @@ function addHint(row: ProviderInfo) {
 /** The job provider_update_all runs under (lib.rs). */
 const UPDATE_ALL_JOB = 'Updating all AI providers';
 
-export function ProvidersSettings({ providers, onProviders, settings, onSettings, jobs }: {
+export function ProvidersSettings({ providers, onProviders, settings, onSettings, jobs, onUsage }: {
   providers: ProviderInfo[];
   onProviders: (rows: ProviderInfo[]) => void;
   settings: Settings;
   onSettings: (settings: Settings) => void;
   jobs: Job[];
+  onUsage?: () => void;
 }) {
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [query, setQuery] = useState('');
   /** The provider whose details fill the right-hand pane. */
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(settings.providerId);
   /** Ticks so "Checked 4 min ago" stays true while the page is open. */
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -99,6 +103,7 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
   const ready = providers.filter((row) => row.usable && row.kind !== 'builtin').length;
   const present = providers.filter(isSetUp);
   const absent = providers.filter((row) => !isSetUp(row));
+  const matches = (row: ProviderInfo) => `${row.label} ${row.id} ${row.models.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase());
 
   const refresh = async () => {
     setRefreshing(true);
@@ -271,6 +276,9 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
           <span className="prov-detail-spacer" />
           {row.version && <code className="prov-version">{shortVersion(row.version)}</code>}
         </header>
+        <div className="prov-detail-summary"><span className={`prov-status-dot ${state.tone}`} /><span>{row.kind === 'cli' ? 'CLI runtime' : row.kind === 'cloud_api' ? 'Cloud API' : row.kind === 'local_server' ? 'Local server' : 'Offline commands'}</span>
+          {settings.providerId === row.id ? <span className="prov-current">Selected in chat</span> : row.usable && <button type="button" className="btn btn-small" onClick={() => onSettings({ ...settings, providerId: row.id, model: row.models[0] ?? null })}>Use in chat</button>}
+        </div>
 
         <div className="prov-card">
           <Field title="Status" desc={statusDetail(row, setUp)}>
@@ -291,6 +299,8 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
             </Field>
           )}
         </div>
+        {models && <div className="prov-model-catalog"><h5 className="prov-section">Available models</h5><div className="prov-model-grid">{pickerEntries(row.models, null).map((entry) => <button type="button" key={entry.id} className={`prov-model${settings.providerId === row.id && settings.model === entry.id ? ' selected' : ''}`} title={entry.id}
+          onClick={() => onSettings({ ...settings, providerId: row.id, model: entry.id })}><span>{entry.title}</span>{settings.providerId === row.id && settings.model === entry.id ? <Check size={12} /> : <span className="prov-model-use">Use</span>}</button>)}</div></div>}
 
         {row.kind === 'cli' && (
           <>
@@ -361,6 +371,7 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
           <p>{ready ? `${ready} provider${ready === 1 ? '' : 's'} ready.` : 'No AI provider is ready yet — the offline command parser still works.'} Pick a model from the model menu in the chat.</p>
         </div>
         <div className="prov-top-actions">
+          {onUsage && <button type="button" className="btn btn-small" onClick={onUsage}><Activity size={13} /> Usage</button>}
           <button type="button" className="prov-checked" onClick={() => void refresh()} disabled={refreshing} title="Re-detect providers and re-read every model list">
             <RefreshCw size={12} className={refreshing ? 'spin' : undefined} />
             {refreshing ? 'Checking…' : `Checked ${checkedAgo(providers, now)}`}
@@ -378,15 +389,20 @@ export function ProvidersSettings({ providers, onProviders, settings, onSettings
       {allJob && <p className="provider-update-status provider-update-all-status" role="status">{updatingAll && <LoaderCircle size={12} className="spin" />}{allJob.status === 'error' ? 'Update all failed: ' : allJob.status === 'done' ? 'Update all finished: ' : ''}{allJob.message}</p>}
 
       <div className="prov-shell">
-        <div className="prov-list" role="listbox" aria-label="Providers">
-          {present.map((row) => listRow(row, true))}
+        <div className="prov-list" aria-label="Providers">
+          <label className="prov-search"><Search size={13} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers or models" aria-label="Search providers" /></label>
+          {(['cli', 'cloud_api', 'local_server', 'builtin'] as const).map((kind) => {
+            const rows = present.filter((row) => row.kind === kind && matches(row));
+            return rows.length > 0 && <div key={kind} role="listbox" aria-label={kind === 'cli' ? 'CLI runtimes' : kind === 'cloud_api' ? 'Cloud APIs' : kind === 'local_server' ? 'Local servers' : 'Built in'}><div className="prov-group-title">{kind === 'cli' ? 'CLI runtimes' : kind === 'cloud_api' ? 'Cloud APIs' : kind === 'local_server' ? 'Local servers' : 'Built in'}</div>{rows.map((row) => listRow(row, true))}</div>;
+          })}
+          {!present.some(matches) && <p className="prov-list-empty">No matching connected providers.</p>}
           {absent.length > 0 && (
             <button type="button" className="prov-add" onClick={() => setAdding(!adding)} aria-expanded={adding}>
               <Plus size={12} /> {adding ? 'Hide' : 'Add provider'} <span className="muted">{absent.length}</span>
               <ChevronDown size={12} style={{ marginLeft: 'auto', transform: adding ? 'rotate(180deg)' : undefined }} />
             </button>
           )}
-          {adding && absent.map((row) => listRow(row, false))}
+          {(adding || query.trim()) && <div role="listbox" aria-label="Available providers">{absent.filter(matches).map((row) => listRow(row, false))}</div>}
         </div>
         {shown ? detail(shown) : <section className="prov-detail"><p className="muted">No providers found. Press Refresh.</p></section>}
       </div>

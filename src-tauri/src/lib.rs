@@ -30,6 +30,8 @@ mod plugins;
 mod point_track;
 mod project;mod ref_guides;
 mod provider_cache;
+mod provider_updates;
+mod provider_usage;
 mod refs;
 mod render;
 mod roto;
@@ -52,6 +54,7 @@ mod free_media;
 mod gen_cloud;
 mod frame_sink;
 mod system_tools;
+mod terminal;
 mod subagent;
 mod safe_asset;
 mod storyboard;
@@ -3781,6 +3784,8 @@ pub fn run() {
     };
 
     let result = tauri::Builder::default()
+        .manage(terminal::TerminalState::default())
+        .manage(provider_usage::UsageState::default())
         .register_asynchronous_uri_scheme_protocol("asset", |_ctx, request, responder| {
             tauri::async_runtime::spawn_blocking(move || {
                 let response = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3940,6 +3945,10 @@ pub fn run() {
             fs_glob_search,
             fs_grep_search,
             fs_run_command,
+            terminal::terminal_open,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_close,
             matte_model,
             roto_read,
             roto_frames,
@@ -4044,6 +4053,8 @@ pub fn run() {
             provider_set_key,
             provider_install,
             provider_update,
+            provider_updates::provider_updates,
+            provider_usage::provider_usage,
             provider_update_all,
             chat_read_images,
             chat_prepare_attachments,

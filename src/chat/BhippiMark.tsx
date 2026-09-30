@@ -56,12 +56,13 @@ export function BhippiMark({ state = 'idle', size = 20, className = '' }: { stat
   );
 }
 
-export type DotState = 'queued' | 'running' | 'done' | 'failed' | 'denied' | 'waiting' | 'stopped';
+export type DotState = 'queued' | 'running' | 'done' | 'warning' | 'failed' | 'denied' | 'waiting' | 'stopped';
 
 const DOT_LABEL: Record<DotState, string> = {
   queued: 'Waiting to start',
   running: 'Running',
   done: 'Done',
+  warning: 'Completed with some failed steps',
   failed: 'Failed',
   denied: 'Not allowed',
   waiting: 'Waiting on you',
@@ -85,6 +86,7 @@ export function StatusDot({ state, size = 16 }: { state: DotState; size?: number
         <circle className="sd-ring" cx="8" cy="8" r="6.5" pathLength={100} transform="rotate(-90 8 8)" />
         <path className="sd-tick" d="M5.2 8.3l1.9 1.9 3.8-4.1" pathLength={100} />
         <path className="sd-x" d="M5.9 5.9l4.2 4.2M10.1 5.9l-4.2 4.2" pathLength={100} />
+        {state === 'warning' && <g className="sd-warning"><path d="M8 4.5v4" /><circle cx="8" cy="11" r="0.65" /></g>}
         <circle className="sd-core" cx="8" cy="8" r="2.3" />
       </svg>
     </span>

@@ -308,7 +308,6 @@ pub const CATALOG: &[ProviderSpec] = &[
             "never",
             "--sandbox",
             "workspace-write",
-            "--ephemeral",
         ]),
         prompt_via_stdin: true,
         model_args: Some(&["-m", "{model}"]),

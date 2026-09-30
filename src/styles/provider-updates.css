@@ -1,0 +1,12 @@
+.provider-update-notice { width: 320px; max-width: calc(100vw - 24px); padding: 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--panel-2); box-shadow: 0 8px 24px #0004; }
+.provider-update-heading { display: flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 11px; margin-bottom: 8px; }
+.provider-update-heading strong { font-weight: 500; }
+.provider-update-heading > button { display: grid; place-items: center; margin-left: auto; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-faint); cursor: pointer; }
+.provider-update-heading > button:hover { background: var(--panel-3); }
+.provider-update-row { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-top: 1px solid var(--line); }
+.provider-update-row > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.provider-update-row strong { font-size: 11px; color: var(--text); font-weight: 500; }
+.provider-update-row span { font-size: 10px; color: var(--text-faint); }
+.provider-update-row .btn { flex: none; }
+.provider-update-note, .provider-update-error { margin: 7px 0 0; font-size: 10px; line-height: 1.5; color: var(--text-faint); }
+.provider-update-error { color: var(--red); }

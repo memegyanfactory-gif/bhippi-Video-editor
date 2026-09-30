@@ -15,16 +15,36 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { actionLogger, type ActionLogItem, type LogCategory } from '../lib/actionLogger';
-import { api } from '../lib/ipc';
+import { api, errorText, type SupportLogs } from '../lib/ipc';
+import { ShellTerminal } from './ShellTerminal';
 
 interface TerminalPanelProps {
   open: boolean;
   onClose: () => void;
   height?: number;
   onHeightChange?: (h: number) => void;
+  cwd?: string;
 }
 
-export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: TerminalPanelProps) {
+export function TerminalPanel({ open, onClose, height = 280, onHeightChange, cwd }: TerminalPanelProps) {
+  const [tab, setTab] = useState<'shell' | 'actions' | 'runtime'>('shell');
+  const [runtime, setRuntime] = useState<SupportLogs | null>(null);
+  const [runtimeError, setRuntimeError] = useState('');
+  useEffect(() => {
+    if (!open || tab !== 'runtime') return;
+    let active = true;
+    let reading = false;
+    const refresh = async () => {
+      if (reading) return;
+      reading = true;
+      try { const logs = await api.supportLogs(true); if (active) { setRuntime(logs); setRuntimeError(''); } }
+      catch (error) { if (active) setRuntimeError(errorText(error)); }
+      finally { reading = false; }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 3000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [open, tab]);
   const [logs, setLogs] = useState<ActionLogItem[]>([]);
   const [filter, setFilter] = useState<'all' | LogCategory>('all');
   const [search, setSearch] = useState('');
@@ -58,10 +78,11 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
 
   // Focus input when opened
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+    if (open && tab === 'actions') {
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
     }
-  }, [open]);
+  }, [open, tab]);
 
   // Resize handling
   const onMouseDownResize = useCallback((e: React.MouseEvent) => {
@@ -112,7 +133,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
 
   const filteredLogs = useMemo(() => {
     return logs.filter((item) => {
-      if (filter !== 'all' && item.category !== filter) return false;
+      if (filter === 'error' ? item.level !== 'error' && item.level !== 'warn' : filter !== 'all' && item.category !== filter) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
         const matchTitle = item.title.toLowerCase().includes(q);
@@ -189,12 +210,9 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
 
       case 'crash': {
         try {
-          // Read workspace todos/notes or crash file if available
-          const notes = await api.workspaceNotes().catch(() => []);
-          actionLogger.system('Checking crash diagnostics...', {
-            notes,
-            crashLocation: '%APPDATA%\\com.bhippi.videoeditor\\crash.log',
-          });
+          const logs = await api.supportLogs(true);
+          actionLogger.system('Crash diagnostics', logs.crashLog ?? 'No crash log recorded.');
+          setTab('runtime');
         } catch (err) {
           actionLogger.error('Failed to check crash log', err);
         }
@@ -248,14 +266,12 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
     }
   };
 
-  if (!open) return null;
-
   const currentHeight = isMaximized ? window.innerHeight - 80 : height;
 
   return (
     <div
       className="terminal-drawer"
-      style={{ height: currentHeight }}
+      style={{ height: currentHeight, display: open ? 'flex' : 'none' }}
       role="region"
       aria-label="Action and Developer Terminal"
     >
@@ -272,7 +288,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
       <div className="terminal-header">
         <div className="terminal-title-group">
           <TerminalIcon size={14} className="terminal-icon" />
-          <strong className="terminal-title">Terminal &amp; Actions</strong>
+          <strong className="terminal-title">Terminal</strong>
           <span className="terminal-badge">{counts.all}</span>
           {counts.error > 0 && (
             <span className="terminal-pill error" title={`${counts.error} errors recorded`}>
@@ -280,9 +296,14 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
             </span>
           )}
         </div>
+        <div className="terminal-tabs" role="tablist" aria-label="Terminal views">
+          <button type="button" role="tab" aria-selected={tab === 'shell'} className={tab === 'shell' ? 'active' : ''} onClick={() => setTab('shell')}>Shell</button>
+          <button type="button" role="tab" aria-selected={tab === 'actions'} className={tab === 'actions' ? 'active' : ''} onClick={() => setTab('actions')}>Diagnostics</button>
+          <button type="button" role="tab" aria-selected={tab === 'runtime'} className={tab === 'runtime' ? 'active' : ''} onClick={() => setTab('runtime')}>Runtime logs</button>
+        </div>
 
         {/* Category Filters */}
-        <div className="terminal-filters">
+        <div className="terminal-filters" style={{ display: tab === 'actions' ? undefined : 'none' }}>
           <button
             type="button"
             className={`term-filter-btn ${filter === 'all' ? 'active' : ''}`}
@@ -290,6 +311,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
           >
             All
           </button>
+          <button type="button" className={`term-filter-btn ${filter === 'error' ? 'active' : ''}`} onClick={() => setFilter('error')}><AlertCircle size={11} /> Issues</button>
           <button
             type="button"
             className={`term-filter-btn ai ${filter === 'ai' ? 'active' : ''}`}
@@ -314,7 +336,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
         </div>
 
         {/* Search */}
-        <div className="terminal-search-wrap">
+        <div className="terminal-search-wrap" style={{ display: tab === 'actions' ? undefined : 'none' }}>
           <Search size={12} className="search-icon" />
           <input
             type="text"
@@ -332,6 +354,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
             className={`term-action-btn ${autoScroll ? 'active' : ''}`}
             onClick={() => setAutoScroll((v) => !v)}
             title="Auto-scroll with new logs"
+            style={{ display: tab === 'actions' ? undefined : 'none' }}
           >
             Follow {autoScroll ? 'On' : 'Off'}
           </button>
@@ -340,6 +363,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
             className="term-action-btn"
             onClick={copyAllLogs}
             title="Copy visible logs to clipboard"
+            style={{ display: tab === 'actions' ? undefined : 'none' }}
           >
             {copied ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
             {copied ? 'Copied' : 'Copy'}
@@ -349,6 +373,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
             className="term-action-btn"
             onClick={() => actionLogger.clear()}
             title="Clear all logs"
+            style={{ display: tab === 'actions' ? undefined : 'none' }}
           >
             <Trash2 size={12} /> Clear
           </button>
@@ -370,16 +395,22 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
           </button>
         </div>
       </div>
+      <ShellTerminal active={open && tab === 'shell'} cwd={cwd} />
+      {tab === 'runtime' && <div className="terminal-runtime">
+        <div className="runtime-note">Backend logs refresh every 3 seconds. Recent log tails are shown with credentials redacted.</div>
+        {runtimeError && <pre className="runtime-error" role="alert">{runtimeError}</pre>}
+        {runtime && (Object.entries(runtime) as [keyof SupportLogs, string | null][]).map(([name, text]) => <section key={name}><h4>{({ appLog: 'Application', previousLog: 'Previous session', crashLog: 'Crashes', hangLog: 'Hangs' })[name]}</h4><pre>{text || 'No entries recorded.'}</pre></section>)}
+      </div>}
 
       {/* Logs Scroll Area */}
-      <div className="terminal-body" ref={scrollRef}>
+      <div className="terminal-body" ref={scrollRef} style={{ display: tab === 'actions' ? undefined : 'none' }}>
         {filteredLogs.length === 0 ? (
           <div className="terminal-empty">
             <span className="muted">No actions recorded yet. Interact with Bhippi or ask the AI copilot to see live actions here.</span>
           </div>
         ) : (
           filteredLogs.map((item) => {
-            const isExpanded = expandedIds.has(item.id);
+            const isExpanded = expandedIds.has(item.id) || item.level === 'error' || item.level === 'warn';
             return (
               <div
                 key={item.id}
@@ -408,7 +439,7 @@ export function TerminalPanel({ open, onClose, height = 280, onHeightChange }: T
       </div>
 
       {/* Terminal Command Input Prompt */}
-      <form className="terminal-prompt" onSubmit={handleCommandSubmit}>
+      <form className="terminal-prompt" style={{ display: tab === 'actions' ? undefined : 'none' }} onSubmit={handleCommandSubmit}>
         <span className="prompt-symbol">
           <Play size={10} />
         </span>

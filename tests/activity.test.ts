@@ -2,7 +2,7 @@
 // each row are worth pinning down: a row that reads the same whether a call is still running or
 // has failed is the bug this replaced.
 import { describe, expect, it } from 'vitest';
-import { toItems, type Step, type ToolRun } from '../src/chat/Activity';
+import { groupRows, rowTone, summarize, toItems, type Step, type ToolRun } from '../src/chat/Activity';
 
 const step = (id: string, at: number, done: boolean): Step => ({ id, verb: 'reading', title: 'Reading the comp', detail: 'comp 1', done, at });
 const run = (callId: string, at: number, status: ToolRun['status'], summary = ''): ToolRun => ({
@@ -10,6 +10,25 @@ const run = (callId: string, at: number, status: ToolRun['status'], summary = ''
 });
 
 describe('the turn activity list', () => {
+  it('uses partial failure warnings for folded rows and inspection batches', () => {
+    const mixed = [run('a', 1, 'done'), run('b', 2, 'failed')];
+    expect(rowTone(groupRows(toItems([], mixed))[0])).toBe('warning');
+    const inspections = mixed.map((row) => ({ ...row, name: 'inspect_clip_frames' }));
+    expect(toItems([], inspections)[0]).toMatchObject({ status: 'warning' });
+    expect(toItems([], inspections.map((row) => ({ ...row, status: 'failed' as const })))[0]).toMatchObject({ status: 'failed' });
+  });
+  it('shows warning for mixed results, failure only for all failures, and success for clean work', () => {
+    const mixed = [run('a', 1, 'done'), run('b', 2, 'failed')];
+    expect(summarize(toItems([], mixed), mixed, []).state).toBe('warning');
+    const failed = [run('a', 1, 'failed'), run('b', 2, 'denied')];
+    expect(summarize(toItems([], failed), failed, []).state).toBe('failed');
+    const good = [run('a', 1, 'done')];
+    expect(summarize(toItems([], good), good, []).state).toBe('done');
+  });
+  it('counts failures inside folded inspection batches individually', () => {
+    const runs = [run('a', 1, 'failed'), run('b', 2, 'failed'), run('c', 3, 'done')].map((row) => ({ ...row, name: 'inspect_clip_frames' }));
+    expect(summarize(toItems([], runs), runs, [])).toMatchObject({ failed: 2, count: 3, state: 'warning' });
+  });
   it('puts steps and tool calls in the order they happened, not in two piles', () => {
     const items = toItems([step('a', 100, true), step('b', 300, false)], [run('one', 200, 'done', 'Cut 3 clips')]);
     expect(items.map((item) => item.key)).toEqual(['s-a', 't-one', 's-b']);

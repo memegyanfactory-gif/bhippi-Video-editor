@@ -44,6 +44,7 @@ tauri-plugin-window-state = "2"
 # Crash reports: a picture of the Bhippi window, compressed to a small JPEG (src/support.rs).
 xcap = "0.9"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
+portable-pty = "0.9"
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }

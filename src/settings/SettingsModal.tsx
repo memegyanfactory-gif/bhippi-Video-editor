@@ -9,6 +9,8 @@ import { LocalMediaSettings } from './LocalMediaSettings';
 import { ConnectorsSettings } from './ConnectorsSettings';
 import { StorageSettings } from './StorageSettings';
 import { ProvidersSettings } from './ProvidersSettings';
+import { UsageSettings } from './UsageSettings';
+import { Activity } from 'lucide-react';
 import { ProfileSection } from './ProfileSection';
 import { UpdateSection } from './UpdateSection';
 import { AvatarSettings } from './AvatarSettings';
@@ -23,7 +25,7 @@ import '../styles/about.css';
 import { display, findCommand, keymapFrom } from '../lib/keymap';
 import '../styles/settings.css';
 
-export type SettingsTab = 'general' | 'providers' | 'connectors' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'privacy' | 'support' | 'about';
+export type SettingsTab = 'general' | 'providers' | 'usage' | 'connectors' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'privacy' | 'support' | 'about';
 
 type Props = {
   tab: SettingsTab;
@@ -78,6 +80,7 @@ const NAV: { title?: string; items: { id: SettingsTab; label: string; icon: Reac
   ] },
   { title: 'AI', items: [
     { id: 'providers', label: 'AI providers', icon: <Sparkles size={15} /> },
+    { id: 'usage', label: 'Usage', icon: <Activity size={15} /> },
     { id: 'speech', label: 'Model Center', icon: <Mic size={15} /> },
     { id: 'connectors', label: 'Connectors', icon: <PlugZap size={15} /> },
     { id: 'local-media', label: 'Local generation', icon: <Wand2 size={15} /> },
@@ -120,7 +123,8 @@ export function SettingsModal(props: Props) {
           {props.tab === 'brand' && <BrandKitSettings settings={props.settings} onSettings={props.onSettings} projectBrandKitId={props.projectBrandKitId ?? null} onProjectBrandKit={props.onProjectBrandKit ?? (() => undefined)} importMedia={props.importMedia} />}
           {props.tab === 'connectors' && <ConnectorsSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'local-media' && <LocalMediaSettings settings={props.settings} onSettings={props.onSettings} />}
-          {props.tab === 'providers' && <ProvidersSettings providers={props.providers} onProviders={props.onProviders} settings={props.settings} onSettings={props.onSettings} jobs={props.jobs} />}
+          {props.tab === 'providers' && <ProvidersSettings providers={props.providers} onProviders={props.onProviders} settings={props.settings} onSettings={props.onSettings} jobs={props.jobs} onUsage={() => props.onTab('usage')} />}
+          {props.tab === 'usage' && <UsageSettings providers={props.providers} settings={props.settings} />}
           {props.tab === 'speech' && <SpeechSettings settings={props.settings} onSettings={props.onSettings} jobs={props.jobs} />}
           {props.tab === 'media' && <MediaSettings {...props} />}
           {props.tab === 'storage' && <StorageSettings settings={props.settings} onSettings={props.onSettings} />}

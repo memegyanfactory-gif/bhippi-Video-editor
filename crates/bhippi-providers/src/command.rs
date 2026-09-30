@@ -20,6 +20,7 @@ use std::sync::OnceLock;
 const SAFE_ENV_KEYS: &[&str] = &[
     "APPDATA",
     "COLORTERM",
+    "CODEX_HOME",
     "COMSPEC",
     "HOME",
     "HOMEDRIVE",

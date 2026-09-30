@@ -588,6 +588,10 @@ export const api = {
     invoke<GrepSearchResult>('fs_grep_search', { path, query, filePattern, maxMatches }),
   fsRunCommand: (command: string, cwd?: string, timeoutSecs?: number) =>
     invoke<RunCommandResult>('fs_run_command', { command, cwd, timeoutSecs }),
+  terminalOpen: (cols: number, rows: number, cwd?: string) => invoke<{ sessionId: string; shell: string; cwd: string }>('terminal_open', { cols, rows, cwd: cwd ?? null }),
+  terminalWrite: (sessionId: string, data: string) => invoke<void>('terminal_write', { sessionId, data }),
+  terminalResize: (sessionId: string, cols: number, rows: number) => invoke<void>('terminal_resize', { sessionId, cols, rows }),
+  terminalClose: (sessionId: string) => invoke<void>('terminal_close', { sessionId }),
   /** File dialogs, parented to the main window so they always come to the front. */
   pickSavePath: (title: string, defaultName: string, filterName: string, extensions: string[], directory?: string | null) =>
     invoke<string | null>('pick_save_path', { title, defaultName, filterName, extensions, directory: directory ?? null }),
@@ -727,12 +731,14 @@ export const api = {
 
   providersList: () => invoke<ProviderInfo[]>('providers_list'),
   providersRefresh: () => invoke<ProviderInfo[]>('providers_refresh'),
+  providerUsage: (id: string, sessionId?: string) => invoke<{ limits: { id: string; label: string; primary: { used: number; resetsAt: number | null; minutes: number | null } | null; secondary: { used: number; resetsAt: number | null; minutes: number | null } | null }[]; context: { usedTokens: number; limitTokens: number | null } | null; checkedAt: number; error: string | null }>('provider_usage', { id, sessionId }),
   providerSetEnabled: (id: string, enabled: boolean) => invoke<ProviderInfo[]>('provider_set_enabled', { id, enabled }),
   providerSetKey: (id: string, key: string) => invoke<ProviderInfo[]>('provider_set_key', { id, key }),
   providerSetEndpoint: (id: string, url: string) => invoke<ProviderInfo[]>('provider_set_endpoint', { id, url }),
   providerStart: (id: string) => invoke<ProviderInfo[]>('provider_start', { id }),
   providerInstall: (id: string) => invoke<string>('provider_install', { id }),
   providerUpdate: (id: string) => invoke<string>('provider_update', { id }),
+  providerUpdates: (force = false) => invoke<{ id: string; label: string; current: string; latest: string }[]>('provider_updates', { force }),
   /** Updates every installed provider Bhippi can update, one after another, then re-reads every model list. Null when there was nothing to update. */
   providerUpdateAll: () => invoke<string | null>('provider_update_all'),
 
@@ -780,6 +786,7 @@ export const events = {
   settings: on<Settings>('bhippi://settings'),
   /** The brain learned something (a turn, a memory, a skill, a dream); the mind map redraws. */
   brain: on<{ reason: string }>('bhippi://brain-changed'),
+  terminal: on<{ sessionId: string; data: number[]; exitCode: number | null; error: string | null }>('bhippi://terminal'),
 };
 
 /** A URL the webview can load for a local file Bhippi imported or produced. */

@@ -16,6 +16,7 @@ import { PermissionMenu, ThinkingMenu, WorkflowMenu } from './ComposerControls';
 import { ChatStatusBar, type AgentRun, type Connection } from './ChatStatusBar';
 import { UsageMeter } from './UsageMeter';
 import * as usage from '../lib/usage';
+import { recordUsageTurn } from '../lib/usageHistory';
 import { projectKey, recordTurn } from '../lib/tokenLedger';
 import { routeTools, type Toolset } from '../lib/toolRouter';
 import { GUIDED_BRIEF, modelTier, type GuidedSetting } from '../lib/modelProfile';
@@ -80,6 +81,7 @@ export type ChatMessage =
       notes: string[];
       fault: TurnFault | null;
       usage: Usage | null;
+      usageAt?: number;
       elapsedMs: number | null;
       /**
        * Where the account stood when this turn ran, exactly as the provider reported it. The
@@ -94,6 +96,7 @@ export type ChatMessage =
         sessionResetsAt: number | null;
         weeklyUsed: number | null;
         weeklyResetsAt: number | null;
+        at?: number;
       } | null;
     };
 
@@ -445,7 +448,7 @@ ${text}` : text));
   /** Turn ids the backend did not list last time it was asked; see the watchdog below. */
   const missing = useRef<Set<string>>(new Set());
   /** Per-turn facts for the IdeaGraph outcome hook: set on send/start, consumed on done. */
-  const turnMeta = useRef(new Map<string, { provider: string; model: string | null; prompt: string }>());
+  const turnMeta = useRef(new Map<string, { provider: string; providerId: string; model: string | null; prompt: string }>());
 
   const streaming = messages.some((message) => message.role === 'assistant' && message.status === 'streaming');
   busyRef.current = streaming;
@@ -464,6 +467,8 @@ ${text}` : text));
   /** Auto (the default) runs a request to make a video as Full and a targeted change as Quick; remembered. */
   const [workflowChoice, setWorkflowChoice] = useState<WorkflowChoice>(savedWorkflowChoice);
   const active = props.providers.find((provider) => provider.id === props.providerId);
+  const usageModel = variantModel(active?.models ?? [], props.model, props.effort);
+  const usageTurn = [...messages].reverse().find((item): item is Assistant => item.role === 'assistant' && item.providerId === active?.id && (!usageModel || item.model === usageModel));
   /** The chosen model's sizes (Flash-Lite · Flash · Pro…), for the speed rail. */
   const speeds = speedSteps(active?.models ?? [], props.model);
 
@@ -508,8 +513,15 @@ ${text}` : text));
         setMessages(valid.map(reopened));
         // What each provider last said about its plan is in this transcript; without replaying it
         // the meter would claim to know nothing while the number sits a few lines above it.
+        let sentAt: number | undefined;
         for (const item of valid) {
-          if (item.role !== 'assistant' || !item.limit) continue;
+          if (item.role === 'user') { sentAt = item.at; continue; }
+          const reportedAt = item.usageAt ?? sentAt;
+          if (item.usage && reportedAt) {
+            usage.recordTokens(item.providerId, item.model, item.usage.inputTokens, item.usage.outputTokens, reportedAt);
+            recordUsageTurn(item.turnId, item.providerId, item.model, item.usage, reportedAt);
+          }
+          if (!item.limit || !(item.limit.at ?? reportedAt)) continue;
           usage.record(item.providerId, item.model, {
             status: item.limit.status,
             sessionUsed: item.limit.sessionUsed ?? null,
@@ -518,6 +530,7 @@ ${text}` : text));
             weeklyResetsAt: item.limit.weeklyResetsAt ?? null,
             // Older entries kept only the worst figure, without saying which window it was.
             planUsed: item.limit.used,
+            at: item.limit.at ?? reportedAt,
           });
         }
       })
@@ -634,7 +647,7 @@ ${text}` : text));
         trace(event.turnId, { ev: 'turn_start', provider: event.providerLabel, providerId: event.providerId, model: event.model ?? null });
         patch(event.turnId, (message) => ({ ...message, providerId: event.providerId, providerLabel: event.providerLabel, model: event.model }));
         const meta = turnMeta.current.get(event.turnId);
-        turnMeta.current.set(event.turnId, { provider: event.providerLabel, model: event.model, prompt: meta?.prompt ?? '' });
+        turnMeta.current.set(event.turnId, { provider: event.providerLabel, providerId: event.providerId, model: event.model, prompt: meta?.prompt ?? '' });
       } else if (event.event === 'delta') {
         const delta = event.delta;
         patch(event.turnId, (message) => {
@@ -668,6 +681,7 @@ ${text}` : text));
                   sessionResetsAt: delta.sessionResetsAt,
                   weeklyUsed: delta.weeklyUsed,
                   weeklyResetsAt: delta.weeklyResetsAt,
+                  at: Date.now(),
                 },
               };
             }
@@ -684,6 +698,8 @@ ${text}` : text));
           const folder = (propsRef.current.getContext() as { projectFolder?: { path?: string } | null }).projectFolder?.path;
           const who = turnMeta.current.get(event.turnId)?.provider ?? `${propsRef.current.providerId ?? 'bhippi'} (subagent)`;
           recordTurn(projectKey(folder), who, event.usage.inputTokens, event.usage.outputTokens);
+          const meta = turnMeta.current.get(event.turnId);
+          if (meta) recordUsageTurn(event.turnId, meta.providerId, meta.model, event.usage);
         }
         if (event.fault) {
           actionLogger.error(`Chat Turn Error [${event.turnId}]: ${event.fault.title} — ${event.fault.summary}`, event.fault);
@@ -702,12 +718,15 @@ ${text}` : text));
         } else if (!event.fault && !event.stopped) {
           // A turn that answered proves the provider is not out, whatever an earlier refusal said.
           patch(event.turnId, (message) => {
-            usage.recordSuccess(message.providerId);
+            usage.recordSuccess(message.providerId, message.model);
             return message;
           });
         }
         patch(event.turnId, (message) => {
-          if (event.usage) usage.recordTokens(message.providerId, message.model, event.usage.inputTokens, event.usage.outputTokens);
+          if (event.usage) {
+            usage.recordTokens(message.providerId, message.model, event.usage.inputTokens, event.usage.outputTokens);
+            recordUsageTurn(event.turnId, message.providerId, message.model, event.usage);
+          }
           return {
             ...message,
             ...settleText(message, event.reply),
@@ -716,6 +735,7 @@ ${text}` : text));
             notes: event.notes,
             fault: event.fault,
             usage: event.usage,
+            usageAt: Date.now(),
             elapsedMs: event.elapsedMs,
             steps: message.steps.map((step) => ({ ...step, done: true })),
           };
@@ -829,7 +849,7 @@ ${text}` : text));
     // nobody to hand over from and starts clean.
     const handoff = handoffFor(messages, providerId, model);
     const provider = propsRef.current.providers.find((item) => item.id === providerId);
-    turnMeta.current.set(turnId, { provider: provider?.label ?? 'Bhippi', model, prompt: message });
+    turnMeta.current.set(turnId, { provider: provider?.label ?? 'Bhippi', providerId: providerId ?? 'bhippi', model, prompt: message });
     const extra = [hiddenExtra, brief, scope ? scopeBrief(scope) : null, filesBrief(attachedFiles)].filter(Boolean).join('\n\n');
     const assistant: Assistant = {
       id: uid(), role: 'assistant', turnId, providerId: providerId ?? 'bhippi', providerLabel: provider?.label ?? 'Bhippi', model,
@@ -1586,7 +1606,7 @@ ${text}` : text));
       </form>
 
       <ChatStatusBar
-        usage={<UsageMeter provider={active} model={props.model} onSwitch={props.onManageProviders} />}
+        usage={<UsageMeter provider={active} model={usageModel} turns={messages.filter((item): item is Assistant => item.role === 'assistant')} sessionId={usageTurn?.sessionId} running={usageTurn?.status === 'streaming'} onSwitch={props.onManageProviders} />}
         runs={allRuns}
         connections={props.connections}
         agents={props.agents}

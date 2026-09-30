@@ -55,7 +55,7 @@ export type Item =
       /** The two halves of `body`, kept apart so the opened row can lay them out. */
       request?: string;
       result?: string;
-      status: ToolRun['status'];
+      status: ToolRun['status'] | 'warning';
       ms: number | null;
     };
 
@@ -101,7 +101,7 @@ export function toItems(steps: Step[], runs: ToolRun[]): Item[] {
       kind: 'tool' as const, key: 'frame-inspections', at: inspections[0].at,
       label: toolLabel('inspect_clip_frames'), detail: `${completed} batches completed${active ? ' · inspecting…' : ''}${failed ? ` · ${failed} failed` : ''}`,
       body: inspections.map((run, index) => `${index + 1}. ${run.status}: ${run.request}\n${run.summary}`).join('\n\n'),
-      status: active ? 'running' as const : failed ? 'failed' as const : 'done' as const,
+      status: active ? 'running' as const : failed === inspections.length ? 'failed' as const : failed ? 'warning' as const : 'done' as const,
       ms: inspections.reduce((sum, run) => sum + (run.ms ?? 0), 0),
     }].sort((one, two) => one.at - two.at);
   }
@@ -194,12 +194,15 @@ export function wallTime(runs: ToolRun[]): number {
 /** The collapsed line: what the stretch amounted to. */
 export function summarize(items: Item[], runs: ToolRun[], steps: Step[]) {
   const count = runs.length + steps.length;
-  const failed = items.filter((item) => item.kind === 'tool' && (item.status === 'failed' || item.status === 'denied')).length;
+  // Count the original receipts: folded inspection batches can contain several failures.
+  const failed = runs.filter((run) => run.status === 'failed' || run.status === 'denied').length;
   const running = items.filter((item) => !isOver(item)).length;
   const span = wallTime(runs);
   const headline = span >= 1000 ? `Worked for ${duration(span)}` : 'Worked';
   const tally = `${count} step${count === 1 ? '' : 's'}`;
-  return { count, failed, running, headline, tally };
+  const completed = runs.filter((run) => run.status !== 'running').length + steps.filter((step) => step.done).length;
+  const state: DotState = failed ? (failed === completed ? 'failed' : 'warning') : 'done';
+  return { count, failed, running, headline, tally, state };
 }
 
 /** Paths and file names in a detail line are set in the code face; the prose around them is not. */
@@ -229,7 +232,7 @@ const KINDS: [RegExp, LucideIcon][] = [
 export const kindIcon = (label: string): LucideIcon => KINDS.find(([pattern]) => pattern.test(label))?.[1] ?? Wrench;
 
 /** A row's state as its circle shows it (src/chat/BhippiMark.tsx). */
-const dotState = (state: string): DotState => (state === 'running' || state === 'failed' || state === 'denied' ? state : 'done');
+const dotState = (state: string): DotState => (state === 'running' || state === 'failed' || state === 'denied' || state === 'warning' ? state : 'done');
 
 /** Seconds since `from`, ticking once a second while `on`. */
 function useElapsed(from: number, on: boolean) {
@@ -246,12 +249,14 @@ function useElapsed(from: number, on: boolean) {
 
 const tone = (item: Item) => (item.kind === 'step' ? (item.done ? 'done' : 'running') : item.status);
 
-/** A row's state once its members are folded together: running beats failed beats done. */
-const rowTone = (row: Row) => {
+/** Folded rows use the same partial-failure rule as the stretch summary. */
+export const rowTone = (row: Row) => {
   const tones = row.members.map(tone);
   if (tones.includes('running')) return 'running';
-  if (tones.includes('failed')) return 'failed';
-  if (tones.includes('denied')) return 'denied';
+  if (tones.includes('warning')) return 'warning';
+  const failed = tones.filter((state) => state === 'failed' || state === 'denied').length;
+  if (failed && failed < tones.length) return 'warning';
+  if (failed) return tones.length === 1 && tones[0] === 'denied' ? 'denied' : 'failed';
   return tones[0];
 };
 
@@ -332,7 +337,7 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
   const elapsed = useElapsed(items[0]?.at ?? 0, live);
   if (items.length === 0) return null;
 
-  const { count, failed, headline, tally } = summarize(items, runs, steps);
+  const { count, failed, headline, tally, state } = summarize(items, runs, steps);
   const current = live ? [...items].reverse().find((item) => !isOver(item)) : undefined;
   const toggle = (key: string) =>
     setExpanded((keys) => {
@@ -351,7 +356,7 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
   return (
     <div className={`work${live ? ' live' : ''}${open ? ' open' : ''}${failed ? ' has-failed' : ''}`}>
       <button type="button" className="wk-head" aria-expanded={open} onClick={() => setChosen(!open)}>
-        <StatusDot state={live ? 'running' : failed ? 'failed' : 'done'} size={14} />
+        <StatusDot state={live ? 'running' : state} size={14} />
         {live && open ? (
           <>
             <span className="wk-headline ai-shimmer">Working</span>

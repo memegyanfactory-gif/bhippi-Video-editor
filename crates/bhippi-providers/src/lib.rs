@@ -11,6 +11,7 @@
 )]
 
 pub mod anthropic;
+pub mod account_usage;
 pub mod catalog;
 pub mod cli;
 mod command;
