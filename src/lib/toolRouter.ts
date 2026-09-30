@@ -96,14 +96,16 @@ export const PLAYBOOK_FOR: Record<Genre, string> = {
 
 /**
  * The premium films by name: an ask that names one opens its playbook (motionDirection.ts), which
- * carries what those films taught. Checked in order; the first that matches wins.
+ * carries what those films taught. Checked in order; the first that matches wins. Only names of
+ * films: "to the song", a "demo reel", "brand identity" colours or a "real product" shot are
+ * ordinary asks that keep their own playbook.
  */
 const FILM_SIGNALS: [string, RegExp][] = [
-  ['product-demo', /\b(product demo|demo (film|video|reel))\b/i],
-  ['identity-film', /\b(identity film|brand identity|logo (reveal|film|animation)|glass (logo|mark))\b/i],
+  ['product-demo', /\b(product demo|demo (film|video))\b/i],
+  ['identity-film', /\b(identity film|brand identity (film|video)|logo (reveal|film|animation)|glass (logo|mark))\b/i],
   ['kinetic-explainer', /\b((kinetic|motion[- ]design) explainer|crimson (look|explainer|brief))\b/i],
   ['fluid-saas', /\b(fluid (saas|film|video|launch)|relume)\b/i],
-  ['launch-film', /\b(launch (film|video)|product film|real (app|ui|product)|meet \w+ film|to (the|a|my|our) song)\b/i],
+  ['launch-film', /\b(launch (film|video)|product film|real (app|ui)|meet \w+ film)\b/i],
 ];
 
 /**

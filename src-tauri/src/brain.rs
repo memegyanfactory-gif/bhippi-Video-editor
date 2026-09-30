@@ -845,7 +845,8 @@ pub fn save_skill(dir: &Path, request: &SkillRequest) -> Result<Value, String> {
 /// is scored and is patched like any skill the model saved.
 struct Seed {
     name: &'static str,
-    /// Words in an ask that make the seed worth listing before it has ever been used.
+    /// Words in an ask that make the seed worth listing before it has ever been used: names of
+    /// the film, never words every edit uses ("song" is in any montage cut to music).
     triggers: &'static [&'static str],
     text: &'static str,
 }
@@ -853,7 +854,7 @@ struct Seed {
 const SEEDS: &[Seed] = &[
     Seed {
         name: "launch-film-render-look-fix",
-        triggers: &["launch", "real ui", "real app", "product film", "song", "meet "],
+        triggers: &["launch", "real ui", "real app", "product film", "meet "],
         text: include_str!("../prompts/skills/launch-film-render-look-fix.md"),
     },
     Seed {
@@ -1258,6 +1259,8 @@ mod tests {
         let dir = temp();
         let meme = brief(&dir, "make this clip funny with memes");
         assert!(meme["skills"].as_array().unwrap().is_empty(), "an unused seed stays out of an unrelated brief");
+        let montage = brief(&dir, "cut my wedding clips to the song");
+        assert!(montage["skills"].as_array().unwrap().is_empty(), "a montage cut to a song is not a launch film");
         for seed in SEEDS {
             let (description, _, body) = parse_skill(seed.text);
             assert!(description.len() > 40 && body.lines().count() > 15, "{} reads as a procedure", seed.name);
