@@ -1,4 +1,4 @@
-// A filled example for every house (Crimson) and brand template (docs/IMPROVEMENT-TODO.md item 51):
+// A filled example for every house (Crimson), brand and kinetic template (docs/IMPROVEMENT-TODO.md item 51):
 // real-looking words within each slot's limits (templateSlots.ts), so a model copies a call that
 // builds right the first time instead of guessing. tests/templateExamples.test.ts holds every one
 // to its schema (nothing for the auto-fix to change) and builds it; the thumbnails in
@@ -37,10 +37,27 @@ export const BRAND_EXAMPLES: Record<string, Record<string, unknown>> = {
   'brand-transition': {},
 };
 
+/**
+ * create_motion_scene params for the kinetic templates (kineticTemplates.ts): the launch film's own
+ * words and times, so a model sees where analyze_song's word list and the scene's song offset go.
+ */
+export const KINETIC_EXAMPLES: Record<string, Record<string, unknown>> = {
+  'type-on-voice': { text: 'An editor with a producer inside.', words: [{ text: 'An', start: 2.96 }, { text: 'editor', start: 3.2 }, { text: 'with', start: 5.76 }, { text: 'a', start: 6.08 }, { text: 'producer', start: 6.32 }, { text: 'inside', start: 6.72 }], offset: 2.66, accent: 'producer', look: 'light' },
+  'fly-through-word': { line: 'An editor with a producer inside.', word: 'producer', next: { clipId: '<the next shot>' }, at: 0.6 },
+  'word-land': { text: 'Describe the *edit* / you want.', words: [{ text: 'Describe', start: 5.02 }, { text: 'the', start: 5.3 }, { text: 'edit', start: 5.45 }, { text: 'you', start: 5.8 }, { text: 'want', start: 5.95 }], offset: 4.96, look: 'stage' },
+  'label-pill': { label: 'Bring your own AI', attach: [0.55, 0.3, 0.38, 0.4], side: 'below', at: 0.3 },
+  'slam-tilt': { media: { clipId: '<a UI capture>' }, at: 0.35, title: 'Bhippi cuts the footage', label: '18 cuts, on the beat' },
+  'whip-pan': { from: { clipId: '<outgoing shot>' }, to: { clipId: '<incoming shot>' }, direction: 'left', at: 0.5 },
+  'match-grow': { from: { clipId: '<the parked picture>' }, to: { clipId: '<the next shot>' }, fromRect: [0.04, 0.7, 0.2, 0.2], anchorFrom: [0.5, 0.35], anchorTo: [0.5, 0.4] },
+  'logo-lockup': { name: 'Bhippi', tagline: 'The AI video editor.', at: 0.15, words: [{ text: 'The', start: 34.77 }, { text: 'AI', start: 34.93 }, { text: 'video', start: 35.25 }, { text: 'editor', start: 35.73 }], offset: 33.9 },
+  'end-card': { name: 'Bhippi', tagline: 'The AI video editor', cta: 'Try it free', url: 'bhippi.com', beats: [1.2, 1.8, 2.4] },
+};
+
 /** The call a model can copy for `template`: which tool, and its args. Null for other kit templates. */
 export function exampleCall(template: string): { tool: 'create_motion_graphic' | 'create_motion_scene'; args: Record<string, unknown> } | null {
   if (CRIMSON_EXAMPLES[template]) return { tool: 'create_motion_graphic', args: { template, ...CRIMSON_EXAMPLES[template] } };
   if (BRAND_EXAMPLES[template]) return { tool: 'create_motion_scene', args: { template, params: BRAND_EXAMPLES[template] } };
+  if (KINETIC_EXAMPLES[template]) return { tool: 'create_motion_scene', args: { template, params: KINETIC_EXAMPLES[template] } };
   return null;
 }
 
