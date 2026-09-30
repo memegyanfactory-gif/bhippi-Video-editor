@@ -9,6 +9,7 @@ import { Eye, EyeOff, Layers3, Sparkles, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { findTemplate } from '../motion/kit';
 import { adaptiveBlur } from '../motion/blur';
+import { carryFinish } from '../motion/finish';
 import { BLEND_MODES, type BlendMode, type Layer, type MotionScene } from '../motion/types';
 import { validateScene } from '../motion/validate';
 import type { History } from '../lib/history';
@@ -103,7 +104,8 @@ function LayerInspector({ clip, comp, history, disabled, Section, Row }: Inspect
     }
     try {
       const kit = brandKitById(stack.brand?.kitId);
-      const built = buildInBrand(spec, { width: stack.width, height: stack.height }, next, kit ? motionBrandFromKit(kit) : stack.brand?.snapshot ?? null);
+      // A rebuild keeps the stack's finish layer (and the user's changes to it), as update_motion_scene does.
+      const built = carryFinish(stack, buildInBrand(spec, { width: stack.width, height: stack.height }, next, kit ? motionBrandFromKit(kit) : stack.brand?.snapshot ?? null));
       const problems = validateScene(built);
       if (problems.length) { setProblem(problems.slice(0, 3).join(' ')); return; }
       setProblem(null);
@@ -234,7 +236,7 @@ function SceneInspector({ clip, comp, history, disabled, Section, Row }: Inspect
     }
     try {
       const kit = brandKitById(scene.brand?.kitId);
-      commitScene(buildInBrand(spec, { width: scene.width, height: scene.height }, params, kit ? motionBrandFromKit(kit) : scene.brand?.snapshot ?? null), `Motion: ${spec.label}`);
+      commitScene(carryFinish(scene, buildInBrand(spec, { width: scene.width, height: scene.height }, params, kit ? motionBrandFromKit(kit) : scene.brand?.snapshot ?? null)), `Motion: ${spec.label}`);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     }
