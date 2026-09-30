@@ -1,0 +1,14 @@
+# Bhippi launch — evidence and asset plan
+Audience: creators who want AI help while keeping an editable project. Promise: connect an AI, let Bhippi produce the video, retain control of every timeline edit. Feel: precise, fluid and musical, an airy real-product explainer with a warm dark reveal.
+
+Sources:
+1. https://www.youtube.com/watch?v=eQLi_t0X1ZE — reference film, This AI Doesn't Just Build Your Website. It Grows It. Local copy for style study only; never use its footage in the edit. Opening and overview frames inspected: tiny centred text -> oversized selected word -> assembled product UI -> prompt -> resulting design -> control/collaboration -> end lockup.
+2. https://bhippi.com/ — official title confirms 'Edit video with AI. Keep it yours.' Page scraper returned only the title; do not invent customer numbers, price or launch offer.
+3. https://github.com/memegyanfactory-gif/Bhippi — repository linked by local README, but public fetch returned 404; not treated as independently verified evidence. Product claims are checked against the owner's local implementation and official site; three independent public confirmations are unavailable, so no third-party statistics, price, customer or superiority claims are added.
+4. D:\Bhippi Video editor\README.md — real multitrack editing, phased AI production, undo, motion engine, captions, brand kits.
+5. D:\Bhippi Video editor\src\settings\ProvidersSettings.tsx and src\components\ProviderLogo.tsx — actual provider/key UI, local server support; only masked fake key states may appear on screen.
+6. D:\Bhippi Video editor\src\settings\BrandKitSettings.tsx and src\lib\history.ts — actual brand kit controls and whole-project undo/redo.
+
+Claims: AI uses real undoable editing tools; user controls phases; selectable providers; brand kits supply colours and type to graphics. Keep user's 'Most AI hands you a clip' as positioning in their track, not a sourced universal competitor claim; do not name competitors or invent quantified superiority.
+
+Assets: genuine Bhippi mark D:\Bhippi Video editor\public\bhippi.png; real app UI captures to obtain during GATHER (providers, prompt/plan, assets, populated timeline, caption/motion preview, undo before/after, brand kit). Existing AI Work/Output/UI/bhippi-window.png was inspected: real app but old chat, empty V1 and a running mascot. Do not use it as finished hero demo. Capture a clean populated demonstration project without disturbing this project's master audio. No stock or AI-generated b-roll needed. No extra VO/music: retain Meet Bhippi.mp3 106.4s. Existing Deepgram transcript misses sung lines; supplied lyrics authoritative, sung alignment secondary. Beat estimate 98.95 BPM confidence 0.476; not the old 120 BPM reference grid.
