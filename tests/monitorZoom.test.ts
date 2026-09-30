@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MAX_ZOOM, MIN_ZOOM, stepZoom, toggleFit, wheelDelta, wheelZoom } from '../src/lib/monitorZoom';
 
@@ -33,5 +34,17 @@ describe('monitor zoom, the way Premiere\'s monitors zoom', () => {
     expect(wheelDelta({ deltaX: 0, deltaY: 3, deltaMode: 1, shiftKey: false })).toBe(48);
     expect(wheelDelta({ deltaX: -120, deltaY: 0, deltaMode: 0, shiftKey: true })).toBe(-120);
     expect(wheelDelta({ deltaX: -120, deltaY: 0, deltaMode: 0, shiftKey: false })).toBe(0);
+  });
+});
+
+describe('a zoomed monitor pans to every edge', () => {
+  // With plain `center` on the scroll area, a picture zoomed wider than the monitor put half its
+  // overflow past the left and top edges, where no scrolling reaches: middle-drag could pan right
+  // and down but never back to the left side of the picture. `safe center` starts it at the edge.
+  it('centres the picture safely, so its overflow stays scrollable', () => {
+    const css = readFileSync('src/styles/app.css', 'utf8');
+    const rule = /\.monitor-frame \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toContain('justify-content: safe center');
+    expect(rule).toContain('align-items: safe center');
   });
 });

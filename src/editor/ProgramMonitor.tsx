@@ -634,7 +634,8 @@ export function ProgramMonitor(props: Props) {
   };
 
   const startHandle = (event: ReactPointerEvent, kind: 'scale' | 'rotate') => {
-    if (!selectedClip || !handles || locked(selectedClip)) return;
+    // Only the left button drags a handle: the middle one pans the zoomed picture, even from a handle.
+    if (event.button !== 0 || !selectedClip || !handles || locked(selectedClip)) return;
     event.stopPropagation();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     const rect = stageRef.current?.getBoundingClientRect();
