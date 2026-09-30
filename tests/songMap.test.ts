@@ -31,6 +31,18 @@ describe('lyrics', () => {
     expect(lines[4].section).toBe('Verse 1');
   });
 
+  it('reads lyrics in any script: a Hindi song is words, matched to what was heard', () => {
+    expect(normWord('नमस्ते,')).toBe('नमस्ते');
+    expect(normWord('Café')).toBe('cafe');
+    const hindi = parseLyrics('[मुखड़ा]\nतुम ही हो\nअब तुम ही हो');
+    const heard = [{ text: 'तुम', start: 1, end: 1.3 }, { text: 'ही', start: 1.4, end: 1.6 }, { text: 'हो', start: 1.7, end: 2 }, { text: 'अब', start: 4, end: 4.3 }];
+    const { lines, heardShare } = alignLyrics(hindi, heard, 10);
+    expect(lines.map((line) => line.words.length)).toEqual([3, 4]);
+    expect(lines[0]).toMatchObject({ section: 'मुखड़ा', start: 1 });
+    expect(lines[1].words[0]).toMatchObject({ text: 'अब', start: 4, heard: true });
+    expect(heardShare).toBeCloseTo(4 / 7, 3);
+  });
+
   it('matches words despite punctuation, case and small mishearings', () => {
     expect(normWord("Bhippi's")).toBe('bhippis');
     const matched = matchWords(['bring', 'your', 'claude', 'hand', 'it', 'the', 'key'], ['bring', 'chlord', 'hand', 'it', 'the', 'key']);

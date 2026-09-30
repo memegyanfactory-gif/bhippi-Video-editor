@@ -35,8 +35,12 @@ export type SongMap = {
 
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
-/** A word as compared: lower case, letters and digits only ("Bhippi's" and "bhippis" match). */
-export const normWord = (word: string) => word.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '');
+/**
+ * A word as compared: lower case, letters and digits only, accents off ("Bhippi's" and "bhippis"
+ * match, "Café" and "cafe" too). Letters of every script count, with the marks that make them
+ * (a Hindi vowel sign): a Hindi or Japanese lyric is words, not nothing.
+ */
+export const normWord = (word: string) => word.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^\p{L}\p{N}\p{M}]/gu, '');
 
 /**
  * The lyric lines and the sections they belong to. A line in square brackets names a section
@@ -58,8 +62,8 @@ export function parseLyrics(lyrics: string): LyricLine[] {
   return out;
 }
 
-/** The words of a lyric line as sung: echoes in brackets are words too, punctuation is not. */
-const lyricWords = (text: string) => text.replace(/[()]/g, ' ').split(/\s+/).map((word) => word.replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, '')).filter((word) => normWord(word).length > 0);
+/** The words of a lyric line as sung: echoes in brackets are words too, punctuation is not (a Hindi word keeps its closing vowel sign). */
+const lyricWords = (text: string) => text.replace(/[()]/g, ' ').split(/\s+/).map((word) => word.replace(/^[^\p{L}\p{N}\p{M}']+|[^\p{L}\p{N}\p{M}']+$/gu, '')).filter((word) => normWord(word).length > 0);
 
 /** 0-1 likeness of two normalised words: 1 when equal, by edit distance otherwise. */
 function likeness(a: string, b: string): number {
