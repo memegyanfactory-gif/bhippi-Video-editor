@@ -20,6 +20,8 @@ import { playbook, playbookIndex } from './motionDirection';
 import { findPack, packCatalogue } from './stylePacks';
 import { cameraLayer, PRESETS_3D, renderScene, scene3dRequest, trackLayers, type CameraFile, type ObjectsFile, type Render3DResult } from './blender3d';
 import { buildUiScene, runUiScreenTool } from './uiScreenTools';
+import { loadCaptureManifest, type CaptureManifest } from './appCapture';
+import { buildDemoTemplate } from '../motion/kit/productDemo';
 import { runCharacterTool } from './characterTools';
 import { runLottieTool } from './lottieTools';
 import { GENERIC_TARGET, pacingReport, type PacingTarget } from './pacing';
@@ -41,7 +43,9 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_product_demo', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie']);
+/** What create_product_demo passes on to the demo's template, besides the capture it loads. */
+const DEMO_PARAMS = ['duration', 'shots', 'actions', 'cursors', 'stage', 'tilt', 'explode', 'variant', 'settle', 'base', 'at', 'slam', 'depth', 'spread', 'blur'];
 /** Read-only / planning motion tools, allowed in any production phase. */
 export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing', 'list_character_actions', 'list_characters']);
 
@@ -536,7 +540,12 @@ function paramsForModel(params: unknown, depth = 0): unknown {
   if (Array.isArray(params)) return depth > 6 ? '[…]' : params.map((item) => paramsForModel(item, depth + 1));
   if (params && typeof params === 'object') {
     if (depth > 6) return '{…}';
-    return Object.fromEntries(Object.entries(params as Record<string, unknown>).map(([key, value]) => [key, key === 'raster' ? '[raster omitted]' : paramsForModel(value, depth + 1)]));
+    const captured = (value: unknown) => (value && typeof value === 'object' && Array.isArray((value as { parts?: unknown }).parts) ? value as { name?: string; parts: { part: string }[] } : null);
+    return Object.fromEntries(Object.entries(params as Record<string, unknown>).map(([key, value]) => {
+      const capture = key === 'capture' ? captured(value) : null;
+      if (capture) return [key, `[capture "${capture.name ?? ''}": ${capture.parts.length} pictures of ${new Set(capture.parts.map((p) => p.part)).size} parts, kept]`];
+      return [key, key === 'raster' ? '[raster omitted]' : paramsForModel(value, depth + 1)];
+    }));
   }
   return params;
 }
@@ -564,6 +573,47 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'list_ui_kinds':
     case 'capture_product_ui':
       return runUiScreenTool(name, args, ctx, runMotionTool);
+
+    case 'create_product_demo': {
+      // The real product in action (kit/productDemo.ts): a capture_app_session capture made into a
+      // camera shot of layers. The camera lands on parts and pulls back to the tilted window,
+      // named cursors click and type, each part changes state on its frame, and the window can
+      // come apart and slam back. Placed exactly as create_motion_scene places a scene.
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('There is no composition to place the demo in.');
+      const given = args.capture;
+      let manifest: CaptureManifest;
+      if (given && typeof given === 'object' && Array.isArray((given as CaptureManifest).parts)) manifest = given as CaptureManifest;
+      else if (typeof given === 'string' && given.trim()) {
+        try { manifest = await loadCaptureManifest(given); } catch (error) { return fail(errorText(error)); }
+      } else return fail('Give capture: the name of a capture_app_session session (its folder in AI Work/ui-parts), or its manifest.json path.');
+      const template = str(args, 'template') === 'window-explode' ? 'window-explode' : 'product-demo';
+      const start = Math.max(0, num(args, 'start') ?? 0);
+      const params: Args = Object.fromEntries(DEMO_PARAMS.filter((key) => args[key] !== undefined).map((key) => [key, args[key]]));
+      params.capture = { name: typeof given === 'string' ? given : manifest.dir.split(/[\\/]/).pop(), dir: manifest.dir, width: manifest.width, height: manifest.height, scale: manifest.scale, parts: manifest.parts.map(({ part, state, file, boxCss, pixels, typed }) => ({ part, state, file, boxCss, pixels, ...(typed !== undefined ? { typed } : {}) })) };
+      params.fps = comp.fps;
+      let built: ReturnType<typeof buildDemoTemplate>;
+      try {
+        built = buildDemoTemplate(template, { width: comp.width, height: comp.height, ...(ctx.brand ? { brand: ctx.brand } : {}) }, params);
+      } catch (error) { return fail(`${errorText(error)} Parts: ${[...new Set(manifest.parts.map((part) => `${part.part} (${manifest.parts.filter((p) => p.part === part.part).length} state${manifest.parts.filter((p) => p.part === part.part).length === 1 ? '' : 's'})`))].join(', ')}.`); }
+      const { scene, notes } = built;
+      const title = str(args, 'title') ?? (template === 'window-explode' ? 'Window explode' : 'Product demo');
+      const placed = await runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start, title, duration: scene.duration, fit: false, useBrand: false, sfx: args.sfx !== false }, ctx);
+      if (!placed.ok) return placed;
+      const data = placed as ToolResult & { clipId: string; compId: string; sfxClipIds: string[]; layers: { layerId: string; name: string }[] };
+      // The moments worth a look: where the camera lands, every click, the slam.
+      const shots = Array.isArray(args.shots) ? (args.shots as { at?: unknown }[]).map((shot) => shot?.at) : [];
+      const clicks = Array.isArray(args.actions) ? (args.actions as { at?: unknown; click?: unknown }[]).filter((action) => action?.click !== undefined).map((action) => action.at) : [];
+      const slam = template === 'window-explode' ? args.slam : (args.explode as { slam?: unknown } | undefined)?.slam;
+      const moments = [...new Set([...shots, ...clicks, slam].filter((t): t is number => typeof t === 'number' && t >= 0 && t < scene.duration).map((t) => Math.round((start + Math.min(t + 0.05, scene.duration - 0.05)) * 100) / 100))].sort((a, b) => a - b).slice(0, 9);
+      const byPart = new Map<string, number>();
+      for (const layer of scene.layers) if (layer.type === 'footage') { const part = layer.id.split('@')[0]; byPart.set(part, (byPart.get(part) ?? 0) + 1); }
+      const cursors = scene.layers.filter((layer) => layer.type === 'null' && layer.id.startsWith('cursor-') && !layer.id.endsWith('-clicks')).map((layer) => (layer.name ?? layer.id).replace(/^Cursor · /, ''));
+      return done(
+        `${title} placed at ${timecode(start, comp.fps)} for ${scene.duration.toFixed(2)} s as the layered comp "[Motion] ${title}" (${MOTION_FOLDER} bin): ${scene.layers.length} layers, each a clip on its own track — the window and its parts (${[...byPart].map(([part, n]) => (n > 1 ? `${part} ×${n}` : part)).join(', ')}), ${cursors.length ? `cursor${cursors.length === 1 ? '' : 's'} ${cursors.join(', ')}, ` : ''}the camera${data.sfxClipIds.length ? `, with ${data.sfxClipIds.length} sound cue${data.sfxClipIds.length === 1 ? '' : 's'} on the SFX track` : ''}.${notes.length ? ` Adjusted: ${notes.join('; ')}.` : ''} Look at it with review_frames${moments.length ? ` {"times":[${moments.join(', ')}]}` : ''}; change it with update_motion_scene {"clipId":"${data.clipId}","params":{…}} (shots, actions, cursors, stage, tilt, explode rebuild it; the capture is kept).`,
+        { clipId: data.clipId, compClipId: data.clipId, compId: data.compId, sfxClipIds: data.sfxClipIds, moments, notes, layers: data.layers.map(({ layerId, name: layerName }) => ({ layerId, name: layerName })) },
+      );
+    }
 
     case 'add_fx': {
       const kind = str(args, 'kind') as FxKind | undefined;
@@ -821,6 +871,10 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const namedTemplate = str(args, 'template');
       const templateId = namedTemplate ? resolveTemplateId(namedTemplate, MOTION_TEMPLATES) ?? namedTemplate : namedTemplate;
       let plateNote = '';
+      // The demo templates build from a capture on disk: create_product_demo loads it first.
+      if (templateId === 'product-demo' || templateId === 'window-explode') {
+        return runMotionTool('create_product_demo', { ...(args.capture !== undefined ? { capture: args.capture } : {}), ...(obj(args, 'params') ?? {}), template: templateId, start, ...(args.compId ? { compId: args.compId } : {}), ...(str(args, 'title') ? { title: str(args, 'title') } : {}), ...(args.sfx === false ? { sfx: false } : {}) }, ctx);
+      }
       if (templateId) {
         const spec = findTemplate(templateId);
         if (!spec) return fail(`No motion template "${templateId}". Templates: ${MOTION_TEMPLATES.map((s) => s.id).join(', ')}.`);

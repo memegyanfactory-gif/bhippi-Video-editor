@@ -105,7 +105,9 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // join strips and measured checks, the review loop every premium film was made in.
       // Raised to 44,400 the same day for `capture_app_session` (its slim entry, ~+25 a step): the
       // real product captured as parts in states at 3x, which every premium film rebuilt by hand.
-      expect(row.step, row.id).toBeLessThan(44_400);
+      // Raised to 44,450 the same day for `create_product_demo` (its slim entry, ~+49 a step): the
+      // camera through the captured product with named cursors and part states, as editable layers.
+      expect(row.step, row.id).toBeLessThan(44_450);
     }
   });
 

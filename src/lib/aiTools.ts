@@ -3984,7 +3984,7 @@ ${notes.trim()}${paletteLine}
         const sheet = rows.length ? await contactSheet(rows.map((row) => row.map((part) => ({ path: `${manifest.dir}/${part.file}`, label: `${part.part} · ${part.state} · ${part.pixels[0]}x${part.pixels[1]}` })))) : null;
         const partNames = [...new Set(manifest.parts.map((part) => part.part))];
         return done(
-          `Captured ${manifest.parts.length} picture(s) of ${partNames.length} part(s) (${partNames.slice(0, 8).join(', ')}) at ${manifest.scale}x into ${manifest.dir}.${manifest.issues.length ? ` Check: ${manifest.issues.slice(0, 5).join('; ')}.` : ' Every part came out at full resolution and every font loaded.'} Each state is its own picture (part__state.png, with its box in manifest.json): import the ones a shot needs, or swap states on the frame a click lands.`,
+          `Captured ${manifest.parts.length} picture(s) of ${partNames.length} part(s) (${partNames.slice(0, 8).join(', ')}) at ${manifest.scale}x into ${manifest.dir}.${manifest.issues.length ? ` Check: ${manifest.issues.slice(0, 5).join('; ')}.` : ' Every part came out at full resolution and every font loaded.'} Each state is its own picture (part__state.png, with its box in manifest.json): import the ones a shot needs, or swap states on the frame a click lands; create_product_demo {"capture":"${name}"} makes them a camera shot of layers (close on parts, named cursors, each state on its frame).`,
           { dir: manifest.dir, url: manifest.url, scale: manifest.scale, parts: manifest.parts, issues: manifest.issues, images: sheet && bool(args, 'images') !== false ? [sheet] : [] },
         );
       } catch (error) { return fail(errorText(error)); }
