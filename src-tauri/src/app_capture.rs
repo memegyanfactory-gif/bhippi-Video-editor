@@ -96,7 +96,8 @@ fn allowed_file(path: &Path, roots: &[PathBuf]) -> bool {
 
 /// A tiny localhost server for the capture's lifetime: the app's own built interface at `/`
 /// (when it is bundled) and local files at `/f/<path>`, so the page loads over http like the
-/// app does instead of `file://`, where fonts and module scripts fail.
+/// app does instead of `file://`, where fonts and module scripts fail. It only ever serves
+/// Bhippi's own interface: a web product is captured without it.
 struct Server {
     port: u16,
     stop: Arc<AtomicBool>,
@@ -110,7 +111,16 @@ impl Drop for Server {
     }
 }
 
-fn start_server(app: &AppHandle, roots: Vec<PathBuf>) -> Result<Server, String> {
+/// The response headers. Only `origin` (the dev server Bhippi's interface runs on while
+/// developing) may read the files from another origin; the bundled interface is served from the
+/// same origin and needs no such header. Never `*`: any page open in any browser on this machine
+/// could then read Bhippi's folders while a capture runs.
+fn head(status: &str, mime: &str, length: usize, origin: Option<&str>) -> String {
+    let cors = origin.map(|origin| format!("Access-Control-Allow-Origin: {origin}\r\nVary: Origin\r\n")).unwrap_or_default();
+    format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {length}\r\n{cors}Connection: close\r\n\r\n")
+}
+
+fn start_server(app: &AppHandle, roots: Vec<PathBuf>, origin: Option<String>) -> Result<Server, String> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| format!("could not open a local port: {error}"))?;
     let port = listener.local_addr().map_err(|error| error.to_string())?.port();
     let stop = Arc::new(AtomicBool::new(false));
@@ -131,8 +141,9 @@ fn start_server(app: &AppHandle, roots: Vec<PathBuf>) -> Result<Server, String> 
             let (status, mime, body): (&str, String, Vec<u8>) = if let Some(file) = path.strip_prefix("/f/") {
                 let decoded = percent_encoding::percent_decode_str(file).decode_utf8_lossy().replace('/', std::path::MAIN_SEPARATOR_STR);
                 let file = PathBuf::from(decoded);
-                match (allowed_file(&file, &roots), std::fs::read(&file)) {
-                    (true, Ok(bytes)) => ("200 OK", mime_of(&file), bytes),
+                // Checked before it is read: a file outside Bhippi's folders is never opened.
+                match allowed_file(&file, &roots).then(|| std::fs::read(&file)) {
+                    Some(Ok(bytes)) => ("200 OK", mime_of(&file), bytes),
                     _ => ("404 Not Found", "text/plain".to_owned(), b"not here".to_vec()),
                 }
             } else {
@@ -142,8 +153,8 @@ fn start_server(app: &AppHandle, roots: Vec<PathBuf>) -> Result<Server, String> 
                     None => ("404 Not Found", "text/plain".to_owned(), b"not here".to_vec()),
                 }
             };
-            let head = format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n", body.len());
-            let _ignored = stream.write_all(head.as_bytes()).and_then(|()| stream.write_all(&body));
+            let header = head(status, &mime, body.len(), origin.as_deref());
+            let _ignored = stream.write_all(header.as_bytes()).and_then(|()| stream.write_all(&body));
         }
     });
     Ok(Server { port, stop })
@@ -296,14 +307,19 @@ async fn run(app: &AppHandle, state: &AppState, request: CaptureRequest) -> Resu
         }
     }
     std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
-    let roots = vec![state.paths.root.clone(), storage::root(state)];
-    let server = start_server(app, roots)?;
-    let files = format!("http://127.0.0.1:{}/f/", server.port);
-    let url = match request.url.as_deref() {
-        Some(url) => crate::ui_screen::capture_url(url)?,
-        // Bhippi itself: the dev server while developing, the bundled interface otherwise.
-        None => app.config().build.dev_url.as_ref().filter(|_| cfg!(debug_assertions)).map_or_else(|| format!("http://127.0.0.1:{}/", server.port), ToString::to_string),
+    // Only Bhippi's own interface gets the file server (its thumbnails, waveforms and media): a
+    // web product is opened as it is, with no way into Bhippi's folders.
+    let (url, server) = match request.url.as_deref() {
+        Some(url) => (crate::ui_screen::capture_url(url)?, None),
+        None => {
+            // Bhippi itself: the dev server while developing, the bundled interface otherwise.
+            let dev = app.config().build.dev_url.clone().filter(|_| cfg!(debug_assertions));
+            let roots = vec![state.paths.root.clone(), storage::root(state)];
+            let server = start_server(app, roots, dev.as_ref().map(|url| url.origin().ascii_serialization()))?;
+            (dev.map_or_else(|| format!("http://127.0.0.1:{}/", server.port), |url| url.to_string()), Some(server))
+        }
     };
+    let files = server.as_ref().map_or_else(String::new, |server| format!("http://127.0.0.1:{}/f/", server.port));
     let program = crate::ui_screen::find_browser().ok_or("No Chrome or Edge found to capture with")?;
     let mut browser = Browser::launch(&program, &state.paths.work).await?;
     let standin = request.standin.as_ref().map(|script| script.replace("{{FILES}}", &files));
@@ -367,7 +383,7 @@ pub async fn app_session_capture(app: AppHandle, state: State<'_, Arc<AppState>>
 
 #[cfg(test)]
 mod tests {
-    use super::{allowed_file, capture, play, slug, Browser, Manifest, Page, Step};
+    use super::{allowed_file, capture, head, play, slug, Browser, Manifest, Page, Step};
     use std::path::PathBuf;
 
     #[test]
@@ -384,7 +400,26 @@ mod tests {
         std::fs::write(&inside, b"x").expect("write");
         assert!(allowed_file(&inside, &[root.clone()]));
         assert!(!allowed_file(&PathBuf::from(r"C:\Windows\win.ini"), &[root.clone()]));
+        // A path that climbs out of the root is judged by where it really lands.
+        let beside = root.with_extension("beside");
+        std::fs::create_dir_all(&beside).expect("beside");
+        std::fs::write(beside.join("secret.png"), b"x").expect("write");
+        let climb = root.join("..").join(beside.file_name().expect("name")).join("secret.png");
+        assert!(climb.is_file());
+        assert!(!allowed_file(&climb, &[root.clone()]));
         let _ignored = std::fs::remove_dir_all(&root);
+        let _ignored = std::fs::remove_dir_all(&beside);
+    }
+
+    #[test]
+    fn only_the_interface_being_captured_may_read_the_files() {
+        // The bundled interface is served from the same origin: no header at all.
+        assert!(!head("200 OK", "image/png", 3, None).contains("Access-Control-Allow-Origin"));
+        // The dev server while developing, and never any page at all.
+        let dev = head("200 OK", "image/png", 3, Some("http://localhost:5199"));
+        assert!(dev.contains("Access-Control-Allow-Origin: http://localhost:5199\r\n"), "{dev}");
+        assert!(!dev.contains('*'), "{dev}");
+        assert!(dev.ends_with("\r\n\r\n"));
     }
 
     /// A real browser: a part captured in two states, and typing captured character by character.
