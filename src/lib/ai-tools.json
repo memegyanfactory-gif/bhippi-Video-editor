@@ -4366,7 +4366,7 @@
     },
     {
       "name": "brain_load_skill",
-      "description": "Load a skill's full procedure from your brain before doing that job (brain.skills in the context lists names and descriptions). The turn's outcome is scored against the skill, so skills that fail get flagged for patching.",
+      "description": "Load a skill's full procedure from your brain before doing that job (brain.skills in the context lists names and descriptions). The turn's outcome is scored against the skill, so skills that fail get flagged for patching. Bhippi ships the procedures its premium films were made with (launch-film-render-look-fix, product-demo-real-app, identity-film-light-edits, kinetic-explainer-beats, fluid-saas-one-camera); they are listed when an ask names that kind of film.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -7052,7 +7052,7 @@
     },
     {
       "name": "capture_app_session",
-      "description": "Captures a live product as parts in states, crisp at 3x: plays a short session in a headless browser (click, hover, type, key, wait) and captures each named part in each state; typing with a part is captured after every character. No url = Bhippi itself, from the real app state, with named parts @composer @field @send @pills @menu @chat @messages @timeline @program @source @project. Checks resolution and fonts; a repeat capture is reused. Parts land in AI Work/ui-parts/<name> with manifest.json.",
+      "description": "Captures a live product as parts in states, crisp at 3x: plays a short session in a headless browser (click, hover, type, key, wait) and captures each named part in each state; typing with a part is captured after every character. No url = Bhippi itself, from the real app state, with named parts @composer @field @send @pills @menu @chat @messages @timeline @program @source @project. Checks resolution and fonts; a repeat capture is reused. Parts land in AI Work/ui-parts/<name> with manifest.json. Then create_product_demo turns it into a camera shot of layers.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -7108,7 +7108,7 @@
     },
     {
       "name": "create_product_demo",
-      "description": "Makes a captured app session into a product demo of editable layers. From a capture_app_session capture: the camera lands close on named parts and pulls back to the whole window tilted in 3D; named cursors (you, bhippi, claude, gpt, gemini, local) travel on arcs, click with a ring and type; each part shows its captured state on the frame (typing plays over a span or word by word). template \"window-explode\": the parts float apart in depth and slam back on slam. Times are seconds from the demo start. Places a layered [Motion] comp with sound cues; update_motion_scene params rebuild it with new times.",
+      "description": "Makes a captured app session into a product demo of editable layers. From a capture_app_session capture: the camera lands close on named parts and pulls back to the whole window tilted in 3D; named cursors (you, bhippi, claude, gpt, gemini, local) travel on arcs, click with a ring and type; each part shows its captured state on the frame (typing plays over a span or word by word). template \"window-explode\": the parts float apart in depth and slam back on slam. Times are seconds from the demo start. Places a layered [Motion] comp with sound cues; update_motion_scene params rebuild it with new times. motion_guide {topic:\"product-demo\"} (or \"launch-film\") has the film it belongs in: the beats, the shots and the timing that worked.",
       "input_schema": {
         "type": "object",
         "properties": {

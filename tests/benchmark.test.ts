@@ -115,7 +115,11 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // sounds every product film synthesised for itself, offered as built-ins.
       // Raised to 44,575 the same day for `sound_the_motion` (its slim entry, ~+41 a step): every
       // motion cue sounded and set against the music, the sound design every premium film made by hand.
-      expect(row.step, row.id).toBeLessThan(44_575);
+      // Raised to 44,650 the same day for the "Premium films" line in the motion/SaaS engine section
+      // (~+71 a step): it sends a launch film, product demo, identity film, kinetic explainer or fluid
+      // SaaS film to its playbook and brain skill, where the film lab's lessons live; the old
+      // capture_product_ui route in "Living product UI" was rewritten for capture_app_session at no cost.
+      expect(row.step, row.id).toBeLessThan(44_650);
     }
   });
 
