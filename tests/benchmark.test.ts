@@ -140,3 +140,16 @@ describe('benchmark: overhead per step, by kind of video', () => {
     writeFileSync('docs/benchmarks/latest.md', table);
   });
 });
+
+describe('slim entries', () => {
+  it('the toolkit tools open with a sentence short enough to be their whole slim entry', () => {
+    // A slim entry is the first sentence cut at 72 characters: a longer one reads cut mid-word.
+    for (const name of ['analyze_song', 'review_frames', 'capture_app_session', 'create_product_demo', 'sound_the_motion']) {
+      const tool = tools.find((entry) => entry.name === name)!;
+      const cut = tool.description.indexOf('. ');
+      expect(cut, name).toBeGreaterThan(0);
+      expect(cut + 1, `${name}: "${tool.description.slice(0, cut + 1)}"`).toBeLessThanOrEqual(72);
+      expect(slim(tool).description, name).toBe(`${tool.description.slice(0, cut + 1)} (params: tool_help)`);
+    }
+  });
+});
