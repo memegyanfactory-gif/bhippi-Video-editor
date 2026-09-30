@@ -87,7 +87,7 @@ const DEFAULT_DURATION: Partial<Record<TransitionKind, number>> = {
 };
 
 /** Kinds where both beats are on screen together (the new one enters before the cut point). */
-const OVERLAP = new Set<TransitionKind>(['dissolve', 'push', 'slide', 'card-zoom-reveal', 'shape-wipe', 'paper-tear', 'iris', 'diagonal-wipe', 'noise-dissolve', 'z-recede', 'truck']);
+const OVERLAP = new Set<TransitionKind>(['dissolve', 'push', 'slide', 'card-zoom-reveal', 'shape-wipe', 'paper-tear', 'iris', 'diagonal-wipe', 'noise-dissolve', 'z-recede', 'truck', 'glow-handoff']);
 
 const SOUND: Partial<Record<TransitionKind, Cue['sound']>> = {
   push: 'whoosh', slide: 'whoosh', whip: 'whoosh', 'zoom-through': 'whoosh', 'blur-bridge': 'swish', 'z-recede': 'swish', 'card-zoom-reveal': 'whoosh', truck: 'whoosh',
@@ -108,7 +108,7 @@ class BeatLayer {
   zblur: Track<number> | null = null;
   invert: Track<number> | null = null;
   rgb: Track<number> | null = null;
-  mask: { box: Track<Vec>; radius: Track<number>; feather?: number } | null = null;
+  mask: { box: Track<Vec>; radius: Track<number> } | null = null;
   matte: { layer: string; mode: 'alpha' | 'alpha-inverted' | 'luma' } | null = null;
   threeD = false;
   in = 0;
@@ -408,14 +408,11 @@ export function compileSequence(spec: SequenceSpec): CompiledSequence {
         A.blurT.move(T - rise, rise, 0, 16, 'cubic-in');
         A.opacity.move(T - rise, rise, 100, 30, 'cubic-in');
         A.scale.move(T - rise, rise, 100, 97, 'cubic-in');
-        // The new beat opens out of the light: a soft circle from the glow's size to the whole frame.
-        const r0 = peak * 0.3;
-        const R = Math.hypot(Math.max(to[0], W - to[0]), Math.max(to[1], H - to[1])) * 1.05;
-        B.mask = {
-          box: new Track<Vec>([to[0] - R, to[1] - R, R * 2, R * 2]).move(T, fall * 1.5, [to[0] - r0, to[1] - r0, r0 * 2, r0 * 2], [to[0] - R, to[1] - R, R * 2, R * 2], 'expo-out'),
-          radius: new Track<number>(R).move(T, fall * 1.5, r0, R, 'expo-out'),
-          feather: round(peak * 0.25),
-        };
+        // Under the light the new beat comes up over the old one (never an empty frame at the cut)
+        // and comes into focus as the light contracts onto its element.
+        B.opacity.move(T - rise, rise, 0, 100, 'cubic-in');
+        B.scale.move(T - rise, d, 94, 100, 'house');
+        B.blurT.move(T, fall, 12, 0, 'cubic-out');
         extra.push({ after: n, layer: glowPointLayer({ id: id('light-point'), from, to, start: T - rise, cut: T, end: T + fall, peak, ...(tr.color ? { color: tr.color } : {}) }) });
         break;
       }
@@ -448,7 +445,7 @@ export function compileSequence(spec: SequenceSpec): CompiledSequence {
       transform: { position: b.pos.prop(), scale: b.scale.prop(), opacity: b.opacity.prop(), rotation: b.rotation.prop(), ...(b.threeD ? { rotationY: b.rotY.prop() } : {}) },
       ...(effects.length ? { effects } : {}),
       ...(b.matte ? { matte: b.matte } : {}),
-      ...(b.mask ? { masks: [{ shape: 'rect', box: b.mask.box.prop(), radius: b.mask.radius.prop(), ...(b.mask.feather ? { feather: b.mask.feather } : {}) }] } : {}),
+      ...(b.mask ? { masks: [{ shape: 'rect', box: b.mask.box.prop(), radius: b.mask.radius.prop() }] } : {}),
     } as Layer);
     layers.push(...extrasAfter(i).filter((l) => l.hidden));
   });
@@ -530,6 +527,6 @@ export const TRANSITION_HELP: Record<TransitionKind, string> = {
   'light-leak': 'a light leak washes over the cut',
   truck: 'world layout: the camera travels to the next beat on the house ease (the background never cuts)',
   'camera-match': 'hard cut on one camera: the new beat opens on exactly the shot the old one ends on, then settles into its own over duration (beats with a camera match cameras, flat ones their framing)',
-  'glow-handoff': "a light point (at: [x,y] in the old beat) drifts to the new beat's element (to: [x,y]) growing to size px, then contracts as the new beat opens out of it (a send glow becomes the logo)",
+  'glow-handoff': "a light point (at: [x,y] in the old beat) drifts to the new beat's element (to: [x,y]) growing to size px while the new beat comes up under it, then contracts onto that element (a send glow becomes the logo)",
   'flash-bridge': 'a warm-white flash (strength 0.5–0.9, default 0.7) rises into the cut with a small push and decays into the new beat; for drops and reveals',
 };

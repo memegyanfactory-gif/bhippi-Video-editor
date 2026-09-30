@@ -124,7 +124,9 @@ describe('connect-hub', () => {
     const tiles = [1, 2, 3, 4].map((i) => byId(scene, `provider-${i}`));
     expect(tiles.map((t) => t.name)).toEqual(['Claude', 'GPT', 'Gemini', 'Local']);
     expect(itemsOf(tiles[0]).some((item) => item.d === VECTOR_MARKS.claude.paths[0])).toBe(true);
-    expect(itemsOf(tiles[1]).some((item) => item.d === VECTOR_MARKS.codex.paths[0])).toBe(true);
+    expect(itemsOf(tiles[1]).some((item) => item.d?.startsWith(VECTOR_MARKS.codex.paths[0]))).toBe(true);
+    // Every mark path is closed, so the engine fills it (Gemini's star is written without a Z).
+    expect(itemsOf(tiles[2]).filter((item) => item.kind === 'path').every((item) => /z$/i.test(item.d!.trim()))).toBe(true);
     tiles.forEach((tile, i) => {
       expect(tile.in).toBeCloseTo(times[i], 3);
       expect(at<number>(tile.transform!.opacity, times[i] + 0.2, 0)).toBe(100);

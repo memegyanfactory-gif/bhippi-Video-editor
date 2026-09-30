@@ -85,7 +85,7 @@ describe('scene joins: camera-match', () => {
 
 describe('scene joins: glow-handoff and flash-bridge', () => {
   it('glow-handoff: a light point travels from the old beat to the new beat\'s element, and the new beat opens out of it', () => {
-    const { scene, cuts } = compileSequence({ width: W, height: H, beats: [flatBeat('A'), flatBeat('B')], transitions: [{ kind: 'glow-handoff', at: [1500, 900], to: [960, 400], duration: 0.7, size: 320 }] });
+    const { scene, cuts, starts } = compileSequence({ width: W, height: H, beats: [flatBeat('A'), flatBeat('B')], transitions: [{ kind: 'glow-handoff', at: [1500, 900], to: [960, 400], duration: 0.7, size: 320 }] });
     expect(validateScene(scene)).toEqual([]);
     const T = cuts[0];
     const light = scene.layers.find((l) => l.name === 'Light point')!;
@@ -99,18 +99,15 @@ describe('scene joins: glow-handoff and flash-bridge', () => {
     expect(at<number>(light.transform!.scale, T - rise, 0)).toBeCloseTo((60 / 320) * 100, 1);
     expect(at<number>(light.transform!.scale, T, 0)).toBeCloseTo(100, 3);
     expect(at<number>(light.transform!.scale, T + 0.7 - rise, 0)).toBeCloseTo((90 / 320) * 100, 1);
-    // The old beat sinks under a blur; the new one opens as a circle from the light to the whole frame.
+    // The old beat sinks under a blur; the new one comes up over it under the light, so no frame is empty.
     const a = byId(scene, 'beat-1');
     expect(keys<number>((a.effects![0] as { blurriness?: unknown }).blurriness).map((k) => k.v)).toEqual([0, 16]);
-    const mask = byId(scene, 'beat-2').masks![0];
-    const small = at<Vec>(mask.box, T, [0, 0, 0, 0]);
-    expect(small[0] + small[2] / 2).toBeCloseTo(960, 3);
-    expect(small[2]).toBeLessThan(200);
-    const open = at<Vec>(mask.box, T + 2, [0, 0, 0, 0]);
-    expect(open[0]).toBeLessThanOrEqual(0);
-    expect(open[1]).toBeLessThanOrEqual(0);
-    expect(open[0] + open[2]).toBeGreaterThanOrEqual(W);
-    expect(open[1] + open[3]).toBeGreaterThanOrEqual(H);
+    const b = byId(scene, 'beat-2');
+    expect(starts[1]).toBeLessThanOrEqual(T - rise);
+    expect(at<number>(b.transform!.opacity, T - rise, 100)).toBe(0);
+    expect(at<number>(b.transform!.opacity, T, 0)).toBe(100);
+    expect(keys<number>((b.effects![0] as { blurriness?: unknown }).blurriness).map((k) => k.v)).toEqual([12, 0]);
+    for (let t = T - 0.4; t <= T + 0.4; t += 0.05) expect(evaluateScene(scene, t).layers.some((l) => l.active && l.layer.id.startsWith('beat-') && l.opacity > 0.5), `${t}`).toBe(true);
     expect(scene.cues?.find((c) => c.sound === 'glass')?.at).toBeCloseTo(T, 3);
   });
 

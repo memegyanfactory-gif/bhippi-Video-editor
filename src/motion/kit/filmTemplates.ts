@@ -286,7 +286,8 @@ function providerMark(name: string): ProviderMark {
   const vector = VECTOR_MARKS[key];
   if (vector) {
     const vb = (vector.viewBox ?? '0 0 24 24').split(/\s+/).map(Number) as [number, number, number, number];
-    return { label: name, bg: vector.bg, fg: vector.fg, viewBox: vb, paths: vector.paths, glyph: '' };
+    // SVG fills an open path as if closed; the engine fills only closed ones (Gemini's star has no Z).
+    return { label: name, bg: vector.bg, fg: vector.fg, viewBox: vb, paths: vector.paths.map((d) => (/z\s*$/i.test(d) ? d : `${d}Z`)), glyph: '' };
   }
   const fallback = FALLBACK_MARKS[key];
   return { label: name, bg: fallback?.bg ?? '#262320', fg: fallback?.fg ?? '#e8e2da', viewBox: [0, 0, 24, 24], paths: [], glyph: fallback?.glyph ?? (name.trim()[0] ?? '?').toUpperCase() };
@@ -564,7 +565,7 @@ export const FILM_TEMPLATES: TemplateSpec[] = [
     id: 'glow-handoff',
     label: 'Glow handoff (a light point becomes the next shot)',
     technique: 'launch films: light point handoff',
-    use: 'Joins two clips through a light: a glow lights at `from` (a send button, a spark), drifts to `to` growing into the cut, then contracts where the next clip\'s element is. Place it so `cut` sits on the cut. Between beats of one create_motion_sequence use the glow-handoff transition, which also opens the next beat out of the light.',
+    use: 'Joins two clips through a light: a glow lights at `from` (a send button, a spark), drifts to `to` growing into the cut, then contracts where the next clip\'s element is. Place it so `cut` sits on the cut. Between beats of one create_motion_sequence use the glow-handoff transition, which also brings the next beat up under the light.',
     params: { from: '[x, y] px — where the light starts (centre)', to: '[x, y] px — where it becomes the next element (centre)', cut: 'number s (0.35)', size: 'number px — the peak glow (30% of the short side)', color: 'colour (#ffb45c)', rise: 'number s (0.32)', fall: 'number s (0.38)' },
     seconds: 0.93,
     fullFrame: false,
