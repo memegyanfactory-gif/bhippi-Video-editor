@@ -285,6 +285,67 @@ function cameraAt(scene: MotionScene, t: number, world: (index: number) => Mat4,
 
 export type EvaluateOptions = { sizeOf?: SizeOf; anchorOf?: AnchorOf; fps?: number; motionBlur?: boolean };
 
+/** The most motion-blur sub-frames a frame takes: a whip needs about one per 1.6 px of streak. */
+export const MAX_BLUR_SAMPLES = 48;
+
+/** Motion-blur sub-frames at scene time `t`: the range's that covers it, else the scene's own. */
+export function blurSamplesAt(scene: Pick<MotionScene, 'motionBlur'>, t: number): number {
+  const blur = scene.motionBlur;
+  const range = blur?.ranges?.find((entry) => t >= entry.from && t < entry.to);
+  return Math.max(1, Math.min(MAX_BLUR_SAMPLES, Math.round(range?.samples ?? blur?.samples ?? 8)));
+}
+
+/** A shutter angle in degrees as the fraction of a frame the shutter stays open. */
+const shutterSpan = (degrees: number) => Math.max(0, Math.min(720, degrees)) / 360;
+
+type Plane = { normal: [number, number, number]; offset: number };
+
+/** The plane a 3D layer lies in, in camera space: its unit normal (facing away from the camera) and distance along it. */
+function planeOf(viewWorld: Mat4, size: [number, number]): Plane | null {
+  const ux = [viewWorld[0], viewWorld[1], viewWorld[2]];
+  const uy = [viewWorld[4], viewWorld[5], viewWorld[6]];
+  let nx = ux[1] * uy[2] - ux[2] * uy[1];
+  let ny = ux[2] * uy[0] - ux[0] * uy[2];
+  let nz = ux[0] * uy[1] - ux[1] * uy[0];
+  const length = Math.hypot(nx, ny, nz);
+  if (length < 1e-12) return null;
+  const flip = nz < 0 ? -1 : 1;
+  nx = (nx / length) * flip;
+  ny = (ny / length) * flip;
+  nz = (nz / length) * flip;
+  const centre = transformPoint(viewWorld, size[0] / 2, size[1] / 2, 0);
+  return { normal: [nx, ny, nz], offset: nx * centre[0] + ny * centre[1] + nz * centre[2] };
+}
+
+/**
+ * Reorders a depth-sorted run so layers on parallel planes keep the order of their planes, and
+ * layers on one plane keep their stack order, as After Effects draws coplanar 3D layers. Parts
+ * laid on a tilted window would otherwise reshuffle by the depth of their centres, and a button
+ * would drop behind the panel it sits on. Each set of parallel layers keeps the slots it held.
+ */
+function keepPlanes(run: number[], planes: (Plane | null)[]) {
+  const sets: number[][] = [];
+  for (const index of run) {
+    const plane = planes[index];
+    if (!plane) continue;
+    const set = sets.find((members) => {
+      const other = planes[members[0]]!;
+      return plane.normal[0] * other.normal[0] + plane.normal[1] * other.normal[1] + plane.normal[2] * other.normal[2] > 1 - 1e-7;
+    });
+    if (set) set.push(index);
+    else sets.push([index]);
+  }
+  for (const members of sets) {
+    if (members.length < 2) continue;
+    const slots = members.map((index) => run.indexOf(index)).sort((a, b) => a - b);
+    const ordered = [...members].sort((a, b) => {
+      const gap = planes[b]!.offset - planes[a]!.offset;
+      return Math.abs(gap) > 0.05 ? gap : a - b;
+    });
+    slots.forEach((slot, i) => { run[slot] = ordered[i]; });
+  }
+}
+
 /**
  * A layer clip's own transform on a layered comp's timeline (`layer.frame`), applied after the
  * parent chain and the camera: the offset moves the picture in canvas pixels, scale and rotation
@@ -332,12 +393,20 @@ export function evaluateScene(scene: MotionScene, t: number, options: EvaluateOp
   };
   const now = frameMatrices(scene, t, sizeOf, ctx, options.anchorOf);
   const fps = options.fps ?? 30;
-  const samples = Math.max(1, Math.min(32, Math.round(scene.motionBlur?.samples ?? 8)));
-  const shutter = Math.max(0, Math.min(720, scene.motionBlur?.shutter ?? 180)) / 360;
-  const wantsBlur = options.motionBlur !== false && samples > 1 && shutter > 0 && scene.layers.some((layer) => layer.motionBlur);
-  const subFrames = wantsBlur
-    ? Array.from({ length: samples }, (_, i) => t + ((i / (samples - 1)) - 0.5) * shutter / fps).map((time) => frameMatrices(scene, time, sizeOf, ctx, options.anchorOf))
-    : [];
+  const samples = blurSamplesAt(scene, t);
+  const sceneShutter = shutterSpan(scene.motionBlur?.shutter ?? 180);
+  const wantsBlur = options.motionBlur !== false && samples > 1 && scene.layers.some((layer) => layer.motionBlur);
+  // Sub-frames per shutter: a layer may keep its own angle (text and cursors about 72°, whips 120°).
+  const subFrames = new Map<number, ReturnType<typeof frameMatrices>[]>();
+  const framesFor = (shutter: number) => {
+    let frames = subFrames.get(shutter);
+    if (!frames) {
+      frames = shutter > 0 ? Array.from({ length: samples }, (_, i) => t + ((i / (samples - 1)) - 0.5) * shutter / fps).map((time) => frameMatrices(scene, time, sizeOf, ctx, options.anchorOf)) : [];
+      subFrames.set(shutter, frames);
+    }
+    return frames;
+  };
+  const planes: (Plane | null)[] = [];
 
   const layers: ResolvedLayer[] = scene.layers.map((layer, index) => {
     const c = ctx(index);
@@ -345,11 +414,12 @@ export function evaluateScene(scene: MotionScene, t: number, options: EvaluateOp
     const lt = layerTime(layer, t);
     const active = t >= (layer.in ?? 0) && t < (layer.out ?? Infinity) && layer.type !== 'camera' && layer.type !== 'null';
     let blurMatrices: Mat4[] = [];
-    if (layer.motionBlur && subFrames.length) {
-      const mats = subFrames.map((frame) => frame.final(index).matrix);
+    if (layer.motionBlur && wantsBlur) {
+      const mats = framesFor(layer.shutter === undefined ? sceneShutter : shutterSpan(layer.shutter)).map((frame) => frame.final(index).matrix);
       const moving = mats.some((m) => m.some((value, k) => Math.abs(value - entry.matrix[k]) > 1e-3));
       if (moving) blurMatrices = mats;
     }
+    planes[index] = entry.local.is3D ? planeOf(multiply(now.camera.view, entry.world), entry.size) : null;
     const centre = transformPoint(entry.world, entry.size[0] / 2, entry.size[1] / 2, 0);
     const cam = transformPoint(now.camera.view, centre[0], centre[1], centre[2]);
     let defocus = 0;
@@ -376,11 +446,13 @@ export function evaluateScene(scene: MotionScene, t: number, options: EvaluateOp
   });
 
   // AE draws layers in stack order, except that a contiguous run of 3D layers intersects by
-  // depth: we sort such runs back to front (farthest first).
+  // depth: we sort such runs back to front (farthest first), keeping layers on one plane in
+  // their stack order.
   const order: number[] = [];
   let run: number[] = [];
   const flush = () => {
     run.sort((a, b) => layers[b].depth - layers[a].depth || a - b);
+    keepPlanes(run, planes);
     order.push(...run);
     run = [];
   };
