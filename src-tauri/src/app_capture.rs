@@ -69,6 +69,9 @@ pub struct Part {
     /// Where it sat on the page, CSS pixels.
     pub box_css: [f64; 4],
     pub pixels: [u32; 2],
+    /// A typing state's text so far, so a film can land each word of it on its own time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,7 +209,65 @@ async fn capture(page: &Page, browser: &mut Browser, dir: &Path, part: &str, sta
     }
     let file = format!("{}__{}.png", slug(part), slug(state));
     std::fs::write(dir.join(&file), &png).map_err(|error| format!("cannot write {file}: {error}"))?;
-    Ok(Part { part: part.to_owned(), state: state.to_owned(), file, box_css: [x, y, width, height], pixels: [pixels.0, pixels.1] })
+    Ok(Part { part: part.to_owned(), state: state.to_owned(), file, box_css: [x, y, width, height], pixels: [pixels.0, pixels.1], typed: None })
+}
+
+/// Plays a session's steps on the page, capturing parts as it goes. A step that fails (a missing
+/// element) is reported in `issues` and the session goes on: the other parts still count.
+async fn play(page: &Page, browser: &mut Browser, dir: &Path, steps: &[Step], scale: f64, issues: &mut Vec<String>) -> Vec<Part> {
+    let mut parts = Vec::new();
+    for step in steps {
+        let result: Result<(), String> = async {
+            match step {
+                Step::Click { selector } => {
+                    let [x, y, w, h] = rect_of(page, browser, selector).await?;
+                    page.click(browser, x + w / 2.0, y + h / 2.0).await
+                }
+                Step::Hover { selector } => {
+                    let [x, y, w, h] = rect_of(page, browser, selector).await?;
+                    page.hover(browser, x + w / 2.0, y + h / 2.0).await
+                }
+                Step::Type { selector, text, part, part_selector } => {
+                    let [x, y, w, h] = rect_of(page, browser, selector).await?;
+                    page.click(browser, x + w / 2.0, y + h / 2.0).await?;
+                    if let Some(part) = part {
+                        let target = part_selector.as_deref().unwrap_or(selector);
+                        let mut empty = capture(page, browser, dir, part, "t00", target, 0.0, scale, issues).await?;
+                        empty.typed = Some(String::new());
+                        parts.push(empty);
+                        let mut so_far = String::new();
+                        for (index, character) in text.chars().enumerate() {
+                            page.insert_text(browser, &character.to_string()).await?;
+                            so_far.push(character);
+                            tokio::time::sleep(Duration::from_millis(40)).await;
+                            let mut state = capture(page, browser, dir, part, &format!("t{:02}", index + 1), target, 0.0, scale, issues).await?;
+                            state.typed = Some(so_far.clone());
+                            parts.push(state);
+                        }
+                        Ok(())
+                    } else {
+                        page.insert_text(browser, text).await
+                    }
+                }
+                Step::Key { key } => page.key(browser, key).await,
+                Step::Wait { ms } => {
+                    tokio::time::sleep(Duration::from_millis((*ms).min(10_000))).await;
+                    Ok(())
+                }
+                Step::Eval { js } => page.eval(browser, js).await.map(|_| ()),
+                Step::Capture { part, selector, state, pad } => {
+                    parts.push(capture(page, browser, dir, part, state.as_deref().unwrap_or("idle"), selector, pad.unwrap_or(0.0).clamp(0.0, 200.0), scale, issues).await?);
+                    Ok(())
+                }
+            }
+        }
+        .await;
+        if let Err(error) = result {
+            issues.push(format!("step {step:?}: {error}"));
+        }
+        tokio::time::sleep(Duration::from_millis(120)).await;
+    }
+    parts
 }
 
 const FONT_CHECK: &str = r#"(async () => {
@@ -266,54 +327,8 @@ async fn run(app: &AppHandle, state: &AppState, request: CaptureRequest) -> Resu
     }
     let _ignored = page.eval(&mut browser, "document.fonts.ready.then(() => new Promise((done) => setTimeout(done, 400)))").await;
 
-    let mut parts = Vec::new();
     let mut issues = Vec::new();
-    for step in &request.steps {
-        let result: Result<(), String> = async {
-            match step {
-                Step::Click { selector } => {
-                    let [x, y, w, h] = rect_of(&page, &mut browser, selector).await?;
-                    page.click(&mut browser, x + w / 2.0, y + h / 2.0).await
-                }
-                Step::Hover { selector } => {
-                    let [x, y, w, h] = rect_of(&page, &mut browser, selector).await?;
-                    page.hover(&mut browser, x + w / 2.0, y + h / 2.0).await
-                }
-                Step::Type { selector, text, part, part_selector } => {
-                    let [x, y, w, h] = rect_of(&page, &mut browser, selector).await?;
-                    page.click(&mut browser, x + w / 2.0, y + h / 2.0).await?;
-                    if let Some(part) = part {
-                        let target = part_selector.as_deref().unwrap_or(selector);
-                        parts.push(capture(&page, &mut browser, &dir, part, "t00", target, 0.0, scale, &mut issues).await?);
-                        for (index, character) in text.chars().enumerate() {
-                            page.insert_text(&mut browser, &character.to_string()).await?;
-                            tokio::time::sleep(Duration::from_millis(40)).await;
-                            parts.push(capture(&page, &mut browser, &dir, part, &format!("t{:02}", index + 1), target, 0.0, scale, &mut issues).await?);
-                        }
-                        Ok(())
-                    } else {
-                        page.insert_text(&mut browser, text).await
-                    }
-                }
-                Step::Key { key } => page.key(&mut browser, key).await,
-                Step::Wait { ms } => {
-                    tokio::time::sleep(Duration::from_millis((*ms).min(10_000))).await;
-                    Ok(())
-                }
-                Step::Eval { js } => page.eval(&mut browser, js).await.map(|_| ()),
-                Step::Capture { part, selector, state, pad } => {
-                    parts.push(capture(&page, &mut browser, &dir, part, state.as_deref().unwrap_or("idle"), selector, pad.unwrap_or(0.0).clamp(0.0, 200.0), scale, &mut issues).await?);
-                    Ok(())
-                }
-            }
-        }
-        .await;
-        if let Err(error) = result {
-            // A missing element is reported and the session goes on: the other parts still count.
-            issues.push(format!("step {step:?}: {error}"));
-        }
-        tokio::time::sleep(Duration::from_millis(120)).await;
-    }
+    let parts = play(&page, &mut browser, &dir, &request.steps, scale, &mut issues).await;
     if let Ok(Value::Array(missing)) = page.eval(&mut browser, FONT_CHECK).await {
         if !missing.is_empty() {
             let names: Vec<String> = missing.iter().filter_map(Value::as_str).map(str::to_owned).collect();
@@ -352,7 +367,7 @@ pub async fn app_session_capture(app: AppHandle, state: State<'_, Arc<AppState>>
 
 #[cfg(test)]
 mod tests {
-    use super::{allowed_file, capture, slug, Browser, Page};
+    use super::{allowed_file, capture, play, slug, Browser, Manifest, Page, Step};
     use std::path::PathBuf;
 
     #[test]
@@ -413,6 +428,68 @@ mod tests {
         drop(browser);
         let _ignored = std::fs::remove_dir_all(&work);
     }
+    /// A type step with a part captures every character as its own state, with the text so far.
+    #[tokio::test]
+    async fn typing_is_captured_per_character_with_its_text() {
+        let Some(program) = crate::ui_screen::find_browser() else { return };
+        let work = std::env::temp_dir().join(format!("bhippi-capture-typing-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&work).expect("work");
+        let mut browser = Browser::launch(&program, &work).await.expect("launch");
+        let page = Page::open(&mut browser, 600, 300, 2.0, None).await.expect("page");
+        page.navigate(&mut browser, "data:text/html,<input id=field style='position:absolute;left:40px;top:40px;width:300px;height:40px;font:20px sans-serif'>").await.expect("navigate");
+        let mut issues = Vec::new();
+        let steps = [Step::Type { selector: "#field".to_owned(), text: "Hi you".to_owned(), part: Some("field".to_owned()), part_selector: None }];
+        let parts = play(&page, &mut browser, &work, &steps, 2.0, &mut issues).await;
+        assert!(issues.is_empty(), "{issues:?}");
+        let states: Vec<&str> = parts.iter().map(|part| part.state.as_str()).collect();
+        assert_eq!(states, ["t00", "t01", "t02", "t03", "t04", "t05", "t06"]);
+        let typed: Vec<&str> = parts.iter().map(|part| part.typed.as_deref().unwrap_or("?")).collect();
+        assert_eq!(typed, ["", "H", "Hi", "Hi ", "Hi y", "Hi yo", "Hi you"]);
+        assert_ne!(std::fs::read(work.join(&parts[0].file)).expect("empty"), std::fs::read(work.join(&parts[6].file)).expect("typed"), "typing changed the picture");
+        drop(browser);
+        let _ignored = std::fs::remove_dir_all(&work);
+    }
+
+    /// A whole demo session on Bhippi, written as a manifest a product demo can be built from (run
+    /// by hand, like the test below: BHIPPI_E2E_STANDIN, BHIPPI_E2E_OUT, and BHIPPI_E2E_URL for a
+    /// dev server other than localhost:5199). The window, the composer typing a prompt character
+    /// by character, and the parts a camera would visit, all at 3x.
+    #[tokio::test]
+    async fn a_bhippi_demo_session_writes_a_manifest() {
+        let (Ok(standin), Ok(out)) = (std::env::var("BHIPPI_E2E_STANDIN"), std::env::var("BHIPPI_E2E_OUT")) else { return };
+        let Some(program) = crate::ui_screen::find_browser() else { return };
+        let url = std::env::var("BHIPPI_E2E_URL").unwrap_or_else(|_| "http://localhost:5199/".to_owned());
+        let out = PathBuf::from(out);
+        std::fs::create_dir_all(&out).expect("out");
+        let script = std::fs::read_to_string(standin).expect("stand-in");
+        let mut browser = Browser::launch(&program, &out).await.expect("launch");
+        let page = Page::open(&mut browser, 1920, 1080, 3.0, Some(&script)).await.expect("page");
+        page.navigate(&mut browser, &url).await.expect("navigate");
+        for _ in 0..60 {
+            if page.eval(&mut browser, "!!document.querySelector('form.composer')").await.expect("eval") == serde_json::Value::Bool(true) { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        page.eval(&mut browser, "document.fonts.ready.then(() => new Promise((done) => setTimeout(done, 800)))").await.expect("fonts");
+        let capture = |part: &str, selector: &str, state: &str, pad: f64| Step::Capture { part: part.to_owned(), selector: selector.to_owned(), state: Some(state.to_owned()), pad: Some(pad) };
+        let steps = vec![
+            capture("window", "#root", "idle", 0.0),
+            capture("chat", ".panel-chat", "idle", 0.0),
+            capture("timeline", ".timeline", "idle", 0.0),
+            capture("program", ".monitor.program", "idle", 0.0),
+            capture("project", ".bin", "idle", 0.0),
+            capture("pills", ".composer-pills", "idle", 0.0),
+            capture("send", "form.composer .send-btn", "idle", 0.0),
+            Step::Type { selector: "form.composer textarea".to_owned(), text: "Cut this to the beat.".to_owned(), part: Some("composer".to_owned()), part_selector: Some("form.composer".to_owned()) },
+            capture("send", "form.composer .send-btn", "hot", 0.0),
+        ];
+        let mut issues = Vec::new();
+        let parts = play(&page, &mut browser, &out, &steps, 3.0, &mut issues).await;
+        let manifest = Manifest { key: None, url, width: 1920, height: 1080, scale: 3.0, parts, issues, dir: out.display().to_string() };
+        std::fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&manifest).expect("json")).expect("manifest");
+        assert!(manifest.issues.is_empty(), "{:?}", manifest.issues);
+        assert!(manifest.parts.iter().any(|part| part.state == "t21" && part.typed.as_deref() == Some("Cut this to the beat.")));
+    }
+
     /// End to end on Bhippi itself (run by hand: set BHIPPI_E2E_STANDIN to a stand-in script and
     /// BHIPPI_E2E_OUT to a folder, with the dev server on localhost:5199): the real interface boots
     /// on the stand-in, typing is captured per character, and the named parts come out at 3x.

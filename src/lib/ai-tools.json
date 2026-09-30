@@ -7024,6 +7024,90 @@
       }
     },
     {
+      "name": "create_product_demo",
+      "description": "Makes a captured app session into a product demo of editable layers. From a capture_app_session capture: the camera lands close on named parts and pulls back to the whole window tilted in 3D; named cursors (you, bhippi, claude, gpt, gemini, local) travel on arcs, click with a ring and type; each part shows its captured state on the frame (typing plays over a span or word by word). template \"window-explode\": the parts float apart in depth and slam back on slam. Times are seconds from the demo start. Places a layered [Motion] comp with sound cues; update_motion_scene params rebuild it with new times.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "capture": {
+            "type": "string",
+            "description": "The capture_app_session name (its folder in AI Work/ui-parts) or its manifest.json path."
+          },
+          "shots": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Where the camera lands at `at`: {at, focus: part, fill?} close on a part (fill of the frame, default 0.7; the frame stays on the app where it can, centre: true aims dead centre) or {at, wide: true} the whole window tilted (fill 0.84); optional tilt [rx, ry] and move (seconds of travel)."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "{at, click: part, cursor?} · {at, hover: part, cursor?} · {at, type: part, until?, words?: [seconds each word lands], text?, cursor?} plays its typing states · {at, set: {part, state}} swaps to a captured state."
+          },
+          "cursors": {
+            "type": "array",
+            "items": {},
+            "description": "Named cursors: you, bhippi, claude, gpt, gemini, local, or {id, label, color}. The first clicks when an action names none."
+          },
+          "explode": {
+            "type": "object",
+            "description": "{at, slam, depth?, spread?, blur?}: the window comes apart in depth from at and slams back together on slam."
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "product-demo",
+              "window-explode"
+            ],
+            "description": "window-explode: the exploded-window move alone (give at and slam)."
+          },
+          "at": {
+            "type": "number"
+          },
+          "slam": {
+            "type": "number"
+          },
+          "stage": {
+            "type": "string",
+            "description": "light, grid, cool, dark, none, or a colour (default: picked per film)."
+          },
+          "tilt": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "The wide shot tilt [rx, ry] in degrees."
+          },
+          "variant": {
+            "type": "number",
+            "description": "Another look: tilt side, stage and explode pattern."
+          },
+          "duration": {
+            "type": "number"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds."
+          },
+          "compId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sfx": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "capture"
+        ]
+      }
+    },
+    {
       "name": "list_ui_kinds",
       "description": "Lists the ready-made UI screens for create_ui_screen (search, chat, dashboard, table, form, phone notifications, kanban, pricing) with their content fields and part names, and the action types.",
       "input_schema": {

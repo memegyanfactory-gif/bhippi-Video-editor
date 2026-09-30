@@ -5,7 +5,7 @@
 // the real app's state (demo mode): your providers, settings, library and open project, so the
 // captured screens are yours. Named parts (`@composer`, `@send`, `@timeline`…) spare a model from
 // guessing Bhippi's DOM, and a key made from the session lets a capture be reused (the part library).
-import { api } from './ipc';
+import { api, fetchFile } from './ipc';
 import type { Asset, Project } from './types';
 
 export type CaptureStep =
@@ -16,7 +16,8 @@ export type CaptureStep =
   | { do: 'eval'; js: string }
   | { do: 'capture'; part: string; selector: string; state?: string; pad?: number };
 
-export type CapturedPart = { part: string; state: string; file: string; boxCss: [number, number, number, number]; pixels: [number, number] };
+/** One picture of a part in a state; a typing state carries its text so far (`typed`). */
+export type CapturedPart = { part: string; state: string; file: string; boxCss: [number, number, number, number]; pixels: [number, number]; typed?: string };
 export type CaptureManifest = { key: string | null; url: string; width: number; height: number; scale: number; parts: CapturedPart[]; issues: string[]; dir: string };
 export type CaptureRequest = { url?: string; name: string; width?: number; height?: number; scale?: number; standin?: string; ready?: string; transparent?: boolean; key?: string; steps: CaptureStep[] };
 
@@ -163,6 +164,35 @@ export async function bhippiAnswers(project: Project, assets: Asset[]): Promise<
     startup_file: null,
     support_outbox_count: 0,
   };
+}
+
+/** A session name as its folder under AI Work/ui-parts, the way app_capture.rs `slug` makes it. */
+export function captureFolder(name: string): string {
+  const cleaned = [...name].map((c) => (/[A-Za-z0-9_-]/.test(c) ? c : '-')).join('').replace(/^-+|-+$/g, '');
+  return cleaned ? [...cleaned].slice(0, 60).join('') : 'session';
+}
+
+/**
+ * A capture's manifest, by the session's name (its folder in the project's AI Work/ui-parts), its
+ * folder, or the manifest.json itself. Fails with where it looked.
+ */
+export async function loadCaptureManifest(ref: string): Promise<CaptureManifest> {
+  let path = ref.trim();
+  if (!/[\\/]/.test(path)) {
+    const info = await api.storageInfo();
+    const aiWork = info.categories.find((category) => category.id === 'ai-work')?.path;
+    if (!aiWork) throw new Error('The project has no AI Work folder yet: run capture_app_session first.');
+    const sep = aiWork.includes('\\') ? '\\' : '/';
+    path = [aiWork.replace(/[\\/]+$/, ''), 'ui-parts', captureFolder(path), 'manifest.json'].join(sep);
+  } else if (!/\.json$/i.test(path)) path = `${path.replace(/[\\/]+$/, '')}${path.includes('\\') ? '\\' : '/'}manifest.json`;
+  let manifest: CaptureManifest;
+  try {
+    manifest = (await (await fetchFile(path)).json()) as CaptureManifest;
+  } catch {
+    throw new Error(`No capture at ${path}: run capture_app_session with that name first (or give the manifest.json path).`);
+  }
+  if (!manifest || !Array.isArray(manifest.parts) || !manifest.parts.length) throw new Error(`${path} lists no captured parts.`);
+  return manifest;
 }
 
 /** The parts to show the model: each part's last state, and for typing, its first, middle and last. */

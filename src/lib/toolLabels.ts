@@ -149,6 +149,7 @@ export const TOOL_LABELS: Record<string, string> = {
   analyze_song: 'Mapping the song',
   review_frames: 'Reviewing the frames',
   capture_app_session: 'Capturing the app',
+  create_product_demo: 'Building a product demo',
   snap_cuts_to_beats: 'Snapping cuts to the beat',
   level_audio: 'Leveling the audio',
   erase_subject_clip: 'Erasing the subject',

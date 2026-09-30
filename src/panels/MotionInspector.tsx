@@ -8,6 +8,7 @@
 import { Eye, EyeOff, Layers3, Sparkles, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { findTemplate } from '../motion/kit';
+import { adaptiveBlur } from '../motion/blur';
 import { BLEND_MODES, type BlendMode, type Layer, type MotionScene } from '../motion/types';
 import { validateScene } from '../motion/validate';
 import type { History } from '../lib/history';
@@ -22,6 +23,9 @@ import { motionBrandFromKit } from '../lib/brandKit/motionBrand';
 type MotionSource = Extract<Clip['source'], { type: 'motion' }>;
 
 const LAYER_ICON: Record<Layer['type'], string> = { footage: '🎞', solid: '■', procedural: '◈', particles: '✦', form: '●', character: '☺', drawing: '✎', shape: '◆', text: 'T', null: '⌖', camera: '🎥', precomp: '▣' };
+
+/** A param too big to edit as one line (a capture's parts and pictures): shown as a note and kept as it is on a rebuild. */
+const bulky = (value: unknown) => !!value && typeof value === 'object' && JSON.stringify(value).length > 2000;
 
 /** A param's value as editable text: strings as-is, string/number lists comma-separated, the rest JSON. */
 function toText(value: unknown): string {
@@ -73,7 +77,7 @@ function LayerInspector({ clip, comp, history, disabled, Section, Row }: Inspect
   const params = stack?.template?.params;
 
   useEffect(() => {
-    setDraft(Object.fromEntries(Object.keys(spec?.params ?? {}).map((key) => [key, toText(params?.[key])])));
+    setDraft(Object.fromEntries(Object.keys(spec?.params ?? {}).filter((key) => !bulky(params?.[key])).map((key) => [key, toText(params?.[key])])));
     setJson(layer ? JSON.stringify(layer, null, 2) : '');
     setText(layer?.type === 'text' ? layer.text.text ?? layer.text.spans?.map((span) => span.text).join('') ?? '' : '');
     setProblem(null);
@@ -142,6 +146,14 @@ function LayerInspector({ clip, comp, history, disabled, Section, Row }: Inspect
         <Row label="Motion blur">
           <button type="button" className={`icon-btn small${layer.motionBlur ? ' active' : ''}`} disabled={disabled} onClick={() => commitLayer({ ...layer, motionBlur: !layer.motionBlur }, 'Layer Motion Blur')}>◍</button>
         </Row>
+        {layer.motionBlur && (
+          <Row label="Shutter">
+            <select className="prop-select" disabled={disabled} value={layer.shutter === undefined ? '' : String(layer.shutter)} onChange={(event) => commitLayer({ ...layer, shutter: event.target.value ? Number(event.target.value) : undefined }, 'Layer Shutter')}>
+              <option value="">The scene's</option>
+              {[72, 120, 180, 270].map((n) => <option key={n} value={n}>{n}°</option>)}
+            </select>
+          </Row>
+        )}
         {!!layer.effects?.length && (
           <Row label="Effects">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -161,9 +173,11 @@ function LayerInspector({ clip, comp, history, disabled, Section, Row }: Inspect
         <Section title="Template Params" icon={<Wand2 size={12} />}>
           {Object.entries(spec.params).map(([key, help]) => (
             <Row key={key} label={key}>
-              <input className="prop-input" title={help} placeholder={help} value={draft[key] ?? ''} disabled={disabled}
-                onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
-                onKeyDown={(event) => { if (event.key === 'Enter') rebuild(); }} />
+              {bulky(params?.[key]) ? <span className="prop-readout" title={help}>kept as captured</span> : (
+                <input className="prop-input" title={help} placeholder={help} value={draft[key] ?? ''} disabled={disabled}
+                  onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
+                  onKeyDown={(event) => { if (event.key === 'Enter') rebuild(); }} />
+              )}
             </Row>
           ))}
           <button type="button" className="btn btn-small btn-primary" disabled={disabled} onClick={rebuild}><Wand2 size={12} /> Rebuild all layers</button>
@@ -195,7 +209,7 @@ function SceneInspector({ clip, comp, history, disabled, Section, Row }: Inspect
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraft(Object.fromEntries(Object.keys(spec?.params ?? {}).map((key) => [key, toText(scene.template?.params[key])])));
+    setDraft(Object.fromEntries(Object.keys(spec?.params ?? {}).filter((key) => !bulky(scene.template?.params[key])).map((key) => [key, toText(scene.template?.params[key])])));
     setJson(JSON.stringify(scene, null, 2));
     setProblem(null);
   }, [clip.id, scene, spec]);
@@ -239,13 +253,19 @@ function SceneInspector({ clip, comp, history, disabled, Section, Row }: Inspect
         <Row label="Template"><span className="prop-readout">{spec ? `${spec.label} (${spec.technique})` : 'Custom scene'}</span></Row>
         <Row label="Canvas"><span className="prop-readout">{scene.width}×{scene.height} · {scene.duration.toFixed(2)} s · {layerCount} layers</span></Row>
         <Row label="Motion blur">
-          <select className="prop-select" disabled={disabled} value={String(scene.motionBlur?.samples ?? 8)} onChange={(event) => commitScene({ ...scene, motionBlur: { ...(scene.motionBlur ?? {}), samples: Number(event.target.value) } }, 'Motion Blur')}>
-            {[1, 4, 8, 12, 16].map((n) => <option key={n} value={n}>{n === 1 ? 'Off' : `${n} samples`}</option>)}
+          {/* Adaptive: samples chosen per stretch from how fast things move (motion/blur.ts); a fixed count replaces them. */}
+          <select className="prop-select" disabled={disabled} value={scene.motionBlur?.ranges?.length ? 'adaptive' : String(scene.motionBlur?.samples ?? 8)} onChange={(event) => {
+            const value = event.target.value;
+            const shutter = scene.motionBlur?.shutter;
+            commitScene({ ...scene, motionBlur: value === 'adaptive' ? adaptiveBlur(scene, comp.fps) : { ...(shutter !== undefined ? { shutter } : {}), samples: Number(value) } }, 'Motion Blur');
+          }}>
+            <option value="adaptive">Adaptive</option>
+            {[1, 4, 8, 12, 16, 24, 32, 48].map((n) => <option key={n} value={n}>{n === 1 ? 'Off' : `${n} samples`}</option>)}
           </select>
         </Row>
         <Row label="Shutter">
           <select className="prop-select" disabled={disabled} value={String(scene.motionBlur?.shutter ?? 180)} onChange={(event) => commitScene({ ...scene, motionBlur: { ...(scene.motionBlur ?? {}), shutter: Number(event.target.value) } }, 'Shutter Angle')}>
-            {[90, 180, 270, 360].map((n) => <option key={n} value={n}>{n}°</option>)}
+            {[72, 90, 120, 180, 270, 360].map((n) => <option key={n} value={n}>{n}°</option>)}
           </select>
         </Row>
       </Section>
@@ -254,9 +274,11 @@ function SceneInspector({ clip, comp, history, disabled, Section, Row }: Inspect
         <Section title="Template Params" icon={<Wand2 size={12} />}>
           {Object.entries(spec.params).map(([key, help]) => (
             <Row key={key} label={key}>
-              <input className="prop-input" title={help} placeholder={help} value={draft[key] ?? ''} disabled={disabled}
-                onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
-                onKeyDown={(event) => { if (event.key === 'Enter') rebuild(); }} />
+              {bulky(scene.template?.params[key]) ? <span className="prop-readout" title={help}>kept as captured</span> : (
+                <input className="prop-input" title={help} placeholder={help} value={draft[key] ?? ''} disabled={disabled}
+                  onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
+                  onKeyDown={(event) => { if (event.key === 'Enter') rebuild(); }} />
+              )}
             </Row>
           ))}
           <button type="button" className="btn btn-small btn-primary" disabled={disabled} onClick={rebuild}><Wand2 size={12} /> Rebuild scene</button>
