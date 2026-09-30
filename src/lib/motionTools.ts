@@ -620,7 +620,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     }
 
     case 'list_transitions':
-      return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition). Give {kind, duration?, direction?, glyph?, mode?, at?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });
+      return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition, or lay the flash-bridge / glow-handoff templates over the cut). Give {kind, duration?, direction?, glyph?, mode?, at?, to?, size?, strength?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });
 
     case 'create_motion_sequence': {
       const comp = ctx.pickComp(project, args);

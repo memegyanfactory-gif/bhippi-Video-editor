@@ -6896,7 +6896,7 @@
           "transitions": {
             "type": "array",
             "items": {},
-            "description": "One per join: a kind or {kind, duration?, direction?: left|right|up|down, glyph?: circle|square|rounded|star|diamond, mode?: out|in, at?: [x,y], color?, twist?}. Kinds: cut, dissolve, push, slide, whip, zoom-through, blur-bridge, z-recede, card-zoom-reveal, shape-wipe, iris, diagonal-wipe, noise-dissolve, white-out, black-breath, palette-swap-cut, eyelid, scale-cut, snap-punch, snap-zoom-out, snap-press, swap-when-hidden, collapse-into, spin, glitch, light-leak, truck."
+            "description": "One per join: a kind or {kind, duration?, direction?: left|right|up|down, glyph?: circle|square|rounded|star|diamond, mode?: out|in, at?: [x,y], to?: [x,y], strength?, color?, twist?}. Kinds: cut, dissolve, push, slide, whip, zoom-through, blur-bridge, z-recede, card-zoom-reveal, shape-wipe, iris, diagonal-wipe, noise-dissolve, white-out, black-breath, palette-swap-cut, eyelid, scale-cut, snap-punch, snap-zoom-out, snap-press, swap-when-hidden, collapse-into, spin, glitch, light-leak, truck, camera-match, glow-handoff, flash-bridge."
           },
           "layout": {
             "type": "string",

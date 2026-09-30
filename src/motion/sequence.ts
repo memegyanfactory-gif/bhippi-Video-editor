@@ -9,9 +9,11 @@
 //   (the camera jumps under them).
 // · A continuity object (`guide`: a dot, orb, sparkle or ring) travels from beat to beat above
 //   everything, the eye-line of Workly, Virgil and aflow.
+// · The launch films' joins (joins.ts): camera-match, glow-handoff and flash-bridge.
 // Pure: no DOM. Timings are the films' (§2.1): blur-bridge 1 f on / cut 3 f later / 7 f back,
 // white-out 7–13 f, a 12 f black breath, z-recede pop-and-rise 13 f, whips accelerating ×1.4 a frame.
 import type { Effect, Layer, MotionScene, ShapeItem, Vec } from './types';
+import { activeCamera, cameraShot, flashLayer, framingOf, glowPointLayer, matchCamera } from './joins';
 import { round, Track } from './keys';
 
 type Cue = NonNullable<MotionScene['cues']>[number];
@@ -21,6 +23,7 @@ export const TRANSITION_KINDS = [
   'cut', 'dissolve', 'push', 'slide', 'whip', 'zoom-through', 'blur-bridge', 'z-recede', 'card-zoom-reveal',
   'shape-wipe', 'iris', 'diagonal-wipe', 'noise-dissolve', 'white-out', 'black-breath', 'palette-swap-cut', 'eyelid',
   'scale-cut', 'snap-punch', 'snap-zoom-out', 'snap-press', 'swap-when-hidden', 'collapse-into', 'spin', 'glitch', 'light-leak', 'truck', 'paper-tear',
+  'camera-match', 'glow-handoff', 'flash-bridge',
 ] as const;
 export type TransitionKind = (typeof TRANSITION_KINDS)[number];
 
@@ -34,8 +37,14 @@ export type SeqTransition = {
   /** shape-wipe glyph, and whether the new beat grows out of it ('out') or the old one shrinks into it ('in', a logo-resolve). */
   glyph?: 'circle' | 'square' | 'rounded' | 'star' | 'diamond';
   mode?: 'out' | 'in';
-  /** Frame point for shape-wipe / iris / collapse-into (default the centre). */
+  /** Frame point for shape-wipe / iris / collapse-into, and where a glow-handoff's light starts (default the centre). */
   at?: [number, number];
+  /** glow-handoff: the point in the new beat the light becomes (default the centre). */
+  to?: [number, number];
+  /** glow-handoff: the light's peak size in px (default 30% of the short side). */
+  size?: number;
+  /** flash-bridge: peak flash, 0.5–0.9 in the films (default 0.7). */
+  strength?: number;
   /** swap-when-hidden: degrees of Z twist that disguise the swap. */
   twist?: number;
 };
@@ -74,6 +83,7 @@ const DEFAULT_DURATION: Partial<Record<TransitionKind, number>> = {
   cut: 0, dissolve: 0.5, push: 0.6, slide: 0.6, whip: 0.36, 'zoom-through': 0.5, 'blur-bridge': 11 * F, 'z-recede': 0.6, 'card-zoom-reveal': 0.8,
   'shape-wipe': 0.7, 'paper-tear': 6 / 24, iris: 0.6, 'diagonal-wipe': 0.5, 'noise-dissolve': 0.8, 'white-out': 0.5, 'black-breath': 15 * F, 'palette-swap-cut': 2 * F, eyelid: 0.5,
   'scale-cut': 0.35, 'snap-punch': 6 * F, 'snap-zoom-out': 8 * F, 'snap-press': 9 * F, 'swap-when-hidden': 0.5, 'collapse-into': 0.6, spin: 0.6, glitch: 6 * F, 'light-leak': 0.7, truck: 0.9,
+  'camera-match': 0.6, 'glow-handoff': 0.7, 'flash-bridge': 0.6,
 };
 
 /** Kinds where both beats are on screen together (the new one enters before the cut point). */
@@ -83,6 +93,7 @@ const SOUND: Partial<Record<TransitionKind, Cue['sound']>> = {
   push: 'whoosh', slide: 'whoosh', whip: 'whoosh', 'zoom-through': 'whoosh', 'blur-bridge': 'swish', 'z-recede': 'swish', 'card-zoom-reveal': 'whoosh', truck: 'whoosh',
   'shape-wipe': 'swish', 'paper-tear': 'swish', iris: 'swish', 'diagonal-wipe': 'swish', 'white-out': 'shimmer', 'black-breath': 'sub', 'scale-cut': 'impact', 'snap-punch': 'impact', 'snap-zoom-out': 'pop',
   'snap-press': 'pop', 'swap-when-hidden': 'swish', 'collapse-into': 'whoosh', spin: 'whoosh', glitch: 'blip', 'light-leak': 'shimmer', 'palette-swap-cut': 'click',
+  'glow-handoff': 'glass', 'flash-bridge': 'shimmer',
 };
 
 /** The keyed state of one beat's precomp layer. */
@@ -97,7 +108,7 @@ class BeatLayer {
   zblur: Track<number> | null = null;
   invert: Track<number> | null = null;
   rgb: Track<number> | null = null;
-  mask: { box: Track<Vec>; radius: Track<number> } | null = null;
+  mask: { box: Track<Vec>; radius: Track<number>; feather?: number } | null = null;
   matte: { layer: string; mode: 'alpha' | 'alpha-inverted' | 'luma' } | null = null;
   threeD = false;
   in = 0;
@@ -146,6 +157,8 @@ export function compileSequence(spec: SequenceSpec): CompiledSequence {
   const transitions = Array.from({ length: Math.max(0, n - 1) }, (_, i) => normalizeTransition(spec.transitions?.[i], layout));
   const cues: Cue[] = [];
   const extra: { after: number; layer: Layer }[] = [];
+  // Beats' scenes; a camera-match gives the incoming one the outgoing camera to open on.
+  const scenes = spec.beats.map((beat) => beat.scene);
   let fx = 0;
   const id = (name: string) => `${name}-${++fx}`;
 
@@ -202,7 +215,8 @@ export function compileSequence(spec: SequenceSpec): CompiledSequence {
       else worldPos.key(T - 1e-3, from, 'hold').key(T, to);
     }
     const sound = SOUND[tr.kind];
-    if (sound && spec.sfx !== false) cues.push({ at: round(Math.max(0, tr.kind === 'whip' || tr.kind === 'zoom-through' ? T - 0.25 : s)), sound });
+    // Whooshes peak into the cut; the light joins ring on it.
+    if (sound && spec.sfx !== false) cues.push({ at: round(Math.max(0, tr.kind === 'whip' || tr.kind === 'zoom-through' ? T - 0.25 : tr.kind === 'glow-handoff' || tr.kind === 'flash-bridge' ? T : s)), sound });
 
     switch (tr.kind) {
       case 'cut':
@@ -366,6 +380,54 @@ export function compileSequence(spec: SequenceSpec): CompiledSequence {
         B.rgbT.key(T, 24, 'linear').key(T + 3 * F, 0);
         B.pos.key(T, add(rb, [18, 0]), 'hold').key(T + F, add(rb, [-10, 0]), 'hold').key(T + 2 * F, rb);
         break;
+      case 'camera-match': {
+        // A hard cut on one camera: the new beat opens on the shot the old one is on at the cut.
+        const shot = cameraShot(scenes[i], T - starts[i]);
+        const matched = matchCamera(scenes[i + 1], shot, d);
+        if (matched) scenes[i + 1] = matched;
+        else if (activeCamera(scenes[i], T - starts[i])) {
+          // A flat beat takes the shot as its framing: the point the camera centred, its magnification and roll.
+          const f = framingOf(shot);
+          B.scale.move(T, d, f.scale * 100, 100, 'house');
+          B.pos.move(T, d, add(rb, [f.centre[0] - W / 2, f.centre[1] - H / 2], -f.scale), rb, 'house');
+          if (f.roll) B.rotation.move(T, d, -f.roll, 0, 'house');
+        } else {
+          // No camera on either side: the push carries through the cut, speeding into it and easing out of it.
+          A.scale.move(T - h, h, 100, 104, 'sine-in');
+          B.scale.move(T, h, 96, 100, 'cubic-out');
+        }
+        break;
+      }
+      case 'glow-handoff': {
+        const from: Vec = tr.at ? [tr.at[0], tr.at[1]] : [W / 2, H / 2];
+        const to: Vec = tr.to ? [tr.to[0], tr.to[1]] : [W / 2, H / 2];
+        const peak = tr.size ?? Math.round(Math.min(W, H) * 0.3);
+        const rise = d * 0.45;
+        const fall = d - rise;
+        // The old beat sinks away from the light (the composer sank, blur 16, as the send glowed).
+        A.blurT.move(T - rise, rise, 0, 16, 'cubic-in');
+        A.opacity.move(T - rise, rise, 100, 30, 'cubic-in');
+        A.scale.move(T - rise, rise, 100, 97, 'cubic-in');
+        // The new beat opens out of the light: a soft circle from the glow's size to the whole frame.
+        const r0 = peak * 0.3;
+        const R = Math.hypot(Math.max(to[0], W - to[0]), Math.max(to[1], H - to[1])) * 1.05;
+        B.mask = {
+          box: new Track<Vec>([to[0] - R, to[1] - R, R * 2, R * 2]).move(T, fall * 1.5, [to[0] - r0, to[1] - r0, r0 * 2, r0 * 2], [to[0] - R, to[1] - R, R * 2, R * 2], 'expo-out'),
+          radius: new Track<number>(R).move(T, fall * 1.5, r0, R, 'expo-out'),
+          feather: round(peak * 0.25),
+        };
+        extra.push({ after: n, layer: glowPointLayer({ id: id('light-point'), from, to, start: T - rise, cut: T, end: T + fall, peak, ...(tr.color ? { color: tr.color } : {}) }) });
+        break;
+      }
+      case 'flash-bridge': {
+        const rise = d * 0.45;
+        const decay = d - rise;
+        extra.push({ after: n, layer: flashLayer({ id: id('flash'), cut: T, rise, decay, strength: tr.strength ?? 0.7, ...(tr.color ? { color: tr.color } : {}) }) });
+        // The camera pushes into the light and the new beat settles out of it.
+        A.scale.move(T - rise, rise, 100, 104, 'cubic-in');
+        B.scale.move(T, decay, 103, 100, 'expo-out');
+        break;
+      }
     }
   }
 
@@ -379,14 +441,14 @@ export function compileSequence(spec: SequenceSpec): CompiledSequence {
     const effects = b.effects();
     const out = b.out === Infinity ? undefined : round(b.out);
     layers.push({
-      id: `beat-${i + 1}`, name: beat.name ?? `Beat ${i + 1}`, type: 'precomp', scene: beat.scene, offset: round(starts[i]),
+      id: `beat-${i + 1}`, name: beat.name ?? `Beat ${i + 1}`, type: 'precomp', scene: scenes[i], offset: round(starts[i]),
       ...(i > 0 ? { in: round(b.in) } : {}), ...(out !== undefined && i < n - 1 ? { out } : {}),
       ...(world ? { parent: 'world' } : {}),
       ...(b.threeD ? { threeD: true } : {}),
       transform: { position: b.pos.prop(), scale: b.scale.prop(), opacity: b.opacity.prop(), rotation: b.rotation.prop(), ...(b.threeD ? { rotationY: b.rotY.prop() } : {}) },
       ...(effects.length ? { effects } : {}),
       ...(b.matte ? { matte: b.matte } : {}),
-      ...(b.mask ? { masks: [{ shape: 'rect', box: b.mask.box.prop(), radius: b.mask.radius.prop() }] } : {}),
+      ...(b.mask ? { masks: [{ shape: 'rect', box: b.mask.box.prop(), radius: b.mask.radius.prop(), ...(b.mask.feather ? { feather: b.mask.feather } : {}) }] } : {}),
     } as Layer);
     layers.push(...extrasAfter(i).filter((l) => l.hidden));
   });
@@ -467,4 +529,7 @@ export const TRANSITION_HELP: Record<TransitionKind, string> = {
   glitch: 'RGB-split glitch cut',
   'light-leak': 'a light leak washes over the cut',
   truck: 'world layout: the camera travels to the next beat on the house ease (the background never cuts)',
+  'camera-match': 'hard cut on one camera: the new beat opens on exactly the shot the old one ends on, then settles into its own over duration (beats with a camera match cameras, flat ones their framing)',
+  'glow-handoff': "a light point (at: [x,y] in the old beat) drifts to the new beat's element (to: [x,y]) growing to size px, then contracts as the new beat opens out of it (a send glow becomes the logo)",
+  'flash-bridge': 'a warm-white flash (strength 0.5–0.9, default 0.7) rises into the cut with a small push and decays into the new beat; for drops and reveals',
 };
