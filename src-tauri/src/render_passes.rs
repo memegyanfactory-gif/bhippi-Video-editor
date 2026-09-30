@@ -68,10 +68,17 @@ fn unpack_args(video: &Path, codec: &str, dir: &Path) -> Vec<String> {
     args
 }
 
-fn count_frames(dir: &Path) -> usize {
+/// A frame of the run FFmpeg writes (`00001.png`, `00002.png` …): the only files this module
+/// ever makes or removes in the frames folder.
+fn is_run_frame(name: &str) -> bool {
+    name.strip_suffix(".png").is_some_and(|number| number.len() >= 5 && number.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// The run's frames in `dir`.
+fn run_frames(dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(dir)
-        .map(|entries| entries.flatten().filter(|entry| entry.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("png"))).count())
-        .unwrap_or(0)
+        .map(|entries| entries.flatten().filter(|entry| entry.file_name().to_str().is_some_and(is_run_frame)).map(|entry| entry.path()).collect())
+        .unwrap_or_default()
 }
 
 /// Unpacks one pass video (ProRes 4444 .mov, VP9-alpha .webm, .mkv) into a PNG run beside it.
@@ -93,12 +100,16 @@ pub async fn render_pass_frames(state: State<'_, Arc<AppState>>, path: String) -
     let probed = crate::tools::run(&ffprobe, &["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height,pix_fmt,r_frame_rate:stream_tags=alpha_mode", "-of", "json", &path], None).await?;
     let probe = parse_probe(&probed)?;
     let dir = frames_dir(&video);
-    let _ignored = std::fs::remove_dir_all(&dir);
+    // An earlier unpack's frames go, so a shorter render keeps none past its end. Nothing else in
+    // the folder is touched: it sits among the model's own files, wherever the path points.
+    for frame in run_frames(&dir) {
+        let _ignored = std::fs::remove_file(frame);
+    }
     std::fs::create_dir_all(&dir).map_err(|error| format!("cannot make {}: {error}", dir.display()))?;
     let args = unpack_args(&video, &probe.codec, &dir);
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     crate::tools::run(&ffmpeg, &args, None).await.map_err(|error| if probe.codec.starts_with("vp") { format!("this FFmpeg cannot decode WebM with its alpha ({error}); deliver the pass as a PNG sequence or ProRes 4444") } else { error })?;
-    let frames = count_frames(&dir);
+    let frames = run_frames(&dir).len();
     if frames == 0 {
         return Err(format!("FFmpeg found no frames in {path}"));
     }
@@ -134,6 +145,25 @@ mod tests {
     #[test]
     fn frames_land_beside_the_video() {
         assert_eq!(frames_dir(Path::new("out/scene 3/text.webm")), Path::new("out/scene 3/text_frames"));
+    }
+
+    #[test]
+    fn only_the_numbered_run_is_counted_or_cleared() {
+        assert!(is_run_frame("00001.png") && is_run_frame("123456.png"));
+        assert!(!is_run_frame("0001.png") && !is_run_frame("frame_00001.png") && !is_run_frame("notes.json") && !is_run_frame("00001.png.bak"));
+        // A folder that already holds other files beside an old run: only the run goes.
+        let dir = std::env::temp_dir().join(format!("bhippi-pass-run-{}", crate::store::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["00001.png", "00002.png", "keep.png", "manifest.json"] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        let run = run_frames(&dir);
+        assert_eq!(run.len(), 2);
+        for frame in run {
+            std::fs::remove_file(frame).unwrap();
+        }
+        assert!(dir.join("keep.png").is_file() && dir.join("manifest.json").is_file());
+        let _ignored = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
