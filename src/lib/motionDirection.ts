@@ -411,7 +411,7 @@ export const PLAYBOOKS: Playbook[] = [
       'Named cursors tell the story: You, the product, each AI provider with its real logo. Tags never over a label; the final park inside the thing they built; the target changes state on the click frame.',
       'Hide every cut: a camera-state match, a plunge into the next subject, a whip, a light point that becomes the next scene, a warm flash on a drop, or a fly-through a word.',
       ...FILM_RULES,
-      'A scene you render with your own code (mediaSource "render") is delivered in passes (backdrop, product, text, cursor, glow) through attach_production_asset {passes}, so it still opens as layers.',
+      'A scene you render with your own code (mediaSource "render") can come in passes (backdrop, product, text, cursor, glow) through attach_production_asset {passes}, so it still opens as layers; one finished file attaches too.',
     ],
     tools: ['analyze_song', 'analyze_clip_speech', 'analyze_music_beats', 'save_beat_sheet', 'save_storyboard', 'capture_app_session', 'create_product_demo', 'list_motion_templates', 'create_motion_scene', 'update_motion_scene', 'get_motion_scene', 'create_motion_sequence', 'list_transitions', 'svg_to_shape', 'sound_the_motion', 'review_frames', 'judge_edit', 'attach_production_asset', 'brain_load_skill'],
     eases: ['expo-out', 'cubic-in-out', 'sine-in-out', 'expo-in', 'cubic-in', 'back-out', 'push'],
