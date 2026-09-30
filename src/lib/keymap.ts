@@ -24,6 +24,11 @@ const command = (group: CommandGroup, id: string, label: string, keys: string[],
 
 export const COMMANDS: Command[] = [
   command('File', 'newProject', 'New project', ['Ctrl+Alt+N'], true),
+  command('File', 'newTab', 'New project tab', ['Ctrl+Shift+N'], true),
+  command('File', 'closeTab', 'Close project tab', ['Ctrl+W'], true),
+  command('File', 'nextTab', 'Next project tab', ['Ctrl+Tab', 'Ctrl+PageDown'], true),
+  command('File', 'previousTab', 'Previous project tab', ['Ctrl+Shift+Tab', 'Ctrl+PageUp'], true),
+  command('File', 'projectsOverview', 'Overview of all open projects', ['Ctrl+Alt+O'], true),
   command('File', 'newComp', 'New comp', ['Ctrl+N'], true),
   command('File', 'open', 'Open project', ['Ctrl+O'], true),
   command('File', 'save', 'Save', ['Ctrl+S'], true),

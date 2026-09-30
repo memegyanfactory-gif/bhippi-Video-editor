@@ -39,6 +39,16 @@ describe('settings the backend writes itself', () => {
     expect(backend.settings.timelineZoom).toBe(42);
   });
 
+  it('a panel handing over the whole settings sends only what it changed', async () => {
+    const ref = { current: { ...defaults } };
+    const store = settingsSync(defaults, ref, () => undefined);
+    await store.setProviderEnabled('ollama', false);
+    // Every key of the window's settings plus one change: what a Settings panel passes.
+    store.save({ ...ref.current, timelineZoom: 7 });
+    expect(backend.saved.at(-1)).toEqual({ timelineZoom: 7 });
+    expect(backend.settings.disabledProviders).toEqual(['ollama']);
+  });
+
   it('two saves in one tick both land', () => {
     const ref = { current: { ...defaults } };
     const seen: Settings[] = [];

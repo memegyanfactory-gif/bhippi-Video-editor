@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 type CommandResult<T> = Result<T, String>;
 
@@ -45,7 +45,7 @@ pub struct Screenshot {
 /// A compressed picture of the Bhippi window as it is right now.
 #[tauri::command]
 pub async fn support_screenshot(app: AppHandle) -> CommandResult<Screenshot> {
-    let rect = app.get_webview_window("main").and_then(|window| {
+    let rect = crate::tabs::shown_window(&app).and_then(|window| {
         let position = window.outer_position().ok()?;
         let size = window.outer_size().ok()?;
         Some((position.x, position.y, size.width, size.height))

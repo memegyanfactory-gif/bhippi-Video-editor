@@ -59,7 +59,7 @@ export interface StoryboardScene extends BeatDetail {
   /** Blueprint asset state for this scene (blueprint mode only). */
   status?: 'pending' | 'generating' | 'ready';
   /** Where this scene's visual comes from (blueprint mode only). */
-  mediaSource?: 'generate' | 'download' | 'existing' | 'render';
+  mediaSource?: 'generate' | 'download' | 'existing' | 'render' | 'build';
 }
 
 export type BlueprintAssetStatus = 'pending' | 'generating' | 'ready';
@@ -70,7 +70,7 @@ export interface BlueprintSceneView extends BeatDetail {
   title?: string;
   narration: string;
   visual: string;
-  mediaSource: 'generate' | 'download' | 'existing' | 'render';
+  mediaSource: 'generate' | 'download' | 'existing' | 'render' | 'build';
   audio: string;
   status?: BlueprintAssetStatus;
   thumbnail?: string;
@@ -287,7 +287,7 @@ export function StoryboardViewer({
         description: s.narration,
         visual: s.visual,
         audio: s.audio,
-        evidence: s.mediaSource === 'generate' ? 'To generate' : s.mediaSource === 'download' ? 'To download' : 'Existing asset',
+        evidence: s.mediaSource === 'generate' ? 'To generate' : s.mediaSource === 'download' ? 'To download' : s.mediaSource === 'render' ? 'To render' : s.mediaSource === 'build' ? 'Built as layers' : 'Existing asset',
         thumbnail: s.thumbnail,
         refs: s.refs,
         status: s.status ?? 'pending',

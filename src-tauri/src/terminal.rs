@@ -27,7 +27,7 @@ struct Output { session_id: String, data: Vec<u8>, exit_code: Option<u32>, error
 pub struct Opened { session_id: String, shell: String, cwd: String }
 
 fn editor(window: &WebviewWindow) -> Result<(), String> {
-    if window.label() == "main" { Ok(()) } else { Err("The terminal belongs to the main editor window".into()) }
+    if crate::tabs::is_editor(window.label()) { Ok(()) } else { Err("The terminal belongs to an editor window".into()) }
 }
 fn size(cols: u16, rows: u16) -> PtySize { PtySize { cols: cols.clamp(2, 500), rows: rows.clamp(2, 200), pixel_width: 0, pixel_height: 0 } }
 

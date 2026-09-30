@@ -940,7 +940,7 @@
     },
     {
       "name": "save_video_blueprint",
-      "description": "PLAN phase (from scratch). Saves the complete production plan WITHOUT generating or editing: the full narration script, timed 5–12 s scenes with narration + visual direction + audio design, and for every scene the shots to gather (each text-to-video shot 5–7 s with its own script and prompt; downloads/scrapes with url or query), the motion graphic (a brand-*/engine template (create_motion_scene) or a Crimson HTML template (create_motion_graphic), with layout + copy), transition, sfx and framing; plus research (sources + facts), music, narrator voice and style. Then the turn ENDS and the user presses Start generating. All scene problems come back in one message.",
+      "description": "PLAN phase (from scratch). Saves the complete production plan WITHOUT generating or editing: the full narration script, timed 5–12 s scenes with narration + visual direction + audio design, and for every scene the shots to gather (each text-to-video shot 5–7 s with its own script and prompt; downloads/scrapes with url or query) (or mediaSource \"build\": built as moving layers), the motion graphic (a brand-*/engine template (create_motion_scene) or a Crimson HTML template (create_motion_graphic), with layout + copy), transition, sfx and framing; plus research (sources + facts), music, narrator voice and style. Then the turn ENDS and the user presses Start generating. All scene problems come back in one message.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -992,9 +992,10 @@
                     "generate",
                     "download",
                     "existing",
-                    "render"
+                    "render",
+                    "build"
                   ],
-                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId) | render (you render it into AI Work/Output while gathering, then attach_production_asset: its assetId, or passes = a pass manifest so it lands as editable layers; visualPrompt = what)."
+                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId) | render (you render it into AI Work/Output while gathering, then attach_production_asset: its assetId, or passes = a pass manifest so it lands as editable layers; visualPrompt = what) | build (built in EDIT as layers that move on their own: UI rebuilt from a capture or its HTML/CSS, vectors, live type, 3D; nothing is gathered as its picture, its shots are references). For animation-heavy beats: a still with only a camera move reads as a slideshow."
                 },
                 "visualPrompt": {
                   "type": "string"
@@ -7179,7 +7180,7 @@
     },
     {
       "name": "create_product_demo",
-      "description": "Makes a captured app session into a product demo of editable layers. From a capture_app_session capture: the camera lands close on named parts and pulls back to the whole window tilted in 3D; named cursors (you, bhippi, claude, gpt, gemini, local) travel on arcs, click with a ring and type; each part shows its captured state on the frame (typing plays over a span or word by word). template \"window-explode\": the parts float apart in depth and slam back on slam. Times are seconds from the demo start. Places a layered [Motion] comp with sound cues; update_motion_scene params rebuild it with new times. motion_guide {topic:\"product-demo\"} (or \"launch-film\") has the film it belongs in: the beats, the shots and the timing that worked.",
+      "description": "Makes a captured app session into a product demo of editable layers. From a capture_app_session capture: the camera lands close on named parts and pulls back to the whole window tilted in 3D; named cursors (you, bhippi, claude, gpt, gemini, local) travel on arcs, click with a ring and type; each part shows its captured state on the frame (typing plays over a span or word by word). template \"window-explode\": the parts float apart in depth and slam back on slam. It moves the camera and swaps captured pictures; nothing inside a part moves: UI that must animate goes through create_ui_screen {screenshot, parts, actions}. Times are seconds from the demo start. Places a layered [Motion] comp with sound cues; update_motion_scene params rebuild it with new times. motion_guide {topic:\"product-demo\"} (or \"launch-film\") has the film it belongs in: the beats, the shots and the timing that worked.",
       "input_schema": {
         "type": "object",
         "properties": {

@@ -15,8 +15,10 @@ import { animated } from './keyframes';
 import { compareDna, deadZones, timelineDna } from './roast/dna';
 import { compAudience, memeFitsAudience } from './roast/audience';
 import { FUNNY_BAND, type DnaFinding, type MemeEntry, type RoastEvent, type RoastToolName } from './roast/types';
+import { layeredCompScene } from './motionStack';
 import { clipEnd, transitionWindow } from './timeline';
 import type { Asset, Clip, Comp, Project } from './types';
+import type { FootageSource, Layer, MotionScene } from '../motion/types';
 
 export type CouncilRole = 'animator' | 'researcher' | 'audio' | 'director' | 'comedian';
 
@@ -44,6 +46,7 @@ export const COUNCIL: CouncilMember[] = [
 You are the Animator on Bhippi AI's council, working for the lead producer. You think in frames, not seconds: at 30 fps one second is 30 drawings and every one of them is designed. Your obsession: the video is motion-graphic heavy and no frame is left dead.
 Rules you enforce:
 - Never more than 3 s of screen time without a designed motion element (a graphic, kinetic type, a camera move, a matte reveal). A talking head gets a graphic every 2–4 s.
+- A still picture (a screenshot, a gathered image) that only a camera or a cursor moves over for more than 2 s is a slideshow, not motion design: rebuild the moment as parts that move on their own (create_ui_screen {screenshot, parts, actions}, shape groups, icons, live type).
 - Key every graphic frame by frame: anticipation (2–4 frames) → action (12–20 frames, ease-out or overshoot, never linear) → settle (6–10 frames) → a living hold (1–3% drift, a slow 100→104% scale, words landing on the spoken times) → a clean exit (6–8 frames).
 - One primary move plus at most one secondary at a time; body text never animates letter by letter.
 - Build with create_motion_scene first (brand-* templates when a kit is active), then set_keyframes; fix timing to the frame with update_motion_scene patches/retime.
@@ -286,6 +289,8 @@ export type CouncilReview = {
   motionDensity: number;
   /** The same in frames: [alive, total]. */
   frames: [number, number];
+  /** Share of the timeline (0–1) whose motion is only a camera or cursor over still pictures: a slideshow. */
+  slideshow?: number;
   /** The seats that sat on this review (the Comedian sits only on a comp with a @funny plan). */
   seats: CouncilRole[];
 };
@@ -380,11 +385,148 @@ function motionMap(ctx: Ctx): boolean[] {
   return alive;
 }
 
-function reviewAnimator(ctx: Ctx, out: CouncilNote[]): { density: number; frames: [number, number] } {
+// ── Slideshow: still pictures that only a camera moves over ──
+
+const STILL_FILE = /\.(png|jpe?g|webp|gif|bmp|avif|tiff?)$/i;
+/** The cursor furniture create_product_demo and create_ui_screen add: it moves, but the picture under it does not. */
+const CURSOR_PART = /cursor|arrow|click ring|ripple|· tag$|· name$/i;
+/** Elements moving on their own (not the camera, not a cursor) before pictures stop reading as a slideshow. */
+const SLIDESHOW_MOVERS = 2;
+/** A shorter run is a close-up, not a slideshow. */
+const SLIDESHOW_RUN = 2;
+
+/** A property that really changes over time: two keys with different values, or an expression. */
+function changes(prop: unknown): boolean {
+  if (!prop || typeof prop !== 'object' || Array.isArray(prop)) return false;
+  if ('expr' in prop) return true;
+  const keys = (prop as { k?: { v: unknown }[] }).k;
+  return Array.isArray(keys) && keys.length >= 2 && keys.some((key) => JSON.stringify(key.v) !== JSON.stringify(keys[0].v));
+}
+
+/** The layer itself moves (not only fades): its transform is keyed, its type is animated, or it acts. */
+function movesOnItsOwn(layer: Layer): boolean {
+  const t = layer.transform ?? {};
+  if ([t.position, t.scale, t.rotation, t.rotationX, t.rotationY, t.skew].some(changes)) return true;
+  if (layer.type === 'character' || layer.type === 'drawing') return true;
+  if (layer.type === 'text') return ['type', 'cascade', 'scatter', 'retype', 'counter'].some((key) => key in layer.text) || /"k":\[\{/.test(JSON.stringify(layer.text));
+  if (layer.type === 'shape') return /"k":\[\{/.test(JSON.stringify(layer.shape));
+  return false;
+}
+
+function isStill(source: FootageSource, assets: Map<string, Asset>): boolean {
+  if (source.sequence) return false;
+  if (source.kind) return source.kind === 'image';
+  const asset = source.asset ? assets.get(source.asset) : undefined;
+  if (asset) return asset.kind === 'image';
+  return STILL_FILE.test(source.path ?? source.asset ?? '');
+}
+
+/** Still pictures in a scene, and the elements that move on their own (precomps walked). */
+function pictureTally(scene: MotionScene, assets: Map<string, Asset>, depth = 0): { pictures: number; movers: number } {
+  let pictures = 0;
+  let movers = 0;
+  for (const layer of scene.layers) {
+    if (layer.type === 'camera' || layer.type === 'null' || layer.type === 'solid' || layer.type === 'procedural' || layer.type === 'particles') continue;
+    if (CURSOR_PART.test(layer.name ?? '')) continue;
+    if (layer.type === 'precomp') {
+      if (movesOnItsOwn(layer)) movers++;
+      if (depth < 4) {
+        const inner = pictureTally(layer.scene, assets, depth + 1);
+        pictures += inner.pictures;
+        movers += inner.movers;
+      }
+      continue;
+    }
+    if (layer.type === 'footage' && isStill(layer.source, assets)) {
+      pictures++;
+      if (movesOnItsOwn(layer)) movers++;
+    } else if (layer.type === 'footage' || movesOnItsOwn(layer)) movers++;
+  }
+  return { pictures, movers };
+}
+
+/** A scene carried by still pictures that only a camera, a cursor or a state swap changes. */
+export function pictureLed(scene: MotionScene, assets: Map<string, Asset>): boolean {
+  const tally = pictureTally(scene, assets);
+  return tally.pictures > 0 && tally.movers < SLIDESHOW_MOVERS;
+}
+
+/**
+ * Buckets where the screen is still pictures moved only by a camera: picture-led motion scenes,
+ * and (in a piece built from scratch, with no footage to cut) image clips. Anything that moves on
+ * its own on screen at the same time (footage, a graphic that acts, 3D, HTML) lifts the bucket. A
+ * plain photo edit with no motion scene at all is not held to motion design.
+ */
+function slideshowMap(ctx: Ctx): boolean[] | null {
+  const { comp, project, assets, end } = ctx;
+  if (comp.roast) return null;
+  const buckets = Math.ceil(end / BUCKET);
+  const still = new Array<boolean>(buckets).fill(false);
+  const lively = new Array<boolean>(buckets).fill(false);
+  const mark = (into: boolean[], from: number, to: number) => {
+    for (let i = Math.max(0, Math.floor(from / BUCKET)); i < Math.min(buckets, Math.ceil(to / BUCKET)); i++) into[i] = true;
+  };
+  const visual = comp.clips.filter((clip) => clip.enabled && onVideo(comp, clip));
+  const footage = visual.some((clip) => clip.source.type === 'media' && assets.get(clip.source.assetId)?.kind === 'video');
+  let designed = false;
+  for (const clip of visual) {
+    const source = clip.source;
+    let scene: MotionScene | null = null;
+    if (source.type === 'motion') scene = source.scene;
+    else if (source.type === 'comp') {
+      const nested = project.comps.find((entry) => entry.id === source.compId);
+      scene = nested?.name.startsWith('[Motion]') ? layeredCompScene(project, nested) : null;
+    }
+    let kind: 'still' | 'lively' | null = null;
+    if (scene) {
+      designed = true;
+      kind = pictureLed(scene, assets) ? 'still' : 'lively';
+    } else if (source.type === 'media') {
+      const asset = assets.get(source.assetId);
+      kind = asset?.kind === 'video' ? 'lively' : asset?.kind === 'image' && !footage ? 'still' : null;
+    } else if (source.type === 'comp' || source.type === 'html' || source.type === 'scene3d') kind = 'lively';
+    else if (source.type === 'text') kind = source.preset !== 'caption' && (source.style || animatedWindow(clip)) ? 'lively' : null;
+    else if (source.type === 'shape') kind = animatedWindow(clip) ? 'lively' : null;
+    if (kind) mark(kind === 'still' ? still : lively, clip.start, clipEnd(clip));
+  }
+  return designed ? still.map((flat, i) => flat && !lively[i]) : null;
+}
+
+/** Notes every slideshow stretch of 2 s or more; returns their share of the timeline. */
+function reviewSlideshow(ctx: Ctx, out: CouncilNote[]): number {
+  const { end, fps } = ctx;
+  const flat = slideshowMap(ctx);
+  if (!flat) return 0;
+  const runs: [number, number][] = [];
+  let run = -1;
+  for (let i = 0; i <= flat.length; i++) {
+    if (i < flat.length && flat[i]) {
+      if (run < 0) run = i;
+    } else if (run >= 0) {
+      runs.push([run * BUCKET, Math.min(end, i * BUCKET)]);
+      run = -1;
+    }
+  }
+  const long = runs.filter(([from, to]) => to - from >= SLIDESHOW_RUN);
+  for (const [from, to] of long.slice(0, 4)) {
+    out.push({
+      member: 'animator',
+      severity: 'fix',
+      at: [from, to],
+      text: `${span(from, to)} is still pictures that only a camera or a cursor moves over (${Math.round((to - from) * fps)} frames): it reads as a slideshow, not motion design.`,
+      fix: 'Rebuild that moment as parts that move on their own: create_ui_screen {screenshot, parts, actions} (assemble, type, lift, sweep, count) or the product\'s HTML/CSS, shape groups, icons and live type. Keep the picture as a background or a short close-up.',
+    });
+  }
+  if (long.length > 4) out.push({ member: 'animator', severity: 'fix', text: `${long.length - 4} more slideshow stretches after ${s(long[3][1])}.`, fix: 'Rebuild each the same way.' });
+  const seconds = long.reduce((sum, [from, to]) => sum + (to - from), 0);
+  return end > 0 ? seconds / end : 0;
+}
+
+function reviewAnimator(ctx: Ctx, out: CouncilNote[]): { density: number; frames: [number, number]; slideshow: number } {
   const { comp, project, end, fps } = ctx;
   if (end < 1) {
     out.push({ member: 'animator', severity: 'note', text: 'Nothing on the timeline to animate yet.', fix: 'Assemble the edit, then build a graphic for every beat.' });
-    return { density: 0, frames: [0, 0] };
+    return { density: 0, frames: [0, 0], slideshow: 0 };
   }
   const alive = motionMap(ctx);
   const aliveCount = alive.filter(Boolean).length;
@@ -415,7 +557,7 @@ function reviewAnimator(ctx: Ctx, out: CouncilNote[]): { density: number; frames
       severity: length > 6 && !comp.roast && !!comp.production ? 'block' : 'fix',
       at: [from, to],
       text: `${span(from, to)} is ${length.toFixed(1)} s (${frames} frames) with no designed motion on screen.`,
-      fix: `Build a graphic for what is said there (create_motion_scene or a brand-* template, landing on the spoken words), or key a push-in/drift on the shot — one designed element at least every 3 s.`,
+      fix: `Build a graphic for what is said there (create_motion_scene or a brand-* template, landing on the spoken words), or key a push-in/drift on real footage (a still picture wants a built moment, not a camera move) — one designed element at least every 3 s.`,
     });
   }
   if (end >= 6 && density < 0.5) {
@@ -448,7 +590,7 @@ function reviewAnimator(ctx: Ctx, out: CouncilNote[]): { density: number; frames
       out.push({ member: 'animator', severity: 'fix', clipIds: [clip.id], at: [clip.start, clipEnd(clip)], text: `${label(clip)} moves linearly (${linear.join(', ')}) — it reads as a machine, not a hand.`, fix: 'Switch those keys to ease-out (arrivals) or overshoot (pops); linear only for a constant drift.' });
     }
   }
-  return { density, frames: [aliveFrames, totalFrames] };
+  return { density, frames: [aliveFrames, totalFrames], slideshow: reviewSlideshow(ctx, out) };
 }
 
 // ── Director ──
@@ -915,7 +1057,7 @@ export function councilReview(project: Project, assets: Map<string, Asset>, comp
   const notes: CouncilNote[] = [];
   const wanted = (role: CouncilRole) => !only?.length || only.includes(role);
   const seats: CouncilRole[] = [];
-  let motion = { density: 0, frames: [0, 0] as [number, number] };
+  let motion = { density: 0, frames: [0, 0] as [number, number], slideshow: 0 };
   if (wanted('animator')) {
     motion = reviewAnimator(ctx, notes);
     seats.push('animator');
@@ -939,7 +1081,7 @@ export function councilReview(project: Project, assets: Map<string, Asset>, comp
     const mine = notes.filter((note) => note.member === member.id);
     return [member.id, mine.some((note) => note.severity === 'block') ? 'holds' : mine.some((note) => note.severity === 'fix') ? 'changes' : 'approve'];
   })) as Record<CouncilRole, Verdict>;
-  return { notes, verdicts, motionDensity: motion.density, frames: motion.frames, seats };
+  return { notes, verdicts, motionDensity: motion.density, frames: motion.frames, slideshow: motion.slideshow, seats };
 }
 
 /** The review as the model reads it: one paragraph per seat, in the member's own terms. */

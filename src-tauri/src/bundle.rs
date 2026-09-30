@@ -782,18 +782,18 @@ pub fn map_todo(project: &Path, path: &str) -> Option<PathBuf> {
 }
 
 /// Where an AI file tool's path really points (see [`map_todo`]).
-pub fn agent_path(state: &AppState, path: &str) -> String {
-    map_todo(&storage::project_dir(state), path).map_or_else(|| path.to_owned(), |mapped| mapped.display().to_string())
+pub fn agent_path(state: &AppState, session: &str, path: &str) -> String {
+    map_todo(&storage::project_dir(state, session), path).map_or_else(|| path.to_owned(), |mapped| mapped.display().to_string())
 }
 
 /// The same for reading: a note written before notes moved into projects (or before they moved
 /// under `Documents/`) is still found.
-pub fn agent_path_existing(state: &AppState, path: &str) -> String {
-    let mapped = agent_path(state, path);
+pub fn agent_path_existing(state: &AppState, session: &str, path: &str) -> String {
+    let mapped = agent_path(state, session, path);
     if mapped == path || Path::new(&mapped).exists() {
         return mapped;
     }
-    let project = storage::project_dir(state);
+    let project = storage::project_dir(state, session);
     let older = Category::Guidelines.legacy_relative().zip(Path::new(&mapped).strip_prefix(storage::category_dir(&project, Category::Guidelines)).ok());
     if let Some((legacy, rest)) = older {
         let old = project.join(legacy).join(rest);
@@ -857,8 +857,8 @@ fn doc_entry(path: &Path, folder: &str, relative: String, legacy: bool) -> DocEn
     }
 }
 
-fn list_docs(state: &AppState) -> Vec<DocEntry> {
-    let project = storage::project_dir(state);
+fn list_docs(state: &AppState, session: &str) -> Vec<DocEntry> {
+    let project = storage::project_dir(state, session);
     let mut docs = Vec::new();
     for category in DOC_CATEGORIES {
         let dir = storage::category_dir(&project, category);
@@ -890,9 +890,10 @@ fn list_docs(state: &AppState) -> Vec<DocEntry> {
 
 /// The open project's documents: guidelines, plans, storyboards and research notes.
 #[tauri::command]
-pub async fn project_docs(state: State<'_, Arc<AppState>>) -> Result<Vec<DocEntry>, String> {
+pub async fn project_docs(webview: tauri::Webview, state: State<'_, Arc<AppState>>) -> Result<Vec<DocEntry>, String> {
+    let session = state.session(&webview);
     let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || list_docs(&state)).await.map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(move || list_docs(&state, &session)).await.map_err(|error| error.to_string())
 }
 
 /// One document's text, for the viewer.
@@ -928,8 +929,9 @@ fn doc_dir(project: &Path, category: &str) -> Result<PathBuf, String> {
 
 /// Writes (or replaces) a document in the open project's Guidelines, Storyboard or Research folder.
 #[tauri::command]
-pub fn project_doc_write(app: AppHandle, state: State<'_, Arc<AppState>>, category: String, name: String, content: String) -> Result<String, String> {
-    let dir = doc_dir(&storage::project_dir(&state), &category)?;
+pub fn project_doc_write(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, category: String, name: String, content: String) -> Result<String, String> {
+    let session = state.session(&webview);
+    let dir = doc_dir(&storage::project_dir(&state, &session), &category)?;
     std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
     let path = dir.join(doc_file_name(&name));
     std::fs::write(&path, content).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
@@ -939,9 +941,10 @@ pub fn project_doc_write(app: AppHandle, state: State<'_, Arc<AppState>>, catego
 
 /// Deletes a document of the open project (or an older workspace note) — nothing else.
 #[tauri::command]
-pub fn project_doc_delete(app: AppHandle, state: State<'_, Arc<AppState>>, path: String) -> Result<(), String> {
+pub fn project_doc_delete(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, path: String) -> Result<(), String> {
+    let session = state.session(&webview);
     let file = normalize(Path::new(&path));
-    let project = storage::project_dir(&state);
+    let project = storage::project_dir(&state, &session);
     let allowed = is_doc(&file)
         && (DOC_CATEGORIES.iter().any(|category| within(&file, &storage::category_dir(&project, *category)))
             || legacy_note_dirs(&state).iter().any(|dir| file.parent().is_some_and(|parent| key(parent) == key(dir))));
@@ -1007,7 +1010,7 @@ fn holds_saved_project(folder: &Path) -> bool {
 }
 
 /// The files a project uses, as units to collect.
-fn units_for(state: &AppState, ctx: &Ctx, value: &Value, refs: &[Ref]) -> Vec<Unit> {
+fn units_for(state: &AppState, session: &str, ctx: &Ctx, value: &Value, refs: &[Ref]) -> Vec<Unit> {
     let mut units = Vec::new();
     if let Some(previous) = &ctx.previous {
         for category in DOC_CATEGORIES {
@@ -1032,7 +1035,7 @@ fn units_for(state: &AppState, ctx: &Ctx, value: &Value, refs: &[Ref]) -> Vec<Un
             if id.is_empty() || id.contains(['/', '\\', '.']) {
                 continue;
             }
-            let dir = state.tracking_root(id).join(id);
+            let dir = state.tracking_root(session, id).join(id);
             if dir.is_dir() {
                 units.push(Unit { path: dir, hint: Hint::Tracking, dir: true });
             }
@@ -1100,18 +1103,20 @@ fn check_document(file: &Path, document: &Document) -> Result<(), String> {
 #[tauri::command]
 pub async fn project_file_save(
     app: AppHandle,
+    webview: tauri::Webview,
     state: State<'_, Arc<AppState>>,
     path: String,
     document: Document,
     keep_path: bool,
     docs: Option<Vec<DocFile>>,
 ) -> Result<SaveReport, String> {
+    let session = state.session(&webview);
     let file = PathBuf::from(&path);
     check_document(&file, &document)?;
     let project_folder = storage::saved_folder(&file).ok_or("choose a folder to save the project in")?;
     let state = state.inner().clone();
     let settings = state.settings();
-    let previous = storage::project_dir(&state);
+    let previous = storage::project_dir(&state, &session);
     let separate = !within(&previous, &project_folder) || !within(&project_folder, &previous);
     let mut skip = vec![state.paths.sfx.clone(), state.paths.models.clone(), state.paths.proxies.clone()];
     if let Some(install) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)) {
@@ -1119,7 +1124,8 @@ pub async fn project_file_save(
     }
     let ctx = Ctx {
         project: project_folder.clone(),
-        move_previous: separate && keep_path && settings.project_path.is_none() && !holds_saved_project(&previous),
+        // The window's own project: an unsaved one's files move with its first save.
+        move_previous: separate && keep_path && state.sessions.get(&session).is_none_or(|tab| tab.project_path.is_none()) && !holds_saved_project(&previous),
         previous: separate.then_some(previous),
         storage_root: storage::root(&state),
         app_data: state.paths.root.clone(),
@@ -1135,7 +1141,7 @@ pub async fn project_file_save(
     let mut value = serde_json::to_value(&document).map_err(|error| error.to_string())?;
     let mut refs = asset_refs(value.get("assets").unwrap_or(&Value::Null));
     refs.extend(project_refs(value.get("project").unwrap_or(&Value::Null), "/project"));
-    let units = units_for(&state, &ctx, &value, &refs);
+    let units = units_for(&state, &session, &ctx, &value, &refs);
     let planned = {
         let ctx = ctx.clone();
         tauri::async_runtime::spawn_blocking(move || plan(&ctx, &units)).await.map_err(|error| error.to_string())?

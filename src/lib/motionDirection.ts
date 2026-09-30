@@ -66,6 +66,7 @@ const FILM_RULES = [
   'Light the film as one: mean luma 45–60 on a dark film (a light stage sits near 170), UI shots with a 98th percentile ≥ 200, no shot twice as bright as the one before; text meant to be read has a cap height ≥ 26 px at 1080p.',
   'Every event on screen has its sound on its frame, heard over the music: sound_the_motion sets each cue against the song; the master sits at −16 LUFS, −1 dBTP.',
   'Save after every committed timeline step and read each diff: an audio place can land on the song’s track, a bulk change can change nothing.',
+  'A picture is a source, not a scene: a capture or a gathered image tells you what the product looks like; the scene is layers that move on their own (panels assemble, rows stagger in, buttons press, text types live, numbers count, icons draw on). A still that only a camera or a cursor moves over for more than about 2 s reads as a slideshow: rebuild that moment from the picture (create_ui_screen {screenshot, parts, actions} or the product’s HTML/CSS; shape groups, icons and live type) and keep flat pictures for backgrounds and short close-ups.',
 ];
 
 export const PLAYBOOKS: Playbook[] = [
@@ -98,7 +99,7 @@ export const PLAYBOOKS: Playbook[] = [
     eases: ['house', 'emphasized', 'push', 'rise', 'expo-in'],
     features: ['shape.groups', 'text.type', 'text.retype', 'text.counter', 'effects.gradient-overlay', 'effects.inner-shadow', 'camera.aperture', 'bleed'],
     pacing: { swapGap: [2, 5], entrance: [6, 36] },
-    gaps: ['capture_product_ui gives one flat screenshot; for the product’s real parts in their states use capture_app_session (Bhippi itself, or a url with CSS selectors) and create_product_demo, or rebuild the screen in HTML from the product’s CSS.'],
+    gaps: ['capture_product_ui gives one flat screenshot: never let it carry a beat alone. Cut it into moving parts with create_ui_screen {screenshot, parts, actions}, or rebuild the screen in HTML from the product’s CSS; for the product’s real parts in their states, capture_app_session then create_product_demo.'],
   },
   {
     id: 'ai-launch',
@@ -387,14 +388,14 @@ export const PLAYBOOKS: Playbook[] = [
     films: ['Meet Bhippi launch film (Opus, 80/100)', 'Meet Bhippi 15 s rebuild (v1 76, v2 84)', 'Manus 2.0 launch (reference)', 'Relume launch film (reference)'],
     beats: [
       { name: 'Open', seconds: [0, 3], what: 'The product’s own object is born (a playhead in a pool of light, a caret on a light stage) or the first line types on; named cursors enter. No black or static frame longer than 0.5 s.', how: 'type-on-voice with the words from analyze_song, or a text.type layer with a bar caret; a slow camera drift; ticks on the first snares' },
-      { name: 'First line', seconds: [3, 5.5], what: 'The line lands word by word in the product’s colour code; the camera pulls back from one part to the whole window, tilted about 5°/−9° at 0.84×.', how: 'capture_app_session for the parts in their states, then create_product_demo with a close shot on the part and a wide shot; or your own camera layer over the captured parts' },
+      { name: 'First line', seconds: [3, 5.5], what: 'The line lands word by word in the product’s colour code; the camera pulls back from one part to the whole window, tilted about 5°/−9° at 0.84×.', how: 'capture_app_session for the parts in their states, then create_product_demo with a close shot on the part and a wide shot; or your own camera layer over the captured parts. When the line asks the UI itself to build or change, rebuild those parts from the capture (create_ui_screen) so they move on their own' },
       { name: 'Fly through a word', seconds: [5.5, 8.5], what: 'A cursor selects the key word, it grows, and the camera flies through one of its letters into the product; the next scene shows through the letter.', how: 'fly-through-word {word, line, next, words}; or the word as a track matte over the next scene, scale keyed on 0.35u + 0.65u^2.2, mosaic 36 → 1 px, zoom-blur at the peak' },
       { name: 'Connect', seconds: [8.5, 10.5], what: 'Provider marks fly in on their names, wires draw to the product mark, pulses run along them on the next word, the mark wakes.', how: 'connect-hub {providers, times from analyze_song}; or shape groups (svg_to_shape of the real logos), stroke trim for the wires, back-out pops' },
-      { name: 'Ask and work', seconds: [10.5, 13], what: 'The prompt (about five words) types in the real composer and is sent on a snare; the steps tick 0.25 s apart at a readable size; the timeline fills on the beat grid while the monitor flashes each shot.', how: 'create_product_demo actions: type into @field, click @send on the snare, set @timeline to its filled state; a close shot on the work list (cap height ≥ 26 px)' },
+      { name: 'Ask and work', seconds: [10.5, 13], what: 'The prompt (about five words) types in the real composer and is sent on a snare; the steps tick 0.25 s apart at a readable size; the timeline fills on the beat grid while the monitor flashes each shot.', how: 'create_product_demo actions: type into @field, click @send on the snare, set @timeline to its filled state; a close shot on the work list (cap height ≥ 26 px). For the work to be seen happening, the steps and the timeline clips arrive as their own layers (create_ui_screen assemble/sweep/count), not one picture swapped for the next' },
       { name: 'Payoff and lockup', seconds: [13, 15], what: 'The whole product at work, sharp for 10 frames; then a clean field, the mark lands on the snare with one warm flash, the name sharp ≥ 0.35 s; the fade only over the last 8 frames.', how: 'a wide shot that lands, then glass-mark or logo-lockup (end-card with a call to action on longer films); flash-bridge or glow-handoff into it' },
     ],
     look: [
-      'The real product UI, sharp at every zoom (parts captured at 3–4×), changing state on the frame of each action: never a mock-up or a still plate standing in for a scene.',
+      'The real product’s look and words, sharp at every zoom (parts captured at 3–4×), changing state on the frame of each action. The capture is the source of truth, not the whole scene: animation-heavy moments rebuild parts from it as layers that move on their own (create_ui_screen with the capture cut into parts, or the product’s HTML/CSS). Avoid a flat plate that only a camera moves over, and an invented UI with controls the product does not have.',
       'Light stage: cream #F7F5F1 → #EDE9E3 with a soft highlight (the launch-light finish), or peach #FCE8DB with 16/80 px hairlines; a cool grey stage only for the “other tools” contrast.',
       'Dark stage: lift it (the launch-dark finish) to mean luma 45–60; bloom only saturated colour so white UI never glows; vignette ≤ 10%.',
       'Soft warm-brown shadows (rgb 70,40,20 at 0.24–0.34, blur 24–70) under every card and window; depth of field only where layers truly separate.',
@@ -429,6 +430,7 @@ export const PLAYBOOKS: Playbook[] = [
       'A cursor’s tag can cover UI text: check every click frame in review_frames and move the path or the shot.',
       'No ask-and-work or timeline-build template yet: build them as create_product_demo actions (type, click, set) on a capture with the timeline empty and filled (capture_app_session {demo:true} fills an empty one).',
       'Depth of field is per layer: keep it on an exploded window and receding planes.',
+      'create_product_demo moves the camera and swaps captured pictures; nothing inside a part moves. A moment that must animate (a panel building, a list filling, a result growing) is rebuilt with create_ui_screen {screenshot, parts, actions} or HTML, or with your own keyed layers, and cut into the demo.',
     ],
   },
   {
@@ -468,6 +470,7 @@ export const PLAYBOOKS: Playbook[] = [
     ],
     gaps: [
       'A capture without demo:true can show a broken image on a comp tile: capture Bhippi with demo:true, and check every capture’s sheet for broken images, placeholders and local paths.',
+      'create_product_demo moves the camera and swaps captured pictures; nothing inside a part moves. When the result should build on screen (rows filling, a chart drawing, a card growing), rebuild that part with create_ui_screen {screenshot, parts, actions} or HTML and cut it in.',
       'Another product: give capture_app_session its url and CSS selectors for the parts; Bhippi’s own parts have @names.',
     ],
   },

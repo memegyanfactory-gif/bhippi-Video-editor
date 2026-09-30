@@ -21,7 +21,8 @@ pub fn picture_path(root: &Path, screen: &str, name: &str) -> Result<PathBuf, St
 
 /// Saves one PNG sent as the raw request body; `x-screen` and `x-name` headers say where.
 #[tauri::command]
-pub async fn ui_screen_save(app: AppHandle, state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+pub async fn ui_screen_save(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let session = state.session(&webview);
     let header = |name: &str| request.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned).ok_or_else(|| format!("missing {name} header"));
     let screen = header("x-screen")?;
     let name = header("x-name")?;
@@ -32,7 +33,7 @@ pub async fn ui_screen_save(app: AppHandle, state: State<'_, Arc<AppState>>, req
     if bytes.len() > 64 * 1024 * 1024 {
         return Err("that picture is larger than 64 MB".into());
     }
-    let path = picture_path(&storage::dir(&state, storage::Category::Generated)?, &screen, &name)?;
+    let path = picture_path(&storage::dir(&state, &session, storage::Category::Generated)?, &screen, &name)?;
     let dir = path.parent().ok_or("bad path")?.to_path_buf();
     let bytes = bytes.to_vec();
     let written = path.clone();
@@ -80,12 +81,13 @@ pub fn capture_url(url: &str) -> Result<String, String> {
 /// Screenshots a web page (the user's product) in a headless browser at 2× into
 /// `Generated/UI screens/<screen>/capture.png`, for `create_ui_screen {screenshot, parts}`.
 #[tauri::command]
-pub async fn ui_capture(app: AppHandle, state: State<'_, Arc<AppState>>, url: String, width: Option<u32>, height: Option<u32>, dark: Option<bool>) -> Result<serde_json::Value, String> {
+pub async fn ui_capture(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, url: String, width: Option<u32>, height: Option<u32>, dark: Option<bool>) -> Result<serde_json::Value, String> {
+    let session = state.session(&webview);
     let url = capture_url(&url)?;
     let (width, height) = (width.unwrap_or(1440).clamp(320, 2560), height.unwrap_or(900).clamp(320, 2560));
     let browser = find_browser().ok_or("No Chromium browser (Edge or Chrome) was found to capture the page with")?;
     let screen = format!("capture_{}", crate::store::new_id());
-    let path = picture_path(&storage::dir(&state, storage::Category::Generated)?, &screen, "capture.png")?;
+    let path = picture_path(&storage::dir(&state, &session, storage::Category::Generated)?, &screen, "capture.png")?;
     let dir = path.parent().ok_or("bad path")?.to_path_buf();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let profile = state.paths.work.join(format!("browser-{screen}"));

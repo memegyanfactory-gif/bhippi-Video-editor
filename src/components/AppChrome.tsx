@@ -7,8 +7,11 @@ import { MenuList, type MenuItem } from './workspace';
 
 export type MenuGroup = { label: string; items: MenuItem[] };
 
-/** File · Edit · Clip · … across the top, with the window controls on the right. */
-export function MenuBar({ menus }: { menus: MenuGroup[] }) {
+/**
+ * File · Edit · Clip · … across the top, with the window controls on the right. `onClose` closes
+ * Bhippi (every open project asks about its own unsaved work); without it the window closes.
+ */
+export function MenuBar({ menus, onClose }: { menus: MenuGroup[]; onClose?: () => void }) {
   const [open, setOpen] = useState<{ index: number; anchor: DOMRect } | null>(null);
   const win = getCurrentWindow();
   return (
@@ -29,7 +32,7 @@ export function MenuBar({ menus }: { menus: MenuGroup[] }) {
       <div className="win-controls">
         <button type="button" className="win-btn" onClick={() => void win.minimize()} aria-label="Minimize"><Minus size={14} /></button>
         <button type="button" className="win-btn" onClick={() => void win.toggleMaximize()} aria-label="Maximize"><Square size={11} /></button>
-        <button type="button" className="win-btn close" onClick={() => void win.close()} aria-label="Close"><X size={15} /></button>
+        <button type="button" className="win-btn close" onClick={() => (onClose ? onClose() : void win.close())} aria-label="Close"><X size={15} /></button>
       </div>
       {open && <MenuList items={menus[open.index].items} anchor={open.anchor} onClose={() => setOpen(null)} />}
     </div>
@@ -60,6 +63,8 @@ type HeaderProps = {
   /** Opens Settings › About, where the full Profile lives — the account panel's "Account details". */
   onAccount: () => void;
   resourceMonitor?: React.ReactNode;
+  /** The open projects as tabs, in place of the single project's title. */
+  tabs?: React.ReactNode;
 };
 
 /** Home · Import · Edit · Export, the document title, and quick actions. */
@@ -84,9 +89,13 @@ export function HeaderBar(props: HeaderProps) {
           <PanelLeft size={19} />
         </button>
       </nav>
-      <div className="header-title" data-tauri-drag-region>
-        {props.title} <span className="muted">- {props.saved ? 'Saved' : 'Edited'}</span>
-      </div>
+      {props.tabs ? (
+        <div className="header-tabs" data-tauri-drag-region>{props.tabs}</div>
+      ) : (
+        <div className="header-title" data-tauri-drag-region>
+          {props.title} <span className="muted">- {props.saved ? 'Saved' : 'Edited'}</span>
+        </div>
+      )}
       <div className="header-actions">
         {props.resourceMonitor}
         <button type="button" className="icon-btn" onClick={props.onExport} disabled={props.exportDisabled} title="Quick export (Ctrl+M)"><Share size={16} /></button>

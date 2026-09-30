@@ -7,7 +7,8 @@
 // Settings panel previews and the AI can place on the timeline.
 
 import { learningsBrief } from './learnings';
-import { normalizeGradients, normalizeKitGradients } from './gradients';
+import { normalizeGradients } from './gradients';
+import { repairKit } from './repair';
 import { brandSummary, brandVars, type Brand, type TypeScale } from '../brand';
 import { TIMING } from '../motion';
 import { RBX_BASE_CSS, esc, px, type BitTheme } from '../rbx/core';
@@ -143,6 +144,24 @@ export function colorsFrom(arch: BrandArchetype, c: BrandArchetype['colors']): B
 
 /** A full kit from an archetype and the details the user or the AI gave. */
 export function kitFromArchetype(arch: BrandArchetype, input: NewBrandKitInput = {}): BrandKit {
+  return kitFromArchetypeChecked(arch, input).kit;
+}
+
+const OVERRIDES = ['voice', 'motion', 'imagery', 'layout', 'audio', 'social'] as const;
+
+/**
+ * kitFromArchetype, and a line for every section override value that could not be used as given
+ * (a list sent as text or as {"item": [...]}, a number as a string are fitted; the rest keep the
+ * archetype's value).
+ */
+export function kitFromArchetypeChecked(arch: BrandArchetype, input: NewBrandKitInput = {}): { kit: BrandKit; issues: string[] } {
+  const kit = buildKit(arch, input);
+  if (!OVERRIDES.some((key) => input[key] !== undefined)) return { kit, issues: [] };
+  const plain = buildKit(arch, { ...input, voice: undefined, motion: undefined, imagery: undefined, layout: undefined, audio: undefined, social: undefined, id: kit.id });
+  return repairKit(kit as unknown as Record<string, unknown>, { ...plain, createdAt: kit.createdAt, updatedAt: kit.updatedAt });
+}
+
+function buildKit(arch: BrandArchetype, input: NewBrandKitInput): BrandKit {
   const c = {
     bg: pick(input.background, arch.colors.bg),
     surface: pick(input.surface, arch.colors.surface),
@@ -290,23 +309,41 @@ const deepMerge = <T>(base: T, patch: unknown): T => {
 
 /** Merges a patch into one section (or the whole kit with 'all'); keeps derived fields in step. */
 export function mergeBrandKit(kit: BrandKit, section: BrandKitSection | 'all', patch: Record<string, unknown>): BrandKit {
+  return mergeBrandKitChecked(kit, section, patch).kit;
+}
+
+/**
+ * mergeBrandKit, and a line for every patch value that could not be used as given: it keeps the
+ * kit's value there, so a wrong type never reaches the kit (and the Brand kit panel) at all.
+ */
+export function mergeBrandKitChecked(kit: BrandKit, section: BrandKitSection | 'all', patch: Record<string, unknown>): { kit: BrandKit; issues: string[] } {
   // The kit keeps only the guideline's refinements (moves, layouts and recipes merged by id), so the
   // rest keeps following the kit's edits; null resets it.
   if (section === 'guideline') {
     const value = 'guideline' in patch ? patch.guideline : patch;
-    if (value === null) return { ...kit, guideline: null, updatedAt: now() };
+    if (value === null) return { kit: { ...kit, guideline: null, updatedAt: now() }, issues: [] };
     const source = isRecord(value) && (value.source === 'edited' || value.source === 'ai') ? value.source : 'ai';
-    return { ...kit, guideline: refineGuideline(kit, isRecord(value) ? value : {}, source), updatedAt: now() };
+    return { kit: { ...kit, guideline: refineGuideline(kit, isRecord(value) ? value : {}, source), updatedAt: now() }, issues: [] };
+  }
+  // A guideline inside an "all" patch takes the guideline's own checks, like section "guideline".
+  if (section === 'all' && 'guideline' in patch) {
+    const { guideline, ...rest } = patch;
+    const merged = Object.keys(rest).length ? mergeBrandKitChecked(kit, 'all', rest) : { kit, issues: [] };
+    const refined = mergeBrandKitChecked(merged.kit, 'guideline', { guideline });
+    return { kit: refined.kit, issues: [...merged.issues, ...refined.issues] };
   }
   const allowed = section === 'all' ? null : new Set<string>(SECTION_KEYS[section] as string[]);
   // A guideline an older Bhippi saved whole is cut to its refinements against the kit before this
   // edit, the one it was derived from, so the edit reaches everything nobody refined.
-  let next: BrandKit = { ...compactGuideline(normalizeKitGradients(kit)) };
+  const before = wellFormedKit(kit);
+  let next: BrandKit = { ...compactGuideline(before) };
   for (const [key, value] of Object.entries(patch)) {
     const target = section === 'all' ? key : allowed?.has(key) ? key : SECTION_KEYS[section][0];
     const current = (next as unknown as Record<string, unknown>)[target];
     (next as unknown as Record<string, unknown>)[target] = target === key ? deepMerge(current, value) : deepMerge(current, { [key]: value });
   }
+  const repaired = repairKit(next as unknown as Record<string, unknown>, before);
+  next = repaired.kit;
   // Keep the quick palette in step with the token list, and vice versa.
   const token = (role: ColorRole) => next.colors?.tokens?.find((t) => t.role === role)?.hex;
   if (section === 'colors' || section === 'all') {
@@ -325,7 +362,7 @@ export function mergeBrandKit(kit: BrandKit, section: BrandKitSection | 'all', p
   if (section === 'typography' || section === 'all') {
     next = { ...next, fonts: { display: next.typography.display.family, body: next.typography.body.family, mono: next.typography.mono.family }, type: next.typography.scale };
   }
-  return { ...normalizeKitGradients(next), updatedAt: now() };
+  return { kit: { ...next, updatedAt: now() }, issues: repaired.issues };
 }
 
 export function validateBrandKit(kit: unknown): string[] {
@@ -413,7 +450,7 @@ export function brandKitVars(kit: BrandKit, shortSide = 1080): Record<string, st
 
 /** The compact object the system prompt receives when a kit is active — never the raw kit. */
 export function brandKitContext(kit: BrandKit) {
-  kit = normalizeKitGradients(kit);
+  kit = wellFormedKit(kit);
   const theme = brandKitTheme(kit);
   return {
     id: kit.id,
@@ -543,7 +580,7 @@ export function importBrandKit(text: string): BrandKit | { error: string } {
     const value = JSON.parse(text) as unknown;
     if (!isRecord(value)) return { error: 'not a brand kit object' };
     const base = newBrandKit({ style: typeof value.style === 'string' ? value.style : undefined, name: typeof value.name === 'string' ? value.name : undefined });
-    const merged = normalizeKitGradients({ ...deepMerge(base, value), id: typeof value.id === 'string' && value.id ? value.id : uid(), version: BRAND_KIT_VERSION, updatedAt: now() } as BrandKit);
+    const merged = repairKit({ ...deepMerge(base, value), id: typeof value.id === 'string' && value.id ? value.id : uid(), version: BRAND_KIT_VERSION, updatedAt: now() }, base).kit;
     const errors = validateBrandKit(merged);
     return errors.length ? { error: errors.join('; ') } : merged;
   } catch (error) {
@@ -556,8 +593,52 @@ export function resolveActiveKit(doc: BrandKitDoc | null | undefined, project?: 
   if (!doc?.kits?.length) return null;
   const id = project?.activeBrandKitId ?? doc.activeId;
   const found = doc.kits.find((k) => k.id === id) ?? (project?.activeBrandKitId ? doc.kits.find((k) => k.id === doc.activeId) : undefined);
-  if (found) return normalizeKitGradients(found);
-  return doc.kits.length === 1 ? normalizeKitGradients(doc.kits[0]) : null;
+  if (found) return wellFormedKit(found);
+  return doc.kits.length === 1 ? wellFormedKit(doc.kits[0]) : null;
+}
+
+/**
+ * A kit from outside Bhippi's own code (the settings file, a pasted export) fitted to the BrandKit
+ * shape, against a fresh kit in its own style. Null when it is not a kit object at all.
+ */
+export function repairBrandKit(raw: unknown): { kit: BrandKit; issues: string[] } | null {
+  if (!isRecord(raw)) return null;
+  const base = newBrandKit({ style: typeof raw.style === 'string' ? raw.style : undefined, name: typeof raw.name === 'string' ? raw.name : undefined });
+  return repairKit(raw, base);
+}
+
+const wellFormed = new WeakMap<object, BrandKit>();
+/** `kit` as every reader needs it: the same object when it already was well formed. */
+export function wellFormedKit(kit: BrandKit): BrandKit {
+  const cached = wellFormed.get(kit);
+  if (cached) return cached;
+  const fixed = repairBrandKit(kit)?.kit ?? kit;
+  wellFormed.set(kit, fixed);
+  return fixed;
+}
+
+/**
+ * The brand kit document as the settings file holds it, with every kit fitted to the BrandKit
+ * shape. `changed` says the stored copy needs writing back; `issues` names what was repaired.
+ */
+export function repairBrandKitDoc(raw: unknown): { doc: BrandKitDoc; changed: boolean; issues: string[] } {
+  if (!isRecord(raw)) return { doc: emptyBrandKitDoc(), changed: raw !== undefined && raw !== null, issues: [] };
+  const list = Array.isArray(raw.kits) ? raw.kits : [];
+  let changed = list !== raw.kits;
+  const issues: string[] = [];
+  const kits = list.flatMap((entry): BrandKit[] => {
+    const repaired = repairBrandKit(entry);
+    if (!repaired) {
+      changed = true;
+      return [];
+    }
+    if (repaired.kit !== entry) changed = true;
+    issues.push(...repaired.issues.map((issue) => `${repaired.kit.name}: ${issue}`));
+    return [repaired.kit];
+  });
+  const activeId = typeof raw.activeId === 'string' && kits.some((kit) => kit.id === raw.activeId) ? raw.activeId : null;
+  if (activeId !== (raw.activeId ?? null)) changed = true;
+  return { doc: changed ? { kits, activeId } : (raw as unknown as BrandKitDoc), changed, issues };
 }
 
 /** How well a kit matches free text (a brand name, a product, an industry, a style word). */

@@ -25,10 +25,12 @@
 use crate::AppState;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 
 pub const UNTITLED: &str = "Untitled project";
+/// Where a project with no file yet keeps its files, one folder per project (`<root>/Unsaved
+/// projects/<key>`), so two unsaved projects never share a folder.
+pub const UNSAVED_DIR: &str = "Unsaved projects";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
@@ -137,17 +139,15 @@ impl Category {
     }
 }
 
-/// Storage state that lives beside the settings: the fallback root and the open project's name.
+/// Storage state that lives beside the settings: the fallback root. Which project a file belongs
+/// to is the session's (sessions.rs): every window works in its own project's folder.
 pub struct Storage {
     default_root: PathBuf,
-    project: Mutex<String>,
-    /// When the autosave copy in `Project/` was last written, so edits do not rewrite it constantly.
-    last_backup: Mutex<Option<std::time::Instant>>,
 }
 
 impl Storage {
     pub fn new(default_root: PathBuf) -> Self {
-        Self { default_root, project: Mutex::new(UNTITLED.to_owned()), last_backup: Mutex::new(None) }
+        Self { default_root }
     }
 }
 
@@ -195,9 +195,34 @@ pub fn saved_folder(file: &Path) -> Option<PathBuf> {
 }
 
 /// The project folder: the one a saved `.bhippi` owns ([`saved_folder`]), so renaming a saved
-/// project does not scatter its files; otherwise `<root>/<sanitised name>`.
-pub fn project_dir_for(root: &Path, name: &str, saved_file: Option<&str>) -> PathBuf {
-    saved_file.map(Path::new).and_then(saved_folder).unwrap_or_else(|| root.join(sanitize(name)))
+/// project does not scatter its files; for an unsaved project its own `<root>/Unsaved
+/// projects/<key>`; otherwise (a session from before unsaved projects had keys) `<root>/<name>`.
+pub fn project_dir_for(root: &Path, name: &str, saved_file: Option<&str>, unsaved: Option<&str>) -> PathBuf {
+    if let Some(folder) = saved_file.map(Path::new).and_then(saved_folder) {
+        return folder;
+    }
+    match unsaved.map(str::trim).filter(|key| !key.is_empty()) {
+        Some(key) => root.join(UNSAVED_DIR).join(sanitize(key)),
+        None => root.join(sanitize(name)),
+    }
+}
+
+/// New Project (and the first save of an unsaved one): `<parent>/<name>/Project/<name>.bhippi`,
+/// its folder created. A folder that already holds anything is refused, so two projects never
+/// share one and never mix their footage, downloads, documents or AI work.
+pub fn new_project_file(parent: &Path, name: &str) -> Result<PathBuf, String> {
+    if !parent.is_absolute() {
+        return Err("choose a full folder path".to_owned());
+    }
+    let name = sanitize(name);
+    let folder = parent.join(&name);
+    let taken = folder.is_file() || std::fs::read_dir(&folder).is_ok_and(|mut entries| entries.next().is_some());
+    if taken {
+        return Err(format!("“{name}” already exists in {}. Choose another name or location.", parent.display()));
+    }
+    let project = category_dir(&folder, Category::Project);
+    std::fs::create_dir_all(&project).map_err(|error| format!("cannot create {}: {error}", project.display()))?;
+    Ok(project.join(format!("{name}.bhippi")))
 }
 
 pub fn category_dir(project: &Path, category: Category) -> PathBuf {
@@ -214,31 +239,29 @@ pub fn root(state: &AppState) -> PathBuf {
         .unwrap_or_else(|| state.storage.default_root.clone())
 }
 
-pub fn project_name(state: &AppState) -> String {
-    state.storage.project.lock().map(|name| name.clone()).unwrap_or_else(|_| UNTITLED.to_owned())
+/// The name of the project a session holds.
+pub fn project_name(state: &AppState, session: &str) -> String {
+    state.sessions.get(session).map(|tab| tab.name).filter(|name| !name.trim().is_empty()).unwrap_or_else(|| UNTITLED.to_owned())
 }
 
-/// The open project's folder (not created).
-pub fn project_dir(state: &AppState) -> PathBuf {
-    let settings = state.settings();
-    project_dir_for(&root(state), &project_name(state), settings.project_path.as_deref())
+/// The folder of the project a session holds (not created).
+pub fn project_dir(state: &AppState, session: &str) -> PathBuf {
+    let tab = state.sessions.get(session).unwrap_or_default();
+    let name = if tab.name.trim().is_empty() { UNTITLED } else { tab.name.as_str() };
+    project_dir_for(&root(state), name, tab.project_path.as_deref(), tab.unsaved_folder.as_deref())
 }
 
-/// A category folder of the open project, created on demand.
-pub fn dir(state: &AppState, category: Category) -> Result<PathBuf, String> {
-    let path = category_dir(&project_dir(state), category);
+/// A category folder of a session's project, created on demand.
+pub fn dir(state: &AppState, session: &str, category: Category) -> Result<PathBuf, String> {
+    let path = category_dir(&project_dir(state, session), category);
     std::fs::create_dir_all(&path).map_err(|error| format!("cannot create {}: {error}", path.display()))?;
     Ok(path)
 }
 
-/// Tells storage which project is open; new files go to its folder from now on.
-pub fn set_current_project(state: &AppState, name: &str) {
+/// Tells storage what a session's project is called; its new files go to that folder from now on.
+pub fn set_current_project(state: &AppState, session: &str, name: &str) {
     let name = if name.trim().is_empty() { UNTITLED } else { name.trim() };
-    if let Ok(mut slot) = state.storage.project.lock() {
-        if *slot != name {
-            *slot = name.to_owned();
-        }
-    }
+    state.sessions.update(session, |tab| tab.name = name.to_owned());
 }
 
 /// The folder that holds (or will hold) the per-id folder `id` of `category` — a Roto run, a
@@ -246,15 +269,17 @@ pub fn set_current_project(state: &AppState, name: &str) {
 /// before this layout keep working; then any other project under the root (a run id is unique,
 /// so a run made while another project was open is still found). A fresh id lands in the open
 /// project.
-pub fn locate(state: &AppState, category: Category, legacy: &Path, id: &str) -> PathBuf {
-    let current = category_dir(&project_dir(state), category);
+pub fn locate(state: &AppState, session: &str, category: Category, legacy: &Path, id: &str) -> PathBuf {
+    let current = category_dir(&project_dir(state, session), category);
     if id.is_empty() || current.join(id).exists() {
         return current;
     }
     if legacy.join(id).exists() {
         return legacy.to_path_buf();
     }
-    if let Ok(entries) = std::fs::read_dir(root(state)) {
+    let root = root(state);
+    for parent in [root.clone(), root.join(UNSAVED_DIR)] {
+        let Ok(entries) = std::fs::read_dir(parent) else { continue };
         for entry in entries.flatten() {
             let candidate = category_dir(&entry.path(), category);
             if candidate.join(id).exists() {
@@ -280,16 +305,12 @@ pub fn unique_path(dir: &Path, file_name: &str) -> PathBuf {
 /// Keeps `Project/<name> (autosave).bhippi` — a complete, openable project file with its media
 /// list — at most once a minute. An empty project writes nothing, so a fresh start does not
 /// leave an "Untitled project" folder behind.
-pub fn autosave_backup(state: &AppState, project: &crate::project::Project) {
+pub fn autosave_backup(state: &AppState, session: &str, project: &crate::project::Project) {
     if project.media.is_empty() && project.comps.iter().all(|comp| comp.clips.is_empty()) {
         return;
     }
-    {
-        let Ok(mut last) = state.storage.last_backup.lock() else { return };
-        if last.is_some_and(|when| when.elapsed() < std::time::Duration::from_secs(60)) {
-            return;
-        }
-        *last = Some(std::time::Instant::now());
+    if !state.sessions.backup_due(session, std::time::Duration::from_secs(60)) {
+        return;
     }
     let assets: Vec<crate::library::Asset> = state
         .library
@@ -304,12 +325,14 @@ pub fn autosave_backup(state: &AppState, project: &crate::project::Project) {
         assets,
         extras: None,
     };
-    let Ok(folder) = dir(state, Category::Project) else { return };
+    let Ok(folder) = dir(state, session, Category::Project) else { return };
     let path = folder.join(format!("{} (autosave).bhippi", sanitize(&project.name)));
     if let Err(error) = crate::files::write_document(&path, &document) {
         tracing::warn!(%error, "project autosave copy failed");
     }
-    keep_version(&folder, &project.name, &document);
+    if state.sessions.version_due(session, VERSION_EVERY) {
+        keep_version(&folder, &project.name, &document);
+    }
 }
 
 /// Timestamped versions kept per project (File › Restore from Backup…), newest last.
@@ -317,18 +340,10 @@ const VERSIONS_KEPT: usize = 20;
 /// How often a new version is kept, while the project keeps changing.
 const VERSION_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
-/// A version of the project at most every five minutes in `Project/Backups/<name> <date time>.bhippi`,
-/// the newest 20 kept: the rolling autosave only ever holds the last minute, so "this morning's
-/// version" was gone by the afternoon.
+/// A version of the project in `Project/Backups/<name> <date time>.bhippi` (the caller keeps it to
+/// one every five minutes per project), the newest 20 kept: the rolling autosave only ever holds
+/// the last minute, so "this morning's version" was gone by the afternoon.
 fn keep_version(folder: &Path, name: &str, document: &crate::files::Document) {
-    static LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
-    {
-        let Ok(mut last) = LAST.lock() else { return };
-        if last.is_some_and(|when| when.elapsed() < VERSION_EVERY) {
-            return;
-        }
-        *last = Some(std::time::Instant::now());
-    }
     let backups = folder.join("Backups");
     if std::fs::create_dir_all(&backups).is_err() {
         return;
@@ -376,9 +391,9 @@ pub struct Backup {
     pub rolling: bool,
 }
 
-/// The open project's backups, newest first: the rolling autosave and the kept versions.
-pub fn backups(state: &AppState, name: &str) -> Vec<Backup> {
-    let Ok(folder) = dir(state, Category::Project) else { return Vec::new() };
+/// A session's project's backups, newest first: the rolling autosave and the kept versions.
+pub fn backups(state: &AppState, session: &str, name: &str) -> Vec<Backup> {
+    let Ok(folder) = dir(state, session, Category::Project) else { return Vec::new() };
     let stem = sanitize(name);
     let mut paths: Vec<(PathBuf, bool)> = versions_of(&folder.join("Backups"), &stem).into_iter().map(|path| (path, false)).collect();
     let rolling = folder.join(format!("{stem} (autosave).bhippi"));
@@ -398,13 +413,19 @@ pub fn backups(state: &AppState, name: &str) -> Vec<Backup> {
     out.into_iter().map(|(_, backup)| backup).collect()
 }
 
-/// Deletes what a generation job wrote into the open project (Generated/<kind>/<id>, or a Clean
-/// plates folder whose name ends in the id).
+/// Deletes what a generation job wrote (Generated/<kind>/<id>, or a Clean plates folder whose name
+/// ends in the id) in whichever open project it went to.
 pub fn remove_job_output(state: &AppState, job_id: &str) {
     if job_id.is_empty() || job_id.contains(['/', '\\', '.']) {
         return;
     }
-    let project = project_dir(state);
+    for session in state.sessions.ids() {
+        remove_job_output_in(&project_dir(state, &session), job_id);
+    }
+}
+
+fn remove_job_output_in(project: &Path, job_id: &str) {
+    let project = project.to_path_buf();
     for kind in ["Images", "Video", "Audio"] {
         let folder = category_dir(&project, Category::Generated).join(kind).join(job_id);
         if folder.is_dir() {
@@ -496,9 +517,9 @@ pub struct StorageInfo {
     categories: Vec<CategoryInfo>,
 }
 
-fn info_of(state: &AppState) -> StorageInfo {
+fn info_of(state: &AppState, session: &str) -> StorageInfo {
     let root_dir = root(state);
-    let project = project_dir(state);
+    let project = project_dir(state, session);
     let categories = Category::ALL
         .into_iter()
         .map(|category| {
@@ -517,23 +538,24 @@ fn info_of(state: &AppState) -> StorageInfo {
         custom: state.settings().storage_root.is_some_and(|path| !path.trim().is_empty()),
         root: root_dir.display().to_string(),
         default_root: state.storage.default_root.display().to_string(),
-        project_name: project_name(state),
+        project_name: project_name(state, session),
         project_dir: project.display().to_string(),
         categories,
     }
 }
 
-/// The storage root, the open project's folder, and each category folder with its size.
+/// The storage root, the window's project folder, and each category folder with its size.
 #[tauri::command]
-pub async fn storage_info(state: State<'_, std::sync::Arc<AppState>>) -> Result<StorageInfo, String> {
+pub async fn storage_info(webview: tauri::Webview, state: State<'_, std::sync::Arc<AppState>>) -> Result<StorageInfo, String> {
     let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || info_of(&state)).await.map_err(|error| error.to_string())
+    let session = state.sessions.id_for(webview.label());
+    tauri::async_runtime::spawn_blocking(move || info_of(&state, &session)).await.map_err(|error| error.to_string())
 }
 
 /// Moves where new project folders go. `None` (or empty) returns to the default. The folder must
 /// be writable; nothing already saved is moved.
 #[tauri::command]
-pub fn storage_set_root(app: AppHandle, state: State<'_, std::sync::Arc<AppState>>, path: Option<String>) -> Result<StorageInfo, String> {
+pub fn storage_set_root(app: AppHandle, webview: tauri::Webview, state: State<'_, std::sync::Arc<AppState>>, path: Option<String>) -> Result<StorageInfo, String> {
     let chosen = path.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
     let target = chosen.as_ref().map(PathBuf::from).unwrap_or_else(|| state.storage.default_root.clone());
     if !target.is_absolute() {
@@ -549,31 +571,45 @@ pub fn storage_set_root(app: AppHandle, state: State<'_, std::sync::Arc<AppState
         crate::store::write_json(&state.paths.settings_file(), &*settings)?;
     }
     allow_root(&app, &target);
-    Ok(info_of(&state))
+    Ok(info_of(&state, &state.sessions.id_for(webview.label())))
 }
 
-/// Which project new files belong to (also set by every autosave).
+/// Which project the window's new files belong to (also set by every autosave).
 #[tauri::command]
-pub fn storage_set_project(state: State<'_, std::sync::Arc<AppState>>, name: String) {
-    set_current_project(&state, &name);
+pub fn storage_set_project(webview: tauri::Webview, state: State<'_, std::sync::Arc<AppState>>, name: String) {
+    set_current_project(&state, &state.sessions.id_for(webview.label()), &name);
 }
 
-/// The open project's folder, without creating anything (cheap; for building paths in the UI).
+/// Makes a new project's own folder (see [`new_project_file`]) and answers the `.bhippi` path to
+/// write there. The folder may sit outside the storage root, so the webview is let read it.
 #[tauri::command]
-pub fn storage_project_dir(state: State<'_, std::sync::Arc<AppState>>) -> String {
-    project_dir(&state).display().to_string()
+pub async fn storage_new_project(app: AppHandle, parent: String, name: String) -> Result<String, String> {
+    let file = tauri::async_runtime::spawn_blocking(move || new_project_file(Path::new(parent.trim()), &name))
+        .await
+        .map_err(|error| error.to_string())??;
+    if let Some(folder) = saved_folder(&file) {
+        let _ignored = app.asset_protocol_scope().allow_directory(folder, true);
+    }
+    Ok(file.display().to_string())
 }
 
-/// One category folder of the open project (created), or the project folder itself.
+/// The window's project folder, without creating anything (cheap; for building paths in the UI).
 #[tauri::command]
-pub fn storage_dir(state: State<'_, std::sync::Arc<AppState>>, category: Option<String>) -> Result<String, String> {
+pub fn storage_project_dir(webview: tauri::Webview, state: State<'_, std::sync::Arc<AppState>>) -> String {
+    project_dir(&state, &state.sessions.id_for(webview.label())).display().to_string()
+}
+
+/// One category folder of the window's project (created), or the project folder itself.
+#[tauri::command]
+pub fn storage_dir(webview: tauri::Webview, state: State<'_, std::sync::Arc<AppState>>, category: Option<String>) -> Result<String, String> {
+    let session = state.sessions.id_for(webview.label());
     let path = match category.as_deref() {
         None | Some("") => {
-            let path = project_dir(&state);
+            let path = project_dir(&state, &session);
             std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
             path
         }
-        Some(id) => dir(&state, Category::parse(id).ok_or_else(|| format!("no storage category {id}"))?)?,
+        Some(id) => dir(&state, &session, Category::parse(id).ok_or_else(|| format!("no storage category {id}"))?)?,
     };
     Ok(path.display().to_string())
 }
@@ -581,22 +617,23 @@ pub fn storage_dir(state: State<'_, std::sync::Arc<AppState>>, category: Option<
 /// Opens a category folder (or the project folder, or with `root` the storage root) in the file
 /// manager, creating it first so the button never fails on a fresh project.
 #[tauri::command]
-pub fn storage_open(app: AppHandle, state: State<'_, std::sync::Arc<AppState>>, category: Option<String>) -> Result<(), String> {
+pub fn storage_open(app: AppHandle, webview: tauri::Webview, state: State<'_, std::sync::Arc<AppState>>, category: Option<String>) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
+    let session = state.sessions.id_for(webview.label());
     let path = match category.as_deref() {
         Some("root") => root(&state),
-        None | Some("") => project_dir(&state),
-        Some(id) => dir(&state, Category::parse(id).ok_or_else(|| format!("no storage category {id}"))?)?,
+        None | Some("") => project_dir(&state, &session),
+        Some(id) => dir(&state, &session, Category::parse(id).ok_or_else(|| format!("no storage category {id}"))?)?,
     };
     std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
     app.opener().open_path(path.display().to_string(), None::<&str>).map_err(|error| error.to_string())
 }
 
-/// A folder picker parented to the main window (the JS dialog can open behind the app).
+/// A folder picker parented to the window that asked (the JS dialog can open behind the app).
 #[tauri::command]
-pub async fn pick_folder(app: AppHandle, title: String, directory: Option<String>) -> Option<String> {
+pub async fn pick_folder(app: AppHandle, webview: tauri::Webview, title: String, directory: Option<String>) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    let window = app.get_webview_window("main")?;
+    let window = app.get_webview_window(webview.label())?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut dialog = app.dialog().file().set_parent(&window).set_title(&title);
         if let Some(start) = directory.filter(|dir| Path::new(dir).is_dir()) {
@@ -644,13 +681,44 @@ mod tests {
     #[test]
     fn storage_project_dir_follows_the_saved_file_or_the_name() {
         let root = Path::new("/docs/Bhippi");
-        assert_eq!(project_dir_for(root, "My: Film", None), root.join("My Film"));
+        assert_eq!(project_dir_for(root, "My: Film", None, None), root.join("My Film"));
         let saved = Path::new("/elsewhere/Launch").join("Project").join("Launch.bhippi");
-        assert_eq!(project_dir_for(root, "Renamed", saved.to_str()), Path::new("/elsewhere/Launch"));
+        assert_eq!(project_dir_for(root, "Renamed", saved.to_str(), None), Path::new("/elsewhere/Launch"));
         // A file saved anywhere else keeps its media in "<stem> Files" beside it.
         let loose = Path::new("/desktop").join("film.bhippi");
-        assert_eq!(project_dir_for(root, "Film", loose.to_str()), Path::new("/desktop").join("film Files"));
+        assert_eq!(project_dir_for(root, "Film", loose.to_str(), None), Path::new("/desktop").join("film Files"));
         assert_eq!(saved_folder(Path::new("/desktop").join("a*b.bhippi").as_path()), Some(Path::new("/desktop").join("a b Files")));
+    }
+
+    #[test]
+    fn unsaved_projects_each_get_their_own_folder() {
+        let root = Path::new("/docs/Bhippi");
+        let first = project_dir_for(root, UNTITLED, None, Some("2026-09-30 10.00.00 ab12"));
+        let second = project_dir_for(root, UNTITLED, None, Some("2026-09-30 11.30.00 cd34"));
+        assert_eq!(first, root.join(UNSAVED_DIR).join("2026-09-30 10.00.00 ab12"));
+        assert_ne!(first, second);
+        // Once saved, the file's own folder wins over the unsaved key.
+        let saved = Path::new("/films/Launch").join("Project").join("Launch.bhippi");
+        assert_eq!(project_dir_for(root, UNTITLED, saved.to_str(), Some("2026-09-30 10.00.00 ab12")), Path::new("/films/Launch"));
+        // A blank key is no key.
+        assert_eq!(project_dir_for(root, "Film", None, Some("  ")), root.join("Film"));
+    }
+
+    #[test]
+    fn new_projects_get_a_folder_of_their_own() {
+        let parent = std::env::temp_dir().join(format!("bhippi-new-{}", crate::store::new_id()));
+        std::fs::create_dir_all(&parent).expect("dir");
+        let file = new_project_file(&parent, "My: Film").expect("created");
+        assert_eq!(file, parent.join("My Film").join("Project").join("My Film.bhippi"));
+        assert!(parent.join("My Film").join("Project").is_dir());
+        assert_eq!(saved_folder(&file), Some(parent.join("My Film")));
+        // An empty folder of that name is fine; one with anything in it is refused.
+        std::fs::create_dir_all(parent.join("Empty")).expect("dir");
+        assert!(new_project_file(&parent, "Empty").is_ok());
+        std::fs::write(file.clone(), b"{}").expect("write");
+        assert!(new_project_file(&parent, "My Film").unwrap_err().contains("already exists"));
+        assert!(new_project_file(Path::new("relative"), "X").is_err());
+        let _ignored = std::fs::remove_dir_all(parent);
     }
 
     #[test]

@@ -36,6 +36,15 @@ export const STORAGE_CATEGORIES: readonly StorageCategory[] = [
 ];
 
 export const UNTITLED_PROJECT = 'Untitled project';
+/** Mirrors `storage::UNSAVED_DIR`: each project without a file keeps its files in `<root>/Unsaved projects/<key>`. */
+export const UNSAVED_FOLDER = 'Unsaved projects';
+
+/** A fresh key for an unsaved project's own folder: when it began, plus a few random letters. */
+export function newUnsavedKey(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+  return `${stamp} ${Math.random().toString(36).slice(2, 6).padEnd(4, '0')}`;
+}
 
 const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
 
@@ -83,6 +92,9 @@ export function storageKind(path: string, root: string | null = registeredRoot):
     if (match) rest = match[1];
   }
   if (!rest) return null;
+  // An unsaved project's folder sits one level down, under "Unsaved projects/<key>".
+  const unsaved = `${UNSAVED_FOLDER.toLowerCase()}/`;
+  if (rest.startsWith(unsaved)) rest = rest.slice(unsaved.length);
   // Drop the project folder; what follows is the category.
   const inProject = rest.slice(rest.indexOf('/') + 1);
   if (rest.indexOf('/') < 0) return null;

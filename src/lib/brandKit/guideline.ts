@@ -4,6 +4,7 @@
 // with whatever the AI or the user refined (all a kit keeps) merged over it. The motion engine's `brand-*`
 // templates (src/motion/kit/brandTemplates.ts) render `moves` and `layouts` literally.
 import { normalizeGradients } from './gradients';
+import { unwrapToolLists } from './repair';
 import type {
   BrandGuideline, BrandKit, BrandLayoutSpec, BrandMove, FrameState, LayoutZone, MoveElement, MoveKey, MoveRole, SceneRecipe, TypeStep,
 } from './types';
@@ -335,9 +336,24 @@ type Loose<T> = { [K in keyof T]?: unknown };
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const isText = (v: unknown): v is string => typeof v === 'string';
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+/** A number, or one written as text ("0.4", as XML-style tool calls send every number). */
+const asNumber = (v: unknown): number | undefined => (isNumber(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : undefined);
 const text = (v: unknown, fallback = '') => (isText(v) ? v : fallback);
-const count = (v: unknown, fallback: number) => (isNumber(v) ? v : fallback);
-const texts = (v: unknown, fallback: string[] = []) => (Array.isArray(v) ? v.filter(isText) : fallback);
+const count = (v: unknown, fallback: number) => asNumber(v) ?? fallback;
+/** A list of lines; one line sent on its own is a list of one. */
+const texts = (v: unknown, fallback: string[] = []) => (Array.isArray(v) ? v.filter(isText) : isText(v) && v.trim() ? v.split('\n').map((line) => line.trim()).filter(Boolean) : fallback);
+/** The `keys` of `from` that are numbers (or numbers written as text), as numbers. */
+const numbers = <K extends string>(from: unknown, keys: readonly K[]): Partial<Record<K, number>> =>
+  isObject(from) ? (Object.fromEntries(keys.flatMap((k) => { const n = asNumber(from[k]); return n === undefined ? [] : [[k, n]]; })) as Partial<Record<K, number>>) : {};
+/** A key's ease: a named or CSS ease, or four numbers made a cubic-bezier. Anything else is left out. */
+function easeOf(v: unknown): string | undefined {
+  if (isText(v)) return v;
+  if (Array.isArray(v) && v.length === 4) {
+    const n = v.map(asNumber);
+    if (n.every((x): x is number => x !== undefined)) return `cubic-bezier(${n.join(', ')})`;
+  }
+  return undefined;
+}
 const oneOf = <T extends string>(v: unknown, options: readonly T[], fallback: T): T => (options.includes(v as T) ? (v as T) : fallback);
 /** The `keys` of `from` whose values pass `ok`; the rest are left out, not defaulted. */
 const valid = <K extends string, V>(from: unknown, keys: readonly K[], ok: (v: unknown) => v is V): Partial<Record<K, V>> =>
@@ -350,10 +366,10 @@ type MotionFields = Partial<Omit<Motion, 'easing' | 'timing'>> & { easing?: Part
 function motionFields(v: unknown): MotionFields {
   if (!isObject(v)) return {};
   const easing = valid(v.easing, ['enter', 'exit', 'move'] as const, isText);
-  const timing = valid(v.timing, ['enter', 'exit', 'hold', 'stagger', 'wordStagger'] as const, isNumber);
+  const timing = numbers(v.timing, ['enter', 'exit', 'hold', 'stagger', 'wordStagger'] as const);
   return {
-    ...(Array.isArray(v.principles) ? { principles: texts(v.principles) } : {}),
-    ...valid(v, ['fps', 'distance', 'blur', 'overshoot'] as const, isNumber),
+    ...(Array.isArray(v.principles) || isText(v.principles) ? { principles: texts(v.principles) } : {}),
+    ...numbers(v, ['fps', 'distance', 'blur', 'overshoot'] as const),
     ...(Object.keys(easing).length ? { easing } : {}),
     ...(Object.keys(timing).length ? { timing } : {}),
   };
@@ -383,7 +399,12 @@ function wholeMove(m: Loose<BrandMove> & { id: string }): BrandMove {
     ...e,
     name: text(e.name, text(e.role, 'element')),
     role: text(e.role, 'shape') as MoveRole,
-    keys: (Array.isArray(e.keys) ? e.keys : []).filter(isObject).map((k): MoveKey => ({ ...k, frame: count(k.frame, 0), state: isObject(k.state) ? (k.state as FrameState) : {} })),
+    keys: (Array.isArray(e.keys) ? e.keys : []).filter(isObject).map((k): MoveKey => {
+      // ease and note are read as text by every brand-* template and the guideline table.
+      const { ease, note, ...rest } = k;
+      const easing = easeOf(ease);
+      return { ...rest, frame: count(k.frame, 0), state: isObject(k.state) ? (numbers(k.state, Object.keys(k.state)) as FrameState) : {}, ...(easing ? { ease: easing } : {}), ...(isText(note) ? { note } : {}) };
+    }),
   }));
   return { id: m.id, name: text(m.name, m.id), use: text(m.use), description: text(m.description), fps: count(m.fps, FPS), frames: count(m.frames, FPS), elements };
 }
@@ -415,7 +436,7 @@ const byId = <T extends { id: string }>(base: T[], patch: unknown, whole: (item:
 
 /** A refined guideline merged over the derived one: moves, layouts and recipes merge by id. */
 export function mergeGuideline(base: BrandGuideline, patch: Record<string, unknown>, source: BrandGuideline['source'] = 'ai'): BrandGuideline {
-  const p = patch as Loose<BrandGuideline>;
+  const p = unwrapToolLists(patch) as Loose<BrandGuideline>;
   const color = isObject(p.color) ? (p.color as Loose<BrandGuideline['color']>) : null;
   const motion = motionFields(p.motion);
   return {
@@ -484,13 +505,28 @@ function unlike(fields: Record<string, unknown>, base: Record<string, unknown>):
  * this kit — the kit it was derived from, as long as nothing has changed since.
  */
 function refinementsOf(kit: BrandKit, derived: BrandGuideline): Refinements | null {
-  const g = kit.guideline as Loose<BrandGuideline> | null | undefined;
+  const g = unwrapToolLists(kit.guideline) as Loose<BrandGuideline> | null | undefined;
   if (!isObject(g) || g.source === 'derived') return null;
-  if (!Array.isArray(g.typeScale)) return g as unknown as Refinements;
+  const lines = (v: unknown) => (Array.isArray(v) || isText(v) ? texts(v) : undefined);
+  if (!Array.isArray(g.typeScale)) {
+    // Kept refinements, each list checked: a later refinement merges into them by id.
+    const withIds = <T extends { id: string }>(items: unknown, whole: (item: Loose<T> & { id: string }) => T) =>
+      Array.isArray(items) ? items.filter((item): item is Loose<T> & { id: string } => isObject(item) && isText(item.id)).map(whole) : undefined;
+    const kept: Partial<Refinements> = {
+      summary: isText(g.summary) ? g.summary : undefined,
+      color: isObject(g.color) ? colorFields(g.color) : undefined,
+      motion: isObject(g.motion) ? motionFields(g.motion) : undefined,
+      moves: withIds(g.moves, wholeMove),
+      layouts: withIds(g.layouts, wholeLayout),
+      recipes: withIds(g.recipes, wholeRecipe),
+      dos: lines(g.dos),
+      donts: lines(g.donts),
+    };
+    return { ...(Object.fromEntries(Object.entries(kept).filter(([, v]) => v !== undefined)) as Partial<Refinements>), version: 1, source: g.source === 'edited' ? 'edited' : 'ai', updatedAt: text(g.updatedAt, now()) };
+  }
   const changed = <T extends { id: string }>(items: unknown, base: T[]) =>
     (Array.isArray(items) ? items : []).filter((item) => isObject(item) && isText(item.id) && !same(item, base.find((b) => b.id === item.id))) as T[];
   const lists = { moves: changed(g.moves, derived.moves), layouts: changed(g.layouts, derived.layouts), recipes: changed(g.recipes, derived.recipes) };
-  const lines = (v: unknown) => (Array.isArray(v) ? texts(v) : undefined);
   return {
     ...(unlike({ summary: isText(g.summary) ? g.summary : undefined, color: colorFields(g.color), motion: motionFields(g.motion), dos: lines(g.dos), donts: lines(g.donts) }, derived) as Partial<Refinements>),
     ...Object.fromEntries(Object.entries(lists).filter(([, items]) => items.length)),
@@ -514,7 +550,7 @@ export function compactGuideline(kit: BrandKit): BrandKit {
 export function refineGuideline(kit: BrandKit, patch: Record<string, unknown>, source: BrandGuideline['source'] = 'ai'): BrandGuideline {
   const derived = deriveGuideline(kit);
   const kept: Partial<Refinements> = refinementsOf(kit, derived) ?? {};
-  const p = patch as Loose<BrandGuideline>;
+  const p = unwrapToolLists(patch) as Loose<BrandGuideline>;
   const color = { ...kept.color, ...colorFields(p.color) };
   const set = motionFields(p.motion);
   const easing = { ...kept.motion?.easing, ...set.easing };
@@ -528,8 +564,8 @@ export function refineGuideline(kit: BrandKit, patch: Record<string, unknown>, s
     ...(Array.isArray(p.moves) ? { moves: byId(kept.moves ?? [], p.moves, wholeMove, derived.moves) } : {}),
     ...(Array.isArray(p.layouts) ? { layouts: byId(kept.layouts ?? [], p.layouts, wholeLayout, derived.layouts) } : {}),
     ...(Array.isArray(p.recipes) ? { recipes: byId(kept.recipes ?? [], p.recipes, wholeRecipe, derived.recipes) } : {}),
-    ...(Array.isArray(p.dos) ? { dos: texts(p.dos) } : {}),
-    ...(Array.isArray(p.donts) ? { donts: texts(p.donts) } : {}),
+    ...(Array.isArray(p.dos) || isText(p.dos) ? { dos: texts(p.dos) } : {}),
+    ...(Array.isArray(p.donts) || isText(p.donts) ? { donts: texts(p.donts) } : {}),
     version: 1,
     source,
     updatedAt: now(),

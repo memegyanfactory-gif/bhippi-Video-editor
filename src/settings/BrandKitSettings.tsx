@@ -17,7 +17,7 @@ import {
   colorsFrom, findArchetype, findDaisyTheme, fontStack, importBrandKit, isDark, logoMarkup, mergeBrandKit, newBrandKit, resolveActiveKit, validateBrandKit,
   type BrandArchetype, type BrandKit, type DaisyTheme, type BrandKitDoc, type BrandKitSection, type BrandLogo, type ColorRole,
 } from '../lib/brandKit';
-import { api, errorText } from '../lib/ipc';
+import { errorText } from '../lib/ipc';
 import type { Asset, Settings } from '../lib/types';
 
 export type BrandKitSettingsProps = {
@@ -162,7 +162,10 @@ const SECTION_LABELS: Record<BrandKitSection, string> = { identity: 'Identity', 
 
 export function BrandKitSettings(props: BrandKitSettingsProps) {
   const toast = useToast();
-  const doc: BrandKitDoc = props.settings.brandKits ?? emptyBrandKitDoc();
+  // Typing edits live here until they are saved (after a pause), so a keystroke does not send the
+  // whole brand kit document to the backend.
+  const [draft, setDraft] = useState<BrandKitDoc | null>(null);
+  const doc: BrandKitDoc = draft ?? props.settings.brandKits ?? emptyBrandKitDoc();
   const [selectedId, setSelectedId] = useState<string | null>(doc.kits[0]?.id ?? null);
   const [importText, setImportText] = useState('');
   const [showImport, setShowImport] = useState(false);
@@ -170,25 +173,30 @@ export function BrandKitSettings(props: BrandKitSettingsProps) {
   const active = resolveActiveKit(doc, { activeBrandKitId: props.projectBrandKitId });
   const timer = useRef<number | null>(null);
 
-  // The latest settings, so a delayed save never writes an older document over a newer one.
+  // The latest settings and draft, so a delayed save never writes an older document over a newer one.
   const settingsRef = useRef(props.settings);
   settingsRef.current = props.settings;
+  const pending = useRef<BrandKitDoc | null>(null);
+  /** Saves through the app's settings (only the brand kits are sent; a refused save is reported there). */
   const persist = async (next: BrandKitDoc) => {
     // A structural save supersedes any typing save still waiting.
     if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
-    try {
-      props.onSettings(await api.settingsSave({ ...settingsRef.current, brandKits: next }));
-    } catch (error) {
-      toast({ tone: 'error', title: 'Could not save the brand kit', body: errorText(error) });
-    }
-  };
-  /** Typing edits coalesce; structural edits save at once. */
-  const persistSoon = (next: BrandKitDoc) => {
+    pending.current = null;
     props.onSettings({ ...settingsRef.current, brandKits: next });
+    setDraft(null);
+  };
+  /** Typing edits coalesce into one save after a pause; structural edits save at once. */
+  const persistSoon = (next: BrandKitDoc) => {
+    pending.current = next;
+    setDraft(next);
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => { void persist(next); }, 500);
   };
-  useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
+  // Closing the panel mid-typing still saves what was typed.
+  useEffect(() => () => {
+    if (timer.current) window.clearTimeout(timer.current);
+    if (pending.current) props.onSettings({ ...settingsRef.current, brandKits: pending.current });
+  }, []);
 
   const replace = (kit: BrandKit, soon = true) => {
     const next = { ...doc, kits: doc.kits.map((k) => (k.id === kit.id ? kit : k)) };

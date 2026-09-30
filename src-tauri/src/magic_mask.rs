@@ -237,7 +237,8 @@ pub async fn magic_mask_release() -> CommandResult<()> {
 /// run's first frame. `quality` is `fast` (SAM's own edge) or `better` (ViTMatte-refined);
 /// `consistency` (0–1) is how hard the edge is steadied over neighbouring frames.
 #[tauri::command]
-pub fn magic_mask_track_start(state: State<'_, Arc<AppState>>, id: String, from: f64, fps: f64, points: Vec<RotoCorrection>, quality: String, consistency: f64) -> CommandResult<String> {
+pub fn magic_mask_track_start(webview: tauri::Webview, state: State<'_, Arc<AppState>>, id: String, from: f64, fps: f64, points: Vec<RotoCorrection>, quality: String, consistency: f64) -> CommandResult<String> {
+    let session = state.session(&webview);
     if !roto::valid_run_id(&id) || !from.is_finite() || from < 0.0 || !fps.is_finite() || !(1.0..=120.0).contains(&fps) || !valid_points(&points) || !matches!(quality.as_str(), "fast" | "better") || !consistency.is_finite() || !(0.0..=1.0).contains(&consistency) {
         return Err("Invalid Magic Mask tracking request".into());
     }
@@ -251,7 +252,7 @@ pub fn magic_mask_track_start(state: State<'_, Arc<AppState>>, id: String, from:
     if quality == "better" && vit.is_none() {
         return Err("Better quality needs ViTMatte: install it in Settings › Local media, or track at Fast".into());
     }
-    let root = state.roto_root(&id);
+    let root = state.roto_root(&session, &id);
     let folder = roto::dir(&root, &id);
     if !folder.join("frames").is_dir() {
         return Err("Extract source frames first".into());

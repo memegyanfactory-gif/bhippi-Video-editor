@@ -8,8 +8,8 @@ import { addLearnings, forgetSource, LEARNING_AREAS, type NewLearning } from './
 import type { ToolHost } from './aiTools';
 import {
   ARCHETYPES, BRAND_KIT_SECTIONS, DAISY_THEMES, HOUSE_ARCHETYPE, assetDataUrl, assetText, brandBoard, brandKitContext, brandKitPrompt, brandKitSummary, brandKitTheme,
-  brandedPrompt, daisyThemeSummary, daisyThemeToBrandColors, emptyBrandKitDoc, exportBrandKit, findArchetype, findDaisyTheme, findKit, importBrandKit, kitFromArchetype,
-  mergeBrandKit, pickBrandKit, resolveActiveKit, retintGraphicHtml, validateBrandKit,
+  brandedPrompt, daisyThemeSummary, daisyThemeToBrandColors, emptyBrandKitDoc, exportBrandKit, findArchetype, findDaisyTheme, findKit, importBrandKit,
+  mergeBrandKit, mergeBrandKitChecked, kitFromArchetypeChecked, pickBrandKit, resolveActiveKit, retintGraphicHtml, validateBrandKit,
   type BrandKit, type BrandKitDoc, type BrandKitSection, type BrandLogo, type Corner, type LogoRole,
 } from './brandKit';
 import type { NewBrandKitInput } from './brandKit/build';
@@ -45,6 +45,9 @@ const num = (args: Args, key: string): number | undefined => (typeof args[key] =
 const bool = (args: Args, key: string): boolean | undefined => (typeof args[key] === 'boolean' ? (args[key] as boolean) : undefined);
 const record = (args: Args, key: string): Args | undefined => (args[key] && typeof args[key] === 'object' && !Array.isArray(args[key]) ? (args[key] as Args) : undefined);
 const list = (args: Args, key: string): string[] | undefined => (Array.isArray(args[key]) ? (args[key] as unknown[]).filter((v): v is string => typeof v === 'string') : undefined);
+
+/** The values a kit write could not use as given (they kept the kit's value), for the model to resend. */
+const notUsed = (issues: string[]): string => (issues.length ? ` Not used as given (the kit kept its value; send the right type): ${issues.slice(0, 8).join('; ')}${issues.length > 8 ? `; and ${issues.length - 8} more` : ''}.` : '');
 
 export const brandKitDoc = (host: ToolHost): BrandKitDoc => host.settings?.().brandKits ?? emptyBrandKitDoc();
 
@@ -157,7 +160,8 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
         voice: record(args, 'voice') as NewBrandKitInput['voice'], motion: record(args, 'motion') as NewBrandKitInput['motion'], imagery: record(args, 'imagery') as NewBrandKitInput['imagery'],
         layout: record(args, 'layout') as NewBrandKitInput['layout'], audio: record(args, 'audio') as NewBrandKitInput['audio'], social: record(args, 'social') as NewBrandKitInput['social'], notes: str(args, 'notes'),
       };
-      let kit = kitFromArchetype(arch, input);
+      const built = kitFromArchetypeChecked(arch, input);
+      let kit = built.kit;
       const daisyId = str(args, 'daisyTheme');
       if (daisyId) {
         const theme = findDaisyTheme(daisyId);
@@ -172,7 +176,7 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
       if (error) return fail(error);
       const activate = bool(args, 'activate') !== false;
       if (activate) ctx.commit((current) => ({ ...current, activeBrandKitId: kit.id }), 'Brand kit');
-      return done(`Created brand kit "${kit.name}" from ${arch.name}${daisyId ? ` with DaisyUI ${daisyId} colours` : ''}${activate ? '; it is now this project\'s kit' : ''}${asDefault ? ' and the user default' : ''}. Every graphic, text and generation now reads it. Show it with render_brand_board.`, { kit: publicKit(kit), context: brandKitContext(kit) });
+      return done(`Created brand kit "${kit.name}" from ${arch.name}${daisyId ? ` with DaisyUI ${daisyId} colours` : ''}${activate ? '; it is now this project\'s kit' : ''}${asDefault ? ' and the user default' : ''}. Every graphic, text and generation now reads it. Show it with render_brand_board.${notUsed(built.issues)}`, { kit: publicKit(kit), context: brandKitContext(kit) });
     }
 
     case 'update_brand_kit': {
@@ -182,12 +186,12 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
       const patch = record(args, 'patch');
       if (!section || (section !== 'all' && !BRAND_KIT_SECTIONS.includes(section))) return fail(`section must be one of ${BRAND_KIT_SECTIONS.join(', ')} or "all".`);
       if (!patch || !Object.keys(patch).length) return fail('patch must be an object with the fields to change.');
-      const next = mergeBrandKit(kit, section, patch);
+      const { kit: next, issues } = mergeBrandKitChecked(kit, section, patch);
       const errors = validateBrandKit(next);
       if (errors.length) return fail(`That change would make the kit invalid: ${errors.join('; ')}.`);
       const error = await saveDoc(host, { ...doc, kits: doc.kits.map((k) => (k.id === kit.id ? next : k)) });
       if (error) return fail(error);
-      return done(`Updated ${section} of "${next.name}".`, { id: next.id, section, value: sectionOf(next, section), kit: brandKitSummary(next) });
+      return done(`Updated ${section} of "${next.name}".${notUsed(issues)}`, { id: next.id, section, value: sectionOf(next, section), kit: brandKitSummary(next), ...(issues.length ? { notUsed: issues } : {}) });
     }
 
     case 'delete_brand_kit': {

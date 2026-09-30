@@ -52,13 +52,6 @@ impl Paths {
         self.root.join("settings.json")
     }
 
-    pub fn project_file(&self) -> PathBuf {
-        self.projects.join("current.json")
-    }
-
-    pub fn chat_file(&self) -> PathBuf {
-        self.projects.join("chat.json")
-    }
 }
 
 /// Reads JSON, falling back to `T::default()` when the file is absent or unreadable. A
@@ -75,6 +68,66 @@ pub fn read_json<T: DeserializeOwned + Default>(path: &Path) -> T {
             T::default()
         }
     }
+}
+
+/// Reads JSON like `read_json`, but a value of the wrong type costs only that field, not the file:
+/// every top-level field (and every field inside an object-valued one) that fits `T` is kept, the
+/// rest fall back to their defaults. The dropped paths come back so the caller can say what went.
+/// When anything is dropped the file as it was is copied to `*.before-repair.json`.
+pub fn read_json_lenient<T: DeserializeOwned + Serialize + Default>(path: &Path) -> (T, Vec<String>) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (T::default(), Vec::new());
+    };
+    let value: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "unreadable JSON kept aside");
+            let _ignored = std::fs::rename(path, path.with_extension("corrupt"));
+            return (T::default(), Vec::new());
+        }
+    };
+    if let Ok(whole) = serde_json::from_value::<T>(value.clone()) {
+        return (whole, Vec::new());
+    }
+    let (fitted, dropped) = fit_fields::<T>(serde_json::to_value(T::default()).unwrap_or_default(), &value);
+    if !dropped.is_empty() {
+        tracing::warn!(path = %path.display(), ?dropped, "fields of the wrong type fell back to their defaults");
+        let _ignored = std::fs::copy(path, path.with_extension("before-repair.json"));
+    }
+    (fitted, dropped)
+}
+
+/// `base` (a valid `T` as JSON) with each field of `incoming` laid over it where the result is still
+/// a valid `T`; object-valued fields that do not fit whole are tried one inner field at a time.
+/// Returns the value and the paths that had to be dropped.
+pub fn fit_fields<T: DeserializeOwned + Default>(mut base: serde_json::Value, incoming: &serde_json::Value) -> (T, Vec<String>) {
+    let mut dropped = Vec::new();
+    let fits = |candidate: &serde_json::Value| serde_json::from_value::<T>(candidate.clone()).is_ok();
+    if let (Some(fields), true) = (incoming.as_object(), base.is_object()) {
+        for (key, field) in fields {
+            let mut candidate = base.clone();
+            candidate[key.as_str()] = field.clone();
+            if fits(&candidate) {
+                base = candidate;
+                continue;
+            }
+            match (field.as_object(), base.get(key).map(serde_json::Value::is_object)) {
+                (Some(inner), Some(true)) => {
+                    for (inner_key, inner_field) in inner {
+                        let mut candidate = base.clone();
+                        candidate[key.as_str()][inner_key.as_str()] = inner_field.clone();
+                        if fits(&candidate) {
+                            base = candidate;
+                        } else {
+                            dropped.push(format!("{key}.{inner_key}"));
+                        }
+                    }
+                }
+                _ => dropped.push(key.clone()),
+            }
+        }
+    }
+    (serde_json::from_value(base).unwrap_or_default(), dropped)
 }
 
 /// Writes JSON via a temp file and rename, so a crash never leaves half a file.

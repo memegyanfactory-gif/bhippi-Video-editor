@@ -119,7 +119,10 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // (~+71 a step): it sends a launch film, product demo, identity film, kinetic explainer or fluid
       // SaaS film to its playbook and brain skill, where the film lab's lessons live; the old
       // capture_product_ui route in "Living product UI" was rewritten for capture_app_session at no cost.
-      expect(row.step, row.id).toBeLessThan(44_650);
+      // Raised to 44,750 the same day for the blueprint's `build` source and the slideshow lines (~+95
+      // a step): a beat built as layers that move on their own, and the note that create_product_demo
+      // only moves a camera over pictures, so films stop coming out as screenshot slideshows.
+      expect(row.step, row.id).toBeLessThan(44_750);
     }
   });
 

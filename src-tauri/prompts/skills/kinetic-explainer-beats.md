@@ -38,6 +38,8 @@ review_frames after each point. The faults the critic found:
 4. Busy windows (three layers entering or leaving in 3-5 frames): stagger by 4-6 frames.
 5. An orphan pill after its card left: it leaves with its owner.
 6. A white capture in a dark film: relight or recapture.
+7. A card that lands and then sits: while it holds, something in it acts (a field types, a row lifts, a
+   number counts); create_ui_screen {screenshot, parts, actions} cuts the capture into parts that can.
 
 ## 5. Finish
 sound_the_motion (one sound per event, no ticks on words or pills); update_motion_scene finish for the

@@ -3301,7 +3301,6 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .ws-left > .panel-chat.focused { border-color: transparent; }
 .ws-left > .panel-chat .panel-tabs { border-bottom-color: transparent; padding-left: 10px; }
 .ws-left > .panel-chat .chat-list { padding-left: 14px; }
-.ws-left > .panel-chat .production-dock { margin-left: 10px; }
 .ws-left > .panel-chat .composer { margin-left: 10px; background: var(--field); }
 .ws-left > .panel-chat .chat-bar { padding-left: 12px; background: transparent; border-top-color: var(--edge); }
 
@@ -3593,15 +3592,18 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: none;
-  /* Tucks under the composer: the -16px pulls it up past the composer's own 8px top
-     margin, so it reads as a shelf peeking out from behind the composer rather than a
-     separate card floating above it. The extra bottom padding keeps the icon row clear
-     of the ~8px that ends up hidden under the composer. */
-  margin: 0 8px -16px;
-  padding: 7px 10px 15px;
-  border-radius: 14px 14px 0 0;
+  /* A small drop-up tab, centred on the composer and only as wide as its steps. The -14px
+     pulls it past the composer's own 8px top margin so its bottom 6px tuck behind the
+     composer: a tab pulled up from behind the card, not a strip across the panel. The extra
+     bottom padding keeps the icon row clear of the tucked part. */
+  align-self: center;
+  width: fit-content;
+  max-width: calc(100% - 56px);
+  margin: 0 0 -14px;
+  padding: 5px 9px 11px;
+  border-radius: 12px 12px 0 0;
   border: 1px solid rgba(255, 255, 255, 0.10);
   border-bottom: none;
   background:
@@ -3621,7 +3623,7 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 }
 
 /* Two soft corner glints that slowly breathe, plus a diagonal sheen that sweeps the glass. */
-.production-glint { position: absolute; width: 64px; height: 64px; border-radius: 50%; pointer-events: none; filter: blur(10px); z-index: 0; }
+.production-glint { position: absolute; width: 44px; height: 44px; border-radius: 50%; pointer-events: none; filter: blur(10px); z-index: 0; }
 .production-glint.tl { top: -26px; left: -18px; background: radial-gradient(circle, rgba(255, 255, 255, 0.5), transparent 70%); animation: prodGlintTL 5.6s ease-in-out infinite; }
 .production-glint.br { bottom: -28px; right: -20px; background: radial-gradient(circle, rgba(255, 138, 150, 0.5), transparent 70%); animation: prodGlintBR 5.6s ease-in-out infinite 1.6s; }
 @keyframes prodGlintTL { 0%, 100% { opacity: 0.18; transform: translate(0, 0) scale(1); } 50% { opacity: 0.5; transform: translate(5px, 4px) scale(1.18); } }
@@ -3635,10 +3637,10 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 }
 @keyframes prodSheen { 0%, 55% { transform: translateX(-130%); } 100% { transform: translateX(130%); } }
 
-.production-orbits { position: relative; z-index: 1; display: flex; align-items: center; margin: 0; padding: 0 0 5px; list-style: none; }
+.production-orbits { position: relative; z-index: 1; display: flex; align-items: center; margin: 0; padding: 0; list-style: none; }
 .production-orbit { position: relative; display: inline-flex; align-items: center; }
 .production-orbit:not(:first-child)::before {
-  content: ''; width: 14px; height: 2px; margin: 0 7px; border-radius: 2px;
+  content: ''; width: 10px; height: 2px; margin: 0 5px; border-radius: 2px;
   background: rgba(255, 255, 255, 0.14); transition: background 0.4s ease;
 }
 .production-orbit.done + .production-orbit::before { background: linear-gradient(90deg, #46c46a, #7be79b); }
@@ -3646,28 +3648,29 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .orbit-icon {
   position: relative; z-index: 1;
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 50%;
+  width: 22px; height: 22px; border-radius: 50%;
   border: 1.5px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-faint, #858585);
   transition: transform 0.2s ease, color 0.3s ease, border-color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
 }
-.production-orbit:hover .orbit-icon { transform: scale(1.12); }
-.production-orbit.done .orbit-icon { border-color: #46c46a; color: #6be294; background: rgba(70, 196, 106, 0.14); box-shadow: 0 0 0 3px rgba(70, 196, 106, 0.08); }
+.production-orbit:hover .orbit-icon { transform: scale(1.1); }
+.production-orbit.done .orbit-icon { border-color: #46c46a; color: #6be294; background: rgba(70, 196, 106, 0.14); box-shadow: 0 0 0 2px rgba(70, 196, 106, 0.08); }
 .production-orbit.current .orbit-icon {
   border-color: #ff6b76; color: #ffc1c7;
   background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.22), rgba(211, 75, 85, 0.3));
   animation: orbitPulse 2.4s ease-in-out infinite;
 }
 @keyframes orbitPulse {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(211, 75, 85, 0.14), 0 0 6px rgba(211, 75, 85, 0.35); }
-  50% { box-shadow: 0 0 0 4px rgba(211, 75, 85, 0.05), 0 0 10px rgba(211, 75, 85, 0.6); }
+  0%, 100% { box-shadow: 0 0 0 2px rgba(211, 75, 85, 0.14), 0 0 5px rgba(211, 75, 85, 0.35); }
+  50% { box-shadow: 0 0 0 3px rgba(211, 75, 85, 0.05), 0 0 8px rgba(211, 75, 85, 0.6); }
 }
 
+/* Sits on the step's top-right corner: below the icon it ended up half-hidden behind the composer. */
 .orbit-badge {
-  position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%); z-index: 2;
-  font-size: 9px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; white-space: nowrap;
-  padding: 2px 4px; border-radius: 999px;
+  position: absolute; top: -5px; left: 14px; z-index: 2;
+  font-size: 8.5px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; white-space: nowrap;
+  padding: 1.5px 3.5px; border-radius: 999px;
   background: #17171a; border: 1px solid rgba(255, 255, 255, 0.18); color: #ffd4d9;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
@@ -3675,23 +3678,23 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .production-go {
   position: relative; z-index: 1;
   display: inline-flex; align-items: center; justify-content: center;
-  margin-left: auto; width: 32px; height: 32px; flex: none;
+  margin-left: 2px; width: 24px; height: 24px; flex: none;
   border-radius: 50%; border: 1px solid #ff8a8f;
   background: linear-gradient(160deg, #e2585b, #921c1f);
   color: #fff; cursor: pointer;
-  box-shadow: 0 6px 16px rgba(148, 26, 30, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 10px rgba(148, 26, 30, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
   transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
   animation: goPulse 2.4s ease-in-out infinite;
 }
 .production-go:hover:not(:disabled) { transform: scale(1.08); filter: brightness(1.08); }
-.production-go.labelled { width: auto; padding: 0 13px 0 11px; gap: 6px; border-radius: 16px; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.production-go.labelled { width: auto; padding: 0 10px 0 8px; gap: 5px; border-radius: 12px; font-size: 11px; font-weight: 650; white-space: nowrap; }
 .production-go.labelled:hover:not(:disabled) { transform: scale(1.03); }
 .production-go:active:not(:disabled) { transform: scale(0.96); }
 .production-go:disabled { opacity: 0.6; cursor: default; box-shadow: none; animation: none; }
 .production-go.busy { animation: none; }
 @keyframes goPulse {
-  0%, 100% { box-shadow: 0 6px 16px rgba(148, 26, 30, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 0 0 rgba(226, 88, 91, 0.4); }
-  50% { box-shadow: 0 6px 20px rgba(148, 26, 30, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 0 6px rgba(226, 88, 91, 0); }
+  0%, 100% { box-shadow: 0 4px 10px rgba(148, 26, 30, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 0 0 rgba(226, 88, 91, 0.4); }
+  50% { box-shadow: 0 4px 14px rgba(148, 26, 30, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 0 5px rgba(226, 88, 91, 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4004,3 +4007,46 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .panel-drag-ghost { position: fixed; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: 8px; background: rgba(18, 18, 20, 0.95); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); font-size: 12px; color: var(--text); white-space: nowrap; }
 .panel-drag-ghost span { color: var(--text-dim); font-size: 11px; }
 body.panel-dragging, body.panel-dragging * { cursor: grabbing !important; user-select: none !important; }
+
+/* ── project tabs (components/ProjectTabs.tsx) ─────────────────────────────
+   The open projects as browser tabs in the middle of the header: rounded on top, the active one
+   raised in the lighter surface with curved feet where it meets the bar, the others flat with a
+   hairline between them. They share the width and shrink together, as a browser's do. */
+.header-tabs { align-self: stretch; min-width: 0; display: flex; align-items: flex-end; justify-content: center; }
+.ptabs { display: flex; align-items: flex-end; min-width: 0; max-width: 100%; height: 34px; padding: 0 10px; }
+.ptab { --tab-bg: var(--panel-3); position: relative; flex: 0 1 200px; min-width: 64px; height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 8px 0 12px; border-radius: 9px 9px 0 0; color: var(--text-dim); font-size: 12px; cursor: default; user-select: none; }
+.ptab:not(.active):hover { background: var(--panel-2); color: var(--text); }
+.ptab.active { background: var(--tab-bg); color: #fff; z-index: 1; }
+.ptab.active::before, .ptab.active::after { content: ''; position: absolute; bottom: 0; width: 9px; height: 9px; pointer-events: none; }
+.ptab.active::before { left: -9px; background: radial-gradient(circle at 0 0, transparent 8.5px, var(--tab-bg) 9px); }
+.ptab.active::after { right: -9px; background: radial-gradient(circle at 100% 0, transparent 8.5px, var(--tab-bg) 9px); }
+.ptab + .ptab:not(.active)::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 1px; background: var(--line-strong); }
+.ptab.active + .ptab::before, .ptab:hover + .ptab::before { opacity: 0; }
+.ptab.dragging { opacity: 0.5; }
+.ptab-state { flex: none; display: grid; place-items: center; width: 14px; height: 14px; }
+.ptab-state img { opacity: 0.85; }
+.ptab.active .ptab-state .spin, .ptab .ptab-state .spin { color: var(--blue-hi); }
+.ptab-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptab-dirty { flex: none; color: var(--text-dim); font-size: 16px; line-height: 1; margin-top: -1px; }
+.ptab-close { flex: none; width: 18px; height: 18px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-dim); opacity: 0; }
+.ptab:hover .ptab-close, .ptab.active .ptab-close, .ptab-close:focus-visible { opacity: 1; }
+.ptab-close:hover { background: var(--panel-4); color: #fff; }
+/* A narrow tab keeps its close button and state, and loses the name first. */
+.ptab.active .ptab-dirty + .ptab-close { margin-left: -2px; }
+.ptab-new, .ptab-overview { flex: none; align-self: center; width: 28px; height: 28px; margin-left: 4px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-dim); }
+.ptab-new:hover:not(:disabled), .ptab-overview:hover { background: var(--panel-3); color: #fff; }
+.ptab-new:disabled { opacity: 0.4; }
+.ptab-overview.active { color: #fff; background: var(--blue-soft); }
+
+/* ── the overview: every open project's chat beside its preview ─────────────
+   Each project is a window of its own, tiled across the screen; this is one tile. The chat keeps
+   its place in the tree (a running turn keeps streaming), and the Program monitor fills the rest. */
+.overview-bar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; background: var(--panel); flex: none; }
+.overview-bar .ob-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.overview-bar .ob-state { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.overview-bar .ob-state .spin { color: var(--blue-hi); }
+.overview-bar .ob-open { height: 24px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; color: var(--text); font-size: 11.5px; }
+.overview-bar .ob-open:hover { background: var(--panel-3); color: #fff; }
+.app.overview .workspace .ws-left { width: 42% !important; min-width: 260px; display: flex !important; }
+.app.overview .workspace .ws-left + .panel-frame, .app.overview .workspace > .panel-frame { flex: 1; min-width: 0; }
+.app.overview .statusbar { display: none; }

@@ -639,6 +639,8 @@ async function fillMissingWithBuiltins(host: ToolHost, project: Project, commit:
   scenes.forEach((scene, i) => {
     const shots = scene.shots ?? [];
     const legacy = scene as { mediaSource?: string; assetId?: string; compId?: string };
+    // A build scene's visual is made in EDIT; a plate stood in for it would put a picture back under it.
+    if (legacy.mediaSource === 'build') return;
     if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing' && !hasMedia(legacy)) missingPictures.push({ scene: i, shot: null });
     shots.forEach((shot, j) => { if (!hasMedia(shot) && (shot.kind === 'video' || shot.kind === 'image' || shot.kind === 'download' || shot.kind === 'scrape')) missingPictures.push({ scene: i, shot: j }); });
   });
@@ -1436,7 +1438,9 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const problem = storyboardContentError(Array.isArray(args.scenes) ? (args.scenes as StoryboardSceneInput[]) : [], comp.fps, compDuration(comp), knownIds);
       if (problem) return fail(problem);
       const beatProblems: string[] = [];
-      const scenes: NonNullable<Comp['storyboard']> = (args.scenes as Record<string, unknown>[]).map((raw, i) => {
+      // Numbered in time order, the order they are stored in: "Scene 3" in a problem and sceneIndex 2 later are the same scene.
+      const ordered = [...(args.scenes as Record<string, unknown>[])].sort((a, b) => (a.start as number) - (b.start as number));
+      const scenes: NonNullable<Comp['storyboard']> = ordered.map((raw, i) => {
         const row = raw as Args;
         const refs = Array.isArray(row.refs) ? (row.refs as unknown[]).filter((r): r is string => typeof r === 'string') : undefined;
         // The user's own work on a card (a drawn sketch, an uploaded or generated picture) survives
@@ -1447,7 +1451,9 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       });
       const production = parseProduction(args, 'footage', comp.production, beatProblems);
       if (beatProblems.length) return fail(beatProblems.slice(0, 8).join(' ') + (beatProblems.length > 8 ? ` Plus ${beatProblems.length - 8} more.` : ''));
-      editComp(comp, current => ({ ...current, storyboard: scenes.sort((a, b) => a.start - b.start), production }));
+      // This plan replaces a from-scratch blueprint left on the comp: the panel shows this one, and the
+      // old blueprint no longer holds every edit back waiting for execute_blueprint.
+      editComp(comp, current => ({ ...current, storyboard: scenes, production, videoBlueprint: null }));
       const report = gatherReport({ ...comp, storyboard: scenes, production });
       return done(production.phase === 'plan-ready'
         ? `Plan saved: ${scenes.length} scenes, ${report.total} shot(s) to gather, music ${production.music?.source ?? 'none'}. The plan is now waiting for the user — END YOUR TURN with a short summary (script spine, shots, graphics, music). Do not generate media or edit the timeline; the user presses Start generating.`
@@ -1555,9 +1561,9 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const script = blueprint.script;
       const checklist = [
         `1. Voice-over: synthesize_speech_voiceover with the full blueprint script (${script.length} chars)${blueprint.narrator?.voice ? ` using voice ${blueprint.narrator.voice}` : ''}, autoPlace into the Generated folder.`,
-        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : s.mediaSource === 'render' ? `render it into AI Work/Output, then attach_production_asset {sceneIndex: ${i}} with passes (its pass manifest: lands as editable layers) or one file's assetId` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
+        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : s.mediaSource === 'render' ? `render it into AI Work/Output, then attach_production_asset {sceneIndex: ${i}} with passes (its pass manifest: lands as editable layers) or one file's assetId` : s.mediaSource === 'build' ? `nothing to gather: build it in the assembly as layers that move on their own (create_ui_screen from the product's HTML/CSS or a capture cut into parts, create_motion_scene with shapes, icons and live type, render_3d_scene); its shots are references` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
         `${scenes.length + 2}. Wait for ALL ${manifest.length} manifest assets to be imported into the Generated folder.`,
-        `${scenes.length + 3}. Assembly: place voice-over on A1, visual clips scene-by-scene on V1/V2, add motion graphics + transitions + music bed with ducking, then verify_edit_workflow.`,
+        `${scenes.length + 3}. Assembly: place voice-over on A1, visual clips scene-by-scene on V1/V2 and each build scene as its motion scene, add motion graphics + transitions + music bed with ducking, then verify_edit_workflow.`,
       ];
       editComp(comp, current => ({ ...current, videoBlueprint: current.videoBlueprint ? { ...current.videoBlueprint, status: 'executing' } : current.videoBlueprint }));
       return done(`Executing blueprint "${blueprint.title ?? comp.name}": ${scenes.length} scenes, ${manifest.length} manifest assets. Follow the checklist in order — voice-over first, then ALL visuals/downloads, and only then assemble the timeline.`, { checklist, scenes, manifest, script });
@@ -3892,7 +3898,10 @@ ${notes.trim()}${paletteLine}
       if (!passes && !assets.has(assetId)) return fail('assetId is not an imported asset; use the id a generation, download or import returned (or passes: the manifest of a scene you rendered in passes).');
       const sceneIndex = num(args, 'sceneIndex');
       const kind = str(args, 'kind') ?? null;
-      const target = kind === 'music' ? { sceneIndex: -1, kind } : sceneIndex === undefined ? null : { sceneIndex: Math.floor(sceneIndex), shotIndex: num(args, 'shotIndex') ?? null, kind };
+      const shotIndex = num(args, 'shotIndex');
+      if (sceneIndex !== undefined && (!Number.isInteger(sceneIndex) || sceneIndex < 0)) return fail('sceneIndex is the 0-based number of a planned scene (0, 1, 2…).');
+      if (shotIndex !== undefined && (!Number.isInteger(shotIndex) || shotIndex < 0)) return fail('shotIndex is the 0-based number of a shot in that scene (0, 1, 2…).');
+      const target = kind === 'music' ? { sceneIndex: -1, kind } : sceneIndex === undefined ? null : { sceneIndex, shotIndex: shotIndex ?? null, kind };
       if (!target) return fail('Give sceneIndex (0-based) or kind "music".');
       if (passes) {
         // A scene the model rendered itself, in passes: stacked as footage layers of one layered

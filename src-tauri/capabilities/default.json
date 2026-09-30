@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: custom title bar controls, events, drag-and-drop, and file dialogs.",
+  "description": "Editor windows (the first one and each project tab's): custom title bar controls, events, drag-and-drop, and file dialogs.",
   "windows": [
-    "main"
+    "main",
+    "tab-*"
   ],
   "permissions": [
     "core:default",

@@ -128,6 +128,8 @@ impl Supervisor {
         spec: SubagentSpec,
         mut context: TurnContext,
         app: AppHandle,
+        // The window of the lead's turn: the worker's events go there only.
+        window: String,
         stop: (watch::Sender<bool>, watch::Receiver<bool>),
     ) -> Result<String, String> {
         let (stop_sender, stop_receiver) = stop;
@@ -172,7 +174,7 @@ impl Supervisor {
                 elapsed_ms: 0,
                 tool_calls: 0,
             };
-            let _ = emitter.emit(CHAT_EVENT, &ChatEvent::SubagentUpdate(initial_status));
+            let _ = emitter.emit_to(window.as_str(), CHAT_EVENT, &ChatEvent::SubagentUpdate(initial_status));
 
             async move {
                 // The turn's closing event carries its final reply, and whether it failed.
@@ -184,6 +186,7 @@ impl Supervisor {
                 let emit_label = label.clone();
 
                 let turn_app = emitter.clone();
+                let turn_window = window.clone();
                 chat::run_turn(request, context, stop_receiver, move |event: ChatEvent| {
                     if let ChatEvent::Done { reply, fault, .. } = &event {
                         if let Ok(mut stored) = outcome_capture.lock() {
@@ -193,7 +196,7 @@ impl Supervisor {
                     }
 
                     // Forward the event so the UI sees subagent tool calls too.
-                    let _ = turn_app.emit(CHAT_EVENT, &event);
+                    let _ = turn_app.emit_to(turn_window.as_str(), CHAT_EVENT, &event);
 
                     // Emit a progress update on every delta.
                     let progress = SubagentStatus {
@@ -205,7 +208,7 @@ impl Supervisor {
                         elapsed_ms: started.elapsed().as_millis() as u64,
                         tool_calls: tool_capture.load(Ordering::Relaxed),
                     };
-                    let _ = turn_app.emit(CHAT_EVENT, &ChatEvent::SubagentUpdate(progress));
+                    let _ = turn_app.emit_to(turn_window.as_str(), CHAT_EVENT, &ChatEvent::SubagentUpdate(progress));
                 })
                 .await;
 
@@ -222,7 +225,7 @@ impl Supervisor {
                     elapsed_ms: started.elapsed().as_millis() as u64,
                     tool_calls: outcome.tool_calls,
                 };
-                let _ = emitter.emit(CHAT_EVENT, &ChatEvent::SubagentUpdate(done_status));
+                let _ = emitter.emit_to(window.as_str(), CHAT_EVENT, &ChatEvent::SubagentUpdate(done_status));
                 outcome
             }
         })

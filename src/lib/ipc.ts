@@ -2,7 +2,7 @@
 import { prepareEffectExport } from './effectExport';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { AppInfo, Asset, ChatEvent, ExportOptions, Job, Project, ProviderInfo, Settings, ToolCall, ToolResult, ToolStatus } from './types';
+import type { AppInfo, Asset, ChatEvent, ExportOptions, Job, Project, ProviderInfo, Settings, TabsState, ToolCall, ToolResult, ToolStatus } from './types';
 import type { StorageCategoryId } from './storage';
 
 export type ChatRequest = {
@@ -430,6 +430,17 @@ export const api = {
   updateInstall: (path: string) => invoke<void>('update_install', { path }),
   /** A file path passed on the command line (double-clicking a .bhippi file). */
   startupFile: () => invoke<string | null>('startup_file'),
+  // Project tabs (tabs.rs): every open project has a window of its own; only the active one shows.
+  tabsList: () => invoke<TabsState>('tabs_list'),
+  tabReport: (name: string, dirty: boolean, busy: boolean) => invoke<void>('tab_report', { name, dirty, busy }),
+  tabNew: (open?: string | null) => invoke<string>('tab_new', { open: open ?? null }),
+  tabActivate: (id: string) => invoke<void>('tab_activate', { id }),
+  tabMove: (id: string, to: number) => invoke<void>('tab_move', { id, to }),
+  tabFindFile: (path: string) => invoke<string | null>('tab_find_file', { path }),
+  tabClose: (id: string) => invoke<boolean>('tab_close', { id }),
+  tabCloseAnswer: (ok: boolean) => invoke<void>('tab_close_answer', { ok }),
+  appQuit: () => invoke<boolean>('app_quit'),
+  overviewSet: (on: boolean, focus?: string | null) => invoke<void>('overview_set', { on, focus: focus ?? null }),
 
   libraryList: () => invoke<Asset[]>('library_list'),
   /** capture_app_session: the product (or Bhippi itself) cut into parts in states (app_capture.rs). */
@@ -612,6 +623,8 @@ export const api = {
   storageSetRoot: (path: string | null) => invoke<StorageInfo>('storage_set_root', { path }),
   /** Which project new files belong to (autosave also sets it). */
   storageSetProject: (name: string) => invoke<void>('storage_set_project', { name }),
+  /** Makes `<parent>/<name>/Project/` for a new project and answers the .bhippi path in it; refuses a folder already in use. */
+  storageNewProject: (parent: string, name: string) => invoke<string>('storage_new_project', { parent, name }),
   /** The open project's folder, not created. */
   storageProjectDir: () => invoke<string>('storage_project_dir'),
   /** A category folder of the open project, created; no category is the project folder. */
@@ -786,6 +799,14 @@ export const events = {
   tools: on<ToolStatus>('bhippi://tools'),
   toolCall: on<ToolCall>('bhippi://tool-call'),
   openFile: on<string>('bhippi://open-file'),
+  /** The tab list changed: a tab opened, closed, moved, renamed or became active, or the overview toggled. */
+  tabs: on<TabsState>('bhippi://tabs'),
+  /** This window's tab is asked to close (or, with `app`, Bhippi to quit): save or ask, then answer with tabCloseAnswer. */
+  tabCloseRequest: on<{ app: boolean }>('bhippi://tab-close-request'),
+  /** The overview turned on or off. */
+  overview: on<boolean>('bhippi://overview'),
+  /** Another window changed the shared settings (the payload is its window label). */
+  settingsChanged: on<string>('bhippi://settings-changed'),
   /** A model finished downloading or was removed; the Speech panel refreshes itself. */
   models: on<null>('bhippi://models'),
   /** A guideline, plan or note in the project folder changed (the AI wrote it, or a save filed it). */

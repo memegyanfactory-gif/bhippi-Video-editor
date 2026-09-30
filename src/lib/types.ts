@@ -227,8 +227,12 @@ export type Transition = {
   alignment: 'center' | 'start' | 'end';
 };
 
-/** `render`: the agent makes the scene with its own renderer (a script run with its shell tools) while gathering. */
-export type VideoBlueprintMediaSource = 'generate' | 'download' | 'existing' | 'render';
+/**
+ * `render`: the agent makes the scene with its own renderer (a script run with its shell tools) while gathering.
+ * `build`: nothing is gathered as the scene's picture; it is built in EDIT as layers that animate on their own
+ * (rebuilt UI, vectors, icons, live type, 3D). Any shots it lists are references and textures, not the visual.
+ */
+export type VideoBlueprintMediaSource = 'generate' | 'download' | 'existing' | 'render' | 'build';
 export type VideoBlueprintAssetStatus = 'pending' | 'generating' | 'ready';
 export type VideoBlueprintStatus = 'draft' | 'ready' | 'executing' | 'done';
 
@@ -527,7 +531,25 @@ export type Job = {
   message: string;
   result: { path?: string; size?: number; duration?: number } | null;
   cancellable: boolean;
+  /** The open project (tab) that started it, for a job whose result goes into that project. */
+  owner?: string | null;
 };
+
+/** One open project in the tab strip (sessions.rs). */
+export type ProjectTab = {
+  id: string;
+  name: string;
+  projectPath: string | null;
+  /** Edits not yet saved to its file. */
+  dirty: boolean;
+  /** Bhippi AI is working in it. */
+  busy: boolean;
+  /** Its window exists (a tab restored from the last launch opens its window when first shown). */
+  open: boolean;
+};
+
+/** The tab strip: every open project, the active one and the one this window shows. */
+export type TabsState = { tabs: ProjectTab[]; active: string | null; own: string | null; overview: boolean; max: number };
 
 export type Delta =
   | { kind: 'text'; delta: string }
@@ -735,6 +757,8 @@ export type Settings = {
   turnTraces?: boolean | null;
   /** The .bhippi file the session project belongs to, when it has been saved. */
   projectPath: string | null;
+  /** While the session project has no file: the key of its own folder under `<storage root>/Unsaved projects/`. */
+  unsavedFolder?: string | null;
   /** The Program monitor's RAM preview cache (lib/previewCache.ts); on when unset. */
   previewCacheEnabled?: boolean | null;
   /** Its RAM budget in megabytes; 1536 when unset. */

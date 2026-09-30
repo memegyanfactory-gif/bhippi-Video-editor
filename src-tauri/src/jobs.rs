@@ -30,6 +30,8 @@ pub struct Job {
     pub message: String,
     pub result: Option<serde_json::Value>,
     pub cancellable: bool,
+    /// The open project (session) that started it, for jobs whose result goes into that project.
+    pub owner: Option<String>,
 }
 
 struct Entry {
@@ -61,6 +63,12 @@ impl Jobs {
     }
 
     pub fn start(&self, kind: &str, label: impl Into<String>, cancellable: bool) -> JobHandle {
+        self.start_for(None, kind, label, cancellable)
+    }
+
+    /// `start`, for a job whose result belongs to one open project: only that project's window
+    /// takes it in (a finished generation lands in the project that asked for it, not in every tab).
+    pub fn start_for(&self, owner: Option<String>, kind: &str, label: impl Into<String>, cancellable: bool) -> JobHandle {
         let id = crate::store::new_id();
         let (sender, receiver) = watch::channel(false);
         let job = Job {
@@ -72,6 +80,7 @@ impl Jobs {
             message: "Starting…".to_owned(),
             result: None,
             cancellable,
+            owner,
         };
         if let Ok(mut items) = self.items.lock() {
             // Keep the registry small: finished jobs older than the last 50 are forgotten.

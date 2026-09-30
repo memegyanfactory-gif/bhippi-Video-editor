@@ -10,7 +10,7 @@ pub struct Reading { limits: Vec<UsageBucket>, context: Option<ContextUsage>, ch
 
 #[tauri::command]
 pub async fn provider_usage(window: WebviewWindow, state: State<'_, UsageState>, id: String, session_id: Option<String>) -> Result<Reading, String> {
-    if window.label() != "main" { return Err("Usage belongs to the editor window".into()); }
+    if !crate::tabs::is_editor(window.label()) { return Err("Usage belongs to the editor window".into()); }
     if id != "codex" { return Ok(Reading { limits: Vec::new(), context: None, checked_at: chrono::Utc::now().timestamp_millis(), error: None }); }
     let (limits, checked_at, error) = {
         let mut cache = state.0.lock().await;

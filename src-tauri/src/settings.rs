@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 pub struct ExportPrefs {
     /// Short side in pixels: 720, 1080, or 2160.
     pub resolution: Option<u32>,
-    pub fps: Option<u32>,
+    /// Frames per second; the Export dialog offers 23.976, 29.97 and 59.94 as well as whole rates.
+    pub fps: Option<f64>,
     /// `draft` · `standard` · `high`.
     pub quality: Option<String>,
     pub folder: Option<String>,
@@ -128,6 +129,9 @@ pub struct Settings {
     pub recent_projects: Vec<String>,
     /// The file the session project belongs to, when it has been saved.
     pub project_path: Option<String>,
+    /// While the session project has no file: the key of its own folder under `<storage root>/Unsaved
+    /// projects/`, so no two unsaved projects share one (storage.rs).
+    pub unsaved_folder: Option<String>,
     /// Color theme id (see `THEMES` in src/lib/theme.ts); unknown ids fall back to the default theme.
     pub theme: Option<String>,
     /// Theme customisation (the Glass backdrop, tint, blur and opacity); the UI owns the shape.

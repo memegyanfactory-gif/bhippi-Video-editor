@@ -29,16 +29,21 @@ the same steps.
    composer, open a menu, press send, fill the timeline); demo:true fills an empty Bhippi project.
 2. Read the contact sheet it returns. Reject a part with tiny content, a serif fallback, a broken image,
    a placeholder, a local path or dev text; recapture it.
+3. The capture is your source, not your scenes. Mark in the storyboard the moments where the UI itself
+   must move (a panel building, a list filling, a result growing): those parts are rebuilt from the
+   capture, not shown as a still with a camera over it.
 
 ## 4. Build and look, scene by scene (about 35%)
 For each scene:
 1. Build it with the times from the beat map: create_product_demo {capture, shots, actions, cursors} for a
-   camera through the product; type-on-voice, fly-through-word, connect-hub, label-pill, glass-mark,
+   camera through the product; create_ui_screen {screenshot, parts, actions} (or the product's HTML) where
+   the UI itself has to move; type-on-voice, fly-through-word, connect-hub, label-pill, glass-mark,
    logo-lockup or end-card for the other beats; or your own scene.
 2. review_frames on its range: frames at every click, landing and cut.
 3. Write the fault in one line. Typical: the push-in frames the wrong spot; the depth is too subtle (double
    it); ghosting on a fast move; cursors overlap; a tag covers a label; text under 26 px cap height; two
-   things move at once; a move never lands sharp.
+   things move at once; a move never lands sharp; a still picture with only the camera moving (a
+   slideshow): rebuild that moment as parts that move.
 4. Change only that; review the same range again. Two looks per scene is normal. Do not start the next
    scene with a known fault in this one.
 

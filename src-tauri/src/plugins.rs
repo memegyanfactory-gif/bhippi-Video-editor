@@ -407,12 +407,13 @@ pub(crate) fn media_save(dir: &std::path::Path, id: &str, name: &str, bytes: &[u
 /// The file's bytes are the raw request body; the plugin and the name are the `x-plugin-id` and
 /// `x-name` headers. Answers the written file's path.
 #[tauri::command]
-pub fn plugin_media_save(state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> CommandResult<String> {
+pub fn plugin_media_save(webview: tauri::Webview, state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> CommandResult<String> {
+    let session = state.session(&webview);
     let header = |name: &str| request.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned).ok_or_else(|| format!("missing {name} header"));
     let id = header("x-plugin-id")?;
     let name = header("x-name")?;
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("The media must be sent as raw bytes".to_owned()) };
-    let dir = crate::storage::dir(&state, crate::storage::Category::Generated)?.join("Plugins");
+    let dir = crate::storage::dir(&state, &session, crate::storage::Category::Generated)?.join("Plugins");
     media_save(&dir, &id, &name, bytes)
 }
 

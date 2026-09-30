@@ -42,6 +42,15 @@ function parseJson(value: string): unknown {
   }
 }
 
+/** The list in {"item": [...]} (or "items"; one entry may come unwrapped), else undefined. */
+function itemList(value: unknown): unknown[] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || (keys[0] !== 'item' && keys[0] !== 'items')) return undefined;
+  const inner = (value as Record<string, unknown>)[keys[0]];
+  return Array.isArray(inner) ? inner : [inner];
+}
+
 /** `value` made to fit `schema` where that is unambiguous; otherwise returned as it came. */
 export function repairValue(value: unknown, schema: Schema | undefined): unknown {
   if (!schema || value === undefined) return value;
@@ -60,6 +69,9 @@ export function repairValue(value: unknown, schema: Schema | undefined): unknown
       }
     } else if (typeof out === 'number' && allowed.includes('string')) {
       out = String(out);
+    } else if (allowed.includes('array') && itemList(out)) {
+      // An XML-style call carries a list as {"item": [...]}: the list is inside, not the object.
+      out = itemList(out) as unknown[];
     } else if (allowed.includes('array') && !Array.isArray(out) && out !== null) {
       out = [out];
     }

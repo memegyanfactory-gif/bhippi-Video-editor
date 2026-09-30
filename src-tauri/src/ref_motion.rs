@@ -12,7 +12,8 @@ type CommandResult<T> = Result<T, String>;
 
 /// Measures `path` as a background job; its result names `profile` (profile.json) and `peaks`.
 #[tauri::command]
-pub async fn reference_motion_start(state: State<'_, Arc<AppState>>, path: String, max_seconds: Option<f64>) -> CommandResult<String> {
+pub async fn reference_motion_start(webview: tauri::Webview, state: State<'_, Arc<AppState>>, path: String, max_seconds: Option<f64>) -> CommandResult<String> {
+    let session = state.session(&webview);
     if !Path::new(&path).is_file() {
         return Err("The reference file does not exist".into());
     }
@@ -24,7 +25,7 @@ pub async fn reference_motion_start(state: State<'_, Arc<AppState>>, path: Strin
     let stem = Path::new(&path).file_stem().and_then(|s| s.to_str()).unwrap_or("reference").to_owned();
     let job = state.jobs.start("analysis", format!("Measuring motion · {stem}"), true);
     let id = job.id().to_owned();
-    let folder = storage::dir(&state, storage::Category::Research)?.join(format!("{} motion {id}", storage::readable_name(&stem, 40, "reference")));
+    let folder = storage::dir(&state, &session, storage::Category::Research)?.join(format!("{} motion {id}", storage::readable_name(&stem, 40, "reference")));
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let work = state.paths.work.join(&id);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;

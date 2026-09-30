@@ -4,7 +4,7 @@
 //
 // The model cannot press these; the workflow guard refuses gathering tools until the user has,
 // and refuses timeline tools until they have again. Rendered as a compact glass dock docked
-// right above the composer: icons carry the state, hover/focus (title + aria-label) carries the
+// right above the composer as a small drop-up tab: icons carry the state, hover/focus (title + aria-label) carries the
 // sentence — the phase names and progress detail used to sit in the panel as running text and
 // crowded whatever the model had just written above them.
 import { Check, Clapperboard, LoaderCircle, Play, Search, Sparkles, Wand2 } from 'lucide-react';
@@ -67,7 +67,7 @@ export function ProductionBar({ comp, busy, onAdvance, onPolish }: {
           return (
             <li key={step.key} className={`production-orbit ${state}`} title={tip} aria-label={tip}>
               <span className="orbit-icon">
-                {state === 'done' ? <Check size={13} /> : state === 'current' && busy ? <LoaderCircle size={13} className="spin" /> : <Icon size={13} />}
+                {state === 'done' ? <Check size={11} /> : state === 'current' && busy ? <LoaderCircle size={11} className="spin" /> : <Icon size={11} />}
               </span>
               {showRing && <span className="orbit-badge">{report.ready}/{report.total}</span>}
             </li>
@@ -83,7 +83,7 @@ export function ProductionBar({ comp, busy, onAdvance, onPolish }: {
           aria-label={busy ? 'Waiting for the assistant' : 'Polish'}
           onClick={onPolish}
         >
-          {busy ? <LoaderCircle size={14} className="spin" /> : <Wand2 size={14} />}
+          {busy ? <LoaderCircle size={12} className="spin" /> : <Wand2 size={12} />}
         </button>
       )}
       {button && (
@@ -97,7 +97,7 @@ export function ProductionBar({ comp, busy, onAdvance, onPolish }: {
           aria-label={busy ? 'Waiting for the assistant' : button.label}
           onClick={() => next && onAdvance(next)}
         >
-          {busy ? <LoaderCircle size={14} className="spin" /> : <Play size={13} fill="currentColor" />}
+          {busy ? <LoaderCircle size={12} className="spin" /> : <Play size={10} fill="currentColor" />}
           <span>{busy ? 'Working…' : button.label}</span>
         </button>
       )}

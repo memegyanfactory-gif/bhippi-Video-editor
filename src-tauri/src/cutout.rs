@@ -181,7 +181,7 @@ async fn still_frame(ffmpeg: &Path, source: &Path, time: Option<f64>, target: &P
 #[allow(clippy::too_many_arguments)]
 pub async fn cutout_image(
     app: AppHandle,
-    state: State<'_, Arc<AppState>>,
+    webview: tauri::Webview, state: State<'_, Arc<AppState>>,
     path: String,
     time: Option<f64>,
     model: Option<String>,
@@ -193,6 +193,7 @@ pub async fn cutout_image(
     crop: Option<bool>,
     out: Option<String>,
 ) -> CommandResult<CutoutResult> {
+    let session = state.session(&webview);
     let options = cutout_options(model.as_deref(), stroke, stroke_px, shadow, choke, crop, region)?;
     if time.is_some_and(|t| !t.is_finite() || t < 0.0) {
         return Err("time must be a source second of the video".into());
@@ -209,9 +210,9 @@ pub async fn cutout_image(
     let python = media_python(&state)?;
     let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
     let target = match out.as_deref() {
-        Some(out) => safe_out(out, &[storage::project_dir(&state), state.paths.root.clone()])?,
+        Some(out) => safe_out(out, &[storage::project_dir(&state, &session), state.paths.root.clone()])?,
         None => {
-            let folder = storage::dir(&state, storage::Category::Generated)?.join("Cutouts");
+            let folder = storage::dir(&state, &session, storage::Category::Generated)?.join("Cutouts");
             std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
             let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("cutout");
             let suffix = time.filter(|_| video).map(|t| format!(" {t:.1}s")).unwrap_or_default();
@@ -695,23 +696,23 @@ pub struct LongManifest {
     pub master: Option<String>,
 }
 
-fn manifest_path(state: &AppState, asset_id: &str, key: &str) -> Result<PathBuf, String> {
+fn manifest_path(state: &AppState, session: &str, asset_id: &str, key: &str) -> Result<PathBuf, String> {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(format!("{asset_id}\n{key}").as_bytes());
     let name: String = digest.iter().take(12).map(|b| format!("{b:02x}")).collect();
-    Ok(storage::dir(state, storage::Category::Roto)?.join("long").join(format!("{name}.json")))
+    Ok(storage::dir(state, session, storage::Category::Roto)?.join("long").join(format!("{name}.json")))
 }
 
 /// A run that still has its roto.json and matte on disk.
-fn finished_run(state: &AppState, run_id: &str) -> Option<roto::Roto> {
+fn finished_run(state: &AppState, session: &str, run_id: &str) -> Option<roto::Roto> {
     if !roto::valid_run_id(run_id) {
         return None;
     }
-    roto::read(&state.roto_root(run_id), run_id).filter(|run| run.matte.as_deref().is_some_and(|m| Path::new(m).is_file()))
+    roto::read(&state.roto_root(session, run_id), run_id).filter(|run| run.matte.as_deref().is_some_and(|m| Path::new(m).is_file()))
 }
 
-fn read_manifest(state: &AppState, asset_id: &str, key: &str) -> Result<LongManifest, String> {
-    let path = manifest_path(state, asset_id, key)?;
+fn read_manifest(state: &AppState, session: &str, asset_id: &str, key: &str) -> Result<LongManifest, String> {
+    let path = manifest_path(state, session, asset_id, key)?;
     let mut manifest: LongManifest = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     if manifest.key != key || manifest.asset_id != asset_id {
         manifest = LongManifest { key: key.to_owned(), asset_id: asset_id.to_owned(), chunks: Vec::new(), master: None };
@@ -722,19 +723,20 @@ fn read_manifest(state: &AppState, asset_id: &str, key: &str) -> Result<LongMani
 /// The resumable state of a long matte for `asset_id` + `key` (the caller's plan key): chunks
 /// whose runs are gone are dropped, and so is a master whose matte is gone.
 #[tauri::command]
-pub fn roto_long_manifest(app: AppHandle, state: State<'_, Arc<AppState>>, asset_id: String, key: String) -> CommandResult<LongManifest> {
+pub fn roto_long_manifest(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, asset_id: String, key: String) -> CommandResult<LongManifest> {
+    let session = state.session(&webview);
     if asset_id.trim().is_empty() || key.trim().is_empty() || key.len() > 400 {
         return Err("Give an asset id and a plan key".into());
     }
-    let mut manifest = read_manifest(&state, &asset_id, &key)?;
-    manifest.chunks.retain(|chunk| finished_run(&state, &chunk.run_id).is_some());
-    if manifest.master.as_deref().is_some_and(|master| finished_run(&state, master).is_none()) {
+    let mut manifest = read_manifest(&state, &session, &asset_id, &key)?;
+    manifest.chunks.retain(|chunk| finished_run(&state, &session, &chunk.run_id).is_some());
+    if manifest.master.as_deref().is_some_and(|master| finished_run(&state, &session, master).is_none()) {
         manifest.master = None;
     }
     if let Some(master) = manifest.master.as_deref() {
-        let folder = roto::dir(&state.roto_root(master), master);
+        let folder = roto::dir(&state.roto_root(&session, master), master);
         let _ignored = app.asset_protocol_scope().allow_directory(folder.join("preview"), false);
-        if let Some(matte) = finished_run(&state, master).and_then(|run| run.matte) {
+        if let Some(matte) = finished_run(&state, &session, master).and_then(|run| run.matte) {
             let _ignored = app.asset_protocol_scope().allow_file(matte);
         }
     }
@@ -744,20 +746,21 @@ pub fn roto_long_manifest(app: AppHandle, state: State<'_, Arc<AppState>>, asset
 /// Records a finished chunk run. Its per-frame PGMs and preview PNGs are deleted (the stitch
 /// reads its matte video), which is what keeps a ten-minute matte from filling the disk.
 #[tauri::command]
-pub fn roto_long_record(state: State<'_, Arc<AppState>>, asset_id: String, key: String, index: usize, run_id: String) -> CommandResult<LongManifest> {
-    let run = finished_run(&state, &run_id).ok_or("That Roto chunk run has no finished matte")?;
+pub fn roto_long_record(webview: tauri::Webview, state: State<'_, Arc<AppState>>, asset_id: String, key: String, index: usize, run_id: String) -> CommandResult<LongManifest> {
+    let session = state.session(&webview);
+    let run = finished_run(&state, &session, &run_id).ok_or("That Roto chunk run has no finished matte")?;
     if index > 10_000 {
         return Err("chunk index out of range".into());
     }
-    let mut manifest = read_manifest(&state, &asset_id, &key)?;
-    let folder = roto::dir(&state.roto_root(&run_id), &run_id);
+    let mut manifest = read_manifest(&state, &session, &asset_id, &key)?;
+    let folder = roto::dir(&state.roto_root(&session, &run_id), &run_id);
     let _ignored = std::fs::remove_dir_all(folder.join("mattes"));
     let _ignored = std::fs::remove_dir_all(folder.join("preview"));
     manifest.chunks.retain(|chunk| chunk.index != index);
     manifest.chunks.push(LongChunk { index, run_id, frames: run.frames });
     manifest.chunks.sort_by_key(|chunk| chunk.index);
     manifest.master = None;
-    let path = manifest_path(&state, &asset_id, &key)?;
+    let path = manifest_path(&state, &session, &asset_id, &key)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -959,15 +962,16 @@ fn stitch_blocking(ffmpeg: &Path, inputs: &[StitchInput], spans: Vec<(usize, usi
 /// PNGs and one subject box per frame. Records it as the manifest's master and deletes the chunk
 /// runs. `from` is the source second of the long range's first frame.
 #[tauri::command]
-pub async fn roto_stitch(app: AppHandle, state: State<'_, Arc<AppState>>, asset_id: String, key: String, from: f64, chunks: usize) -> CommandResult<roto::Roto> {
+pub async fn roto_stitch(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, asset_id: String, key: String, from: f64, chunks: usize) -> CommandResult<roto::Roto> {
+    let session = state.session(&webview);
     if !from.is_finite() || from < 0.0 || !(2..=10_000).contains(&chunks) {
         return Err("Stitch two or more chunks of a long Roto range".into());
     }
-    let mut manifest = read_manifest(&state, &asset_id, &key)?;
+    let mut manifest = read_manifest(&state, &session, &asset_id, &key)?;
     let mut runs = Vec::new();
     for index in 0..chunks {
         let chunk = manifest.chunks.iter().find(|chunk| chunk.index == index).ok_or_else(|| format!("chunk {index} has not been matted yet"))?;
-        let run = finished_run(&state, &chunk.run_id).ok_or_else(|| format!("chunk {index}'s run is gone; matte it again"))?;
+        let run = finished_run(&state, &session, &chunk.run_id).ok_or_else(|| format!("chunk {index}'s run is gone; matte it again"))?;
         runs.push((chunk.run_id.clone(), run));
     }
     let fps = runs[0].1.fps;
@@ -986,7 +990,7 @@ pub async fn roto_stitch(app: AppHandle, state: State<'_, Arc<AppState>>, asset_
     }
     let total = spans.last().map_or(0, |span| span.1);
     let id = format!("run-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos());
-    let root = state.roto_root(&id);
+    let root = state.roto_root(&session, &id);
     let folder = roto::dir(&root, &id);
     std::fs::create_dir_all(folder.join("preview")).map_err(|e| e.to_string())?;
     let ffmpeg = state.tools().ffmpeg()?.to_path_buf();
@@ -1038,13 +1042,13 @@ pub async fn roto_stitch(app: AppHandle, state: State<'_, Arc<AppState>>, asset_
         let _ignored = std::fs::remove_file(folder.join(log));
     }
     manifest.master = Some(id.clone());
-    let path = manifest_path(&state, &asset_id, &key)?;
+    let path = manifest_path(&state, &session, &asset_id, &key)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     store::write_json(&path, &manifest)?;
     for (run_id, _) in &runs {
-        let _ignored = std::fs::remove_dir_all(roto::dir(&state.roto_root(run_id), run_id));
+        let _ignored = std::fs::remove_dir_all(roto::dir(&state.roto_root(&session, run_id), run_id));
     }
     manifest.chunks.clear();
     store::write_json(&path, &manifest)?;

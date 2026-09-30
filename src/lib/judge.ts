@@ -188,7 +188,14 @@ export function judge(input: JudgeInput): Verdict {
   criteria.push({ id: 'plan', label: 'Every planned beat is on screen', weight: 15, score: plan.share < 0 ? 0.6 : plan.share, notes: plan.share < 0 ? ['No storyboard: the edit cannot be held to a plan (save_storyboard).'] : plan.missing.slice(0, 5).map((beat) => `Beat with no picture: ${beat}`) });
 
   const target = Math.max(...genres.map((genre) => MOTION_TARGET[genre]));
-  criteria.push({ id: 'motion', label: 'Designed motion on screen', weight: 10, score: Math.min(1, review.motionDensity / target), notes: review.motionDensity < target ? [`Motion on ${Math.round(review.motionDensity * 100)}% of the timeline; this kind of video wants ~${Math.round(target * 100)}%. Fill the static stretches.`] : [] });
+  // In a motion-led video, a camera over still pictures is a slideshow: it does not count as designed motion.
+  const flat = target >= 0.7 ? Math.min(review.slideshow ?? 0, review.motionDensity) : 0;
+  const designed = review.motionDensity - flat;
+  const motionNotes = [
+    ...(designed < target ? [`Motion on ${Math.round(designed * 100)}% of the timeline; this kind of video wants ~${Math.round(target * 100)}%. Fill the static stretches.`] : []),
+    ...(flat >= 0.05 ? [`${Math.round(flat * 100)}% of the timeline is still pictures that only a camera or a cursor moves over (a slideshow): rebuild those moments as parts that move on their own.`] : []),
+  ];
+  criteria.push({ id: 'motion', label: 'Designed motion on screen', weight: 10, score: Math.min(1, designed / target), notes: motionNotes });
 
   const checks = genres.flatMap((genre) => genreChecks(project, comp, genre));
   const met = checks.filter(([, pass]) => pass).length;

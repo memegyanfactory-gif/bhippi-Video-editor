@@ -11,6 +11,8 @@ type Props = {
   jobs: Job[];
   providers: ProviderInfo[];
   assetCount: number;
+  /** The session project has a file or some work in it (an empty, never-saved one is not offered). */
+  canContinue: boolean;
   recents: string[];
   /** The recent files confirmed to be on disk; any other entry is shown but can't be opened. */
   recentFound: ReadonlySet<string>;
@@ -50,14 +52,16 @@ export function HomeScreen(props: Props) {
           </div>
         </header>
 
-        <button type="button" className="home-card home-current" onClick={props.onEdit}>
-          <span className="home-current-icon"><Film size={20} /></span>
-          <span className="home-current-text">
-            <strong>{props.project.name}</strong>
-            <span>{comp ? `${comp.name} · ${comp.clips.length} clips · ${timecode(compDuration(comp), comp.fps)}` : 'No comp yet'}</span>
-          </span>
-          <span className="home-current-go">Continue editing<ArrowRight size={15} /></span>
-        </button>
+        {props.canContinue && (
+          <button type="button" className="home-card home-current" onClick={props.onEdit}>
+            <span className="home-current-icon"><Film size={20} /></span>
+            <span className="home-current-text">
+              <strong>{props.project.name}</strong>
+              <span>{comp ? `${comp.name} · ${comp.clips.length} clips · ${timecode(compDuration(comp), comp.fps)}` : 'No comp yet'}</span>
+            </span>
+            <span className="home-current-go">Continue editing<ArrowRight size={15} /></span>
+          </button>
+        )}
 
         <div className="home-quick">
           <button type="button" onClick={props.onImport}>
@@ -78,7 +82,7 @@ export function HomeScreen(props: Props) {
           <h2>Recent projects</h2>
           <div className="home-card home-list">
             {props.recents.length === 0 ? (
-              <p className="home-empty">Projects you open or save show up here.</p>
+              <p className="home-empty">Projects you open or create show up here. Start one with New project.</p>
             ) : (
               props.recents.slice(0, 8).map((path) => {
                 const found = props.recentFound.has(path);

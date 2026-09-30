@@ -110,15 +110,20 @@ export function attachMedia(comp: Comp, target: { sceneIndex: number; shotIndex?
   const production = comp.production;
   if (!production) return null;
   const now = Date.now();
-  if (target.kind === 'music' || target.sceneIndex < 0) {
+  // Only media named as the music is the music: a picture sent with a negative scene index used to
+  // replace the score (and count it as gathered).
+  if (target.kind === 'music') {
     if (!('assetId' in media)) return null;
     const music = { ...(production.music ?? { source: 'generate' as const }), assetId: media.assetId, status: 'ready' as const };
     return { comp: { ...comp, production: { ...production, music, updatedAt: now } }, attached: 'music' };
   }
+  if (!Number.isInteger(target.sceneIndex) || target.sceneIndex < 0) return null;
   const scenes = planScenes(comp);
   const scene = scenes[target.sceneIndex];
   if (!scene) return null;
   const shots = scene.shots ?? [];
+  // A shot index that is not a whole number names no shot (a fraction used to land on the whole scene).
+  if (target.shotIndex != null && !Number.isInteger(target.shotIndex)) return null;
   let shotIndex = target.shotIndex ?? null;
   if (shotIndex === null) {
     shotIndex = shots.findIndex((shot) => !hasMedia(shot) && (!target.kind || shot.kind === target.kind || (target.kind === 'video' && shot.kind === 'download')));
@@ -146,7 +151,7 @@ export function gatherReport(comp: Comp): { ready: number; total: number; missin
   planScenes(comp).forEach((scene, i) => {
     const shots = scene.shots ?? [];
     const legacy = scene as { mediaSource?: string; assetId?: string; compId?: string };
-    if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing') {
+    if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing' && legacy.mediaSource !== 'build') {
       total++;
       if (hasMedia(legacy)) ready++; else missing.push(`scene ${i + 1} (${legacy.mediaSource})`);
     }

@@ -84,7 +84,7 @@ export function videoBlueprintContentError(scenes: VideoBlueprintSceneInput[], k
     const source = text('mediaSource').trim();
     if (text('narration').trim().length < 10) problems.push(`Scene ${n}: narration needs the spoken text for this beat (≥10 chars).`);
     else if (text('visual').trim().length < 40) problems.push(`Scene ${n}: visual needs ≥40 chars of visual direction for this beat. Currently ${text('visual').trim().length} chars.`);
-    else if (!['generate', 'download', 'existing', 'render'].includes(source)) problems.push(`Scene ${n}: mediaSource must be "generate", "download", "existing" or "render".`);
+    else if (!['generate', 'download', 'existing', 'render', 'build'].includes(source)) problems.push(`Scene ${n}: mediaSource must be "generate", "download", "existing", "render" or "build".`);
     else if (text('audio').trim().length < 20) problems.push(`Scene ${n}: audio needs ≥20 chars of sound design for this beat. Currently ${text('audio').trim().length} chars.`);
     else if (source === 'generate' && text('visualPrompt').trim().length < 20) problems.push(`Scene ${n}: visualPrompt needs a ≥20-char generation prompt when mediaSource is "generate".`);
     // A scene the agent renders itself says what it will render, so the plan the user approves shows it.
@@ -382,7 +382,8 @@ export function gatherShots(comp: Comp): { sceneIndex: number; shotIndex: number
   const out: { sceneIndex: number; shotIndex: number; label: string; status: string; kind: string }[] = [];
   scenes.forEach((scene, sceneIndex) => {
     const shots = scene.shots ?? [];
-    if (!shots.length && scene.mediaSource && scene.mediaSource !== 'existing') {
+    // A build scene is made in EDIT: without reference shots there is nothing to gather for it.
+    if (!shots.length && scene.mediaSource && scene.mediaSource !== 'existing' && scene.mediaSource !== 'build') {
       out.push({ sceneIndex, shotIndex: 0, label: `Scene ${sceneIndex + 1}: ${scene.mediaSource}`, status: hasMedia(scene) ? 'ready' : (scene.status ?? 'pending'), kind: scene.mediaSource });
       return;
     }
@@ -556,7 +557,9 @@ export class EditWorkflow {
       blueprintSaved: this.blueprintSaved, blueprintExecuted: this.blueprintExecuted,
       // Pre-execution: blueprint saved (status draft/ready, or legacy without status)
       // blocks timeline edits until execute_blueprint runs (status becomes executing).
-      blueprintActive: !!comp?.videoBlueprint && (comp.videoBlueprint.status === 'draft' || comp.videoBlueprint.status === 'ready' || (!comp.videoBlueprint.status && !this.blueprintExecuted)),
+      // Only while its own from-scratch production is live: "New conversation" ends the production,
+      // and a blueprint left from it must not refuse every edit of the next one.
+      blueprintActive: !!comp?.videoBlueprint && comp.production?.mode === 'scratch' && (comp.videoBlueprint.status === 'draft' || comp.videoBlueprint.status === 'ready' || (!comp.videoBlueprint.status && !this.blueprintExecuted)),
       // Post-execution plan: an executed blueprint counts as the plan, like a storyboard.
       blueprintPlan: !!comp?.videoBlueprint && (comp.videoBlueprint.status === 'executing' || comp.videoBlueprint.status === 'done' || this.blueprintExecuted),
       pendingJobs: [...this.jobs], pendingPlacement: [...this.unplaced], successfulActions: [...this.actions],

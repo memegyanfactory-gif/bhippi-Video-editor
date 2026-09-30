@@ -31,8 +31,12 @@ any step.
    - actions: {type: "@field", words: [...]} from the beat map, {click: "@send"} on the snare,
      {set: {part, state}} for each panel that changes.
    - cursors: "you" for the ask, the product's own cursor for the work.
-2. A label-pill names the result (2-5 words); zoom-through into the result playing, camera-match back.
-3. logo-lockup or end-card for the name.
+2. create_product_demo moves the camera and swaps captured pictures; nothing inside a part moves. Where
+   the result must build on screen (rows filling, a chart drawing, a card growing), cut that part with
+   create_ui_screen {screenshot, parts, actions} (assemble, sweep, count) or rebuild it in HTML, and cut
+   it into the demo.
+3. A label-pill names the result (2-5 words); zoom-through into the result playing, camera-match back.
+4. logo-lockup or end-card for the name.
 
 ## 4. Look and fix
 1. review_frames: every click frame (the target changes state on it), every landing (sharp for 10 frames),
@@ -49,3 +53,4 @@ any step.
 - A cursor tag can cover the words it points at: check the click frames.
 - Close-ups slide toward the window's inside by default; centre: true for the literal framing.
 - Two things changing at once reads as noise: one action per shot.
+- A camera over still pictures for more than about 2 s is a slideshow: something inside the frame moves.

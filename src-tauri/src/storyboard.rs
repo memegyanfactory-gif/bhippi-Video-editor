@@ -18,8 +18,8 @@ pub fn storyboard_dir(paths: &Paths) -> PathBuf {
 
 /// Where new storyboard pictures go: the open project's Storyboard folder, or the legacy folder
 /// when the project folder cannot be created.
-fn picture_dir(state: &AppState) -> PathBuf {
-    crate::storage::dir(state, crate::storage::Category::Storyboard).unwrap_or_else(|_| storyboard_dir(&state.paths))
+fn picture_dir(state: &AppState, session: &str) -> PathBuf {
+    crate::storage::dir(state, session, crate::storage::Category::Storyboard).unwrap_or_else(|_| storyboard_dir(&state.paths))
 }
 
 /// The file extension for an image, from its first bytes; None when it is not an image we take.
@@ -59,7 +59,8 @@ fn write_picture(app: &AppHandle, dir: &Path, comp_id: &str, scene: u32, bytes: 
 /// Saves one card picture sent as the raw request body, with the comp and scene in the headers
 /// (`x-comp-id`, `x-scene`, zero-based), so a canvas PNG never travels as a JSON number array.
 #[tauri::command]
-pub fn storyboard_image_save(app: AppHandle, state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+pub fn storyboard_image_save(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let session = state.session(&webview);
     let header = |name: &str| request.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned).ok_or_else(|| format!("missing {name} header"));
     let comp_id = header("x-comp-id")?;
     let scene: u32 = header("x-scene")?.parse().map_err(|_| "bad scene index".to_owned())?;
@@ -67,13 +68,14 @@ pub fn storyboard_image_save(app: AppHandle, state: State<'_, Arc<AppState>>, re
     if bytes.len() > 64 * 1024 * 1024 {
         return Err("that picture is larger than 64 MB".to_owned());
     }
-    write_picture(&app, &picture_dir(&state), &comp_id, scene, bytes)
+    write_picture(&app, &picture_dir(&state, &session), &comp_id, scene, bytes)
 }
 
 /// Copies a photo from disk into the storyboard folder, so the project keeps it when the
 /// original moves, and returns the copy's path.
 #[tauri::command]
-pub fn storyboard_image_import(app: AppHandle, state: State<'_, Arc<AppState>>, comp_id: String, scene: u32, source: String) -> Result<String, String> {
+pub fn storyboard_image_import(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, comp_id: String, scene: u32, source: String) -> Result<String, String> {
+    let session = state.session(&webview);
     let meta = std::fs::metadata(&source).map_err(|error| format!("cannot read {source}: {error}"))?;
     if !meta.is_file() {
         return Err(format!("{source} is not a file"));
@@ -82,7 +84,7 @@ pub fn storyboard_image_import(app: AppHandle, state: State<'_, Arc<AppState>>, 
         return Err("that photo is larger than 64 MB".to_owned());
     }
     let bytes = std::fs::read(&source).map_err(|error| format!("cannot read {source}: {error}"))?;
-    write_picture(&app, &picture_dir(&state), &comp_id, scene, &bytes)
+    write_picture(&app, &picture_dir(&state, &session), &comp_id, scene, &bytes)
 }
 
 /// Copies a picture the user chose as the Glass theme's backdrop into the app data folder, so

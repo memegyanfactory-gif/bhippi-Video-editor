@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytes, projectFolderName, STORAGE_CATEGORIES, storageKind, UNTITLED_PROJECT } from '../src/lib/storage';
+import { formatBytes, newUnsavedKey, projectFolderName, STORAGE_CATEGORIES, storageKind, UNSAVED_FOLDER, UNTITLED_PROJECT } from '../src/lib/storage';
 
 describe('project folder names', () => {
   it('matches the Rust sanitiser', () => {
@@ -35,6 +35,20 @@ describe('storage categories', () => {
   it('recognises the default Documents/Bhippi shape without a registered root', () => {
     expect(storageKind('C:/Users/me/Documents/Bhippi/Launch/Downloads/clip.mp4', null)).toBe('downloads');
     expect(storageKind('C:/Users/me/Downloads/clip.mp4', null)).toBeNull();
+  });
+
+  it('recognises files in an unsaved project’s own folder', () => {
+    const root = 'C:\\Users\\me\\Documents\\Bhippi';
+    expect(storageKind(`${root}\\${UNSAVED_FOLDER}\\2026-09-30 10.00.00 ab12\\Downloads\\clip.mp4`, root)).toBe('downloads');
+    expect(storageKind(`C:/Users/me/Documents/Bhippi/${UNSAVED_FOLDER}/2026-09-30 10.00.00 ab12/Audio/SFX/hit.wav`, null)).toBe('sfx');
+  });
+
+  it('gives every unsaved project a different folder key', () => {
+    const at = new Date(2026, 8, 30, 14, 5, 9);
+    const key = newUnsavedKey(at);
+    expect(key).toMatch(/^2026-09-30 14\.05\.09 [a-z0-9]{4}$/);
+    expect(projectFolderName(key)).toBe(key);
+    expect(new Set(Array.from({ length: 50 }, () => newUnsavedKey(at))).size).toBeGreaterThan(45);
   });
 
   it('formats sizes', () => {

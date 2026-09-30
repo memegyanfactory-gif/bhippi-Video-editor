@@ -206,16 +206,17 @@ pub async fn blender_status(state: State<'_, Arc<AppState>>) -> CommandResult<Va
 /// Renders a 3D scene in headless Blender as a background job. The job's result names the PNG
 /// sequence (`dir`, `frames`, `fps`, …) and the camera / object tracks beside it.
 #[tauri::command]
-pub async fn blender_render_start(app: AppHandle, state: State<'_, Arc<AppState>>, request: Value, name: Option<String>) -> CommandResult<String> {
+pub async fn blender_render_start(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, request: Value, name: Option<String>) -> CommandResult<String> {
+    let session = state.session(&webview);
     let blender = find_blender(state.settings().blender_path.as_deref()).ok_or("Blender was not found. Install Blender 4.2+ from blender.org (free) or set its path in Settings › Local media.")?;
     let (mut request, frames) = check_request(request)?;
     let timeout = timeout_for(&request, frames);
     let lease = local_media::acquire()?;
     let label = storage::readable_name(name.as_deref().unwrap_or("3D scene"), 40, "3D scene");
-    let job = state.jobs.start("generation", format!("Rendering 3D · {label}"), true);
+    let job = state.jobs.start_for(Some(session.clone()), "generation", format!("Rendering 3D · {label}"), true);
     let id = job.id().to_owned();
     let work = state.paths.work.join(&id);
-    let folder = storage::dir(&state, storage::Category::ThreeD)?.join(format!("{label} {id}"));
+    let folder = storage::dir(&state, &session, storage::Category::ThreeD)?.join(format!("{label} {id}"));
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let _ignored = app.asset_protocol_scope().allow_directory(&folder, false);

@@ -292,11 +292,11 @@ const FONT_CHECK: &str = r#"(async () => {
   return [...used].filter((family) => !generic.test(family) && !document.fonts.check(`16px "${family}"`)).slice(0, 8);
 })()"#;
 
-async fn run(app: &AppHandle, state: &AppState, request: CaptureRequest) -> Result<Manifest, String> {
+async fn run(app: &AppHandle, state: &AppState, session: &str, request: CaptureRequest) -> Result<Manifest, String> {
     let width = request.width.unwrap_or(1920).clamp(320, 3840);
     let height = request.height.unwrap_or(1080).clamp(240, 2160);
     let scale = request.scale.unwrap_or(3.0).clamp(1.0, 4.0);
-    let dir = storage::dir(state, Category::AiWork)?.join("ui-parts").join(slug(&request.name));
+    let dir = storage::dir(state, session, Category::AiWork)?.join("ui-parts").join(slug(&request.name));
     // The part library: the same key captured before is reused as it is.
     let manifest_path = dir.join("manifest.json");
     if let (Some(key), Ok(text)) = (request.key.as_ref(), std::fs::read_to_string(&manifest_path)) {
@@ -364,12 +364,13 @@ async fn run(app: &AppHandle, state: &AppState, request: CaptureRequest) -> Resu
 
 /// Captures a product (a web address, or Bhippi itself) as parts in states. See the module notes.
 #[tauri::command]
-pub async fn app_session_capture(app: AppHandle, state: State<'_, Arc<AppState>>, request: CaptureRequest) -> Result<Value, String> {
+pub async fn app_session_capture(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, request: CaptureRequest) -> Result<Value, String> {
+    let session = state.session(&webview);
     if request.steps.len() > 400 {
         return Err("too many steps in one session (400 at most)".to_owned());
     }
     let job = state.jobs.start("capture", format!("Capturing {}", request.url.as_deref().unwrap_or("Bhippi")), false);
-    match run(&app, &state, request).await {
+    match run(&app, &state, &session, request).await {
         Ok(manifest) => {
             job.done(format!("{} part(s)", manifest.parts.len()), None);
             Ok(json!(manifest))
