@@ -7,15 +7,10 @@
 // step's circle (StatusDot) and the orbit round the stop button, so everything that moves while
 // Bhippi works moves the same way. Only transforms animate, so it is cheap at 16px.
 import { useId } from 'react';
+import { MARK_B as B, MARK_LEFT as LEFT, MARK_RIGHT as RIGHT } from '../lib/bhippiMark';
 import '../styles/bhippi-mark.css';
 
 export type MarkState = 'idle' | 'thinking' | 'editing' | 'done' | 'waiting' | 'stopped';
-
-/** The two halves: 17-unit strokes on a 38.5 radius, 9° either side of the gaps. */
-const LEFT = 'M43.98 88.03A38.5 38.5 0 0 1 43.98 11.97';
-const RIGHT = 'M56.02 11.97A38.5 38.5 0 0 1 56.02 88.03';
-/** The B, with the notched lower bowl of the logo. */
-const B = 'M43 35H53C58.5 35 61 38.5 61 42.5C61 45.5 59.5 47.5 57 49.5L54 52.5L58.5 56C61.5 58.5 62.5 60.5 62.5 63C62.5 67 59.5 70 54.5 70H43C40.5 70 39 68.5 39 66V39C39 36.5 40.5 35 43 35Z';
 
 export function BhippiMark({ state = 'idle', size = 20, className = '' }: { state?: MarkState; size?: number; className?: string }) {
   // Gradients are looked up by id across the whole document, so each mark names its own.

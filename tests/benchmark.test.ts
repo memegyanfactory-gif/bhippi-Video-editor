@@ -99,7 +99,27 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // tool that lets a model choose among the 139 WatchFIWN caption styles by look and use.
       // Raised to 44,250 the same day for `add_graphic` (its one-line slim entry, ~+16 a step over
       // the gate), the one-call graphic tool that small models use instead of raw templates.
-      expect(row.step, row.id).toBeLessThan(44_250);
+      // Raised to 44,300 on 2026-09-30 for `analyze_song` (its one-line slim entry, ~+25 a step),
+      // the one call that times every lyric word of a song: every premium film built it by hand.
+      // Raised to 44,350 the same day for `review_frames` (its slim entry, ~+24 a step): event frames,
+      // join strips and measured checks, the review loop every premium film was made in.
+      // Raised to 44,400 the same day for `capture_app_session` (its slim entry, ~+25 a step): the
+      // real product captured as parts in states at 3x, which every premium film rebuilt by hand.
+      // Raised to 44,450 the same day for `create_product_demo` (its slim entry, ~+49 a step): the
+      // camera through the captured product with named cursors and part states, as editable layers.
+      // Raised to 44,500 the same day for `update_motion_scene` finish (~+40 a step) and the
+      // camera-match / glow-handoff / flash-bridge joins in `create_motion_sequence` (~+17): the
+      // launch films' grade as one editable layer and the joins every one of them hid its cuts with.
+      // Raised to 44,525 the same day for the UI sound set (key_click, send_pop, soft_whoosh, glass_tick,
+      // cursor_tap) in the whole add_sound_effect and place_sfx enums (~+34 a step): the procedural UI
+      // sounds every product film synthesised for itself, offered as built-ins.
+      // Raised to 44,575 the same day for `sound_the_motion` (its slim entry, ~+41 a step): every
+      // motion cue sounded and set against the music, the sound design every premium film made by hand.
+      // Raised to 44,650 the same day for the "Premium films" line in the motion/SaaS engine section
+      // (~+71 a step): it sends a launch film, product demo, identity film, kinetic explainer or fluid
+      // SaaS film to its playbook and brain skill, where the film lab's lessons live; the old
+      // capture_product_ui route in "Living product UI" was rewritten for capture_app_session at no cost.
+      expect(row.step, row.id).toBeLessThan(44_650);
     }
   });
 
@@ -118,5 +138,18 @@ describe('benchmark: overhead per step, by kind of video', () => {
       ``,
     ].join('\n');
     writeFileSync('docs/benchmarks/latest.md', table);
+  });
+});
+
+describe('slim entries', () => {
+  it('the toolkit tools open with a sentence short enough to be their whole slim entry', () => {
+    // A slim entry is the first sentence cut at 72 characters: a longer one reads cut mid-word.
+    for (const name of ['analyze_song', 'review_frames', 'capture_app_session', 'create_product_demo', 'sound_the_motion']) {
+      const tool = tools.find((entry) => entry.name === name)!;
+      const cut = tool.description.indexOf('. ');
+      expect(cut, name).toBeGreaterThan(0);
+      expect(cut + 1, `${name}: "${tool.description.slice(0, cut + 1)}"`).toBeLessThanOrEqual(72);
+      expect(slim(tool).description, name).toBe(`${tool.description.slice(0, cut + 1)} (params: tool_help)`);
+    }
   });
 });

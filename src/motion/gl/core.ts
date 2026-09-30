@@ -5,7 +5,7 @@
 // · Texture row 0 is the TOP of the picture, in uploaded images and in render targets alike:
 //   passes write NDC y = −1 at the top row, so `readPixels` returns rows top-first (PNG order)
 //   and only the final present to the on-screen canvas flips.
-export type Target = { tex: WebGLTexture; fbo: WebGLFramebuffer; w: number; h: number };
+export type Target = { tex: WebGLTexture; fbo: WebGLFramebuffer; w: number; h: number; float?: boolean };
 
 export type Uniforms = Record<string, number | number[] | Float32Array | WebGLTexture | null | boolean>;
 
@@ -42,6 +42,8 @@ export class GL {
   private pool: Target[] = [];
   private live = new Set<Target>();
   readonly maxTexture: number;
+  /** Half-float render targets: many motion-blur sub-frames add up without 8-bit rounding. */
+  readonly floatTargets: boolean;
   lost = false;
 
   constructor(readonly canvas: HTMLCanvasElement | OffscreenCanvas) {
@@ -49,6 +51,7 @@ export class GL {
     if (!gl) throw new Error('WebGL2 is not available on this GPU/driver; motion scenes need it.');
     this.gl = gl;
     this.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    this.floatTargets = !!gl.getExtension('EXT_color_buffer_float');
     const quad = gl.createBuffer();
     const vao = gl.createVertexArray();
     if (!quad || !vao) throw new Error('WebGL2 buffers unavailable');
@@ -109,12 +112,12 @@ export class GL {
     return entry;
   }
 
-  texture(w: number, h: number): WebGLTexture {
+  texture(w: number, h: number, float = false): WebGLTexture {
     const gl = this.gl;
     const tex = gl.createTexture();
     if (!tex) throw new Error('out of GPU textures');
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, Math.max(1, w), Math.max(1, h));
+    gl.texStorage2D(gl.TEXTURE_2D, 1, float ? gl.RGBA16F : gl.RGBA8, Math.max(1, w), Math.max(1, h));
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -122,21 +125,22 @@ export class GL {
     return tex;
   }
 
-  /** A transparent render target of at least w × h (exact size). */
-  acquire(w: number, h: number): Target {
+  /** A transparent render target of at least w × h (exact size); half-float when asked and available. */
+  acquire(w: number, h: number, float = false): Target {
     const W = Math.max(1, Math.min(this.maxTexture, Math.round(w)));
     const H = Math.max(1, Math.min(this.maxTexture, Math.round(h)));
-    const index = this.pool.findIndex((t) => t.w === W && t.h === H);
+    const wide = float && this.floatTargets;
+    const index = this.pool.findIndex((t) => t.w === W && t.h === H && !!t.float === wide);
     let target: Target;
     if (index >= 0) target = this.pool.splice(index, 1)[0];
     else {
       const gl = this.gl;
-      const tex = this.texture(W, H);
+      const tex = this.texture(W, H, wide);
       const fbo = gl.createFramebuffer();
       if (!fbo) throw new Error('out of GPU framebuffers');
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-      target = { tex, fbo, w: W, h: H };
+      target = { tex, fbo, w: W, h: H, ...(wide ? { float: true } : {}) };
     }
     this.live.add(target);
     this.clear(target);
@@ -168,14 +172,19 @@ export class GL {
     gl.clear(gl.COLOR_BUFFER_BIT);
   }
 
-  /** Uploads an image/canvas/video frame into a (reused) texture; returns the texture. */
-  upload(source: TexImageSource, reuse?: WebGLTexture | null): WebGLTexture {
+  /**
+   * Uploads an image/canvas/video frame into a (reused) texture; returns the texture. `mipmaps`
+   * for a still that may be drawn much smaller than it is: a 3x UI capture seen whole would
+   * otherwise alias its text into sparkle as the camera moves.
+   */
+  upload(source: TexImageSource, reuse?: WebGLTexture | null, mipmaps = false): WebGLTexture {
     const gl = this.gl;
     const tex = reuse ?? gl.createTexture();
     if (!tex) throw new Error('out of GPU textures');
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    if (mipmaps) gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);

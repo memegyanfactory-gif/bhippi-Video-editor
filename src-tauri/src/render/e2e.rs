@@ -151,6 +151,38 @@ async fn every_format_encodes_and_reads_back() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// The final mix check (lib.rs `mix_loudness`): the soundtrack measured through the export's own
+/// graph. A built-in bleep (a 1 kHz sine peaking at −1.5 dBFS) at half gain reads its peak back
+/// 6 dB down and 3 dB more for the mono sound spread over two channels (cueSound.ts counts on it),
+/// and a second copy on another track makes the mix louder.
+#[tokio::test]
+async fn the_final_mix_is_measured_as_the_export_renders_it() {
+    use super::{codec, plan_with_codecs, Codecs};
+    let tools = tools::resolve(None).await;
+    let Ok(ffmpeg) = tools.ffmpeg().map(Path::to_path_buf) else {
+        eprintln!("skipped: FFmpeg is not installed on this machine");
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("bhippi-mix-{}", crate::store::new_id()));
+    std::fs::create_dir_all(&dir).expect("a working directory");
+    sfx::ensure_all(&dir).expect("the sound effects");
+    let bleep = |id: &str, track: &str| Clip { volume: 0.5, ..clip(id, track, 0.0, 0.8, ClipSource::Sfx { kind: SfxKind::Bleep }) };
+    let measure = |clips: Vec<Clip>| {
+        let project = Project { version: VERSION, name: "mix".into(), comps: vec![comp("c", 320, 180, tracks(0, 2), clips, vec![])], active_comp_id: Some("c".into()), ..Project::default() };
+        let options = ExportOptions { comp_id: "c".into(), loudness: Some(-16.0), ..Default::default() };
+        let sounds = dir.clone();
+        plan_with_codecs(&project, &HashMap::new(), &options, move |kind| sfx::path_for(&sounds, kind).display().to_string(), Codecs::cpu(tools.status.x264), Output::Loudness, 0.0).expect("a measuring plan")
+    };
+    let one = measure(vec![bleep("a", "a1")]);
+    let one = codec::parse_loudness(&collect(&ffmpeg, &dir, &one.args).await.expect("measured")).expect("a reading");
+    assert!((one.input_tp - (-10.5)).abs() < 0.6, "{one:?}");
+    assert!(one.input_i < -7.0 && one.input_i > -14.0, "{one:?}");
+    let two = measure(vec![bleep("a", "a1"), bleep("b", "a2")]);
+    let two = codec::parse_loudness(&collect(&ffmpeg, &dir, &two.args).await.expect("measured")).expect("a reading");
+    assert!(two.input_i > one.input_i + 4.0, "{one:?} then {two:?}");
+    let _ignored = std::fs::remove_dir_all(&dir);
+}
+
 /// Runs an export's FFmpeg arguments in `dir`, returning FFmpeg's log.
 async fn collect(ffmpeg: &Path, dir: &Path, args: &[String]) -> Result<String, String> {
     let (_hold, cancel) = tokio::sync::watch::channel(false);

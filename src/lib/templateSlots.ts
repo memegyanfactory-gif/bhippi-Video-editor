@@ -135,6 +135,7 @@ export const SLOT_ALIASES: Record<string, string[]> = {
   cta: ['callToAction', 'button', 'action'],
   value: ['number', 'metric', 'stat'],
   label: ['caption', 'title', 'text'],
+  text: ['title', 'line', 'sentence', 'phrase', 'lyric', 'headline'],
   badge: ['tag'],
   activeIndex: ['active', 'highlight', 'current', 'selected'],
 };

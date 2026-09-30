@@ -77,16 +77,42 @@ function mapScene(comp: Comp, sceneIndex: number, change: SceneMutation): Comp {
 }
 
 /**
+ * A shot's media: an imported asset, or a layered "[Motion]" comp — a scene a model rendered
+ * itself and delivered in passes (renderPasses.ts), which a clip nests instead of playing a file.
+ */
+export type ShotMedia = { assetId: string } | { compId: string };
+
+/** A shot, or a blueprint scene standing for one. */
+type MediaHolder = { assetId?: unknown; compId?: unknown; [key: string]: unknown };
+
+/** Whether a shot (or a blueprint scene standing for one) has its media. */
+export const hasMedia = (shot: MediaHolder): boolean => !!(shot.assetId || shot.compId);
+
+/** `entry` holding `media` in place of whatever it held before, marked ready. */
+function withMedia<T extends MediaHolder>(entry: T, media: ShotMedia): T {
+  const rest = { ...entry };
+  delete rest.assetId;
+  delete rest.compId;
+  return { ...rest, ...media, status: 'ready' };
+}
+
+/**
  * Records that a shot's media exists. With a `shotIndex` the shot is updated; without one the
  * first pending shot of the matching kind is used, and a scene planned with the legacy
  * `mediaSource` field gets its `assetId` directly. Music attaches to the production itself.
  */
 export function attachAsset(comp: Comp, target: { sceneIndex: number; shotIndex?: number | null; kind?: string | null }, assetId: string): { comp: Comp; attached: string } | null {
+  return attachMedia(comp, target, { assetId });
+}
+
+/** attachAsset for either kind of media; a comp (render passes) only ever stands for a picture, never the music. */
+export function attachMedia(comp: Comp, target: { sceneIndex: number; shotIndex?: number | null; kind?: string | null }, media: ShotMedia): { comp: Comp; attached: string } | null {
   const production = comp.production;
   if (!production) return null;
   const now = Date.now();
   if (target.kind === 'music' || target.sceneIndex < 0) {
-    const music = { ...(production.music ?? { source: 'generate' as const }), assetId, status: 'ready' as const };
+    if (!('assetId' in media)) return null;
+    const music = { ...(production.music ?? { source: 'generate' as const }), assetId: media.assetId, status: 'ready' as const };
     return { comp: { ...comp, production: { ...production, music, updatedAt: now } }, attached: 'music' };
   }
   const scenes = planScenes(comp);
@@ -95,19 +121,18 @@ export function attachAsset(comp: Comp, target: { sceneIndex: number; shotIndex?
   const shots = scene.shots ?? [];
   let shotIndex = target.shotIndex ?? null;
   if (shotIndex === null) {
-    shotIndex = shots.findIndex((shot) => !shot.assetId && (!target.kind || shot.kind === target.kind || (target.kind === 'video' && shot.kind === 'download')));
-    if (shotIndex < 0) shotIndex = shots.findIndex((shot) => !shot.assetId);
+    shotIndex = shots.findIndex((shot) => !hasMedia(shot) && (!target.kind || shot.kind === target.kind || (target.kind === 'video' && shot.kind === 'download')));
+    if (shotIndex < 0) shotIndex = shots.findIndex((shot) => !hasMedia(shot));
   }
   if (shotIndex !== null && shotIndex >= 0 && shots[shotIndex]) {
-    const next = mapScene(comp, target.sceneIndex, (current) => ({
-      ...current,
-      shots: (current.shots ?? []).map((shot, i) => (i === shotIndex ? { ...shot, assetId, status: 'ready' as const } : shot)),
-      ...('mediaSource' in current && !current.assetId ? { assetId, status: 'ready' } : {}),
-    }));
+    const next = mapScene(comp, target.sceneIndex, (current) => {
+      const updated = { ...current, shots: (current.shots ?? []).map((shot, i) => (i === shotIndex ? withMedia(shot, media) : shot)) };
+      return 'mediaSource' in current && !hasMedia(current) ? withMedia(updated, media) : updated;
+    });
     return { comp: { ...next, production: { ...production, updatedAt: now } }, attached: `scene ${target.sceneIndex + 1} shot ${shotIndex + 1}` };
   }
   // A blueprint scene without an explicit shot list: the scene itself is the shot.
-  const next = mapScene(comp, target.sceneIndex, (current) => ({ ...current, assetId, status: 'ready' }));
+  const next = mapScene(comp, target.sceneIndex, (current) => withMedia(current, media));
   return { comp: { ...next, production: { ...production, updatedAt: now } }, attached: `scene ${target.sceneIndex + 1}` };
 }
 
@@ -120,15 +145,15 @@ export function gatherReport(comp: Comp): { ready: number; total: number; missin
   let total = 0;
   planScenes(comp).forEach((scene, i) => {
     const shots = scene.shots ?? [];
-    const legacy = scene as { mediaSource?: string; assetId?: string };
+    const legacy = scene as { mediaSource?: string; assetId?: string; compId?: string };
     if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing') {
       total++;
-      if (legacy.assetId) ready++; else missing.push(`scene ${i + 1} (${legacy.mediaSource})`);
+      if (hasMedia(legacy)) ready++; else missing.push(`scene ${i + 1} (${legacy.mediaSource})`);
     }
     shots.forEach((shot: ProductionShot, j) => {
       if (shot.kind === 'existing' || shot.kind === 'sfx') return;
       total++;
-      if (shot.assetId) ready++; else missing.push(`scene ${i + 1} shot ${j + 1} (${shot.kind}${shot.script ? `: ${shot.script.slice(0, 40)}` : ''})`);
+      if (hasMedia(shot)) ready++; else missing.push(`scene ${i + 1} shot ${j + 1} (${shot.kind}${shot.script ? `: ${shot.script.slice(0, 40)}` : ''})`);
     });
   });
   if (production.music && production.music.source !== 'none' && production.music.source !== 'existing') {

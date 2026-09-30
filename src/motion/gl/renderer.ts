@@ -84,10 +84,10 @@ export class MotionRenderer {
   }
 
   /** `content` names the picture in `source` (a still's URL, a video's URL@time): the same content is not uploaded again. */
-  private upload(key: string, source: TexImageSource, content?: string): WebGLTexture {
+  private upload(key: string, source: TexImageSource, content?: string, mipmaps = false): WebGLTexture {
     const existing = this.uploads.get(key);
     if (existing && content !== undefined && this.uploaded.get(key) === content) return existing;
-    const tex = this.gl.upload(source, existing);
+    const tex = this.gl.upload(source, existing, mipmaps);
     if (content !== undefined) this.uploaded.set(key, content);
     else this.uploaded.delete(key);
     if (!existing) {
@@ -168,7 +168,9 @@ export class MotionRenderer {
         const time = sourceTime(layer.source, L.time);
         const picture = this.bank.frame(layer.source, time);
         if (!picture) { this.incomplete++; return null; }
-        const tex = this.upload(`f:${picture.key.split('@')[0]}`, picture.image, picture.key);
+        // Stills get mipmaps once (a 3x capture seen whole stays clean); video frames change every draw.
+        const still = typeof HTMLVideoElement === 'undefined' || !(picture.image instanceof HTMLVideoElement);
+        const tex = this.upload(`f:${picture.key.split('@')[0]}`, picture.image, picture.key, still);
         const fit = layer.fit ?? 'cover';
         const sw = picture.width;
         const sh = picture.height;
@@ -350,8 +352,15 @@ export class MotionRenderer {
     const rect = [-content.pad, -content.pad, content.size[0] + content.pad * 2, content.size[1] + content.pad * 2];
     const matrices = L.blurMatrices.length ? L.blurMatrices : [L.matrix];
     const opacity = L.opacity / matrices.length;
+    // Motion-blur sub-frames add up in half floats: in 8 bits each 1/48th share rounds on every
+    // add, and a dark UI loses its tones (or goes black) under a many-sample whip.
+    const sum = matrices.length > 1 && !into && gl.floatTargets ? gl.acquire(W, H, true) : null;
     for (const m of matrices) {
-      gl.place('place', S.PLACE_FS, placed, { uMatrix: f32(multiply(S2, m)), uRect: rect, uTex: content.target.tex, uOpacity: opacity }, matrices.length > 1 ? 'add' : 'over');
+      gl.place('place', S.PLACE_FS, sum ?? placed, { uMatrix: f32(multiply(S2, m)), uRect: rect, uTex: content.target.tex, uOpacity: opacity }, matrices.length > 1 ? 'add' : 'over');
+    }
+    if (sum) {
+      gl.pass('copy', S.COPY_FS, placed, { uTex: sum.tex, uOpacity: 1 });
+      gl.release(sum);
     }
     gl.release(content.target);
     return placed;

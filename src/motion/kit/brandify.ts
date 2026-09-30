@@ -162,11 +162,12 @@ export function brandifyScene(scene: MotionScene, brand: MotionBrand): MotionSce
 }
 
 /**
- * Builds a template in a brand: `brand-*` templates are made from the guideline directly; every other
+ * Builds a template in a brand: `brand-*` templates are made from the guideline directly, and so
+ * are templates that keep their colours (a captured product, each AI's cursor colour); every other
  * template is built with the brand's font and then put in the brand. Without a brand it is the plain build.
  */
-export function buildInBrand(spec: { id: string; build: (ctx: KitContext, params: Record<string, unknown>) => MotionScene }, ctx: KitContext, params: Record<string, unknown>, brand: MotionBrand | null | undefined): MotionScene {
+export function buildInBrand(spec: { id: string; keepsColours?: boolean; build: (ctx: KitContext, params: Record<string, unknown>) => MotionScene }, ctx: KitContext, params: Record<string, unknown>, brand: MotionBrand | null | undefined): MotionScene {
   if (!brand) return spec.build(ctx, params);
   const scene = spec.build({ ...ctx, brand, font: ctx.font ?? brand.fonts.display }, params);
-  return spec.id.startsWith('brand-') ? scene : brandifyScene(scene, brand);
+  return spec.id.startsWith('brand-') || spec.keepsColours ? scene : brandifyScene(scene, brand);
 }

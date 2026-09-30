@@ -207,6 +207,19 @@ export type TypeOn = {
   /** 'word' types a word at a time (fast AI prompts). */
   chunk?: 'char' | 'word';
   script?: ({ type: string } | { backspace: number } | { wait: number })[];
+  /**
+   * The second each character appears, one per character of the text (spaces included, line
+   * breaks skipped): typing that lands on a voice's word onsets (the launch film typed each word
+   * from its onset at 46–66 ms a character). Overrides `at`, `cps` and `script`; the caret then
+   * stays solid for 0.35 s after each key.
+   */
+  times?: number[];
+  /**
+   * Seconds over which a centred or right-aligned line glides to its new place as it grows,
+   * instead of jumping half a character per key: its width is averaged over that window (0.154 s
+   * in the launch film, 7 frames 22 ms apart). Applies to the line being typed.
+   */
+  recenter?: number;
   backspaceCps?: number;
   /** Each new character fades in over this many seconds (default 2 frames). */
   fadeIn?: number;
@@ -363,6 +376,8 @@ type LayerCommon = {
   masks?: Mask[];
   effects?: Effect[];
   motionBlur?: boolean;
+  /** This layer's shutter angle in degrees when it blurs (the scene's otherwise): about 72 on moving text and cursors so they do not smear into stripes, 120 on whips. */
+  shutter?: number;
   /** Frosted glass: blur what is behind the layer's alpha before drawing it. */
   backdrop?: { blur: Prop<number>; saturation?: number; brightness?: number };
   /** Makes the layer an adjustment layer: its effects apply to everything below, cut by its alpha. */
@@ -432,11 +447,16 @@ export type MotionScene = {
   /** Background colour; transparent when null/absent (the clip overlays the timeline). */
   background?: string | null;
   layers: Layer[];
-  motionBlur?: { samples?: number; shutter?: number };
+  /**
+   * Motion blur: sub-frames per frame (1–48) and the shutter angle. `ranges` give stretches of the
+   * scene their own sample count, chosen from how fast things move on screen there (src/motion/blur.ts):
+   * a still hold renders once, a whip gets many. Outside every range `samples` holds.
+   */
+  motionBlur?: { samples?: number; shutter?: number; ranges?: { from: number; to: number; samples: number }[] };
   /** Seed for wiggle/noise/random so renders are repeatable. */
   seed?: number;
   /** Sound cues the template wants (seconds): the host may lay SFX on them. */
-  cues?: { at: number; sound: 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'click' | 'tick' | 'key' | 'typing' | 'glass' | 'shimmer' | 'sub' | 'blip' | 'swish' | 'ding' | 'boom'; /** Seconds to keep (a typing bed runs as long as the typing). */ duration?: number; note?: string }[];
+  cues?: { at: number; sound: 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'click' | 'tick' | 'key' | 'typing' | 'glass' | 'shimmer' | 'sub' | 'blip' | 'swish' | 'ding' | 'boom' | 'key_click' | 'send_pop' | 'soft_whoosh' | 'glass_tick' | 'cursor_tap'; /** Seconds to keep (a typing bed runs as long as the typing). */ duration?: number; note?: string }[];
   /** Template id and params it was built from, so it can be rebuilt with new words. */
   template?: { id: string; params: Record<string, unknown> };
   /** The brand kit the scene was put in (src/motion/kit/brandify.ts), with the snapshot it used, so rebuilds stay on brand. */

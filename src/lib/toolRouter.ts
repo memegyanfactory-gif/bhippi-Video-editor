@@ -95,6 +95,20 @@ export const PLAYBOOK_FOR: Record<Genre, string> = {
 };
 
 /**
+ * The premium films by name: an ask that names one opens its playbook (motionDirection.ts), which
+ * carries what those films taught. Checked in order; the first that matches wins. Only names of
+ * films: "to the song", a "demo reel", "brand identity" colours or a "real product" shot are
+ * ordinary asks that keep their own playbook.
+ */
+const FILM_SIGNALS: [string, RegExp][] = [
+  ['product-demo', /\b(product demo|demo (film|video))\b/i],
+  ['identity-film', /\b(identity film|brand identity (film|video)|logo (reveal|film|animation)|glass (logo|mark))\b/i],
+  ['kinetic-explainer', /\b((kinetic|motion[- ]design) explainer|crimson (look|explainer|brief))\b/i],
+  ['fluid-saas', /\b(fluid (saas|film|video|launch)|relume)\b/i],
+  ['launch-film', /\b(launch (film|video)|product film|real (app|ui)|meet \w+ film)\b/i],
+];
+
+/**
  * Tools that belong to one phase of a production: a turn in another phase gets them slim (still
  * callable through tool_help). Most of a production's steps are edit steps, and the plan tools'
  * schemas alone are ~12 K characters.
@@ -115,7 +129,7 @@ function forPhase(full: Set<string>, phase: string | null | undefined) {
   // No production yet (a quick edit, or a plan about to start): every phase's tools stay whole.
 }
 
-export type Toolset = { genres: Genre[]; full: string[]; playbook?: { id: string; title: string; beats: unknown; look: unknown; timing: unknown; rules: unknown; gaps?: unknown } };
+export type Toolset = { genres: Genre[]; full: string[]; playbook?: { id: string; title: string; beats: unknown; look: unknown; timing: unknown; rules: unknown; gaps?: unknown; templates?: unknown; vary?: unknown } };
 
 /**
  * The kinds of video in this ask (the message first, then recent asks for a follow-up like
@@ -134,13 +148,14 @@ export function routeTools(message: string, earlier: string[] = [], editStyle?: 
   forPhase(full, phase);
   // A drawn look (riso, sketchbook, paper) opens with the hand-made playbook built from the drawn films.
   const drawn = /\b(hand[- ]?drawn|hand[- ]?made|riso|sketch(book)?|doodle|paper|ink|crayon|pencil)\b/i.test(`${message}\n${earlier.slice(-4).join('\n')}`);
+  const film = FILM_SIGNALS.find(([, signal]) => signal.test(`${message}\n${earlier.slice(-4).join('\n')}`))?.[0];
   // A walkthrough or tutorial of software reads differently from an ad for it.
   const walkthrough = /\b(walkthrough|tutorial|how to use|onboarding|step by step|demo of)\b/i.test(message);
-  const opening = drawn ? 'hand-made' : genres.includes('saas') && walkthrough ? 'ui-walkthrough' : PLAYBOOK_FOR[genres[0]];
+  const opening = drawn ? 'hand-made' : film ?? (genres.includes('saas') && walkthrough ? 'ui-walkthrough' : PLAYBOOK_FOR[genres[0]]);
   const book = opening ? playbook(opening) : null;
   return {
     genres,
     full: [...full],
-    ...(book ? { playbook: { id: book.id, title: book.title, beats: book.beats, look: book.look, timing: book.timing, rules: book.rules, ...(book.gaps ? { gaps: book.gaps } : {}) } } : {}),
+    ...(book ? { playbook: { id: book.id, title: book.title, beats: book.beats, look: book.look, timing: book.timing, rules: book.rules, ...(book.gaps ? { gaps: book.gaps } : {}), ...(book.templates ? { templates: book.templates } : {}), ...(book.vary ? { vary: book.vary } : {}) } } : {}),
   };
 }

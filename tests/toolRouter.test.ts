@@ -45,3 +45,31 @@ describe('playbooks for every kind of video', () => {
     expect(routeTools('tighten my podcast footage').playbook?.id).toBe('normal-edit');
   });
 });
+
+describe('the premium films by name', () => {
+  it('open their own playbook, with the ready-made pieces and what to vary', () => {
+    expect(routeTools('make a 15 s launch film for Bhippi to the Meet Bhippi song').playbook?.id).toBe('launch-film');
+    expect(routeTools('a product demo of my app: ask, work, result').playbook?.id).toBe('product-demo');
+    expect(routeTools('an identity film for our glass logo').playbook?.id).toBe('identity-film');
+    expect(routeTools('a kinetic explainer in the crimson look').playbook?.id).toBe('kinetic-explainer');
+    expect(routeTools('a fluid saas film like the Relume one').playbook?.id).toBe('fluid-saas');
+    const set = routeTools('make a launch film that uses the real UI');
+    expect(set.playbook?.templates).toEqual(expect.arrayContaining(['product-demo', 'fly-through-word']));
+    expect(Array.isArray(set.playbook?.vary)).toBe(true);
+    // A drawn look still wins, and an ordinary launch ad keeps its own playbook.
+    expect(routeTools('a hand drawn launch film').playbook?.id).toBe('hand-made');
+    expect(routeTools('a launch ad for my saas app').playbook?.id).toBe('product-launch');
+  });
+
+  it('leave ordinary asks that share a few words with them on their own playbooks', () => {
+    // A montage cut to a song, a showreel, brand colours and a physical product are not premium films.
+    expect(routeTools('cut my wedding clips to the song').playbook?.id).toBe('normal-edit');
+    expect(routeTools('apply my brand identity colours to the captions').playbook?.id).not.toBe('identity-film');
+    expect(routeTools('edit my acting demo reel').playbook?.id).not.toBe('product-demo');
+    expect(routeTools('show the real product, not renders, in this sneaker ad').playbook?.id).not.toBe('launch-film');
+    // Named as films, they still open.
+    expect(routeTools('a demo video of my app').playbook?.id).toBe('product-demo');
+    expect(routeTools('a brand identity film for our studio').playbook?.id).toBe('identity-film');
+    expect(routeTools('a video of the real app at work').playbook?.id).toBe('launch-film');
+  });
+});

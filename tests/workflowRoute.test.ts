@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { routeSignals, type ChatMessage } from '../src/chat/ChatPanel';
-import { asksForProduction, continuesTheJob, routeWorkflow } from '../src/lib/workflowRoute';
+import { asksForProduction, continuesTheJob, filmEffortHint, routeWorkflow } from '../src/lib/workflowRoute';
 
 describe('Auto workflow routing', () => {
   it.each([
@@ -93,5 +93,18 @@ describe('routeSignals', () => {
 
   it('adds nothing after an answer that finished', () => {
     expect(routeSignals([user(BRIEF), answer('done', 'full')], { productionActive: false }).unfinished).toBeUndefined();
+  });
+});
+
+describe('thinking effort for a video', () => {
+  it('suggests the highest level the model offers when a video is asked for at Low or Medium', () => {
+    expect(filmEffortHint('make a 40 s launch video for my app', 'medium', ['low', 'medium', 'high', 'max'])).toBe('max');
+    expect(filmEffortHint('create an explainer about black holes', 'low', ['low', 'medium', 'high'])).toBe('high');
+  });
+
+  it('stays quiet for a small change, a high level already, or a model without levels', () => {
+    expect(filmEffortHint('trim the first 3 seconds', 'medium', ['medium', 'max'])).toBeNull();
+    expect(filmEffortHint('make a 40 s launch video', 'high', ['medium', 'high', 'max'])).toBeNull();
+    expect(filmEffortHint('make a 40 s launch video', 'medium', [])).toBeNull();
   });
 });

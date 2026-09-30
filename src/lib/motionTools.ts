@@ -20,10 +20,13 @@ import { playbook, playbookIndex } from './motionDirection';
 import { findPack, packCatalogue } from './stylePacks';
 import { cameraLayer, PRESETS_3D, renderScene, scene3dRequest, trackLayers, type CameraFile, type ObjectsFile, type Render3DResult } from './blender3d';
 import { buildUiScene, runUiScreenTool } from './uiScreenTools';
+import { loadCaptureManifest, type CaptureManifest } from './appCapture';
+import { buildDemoTemplate } from '../motion/kit/productDemo';
 import { runCharacterTool } from './characterTools';
 import { runLottieTool } from './lottieTools';
 import { GENERIC_TARGET, pacingReport, type PacingTarget } from './pacing';
 import { summarizeProfile, type MotionProfile } from './referenceMotion';
+import { applyFinish, carryFinish, readFinish } from '../motion/finish';
 import { FX_HELP, FX_KINDS, fxLayers, type FxKind, type FxOptions } from '../motion/fx';
 import { evaluateMeasured } from '../motion/measure';
 import { entryBounds } from '../motion/evaluate';
@@ -34,6 +37,8 @@ import { api, errorText, type Transcript, type TranscriptWord, fetchFile } from 
 import { timelineWords } from './transcriptText';
 import { hasWordRefs, resolveWordTimes } from './wordTimes';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
+import { cueLevel, cuePlacements, isMusicClip, motionCues, musicDbOver, placedSounds, typingCues, type MusicBed, type PlacedSound } from './cueSound';
+import { loadPeaks } from './peaks';
 import { clipEnd, compDuration, freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
 import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps, stackLossy } from './motionStack';
 import { fitToSafeArea, layoutIssues, safeMargins, type LayoutIssue } from '../motion/safeArea';
@@ -41,7 +46,9 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_product_demo', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie', 'sound_the_motion']);
+/** What create_product_demo passes on to the demo's template, besides the capture it loads. */
+const DEMO_PARAMS = ['duration', 'shots', 'actions', 'cursors', 'stage', 'tilt', 'explode', 'variant', 'settle', 'base', 'at', 'slam', 'depth', 'spread', 'blur'];
 /** Read-only / planning motion tools, allowed in any production phase. */
 export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing', 'list_character_actions', 'list_characters']);
 
@@ -208,21 +215,6 @@ function findLayer(scene: MotionScene, id: string): Layer | null {
 
 const SFX_MAP: Record<string, SfxKind> = Object.fromEntries(SFX_KINDS.map((kind) => [kind, kind]));
 
-/** Every typed text line gets a keyboard bed for as long as it types (unless the scene already cues typing). */
-function typingCues(scene: MotionScene): NonNullable<MotionScene['cues']> {
-  if (scene.cues?.some((cue) => cue.sound === 'typing' || cue.sound === 'key')) return [];
-  const out: NonNullable<MotionScene['cues']> = [];
-  for (const layer of scene.layers) {
-    if (layer.type !== 'text' || !layer.text.type) continue;
-    const ty = layer.text.type;
-    const chars = ty.script?.length ? ty.script.reduce((n, step) => n + ('type' in step ? Array.from(step.type).length : 0), 0) : Array.from(layer.text.text ?? '').length;
-    const seconds = chars / Math.max(1, ty.cps ?? 30);
-    if (seconds < 0.15 || ty.chunk === 'word') continue;
-    out.push({ at: (layer.startTime ?? 0) + (ty.at ?? 0), sound: 'typing', duration: Math.min(SFX_LENGTH.typing, seconds), note: 'typing' });
-  }
-  return out;
-}
-
 /** Places the scene's SFX cues on free audio tracks. */
 function placeCues(comp: Comp, scene: MotionScene, start: number): { comp: Comp; ids: string[] } {
   let next = comp;
@@ -243,6 +235,18 @@ function placeCues(comp: Comp, scene: MotionScene, start: number): { comp: Comp;
 }
 
 export const MOTION_FOLDER = 'AI Motion';
+
+/**
+ * Adds layered "[Motion]" comps (explodeScene's comp and its precomps) to the project, filed in
+ * the AI Motion bin (made when missing), without placing them anywhere: a render delivered in
+ * passes (renderPasses.ts) waits there until the edit nests it.
+ */
+export function fileMotionComps(project: Project, comps: Comp[]): Project {
+  if (!comps.length) return project;
+  const folderId = project.folders.find((f) => f.name === MOTION_FOLDER && f.parentId === null)?.id ?? `folder_${comps[0].id}`;
+  const folders = project.folders.some((f) => f.id === folderId) ? project.folders : [...project.folders, { id: folderId, name: MOTION_FOLDER, parentId: null }];
+  return { ...project, folders, comps: [...project.comps, ...comps.map((c) => ({ ...c, folderId: c.folderId ?? folderId }))] };
+}
 
 /**
  * Where a motion clip's scene time 0 sits on a given comp's timeline: its own start, plus the
@@ -410,6 +414,8 @@ function backgroundPlate(ctx: MotionToolContext, comp: Comp, from: number, to: n
 
 type SceneEdit = { scene: MotionScene; changes: string[]; retime: number | null; rebuilt: boolean; fitNote: string };
 
+const FINISH_HELP = 'finish is "launch-light", "launch-dark" or {preset, exposure?, bloom?, vignette?, grain?, cardShadow?, shadowColor?}; "none" takes it off.';
+
 /** Applies update_motion_scene's params / scene / removeLayers / addLayers / patches / retime to a copy of `base`, then keeps it inside the safe area. */
 function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneStart: number): SceneEdit | { error: string } {
   let scene: MotionScene = JSON.parse(JSON.stringify(base));
@@ -422,7 +428,8 @@ function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneS
     if (!spec) return { error: 'This scene was not built from a template; patch its layers instead.' };
     const merged = { ...(scene.template?.params ?? {}), ...resolveParams(params, ctx, sceneStart) };
     const brand = args.useBrand === false ? null : ctx.brand ?? scene.brand?.snapshot ?? null;
-    scene = buildInBrand(spec, { width: scene.width, height: scene.height }, merged, brand);
+    // A rebuild keeps the scene's finish (and the user's changes to it).
+    scene = carryFinish(scene, buildInBrand(spec, { width: scene.width, height: scene.height }, merged, brand));
     changes.push(`rebuilt ${templateId} with ${Object.keys(params).join(', ')}`);
     rebuilt = true;
   }
@@ -442,6 +449,12 @@ function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneS
     if (index >= 0) scene.layers.splice(entry.above ? index + 1 : index, 0, layer);
     else scene.layers.push(layer);
     changes.push(`added ${layer.id}`);
+  }
+  if (args.finish !== undefined) {
+    const finish = readFinish(args.finish);
+    if (!finish) return { error: FINISH_HELP };
+    scene = applyFinish(scene, finish);
+    changes.push(finish === 'none' ? 'took the finish off' : `finished with ${finish.preset} (the "finish" layer)`);
   }
   for (const raw of Array.isArray(args.patches) ? (args.patches as unknown[]) : []) {
     const patch = raw as Args;
@@ -465,7 +478,7 @@ function editScene(base: MotionScene, args: Args, ctx: MotionToolContext, sceneS
     scene = { ...(stretch(scene) as MotionScene), width: scene.width, height: scene.height, version: 1 };
     changes.push(`retimed ×${retime}`);
   }
-  if (!changes.length) return { error: 'Nothing to change: give params, patches, addLayers, removeLayers, retime or scene.' };
+  if (!changes.length) return { error: 'Nothing to change: give params, patches, addLayers, removeLayers, finish, retime or scene.' };
   const problems = validateScene(scene);
   if (problems.length) return { error: `The edited scene is not valid: ${problems.slice(0, 8).join(' ')}` };
   const fit = args.fit === false ? null : fitToSafeArea(scene, { margin: safeMargin(args) });
@@ -536,7 +549,12 @@ function paramsForModel(params: unknown, depth = 0): unknown {
   if (Array.isArray(params)) return depth > 6 ? '[…]' : params.map((item) => paramsForModel(item, depth + 1));
   if (params && typeof params === 'object') {
     if (depth > 6) return '{…}';
-    return Object.fromEntries(Object.entries(params as Record<string, unknown>).map(([key, value]) => [key, key === 'raster' ? '[raster omitted]' : paramsForModel(value, depth + 1)]));
+    const captured = (value: unknown) => (value && typeof value === 'object' && Array.isArray((value as { parts?: unknown }).parts) ? value as { name?: string; parts: { part: string }[] } : null);
+    return Object.fromEntries(Object.entries(params as Record<string, unknown>).map(([key, value]) => {
+      const capture = key === 'capture' ? captured(value) : null;
+      if (capture) return [key, `[capture "${capture.name ?? ''}": ${capture.parts.length} pictures of ${new Set(capture.parts.map((p) => p.part)).size} parts, kept]`];
+      return [key, key === 'raster' ? '[raster omitted]' : paramsForModel(value, depth + 1)];
+    }));
   }
   return params;
 }
@@ -564,6 +582,47 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'list_ui_kinds':
     case 'capture_product_ui':
       return runUiScreenTool(name, args, ctx, runMotionTool);
+
+    case 'create_product_demo': {
+      // The real product in action (kit/productDemo.ts): a capture_app_session capture made into a
+      // camera shot of layers. The camera lands on parts and pulls back to the tilted window,
+      // named cursors click and type, each part changes state on its frame, and the window can
+      // come apart and slam back. Placed exactly as create_motion_scene places a scene.
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('There is no composition to place the demo in.');
+      const given = args.capture;
+      let manifest: CaptureManifest;
+      if (given && typeof given === 'object' && Array.isArray((given as CaptureManifest).parts)) manifest = given as CaptureManifest;
+      else if (typeof given === 'string' && given.trim()) {
+        try { manifest = await loadCaptureManifest(given); } catch (error) { return fail(errorText(error)); }
+      } else return fail('Give capture: the name of a capture_app_session session (its folder in AI Work/ui-parts), or its manifest.json path.');
+      const template = str(args, 'template') === 'window-explode' ? 'window-explode' : 'product-demo';
+      const start = Math.max(0, num(args, 'start') ?? 0);
+      const params: Args = Object.fromEntries(DEMO_PARAMS.filter((key) => args[key] !== undefined).map((key) => [key, args[key]]));
+      params.capture = { name: typeof given === 'string' ? given : manifest.dir.split(/[\\/]/).pop(), dir: manifest.dir, width: manifest.width, height: manifest.height, scale: manifest.scale, parts: manifest.parts.map(({ part, state, file, boxCss, pixels, typed }) => ({ part, state, file, boxCss, pixels, ...(typed !== undefined ? { typed } : {}) })) };
+      params.fps = comp.fps;
+      let built: ReturnType<typeof buildDemoTemplate>;
+      try {
+        built = buildDemoTemplate(template, { width: comp.width, height: comp.height, ...(ctx.brand ? { brand: ctx.brand } : {}) }, params);
+      } catch (error) { return fail(`${errorText(error)} Parts: ${[...new Set(manifest.parts.map((part) => `${part.part} (${manifest.parts.filter((p) => p.part === part.part).length} state${manifest.parts.filter((p) => p.part === part.part).length === 1 ? '' : 's'})`))].join(', ')}.`); }
+      const { scene, notes } = built;
+      const title = str(args, 'title') ?? (template === 'window-explode' ? 'Window explode' : 'Product demo');
+      const placed = await runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start, title, duration: scene.duration, fit: false, useBrand: false, sfx: args.sfx !== false }, ctx);
+      if (!placed.ok) return placed;
+      const data = placed as ToolResult & { clipId: string; compId: string; sfxClipIds: string[]; layers: { layerId: string; name: string }[] };
+      // The moments worth a look: where the camera lands, every click, the slam.
+      const shots = Array.isArray(args.shots) ? (args.shots as { at?: unknown }[]).map((shot) => shot?.at) : [];
+      const clicks = Array.isArray(args.actions) ? (args.actions as { at?: unknown; click?: unknown }[]).filter((action) => action?.click !== undefined).map((action) => action.at) : [];
+      const slam = template === 'window-explode' ? args.slam : (args.explode as { slam?: unknown } | undefined)?.slam;
+      const moments = [...new Set([...shots, ...clicks, slam].filter((t): t is number => typeof t === 'number' && t >= 0 && t < scene.duration).map((t) => Math.round((start + Math.min(t + 0.05, scene.duration - 0.05)) * 100) / 100))].sort((a, b) => a - b).slice(0, 9);
+      const byPart = new Map<string, number>();
+      for (const layer of scene.layers) if (layer.type === 'footage') { const part = layer.id.split('@')[0]; byPart.set(part, (byPart.get(part) ?? 0) + 1); }
+      const cursors = scene.layers.filter((layer) => layer.type === 'null' && layer.id.startsWith('cursor-') && !layer.id.endsWith('-clicks')).map((layer) => (layer.name ?? layer.id).replace(/^Cursor · /, ''));
+      return done(
+        `${title} placed at ${timecode(start, comp.fps)} for ${scene.duration.toFixed(2)} s as the layered comp "[Motion] ${title}" (${MOTION_FOLDER} bin): ${scene.layers.length} layers, each a clip on its own track — the window and its parts (${[...byPart].map(([part, n]) => (n > 1 ? `${part} ×${n}` : part)).join(', ')}), ${cursors.length ? `cursor${cursors.length === 1 ? '' : 's'} ${cursors.join(', ')}, ` : ''}the camera${data.sfxClipIds.length ? `, with ${data.sfxClipIds.length} sound cue${data.sfxClipIds.length === 1 ? '' : 's'} on the SFX track` : ''}.${notes.length ? ` Adjusted: ${notes.join('; ')}.` : ''} Look at it with review_frames${moments.length ? ` {"times":[${moments.join(', ')}]}` : ''}; change it with update_motion_scene {"clipId":"${data.clipId}","params":{…}} (shots, actions, cursors, stage, tilt, explode rebuild it; the capture is kept).`,
+        { clipId: data.clipId, compClipId: data.clipId, compId: data.compId, sfxClipIds: data.sfxClipIds, moments, notes, layers: data.layers.map(({ layerId, name: layerName }) => ({ layerId, name: layerName })) },
+      );
+    }
 
     case 'add_fx': {
       const kind = str(args, 'kind') as FxKind | undefined;
@@ -620,7 +679,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     }
 
     case 'list_transitions':
-      return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition). Give {kind, duration?, direction?, glyph?, mode?, at?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });
+      return done(`${TRANSITION_KINDS.length} motion transitions for create_motion_sequence (between beats inside one scene; for cuts between footage clips use add_transition / seamless_transition, or lay the flash-bridge / glow-handoff templates over the cut). Give {kind, duration?, direction?, glyph?, mode?, at?, to?, size?, strength?, color?, twist?}.`, { transitions: TRANSITION_KINDS.map((kind) => ({ kind, does: TRANSITION_HELP[kind] })) });
 
     case 'create_motion_sequence': {
       const comp = ctx.pickComp(project, args);
@@ -821,6 +880,10 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const namedTemplate = str(args, 'template');
       const templateId = namedTemplate ? resolveTemplateId(namedTemplate, MOTION_TEMPLATES) ?? namedTemplate : namedTemplate;
       let plateNote = '';
+      // The demo templates build from a capture on disk: create_product_demo loads it first.
+      if (templateId === 'product-demo' || templateId === 'window-explode') {
+        return runMotionTool('create_product_demo', { ...(args.capture !== undefined ? { capture: args.capture } : {}), ...(obj(args, 'params') ?? {}), template: templateId, start, ...(args.compId ? { compId: args.compId } : {}), ...(str(args, 'title') ? { title: str(args, 'title') } : {}), ...(args.sfx === false ? { sfx: false } : {}) }, ctx);
+      }
       if (templateId) {
         const spec = findTemplate(templateId);
         if (!spec) return fail(`No motion template "${templateId}". Templates: ${MOTION_TEMPLATES.map((s) => s.id).join(', ')}.`);
@@ -913,12 +976,109 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         });
       } else ctx.editComp(comp, () => next);
       const layers = exploded?.layers.filter((layer) => layer.compId === exploded.comp.id) ?? [];
-      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${exploded ? ` as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin): ${layers.length} layer${layers.length === 1 ? '' : 's'} — ${layers.map((layer) => layer.name).join(', ')} — each a clip on its own track, so the user can open it and move, trim, hide or restyle any layer${exploded.nested.length ? ` (precomps open as their own layered comps)` : ''}` : ''}, on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track` : ''}.${plateNote}${fitReport(fit, safeMargin(args))}${lightStageNote(scene)} Preview and export use the same GPU renderer. Check it with run_frame_qa (it now renders motion graphics into the contact frames); change it with update_motion_scene {"clipId":"${clip.id}"} — params rebuild the template, patches edit a layer by its id.${fixSummary(fixNotes)}`, {
+      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${exploded ? ` as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin): ${layers.length} layer${layers.length === 1 ? '' : 's'} — ${layers.map((layer) => layer.name).join(', ')} — each a clip on its own track, so the user can open it and move, trim, hide or restyle any layer${exploded.nested.length ? ` (precomps open as their own layered comps)` : ''}` : ''}, on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track (sound_the_motion sets them against the music)` : ''}.${plateNote}${fitReport(fit, safeMargin(args))}${lightStageNote(scene)} Preview and export use the same GPU renderer. Check it with run_frame_qa (it now renders motion graphics into the contact frames); change it with update_motion_scene {"clipId":"${clip.id}"} — params rebuild the template, patches edit a layer by its id.${fixSummary(fixNotes)}`, {
         ...(fixAdjustments.length ? { adjustments: fixAdjustments } : {}),
         clipId: clip.id, compClipId: clip.id, compId: exploded?.comp.id ?? comp.id, sfxClipIds: sfx,
         layers: exploded?.layers.map(({ layerId, clipId, compId, name, type, start: from, end }) => ({ layerId, clipId, compId, name, type, start: from, end })) ?? [],
         outline: summarizeScene(scene),
       });
+    }
+
+    case 'sound_the_motion': {
+      // Phase 5.1: a sound on every motion cue, each set against the music where it plays, so the
+      // clicks and whooshes the picture asks for are heard (cueSound.ts has the arithmetic).
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const from = Math.max(0, num(args, 'start') ?? 0);
+      const to = num(args, 'end') ?? Infinity;
+      if (!motionCues(project, comp, from, to).length) return fail('No motion cues in that range: no motion scene there carries sound cues (templates and UI screens do). Place sounds by hand with add_sound_effect.');
+      const swapArg = obj(args, 'swap') ?? {};
+      const swap: Partial<Record<string, SfxKind>> = Object.fromEntries(Object.entries(swapArg).flatMap(([cue, kind]) => (SFX_KINDS.includes(kind as SfxKind) ? [[cue, kind as SfxKind]] : [])));
+      const skip = Array.isArray(args.skip) ? (args.skip as unknown[]).filter((kind): kind is string => typeof kind === 'string') : [];
+      const offsetDb = clamp(num(args, 'offsetDb') ?? 0, -12, 12);
+      // The music's waveform buckets, loaded before anything is changed.
+      const beds: MusicBed[] = [];
+      for (const clip of comp.clips) {
+        if (clip.source.type !== 'media') continue;
+        const asset = ctx.assets.get(clip.source.assetId);
+        if (!asset?.peaks || !isMusicClip(comp, clip, asset.name)) continue;
+        const peaks = await loadPeaks(asset.peaks);
+        if (peaks) beds.push({ clip, peaks });
+      }
+      type Row = { clipId: string; at: number; kind: SfxKind; gainDb: number; against: 'music' | 'no-music'; capped: boolean; existing: boolean };
+      const rows: Row[] = [];
+      let silenced = 0;
+      ctx.commit((current) => {
+        const top = current.comps.find((c) => c.id === comp.id);
+        if (!top) return current;
+        const cues = motionCues(current, top, from, to);
+        const placements = cuePlacements(cues, { swap, skip });
+        const placed = placedSounds(current, top);
+        const taken = new Set<string>();
+        // The sound already on a cue (create_motion_scene lays each scene's cues): the kind it
+        // plays now, or the one the cue asked for before this film swapped it.
+        const onCue = (kinds: string[], at: number) => placed.find((sound) => !taken.has(sound.clip.id) && kinds.includes(sound.kind) && Math.abs(sound.at - at) < 0.06);
+        // Changes to those sounds, by comp; null takes one off.
+        const changes = new Map<string, Map<string, Partial<Clip> | null>>();
+        const change = (sound: PlacedSound, patch: Partial<Clip> | null) => changes.set(sound.compId, (changes.get(sound.compId) ?? new Map()).set(sound.clip.id, patch));
+        let next = top;
+        for (const placement of placements) {
+          const level = cueLevel(placement.kind, musicDbOver(beds, placement.loud[0], placement.loud[1]), offsetDb);
+          const volume = clamp(10 ** (level.gainDb / 20), 0, 8);
+          const row = { at: Math.round(placement.start * 100) / 100, kind: placement.kind, gainDb: level.gainDb, against: level.against, capped: level.capped };
+          const there = onCue([placement.kind, placement.cue], placement.start);
+          if (there) {
+            taken.add(there.clip.id);
+            // Re-levelled, never doubled: a swapped cue's sound becomes the new one, and a riser
+            // laid whole is trimmed so its top meets the hit, as a fresh one would be.
+            const swapped = there.kind !== placement.kind;
+            const resound = swapped || placement.kind === 'riser';
+            change(there, {
+              volume,
+              ...(resound ? { source: { type: 'sfx' as const, kind: placement.kind }, in: placement.in, duration: placement.duration } : {}),
+              ...(swapped ? { name: sfxClipFields(placement.kind, placement.note).name } : {}),
+            });
+            rows.push({ ...row, clipId: there.clip.id, existing: true });
+            continue;
+          }
+          const target = sfxTrack(next, placement.start, placement.start + placement.duration);
+          const clip = newClip({ trackId: target.track.id, start: placement.start, in: placement.in, duration: placement.duration, source: { type: 'sfx', kind: placement.kind }, ...sfxClipFields(placement.kind, placement.note, volume) });
+          next = placeClips(target.comp, [clip], 'overwrite');
+          rows.push({ ...row, clipId: clip.id, existing: false });
+        }
+        // A skipped cue is left silent: the sound already on it goes too.
+        for (const cue of cues) {
+          if (!skip.includes(cue.sound)) continue;
+          const there = onCue([cue.sound, swap[cue.sound] ?? cue.sound], Math.max(0, cue.at));
+          if (!there) continue;
+          taken.add(there.clip.id);
+          change(there, null);
+          silenced++;
+        }
+        const apply = (c: Comp) => {
+          const edits = changes.get(c.id);
+          if (!edits) return c;
+          return { ...c, clips: c.clips.flatMap((clip) => {
+            if (!edits.has(clip.id)) return [clip];
+            const patch = edits.get(clip.id);
+            return patch ? [{ ...clip, ...patch } as Clip] : [];
+          }) };
+        };
+        return { ...current, comps: current.comps.map((c) => apply(c.id === top.id ? next : c)) };
+      });
+      const offNote = silenced ? ` ${silenced} sound${silenced === 1 ? ' on a skipped cue' : 's on skipped cues'} taken off.` : '';
+      if (!rows.length) return silenced ? done(`Every cue in that range was skipped.${offNote}`, { cues: rows, silenced }) : fail('Every cue in that range was skipped.');
+      const added = rows.filter((row) => !row.existing).length;
+      const capped = rows.filter((row) => row.capped);
+      const unscored = rows.filter((row) => row.against === 'no-music').length;
+      const kinds = [...new Set(rows.map((row) => row.kind))].map((kind) => {
+        const of = rows.filter((row) => row.kind === kind);
+        return `${kind} ×${of.length} (${Math.min(...of.map((row) => row.gainDb))} to ${Math.max(...of.map((row) => row.gainDb))} dB)`;
+      });
+      return done(
+        `Sounded ${rows.length} motion cue${rows.length === 1 ? '' : 's'}: ${added} placed on the SFX track, ${rows.length - added} already there set to their new level. ${beds.length ? `Each sits about 6 dB under the music's peak at its moment` : 'There is no music on this timeline, so each keeps its default level under the voice; run this again once the music is in'}: ${kinds.join(', ')}.${capped.length ? ` ${capped.length} could not get that loud without clipping (first at ${timecode(capped[0].at, comp.fps)}): duck the music under them with score_audio_clip.` : ''}${beds.length && unscored ? ` ${unscored} play where no music does and keep their default level.` : ''}${offNote} Change one like any clip; review_frames checks they are heard.`,
+        { cues: rows, ...(silenced ? { silenced } : {}) },
+      );
     }
 
     case 'get_motion_scene': {

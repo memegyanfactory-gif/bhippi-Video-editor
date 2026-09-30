@@ -151,7 +151,7 @@ export function newItem(kind: ItemKind, comp: Pick<Comp, 'width' | 'height'>, op
 }
 
 /** Default SFX level by kind (linear gain: whoosh ≈ −16 dB … riser ≈ −20 dB); lib/sfxLevels.ts builds on it. */
-export const SFX_DEFAULT_GAIN: Record<SfxKind, number> = { whoosh: 0.16, impact: 0.2, pop: 0.125, chime: 0.125, riser: 0.1, boom: 0.2, scratch: 0.1, bleep: 0.125, swish: 0.16, ding: 0.16, glitch: 0.125, click: 0.1, tick: 0.1, key: 0.1, typing: 0.1, glass: 0.125, shimmer: 0.1, sub: 0.2, blip: 0.1 };
+export const SFX_DEFAULT_GAIN: Record<SfxKind, number> = { whoosh: 0.16, impact: 0.2, pop: 0.125, chime: 0.125, riser: 0.1, boom: 0.2, scratch: 0.1, bleep: 0.125, swish: 0.16, ding: 0.16, glitch: 0.125, click: 0.1, tick: 0.1, key: 0.1, typing: 0.1, glass: 0.125, shimmer: 0.1, sub: 0.2, blip: 0.1, key_click: 0.1, send_pop: 0.125, soft_whoosh: 0.16, glass_tick: 0.125, cursor_tap: 0.1 };
 
 export function newClip(fields: Pick<Clip, 'trackId' | 'start' | 'duration' | 'source'> & Partial<Clip>): Clip {
   return {

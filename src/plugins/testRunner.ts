@@ -30,13 +30,13 @@ export const SCRATCH_TOOLS = new Set([
   'remove_range', 'remove_transitions', 'seamless_transition', 'set_caption_style', 'set_in_out', 'set_keyframes',
   'set_mask', 'split_clips', 'split_screen', 'undo', 'update_clip', 'update_comp', 'update_item', 'update_track',
   // Shorts, captions, sound levels and beats: project edits from what is already known.
-  'create_shorts', 'add_captions', 'level_audio', 'snap_cuts_to_beats', 'fill_background', 'apply_recipe', 'call_custom_tool',
+  'create_shorts', 'add_captions', 'level_audio', 'sound_the_motion', 'snap_cuts_to_beats', 'fill_background', 'apply_recipe', 'call_custom_tool',
   // Graphics and motion built inside the project.
-  'create_motion_graphic', 'add_graphic', 'react_bits', 'remotion_kit', 'create_motion_sequence', 'create_motion_scene', 'update_motion_scene',
+  'create_motion_graphic', 'add_graphic', 'react_bits', 'remotion_kit', 'create_motion_sequence', 'create_motion_scene', 'update_motion_scene', 'create_product_demo',
   'nest_motion_scenes', 'split_motion_layers', 'create_stick_figure', 'animate_character', 'create_ui_screen', 'update_ui_screen',
   'apply_brand_kit', 'save_beat_sheet', 'roast_move', 'apply_roast_edl',
   // Local reads of the project and its media.
-  'inspect_clip_frames', 'inspect_source_frames', 'detect_scenes', 'analyze_music_beats', 'score_audio_clip', 'inspect_color',
+  'inspect_clip_frames', 'inspect_source_frames', 'detect_scenes', 'analyze_music_beats', 'review_frames', 'score_audio_clip', 'inspect_color',
   'check_brand_compliance', 'list_brand_archetypes', 'brand_kit_prompt', 'validate_roast_edl', 'edit_dna',
   'local_media_capabilities', 'cloud_generation_capabilities',
 ]);
@@ -49,9 +49,9 @@ export const SCRATCH_TOOLS = new Set([
 export const SCRATCH_SKIPPED: Record<string, string> = Object.fromEntries([
   ...['import_media', 'import_lottie', 'import_generated_media', 'import_brand_logo', 'import_brand_kit', 'export_brand_kit', 'render_brand_board',
     'create_brand_kit', 'update_brand_kit', 'train_brand_kit', 'forget_training', 'set_active_brand_kit', 'create_project_guideline', 'save_style_profile', 'create_character',
-    'add_sound_effect', 'generate_selection_sound', 'normalize_audio', 'add_voiceover', 'compose_music', 'make_background', 'build_edit_from_brief']
+    'add_sound_effect', 'generate_selection_sound', 'normalize_audio', 'add_voiceover', 'compose_music', 'make_background', 'build_edit_from_brief', 'capture_app_session']
     .map((name) => [name, 'it writes or imports files']),
-  ...['analyze_clip_speech', 'podcast_cut', 'track_people', 'lip_sync_character', 'detect_faces', 'track_motion', 'rotoscope_clip', 'erase_subject_clip',
+  ...['analyze_clip_speech', 'analyze_song', 'podcast_cut', 'track_people', 'lip_sync_character', 'detect_faces', 'track_motion', 'rotoscope_clip', 'erase_subject_clip',
     'reveal_subject', 'depth_occlusion_clip', 'add_text_behind_subject', 'add_media_behind_subject', 'key_green_screen', 'cutout_image',
     'render_3d_scene', 'generate_local_media', 'generation_job']
     .map((name) => [name, 'it transcribes or runs a heavy local model']),

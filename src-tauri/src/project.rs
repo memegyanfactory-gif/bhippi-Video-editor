@@ -56,10 +56,16 @@ pub enum SfxKind {
     Shimmer,
     Sub,
     Blip,
+    // The UI sound set (docs/plans/NATIVE-AI-TOOLKIT-PLAN.md 5.2): the sounds every product film synthesised.
+    KeyClick,
+    SendPop,
+    SoftWhoosh,
+    GlassTick,
+    CursorTap,
 }
 
 impl SfxKind {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 24] = [
         Self::Whoosh,
         Self::Impact,
         Self::Chime,
@@ -79,6 +85,11 @@ impl SfxKind {
         Self::Shimmer,
         Self::Sub,
         Self::Blip,
+        Self::KeyClick,
+        Self::SendPop,
+        Self::SoftWhoosh,
+        Self::GlassTick,
+        Self::CursorTap,
     ];
 
     #[must_use]
@@ -103,6 +114,11 @@ impl SfxKind {
             Self::Shimmer => "shimmer",
             Self::Sub => "sub",
             Self::Blip => "blip",
+            Self::KeyClick => "key_click",
+            Self::SendPop => "send_pop",
+            Self::SoftWhoosh => "soft_whoosh",
+            Self::GlassTick => "glass_tick",
+            Self::CursorTap => "cursor_tap",
         }
     }
 
@@ -129,6 +145,11 @@ impl SfxKind {
             Self::Shimmer => 1.2,
             Self::Sub => 1.5,
             Self::Blip => 0.12,
+            Self::KeyClick => 0.08,
+            Self::SendPop => 0.3,
+            Self::SoftWhoosh => 0.7,
+            Self::GlassTick => 0.35,
+            Self::CursorTap => 0.08,
         }
     }
 

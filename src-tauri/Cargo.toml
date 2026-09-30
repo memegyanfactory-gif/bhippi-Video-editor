@@ -30,6 +30,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+# The DevTools protocol for capture_app_session: headless Chrome/Edge driven over its local websocket.
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["fmt", "env-filter"] }
 ulid = { workspace = true }

@@ -3772,7 +3772,7 @@ export default function App() {
             turnStarts.current += 1;
             latestTurn.current = { turnId, at: Date.now(), nudged: false };
             if (tier === 'guided') guidedTurns.current.add(turnId);
-            editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true, true, scope ?? null));
+            editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true, true, scope ?? null, tier === 'guided'));
           }}
           workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
           onRevert={revertTurn} canRevert={(turnId) => turnSnapshots.current.has(turnId)}

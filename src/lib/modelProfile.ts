@@ -43,6 +43,7 @@ export function modelTier(providerId: string | null | undefined, model: string |
 export const GUIDED_BRIEF = [
   'GUIDED MODE (this model gets Bhippi\'s strongest defaults): keep your own work to the words and the feel; let the tools do the craft.',
   '- A video from scratch, a promo, a reel, a showreel, an explainer made of titles: plan the beats (one idea each, 2–7 words), then ONE build_edit_from_brief call builds it — templates, timing on the beat, transitions with sound, a composed score and a background. Do not build scenes, keyframes or sound one by one.',
+  '- A launch, product, identity or explainer film (the real app, a song, a logo): the same ONE call with recipe (launch-film, product-demo, identity-film, kinetic-explainer, fluid-saas), style {palette, stage, cadence}, each beat\'s moment (hook, demo, feature, explode, connect, logo, end) and capture ("bhippi" for Bhippi\'s own app, or a capture_app_session name) to show the real app; without capture, demo beats are cards. It lands the words on the song, sounds, grades and reviews the film; use it instead of building a premium film scene by scene.',
   '- One graphic on an existing edit (a title, lower third, stat, list, quote, timeline…): add_graphic {kind, text, points?, value?, at}. It picks the template and fits the words; read its "Auto-fixed" note.',
   '- No music, or music generation/download failed: compose_music. Flat or black background: make_background. Never fake music with sound effects.',
   '- Fix what run_frame_qa lists with small, specific calls; do not hand-edit keyframe paths; if a beat is wrong, rebuild with new beats. Then judge_edit and verify_edit_workflow.',
@@ -60,5 +61,10 @@ export function guidedRefusal(name: string, args: Record<string, unknown>): stri
   if (name === 'create_motion_graphic' && (args.template === 'custom' || raw(args.html) || raw(args.css) || raw(args.js))) return `Guided mode: this model builds graphics from templates, not raw HTML/CSS/JS. ${nudge}`;
   if (name === 'create_motion_scene' && !raw(args.template) && args.scene && typeof args.scene === 'object') return `Guided mode: this model builds scenes from templates, not a hand-written scene. ${nudge}`;
   if (name === 'create_motion_sequence' && Array.isArray(args.beats) && args.beats.some((beat) => !!beat && typeof beat === 'object' && 'scene' in (beat as object) && !raw((beat as Record<string, unknown>).template))) return `Guided mode: each beat is a template ({template, params}), not a hand-written scene. For a whole video use build_edit_from_brief. ${nudge}`;
+  // A "render" scene is one the model renders itself with its own code: a frontier model does that
+  // well, but a smaller one that plans it has nothing to deliver when gathering starts.
+  if (name === 'save_video_blueprint' && Array.isArray(args.scenes) && args.scenes.some((scene) => !!scene && typeof scene === 'object' && (scene as Record<string, unknown>).mediaSource === 'render')) {
+    return 'Guided mode: a "render" scene means writing your own renderer, which this model does not do. Give each such scene mediaSource "generate", "download" or "existing" and carry its look with a template graphic (the scene\'s mogrt), or build the whole video with build_edit_from_brief.';
+  }
   return null;
 }

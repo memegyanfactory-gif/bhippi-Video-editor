@@ -65,6 +65,11 @@ mod bundle;
 mod cutout;
 mod blender;
 mod ui_screen;
+mod app_capture;
+mod render_passes;
+mod demo_pack;
+mod cdp;
+mod vocal;
 mod ref_motion;
 mod trace;
 mod harness;
@@ -1950,34 +1955,57 @@ fn transcript_edit_words(state: State<'_, Arc<AppState>>, asset_id: String, edit
 }
 
 /// The words spoken in one asset, transcribed once and cached beside its other derived files.
+/// `vocal`: a song. The centre-panned lead vocal is pulled out first (vocal.rs), so sung lines are
+/// heard under the mix; that transcript is cached apart from the plain one.
 #[tauri::command]
 async fn transcribe_asset(
     state: State<'_, Arc<AppState>>,
     id: String,
     language: String,
+    vocal: Option<bool>,
 ) -> CommandResult<transcribe::Transcript> {
     let asset = state.assets_by_id().remove(&id).ok_or("that media is no longer in the library")?;
     if !asset.has_audio {
         return Err("that file has no sound to transcribe".into());
     }
-    let job = state.jobs.start("transcribe", format!("Transcribing {}", asset.name), false);
+    let vocal = vocal.unwrap_or(false);
+    let cache_id = if vocal { format!("{}~vocal", asset.id) } else { asset.id.clone() };
+    let job = state.jobs.start("transcribe", format!("Transcribing {}{}", asset.name, if vocal { " (vocal)" } else { "" }), false);
     let tools = state.tools();
     let prefs = state.settings().speech;
+    // The vocal stem is only made when this song's vocal transcript is not cached already.
+    let mut stem: Option<std::path::PathBuf> = None;
+    if vocal && transcribe::cached(&state.paths.thumbnails, &cache_id).is_none() {
+        job.progress(0.05, "Separating the vocal");
+        match vocal::vocal_wav(&tools, &asset.path, &state.paths.work, &asset.id).await {
+            Ok(path) => stem = Some(path),
+            Err(error) => {
+                job.fail(error.clone());
+                return Err(error);
+            }
+        }
+    }
+    let source = stem.as_ref().map_or_else(|| asset.path.clone(), |path| path.display().to_string());
     let result = transcribe::transcribe(
         &tools,
         &state.paths.thumbnails,
         &state.paths.work,
         &state.paths.models,
         &prefs,
-        &asset.id,
-        &asset.path,
+        &cache_id,
+        &source,
         &language,
         |fraction, step| job.progress(fraction, step),
     )
     .await;
+    if let Some(path) = stem {
+        let _ignored = std::fs::remove_file(path);
+    }
     match result {
-        Ok(transcript) => {
+        Ok(mut transcript) => {
             job.done(format!("{} words", transcript.words.len()), None);
+            // The caller asked about the asset, not about its cache entry.
+            transcript.asset_id = asset.id.clone();
             Ok(transcript)
         }
         Err(error) => {
@@ -2800,6 +2828,39 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
         let _ignored = app_handle.emit(LIBRARY_EVENT, ());
     });
     Ok(job_id)
+}
+
+/// The finished mix of a comp, measured as the export renders it (EBU R128).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MixLoudness {
+    integrated_lufs: f64,
+    true_peak_db: f64,
+    range_lu: f64,
+    duration: f64,
+}
+
+/// Measures the whole soundtrack of `comp_id` (every clip, gain, fade and effect, through the
+/// export's own limiter) without writing a file: what the final mix check reads (−16 LUFS,
+/// −1 dBTP). The same pass the export runs before it normalises loudness.
+#[tauri::command]
+async fn mix_loudness(state: State<'_, Arc<AppState>>, project: Project, comp_id: String) -> CommandResult<MixLoudness> {
+    let tools = state.tools();
+    let ffmpeg = tools.ffmpeg()?.to_path_buf();
+    let options = ExportOptions { comp_id, loudness: Some(-16.0), ..Default::default() };
+    let sfx_dir = state.paths.sfx.clone();
+    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Loudness, 0.0)?;
+    let work = state.paths.work.join(format!("mix-{}", store::new_id()));
+    std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
+    for (name, contents) in &plan.files {
+        std::fs::write(work.join(name), contents).map_err(|error| error.to_string())?;
+    }
+    let env = tools::FfmpegEnv { fontconfig_file: state.fontconfig.clone() };
+    let (_keep, cancel) = tokio::sync::watch::channel(false);
+    let log = tools::run_ffmpeg_collect(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |_| ()).await;
+    let _ignored = std::fs::remove_dir_all(&work);
+    let measured = render::codec::parse_loudness(&log?).ok_or("the mix could not be measured")?;
+    Ok(MixLoudness { integrated_lufs: measured.input_i, true_peak_db: measured.input_tp, range_lu: measured.input_lra, duration: plan.duration })
 }
 
 /// Renders the frame of `comp_id` at `time` — every track, text and effect — to a PNG.
@@ -4003,6 +4064,9 @@ pub fn run() {
             blender::blender_render_start,
             ui_screen::ui_screen_save,
             ui_screen::ui_capture,
+            app_capture::app_session_capture,
+            render_passes::render_pass_frames,
+            demo_pack::demo_pack_make,
             ref_motion::reference_motion_start,
             hardware_info,
             resource_usage,
@@ -4038,6 +4102,7 @@ pub fn run() {
             export_start,
             export_preview,
             export_frame,
+            mix_loudness,
             comp_poster,
             workspace_notes,
             workspace_note_delete,

@@ -430,6 +430,10 @@ export const api = {
   startupFile: () => invoke<string | null>('startup_file'),
 
   libraryList: () => invoke<Asset[]>('library_list'),
+  /** capture_app_session: the product (or Bhippi itself) cut into parts in states (app_capture.rs). */
+  appSessionCapture: (request: import('./appCapture').CaptureRequest) => invoke<import('./appCapture').CaptureManifest>('app_session_capture', { request }),
+  /** The demo media pack (demo_pack.rs), made on first use: never added to the library itself. */
+  demoPackMake: () => invoke<Asset[]>('demo_pack_make'),
   /** MCP servers Bhippi connects out to, with what each is lending right now. */
   mcpServers: () => invoke<McpStatus[]>('mcp_servers'),
   /** Adds or replaces a server and connects to it. */
@@ -483,6 +487,8 @@ export const api = {
   /** Measures a reference film's motion (cuts, hidden cuts, swaps, fitted eases, camera, twos, audio peaks) as an `analysis` job; its result names `profile` and `peaks`. */
   referenceMotionStart: (path: string, maxSeconds?: number) => invoke<string>('reference_motion_start', { path, maxSeconds: maxSeconds ?? null }),
   blenderRenderStart: (request: unknown, name?: string) => invoke<string>('blender_render_start', { request, name: name ?? null }),
+  /** A render pass delivered as a video with alpha (ProRes 4444, WebM), unpacked into a PNG run beside it (render_passes.rs). */
+  renderPassFrames: (path: string) => invoke<{ dir: string; frames: number; fps: number; width: number; height: number; alpha: boolean }>('render_pass_frames', { path }),
   /** Whether a TypeSafe key is present, so a judgment can be offered at all. */
   typesafeReady: () => invoke<boolean>('typesafe_ready'),
   /** Files the TypeSafe key; an empty string removes it. Returns whether judgments are ready. */
@@ -501,7 +507,8 @@ export const api = {
   /** Every transcription engine, in Auto's order, for the Settings choice. */
   transcribeEngineOptions: () => invoke<TranscribeEngineOption[]>('transcribe_engine_options'),
   /** The words spoken in one asset, in source time. Transcribed once, then cached. */
-  transcribeAsset: (id: string, language: string) => invoke<Transcript>('transcribe_asset', { id, language }),
+  /** `vocal`: a song; the lead vocal is separated first so sung lines are heard (cached apart). */
+  transcribeAsset: (id: string, language: string, vocal = false) => invoke<Transcript>('transcribe_asset', { id, language, vocal }),
   /** Transcripts already made for these assets; transcribes nothing. */
   transcriptsCached: (ids: string[]) => invoke<Transcript[]>('transcripts_cached', { ids }),
   /** Saves corrections typed in the Transcript panel; each word is found by its source timing. Empty text deletes it. */
@@ -671,6 +678,8 @@ export const api = {
   /** The newest live-preview frame of a running export (a JPEG path), for the render window. */
   exportPreview: (jobId: string) => invoke<string | null>('export_preview', { jobId }),
   exportFrame: (project: Project, compId: string, time: number, output: string, shortSide?: number) => invoke<string>('export_frame', { project: prepareEffectExport(project,compId), compId, time, output, shortSide: shortSide ?? null }),
+  /** The finished mix of a comp as the export renders it (EBU R128), for the final mix check (−16 LUFS, −1 dBTP). */
+  mixLoudness: (project: Project, compId: string) => invoke<{ integratedLufs: number; truePeakDb: number; rangeLu: number; duration: number }>('mix_loudness', { project: prepareEffectExport(project, compId), compId }),
   /** A comp's poster frame: middle of the comp, small, cached by comp id. */
   compPoster: (project: Project, compId: string, time?: number) => invoke<string>('comp_poster', { project, compId, time: time ?? null }),
   /** AI-written notes and todo lists living beside the project. */

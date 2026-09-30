@@ -103,6 +103,10 @@ pub struct Graph {
     pub turns_since_dream: u32,
     #[serde(default)]
     pub last_dream: Option<String>,
+    /// The seed skills already written, with the version written: each is seeded once, so a skill
+    /// the user deleted stays deleted and one the model patched is never overwritten.
+    #[serde(default)]
+    pub seeded: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -836,13 +840,102 @@ pub fn save_skill(dir: &Path, request: &SkillRequest) -> Result<Value, String> {
     Ok(json!({ "ok": true, "name": name, "version": version, "mode": mode, "file": file.display().to_string() }))
 }
 
+/// A skill Bhippi ships: a procedure the premium films were made with
+/// (docs/research/launch-film-learnings.md), written into the skills folder once so it loads,
+/// is scored and is patched like any skill the model saved.
+struct Seed {
+    name: &'static str,
+    /// Words in an ask that make the seed worth listing before it has ever been used: names of
+    /// the film, never words every edit uses ("song" is in any montage cut to music).
+    triggers: &'static [&'static str],
+    text: &'static str,
+}
+
+const SEEDS: &[Seed] = &[
+    Seed {
+        name: "launch-film-render-look-fix",
+        triggers: &["launch", "real ui", "real app", "product film", "meet "],
+        text: include_str!("../prompts/skills/launch-film-render-look-fix.md"),
+    },
+    Seed {
+        name: "product-demo-real-app",
+        triggers: &["demo", "feature film", "app preview", "show it working", "walkthrough"],
+        text: include_str!("../prompts/skills/product-demo-real-app.md"),
+    },
+    Seed {
+        name: "identity-film-light-edits",
+        triggers: &["identity", "logo reveal", "logo film", "brand film", "glass"],
+        text: include_str!("../prompts/skills/identity-film-light-edits.md"),
+    },
+    Seed {
+        name: "kinetic-explainer-beats",
+        triggers: &["explainer", "kinetic", "crimson", "motion design"],
+        text: include_str!("../prompts/skills/kinetic-explainer-beats.md"),
+    },
+    Seed {
+        name: "fluid-saas-one-camera",
+        triggers: &["fluid", "relume", "saas film", "saas video", "type-led"],
+        text: include_str!("../prompts/skills/fluid-saas-one-camera.md"),
+    },
+];
+
+/// Writes the seed skills this brain has not had yet, and a newer version of one still exactly as
+/// it was seeded (a patch bumps the version, so an improved skill is left alone). True when the
+/// graph changed.
+fn seed_skills(dir: &Path, graph: &mut Graph) -> bool {
+    let mut changed = false;
+    for seed in SEEDS {
+        let (description, version, body) = parse_skill(seed.text);
+        let file = skill_file(dir, seed.name);
+        match graph.seeded.get(seed.name) {
+            Some(done) if *done == version => continue,
+            Some(done) => {
+                let untouched = std::fs::read_to_string(&file).map(|text| parse_skill(&text).1 == *done).unwrap_or(false);
+                if !untouched {
+                    // Improved or deleted since: note the version so it is not asked again.
+                    graph.seeded.insert(seed.name.to_owned(), version);
+                    changed = true;
+                    continue;
+                }
+                if write_skill(dir, seed.name, &description, &version, &body, &now()).is_err() {
+                    continue;
+                }
+            }
+            None => {
+                if !file.exists() && write_skill(dir, seed.name, &description, &version, &body, &now()).is_err() {
+                    continue;
+                }
+            }
+        }
+        graph.seeded.insert(seed.name.to_owned(), version.clone());
+        let node = graph.hub(&format!("skill:{}", seed.name), "skill", seed.name);
+        node.body = description;
+        node.meta = json!({ "version": version, "seed": true, "triggers": seed.triggers });
+        node.weight = skill_weight(node);
+        changed = true;
+    }
+    changed
+}
+
+/// A seed skill nobody has loaded yet waits outside the skills index until an ask names its kind
+/// of film, so every other turn's brief stays as short as before.
+fn seed_waits(node: &Node, prompt: &str) -> bool {
+    if node.uses > 0 || node.meta.get("seed").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+    let prompt = prompt.to_lowercase();
+    let triggers = node.meta.get("triggers").and_then(Value::as_array);
+    !triggers.is_some_and(|words| words.iter().filter_map(Value::as_str).any(|word| prompt.contains(word)))
+}
+
 /// Loads a skill's procedure for use now; the turn's outcome later scores it.
 pub fn load_skill(dir: &Path, name: &str) -> Result<Value, String> {
     let name = slug(name);
     let _guard = LOCK.lock().map_err(|_| "the brain is busy")?;
+    let mut graph = load(dir);
+    seed_skills(dir, &mut graph);
     let text = std::fs::read_to_string(skill_file(dir, &name)).map_err(|_| format!("no skill named {name}; see brain.skills in the context"))?;
     let (description, version, body) = parse_skill(&text);
-    let mut graph = load(dir);
     let node_id = format!("skill:{name}");
     let node = graph.hub(&node_id, "skill", &name);
     if node.body.is_empty() {
@@ -960,6 +1053,7 @@ pub fn quick_brief(dir: &Path, prompt: &str) -> Value {
 fn brief_sized(dir: &Path, prompt: &str, skill_count: usize, related_count: usize) -> Value {
     let Ok(_guard) = LOCK.lock() else { return Value::Null };
     let mut graph = load(dir);
+    let seeded = seed_skills(dir, &mut graph);
     let texts = |kind: &str| -> Vec<String> {
         let mut nodes: Vec<&Node> = graph.nodes.iter().filter(|n| n.kind == kind).collect();
         nodes.sort_by(|a, b| value_score(b).total_cmp(&value_score(a)));
@@ -971,7 +1065,7 @@ fn brief_sized(dir: &Path, prompt: &str, skill_count: usize, related_count: usiz
     let mut skills: Vec<(f32, &Node)> = graph
         .nodes
         .iter()
-        .filter(|n| n.kind == "skill")
+        .filter(|n| n.kind == "skill" && !seed_waits(n, prompt))
         .map(|n| (cosine(&query, &embed(&node_text(n))) * 2.0 + n.weight * 0.1, n))
         .collect();
     skills.sort_by(|a, b| b.0.total_cmp(&a.0));
@@ -999,7 +1093,7 @@ fn brief_sized(dir: &Path, prompt: &str, skill_count: usize, related_count: usiz
     let nudges: Vec<String> = graph.nudges.iter().map(|n| n.text.clone()).collect();
     let empty = memory.is_empty() && user.is_empty() && skills.is_empty() && nudges.is_empty();
     // Nudges are delivered once; the next qualifying turn leaves fresh ones.
-    if !graph.nudges.is_empty() {
+    if seeded || !graph.nudges.is_empty() {
         graph.nudges.clear();
         let _ = save(dir, &graph);
     }
@@ -1158,6 +1252,54 @@ mod tests {
         let graph = load(&dir);
         assert_eq!(graph.find("skill:podcast-clean-cut").unwrap().fails, 1);
         assert!(graph.nudges.iter().any(|n| n.kind == "fix"));
+    }
+
+    #[test]
+    fn seed_skills_are_written_once_and_listed_when_the_ask_names_their_film() {
+        let dir = temp();
+        let meme = brief(&dir, "make this clip funny with memes");
+        assert!(meme["skills"].as_array().unwrap().is_empty(), "an unused seed stays out of an unrelated brief");
+        let montage = brief(&dir, "cut my wedding clips to the song");
+        assert!(montage["skills"].as_array().unwrap().is_empty(), "a montage cut to a song is not a launch film");
+        for seed in SEEDS {
+            let (description, _, body) = parse_skill(seed.text);
+            assert!(description.len() > 40 && body.lines().count() > 15, "{} reads as a procedure", seed.name);
+            assert!(skill_file(&dir, seed.name).exists(), "{} is written", seed.name);
+        }
+        let launch = brief(&dir, "make a 15 s launch film for my app to the Meet Bhippi song");
+        let names: Vec<&str> = launch["skills"].as_array().unwrap().iter().filter_map(|s| s["name"].as_str()).collect();
+        assert!(names.contains(&"launch-film-render-look-fix"), "{names:?}");
+        assert!(!names.contains(&"identity-film-light-edits"), "{names:?}");
+        let loaded = load_skill(&dir, "launch-film-render-look-fix").unwrap();
+        assert!(loaded["procedure"].as_str().unwrap().contains("analyze_song"));
+        // Once used it is an ordinary skill, listed by relevance like any other.
+        assert!(!seed_waits(load(&dir).find("skill:launch-film-render-look-fix").unwrap(), "memes"));
+    }
+
+    #[test]
+    fn a_deleted_or_improved_seed_is_never_written_back() {
+        let dir = temp();
+        brief(&dir, "anything");
+        forget(&dir, "skill:kinetic-explainer-beats").unwrap();
+        let patch = SkillRequest { name: "product-demo-real-app".into(), mode: Some("patch".into()), old: Some("One task, shown whole".into()), new: Some("One job, shown whole".into()), ..SkillRequest::default() };
+        save_skill(&dir, &patch).unwrap();
+        // A newer seed version ships.
+        let mut graph = load(&dir);
+        for version in graph.seeded.values_mut() {
+            *version = "0.9.0".into();
+        }
+        std::fs::write(graph_file(&dir), serde_json::to_string(&graph).unwrap()).unwrap();
+        // One seed is still exactly as 0.9.0 wrote it: that one is brought up to date.
+        write_skill(&dir, "launch-film-render-look-fix", "An older launch film procedure", "0.9.0", "1. the old steps, kept only until a newer seed ships", &now()).unwrap();
+        brief(&dir, "anything");
+        let updated = std::fs::read_to_string(skill_file(&dir, "launch-film-render-look-fix")).unwrap();
+        assert!(updated.contains("analyze_song") && updated.contains("version: 1.0.0"), "{updated}");
+        assert!(!skill_file(&dir, "kinetic-explainer-beats").exists(), "the deleted seed stays deleted");
+        let improved = std::fs::read_to_string(skill_file(&dir, "product-demo-real-app")).unwrap();
+        assert!(improved.contains("One job, shown whole"), "the patched seed is kept");
+        let graph = load(&dir);
+        assert!(graph.find("skill:kinetic-explainer-beats").is_none());
+        assert!(graph.seeded.values().all(|v| v == "1.0.0"));
     }
 
     #[test]

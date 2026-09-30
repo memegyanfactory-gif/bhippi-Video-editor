@@ -3,6 +3,7 @@ import { describeUncovered, uncoveredSpans } from './coverage';
 import { councilMember, councilReview } from './council';
 import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } from './types';
 import { compDuration, needsFrameSize } from './timeline';
+import { hasMedia } from './production';
 import type { QuickScope } from './quickScope';
 
 type Args = Record<string, unknown>;
@@ -111,6 +112,7 @@ const preparation = new Set([
   'online_research',
   'scrape_web_page',
   'capture_product_ui',
+  'capture_app_session',
   'web_search',
   'web_fetch',
   'read_file',
@@ -211,6 +213,8 @@ const preparation = new Set([
   'attach_production_asset',
   'finish_gathering',
   'analyze_music_beats',
+  'analyze_song',
+  'review_frames',
   // @funny planning: the beat sheet, meme and sound research, receipts, faces and the EDL check
   // change the plan or the libraries, never the timeline. get_meme_media and cutout_image make
   // media, so the phase gate still holds them to GATHER.
@@ -350,6 +354,8 @@ const ALWAYS_TOOLS = new Set([
   'choose_comp_size',
   'set_playhead',
   'analyze_music_beats',
+  'analyze_song',
+  'review_frames',
   // @funny reads: the libraries, captions and the measured edit.
   'search_memes',
   'find_receipt',
@@ -371,19 +377,19 @@ export type WorkflowReceipts = NonNullable<Production['receipts']>;
 export function gatherShots(comp: Comp): { sceneIndex: number; shotIndex: number; label: string; status: string; kind: string }[] {
   const production = comp.production;
   if (!production) return [];
-  const scenes: { shots?: { kind: string; status?: string; script?: string; prompt?: string; url?: string; assetId?: string }[]; mediaSource?: string; assetId?: string; status?: string }[] =
+  const scenes: { shots?: { kind: string; status?: string; script?: string; prompt?: string; url?: string; assetId?: string; compId?: string }[]; mediaSource?: string; assetId?: string; compId?: string; status?: string }[] =
     production.mode === 'scratch' ? (comp.videoBlueprint?.scenes ?? []) : (comp.storyboard ?? []);
   const out: { sceneIndex: number; shotIndex: number; label: string; status: string; kind: string }[] = [];
   scenes.forEach((scene, sceneIndex) => {
     const shots = scene.shots ?? [];
     if (!shots.length && scene.mediaSource && scene.mediaSource !== 'existing') {
-      out.push({ sceneIndex, shotIndex: 0, label: `Scene ${sceneIndex + 1}: ${scene.mediaSource}`, status: scene.assetId ? 'ready' : (scene.status ?? 'pending'), kind: scene.mediaSource });
+      out.push({ sceneIndex, shotIndex: 0, label: `Scene ${sceneIndex + 1}: ${scene.mediaSource}`, status: hasMedia(scene) ? 'ready' : (scene.status ?? 'pending'), kind: scene.mediaSource });
       return;
     }
     shots.forEach((shot, shotIndex) => {
       if (shot.kind === 'existing' || shot.kind === 'sfx') return;
       const text = (shot.script ?? shot.prompt ?? shot.url ?? '').slice(0, 48);
-      out.push({ sceneIndex, shotIndex, label: `Scene ${sceneIndex + 1} shot ${shotIndex + 1} (${shot.kind}): ${text}`, status: shot.assetId ? 'ready' : (shot.status ?? 'pending'), kind: shot.kind });
+      out.push({ sceneIndex, shotIndex, label: `Scene ${sceneIndex + 1} shot ${shotIndex + 1} (${shot.kind}): ${text}`, status: hasMedia(shot) ? 'ready' : (shot.status ?? 'pending'), kind: shot.kind });
     });
   });
   if (production.music && production.music.source !== 'none' && production.music.source !== 'existing') {
@@ -445,8 +451,11 @@ export class EditWorkflow {
   /**
    * `askFrameSize` is off for plugins: they cannot ask the user, so they are never held for the size.
    * `scope` is what a Quick edit's user pointed at (src/lib/quickScope.ts): edits stay there.
+   * `guided`: a smaller model (modelProfile.ts). It is never paused for going outside the scope, since
+   * a refused call that must be repeated with a reason tends to stall it; its brief still asks it to
+   * stay in scope and say why when it cannot.
    */
-  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false, readonly askFrameSize = true, readonly scope: QuickScope | null = null) {
+  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false, readonly askFrameSize = true, readonly scope: QuickScope | null = null, readonly guided = false) {
     for (const each of project.comps) for (const clip of each.clips) this.startClips.add(clip.id);
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
@@ -638,7 +647,7 @@ export class EditWorkflow {
    * never are.
    */
   private scopeGate(name: string, args: Args, project: Project): string | null {
-    if (!this.scope || ALWAYS_TOOLS.has(name) || preparation.has(name)) return null;
+    if (!this.scope || this.guided || ALWAYS_TOOLS.has(name) || preparation.has(name)) return null;
     const ids = [args.clipId, ...(Array.isArray(args.clipIds) ? args.clipIds : [])].filter((id): id is string => typeof id === 'string');
     if (!ids.length) return null;
     const allowed = new Set(this.scope.clips.map((clip) => clip.clipId));
@@ -890,7 +899,7 @@ export class EditWorkflow {
     const recipe = name === 'apply_recipe' && args.preview !== true ? String(args.name || '') : '';
     if (['hook', 'punch-ins', 'captions'].includes(recipe)) this.proVisual = true;
     // Designed sound counts: shaped music/SFX automation or built-in accents.
-    if (name === 'score_audio_clip' || name === 'add_sound_effect' || name === 'generate_selection_sound') this.soundPass = true;
+    if (name === 'score_audio_clip' || name === 'add_sound_effect' || name === 'generate_selection_sound' || name === 'sound_the_motion') this.soundPass = true;
     // A placed score is a designed music bed; the guided build lays graphics, cues, music and its own storyboard.
     if (name === 'compose_music' && result.placed === true) this.soundPass = true;
     if (name === 'build_edit_from_brief') { this.proVisual = true; this.soundPass = true; this.storyboardRefs = true; }

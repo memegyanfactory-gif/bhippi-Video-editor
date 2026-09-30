@@ -994,7 +994,7 @@
                     "existing",
                     "render"
                   ],
-                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId) | render (you render it into AI Work/Output while gathering, then attach_production_asset; visualPrompt = what)."
+                  "description": "generate (visualPrompt) | download (mediaUrl, or visualPrompt = what to find) | existing (assetId) | render (you render it into AI Work/Output while gathering, then attach_production_asset: its assetId, or passes = a pass manifest so it lands as editable layers; visualPrompt = what)."
                 },
                 "visualPrompt": {
                   "type": "string"
@@ -2738,7 +2738,12 @@
               "glass",
               "shimmer",
               "sub",
-              "blip"
+              "blip",
+              "key_click",
+              "send_pop",
+              "soft_whoosh",
+              "glass_tick",
+              "cursor_tap"
             ]
           },
           "start": {
@@ -2760,6 +2765,70 @@
           "kind"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "sound_the_motion",
+      "description": "Sounds every motion cue, set against the music. Motion scenes carry sound cues (a click on each press, a whoosh as a panel flies in, typing under typed text, a pop as a pill lands); this places the built-in sound for each cue in range on the SFX track, in layered [Motion] comps and precomps too, and sets each one's gain so its loudest 10 ms sits about 6 dB under the music's loudest at that moment: heard, never buried 20-30 dB under the song, never louder than it. A riser is trimmed so its top lands on the hit after it. Cue sounds already on the timeline (create_motion_scene lays them) are re-levelled, not doubled, so it is safe to run again after the music or the edit changes. Where no music plays a cue keeps its default level under the voice. Choose the film's sound with swap (e.g. {\"click\":\"cursor_tap\",\"whoosh\":\"soft_whoosh\"}) and skip.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds (default 0)."
+          },
+          "end": {
+            "type": "number",
+            "description": "Timeline seconds (default the end)."
+          },
+          "swap": {
+            "type": "object",
+            "description": "Cue sound -> built-in kind to use instead, for this film.",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "whoosh",
+                "impact",
+                "chime",
+                "pop",
+                "riser",
+                "boom",
+                "scratch",
+                "bleep",
+                "swish",
+                "ding",
+                "glitch",
+                "click",
+                "tick",
+                "key",
+                "typing",
+                "glass",
+                "shimmer",
+                "sub",
+                "blip",
+                "key_click",
+                "send_pop",
+                "soft_whoosh",
+                "glass_tick",
+                "cursor_tap"
+              ]
+            }
+          },
+          "skip": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Cue sounds to leave silent."
+          },
+          "offsetDb": {
+            "type": "number",
+            "description": "Every cue louder (+) or quieter (-) than 6 dB under the music, -12 to 12 (default 0)."
+          }
+        }
       }
     },
     {
@@ -3894,7 +3963,12 @@
               "glass",
               "shimmer",
               "sub",
-              "blip"
+              "blip",
+              "key_click",
+              "send_pop",
+              "soft_whoosh",
+              "glass_tick",
+              "cursor_tap"
             ]
           },
           "gainDb": {
@@ -4292,7 +4366,7 @@
     },
     {
       "name": "brain_load_skill",
-      "description": "Load a skill's full procedure from your brain before doing that job (brain.skills in the context lists names and descriptions). The turn's outcome is scored against the skill, so skills that fail get flagged for patching.",
+      "description": "Load a skill's full procedure from your brain before doing that job (brain.skills in the context lists names and descriptions). The turn's outcome is scored against the skill, so skills that fail get flagged for patching. Bhippi ships the procedures its premium films were made with (launch-film-render-look-fix, product-demo-real-app, identity-film-light-edits, kinetic-explainer-beats, fluid-saas-one-camera); they are listed when an ask names that kind of film.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5589,6 +5663,10 @@
           "assetId": {
             "type": "string"
           },
+          "passes": {
+            "type": "string",
+            "description": "Instead of assetId, for a scene you rendered in passes: path of a manifest {fps, width, height, passes:[{name, dir (numbered PNGs with alpha) | file (ProRes 4444/WebM alpha), blend?}]}, bottom to top (backdrop, product, text, cursor, glow). Stacked as one layered [Motion] comp, a layer per pass."
+          },
           "sceneIndex": {
             "type": "integer"
           },
@@ -5606,10 +5684,7 @@
               "music"
             ]
           }
-        },
-        "required": [
-          "assetId"
-        ]
+        }
       }
     },
     {
@@ -5735,7 +5810,7 @@
     },
     {
       "name": "build_edit_from_brief",
-      "description": "Builds a whole motion edit from a short brief in ONE call — the reliable way to make a video from scratch. You give the beats (what each one says) and the feel; Bhippi picks the template for each beat, holds each one long enough to read on the music's beat grid inside the genre's pacing, chooses transitions with their sound effects, composes a score that drops on the big beat with a crash on every cut, lays a designed background plate under it (when there is no footage), and saves the storyboard. Afterwards run run_frame_qa, fix what it lists, then judge_edit and verify_edit_workflow. Prefer it to building scenes, keyframes and sound one by one.",
+      "description": "Builds a whole motion edit from a short brief in ONE call — the reliable way to make a video from scratch. You give the beats (what each one says) and the feel; Bhippi picks the template for each beat, holds each one long enough to read on the music's beat grid inside the genre's pacing, chooses transitions with their sound effects, composes a score that drops on the big beat with a crash on every cut, lays a designed background plate under it (when there is no footage), and saves the storyboard. Afterwards run run_frame_qa, fix what it lists, then judge_edit and verify_edit_workflow. Prefer it to building scenes, keyframes and sound one by one. `recipe` makes a launch, product, identity, explainer or fluid-SaaS film: the real app, words on the song, joins, sound, finish, review.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -5765,9 +5840,15 @@
                     "chapter",
                     "lower-third",
                     "end",
-                    "logo"
+                    "logo",
+                    "hook",
+                    "demo",
+                    "feature",
+                    "explode",
+                    "connect",
+                    "fly"
                   ],
-                  "description": "Guessed when left out: value → stat, points → list, \"?\" → question, cta or last → end, first → title. steps = numbered points."
+                  "description": "Guessed when left out: value → stat, points → list, \"?\" → question, cta or last → end, first → title. steps = numbered points. Recipe moments: hook, demo (the app at work), feature (a card), explode (on the drop), connect (points = providers), fly."
                 },
                 "kicker": {
                   "type": "string",
@@ -5805,12 +5886,77 @@
                 "hold": {
                   "type": "number",
                   "description": "Seconds, only to override the planned reading time."
+                },
+                "focus": {
+                  "type": "string",
+                  "description": "demo/feature: the captured part shown."
+                },
+                "at": {
+                  "type": "number",
+                  "description": "Film second this beat starts."
                 }
               },
               "required": [
                 "text"
               ]
             }
+          },
+          "recipe": {
+            "type": "string",
+            "enum": [
+              "launch-film",
+              "product-demo",
+              "identity-film",
+              "kinetic-explainer",
+              "fluid-saas"
+            ],
+            "description": "A whole film in a reference film's manner, from the toolkit."
+          },
+          "style": {
+            "type": "object",
+            "properties": {
+              "palette": {
+                "type": "string",
+                "description": "accent #hex or a name"
+              },
+              "stage": {
+                "type": "string",
+                "enum": [
+                  "light",
+                  "dark",
+                  "peach",
+                  "grid",
+                  "cool",
+                  "crimson"
+                ]
+              },
+              "cadence": {
+                "type": "string",
+                "enum": [
+                  "calm",
+                  "steady",
+                  "brisk"
+                ]
+              },
+              "variant": {
+                "type": "number"
+              }
+            }
+          },
+          "capture": {
+            "type": "string",
+            "description": "A capture_app_session name, or \"bhippi\"."
+          },
+          "logo": {
+            "type": "string",
+            "description": "Your logo: an asset id or image path (default the brand kit's). Only a Bhippi film shows Bhippi's mark."
+          },
+          "song": {
+            "type": "string",
+            "description": "Song assetId or clipId (default: the plan's music)."
+          },
+          "lyrics": {
+            "type": "string"
           },
           "mood": {
             "type": "string",
@@ -5891,6 +6037,56 @@
           "genre": {
             "type": "string",
             "description": "Also report pacing against this genre's measured timing (advice only)."
+          }
+        }
+      }
+    },
+    {
+      "name": "review_frames",
+      "description": "Reviews the edit on contact sheets, with measured checks. The way good films are made: frames at every cut, graphic landing, sound cue and marker, plus strips 0.06 s apart across the joins, as contact sheets you look at, and measured checks (murky frames, the same phrase on screen twice, cuts off the beat, sound cues buried under the music, an end card that leaves too soon, reading size, and the final mix at about -16 LUFS with peaks under -1 dBTP). Changes nothing; fix what it lists, then review again.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          },
+          "at": {
+            "type": "string",
+            "enum": [
+              "events",
+              "joins",
+              "both"
+            ],
+            "description": "Which frames: the moments things happen, the joins, or both (default)."
+          },
+          "times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Timeline seconds to look at instead (up to 24)."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Event frames, 4-24 (default 18)."
+          },
+          "joins": {
+            "type": "number",
+            "description": "Join strips, 1-6 (default 3)."
+          },
+          "images": {
+            "type": "boolean",
+            "description": "Attach the contact sheets (default true)."
+          },
+          "mix": {
+            "type": "boolean",
+            "description": "Measure the finished mix's loudness and true peak (default true)."
           }
         }
       }
@@ -6126,6 +6322,45 @@
           },
           "end": {
             "type": "number"
+          },
+          "minBpm": {
+            "type": "number"
+          },
+          "maxBpm": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "analyze_song",
+      "description": "Maps a song: beats, bars, drops, hits and each lyric word's time. In one call: tempo, beats, bars, 4-bar phrases, drops, the hits worth an accent, and, given the lyrics, every word with its time (the lead vocal is separated so sung lines are heard; words the engine misses are placed between heard ones and marked *), grouped into lines and sections from [Section] headers, plus cut points (section starts on bars, line starts, bars). Times are source seconds of the song. Saves the full map as a research note. Use it before planning any edit timed to music with words.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "clipId": {
+            "type": "string"
+          },
+          "compId": {
+            "type": "string"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "The words as the user gave them, one line per line; [Verse 1] style headers name sections."
+          },
+          "vocal": {
+            "type": "boolean",
+            "description": "Separate the lead vocal before transcribing (default true; false for plain speech)."
+          },
+          "transcribe": {
+            "type": "boolean",
+            "description": "Default true. False: beats and structure only, lyrics spread by length."
+          },
+          "language": {
+            "type": "string"
           },
           "minBpm": {
             "type": "number"
@@ -6811,7 +7046,7 @@
           "transitions": {
             "type": "array",
             "items": {},
-            "description": "One per join: a kind or {kind, duration?, direction?: left|right|up|down, glyph?: circle|square|rounded|star|diamond, mode?: out|in, at?: [x,y], color?, twist?}. Kinds: cut, dissolve, push, slide, whip, zoom-through, blur-bridge, z-recede, card-zoom-reveal, shape-wipe, iris, diagonal-wipe, noise-dissolve, white-out, black-breath, palette-swap-cut, eyelid, scale-cut, snap-punch, snap-zoom-out, snap-press, swap-when-hidden, collapse-into, spin, glitch, light-leak, truck."
+            "description": "One per join: a kind or {kind, duration?, direction?: left|right|up|down, glyph?: circle|square|rounded|star|diamond, mode?: out|in, at?: [x,y], to?: [x,y], strength?, color?, twist?}. Kinds: cut, dissolve, push, slide, whip, zoom-through, blur-bridge, z-recede, card-zoom-reveal, shape-wipe, iris, diagonal-wipe, noise-dissolve, white-out, black-breath, palette-swap-cut, eyelid, scale-cut, snap-punch, snap-zoom-out, snap-press, swap-when-hidden, collapse-into, spin, glitch, light-leak, truck, camera-match, glow-handoff, flash-bridge."
           },
           "layout": {
             "type": "string",
@@ -6884,6 +7119,146 @@
           "url"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "capture_app_session",
+      "description": "Captures a live product as parts in states, crisp at 3x. It plays a short session in a headless browser (click, hover, type, key, wait) and captures each named part in each state; typing with a part is captured after every character. No url = Bhippi itself, from the real app state, with named parts @composer @field @send @pills @menu @chat @messages @timeline @program @source @project. Checks resolution and fonts; a repeat capture is reused. Parts land in AI Work/ui-parts/<name> with manifest.json. Then create_product_demo turns it into a camera shot of layers.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The product page (http/https). Leave out to capture Bhippi itself."
+          },
+          "name": {
+            "type": "string",
+            "description": "The session name (its folder)."
+          },
+          "steps": {
+            "type": "array",
+            "description": "In order. {do:\"click\"|\"hover\", selector} · {do:\"type\", selector, text, part?, partSelector?} · {do:\"key\", key} · {do:\"wait\", ms} · {do:\"eval\", js} · {do:\"capture\", part, selector, state?, pad?}. Selectors are CSS, or @name for Bhippi parts.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "scale": {
+            "type": "number",
+            "description": "Device pixels per CSS pixel, 1-4 (default 3)."
+          },
+          "ready": {
+            "type": "string",
+            "description": "A selector the page is ready when it shows."
+          },
+          "transparent": {
+            "type": "boolean"
+          },
+          "reuse": {
+            "type": "boolean",
+            "description": "Reuse an identical earlier capture (default true)."
+          },
+          "images": {
+            "type": "boolean",
+            "description": "Attach a contact sheet of the parts (default true)."
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "Bhippi only: an empty timeline, bins and chat show a small demo project (footage, stills, a music bed, markers) so the screens look alive; the user's own work is kept."
+          }
+        },
+        "required": [
+          "steps"
+        ]
+      }
+    },
+    {
+      "name": "create_product_demo",
+      "description": "Makes a captured app session into a product demo of editable layers. From a capture_app_session capture: the camera lands close on named parts and pulls back to the whole window tilted in 3D; named cursors (you, bhippi, claude, gpt, gemini, local) travel on arcs, click with a ring and type; each part shows its captured state on the frame (typing plays over a span or word by word). template \"window-explode\": the parts float apart in depth and slam back on slam. Times are seconds from the demo start. Places a layered [Motion] comp with sound cues; update_motion_scene params rebuild it with new times. motion_guide {topic:\"product-demo\"} (or \"launch-film\") has the film it belongs in: the beats, the shots and the timing that worked.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "capture": {
+            "type": "string",
+            "description": "The capture_app_session name (its folder in AI Work/ui-parts) or its manifest.json path."
+          },
+          "shots": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Where the camera lands at `at`: {at, focus: part, fill?} close on a part (fill of the frame, default 0.7; the frame stays on the app where it can, centre: true aims dead centre) or {at, wide: true} the whole window tilted (fill 0.84); optional tilt [rx, ry] and move (seconds of travel)."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "{at, click: part, cursor?} · {at, hover: part, cursor?} · {at, type: part, until?, words?: [seconds each word lands], text?, cursor?} plays its typing states · {at, set: {part, state}} swaps to a captured state."
+          },
+          "cursors": {
+            "type": "array",
+            "items": {},
+            "description": "Named cursors: you, bhippi, claude, gpt, gemini, local, or {id, label, color}. The first clicks when an action names none."
+          },
+          "explode": {
+            "type": "object",
+            "description": "{at, slam, depth?, spread?, blur?}: the window comes apart in depth from at and slams back together on slam."
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "product-demo",
+              "window-explode"
+            ],
+            "description": "window-explode: the exploded-window move alone (give at and slam)."
+          },
+          "at": {
+            "type": "number"
+          },
+          "slam": {
+            "type": "number"
+          },
+          "stage": {
+            "type": "string",
+            "description": "light, grid, cool, dark, none, or a colour (default: picked per film)."
+          },
+          "tilt": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "The wide shot tilt [rx, ry] in degrees."
+          },
+          "variant": {
+            "type": "number",
+            "description": "Another look: tilt side, stage and explode pattern."
+          },
+          "duration": {
+            "type": "number"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds."
+          },
+          "compId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sfx": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "capture"
+        ]
       }
     },
     {
@@ -7451,6 +7826,9 @@
           },
           "retime": {
             "type": "number"
+          },
+          "finish": {
+            "description": "The scene's finish adjustment layer: launch-light | launch-dark | {preset, exposure?, bloom?, vignette?, grain?, cardShadow?} | none."
           },
           "scene": {
             "type": "object",
@@ -8382,7 +8760,12 @@
               "glass",
               "shimmer",
               "sub",
-              "blip"
+              "blip",
+              "key_click",
+              "send_pop",
+              "soft_whoosh",
+              "glass_tick",
+              "cursor_tap"
             ],
             "description": "A built-in procedural sound."
           },

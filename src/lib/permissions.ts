@@ -40,6 +40,7 @@ const READS = new Set([
   'online_research',
   'scrape_web_page',
   'capture_product_ui',
+  'capture_app_session',
   'web_search',
   'web_fetch',
   'read_file',
@@ -108,9 +109,13 @@ const DESTRUCTIVE = new Set([
   'delete_plugin',
 ]);
 
-/** Whether a tool only looks — allowed in every mode, and to every plugin without asking. */
+/**
+ * Whether a tool only looks — allowed in every mode, and to every plugin without asking.
+ * analyze_song is not one: like analyze_music_beats it saves the beat grid on the plan and a
+ * research note beside the project.
+ */
 export const isReadTool = (name: string) =>
-  READS.has(name) || ['editing_workflow_status', 'verify_edit_workflow', 'analyze_clip_speech', 'inspect_clip_frames', 'inspect_source_frames', 'choose_shorts_format',
+  READS.has(name) || ['editing_workflow_status', 'verify_edit_workflow', 'analyze_clip_speech', 'inspect_clip_frames', 'inspect_source_frames', 'review_frames', 'choose_shorts_format',
     // The frame size is the user's own answer, so even Plan only may ask it and apply it.
     'choose_comp_size'].includes(name);
 

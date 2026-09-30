@@ -240,7 +240,11 @@ impl ToolExecutor for EventExecutor {
             "rotoscope_clip" | "depth_occlusion_clip" | "analyze_clip_speech" | "generate_local_media" | "import_generated_media" | "generation_job"
             | "download_online_media" | "scrape_videos" | "online_research" | "find_free_media" | "scrape_web_page" | "extract_brand_from_url" | "synthesize_speech_voiceover" | "install_local_model"
             | "erase_subject_clip" | "run_frame_qa" | "level_audio" | "analyze_music_beats" | "track_people" | "podcast_cut" | "wait_subagent" | "run_command" | "bash"
-            | "apply_recipe" | "apply_edit" | "add_captions" | "create_shorts" | "detect_scenes" | "analyze_reference_video" | "create_motion_scene" | "render_3d_scene" | "track_motion" | "judge_edit" | "propose_storyboards" => self.timeout.max(Duration::from_secs(1800)),
+            | "apply_recipe" | "apply_edit" | "add_captions" | "create_shorts" | "detect_scenes" | "analyze_reference_video" | "create_motion_scene" | "render_3d_scene" | "track_motion" | "judge_edit" | "review_frames" | "propose_storyboards"
+            // The toolkit: a song's vocal pulled out and transcribed, a session captured part by
+            // part (typing per character), a demo built on it, and a recipe film chaining them all
+            // with a score, a review and its fixes.
+            | "analyze_song" | "capture_app_session" | "create_product_demo" | "build_edit_from_brief" => self.timeout.max(Duration::from_secs(1800)),
             _ => self.timeout.max(Duration::from_secs(180)),
         };
         let gate = self.gate.clone();

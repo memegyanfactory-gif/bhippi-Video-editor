@@ -25,12 +25,20 @@ import { checkGraphic, issuesText, refit } from './graphicCheckRun';
 import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, type ReactBitsLayer } from './rbx';
 import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
 import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
-import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes, qaTimes, type QaIssue } from './production';
+import { advance, attachAsset, attachMedia, frameQa, gatherReport, hasMedia, newProduction, planScenes, qaTimes, type QaIssue } from './production';
+import { loadPasses, passScene, pngHasAlpha, type PassIo } from './renderPasses';
 import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
+import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
 import { loadPeaks } from './peaks';
+import { bhippiAnswers, captureFolder, captureKey, loadCaptureManifest, parseSteps, resolveSelector, sheetParts, standinSource } from './appCapture';
+import { bhippiSession, CADENCES, FILM_RECIPES, FILM_STAGES, isFilmRecipe, planFilm, RECIPE_ABOUT, safeFixes, songFromAnalysis, type FilmBeat, type FilmRecipe, type FilmSong, type FilmStyle, type ReviewFinding } from './filmRecipes';
+import type { DemoCapture } from '../motion/kit/productDemo';
+import { demoNote } from './demoProject';
+import { cutTimes, darkFinding, eventMoments, JOIN_STEP, joinStrips, mixFindings, offBeatCuts, quietCues, repeatedPhrases, shortEnd, timelineOf, type CueLevel, type Finding, type Moment } from './reviewFrames';
+import { builtInLoudestDb, isMusicClip, loudestDb, musicDbOver, type MusicBed } from './cueSound';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
-import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilRole, type Provenance } from './council';
+import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilNote, type CouncilRole, type Provenance } from './council';
 // Runs Bhippi AI's tool calls against the live project. Every tool is one undo step labelled
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
@@ -39,13 +47,13 @@ import { repairArgs } from './argRepair';
 import { inferGenres, judge, JUDGE_ROUNDS, PASS_MARK } from './judge';
 import { ANGLES, debate, parseProposal } from './director';
 import { GENRE_TOOLS, PLAYBOOK_FOR, routeTools, type Genre } from './toolRouter';
-import { MOTION_TOOLS, runMotionTool } from './motionTools';
+import { fileMotionComps, MOTION_FOLDER, MOTION_TOOLS, runMotionTool } from './motionTools';
 import { ROAST_TOOLS, memeLookup, primeMemeCache, runRoastTool } from './roast/tools';
 import { isRoastCardTemplate } from './roast/cards';
 import { CARD_TEMPLATES } from './roast/types';
 import { MOTION_TEMPLATES, findTemplate } from '../motion/kit';
 import { SFX_GAIN_DB, sfxClipFields, sfxTrack } from './sfxLevels';
-import { blankFinding, boxContrast, collectQaLayers, frameStats, MIN_TEXT_CONTRAST } from './polish';
+import { blankFinding, boxContrast, collectQaLayers, contactSheet, frameStats, MIN_TEXT_CONTRAST } from './polish';
 import { renderMotionStill } from '../motion/exportFrames';
 import { renderHtmlStill } from './htmlFrames';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, isHexColor, placement, presetLabel, STILL_DEFAULT, timecode, uid } from './editor';
@@ -53,7 +61,8 @@ import { safeFor } from './layout';
 import { aspectLabel, describeReformat, duplicateComp, FRAME_PRESETS, orientationOf, reformatComp, RESOLUTION_TIERS, scaleTo, type ReformatMode } from './reformat';
 import { autoLayout, captionBand, fillCell, pipBox, splitCells, type SplitLayout } from './splitScreen';
 import type { History } from './history';
-import { api, errorText, type ComposedScore, type PlateSpec, type ScoreMood, type ScoreSpec, type Transcript } from './ipc';
+import { api, errorText, fetchFile, fileSrc, type ComposedScore, type PlateSpec, type ScoreMood, type ScoreSpec, type Transcript } from './ipc';
+import { explodeScene } from './motionStack';
 import { BEAT_KINDS, planBuild, SCORE_MOODS, type BriefBeat } from './guidedBuild';
 import { bpmFromText, moodFromText, placeMusicBed, placePlate } from './builtinMedia';
 import { cloudPrefs, genApi, pickModel, usableConnectors, type GenPlan, type GenPlanItem } from './cloudGen';
@@ -629,9 +638,9 @@ async function fillMissingWithBuiltins(host: ToolHost, project: Project, commit:
   const missingPictures: { scene: number; shot: number | null }[] = [];
   scenes.forEach((scene, i) => {
     const shots = scene.shots ?? [];
-    const legacy = scene as { mediaSource?: string; assetId?: string };
-    if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing' && !legacy.assetId) missingPictures.push({ scene: i, shot: null });
-    shots.forEach((shot, j) => { if (!shot.assetId && (shot.kind === 'video' || shot.kind === 'image' || shot.kind === 'download' || shot.kind === 'scrape')) missingPictures.push({ scene: i, shot: j }); });
+    const legacy = scene as { mediaSource?: string; assetId?: string; compId?: string };
+    if (!shots.length && legacy.mediaSource && legacy.mediaSource !== 'existing' && !hasMedia(legacy)) missingPictures.push({ scene: i, shot: null });
+    shots.forEach((shot, j) => { if (!hasMedia(shot) && (shot.kind === 'video' || shot.kind === 'image' || shot.kind === 'download' || shot.kind === 'scrape')) missingPictures.push({ scene: i, shot: j }); });
   });
   if (missingPictures.length) {
     try {
@@ -648,6 +657,197 @@ async function fillMissingWithBuiltins(host: ToolHost, project: Project, commit:
   }
   return filled;
 }
+
+type RecipeRun = { host: ToolHost; comp: Comp; commit: Commit; editComp: (comp: Comp, change: (current: Comp) => Comp) => void; signal?: AbortSignal; turnId?: string };
+
+/** The film style a model sent: only what planFilm reads, each field checked. */
+function filmStyle(value: unknown): FilmStyle {
+  const style = value && typeof value === 'object' && !Array.isArray(value) ? (value as Args) : {};
+  const palette = typeof style.palette === 'string' ? style.palette : Array.isArray(style.palette) ? (style.palette as unknown[]).filter((c): c is string => typeof c === 'string') : undefined;
+  return {
+    ...(palette && palette.length ? { palette } : {}),
+    ...((FILM_STAGES as readonly unknown[]).includes(style.stage) ? { stage: style.stage as FilmStyle['stage'] } : {}),
+    ...((CADENCES as readonly unknown[]).includes(style.cadence) ? { cadence: style.cadence as FilmStyle['cadence'] } : {}),
+    ...(typeof style.variant === 'number' && Number.isFinite(style.variant) ? { variant: Math.round(style.variant) } : {}),
+  };
+}
+
+/**
+ * build_edit_from_brief with a recipe (filmRecipes.ts): the toolkit chained into one film. The
+ * product comes from a capture (Bhippi's own is captured on "bhippi", reused from the part library
+ * when it is already there), the song is mapped, the plan lands as one layered motion sequence,
+ * every motion cue is sounded against the music, the finish is laid on, the frames are reviewed and
+ * what the review lists with a safe fix is fixed. A step that fails is named and the film still
+ * lands with what worked.
+ */
+async function buildFilmFromRecipe(run: RecipeRun, recipe: FilmRecipe, brief: FilmBeat[], args: Args): Promise<ToolResult> {
+  const { host, comp, commit, editComp, signal, turnId } = run;
+  const start = num(args, 'start') ?? 0;
+  const made: string[] = [];
+  const notes: string[] = [];
+  const assets = host.assets();
+
+  // 1. The product: a capture by name or path, or Bhippi's own interface.
+  let capture: DemoCapture | null = null;
+  const given = str(args, 'capture');
+  if (given) {
+    let ref = given;
+    if (given.toLowerCase() === 'bhippi') {
+      const prompt = brief.find((beat) => String(beat.kind ?? '').toLowerCase() === 'demo')?.text ?? 'Cut this to the beat';
+      const captured = await runTool(host, 'capture_app_session', { name: `recipe-${captureFolder(prompt).slice(0, 32)}`, steps: bhippiSession(prompt), demo: true, images: false }, signal, turnId);
+      ref = captured.ok && typeof captured.dir === 'string' ? captured.dir : '';
+      if (!ref) notes.push(`Bhippi could not be captured (${captured.error ?? 'no capture'}), so demo beats are cards`);
+    }
+    if (ref) {
+      try {
+        const manifest = await loadCaptureManifest(ref);
+        capture = { name: manifest.dir.split(/[\\/]/).pop(), dir: manifest.dir, width: manifest.width, height: manifest.height, scale: manifest.scale, parts: manifest.parts.map(({ part, state, file, boxCss, pixels, typed }) => ({ part, state, file, boxCss, pixels, ...(typed !== undefined ? { typed } : {}) })) };
+        made.push(`the app from ${capture.parts.length} captured picture(s)`);
+      } catch (error) { notes.push(`${errorText(error)} Demo beats are cards instead`); }
+    }
+  }
+
+  // 2. The song: the one named, the plan's, or the music already on the timeline; mapped by analyze_song.
+  const songRef = str(args, 'song');
+  let songAsset: Asset | undefined;
+  if (songRef) {
+    const named = comp.clips.find((clip) => clip.id === songRef);
+    songAsset = named?.source.type === 'media' ? assets.get(named.source.assetId) : assets.get(songRef);
+    if (!songAsset) notes.push(`there is no song "${songRef}", so the score is composed`);
+  }
+  if (!songAsset && comp.production?.music?.assetId) songAsset = assets.get(comp.production.music.assetId);
+  if (!songAsset) {
+    const bed = comp.clips.find((clip) => clip.source.type === 'media' && isMusicClip(comp, clip, assets.get(clip.source.assetId)?.name ?? ''));
+    songAsset = bed?.source.type === 'media' ? assets.get(bed.source.assetId) : undefined;
+  }
+  const songClip = songAsset ? comp.clips.find((clip) => clip.source.type === 'media' && clip.source.assetId === songAsset!.id) : undefined;
+  let song: FilmSong | null = null;
+  if (songAsset) {
+    const mapped = await runTool(host, 'analyze_song', { compId: comp.id, assetId: songAsset.id, ...(str(args, 'lyrics') ? { lyrics: str(args, 'lyrics') } : {}) }, signal, turnId);
+    // The song second at the film's first frame: where its clip plays, or 0 when the recipe lays it.
+    const at = songClip ? songClip.in + (start - songClip.start) * songClip.speed : 0;
+    song = mapped.ok ? songFromAnalysis(mapped as unknown as Record<string, unknown>, at) : null;
+    if (song) made.push(`“${songAsset.name}” mapped (${song.bpm} BPM, ${song.lines.length} sung line(s))`);
+    else notes.push(`the song could not be mapped (${mapped.error ?? 'no beat grid'}), so cuts sit on the recipe's own tempo`);
+  }
+
+  // 3. The plan, placed as one layered motion sequence. Its mark is the film's own: the logo given,
+  // the brand kit's, or Bhippi's when it films Bhippi.
+  const kit = activeBrandKit(host, host.history.current());
+  const brand = kit ? motionBrandFromKit(kit) : null;
+  const logo = str(args, 'logo') ?? brand?.logoAsset ?? (given?.toLowerCase() === 'bhippi' ? 'bhippi' : null);
+  const plan = planFilm(recipe, brief, { style: filmStyle(args.style), song, capture, name: brand?.name ?? null, logo, targetSeconds: num(args, 'targetSeconds') ?? comp.production?.brief?.targetSeconds ?? null });
+  const motionCtx = () => ({ project: host.history.current(), assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand, signal, prompt: turnPrompt(turnId ?? host.turnId) });
+  const title = str(args, 'title') ?? `${recipe} film`;
+  // Full-frame beats draw their own stage over the stage's colour; an overlay beat gets a plate under the film instead.
+  const overlays = plan.beats.some((beat) => findTemplate(beat.template)?.fullFrame === false);
+  const sequence = await runMotionTool('create_motion_sequence', {
+    compId: comp.id, start, title, ...(overlays ? {} : { background: plan.background }),
+    beats: plan.beats.map((beat) => ({ template: beat.template, params: beat.params, hold: beat.hold, name: beat.name })),
+    transitions: plan.transitions, sfx: true,
+  }, motionCtx());
+  if (!sequence.ok) return fail(`The film could not be built: ${sequence.error}`);
+  const clipId = sequence.clipId as string;
+  const starts = Array.isArray(sequence.starts) ? (sequence.starts as number[]) : [];
+  const cuts = Array.isArray(sequence.cuts) ? (sequence.cuts as number[]) : [];
+  const live = () => host.history.current().comps.find((c) => c.id === comp.id) ?? comp;
+  const holder = live().clips.find((clip) => clip.id === clipId);
+  const length = holder ? holder.start + holder.duration - start : plan.seconds;
+  const end = start + length;
+
+  // 4. The music: the song where the film needs it, or a score composed to the plan's drop and cuts.
+  if (songAsset && !songClip) {
+    editComp(live(), (c) => placeMusicBed(c, songAsset!.id, start, length + 0.5, { db: -6, name: songAsset!.name }).comp);
+    made.push('the song laid under it');
+  } else if (!songAsset && bool(args, 'music') !== false) {
+    try {
+      const score = await composeMusicAsset(host, host.history.current(), commit, { duration: length + 0.5, bpm: plan.bpm, mood: plan.mood, drops: plan.drop !== null ? [plan.drop] : [], noDrop: plan.drop === null, accents: cuts.map((t) => t - start) }, `${comp.name} ${recipe}`);
+      editComp(live(), (c) => {
+        const laid = placeMusicBed(c, score.asset.id, start, length + 0.5, { db: -6 });
+        return laid.comp.production ? { ...laid.comp, production: { ...laid.comp.production, music: { ...(laid.comp.production.music ?? { source: 'generate' as const }), assetId: score.asset.id, status: 'ready' as const, bpm: plan.bpm, beats: score.score.beats } } } : laid.comp;
+      });
+      made.push(`a ${plan.mood} score at ${plan.bpm} BPM${plan.drop !== null ? `, dropping at ${plan.drop.toFixed(2)} s` : ''}`);
+    } catch (error) {
+      notes.push(`the music could not be made (${errorText(error)}): add one with compose_music, then sound_the_motion`);
+    }
+  }
+
+  // 5. The plate under an overlay beat.
+  if (overlays && bool(args, 'background') !== false) {
+    try {
+      const colors = brand ? brand.gradient : plan.plate.colors;
+      const plate = await plateAsset(host, host.history.current(), commit, { style: plan.plate.style, width: comp.width, height: comp.height, seconds: clamp(length + 0.5, 1, 120), fps: Math.round(Math.min(60, comp.fps)), colors }, `${comp.name} ${plan.stage}`);
+      editComp(live(), (c) => placePlate(c, plate.id, start, length + 0.5).comp);
+      made.push(`a ${plan.plate.style} plate under the overlays`);
+    } catch (error) {
+      notes.push(`the background plate could not be rendered (${errorText(error)})`);
+    }
+  }
+
+  // 6. A sound on every motion cue, set against the music; 7. the finish as one editable layer.
+  const sounded = await runMotionTool('sound_the_motion', { compId: comp.id, start, end }, motionCtx());
+  if (sounded.ok) made.push(`${Array.isArray(sounded.cues) ? sounded.cues.length : 0} motion cue(s) sounded against the music`);
+  else notes.push(`sound: ${sounded.error}`);
+  const finished = await runMotionTool('update_motion_scene', { clipId, finish: plan.finish }, motionCtx());
+  if (finished.ok) made.push(`graded with ${plan.finish.preset} (the "finish" layer)`);
+  else notes.push(`finish: ${finished.error}`);
+
+  // 8. The review, and the fixes that cannot make the film worse; the rest is listed for the model.
+  let images: unknown[] = [];
+  const left: string[] = [];
+  if (bool(args, 'review') !== false) {
+    const review = await runTool(host, 'review_frames', { compId: comp.id, start, end }, signal, turnId);
+    if (review.ok) {
+      images = Array.isArray(review.images) ? review.images : [];
+      const findings = (Array.isArray(review.findings) ? review.findings : []) as (ReviewFinding & { fix?: string })[];
+      const fixes = safeFixes(findings, plan.finish);
+      const fixed = new Set<string>();
+      for (const fix of fixes) {
+        const applied = fix.tool === 'update_motion_scene'
+          ? await runMotionTool('update_motion_scene', { clipId, ...fix.args }, motionCtx())
+          : await runMotionTool('sound_the_motion', { compId: comp.id, start, end, ...fix.args }, motionCtx());
+        if (!applied.ok) continue;
+        made.push(`fixed ${fix.why}`);
+        fixed.add(fix.tool === 'sound_the_motion' ? 'quiet-cue' : 'dark');
+      }
+      for (const finding of findings) if (!fixed.has(finding.kind)) left.push(`${finding.at !== null ? `${finding.at.toFixed(2)} s ` : ''}${finding.kind}: ${finding.what ?? ''}${finding.fix ? `. Fix: ${finding.fix}` : ''}`);
+      made.push(`reviewed at every cut, cue and landing (${findings.length} finding(s))`);
+    } else notes.push(`review: ${review.error}`);
+  }
+
+  // 9. The plan as the storyboard, so the edit is held to it.
+  const board: NonNullable<Comp['storyboard']> = plan.beats.map((beat, i) => ({
+    start: starts[i] ?? start, end: cuts[i] ?? end, title: beat.name, intent: brief[i].text, visual: `${beat.template} (${beat.moment})`, audio: `${plan.mood}${plan.dropBeat === i ? ', drop' : ''}`, evidence: `${recipe} recipe`,
+    mogrt: { template: beat.template, headline: brief[i].text, durationSeconds: beat.hold }, transition: i > 0 ? { kind: plan.transitions[i - 1].kind, onBeat: true } : null,
+  }));
+  editComp(live(), (c) => ({ ...c, storyboard: board }));
+
+  const table = plan.beats.map((beat, i) => `${i + 1}. ${(starts[i] ?? start).toFixed(2)}s ${beat.moment} → ${beat.template} “${beat.name}” holds ${beat.hold.toFixed(2)}s${i > 0 ? ` (in: ${plan.transitions[i - 1].kind})` : ''}`).join('\n');
+  return done(
+    `Built the ${recipe} film (${RECIPE_ABOUT[recipe]}) from ${brief.length} beats: ${length.toFixed(1)} s as the layered comp "[Motion] ${title}", ${plan.notes.join('; ')}.\n${table}\nDone: ${made.join('; ')}.${notes.length ? ` Not done: ${notes.join('; ')}.` : ''}${left.length ? `\nThe review still lists:\n${left.slice(0, 8).join('\n')}` : ''}\nLook at the contact sheets. Change a beat with update_motion_scene {"clipId":"${clipId}", …}, or call again with other words, moments or style.variant for another take. Then judge_edit and verify_edit_workflow.`,
+    { clipId, compId: sequence.compId, starts, cuts, recipe, variant: plan.variant, seconds: length, drop: plan.drop, findings: left, images },
+  );
+}
+
+/** The disk as render passes need it (renderPasses.ts): the manifest, frame folders, and pass videos unpacked by render_passes.rs. */
+const passIo: PassIo = {
+  readJson: async (path) => {
+    const response = await fetchFile(path, { maxBytes: 1024 * 1024 });
+    if (!response.ok) throw new Error('no such file');
+    return response.json();
+  },
+  list: async (dir) => (await api.fsListDirectory(dir, false, 1, 100_000)).entries.filter((entry) => !entry.isDir).map((entry) => entry.name),
+  unpack: (file) => api.renderPassFrames(file),
+  // The first 64 KB hold the PNG header and any tRNS chunk.
+  alpha: async (file) => {
+    try {
+      const response = await fetch(fileSrc(file), { headers: { Range: 'bytes=0-65535' } });
+      return response.ok ? pngHasAlpha(new Uint8Array(await response.arrayBuffer())) : null;
+    } catch {
+      return null;
+    }
+  },
+};
 
 const ITEM_KINDS: Record<string, ItemKind> = {
   color_matte: 'color-matte', black_video: 'black-video', transparent_video: 'transparent-video', bars_and_tone: 'bars-and-tone', adjustment_layer: 'adjustment-layer', countdown: 'countdown',
@@ -1355,7 +1555,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const script = blueprint.script;
       const checklist = [
         `1. Voice-over: synthesize_speech_voiceover with the full blueprint script (${script.length} chars)${blueprint.narrator?.voice ? ` using voice ${blueprint.narrator.voice}` : ''}, autoPlace into the Generated folder.`,
-        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : s.mediaSource === 'render' ? `place the scene you rendered (AI Work/Output)` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
+        ...scenes.map((s, i) => `${i + 2}. Scene ${i + 1} (${s.start}s–${s.end}s, ${s.mediaSource}): ${s.mediaSource === 'generate' ? `generate_local_media with the scene visualPrompt` : s.mediaSource === 'download' ? `download_online_media for ${s.mediaUrl ?? 'the scene URL'}` : s.mediaSource === 'render' ? `render it into AI Work/Output, then attach_production_asset {sceneIndex: ${i}} with passes (its pass manifest: lands as editable layers) or one file's assetId` : `place existing asset ${s.assetId}`} — narration: "${s.narration.slice(0, 80)}".`),
         `${scenes.length + 2}. Wait for ALL ${manifest.length} manifest assets to be imported into the Generated folder.`,
         `${scenes.length + 3}. Assembly: place voice-over on A1, visual clips scene-by-scene on V1/V2, add motion graphics + transitions + music bed with ducking, then verify_edit_workflow.`,
       ];
@@ -3687,12 +3887,31 @@ ${notes.trim()}${paletteLine}
     case 'attach_production_asset': {
       const comp = pickComp(project, args);
       if (!comp?.production) return fail('No production plan on this comp. Save the plan first.');
+      const passes = str(args, 'passes');
       const assetId = str(args, 'assetId') ?? '';
-      if (!assets.has(assetId)) return fail('assetId is not an imported asset; use the id a generation, download or import returned.');
+      if (!passes && !assets.has(assetId)) return fail('assetId is not an imported asset; use the id a generation, download or import returned (or passes: the manifest of a scene you rendered in passes).');
       const sceneIndex = num(args, 'sceneIndex');
       const kind = str(args, 'kind') ?? null;
       const target = kind === 'music' ? { sceneIndex: -1, kind } : sceneIndex === undefined ? null : { sceneIndex: Math.floor(sceneIndex), shotIndex: num(args, 'shotIndex') ?? null, kind };
       if (!target) return fail('Give sceneIndex (0-based) or kind "music".');
+      if (passes) {
+        // A scene the model rendered itself, in passes: stacked as footage layers of one layered
+        // "[Motion]" comp (renderPasses.ts), so the user can still hide, swap or regrade a pass.
+        const scene = target.sceneIndex >= 0 ? planScenes(comp)[target.sceneIndex] : undefined;
+        if (!scene) return fail('Give the sceneIndex (0-based) of the planned scene these passes render.');
+        const loaded = await loadPasses(passes, { width: comp.width, height: comp.height, fps: comp.fps }, passIo);
+        if ('problems' in loaded) return fail(`Fix the passes: ${loaded.problems.slice(0, 8).join(' ')}`);
+        const title = `Scene ${target.sceneIndex + 1}${scene.title ? ` ${scene.title}` : ''} passes`;
+        const exploded = explodeScene(passScene(loaded.manifest, loaded.passes, comp), { name: `[Motion] ${title}`, fps: comp.fps, width: comp.width, height: comp.height });
+        // Passes are the scene's picture: they fill its video shot, never its voice-over.
+        const attached = attachMedia(comp, { ...target, kind: target.kind ?? 'video' }, { compId: exploded.comp.id });
+        if (!attached) return fail('That scene or shot is not in the plan.');
+        commit((current) => updateComp(fileMotionComps(current, [exploded.comp, ...exploded.nested]), comp.id, () => attached.comp));
+        const report = gatherReport(attached.comp);
+        return done(`Stacked ${loaded.passes.length} pass${loaded.passes.length === 1 ? '' : 'es'} as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin), bottom to top: ${loaded.passes.map((pass) => pass.name).join(', ')}. Each is a footage layer on its own track, so the user can hide, swap or regrade any pass. Attached to ${attached.attached}; in the edit nest it where the scene plays: place_clip {"source":{"compId":"${exploded.comp.id}"}}.${loaded.notes.length ? ` Check: ${loaded.notes.join(' ')}` : ''} Gathered ${report.ready}/${report.total}.${report.missing.length ? ` Still missing: ${report.missing.slice(0, 6).join('; ')}.` : ' Everything is gathered — call finish_gathering.'}`, {
+          compId: exploded.comp.id, layers: exploded.layers.map(({ layerId, clipId, name }) => ({ layerId, clipId, name })), ready: report.ready, total: report.total, missing: report.missing,
+        });
+      }
       const attached = attachAsset(comp, target, assetId);
       if (!attached) return fail('That scene or shot is not in the plan.');
       editComp(comp, () => attached.comp);
@@ -3769,6 +3988,12 @@ ${notes.trim()}${paletteLine}
       const brief = (Array.isArray(args.beats) ? args.beats : []).filter((b): b is BriefBeat => !!b && typeof b === 'object' && typeof (b as BriefBeat).text === 'string' && (b as BriefBeat).text.trim().length > 0)
         .map((b) => (b.points !== undefined && !Array.isArray(b.points) ? { ...b, points: listOf(b.points) } : b));
       if (brief.length < 1 || brief.length > 16) return fail(`Give 1–16 beats, each {text, kind?: ${BEAT_KINDS.join('|')}, kicker?, subtitle?, points?, value?, suffix?, cta?}. One idea per beat, few words.`);
+      // A film recipe chains the toolkit (filmRecipes.ts); without one, the guided build below.
+      const recipe = str(args, 'recipe');
+      if (recipe) {
+        if (!isFilmRecipe(recipe)) return fail(`No recipe "${recipe}". Recipes: ${FILM_RECIPES.map((id) => `${id} (${RECIPE_ABOUT[id]})`).join('; ')}.`);
+        return buildFilmFromRecipe({ host, comp, commit, editComp, signal, turnId }, recipe, brief as FilmBeat[], args);
+      }
       const genre = str(args, 'genre') ?? inferGenres(project, comp)[0] ?? 'motion';
       const book = playbook(PLAYBOOK_FOR[genre as Genre] ?? genre);
       const moodArg = str(args, 'mood');
@@ -3960,6 +4185,139 @@ ${notes.trim()}${paletteLine}
         { pacing: pacing.checks, issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, frameNotes, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
     }
 
+    case 'capture_app_session': {
+      // The real product, alive: a short scripted session in a headless browser, each named part
+      // captured in each state at 3x (app_capture.rs, appCapture.ts). Without a url it captures
+      // Bhippi itself, from your real app state; `@composer`-style names stand for its parts.
+      const { steps, problems } = parseSteps(args.steps);
+      if (problems.length) return fail(`Fix the session steps: ${problems.slice(0, 6).join('; ')}.`);
+      if (!steps.some((step) => step.do === 'capture' || (step.do === 'type' && step.part))) return fail('The session captures nothing: add capture steps ({do:"capture", part, selector, state}) or a type step with a part.');
+      const url = str(args, 'url');
+      const name = str(args, 'name') ?? (url ? url.replace(/^https?:\/\//, '').split('/')[0] : 'bhippi');
+      const base = { url, name, width: num(args, 'width'), height: num(args, 'height'), scale: num(args, 'scale'), ready: str(args, 'ready') ? resolveSelector(str(args, 'ready')!) : undefined, transparent: bool(args, 'transparent'), steps };
+      const info = await api.appInfo().catch(() => null);
+      // Demo: whatever of Bhippi would film empty (bins, timeline, chat) shows the demo pack instead.
+      const demo = !url && bool(args, 'demo') === true;
+      let filled: string[] = [];
+      try {
+        const manifest = await api.appSessionCapture({
+          ...base,
+          ...(bool(args, 'reuse') === false ? {} : { key: captureKey(base, info?.version ?? '', demo) }),
+          ...(url ? {} : { standin: standinSource(await bhippiAnswers(project, [...assets.values()], { demo, filled: (what) => { filled = what; } })) }),
+        });
+        const rows = sheetParts(manifest);
+        const sheet = rows.length ? await contactSheet(rows.map((row) => row.map((part) => ({ path: `${manifest.dir}/${part.file}`, label: `${part.part} · ${part.state} · ${part.pixels[0]}x${part.pixels[1]}` })))) : null;
+        const partNames = [...new Set(manifest.parts.map((part) => part.part))];
+        return done(
+          `Captured ${manifest.parts.length} picture(s) of ${partNames.length} part(s) (${partNames.slice(0, 8).join(', ')}) at ${manifest.scale}x into ${manifest.dir}.${manifest.issues.length ? ` Check: ${manifest.issues.slice(0, 5).join('; ')}.` : ' Every part came out at full resolution and every font loaded.'} Each state is its own picture (part__state.png, with its box in manifest.json): import the ones a shot needs, or swap states on the frame a click lands; create_product_demo {"capture":"${name}"} makes them a camera shot of layers (close on parts, named cursors, each state on its frame).${demo ? ` ${demoNote(project, filled)}` : ''}`,
+          { dir: manifest.dir, url: manifest.url, scale: manifest.scale, parts: manifest.parts, issues: manifest.issues, images: sheet && bool(args, 'images') !== false ? [sheet] : [] },
+        );
+      } catch (error) { return fail(errorText(error)); }
+    }
+
+    case 'review_frames': {
+      // The render → look → fix loop the best films were made in: frames at the moments something
+      // happens and strips across the joins, tiled into contact sheets, plus the numbers the
+      // critics measured by hand (reviewFrames.ts). It changes nothing.
+      const comp = pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const duration = compDuration(comp);
+      if (duration <= 0) return fail('The timeline is empty; nothing to review.');
+      const from = clamp(num(args, 'start') ?? 0, 0, Math.max(0, duration - 1 / fps(comp)));
+      const to = clamp(num(args, 'end') ?? duration, from + 1 / fps(comp), duration);
+      const at = str(args, 'at') ?? 'both';
+      const asked = Array.isArray(args.times) ? (args.times as unknown[]).filter((t): t is number => typeof t === 'number' && t >= from && t < to) : [];
+      const events: Moment[] = asked.length
+        ? asked.slice(0, 24).map((t) => ({ at: Math.round(t * 100) / 100, why: 'asked' }))
+        : at === 'joins' ? [] : eventMoments(project, comp, from, to, clamp(num(args, 'limit') ?? 18, 4, 24));
+      const strips = asked.length || at === 'events' ? [] : joinStrips(comp, from, to, clamp(num(args, 'joins') ?? 3, 1, 6));
+      const moments = [...events, ...strips.flat()];
+      if (!moments.length) return fail('Nothing to look at in that range: no cuts, graphics or cues. Pass times:[seconds] to choose the moments.');
+      const times = [...new Set(moments.map((moment) => moment.at))].sort((a, b) => a - b);
+      const layers = await collectQaLayers(project, assets, comp, times, { rotoSubjects: async (runId) => (await api.rotoRead(runId))?.subjects ?? null });
+      const findings: Finding[] = [];
+      let renderNote = '';
+      // Geometry the frame check already measures (reading size, off-frame, overlaps), from the same layers.
+      const geometry = frameQa(comp, layers, times).filter((issue) => issue.kind === 'small-text' || issue.kind === 'off-frame' || issue.kind === 'caption-collision');
+      findings.push(...repeatedPhrases(layers, times));
+      // Beats, when the music is known, against the picture's cuts.
+      const musicClip = comp.clips.find((clip) => clip.enabled && clip.source.type === 'media' && (clip.source.assetId === comp.production?.music?.assetId || clip.audioType === 'music'));
+      const beats = musicClip && comp.production?.music?.beats?.length ? comp.production.music.beats.map((beat) => timelineOf(musicClip, beat)).filter((t): t is number => t !== null) : [];
+      findings.push(...offBeatCuts(cutTimes(comp, from, to), beats));
+      // Sound cues against the music at their moment, from the waveform levels Bhippi keeps, on
+      // the same scale sound_the_motion sets them by (cueSound.ts): each one's loudest 10 ms.
+      const beds: MusicBed[] = [];
+      for (const clip of comp.clips) {
+        const asset = clip.source.type === 'media' ? assets.get(clip.source.assetId) : undefined;
+        if (!asset?.peaks || !isMusicClip(comp, clip, asset.name)) continue;
+        const peaks = await loadPeaks(asset.peaks);
+        if (peaks) beds.push({ clip, peaks });
+      }
+      if (beds.length) {
+        const cues: CueLevel[] = [];
+        for (const clip of comp.clips) {
+          if (!clip.enabled || clip.start < from || clip.start >= to) continue;
+          if (clip.source.type !== 'sfx' && clip.audioType !== 'sfx') continue;
+          let db: number | null = null;
+          if (clip.source.type === 'media') {
+            const asset = assets.get(clip.source.assetId);
+            const peaks = asset?.peaks ? await loadPeaks(asset.peaks) : null;
+            if (peaks) db = loudestDb(peaks, clip.in, clip.in + Math.min(0.4, clip.duration) * clip.speed);
+          } else if (clip.source.type === 'sfx') {
+            db = builtInLoudestDb(clip.source.kind);
+          }
+          if (db !== null) cues.push({ at: clip.start, name: clip.name ?? (clip.source.type === 'sfx' ? clip.source.kind : 'sound'), db: db + gainToDb(clip.volume) });
+        }
+        findings.push(...quietCues(cues, (t) => musicDbOver(beds, t, t + 0.3)));
+      }
+      // The final mix as the export renders it: about −16 LUFS integrated, peaks under −1 dBTP.
+      if (args.mix !== false && comp.clips.some((clip) => clip.enabled && comp.tracks.some((track) => track.id === clip.trackId && track.kind === 'audio'))) {
+        try {
+          findings.push(...mixFindings(await api.mixLoudness(project, comp.id)));
+        } catch (error) {
+          renderNote += ` The mix could not be measured (${errorText(error)}).`;
+        }
+      }
+      const end = shortEnd(project, comp, duration);
+      if (end) findings.push(end);
+
+      // The frames, rendered as the export draws them, then tiled: events in rows of six, each join its own row.
+      const shots = new Map<number, string>();
+      try {
+        const dir = await api.mogrtFramesBegin('review');
+        const { renderFiwnCaptionsForExport } = await import('./fiwn/export');
+        const prepared = await renderFiwnCaptionsForExport(await renderHtmlStill(await renderMotionStill(project, comp.id, times, [...assets.values()]), comp.id, times), comp.id, { times });
+        for (const [i, t] of times.entries()) {
+          const path = await api.exportFrame(prepared, comp.id, t, `${dir}/review-${String(i).padStart(2, '0')}.png`, 360);
+          shots.set(t, path);
+          const stats = await frameStats(path);
+          const dark = stats ? darkFinding(t, stats.mean) : null;
+          if (dark) findings.push(dark);
+        }
+      } catch (error) {
+        renderNote += ` Frames could not be rendered (${errorText(error)}), so only the measured checks ran.`;
+      }
+      const label = (moment: Moment) => `${timecode(moment.at, fps(comp))} ${moment.why}`;
+      const rowsOf = (list: Moment[], size: number) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, i * size + size));
+      const toRow = (row: Moment[]) => row.filter((moment) => shots.has(moment.at)).map((moment) => ({ path: shots.get(moment.at)!, label: label(moment) }));
+      const sheets = [
+        events.length ? await contactSheet(rowsOf(events, 6).map(toRow).filter((row) => row.length)) : null,
+        strips.length ? await contactSheet(strips.map(toRow).filter((row) => row.length)) : null,
+      ].filter((sheet): sheet is string => !!sheet);
+      const images = bool(args, 'images') === false ? [] : sheets;
+      // One line per darkness run, not per frame.
+      const darks = findings.filter((finding) => finding.kind === 'dark');
+      const measured = [...findings.filter((finding) => finding.kind !== 'dark'), ...(darks.length ? [{ ...darks[0], what: `${darks.length} of ${shots.size} frame(s) are murky-dark (first at ${timecode(darks[0].at!, fps(comp))}: ${darks[0].what})` }] : [])];
+      const lines = [
+        ...measured.map((finding) => `${finding.at !== null ? `${timecode(finding.at, fps(comp))} ` : ''}${finding.kind}: ${finding.what}. Fix: ${finding.fix}.`),
+        ...geometry.slice(0, 8).map((issue) => `${timecode(issue.at, fps(comp))} ${issue.kind}: "${issue.a}". ${issue.suggestion}`),
+      ];
+      return done(
+        `Reviewed ${timecode(from, fps(comp))}–${timecode(to, fps(comp))}: ${events.length} moment(s)${strips.length ? ` and ${strips.length} join strip(s) of ${strips[0].length} frames ${Math.round(JOIN_STEP * 1000)} ms apart` : ''}, in ${sheets.length} contact sheet(s).${renderNote} ${lines.length ? `${lines.length} thing(s) to fix:\n${lines.join('\n')}` : 'Nothing measured is off: no murky frames, doubled phrases, off-beat cuts, buried cues, rushed end card or a mix off −16 LUFS / −1 dBTP.'}\nNow look at the sheets for what numbers cannot judge (does each moment read, do the joins flow, is it premium), fix, and review again.`,
+        { moments: moments.map((moment) => ({ at: moment.at, why: moment.why })), findings: measured, geometry: geometry.slice(0, 12), images, range: { start: from, end: to } },
+      );
+    }
+
     case 'propose_storyboards': {
       // The Director's debate: three capped proposers in parallel, then critique and a vote.
       const brief = str(args, 'brief');
@@ -4037,7 +4395,15 @@ ${notes.trim()}${paletteLine}
       const asked = Array.isArray(args.genres) ? (args.genres as unknown[]).filter((g): g is Genre => typeof g === 'string' && g in GENRE_TOOLS) : [];
       const genres = asked.length ? asked : inferGenres(after, judged);
       await primeMemeCache(judged);
-      const review = councilReview(after, assets, judged, undefined, { meme: memeLookup });
+      const council = councilReview(after, assets, judged, undefined, { meme: memeLookup });
+      // The final mix as the export renders it (reviewFrames.ts): off −16 LUFS or over −1 dBTP is a fix for the audio seat.
+      let mixNotes: CouncilNote[] = [];
+      try {
+        mixNotes = mixFindings(await api.mixLoudness(after, judged.id)).map((finding) => ({ member: 'audio', severity: 'fix', text: `${finding.what.charAt(0).toUpperCase()}${finding.what.slice(1)}.`, fix: finding.fix }));
+      } catch {
+        // A mix that cannot be measured (no sound, no FFmpeg) is scored on the rest; review_frames says why.
+      }
+      const review = { ...council, notes: [...council.notes, ...mixNotes] };
       const book = playbook(PLAYBOOK_FOR[genres[0]]);
       const pacing = pacingReport(after, judged, book?.pacing ?? GENERIC_TARGET);
       const issues = frames.ok && Array.isArray(frames.issues) ? (frames.issues as { kind: string; a: string; suggestion?: string }[]) : [];
@@ -4167,6 +4533,53 @@ ${notes.trim()}${paletteLine}
         sfxId = sfx.id;
       }
       return done(`${style} transition at ${timecode(time, fps(comp))} on ${trackLabel(comp, track.track.id)}: ${outgoing ? `outgoing ${outgoing.name ?? outgoing.id} pushes ${punch}%` : ''}${incoming ? `, incoming ${incoming.name ?? incoming.id} settles from ${punch}%` : ''}${sfxId ? ', whoosh 0.25 s before the cut' : ''}. Keyframes use ease-in/ease-out so the move is weighted; it exports.`, { outgoingId: outgoing?.id ?? null, incomingId: incoming?.id ?? null, sfxClipId: sfxId, seconds });
+    }
+
+    case 'analyze_song': {
+      // One call for everything a film cut to a song needs: beats, bars, phrases, drops, hits, the
+      // user's lyrics with a time for every word (songMap.ts), sections and cut points. Every
+      // premium film so far built this by hand; here any model gets it in one call.
+      const comp = pickComp(project, args);
+      let asset: Asset | undefined;
+      const clipRef = str(args, 'clipId');
+      if (clipRef) {
+        const found = findClipIn(project, clipRef);
+        if (found?.clip.source.type === 'media') asset = assets.get(found.clip.source.assetId);
+      }
+      if (!asset && str(args, 'assetId')) asset = assets.get(str(args, 'assetId') ?? '');
+      if (!asset && comp?.production?.music?.assetId) asset = assets.get(comp.production.music.assetId);
+      if (!asset) return fail('Give the song assetId or clipId (or attach the music to the plan first).');
+      if (!asset.peaks) return fail(`${asset.name} has no waveform analysis yet; wait for its import to finish, then retry.`);
+      const peaks = await loadPeaks(asset.peaks);
+      if (!peaks) return fail('The waveform data could not be read.');
+      const analysis = detectBeats(peaks, { minBpm: num(args, 'minBpm'), maxBpm: num(args, 'maxBpm') });
+      const structure = musicStructure(peaks, analysis, 0);
+      const lyrics = str(args, 'lyrics')?.trim() || null;
+      let heard: HeardWord[] = [];
+      let hearing = '';
+      if (bool(args, 'transcribe') ?? true) {
+        try {
+          const transcript = await api.transcribeAsset(asset.id, str(args, 'language') ?? 'auto', bool(args, 'vocal') ?? true);
+          heard = transcript.words.map((word) => ({ text: word.text, start: word.start, end: word.end }));
+        } catch (error) {
+          hearing = ` No transcript (${errorText(error)}), so ${lyrics ? 'the lyrics are spread over the song by length only; treat word times as rough' : 'there are no words'}.`;
+        }
+      }
+      const map = buildSongMap(peaks, analysis, structure, lyrics, heard, analysis.duration);
+      if (comp?.production && (!comp.production.music?.assetId || comp.production.music.assetId === asset.id)) {
+        editComp(comp, current => ({ ...current, production: current.production ? { ...current.production, music: { ...(current.production.music ?? { source: 'existing' as const }), assetId: asset!.id, status: 'ready', bpm: analysis.bpm, beats: analysis.beats.slice(0, 4000) }, updatedAt: Date.now() } : current.production }));
+      }
+      // Kept as a research note, so a later turn reads the map instead of analysing the song again.
+      const note = await api.projectDocWrite('research', `Song map - ${asset.name}`, songMapMarkdown(asset.name, map)).catch(() => null);
+      const placed = map.lines.reduce((count, line) => count + line.words.filter((word) => !word.heard).length, 0);
+      return done(
+        `${asset.name}: ${map.bpm} BPM, ${map.bars.length} bars, ${map.sections.length} section(s), ${map.lines.length} line(s)${lyrics ? `, ${Math.round(map.heardShare * 100)}% of the lyric heard (${placed} word(s) placed between heard ones)` : ''}, ${map.drops.length} drop(s), ${map.hits.length} hits, ${map.cuts.length} cut points.${hearing} Times are source seconds of the song: land each word's graphic on its time, cut on \`cuts\`, accent \`hits\`.${note ? ` The full map is saved as ${note}.` : ''}`,
+        {
+          assetId: asset.id, bpm: map.bpm, heardShare: map.heardShare, sections: map.sections, drops: map.drops, stops: map.stops,
+          lines: map.lines.map((line) => ({ text: line.text, section: line.section, start: line.start, end: line.end, timed: line.words.map((word) => `${word.start.toFixed(2)} ${word.text}${word.heard ? '' : '*'}`).join(' ') })),
+          cuts: map.cuts, bars: map.bars.slice(0, 96), phrases: map.phrases, hits: map.hits.slice(0, 160), hitCount: map.hits.length, beatCount: map.beats.length,
+        },
+      );
     }
 
     case 'analyze_music_beats': {
