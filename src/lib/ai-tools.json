@@ -5971,7 +5971,7 @@
     },
     {
       "name": "review_frames",
-      "description": "Reviews the edit the way good films are made: frames at every cut, graphic landing, sound cue and marker, plus strips 0.06 s apart across the joins, as contact sheets you look at, and measured checks (murky frames, the same phrase on screen twice, cuts off the beat, sound cues buried under the music, an end card that leaves too soon, reading size). Changes nothing; fix what it lists, then review again.",
+      "description": "Reviews the edit the way good films are made: frames at every cut, graphic landing, sound cue and marker, plus strips 0.06 s apart across the joins, as contact sheets you look at, and measured checks (murky frames, the same phrase on screen twice, cuts off the beat, sound cues buried under the music, an end card that leaves too soon, reading size, and the final mix at about -16 LUFS with peaks under -1 dBTP). Changes nothing; fix what it lists, then review again.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -6011,6 +6011,10 @@
           "images": {
             "type": "boolean",
             "description": "Attach the contact sheets (default true)."
+          },
+          "mix": {
+            "type": "boolean",
+            "description": "Measure the finished mix's loudness and true peak (default true)."
           }
         }
       }

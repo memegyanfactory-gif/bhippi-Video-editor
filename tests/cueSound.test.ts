@@ -3,7 +3,7 @@ import { cueLevel, cuePlacements, loudestDb, motionCues, musicDbOver, placedSoun
 import { explodeScene } from '../src/lib/motionStack';
 import { runMotionTool, type MotionToolContext } from '../src/lib/motionTools';
 import type { Peaks } from '../src/lib/peaks';
-import { quietCues } from '../src/lib/reviewFrames';
+import { mixFindings, quietCues } from '../src/lib/reviewFrames';
 import { SFX_GAIN_DB } from '../src/lib/sfxLevels';
 import { newClip, newProject, tracksOf, updateComp } from '../src/lib/timeline';
 import { SFX_KINDS, type Asset, type Project } from '../src/lib/types';
@@ -204,6 +204,24 @@ describe('sound_the_motion', () => {
     const result = await runMotionTool('sound_the_motion', {}, ctx) as { ok: boolean; error: string };
     expect(result.ok).toBe(false);
     expect(result.error).toContain('add_sound_effect');
+  });
+});
+
+describe('the final mix check', () => {
+  it('passes a mix at −16 LUFS with peaks under −1 dBTP, and a silent edit', () => {
+    expect(mixFindings({ integratedLufs: -16.4, truePeakDb: -1.2 })).toEqual([]);
+    expect(mixFindings({ integratedLufs: -70, truePeakDb: -70 })).toEqual([]);
+  });
+
+  it('names how far off a loud or quiet mix is, and peaks over the ceiling', () => {
+    const loud = mixFindings({ integratedLufs: -11, truePeakDb: -0.2 });
+    expect(loud.map((finding) => finding.kind)).toEqual(['mix-loudness', 'mix-peak']);
+    expect(loud[0].what).toContain('5.0 dB louder');
+    expect(loud[0].fix).toContain('level_audio targetLufs -21');
+    const quiet = mixFindings({ integratedLufs: -22, truePeakDb: -6 });
+    expect(quiet[0].what).toContain('6.0 dB quieter');
+    expect(quiet[0].fix).toContain('up 6.0 dB');
+    expect(mixFindings({ integratedLufs: -14, truePeakDb: -2 }, -14)).toEqual([]);
   });
 });
 
