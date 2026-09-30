@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CRIMSON_TEMPLATES } from '../src/lib/motionGuide';
 import { buildMotionGraphic } from '../src/lib/motionGraphics';
-import { BRAND_EXAMPLES, CRIMSON_EXAMPLES, exampleCall } from '../src/lib/templateExamples';
+import { BRAND_EXAMPLES, CRIMSON_EXAMPLES, KINETIC_EXAMPLES, exampleCall } from '../src/lib/templateExamples';
 import { PLACEHOLDERS } from '../src/lib/templateEval';
 import { fixTemplateArgs } from '../src/lib/templateFix';
 import { BRAND_SLOTS, CRIMSON_SLOTS, missingSlots, slotsFor } from '../src/lib/templateSlots';
 import { findTemplate } from '../src/motion/kit';
+import { KINETIC_TEMPLATES } from '../src/motion/kit/kineticTemplates';
 
 describe('template examples', () => {
   it('has one for every house template, within its slots: nothing for the auto-fix to change', () => {
@@ -32,5 +33,19 @@ describe('template examples', () => {
     expect(exampleCall('brand-stat')).toEqual({ tool: 'create_motion_scene', args: { template: 'brand-stat', params: BRAND_EXAMPLES['brand-stat'] } });
     expect(exampleCall('hook-promise')?.tool).toBe('create_motion_graphic');
     expect(exampleCall('fx-confetti')).toBeNull();
+  });
+
+  it('has one for every kinetic template, with its required words, that builds', () => {
+    expect(Object.keys(KINETIC_EXAMPLES).sort()).toEqual(KINETIC_TEMPLATES.map((spec) => spec.id).sort());
+    for (const [id, params] of Object.entries(KINETIC_EXAMPLES)) {
+      const spec = findTemplate(id)!;
+      const slots = slotsFor(id, spec.params)!;
+      const fixed = fixTemplateArgs(id, slots, params);
+      expect(fixed.error, id).toBeUndefined();
+      expect(fixed.notes, id).toEqual([]);
+      expect(missingSlots(slots, params), id).toEqual([]);
+      expect(spec.build({ width: 1920, height: 1080 }, params).layers.length, id).toBeGreaterThan(1);
+    }
+    expect(exampleCall('type-on-voice')?.tool).toBe('create_motion_scene');
   });
 });

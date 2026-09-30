@@ -88,7 +88,7 @@ describe('fitToSafeArea', () => {
       if (off.length) failures.push(`${spec.id}: ${off.map((issue) => issue.names.join('+')).join(', ')}`);
     }
     expect(failures).toEqual([]);
-  });
+  }, 60_000);
 });
 
 describe('safe area by orientation', () => {

@@ -207,6 +207,19 @@ export type TypeOn = {
   /** 'word' types a word at a time (fast AI prompts). */
   chunk?: 'char' | 'word';
   script?: ({ type: string } | { backspace: number } | { wait: number })[];
+  /**
+   * The second each character appears, one per character of the text (spaces included, line
+   * breaks skipped): typing that lands on a voice's word onsets (the launch film typed each word
+   * from its onset at 46–66 ms a character). Overrides `at`, `cps` and `script`; the caret then
+   * stays solid for 0.35 s after each key.
+   */
+  times?: number[];
+  /**
+   * Seconds over which a centred or right-aligned line glides to its new place as it grows,
+   * instead of jumping half a character per key: its width is averaged over that window (0.154 s
+   * in the launch film, 7 frames 22 ms apart). Applies to the line being typed.
+   */
+  recenter?: number;
   backspaceCps?: number;
   /** Each new character fades in over this many seconds (default 2 frames). */
   fadeIn?: number;
