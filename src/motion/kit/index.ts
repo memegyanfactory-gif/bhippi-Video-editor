@@ -9,6 +9,7 @@ import { STORY_TEMPLATES } from './storyTemplates';
 import { BRAND_TEMPLATES } from './brandTemplates';
 import { FUN_TEMPLATES } from './funTemplates';
 import { DRAWN_TEMPLATES } from './drawnTemplates';
+import { PRODUCT_TEMPLATES } from './productDemo';
 
 export type TemplateSpec = {
   id: string;
@@ -23,6 +24,8 @@ export type TemplateSpec = {
   seconds: number;
   /** Whether the scene covers the whole frame (true) or overlays footage below it (false). */
   fullFrame: boolean;
+  /** Its colours are someone's own (a captured product, each AI's cursor): a brand kit sets only what the template gives it, nothing is recoloured after. */
+  keepsColours?: boolean;
   build: (ctx: KitContext, params: Record<string, unknown>) => MotionScene;
 };
 
@@ -45,7 +48,7 @@ const SUBJECT_REVEAL: TemplateSpec = {
   build: (ctx, params) => subjectReveal(ctx, params as unknown as SubjectRevealParams),
 };
 
-export const MOTION_TEMPLATES: TemplateSpec[] = [...BRAND_TEMPLATES, SUBJECT_REVEAL, ...STAGE_TEMPLATES, ...OVERLAY_TEMPLATES, ...STORY_TEMPLATES, ...FUN_TEMPLATES, ...DRAWN_TEMPLATES];
+export const MOTION_TEMPLATES: TemplateSpec[] = [...BRAND_TEMPLATES, SUBJECT_REVEAL, ...STAGE_TEMPLATES, ...OVERLAY_TEMPLATES, ...STORY_TEMPLATES, ...FUN_TEMPLATES, ...DRAWN_TEMPLATES, ...PRODUCT_TEMPLATES];
 
 export const findTemplate = (id: string) => MOTION_TEMPLATES.find((spec) => spec.id === id);
 
