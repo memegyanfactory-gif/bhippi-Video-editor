@@ -29,12 +29,13 @@ import { advance, attachAsset, attachMedia, frameQa, gatherReport, hasMedia, new
 import { loadPasses, passScene, pngHasAlpha, type PassIo } from './renderPasses';
 import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
 import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
-import { BUCKETS_PER_SECOND, loadPeaks } from './peaks';
+import { loadPeaks } from './peaks';
 import { bhippiAnswers, captureKey, parseSteps, resolveSelector, sheetParts, standinSource } from './appCapture';
-import { cutTimes, darkFinding, eventMoments, JOIN_STEP, joinStrips, offBeatCuts, quietCues, repeatedPhrases, shortEnd, timelineOf, type CueLevel, type Finding, type Moment } from './reviewFrames';
+import { cutTimes, darkFinding, eventMoments, JOIN_STEP, joinStrips, mixFindings, offBeatCuts, quietCues, repeatedPhrases, shortEnd, timelineOf, type CueLevel, type Finding, type Moment } from './reviewFrames';
+import { builtInLoudestDb, isMusicClip, loudestDb, musicDbOver, type MusicBed } from './cueSound';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
-import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilRole, type Provenance } from './council';
+import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilNote, type CouncilRole, type Provenance } from './council';
 // Runs Bhippi AI's tool calls against the live project. Every tool is one undo step labelled
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
@@ -4052,6 +4053,7 @@ ${notes.trim()}${paletteLine}
       const times = [...new Set(moments.map((moment) => moment.at))].sort((a, b) => a - b);
       const layers = await collectQaLayers(project, assets, comp, times, { rotoSubjects: async (runId) => (await api.rotoRead(runId))?.subjects ?? null });
       const findings: Finding[] = [];
+      let renderNote = '';
       // Geometry the frame check already measures (reading size, off-frame, overlaps), from the same layers.
       const geometry = frameQa(comp, layers, times).filter((issue) => issue.kind === 'small-text' || issue.kind === 'off-frame' || issue.kind === 'caption-collision');
       findings.push(...repeatedPhrases(layers, times));
@@ -4059,44 +4061,45 @@ ${notes.trim()}${paletteLine}
       const musicClip = comp.clips.find((clip) => clip.enabled && clip.source.type === 'media' && (clip.source.assetId === comp.production?.music?.assetId || clip.audioType === 'music'));
       const beats = musicClip && comp.production?.music?.beats?.length ? comp.production.music.beats.map((beat) => timelineOf(musicClip, beat)).filter((t): t is number => t !== null) : [];
       findings.push(...offBeatCuts(cutTimes(comp, from, to), beats));
-      // Sound cues against the music at their moment, from the waveform levels Bhippi keeps.
-      if (musicClip && musicClip.source.type === 'media') {
-        const musicAsset = assets.get(musicClip.source.assetId);
-        const musicPeaks = musicAsset?.peaks ? await loadPeaks(musicAsset.peaks) : null;
-        const levelOf = (peaks: { data: Uint8Array; buckets: number }, source: number, span: number) => {
-          let top = 0;
-          for (let s = source; s < source + span; s += 0.01) { const i = Math.floor(s * BUCKETS_PER_SECOND); if (i >= 0 && i < peaks.buckets) top = Math.max(top, peaks.data[i * 2 + 1] / 255); }
-          return top > 0 ? 20 * Math.log10(top) : null;
-        };
-        const musicDbAt = (t: number) => {
-          if (!musicPeaks || t < musicClip.start || t >= clipEnd(musicClip)) return null;
-          const level = levelOf(musicPeaks, musicClip.in + (t - musicClip.start) * musicClip.speed, 0.3);
-          return level === null ? null : level + gainToDb(musicClip.volume);
-        };
+      // Sound cues against the music at their moment, from the waveform levels Bhippi keeps, on
+      // the same scale sound_the_motion sets them by (cueSound.ts): each one's loudest 10 ms.
+      const beds: MusicBed[] = [];
+      for (const clip of comp.clips) {
+        const asset = clip.source.type === 'media' ? assets.get(clip.source.assetId) : undefined;
+        if (!asset?.peaks || !isMusicClip(comp, clip, asset.name)) continue;
+        const peaks = await loadPeaks(asset.peaks);
+        if (peaks) beds.push({ clip, peaks });
+      }
+      if (beds.length) {
         const cues: CueLevel[] = [];
         for (const clip of comp.clips) {
           if (!clip.enabled || clip.start < from || clip.start >= to) continue;
-          const isCue = clip.source.type === 'sfx' || clip.audioType === 'sfx';
-          if (!isCue || clip === musicClip) continue;
+          if (clip.source.type !== 'sfx' && clip.audioType !== 'sfx') continue;
           let db: number | null = null;
           if (clip.source.type === 'media') {
             const asset = assets.get(clip.source.assetId);
             const peaks = asset?.peaks ? await loadPeaks(asset.peaks) : null;
-            if (peaks) db = levelOf(peaks, clip.in, Math.min(0.4, clip.duration));
-          } else {
-            // Built-in sounds are drawn near -12 dBFS at unity gain.
-            db = -12;
+            if (peaks) db = loudestDb(peaks, clip.in, clip.in + Math.min(0.4, clip.duration) * clip.speed);
+          } else if (clip.source.type === 'sfx') {
+            db = builtInLoudestDb(clip.source.kind);
           }
           if (db !== null) cues.push({ at: clip.start, name: clip.name ?? (clip.source.type === 'sfx' ? clip.source.kind : 'sound'), db: db + gainToDb(clip.volume) });
         }
-        findings.push(...quietCues(cues, musicDbAt));
+        findings.push(...quietCues(cues, (t) => musicDbOver(beds, t, t + 0.3)));
+      }
+      // The final mix as the export renders it: about −16 LUFS integrated, peaks under −1 dBTP.
+      if (args.mix !== false && comp.clips.some((clip) => clip.enabled && comp.tracks.some((track) => track.id === clip.trackId && track.kind === 'audio'))) {
+        try {
+          findings.push(...mixFindings(await api.mixLoudness(project, comp.id)));
+        } catch (error) {
+          renderNote += ` The mix could not be measured (${errorText(error)}).`;
+        }
       }
       const end = shortEnd(project, comp, duration);
       if (end) findings.push(end);
 
       // The frames, rendered as the export draws them, then tiled: events in rows of six, each join its own row.
       const shots = new Map<number, string>();
-      let renderNote = '';
       try {
         const dir = await api.mogrtFramesBegin('review');
         const { renderFiwnCaptionsForExport } = await import('./fiwn/export');
@@ -4109,7 +4112,7 @@ ${notes.trim()}${paletteLine}
           if (dark) findings.push(dark);
         }
       } catch (error) {
-        renderNote = ` Frames could not be rendered (${errorText(error)}), so only the measured checks ran.`;
+        renderNote += ` Frames could not be rendered (${errorText(error)}), so only the measured checks ran.`;
       }
       const label = (moment: Moment) => `${timecode(moment.at, fps(comp))} ${moment.why}`;
       const rowsOf = (list: Moment[], size: number) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, i * size + size));
@@ -4127,7 +4130,7 @@ ${notes.trim()}${paletteLine}
         ...geometry.slice(0, 8).map((issue) => `${timecode(issue.at, fps(comp))} ${issue.kind}: "${issue.a}". ${issue.suggestion}`),
       ];
       return done(
-        `Reviewed ${timecode(from, fps(comp))}–${timecode(to, fps(comp))}: ${events.length} moment(s)${strips.length ? ` and ${strips.length} join strip(s) of ${strips[0].length} frames ${Math.round(JOIN_STEP * 1000)} ms apart` : ''}, in ${sheets.length} contact sheet(s).${renderNote} ${lines.length ? `${lines.length} thing(s) to fix:\n${lines.join('\n')}` : 'Nothing measured is off: no murky frames, doubled phrases, off-beat cuts, buried cues or rushed end card.'}\nNow look at the sheets for what numbers cannot judge (does each moment read, do the joins flow, is it premium), fix, and review again.`,
+        `Reviewed ${timecode(from, fps(comp))}–${timecode(to, fps(comp))}: ${events.length} moment(s)${strips.length ? ` and ${strips.length} join strip(s) of ${strips[0].length} frames ${Math.round(JOIN_STEP * 1000)} ms apart` : ''}, in ${sheets.length} contact sheet(s).${renderNote} ${lines.length ? `${lines.length} thing(s) to fix:\n${lines.join('\n')}` : 'Nothing measured is off: no murky frames, doubled phrases, off-beat cuts, buried cues, rushed end card or a mix off −16 LUFS / −1 dBTP.'}\nNow look at the sheets for what numbers cannot judge (does each moment read, do the joins flow, is it premium), fix, and review again.`,
         { moments: moments.map((moment) => ({ at: moment.at, why: moment.why })), findings: measured, geometry: geometry.slice(0, 12), images, range: { start: from, end: to } },
       );
     }
@@ -4209,7 +4212,15 @@ ${notes.trim()}${paletteLine}
       const asked = Array.isArray(args.genres) ? (args.genres as unknown[]).filter((g): g is Genre => typeof g === 'string' && g in GENRE_TOOLS) : [];
       const genres = asked.length ? asked : inferGenres(after, judged);
       await primeMemeCache(judged);
-      const review = councilReview(after, assets, judged, undefined, { meme: memeLookup });
+      const council = councilReview(after, assets, judged, undefined, { meme: memeLookup });
+      // The final mix as the export renders it (reviewFrames.ts): off −16 LUFS or over −1 dBTP is a fix for the audio seat.
+      let mixNotes: CouncilNote[] = [];
+      try {
+        mixNotes = mixFindings(await api.mixLoudness(after, judged.id)).map((finding) => ({ member: 'audio', severity: 'fix', text: `${finding.what.charAt(0).toUpperCase()}${finding.what.slice(1)}.`, fix: finding.fix }));
+      } catch {
+        // A mix that cannot be measured (no sound, no FFmpeg) is scored on the rest; review_frames says why.
+      }
+      const review = { ...council, notes: [...council.notes, ...mixNotes] };
       const book = playbook(PLAYBOOK_FOR[genres[0]]);
       const pacing = pacingReport(after, judged, book?.pacing ?? GENERIC_TARGET);
       const issues = frames.ok && Array.isArray(frames.issues) ? (frames.issues as { kind: string; a: string; suggestion?: string }[]) : [];

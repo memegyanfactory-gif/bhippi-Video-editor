@@ -672,6 +672,8 @@ export const api = {
   /** The newest live-preview frame of a running export (a JPEG path), for the render window. */
   exportPreview: (jobId: string) => invoke<string | null>('export_preview', { jobId }),
   exportFrame: (project: Project, compId: string, time: number, output: string, shortSide?: number) => invoke<string>('export_frame', { project: prepareEffectExport(project,compId), compId, time, output, shortSide: shortSide ?? null }),
+  /** The finished mix of a comp as the export renders it (EBU R128), for the final mix check (−16 LUFS, −1 dBTP). */
+  mixLoudness: (project: Project, compId: string) => invoke<{ integratedLufs: number; truePeakDb: number; rangeLu: number; duration: number }>('mix_loudness', { project: prepareEffectExport(project, compId), compId }),
   /** A comp's poster frame: middle of the comp, small, cached by comp id. */
   compPoster: (project: Project, compId: string, time?: number) => invoke<string>('comp_poster', { project, compId, time: time ?? null }),
   /** AI-written notes and todo lists living beside the project. */

@@ -11,7 +11,7 @@ import type { Clip, Comp, Project } from './types';
 import type { QaLayer } from './production';
 
 export type Moment = { at: number; why: string };
-export type Finding = { at: number | null; kind: 'dark' | 'repeated-phrase' | 'off-beat' | 'quiet-cue' | 'short-end'; what: string; fix: string };
+export type Finding = { at: number | null; kind: 'dark' | 'repeated-phrase' | 'off-beat' | 'quiet-cue' | 'short-end' | 'mix-loudness' | 'mix-peak'; what: string; fix: string };
 
 const round = (value: number) => Math.round(value * 100) / 100;
 /** Two moments closer than this show the same frame. */
@@ -148,7 +148,32 @@ export type CueLevel = { at: number; name: string; db: number };
 export function quietCues(cues: CueLevel[], musicDbAt: (t: number) => number | null, margin = 12): Finding[] {
   const quiet = cues.filter((cue) => { const music = musicDbAt(cue.at); return music !== null && cue.db < music - margin; });
   if (!quiet.length) return [];
-  return [{ at: quiet[0].at, kind: 'quiet-cue', what: `${quiet.length} of ${cues.length} sound cue(s) sit more than ${margin} dB under the music at their moment (first: "${quiet[0].name}" at ${quiet[0].at.toFixed(2)} s): they cannot be heard`, fix: 'raise those cues, or duck the music around them (score_audio_clip), so each lands about 6 dB under the music peak' }];
+  return [{ at: quiet[0].at, kind: 'quiet-cue', what: `${quiet.length} of ${cues.length} sound cue(s) sit more than ${margin} dB under the music at their moment (first: "${quiet[0].name}" at ${quiet[0].at.toFixed(2)} s): they cannot be heard`, fix: 'sound_the_motion sets every motion cue about 6 dB under the music peak at its moment; raise any other cue by hand, or duck the music around it (score_audio_clip)' }];
+}
+
+/** The finished mix as the export renders it (the mix_loudness command): EBU R128 loudness and true peak. */
+export type MixReading = { integratedLufs: number; truePeakDb: number };
+
+/** Where a finished film's mix lands: the 15 s v2 was mastered to −16 LUFS integrated with its peaks under −1 dBTP. */
+export const MIX_TARGET = { lufs: -16, truePeakDb: -1, tolerance: 1 };
+
+/**
+ * The final mix check: integrated loudness within a LU of the target, and true peaks under the
+ * ceiling. A silent edit has no mix to check.
+ */
+export function mixFindings(mix: MixReading, target = MIX_TARGET.lufs, ceiling = MIX_TARGET.truePeakDb): Finding[] {
+  if (mix.integratedLufs <= -69) return [];
+  const out: Finding[] = [];
+  const off = mix.integratedLufs - target;
+  if (Math.abs(off) > MIX_TARGET.tolerance) {
+    // level_audio sets the voice at −16 LUFS by default and the bed under it: moving that target moves the whole mix.
+    const voice = Math.round((-16 - off) * 10) / 10;
+    out.push({ at: null, kind: 'mix-loudness', what: `the finished mix is ${mix.integratedLufs.toFixed(1)} LUFS, ${Math.abs(off).toFixed(1)} dB ${off > 0 ? 'louder' : 'quieter'} than the ${target} LUFS target`, fix: `export with loudness ${target} LUFS, which normalises the whole mix; or move every clip ${off > 0 ? 'down' : 'up'} ${Math.abs(off).toFixed(1)} dB (level_audio targetLufs ${voice}, then sound_the_motion again)` });
+  }
+  if (mix.truePeakDb > ceiling) {
+    out.push({ at: null, kind: 'mix-peak', what: `the mix peaks at ${mix.truePeakDb.toFixed(1)} dBTP, over the ${ceiling} dBTP ceiling: it will distort on phones and after streaming re-encodes`, fix: 'lower the loudest clips (a hit or the music at the drop) or export with a loudness target, whose limiter holds the peaks under the ceiling' });
+  }
+  return out;
 }
 
 /** An end card must hold: the last words or graphic should land at least `hold` seconds before the end. */

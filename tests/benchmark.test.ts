@@ -110,7 +110,12 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // Raised to 44,500 the same day for `update_motion_scene` finish (~+40 a step) and the
       // camera-match / glow-handoff / flash-bridge joins in `create_motion_sequence` (~+17): the
       // launch films' grade as one editable layer and the joins every one of them hid its cuts with.
-      expect(row.step, row.id).toBeLessThan(44_500);
+      // Raised to 44,525 the same day for the UI sound set (key_click, send_pop, soft_whoosh, glass_tick,
+      // cursor_tap) in the whole add_sound_effect and place_sfx enums (~+34 a step): the procedural UI
+      // sounds every product film synthesised for itself, offered as built-ins.
+      // Raised to 44,575 the same day for `sound_the_motion` (its slim entry, ~+41 a step): every
+      // motion cue sounded and set against the music, the sound design every premium film made by hand.
+      expect(row.step, row.id).toBeLessThan(44_575);
     }
   });
 

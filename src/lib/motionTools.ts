@@ -37,6 +37,8 @@ import { api, errorText, type Transcript, type TranscriptWord, fetchFile } from 
 import { timelineWords } from './transcriptText';
 import { hasWordRefs, resolveWordTimes } from './wordTimes';
 import { sfxClipFields, sfxTrack } from './sfxLevels';
+import { cueLevel, cuePlacements, isMusicClip, motionCues, musicDbOver, placedSounds, typingCues, type MusicBed } from './cueSound';
+import { loadPeaks } from './peaks';
 import { clipEnd, compDuration, freeTrack, newClip, placeClips, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
 import { explodeScene, isLayerClip, isLayeredComp, layeredCompScene, logicalScene, ownLayers, restack, splitMotionComps, stackLossy } from './motionStack';
 import { fitToSafeArea, layoutIssues, safeMargins, type LayoutIssue } from '../motion/safeArea';
@@ -44,7 +46,7 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_product_demo', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_product_demo', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie', 'sound_the_motion']);
 /** What create_product_demo passes on to the demo's template, besides the capture it loads. */
 const DEMO_PARAMS = ['duration', 'shots', 'actions', 'cursors', 'stage', 'tilt', 'explode', 'variant', 'settle', 'base', 'at', 'slam', 'depth', 'spread', 'blur'];
 /** Read-only / planning motion tools, allowed in any production phase. */
@@ -212,21 +214,6 @@ function findLayer(scene: MotionScene, id: string): Layer | null {
 }
 
 const SFX_MAP: Record<string, SfxKind> = Object.fromEntries(SFX_KINDS.map((kind) => [kind, kind]));
-
-/** Every typed text line gets a keyboard bed for as long as it types (unless the scene already cues typing). */
-function typingCues(scene: MotionScene): NonNullable<MotionScene['cues']> {
-  if (scene.cues?.some((cue) => cue.sound === 'typing' || cue.sound === 'key')) return [];
-  const out: NonNullable<MotionScene['cues']> = [];
-  for (const layer of scene.layers) {
-    if (layer.type !== 'text' || !layer.text.type) continue;
-    const ty = layer.text.type;
-    const chars = ty.script?.length ? ty.script.reduce((n, step) => n + ('type' in step ? Array.from(step.type).length : 0), 0) : Array.from(layer.text.text ?? '').length;
-    const seconds = chars / Math.max(1, ty.cps ?? 30);
-    if (seconds < 0.15 || ty.chunk === 'word') continue;
-    out.push({ at: (layer.startTime ?? 0) + (ty.at ?? 0), sound: 'typing', duration: Math.min(SFX_LENGTH.typing, seconds), note: 'typing' });
-  }
-  return out;
-}
 
 /** Places the scene's SFX cues on free audio tracks. */
 function placeCues(comp: Comp, scene: MotionScene, start: number): { comp: Comp; ids: string[] } {
@@ -989,12 +976,80 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         });
       } else ctx.editComp(comp, () => next);
       const layers = exploded?.layers.filter((layer) => layer.compId === exploded.comp.id) ?? [];
-      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${exploded ? ` as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin): ${layers.length} layer${layers.length === 1 ? '' : 's'} — ${layers.map((layer) => layer.name).join(', ')} — each a clip on its own track, so the user can open it and move, trim, hide or restyle any layer${exploded.nested.length ? ` (precomps open as their own layered comps)` : ''}` : ''}, on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track` : ''}.${plateNote}${fitReport(fit, safeMargin(args))}${lightStageNote(scene)} Preview and export use the same GPU renderer. Check it with run_frame_qa (it now renders motion graphics into the contact frames); change it with update_motion_scene {"clipId":"${clip.id}"} — params rebuild the template, patches edit a layer by its id.${fixSummary(fixNotes)}`, {
+      return done(`${title} placed at ${timecode(start, comp.fps)} for ${duration.toFixed(2)} s${brand ? ` in the "${brand.name}" brand (colours, fonts, eases and timing from its guideline)` : ''}${exploded ? ` as the layered comp "${exploded.comp.name}" (${MOTION_FOLDER} bin): ${layers.length} layer${layers.length === 1 ? '' : 's'} — ${layers.map((layer) => layer.name).join(', ')} — each a clip on its own track, so the user can open it and move, trim, hide or restyle any layer${exploded.nested.length ? ` (precomps open as their own layered comps)` : ''}` : ''}, on its own track above the footage${sfx.length ? `, with ${sfx.length} sound cue${sfx.length === 1 ? '' : 's'} on the SFX track (sound_the_motion sets them against the music)` : ''}.${plateNote}${fitReport(fit, safeMargin(args))}${lightStageNote(scene)} Preview and export use the same GPU renderer. Check it with run_frame_qa (it now renders motion graphics into the contact frames); change it with update_motion_scene {"clipId":"${clip.id}"} — params rebuild the template, patches edit a layer by its id.${fixSummary(fixNotes)}`, {
         ...(fixAdjustments.length ? { adjustments: fixAdjustments } : {}),
         clipId: clip.id, compClipId: clip.id, compId: exploded?.comp.id ?? comp.id, sfxClipIds: sfx,
         layers: exploded?.layers.map(({ layerId, clipId, compId, name, type, start: from, end }) => ({ layerId, clipId, compId, name, type, start: from, end })) ?? [],
         outline: summarizeScene(scene),
       });
+    }
+
+    case 'sound_the_motion': {
+      // Phase 5.1: a sound on every motion cue, each set against the music where it plays, so the
+      // clicks and whooshes the picture asks for are heard (cueSound.ts has the arithmetic).
+      const comp = ctx.pickComp(project, args);
+      if (!comp) return fail('Choose a composition.');
+      const from = Math.max(0, num(args, 'start') ?? 0);
+      const to = num(args, 'end') ?? Infinity;
+      if (!motionCues(project, comp, from, to).length) return fail('No motion cues in that range: no motion scene there carries sound cues (templates and UI screens do). Place sounds by hand with add_sound_effect.');
+      const swapArg = obj(args, 'swap') ?? {};
+      const swap: Partial<Record<string, SfxKind>> = Object.fromEntries(Object.entries(swapArg).flatMap(([cue, kind]) => (SFX_KINDS.includes(kind as SfxKind) ? [[cue, kind as SfxKind]] : [])));
+      const skip = Array.isArray(args.skip) ? (args.skip as unknown[]).filter((kind): kind is string => typeof kind === 'string') : [];
+      const offsetDb = clamp(num(args, 'offsetDb') ?? 0, -12, 12);
+      // The music's waveform buckets, loaded before anything is changed.
+      const beds: MusicBed[] = [];
+      for (const clip of comp.clips) {
+        if (clip.source.type !== 'media') continue;
+        const asset = ctx.assets.get(clip.source.assetId);
+        if (!asset?.peaks || !isMusicClip(comp, clip, asset.name)) continue;
+        const peaks = await loadPeaks(asset.peaks);
+        if (peaks) beds.push({ clip, peaks });
+      }
+      type Row = { clipId: string; at: number; kind: SfxKind; gainDb: number; against: 'music' | 'no-music'; capped: boolean; existing: boolean };
+      const rows: Row[] = [];
+      ctx.commit((current) => {
+        const top = current.comps.find((c) => c.id === comp.id);
+        if (!top) return current;
+        const placements = cuePlacements(motionCues(current, top, from, to), { swap, skip });
+        const placed = placedSounds(current, top);
+        const taken = new Set<string>();
+        // Gains for sounds already there (create_motion_scene lays each scene's cues), by comp.
+        const gains = new Map<string, Map<string, number>>();
+        let next = top;
+        for (const placement of placements) {
+          const level = cueLevel(placement.kind, musicDbOver(beds, placement.loud[0], placement.loud[1]), offsetDb);
+          const volume = clamp(10 ** (level.gainDb / 20), 0, 8);
+          const row = { at: Math.round(placement.start * 100) / 100, kind: placement.kind, gainDb: level.gainDb, against: level.against, capped: level.capped };
+          const there = placed.find((sound) => !taken.has(sound.clip.id) && sound.kind === placement.kind && Math.abs(sound.at - placement.start) < 0.06);
+          if (there) {
+            taken.add(there.clip.id);
+            gains.set(there.compId, (gains.get(there.compId) ?? new Map()).set(there.clip.id, volume));
+            rows.push({ ...row, clipId: there.clip.id, existing: true });
+            continue;
+          }
+          const target = sfxTrack(next, placement.start, placement.start + placement.duration);
+          const clip = newClip({ trackId: target.track.id, start: placement.start, in: placement.in, duration: placement.duration, source: { type: 'sfx', kind: placement.kind }, ...sfxClipFields(placement.kind, placement.note, volume) });
+          next = placeClips(target.comp, [clip], 'overwrite');
+          rows.push({ ...row, clipId: clip.id, existing: false });
+        }
+        const regain = (c: Comp) => {
+          const change = gains.get(c.id);
+          return change ? { ...c, clips: c.clips.map((clip) => (change.has(clip.id) ? { ...clip, volume: change.get(clip.id)! } : clip)) } : c;
+        };
+        return { ...current, comps: current.comps.map((c) => regain(c.id === top.id ? next : c)) };
+      });
+      if (!rows.length) return fail('Every cue in that range was skipped.');
+      const added = rows.filter((row) => !row.existing).length;
+      const capped = rows.filter((row) => row.capped);
+      const unscored = rows.filter((row) => row.against === 'no-music').length;
+      const kinds = [...new Set(rows.map((row) => row.kind))].map((kind) => {
+        const of = rows.filter((row) => row.kind === kind);
+        return `${kind} ×${of.length} (${Math.min(...of.map((row) => row.gainDb))} to ${Math.max(...of.map((row) => row.gainDb))} dB)`;
+      });
+      return done(
+        `Sounded ${rows.length} motion cue${rows.length === 1 ? '' : 's'}: ${added} placed on the SFX track, ${rows.length - added} already there set to their new level. ${beds.length ? `Each sits about 6 dB under the music's peak at its moment` : 'There is no music on this timeline, so each keeps its default level under the voice; run this again once the music is in'}: ${kinds.join(', ')}.${capped.length ? ` ${capped.length} could not get that loud without clipping (first at ${timecode(capped[0].at, comp.fps)}): duck the music under them with score_audio_clip.` : ''}${beds.length && unscored ? ` ${unscored} play where no music does and keep their default level.` : ''} Change one like any clip; review_frames checks they are heard.`,
+        { cues: rows },
+      );
     }
 
     case 'get_motion_scene': {

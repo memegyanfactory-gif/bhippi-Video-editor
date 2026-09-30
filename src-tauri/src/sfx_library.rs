@@ -132,6 +132,11 @@ fn procedural_words(kind: SfxKind) -> (&'static str, &'static [&'static str], &'
         SfxKind::Shimmer => ("Shimmer", &["sparkle", "magic", "reveal", "logo"], &["shimmer", "sparkle", "magic dust", "twinkle", "glitter"]),
         SfxKind::Sub => ("Sub drop", &["impact", "bass", "drop", "hit"], &["sub", "sub drop", "bass drop", "low hit", "808"]),
         SfxKind::Blip => ("Data blip", &["ui", "data", "counter", "tech"], &["blip", "data blip", "beep", "digital blip", "chart"]),
+        SfxKind::KeyClick => ("Key click", &["ui", "keyboard", "typing", "saas"], &["key click", "keyboard click", "mechanical key", "clicky key", "keycap"]),
+        SfxKind::SendPop => ("Send pop", &["ui", "message", "send", "saas", "pop"], &["send", "send pop", "message sent", "send button", "bloop", "whoop"]),
+        SfxKind::SoftWhoosh => ("Soft whoosh", &["ui", "transition", "air", "slide", "saas"], &["soft whoosh", "gentle whoosh", "air", "slide in", "panel slide", "soft swoosh"]),
+        SfxKind::GlassTick => ("Glass tick", &["ui", "glass", "select", "saas", "sparkle"], &["glass tick", "glass click", "select", "crystal tick", "glint"]),
+        SfxKind::CursorTap => ("Cursor tap", &["ui", "cursor", "click", "saas", "trackpad"], &["cursor tap", "tap", "trackpad", "trackpad click", "soft click", "touch"]),
     }
 }
 

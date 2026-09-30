@@ -63,6 +63,11 @@ pub fn samples(kind: SfxKind) -> Vec<f64> {
         SfxKind::Shimmer => master(shimmer(frames), 0.01, 0.2),
         SfxKind::Sub => master(sub(frames), 0.002, 0.3),
         SfxKind::Blip => master(blip(frames), 0.001, 0.01),
+        SfxKind::KeyClick => master(key_click(frames), 0.0002, 0.01),
+        SfxKind::SendPop => master(send_pop(frames), 0.001, 0.03),
+        SfxKind::SoftWhoosh => master(soft_whoosh(frames), 0.01, 0.05),
+        SfxKind::GlassTick => master(glass_tick(frames), 0.0005, 0.05),
+        SfxKind::CursorTap => master(cursor_tap(frames), 0.0002, 0.01),
     }
 }
 
@@ -104,7 +109,8 @@ fn classic(kind: SfxKind) -> Vec<f64> {
                     (0.55 * phase.sin() + 0.35 * filtered) * position.powf(1.8)
                 }
                 // Synthesised by their own voices below; never reached.
-                SfxKind::Boom | SfxKind::Scratch | SfxKind::Bleep | SfxKind::Swish | SfxKind::Ding | SfxKind::Glitch | SfxKind::Click | SfxKind::Tick | SfxKind::Key | SfxKind::Typing | SfxKind::Glass | SfxKind::Shimmer | SfxKind::Sub | SfxKind::Blip => 0.0,
+                SfxKind::Boom | SfxKind::Scratch | SfxKind::Bleep | SfxKind::Swish | SfxKind::Ding | SfxKind::Glitch | SfxKind::Click | SfxKind::Tick | SfxKind::Key | SfxKind::Typing | SfxKind::Glass | SfxKind::Shimmer | SfxKind::Sub | SfxKind::Blip
+                | SfxKind::KeyClick | SfxKind::SendPop | SfxKind::SoftWhoosh | SfxKind::GlassTick | SfxKind::CursorTap => 0.0,
             };
             (sample * attack * release * 0.8).clamp(-1.0, 1.0)
         })
@@ -548,6 +554,98 @@ fn glitch(frames: usize) -> Vec<f64> {
     out
 }
 
+// ── The UI sound set (docs/plans/NATIVE-AI-TOOLKIT-PLAN.md 5.2) ─────────────
+//
+// What the product films synthesised for themselves (Opus's `sfx.py`, the 15 s film's
+// `bhippi_sfx.py`): small, clean UI sounds that sit under a song without muddying it. Each is
+// short and bright enough to be heard at 6 dB under the music's peak (Phase 5.1 levels them so).
+
+/// A mechanical key click: a hard 1.5 ms contact of high-passed noise and a 4.6 kHz ping, a
+/// small 620 Hz body behind it, and the bottom-out 12 ms later. Crisper and lighter than `key`,
+/// which is the low plastic thock of a full keyboard.
+fn key_click(frames: usize) -> Vec<f64> {
+    let mut noise = Noise(0x4B43_4C4B_0000_000A);
+    let mut high = Svf::default();
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            let (_, _, air) = high.run(noise.next(), 3800.0, 0.9);
+            let contact = (0.8 * air + 0.5 * (TAU * 4600.0 * time).sin()) * (-time / 0.0015).exp();
+            let body = 0.35 * (TAU * 620.0 * time).sin() * (-time / 0.008).exp();
+            let later = time - 0.012;
+            let bottom = if later >= 0.0 { 0.3 * air * (-later / 0.002).exp() } else { 0.0 };
+            contact + body + bottom
+        })
+        .collect()
+}
+
+/// The send pop: a rounded bloop whose pitch springs up from 420 Hz to 1.2 kHz in about 60 ms,
+/// a touch of its octave, and a short puff of air on the front: the message leaving.
+fn send_pop(frames: usize) -> Vec<f64> {
+    let mut noise = Noise(0x5345_4E44_0000_000B);
+    let mut band = Svf::default();
+    let mut phase = 0.0_f64;
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            phase += TAU * (420.0 + 780.0 * (1.0 - (-time / 0.03).exp())) / HZ;
+            let tone = (phase.sin() + 0.25 * (2.0 * phase).sin()) * ramp(time, 0.003) * (-time / 0.06).exp();
+            let (_, puff, _) = band.run(noise.next(), 2800.0, 1.2);
+            tone + 0.25 * puff * (-time / 0.012).exp()
+        })
+        .collect()
+}
+
+/// A soft whoosh: pink-ish noise through a gentle band-pass that sweeps 300 Hz → 1.8 kHz, with
+/// a rounded swell and no tone. Darker and quieter-edged than `whoosh`, for a panel sliding in
+/// under a song rather than a transition hit.
+fn soft_whoosh(frames: usize) -> Vec<f64> {
+    let mut noise = Noise(0x534F_4654_0000_000C);
+    let mut band = Svf::default();
+    let mut body = Svf::default();
+    let length = frames as f64 / HZ;
+    (0..frames)
+        .map(|index| {
+            let position = index as f64 / HZ / length;
+            let (dark, _, _) = body.run(noise.next(), 2400.0, 0.6);
+            let cutoff = 300.0 * (1800.0_f64 / 300.0).powf(position);
+            let (_, swept, _) = band.run(dark, cutoff, 1.1);
+            swept * (PI * position).sin().powi(2)
+        })
+        .collect()
+}
+
+/// A glass tick: the glass ping cut short — bright partials at 3.1, 6.9 and 10.6 kHz ringing
+/// for tens of milliseconds, with a tiny strike — the glint on a glass card or a selected pill.
+fn glass_tick(frames: usize) -> Vec<f64> {
+    const PARTIALS: [(f64, f64, f64); 3] = [(3136.0, 1.0, 0.05), (6920.0, 0.5, 0.025), (10_600.0, 0.25, 0.01)];
+    let mut noise = Noise(0x474C_5449_0000_000D);
+    let mut strike = Svf::default();
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            let ring: f64 = PARTIALS.iter().map(|&(f, level, decay)| level * (TAU * f * time).sin() * (-time / decay).exp()).sum();
+            let (_, _, high) = strike.run(noise.next(), 5000.0, 0.7);
+            ramp(time, 0.0005) * ring + 0.25 * high * (-time / 0.001).exp()
+        })
+        .collect()
+}
+
+/// A cursor tap: the soft trackpad press a film's cursor makes — a rounded 900 Hz knock over
+/// 4 ms and a 2 ms breath of band noise, with no release. Softer than `click`.
+fn cursor_tap(frames: usize) -> Vec<f64> {
+    let mut noise = Noise(0x5441_5000_0000_000E);
+    let mut band = Svf::default();
+    (0..frames)
+        .map(|index| {
+            let time = index as f64 / HZ;
+            let knock = (TAU * 900.0 * time).sin() * ramp(time, 0.0004) * (-time / 0.004).exp();
+            let (_, breath, _) = band.run(noise.next(), 1800.0, 1.0);
+            knock + 0.4 * breath * (-time / 0.002).exp()
+        })
+        .collect()
+}
+
 /// A 16-bit mono PCM WAV file.
 #[must_use]
 pub fn wav_bytes(samples: &[f64]) -> Vec<u8> {
@@ -613,7 +711,7 @@ mod tests {
 
     #[test]
     fn the_kind_list_names_every_effect_and_each_parses_back() {
-        assert_eq!(SfxKind::ALL.len(), 19);
+        assert_eq!(SfxKind::ALL.len(), 24);
         for kind in SfxKind::ALL {
             assert_eq!(SfxKind::parse(kind.as_str()), Some(kind));
             assert_eq!(serde_json::to_value(kind).ok(), Some(serde_json::json!(kind.as_str())));
@@ -665,6 +763,69 @@ mod tests {
         let levels: Vec<f64> = glitch.chunks(block).map(rms).collect();
         let jumps = levels.windows(2).filter(|pair| (pair[0] - pair[1]).abs() > 0.1).count();
         assert!(jumps >= 4, "glitch jumps {jumps}");
+    }
+
+    /// The loudest 10 ms rms of a sound in dBFS: the level Phase 5.1 sets a cue by against the
+    /// music's own 10 ms buckets (src/lib/peaks.ts).
+    fn loudest_db(data: &[f64]) -> f64 {
+        let loudest = data.chunks(480).map(rms).fold(0.0_f64, f64::max);
+        20.0 * loudest.log10()
+    }
+
+    #[test]
+    fn the_ui_set_is_clean_short_and_has_its_character() {
+        let ceiling = 10f64.powf(-1.0 / 20.0);
+        for kind in [SfxKind::KeyClick, SfxKind::SendPop, SfxKind::SoftWhoosh, SfxKind::GlassTick, SfxKind::CursorTap] {
+            let data = samples(kind);
+            assert!(super::true_peak(&data) <= ceiling && peak(&data) > 0.5, "{kind:?} peak");
+            assert!(data[0].abs() < 0.01 && data[data.len() - 1].abs() < 0.01, "{kind:?} edges");
+            // Loud enough in its loudest 10 ms to be set 6 dB under a song without a big boost.
+            assert!(loudest_db(&data) > -20.0, "{kind:?} loudest {}", loudest_db(&data));
+        }
+        // The clicks and the tap are over in 30 ms: nearly all their energy is at the front.
+        for kind in [SfxKind::KeyClick, SfxKind::CursorTap] {
+            let data = samples(kind);
+            let front = (0.03 * HZ) as usize;
+            let energy = |part: &[f64]| part.iter().map(|x| x * x).sum::<f64>();
+            assert!(energy(&data[..front]) > 0.95 * energy(&data), "{kind:?} lingers");
+        }
+        // The send pop rises: more zero crossings at 60–80 ms than at 20–40 ms (past the puff).
+        let pop = samples(SfxKind::SendPop);
+        let crossings = |from: f64, to: f64| pop[(from * HZ) as usize..(to * HZ) as usize].windows(2).filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0).count();
+        assert!(crossings(0.06, 0.08) > crossings(0.02, 0.04) + 2, "send pop does not rise: {} then {}", crossings(0.02, 0.04), crossings(0.06, 0.08));
+        // The soft whoosh is darker than the whoosh: less of it is left after a 4 kHz high-pass.
+        let bright = |data: &[f64]| {
+            let alpha = (-std::f64::consts::TAU * 4000.0 / HZ).exp();
+            let (mut last_in, mut last_out) = (0.0, 0.0);
+            let high: Vec<f64> = data.iter().map(|&x| { let out = alpha * (last_out + x - last_in); last_in = x; last_out = out; out }).collect();
+            rms(&high) / rms(data)
+        };
+        assert!(bright(&samples(SfxKind::SoftWhoosh)) < 0.7 * bright(&samples(SfxKind::Whoosh)));
+        // The glass tick is bright and gone well before the glass ping.
+        let tick = samples(SfxKind::GlassTick);
+        assert!(bright(&tick) > 0.4, "glass tick brightness {}", bright(&tick));
+        let tenth = (0.1 * HZ) as usize;
+        assert!(rms(&tick[tenth..2 * tenth]) < 0.15 * rms(&tick[..tenth]));
+    }
+
+    /// The cue levelling in the UI (SFX_LOUDEST_DB in src/lib/cueSound.ts) knows each built-in's
+    /// loudest 10 ms without decoding it: the table must match the sounds made here.
+    #[test]
+    fn the_ui_table_of_loudest_levels_matches_the_sounds() {
+        let source = include_str!("../../src/lib/cueSound.ts");
+        let line = source.lines().find(|line| line.contains("export const SFX_LOUDEST_DB")).expect("SFX_LOUDEST_DB in cueSound.ts");
+        let body = &line[line.find('{').expect("{") + 1..line.rfind('}').expect("}")];
+        let table: std::collections::HashMap<&str, f64> = body
+            .split(',')
+            .filter_map(|pair| pair.split_once(':'))
+            .map(|(name, value)| (name.trim(), value.trim().parse::<f64>().expect("a number")))
+            .collect();
+        let measured: Vec<String> = SfxKind::ALL.iter().map(|&kind| format!("{}: {:.1}", kind.as_str(), loudest_db(&samples(kind)))).collect();
+        for kind in SfxKind::ALL {
+            let wanted = table.get(kind.as_str()).copied();
+            let level = loudest_db(&samples(kind));
+            assert!(wanted.is_some_and(|wanted| (wanted - level).abs() < 0.3), "{kind:?}: table {wanted:?}, measured {level:.1}. Measured: {{ {} }}", measured.join(", "));
+        }
     }
 
     /// `BHIPPI_SFX_OUT=<folder> cargo test -p bhippi render_every_effect -- --ignored` writes every

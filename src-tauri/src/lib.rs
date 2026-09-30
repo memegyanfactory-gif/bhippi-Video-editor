@@ -2826,6 +2826,39 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
     Ok(job_id)
 }
 
+/// The finished mix of a comp, measured as the export renders it (EBU R128).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MixLoudness {
+    integrated_lufs: f64,
+    true_peak_db: f64,
+    range_lu: f64,
+    duration: f64,
+}
+
+/// Measures the whole soundtrack of `comp_id` (every clip, gain, fade and effect, through the
+/// export's own limiter) without writing a file: what the final mix check reads (−16 LUFS,
+/// −1 dBTP). The same pass the export runs before it normalises loudness.
+#[tauri::command]
+async fn mix_loudness(state: State<'_, Arc<AppState>>, project: Project, comp_id: String) -> CommandResult<MixLoudness> {
+    let tools = state.tools();
+    let ffmpeg = tools.ffmpeg()?.to_path_buf();
+    let options = ExportOptions { comp_id, loudness: Some(-16.0), ..Default::default() };
+    let sfx_dir = state.paths.sfx.clone();
+    let plan = render::plan(&project, &state.assets_by_id(), &options, |kind| sfx::path_for(&sfx_dir, kind).display().to_string(), tools.status.x264, render::Output::Loudness, 0.0)?;
+    let work = state.paths.work.join(format!("mix-{}", store::new_id()));
+    std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
+    for (name, contents) in &plan.files {
+        std::fs::write(work.join(name), contents).map_err(|error| error.to_string())?;
+    }
+    let env = tools::FfmpegEnv { fontconfig_file: state.fontconfig.clone() };
+    let (_keep, cancel) = tokio::sync::watch::channel(false);
+    let log = tools::run_ffmpeg_collect(&ffmpeg, &plan.args, Some(&work), &env, plan.duration, cancel, |_| ()).await;
+    let _ignored = std::fs::remove_dir_all(&work);
+    let measured = render::codec::parse_loudness(&log?).ok_or("the mix could not be measured")?;
+    Ok(MixLoudness { integrated_lufs: measured.input_i, true_peak_db: measured.input_tp, range_lu: measured.input_lra, duration: plan.duration })
+}
+
 /// Renders the frame of `comp_id` at `time` — every track, text and effect — to a PNG.
 #[tauri::command]
 async fn export_frame(state: State<'_, Arc<AppState>>, project: Project, comp_id: String, time: f64, output: String, short_side: Option<u32>) -> CommandResult<String> {
@@ -4058,6 +4091,7 @@ pub fn run() {
             export_start,
             export_preview,
             export_frame,
+            mix_loudness,
             comp_poster,
             workspace_notes,
             workspace_note_delete,
