@@ -1,6 +1,7 @@
 // The editor shell: the Premiere workspace, its menus and keymap, the context menus, the dialogs,
 // project files, and the bridge between Bhippi AI's tool calls and the project.
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { bootStore } from './boot/bootStore';
 import { turnPrompt } from './lib/turnPrompts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
@@ -526,7 +527,16 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [appInfo, stored, library, loadedProject, jobList, startup] = await Promise.all([api.appInfo(), api.settingsGet(), api.libraryList(), api.projectLoad(), api.jobsList(), api.startupFile()]);
+      // Each check reports to the launch splash as it finishes (boot/bootStore.ts).
+      bootStore.say('Loading your workspace');
+      const [appInfo, stored, library, loadedProject, jobList, startup] = await Promise.all([
+        bootStore.step(api.appInfo(), ({ ffmpeg }) => (ffmpeg.found ? ['FFmpeg', ffmpeg.version?.split(/[-\s]/)[0], ffmpeg.gpuEncoderLabel && `· ${ffmpeg.gpuEncoderLabel}`].filter(Boolean).join(' ') : 'FFmpeg not found')),
+        bootStore.step(api.settingsGet(), () => 'Preferences loaded'),
+        bootStore.step(api.libraryList(), (items) => `Media library · ${items.length} ${items.length === 1 ? 'file' : 'files'}`),
+        api.projectLoad(),
+        bootStore.step(api.jobsList(), (jobs) => (jobs.length ? `${jobs.length} background ${jobs.length === 1 ? 'job' : 'jobs'}` : null)),
+        api.startupFile(),
+      ]);
       if (cancelled) return;
       setInfo(appInfo);
       registerSfx(appInfo.sfx);
@@ -553,6 +563,7 @@ export default function App() {
       setAssets(library);
       const map = new Map(library.map((asset) => [asset.id, asset]));
       const opened = loadProject(loadedProject, map);
+      bootStore.say(`Restored “${opened.name}”`);
       history.reset(opened);
       setSavedProject(opened);
       // The last session did not close cleanly (a crash, a power cut, a kill): what is on screen
@@ -565,9 +576,13 @@ export default function App() {
       jobsStore.reset(jobList);
       setJobs(Object.fromEntries(jobList.map((job) => [job.id, job])));
       setLoaded(true);
+      bootStore.appReady();
       api.providersList().then(setProviders).catch(() => undefined);
       if (startup) void openProjectFile(startup);
-    })().catch((error) => toast({ tone: 'error', title: 'Bhippi could not load your project', body: errorText(error) }));
+    })().catch((error) => {
+      bootStore.appReady('Could not load your project');
+      toast({ tone: 'error', title: 'Bhippi could not load your project', body: errorText(error) });
+    });
     return () => {
       cancelled = true;
     };

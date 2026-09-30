@@ -3661,6 +3661,18 @@ fn open_maximized(window: &tauri::WebviewWindow) {
     let _ignored = window.show();
 }
 
+/// The splash has grown to fill the window: it takes the pointer and becomes opaque again (a
+/// transparent background would show the desktop at the edges while the window is resized).
+fn end_splash(window: &tauri::WebviewWindow) {
+    let _ignored = window.set_ignore_cursor_events(false);
+    let _ignored = window.set_background_color(Some(tauri::window::Color(11, 11, 15, 255)));
+}
+
+#[tauri::command]
+fn splash_done(window: tauri::WebviewWindow) {
+    end_splash(&window);
+}
+
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // The config's windows exist by now; give each a taskbar icon drawn at the taskbar's size.
     #[cfg(windows)]
@@ -3669,6 +3681,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(window) = app.get_webview_window("main") {
         open_maximized(&window);
+        // The launch splash (src/boot/BootSplash.tsx) is a small card on this see-through window;
+        // the desktop around it stays clickable until splash_done. A page that never gets that far
+        // still gets the pointer and an opaque background back.
+        let _ignored = window.set_ignore_cursor_events(true);
+        let fallback = window.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(45));
+            end_splash(&fallback);
+        });
     }
     let root = app.path().app_data_dir()?;
     let default_storage = storage::default_root(app.handle(), &root);
@@ -3886,6 +3907,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(setup)
         .invoke_handler(watched(tauri::generate_handler![
+            splash_done,
             license::license_status,
             license::license_login_start,
             license::license_login_poll,

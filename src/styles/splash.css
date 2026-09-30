@@ -1,0 +1,91 @@
+/* The launch splash (src/boot/BootSplash.tsx). Its own fixed palette: it paints before any theme.
+   While <html> has .booting the window is see-through: only the card shows, and the app waits
+   invisible behind it (the same rules are inlined in index.html for the very first frame). */
+
+html.booting,
+html.booting body,
+html.booting #root { background: transparent !important; }
+html.booting #root > :not(.boot),
+html.booting body > :not(#root):not(.splash) { opacity: 0 !important; pointer-events: none !important; }
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 290000;
+  color: #ece2d4;
+  user-select: none;
+  cursor: default;
+}
+.splash canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* The ring's hole shows the app through the canvas; nothing may catch the pointer over it. */
+.splash.is-opening { pointer-events: none; }
+.splash.is-fading { opacity: 0; transition: opacity 300ms ease; pointer-events: none; }
+
+/* The card: the canvas paints it (and grows it in the finale); this box places the text over it
+   and casts its shadow onto the desktop. Same size and place as .boot-card in index.html. */
+.splash-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(940px, calc(100vw - 64px), calc((100vh - 64px) * 1.6786));
+  aspect-ratio: 940 / 560;
+  transform: translate(-50%, -50%);
+  border-radius: 10px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.35);
+  transition: box-shadow 300ms ease;
+}
+.splash.is-leaving .splash-card,
+.splash.is-opening .splash-card { box-shadow: none; }
+
+.splash-info {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 46%;
+  box-sizing: border-box;
+  padding: 30px 32px 26px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: opacity 380ms ease, transform 520ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.splash.is-leaving .splash-info,
+.splash.is-opening .splash-info { opacity: 0; transform: translateX(-14px); }
+
+.splash-brand { display: flex; align-items: center; gap: 11px; }
+.splash-brand img { width: 28px; height: 28px; filter: drop-shadow(0 6px 16px rgba(255, 120, 40, 0.35)); }
+.splash-name { font: 700 21px/1 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif; letter-spacing: -0.01em; color: #f4ece2; }
+.splash-product { margin-top: 5px; font: 600 9.5px/1 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(236, 226, 212, 0.48); }
+.splash-version { letter-spacing: 0.08em; animation: splash-in 400ms ease-out both; }
+
+.splash-legal { font: 400 10.5px/1.6 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; color: rgba(236, 226, 212, 0.44); }
+.splash-legal p { margin: 0 0 8px; animation: splash-in 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.splash-legal p:nth-child(1) { animation-delay: 420ms; }
+.splash-legal p:nth-child(2) { animation-delay: 540ms; }
+.splash-legal p:nth-child(3) { animation-delay: 640ms; }
+.splash-legal p:nth-child(4) { animation-delay: 740ms; }
+.splash-legal .splash-credit { margin-bottom: 16px; font-size: 11.5px; color: rgba(236, 226, 212, 0.72); }
+.splash-credit b { font-weight: 600; color: #ff8a33; }
+.splash-legal .splash-fine { margin: 0; font-size: 10px; color: rgba(236, 226, 212, 0.32); }
+
+.splash-status {
+  position: absolute;
+  right: 18px;
+  bottom: 15px;
+  font: 400 10.5px/1 'Cascadia Code', Consolas, monospace;
+  letter-spacing: 0.02em;
+  color: rgba(236, 226, 212, 0.55);
+  transition: opacity 280ms ease;
+}
+.splash-status span { display: inline-block; animation: splash-line 200ms ease-out both; }
+.splash.is-leaving .splash-status,
+.splash.is-opening .splash-status { opacity: 0; transition-delay: 150ms; }
+
+@keyframes splash-in { from { opacity: 0; transform: translateY(4px); } }
+@keyframes splash-line { from { opacity: 0; transform: translateY(3px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-legal p, .splash-version, .splash-status span { animation: none; }
+  .splash-info, .splash-card { transition: none; }
+}

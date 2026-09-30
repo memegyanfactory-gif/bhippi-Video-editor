@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="booting">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,20 +7,32 @@
     <link rel="icon" type="image/png" href="/bhippi.png" />
     <title>Bhippi Video Editor</title>
     <style>
-      /* The splash below paints before the app's bundle and styles load; React replaces it. */
-      html, body, #root { height: 100%; margin: 0; background: #0f0f0f; }
-      .boot { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: #767676; font: 600 13px/1 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; letter-spacing: 0.08em; user-select: none; animation: boot-in 240ms ease-out; }
-      .boot img { filter: drop-shadow(0 10px 24px rgba(255, 170, 60, 0.28)); animation: boot-glow 1.4s ease-in-out infinite alternate; }
-      @keyframes boot-in { from { opacity: 0; } }
-      @keyframes boot-glow { to { filter: drop-shadow(0 10px 32px rgba(255, 170, 60, 0.5)); } }
-      @media (prefers-reduced-motion: reduce) { .boot, .boot img { animation: none; } }
+      /* The first frame of the launch splash (src/boot/BootSplash.tsx), painted before the bundle
+         loads: a card in the middle of a see-through window (src/styles/splash.css has the rest). */
+      html, body, #root { height: 100%; margin: 0; }
+      html.booting, html.booting body, html.booting #root { background: transparent !important; }
+      html.booting #root > :not(.boot), html.booting body > :not(#root):not(.splash) { opacity: 0 !important; pointer-events: none !important; }
+      .boot { position: fixed; inset: 0; user-select: none; }
+      .boot-card { position: absolute; left: 50%; top: 50%; width: min(940px, calc(100vw - 64px), calc((100vh - 64px) * 1.6786)); aspect-ratio: 940 / 560; transform: translate(-50%, -50%); border-radius: 10px; background: linear-gradient(to right, #09090b 46%, #0e0d10 46%); box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(236, 226, 212, 0.1); }
+      .boot-brand { position: absolute; top: 30px; left: 32px; display: flex; align-items: center; gap: 11px; }
+      .boot-brand img { width: 28px; height: 28px; filter: drop-shadow(0 6px 16px rgba(255, 120, 40, 0.35)); }
+      .boot-name { font: 700 21px/1 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif; letter-spacing: -0.01em; color: #f4ece2; }
+      .boot-product { margin-top: 5px; font: 600 9.5px/1 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(236, 226, 212, 0.48); }
+      .boot-version { letter-spacing: 0.08em; }
     </style>
   </head>
   <body>
     <div id="root">
-      <div class="boot" data-tauri-drag-region>
-        <img src="/bhippi.png" alt="" width="72" height="72" data-tauri-drag-region />
-        <span data-tauri-drag-region>BHIPPI</span>
+      <div class="boot">
+        <div class="boot-card">
+          <div class="boot-brand">
+            <img src="/bhippi.png" alt="" width="28" height="28" />
+            <div>
+              <div class="boot-name">Bhippi</div>
+              <div class="boot-product">Video Editor<span class="boot-version"> · %BHIPPI_VERSION%</span></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

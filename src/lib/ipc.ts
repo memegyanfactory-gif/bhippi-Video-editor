@@ -409,6 +409,8 @@ export const api = {
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   openPath: (path: string) => invoke<void>('open_path', { path }),
   openUrl: (url: string) => invoke<void>('open_url', { url }),
+  /** The launch splash filled the window: the pointer and an opaque background come back (lib.rs). */
+  splashDone: () => invoke<void>('splash_done'),
   licenseStatus: () => invoke<LicenseStatus>('license_status'),
   licenseLoginStart: () => invoke<{ code: string; url: string; expiresAt: number }>('license_login_start'),
   licenseLoginPoll: () => invoke<{ state: 'pending' | 'expired' | 'done'; status: LicenseStatus | null }>('license_login_poll'),

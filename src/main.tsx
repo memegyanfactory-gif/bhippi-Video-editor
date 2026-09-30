@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { BootSplash } from './boot/BootSplash';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SupportLayer } from './components/SupportLayer';
 import { ToastProvider } from './components/ui';
@@ -34,6 +35,7 @@ createRoot(document.getElementById('root')!).render(
         <LicenseGate>
           <App />
         </LicenseGate>
+        <BootSplash />
       </ToastProvider>
     </ErrorBoundary>
     {/* Outside the boundary: the crash report panel still opens when the editor itself has crashed. */}

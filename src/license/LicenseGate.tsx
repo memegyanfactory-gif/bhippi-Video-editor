@@ -8,7 +8,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Copy, ExternalLink, KeyRound, LoaderCircle, Minus, MonitorSmartphone, RefreshCw, ShieldAlert, Square, WifiOff, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, errorText, type AccountDevice, type LicenseStatus } from '../lib/ipc';
-import { ACCOUNT_URL, licenseStore, useLicense } from './licenseStore';
+import { bootStore } from '../boot/bootStore';
+import { ACCOUNT_URL, KIND_LABEL, licenseStore, useLicense } from './licenseStore';
 
 export function LicenseGate({ children }: { children: ReactNode }) {
   const { status, devBypass, offlineGrace } = useLicense();
@@ -16,7 +17,13 @@ export function LicenseGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    licenseStore.refresh().catch((failure) => setError(errorText(failure)));
+    bootStore.say('Verifying license');
+    licenseStore.refresh()
+      .then((status) => bootStore.licenseSettled(licenseLine(status, licenseStore.get().devBypass)))
+      .catch((failure) => {
+        setError(errorText(failure));
+        bootStore.licenseSettled('Could not reach bhippi.com');
+      });
   }, []);
 
   const unlocked = status?.state === 'active' || (devBypass && status?.devBypassAllowed === true);
@@ -51,6 +58,19 @@ export function LicenseGate({ children }: { children: ReactNode }) {
       {blocked && <GateScreen status={status} error={error} overlay={opened} />}
     </>
   );
+}
+
+/** What the launch splash says once the license has answered. */
+function licenseLine(status: LicenseStatus, devBypass: boolean): string {
+  if (status.state === 'active') return status.account?.license ? `License verified · ${KIND_LABEL[status.account.license.kind] ?? 'Active'}` : 'License verified';
+  if (devBypass && status.devBypassAllowed) return 'Developer build · license skipped';
+  switch (status.state) {
+    case 'signed_out': return 'Sign-in required';
+    case 'no_license': return 'No license key on this account';
+    case 'slots_full': return 'License already in use on two PCs';
+    case 'revoked': return 'License key turned off';
+    default: return 'Could not reach bhippi.com';
+  }
 }
 
 function GateScreen({ status, error, overlay }: { status: LicenseStatus | null; error: string | null; overlay: boolean }) {
