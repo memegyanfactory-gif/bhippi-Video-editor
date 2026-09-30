@@ -15,6 +15,7 @@ import { logicalScene } from '../src/lib/motionStack';
 import { newProject, updateComp } from '../src/lib/timeline';
 import type { Project } from '../src/lib/types';
 import type { DemoCapture } from '../src/motion/kit/productDemo';
+import { MARK_B } from '../src/lib/bhippiMark';
 
 function harness(project: Project) {
   let current = project;
@@ -160,6 +161,49 @@ describe('film recipes', () => {
     // Two briefs with other words pick their own variant.
     const other = planFilm('launch-film', brief.map((b) => ({ ...b, text: `${b.text}!` })));
     expect(other.variant).not.toBe(planFilm('launch-film', brief).variant);
+  });
+
+  it('another product never wears Bhippi: its own logo, else its initial, its name and its own cursor', async () => {
+    const workly: FilmBeat[] = [
+      { text: 'Meet the new workspace', kind: 'hook' },
+      { text: 'Plan the sprint', kind: 'demo', focus: 'composer' },
+      { text: 'Connect your AI', kind: 'connect', points: ['Claude', 'GPT'] },
+      { text: 'Workly', kind: 'logo', subtitle: 'Work, together' },
+      { text: 'Start free today', cta: 'Try it' },
+    ];
+    const by = (plan: ReturnType<typeof planFilm>, moment: string) => plan.beats.find((beat) => beat.moment === moment)!;
+    // No logo: a lettered lockup instead of Bhippi's glass mark, the name's initial in the hub, the card signed Workly.
+    const plain = planFilm('identity-film', workly, { capture });
+    expect(by(plain, 'logo').template).toBe('logo-lockup');
+    expect(by(plain, 'logo').params.logo).toBeUndefined();
+    expect(by(plain, 'connect').params).toMatchObject({ hub: 'none', name: 'Workly' });
+    expect(by(plain, 'end').params.name).toBe('Workly');
+    expect(by(plain, 'demo').params.cursors).toEqual(['you', { id: 'product', label: 'Workly', color: plain.accent }]);
+    expect(plain.notes.join(' ')).toContain('give logo');
+    // Its own logo is cast in glass and sits in the hub and on the card.
+    const own = planFilm('identity-film', workly, { capture, logo: 'asset-logo' });
+    expect(by(own, 'logo')).toMatchObject({ template: 'glass-mark', params: { logo: 'asset-logo' } });
+    expect(by(own, 'connect').params.hub).toBe('asset-logo');
+    expect(by(own, 'end').params.logo).toBe('asset-logo');
+    // With no name anywhere the end line signs the card: never Bhippi's.
+    const nameless = planFilm('launch-film', workly.filter((beat) => beat.kind !== 'logo'));
+    expect(by(nameless, 'end').params.name).toBe('Start free today');
+    expect(by(nameless, 'connect').params.name).toBeUndefined();
+    // A Bhippi film keeps Bhippi's mark and cursor.
+    const bhippi = planFilm('identity-film', brief, { capture });
+    expect(by(bhippi, 'logo').params.logo).toBe('bhippi');
+    expect(by(bhippi, 'connect').params.hub).toBe('bhippi');
+    expect(by(bhippi, 'demo').params.cursors).toEqual(['you', 'bhippi']);
+    // The plan builds as it is: the product's cursor and the lettered hub survive the template fixer.
+    const { ctx, get } = harness(newProject());
+    const result = await runMotionTool('create_motion_sequence', { beats: plain.beats.map((b) => ({ template: b.template, params: b.params, hold: b.hold, name: b.name })), transitions: plain.transitions, title: 'Workly' }, ctx) as { ok: boolean; error?: string; compId: string };
+    expect(result.error).toBeUndefined();
+    const film = JSON.stringify(logicalScene(get(), get().comps.find((c) => c.id === result.compId)!));
+    expect(film).toContain('"hub-initial"');
+    expect(film).toContain('"cursor-product"');
+    // Neither Bhippi's B nor its cursor is drawn anywhere in the film.
+    expect(film).not.toContain(MARK_B);
+    expect(film).not.toContain('cursor-bhippi');
   });
 
   it('guesses moments a small model leaves out and never needs a capture', () => {

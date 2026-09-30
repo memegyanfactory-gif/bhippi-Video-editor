@@ -313,9 +313,10 @@ const longestWord = (text: string) => wordsOf(text).map((word) => word.replace(/
  * Plans the film. Beats start on the music's grid (bars; half bars at a brisk cadence), hold at
  * least their reading time and the moment's own landing, and start on the bar before their
  * words when a lyric line sings them, so every word lands inside its beat. The drop gets the
- * recipe's drop join, and an explode beat slams on it.
+ * recipe's drop join, and an explode beat slams on it. `name` is the product's name when no logo
+ * beat gives one (the brand kit's); `logo` its logo, an asset id or image path, or "bhippi".
  */
-export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style?: FilmStyle; song?: FilmSong | null; capture?: DemoCapture | null; name?: string | null; targetSeconds?: number | null } = {}): FilmPlan {
+export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style?: FilmStyle; song?: FilmSong | null; capture?: DemoCapture | null; name?: string | null; logo?: string | null; targetSeconds?: number | null } = {}): FilmPlan {
   const taste = TASTES[recipe];
   const style = options.style ?? {};
   const song = options.song && options.song.bpm > 0 ? options.song : null;
@@ -426,7 +427,14 @@ export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style
   const holds = cutsAt.map((cut, i) => round(cut - starts[i]));
 
   const look = kineticLook(stage);
-  const name = options.name?.trim() || brief.find((_, i) => moments[i] === 'logo')?.text || undefined;
+  // Whose film it is: the name its logo beat says (else the one given, the brand kit's), and its
+  // own mark. Bhippi's mark, name and cursor only ever land in a film about Bhippi; another
+  // product without a logo gets its initial on a tile and a text lockup.
+  const named = brief.find((_, i) => moments[i] === 'logo')?.text.trim() || options.name?.trim() || undefined;
+  const mark = options.logo?.trim() || (named && normWord(named) === 'bhippi' ? 'bhippi' : null);
+  const name = named ?? (mark === 'bhippi' ? 'Bhippi' : undefined);
+  const bhippiFilm = !!name && normWord(name) === 'bhippi';
+  const ownLogo = mark && mark !== 'bhippi' ? { logo: mark } : {};
   const parts = capture ? captureParts(capture) : null;
   const barsIn = (i: number) => grid.filter((g) => g > starts[i] + 0.2 && g < cutsAt[i] - 0.2).map((g) => round(g - starts[i])).slice(0, 8);
   // Word times for the templates: song seconds with the song second the beat's scene starts at.
@@ -455,11 +463,14 @@ export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style
           const typeEnd = round(0.35 + clamp(typedLength * 0.045, 0.6, 1.6));
           const actions: Record<string, unknown>[] = [];
           if (typedLength) actions.push({ at: 0.35, type: focus, until: typeEnd, cursor: 'you' });
-          if (parts.click) actions.push({ at: round(typedLength ? typeEnd + 0.25 : 0.6), click: parts.click, cursor: 'bhippi' });
+          // The product at work clicks: Bhippi's cursor in a Bhippi film, the product's own by name otherwise.
+          const actor = bhippiFilm ? 'bhippi' : name ? 'product' : 'you';
+          if (parts.click) actions.push({ at: round(typedLength ? typeEnd + 0.25 : 0.6), click: parts.click, cursor: actor });
           const wideAt = round(clamp(hold * 0.6, (actions.length ? (actions[actions.length - 1].at as number) + 0.4 : 1.2), hold - 0.9));
+          const cursors = [...new Set(actions.map((a) => a.cursor as string))].map((id) => (id === 'product' ? { id, label: name, color: accent } : id));
           return {
             template: 'product-demo',
-            params: { capture, shots: [{ at: 0, focus }, { at: wideAt, wide: true }], actions, cursors: actions.map((a) => a.cursor as string), stage: demoStage(stage), variant: variant % 4, duration: hold },
+            params: { capture, shots: [{ at: 0, focus }, { at: wideAt, wide: true }], actions, cursors, stage: demoStage(stage), variant: variant % 4, duration: hold },
           };
         }
         case 'explode': {
@@ -471,20 +482,22 @@ export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style
           const providers = (beat.points?.length ? beat.points : ['Claude', 'GPT', 'Gemini', 'Local']).slice(0, 8);
           const names = new Set(providers.map(normWord));
           const times = sceneTimes(i, (word) => names.has(normWord(word)));
-          return { template: 'connect-hub', params: { providers, ...(times.length === providers.length ? { times } : {}), title: beat.text, layout: pick(['ring', 'arc', 'row'] as const, variant, 'hub'), stage: filmStage(stage), accent, beats: barsIn(i), exit: pick(['squeeze', 'collapse'] as const, variant, 'hubExit'), duration: hold } };
+          return { template: 'connect-hub', params: { providers, ...(times.length === providers.length ? { times } : {}), title: beat.text, hub: mark ?? 'none', ...(name ? { name } : {}), layout: pick(['ring', 'arc', 'row'] as const, variant, 'hub'), stage: filmStage(stage), accent, beats: barsIn(i), exit: pick(['squeeze', 'collapse'] as const, variant, 'hubExit'), duration: hold } };
         }
         case 'logo': {
-          const template = pick(taste.logo, variant, 'logo');
+          // Glass is cast from a logo: with none to cast, the name lands as a lockup on its initial.
+          const template = mark ? pick(taste.logo, variant, 'logo') : 'logo-lockup';
           const at = round(Math.min(0.6, hold * 0.2));
-          if (template === 'glass-mark') {
+          if (template === 'glass-mark' && mark) {
             const tagTimes = sceneTimes(i).slice(-wordsOf(beat.subtitle).length || undefined);
-            return { template, params: { wordmark: beat.text, tagline: beat.subtitle ?? '', ...(beat.subtitle && tagTimes.length === wordsOf(beat.subtitle).length ? { taglineTimes: tagTimes } : {}), landing: pick(taste.landings, variant, 'landing'), stage: filmStage(stage), ...(style.palette ? { material: 'tinted', tint: accent } : {}), at, beats: barsIn(i), side: pick(['below', 'right'] as const, variant, 'side'), duration: hold } };
+            return { template, params: { logo: mark, wordmark: beat.text, tagline: beat.subtitle ?? '', ...(beat.subtitle && tagTimes.length === wordsOf(beat.subtitle).length ? { taglineTimes: tagTimes } : {}), landing: pick(taste.landings, variant, 'landing'), stage: filmStage(stage), ...(style.palette ? { material: 'tinted', tint: accent } : {}), at, beats: barsIn(i), side: pick(['below', 'right'] as const, variant, 'side'), duration: hold } };
           }
-          return { template, params: { name: beat.text, tagline: beat.subtitle ?? '', ...voiced(i), at, look, beats: barsIn(i), push: pick([3.5, 4.5, 2.5], variant, 'push'), duration: hold } };
+          return { template, params: { name: beat.text, tagline: beat.subtitle ?? '', ...ownLogo, ...voiced(i), at, look, beats: barsIn(i), push: pick([3.5, 4.5, 2.5], variant, 'push'), duration: hold } };
         }
         case 'end': {
           const address = beat.subtitle && /^(\S+\.\S+|@\S+)$/.test(beat.subtitle.trim()) ? beat.subtitle.trim() : '';
-          return { template: 'end-card', params: { ...(name ? { name } : {}), tagline: beat.text, cta: beat.cta ?? (address ? '' : beat.subtitle ?? ''), ...(address ? { url: address } : {}), ...voiced(i), look, variant: pick(taste.pills, variant, 'pill'), layout: pick(['center', 'left'] as const, variant, 'endLayout'), beats: barsIn(i), hold: clamp(hold - 1.4, 1.5, 3), duration: hold } };
+          // Signed with the product's name; with none known the end line is the name, never Bhippi's.
+          return { template: 'end-card', params: { name: name ?? beat.text, tagline: name ? beat.text : '', ...ownLogo, cta: beat.cta ?? (address ? '' : beat.subtitle ?? ''), ...(address ? { url: address } : {}), ...voiced(i), look, variant: pick(taste.pills, variant, 'pill'), layout: pick(['center', 'left'] as const, variant, 'endLayout'), beats: barsIn(i), hold: clamp(hold - 1.4, 1.5, 3), duration: hold } };
         }
         default:
           break;
@@ -510,6 +523,7 @@ export function planFilm(recipe: FilmRecipe, brief: FilmBeat[], options: { style
 
   const finish: Finish = { preset: LIGHT_STAGES.includes(stage) ? 'launch-light' : 'launch-dark', ...(taste.finish ?? {}) };
   if (!capture && moments.some((moment) => moment === 'demo' || moment === 'explode')) notes.push('no capture, so demo and explode beats are cards (slam-tilt) instead of the real app');
+  if (!mark && moments.some((moment) => moment === 'logo' || moment === 'connect')) notes.push('no logo, so the lockup and the hub carry the name’s initial (give logo for yours)');
   if (song) notes.push(`${lines.filter(Boolean).length} of ${count} beat(s) sung by a lyric line, landing on its words`);
   notes.push(`variant ${variant}: ${stage} stage, ${cadence} cadence, accent ${accent}`);
   return {

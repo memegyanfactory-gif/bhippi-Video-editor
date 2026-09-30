@@ -5947,6 +5947,10 @@
             "type": "string",
             "description": "A capture_app_session name, or \"bhippi\"."
           },
+          "logo": {
+            "type": "string",
+            "description": "Your logo: an asset id or image path (default the brand kit's). Only a Bhippi film shows Bhippi's mark."
+          },
           "song": {
             "type": "string",
             "description": "Song assetId or clipId (default: the plan's music)."

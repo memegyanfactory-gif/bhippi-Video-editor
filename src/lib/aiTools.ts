@@ -731,10 +731,13 @@ async function buildFilmFromRecipe(run: RecipeRun, recipe: FilmRecipe, brief: Fi
     else notes.push(`the song could not be mapped (${mapped.error ?? 'no beat grid'}), so cuts sit on the recipe's own tempo`);
   }
 
-  // 3. The plan, placed as one layered motion sequence.
-  const plan = planFilm(recipe, brief, { style: filmStyle(args.style), song, capture, targetSeconds: num(args, 'targetSeconds') ?? comp.production?.brief?.targetSeconds ?? null });
+  // 3. The plan, placed as one layered motion sequence. Its mark is the film's own: the logo given,
+  // the brand kit's, or Bhippi's when it films Bhippi.
   const kit = activeBrandKit(host, host.history.current());
-  const motionCtx = () => ({ project: host.history.current(), assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: kit ? motionBrandFromKit(kit) : null, signal, prompt: turnPrompt(turnId ?? host.turnId) });
+  const brand = kit ? motionBrandFromKit(kit) : null;
+  const logo = str(args, 'logo') ?? brand?.logoAsset ?? (given?.toLowerCase() === 'bhippi' ? 'bhippi' : null);
+  const plan = planFilm(recipe, brief, { style: filmStyle(args.style), song, capture, name: brand?.name ?? null, logo, targetSeconds: num(args, 'targetSeconds') ?? comp.production?.brief?.targetSeconds ?? null });
+  const motionCtx = () => ({ project: host.history.current(), assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand, signal, prompt: turnPrompt(turnId ?? host.turnId) });
   const title = str(args, 'title') ?? `${recipe} film`;
   // Full-frame beats draw their own stage over the stage's colour; an overlay beat gets a plate under the film instead.
   const overlays = plan.beats.some((beat) => findTemplate(beat.template)?.fullFrame === false);
@@ -772,7 +775,7 @@ async function buildFilmFromRecipe(run: RecipeRun, recipe: FilmRecipe, brief: Fi
   // 5. The plate under an overlay beat.
   if (overlays && bool(args, 'background') !== false) {
     try {
-      const colors = kit ? motionBrandFromKit(kit).gradient : plan.plate.colors;
+      const colors = brand ? brand.gradient : plan.plate.colors;
       const plate = await plateAsset(host, host.history.current(), commit, { style: plan.plate.style, width: comp.width, height: comp.height, seconds: clamp(length + 0.5, 1, 120), fps: Math.round(Math.min(60, comp.fps)), colors }, `${comp.name} ${plan.stage}`);
       editComp(live(), (c) => placePlate(c, plate.id, start, length + 0.5).comp);
       made.push(`a ${plan.plate.style} plate under the overlays`);

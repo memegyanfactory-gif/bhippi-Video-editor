@@ -456,7 +456,12 @@ function connectHub(ctx: KitContext, p: Params): MotionScene {
     effects: [...(dark ? [{ type: 'glow', radius: 18 * u, intensity: 0.35, threshold: 0.4, color: '#ff8a24' } as Effect] : [warmShadow(u, 32)])],
     shape: { shape: 'rect', bounds: [HS, HS], groups: hubItems },
   });
-  if (hubLogo.toLowerCase() !== 'bhippi') {
+  if (hubLogo.toLowerCase() === 'none') {
+    // A product with no logo to show: its name's first letter on the tile, as a provider without a
+    // mark shows its initial. Never Bhippi's mark in someone else's film.
+    const initial = Array.from(str(p.name) || ctx.brand?.name || '').find((ch) => /[\p{L}\p{N}]/u.test(ch));
+    if (initial) layers.push({ id: 'hub-initial', name: 'Hub initial', type: 'text', parent: 'hub', transform: { position: hc }, text: { text: initial.toUpperCase(), size: HS * 0.46, weight: 700, color: '#ffffff', align: 'center', font: ctx.font } });
+  } else if (hubLogo.toLowerCase() !== 'bhippi') {
     const source = /[\\/.]/.test(hubLogo) ? { path: hubLogo, kind: 'image' as const } : { asset: hubLogo, kind: 'image' as const };
     layers.push({ id: 'hub-logo', name: 'Hub logo', type: 'footage', parent: 'hub', source, fit: 'contain', size: [HS * 0.62, HS * 0.62], transform: { position: hc } });
   }
@@ -535,7 +540,8 @@ export const FILM_TEMPLATES: TemplateSpec[] = [
       layout: '"ring" | "arc" | "column" | "row" ("ring")',
       stage: '"light" | "peach" | "dark" | "none" ("light")',
       accent: 'colour — wires and pulses (the brand accent, else ember #ff8a24)',
-      hub: 'string — asset id or image path for the hub logo ("bhippi" for Bhippi\'s mark; default the brand kit\'s logo, else Bhippi\'s)',
+      hub: 'string — asset id or image path for the hub logo ("bhippi" for Bhippi\'s mark, "none" for the name\'s initial; default the brand kit\'s logo, else Bhippi\'s)',
+      name: 'string — the product\'s name: its initial fills a hub with no logo (hub "none")',
       title: 'string — a headline above ("Connect your AI")',
       titleAt: 'number s (0.1)',
       hubAt: 'number s (0.15)',

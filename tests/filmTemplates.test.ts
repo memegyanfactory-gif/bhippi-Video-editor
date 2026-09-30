@@ -169,6 +169,12 @@ describe('connect-hub', () => {
     expect((byId(scene, 'provider-1-glyph') as Extract<Layer, { type: 'text' }>).text.text).toBe('M');
     expect((byId(scene, 'provider-2-glyph') as Extract<Layer, { type: 'text' }>).text.text).toBe('A');
     expect((byId(scene, 'hub-logo') as Extract<Layer, { type: 'footage' }>).source.asset).toBe('asset-9');
+    // A product with no logo: its initial on the tile, and no Bhippi mark.
+    const plain = build('connect-hub', { hub: 'none', name: 'workly' });
+    expect((byId(plain, 'hub-initial') as Extract<Layer, { type: 'text' }>).text.text).toBe('W');
+    expect(plain.layers.some((layer) => layer.id === 'hub-logo')).toBe(false);
+    expect(JSON.stringify(byId(plain, 'hub'))).not.toContain('"Mark"');
+    expect(JSON.stringify(byId(build('connect-hub', {}), 'hub'))).toContain('"Mark"');
   });
 });
 
