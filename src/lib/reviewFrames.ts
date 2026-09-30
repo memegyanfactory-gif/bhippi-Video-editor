@@ -148,7 +148,7 @@ export type CueLevel = { at: number; name: string; db: number };
 export function quietCues(cues: CueLevel[], musicDbAt: (t: number) => number | null, margin = 12): Finding[] {
   const quiet = cues.filter((cue) => { const music = musicDbAt(cue.at); return music !== null && cue.db < music - margin; });
   if (!quiet.length) return [];
-  return [{ at: quiet[0].at, kind: 'quiet-cue', what: `${quiet.length} of ${cues.length} sound cue(s) sit more than ${margin} dB under the music at their moment (first: "${quiet[0].name}" at ${quiet[0].at.toFixed(2)} s): they cannot be heard`, fix: 'raise those cues, or duck the music around them (score_audio_clip), so each lands about 6 dB under the music peak' }];
+  return [{ at: quiet[0].at, kind: 'quiet-cue', what: `${quiet.length} of ${cues.length} sound cue(s) sit more than ${margin} dB under the music at their moment (first: "${quiet[0].name}" at ${quiet[0].at.toFixed(2)} s): they cannot be heard`, fix: 'sound_the_motion sets every motion cue about 6 dB under the music peak at its moment; raise any other cue by hand, or duck the music around it (score_audio_clip)' }];
 }
 
 /** An end card must hold: the last words or graphic should land at least `hold` seconds before the end. */

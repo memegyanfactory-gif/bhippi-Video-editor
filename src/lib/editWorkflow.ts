@@ -898,7 +898,7 @@ export class EditWorkflow {
     const recipe = name === 'apply_recipe' && args.preview !== true ? String(args.name || '') : '';
     if (['hook', 'punch-ins', 'captions'].includes(recipe)) this.proVisual = true;
     // Designed sound counts: shaped music/SFX automation or built-in accents.
-    if (name === 'score_audio_clip' || name === 'add_sound_effect' || name === 'generate_selection_sound') this.soundPass = true;
+    if (name === 'score_audio_clip' || name === 'add_sound_effect' || name === 'generate_selection_sound' || name === 'sound_the_motion') this.soundPass = true;
     // A placed score is a designed music bed; the guided build lays graphics, cues, music and its own storyboard.
     if (name === 'compose_music' && result.placed === true) this.soundPass = true;
     if (name === 'build_edit_from_brief') { this.proVisual = true; this.soundPass = true; this.storyboardRefs = true; }

@@ -106,6 +106,8 @@ export function explodeScene(scene: MotionScene, options: { name: string; fps: n
       ...(full.template ? { template: full.template } : {}),
       // The brand snapshot is large: the bottom clip carries it for rebuilds, the rest name the kit.
       ...(full.brand && !clips.length ? { brand: full.brand } : {}),
+      // So do the sound cues, so sound_the_motion still finds them once the scene is layers.
+      ...(full.cues?.length && !clips.length ? { cues: full.cues } : {}),
       stack: { id: stackId, own: [layer.id] },
       layers: full.layers.flatMap((entry) => (entry.id === layer.id ? [own] : support.has(entry.id) ? [{ ...entry, hidden: true, ref: true } as Layer] : [])),
     };
@@ -167,6 +169,7 @@ export function logicalScene(project: Project, comp: Comp, depth = 0): MotionSce
   }
   const withTemplate = clips.find((clip) => clip.source.scene.template)?.source.scene;
   const withBrand = clips.find((clip) => clip.source.scene.brand)?.source.scene;
+  const withCues = clips.find((clip) => clip.source.scene.cues?.length)?.source.scene;
   const first = clips[0].source.scene;
   return {
     version: 1,
@@ -177,6 +180,7 @@ export function logicalScene(project: Project, comp: Comp, depth = 0): MotionSce
     ...(first.seed !== undefined ? { seed: first.seed } : {}),
     ...(withTemplate?.template ? { template: withTemplate.template } : {}),
     ...(withBrand?.brand ? { brand: withBrand.brand } : {}),
+    ...(withCues?.cues ? { cues: withCues.cues } : {}),
     layers,
   };
 }

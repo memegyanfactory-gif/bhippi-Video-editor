@@ -30,7 +30,7 @@ export const SCRATCH_TOOLS = new Set([
   'remove_range', 'remove_transitions', 'seamless_transition', 'set_caption_style', 'set_in_out', 'set_keyframes',
   'set_mask', 'split_clips', 'split_screen', 'undo', 'update_clip', 'update_comp', 'update_item', 'update_track',
   // Shorts, captions, sound levels and beats: project edits from what is already known.
-  'create_shorts', 'add_captions', 'level_audio', 'snap_cuts_to_beats', 'fill_background', 'apply_recipe', 'call_custom_tool',
+  'create_shorts', 'add_captions', 'level_audio', 'sound_the_motion', 'snap_cuts_to_beats', 'fill_background', 'apply_recipe', 'call_custom_tool',
   // Graphics and motion built inside the project.
   'create_motion_graphic', 'add_graphic', 'react_bits', 'remotion_kit', 'create_motion_sequence', 'create_motion_scene', 'update_motion_scene',
   'nest_motion_scenes', 'split_motion_layers', 'create_stick_figure', 'animate_character', 'create_ui_screen', 'update_ui_screen',

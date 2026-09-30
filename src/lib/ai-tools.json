@@ -2768,6 +2768,70 @@
       }
     },
     {
+      "name": "sound_the_motion",
+      "description": "Sounds every motion cue, set against the music. Motion scenes carry sound cues (a click on each press, a whoosh as a panel flies in, typing under typed text, a pop as a pill lands); this places the built-in sound for each cue in range on the SFX track, in layered [Motion] comps and precomps too, and sets each one's gain so its loudest 10 ms sits about 6 dB under the music's loudest at that moment: heard, never buried 20-30 dB under the song, never louder than it. A riser is trimmed so its top lands on the hit after it. Cue sounds already on the timeline (create_motion_scene lays them) are re-levelled, not doubled, so it is safe to run again after the music or the edit changes. Where no music plays a cue keeps its default level under the voice. Choose the film's sound with swap (e.g. {\"click\":\"cursor_tap\",\"whoosh\":\"soft_whoosh\"}) and skip.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "compId": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds (default 0)."
+          },
+          "end": {
+            "type": "number",
+            "description": "Timeline seconds (default the end)."
+          },
+          "swap": {
+            "type": "object",
+            "description": "Cue sound -> built-in kind to use instead, for this film.",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "whoosh",
+                "impact",
+                "chime",
+                "pop",
+                "riser",
+                "boom",
+                "scratch",
+                "bleep",
+                "swish",
+                "ding",
+                "glitch",
+                "click",
+                "tick",
+                "key",
+                "typing",
+                "glass",
+                "shimmer",
+                "sub",
+                "blip",
+                "key_click",
+                "send_pop",
+                "soft_whoosh",
+                "glass_tick",
+                "cursor_tap"
+              ]
+            }
+          },
+          "skip": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Cue sounds to leave silent."
+          },
+          "offsetDb": {
+            "type": "number",
+            "description": "Every cue louder (+) or quieter (-) than 6 dB under the music, -12 to 12 (default 0)."
+          }
+        }
+      }
+    },
+    {
       "name": "add_voiceover",
       "description": "Reads a script aloud in a synthetic voice and places the take on an audio track. Uses an ElevenLabs or OpenAI voice when a key is saved, otherwise the offline Kokoro voices. Use `language: \"hinglish\"` for a mixed Hindi-English script — one Hindi speaker reads the whole line, Hindi words with Hindi pronunciation and English words with English pronunciation, the way it is naturally spoken. Without a track it uses the first audio track free at that time, creating one if needed.",
       "input_schema": {

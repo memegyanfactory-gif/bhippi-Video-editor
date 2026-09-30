@@ -808,6 +808,26 @@ mod tests {
         assert!(rms(&tick[tenth..2 * tenth]) < 0.15 * rms(&tick[..tenth]));
     }
 
+    /// The cue levelling in the UI (SFX_LOUDEST_DB in src/lib/cueSound.ts) knows each built-in's
+    /// loudest 10 ms without decoding it: the table must match the sounds made here.
+    #[test]
+    fn the_ui_table_of_loudest_levels_matches_the_sounds() {
+        let source = include_str!("../../src/lib/cueSound.ts");
+        let line = source.lines().find(|line| line.contains("export const SFX_LOUDEST_DB")).expect("SFX_LOUDEST_DB in cueSound.ts");
+        let body = &line[line.find('{').expect("{") + 1..line.rfind('}').expect("}")];
+        let table: std::collections::HashMap<&str, f64> = body
+            .split(',')
+            .filter_map(|pair| pair.split_once(':'))
+            .map(|(name, value)| (name.trim(), value.trim().parse::<f64>().expect("a number")))
+            .collect();
+        let measured: Vec<String> = SfxKind::ALL.iter().map(|&kind| format!("{}: {:.1}", kind.as_str(), loudest_db(&samples(kind)))).collect();
+        for kind in SfxKind::ALL {
+            let wanted = table.get(kind.as_str()).copied();
+            let level = loudest_db(&samples(kind));
+            assert!(wanted.is_some_and(|wanted| (wanted - level).abs() < 0.3), "{kind:?}: table {wanted:?}, measured {level:.1}. Measured: {{ {} }}", measured.join(", "));
+        }
+    }
+
     /// `BHIPPI_SFX_OUT=<folder> cargo test -p bhippi render_every_effect -- --ignored` writes every
     /// effect there, to listen to or plot.
     #[test]

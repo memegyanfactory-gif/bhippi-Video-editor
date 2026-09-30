@@ -151,6 +151,7 @@ export const TOOL_LABELS: Record<string, string> = {
   capture_app_session: 'Capturing the app',
   snap_cuts_to_beats: 'Snapping cuts to the beat',
   level_audio: 'Leveling the audio',
+  sound_the_motion: 'Sounding the motion',
   erase_subject_clip: 'Erasing the subject',
   reveal_subject: 'Revealing the subject',
   list_motion_templates: 'Browsing motion templates',
