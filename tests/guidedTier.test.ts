@@ -28,3 +28,11 @@ describe('guided tier', () => {
     expect(await checkGraphic({ html: '<div>x</div>', css: '' }, canvas, 4)).toBeNull();
   });
 });
+
+describe('render scenes are for frontier models', () => {
+  it('turns a guided model away from planning a scene it would have to render itself', () => {
+    const scenes = [{ start: 0, end: 6, mediaSource: 'generate' }, { start: 6, end: 12, mediaSource: 'render' }];
+    expect(guidedRefusal('save_video_blueprint', { scenes })).toMatch(/"render" scene.*generate.*build_edit_from_brief/s);
+    expect(guidedRefusal('save_video_blueprint', { scenes: [{ start: 0, end: 6, mediaSource: 'generate' }] })).toBeNull();
+  });
+});

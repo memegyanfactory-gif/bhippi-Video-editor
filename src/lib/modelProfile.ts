@@ -60,5 +60,10 @@ export function guidedRefusal(name: string, args: Record<string, unknown>): stri
   if (name === 'create_motion_graphic' && (args.template === 'custom' || raw(args.html) || raw(args.css) || raw(args.js))) return `Guided mode: this model builds graphics from templates, not raw HTML/CSS/JS. ${nudge}`;
   if (name === 'create_motion_scene' && !raw(args.template) && args.scene && typeof args.scene === 'object') return `Guided mode: this model builds scenes from templates, not a hand-written scene. ${nudge}`;
   if (name === 'create_motion_sequence' && Array.isArray(args.beats) && args.beats.some((beat) => !!beat && typeof beat === 'object' && 'scene' in (beat as object) && !raw((beat as Record<string, unknown>).template))) return `Guided mode: each beat is a template ({template, params}), not a hand-written scene. For a whole video use build_edit_from_brief. ${nudge}`;
+  // A "render" scene is one the model renders itself with its own code: a frontier model does that
+  // well, but a smaller one that plans it has nothing to deliver when gathering starts.
+  if (name === 'save_video_blueprint' && Array.isArray(args.scenes) && args.scenes.some((scene) => !!scene && typeof scene === 'object' && (scene as Record<string, unknown>).mediaSource === 'render')) {
+    return 'Guided mode: a "render" scene means writing your own renderer, which this model does not do. Give each such scene mediaSource "generate", "download" or "existing" and carry its look with a template graphic (the scene\'s mogrt), or build the whole video with build_edit_from_brief.';
+  }
   return null;
 }

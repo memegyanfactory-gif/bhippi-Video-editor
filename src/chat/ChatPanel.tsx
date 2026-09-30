@@ -48,7 +48,7 @@ import type { TrainedKit } from '../lib/brandKit/learnings';
 /** m:ss for a place on the timeline. */
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 import { mergeScopes, scopeBrief, scopeFromAnnotations, scopeLabel, type QuickScope } from '../lib/quickScope';
-import { continuesTheJob, routeWorkflow, savedWorkflowChoice, saveWorkflowChoice, type RouteSignals, type WorkflowChoice, type WorkflowMode } from '../lib/workflowRoute';
+import { continuesTheJob, filmEffortHint, routeWorkflow, savedWorkflowChoice, saveWorkflowChoice, type RouteSignals, type WorkflowChoice, type WorkflowMode } from '../lib/workflowRoute';
 import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 
 export type { ToolRun } from './Activity';
@@ -1425,6 +1425,18 @@ ${text}` : text));
             <button type="button" onClick={() => { scopeRef.current = null; setScopeChip(null); }} aria-label="Stop pointing at these clips"><X size={11} /></button>
           </div>
         )}
+        {(() => {
+          // A video asked for at Low or Medium thinking: suggest more, once, without changing anything.
+          const suggest = streaming ? null : filmEffortHint(draft, props.effort, levels);
+          if (!suggest) return null;
+          const label = suggest === 'max' ? 'Max' : suggest === 'xhigh' ? 'Extra high' : 'High';
+          return (
+            <div className="composer-hint" role="note">
+              <span>Videos come out far better with more thinking time than {props.effort === 'low' ? 'Low' : 'Medium'}.</span>
+              <button type="button" className="btn btn-small" onClick={() => props.onEffort(suggest as Effort)}>Use {label}</button>
+            </div>
+          );
+        })()}
         {props.annotations && pendingNotes.length > 0 && (
           <div className="annot-queue" aria-label="Annotations waiting to be sent">
             <div className="annot-queue-head">

@@ -1064,6 +1064,8 @@ button.status-item:hover { background: var(--panel-3); color: #fff; }
 .transcript-word:hover { background: var(--panel-3); }
 .transcript-word.picked { background: rgba(220, 38, 38, 0.35); text-decoration: line-through; }
 .composer-continue { display: flex; padding: 0 0 6px; }
+/* A suggestion, never a block: a video asked for at low thinking effort. */
+.composer-hint { display: flex; align-items: center; gap: 8px; padding: 0 0 6px; font-size: 11px; color: var(--text-faint); }
 .transcript-edit { font: inherit; color: var(--text); background: var(--field); border: 1px solid #7c9cff; border-radius: 3px; padding: 0 3px; margin: 0; min-width: 3ch; outline: none; }
 .transcript-hint { padding: 4px 10px; font-size: 11px; color: var(--text-dim); }
 .monitor-proxy { height: 22px; padding: 0 7px; border: 1px solid var(--line); border-radius: 3px; background: var(--field); color: var(--text-dim); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }

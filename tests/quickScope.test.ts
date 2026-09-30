@@ -75,3 +75,12 @@ describe('Quick edit scope', () => {
     expect(unscoped.before('update_clip', { clipId: f.later.id }, f.project)).toBeNull();
   });
 });
+
+describe('a smaller model in a scoped Quick edit', () => {
+  it('is never paused for going outside the scope', () => {
+    const f = finishedEdit();
+    const scope = scopeFromClips(f.project, f.assets, f.comp, [f.title.id])!;
+    const guided = new EditWorkflow(f.project, f.assets, 'quick', false, true, scope, true);
+    expect(guided.before('update_clip', { clipId: f.later.id }, f.project)).toBeNull();
+  });
+});

@@ -445,8 +445,11 @@ export class EditWorkflow {
   /**
    * `askFrameSize` is off for plugins: they cannot ask the user, so they are never held for the size.
    * `scope` is what a Quick edit's user pointed at (src/lib/quickScope.ts): edits stay there.
+   * `guided`: a smaller model (modelProfile.ts). It is never paused for going outside the scope, since
+   * a refused call that must be repeated with a reason tends to stall it; its brief still asks it to
+   * stay in scope and say why when it cannot.
    */
-  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false, readonly askFrameSize = true, readonly scope: QuickScope | null = null) {
+  constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false, readonly askFrameSize = true, readonly scope: QuickScope | null = null, readonly guided = false) {
     for (const each of project.comps) for (const clip of each.clips) this.startClips.add(clip.id);
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
@@ -638,7 +641,7 @@ export class EditWorkflow {
    * never are.
    */
   private scopeGate(name: string, args: Args, project: Project): string | null {
-    if (!this.scope || ALWAYS_TOOLS.has(name) || preparation.has(name)) return null;
+    if (!this.scope || this.guided || ALWAYS_TOOLS.has(name) || preparation.has(name)) return null;
     const ids = [args.clipId, ...(Array.isArray(args.clipIds) ? args.clipIds : [])].filter((id): id is string => typeof id === 'string');
     if (!ids.length) return null;
     const allowed = new Set(this.scope.clips.map((clip) => clip.clipId));

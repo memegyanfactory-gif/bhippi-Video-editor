@@ -74,6 +74,16 @@ export function routeWorkflow(choice: WorkflowChoice, message: string, signals: 
   return 'quick';
 }
 
+/**
+ * The thinking level to suggest for a message that asks for a video, when the one chosen is lower:
+ * a launch film at Medium scored 10/100 where the same brief at Max scored 80 (29 Sep). Only a
+ * suggestion, and only among the levels this model offers; null when there is nothing to suggest.
+ */
+export function filmEffortHint(message: string, effort: string, levels: readonly string[]): string | null {
+  if (!asksForProduction(message) || (effort !== 'low' && effort !== 'medium')) return null;
+  return ['max', 'xhigh', 'high'].find((level) => levels.includes(level)) ?? null;
+}
+
 const KEY = 'bhippi.workflowChoice';
 
 /** The composer's last choice (a per-machine convenience; Auto when unset or unreadable). */
