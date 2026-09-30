@@ -278,7 +278,8 @@ mod tests {
     }
 
     /// The whole pack against the real FFmpeg: every piece made, probed as its kind, derived like
-    /// imported media (thumbnails, peaks), small, and reused on the second call.
+    /// imported media (thumbnails, peaks), small, and reused on the second call. Set BHIPPI_DEMO_OUT
+    /// to a folder to keep the pack there and look at it.
     #[tokio::test]
     async fn the_pack_is_made_small_with_everything_the_library_shows() {
         let tools = crate::tools::resolve(None).await;
@@ -286,7 +287,8 @@ mod tests {
             eprintln!("FFmpeg not installed; skipping");
             return;
         }
-        let dir = std::env::temp_dir().join(format!("bhippi-demo-{}", crate::store::new_id()));
+        let kept = std::env::var("BHIPPI_DEMO_OUT").ok().map(std::path::PathBuf::from);
+        let dir = kept.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("bhippi-demo-{}", crate::store::new_id())));
         let assets = make(&tools, &dir, |_, _| {}).await.expect("pack");
         assert_eq!(assets.len(), RECIPES.len(), "{:?}", assets.iter().map(|asset| &asset.name).collect::<Vec<_>>());
         let mut bytes = 0;
@@ -318,6 +320,8 @@ mod tests {
         assert_eq!(reusable(&dir).map(|known| known.len()), Some(assets.len()));
         let again = make(&tools, &dir, |_, _| panic!("a finished pack is reused, not made again")).await.expect("again");
         assert_eq!(again, assets);
-        let _ignored = std::fs::remove_dir_all(dir);
+        if kept.is_none() {
+            let _ignored = std::fs::remove_dir_all(dir);
+        }
     }
 }
