@@ -250,6 +250,18 @@ function placeCues(comp: Comp, scene: MotionScene, start: number): { comp: Comp;
 export const MOTION_FOLDER = 'AI Motion';
 
 /**
+ * Adds layered "[Motion]" comps (explodeScene's comp and its precomps) to the project, filed in
+ * the AI Motion bin (made when missing), without placing them anywhere: a render delivered in
+ * passes (renderPasses.ts) waits there until the edit nests it.
+ */
+export function fileMotionComps(project: Project, comps: Comp[]): Project {
+  if (!comps.length) return project;
+  const folderId = project.folders.find((f) => f.name === MOTION_FOLDER && f.parentId === null)?.id ?? `folder_${comps[0].id}`;
+  const folders = project.folders.some((f) => f.id === folderId) ? project.folders : [...project.folders, { id: folderId, name: MOTION_FOLDER, parentId: null }];
+  return { ...project, folders, comps: [...project.comps, ...comps.map((c) => ({ ...c, folderId: c.folderId ?? folderId }))] };
+}
+
+/**
  * Where a motion clip's scene time 0 sits on a given comp's timeline: its own start, plus the
  * start of the nested-comp clip that holds it when it lives in a "[Motion]" comp.
  */

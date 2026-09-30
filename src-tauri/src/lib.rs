@@ -63,6 +63,7 @@ mod cutout;
 mod blender;
 mod ui_screen;
 mod app_capture;
+mod render_passes;
 mod cdp;
 mod vocal;
 mod ref_motion;
@@ -4021,6 +4022,7 @@ pub fn run() {
             ui_screen::ui_screen_save,
             ui_screen::ui_capture,
             app_capture::app_session_capture,
+            render_passes::render_pass_frames,
             ref_motion::reference_motion_start,
             hardware_info,
             resource_usage,

@@ -250,6 +250,8 @@ export type ProductionShot = {
   query?: string;
   folderName?: string;
   assetId?: string;
+  /** A layered "[Motion]" comp standing in for an asset: a render delivered in passes (renderPasses.ts). */
+  compId?: string;
   status?: 'pending' | 'generating' | 'ready' | 'failed';
   note?: string;
 };
@@ -295,6 +297,8 @@ export type VideoBlueprintScene = ProductionBeat & {
   mediaUrl?: string;
   /** Already-imported asset id when mediaSource is 'existing'. */
   assetId?: string;
+  /** The layered "[Motion]" comp of a 'render' scene delivered in passes (renderPasses.ts). */
+  compId?: string;
   audio: string;
   status?: VideoBlueprintAssetStatus;
   /** Optional preview frame path (storyboard thumbnails). */
