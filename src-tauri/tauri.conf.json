@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Bhippi Video Editor",
   "mainBinaryName": "bhippi",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "identifier": "com.bhippi.videoeditor",
   "build": {
     "beforeBuildCommand": "npm run build",
@@ -20,8 +20,9 @@
         "center": true,
         "visible": false,
         "decorations": false,
+        "transparent": true,
         "resizable": true,
-        "backgroundColor": "#0b0b0f",
+        "backgroundColor": "#0b0b0f00",
         "dragDropEnabled": true
       }
     ],
