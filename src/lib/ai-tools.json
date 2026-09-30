@@ -7095,6 +7095,10 @@
           "images": {
             "type": "boolean",
             "description": "Attach a contact sheet of the parts (default true)."
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "Bhippi only: an empty timeline, bins and chat show a small demo project (footage, stills, a music bed, markers) so the screens look alive; the user's own work is kept."
           }
         },
         "required": [

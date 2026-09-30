@@ -64,6 +64,7 @@ mod blender;
 mod ui_screen;
 mod app_capture;
 mod render_passes;
+mod demo_pack;
 mod cdp;
 mod vocal;
 mod ref_motion;
@@ -4056,6 +4057,7 @@ pub fn run() {
             ui_screen::ui_capture,
             app_capture::app_session_capture,
             render_passes::render_pass_frames,
+            demo_pack::demo_pack_make,
             ref_motion::reference_motion_start,
             hardware_info,
             resource_usage,
