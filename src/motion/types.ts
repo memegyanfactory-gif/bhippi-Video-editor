@@ -436,7 +436,7 @@ export type MotionScene = {
   /** Seed for wiggle/noise/random so renders are repeatable. */
   seed?: number;
   /** Sound cues the template wants (seconds): the host may lay SFX on them. */
-  cues?: { at: number; sound: 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'click' | 'tick' | 'key' | 'typing' | 'glass' | 'shimmer' | 'sub' | 'blip' | 'swish' | 'ding' | 'boom'; /** Seconds to keep (a typing bed runs as long as the typing). */ duration?: number; note?: string }[];
+  cues?: { at: number; sound: 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'click' | 'tick' | 'key' | 'typing' | 'glass' | 'shimmer' | 'sub' | 'blip' | 'swish' | 'ding' | 'boom' | 'key_click' | 'send_pop' | 'soft_whoosh' | 'glass_tick' | 'cursor_tap'; /** Seconds to keep (a typing bed runs as long as the typing). */ duration?: number; note?: string }[];
   /** Template id and params it was built from, so it can be rebuilt with new words. */
   template?: { id: string; params: Record<string, unknown> };
   /** The brand kit the scene was put in (src/motion/kit/brandify.ts), with the snapshot it used, so rebuilds stay on brand. */

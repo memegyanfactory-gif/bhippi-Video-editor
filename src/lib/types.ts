@@ -7,11 +7,12 @@ import type { RoastState } from './roast/types';
 import type { ShortInfo } from './shorts';
 
 export type Preset = 'title' | 'kinetic' | 'lower-third' | 'caption';
-/** Procedural sounds (Rust `SfxKind`): the classic five, the six @funny kinds (ROAST_SFX_KINDS) and the UI click. */
+/** Procedural sounds (Rust `SfxKind`): the classic five, the six @funny kinds (ROAST_SFX_KINDS), the UI click, the brand-film kit and the UI sound set. */
 export type SfxKind = 'whoosh' | 'impact' | 'chime' | 'pop' | 'riser' | 'boom' | 'scratch' | 'bleep' | 'swish' | 'ding' | 'glitch' | 'click'
-  | 'tick' | 'key' | 'typing' | 'glass' | 'shimmer' | 'sub' | 'blip';
+  | 'tick' | 'key' | 'typing' | 'glass' | 'shimmer' | 'sub' | 'blip'
+  | 'key_click' | 'send_pop' | 'soft_whoosh' | 'glass_tick' | 'cursor_tap';
 /** Every procedural sound, in Rust `SfxKind::ALL` order. */
-export const SFX_KINDS: readonly SfxKind[] = ['whoosh', 'impact', 'chime', 'pop', 'riser', 'boom', 'scratch', 'bleep', 'swish', 'ding', 'glitch', 'click', 'tick', 'key', 'typing', 'glass', 'shimmer', 'sub', 'blip'];
+export const SFX_KINDS: readonly SfxKind[] = ['whoosh', 'impact', 'chime', 'pop', 'riser', 'boom', 'scratch', 'bleep', 'swish', 'ding', 'glitch', 'click', 'tick', 'key', 'typing', 'glass', 'shimmer', 'sub', 'blip', 'key_click', 'send_pop', 'soft_whoosh', 'glass_tick', 'cursor_tap'];
 
 export type Transform = {
   fit: 'fit' | 'fill';

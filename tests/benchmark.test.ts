@@ -105,7 +105,10 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // join strips and measured checks, the review loop every premium film was made in.
       // Raised to 44,400 the same day for `capture_app_session` (its slim entry, ~+25 a step): the
       // real product captured as parts in states at 3x, which every premium film rebuilt by hand.
-      expect(row.step, row.id).toBeLessThan(44_400);
+      // Raised to 44,425 the same day for the UI sound set (key_click, send_pop, soft_whoosh, glass_tick,
+      // cursor_tap) in the whole add_sound_effect and place_sfx enums (~+34 a step): the procedural UI
+      // sounds every product film synthesised for itself, offered as built-ins.
+      expect(row.step, row.id).toBeLessThan(44_425);
     }
   });
 
