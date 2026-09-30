@@ -266,7 +266,11 @@ export async function contactSheet(rows: { path: string; label: string }[][], ce
           img.onerror = () => reject(new Error('frame did not load'));
           img.src = `${fileSrc(frame.path)}${fileSrc(frame.path).includes('?') ? '&' : '?'}sheet=${Date.now()}`;
         });
-        ctx.drawImage(image, x, y + label, cell.width, cell.height);
+        // Fitted inside the cell, not stretched: UI parts come in every shape.
+        const fit = Math.min(cell.width / image.width, cell.height / image.height);
+        const w = image.width * fit;
+        const h = image.height * fit;
+        ctx.drawImage(image, x + (cell.width - w) / 2, y + label + (cell.height - h) / 2, w, h);
       } catch {
         // Left dark: the label still says which moment it was.
       }

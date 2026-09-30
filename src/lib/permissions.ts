@@ -40,6 +40,7 @@ const READS = new Set([
   'online_research',
   'scrape_web_page',
   'capture_product_ui',
+  'capture_app_session',
   'web_search',
   'web_fetch',
   'read_file',

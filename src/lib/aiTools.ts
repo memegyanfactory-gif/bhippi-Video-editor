@@ -29,6 +29,7 @@ import { advance, attachAsset, frameQa, gatherReport, newProduction, planScenes,
 import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
 import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
 import { BUCKETS_PER_SECOND, loadPeaks } from './peaks';
+import { bhippiAnswers, captureKey, parseSteps, resolveSelector, sheetParts, standinSource } from './appCapture';
 import { cutTimes, darkFinding, eventMoments, JOIN_STEP, joinStrips, offBeatCuts, quietCues, repeatedPhrases, shortEnd, timelineOf, type CueLevel, type Finding, type Moment } from './reviewFrames';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
@@ -3960,6 +3961,33 @@ ${notes.trim()}${paletteLine}
         ? `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: ${problems.length} problem(s). Fix every one, then run it again until it is clear; an intended design (a title set behind the subject, a reveal) is instead waived in verify_edit_workflow's acceptedQaIssues with a reason.${hasSubject ? '' : ' No subject track was available (rotoscope_clip gives one), so subject coverage was not checked.'}${renderNote}\n${lines.join('\n')}\n${pacing.summary}`
         : `Frame QA over ${where} sampled ${times.length} moments and rendered ${stillTimes.length} frames: nothing off the frame or outside the safe area, no overlaps, no blank or black-edged frames.${hasSubject ? '' : ' (No subject track — rotoscope_clip a speaker clip for subject-aware checks.)'}${renderNote}${images.length ? ' Look at the contact frames for what geometry cannot judge (contrast, reading time, taste), then' : ' Then'} verify_edit_workflow. ${pacing.summary}`,
         { pacing: pacing.checks, issues: problems.map(({ issue, from: first, to: last, count }) => ({ ...issue, at: first, until: last, samples: count })), sampled: times.length, range: { start: from, end: to }, times: frameTimes, images, frameNotes, layers: layers.filter((l) => l.kind !== 'subject').length, subjectTracked: hasSubject });
+    }
+
+    case 'capture_app_session': {
+      // The real product, alive: a short scripted session in a headless browser, each named part
+      // captured in each state at 3x (app_capture.rs, appCapture.ts). Without a url it captures
+      // Bhippi itself, from your real app state; `@composer`-style names stand for its parts.
+      const { steps, problems } = parseSteps(args.steps);
+      if (problems.length) return fail(`Fix the session steps: ${problems.slice(0, 6).join('; ')}.`);
+      if (!steps.some((step) => step.do === 'capture' || (step.do === 'type' && step.part))) return fail('The session captures nothing: add capture steps ({do:"capture", part, selector, state}) or a type step with a part.');
+      const url = str(args, 'url');
+      const name = str(args, 'name') ?? (url ? url.replace(/^https?:\/\//, '').split('/')[0] : 'bhippi');
+      const base = { url, name, width: num(args, 'width'), height: num(args, 'height'), scale: num(args, 'scale'), ready: str(args, 'ready') ? resolveSelector(str(args, 'ready')!) : undefined, transparent: bool(args, 'transparent'), steps };
+      const info = await api.appInfo().catch(() => null);
+      try {
+        const manifest = await api.appSessionCapture({
+          ...base,
+          ...(bool(args, 'reuse') === false ? {} : { key: captureKey(base, info?.version ?? '') }),
+          ...(url ? {} : { standin: standinSource(await bhippiAnswers(project, [...assets.values()])) }),
+        });
+        const rows = sheetParts(manifest);
+        const sheet = rows.length ? await contactSheet(rows.map((row) => row.map((part) => ({ path: `${manifest.dir}/${part.file}`, label: `${part.part} · ${part.state} · ${part.pixels[0]}x${part.pixels[1]}` })))) : null;
+        const partNames = [...new Set(manifest.parts.map((part) => part.part))];
+        return done(
+          `Captured ${manifest.parts.length} picture(s) of ${partNames.length} part(s) (${partNames.slice(0, 8).join(', ')}) at ${manifest.scale}x into ${manifest.dir}.${manifest.issues.length ? ` Check: ${manifest.issues.slice(0, 5).join('; ')}.` : ' Every part came out at full resolution and every font loaded.'} Each state is its own picture (part__state.png, with its box in manifest.json): import the ones a shot needs, or swap states on the frame a click lands.`,
+          { dir: manifest.dir, url: manifest.url, scale: manifest.scale, parts: manifest.parts, issues: manifest.issues, images: sheet && bool(args, 'images') !== false ? [sheet] : [] },
+        );
+      } catch (error) { return fail(errorText(error)); }
     }
 
     case 'review_frames': {

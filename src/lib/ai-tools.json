@@ -6972,6 +6972,58 @@
       }
     },
     {
+      "name": "capture_app_session",
+      "description": "Captures a live product as parts in states, crisp at 3x: plays a short session in a headless browser (click, hover, type, key, wait) and captures each named part in each state; typing with a part is captured after every character. No url = Bhippi itself, from the real app state, with named parts @composer @field @send @pills @menu @chat @messages @timeline @program @source @project. Checks resolution and fonts; a repeat capture is reused. Parts land in AI Work/ui-parts/<name> with manifest.json.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The product page (http/https). Leave out to capture Bhippi itself."
+          },
+          "name": {
+            "type": "string",
+            "description": "The session name (its folder)."
+          },
+          "steps": {
+            "type": "array",
+            "description": "In order. {do:\"click\"|\"hover\", selector} · {do:\"type\", selector, text, part?, partSelector?} · {do:\"key\", key} · {do:\"wait\", ms} · {do:\"eval\", js} · {do:\"capture\", part, selector, state?, pad?}. Selectors are CSS, or @name for Bhippi parts.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "scale": {
+            "type": "number",
+            "description": "Device pixels per CSS pixel, 1-4 (default 3)."
+          },
+          "ready": {
+            "type": "string",
+            "description": "A selector the page is ready when it shows."
+          },
+          "transparent": {
+            "type": "boolean"
+          },
+          "reuse": {
+            "type": "boolean",
+            "description": "Reuse an identical earlier capture (default true)."
+          },
+          "images": {
+            "type": "boolean",
+            "description": "Attach a contact sheet of the parts (default true)."
+          }
+        },
+        "required": [
+          "steps"
+        ]
+      }
+    },
+    {
       "name": "list_ui_kinds",
       "description": "Lists the ready-made UI screens for create_ui_screen (search, chat, dashboard, table, form, phone notifications, kanban, pricing) with their content fields and part names, and the action types.",
       "input_schema": {

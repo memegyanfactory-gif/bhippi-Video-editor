@@ -62,6 +62,8 @@ mod bundle;
 mod cutout;
 mod blender;
 mod ui_screen;
+mod app_capture;
+mod cdp;
 mod vocal;
 mod ref_motion;
 mod trace;
@@ -4018,6 +4020,7 @@ pub fn run() {
             blender::blender_render_start,
             ui_screen::ui_screen_save,
             ui_screen::ui_capture,
+            app_capture::app_session_capture,
             ref_motion::reference_motion_start,
             hardware_info,
             resource_usage,
