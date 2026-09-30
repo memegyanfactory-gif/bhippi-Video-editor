@@ -9,7 +9,7 @@
 import type { ChatMessage } from '../chat/ChatPanel';
 import { DEFAULT_TRANSFORM, uid } from './editor';
 import { addTransition, clipsForSource, newClip, newProject, textSource, tracksOf } from './timeline';
-import type { Asset, Clip, Folder, LabelColor, MediaRef, Project, ProviderInfo } from './types';
+import type { Asset, Clip, LabelColor, MediaRef, Project, ProviderInfo } from './types';
 
 /** The pack's pieces by their stable ids (demo_pack.rs RECIPES). */
 export const DEMO_IDS = {
@@ -44,15 +44,14 @@ export const projectIsEmpty = (project: Project) => project.comps.every((comp) =
  * A small finished-looking edit from the demo pack: the shots on V1 cut on the bars, the studio
  * shot's room tone linked below it, a title over the opening, the mark over the last shot, the
  * bed under everything, a dissolve and a dip to black, a marker on each section, and the pack
- * sorted into Footage, Stills and Music bins. A piece the pack could not make is left out and the
+ * in the bin. A piece the pack could not make is left out and the
  * rest close up, so the edit still plays through.
  */
 export function demoProject(pack: Asset[]): Project {
   const assets = new Map(pack.map((asset) => [asset.id, asset]));
   const project = newProject('Coastline (demo)');
-  const folders: Folder[] = ['Footage', 'Stills', 'Music'].map((name) => ({ id: uid(), name, parentId: null }));
-  const folderFor = (asset: Asset) => folders[asset.kind === 'video' ? 0 : asset.kind === 'image' ? 1 : 2].id;
-  const media: MediaRef[] = pack.map((asset) => ({ assetId: asset.id, folderId: folderFor(asset), offline: false }));
+  // All at the top of the bin, no folders: folders sort first and would hide the thumbnails.
+  const media: MediaRef[] = pack.map((asset) => ({ assetId: asset.id, folderId: null, offline: false }));
 
   let comp = { ...project.comps[0], name: 'Main edit' };
   const [v1, v2, v3] = tracksOf(comp, 'video').map((track) => track.id);
@@ -91,7 +90,7 @@ export function demoProject(pack: Asset[]): Project {
   const night = clips.find((clip) => clip.trackId === v1 && clip.source.type === 'media' && clip.source.assetId === DEMO_IDS.city);
   if (night) comp = addTransition(comp, v1, night.start, 'cross-dissolve', 0.5, 0.05);
   if (last) comp = addTransition(comp, v1, end, 'dip-to-black', 0.8, 0.05);
-  return { ...project, comps: [comp], media, folders, activeCompId: comp.id, openCompIds: [comp.id] };
+  return { ...project, comps: [comp], media, activeCompId: comp.id, openCompIds: [comp.id] };
 }
 
 /**
@@ -115,28 +114,34 @@ export function demoChat(providers: ProviderInfo[] = []): ChatMessage[] {
 }
 
 /** What demo mode filled in for a capture: the stand-in's project, library listing and chat. */
-export type DemoStandIn = { project: Project; assets: Asset[]; chat: ChatMessage[]; filled: ('timeline' | 'bins' | 'chat')[] };
+export type DemoStandIn = {
+  project: Project;
+  assets: Asset[];
+  chat: ChatMessage[];
+  filled: ('timeline' | 'bins' | 'chat')[];
+  /** The demo edit's poster for its bin tile (the stand-in renders no comp posters), when shown. */
+  poster: string | null;
+};
 
 /** Which parts of the user's project would film empty: a bare timeline, bins with no media. */
 export const demoGaps = (project: Project) => ({ timeline: projectIsEmpty(project), bins: project.media.length === 0 });
 
 /**
  * What the capture's stand-in shows in demo mode (capture_app_session demo: true). Only what is
- * empty is filled: a bare timeline becomes the demo edit, the pack joins the bins in its own
- * folders beside anything already there, and the chat (always empty on the stand-in) gets a
+ * empty is filled: a bare timeline becomes the demo edit, the pack joins the bins beside anything
+ * already there, and the chat (always empty on the stand-in) gets a
  * conversation mid-way. The user's own clips and media stay as they are, and the pack's files
  * join the library listing only so its clips and bins resolve.
  */
 export function demoStandIn(project: Project, assets: Asset[], pack: Asset[], providers: ProviderInfo[] = []): DemoStandIn {
   const gaps = demoGaps(project);
   const chat = demoChat(providers);
-  if (!pack.length || (!gaps.timeline && !gaps.bins)) return { project, assets, chat, filled: ['chat'] };
+  if (!pack.length || (!gaps.timeline && !gaps.bins)) return { project, assets, chat, filled: ['chat'], poster: null };
   const known = new Set(assets.map((asset) => asset.id));
   const demo = demoProject(pack);
   return {
     project: {
       ...project,
-      folders: [...project.folders, ...demo.folders],
       media: [...project.media, ...demo.media.filter((ref) => !project.media.some((mine) => mine.assetId === ref.assetId))],
       // An empty timeline's comps hold nothing to keep: the demo edit takes their place.
       ...(gaps.timeline ? { comps: demo.comps, activeCompId: demo.activeCompId, openCompIds: demo.openCompIds } : {}),
@@ -144,6 +149,7 @@ export function demoStandIn(project: Project, assets: Asset[], pack: Asset[], pr
     assets: [...assets, ...pack.filter((asset) => !known.has(asset.id))],
     chat,
     filled: gaps.timeline ? ['timeline', 'bins', 'chat'] : ['bins', 'chat'],
+    poster: gaps.timeline ? pack.find((asset) => asset.id === DEMO_IDS.dusk)?.thumbnail ?? pack.find((asset) => asset.thumbnail)?.thumbnail ?? null : null,
   };
 }
 

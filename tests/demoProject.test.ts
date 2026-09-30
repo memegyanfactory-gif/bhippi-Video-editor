@@ -13,7 +13,7 @@ vi.mock('../src/lib/ipc', () => ({ api, errorText: (e: unknown) => String(e), fi
 import { bhippiAnswers, captureKey, parseSteps, standinSource } from '../src/lib/appCapture';
 import { DEMO_BAR, DEMO_IDS, demoChat, demoGaps, demoNote, demoProject, demoStandIn, projectIsEmpty } from '../src/lib/demoProject';
 import { clipEnd, healProject, newClip, newProject, sourceOut, textSource, trackLabel } from '../src/lib/timeline';
-import type { Asset, Clip, Comp, Project } from '../src/lib/types';
+import type { Asset, Clip, Comp, Project, ProviderInfo } from '../src/lib/types';
 
 /** The pack as demo_pack.rs answers it: stable ids, 6 s clips, stills, a 20 s bed. */
 const asset = (id: string, name: string, kind: Asset['kind'], duration: number, hasAudio = false): Asset => ({
@@ -85,12 +85,11 @@ describe('the demo project', () => {
     ]));
   });
 
-  it('sorts the pack into bins and is a project the app has nothing to repair in', () => {
+  it('puts the whole pack at the top of the bin, and needs no repair', () => {
     const project = demoProject(PACK);
-    expect(project.folders.map((folder) => folder.name)).toEqual(['Footage', 'Stills', 'Music']);
-    const folderOf = (id: string) => project.folders.find((folder) => folder.id === project.media.find((ref) => ref.assetId === id)?.folderId)?.name;
-    expect(project.media).toHaveLength(PACK.length);
-    expect([folderOf(DEMO_IDS.city), folderOf(DEMO_IDS.mark), folderOf(DEMO_IDS.bed)]).toEqual(['Footage', 'Stills', 'Music']);
+    // No folders: they sort first and would push the thumbnails out of a captured bin.
+    expect(project.folders).toEqual([]);
+    expect(project.media.map((ref) => [ref.assetId, ref.folderId, ref.offline])).toEqual(PACK.map((item) => [item.id, null, false]));
     expect(project.activeCompId).toBe(project.comps[0].id);
     expect(project.comps[0]).toMatchObject({ name: 'Main edit', width: 1920, height: 1080 });
     // The repair pass the app runs on every loaded project finds nothing to change (it rebuilds
@@ -110,7 +109,7 @@ describe('the demo project', () => {
   });
 
   it('writes a conversation mid-way, signed by the user\'s own provider', () => {
-    const chat = demoChat([{ id: 'codex', label: 'Codex', kind: 'cli', models: ['gpt-5'], health: { state: 'disabled' }, offered: true }]);
+    const chat = demoChat([{ id: 'codex', label: 'Codex', kind: 'cli', models: ['gpt-5'], health: { state: 'disabled' }, offered: true } as ProviderInfo]);
     expect(chat.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
     for (const message of chat) if (message.role === 'assistant') expect(message).toMatchObject({ providerId: 'codex', providerLabel: 'Codex', model: 'gpt-5', status: 'done' });
     expect(demoChat()[1]).toMatchObject({ providerId: 'claude', model: null });
@@ -133,6 +132,7 @@ describe('demo mode for a capture of Bhippi', () => {
     expect(shown.project.comps[0].clips.length).toBeGreaterThan(8);
     expect(shown.project.media).toHaveLength(PACK.length);
     expect(shown.chat).toHaveLength(4);
+    expect(shown.poster).toBe(PACK[0].thumbnail);
   });
 
   it('never replaces the user\'s own work', () => {
@@ -141,6 +141,7 @@ describe('demo mode for a capture of Bhippi', () => {
     expect(shown.project).toBe(project);
     expect(shown.assets).toEqual([mine]);
     expect(shown.filled).toEqual(['chat']);
+    expect(shown.poster).toBeNull();
   });
 
   it('keeps a timeline with no media and adds the pack to its bins', () => {
@@ -190,6 +191,8 @@ describe('the stand-in answers in demo mode', () => {
     expect(answers.library_list).toEqual(PACK);
     expect((answers.project_load as Project).comps[0].clips.length).toBeGreaterThan(8);
     expect(answers.chat_log_load).toHaveLength(4);
+    // The stand-in renders no comp posters: the demo edit's tile shows its opening shot.
+    expect(answers.comp_poster).toBe(PACK[0].thumbnail);
     expect((answers.chat_log_load as { providerLabel?: string }[])[1].providerLabel).toBe('Codex');
     // What the browser page gets back is the same project, through the stand-in's own bridge.
     const fakeWindow: Record<string, unknown> = { innerWidth: 1920, innerHeight: 1080 };
@@ -211,6 +214,7 @@ describe('the stand-in answers in demo mode', () => {
     expect(api.demoPackMake).not.toHaveBeenCalled();
     expect(plain.chat_log_load).toEqual([]);
     expect(plain.library_list).toEqual([]);
+    expect('comp_poster' in plain).toBe(false);
   });
 
   it('keeps the real state when the pack fails', async () => {

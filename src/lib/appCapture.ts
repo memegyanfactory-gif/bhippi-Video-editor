@@ -157,7 +157,7 @@ export async function bhippiAnswers(project: Project, assets: Asset[], options: 
     // FFmpeg runs only when something would film empty; a pack made before is reused at once.
     options.demo && (gaps.timeline || gaps.bins) ? get(() => api.demoPackMake()) : Promise.resolve(null),
   ]);
-  const shown = options.demo ? demoStandIn(project, assets, pack ?? [], providers ?? []) : { project, assets, chat: [], filled: [] };
+  const shown = options.demo ? demoStandIn(project, assets, pack ?? [], providers ?? []) : { project, assets, chat: [], filled: [], poster: null };
   options.filled?.(shown.filled);
   // Onboarding, the tour and updates would cover the interface being filmed.
   const calm = settings ? { ...settings, onboarded: true, tour: false, tourSeen: true, autoUpdate: false } : null;
@@ -170,6 +170,7 @@ export async function bhippiAnswers(project: Project, assets: Asset[], options: 
     library_list: shown.assets,
     project_load: shown.project,
     chat_log_load: shown.chat,
+    ...(shown.poster ? { comp_poster: shown.poster } : {}),
     storage_info: storage,
     update_status: { state: 'idle' },
     startup_file: null,
