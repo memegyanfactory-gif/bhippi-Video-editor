@@ -31,7 +31,7 @@ import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
 import { loadPeaks } from './peaks';
 import { bhippiAnswers, captureKey, parseSteps, resolveSelector, sheetParts, standinSource } from './appCapture';
 import { cutTimes, darkFinding, eventMoments, JOIN_STEP, joinStrips, mixFindings, offBeatCuts, quietCues, repeatedPhrases, shortEnd, timelineOf, type CueLevel, type Finding, type Moment } from './reviewFrames';
-import { isMusicClip, loudestDb, musicDbOver, SFX_LOUDEST_DB, type MusicBed } from './cueSound';
+import { builtInLoudestDb, isMusicClip, loudestDb, musicDbOver, type MusicBed } from './cueSound';
 import { animated } from './keyframes';
 import { queryFrameAtlas, buildWanCinematicPrompt, FRAME_ATLAS_TAXONOMY } from './frameAtlas';
 import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, rightsOf, withProvenance, type CouncilNote, type CouncilRole, type Provenance } from './council';
@@ -4040,7 +4040,7 @@ ${notes.trim()}${paletteLine}
             const peaks = asset?.peaks ? await loadPeaks(asset.peaks) : null;
             if (peaks) db = loudestDb(peaks, clip.in, clip.in + Math.min(0.4, clip.duration) * clip.speed);
           } else if (clip.source.type === 'sfx') {
-            db = SFX_LOUDEST_DB[clip.source.kind];
+            db = builtInLoudestDb(clip.source.kind);
           }
           if (db !== null) cues.push({ at: clip.start, name: clip.name ?? (clip.source.type === 'sfx' ? clip.source.kind : 'sound'), db: db + gainToDb(clip.volume) });
         }

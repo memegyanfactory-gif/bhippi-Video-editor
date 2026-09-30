@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { cueLevel, cuePlacements, loudestDb, motionCues, musicDbOver, placedSounds, SFX_LOUDEST_DB, UNDER_MUSIC_DB, type TimelineCue } from '../src/lib/cueSound';
+import { builtInLoudestDb, cueLevel, cuePlacements, loudestDb, motionCues, musicDbOver, placedSounds, SFX_LOUDEST_DB, UNDER_MUSIC_DB, type TimelineCue } from '../src/lib/cueSound';
 import { explodeScene } from '../src/lib/motionStack';
 import { runMotionTool, type MotionToolContext } from '../src/lib/motionTools';
 import type { Peaks } from '../src/lib/peaks';
@@ -21,8 +21,8 @@ function waveform(seconds: number, level: (t: number) => number): Peaks {
 }
 
 const db = (value: number) => 20 * Math.log10(value);
-/** The song: quiet (−26 dB) for 4 s, then a chorus at −8 dB. */
-const song = waveform(20, (t) => (t < 4 ? 10 ** (-26 / 20) : 10 ** (-8 / 20)));
+/** The song: quiet (−26 dB) for 4 s, then a chorus at −14 dB. */
+const song = waveform(20, (t) => (t < 4 ? 10 ** (-26 / 20) : 10 ** (-14 / 20)));
 
 vi.mock('../src/lib/peaks', async (original) => ({ ...(await original<typeof import('../src/lib/peaks')>()), loadPeaks: vi.fn(async () => song) }));
 
@@ -31,7 +31,7 @@ const scene = (duration: number, cues: MotionScene['cues'], layers: MotionScene[
 describe('the level arithmetic', () => {
   it('reads the loudest 10 ms of a stretch, in dBFS', () => {
     expect(loudestDb(song, 0, 1)).toBeCloseTo(-26, 0);
-    expect(loudestDb(song, 3.5, 4.5)).toBeCloseTo(-8, 0);
+    expect(loudestDb(song, 3.5, 4.5)).toBeCloseTo(-14, 0);
     expect(loudestDb(waveform(1, () => 0), 0, 1)).toBeNull();
   });
 
@@ -40,7 +40,8 @@ describe('the level arithmetic', () => {
       const level = cueLevel(kind, -20);
       expect(level.against).toBe('music');
       expect(level.levelDb).toBeCloseTo(-20 - UNDER_MUSIC_DB, 1);
-      expect(level.gainDb).toBeCloseTo(-26 - SFX_LOUDEST_DB[kind], 1);
+      // The export plays a mono built-in 3 dB down in each channel: the gain makes up for it.
+      expect(level.gainDb).toBeCloseTo(-26 - (SFX_LOUDEST_DB[kind] - 3), 1);
       // The critique's buried cues were 20-30 dB under: these pass review_frames' check with room.
       expect(quietCues([{ at: 1, name: kind, db: level.levelDb }], () => -20)).toEqual([]);
     }
@@ -72,10 +73,10 @@ describe('the level arithmetic', () => {
     const clip = { ...newClip({ trackId: a1.id, start: 1, in: 2, duration: 10, source: { type: 'media', assetId: 'song' } }), volume: 0.5 };
     const beds = [{ clip, peaks: song }];
     expect(musicDbOver(beds, 1.5, 1.8)).toBeCloseTo(-26 + db(0.5), 0);
-    expect(musicDbOver(beds, 3.2, 3.5)).toBeCloseTo(-8 + db(0.5), 0);
+    expect(musicDbOver(beds, 3.2, 3.5)).toBeCloseTo(-14 + db(0.5), 0);
     expect(musicDbOver(beds, 20, 21)).toBeNull();
     const ducked = { ...clip, keyframes: { ...clip.keyframes, volume: [{ time: 0, value: 0.25, easing: 'linear' as const }] } };
-    expect(musicDbOver([{ clip: ducked, peaks: song }], 3.2, 3.5)).toBeCloseTo(-8 + db(0.25), 0);
+    expect(musicDbOver([{ clip: ducked, peaks: song }], 3.2, 3.5)).toBeCloseTo(-14 + db(0.25), 0);
   });
 });
 
@@ -170,9 +171,9 @@ describe('sound_the_motion', () => {
     const sounds = comp.clips.filter((clip) => clip.source.type === 'sfx');
     expect(sounds.map((clip) => [(clip.source as { kind: string }).kind, clip.start])).toEqual([['click', 2.5], ['whoosh', 4.5]]);
     expect(comp.tracks.find((track) => track.id === sounds[0].trackId)!.name).toBe('SFX');
-    // The click lands in the quiet intro (−26 dB), the whoosh in the chorus (−8 dB).
-    expect(db(sounds[0].volume) + SFX_LOUDEST_DB.click).toBeCloseTo(-32, 0);
-    expect(db(sounds[1].volume) + SFX_LOUDEST_DB.whoosh).toBeCloseTo(-14, 0);
+    // The click lands in the quiet intro (−26 dB), the whoosh in the chorus (−14 dB).
+    expect(db(sounds[0].volume) + builtInLoudestDb('click')).toBeCloseTo(-32, 0);
+    expect(db(sounds[1].volume) + builtInLoudestDb('whoosh')).toBeCloseTo(-20, 0);
     expect(sounds[1].name).toContain('panel in');
     expect(result.summary).toContain('6 dB under');
   });
@@ -185,7 +186,7 @@ describe('sound_the_motion', () => {
     expect(again.ok).toBe(true);
     const sounds = get().comps[0].clips.filter((clip) => clip.source.type === 'sfx');
     expect(sounds.map((clip) => clip.id)).toEqual(first);
-    expect(db(sounds[0].volume) + SFX_LOUDEST_DB.click).toBeCloseTo(-30, 0);
+    expect(db(sounds[0].volume) + builtInLoudestDb('click')).toBeCloseTo(-30, 0);
     expect(placedSounds(get(), get().comps[0])).toHaveLength(2);
     expect(again.summary).toContain('0 placed');
   });

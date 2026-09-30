@@ -24,7 +24,20 @@ export type SceneCue = NonNullable<MotionScene['cues']>[number];
  */
 export const SFX_LOUDEST_DB: Record<SfxKind, number> = { whoosh: -14.6, impact: -7.2, chime: -9.3, pop: -7.8, riser: -10.1, boom: -4.8, scratch: -5.3, bleep: -4.6, swish: -11.3, ding: -8.6, glitch: -6.9, click: -14.1, tick: -16.9, key: -12.3, typing: -11.8, glass: -7.7, shimmer: -12.0, sub: -3.9, blip: -3.4, key_click: -16.1, send_pop: -6.5, soft_whoosh: -10.4, glass_tick: -8.7, cursor_tap: -10.9 };
 
-/** Every built-in peaks at about −1.5 dBFS (the classic five a little lower), so more than +0.5 dB of gain clips. */
+/**
+ * The export spreads a mono sound over both channels at −3 dB each (FFmpeg's upmix; the preview
+ * plays it at full level in both). Every built-in is mono, so the finished film carries each one
+ * 3 dB under the table, and that is the level set against the music.
+ */
+const MONO_SPREAD_DB = -3;
+
+/** A built-in's loudest 10 ms in each channel of the export, at unity gain. */
+export const builtInLoudestDb = (kind: SfxKind) => SFX_LOUDEST_DB[kind] + MONO_SPREAD_DB;
+
+/**
+ * Every built-in peaks at about −1.5 dBFS (the classic five a little lower), so more than +0.5 dB
+ * of gain clips where it plays at full level (the preview): the ceiling is kept there.
+ */
 const BUILT_IN_PEAK_DB = -1.5;
 
 /** How far under the music's loudest 10 ms a cue sits. */
@@ -98,7 +111,7 @@ export type CueLevel = {
  * plays the kind keeps its default level under the voice (sfxLevels.ts).
  */
 export function cueLevel(kind: SfxKind, musicDb: number | null, offsetDb = 0, sound: { loudestDb?: number; peakDb?: number } = {}): CueLevel {
-  const loudest = sound.loudestDb ?? SFX_LOUDEST_DB[kind];
+  const loudest = sound.loudestDb ?? builtInLoudestDb(kind);
   if (musicDb === null || musicDb < QUIET_MUSIC_DB) {
     const gainDb = SFX_GAIN_DB[kind] + offsetDb;
     return { gainDb: round1(gainDb), levelDb: round1(loudest + gainDb), against: 'no-music', capped: false };
