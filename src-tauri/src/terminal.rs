@@ -4,7 +4,7 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, State, WebviewWindow};
+use tauri::{Emitter, State, Webview};
 
 const EVENT: &str = "bhippi://terminal";
 struct Session {
@@ -26,7 +26,9 @@ struct Output { session_id: String, data: Vec<u8>, exit_code: Option<u32>, error
 #[serde(rename_all = "camelCase")]
 pub struct Opened { session_id: String, shell: String, cwd: String }
 
-fn editor(window: &WebviewWindow) -> Result<(), String> {
+// The commands take the calling webview, never a `WebviewWindow`: with project tabs the window
+// holds several webviews and Tauri refuses a `WebviewWindow` argument there.
+fn editor(window: &Webview) -> Result<(), String> {
     if crate::tabs::is_editor(window.label()) { Ok(()) } else { Err("The terminal belongs to an editor window".into()) }
 }
 fn size(cols: u16, rows: u16) -> PtySize { PtySize { cols: cols.clamp(2, 500), rows: rows.clamp(2, 200), pixel_width: 0, pixel_height: 0 } }
@@ -101,13 +103,13 @@ fn spawn(state: TerminalState, cwd: Option<String>, cols: u16, rows: u16, emit: 
 }
 
 #[tauri::command]
-pub async fn terminal_open(window: WebviewWindow, state: State<'_, TerminalState>, cwd: Option<String>, cols: u16, rows: u16) -> Result<Opened, String> {
+pub async fn terminal_open(window: Webview, state: State<'_, TerminalState>, cwd: Option<String>, cols: u16, rows: u16) -> Result<Opened, String> {
     editor(&window)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || spawn(state, cwd, cols, rows, move |event| { let _ = window.emit_to(tauri::EventTarget::webview(window.label()), EVENT, event); })).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
-pub async fn terminal_write(window: WebviewWindow, state: State<'_, TerminalState>, session_id: String, data: String) -> Result<(), String> {
+pub async fn terminal_write(window: Webview, state: State<'_, TerminalState>, session_id: String, data: String) -> Result<(), String> {
     editor(&window)?;
     if data.len() > 1024 * 1024 { return Err("Terminal input is too large".into()); }
     let state = state.inner().clone();
@@ -118,7 +120,7 @@ pub async fn terminal_write(window: WebviewWindow, state: State<'_, TerminalStat
     }).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
-pub async fn terminal_resize(window: WebviewWindow, state: State<'_, TerminalState>, session_id: String, cols: u16, rows: u16) -> Result<(), String> {
+pub async fn terminal_resize(window: Webview, state: State<'_, TerminalState>, session_id: String, cols: u16, rows: u16) -> Result<(), String> {
     editor(&window)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -128,7 +130,7 @@ pub async fn terminal_resize(window: WebviewWindow, state: State<'_, TerminalSta
     }).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
-pub async fn terminal_close(window: WebviewWindow, state: State<'_, TerminalState>, session_id: String) -> Result<(), String> {
+pub async fn terminal_close(window: Webview, state: State<'_, TerminalState>, session_id: String) -> Result<(), String> {
     editor(&window)?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {

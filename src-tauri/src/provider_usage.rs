@@ -1,6 +1,6 @@
 use bhippi_providers::account_usage::{self, ContextUsage, UsageBucket};
 use serde::Serialize;
-use tauri::{State, WebviewWindow};
+use tauri::{State, Webview};
 
 #[derive(Default)]
 pub struct UsageState(tokio::sync::Mutex<Option<(std::time::Instant, Result<Vec<UsageBucket>, String>, i64)>>);
@@ -9,7 +9,8 @@ pub struct UsageState(tokio::sync::Mutex<Option<(std::time::Instant, Result<Vec<
 pub struct Reading { limits: Vec<UsageBucket>, context: Option<ContextUsage>, checked_at: i64, error: Option<String> }
 
 #[tauri::command]
-pub async fn provider_usage(window: WebviewWindow, state: State<'_, UsageState>, id: String, session_id: Option<String>) -> Result<Reading, String> {
+// The calling webview, not a `WebviewWindow`: Tauri refuses that argument once project tabs share the window.
+pub async fn provider_usage(window: Webview, state: State<'_, UsageState>, id: String, session_id: Option<String>) -> Result<Reading, String> {
     if !crate::tabs::is_editor(window.label()) { return Err("Usage belongs to the editor window".into()); }
     if id != "codex" { return Ok(Reading { limits: Vec::new(), context: None, checked_at: chrono::Utc::now().timestamp_millis(), error: None }); }
     let (limits, checked_at, error) = {

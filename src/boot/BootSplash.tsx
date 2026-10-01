@@ -37,7 +37,15 @@ function endBoot() {
   if (booted) return;
   booted = true;
   document.documentElement.classList.remove('booting');
-  api.splashDone().catch(() => undefined);
+  // Until this answers, every click falls through the window to the desktop, so a refusal is
+  // asked again rather than dropped (it once failed silently whenever a project tab was open).
+  const handBack = (attempt: number) => {
+    api.splashDone().catch((error) => {
+      console.error('The window did not take the pointer back', error);
+      if (attempt < 5) window.setTimeout(() => handBack(attempt + 1), 400 * (attempt + 1));
+    });
+  };
+  handBack(0);
 }
 
 export function BootSplash() {

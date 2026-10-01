@@ -3800,20 +3800,24 @@ fn open_maximized(window: &tauri::WebviewWindow) {
 
 /// The splash has grown to fill the window: it takes the pointer and becomes opaque again (a
 /// transparent background would show the desktop at the edges while the window is resized).
-fn end_splash(window: &tauri::WebviewWindow) {
+fn end_splash(window: &tauri::Window) {
     let _ignored = window.set_ignore_cursor_events(false);
     let _ignored = window.set_background_color(Some(tauri::window::Color(11, 11, 15, 255)));
     // The colour never shows through a see-through window: a dark backdrop does (window_backdrop.rs).
-    window_backdrop::install(&window.as_ref().window());
+    window_backdrop::install(window);
     // The editor has loaded and the window answers again: a taskbar that drew Windows' blank tile
     // while it was busy asks for the logo once more (window_icon.rs).
     #[cfg(windows)]
-    window_icon::refresh(&window.as_ref().window());
+    window_icon::refresh(window);
 }
 
+/// The launch splash is done: the window takes the pointer back. It takes the calling webview,
+/// not a `WebviewWindow`: once a project tab adds its webview to the window, Tauri no longer
+/// counts the window as a `WebviewWindow`, the call was refused, and the window let every click
+/// through to the desktop until the 45 s fallback.
 #[tauri::command]
-fn splash_done(window: tauri::WebviewWindow) {
-    end_splash(&window);
+fn splash_done(webview: tauri::Webview) {
+    end_splash(&webview.window());
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -3837,7 +3841,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let fallback = window.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(45));
-            end_splash(&fallback);
+            end_splash(&fallback.as_ref().window());
         });
         // A launch slow enough that the taskbar gave up on the icon before the splash ended gets it
         // again a few seconds in, whatever the page is doing.
