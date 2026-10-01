@@ -170,6 +170,18 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--blue); width: 
 .win-btn { width: 44px; border: 0; background: transparent; color: var(--text-dim); display: grid; place-items: center; }
 .win-btn:hover { background: var(--panel-3); color: var(--text); }
 .win-btn.close:hover { background: #c42b1c; color: #fff; }
+/* The window's controls as a page of their own (components/WindowControls.tsx), laid over the
+   buttons above: see-through, so the project's own buttons show; only the hover and the press are
+   drawn here, with the icon on top in the same place. */
+html.window-controls-view, html.window-controls-view body, html.window-controls-view #root { background: transparent !important; overflow: hidden; }
+.window-controls { display: flex; height: 100vh; }
+.window-controls button { width: 44px; height: 100%; padding: 0; border: 0; background: transparent; color: #f2f2f2; display: grid; place-items: center; }
+.window-controls button svg { opacity: 0; }
+.window-controls button:hover { background: rgba(255, 255, 255, 0.1); }
+.window-controls button:active { background: rgba(255, 255, 255, 0.16); }
+.window-controls button:hover svg { opacity: 1; }
+.window-controls button.close:hover { background: #c42b1c; color: #fff; }
+.window-controls button.close:active { background: #a8251a; }
 
 /* The bar and the chat below it are one surface — same colour, no rule between them — so the
    chat reads as part of the window rather than a panel parked under a toolbar. The editing side

@@ -81,6 +81,8 @@ export class MotionRenderer {
   private shapeRasters = new Map<string, { data: object; density: number; size: [number, number]; pad: number }>();
   /** Footage or matte frames the last draw had to leave out because they were still loading. */
   incomplete = 0;
+  /** Footage or matte frames the last draw showed a neighbouring frame for while the exact one loads. */
+  approximate = 0;
 
   constructor(readonly canvas: HTMLCanvasElement | OffscreenCanvas, host: MediaHost) {
     this.gl = new GL(canvas);
@@ -177,9 +179,10 @@ export class MotionRenderer {
         const time = sourceTime(layer.source, L.time);
         const picture = this.bank.frame(layer.source, time);
         if (!picture) { this.incomplete++; return null; }
+        if (picture.approximate) this.approximate++;
         // Stills get mipmaps once (a 3x capture seen whole stays clean); video frames change every draw.
         const still = typeof HTMLVideoElement === 'undefined' || !(picture.image instanceof HTMLVideoElement);
-        const tex = this.upload(`f:${picture.key.split('@')[0]}`, picture.image, picture.key, still);
+        const tex = this.upload(`f:${picture.slot ?? picture.key.split('@')[0]}`, picture.image, picture.key, still);
         const fit = footageFit(layer, still);
         const sw = picture.width;
         const sh = picture.height;
@@ -190,6 +193,7 @@ export class MotionRenderer {
         const matteFrame = layer.source.matte ? this.bank.matteFrame(layer.source.matte, time) : null;
         const matteTex = matteFrame ? this.upload(`m:${layer.id}`, matteFrame.image, matteFrame.key) : null;
         if (layer.source.matte && !matteTex) this.incomplete++;
+        if (matteFrame?.approximate) this.approximate++;
         target = gl.acquire(W, H);
         gl.pass('footage', S.FOOTAGE_FS, target, { uTex: tex, uMatte: matteTex, uFit, uHasMatte: matteTex ? 1 : 0, uCutout: layer.source.cutout && !wantsMatteFx ? 1 : 0, uMatteMode: 0 });
         if (layer.source.cutout && layer.source.matte && !matteTex) {
@@ -496,6 +500,7 @@ export class MotionRenderer {
     if (this.gl.lost) { this.incomplete = 1; return; }
     const scale = options.scale ?? 1;
     this.incomplete = 0;
+    this.approximate = 0;
     this.bank.fps = options.fps ?? 30;
     const target = this.renderScene(scene, t, scale, 0, options);
     const canvas = this.canvas;
@@ -511,6 +516,7 @@ export class MotionRenderer {
     const lost = () => { if (this.gl.lost || this.gl.gl.isContextLost()) throw new Error('GPU context lost while rendering motion frames; export again'); };
     lost();
     this.incomplete = 0;
+    this.approximate = 0;
     this.bank.fps = options.fps ?? 30;
     const target = this.renderScene(scene, t, options.scale ?? 1, 0, options);
     const straight = this.gl.acquire(target.w, target.h);

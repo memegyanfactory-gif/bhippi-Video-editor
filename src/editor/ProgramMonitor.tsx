@@ -824,7 +824,7 @@ export function ProgramMonitor(props: Props) {
   }, [project, comp, assets, cacheOn]);
   useEffect(() => { previewCache.setView(stageW * (window.devicePixelRatio || 1)); }, [stageW]);
   const warmSlot = Math.floor(time * 2);
-  useEffect(() => { if (comp) warmAhead(comp, assets, playhead.get(), cacheOn); }, [comp, assets, warmSlot, cacheOn]);
+  useEffect(() => { if (comp) warmAhead(comp, assets, playhead.get(), cacheOn, project); }, [project, comp, assets, warmSlot, cacheOn]);
   const setCache = (next: Partial<{ enabled: boolean; budgetMb: number }>) => props.onPreviewCache?.({ enabled: cacheOn, budgetMb: cacheMb, ...next });
 
   return (

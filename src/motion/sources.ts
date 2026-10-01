@@ -34,7 +34,17 @@ export function sequenceFile(seq: Sequence, index: number): string {
 
 export type MatteSequence = { fps: number; frames: number; /** Source seconds of frame 0. */ first: number; frameUrl: (index: number) => string };
 
-export type FootageFrame = { image: TexImageSource; width: number; height: number; key: string };
+export type FootageFrame = {
+  image: TexImageSource;
+  width: number;
+  height: number;
+  /** Names the picture: the same key is the same pixels, so it is not uploaded again. */
+  key: string;
+  /** The texture slot this picture replaces (one per video or image sequence); `key` before its `@` by default. */
+  slot?: string;
+  /** A neighbouring frame standing in while the exact one loads (preview only): the picture is not final. */
+  approximate?: boolean;
+};
 
 const EXACT_SEEK_TIMEOUT = 4000;
 /** An export frame gives up on footage that has not loaded (or sought) by then. */
@@ -74,6 +84,50 @@ export function footageAt(scene: MotionScene, t: number, out: { layer: Layer & {
 
 type VideoEntry = { el: HTMLVideoElement; ready: Promise<void>; lastUsed: number; width: number; height: number };
 type ImageEntry = { el: HTMLImageElement; ready: Promise<void>; width: number; height: number };
+/** A frame of an image sequence: its picture once decoded (`width` is 0 until then). */
+type FrameEntry = { image: TexImageSource | null; bitmap: ImageBitmap | null; ready: Promise<void>; width: number; height: number; used: number; dropped: boolean };
+
+/** Sequence frames kept decoded, at most: by count and by bytes (a 1080p frame is about 8 MB). */
+const SEQ_FRAMES = 160;
+const SEQ_BYTES = 512 * 1024 * 1024;
+/** A sequence frame drawn or asked for this recently is never dropped (the frames on screen and just ahead). */
+const SEQ_KEEP_MS = 300;
+/** Cleared once fetching a frame throws: the <img> path is used from then on. */
+let bitmapsWork = true;
+
+/**
+ * Loads one frame of an image sequence, decoded off the main thread. An <img> handed to WebGL is
+ * decoded by the upload itself, on the main thread: about 18 ms for a 1080×1920 PNG, every frame,
+ * on every layer, so a scene of five render passes spent ~90 ms of each frame decoding and the
+ * preview played at a few frames a second. `createImageBitmap` on the file's bytes decodes on the
+ * browser's decoder threads, and the upload only copies pixels. The bitmap is premultiplied and
+ * unflipped, which is what the <img> upload made of it (gl/core.ts sets those unpack flags).
+ * Falls back to an <img> where the webview cannot do that or the file cannot be fetched.
+ */
+export async function decodeSequenceFrame(url: string): Promise<{ image: TexImageSource; bitmap: ImageBitmap | null; width: number; height: number } | null> {
+  if (bitmapsWork && typeof createImageBitmap === 'function' && typeof fetch === 'function') {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const bitmap = await createImageBitmap(await response.blob(), { premultiplyAlpha: 'premultiply', colorSpaceConversion: 'default', imageOrientation: 'from-image' });
+        return { image: bitmap, bitmap, width: bitmap.width, height: bitmap.height };
+      }
+    } catch (error) {
+      // A fetch the webview refuses outright (not a missing file) would fail for every frame.
+      if (error instanceof TypeError) bitmapsWork = false;
+      // Below: the <img> the frame always loaded through.
+    }
+  }
+  if (typeof Image === 'undefined') return null;
+  return new Promise((resolve) => {
+    const el = new Image();
+    el.crossOrigin = 'anonymous';
+    el.decoding = 'async';
+    el.onload = () => resolve({ image: el, bitmap: null, width: el.naturalWidth, height: el.naturalHeight });
+    el.onerror = () => resolve(null);
+    el.src = url;
+  });
+}
 
 export class MediaBank {
   private videos = new Map<string, VideoEntry>();
@@ -81,10 +135,11 @@ export class MediaBank {
   private mattes = new Map<string, Promise<MatteSequence | null>>();
   private matteMeta = new Map<string, MatteSequence | null>();
   private matteFrames = new Map<string, ImageEntry>();
-  /** Image-sequence frames (a Blender render…): an LRU like the matte frames, never unbounded. */
-  private seqFrames = new Map<string, ImageEntry>();
-  private listeners = new Set<() => void>();
-  private onFrame = () => { for (const listener of this.listeners) listener(); };
+  /** Image-sequence frames (a Blender render…), decoded: least recently used first, never unbounded. */
+  private seqFrames = new Map<string, FrameEntry>();
+  private seqBytes = 0;
+  private listeners = new Set<(everything: boolean) => void>();
+  private onFrame = () => { for (const listener of this.listeners) listener(false); };
   /** The frame rate draws run at (the renderer sets it): a video within half a frame of the time asked for shows that time. */
   fps = 30;
 
@@ -121,16 +176,70 @@ export class MediaBank {
   private prefetch(seq: Sequence, index: number, ahead: number) {
     for (let k = index; k <= index + ahead; k++) {
       const i = seq.loop ? k % Math.max(1, seq.frames) : k;
-      if (i < seq.frames) this.image(this.sequenceUrl(seq, i), this.seqFrames);
+      if (i < seq.frames) this.sequenceImage(this.sequenceUrl(seq, i));
     }
-    while (this.seqFrames.size > 160) this.seqFrames.delete(this.seqFrames.keys().next().value!);
   }
 
-  /** Tells listeners something they draw changed (a font finished loading). */
-  notify() { this.onFrame(); }
+  /**
+   * One frame of an image sequence (see `decodeSequenceFrame`), marked used now. The map runs from
+   * least to most recently used, so trimming takes from the front; a frame in use is never dropped.
+   */
+  private sequenceImage(url: string): FrameEntry {
+    const now = performance.now();
+    const known = this.seqFrames.get(url);
+    if (known) {
+      known.used = now;
+      this.seqFrames.delete(url);
+      this.seqFrames.set(url, known);
+      return known;
+    }
+    const entry: FrameEntry = { image: null, bitmap: null, ready: Promise.resolve(), width: 0, height: 0, used: now, dropped: false };
+    entry.ready = decodeSequenceFrame(url).then((frame) => {
+      if (!frame) return;
+      // Dropped while it decoded: nobody draws it now, so its pixels go at once.
+      if (entry.dropped) { frame.bitmap?.close(); return; }
+      Object.assign(entry, frame);
+      // Counted now, trimmed at the next frame asked for: trimming here could drop a frame of the
+      // very picture still waiting on this one.
+      if (frame.bitmap) this.seqBytes += frame.width * frame.height * 4;
+      this.onFrame();
+    });
+    this.seqFrames.set(url, entry);
+    this.trimSequences();
+    return entry;
+  }
 
-  /** Called when a frame the preview was waiting for arrives (a seek finished, a matte loaded). */
-  listen(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  /** Drops the least recently used sequence frames past SEQ_FRAMES or SEQ_BYTES, sparing those in use. */
+  private trimSequences() {
+    const now = performance.now();
+    for (const [url, entry] of this.seqFrames) {
+      if (this.seqFrames.size <= SEQ_FRAMES && this.seqBytes <= SEQ_BYTES) return;
+      // Everything after a frame in use was used later still.
+      if (now - entry.used < SEQ_KEEP_MS) return;
+      this.dropSequenceFrame(url, entry);
+    }
+  }
+
+  private dropSequenceFrame(url: string, entry: FrameEntry) {
+    this.seqFrames.delete(url);
+    entry.dropped = true;
+    if (entry.bitmap) {
+      this.seqBytes -= entry.width * entry.height * 4;
+      entry.bitmap.close();
+    }
+    entry.bitmap = null;
+    entry.image = null;
+    entry.width = 0;
+  }
+
+  /** Tells listeners something every picture draws changed (a font finished loading). */
+  notify() { for (const listener of this.listeners) listener(true); }
+
+  /**
+   * Called when a frame the preview was waiting for arrives (a seek finished, a matte loaded), with
+   * `everything` false; true from `notify`, when every picture may have changed.
+   */
+  listen(listener: (everything: boolean) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
 
   private video(url: string): VideoEntry {
     let entry = this.videos.get(url);
@@ -228,7 +337,7 @@ export class MediaBank {
     // Library characters are drawn by the Characters room's engine, loaded on first use.
     if (sceneHasStudio(scene.layers)) waits.push(loadStudio());
     for (const { layer, time, resolved } of this.footage(scene, t)) {
-      if (resolved.seq) { waits.push(loaded(this.image(resolved.url, this.seqFrames).ready, resolved.url)); continue; }
+      if (resolved.seq) { waits.push(loaded(this.sequenceImage(resolved.url).ready, resolved.url)); continue; }
       if (resolved.kind === 'image') { waits.push(loaded(this.image(resolved.url).ready, resolved.url)); continue; }
       const entry = this.video(resolved.url);
       waits.push(loaded(entry.ready, resolved.url).then(() => loaded(seekExact(entry.el, time, options.presented ?? true), resolved.url)));
@@ -310,12 +419,19 @@ export class MediaBank {
   private sequenceFrame(seq: Sequence, time: number): FootageFrame | null {
     const index = sequenceIndex(seq, time);
     const url = this.sequenceUrl(seq, index);
-    const exact = this.image(url, this.seqFrames);
-    if (exact.el.complete && exact.width) return { image: exact.el, width: exact.width, height: exact.height, key: url };
+    // One texture per sequence, refilled frame by frame: a slot per frame file allocated (and
+    // mipmapped) a new full-size texture on every frame of every layer, ~1 GB of them at 1080p.
+    const slot = `seq:${sequenceFile(seq, 0)}`;
+    const exact = this.sequenceImage(url);
+    if (exact.image && exact.width) return { image: exact.image, width: exact.width, height: exact.height, key: url, slot };
     for (const k of [index - 1, index + 1, index - 2, index + 2]) {
       if (k < 0 || k >= seq.frames) continue;
-      const near = this.seqFrames.get(this.sequenceUrl(seq, k));
-      if (near && near.width) return { image: near.el, width: near.width, height: near.height, key: this.sequenceUrl(seq, k) };
+      const nearUrl = this.sequenceUrl(seq, k);
+      const near = this.seqFrames.get(nearUrl);
+      if (near?.image && near.width) {
+        near.used = performance.now();
+        return { image: near.image, width: near.width, height: near.height, key: nearUrl, slot, approximate: true };
+      }
     }
     return null;
   }
@@ -330,7 +446,7 @@ export class MediaBank {
     this.image(meta.frameUrl(index), this.matteFrames);
     for (const k of [index - 1, index + 1, index - 2, index + 2]) {
       const near = k >= 0 ? this.matteFrames.get(meta.frameUrl(k)) : undefined;
-      if (near && near.width) return { image: near.el, width: near.width, height: near.height, key: meta.frameUrl(k) };
+      if (near && near.width) return { image: near.el, width: near.width, height: near.height, key: meta.frameUrl(k), approximate: true };
     }
     return null;
   }
@@ -342,7 +458,9 @@ export class MediaBank {
    */
   warm(scene: MotionScene, t: number) {
     for (const { layer, time } of footageAt(scene, t)) {
-      if (layer.source.sequence) { this.prefetch(layer.source.sequence, sequenceIndex(layer.source.sequence, time), 8); continue; }
+      // The first few frames: enough to show the cut at once, after which the preview's own
+      // look-ahead runs. More would be decoded pictures held for seconds, crowding out the ones on screen.
+      if (layer.source.sequence) { this.prefetch(layer.source.sequence, sequenceIndex(layer.source.sequence, time), 2); continue; }
       const resolved = this.host.resolve(layer.source);
       if (!resolved) continue;
       if (resolved.kind === 'image') { this.image(resolved.url); continue; }
@@ -379,7 +497,7 @@ export class MediaBank {
     this.videos.clear();
     this.images.clear();
     this.matteFrames.clear();
-    this.seqFrames.clear();
+    for (const [url, entry] of [...this.seqFrames]) this.dropSequenceFrame(url, entry);
   }
 }
 

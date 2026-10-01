@@ -23,6 +23,34 @@ type Bus = {
 
 let bus: Bus | null = null;
 
+/** Media elements and generators playing into the bus right now (the meters run while any is). */
+const sounding = new Set<object>();
+const soundListeners = new Set<() => void>();
+const soundChanged = () => soundListeners.forEach((listener) => listener());
+const startSound = (what: object) => { if (!sounding.has(what)) { sounding.add(what); soundChanged(); } };
+const stopSound = (what: object) => { if (sounding.delete(what)) soundChanged(); };
+
+/** Whether anything is playing into the bus (an element may still be silent at that moment). */
+export const soundPlaying = () => sounding.size > 0;
+
+/** Calls `listener` when something starts or stops playing into the bus; returns an unsubscribe. */
+export function onSound(listener: () => void): () => void {
+  soundListeners.add(listener);
+  return () => { soundListeners.delete(listener); };
+}
+
+/** Follows whether a media element routed into the bus is playing. */
+function trackPlaying(element: HTMLMediaElement) {
+  const on = () => startSound(element);
+  const off = () => stopSound(element);
+  element.addEventListener('play', on);
+  element.addEventListener('playing', on);
+  element.addEventListener('pause', off);
+  element.addEventListener('ended', off);
+  element.addEventListener('emptied', off);
+  if (!element.paused) on();
+}
+
 function getBus(): Bus | null {
   if (bus) return bus;
   try {
@@ -165,6 +193,7 @@ export class ClipChain {
       const chain = new ClipChain(graph.ctx, node, target === 'program' ? graph.program : graph.source);
       chain.configure({ channels: 'stereo', enhance: false, gain: 1 });
       ClipChain.elements.set(element, chain);
+      trackPlaying(element);
       return chain;
     } catch {
       return null;
@@ -243,6 +272,7 @@ export function startTone(frequency: number, gain: number): (() => void) | null 
   oscillator.connect(level);
   level.connect(graph.program);
   oscillator.start();
+  startSound(oscillator);
   return () => {
     try {
       oscillator.stop();
@@ -250,6 +280,7 @@ export function startTone(frequency: number, gain: number): (() => void) | null 
       // Already stopped.
     }
     level.disconnect();
+    stopSound(oscillator);
   };
 }
 
@@ -265,7 +296,8 @@ export function beep(frequency = 1000, seconds = 0.08, gain = 0.25) {
   level.connect(graph.program);
   oscillator.start();
   oscillator.stop(graph.ctx.currentTime + seconds);
-  oscillator.onended = () => level.disconnect();
+  startSound(oscillator);
+  oscillator.onended = () => { level.disconnect(); stopSound(oscillator); };
 }
 
 export type Levels = { peak: [number, number]; valley: [number, number]; rms: [number, number] };

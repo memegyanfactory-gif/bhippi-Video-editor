@@ -723,6 +723,8 @@ export default function App() {
       events.overviewTarget((id) => setDropTarget(!!id && id === ownTab.current)),
       // Quitting with several projects open asks once, here, for all of them (tabs.rs).
       events.quitSummary(({ unsaved, busy }) => {
+        // Heard: a page that does not say so in a few seconds is stuck, and Bhippi quits without it.
+        void api.tabCloseHeard().catch(() => undefined);
         const names = (list: string[]) => list.map((name) => `“${name}”`).join(', ');
         const body = [
           unsaved.length ? `Unsaved changes in ${names(unsaved)}.` : null,
@@ -1895,19 +1897,18 @@ export default function App() {
     return true;
   };
   useEffect(() => {
-    // The system closing the window (Alt+F4, the taskbar) closes Bhippi, every tab asking in turn.
-    const pending = getCurrentWindow().onCloseRequested((event) => {
-      event.preventDefault();
-      quitApp();
-    });
+    // The system closing the window (Alt+F4, the taskbar) closes Bhippi, every tab asking in turn:
+    // Rust starts that itself (lib.rs), so it works while this page is busy.
     const request = events.tabCloseRequest(({ app, mode }) => {
+      // Heard, before anything is asked: a page that does not say so in a few seconds is stuck,
+      // and Bhippi quits without it (its autosave keeps its work).
+      void api.tabCloseHeard().catch(() => undefined);
       void readyToClose.current(app, mode).then((ok) => {
         if (!ok && app) markRunning(true);
         return api.tabCloseAnswer(ok);
       }).catch(() => void api.tabCloseAnswer(false));
     });
     return () => {
-      void pending.then((unlisten) => unlisten());
       void request.then((unlisten) => unlisten());
     };
   }, []);

@@ -7,7 +7,8 @@ import { SupportLayer } from './components/SupportLayer';
 import { ToastProvider } from './components/ui';
 import { LicenseGate } from './license/LicenseGate';
 import { OverviewShell } from './components/OverviewShell';
-import { isCaptureView, isOverviewBar, isTabView } from './lib/projectView';
+import { WindowControls } from './components/WindowControls';
+import { isCaptureView, isControlsView, isOverviewBar, isTabView } from './lib/projectView';
 import './fonts/bundled.css';
 import './fonts/fiwn.css';
 import './styles/app.css';
@@ -33,12 +34,18 @@ window.addEventListener('contextmenu', (event) => {
 /**
  * The launch splash belongs to launching Bhippi. A project tab (tabs.rs) is opened from inside
  * Bhippi and stays hidden until its project is in, so it has no splash: it starts as the editor,
- * solid, the way the first project is once its splash has gone. The overview's bar is only a bar.
+ * solid, the way the first project is once its splash has gone. The overview's bar is only a bar,
+ * and the window's controls only three buttons.
  */
-if (isTabView || isOverviewBar || isCaptureView) document.documentElement.classList.remove('booting');
+if (isTabView || isOverviewBar || isCaptureView || isControlsView) document.documentElement.classList.remove('booting');
+if (isControlsView) document.documentElement.classList.add('window-controls-view');
 
 createRoot(document.getElementById('root')!).render(
-  isOverviewBar ? (
+  isControlsView ? (
+    <StrictMode>
+      <WindowControls />
+    </StrictMode>
+  ) : isOverviewBar ? (
     <StrictMode>
       <OverviewShell />
     </StrictMode>

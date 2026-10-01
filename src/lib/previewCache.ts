@@ -438,9 +438,10 @@ function roomFor(scene: MotionScene, scale: number, compFrame: number, head: num
 async function keep(r: MotionRenderer, key: string, frame: number, scale: number, began: number, prepared: number): Promise<boolean> {
   const id = FrameStore.id(key, frame);
   const tries = (attempts.get(id) ?? 0) + 1;
-  // A frame whose footage or matte did not arrive (or whose context was lost) is never kept: it
-  // is tried again later, and after a few tries the live render shows that moment instead.
-  if (r.incomplete > 0) { attempts.set(id, tries); return false; }
+  // A frame whose footage or matte did not arrive (or whose context was lost), or that showed a
+  // neighbouring frame in its place, is never kept: it is tried again later, and after a few
+  // tries the live render shows that moment instead.
+  if (r.incomplete > 0 || r.approximate > 0) { attempts.set(id, tries); return false; }
   const canvas = r.canvas;
   let bitmap: ImageBitmap;
   try {

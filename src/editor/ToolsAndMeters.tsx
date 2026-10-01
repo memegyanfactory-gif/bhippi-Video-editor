@@ -6,7 +6,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { MenuList, type MenuItem } from '../components/workspace';
-import { levels, loudness, type MuteState } from '../lib/audio';
+import { levels, loudness, onSound, soundPlaying, type MuteState } from '../lib/audio';
 import type { MeterPrefs, Tool } from '../lib/types';
 
 type ToolDef = { id: Tool | 'remix' | 'mask-object' | 'auto-roto'; label: string; key?: string; icon: ReactNode; disabled?: string };
@@ -251,6 +251,18 @@ function ToolFlyout({ anchor, items, tool, onChoose, onClose }: {
 
 export const DEFAULT_METERS: MeterPrefs = { range: 60, showValleys: false, colorGradient: true, peaks: 'dynamic' };
 
+/**
+ * Whether the meters show their final picture and may stop drawing: nothing plays into the bus,
+ * no channel reads above the floor, and no dynamic peak hold is still waiting to drop (a static
+ * one stays where it is).
+ */
+export function meterSettled(playing: boolean, peak: readonly number[], hold: readonly number[], floor: number, peaks: MeterPrefs['peaks']): boolean {
+  if (playing) return false;
+  const above = (value: number) => Number.isFinite(value) && value > floor;
+  if (peak.some(above)) return false;
+  return peaks !== 'dynamic' || !hold.some(above);
+}
+
 /** Peak meters for everything the editor plays: ballistics, peak hold, valleys, clip lights. */
 export function AudioMeters({ prefs, onPrefs, mutes, onMutes, onClose }: { prefs: MeterPrefs; onPrefs: (prefs: MeterPrefs) => void; mutes: MuteState; onMutes: (mutes: MuteState) => void; onClose?: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -266,9 +278,16 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes, onClose }: { prefs
   const [soloHover, setSoloHover] = useState(-1);
   const hoverRef = useRef(-1);
   hoverRef.current = soloHover;
+  /** Starts the drawing again after it rested (see below). */
+  const wake = useRef<() => void>(() => undefined);
 
+  // The meters draw every display frame while there is anything to show, and rest once nothing
+  // plays and the bars and peak holds have settled: redrawing an unchanging picture on every
+  // display frame kept the page making a new frame 60 times a second while the editor sat idle.
+  // Sound starting, the canvas resizing, or a setting, hover or click changing the picture wakes them.
   useEffect(() => {
     let frame = 0;
+    let resting = false;
     let last = performance.now();
     const shown = [-Infinity, -Infinity];
     const hold = [-Infinity, -Infinity];
@@ -413,12 +432,32 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes, onClose }: { prefs
           const label = mark === floor ? 'dB' : mark === 0 ? '0' : `−${-mark}`;
           ctx.fillText(label, width - 1, Math.min(height - footHeight + 4, Math.max(top + 3, y + 3)));
         }
+        if (meterSettled(soundPlaying(), reading.peak, hold, floor, peaks)) {
+          resting = true;
+          frame = 0;
+          return;
+        }
       }
       frame = requestAnimationFrame(draw);
     };
+    wake.current = () => {
+      if (!resting) return;
+      resting = false;
+      last = performance.now();
+      frame = requestAnimationFrame(draw);
+    };
+    const stopListening = onSound(() => wake.current());
+    const resize = typeof ResizeObserver === 'undefined' || !canvas.current ? null : new ResizeObserver(() => wake.current());
+    if (resize && canvas.current) resize.observe(canvas.current);
     frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      stopListening();
+      resize?.disconnect();
+      wake.current = () => undefined;
+    };
   }, []);
+  useEffect(() => wake.current(), [prefs, mutes.solo, soloHover]);
 
   const set = (patch: Partial<MeterPrefs>) => onPrefs({ ...prefs, ...patch });
   const soloAt = (x: number, y: number) => soloHit.current.findIndex((hit) => hit && y >= hit.top && x >= hit.x - 1 && x <= hit.x + hit.width + 1);
@@ -434,7 +473,7 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes, onClose }: { prefs
         onClick={(event) => {
           const { offsetX, offsetY } = event.nativeEvent;
           // Clicking the clip lights resets them and the peak holds, as in Premiere.
-          if (offsetY < 9) return void reset.current++;
+          if (offsetY < 9) { reset.current++; return wake.current(); }
           // An S button solos its channel in place; Ctrl/Cmd-click solos it alone.
           const channel = soloAt(offsetX, offsetY);
           if (channel < 0) return;
@@ -448,7 +487,7 @@ export function AudioMeters({ prefs, onPrefs, mutes, onMutes, onClose }: { prefs
       <LoudnessReadout />
       {menu && (
         <MenuList anchor={menu} onClose={() => setMenu(null)} items={[
-          { label: 'Reset Indicators', onSelect: () => reset.current++ },
+          { label: 'Reset Indicators', onSelect: () => { reset.current++; wake.current(); } },
           { label: 'Show Valleys', checked: prefs.showValleys, onSelect: () => set({ showValleys: !prefs.showValleys }) },
           { label: 'Show Color Gradient', checked: prefs.colorGradient, onSelect: () => set({ colorGradient: !prefs.colorGradient }) },
           { separator: true },
@@ -485,7 +524,9 @@ function LoudnessReadout() {
     const format = (value: number) => (Number.isFinite(value) && value > -70 ? value.toFixed(1) : '—');
     const timer = window.setInterval(() => {
       const { momentary, shortTerm } = loudness();
-      if (node.current) node.current.textContent = `M ${format(momentary)} · S ${format(shortTerm)} LUFS`;
+      const text = `M ${format(momentary)} · S ${format(shortTerm)} LUFS`;
+      // Rewritten only when it changes: the same text set five times a second relaid the panel each time.
+      if (node.current && node.current.textContent !== text) node.current.textContent = text;
     }, 200);
     return () => window.clearInterval(timer);
   }, []);

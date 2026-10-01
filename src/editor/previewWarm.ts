@@ -5,14 +5,16 @@
 //   only where the pool holds none for that file, so the pool's hand-over rules are untouched.
 // - Stills: decoded (img.decode) so the <img> the Compositor mounts at the cut paints at once.
 // - Roto: the first matte PNGs of the clip (RotoPreview's shared cache).
-// - Motion scenes: their videos, stills and matte frames opened on the live renderer's bank
-//   (only videos no scene on screen is using); their frames come from lib/previewCache.ts.
+// - Motion scenes: their videos, stills, image-sequence and matte frames opened on the live
+//   renderer's bank (only videos no scene on screen is using), those inside a nested comp too;
+//   their frames come from lib/previewCache.ts.
 // What is ready (or still loading) is reported to the preview cache for the Timeline's bar.
 import { primeMedia } from '../lib/mediaPool';
 import { fileSrc } from '../lib/ipc';
 import { previewCache, sceneTimeAt, type WarmSpan } from '../lib/previewCache';
 import { clipEnd, sourceTimeAt, transitionWindow, type AssetMap } from '../lib/timeline';
-import type { Clip, Comp } from '../lib/types';
+import { motionScenesAt } from '../lib/motionStack';
+import type { Clip, Comp, Project } from '../lib/types';
 import { canPreview, mediaSrc } from './Compositor';
 import { warmMotionScene } from './MotionLayer';
 import { prefetchRotoMatte } from './RotoPreview';
@@ -61,9 +63,10 @@ function report() {
 
 /**
  * Warms every clip of `comp` that shows between `time` and `time + WARM_AHEAD`. Cheap to call
- * often: work already started for a clip is not repeated.
+ * often: work already started for a clip is not repeated. With `project`, the motion scenes of a
+ * nested comp coming up are warmed too.
  */
-export function warmAhead(comp: Comp, assets: AssetMap, time: number, enabled = true) {
+export function warmAhead(comp: Comp, assets: AssetMap, time: number, enabled = true, project?: Project) {
   if (!enabled) {
     if (warmed.size) { warmed.clear(); report(); }
     return;
@@ -78,6 +81,13 @@ export function warmAhead(comp: Comp, assets: AssetMap, time: number, enabled = 
     const source = clip.source;
     if (source.type === 'motion') {
       if (appears > time && appears - time < MOTION_AHEAD) warmMotionScene(source.scene, sceneTimeAt(clip, source.scene.duration, appears), assets);
+      continue;
+    }
+    // A nested comp of motion (a film's scenes as layered comps): cold at its cut, its first
+    // frames arrived a few frames late and the picture showed with layers missing.
+    if (source.type === 'comp') {
+      const child = project && appears > time && appears - time < MOTION_AHEAD ? project.comps.find((entry) => entry.id === source.compId) : undefined;
+      if (project && child) for (const shown of motionScenesAt(project, child, Math.max(0, sourceTimeAt(clip, appears)))) warmMotionScene(shown.scene, shown.time, assets);
       continue;
     }
     if (source.type !== 'media') continue;

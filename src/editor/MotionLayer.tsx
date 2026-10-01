@@ -96,16 +96,21 @@ export function MotionLayer({ scene, time, playing, rate, stageW, quality, asset
   const shown = useRef(false);
   /** Whether the canvas shows this very moment whole; if not, a frame the cache fills in redraws it. */
   const whole = useRef(false);
+  /** Whether the last live draw left something out or stood a neighbouring frame in: media arriving redraws it. */
+  const waiting = useRef(false);
   const now = useRef(time);
   now.current = time;
 
-  // Redraw when a frame this clip was waiting for arrives (seek finished, matte loaded).
+  // Redraw when a frame this clip was waiting for arrives (seek finished, matte loaded). Only then:
+  // the bank tells every clip about every frame it loads, the look-ahead ones included, and
+  // redrawing a picture that was already whole re-rendered every motion clip on screen up to
+  // twice more per frame of playback. A font arriving (`everything`) changes any picture.
   useEffect(() => {
     const renderer = previewRenderer(assets);
     if (!renderer) return;
     let queued = false;
-    return renderer.bank.listen(() => {
-      if (queued) return;
+    return renderer.bank.listen((everything) => {
+      if (queued || (!waiting.current && !everything)) return;
       queued = true;
       requestAnimationFrame(() => { queued = false; setTick((n) => n + 1); });
     });
@@ -135,21 +140,25 @@ export function MotionLayer({ scene, time, playing, rate, stageW, quality, asset
     // picture; while parked it stands in until the sharper live render is whole.
     const cached = previewCache.lookup(scene, assets, time, fps);
     whole.current = false;
+    waiting.current = false;
     if (cached?.bitmap) { blit(cached.bitmap, cached.width, cached.height); whole.current = true; }
     const renderer = previewRenderer(assets);
     if (!renderer) { if (sharedError) setError(sharedError); return; }
     const live = () => {
       try {
         renderer.draw(scene, time, { scale, fps, motionBlur: !playing || quality >= 0.75 });
+        waiting.current = renderer.incomplete > 0 || renderer.approximate > 0;
         // Footage or a matte frame still loading: keep the whole picture already on screen (the
         // cached frame, or the last live one) rather than flash one with layers missing.
         if (renderer.incomplete > 0 && shown.current) return;
         const source = renderer.canvas;
         blit(source as CanvasImageSource, source.width, source.height);
         if (renderer.incomplete > 0) shown.current = false;
-        else whole.current = true;
+        else if (!renderer.approximate) whole.current = true;
         if (error) setError(null);
       } catch (failure) {
+        // Tried again when media arrives, as a picture still loading is.
+        waiting.current = true;
         setError(failure instanceof Error ? failure.message : String(failure));
       }
     };

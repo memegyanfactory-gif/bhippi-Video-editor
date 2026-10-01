@@ -3798,9 +3798,27 @@ fn open_maximized(window: &tauri::WebviewWindow) {
     let _ignored = window.show();
 }
 
+/// When `setup` ran: the launch timeline in the log counts from it.
+static LAUNCH_STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+/// The launch splash is over (`end_splash` ran once; the fallback then has nothing to do).
+static SPLASH_ENDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn since_launch_ms() -> u64 {
+    LAUNCH_STARTED.get().map_or(0, |started| u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))
+}
+
 /// The splash has grown to fill the window: it takes the pointer and becomes opaque again (a
 /// transparent background would show the desktop at the edges while the window is resized).
-fn end_splash(window: &tauri::Window) {
+/// `by` says who ended it, for the log. Only the first call does anything.
+fn end_splash(window: &tauri::Window, by: &str) {
+    if SPLASH_ENDED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    if by == "fallback" {
+        tracing::warn!(ms = since_launch_ms(), "the page never said its launch splash was done; the window takes the pointer back anyway");
+    } else {
+        tracing::info!(ms = since_launch_ms(), by, "launch splash done: the window takes the pointer");
+    }
     let _ignored = window.set_ignore_cursor_events(false);
     let _ignored = window.set_background_color(Some(tauri::window::Color(11, 11, 15, 255)));
     // The colour never shows through a see-through window: a dark backdrop does (window_backdrop.rs).
@@ -3809,6 +3827,9 @@ fn end_splash(window: &tauri::Window) {
     // while it was busy asks for the logo once more (window_icon.rs).
     #[cfg(windows)]
     window_icon::refresh(window);
+    // The window's minimize, maximize and close get a webview of their own, and the projects
+    // restored from last time start opening a few seconds later (tabs.rs).
+    tabs::launched(window.app_handle());
 }
 
 /// The launch splash is done: the window takes the pointer back. It takes the calling webview,
@@ -3817,7 +3838,7 @@ fn end_splash(window: &tauri::Window) {
 /// through to the desktop until the 45 s fallback.
 #[tauri::command]
 fn splash_done(webview: tauri::Webview) {
-    end_splash(&webview.window());
+    end_splash(&webview.window(), webview.label());
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -3830,25 +3851,32 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     for window in app.webview_windows().values() {
         window_icon::install(&window.as_ref().window());
     }
+    let _ignored = LAUNCH_STARTED.set(std::time::Instant::now());
     if let Some(window) = app.get_webview_window("main") {
-        // Why Bhippi closed, in its log: the window being asked to close is the close button,
-        // Alt+F4 or the taskbar's Close (each project then saves and the app quits).
-        window.on_window_event(|event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                tracing::info!("the window was asked to close (close button, Alt+F4 or the taskbar)");
+        // The window being asked to close is Alt+F4, the taskbar's Close or File › Exit: Bhippi
+        // quits as its close button does (each project saves or asks, then the app goes). Rust
+        // starts it, not a page's own close listener, so it works while every page is busy.
+        let closing = app.handle().clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                tracing::info!("the window was asked to close (Alt+F4, the taskbar or File › Exit)");
+                api.prevent_close();
+                tabs::close_requested(&closing);
             }
         });
+        // The launch splash (src/boot/BootSplash.tsx) is a small card on this see-through window;
+        // the desktop around it stays clickable until splash_done. Set before the window shows,
+        // so not even its first frames catch a click meant for the desktop. A page that never gets
+        // that far still gets the pointer and an opaque background back.
+        let _ignored = window.set_ignore_cursor_events(true);
         open_maximized(&window);
         // Project tabs add webviews to this window; its frameless edges stay resizable (tabs.rs).
         tabs::window_ready(&window.as_ref().window());
-        // The launch splash (src/boot/BootSplash.tsx) is a small card on this see-through window;
-        // the desktop around it stays clickable until splash_done. A page that never gets that far
-        // still gets the pointer and an opaque background back.
-        let _ignored = window.set_ignore_cursor_events(true);
+        tracing::info!(ms = since_launch_ms(), "window shown with the launch splash");
         let fallback = window.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(45));
-            end_splash(&fallback.as_ref().window());
+            end_splash(&fallback.as_ref().window(), "fallback");
         });
         // A launch slow enough that the taskbar gave up on the icon before the splash ended gets it
         // again a few seconds in, whatever the page is doing.
@@ -4135,6 +4163,8 @@ pub fn run() {
             tabs::tab_find_file,
             tabs::tab_close,
             tabs::tab_close_answer,
+            tabs::tab_close_heard,
+            tabs::window_control,
             tabs::app_quit,
             tabs::overview_set,
             tabs::overview_drag,

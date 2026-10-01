@@ -14,7 +14,7 @@
 // `frame`. Everything lives in the clip's scene JSON, so the project format does not change.
 import { uid } from './editor';
 import { valueAt } from './keyframes';
-import { clipEnd, compDuration, newClip, newComp, newTrack, tracksOf } from './timeline';
+import { clipEnd, compDuration, newClip, newComp, newTrack, sourceTimeAt, tracksOf } from './timeline';
 import type { Clip, Comp, Easing, Keyframe, LabelColor, Project } from './types';
 import type { Ease, Key, Layer, MotionScene, Prop, Vec } from '../motion/types';
 
@@ -574,6 +574,32 @@ function standalone(project: Project, clip: LayerClip, visiting: Set<string>): A
   const entry = { deps, scene, lossy: [...new Set(lossy)] };
   standaloneCache.set(clip, entry);
   return entry;
+}
+
+/**
+ * The motion pictures `comp` draws at comp time `at`, as the Program monitor draws them: each
+ * fused layer stack, each motion clip drawing on its own, and those of the nested comps on screen
+ * then, each with the scene time it shows. What the media warm-up readies before a cut.
+ */
+export function motionScenesAt(project: Project, comp: Comp, at: number, depth = 0, out: { scene: MotionScene; time: number }[] = []): { scene: MotionScene; time: number }[] {
+  if (depth > 6) return out;
+  const hidden = new Set(comp.tracks.filter((track) => track.hidden || track.kind !== 'video').map((track) => track.id));
+  const groups = stackGroups(project, comp);
+  const grouped = new Set(groups.flatMap((group) => group.clips.map((clip) => clip.id)));
+  // A stack's scene runs on comp time (StackLayer in the Compositor).
+  for (const group of groups) if (at >= group.start && at < group.end) out.push({ scene: group.scene, time: Math.max(0, Math.min(group.scene.duration - 1e-3, at)) });
+  for (const clip of comp.clips) {
+    if (!clip.enabled || clip.adjustment || hidden.has(clip.trackId) || grouped.has(clip.id) || at < clip.start || at >= clipEnd(clip)) continue;
+    if (clip.source.type === 'motion') {
+      const scene = standaloneScene(project, clip) ?? clip.source.scene;
+      out.push({ scene, time: Math.max(0, Math.min(scene.duration - 1e-3, sourceTimeAt(clip, Math.min(at, clipEnd(clip) - 1e-3)))) });
+    } else if (clip.source.type === 'comp') {
+      const id = clip.source.compId;
+      const child = project.comps.find((entry) => entry.id === id);
+      if (child) motionScenesAt(project, child, Math.max(0, sourceTimeAt(clip, at)), depth + 1, out);
+    }
+  }
+  return out;
 }
 
 /** The fused group a clip draws in, if any. */

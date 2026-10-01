@@ -440,7 +440,11 @@ export const api = {
   tabFindFile: (path: string) => invoke<string | null>('tab_find_file', { path }),
   tabClose: (id: string) => invoke<boolean>('tab_close', { id }),
   tabCloseAnswer: (ok: boolean) => invoke<void>('tab_close_answer', { ok }),
+  /** This page heard a close request or the quit summary; a page that does not say so in a few seconds is stuck. */
+  tabCloseHeard: () => invoke<void>('tab_close_heard'),
   appQuit: () => invoke<boolean>('app_quit'),
+  /** The window's own controls (components/WindowControls.tsx): close quits as appQuit does. */
+  windowControl: (action: 'minimize' | 'maximize' | 'close') => invoke<void>('window_control', { action }),
   /** The answer to the quit summary shown when several projects are open. */
   appQuitChoice: (choice: 'save' | 'discard' | 'cancel') => invoke<void>('app_quit_choice', { choice }),
   /** A tile dragged by its bar in the overview: the pointer in this page; `drop` ends the drag. */

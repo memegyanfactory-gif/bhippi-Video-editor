@@ -1,6 +1,7 @@
 // Which view of Bhippi this page is. Every open project is a webview of its own inside Bhippi's
 // one window (src-tauri/src/tabs.rs): the first is "main", every other project tab is
-// "tab-<id>", and the overview's bar across the top is "overview". The window's label is "main"
+// "tab-<id>", the overview's bar across the top is "overview", and the window's minimize, maximize
+// and close over the top right corner are "controls-<n>". The window's label is "main"
 // for all of them, so a page tells itself apart by its webview's label.
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 
@@ -24,6 +25,18 @@ export const isTabView = ownLabel.startsWith('tab-');
 export const isCaptureView = (() => {
   try {
     return new URLSearchParams(window.location.search).get('capture') === '1';
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * The window's minimize, maximize and close, a small page laid over the menu bar's buttons
+ * (tabs.rs loads it with ?view=controls; components/WindowControls.tsx).
+ */
+export const isControlsView = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('view') === 'controls';
   } catch {
     return false;
   }
