@@ -260,7 +260,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "bhippi"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "bhippi-kokoro"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "libloading 0.8.9",
  "serde",
@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "bhippi-providers"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
