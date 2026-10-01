@@ -496,6 +496,7 @@ async fn quit(app: &AppHandle, state: &AppState) -> Result<bool, String> {
     if QUITTING.swap(true, Ordering::SeqCst) {
         return Ok(false);
     }
+    tracing::info!("quitting: every project is asked to save and close");
     // The one on screen first, so a question about it comes before any about the others.
     let mut order = state.sessions.ids();
     if let Some(active) = state.sessions.active() {
@@ -537,6 +538,7 @@ async fn quit(app: &AppHandle, state: &AppState) -> Result<bool, String> {
     }
     // A moment for the told ones to mark their close clean, then Bhippi goes.
     tokio::time::sleep(Duration::from_millis(250)).await;
+    tracing::info!("quit: every project closed cleanly");
     app.exit(0);
     Ok(true)
 }

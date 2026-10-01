@@ -3831,6 +3831,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         window_icon::install(&window.as_ref().window());
     }
     if let Some(window) = app.get_webview_window("main") {
+        // Why Bhippi closed, in its log: the window being asked to close is the close button,
+        // Alt+F4 or the taskbar's Close (each project then saves and the app quits).
+        window.on_window_event(|event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                tracing::info!("the window was asked to close (close button, Alt+F4 or the taskbar)");
+            }
+        });
         open_maximized(&window);
         // Project tabs add webviews to this window; its frameless edges stay resizable (tabs.rs).
         tabs::window_ready(&window.as_ref().window());

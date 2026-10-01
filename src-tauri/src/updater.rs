@@ -491,6 +491,7 @@ pub fn update_install(app: AppHandle, path: String) -> CommandResult<()> {
     // Started by its name in the updates folder: the file that was checked, as a plain path the
     // installer is happy to see as its own (not the `\\?\` form canonicalize gives).
     std::process::Command::new(dir.join(&name)).args(["/S", "/UPDATE", "/R"]).spawn().map_err(|error| format!("Couldn’t start the installer: {error}"))?;
+    tracing::info!(installer = %name, "closing for the update installer");
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(600)).await;
         app.exit(0);
