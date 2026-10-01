@@ -1,6 +1,6 @@
 # Bhippi Video Editor
 
-Version 1.0.11
+Version 1.0.12
 
 Bhippi Video Editor is a desktop video editor with an AI producer built in. Bhippi looks and cuts like a professional NLE (multi-track timeline, ripple and roll edits, keyframes, nested comps, audio meters) and ships with a co-pilot that plans, gathers, edits and polishes a video through real tools on your timeline. Everything runs on your machine: the models, the media, the render.
 
