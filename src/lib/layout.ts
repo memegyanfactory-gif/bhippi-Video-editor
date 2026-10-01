@@ -299,3 +299,75 @@ export function subjectBox(track: SubjectTrack, from: number, to: number, pad = 
 /** A frame that knows where the speaker is, ready to be placed into. */
 export const frameWithSubject = (frame: Frame, track: SubjectTrack, from: number, to: number, behind = false) =>
   new Occupancy(frame, subjectBox(track, from, to), behind);
+
+// ── panels: a scene's pictures laid out so none sits on another ──
+
+export type PanelArrangement = 'row' | 'column' | 'grid' | 'feature';
+
+/**
+ * Boxes for `aspects.length` panels (width / height each) inside `area`, in order, `gap` apart,
+ * each keeping its own shape so no picture is cropped or stretched:
+ * - row: one justified row, every panel the same height;
+ * - column: one stack, every panel the same width;
+ * - grid: equal cells, each panel fitted and centred in its own;
+ * - feature: the first panel large on the left, the rest stacked on the right.
+ * No two boxes overlap, and every box sits inside `area`.
+ */
+export function panelSlots(aspects: number[], area: Box, arrangement: PanelArrangement, gap: number): Box[] {
+  const n = aspects.length;
+  if (!n) return [];
+  const safe = aspects.map((a) => (Number.isFinite(a) && a > 0 ? a : 1));
+  const centred = (boxes: Box[]): Box[] => {
+    const x0 = Math.min(...boxes.map((b) => b.x));
+    const y0 = Math.min(...boxes.map((b) => b.y));
+    const x1 = Math.max(...boxes.map((b) => b.x + b.width));
+    const y1 = Math.max(...boxes.map((b) => b.y + b.height));
+    const dx = area.x + (area.width - (x1 - x0)) / 2 - x0;
+    const dy = area.y + (area.height - (y1 - y0)) / 2 - y0;
+    return boxes.map((b) => ({ x: b.x + dx, y: b.y + dy, width: b.width, height: b.height }));
+  };
+  const fit = (aspect: number, cell: Box): Box => {
+    const width = Math.min(cell.width, cell.height * aspect);
+    const height = width / aspect;
+    return { x: cell.x + (cell.width - width) / 2, y: cell.y + (cell.height - height) / 2, width, height };
+  };
+  if (n === 1) return [fit(safe[0], area)];
+  switch (arrangement) {
+    case 'row': {
+      const height = Math.min(area.height, (area.width - gap * (n - 1)) / safe.reduce((sum, a) => sum + a, 0));
+      let x = area.x;
+      return centred(safe.map((a) => {
+        const box = { x, y: area.y, width: height * a, height };
+        x += box.width + gap;
+        return box;
+      }));
+    }
+    case 'column': {
+      const width = Math.min(area.width, (area.height - gap * (n - 1)) / safe.reduce((sum, a) => sum + 1 / a, 0));
+      let y = area.y;
+      return centred(safe.map((a) => {
+        const box = { x: area.x, y, width, height: width / a };
+        y += box.height + gap;
+        return box;
+      }));
+    }
+    case 'grid': {
+      const columns = Math.ceil(Math.sqrt(n));
+      const rows = Math.ceil(n / columns);
+      const cell = { width: (area.width - gap * (columns - 1)) / columns, height: (area.height - gap * (rows - 1)) / rows };
+      return safe.map((a, i) => fit(a, { x: area.x + (i % columns) * (cell.width + gap), y: area.y + Math.floor(i / columns) * (cell.height + gap), ...cell }));
+    }
+    case 'feature': {
+      const left = { x: area.x, y: area.y, width: (area.width - gap) * 0.62, height: area.height };
+      const right = { x: left.x + left.width + gap, y: area.y, width: area.width - left.width - gap, height: area.height };
+      return [fit(safe[0], left), ...panelSlots(safe.slice(1), right, 'column', gap)];
+    }
+  }
+}
+
+/** The arrangement that keeps the smallest panel largest: the one where every picture reads best. */
+export function bestArrangement(aspects: number[], area: Box, gap: number): PanelArrangement {
+  const options: PanelArrangement[] = aspects.length >= 3 ? ['row', 'column', 'grid', 'feature'] : ['row', 'column'];
+  const smallest = (arrangement: PanelArrangement) => Math.min(...panelSlots(aspects, area, arrangement, gap).map((b) => b.width * b.height));
+  return options.reduce((best, option) => (smallest(option) > smallest(best) * 1.02 ? option : best));
+}

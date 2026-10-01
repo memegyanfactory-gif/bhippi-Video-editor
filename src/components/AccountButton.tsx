@@ -5,6 +5,7 @@ import { Ban, BadgeCheck, ChevronRight, Code2, FlaskConical, KeyRound, LoaderCir
 import { useEffect, useId, useRef, useState } from 'react';
 import { Avatar } from '../license/LicenseGate';
 import { KIND_LABEL, licenseStore, useLicense } from '../license/licenseStore';
+import { sidePlacement } from './sidePopover';
 
 type Tier = { label: string; kind: string; note: string };
 
@@ -24,7 +25,11 @@ function tiers(snapshot: ReturnType<typeof useLicense>): Tier[] {
   return out;
 }
 
-export function AccountButton({ onDetails }: { onDetails: () => void }) {
+/**
+ * The profile button: in the title bar, the picture alone; at the foot of the projects panel
+ * (`side`), the picture with the name beside it (`showLabel`), its panel opening to the right.
+ */
+export function AccountButton({ onDetails, side = false, showLabel = false }: { onDetails: () => void; side?: boolean; showLabel?: boolean }) {
   const snapshot = useLicense();
   const { status } = snapshot;
   const user = status?.account?.user;
@@ -78,7 +83,7 @@ export function AccountButton({ onDetails }: { onDetails: () => void }) {
       <button
         type="button"
         ref={button}
-        className={`header-avatar${open ? ' open' : ''}`}
+        className={side ? `prail-action prail-foot-btn prail-account${showLabel ? '' : ' icon-only'}${open ? ' open' : ''}` : `header-avatar${open ? ' open' : ''}`}
         onClick={() => {
           if (!open) void licenseStore.refresh().catch(() => undefined);
           setOpen(!open);
@@ -87,11 +92,13 @@ export function AccountButton({ onDetails }: { onDetails: () => void }) {
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         title={open ? undefined : name}
+        aria-label={`Profile: ${name}`}
       >
         {face}
+        {side && showLabel && <span className="prail-foot-label">{signedIn && user ? user.name ?? user.email : 'Profile'}</span>}
       </button>
       {open && (
-        <div className="upd-pop acct-pop" role="dialog" aria-label="Account" id={panelId}>
+        <div className="upd-pop acct-pop" role="dialog" aria-label="Account" id={panelId} style={side ? sidePlacement(button.current) : undefined}>
           <div className="acct-head">
             <span className="acct-face">
               {user ? <Avatar picture={user.picture} name={name} size={56} /> : <span className="account-avatar account-avatar-letter" style={{ width: 56, height: 56 }}>{license ? <KeyRound size={22} /> : <User size={24} />}</span>}

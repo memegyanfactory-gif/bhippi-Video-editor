@@ -8,7 +8,7 @@
 // guessing Bhippi's DOM, and a key made from the session lets a capture be reused (the part library).
 import { demoGaps, demoStandIn } from './demoProject';
 import { api, fetchFile } from './ipc';
-import type { Asset, Project } from './types';
+import type { Asset, Project, TabsState } from './types';
 
 export type CaptureStep =
   | { do: 'click' | 'hover'; selector: string }
@@ -22,6 +22,9 @@ export type CaptureStep =
 export type CapturedPart = { part: string; state: string; file: string; boxCss: [number, number, number, number]; pixels: [number, number]; typed?: string };
 export type CaptureManifest = { key: string | null; url: string; width: number; height: number; scale: number; parts: CapturedPart[]; issues: string[]; dir: string };
 export type CaptureRequest = { url?: string; name: string; width?: number; height?: number; scale?: number; standin?: string; ready?: string; transparent?: boolean; key?: string; steps: CaptureStep[] };
+
+/** The chat panel's width in a capture of Bhippi: wide enough that every composer pill reads whole. */
+export const CAPTURE_CHAT_WIDTH = 560;
 
 /** Bhippi's own parts by name: a step's selector "@composer" means the real composer. */
 export const BHIPPI_PARTS: Record<string, string> = {
@@ -107,7 +110,7 @@ export function captureKey(request: Omit<CaptureRequest, 'standin' | 'key'>, ver
 export function standinSource(answers: Record<string, unknown>): string {
   return `(() => {
   const answers = ${JSON.stringify(answers)};
-  const lists = /_list$|_load$|s_cached$|_scan$|_docs$|^library_missing$|^trace_list$|^mcp_servers$|^refs_list$|^project_backups$|^chat_active_turns$|^effort_levels$|^service_keys$|^transcribe_engines$|^plugin_draft_list$/;
+  const lists = /_list$|_load$|s_cached$|_scan$|_docs$|^library_missing$|^trace_list$|^mcp_servers$|^refs_list$|^project_backups$|^chat_active_turns$|_exist$|^effort_levels$|^service_keys$|^transcribe_engines$|^plugin_draft_list$/;
   const callbacks = new Map();
   let nextCallback = 1;
   const listeners = new Map();
@@ -160,8 +163,11 @@ export async function bhippiAnswers(project: Project, assets: Asset[], options: 
   ]);
   const shown = options.demo ? demoStandIn(project, assets, pack ?? [], providers ?? []) : { project, assets, chat: [], filled: [], poster: null };
   options.filled?.(shown.filled);
-  // Onboarding, the tour and updates would cover the interface being filmed.
-  const calm = settings ? { ...settings, onboarded: true, tour: false, tourSeen: true, autoUpdate: false } : null;
+  // Onboarding, the tour and updates would cover the interface being filmed. The chat panel gets
+  // room for its pills: in a narrow one Bhippi shortens "Full access" to "Full a", and no camera
+  // brings those letters back.
+  const roomy = settings?.layout ? { ...settings.layout, chatWidth: Math.max(CAPTURE_CHAT_WIDTH, settings.layout.chatWidth ?? 0) } : settings?.layout;
+  const calm = settings ? { ...settings, onboarded: true, tour: false, tourSeen: true, autoUpdate: false, ...(roomy ? { layout: roomy } : {}) } : null;
   return {
     settings_get: calm,
     settings_save: calm,
@@ -174,9 +180,17 @@ export async function bhippiAnswers(project: Project, assets: Asset[], options: 
     ...(shown.poster ? { comp_poster: shown.poster } : {}),
     storage_info: storage,
     update_status: { state: 'idle' },
+    // One project tab, this one: the stand-in's "lists are empty" rule would answer tabs_list
+    // with an array, and the project bar crashed on it, so a capture filmed the error screen.
+    tabs_list: captureTabs(shown.project.name),
     startup_file: null,
     support_outbox_count: 0,
   };
+}
+
+/** The project tabs a capture shows: the one project being filmed. */
+export function captureTabs(name: string): TabsState {
+  return { tabs: [{ id: 'main', name, projectPath: null, dirty: false, busy: false, open: true, loading: false }], active: 'main', own: 'main', overview: false, max: 8 };
 }
 
 /** A session name as its folder under AI Work/ui-parts, the way app_capture.rs `slug` makes it. */
@@ -220,4 +234,136 @@ export function sheetParts(manifest: CaptureManifest, limit = 24): CapturedPart[
   }
   const kept = picked.slice(0, limit);
   return Array.from({ length: Math.ceil(kept.length / 6) }, (_, i) => kept.slice(i * 6, i * 6 + 6));
+}
+
+// ── record_app_scene: the app moving, as video (app_record.rs) ──
+
+/** One timed action of a recording; `at` and `until` are seconds from its start. */
+export type RecordAction =
+  | { do: 'click' | 'hover'; at: number; selector: string }
+  | { do: 'type'; at: number; selector?: string; text: string; until?: number }
+  | { do: 'key'; at: number; key: string }
+  | { do: 'drag'; at: number; selector: string; to: string | [number, number]; until: number }
+  | { do: 'scroll'; at: number; selector: string; by: number; until?: number }
+  | { do: 'eval'; at: number; js: string };
+export type RecordRequest = { url?: string; name: string; width?: number; height?: number; scale?: number; fps?: number; duration: number; standin?: string; ready?: string; key?: string; actions: RecordAction[]; parts: { part: string; selector: string }[] };
+export type RecordedEvent = { t: number; kind: string; selector: string; point: [number, number]; to?: [number, number]; until?: number };
+export type Recording = {
+  key: string | null; name: string; url: string; width: number; height: number; scale: number; fps: number; duration: number;
+  video: string; poster: string; frames: number; unique: number;
+  parts: Record<string, { t: number; box: [number, number, number, number] }[]>;
+  events: RecordedEvent[]; issues: string[]; dir: string;
+};
+
+/**
+ * The actions a model gave, checked and resolved like a capture's steps: `@timeline`-style names
+ * become Bhippi's selectors, times are seconds, and every problem comes back with its fix.
+ */
+export function parseRecordActions(raw: unknown, duration: number): { actions: RecordAction[]; problems: string[] } {
+  const actions: RecordAction[] = [];
+  const problems: string[] = [];
+  const list = Array.isArray(raw) ? raw : [];
+  list.slice(0, 400).forEach((entry, index) => {
+    const step = (entry ?? {}) as Record<string, unknown>;
+    const text = (key: string) => (typeof step[key] === 'string' ? (step[key] as string) : '');
+    const time = (key: string) => (typeof step[key] === 'number' && Number.isFinite(step[key]) ? (step[key] as number) : null);
+    const where = `action ${index + 1}`;
+    const at = time('at');
+    if (at === null || at < 0) { problems.push(`${where}: needs at (seconds from the start)`); return; }
+    if (at > duration) { problems.push(`${where}: at ${at} s is after the recording ends (${duration} s)`); return; }
+    const selector = text('selector') ? resolveSelector(text('selector')) : '';
+    switch (step.do) {
+      case 'click':
+      case 'hover':
+        if (!selector) problems.push(`${where}: ${step.do} needs a selector`);
+        else actions.push({ do: step.do, at, selector });
+        break;
+      case 'type': {
+        if (!text('text')) { problems.push(`${where}: type needs text`); break; }
+        const until = time('until');
+        if (until !== null && until <= at) { problems.push(`${where}: until must come after at`); break; }
+        actions.push({ do: 'type', at, text: text('text').slice(0, 400), ...(selector ? { selector } : {}), ...(until !== null ? { until } : {}) });
+        break;
+      }
+      case 'key':
+        if (!text('key')) problems.push(`${where}: key needs a key name (Enter, Escape, Tab…)`);
+        else actions.push({ do: 'key', at, key: text('key') });
+        break;
+      case 'drag': {
+        const until = time('until');
+        const to = Array.isArray(step.to) && step.to.length === 2 && step.to.every((v) => typeof v === 'number') ? (step.to as [number, number]) : typeof step.to === 'string' && step.to ? resolveSelector(step.to) : null;
+        if (!selector || to === null || until === null || until <= at) problems.push(`${where}: drag needs a selector, to (a selector or [dx, dy] in CSS px) and an until after at`);
+        else actions.push({ do: 'drag', at, selector, to, until });
+        break;
+      }
+      case 'scroll': {
+        const by = time('by');
+        const until = time('until');
+        if (!selector || by === null) problems.push(`${where}: scroll needs a selector and by (CSS px, + is down)`);
+        else actions.push({ do: 'scroll', at, selector, by, ...(until !== null && until > at ? { until } : {}) });
+        break;
+      }
+      case 'eval':
+        if (!text('js')) problems.push(`${where}: eval needs js`);
+        else actions.push({ do: 'eval', at, js: text('js') });
+        break;
+      default:
+        problems.push(`${where}: "${String(step.do)}" is not an action (click, hover, type, key, drag, scroll, eval)`);
+    }
+  });
+  return { actions, problems };
+}
+
+/**
+ * The parts a recording measures over time: the ones asked for, and for Bhippi every named part,
+ * so the camera can frame any of them afterwards.
+ */
+export function recordParts(raw: unknown, bhippi: boolean): { part: string; selector: string }[] {
+  const asked = (Array.isArray(raw) ? raw : []).flatMap((entry) => {
+    const part = (entry ?? {}) as Record<string, unknown>;
+    return typeof part.part === 'string' && typeof part.selector === 'string' && part.part && part.selector ? [{ part: part.part, selector: resolveSelector(part.selector) }] : [];
+  });
+  const named = bhippi ? Object.entries(BHIPPI_PARTS).filter(([part]) => !asked.some((a) => a.part === part)).map(([part, selector]) => ({ part, selector })) : [];
+  return [...asked, ...named].slice(0, 40);
+}
+
+/** A recording's key: the same actions on the same app version are recorded once. */
+export function recordKey(request: Omit<RecordRequest, 'standin' | 'key'>, version: string, demo = false): string {
+  const text = JSON.stringify([version, 'record', request.url ?? 'bhippi', request.width ?? 1920, request.height ?? 1080, request.scale ?? 2, request.fps ?? 30, request.duration, request.actions, request.parts, ...(demo ? ['demo'] : [])]);
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/** A recording by name (its folder in AI Work/recordings), its folder, or its recording.json. */
+export async function loadRecording(ref: string): Promise<Recording> {
+  let path = ref.trim();
+  if (!/[\\/]/.test(path)) {
+    const info = await api.storageInfo();
+    const aiWork = info.categories.find((category) => category.id === 'ai-work')?.path;
+    if (!aiWork) throw new Error('The project has no AI Work folder yet: run record_app_scene first.');
+    const sep = aiWork.includes('\\') ? '\\' : '/';
+    path = [aiWork.replace(/[\\/]+$/, ''), 'recordings', captureFolder(path), 'recording.json'].join(sep);
+  } else if (!/\.json$/i.test(path)) path = `${path.replace(/[\\/]+$/, '')}${path.includes('\\') ? '\\' : '/'}recording.json`;
+  let recording: Recording;
+  try {
+    recording = (await (await fetchFile(path)).json()) as Recording;
+  } catch {
+    throw new Error(`No recording at ${path}: run record_app_scene with that name first (or give the recording.json path).`);
+  }
+  if (!recording || typeof recording.video !== 'string') throw new Error(`${path} is not a recording.`);
+  return recording;
+}
+
+/** A few moments of a recording worth looking at: the start, just after each action, the end. */
+export function recordingMoments(recording: Pick<Recording, 'duration' | 'events' | 'fps'>, limit = 6): number[] {
+  const step = 1 / (recording.fps || 30);
+  const last = Math.max(0, recording.duration - step);
+  const wanted = [0, ...recording.events.map((event) => Math.min(last, (event.until ?? event.t) + 0.35)), last];
+  const unique = [...new Set(wanted.map((t) => Math.max(0, Math.round(t * 100) / 100)))].sort((a, b) => a - b);
+  if (unique.length <= limit) return unique;
+  return Array.from({ length: limit }, (_, i) => unique[Math.round((i * (unique.length - 1)) / (limit - 1))]);
 }

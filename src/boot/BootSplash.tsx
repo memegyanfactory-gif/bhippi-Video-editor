@@ -3,7 +3,6 @@
 // index.html), so only the card shows. It reports each check in its corner as it finishes, then its
 // ending (splashArt.ts) grows the card to fill the window and opens onto the editor, or onto the
 // sign-in gate when the license needs attention.
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/ipc';
@@ -22,17 +21,6 @@ const VERSION = appPackage.version;
 
 /** Long enough for the artwork to draw itself in, on the fastest launch. */
 const MIN_SHOWN_MS = 2300;
-/**
- * A project tab's window (tabs.rs) is opened from inside Bhippi, not launched: its card leaves as
- * soon as the project is in, rather than holding for the launch's reading time.
- */
-const TAB_WINDOW = (() => {
-  try {
-    return getCurrentWindow().label !== 'main';
-  } catch {
-    return false;
-  }
-})();
 /** A launch that never reports ready still opens. */
 const GIVE_UP_MS = 25000;
 /** How long each status line stays before the next replaces it. */
@@ -111,10 +99,10 @@ export function BootSplash() {
   // Ready: the license answered and, when it lets the editor open, the editor has loaded.
   const unlocked = license.status?.state === 'active' || (license.devBypass && license.status?.devBypassAllowed === true);
   const ready = gaveUp || (boot.licenseSettled && (!unlocked || boot.appReady));
-  const caughtUp = TAB_WINDOW || shown >= lastLine;
+  const caughtUp = shown >= lastLine;
   useEffect(() => {
     if (phase !== 'idle' || !ready || (!caughtUp && !gaveUp)) return;
-    const wait = TAB_WINDOW ? 0 : Math.max(220, MIN_SHOWN_MS - (performance.now() - mountedAt.current));
+    const wait = Math.max(220, MIN_SHOWN_MS - (performance.now() - mountedAt.current));
     const timer = window.setTimeout(() => {
       setPhase('leaving');
       art.current?.finish();

@@ -6,7 +6,9 @@ import { turnPrompt } from './lib/turnPrompts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { CircleCheck, Film, LoaderCircle, MessageSquare, Mic, Puzzle, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
+import { CircleCheck, Film, LoaderCircle, MessageSquare, Mic, Puzzle, Settings as SettingsIcon, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
+import { AccountButton } from './components/AccountButton';
+import { UpdateButton } from './components/UpdateButton';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { actionLogger } from './lib/actionLogger';
 import { crashReporter } from './lib/crashReporter';
@@ -28,6 +30,12 @@ import { StoryboardViewer } from './chat/StoryboardViewer';
 import { steer } from './chat/steer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ProjectTabs, tabName } from './components/ProjectTabs';
+import { isCaptureView, isTabView, ownLabel } from './lib/projectView';
+import { packShellMenus, SHELL_ASK_EVENT, SHELL_INVOKE_EVENT, SHELL_MENUS_EVENT } from './lib/shellMenus';
+import { emit, emitTo, listen } from '@tauri-apps/api/event';
+
+/** A project started playing (payload: its webview label): every other project stops. */
+const PLAYBACK_EVENT = 'bhippi://playback';
 import { ResourceMonitor } from './components/ResourceMonitor';
 import { GenerationJobsMenu } from './components/GenerationJobsMenu';
 import { htmlClipsForExport } from './lib/htmlFrames';
@@ -272,15 +280,9 @@ const overTimeline = (x: number, y: number) => [...document.querySelectorAll<HTM
  * run of that window ended in a crash. One per window (a project tab's label is its own), since
  * every window shares this storage: a tab opening while the others run is not a crash.
  */
-const RUNNING_KEY = (() => {
-  let label = 'main';
-  try {
-    label = getCurrentWindow().label;
-  } catch {
-    // Outside the app (tests): one key.
-  }
-  return label === 'main' ? 'bhippi.session.running' : `bhippi.session.running.${label}`;
-})();
+const RUNNING_KEY = ownLabel === 'main' ? 'bhippi.session.running' : `bhippi.session.running.${ownLabel}`;
+// The reference steering this project's AI: each project its own (the projects share one storage).
+const REFERENCE_KEY = ownLabel === 'main' ? 'bhippi.activeReference' : `bhippi.activeReference.${ownLabel}`;
 function endedUncleanly(): boolean {
   try {
     return localStorage.getItem(RUNNING_KEY) === 'true';
@@ -382,13 +384,13 @@ export default function App() {
   // working from the same reading of the film the editor is.
   // Remembered across restarts: a reference the user chose keeps steering until they clear it.
   const [referenceId, setReferenceIdState] = useState<string | null>(() => {
-    try { return localStorage.getItem('bhippi.activeReference'); } catch { return null; }
+    try { return localStorage.getItem(REFERENCE_KEY); } catch { return null; }
   });
   const setReferenceId = useCallback((id: string | null) => {
     setReferenceIdState(id);
     try {
-      if (id) localStorage.setItem('bhippi.activeReference', id);
-      else localStorage.removeItem('bhippi.activeReference');
+      if (id) localStorage.setItem(REFERENCE_KEY, id);
+      else localStorage.removeItem(REFERENCE_KEY);
     } catch {
       // Storage blocked: the reference still applies for this session.
     }
@@ -431,14 +433,23 @@ export default function App() {
   const [binSelection, setBinSelection] = useState<string[]>([]);
   const [binFolder, setBinFolder] = useState<string | null>(null);
   // Bhippi opens on Home, with the recent projects to pick from; opening one goes to the editor.
-  // Bhippi opens on Home; a project tab's window (tabs.rs) opens on its project.
-  const [mode, setMode] = useState<Mode>(() => (getCurrentWindow().label === 'main' ? 'home' : 'edit'));
+  // Bhippi opens on Home; a project tab's window (tabs.rs) opens on its project, and so does a
+  // capture of Bhippi itself (app_capture.rs), which films the editor.
+  const [mode, setMode] = useState<Mode>(isTabView || isCaptureView ? 'edit' : 'home');
   /** The open projects (tabs.rs), and whether every one is on screen at once (the overview). */
   const [tabs, setTabs] = useState<TabsState | null>(null);
   const [overview, setOverview] = useState(false);
   /** The session (tab) this window shows. */
   const ownTab = useRef<string | null>(null);
   const tabsRef = useRef<TabsState | null>(null);
+  /** The last FFmpeg status the backend reported (it finds FFmpeg in the background at launch). */
+  const latestTools = useRef<AppInfo['ffmpeg'] | null>(null);
+  /** Organize: this tile is being dragged by its bar, or another tile is over it. */
+  const tileDrag = useRef(false);
+  const tileDragAt = useRef(0);
+  const [dropTarget, setDropTarget] = useState(false);
+  /** Bumped when Organize's bar asks for the menus again (a render sends them). */
+  const [, setShellAsked] = useState(0);
   tabsRef.current = tabs;
   /** Shows the tab `step` places along the strip (wrapping round), as Ctrl+Tab does in a browser. */
   const switchTab = (step: number) => {
@@ -457,7 +468,8 @@ export default function App() {
   const [focused, setFocused] = useState<PanelId>('timeline');
   const [maximized, setMaximized] = useState<PanelId | null>(null);
   const [layout, setLayout] = useState<WorkspaceLayout>(freshLayout);
-  const [chatTab, setChatTab] = useState<'chat' | 'providers'>('chat');
+  // In Organize a project's tile shows one thing, its chat or its preview: Preview takes the place of Providers.
+  const [chatTab, setChatTab] = useState<'chat' | 'providers' | 'preview'>('chat');
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceRanges, setSourceRanges] = useState<Record<string, SourceRange>>({});
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
@@ -552,13 +564,43 @@ export default function App() {
   const comp = useMemo(() => project.comps.find((item) => item.id === project.activeCompId) ?? project.comps[0], [project]);
   const sourceAsset = sourceId ? assetMap.get(sourceId) : undefined;
   const dirty = isUnsaved(project, savedProject, settings.projectPath);
-  /** Bhippi AI is at work in this project (its tab shows a spinner). */
+  /** Bhippi AI is at work in this project (its tab shows a yellow dot). */
   const aiBusy = chatActivity?.status === 'streaming';
-  // What this window's tab says in every window's strip: the name, unsaved edits, the AI at work.
+  /**
+   * How Bhippi AI's last turn here ended (its tab shows a green or a red dot): set when a turn
+   * finishes or fails, cleared when the next one starts or when this project comes on screen
+   * after being away (it has been looked at).
+   */
+  const [aiResult, setAiResult] = useState<'done' | 'error' | null>(null);
+  const activityStatus = chatActivity?.status;
+  // Only a turn seen running here ends in a dot: the chat also reports the last turn of a
+  // conversation loaded from before, which finished long ago.
+  const seenRunning = useRef<string | null>(null);
+  useEffect(() => {
+    const turn = chatActivity?.turnId ?? null;
+    if (activityStatus === 'streaming') {
+      seenRunning.current = turn;
+      setAiResult(null);
+    } else if (activityStatus === 'stopped') {
+      seenRunning.current = null;
+      setAiResult(null);
+    } else if ((activityStatus === 'done' || activityStatus === 'error') && turn && seenRunning.current === turn) {
+      seenRunning.current = null;
+      setAiResult(activityStatus);
+    }
+  }, [activityStatus, chatActivity?.turnId]);
+  const onScreen = !tabs || tabs.overview || (tabs.active ?? tabs.own) === tabs.own;
+  const wasOnScreen = useRef(onScreen);
+  useEffect(() => {
+    if (onScreen && !wasOnScreen.current) setAiResult(null);
+    wasOnScreen.current = onScreen;
+  }, [onScreen]);
+  // What this window's tab says in every window's strip: the name, unsaved edits, the AI at work
+  // and how its last turn ended.
   useEffect(() => {
     if (!loaded) return;
-    void api.tabReport(project.name, dirty, aiBusy).catch(() => undefined);
-  }, [project.name, dirty, aiBusy, loaded]);
+    void api.tabReport(project.name, dirty, aiBusy, aiResult).catch(() => undefined);
+  }, [project.name, dirty, aiBusy, aiResult, loaded]);
   const selectedClips = useMemo(() => (comp ? comp.clips.filter((clip) => selection.includes(clip.id)) : []), [comp, selection]);
   const fps = comp?.fps ?? 30;
   const frame = 1 / fps;
@@ -571,16 +613,21 @@ export default function App() {
     (async () => {
       // Each check reports to the launch splash as it finishes (boot/bootStore.ts).
       bootStore.say('Loading your workspace');
-      const [appInfo, stored, library, loadedProject, jobList, startup] = await Promise.all([
+      const [appInfo, stored, library, loadedProject, jobList, startup, tabState] = await Promise.all([
         bootStore.step(api.appInfo(), ({ ffmpeg }) => (ffmpeg.found ? ['FFmpeg', ffmpeg.version?.split(/[-\s]/)[0], ffmpeg.gpuEncoderLabel && `· ${ffmpeg.gpuEncoderLabel}`].filter(Boolean).join(' ') : 'FFmpeg not found')),
         bootStore.step(api.settingsGet(), () => 'Preferences loaded'),
         bootStore.step(api.libraryList(), (items) => `Media library · ${items.length} ${items.length === 1 ? 'file' : 'files'}`),
         api.projectLoad(),
         bootStore.step(api.jobsList(), (jobs) => (jobs.length ? `${jobs.length} background ${jobs.length === 1 ? 'job' : 'jobs'}` : null)),
         api.startupFile(),
+        api.tabsList().catch(() => null),
       ]);
       if (cancelled) return;
-      setInfo(appInfo);
+      // FFmpeg is found in the background: a result that came in while this loaded wins over the
+      // one asked for at the start, and it is asked again once more, so the status bar never keeps
+      // a "missing" from before the search finished.
+      setInfo(latestTools.current ? { ...appInfo, ffmpeg: latestTools.current } : appInfo);
+      void api.appInfo().then((fresh) => setInfo((current) => (current ? { ...current, ffmpeg: latestTools.current ?? fresh.ffmpeg } : current))).catch(() => undefined);
       registerSfx(appInfo.sfx);
       if (!stored.onboarded) setOnboarding(true);
       void api.storageInfo().then((storage) => { registerStorageRoot(storage.root); projectDirRef.current = storage.projectDir; defaultRootRef.current = storage.defaultRoot; }).catch(() => undefined);
@@ -604,7 +651,10 @@ export default function App() {
       if (stored.timelineZoom) setZoom(stored.timelineZoom);
       setAssets(library);
       const map = new Map(library.map((asset) => [asset.id, asset]));
-      const opened = loadProject(loadedProject, map);
+      // A project with no autosave yet: the first one ever takes in the whole library (as Bhippi
+      // always started); a new project tab starts empty, with nothing of anyone else's in it.
+      const firstEver = !tabState || tabState.own === 'main';
+      const opened = loadedProject == null && !firstEver ? newProject() : loadProject(loadedProject, map);
       // A session with no file keeps its files in a folder of its own, never a shared "Untitled
       // project" one. One that already has work from before keeps the folder its files are in.
       if (!stored.projectPath && !stored.unsavedFolder && isEmptyProject(opened)) settingsStore.save({ unsavedFolder: newUnsavedKey() });
@@ -636,6 +686,28 @@ export default function App() {
 
   useEffect(() => setMutes(mutes), [mutes]);
 
+  // One project plays at a time. Starting playback here stops it in every other project, and a
+  // project put away (another one on screen, outside Organize) stops: a page out of sight keeps
+  // its sound going, so two timelines could otherwise play over each other.
+  useEffect(() => {
+    let was = playhead.isPlaying();
+    const unsubscribe = playhead.subscribe(() => {
+      const now = playhead.isPlaying();
+      if (now && !was) void emit(PLAYBACK_EVENT, ownLabel).catch(() => undefined);
+      was = now;
+    });
+    const pending = listen<string>(PLAYBACK_EVENT, (event) => {
+      if (event.payload !== ownLabel && playhead.isPlaying()) playhead.setPlaying(false);
+    });
+    return () => {
+      unsubscribe();
+      void pending.then((unlisten) => unlisten());
+    };
+  }, []);
+  useEffect(() => {
+    if (!overview && tabs?.active && ownTab.current && tabs.active !== ownTab.current && playhead.isPlaying()) playhead.setPlaying(false);
+  }, [overview, tabs?.active]);
+
   // The tab strip: every open project (tabs.rs). The list comes with this window's own tab; later
   // updates are the same list for every window.
   useEffect(() => {
@@ -648,10 +720,26 @@ export default function App() {
     const subscriptions = [
       events.tabs((state) => setTabs({ ...state, own: ownTab.current })),
       events.overview((on) => setOverview(on)),
+      events.overviewTarget((id) => setDropTarget(!!id && id === ownTab.current)),
+      // Quitting with several projects open asks once, here, for all of them (tabs.rs).
+      events.quitSummary(({ unsaved, busy }) => {
+        const names = (list: string[]) => list.map((name) => `“${name}”`).join(', ');
+        const body = [
+          unsaved.length ? `Unsaved changes in ${names(unsaved)}.` : null,
+          busy.length ? `Bhippi AI is working in ${names(busy)}; closing stops it, and what it has done so far is kept.` : null,
+          'Projects that were never saved to a file open again next time as they are.',
+        ].filter(Boolean).join(' ');
+        const answer = (choice: 'save' | 'discard' | 'cancel') => { setDialog(null); void api.appQuitChoice(choice).catch(() => undefined); };
+        setDialog(
+          <ConfirmDialog title={`Close ${tabsRef.current?.tabs.length ?? 'all'} projects?`} top body={body}
+            confirmLabel={unsaved.length ? 'Save all' : 'Close all'} discardLabel={unsaved.length ? "Don't save" : undefined}
+            onConfirm={() => answer('save')} onDiscard={unsaved.length ? () => answer('discard') : undefined} onClose={() => answer('cancel')} />,
+        );
+      }),
       // Settings are the whole app's: another window's change (or the backend's own) is read again,
       // so a save from here never writes an older copy over it.
       events.settingsChanged((origin) => {
-        if (origin !== getCurrentWindow().label) void settingsStore.reload().catch(() => undefined);
+        if (origin !== ownLabel) void settingsStore.reload().catch(() => undefined);
       }),
       events.settings(() => void settingsStore.reload().catch(() => undefined)),
     ];
@@ -671,6 +759,8 @@ export default function App() {
       events.providers(setProviders),
       events.tools((ffmpeg) => {
         actionLogger.system('FFmpeg tool status', ffmpeg);
+        // Kept even while the project is still loading: the boot takes it when it sets the app's info.
+        latestTools.current = ffmpeg;
         setInfo((current) => (current ? { ...current, ffmpeg } : current));
       }),
       events.openFile((path) => {
@@ -691,6 +781,10 @@ export default function App() {
         if (!jobsStore.put(job)) return;
         actionLogger.system(`Job [${job.kind}]: ${job.label} (${job.status})`, job);
         setJobs((current) => ({ ...current, [job.id]: job }));
+        // What a finished job does here (a toast, taking a generation in) is for the project that
+        // started it; a job no project owns (an install) is told in the project on screen.
+        const ours = job.owner ? job.owner === ownTab.current : !ownTab.current || ownTab.current === tabsRef.current?.active;
+        if (!ours) return;
         if (job.kind === 'export' && job.status === 'done' && job.result?.path) {
           const path = job.result.path;
           toast({ tone: 'success', title: 'Export complete', body: path.split(/[\\/]/).pop(), actions: [{ label: 'Open', run: () => void api.openPath(path) }, { label: 'Show in folder', run: () => void api.revealPath(path) }] });
@@ -699,10 +793,6 @@ export default function App() {
         } else if (job.kind === 'export' && job.status === 'error') {
           toast({ tone: 'error', title: 'Export failed', body: job.message.slice(0, 400) });
         } else if (job.kind === 'generation' && job.status === 'done' && (job.result as { path?: string })?.path) {
-          // A generation belongs to the project (tab) that asked for it: only that window takes it in.
-          // One started by no project in particular goes to the project on screen.
-          const mine = job.owner ? job.owner === ownTab.current : !ownTab.current || ownTab.current === tabsRef.current?.active;
-          if (!mine) return;
           const path = (job.result as { path?: string }).path!;
           const filename = path.split(/[\\/]/).pop();
           void (async () => {
@@ -1018,8 +1108,15 @@ export default function App() {
     });
   }, []);
   const toolAborts = useRef(new Map<string, { turnId: string; controller: AbortController }>());
+  /**
+   * The AI turns this project started (both its chats). Its tool calls and chat events are about
+   * these only: a call for a turn of another project is never run against this one.
+   */
+  const ownTurns = useRef(new Set<string>());
+  const ownsTurn = (id: string | undefined) => !!id && (ownTurns.current.has(id) || ownTurns.current.has(id.split(':sub:')[0]));
   useEffect(() => {
     const pending = events.chat(event => {
+      if (!ownsTurn(event.event === 'subagent_update' ? event.parentTurnId : event.turnId)) return;
       // The avatar mirrors every turn, the council workers' included (their turn id is the subagent id):
       // thinking, writing the reply, the steps a CLI takes by itself, and how the turn closed.
       // A Plugin Maker turn builds a plugin: the avatar acts that out and leaves the edit open.
@@ -1062,6 +1159,8 @@ export default function App() {
 
   useEffect(() => {
     const pending = events.toolCall(async (sent) => {
+      // Another project's call: its own project answers it, never this one.
+      if (!ownsTurn(sent.turnId)) return;
       // Mended against the schema once, so the guard, the tool and the log all see the same call.
       const call = { ...sent, args: repairArgs(sent.name, sent.args) };
       const controller = new AbortController();
@@ -1420,7 +1519,7 @@ export default function App() {
     return {
       format: 'bhippi', version: 3, savedAt: new Date().toISOString(), project: value,
       assets: assets.filter((asset) => value.media.some((ref) => ref.assetId === asset.id)),
-      extras: { brandKit: resolveActiveKit(settingsRef.current.brandKits, value), chat, projectFolder },
+      extras: { brandKit: resolveActiveKit(settingsRef.current.brandKits, value), chat, projectFolder, ai: { providerId: settingsRef.current.providerId ?? null, model: settingsRef.current.model ?? null, effort: settingsRef.current.effort ?? null } },
     };
   };
 
@@ -1583,6 +1682,8 @@ export default function App() {
       // previous project's (which the next save would otherwise write into this file). The last
       // project's AI turns go too, so an old Revert cannot put that project back over this one.
       chatApi.current?.load(Array.isArray(extras?.chat) ? extras.chat : []);
+      // The project's chat talks to the AI it was saved with (when that one is still set up).
+      if (extras?.ai?.providerId && providers.some((row) => row.id === extras.ai?.providerId)) saveSettings({ providerId: extras.ai.providerId, model: extras.ai.model ?? null, effort: extras.ai.effort ?? null });
       turnSnapshots.current.clear();
       turnResults.current.clear();
       turnChanges.current.clear();
@@ -1724,7 +1825,7 @@ export default function App() {
    * Resolves false when the user keeps it open. A window asked while hidden behind another tab
    * comes to the front to ask.
    */
-  const readyToClose = useRef<(app: boolean) => Promise<boolean>>(async () => true);
+  const readyToClose = useRef<(app: boolean, mode?: 'ask' | 'save' | 'discard') => Promise<boolean>>(async () => true);
   /**
    * Closes Bhippi: every open project asks about its own unsaved work (tabs.rs). Should the tab
    * list be out of reach (a backend without it), this window asks for itself and closes.
@@ -1734,7 +1835,26 @@ export default function App() {
       if (await readyToClose.current(true)) void getCurrentWindow().destroy();
     });
   };
-  readyToClose.current = async (app) => {
+  readyToClose.current = async (app, mode = 'ask') => {
+    // Quitting with several projects open, the user already chose for all of them at once (the
+    // quit summary): this project saves, or lets its changes go, without asking again.
+    if (mode !== 'ask') {
+      if (chatApi.current?.busy()) {
+        chatApi.current?.stop();
+        await new Promise((resolve) => window.setTimeout(resolve, 800));
+      }
+      const { savedProject: saved, path, current } = closeState.current;
+      if (path && saved && saved !== current()) {
+        if (mode === 'save') {
+          if (!(await closeState.current.save())) return false;
+        } else {
+          discarding.current = true;
+          await api.projectSave(healProject(saved)).catch(() => undefined);
+        }
+      }
+      markRunning(false);
+      return true;
+    }
     const ask = async (title: string, body: string, confirmLabel: string, discardLabel?: string) => {
       if (ownTab.current && !overview) await api.tabActivate(ownTab.current).catch(() => undefined);
       return new Promise<'yes' | 'no' | 'cancel'>((resolve) => {
@@ -1780,8 +1900,8 @@ export default function App() {
       event.preventDefault();
       quitApp();
     });
-    const request = events.tabCloseRequest(({ app }) => {
-      void readyToClose.current(app).then((ok) => {
+    const request = events.tabCloseRequest(({ app, mode }) => {
+      void readyToClose.current(app, mode).then((ok) => {
         if (!ok && app) markRunning(true);
         return api.tabCloseAnswer(ok);
       }).catch(() => void api.tabCloseAnswer(false));
@@ -3437,6 +3557,33 @@ export default function App() {
     ] },
   ];
 
+  // Organize: the window's own menu bar stays across the top (components/OverviewShell.tsx) and
+  // runs the menus of the project last clicked. That project sends them over, and a pick comes
+  // back here by id.
+  const shellMenuHandlers = useRef(new Map<string, () => void>());
+  const shellMenusSent = useRef('');
+  const shellActive = overview && !!tabs && tabs.active === ownTab.current;
+  useEffect(() => {
+    if (!shellActive) {
+      shellMenusSent.current = '';
+      return;
+    }
+    const { payload, handlers } = packShellMenus(menus, tabName(project.name), ownLabel);
+    shellMenuHandlers.current = handlers;
+    const text = JSON.stringify(payload);
+    if (text === shellMenusSent.current) return;
+    shellMenusSent.current = text;
+    void emitTo({ kind: 'Webview', label: 'overview' }, SHELL_MENUS_EVENT, payload).catch(() => undefined);
+  });
+  useEffect(() => {
+    const subscriptions = [
+      listen<string>(SHELL_INVOKE_EVENT, (event) => shellMenuHandlers.current.get(event.payload)?.()),
+      // The bar has just opened and asks for the menus again.
+      listen(SHELL_ASK_EVENT, () => { shellMenusSent.current = ''; setShellAsked((n) => n + 1); }),
+    ];
+    return () => subscriptions.forEach((pending) => void pending.then((unlisten) => unlisten()));
+  }, []);
+
   function matchFrame() {
     if (!comp) return;
     const at = playhead.get();
@@ -3868,9 +4015,17 @@ export default function App() {
       </Panel>
     );
   };
-  const chatPanel = panel('chat', [{ id: 'chat', label: 'Bhippi AI' }, { id: 'providers', label: 'Providers' }], chatTab, (
+  const programMonitor = (
+    <ProgramMonitor project={project} comp={comp} assets={assetMap} offline={offline} history={history} selection={selection} onSelect={setSelection} tool={tool} onTool={setTool}
+      onImport={() => void pickFiles()} onMarkIn={markIn} onMarkOut={markOut} onAddMarker={addMarker} onLift={() => removeRangeNow('lift')} onExtract={() => removeRangeNow('extract')}
+      onExportFrame={() => void exportFrame()} apiRef={programApi}
+      previewCache={{ enabled: settings.previewCacheEnabled ?? true, budgetMb: settings.previewCacheMb ?? 1536 }}
+      onPreviewCache={(next) => saveSettings({ previewCacheEnabled: next.enabled, previewCacheMb: next.budgetMb })} />
+  );
+  const shownChatTab = overview ? (chatTab === 'providers' ? 'chat' : chatTab) : chatTab === 'preview' ? 'chat' : chatTab;
+  const chatPanel = panel('chat', overview ? [{ id: 'chat', label: 'Bhippi AI' }, { id: 'preview', label: 'Preview' }] : [{ id: 'chat', label: 'Bhippi AI' }, { id: 'providers', label: 'Providers' }], shownChatTab, (
     <>
-      <div className="chat-host" style={{ display: chatTab === 'chat' ? undefined : 'none' }}>
+      <div className="chat-host" style={{ display: shownChatTab === 'chat' ? undefined : 'none' }}>
         {/* The storyboard lives only in the Storyboard & Transcription panel in the editing area — the chat stays chat. */}
         {/* Once verified there's nothing left to press and nothing left to track — the dock
             vanishes rather than sitting there as a permanent row of green checks. Saving a
@@ -3928,6 +4083,7 @@ export default function App() {
             turnStarts.current += 1;
             latestTurn.current = { turnId, at: Date.now(), nudged: false };
             if (tier === 'guided') guidedTurns.current.add(turnId);
+            ownTurns.current.add(turnId);
             editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true, true, scope ?? null, tier === 'guided'));
           }}
           workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
@@ -3940,9 +4096,10 @@ export default function App() {
           productionActive={() => { const current = history.current(); const active = current.comps.find((item) => item.id === current.activeCompId); return !!active?.production && active.production.phase !== 'done'; }}
           canvasBlank={() => { const current = history.current(); const active = current.comps.find((item) => item.id === current.activeCompId); return !active || !active.clips.some((clip) => active.tracks.find((track) => track.id === clip.trackId)?.kind === 'video'); }} />
       </div>
-      {chatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void settingsStore.setProviderEnabled(row.id, enabled).then(setProviders)} />}
+      {overview && shownChatTab === 'preview' && <div className="tile-preview">{programMonitor}</div>}
+      {shownChatTab === 'providers' && <ProvidersQuick providers={providers} activeId={providerId} onUse={(id) => { saveSettings({ providerId: id, model: null }); setChatTab('chat'); }} onManage={() => setSettingsTab('providers')} onToggle={(row, enabled) => void settingsStore.setProviderEnabled(row.id, enabled).then(setProviders)} />}
     </>
-  ), { onTab: (id) => setChatTab(id as 'chat' | 'providers'), menu: [{ label: 'New Conversation', onSelect: () => { chatApi.current?.clear(); endConversation(); } }, { label: 'Manage AI Providers…', onSelect: () => setSettingsTab('providers') }], className: 'panel-chat' });
+  ), { onTab: (id) => setChatTab(id as 'chat' | 'providers' | 'preview'), menu: [{ label: 'New Conversation', onSelect: () => { chatApi.current?.clear(); endConversation(); } }, { label: 'Manage AI Providers…', onSelect: () => setSettingsTab('providers') }], className: 'panel-chat' });
 
   const sourcePanel = panel('source', [{ id: 'source', label: `Source: ${sourceAsset?.name ?? '(no clips)'}` }], 'source', (
     <SourceMonitor parkAt={sourcePark} asset={sourceAsset} range={sourceAsset ? sourceRanges[sourceAsset.id] : undefined} onRange={(range) => sourceAsset && setSourceRanges((current) => ({ ...current, [sourceAsset.id]: range }))}
@@ -3989,13 +4146,7 @@ export default function App() {
       }} />
   ));
 
-  const programPanel = panel('program', [{ id: 'program', label: `Program: ${comp?.name ?? '—'}` }], 'program', (
-    <ProgramMonitor project={project} comp={comp} assets={assetMap} offline={offline} history={history} selection={selection} onSelect={setSelection} tool={tool} onTool={setTool}
-      onImport={() => void pickFiles()} onMarkIn={markIn} onMarkOut={markOut} onAddMarker={addMarker} onLift={() => removeRangeNow('lift')} onExtract={() => removeRangeNow('extract')}
-      onExportFrame={() => void exportFrame()} apiRef={programApi}
-      previewCache={{ enabled: settings.previewCacheEnabled ?? true, budgetMb: settings.previewCacheMb ?? 1536 }}
-      onPreviewCache={(next) => saveSettings({ previewCacheEnabled: next.enabled, previewCacheMb: next.budgetMb })} />
-  ), { menu: [{ label: 'Export Frame…', onSelect: () => void exportFrame(), disabled: !hasClips }, { label: 'Clear In and Out', onSelect: clearInOut }] });
+  const programPanel = panel('program', [{ id: 'program', label: `Program: ${comp?.name ?? '—'}` }], 'program', programMonitor, { menu: [{ label: 'Export Frame…', onSelect: () => void exportFrame(), disabled: !hasClips }, { label: 'Clear In and Out', onSelect: clearInOut }] });
 
   const propertiesPanel = panel('properties', [{ id: 'properties', label: 'Properties' }], 'properties', (
     <PropertiesPanel
@@ -4134,11 +4285,13 @@ export default function App() {
   };
 
   const maximizedContent: Record<PanelId, ReactNode> = { chat: chatPanel, storyboard: storyboardPanel, transcript: transcriptPanel, source: sourcePanel, program: programPanel, properties: propertiesPanel, project: projectPanel, timeline: timelinePanel, meters: null, tools: null, plugins: pluginsPanel, effects: effectsPanel, subtitles: subtitlesPanel, graphics: graphicsPanel, audio: audioPanel, 'effect-controls': effectControlsPanel };
-  // In the overview a project is its chat beside its preview: the Program monitor fills the rest.
-  const maximizedPanel = overview ? 'program' : maximized && maximizedContent[maximized] ? maximized : null;
+  // In Organize a project's tile is its chat panel alone (Bhippi AI or Preview, the user's pick).
+  const maximizedPanel = overview ? 'chat' : maximized && maximizedContent[maximized] ? maximized : null;
 
   return (
-    <div className={`app${overview ? ' overview' : ''}`}>
+    <div className={`app${overview ? ' overview' : ''}${overview && dropTarget ? ' drop-target' : ''}`}
+      // In Organize the project clicked becomes the active one: the menu bar runs its menus.
+      onPointerDownCapture={() => { if (overview && ownTab.current && tabsRef.current?.active !== ownTab.current) void api.tabActivate(ownTab.current).catch(() => undefined); }}>
       {!overview && <MenuBar menus={menus} onClose={quitApp} />}
       <PluginClipRenderers pluginIds={clipPlugins} />
       <BackgroundPlugins panelShown={showPlugins && (!maximizedPanel || maximizedPanel === 'plugins')} docked={dockedIds} dockShown={!maximizedPanel} skip={makerOpen ? makerPlugin : null} />
@@ -4189,6 +4342,7 @@ export default function App() {
               onStartWorkflow={(turnId, mode) => {
                 // A plugin is not a video: its turns never stop to ask for a frame size.
                 makerTurns.current.add(turnId);
+                ownTurns.current.add(turnId);
                 editWorkflows.current.set(turnId, new EditWorkflow(history.current(), assetMap, mode, settingsRef.current.disableLocalGeneration ?? true, false));
               }}
               workflowStatus={(turnId) => { const flow = editWorkflows.current.get(turnId); return flow ? flow.status(history.current()) : null; }}
@@ -4197,27 +4351,64 @@ export default function App() {
         />
       )}
       {learningOpen && <LiveJobs>{(live) => <LearningWorkspace project={project} assets={assetMap} history={history} jobs={live} onClose={() => setLearningOpen(false)} />}</LiveJobs>}
+      {/* The open projects down the left, beside everything under the menu bar (not in Organize,
+          where every project is a tile of its own). */}
+      <div className="app-row">
+      {!overview && tabs && (
+        <ProjectTabs state={tabs} ownName={project.name} ownDirty={dirty} ownBusy={aiBusy} ownResult={aiResult} ownProvider={providerId} ownModel={settings.model ?? null} providers={providers}
+          footer={(folded) => (
+            // Bottom up: the profile, Settings above it, and an update above that only when there is one.
+            <>
+              <UpdateButton side showLabel={!folded} onDetails={() => setSettingsTab('about')} />
+              <button type="button" className={`prail-action prail-foot-btn${folded ? ' icon-only' : ''}`} onClick={() => setSettingsTab('general')} title="Settings (Ctrl+,)" aria-label="Settings">
+                <SettingsIcon size={16} />
+                {!folded && <span className="prail-foot-label">Settings</span>}
+              </button>
+              <AccountButton side showLabel={!folded} onDetails={() => setSettingsTab('about')} />
+            </>
+          )}
+          onNew={() => void api.tabNew().catch((error) => toast({ tone: 'info', title: 'No new project', body: errorText(error) }))}
+          onActivate={(id) => void api.tabActivate(id).catch((error) => toast({ tone: 'error', title: 'Could not show that project', body: errorText(error) }))}
+          onClose={(id) => void api.tabClose(id).catch(() => undefined)}
+          onMove={(id, to) => void api.tabMove(id, to).catch(() => undefined)}
+          onOverview={() => void api.overviewSet(!tabs.overview, ownTab.current).catch((error) => toast({ tone: 'error', title: 'Could not organize the projects', body: errorText(error) }))} />
+      )}
+      <div className="app-col">
       {overview ? (
-        <div className="overview-bar" data-tauri-drag-region>
-          <span className="ob-name" data-tauri-drag-region>{tabName(project.name)}</span>
-          <span className="ob-state" data-tauri-drag-region>{aiBusy ? <><LoaderCircle size={12} className="spin" /> Bhippi AI is working</> : dirty ? 'Unsaved changes' : 'Saved'}</span>
-          <button type="button" className="ob-open" onClick={() => void api.overviewSet(false, ownTab.current)} title="Back to tabs, with this project on screen">Open</button>
+        // A tile of Organize: dragged by this bar onto another tile, the two swap places (tabs.rs).
+        <div
+          className="overview-bar"
+          onPointerDown={(event) => {
+            if ((event.target as HTMLElement).closest('button')) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            tileDrag.current = true;
+          }}
+          onPointerMove={(event) => {
+            if (!tileDrag.current) return;
+            const now = performance.now();
+            if (now - tileDragAt.current < 60) return;
+            tileDragAt.current = now;
+            void api.overviewDrag(event.clientX, event.clientY, false).catch(() => undefined);
+          }}
+          onPointerUp={(event) => {
+            if (!tileDrag.current) return;
+            tileDrag.current = false;
+            void api.overviewDrag(event.clientX, event.clientY, true).catch(() => undefined);
+          }}
+        >
+          <span className="ob-grip" aria-hidden>⋮⋮</span>
+          <span className="ob-name">{tabName(project.name)}</span>
+          <span className="ob-state">{aiBusy ? <><LoaderCircle size={12} className="spin" /> Bhippi AI is working</> : dirty ? 'Unsaved changes' : 'Saved'}</span>
+          <button type="button" className="ob-open" onClick={() => void api.overviewSet(false, ownTab.current)} title="Open this project">Open</button>
         </div>
       ) : (
       <HeaderBar
-        tabs={tabs && (
-          <ProjectTabs state={tabs} ownName={project.name} ownDirty={dirty} ownBusy={aiBusy}
-            onNew={() => void api.tabNew().catch((error) => toast({ tone: 'info', title: 'No new tab', body: errorText(error) }))}
-            onActivate={(id) => void api.tabActivate(id).catch((error) => toast({ tone: 'error', title: 'Could not show that project', body: errorText(error) }))}
-            onClose={(id) => void api.tabClose(id).catch(() => undefined)}
-            onMove={(id, to) => void api.tabMove(id, to).catch(() => undefined)}
-            onOverview={() => void api.overviewSet(!tabs.overview, ownTab.current).catch((error) => toast({ tone: 'error', title: 'Could not show the overview', body: errorText(error) }))} />
-        )}
         resourceMonitor={<LiveJobs>{(live) => <ResourceMonitor jobs={live} runs={Object.values(toolRuns).flat()} onCancelJob={cancelJob} onDeleteJob={deleteJob} />}</LiveJobs>}
         mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }} onQueue={() => setQueueOpen(true)}
         exportDisabled={!hasClips} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}
         onSettings={() => setSettingsTab('general')} onUpdates={() => setSettingsTab('about')} onAccount={() => setSettingsTab('about')}
+        sideControls={!!tabs}
       />
       )}
 
@@ -4230,7 +4421,7 @@ export default function App() {
       )}
       {/* One tree for every view: the chat keeps its place, so a running turn keeps streaming through Home, hide, and maximize. */}
       <main className={`workspace${maximizedPanel ? ' maximized' : ''}`} style={{ display: mode === 'home' && !overview ? 'none' : undefined }}>
-        <div className="ws-left" style={overview ? { width: '42%', minWidth: 260 } : maximizedPanel === 'chat' ? { flex: 1 } : { width: layout.chatWidth, display: hidden('chat') || maximizedPanel ? 'none' : undefined }}>{chatPanel}</div>
+        <div className="ws-left" style={overview ? { flex: 1 } : maximizedPanel === 'chat' ? { flex: 1 } : { width: layout.chatWidth, display: hidden('chat') || maximizedPanel ? 'none' : undefined }}>{chatPanel}</div>
         {maximizedPanel ? (
           maximizedPanel !== 'chat' && maximizedContent[maximizedPanel]
         ) : (
@@ -4253,6 +4444,8 @@ export default function App() {
         height={terminalHeight}
         onHeightChange={setTerminalHeight}
       />
+      </div>
+      </div>
 
       <footer className="statusbar">
         <button type="button" className={`status-item${info && !info.ffmpeg.found ? ' warn' : ''}`} onClick={() => setSettingsTab('media')} title={info?.ffmpeg.path ?? 'FFmpeg'}>

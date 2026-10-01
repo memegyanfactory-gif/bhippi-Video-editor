@@ -61,6 +61,11 @@ pub struct Session {
     pub project_path: Option<String>,
     /// While it has no file: the key of its own folder under `<storage root>/Unsaved projects/`.
     pub unsaved_folder: Option<String>,
+    /// The AI its chat talks to: provider, model and effort. Each project keeps its own; a new one
+    /// starts with the choice made last, anywhere.
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 /// What a tab shows: the session, and what its window reports while it runs.
@@ -74,8 +79,16 @@ pub struct TabView {
     pub dirty: bool,
     /// Bhippi AI is working in it.
     pub busy: bool,
+    /// How Bhippi AI's last turn there ended, until the project is looked at: "done" or "error".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
     /// Its window exists (a tab restored from the last launch opens its window when first shown).
     pub open: bool,
+    /// Its window is still loading its project (the tab shows it is opening, and switches when done).
+    pub loading: bool,
+    /// The AI its chat talks to, so every project's row says whose work it is.
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
 }
 
 /// The tab list, as every window draws it.
@@ -105,6 +118,7 @@ struct Runtime {
     last_version: Option<Instant>,
     dirty: bool,
     busy: bool,
+    result: Option<String>,
     /// Its window has loaded its project and reported in (until then it has nothing unsaved).
     ready: bool,
     /// A project file the session's window opens as it starts (a file opened into a new tab).
@@ -119,6 +133,8 @@ struct Inner {
     windows: HashMap<String, String>,
     runtime: HashMap<String, Runtime>,
     overview: bool,
+    /// A tab asked to be shown while its window was still loading: it is shown once it reports in.
+    pending: Option<String>,
 }
 
 pub struct Sessions {
@@ -137,7 +153,7 @@ impl Sessions {
         tabs.dedup_by(|a, b| a.id == b.id);
         tabs.truncate(MAX_TABS);
         if tabs.is_empty() {
-            tabs.push(Session { id: FIRST.to_owned(), name: String::new(), project_path: legacy_path, unsaved_folder: legacy_unsaved });
+            tabs.push(Session { id: FIRST.to_owned(), project_path: legacy_path, unsaved_folder: legacy_unsaved, ..Session::default() });
         }
         let active = saved.active.filter(|id| tabs.iter().any(|tab| &tab.id == id)).unwrap_or_else(|| tabs[0].id.clone());
         let mut windows = HashMap::new();
@@ -179,16 +195,18 @@ impl Sessions {
         self.get(&id).unwrap_or(Session { id, ..Session::default() })
     }
 
-    /// Changes a session and saves the tab list.
-    pub fn update(&self, id: &str, change: impl FnOnce(&mut Session)) {
+    /// Changes a session and saves the tab list. True when anything changed.
+    pub fn update(&self, id: &str, change: impl FnOnce(&mut Session)) -> bool {
         let mut inner = self.lock();
         if let Some(tab) = inner.tabs.iter_mut().find(|tab| tab.id == id) {
             let before = tab.clone();
             change(tab);
             if *tab != before {
                 self.persist_inner(&inner);
+                return true;
             }
         }
+        false
     }
 
     /// The window showing a session, if one is open.
@@ -283,13 +301,19 @@ impl Sessions {
     }
 
     /// What a window reports about its tab while it runs.
-    pub fn report(&self, id: &str, name: Option<String>, dirty: bool, busy: bool) -> bool {
+    /// Returns whether the tab strip changed, and whether this was the window's first report (its
+    /// project has just come in).
+    pub fn report(&self, id: &str, name: Option<String>, dirty: bool, busy: bool, result: Option<String>) -> (bool, bool) {
         let mut inner = self.lock();
         let runtime = inner.runtime.entry(id.to_owned()).or_default();
-        let mut changed = runtime.dirty != dirty || runtime.busy != busy || !runtime.ready;
+        let first = !runtime.ready;
+        // Only the two results a tab shows; anything else reads as none.
+        let result = result.filter(|result| result == "done" || result == "error");
+        let mut changed = runtime.dirty != dirty || runtime.busy != busy || runtime.result != result || first;
         runtime.ready = true;
         runtime.dirty = dirty;
         runtime.busy = busy;
+        runtime.result = result;
         if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
             if let Some(tab) = inner.tabs.iter_mut().find(|tab| tab.id == id) {
                 if tab.name != name {
@@ -299,7 +323,41 @@ impl Sessions {
                 }
             }
         }
-        changed
+        (changed, first)
+    }
+
+    /// What quitting would lose or stop: the projects with a file and unsaved changes, and the
+    /// projects Bhippi AI is working in (by name). A project without a file loses nothing: its
+    /// autosave opens again next time.
+    pub fn quit_summary(&self) -> (Vec<String>, Vec<String>) {
+        let inner = self.lock();
+        let name = |tab: &Session| if tab.name.trim().is_empty() { "New project".to_owned() } else { tab.name.clone() };
+        let runtime = |tab: &Session| inner.runtime.get(&tab.id).filter(|runtime| runtime.ready);
+        let unsaved = inner.tabs.iter().filter(|tab| tab.project_path.is_some() && runtime(tab).is_some_and(|runtime| runtime.dirty)).map(name).collect();
+        let busy = inner.tabs.iter().filter(|tab| runtime(tab).is_some_and(|runtime| runtime.busy)).map(name).collect();
+        (unsaved, busy)
+    }
+
+    /// Whether a session has anything a close must deal with: changes to its file, or a turn at work.
+    pub fn needs_care(&self, id: &str) -> bool {
+        let inner = self.lock();
+        let has_file = inner.tabs.iter().any(|tab| tab.id == id && tab.project_path.is_some());
+        inner.runtime.get(id).is_some_and(|runtime| runtime.ready && (runtime.busy || (has_file && runtime.dirty)))
+    }
+
+    /// Remembers the tab to show once its window has loaded (the last asked wins).
+    pub fn set_pending(&self, id: Option<&str>) {
+        self.lock().pending = id.map(str::to_owned);
+    }
+
+    /// Takes the tab waiting to be shown, if it is `id`.
+    pub fn take_pending(&self, id: &str) -> bool {
+        let mut inner = self.lock();
+        if inner.pending.as_deref() == Some(id) {
+            inner.pending = None;
+            return true;
+        }
+        false
     }
 
     /// The session's window has loaded its project (it has reported its tab at least once).
@@ -331,7 +389,11 @@ impl Sessions {
                         project_path: tab.project_path.clone(),
                         dirty: runtime.is_some_and(|runtime| runtime.dirty),
                         busy: runtime.is_some_and(|runtime| runtime.busy),
+                        result: runtime.and_then(|runtime| runtime.result.clone()),
                         open: open.contains(&tab.id),
+                        loading: open.contains(&tab.id) && !runtime.is_some_and(|runtime| runtime.ready),
+                        provider_id: tab.provider_id.clone(),
+                        model: tab.model.clone(),
                     }
                 })
                 .collect(),
@@ -422,6 +484,24 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_shows_how_the_ai_turn_ended_until_it_reports_otherwise() {
+        let dir = temp();
+        let sessions = Sessions::load(&dir, None, None, "main");
+        let id = sessions.for_window("main").id;
+        let result = |sessions: &Sessions| sessions.state(None).tabs[0].result.clone();
+        sessions.report(&id, None, false, false, Some("done".into()));
+        assert_eq!(result(&sessions), Some("done".to_owned()));
+        let (changed, _) = sessions.report(&id, None, false, false, Some("error".into()));
+        assert!(changed, "a new result redraws the tabs");
+        assert_eq!(result(&sessions), Some("error".to_owned()));
+        // Looked at (or a new turn started): the result goes; anything unknown reads as none.
+        sessions.report(&id, None, false, true, None);
+        assert_eq!(result(&sessions), None);
+        sessions.report(&id, None, false, false, Some("exploded".into()));
+        assert_eq!(result(&sessions), None);
+    }
+
+    #[test]
     fn the_first_launch_takes_over_the_session_older_versions_kept() {
         let dir = temp();
         let sessions = Sessions::load(&dir, Some("D:/Film/Project/Film.bhippi".into()), None, "main");
@@ -459,6 +539,23 @@ mod tests {
         sessions.set_active(&ids[3]);
         assert_eq!(sessions.remove(&ids[3]), Some(ids[4].clone()));
         assert_eq!(sessions.remove(ids.last().unwrap()), Some(ids[4].clone()));
+        let _ignored = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_project_keeps_its_own_ai_across_launches() {
+        let dir = temp();
+        let sessions = Sessions::load(&dir, None, None, "main");
+        let second = sessions.add(Session { id: new_id(), ..Session::default() }, None).unwrap();
+        sessions.update(FIRST, |tab| tab.provider_id = Some("codex".into()));
+        sessions.update(&second, |tab| {
+            tab.provider_id = Some("claude".into());
+            tab.model = Some("opus".into());
+        });
+        let again = Sessions::load(&dir, None, None, "main");
+        assert_eq!(again.get(FIRST).unwrap().provider_id.as_deref(), Some("codex"));
+        let other = again.get(&second).unwrap();
+        assert_eq!((other.provider_id.as_deref(), other.model.as_deref()), (Some("claude"), Some("opus")));
         let _ignored = std::fs::remove_dir_all(&dir);
     }
 

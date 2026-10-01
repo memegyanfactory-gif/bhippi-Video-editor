@@ -1,14 +1,16 @@
 // What the machine is doing, in the header.
 //
-// A chip with three small meters — RAM, GPU, storage on the models drive — and a drop-down with
-// the detail: the same three as cards with a bar each, then whatever Bhippi itself is running
+// A chip with three ring meters — RAM, the busiest disk's activity, GPU — each a thin ring
+// around a line icon with its label and percentage under it, the detail on hover; and a drop-down
+// with the detail: the same three as cards with a bar each, then whatever Bhippi itself is running
 // (tools mid-call, background jobs) and the memory its own processes take. The numbers come from
 // the `resource_usage` command every three seconds while the window is visible; a failed poll
 // keeps the last reading on screen, dimmed and marked stale, rather than blanking the chip.
 //
 // The activity lists come from props, not the poll, so a job's progress moves the moment the
 // event lands rather than on the next tick.
-import { ChevronDown, ChevronRight, Cpu, Gauge, HardDrive, LoaderCircle, MemoryStick, Square, Trash2, Video, Wrench, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Cpu, Gauge, HardDrive, LoaderCircle, MemoryStick, Microchip, Square, Trash2, Video, Wrench, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Job } from '../lib/types';
@@ -24,6 +26,10 @@ type Usage = {
   ramTotalGb: number;
   diskFreeGb: number;
   diskTotalGb: number;
+  /** How busy the busiest disk was since the last reading (its active time, as Task Manager shows it), not how full. */
+  diskActivityPercent?: number | null;
+  /** That disk's drive letters ("C:"), when the reading came from comparing two. */
+  diskActivityDrive?: string | null;
   drive: string;
   gpu: Gpu | null;
   drives: Drive[];
@@ -73,13 +79,29 @@ function Bar({ percent, tone }: { percent: number | null; tone?: Tone | 'accent'
   );
 }
 
-/** The chip's meters: icon plus bar, or icon plus a dash when there is nothing to measure. */
-function ChipMeter({ label, percent }: { label: string; percent: number | null }) {
-  const text = percent == null ? `${label} —` : `${label} ${Math.round(percent)}%`;
-  // No reading yet: an empty, dimmed bar holds its row so the stack keeps its shape.
+const RING = 26;
+const RING_RADIUS = (RING - 2) / 2;
+const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
+
+/**
+ * One of the chip's meters: a thin ring around a line icon, its label and percentage under it,
+ * and the detail only on hover. The used part is the accent colour and eases to each new reading;
+ * no reading yet leaves the ring empty and the percentage a dash.
+ */
+function RingMeter({ label, icon: Icon, percent, detail }: { label: string; icon: LucideIcon; percent: number | null; detail: string }) {
+  const used = percent == null ? 0 : Math.min(100, Math.max(0, percent));
+  const text = percent == null ? `${label} —` : `${label} ${Math.round(used)}%`;
   return (
-    <span className={`rm-meter${percent == null ? ' empty' : ''}`} aria-label={text} title={text}>
-      <Bar percent={percent ?? 0} />
+    <span className={`rm-ring${percent == null ? ' empty' : ''}`} aria-label={`${text}. ${detail}`}>
+      <span className="rm-ring-dial">
+        <svg className="rm-ring-svg" width={RING} height={RING} viewBox={`0 0 ${RING} ${RING}`} aria-hidden="true">
+          <circle className="rm-ring-track" cx={RING / 2} cy={RING / 2} r={RING_RADIUS} />
+          <circle className="rm-ring-used" cx={RING / 2} cy={RING / 2} r={RING_RADIUS} strokeDasharray={RING_LENGTH} strokeDashoffset={RING_LENGTH * (1 - used / 100)} transform={`rotate(-90 ${RING / 2} ${RING / 2})`} />
+        </svg>
+        <Icon size={14} strokeWidth={1.6} aria-hidden="true" />
+      </span>
+      <span className="rm-ring-label">{text}</span>
+      <span className="rm-ring-tip" role="tooltip">{detail}</span>
     </span>
   );
 }
@@ -252,12 +274,7 @@ export function ResourceMonitor({
   const groups = useMemo(() => groupProcesses(usage?.processes ?? []), [usage]);
   const visibleGroups = allProcesses ? groups : groups.slice(0, TOP_PROCESSES);
 
-  const chipText = !usage
-    ? 'Reading…'
-    : `${formatGb(usage.ramUsedGb)} · ${gpuPercent == null ? 'GPU —' : `${Math.round(gpuPercent)}%`} · ${models ? `${formatGb(models.freeGb)} free` : '—'}`;
-  const chipTitle = usage
-    ? `RAM ${Math.round(ramPercent ?? 0)}% · GPU ${gpuPercent == null ? '—' : `${Math.round(gpuPercent)}%`} · ${models ? `${models.letter}: ${Math.round(storagePercent ?? 0)}% used` : ''}${stale ? ' · stale' : ''}`
-    : 'System usage and Bhippi activity';
+  const diskActivity = usage ? clampPercent(usage.diskActivityPercent) : null;
   const agoSeconds = readAt ? Math.max(0, Math.round((now - readAt) / 1000)) : null;
 
   const vramPercent = gpu && gpu.vramUsedMb != null && gpu.vramTotalMb != null ? percentOf(gpu.vramUsedMb, gpu.vramTotalMb) : null;
@@ -267,6 +284,15 @@ export function ResourceMonitor({
   // Name and temperature share the sub line (like the GPU name did on its own before); the VRAM
   // row's own value slot is only 60px, so keeping it to "used / total" is what keeps that row's
   // text from clipping the way the old three-part "13 % · 0.9 / 10 GB VRAM · 40 °C" string did.
+  // What each ring says on hover: "13.4 / 32 GB used", "18% activity · 240 GB free", "56% usage · VRAM 7.2 / 12 GB used".
+  const staleNote = stale ? ' (last reading)' : '';
+  const ramDetail = usage ? `RAM: ${formatGb(usage.ramUsedGb, false)} / ${formatGb(usage.ramTotalGb)} used${staleNote}` : 'RAM: reading…';
+  const diskDetail = usage
+    ? `DISK: ${diskActivity == null ? 'activity not measured' : `${Math.round(diskActivity)}% activity${usage.diskActivityDrive ? ` (busiest: ${usage.diskActivityDrive})` : ''}`}${models ? ` · ${formatGb(models.freeGb)} free on ${models.letter}:` : ''}${staleNote}`
+    : 'DISK: reading…';
+  const gpuDetail = usage
+    ? `GPU: ${gpuPercent == null ? 'no reading' : `${Math.round(gpuPercent)}% usage`}${vramValue ? ` · VRAM ${vramValue} used` : ''}${staleNote}`
+    : 'GPU: reading…';
   const gpuSub = gpu
     ? [gpu.name, gpu.tempC == null ? null : `${Math.round(gpu.tempC)}°C`].filter(Boolean).join(' · ') || (usage ? 'No GPU reading' : 'Reading…')
     : (usage ? 'No GPU reading' : 'Reading…');
@@ -280,15 +306,11 @@ export function ResourceMonitor({
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={chipTitle}
+        aria-label="System usage and Bhippi activity"
       >
-        {/* Stacked, not side by side: three slim bars in one column keep the bar tidy. */}
-        <span className="rm-meters">
-          <ChipMeter label="RAM" percent={ramPercent} />
-          <ChipMeter label="GPU" percent={gpuPercent} />
-          <ChipMeter label="Storage" percent={storagePercent} />
-        </span>
-        <span className="rm-chip-text">{chipText}</span>
+        <RingMeter label="RAM" icon={MemoryStick} percent={ramPercent} detail={ramDetail} />
+        <RingMeter label="DISK" icon={HardDrive} percent={diskActivity} detail={diskDetail} />
+        <RingMeter label="GPU" icon={Microchip} percent={gpuPercent} detail={gpuDetail} />
         {activeCount > 0 && (
           <span className="rm-chip-badge" title={`${activeCount} running`}>
             <LoaderCircle size={10} className="rm-spin" />

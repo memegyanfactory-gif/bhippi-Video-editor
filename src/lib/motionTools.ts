@@ -20,7 +20,8 @@ import { playbook, playbookIndex } from './motionDirection';
 import { findPack, packCatalogue } from './stylePacks';
 import { cameraLayer, PRESETS_3D, renderScene, scene3dRequest, trackLayers, type CameraFile, type ObjectsFile, type Render3DResult } from './blender3d';
 import { buildUiScene, runUiScreenTool } from './uiScreenTools';
-import { loadCaptureManifest, type CaptureManifest } from './appCapture';
+import { describePlan, planPanelLayout } from './panelLayout';
+import { loadCaptureManifest, loadRecording, type CaptureManifest, type Recording } from './appCapture';
 import { buildDemoTemplate } from '../motion/kit/productDemo';
 import { runCharacterTool } from './characterTools';
 import { runLottieTool } from './lottieTools';
@@ -46,9 +47,9 @@ import { SFX_KINDS, type Clip, type ClipSource, type Comp, type Project, type Sf
 
 type Args = Record<string, unknown>;
 
-export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_product_demo', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie', 'sound_the_motion']);
+export const MOTION_TOOLS = new Set(['list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene', 'analyze_reference_video', 'save_style_profile', 'track_motion', 'nest_motion_scenes', 'split_motion_layers', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'render_3d_scene', 'list_3d_presets', 'create_ui_screen', 'update_ui_screen', 'list_ui_kinds', 'capture_product_ui', 'create_product_demo', 'layout_panels', 'create_motion_sequence', 'list_transitions', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'list_character_actions', 'list_characters', 'import_lottie', 'sound_the_motion']);
 /** What create_product_demo passes on to the demo's template, besides the capture it loads. */
-const DEMO_PARAMS = ['duration', 'shots', 'actions', 'cursors', 'stage', 'tilt', 'explode', 'variant', 'settle', 'base', 'at', 'slam', 'depth', 'spread', 'blur'];
+const DEMO_PARAMS = ['duration', 'shots', 'actions', 'cursors', 'stage', 'tilt', 'explode', 'variant', 'settle', 'base', 'at', 'slam', 'depth', 'spread', 'blur', 'lifts', 'from', 'autoCursor'];
 /** Read-only / planning motion tools, allowed in any production phase. */
 export const MOTION_READ_TOOLS = new Set(['list_motion_templates', 'get_motion_scene', 'analyze_reference_video', 'save_style_profile', 'search_icons', 'svg_to_shape', 'motion_guide', 'list_drawn_styles', 'check_motion_arcs', 'list_3d_presets', 'list_ui_kinds', 'list_transitions', 'check_pacing', 'list_character_actions', 'list_characters']);
 
@@ -112,6 +113,8 @@ function footageFrom(value: unknown, ctx: MotionToolContext, sceneStart: number)
     return {
       asset: found.clip.source.assetId,
       kind: asset?.kind === 'image' ? 'image' : 'video',
+      // Its real shape, so a template sizes its card to the picture instead of cropping it to 16:9.
+      ...(asset?.width && asset?.height ? { width: asset.width, height: asset.height } : {}),
       in: sourceTimeAt(found.clip, sceneStart),
       speed: found.clip.speed,
       ...(found.clip.rotoMatte ? { matte: found.clip.rotoMatte } : {}),
@@ -121,7 +124,7 @@ function footageFrom(value: unknown, ctx: MotionToolContext, sceneStart: number)
   if (typeof v.assetId === 'string' && !('asset' in v)) {
     const asset = ctx.assets.get(v.assetId);
     const { assetId, ...rest } = v;
-    return { asset: assetId, kind: asset?.kind === 'image' ? 'image' : 'video', ...rest };
+    return { asset: assetId, kind: asset?.kind === 'image' ? 'image' : 'video', ...(asset?.width && asset?.height ? { width: asset.width, height: asset.height } : {}), ...rest };
   }
   return value;
 }
@@ -590,21 +593,34 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       // come apart and slam back. Placed exactly as create_motion_scene places a scene.
       const comp = ctx.pickComp(project, args);
       if (!comp) return fail('There is no composition to place the demo in.');
-      const given = args.capture;
-      let manifest: CaptureManifest;
-      if (given && typeof given === 'object' && Array.isArray((given as CaptureManifest).parts)) manifest = given as CaptureManifest;
+      // A recording (record_app_scene: the app moving, one video) or a capture (capture_app_session: still parts in states).
+      const given = args.recording ?? args.capture;
+      const fromRecording = args.recording !== undefined;
+      let manifest: CaptureManifest | null = null;
+      let recording: Recording | null = null;
+      if (fromRecording) {
+        if (given && typeof given === 'object' && typeof (given as Recording).video === 'string') recording = given as Recording;
+        else if (typeof given === 'string' && given.trim()) {
+          try { recording = await loadRecording(given); } catch (error) { return fail(errorText(error)); }
+        } else return fail('Give recording: the name of a record_app_scene recording (its folder in AI Work/recordings), or its recording.json path.');
+      } else if (given && typeof given === 'object' && Array.isArray((given as CaptureManifest).parts)) manifest = given as CaptureManifest;
       else if (typeof given === 'string' && given.trim()) {
         try { manifest = await loadCaptureManifest(given); } catch (error) { return fail(errorText(error)); }
-      } else return fail('Give capture: the name of a capture_app_session session (its folder in AI Work/ui-parts), or its manifest.json path.');
+      } else return fail('Give recording (a record_app_scene recording: the app moving, its own menus and typing playing inside the window) or capture (a capture_app_session session of still parts), by name.');
       const template = str(args, 'template') === 'window-explode' ? 'window-explode' : 'product-demo';
       const start = Math.max(0, num(args, 'start') ?? 0);
       const params: Args = Object.fromEntries(DEMO_PARAMS.filter((key) => args[key] !== undefined).map((key) => [key, args[key]]));
-      params.capture = { name: typeof given === 'string' ? given : manifest.dir.split(/[\\/]/).pop(), dir: manifest.dir, width: manifest.width, height: manifest.height, scale: manifest.scale, parts: manifest.parts.map(({ part, state, file, boxCss, pixels, typed }) => ({ part, state, file, boxCss, pixels, ...(typed !== undefined ? { typed } : {}) })) };
+      if (recording) params.recording = { name: typeof given === 'string' ? given : recording.name, dir: recording.dir, video: recording.video, width: recording.width, height: recording.height, scale: recording.scale, fps: recording.fps, duration: recording.duration, parts: recording.parts, events: recording.events };
+      else if (manifest) params.capture = { name: typeof given === 'string' ? given : manifest.dir.split(/[\\/]/).pop(), dir: manifest.dir, width: manifest.width, height: manifest.height, scale: manifest.scale, parts: manifest.parts.map(({ part, state, file, boxCss, pixels, typed }) => ({ part, state, file, boxCss, pixels, ...(typed !== undefined ? { typed } : {}) })) };
       params.fps = comp.fps;
       let built: ReturnType<typeof buildDemoTemplate>;
       try {
         built = buildDemoTemplate(template, { width: comp.width, height: comp.height, ...(ctx.brand ? { brand: ctx.brand } : {}) }, params);
-      } catch (error) { return fail(`${errorText(error)} Parts: ${[...new Set(manifest.parts.map((part) => `${part.part} (${manifest.parts.filter((p) => p.part === part.part).length} state${manifest.parts.filter((p) => p.part === part.part).length === 1 ? '' : 's'})`))].join(', ')}.`); }
+      } catch (error) {
+        const known = recording ? `Measured parts: ${Object.keys(recording.parts).join(', ') || 'none'} (record_app_scene parts:[{part, selector}] measures more).`
+          : `Parts: ${[...new Set(manifest!.parts.map((part) => `${part.part} (${manifest!.parts.filter((p) => p.part === part.part).length} state${manifest!.parts.filter((p) => p.part === part.part).length === 1 ? '' : 's'})`))].join(', ')}.`;
+        return fail(`${errorText(error)} ${known}`);
+      }
       const { scene, notes } = built;
       const title = str(args, 'title') ?? (template === 'window-explode' ? 'Window explode' : 'Product demo');
       const placed = await runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start, title, duration: scene.duration, fit: false, useBrand: false, sfx: args.sfx !== false }, ctx);
@@ -612,14 +628,18 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const data = placed as ToolResult & { clipId: string; compId: string; sfxClipIds: string[]; layers: { layerId: string; name: string }[] };
       // The moments worth a look: where the camera lands, every click, the slam.
       const shots = Array.isArray(args.shots) ? (args.shots as { at?: unknown }[]).map((shot) => shot?.at) : [];
-      const clicks = Array.isArray(args.actions) ? (args.actions as { at?: unknown; click?: unknown }[]).filter((action) => action?.click !== undefined).map((action) => action.at) : [];
+      const clicks = [
+        ...(Array.isArray(args.actions) ? (args.actions as { at?: unknown; click?: unknown }[]).filter((action) => action?.click !== undefined).map((action) => action.at) : []),
+        ...(recording ? recording.events.filter((event) => event.kind === 'click').map((event) => event.t - (num(args, 'from') ?? 0)) : []),
+        ...(Array.isArray(args.lifts) ? (args.lifts as { at?: unknown }[]).map((lift) => (typeof lift?.at === 'number' ? lift.at + 0.5 : undefined)) : []),
+      ];
       const slam = template === 'window-explode' ? args.slam : (args.explode as { slam?: unknown } | undefined)?.slam;
       const moments = [...new Set([...shots, ...clicks, slam].filter((t): t is number => typeof t === 'number' && t >= 0 && t < scene.duration).map((t) => Math.round((start + Math.min(t + 0.05, scene.duration - 0.05)) * 100) / 100))].sort((a, b) => a - b).slice(0, 9);
       const byPart = new Map<string, number>();
-      for (const layer of scene.layers) if (layer.type === 'footage') { const part = layer.id.split('@')[0]; byPart.set(part, (byPart.get(part) ?? 0) + 1); }
+      for (const layer of scene.layers) if (layer.type === 'footage') { const part = layer.id === 'live' ? 'live recording' : layer.id.startsWith('lift-') ? `${layer.id.slice(5)} lifted` : layer.id.split('@')[0]; byPart.set(part, (byPart.get(part) ?? 0) + 1); }
       const cursors = scene.layers.filter((layer) => layer.type === 'null' && layer.id.startsWith('cursor-') && !layer.id.endsWith('-clicks')).map((layer) => (layer.name ?? layer.id).replace(/^Cursor · /, ''));
       return done(
-        `${title} placed at ${timecode(start, comp.fps)} for ${scene.duration.toFixed(2)} s as the layered comp "[Motion] ${title}" (${MOTION_FOLDER} bin): ${scene.layers.length} layers, each a clip on its own track — the window and its parts (${[...byPart].map(([part, n]) => (n > 1 ? `${part} ×${n}` : part)).join(', ')}), ${cursors.length ? `cursor${cursors.length === 1 ? '' : 's'} ${cursors.join(', ')}, ` : ''}the camera${data.sfxClipIds.length ? `, with ${data.sfxClipIds.length} sound cue${data.sfxClipIds.length === 1 ? '' : 's'} on the SFX track` : ''}.${notes.length ? ` Adjusted: ${notes.join('; ')}.` : ''} Look at it with review_frames${moments.length ? ` {"times":[${moments.join(', ')}]}` : ''}; change it with update_motion_scene {"clipId":"${data.clipId}","params":{…}} (shots, actions, cursors, stage, tilt, explode rebuild it; the capture is kept).`,
+        `${title} placed at ${timecode(start, comp.fps)} for ${scene.duration.toFixed(2)} s as the layered comp "[Motion] ${title}" (${MOTION_FOLDER} bin): ${scene.layers.length} layers, each a clip on its own track — the window and its parts (${[...byPart].map(([part, n]) => (n > 1 ? `${part} ×${n}` : part)).join(', ')}), ${cursors.length ? `cursor${cursors.length === 1 ? '' : 's'} ${cursors.join(', ')}, ` : ''}the camera${data.sfxClipIds.length ? `, with ${data.sfxClipIds.length} sound cue${data.sfxClipIds.length === 1 ? '' : 's'} on the SFX track` : ''}.${notes.length ? ` Adjusted: ${notes.join('; ')}.` : ''} Look at it with review_frames${moments.length ? ` {"times":[${moments.join(', ')}]}` : ''}; change it with update_motion_scene {"clipId":"${data.clipId}","params":{…}} (shots, actions, cursors, stage, tilt, ${recording ? 'lifts, from' : 'explode'} rebuild it; the ${recording ? 'recording' : 'capture'} is kept).`,
         { clipId: data.clipId, compClipId: data.clipId, compId: data.compId, sfxClipIds: data.sfxClipIds, moments, notes, layers: data.layers.map(({ layerId, name: layerName }) => ({ layerId, name: layerName })) },
       );
     }
@@ -1079,6 +1099,31 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         `Sounded ${rows.length} motion cue${rows.length === 1 ? '' : 's'}: ${added} placed on the SFX track, ${rows.length - added} already there set to their new level. ${beds.length ? `Each sits about 6 dB under the music's peak at its moment` : 'There is no music on this timeline, so each keeps its default level under the voice; run this again once the music is in'}: ${kinds.join(', ')}.${capped.length ? ` ${capped.length} could not get that loud without clipping (first at ${timecode(capped[0].at, comp.fps)}): duck the music under them with score_audio_clip.` : ''}${beds.length && unscored ? ` ${unscored} play where no music does and keep their default level.` : ''}${offNote} Change one like any clip; review_frames checks they are heard.`,
         { cues: rows, ...(silenced ? { silenced } : {}) },
       );
+    }
+
+    case 'layout_panels': {
+      // The stacked-screenshots fix (panelLayout.ts): the scene's resting pictures and cards get
+      // slots that never overlap, each keeping its shape, applied as update_motion_scene patches.
+      const ref = str(args, 'clipId') ?? str(args, 'compId') ?? '';
+      const target = resolveMotion(project, ref);
+      if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
+      const scene = target.kind === 'stack' ? layeredCompScene(project, target.comp) ?? logicalScene(project, target.comp) : (target.clip.source as MotionSource).scene;
+      if (!scene) return fail('That comp has no motion layers.');
+      const arrangement = str(args, 'arrangement');
+      const plan = planPanelLayout(scene, {
+        at: num(args, 'at'),
+        layers: Array.isArray(args.layers) ? (args.layers as unknown[]).filter((id): id is string => typeof id === 'string') : undefined,
+        arrangement: arrangement === 'row' || arrangement === 'column' || arrangement === 'grid' || arrangement === 'feature' ? arrangement : 'auto',
+        gap: num(args, 'gap'),
+        margin: num(args, 'safeMargin'),
+      });
+      if (typeof plan === 'string') return fail(plan);
+      const skipped = plan.skipped.length ? ` Left alone: ${plan.skipped.join('; ')}.` : '';
+      if (!plan.patches.length) return done(`The ${plan.panels.length} panel(s) resting at ${plan.at} s already sit in their ${plan.arrangement} slots: nothing to move.${skipped}`, { arrangement: plan.arrangement, panels: plan.panels });
+      const updated = await runMotionTool('update_motion_scene', { ...(target.kind === 'stack' ? { compId: target.comp.id } : { clipId: target.clip.id }), patches: plan.patches, fit: false }, ctx);
+      if (!updated.ok) return updated;
+      return done(`Laid out ${plan.panels.length} panel(s) as a ${plan.arrangement} at ${plan.at} s, each its own shape, none on another, inside the safe area: ${describePlan(plan)}. Entrances and exits keep their motion, shifted to the new places.${skipped} Check it with review_frames, or run it again with another arrangement (row, column, grid, feature).`,
+        { arrangement: plan.arrangement, at: plan.at, panels: plan.panels, patches: plan.patches.length });
     }
 
     case 'get_motion_scene': {

@@ -413,7 +413,7 @@ type LayerCommon = {
 };
 
 export type Layer = LayerCommon & (
-  | { type: 'footage'; source: FootageSource; fit?: 'cover' | 'contain' | 'none'; /** Layer size when fitted; defaults to the canvas. */ size?: Vec }
+  | { type: 'footage'; source: FootageSource; /** Default: contain for a still with its own size (it shows whole), cover otherwise. */ fit?: 'cover' | 'contain' | 'none'; /** Layer size when fitted; defaults to the canvas. */ size?: Vec }
   | { type: 'solid'; color: string; size?: Vec }
   | { type: 'procedural'; kind: ProceduralKind; params?: Record<string, unknown>; size?: Vec }
   /** Confetti, sparkles, dust, bokeh, speed lines, snow, embers, bursts (src/motion/particles.ts); the layer is the scene size unless `size`. */

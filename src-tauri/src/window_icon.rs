@@ -9,6 +9,12 @@
 //!
 //! [`install`] swaps in the .ico frame that is exactly the taskbar size for the window's display
 //! scale, and swaps it again whenever the window moves to a display with another scale.
+//!
+//! The taskbar sometimes showed Windows' blank application tile instead of the logo. It asks the
+//! window for its icon with a message that times out while the window's thread is busy (the
+//! editor loading at launch), finds no class icon to fall back on (tao registers none), and keeps
+//! the blank tile. Setting the icon again makes Windows tell the taskbar to redraw the button and
+//! ask once more, so [`refresh`] sets it again once the editor has loaded, when the window answers.
 
 use std::io::Cursor;
 
@@ -31,6 +37,15 @@ pub fn install<R: Runtime>(window: &Window<R>) {
     });
 }
 
+/// Sets `window`'s taskbar icon again, so a taskbar that drew the blank tile while the window was
+/// too busy to answer asks once more (see the module notes).
+pub fn refresh<R: Runtime>(window: &Window<R>) {
+    match window.scale_factor() {
+        Ok(scale) => apply(window, scale),
+        Err(error) => tracing::warn!(%error, window = window.label(), "no display scale; the taskbar icon was not refreshed"),
+    }
+}
+
 /// Gives `window` the icon frame that matches the taskbar at display `scale`. A failure only
 /// leaves Tauri's default icon in place.
 fn apply<R: Runtime>(window: &Window<R>, scale: f64) {
@@ -39,6 +54,7 @@ fn apply<R: Runtime>(window: &Window<R>, scale: f64) {
         tracing::warn!(%error, window = window.label(), "could not set the taskbar icon");
     }
 }
+
 
 /// Edge of the taskbar button icon in physical pixels at display `scale` (1.0 = 96 DPI).
 fn taskbar_icon_px(scale: f64) -> u32 {

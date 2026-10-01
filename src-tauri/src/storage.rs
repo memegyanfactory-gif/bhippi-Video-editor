@@ -633,7 +633,7 @@ pub fn storage_open(app: AppHandle, webview: tauri::Webview, state: State<'_, st
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle, webview: tauri::Webview, title: String, directory: Option<String>) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    let window = app.get_webview_window(webview.label())?;
+    let window = webview.window();
     tauri::async_runtime::spawn_blocking(move || {
         let mut dialog = app.dialog().file().set_parent(&window).set_title(&title);
         if let Some(start) = directory.filter(|dir| Path::new(dir).is_dir()) {

@@ -208,6 +208,24 @@ impl Page {
         Ok(())
     }
 
+    /// One mouse event at `x`, `y` ("mousePressed", "mouseMoved", "mouseReleased"); `held` keeps the
+    /// left button down while moving, which is what a drag is.
+    pub async fn mouse(&self, browser: &mut Browser, kind: &str, x: f64, y: f64, held: bool) -> Result<(), String> {
+        let button = if kind == "mouseMoved" && !held { "none" } else { "left" };
+        browser
+            .call("Input.dispatchMouseEvent", json!({ "type": kind, "x": x, "y": y, "button": button, "buttons": i32::from(held || kind == "mousePressed"), "clickCount": 1 }), Some(&self.session))
+            .await
+            .map(|_| ())
+    }
+
+    /// The whole viewport as a JPEG at the page's pixel ratio: one frame of a recording.
+    pub async fn frame_jpeg(&self, browser: &mut Browser, quality: u8) -> Result<Vec<u8>, String> {
+        let result = browser.call("Page.captureScreenshot", json!({ "format": "jpeg", "quality": quality, "fromSurface": true }), Some(&self.session)).await?;
+        let data = result.get("data").and_then(Value::as_str).ok_or("the browser returned no picture")?;
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.decode(data).map_err(|error| format!("the picture was unreadable: {error}"))
+    }
+
     /// Moves the mouse to `x`, `y` (hover states).
     pub async fn hover(&self, browser: &mut Browser, x: f64, y: f64) -> Result<(), String> {
         browser.call("Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": x, "y": y }), Some(&self.session)).await.map(|_| ())

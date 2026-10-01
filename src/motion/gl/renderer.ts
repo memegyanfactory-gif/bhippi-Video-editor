@@ -57,6 +57,15 @@ function densityOf(layer: ResolvedLayer, scale: number, maxTexture: number): num
   return Math.min(d, maxTexture / Math.max(w, h));
 }
 
+
+/**
+ * How a footage layer fills its box. A still given its own box shows whole unless the layer asks
+ * to crop it: a cropped interface picture loses its labels, which no camera brings back. A
+ * picture filling the frame (no size) still covers it, as a background should.
+ */
+export function footageFit(layer: { fit?: 'cover' | 'contain' | 'none'; size?: unknown }, still: boolean): 'cover' | 'contain' | 'none' {
+  return layer.fit ?? (layer.size && still ? 'contain' : 'cover');
+}
 export class MotionRenderer {
   readonly gl: GL;
   readonly bank: MediaBank;
@@ -171,7 +180,7 @@ export class MotionRenderer {
         // Stills get mipmaps once (a 3x capture seen whole stays clean); video frames change every draw.
         const still = typeof HTMLVideoElement === 'undefined' || !(picture.image instanceof HTMLVideoElement);
         const tex = this.upload(`f:${picture.key.split('@')[0]}`, picture.image, picture.key, still);
-        const fit = layer.fit ?? 'cover';
+        const fit = footageFit(layer, still);
         const sw = picture.width;
         const sh = picture.height;
         const k = fit === 'none' ? 1 : fit === 'contain' ? Math.min(w / sw, h / sh) : Math.max(w / sw, h / sh);

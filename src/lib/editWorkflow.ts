@@ -113,6 +113,7 @@ const preparation = new Set([
   'scrape_web_page',
   'capture_product_ui',
   'capture_app_session',
+  'record_app_scene',
   'web_search',
   'web_fetch',
   'read_file',

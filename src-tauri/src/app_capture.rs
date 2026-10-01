@@ -98,7 +98,7 @@ fn allowed_file(path: &Path, roots: &[PathBuf]) -> bool {
 /// (when it is bundled) and local files at `/f/<path>`, so the page loads over http like the
 /// app does instead of `file://`, where fonts and module scripts fail. It only ever serves
 /// Bhippi's own interface: a web product is captured without it.
-struct Server {
+pub(crate) struct Server {
     port: u16,
     stop: Arc<AtomicBool>,
 }
@@ -160,6 +160,47 @@ fn start_server(app: &AppHandle, roots: Vec<PathBuf>, origin: Option<String>) ->
     Ok(Server { port, stop })
 }
 
+/// Labels the app itself cuts short (a pill whose "Full access" reads "Full a" in a narrow panel):
+/// short text in a box that hides its overflow, wider than the box, with no ellipsis to say so. No
+/// camera or fit can bring those letters back, so a capture says so and names them. A label that
+/// ends in "…" shortens by design (a narrow tab), as do clip names on Bhippi's timeline: both are
+/// left alone.
+pub(crate) const CLIPPED: &str = r"(selector) => {
+  const root = selector ? document.querySelector(selector) : document.body;
+  if (!root) return [];
+  const found = [];
+  for (const el of [root, ...root.querySelectorAll('*')]) {
+    if (found.length >= 6) break;
+    if (el.closest('.timeline')) continue;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+    const hides = (style.overflowX === 'hidden' || style.overflowX === 'clip') && style.textOverflow !== 'ellipsis';
+    if (!hides || el.scrollWidth <= el.clientWidth + 1 || !el.clientWidth) continue;
+    const text = (el.innerText || '').trim().replace(/\s+/g, ' ');
+    if (!text || text.length > 48 || found.includes(text)) continue;
+    found.push(text);
+  }
+  return found;
+}";
+
+/// The labels cut short inside `selector`, as one issue for the reply (none when every label fits).
+pub(crate) async fn clipped_text(page: &Page, browser: &mut Browser, selector: Option<&str>, part: &str) -> Option<String> {
+    let value = page.eval(browser, &format!("({CLIPPED})({})", selector.map_or_else(|| "null".to_owned(), |s| serde_json::to_string(s).unwrap_or_default()))).await.ok()?;
+    let texts: Vec<String> = value.as_array()?.iter().filter_map(Value::as_str).map(|text| format!("\"{text}\"")).collect();
+    (!texts.is_empty()).then(|| format!("text cut short by the app's own layout in {part}: {} (give it more room, a wider window or panel, before filming; no fit or camera brings those letters back)", texts.join(", ")))
+}
+
+/// What shows when Bhippi's editor is on screen in a capture.
+pub(crate) const BHIPPI_READY: &str = ".timeline, form.composer";
+
+/// Bhippi's address for a capture: `?capture=1` opens it straight on the editor, with no launch
+/// splash and no Home screen (projectView.ts `isCaptureView`).
+pub(crate) fn bhippi_capture_url(base: &str) -> String {
+    let (path, fragment) = base.split_once('#').map_or((base, None), |(path, fragment)| (path, Some(fragment)));
+    let joined = format!("{path}{}capture=1", if path.contains('?') { '&' } else { '?' });
+    fragment.map_or(joined.clone(), |fragment| format!("{joined}#{fragment}"))
+}
+
 fn mime_of(path: &Path) -> String {
     match path.extension().and_then(|ext| ext.to_str()).map(str::to_ascii_lowercase).as_deref() {
         Some("png") => "image/png",
@@ -178,7 +219,7 @@ fn mime_of(path: &Path) -> String {
 }
 
 /// A folder-safe version of a name.
-fn slug(name: &str) -> String {
+pub(crate) fn slug(name: &str) -> String {
     let cleaned: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
     let trimmed = cleaned.trim_matches('-');
     if trimmed.is_empty() { "session".to_owned() } else { trimmed.chars().take(60).collect() }
@@ -190,7 +231,7 @@ fn slug(name: &str) -> String {
 const RECT: &str = "(sel) => { const el = document.querySelector(sel); if (!el) return null; let r = el.getBoundingClientRect(); if (r.top < 0 || r.left < 0 || r.bottom > innerHeight || r.right > innerWidth) { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); r = el.getBoundingClientRect(); } return [r.x, r.y, r.width, r.height, scrollX, scrollY]; }";
 
 /// Where a part is: `[x, y, width, height]` in window CSS pixels, and the page scroll.
-async fn place_of(page: &Page, browser: &mut Browser, selector: &str) -> Result<([f64; 4], [f64; 2]), String> {
+pub(crate) async fn place_of(page: &Page, browser: &mut Browser, selector: &str) -> Result<([f64; 4], [f64; 2]), String> {
     let value = page.eval(browser, &format!("({RECT})({})", serde_json::to_string(selector).unwrap_or_default())).await?;
     let list = value.as_array().ok_or_else(|| format!("nothing on the page matches {selector}"))?;
     let number = |i: usize| list.get(i).and_then(Value::as_f64).unwrap_or(0.0);
@@ -202,7 +243,7 @@ async fn place_of(page: &Page, browser: &mut Browser, selector: &str) -> Result<
 }
 
 /// A part's box in window CSS pixels: where the mouse goes.
-async fn rect_of(page: &Page, browser: &mut Browser, selector: &str) -> Result<[f64; 4], String> {
+pub(crate) async fn rect_of(page: &Page, browser: &mut Browser, selector: &str) -> Result<[f64; 4], String> {
     place_of(page, browser, selector).await.map(|(rect, _)| rect)
 }
 
@@ -217,6 +258,9 @@ async fn capture(page: &Page, browser: &mut Browser, dir: &Path, part: &str, sta
     let expected = ((width * scale).round() as i64, (height * scale).round() as i64);
     if (pixels.0 as i64 - expected.0).abs() > 3 || (pixels.1 as i64 - expected.1).abs() > 3 {
         issues.push(format!("{part} ({state}) came out {}x{} px, not the {}x{} asked for: it would blur when the camera zooms in", pixels.0, pixels.1, expected.0, expected.1));
+    }
+    if let Some(issue) = clipped_text(page, browser, Some(selector), &format!("{part} ({state})")).await {
+        issues.push(issue);
     }
     let file = format!("{}__{}.png", slug(part), slug(state));
     std::fs::write(dir.join(&file), &png).map_err(|error| format!("cannot write {file}: {error}"))?;
@@ -281,7 +325,7 @@ async fn play(page: &Page, browser: &mut Browser, dir: &Path, steps: &[Step], sc
     parts
 }
 
-const FONT_CHECK: &str = r#"(async () => {
+pub(crate) const FONT_CHECK: &str = r#"(async () => {
   await document.fonts.ready;
   const generic = /^(system-ui|sans-serif|serif|monospace|cursive|fantasy|inherit|initial|-apple-system|blinkmacsystemfont|segoe ui|arial|helvetica)$/i;
   const used = new Set();
@@ -307,29 +351,66 @@ async fn run(app: &AppHandle, state: &AppState, session: &str, request: CaptureR
         }
     }
     std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let Opened { mut browser, page, server, url } = open(app, state, &Open { url: request.url.as_deref(), width, height, scale, standin: request.standin.as_deref(), ready: request.ready.as_deref(), transparent: request.transparent.unwrap_or(false) }).await?;
+
+    let mut issues = Vec::new();
+    let parts = play(&page, &mut browser, &dir, &request.steps, scale, &mut issues).await;
+    page_issues(&page, &mut browser, &mut issues).await;
+    drop(browser);
+    drop(server);
+    let manifest = Manifest { key: request.key.clone(), url, width, height, scale, parts, issues, dir: dir.display().to_string() };
+    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap_or_default()).map_err(|error| format!("cannot write the manifest: {error}"))?;
+    Ok(manifest)
+}
+
+/// What a capture or a recording opens: a page, its size, and what stands in for Bhippi's backend.
+pub(crate) struct Open<'a> {
+    pub url: Option<&'a str>,
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+    pub standin: Option<&'a str>,
+    pub ready: Option<&'a str>,
+    pub transparent: bool,
+}
+
+/// An open page, ready to be played: the browser and its file server live as long as this does.
+pub(crate) struct Opened {
+    pub browser: Browser,
+    pub page: Page,
+    pub server: Option<Server>,
+    pub url: String,
+}
+
+/// Opens a product (a web address, or Bhippi itself on its editor) in a headless browser and waits
+/// until it shows and its fonts have loaded.
+pub(crate) async fn open(app: &AppHandle, state: &AppState, open: &Open<'_>) -> Result<Opened, String> {
     // Only Bhippi's own interface gets the file server (its thumbnails, waveforms and media): a
     // web product is opened as it is, with no way into Bhippi's folders.
-    let (url, server) = match request.url.as_deref() {
+    let (url, server) = match open.url {
         Some(url) => (crate::ui_screen::capture_url(url)?, None),
         None => {
             // Bhippi itself: the dev server while developing, the bundled interface otherwise.
             let dev = app.config().build.dev_url.clone().filter(|_| cfg!(debug_assertions));
             let roots = vec![state.paths.root.clone(), storage::root(state)];
             let server = start_server(app, roots, dev.as_ref().map(|url| url.origin().ascii_serialization()))?;
-            (dev.map_or_else(|| format!("http://127.0.0.1:{}/", server.port), |url| url.to_string()), Some(server))
+            let base = dev.map_or_else(|| format!("http://127.0.0.1:{}/", server.port), |url| url.to_string());
+            (bhippi_capture_url(&base), Some(server))
         }
     };
     let files = server.as_ref().map_or_else(String::new, |server| format!("http://127.0.0.1:{}/f/", server.port));
     let program = crate::ui_screen::find_browser().ok_or("No Chrome or Edge found to capture with")?;
     let mut browser = Browser::launch(&program, &state.paths.work).await?;
-    let standin = request.standin.as_ref().map(|script| script.replace("{{FILES}}", &files));
-    let page = Page::open(&mut browser, width, height, scale, standin.as_deref()).await?;
-    if request.transparent.unwrap_or(false) {
+    let standin = open.standin.map(|script| script.replace("{{FILES}}", &files));
+    let page = Page::open(&mut browser, open.width, open.height, open.scale, standin.as_deref()).await?;
+    if open.transparent {
         page.transparent(&mut browser).await?;
     }
     page.navigate(&mut browser, &url).await?;
-    // Ready: the chosen element on screen (or the app's root filled in), fonts loaded.
-    let ready = request.ready.clone().unwrap_or_else(|| "#root > *, body > *".to_owned());
+    // Ready: the chosen element on screen, fonts loaded. Bhippi itself is ready once its editor
+    // is (the timeline or the composer), not when the first element mounts: a capture taken
+    // before that finds none of the parts a film asks for.
+    let ready = open.ready.map_or_else(|| if open.url.is_none() { BHIPPI_READY.to_owned() } else { "#root > *, body > *".to_owned() }, str::to_owned);
     let started = std::time::Instant::now();
     loop {
         let found = page.eval(&mut browser, &format!("!!document.querySelector({})", serde_json::to_string(&ready).unwrap_or_default())).await.unwrap_or(Value::Bool(false));
@@ -342,10 +423,12 @@ async fn run(app: &AppHandle, state: &AppState, session: &str, request: CaptureR
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     let _ignored = page.eval(&mut browser, "document.fonts.ready.then(() => new Promise((done) => setTimeout(done, 400)))").await;
+    Ok(Opened { browser, page, server, url })
+}
 
-    let mut issues = Vec::new();
-    let parts = play(&page, &mut browser, &dir, &request.steps, scale, &mut issues).await;
-    if let Ok(Value::Array(missing)) = page.eval(&mut browser, FONT_CHECK).await {
+/// What went wrong on the page and was caught: fonts that fell back, script errors.
+pub(crate) async fn page_issues(page: &Page, browser: &mut Browser, issues: &mut Vec<String>) {
+    if let Ok(Value::Array(missing)) = page.eval(browser, FONT_CHECK).await {
         if !missing.is_empty() {
             let names: Vec<String> = missing.iter().filter_map(Value::as_str).map(str::to_owned).collect();
             issues.push(format!("fonts that did not load (shown in a fallback face): {}", names.join(", ")));
@@ -355,11 +438,6 @@ async fn run(app: &AppHandle, state: &AppState, session: &str, request: CaptureR
         let text = event.pointer("/exceptionDetails/exception/description").or_else(|| event.pointer("/exceptionDetails/text")).and_then(Value::as_str).unwrap_or("an error");
         issues.push(format!("page error: {}", text.lines().next().unwrap_or(text)));
     }
-    drop(browser);
-    drop(server);
-    let manifest = Manifest { key: request.key.clone(), url, width, height, scale, parts, issues, dir: dir.display().to_string() };
-    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap_or_default()).map_err(|error| format!("cannot write the manifest: {error}"))?;
-    Ok(manifest)
 }
 
 /// Captures a product (a web address, or Bhippi itself) as parts in states. See the module notes.
@@ -386,6 +464,29 @@ pub async fn app_session_capture(app: AppHandle, webview: tauri::Webview, state:
 mod tests {
     use super::{allowed_file, capture, head, play, slug, Browser, Manifest, Page, Step};
     use std::path::PathBuf;
+
+    /// A real browser: a label the page itself cuts short is named; one that fits is not.
+    #[tokio::test]
+    async fn labels_the_app_cuts_short_are_named() {
+        let Some(program) = crate::ui_screen::find_browser() else { return };
+        let work = std::env::temp_dir().join(format!("bhippi-clip-test-{}", ulid::Ulid::new()));
+        let mut browser = Browser::launch(&program, &work).await.expect("launch");
+        let page = Page::open(&mut browser, 600, 200, 1.0, None).await.expect("page");
+        let html = "data:text/html,<div class=bar><span style='display:inline-block;width:40px;overflow:hidden;white-space:nowrap'>Full access</span> <span style='display:inline-block;overflow:hidden;white-space:nowrap'>Max</span></div>";
+        page.navigate(&mut browser, html).await.expect("navigate");
+        let issue = super::clipped_text(&page, &mut browser, Some(".bar"), "pills").await.expect("the cut label is reported");
+        assert!(issue.contains("\"Full access\"") && issue.contains("pills"), "{issue}");
+        assert!(!issue.contains("\"Max\""), "{issue}");
+        drop(browser);
+        let _ignored = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn bhippi_is_captured_on_its_editor() {
+        assert_eq!(super::bhippi_capture_url("http://localhost:5199/"), "http://localhost:5199/?capture=1");
+        assert_eq!(super::bhippi_capture_url("http://127.0.0.1:4000/?a=b"), "http://127.0.0.1:4000/?a=b&capture=1");
+        assert_eq!(super::bhippi_capture_url("http://127.0.0.1:4000/#x"), "http://127.0.0.1:4000/?capture=1#x");
+    }
 
     #[test]
     fn names_become_folder_safe() {

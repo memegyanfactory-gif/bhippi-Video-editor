@@ -46,6 +46,44 @@ const withClips = (comp: Comp, times: [number, number][]): Comp => {
   };
 };
 
+describe('edit programs: a track that is not there', () => {
+  // The 2026-10-01 incident: "clear V6" ran in a project with no V6, the unknown name widened to
+  // every track, and the song on A1 went with it.
+  const songAndPicture = () => {
+    const { project, assets, comp } = setup();
+    const [v1] = tracksOf(comp, 'video');
+    const [a1] = tracksOf(comp, 'audio');
+    const withSong: Comp = { ...comp, clips: [
+      newClip({ trackId: v1.id, start: 0, duration: 20, source: { type: 'media', assetId: 'a-take' }, name: 'picture' }),
+      newClip({ trackId: a1.id, start: 0, duration: 20, source: { type: 'media', assetId: 'a-take' }, name: 'song' }),
+    ] };
+    return { project, assets, comp: withSong };
+  };
+
+  for (const op of [
+    { op: 'remove', from: 4, to: 8, tracks: ['V6'] },
+    { op: 'razor', at: 5, tracks: ['V6'] },
+    { op: 'transition', at: 5, kind: 'cross-dissolve', tracks: ['V6'] },
+  ] as Program['ops']) {
+    it(`${op.op} on a missing track fails and touches nothing, naming the tracks there are`, () => {
+      const { project, assets, comp } = songAndPicture();
+      const result = runProgram(project, assets, comp, { label: 'clear', ops: [op] });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toMatch(/no track called "V6".*V1.*A1/);
+    });
+  }
+
+  it('still clears only the named track when it exists', () => {
+    const { project, assets, comp } = songAndPicture();
+    const result = runProgram(project, assets, comp, { label: 'clear', ops: [{ op: 'remove', from: 4, to: 8, tracks: ['V1'], mode: 'lift' }] });
+    if (!result.ok) throw new Error(result.error);
+    const song = result.comp.clips.filter((clip) => clip.name === 'song');
+    expect(song).toHaveLength(1);
+    expect(song[0].duration).toBe(20);
+  });
+});
+
 describe('edit programs: one edit, applied whole', () => {
   it('runs every operation and reports what changed', () => {
     const { project, assets, comp } = setup();

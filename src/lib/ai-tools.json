@@ -7124,7 +7124,7 @@
     },
     {
       "name": "capture_app_session",
-      "description": "Captures a live product as parts in states, crisp at 3x. It plays a short session in a headless browser (click, hover, type, key, wait) and captures each named part in each state; typing with a part is captured after every character. No url = Bhippi itself, from the real app state, with named parts @composer @field @send @pills @menu @chat @messages @timeline @program @source @project. Checks resolution and fonts; a repeat capture is reused. Parts land in AI Work/ui-parts/<name> with manifest.json. Then create_product_demo turns it into a camera shot of layers.",
+      "description": "Captures a live product as parts in states, crisp at 3x. It plays a short session in a headless browser (click, hover, type, key, wait) and captures each named part in each state; typing with a part is captured after every character. No url = Bhippi itself, from the real app state, with named parts @composer @field @send @pills @menu @chat @messages @timeline @program @source @project. Checks resolution and fonts; a repeat capture is reused. Parts land in AI Work/ui-parts/<name> with manifest.json. Then create_product_demo turns it into a camera shot of layers. Parts only swap state on a frame: UI that moves inside the shot is record_app_scene.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -7179,14 +7179,83 @@
       }
     },
     {
+      "name": "record_app_scene",
+      "description": "Records the real product moving, as one video of the whole window. Timed actions (click, hover, type, key, drag, scroll) play on a virtual clock that scrubs every CSS animation, so menus open, words type and the timeline fills through the app's own code. No url = Bhippi on its editor; @composer @field @send @pills @menu @chat @messages @timeline @program @source @project are measured over time, clicks and drags keep their points. Lands in AI Work/recordings/<name>; reused when repeated. create_product_demo {recording} films it. UI that must move inside the shot is recorded, not captured as stills.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The product page (http/https). Leave out to record Bhippi itself."
+          },
+          "name": {
+            "type": "string",
+            "description": "The recording name (its folder)."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Seconds, 30 at most: one scene. Time every action inside it."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Timed, seconds from the start: {do:\"click\"|\"hover\", at, selector} · {do:\"type\", at, text, selector?, until?} types one character at a time (14 a second without until) · {do:\"key\", at, key} · {do:\"drag\", at, selector, to: selector or [dx, dy], until} · {do:\"scroll\", at, selector, by, until?} · {do:\"eval\", at, js}. Selectors are CSS, or @name for Bhippi parts. Leave the first 0.3 s and the last 0.5 s calm so cuts land on a still frame."
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Extra parts to measure over time, {part, selector}, so the camera can frame them and lifts can raise them. Bhippi's named parts are always measured."
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "scale": {
+            "type": "number",
+            "description": "Device pixels per CSS pixel, 1-3 (default 2: the camera can push in about 2x and stay sharp)."
+          },
+          "fps": {
+            "type": "number",
+            "description": "Frames a second (default 30)."
+          },
+          "ready": {
+            "type": "string",
+            "description": "A selector the page is ready when it shows (Bhippi: its editor)."
+          },
+          "reuse": {
+            "type": "boolean",
+            "description": "Reuse an identical earlier recording (default true)."
+          },
+          "images": {
+            "type": "boolean",
+            "description": "Attach a contact sheet of the recording's key moments (default true)."
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "Bhippi only: an empty timeline, bins and chat show a small demo project so the screens look alive; the user's own work is kept."
+          }
+        },
+        "required": [
+          "duration",
+          "actions"
+        ]
+      }
+    },
+    {
       "name": "create_product_demo",
-      "description": "Makes a captured app session into a product demo of editable layers. From a capture_app_session capture: the camera lands close on named parts and pulls back to the whole window tilted in 3D; named cursors (you, bhippi, claude, gpt, gemini, local) travel on arcs, click with a ring and type; each part shows its captured state on the frame (typing plays over a span or word by word). template \"window-explode\": the parts float apart in depth and slam back on slam. It moves the camera and swaps captured pictures; nothing inside a part moves: UI that must animate goes through create_ui_screen {screenshot, parts, actions}. Times are seconds from the demo start. Places a layered [Motion] comp with sound cues; update_motion_scene params rebuild it with new times. motion_guide {topic:\"product-demo\"} (or \"launch-film\") has the film it belongs in: the beats, the shots and the timing that worked.",
+      "description": "Makes the real app into a product demo of editable layers. From a record_app_scene recording (the window plays the app moving; a cursor replays its clicks and drags; lifts raise a panel out of its place) or a capture_app_session capture of still parts: the camera lands close on named parts and pulls back to the whole window tilted in 3D; named cursors (you, bhippi, claude, gpt, gemini, local) travel on arcs, click with a ring and type; captured parts show each state on its frame. template \"window-explode\" (capture): the parts float apart in depth and slam back on slam. Times are seconds from the demo start. Places a layered [Motion] comp with sound cues; update_motion_scene params rebuild it. motion_guide {topic:\"product-demo\"} (or \"launch-film\") has the film it belongs in.",
       "input_schema": {
         "type": "object",
         "properties": {
           "capture": {
             "type": "string",
-            "description": "The capture_app_session name (its folder in AI Work/ui-parts) or its manifest.json path."
+            "description": "A capture_app_session name or manifest.json path (still parts in states)."
           },
           "shots": {
             "type": "array",
@@ -7200,7 +7269,7 @@
             "items": {
               "type": "object"
             },
-            "description": "{at, click: part, cursor?} · {at, hover: part, cursor?} · {at, type: part, until?, words?: [seconds each word lands], text?, cursor?} plays its typing states · {at, set: {part, state}} swaps to a captured state."
+            "description": "{at, click: part, cursor?} · {at, hover: part, cursor?} · {at, type: part, until?, words?: [seconds each word lands], text?, cursor?} plays its typing states · {at, set: {part, state}} swaps to a captured state. A recording plays its own typing and states."
           },
           "cursors": {
             "type": "array",
@@ -7255,11 +7324,28 @@
           },
           "sfx": {
             "type": "boolean"
+          },
+          "recording": {
+            "type": "string",
+            "description": "A record_app_scene name or recording.json path (the app moving). Or capture."
+          },
+          "lifts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Recording only: {part, at, until, depth?} raises the part out of its place toward the camera and back."
+          },
+          "from": {
+            "type": "number",
+            "description": "Recording only: seconds into the recording the demo starts at."
+          },
+          "autoCursor": {
+            "type": "boolean",
+            "description": "Recording only: false = no cursor on the recorded clicks."
           }
         },
-        "required": [
-          "capture"
-        ]
+        "required": []
       }
     },
     {
@@ -7845,6 +7931,52 @@
           }
         },
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "layout_panels",
+      "description": "Lays a scene's pictures and cards out so none overlaps another. It measures the panels where they rest, keeps each one's shape (nothing cropped or stretched), gives each a slot inside the safe area (row, column, grid, or one featured with the rest stacked; auto picks the one where the smallest reads largest), and moves and scales the layers there; entrances and exits keep their motion. The fix for frame QA's \"sit half on top of each other\" in one scene.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clipId": {
+            "type": "string",
+            "description": "The \"[Motion]\" comp clip, one of its layer clips, or a motion scene clip."
+          },
+          "compId": {
+            "type": "string"
+          },
+          "arrangement": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "row",
+              "column",
+              "grid",
+              "feature"
+            ]
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only these layer ids (default: every picture and card resting then)."
+          },
+          "at": {
+            "type": "number",
+            "description": "Scene seconds when the panels rest (default: the moment most of them do)."
+          },
+          "gap": {
+            "type": "number",
+            "description": "Space between panels: a fraction of the width (default 0.025) or px."
+          },
+          "safeMargin": {
+            "type": "number",
+            "description": "Margin on every side as a fraction of the frame (default: the editor safe area)."
+          }
+        },
+        "required": []
       }
     },
     {

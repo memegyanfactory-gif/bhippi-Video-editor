@@ -15,7 +15,7 @@
 //     lets the assistant check its own work — and the user approve it — before the timeline moves.
 import {
   addTransition, clipEnd, clipsForSource, closeGap, compDuration, ensureTrack, findClip, freeTrack, moveClips,
-  newClip, placeClips, razor, removeClips, removeRange, resolveTrack, setSpeed, sourceLimit, textSource,
+  namedTracks, newClip, placeClips, razor, removeClips, removeRange, resolveTrack, setSpeed, sourceLimit, textSource,
   tracksOf, trimEdge, type AssetMap,
 } from './timeline';
 import type { Clip, Comp, Preset, Project, TrackKind, TransitionKind } from './types';
@@ -165,15 +165,17 @@ export function runProgram(project: Project, assets: AssetMap, comp: Comp, progr
         }
 
         case 'razor': {
-          const tracks = op.tracks?.map((ref) => resolveTrack(current, ref)?.id).filter((id): id is string => !!id) ?? null;
-          current = razor(current, Math.max(0, op.at), tracks && tracks.length ? tracks : null);
+          const tracks = namedTracks(current, op.tracks);
+          if (tracks.error !== undefined) return fail(tracks.error);
+          current = razor(current, Math.max(0, op.at), tracks.ids);
           break;
         }
 
         case 'remove': {
           if (op.to <= op.from) return fail('remove needs `to` after `from`');
-          const tracks = op.tracks?.map((ref) => resolveTrack(current, ref)?.id).filter((id): id is string => !!id) ?? null;
-          current = removeRange(current, Math.max(0, op.from), op.to, op.mode ?? 'extract', tracks && tracks.length ? tracks : null);
+          const tracks = namedTracks(current, op.tracks);
+          if (tracks.error !== undefined) return fail(tracks.error);
+          current = removeRange(current, Math.max(0, op.from), op.to, op.mode ?? 'extract', tracks.ids);
           break;
         }
 
@@ -217,9 +219,11 @@ export function runProgram(project: Project, assets: AssetMap, comp: Comp, progr
         }
 
         case 'transition': {
-          const tracks = op.tracks?.map((ref) => resolveTrack(current, ref)?.id).filter((id): id is string => !!id) ?? null;
+          const named = namedTracks(current, op.tracks);
+          if (named.error !== undefined) return fail(named.error);
+          const tracks = named.ids;
           const edges = current.clips.filter((clip) => Math.abs(clipEnd(clip) - op.at) < 0.05 || Math.abs(clip.start - op.at) < 0.05);
-          const onTracks = tracks && tracks.length ? edges.filter((clip) => tracks.includes(clip.trackId)) : edges;
+          const onTracks = tracks ? edges.filter((clip) => tracks.includes(clip.trackId)) : edges;
           if (onTracks.length === 0) {
             warnings.push(`no edit point at ${round(op.at)}s, so no transition was added there`);
             break;

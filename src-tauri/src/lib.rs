@@ -68,6 +68,7 @@ mod cutout;
 mod blender;
 mod ui_screen;
 mod app_capture;
+mod app_record;
 mod render_passes;
 mod demo_pack;
 mod cdp;
@@ -76,6 +77,7 @@ mod ref_motion;
 mod trace;
 mod harness;
 mod market;
+mod window_backdrop;
 #[cfg(windows)]
 mod window_icon;
 
@@ -110,9 +112,6 @@ pub(crate) const SETTINGS_EVENT: &str = "bhippi://settings";
 /// with, which its subagents use too.
 struct TurnHandle {
     stop: tokio::sync::watch::Sender<bool>,
-    /// The window the turn was sent from: its chat events and tool calls go there only, so each
-    /// open project's window runs its own turns' tools against its own project.
-    window: String,
     row: ProviderInfo,
     model: Option<String>,
 }
@@ -197,13 +196,31 @@ impl AppState {
         self.sessions.id_for(webview.label())
     }
 
-    /// The settings as a window sees them: its own project's file and unsaved folder over the
-    /// shared settings (every other setting is the whole app's).
+    /// The settings as a project sees them: its own file, unsaved folder and AI (provider, model,
+    /// effort) over the shared settings (every other setting is the whole app's). A project that
+    /// has not chosen an AI yet takes the one chosen last and keeps it from then on, so another
+    /// project's choice never changes its chat.
     fn settings_for(&self, label: &str) -> Settings {
         let mut settings = self.settings();
-        let tab = self.sessions.for_window(label);
+        let mut tab = self.sessions.for_window(label);
+        if tab.provider_id.is_none() && settings.provider_id.is_some() {
+            let (provider_id, model, effort) = (settings.provider_id.clone(), settings.model.clone(), settings.effort.clone());
+            self.sessions.update(&tab.id, |own| {
+                own.provider_id = provider_id.clone();
+                own.model = model.clone();
+                own.effort = effort.clone();
+            });
+            tab.provider_id = provider_id;
+            tab.model = model;
+            tab.effort = effort;
+        }
         settings.project_path = tab.project_path;
         settings.unsaved_folder = tab.unsaved_folder;
+        if tab.provider_id.is_some() {
+            settings.provider_id = tab.provider_id;
+            settings.model = tab.model;
+            settings.effort = tab.effort;
+        }
         settings
     }
 }
@@ -247,9 +264,12 @@ fn app_info(app: AppHandle, state: State<'_, Arc<AppState>>) -> AppInfo {
 /// Another window changed the shared settings: the others read them again.
 const SETTINGS_CHANGED_EVENT: &str = "bhippi://settings-changed";
 
+/// Async so it runs off the window's main thread: every open project reads the settings again
+/// whenever any of them changes one, and a synchronous read held the whole window (every project,
+/// a project switch) while it was copied out.
 #[tauri::command]
-fn settings_get(webview: tauri::Webview, state: State<'_, Arc<AppState>>) -> Settings {
-    state.settings_for(webview.label())
+async fn settings_get(webview: tauri::Webview, state: State<'_, Arc<AppState>>) -> CommandResult<Settings> {
+    Ok(state.settings_for(webview.label()))
 }
 
 /// Tells every other window the shared settings changed (a window's own project file and unsaved
@@ -262,10 +282,16 @@ fn settings_changed(app: &AppHandle, origin: &str) {
 async fn settings_save(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, settings: Settings) -> CommandResult<Settings> {
     let mut ffmpeg_changed = false;
     let session = state.session(&webview);
-    state.sessions.update(&session, |tab| {
+    let changed = state.sessions.update(&session, |tab| {
         tab.project_path = settings.project_path.clone();
         tab.unsaved_folder = settings.unsaved_folder.clone();
+        tab.provider_id = settings.provider_id.clone();
+        tab.model = settings.model.clone();
+        tab.effort = settings.effort.clone();
     });
+    if changed {
+        tabs::emit_tabs(&app, &state);
+    }
     state.update_settings(|current| {
         ffmpeg_changed = current.ffmpeg_path != settings.ffmpeg_path;
         let (project_path, unsaved_folder) = (current.project_path.take(), current.unsaved_folder.take());
@@ -288,15 +314,31 @@ async fn settings_patch(app: AppHandle, webview: tauri::Webview, state: State<'_
     let text = |value: serde_json::Value| value.as_str().map(str::to_owned).filter(|text| !text.is_empty());
     let project_path = patch.remove("projectPath");
     let unsaved_folder = patch.remove("unsavedFolder");
-    if project_path.is_some() || unsaved_folder.is_some() {
-        state.sessions.update(&state.session(&webview), |tab| {
+    // The project's AI is its own; it also stays in the shared settings as the choice made last,
+    // which a new project starts with.
+    let (provider_id, model, effort) = (patch.get("providerId").cloned(), patch.get("model").cloned(), patch.get("effort").cloned());
+    if project_path.is_some() || unsaved_folder.is_some() || provider_id.is_some() || model.is_some() || effort.is_some() {
+        let changed = state.sessions.update(&state.session(&webview), |tab| {
             if let Some(value) = project_path {
                 tab.project_path = text(value);
             }
             if let Some(value) = unsaved_folder {
                 tab.unsaved_folder = text(value);
             }
+            if let Some(value) = provider_id {
+                tab.provider_id = text(value);
+            }
+            if let Some(value) = model {
+                tab.model = text(value);
+            }
+            if let Some(value) = effort {
+                tab.effort = text(value);
+            }
         });
+        // Every project's list shows each one's name and AI.
+        if changed {
+            tabs::emit_tabs(&app, &state);
+        }
     }
     if patch.is_empty() {
         return Ok(());
@@ -721,7 +763,8 @@ async fn pick_save_path(
     directory: Option<String>,
 ) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    let window = app.get_webview_window(webview.label())?;
+    // The window of the project that asked (every project's webview lives in Bhippi's window).
+    let window = webview.window();
     tauri::async_runtime::spawn_blocking(move || {
         let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
         let mut dialog = app
@@ -755,7 +798,8 @@ async fn pick_open_path(
     extensions: Vec<String>,
 ) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    let window = app.get_webview_window(webview.label())?;
+    // The window of the project that asked (every project's webview lives in Bhippi's window).
+    let window = webview.window();
     tauri::async_runtime::spawn_blocking(move || {
         let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
         app.dialog()
@@ -2773,7 +2817,7 @@ fn export_preview(job_id: String) -> Option<String> {
 }
 
 #[tauri::command]
-async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: Project, options: ExportOptions) -> CommandResult<String> {
+async fn export_start(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppState>>, project: Project, options: ExportOptions) -> CommandResult<String> {
     /// How many ffmpeg exports burn at once; further renders queue behind them.
     const MAX_CONCURRENT_EXPORTS: usize = 2;
     /// The render slots. A job is `Running` from the moment it is queued, so counting running jobs
@@ -2813,7 +2857,8 @@ async fn export_start(app: AppHandle, state: State<'_, Arc<AppState>>, project: 
     }
     let comp_name = project.comp(&options.comp_id).map_or_else(|| "video".to_owned(), |comp| comp.name.clone());
     let file_name = output.file_name().map_or_else(|| "video".into(), |name| name.to_string_lossy().into_owned());
-    let job = state.jobs.start("export", format!("Exporting {comp_name} · {file_name} ({})", options.format), true);
+    // The project that asked: its window says when the render is done, the others do not.
+    let job = state.jobs.start_for(Some(state.session(&webview)), "export", format!("Exporting {comp_name} · {file_name} ({})", options.format), true);
     let job_id = job.id().to_owned();
     if let Ok(mut previews) = export_previews().lock() {
         previews.insert(job_id.clone(), preview_dir.clone());
@@ -3505,7 +3550,9 @@ fn chat_send(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppSt
     }
     let (stop_sender, stop) = tokio::sync::watch::channel(false);
     let window = webview.label().to_owned();
-    let handle = TurnHandle { stop: stop_sender, window: window.clone(), row: row.clone(), model: request.model.clone() };
+    // The project that sent the turn: its chat events and tool calls go to that webview only, so
+    // each open project runs its own turns' tools against its own project.
+    let handle = TurnHandle { stop: stop_sender, row: row.clone(), model: request.model.clone() };
     state.turns.lock().map_err(lock_error)?.insert(request.turn_id.clone(), handle);
     drop(maintenance);
     let tool_app = app.clone();
@@ -3514,7 +3561,7 @@ fn chat_send(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppSt
         request.turn_id.clone(),
         state.tool_calls.clone(),
         move |event: ToolCallEvent| {
-            let _ignored = tool_app.emit_to(tool_window.as_str(), TOOL_CALL_EVENT, &event);
+            let _ignored = tool_app.emit_to(tauri::EventTarget::webview(tool_window.as_str()), TOOL_CALL_EVENT, &event);
         },
         stop.clone(),
         ai_tools::CALL_TIMEOUT,
@@ -3531,7 +3578,7 @@ fn chat_send(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppSt
         let turn_id = request.turn_id.clone();
         let emitter = app.clone();
         chat::run_turn(request, context, stop, move |event: ChatEvent| {
-            let _ignored = emitter.emit_to(window.as_str(), CHAT_EVENT, &event);
+            let _ignored = emitter.emit_to(tauri::EventTarget::webview(window.as_str()), CHAT_EVENT, &event);
         })
         .await;
         if let Ok(mut turns) = state.turns.lock() {
@@ -3653,7 +3700,7 @@ async fn chat_spawn_subagent(
         spec.parent_turn_id.clone(),
         state.tool_calls.clone(),
         move |event: ToolCallEvent| {
-            let _ignored = tool_app.emit_to(tool_window.as_str(), TOOL_CALL_EVENT, &event);
+            let _ignored = tool_app.emit_to(tauri::EventTarget::webview(tool_window.as_str()), TOOL_CALL_EVENT, &event);
         },
         stop.clone(),
         ai_tools::CALL_TIMEOUT,
@@ -3756,6 +3803,12 @@ fn open_maximized(window: &tauri::WebviewWindow) {
 fn end_splash(window: &tauri::WebviewWindow) {
     let _ignored = window.set_ignore_cursor_events(false);
     let _ignored = window.set_background_color(Some(tauri::window::Color(11, 11, 15, 255)));
+    // The colour never shows through a see-through window: a dark backdrop does (window_backdrop.rs).
+    window_backdrop::install(&window.as_ref().window());
+    // The editor has loaded and the window answers again: a taskbar that drew Windows' blank tile
+    // while it was busy asks for the logo once more (window_icon.rs).
+    #[cfg(windows)]
+    window_icon::refresh(&window.as_ref().window());
 }
 
 #[tauri::command]
@@ -3775,6 +3828,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(window) = app.get_webview_window("main") {
         open_maximized(&window);
+        // Project tabs add webviews to this window; its frameless edges stay resizable (tabs.rs).
+        tabs::window_ready(&window.as_ref().window());
         // The launch splash (src/boot/BootSplash.tsx) is a small card on this see-through window;
         // the desktop around it stays clickable until splash_done. A page that never gets that far
         // still gets the pointer and an opaque background back.
@@ -3784,6 +3839,18 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             std::thread::sleep(std::time::Duration::from_secs(45));
             end_splash(&fallback);
         });
+        // A launch slow enough that the taskbar gave up on the icon before the splash ended gets it
+        // again a few seconds in, whatever the page is doing.
+        #[cfg(windows)]
+        {
+            let later = window.clone();
+            std::thread::spawn(move || {
+                for seconds in [4, 12] {
+                    std::thread::sleep(std::time::Duration::from_secs(seconds));
+                    window_icon::refresh(&later.as_ref().window());
+                }
+            });
+        }
     }
     let root = app.path().app_data_dir()?;
     let default_storage = storage::default_root(app.handle(), &root);
@@ -4007,13 +4074,15 @@ pub fn run() {
         })
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             let Some(state) = app.try_state::<Arc<AppState>>() else { return };
-            if let Some(window) = state.sessions.active().and_then(|id| state.sessions.window_of(&id)).and_then(|label| app.get_webview_window(&label)) {
+            if let Some(window) = tabs::main_window(app) {
                 let _ignored = window.unminimize();
                 let _ignored = window.set_focus();
             }
             // Opening a .bhippi file while Bhippi runs: the tab that has it, or a new tab for it.
-            if let Some(file) = args.iter().skip(1).find(|argument| argument.to_ascii_lowercase().ends_with(".bhippi")) {
-                tabs::open_file(app, &state, file);
+            if let Some(file) = args.iter().skip(1).find(|argument| argument.to_ascii_lowercase().ends_with(".bhippi")).cloned() {
+                // Off this callback: opening a tab may build a window.
+                let (app, state) = (app.clone(), state.inner().clone());
+                tauri::async_runtime::spawn(async move { tabs::open_file(&app, &state, &file) });
             }
         }))
         // Only the restored-down size and place are remembered: the window always opens maximized
@@ -4026,13 +4095,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(setup)
-        // A project window gone (its tab closed, or the system closed it): the tab list forgets it.
+        // The window resized: the overview's tiles are laid out again (tabs.rs).
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                let app = window.app_handle();
-                if let Some(state) = app.try_state::<Arc<AppState>>() {
-                    tabs::window_destroyed(app, &state, window.label());
-                }
+            if let tauri::WindowEvent::Resized(_) = event {
+                tabs::window_resized(window.app_handle());
             }
         })
         .invoke_handler(watched(tauri::generate_handler![
@@ -4060,6 +4126,8 @@ pub fn run() {
             tabs::tab_close_answer,
             tabs::app_quit,
             tabs::overview_set,
+            tabs::overview_drag,
+            tabs::app_quit_choice,
             storage::storage_set_root,
             storage::storage_set_project,
             storage::storage_new_project,
@@ -4227,6 +4295,7 @@ pub fn run() {
             ui_screen::ui_screen_save,
             ui_screen::ui_capture,
             app_capture::app_session_capture,
+            app_record::app_session_record,
             render_passes::render_pass_frames,
             demo_pack::demo_pack_make,
             ref_motion::reference_motion_start,

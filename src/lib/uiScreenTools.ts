@@ -53,6 +53,7 @@ function specFrom(args: Args, ctx: MotionToolContext, previous?: UiScreenSpec): 
 export async function gridPreview(path: string, width: number, height: number): Promise<string | null> {
   try {
     const image = new Image();
+    image.crossOrigin = 'anonymous';
     image.src = fileSrc(path);
     await image.decode();
     const canvas = document.createElement('canvas');

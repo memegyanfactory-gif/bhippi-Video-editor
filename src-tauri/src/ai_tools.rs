@@ -244,7 +244,7 @@ impl ToolExecutor for EventExecutor {
             // The toolkit: a song's vocal pulled out and transcribed, a session captured part by
             // part (typing per character), a demo built on it, and a recipe film chaining them all
             // with a score, a review and its fixes.
-            | "analyze_song" | "capture_app_session" | "create_product_demo" | "build_edit_from_brief" => self.timeout.max(Duration::from_secs(1800)),
+            | "analyze_song" | "capture_app_session" | "record_app_scene" | "create_product_demo" | "build_edit_from_brief" => self.timeout.max(Duration::from_secs(1800)),
             _ => self.timeout.max(Duration::from_secs(180)),
         };
         let gate = self.gate.clone();

@@ -6,6 +6,7 @@ import { ChevronRight, PackageCheck, RefreshCw, RotateCw, X } from 'lucide-react
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatBytes, updater, useUpdater, type UpdateSnapshot } from '../lib/updater';
 import { DownloadGlyph, UpdateProgress, UpdateTile, updateTitle, updateView, type UpdateView } from './UpdateParts';
+import { sidePlacement } from './sidePopover';
 
 /** A "you're up to date" older than this is asked again, quietly, when the panel opens. */
 const STALE_MS = 15 * 60 * 1000;
@@ -31,7 +32,26 @@ function ProgressRing({ percent }: { percent: number | null }) {
   );
 }
 
-export function UpdateButton({ onDetails }: { onDetails?: () => void }) {
+/** What the side panel's row says for an update worth showing. */
+function rowLabel(view: UpdateView): string {
+  switch (view.kind) {
+    case 'downloading': return view.percent == null ? 'Downloading update' : `Downloading ${Math.round(view.percent)}%`;
+    case 'ready': return 'Restart to update';
+    case 'installing': return 'Installing update';
+    case 'error': return 'Update failed';
+    default: return 'Update available';
+  }
+}
+
+/** An update the person can act on: one to download, coming down, ready, installing, or one that failed. */
+export const updateNeedsYou = (view: UpdateView) => view.kind === 'available' || view.kind === 'downloading' || view.kind === 'ready' || view.kind === 'installing' || (view.kind === 'error' && view.retry !== 'check');
+
+/**
+ * The update button. In the title bar it is always there; at the foot of the projects panel
+ * (`side`) it shows only while there is an update to act on (background checks keep looking), as
+ * a row with its label (`showLabel`) or an icon when the panel is folded.
+ */
+export function UpdateButton({ onDetails, side = false, showLabel = false }: { onDetails?: () => void; side?: boolean; showLabel?: boolean }) {
   const state = useUpdater();
   const view = updateView(state);
   const latest = state.info?.latest;
@@ -95,6 +115,7 @@ export function UpdateButton({ onDetails }: { onDetails?: () => void }) {
     action();
   };
 
+  if (side && !open && !updateNeedsYou(view)) return null;
   const busy = view.kind === 'downloading' || view.kind === 'installing';
   const dot = view.kind === 'available' || view.kind === 'ready' ? 'new' : view.kind === 'error' && view.retry !== 'check' ? 'bad' : null;
   const label = buttonLabel(view, latest);
@@ -112,7 +133,7 @@ export function UpdateButton({ onDetails }: { onDetails?: () => void }) {
       <button
         type="button"
         ref={button}
-        className={`icon-btn upd-btn${open ? ' open' : ''}${busy ? ' busy' : ''}`}
+        className={`${side ? `prail-action prail-foot-btn${showLabel ? '' : ' icon-only'}` : 'icon-btn'} upd-btn${open ? ' open' : ''}${busy ? ' busy' : ''}`}
         onClick={toggle}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -120,12 +141,15 @@ export function UpdateButton({ onDetails }: { onDetails?: () => void }) {
         aria-label={label}
         title={open ? undefined : label}
       >
-        {busy && <ProgressRing percent={view.kind === 'downloading' ? view.percent : null} />}
-        <DownloadGlyph dropping={view.kind === 'downloading'} />
-        {dot && <span className={`upd-dot ${dot}`} aria-hidden="true" />}
+        <span className="upd-glyph-box">
+          {busy && <ProgressRing percent={view.kind === 'downloading' ? view.percent : null} />}
+          <DownloadGlyph dropping={view.kind === 'downloading'} />
+          {dot && <span className={`upd-dot ${dot}`} aria-hidden="true" />}
+        </span>
+        {side && showLabel && <span className="prail-foot-label">{rowLabel(view)}</span>}
       </button>
       {open && (
-        <div className="upd-pop" role="dialog" aria-label="Updates" id={panelId} ref={dialog} tabIndex={-1}>
+        <div className="upd-pop" role="dialog" aria-label="Updates" id={panelId} ref={dialog} tabIndex={-1} style={side ? sidePlacement(button.current) : undefined}>
           <UpdatePanel
             state={state}
             run={run}

@@ -544,8 +544,15 @@ export type ProjectTab = {
   dirty: boolean;
   /** Bhippi AI is working in it. */
   busy: boolean;
+  /** How Bhippi AI's last turn there ended, until the project is looked at. */
+  result?: 'done' | 'error' | null;
   /** Its window exists (a tab restored from the last launch opens its window when first shown). */
   open: boolean;
+  /** Its window is still loading its project; the tab switches to it when it is in. */
+  loading?: boolean;
+  /** The AI its chat talks to. */
+  providerId?: string | null;
+  model?: string | null;
 };
 
 /** The tab strip: every open project, the active one and the one this window shows. */
@@ -894,6 +901,8 @@ export type BhippiExtras = {
   chat?: unknown[];
   /** The project folder the files were organised into when it was saved. */
   projectFolder?: string | null;
+  /** The AI the project's chat talks to, so it opens with the same one. */
+  ai?: { providerId: string | null; model: string | null; effort: string | null } | null;
   /** JSON pointers of the paths stored relative to the .bhippi (resolved by the backend on open). */
   relativePaths?: string[];
 };

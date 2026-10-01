@@ -18,6 +18,25 @@ import type { TemplateSpec } from './index';
 export type CapturePart = { part: string; state: string; file: string; boxCss: number[]; pixels?: number[]; typed?: string };
 /** A capture_app_session manifest, as far as the demo reads it. */
 export type DemoCapture = { name?: string; dir: string; width: number; height: number; scale: number; parts: CapturePart[] };
+/**
+ * A record_app_scene recording, as far as the demo reads it: one video of the whole window moving
+ * through its actions (the app's own animations, typing and clicks), each named part's box over
+ * time (CSS px, recording seconds), and where every click, hover and drag happened.
+ */
+export type DemoRecording = {
+  name?: string;
+  dir?: string;
+  video: string;
+  width: number;
+  height: number;
+  scale: number;
+  fps?: number;
+  duration: number;
+  parts: Record<string, { t: number; box: number[] }[]>;
+  events?: { t: number; kind: string; point: number[]; to?: number[]; until?: number }[];
+};
+/** A panel lifts out of the recording toward the camera from its real place, still playing, and settles back. */
+export type DemoLift = { part: string; at: number; until: number; depth?: number };
 
 /**
  * Where the camera lands at `at`: close on a part (filling `fill` of the frame; the frame stays on
@@ -42,7 +61,16 @@ export type DemoCursor = { id: string; label?: string; color?: string };
 /** The window comes apart in depth from `at` and slams back together on `slam` (a drop, a bar). */
 export type DemoExplode = { at: number; slam: number; depth?: number; spread?: number; blur?: number };
 export type ProductDemoParams = {
-  capture: DemoCapture;
+  /** Still parts in states (capture_app_session); or instead: */
+  capture?: DemoCapture;
+  /** The app moving (record_app_scene): the window plays it, the camera and cursors work as with a capture. */
+  recording?: DemoRecording;
+  /** Recording only: panels that lift out toward the camera from where they are. */
+  lifts?: DemoLift[];
+  /** Recording only: seconds into the recording the demo starts at. */
+  from?: number;
+  /** Recording only: false keeps cursors to the actions given; by default a cursor plays the recorded clicks and drags. */
+  autoCursor?: boolean;
   duration?: number;
   shots?: DemoShot[];
   actions?: DemoAction[];
@@ -275,11 +303,23 @@ export function typingTimes(counts: number[], action: { at: number; until?: numb
 // ───────────────────────── the scene ─────────────────────────
 
 type Picture = CapturePart;
+
+/** The window's part name in a recording: the whole window, which the video fills. */
+const LIVE = 'window';
+
+/** A recording read as a capture of one state per part, so the camera and cursors find its parts. */
+function recordingCapture(recording: DemoRecording): DemoCapture {
+  const named = Object.entries(recording.parts ?? {}).filter(([name, line]) => name !== LIVE && Array.isArray(line) && line.length && Array.isArray(line[0].box) && line[0].box.length >= 4);
+  return {
+    name: recording.name, dir: recording.dir ?? '', width: recording.width, height: recording.height, scale: recording.scale || 2,
+    parts: [{ part: LIVE, state: 'live', file: '', boxCss: [0, 0, recording.width, recording.height] }, ...named.map(([name, line]) => ({ part: name, state: 'live', file: '', boxCss: line[0].box }))],
+  };
+}
 type Interval = { state: Picture; from: number; to: number };
 type Box = { x: number; y: number; w: number; h: number };
 
 function readCapture(capture: DemoCapture): Map<string, Picture[]> {
-  if (!capture || typeof capture !== 'object' || !Array.isArray(capture.parts)) throw new Error('product-demo needs a capture: capture_app_session first, then create_product_demo {capture: its name}.');
+  if (!capture || typeof capture !== 'object' || !Array.isArray(capture.parts)) throw new Error('product-demo needs a recording or a capture: record_app_scene (the app moving) or capture_app_session (still parts) first, then create_product_demo {recording} or {capture}.');
   const parts = new Map<string, Picture[]>();
   for (const picture of capture.parts) {
     if (!picture || typeof picture.part !== 'string' || typeof picture.file !== 'string' || !Array.isArray(picture.boxCss) || picture.boxCss.length < 4) continue;
@@ -320,9 +360,12 @@ const labelWidth = (text: string, size: number) => [...text].reduce((w, ch) => w
  */
 export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, id = 'product-demo', recorded: Record<string, unknown> = raw): { scene: MotionScene; notes: string[] } {
   const params = raw as unknown as ProductDemoParams;
-  const capture = params.capture;
+  const recording = params.recording && typeof params.recording === 'object' && typeof params.recording.video === 'string' ? params.recording : null;
+  const capture = recording ? recordingCapture(recording) : params.capture as DemoCapture;
   const parts = readCapture(capture);
   const notes: string[] = [];
+  // A recording plays from `from`: scene second t is recording second t + from.
+  const from = recording ? clamp(typeof params.from === 'number' && Number.isFinite(params.from) ? params.from : 0, 0, Math.max(0, recording.duration - 0.25)) : 0;
   const W = ctx.width;
   const H = ctx.height;
   const u = Math.min(W, H) / 1080;
@@ -340,7 +383,7 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
 
   // The window: the capture of the whole app when there is one (named window/app/screen…, or one
   // covering the page), else the box around every part. It fits the frame at magnification 1.
-  const baseName = params.base !== undefined ? partNamed(params.base, 'base')
+  const baseName = recording ? LIVE : params.base !== undefined ? partNamed(params.base, 'base')
     : names.find((n) => BASE_NAMES.test(n)) ?? names.find((n) => area(parts.get(n)![0].boxCss) >= capture.width * capture.height * 0.85) ?? null;
   const allBoxes = [...parts.values()].flat().map((p) => p.boxCss);
   const win = baseName ? parts.get(baseName)![0].boxCss : (() => {
@@ -360,7 +403,9 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
     if (!action || typeof action !== 'object' || typeof action.at !== 'number' || !Number.isFinite(action.at)) throw new Error(`actions[${i}] needs at (seconds).`);
     return { ...action, index: i };
   }).sort((a, b) => a.at - b.at || a.index - b.index);
-  const asked = params.explode;
+  // Exploding needs each part as its own picture; a recording is one picture, so it lifts parts instead.
+  if (recording && params.explode) notes.push('explode needs the captured parts of capture_app_session; with a recording, lifts raise panels out of the window instead, so it was left out');
+  const asked = recording ? undefined : params.explode;
   const number = (value: unknown, fallback: number, lo: number, hi: number) => (typeof value === 'number' && Number.isFinite(value) ? clamp(value, lo, hi) : fallback);
   const explode: Required<DemoExplode> | null = asked && typeof asked.at === 'number' && typeof asked.slam === 'number' && asked.slam > asked.at + 0.3
     ? { at: Math.max(0, asked.at), slam: asked.slam, depth: number(asked.depth, 1, 0.2, 3), spread: number(asked.spread, 0.075, 0, 0.3), blur: number(asked.blur, 4, 0, 16) }
@@ -371,7 +416,8 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
     return shot;
   }).sort((a, b) => a.at - b.at);
   const lastMoment = Math.max(0, ...shotList.map((s) => s.at), ...actions.map((a) => Math.max(a.at, a.until ?? 0, ...(a.words ?? []))), explode ? explode.slam : 0);
-  const duration = round(clamp(params.duration ?? Math.max(3, lastMoment + 1.2), 0.5, 600));
+  const duration = round(clamp(params.duration ?? (recording ? Math.max(0.5, recording.duration - from) : Math.max(3, lastMoment + 1.2)), 0.5, 600));
+  if (recording && duration > recording.duration - from + 0.05) notes.push(`the recording runs ${round(recording.duration - from)} s from ${from} s; its last frame holds after that`);
 
   // ── states: which picture of each part shows when ──
   const statesOf = (name: string) => parts.get(name)!;
@@ -389,6 +435,11 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
   const cues: NonNullable<MotionScene['cues']> = [];
   for (const action of actions) {
     const where = `actions[${action.index}]`;
+    if (recording && (action.set || action.type !== undefined)) {
+      // The recording already shows its typing and states; only cursors and clicks are added on top.
+      notes.push(`${where}: ${action.set ? 'set' : 'type'} swaps captured pictures, and a recording already plays its own; it was left out`);
+      continue;
+    }
     if (action.set) {
       const name = partNamed(action.set.part, `${where}.set`);
       pictureOf(name, action.set.state, `${where}.set`);
@@ -439,7 +490,15 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
     const list = rawIntervals.get(name)!;
     return (list.find((iv) => t >= iv.from && t < iv.to) ?? (t < (list[0]?.from ?? 0) ? list[0] : list[list.length - 1]))?.state ?? statesOf(name)[0];
   };
-  const boxAt = (name: string, t: number) => toLocal(stateAt(name, t).boxCss);
+  // A recording knows where each part was at every moment; a capture, where each state was.
+  const recordedBox = (name: string, t: number): number[] | null => {
+    const line = recording?.parts[name];
+    if (!line?.length) return null;
+    let pick = line[0];
+    for (const entry of line) if (entry.t <= t + from + 1e-6) pick = entry;
+    return pick.box;
+  };
+  const boxAt = (name: string, t: number) => toLocal(recording ? recordedBox(name, t) ?? firstBox(name) : stateAt(name, t).boxCss);
 
   // ── the camera: stations it lands on, with holds that breathe ──
   const wideTilt: [number, number] = params.tilt && params.tilt.length >= 2 ? [params.tilt[0], params.tilt[1]] : variant.tilt;
@@ -586,15 +645,53 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
       } : {}),
     },
   });
-  for (const name of drawOrder) {
-    for (const iv of intervals.get(name)!) layers.push(picture(name, iv));
-    for (const flash of flashes.filter((f) => f.part === name)) layers.push(picture(name, { state: flash.state, from: flash.from, to: Math.min(duration, flash.to) }));
+  if (recording) {
+    // The whole window is one moving picture: the app's own clicks, typing and menus play inside it.
+    const source = { path: recording.video, kind: 'video' as const, ...(from > 0 ? { in: round(from) } : {}), width: Math.round(recording.width * recording.scale), height: Math.round(recording.height * recording.scale) };
+    const live = (id: string, extra: Partial<Layer>): Layer => ({
+      id, name: 'App · live recording', type: 'footage', threeD: true, parent: 'window', source, fit: 'contain', size: [round(winW), round(winH)],
+      transform: { position: [round(winCentre[0]), round(winCentre[1]), 0] }, motionBlur: true, ...extra,
+    } as Layer);
+    layers.push(live('live', { effects: [shadow] }));
+    // Lifts: the same recording cut to the panel's box, raised toward the camera and set back down,
+    // over a darker slot where it came from, so it reads as the real panel leaving its place.
+    const lifts = (Array.isArray(params.lifts) ? params.lifts : []).flatMap((lift, i) => {
+      const where = `lifts[${i}]`;
+      if (!lift || typeof lift !== 'object' || typeof lift.at !== 'number' || typeof lift.until !== 'number' || lift.until <= lift.at + 0.3) { notes.push(`${where} needs part, at and an until at least 0.3 s later; it was left out`); return []; }
+      return [{ ...lift, name: partNamed(lift.part, where), index: i }];
+    });
+    for (const lift of lifts) {
+      const at = clamp(lift.at, 0, duration - 0.3);
+      const until = clamp(lift.until, at + 0.3, duration);
+      const box = boxAt(lift.name, at);
+      const depth = round(clamp(typeof lift.depth === 'number' ? lift.depth : 1, 0.3, 3) * 170 * (winW / 1920));
+      const rise = round(Math.min(0.45, (until - at) / 3));
+      const centre: Vec = [round(winCentre[0]), round(winCentre[1]), 0];
+      const up: Vec = [centre[0], centre[1], -depth];
+      const radius = round(10 * k);
+      const span = { in: round(at), out: round(until) };
+      const fade: Key<number>[] = [{ t: round(at), v: 0, ease: 'cubic-out' }, { t: round(at + rise), v: 55, ease: 'linear' }, { t: round(until - rise), v: 55, ease: 'cubic-in-out' }, { t: round(until), v: 0 }];
+      layers.push({ id: layerId(`slot-${idOf(lift.name)}`), name: `${titled(lift.name)} · slot`, type: 'shape', threeD: true, parent: 'window', ...span, transform: { position: [round(box.x + box.w / 2), round(box.y + box.h / 2), 0], opacity: { k: fade } }, shape: { shape: 'rect', size: [round(box.w), round(box.h)], radius, fill: '#000000' } } as Layer);
+      layers.push(live(layerId(`lift-${idOf(lift.name)}`), {
+        name: `${titled(lift.name)} · lifted`, ...span,
+        masks: [{ shape: 'rect', box: [round(box.x), round(box.y), round(box.w), round(box.h)], radius }],
+        transform: { position: { k: [{ t: round(at), v: centre, ease: 'cubic-out' }, { t: round(at + rise), v: up, ease: 'linear' }, { t: round(until - rise), v: up, ease: 'cubic-in-out' }, { t: round(until), v: centre }] } },
+        effects: [{ ...shadow, opacity: darkStage(stage) ? 60 : 38, softness: round(90 * k), distance: round(40 * k) }],
+      }));
+      cues.push({ at: round(at), sound: 'whoosh', note: `${lift.name} lifts out` });
+    }
+  } else {
+    if (Array.isArray(params.lifts) && params.lifts.length) notes.push('lifts play on a recording (record_app_scene); with captured parts, explode moves them in depth instead');
+    for (const name of drawOrder) {
+      for (const iv of intervals.get(name)!) layers.push(picture(name, iv));
+      for (const flash of flashes.filter((f) => f.part === name)) layers.push(picture(name, { state: flash.state, from: flash.from, to: Math.min(duration, flash.to) }));
+    }
   }
 
   // ── cursors: arrows with name tags that travel on arcs, press and ring on every click ──
   const declared = (Array.isArray(params.cursors) ? params.cursors : []).map((c) => (typeof c === 'string' ? { id: c } : c)).filter((c): c is DemoCursor => !!c && typeof c.id === 'string');
   const defaultCursor = (declared[0]?.id ?? 'you').toLowerCase();
-  type Waypoint = { arrive: number; point: Vec; press?: number };
+  type Waypoint = { arrive: number; point: Vec; press?: number; travel?: number };
   const paths = new Map<string, Waypoint[]>();
   for (const action of actions) {
     const who = (action.cursor ?? (action.click !== undefined || action.hover !== undefined ? defaultCursor : '')).toLowerCase();
@@ -605,6 +702,26 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
     const point: Vec = [box.x + box.w / 2, box.y + box.h / 2];
     const clicks = action.click !== undefined || action.type !== undefined;
     paths.set(who, [...(paths.get(who) ?? []), { arrive: action.at - (clicks ? DWELL : 0), point, ...(clicks ? { press: action.at } : {}) }]);
+  }
+  // A recording knows where it was clicked and dragged: unless the actions place cursors
+  // themselves, one plays those moments, at the points the app really received them.
+  if (recording && params.autoCursor !== false && !paths.size) {
+    const local = (point: number[]): Vec => [(point[0] - win[0]) * k, (point[1] - win[1]) * k];
+    const waypoints: Waypoint[] = [];
+    for (const event of recording.events ?? []) {
+      const t = event.t - from;
+      if (!Array.isArray(event.point) || t < 0 || t >= duration) continue;
+      if (event.kind === 'hover') waypoints.push({ arrive: t, point: local(event.point) });
+      else if (event.kind === 'click') {
+        waypoints.push({ arrive: t - DWELL, point: local(event.point), press: t });
+        cues.push({ at: round(t), sound: 'click', note: 'click' });
+      } else if (event.kind === 'drag' && Array.isArray(event.to) && typeof event.until === 'number') {
+        const end = Math.min(duration, event.until - from);
+        waypoints.push({ arrive: t - DWELL, point: local(event.point), press: t });
+        waypoints.push({ arrive: end, point: local(event.to), travel: Math.max(0.05, end - t - DWELL - 0.05) });
+      }
+    }
+    if (waypoints.length) paths.set(defaultCursor, waypoints.sort((a, b) => a.arrive - b.arrive));
   }
   const cursorIds = [...new Set([...declared.map((c) => c.id.toLowerCase()), ...paths.keys()])].filter((who) => paths.has(who));
   const tagSize = CURSOR * 0.62 * u;
@@ -635,7 +752,7 @@ export function buildProductDemo(ctx: KitContext, raw: Record<string, unknown>, 
     let at = appear;
     let from3: Vec = from;
     waypoints.forEach((wp, i) => {
-      const travel = i === 0 ? Math.max(0.2, wp.arrive - appear) : clamp(0.3 + Math.hypot(wp.point[0] - from3[0], wp.point[1] - from3[1]) / (diagonal * 0.9), 0.3, 0.8);
+      const travel = wp.travel ?? (i === 0 ? Math.max(0.2, wp.arrive - appear) : clamp(0.3 + Math.hypot(wp.point[0] - from3[0], wp.point[1] - from3[1]) / (diagonal * 0.9), 0.3, 0.8));
       const depart = Math.max(at, wp.arrive - travel);
       if (wp.arrive - depart > 0.05) keys.push({ t: round(depart), v: [round(from3[0]), round(from3[1]), -3], ease: i === 0 ? 'expo-out' : 'cubic-in-out', arc: arc(from3, wp.point) });
       keys.push({ t: round(Math.max(depart, wp.arrive)), v: [round(wp.point[0]), round(wp.point[1]), -3] });

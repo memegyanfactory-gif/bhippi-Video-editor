@@ -30,7 +30,7 @@ import { loadPasses, passScene, pngHasAlpha, type PassIo } from './renderPasses'
 import { detectBeats, musicStructure, snapCutsToBeats } from './beats';
 import { buildSongMap, songMapMarkdown, type HeardWord } from './songMap';
 import { loadPeaks } from './peaks';
-import { bhippiAnswers, captureFolder, captureKey, loadCaptureManifest, parseSteps, resolveSelector, sheetParts, standinSource } from './appCapture';
+import { bhippiAnswers, captureFolder, captureKey, loadCaptureManifest, parseRecordActions, parseSteps, recordingMoments, recordKey, recordParts, resolveSelector, sheetParts, standinSource, type Recording } from './appCapture';
 import { bhippiSession, CADENCES, FILM_RECIPES, FILM_STAGES, isFilmRecipe, planFilm, RECIPE_ABOUT, safeFixes, songFromAnalysis, type FilmBeat, type FilmRecipe, type FilmSong, type FilmStyle, type ReviewFinding } from './filmRecipes';
 import type { DemoCapture } from '../motion/kit/productDemo';
 import { demoNote } from './demoProject';
@@ -77,7 +77,7 @@ import { EASINGS, EFFECT_KEYED, EMPTY_KEYFRAMES } from './keyframes';
 import { playhead } from './playhead';
 import {
   addFrameHold, addTracks, addTransition, audible, clipEnd, clipName, clipsForSource, compDuration, COMP_PRESETS, COMP_SIZE_OPTIONS, deleteBinEntries, frameSizeFromText, deleteTracks, emptyTracks, freeTrack, insertFrameHold, ITEM_LABEL, moveClips,
-  newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
+  namedTracks, newClip, newComp, newItem, nestClips, placeClips, razor, removeClips, removeRange, resolveTrack, setGrouped, setLinked, setSpeed, sourceInfo, sourceLimit, sourceOut, sourceTimeAt, textSource,
   tracksOf, trackLabel, transitionWindow, trimEdge, updateComp, updateTrack, usage, wouldCycle, type AssetMap,
 } from './timeline';
 import { findStyle } from './captionStyles';
@@ -215,6 +215,29 @@ async function askShortsFormat(host: ToolHost, args: Args, turnId: string | unde
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
 const done = (summary: string, data: Record<string, unknown> = {}): ToolResult => ({ ok: true, ...data, summary });
+
+/**
+ * A recording's look at a glance: the frames at its start, just after each action, and its end,
+ * read from the frame list the recorder wrote (each frame is stored once, when it changed).
+ */
+async function recordingSheet(recording: Recording): Promise<string | null> {
+  const sep = recording.dir.includes('\\') && !recording.dir.includes('/') ? '\\' : '/';
+  const list = await (await fetchFile(`${recording.dir}${sep}frames.txt`, { maxBytes: 2 * 1024 * 1024 })).text();
+  const runs: { start: number; file: string }[] = [];
+  let at = 0;
+  let file: string | null = null;
+  for (const line of list.split(/\r?\n/)) {
+    const named = /^file '(.+)'$/.exec(line.trim());
+    if (named) { file = named[1]; continue; }
+    const held = /^duration ([\d.]+)$/.exec(line.trim());
+    if (held && file) { runs.push({ start: at, file }); at += Number(held[1]); file = null; }
+  }
+  if (!runs.length) return null;
+  const frameAt = (t: number) => [...runs].reverse().find((run) => run.start <= t + 1e-6)?.file ?? runs[0].file;
+  const cells = recordingMoments(recording).map((t) => ({ path: `${recording.dir}${sep}${frameAt(t).replace(/\//g, sep)}`, label: `${t.toFixed(2)} s` }));
+  const rows = [cells.slice(0, 3), cells.slice(3, 6)].filter((row) => row.length);
+  return contactSheet(rows, { width: 480, height: 270 });
+}
 
 const num = (args: Args, key: string): number | undefined => {
   const value = args[key];
@@ -3598,9 +3621,10 @@ ${notes.trim()}${paletteLine}
       const at = num(args, 'time');
       if (!comp) return fail('there is no comp');
       if (at === undefined) return fail('time is required');
-      const tracks = list(args, 'tracks').map((ref) => resolveTrack(comp, ref)?.id).filter((id): id is string => !!id);
+      const tracks = namedTracks(comp, list(args, 'tracks'));
+      if (tracks.error !== undefined) return fail(tracks.error);
       const before = comp.clips.length;
-      editComp(comp, (current) => razor(current, at, tracks.length ? tracks : null));
+      editComp(comp, (current) => razor(current, at, tracks.ids));
       const after = host.history.current().comps.find((item) => item.id === comp.id)?.clips.length ?? before;
       return done(`Cut at ${timecode(at, fps(comp))} (${after - before} new clip${after - before === 1 ? '' : 's'})`);
     }
@@ -3611,9 +3635,10 @@ ${notes.trim()}${paletteLine}
       const end = num(args, 'end');
       if (!comp) return fail('there is no comp');
       if (start === undefined || end === undefined || end <= start) return fail('start and end are required, end after start');
-      const tracks = list(args, 'tracks').map((ref) => resolveTrack(comp, ref)?.id).filter((id): id is string => !!id);
+      const tracks = namedTracks(comp, list(args, 'tracks'));
+      if (tracks.error !== undefined) return fail(tracks.error);
       const mode = str(args, 'mode') === 'lift' ? 'lift' : 'extract';
-      editComp(comp, (current) => removeRange(current, start, end, mode, tracks.length ? tracks : null));
+      editComp(comp, (current) => removeRange(current, start, end, mode, tracks.ids));
       return done(`${mode === 'lift' ? 'Lifted' : 'Extracted'} ${timecode(start, fps(comp))}–${timecode(end, fps(comp))}`);
     }
 
@@ -4215,11 +4240,46 @@ ${notes.trim()}${paletteLine}
           ...(url ? {} : { standin: standinSource(await bhippiAnswers(project, [...assets.values()], { demo, filled: (what) => { filled = what; } })) }),
         });
         const rows = sheetParts(manifest);
-        const sheet = rows.length ? await contactSheet(rows.map((row) => row.map((part) => ({ path: `${manifest.dir}/${part.file}`, label: `${part.part} · ${part.state} · ${part.pixels[0]}x${part.pixels[1]}` })))) : null;
+        // The sheet is only a preview: the parts are on disk whether or not it can be drawn.
+        const sheet = rows.length ? await contactSheet(rows.map((row) => row.map((part) => ({ path: `${manifest.dir}/${part.file}`, label: `${part.part} · ${part.state} · ${part.pixels[0]}x${part.pixels[1]}` })))).catch(() => null) : null;
         const partNames = [...new Set(manifest.parts.map((part) => part.part))];
         return done(
           `Captured ${manifest.parts.length} picture(s) of ${partNames.length} part(s) (${partNames.slice(0, 8).join(', ')}) at ${manifest.scale}x into ${manifest.dir}.${manifest.issues.length ? ` Check: ${manifest.issues.slice(0, 5).join('; ')}.` : ' Every part came out at full resolution and every font loaded.'} Each state is its own picture (part__state.png, with its box in manifest.json): import the ones a shot needs, or swap states on the frame a click lands; create_product_demo {"capture":"${name}"} makes them a camera shot of layers (close on parts, named cursors, each state on its frame).${demo ? ` ${demoNote(project, filled)}` : ''}`,
           { dir: manifest.dir, url: manifest.url, scale: manifest.scale, parts: manifest.parts, issues: manifest.issues, images: sheet && bool(args, 'images') !== false ? [sheet] : [] },
+        );
+      } catch (error) { return fail(errorText(error)); }
+    }
+
+    case 'record_app_scene': {
+      // The real product, moving: timed actions played on a virtual clock in a headless browser,
+      // every frame captured, one video of the whole window (app_record.rs). The app's own menus,
+      // typing and toggles animate inside it, which still parts cannot do.
+      const url = str(args, 'url');
+      const duration = num(args, 'duration');
+      if (duration === undefined || duration <= 0) return fail('Give duration: the recording\'s length in seconds (30 at most), and time each action within it.');
+      if (duration > 30) return fail('One recording is one scene, 30 s at most: record each beat on its own and place them one after another.');
+      const { actions, problems } = parseRecordActions(args.actions, duration);
+      if (problems.length) return fail(`Fix the actions: ${problems.slice(0, 6).join('; ')}.`);
+      const name = str(args, 'name') ?? (url ? url.replace(/^https?:\/\//, '').split('/')[0] : 'bhippi');
+      const parts = recordParts(args.parts, !url);
+      const base = { url, name, width: num(args, 'width'), height: num(args, 'height'), scale: num(args, 'scale'), fps: num(args, 'fps'), duration, ready: str(args, 'ready') ? resolveSelector(str(args, 'ready')!) : undefined, actions, parts };
+      const info = await api.appInfo().catch(() => null);
+      const demo = !url && bool(args, 'demo') === true;
+      let filled: string[] = [];
+      try {
+        const recording = await api.appSessionRecord({
+          ...base,
+          ...(bool(args, 'reuse') === false ? {} : { key: recordKey(base, info?.version ?? '', demo) }),
+          ...(url ? {} : { standin: standinSource(await bhippiAnswers(project, [...assets.values()], { demo, filled: (what) => { filled = what; } })) }),
+        });
+        const sheet = bool(args, 'images') === false ? null : await recordingSheet(recording).catch(() => null);
+        const measured = Object.keys(recording.parts);
+        const clicks = recording.events.filter((event) => event.kind === 'click').length;
+        const drags = recording.events.filter((event) => event.kind === 'drag').length;
+        const pixels = `${Math.round(recording.width * recording.scale)}x${Math.round(recording.height * recording.scale)}`;
+        return done(
+          `Recorded ${recording.duration} s of ${url ?? 'Bhippi'} at ${recording.fps} fps, ${pixels}: ${recording.unique} of ${recording.frames} frames change. Video: ${recording.video}. Parts measured over time: ${measured.slice(0, 12).join(', ') || 'none'}. ${clicks} click${clicks === 1 ? '' : 's'}${drags ? `, ${drags} drag${drags === 1 ? '' : 's'}` : ''} recorded with their points.${recording.issues.length ? ` Check: ${recording.issues.slice(0, 5).join('; ')}.` : ''} Film it with create_product_demo {"recording":"${name}"} (the window plays this video; shots focus on any measured part, a cursor replays the recorded clicks and drags, lifts:[{part, at, until}] raise a panel out of its real place), or import_media {"paths":["${recording.video.replace(/\\/g, '\\\\')}"]} to cut it in as a clip.${demo ? ` ${demoNote(project, filled)}` : ''}`,
+          { video: recording.video, dir: recording.dir, duration: recording.duration, fps: recording.fps, frames: recording.frames, unique: recording.unique, parts: recording.parts, events: recording.events, issues: recording.issues, images: sheet ? [sheet] : [] },
         );
       } catch (error) { return fail(errorText(error)); }
     }

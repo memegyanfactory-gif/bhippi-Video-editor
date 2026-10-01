@@ -173,10 +173,18 @@ export function gatherReport(comp: Comp): { ready: number; total: number; missin
 /**
  * Something QA measures on screen. `picture` is footage or a still reduced to a card or a
  * picture-in-picture; `behind` is type drawn under the cut-out subject (it cannot cover the
- * face); layers that share a `group` (one motion scene) are designed together and never
- * reported as overlapping each other.
+ * face); layers that share a `group` (one motion scene) are designed together and are not
+ * reported as overlapping each other, except `panel`s (the pictures and cards of the scene, by
+ * layer): two of those half on top of each other is the stacked-screenshots fault.
  */
-export type QaLayer = { clipId: string; name: string; kind: 'graphic' | 'text' | 'caption' | 'subject' | 'picture'; box: Box; from: number; to: number; behind?: boolean; group?: string };
+export type QaLayer = { clipId: string; name: string; kind: 'graphic' | 'text' | 'caption' | 'subject' | 'picture'; box: Box; from: number; to: number; behind?: boolean; group?: string; panel?: string };
+
+/**
+ * How much of the smaller of two boxes the larger one shares with it. Between 0.15 and 0.9 two
+ * panels sit half on top of each other; above 0.9 one sits inside the other (a button on its
+ * card), which is a design, not a collision.
+ */
+export const PANEL_OVERLAP: [number, number] = [0.15, 0.9];
 export type QaIssue = { at: number; a: string; b: string; kind: 'covers-subject' | 'graphic-overlap' | 'outside-safe' | 'off-frame' | 'caption-collision' | 'blank-frame' | 'black-edges' | 'small-text' | 'low-contrast'; overlap: number; suggestion: string };
 
 const intersection = (a: Box, b: Box): number => {
@@ -246,7 +254,18 @@ export function frameQa(comp: Comp, layers: QaLayer[], times: number[]): QaIssue
         }
       }
       for (const other of graphics) {
-        if (other === graphic || other.clipId <= graphic.clipId || (graphic.group && graphic.group === other.group)) continue;
+        if (other === graphic) continue;
+        if (other.clipId === graphic.clipId || (graphic.group && graphic.group === other.group)) {
+          // One scene is designed together, but two of its pictures half on top of each other
+          // is not a design: it is screenshots stacked in one space.
+          if (!graphic.panel || !other.panel || other.panel <= graphic.panel) continue;
+          const shared = intersection(graphic.box, other.box) / Math.min(area, other.box.width * other.box.height);
+          if (shared > PANEL_OVERLAP[0] && shared < PANEL_OVERLAP[1]) {
+            issues.push({ at, a: graphic.name, b: other.name, kind: 'graphic-overlap', overlap: shared, suggestion: `In one scene, "${graphic.name}" and "${other.name}" sit half on top of each other. Give each its own place (layout_panels lays a scene's pictures out in slots that never overlap), stagger them in time, or set one wholly inside the other if it belongs on it.` });
+          }
+          continue;
+        }
+        if (other.clipId < graphic.clipId) continue;
         const shared = intersection(graphic.box, other.box) / Math.min(area, other.box.width * other.box.height);
         if (shared > 0.15) {
           const kind = graphic.kind === 'caption' || other.kind === 'caption' ? 'caption-collision' : 'graphic-overlap';
@@ -261,7 +280,7 @@ export function frameQa(comp: Comp, layers: QaLayer[], times: number[]): QaIssue
       }
       const inside = intersection(graphic.box, safe) / area;
       const onFrame = intersection(graphic.box, { x: 0, y: 0, width: 1, height: 1 }) / area;
-      const how = graphic.kind === 'picture' ? 'layout_clip (its slots sit inside the safe area) or a smaller scale / x' : graphic.group ? 'update_motion_scene (patch the layer position, or rebuild — scenes are fitted to the safe area)' : 'its layout or position';
+      const how = graphic.group ? 'update_motion_scene (patch the layer position, or rebuild — scenes are fitted to the safe area)' : graphic.kind === 'picture' ? 'layout_clip (its slots sit inside the safe area) or a smaller scale / x' : 'its layout or position';
       if (onFrame < 0.995) {
         issues.push({ at, a: graphic.name, b: 'frame edge', kind: 'off-frame', overlap: 1 - onFrame, suggestion: `"${graphic.name}" runs ${Math.round((1 - onFrame) * 100)}% outside the picture; bring it back inside the safe area with ${how}.` });
       } else if (inside < 0.97) {

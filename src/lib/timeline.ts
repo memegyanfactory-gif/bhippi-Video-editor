@@ -212,6 +212,21 @@ export function resolveTrack(comp: Comp, ref: string | null | undefined): Track 
   return comp.tracks.find((track) => track.id === ref);
 }
 
+/**
+ * The tracks a call names, every one of them real. A name that matches no track is an error, not
+ * every track: "clear V6" in a comp without a V6 used to clear them all, the song on A1 with them.
+ * No names (or none given) is every track, as before.
+ */
+export function namedTracks(comp: Comp, refs: string[] | null | undefined): { ids: string[] | null; error?: undefined } | { ids?: undefined; error: string } {
+  if (!refs || !refs.length) return { ids: null };
+  const missing = refs.filter((ref) => !resolveTrack(comp, ref));
+  if (missing.length) {
+    const labels = [...tracksOf(comp, 'video').map((_, i) => `V${i + 1}`), ...tracksOf(comp, 'audio').map((_, i) => `A${i + 1}`)];
+    return { error: `there is no track called ${missing.map((ref) => `"${ref}"`).join(', ')} in "${comp.name}" (it has ${labels.join(', ') || 'no tracks'}); nothing was changed` };
+  }
+  return { ids: refs.map((ref) => resolveTrack(comp, ref)!.id) };
+}
+
 /** Adds tracks of `kind` until index `index` (0-based) exists. */
 export function ensureTrack(comp: Comp, kind: TrackKind, index: number): { comp: Comp; track: Track } {
   let next = comp;

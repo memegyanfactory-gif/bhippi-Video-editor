@@ -4,6 +4,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { AppInfo, Asset, ChatEvent, ExportOptions, Job, Project, ProviderInfo, Settings, TabsState, ToolCall, ToolResult, ToolStatus } from './types';
 import type { StorageCategoryId } from './storage';
+import { ownLabel } from './projectView';
 
 export type ChatRequest = {
   turnId: string;
@@ -432,7 +433,7 @@ export const api = {
   startupFile: () => invoke<string | null>('startup_file'),
   // Project tabs (tabs.rs): every open project has a window of its own; only the active one shows.
   tabsList: () => invoke<TabsState>('tabs_list'),
-  tabReport: (name: string, dirty: boolean, busy: boolean) => invoke<void>('tab_report', { name, dirty, busy }),
+  tabReport: (name: string, dirty: boolean, busy: boolean, result: 'done' | 'error' | null = null) => invoke<void>('tab_report', { name, dirty, busy, result }),
   tabNew: (open?: string | null) => invoke<string>('tab_new', { open: open ?? null }),
   tabActivate: (id: string) => invoke<void>('tab_activate', { id }),
   tabMove: (id: string, to: number) => invoke<void>('tab_move', { id, to }),
@@ -440,11 +441,16 @@ export const api = {
   tabClose: (id: string) => invoke<boolean>('tab_close', { id }),
   tabCloseAnswer: (ok: boolean) => invoke<void>('tab_close_answer', { ok }),
   appQuit: () => invoke<boolean>('app_quit'),
+  /** The answer to the quit summary shown when several projects are open. */
+  appQuitChoice: (choice: 'save' | 'discard' | 'cancel') => invoke<void>('app_quit_choice', { choice }),
+  /** A tile dragged by its bar in the overview: the pointer in this page; `drop` ends the drag. */
+  overviewDrag: (x: number, y: number, drop: boolean) => invoke<void>('overview_drag', { x, y, drop }),
   overviewSet: (on: boolean, focus?: string | null) => invoke<void>('overview_set', { on, focus: focus ?? null }),
 
   libraryList: () => invoke<Asset[]>('library_list'),
   /** capture_app_session: the product (or Bhippi itself) cut into parts in states (app_capture.rs). */
   appSessionCapture: (request: import('./appCapture').CaptureRequest) => invoke<import('./appCapture').CaptureManifest>('app_session_capture', { request }),
+  appSessionRecord: (request: import('./appCapture').RecordRequest) => invoke<import('./appCapture').Recording>('app_session_record', { request }),
   /** The demo media pack (demo_pack.rs), made on first use: never added to the library itself. */
   demoPackMake: () => invoke<Asset[]>('demo_pack_make'),
   /** MCP servers Bhippi connects out to, with what each is lending right now. */
@@ -788,8 +794,14 @@ export const api = {
     invoke<{ ok: boolean; result?: string; statuses?: unknown[] }>('chat_wait_subagent', { subagentId, parentTurnId }),
 };
 
+/**
+ * Every project tab is a webview of its own (tabs.rs). A listener with no target hears events
+ * aimed at any webview, so one tab's tool call, chat stream or close request reached every tab
+ * (and an edit landed in every open project). Each page listens as its own webview: it still
+ * hears what is sent to all, and of what is sent to one, only what is sent to it.
+ */
 const on = <T>(name: string) => (handler: (payload: T) => void): Promise<UnlistenFn> =>
-  listen<T>(name, (event) => handler(event.payload));
+  listen<T>(name, (event) => handler(event.payload), { target: { kind: 'Webview', label: ownLabel } });
 
 export const events = {
   job: on<Job>('bhippi://job'),
@@ -802,7 +814,11 @@ export const events = {
   /** The tab list changed: a tab opened, closed, moved, renamed or became active, or the overview toggled. */
   tabs: on<TabsState>('bhippi://tabs'),
   /** This window's tab is asked to close (or, with `app`, Bhippi to quit): save or ask, then answer with tabCloseAnswer. */
-  tabCloseRequest: on<{ app: boolean }>('bhippi://tab-close-request'),
+  tabCloseRequest: on<{ app: boolean; mode: 'ask' | 'save' | 'discard' }>('bhippi://tab-close-request'),
+  /** Quitting with several projects open: what would be lost, for one Save all / Don't save / Cancel. */
+  quitSummary: on<{ unsaved: string[]; busy: string[] }>('bhippi://quit-summary'),
+  /** While a tile is dragged in the overview: the project it would swap with (null: none). */
+  overviewTarget: on<string | null>('bhippi://overview-target'),
   /** The overview turned on or off. */
   overview: on<boolean>('bhippi://overview'),
   /** Another window changed the shared settings (the payload is its window label). */

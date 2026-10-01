@@ -14,6 +14,7 @@ import { clipEnd, sourceTimeAt, tracksOf, type AssetMap } from './timeline';
 import { textBox, type QaLayer } from './production';
 import type { Clip, Comp, Project } from './types';
 import { entryBounds } from '../motion/evaluate';
+import { transformPoint } from '../motion/math';
 import { evaluateMeasured } from '../motion/measure';
 import type { Layer, MotionScene } from '../motion/types';
 
@@ -58,23 +59,41 @@ function underSubject(scene: MotionScene, index: number): boolean {
 /**
  * The layers of `scene` that rest on screen at scene time `t` — at least half opaque and not
  * moving — as boxes in fractions of the scene. Entrances and exits in flight are not judged;
- * frame-sized pictures (stages, plates, a full-frame shot) and 3D layers are not either.
+ * frame-sized pictures (stages, plates, a full-frame shot) and 3D layers are not either. A resting
+ * precomp (a sequence beat) is opened: its own resting layers are judged where it draws them.
+ * `key` names each layer through the precomps it sits in.
  */
-export function restingLayerBoxes(scene: MotionScene, t: number, fps = 30): { layer: Layer; box: Box; behind: boolean }[] {
+export function restingLayerBoxes(scene: MotionScene, t: number, fps = 30, depth = 0): { layer: Layer; box: Box; behind: boolean; key: string }[] {
   const now = evaluateMeasured(scene, t, fps);
   const before = evaluateMeasured(scene, Math.max(0, t - REST_STEP), fps);
   const matteSources = new Set(scene.layers.map((layer) => layer.matte?.layer).filter(Boolean));
-  const out: { layer: Layer; box: Box; behind: boolean }[] = [];
+  const out: { layer: Layer; box: Box; behind: boolean; key: string }[] = [];
   now.layers.forEach((entry, index) => {
     const layer = entry.layer;
     if (!entry.active || entry.opacity < 0.5 || layer.hidden || layer.ref || layer.threeD || layer.adjustment || layer.bleed || matteSources.has(layer.id)) return;
+    if (layer.type === 'precomp') {
+      const box = entryBounds(entry.matrix, entry.size);
+      const prior = before.layers[index] ? entryBounds(before.layers[index].matrix, before.layers[index].size) : null;
+      if (depth >= 3 || !box || !prior || Math.abs(box.x - prior.x) > 3 || Math.abs(box.y - prior.y) > 3 || Math.abs(box.width - prior.width) > 3) return;
+      const inner = layer.scene;
+      for (const child of restingLayerBoxes(inner, entry.time, fps, depth + 1)) {
+        const corners = [[child.box.x, child.box.y], [child.box.x + child.box.width, child.box.y + child.box.height]].map(([fx, fy]) => {
+          const p = transformPoint(entry.matrix, fx * inner.width, fy * inner.height, 0);
+          return [p[0] / p[3], p[1] / p[3]];
+        });
+        const x = Math.min(corners[0][0], corners[1][0]);
+        const y = Math.min(corners[0][1], corners[1][1]);
+        out.push({ layer: child.layer, behind: child.behind, key: `${layer.id}/${child.key}`, box: { x: x / scene.width, y: y / scene.height, width: Math.abs(corners[1][0] - corners[0][0]) / scene.width, height: Math.abs(corners[1][1] - corners[0][1]) / scene.height } });
+      }
+      return;
+    }
     if (layer.type === 'null' || layer.type === 'camera' || layer.type === 'procedural' || layer.type === 'particles' || layer.type === 'drawing' || ((layer.type === 'solid' || layer.type === 'footage') && !layer.size)) return;
     const box = entryBounds(entry.matrix, entry.size);
     const prior = before.layers[index] ? entryBounds(before.layers[index].matrix, before.layers[index].size) : null;
     if (!box || !prior) return;
     if (Math.abs(box.x - prior.x) > 3 || Math.abs(box.y - prior.y) > 3 || Math.abs(box.width - prior.width) > 3 || Math.abs(box.height - prior.height) > 3) return;
     if (box.width >= scene.width * FULL && box.height >= scene.height * FULL) return;
-    out.push({ layer, box: { x: box.x / scene.width, y: box.y / scene.height, width: box.width / scene.width, height: box.height / scene.height }, behind: layer.type === 'text' && underSubject(scene, index) });
+    out.push({ layer, key: layer.id, box: { x: box.x / scene.width, y: box.y / scene.height, width: box.width / scene.width, height: box.height / scene.height }, behind: layer.type === 'text' && underSubject(scene, index) });
   });
   return out;
 }
@@ -114,6 +133,9 @@ function pictureBox(clip: Clip, width: number, height: number, comp: Comp, t: nu
 
 const BACKGROUND = /background|backdrop|gradient|wallpaper|texture|\bbg\b/i;
 
+/** A scene's pictures and cards: what must not sit half on top of another in one frame. */
+export const isPanel = (layer: Layer) => layer.type === 'footage' || layer.type === 'solid' || (layer.type === 'shape' && (layer as { shape?: { shape?: string } }).shape?.shape === 'rect');
+
 /**
  * Everything QA measures on `comp` at `times`: one entry per thing per sampled moment (its box at
  * that moment), plus the HTML graphics, titles and captions with their windows.
@@ -126,8 +148,8 @@ export async function collectQaLayers(project: Project, assets: AssetMap, comp: 
   // Motion stacks and scenes drawn directly on this comp.
   for (const t of times) {
     for (const { scene, time, group } of scenesAt(project, comp, t)) {
-      for (const { layer, box, behind } of restingLayerBoxes(scene, time, comp.fps)) {
-        layers.push({ clipId: group, group, name: layerTitle(layer), kind: layer.type === 'text' ? 'text' : 'graphic', box, from: t, to: t + 1e-3, behind });
+      for (const { layer, box, behind, key } of restingLayerBoxes(scene, time, comp.fps)) {
+        layers.push({ clipId: group, group, name: layerTitle(layer), kind: layer.type === 'text' ? 'text' : 'graphic', box, from: t, to: t + 1e-3, behind, ...(isPanel(layer) ? { panel: key } : {}) });
       }
     }
   }
@@ -187,8 +209,8 @@ export async function collectQaLayers(project: Project, assets: AssetMap, comp: 
         const childTime = sourceTimeAt(clip, t);
         const map = holderMap(clip, t);
         for (const { scene, time, group } of scenesAt(project, child, childTime)) {
-          for (const { layer, box, behind } of restingLayerBoxes(scene, time, comp.fps)) {
-            layers.push({ clipId: clip.id, group: `${clip.id}/${group}`, name: `${layerTitle(layer)} (${child.name})`, kind: layer.type === 'text' ? 'text' : 'graphic', box: map(box), from: t, to: t + 1e-3, behind });
+          for (const { layer, box, behind, key } of restingLayerBoxes(scene, time, comp.fps)) {
+            layers.push({ clipId: clip.id, group: `${clip.id}/${group}`, name: `${layerTitle(layer)} (${child.name})`, kind: layer.type === 'text' ? 'text' : 'graphic', box: map(box), from: t, to: t + 1e-3, behind, ...(isPanel(layer) ? { panel: `${group}/${key}` } : {}) });
           }
         }
       }
@@ -262,6 +284,9 @@ export async function contactSheet(rows: { path: string; label: string }[][], ce
       try {
         const image = await new Promise<HTMLImageElement>((resolve, reject) => {
           const img = new Image();
+          // Local files come from another origin in the desktop webview: without CORS the canvas
+          // is tainted and toDataURL throws, which used to fail the whole tool call.
+          img.crossOrigin = 'anonymous';
           img.onload = () => resolve(img);
           img.onerror = () => reject(new Error('frame did not load'));
           img.src = `${fileSrc(frame.path)}${fileSrc(frame.path).includes('?') ? '&' : '?'}sheet=${Date.now()}`;

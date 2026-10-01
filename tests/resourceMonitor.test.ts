@@ -46,11 +46,14 @@ describe('ResourceMonitor', () => {
     expect(html).toContain('GPU');
   });
 
-  it('keeps the popover closed by default and still labels the GPU meter on the chip', () => {
+  it('keeps the popover closed by default and shows the RAM, DISK and GPU rings, empty until the first reading', () => {
     const html = renderToString(React.createElement(ResourceMonitor, { jobs: [], runs: [] }));
     expect(html).not.toContain('role="dialog"');
-    expect(html).toContain('GPU');
-    expect(html).toContain('Reading…');
+    expect(html.match(/class="rm-ring empty"/g)).toHaveLength(3);
+    for (const label of ['RAM —', 'DISK —', 'GPU —']) expect(html).toContain(label);
+    // The detail waits for hover, and says it is still reading.
+    expect(html).toContain('RAM: reading…');
+    expect(html).toContain('role="tooltip"');
   });
 
   it('says nothing is running, once per section, when the lists are empty', () => {

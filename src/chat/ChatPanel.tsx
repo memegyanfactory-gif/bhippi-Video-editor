@@ -449,6 +449,13 @@ ${text}` : text));
   const missing = useRef<Set<string>>(new Set());
   /** Per-turn facts for the IdeaGraph outcome hook: set on send/start, consumed on done. */
   const turnMeta = useRef(new Map<string, { provider: string; providerId: string; model: string | null; prompt: string }>());
+  /**
+   * The turns this chat sent. Its events are about these only (and their subagents', whose ids are
+   * `<turn>:sub:<id>`): another chat's turn, in this project (the Plugin Maker's) or anywhere else,
+   * is never shown, billed or finished here.
+   */
+  const ownTurns = useRef(new Set<string>());
+  const ownsTurn = (id: string | undefined) => !!id && (ownTurns.current.has(id) || ownTurns.current.has(id.split(':sub:')[0]));
 
   const streaming = messages.some((message) => message.role === 'assistant' && message.status === 'streaming');
   busyRef.current = streaming;
@@ -642,6 +649,7 @@ ${text}` : text));
 
   useEffect(() => {
     const pending = events.chat((event) => {
+      if (!ownsTurn(event.event === 'subagent_update' ? event.parentTurnId : event.turnId)) return;
       if (event.event === 'start') {
         actionLogger.ai(`Chat Turn Started: ${event.providerLabel} (${event.model ?? 'default'})`, { turnId: event.turnId });
         trace(event.turnId, { ev: 'turn_start', provider: event.providerLabel, providerId: event.providerId, model: event.model ?? null });
@@ -833,6 +841,7 @@ ${text}` : text));
     const providerModels=propsRef.current.providers.find(p=>p.id===providerId)?.models||[];
     const model=variantModel(providerModels,propsRef.current.model,propsRef.current.effort);
     const turnId = uid();
+    ownTurns.current.add(turnId);
     if (autoFinished.current.delete('pending')) autoFinished.current.add(turnId);
     rememberTurnPrompt(turnId, message);
     // How much of the craft this model carries: a guided model gets the one-call build and
@@ -1688,7 +1697,8 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
   const changes = tools.filter((run) => run.status === 'done' && run.changedProject).length;
   const timelineChanges = changes > 0 ? changesProp : [];
   const line = streaming ? null : workflowLine(workflow, tools.length > 0);
-  const meta = [message.model, seconds].filter(Boolean).join(' · ');
+  // The footer says which AI answered (each project keeps its own), the model and how long it took.
+  const meta = [message.providerLabel && message.providerLabel !== 'Bhippi' ? message.providerLabel : null, message.model, seconds].filter(Boolean).join(' · ');
   const working = tools.some((run) => run.status === 'running') || message.steps.some((step) => !step.done);
   const thinkingLive = streaming && !visible && !working;
   // The mark plays "done" only for a turn seen finishing here, not for every answer a reload brings back.

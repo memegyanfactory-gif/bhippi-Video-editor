@@ -122,7 +122,13 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // Raised to 44,750 the same day for the blueprint's `build` source and the slideshow lines (~+95
       // a step): a beat built as layers that move on their own, and the note that create_product_demo
       // only moves a camera over pictures, so films stop coming out as screenshot slideshows.
-      expect(row.step, row.id).toBeLessThan(44_750);
+      // Raised to 44,800 on 2026-10-01 for `record_app_scene` (its slim entry, ~+40 a step): the real
+      // app recorded moving on a virtual clock, so its own menus, typing and timeline play inside the
+      // shot instead of still parts with a camera over them.
+      // Raised to 44,850 the same day for `layout_panels` (its slim entry, ~+37 a step): a scene's
+      // pictures and cards laid out in slots that never overlap, the fix frame QA now names when
+      // screenshots are stacked half on top of each other in one scene.
+      expect(row.step, row.id).toBeLessThan(44_850);
     }
   });
 

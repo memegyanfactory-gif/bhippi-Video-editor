@@ -118,7 +118,7 @@ const GATHER_ONLY = ['execute_blueprint', 'attach_production_asset', 'finish_gat
 const EDIT_ONLY = [
   'place_clip', 'update_clip', 'delete_clips', 'split_clips', 'remove_range', 'add_tracks', 'add_transition', 'seamless_transition', 'set_keyframes',
   'add_marker', 'undo', 'run_frame_qa', 'judge_edit', 'add_captions', 'set_caption_style', 'level_audio', 'add_sound_effect', 'place_sfx',
-  'create_motion_scene', 'update_motion_scene', 'get_motion_scene', 'build_edit_from_brief',
+  'create_motion_scene', 'update_motion_scene', 'get_motion_scene', 'layout_panels', 'build_edit_from_brief',
 ];
 
 function forPhase(full: Set<string>, phase: string | null | undefined) {

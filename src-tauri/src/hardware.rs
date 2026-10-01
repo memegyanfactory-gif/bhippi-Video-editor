@@ -5,6 +5,7 @@
 //! NVIDIA's tool pays for one more PowerShell call that reads the 3D-engine counters instead,
 //! which gives a utilisation figure but no VRAM or temperature.
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 const NVIDIA_QUERY: &str = "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu";
@@ -15,9 +16,12 @@ pub async fn usage(folder: &std::path::Path) -> Result<Value, String> {
     {
         // Processes are the app's own tree: this PID and everything descended from it, most
         // memory first. Drives are every fixed disk; the one holding the data folder is the
-        // "models" drive and is also reported through the older flat fields.
+        // "models" drive and is also reported through the older flat fields. Disk activity is
+        // how busy each physical disk is (its active time, as Task Manager shows it), not how full
+        // it is: the raw counters go out as text (they pass 2^53) and `disk_activity` turns two
+        // readings into a share of the time between them.
         let script = format!(
-            r#"$ErrorActionPreference='Stop'; $os=Get-CimInstance Win32_OperatingSystem; $cpu=Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'"; $drive=[IO.Path]::GetPathRoot($env:BHIPPI_DATA_FOLDER).TrimEnd('\'); $fixed=@(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'); $disk=$fixed | Where-Object DeviceID -eq $drive; $drives=@($fixed | ForEach-Object {{ [pscustomobject]@{{letter=$_.DeviceID.TrimEnd(':');freeGb=[math]::Round($_.FreeSpace/1GB,1);totalGb=[math]::Round($_.Size/1GB,1);role=$(if($_.DeviceID -eq $drive){{'models'}}else{{$null}})}} }}); $all=@(Get-CimInstance Win32_Process); $ids=[Collections.Generic.HashSet[int]]::new(); [void]$ids.Add({}); do {{ $added=$false; foreach($p in $all) {{ if($ids.Contains([int]$p.ParentProcessId) -and $ids.Add([int]$p.ProcessId)) {{ $added=$true }} }} }} while($added); $children=@($all | Where-Object {{ $ids.Contains([int]$_.ProcessId) }} | ForEach-Object {{ [pscustomobject]@{{name=$_.Name;pid=$_.ProcessId;ramGb=[math]::Round([double]$_.WorkingSetSize/1GB,3)}} }} | Sort-Object -Property ramGb -Descending); [pscustomobject]@{{cpuPercent=$cpu.PercentProcessorTime;ramTotalGb=[math]::Round($os.TotalVisibleMemorySize/1MB,1);ramUsedGb=[math]::Round(($os.TotalVisibleMemorySize-$os.FreePhysicalMemory)/1MB,1);diskFreeGb=[math]::Round($disk.FreeSpace/1GB,1);diskTotalGb=[math]::Round($disk.Size/1GB,1);drive=$drive;drives=$drives;processes=$children}} | ConvertTo-Json -Depth 4 -Compress"#,
+            r#"$ErrorActionPreference='Stop'; $os=Get-CimInstance Win32_OperatingSystem; $cpu=Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'"; $drive=[IO.Path]::GetPathRoot($env:BHIPPI_DATA_FOLDER).TrimEnd('\'); $fixed=@(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'); $disk=$fixed | Where-Object DeviceID -eq $drive; $raw=@(Get-CimInstance Win32_PerfRawData_PerfDisk_PhysicalDisk | Where-Object Name -ne '_Total' | ForEach-Object {{ [pscustomobject]@{{name=$_.Name;idle=[string]$_.PercentIdleTime;stamp=[string]$_.Timestamp_Sys100NS}} }}); $io=$null; try {{ $perf=Get-CimInstance Win32_PerfFormattedData_PerfDisk_LogicalDisk -Filter "Name='$drive'"; if($perf) {{ $io=[math]::Round([math]::Min(100,[math]::Max(0,100-[double]$perf.PercentIdleTime)),0) }} }} catch {{}}; $drives=@($fixed | ForEach-Object {{ [pscustomobject]@{{letter=$_.DeviceID.TrimEnd(':');freeGb=[math]::Round($_.FreeSpace/1GB,1);totalGb=[math]::Round($_.Size/1GB,1);role=$(if($_.DeviceID -eq $drive){{'models'}}else{{$null}})}} }}); $all=@(Get-CimInstance Win32_Process); $ids=[Collections.Generic.HashSet[int]]::new(); [void]$ids.Add({}); do {{ $added=$false; foreach($p in $all) {{ if($ids.Contains([int]$p.ParentProcessId) -and $ids.Add([int]$p.ProcessId)) {{ $added=$true }} }} }} while($added); $children=@($all | Where-Object {{ $ids.Contains([int]$_.ProcessId) }} | ForEach-Object {{ [pscustomobject]@{{name=$_.Name;pid=$_.ProcessId;ramGb=[math]::Round([double]$_.WorkingSetSize/1GB,3)}} }} | Sort-Object -Property ramGb -Descending); [pscustomobject]@{{cpuPercent=$cpu.PercentProcessorTime;ramTotalGb=[math]::Round($os.TotalVisibleMemorySize/1MB,1);ramUsedGb=[math]::Round(($os.TotalVisibleMemorySize-$os.FreePhysicalMemory)/1MB,1);diskFreeGb=[math]::Round($disk.FreeSpace/1GB,1);diskTotalGb=[math]::Round($disk.Size/1GB,1);diskActivityPercent=$io;diskRaw=$raw;drive=$drive;drives=$drives;processes=$children}} | ConvertTo-Json -Depth 4 -Compress"#,
             std::process::id()
         );
         let powershell_args = ["-NoProfile", "-NonInteractive", "-Command", script.as_str()];
@@ -32,12 +36,20 @@ pub async fn usage(folder: &std::path::Path) -> Result<Value, String> {
         }
         // ConvertTo-Json hands back a bare object for a one-item list in some shells; the UI
         // always wants arrays here.
-        for key in ["processes", "drives"] {
+        for key in ["processes", "drives", "diskRaw"] {
             if !value[key].is_array() {
                 let single = value[key].take();
                 value[key] = if single.is_object() { json!([single]) } else { json!([]) };
             }
         }
+        // The busiest disk over the time since the last reading; the first reading keeps the
+        // models drive's instant figure.
+        let disks = disk_activity(value["diskRaw"].take());
+        if let Some(busiest) = disks.iter().max_by(|a, b| a.1.total_cmp(&b.1)) {
+            value["diskActivityPercent"] = json!(busiest.1.round());
+            value["diskActivityDrive"] = json!(busiest.0);
+        }
+        value["disks"] = json!(disks.iter().map(|(name, active)| json!({"name": name, "activityPercent": active.round()})).collect::<Vec<_>>());
         value["gpu"] = match nvidia.as_deref().and_then(parse_nvidia) {
             Some(gpu) => gpu,
             None => counter_gpu(folder).await,
@@ -49,6 +61,37 @@ pub async fn usage(folder: &std::path::Path) -> Result<Value, String> {
         let _ = folder;
         Err("Resource measurements unavailable on this platform".into())
     }
+}
+
+/// The last raw reading of each physical disk: (idle time, timestamp), both in 100 ns ticks.
+static DISK_READINGS: std::sync::Mutex<BTreeMap<String, (u64, u64)>> = std::sync::Mutex::new(BTreeMap::new());
+
+/// How busy a disk was between two raw readings of (idle time, timestamp): the share of the time
+/// it was not idle, in percent. None when no time passed or the counters went back (a reset).
+fn active_percent(before: (u64, u64), now: (u64, u64)) -> Option<f64> {
+    let elapsed = now.1.checked_sub(before.1).filter(|&ticks| ticks > 0)?;
+    let idle = now.0.checked_sub(before.0)?;
+    Some((100.0 - 100.0 * idle as f64 / elapsed as f64).clamp(0.0, 100.0))
+}
+
+/// Each physical disk's activity since the last reading, by its drive letters ("C:", or "D: E:"
+/// for a disk with two volumes). Remembers this reading for the next one.
+fn disk_activity(raw: Value) -> Vec<(String, f64)> {
+    let Value::Array(entries) = raw else { return Vec::new() };
+    let mut readings = DISK_READINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut out = Vec::new();
+    for entry in entries {
+        let text = |key: &str| entry[key].as_str().and_then(|value| value.trim().parse::<u64>().ok()).or_else(|| entry[key].as_u64());
+        let (Some(name), Some(idle), Some(stamp)) = (entry["name"].as_str(), text("idle"), text("stamp")) else { continue };
+        // "2 C:" is disk 2 holding C:; a disk with no letter keeps its number.
+        let letters = name.split_whitespace().filter(|part| part.ends_with(':')).collect::<Vec<_>>().join(" ");
+        let label = if letters.is_empty() { format!("Disk {}", name.trim()) } else { letters };
+        if let Some(active) = readings.get(name).and_then(|&before| active_percent(before, (idle, stamp))) {
+            out.push((label, active));
+        }
+        readings.insert(name.to_owned(), (idle, stamp));
+    }
+    out
 }
 
 /// One `nvidia-smi` CSV line → `{name, utilPercent, vramUsedMb, vramTotalMb, tempC}`. Fields it
@@ -79,7 +122,8 @@ fn number(field: &str) -> Value {
 /// which is what Task Manager shows, and the adapter name from WMI. Null when neither answers.
 #[cfg(windows)]
 async fn counter_gpu(folder: &std::path::Path) -> Value {
-    const SCRIPT: &str = r#"$ErrorActionPreference='SilentlyContinue'; $name=(Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name); $util=$null; try { $sum=((Get-Counter '\GPU Engine(*engtype_3D)\Utilization Percentage' -ErrorAction Stop).CounterSamples | Measure-Object -Property CookedValue -Sum).Sum; if($null -ne $sum){ $util=[math]::Round([math]::Min(100,[math]::Max(0,[double]$sum)),0) } } catch {}; [pscustomobject]@{name=$name;utilPercent=$util} | ConvertTo-Json -Compress"#;
+    // Task Manager's figure: each engine type's use summed over processes, the busiest type.
+    const SCRIPT: &str = r#"$ErrorActionPreference='SilentlyContinue'; $name=(Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name); $util=$null; try { $samples=(Get-Counter '\GPU Engine(*)\Utilization Percentage' -ErrorAction Stop).CounterSamples; $max=($samples | Group-Object { ($_.InstanceName -split '_engtype_')[1] } | ForEach-Object { ($_.Group | Measure-Object -Property CookedValue -Sum).Sum } | Measure-Object -Maximum).Maximum; if($null -ne $max){ $util=[math]::Round([math]::Min(100,[math]::Max(0,[double]$max)),0) } } catch {}; [pscustomobject]@{name=$name;utilPercent=$util} | ConvertTo-Json -Compress"#;
     let Some(data) = output("powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", SCRIPT], folder).await else {
         return Value::Null;
     };
@@ -165,6 +209,30 @@ fn parse_nvidia_card(line: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::parse_nvidia_card;
+
+    #[test]
+    fn disk_activity_is_the_busy_share_of_the_time_between_readings() {
+        // 3 s apart (in 100 ns ticks), idle for 2.4 s of them: 20 % busy.
+        assert_eq!(super::active_percent((1_000, 5_000), (24_001_000, 30_005_000)).map(f64::round), Some(20.0));
+        // Never idle is 100 %, all idle is 0 %; no time, or counters that went back, say nothing.
+        assert_eq!(super::active_percent((0, 0), (0, 10)), Some(100.0));
+        assert_eq!(super::active_percent((0, 0), (10, 10)), Some(0.0));
+        assert_eq!(super::active_percent((0, 10), (0, 10)), None);
+        assert_eq!(super::active_percent((50, 0), (10, 10)), None);
+    }
+
+    #[test]
+    fn each_disk_is_named_by_its_letters_from_the_second_reading_on() {
+        // Raw counters pass 2^53, so they come as text.
+        let first = serde_json::json!([{ "name": "7 Q:", "idle": "100000000000000000", "stamp": "200000000000000000" }, { "name": "8", "idle": "0", "stamp": "0" }]);
+        assert!(super::disk_activity(first).is_empty(), "one reading is not an activity yet");
+        let second = serde_json::json!([{ "name": "7 Q:", "idle": "100000000015000000", "stamp": "200000000030000000" }, { "name": "8", "idle": "30000000", "stamp": "30000000" }]);
+        let disks = super::disk_activity(second);
+        assert_eq!(disks.len(), 2);
+        assert_eq!(disks[0].0, "Q:");
+        assert_eq!(disks[0].1.round(), 50.0);
+        assert_eq!(disks[1], ("Disk 8".to_owned(), 0.0));
+    }
 
     #[test]
     fn reads_nvidia_cards_with_and_without_capability() {

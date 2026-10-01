@@ -11,7 +11,7 @@ export type MenuGroup = { label: string; items: MenuItem[] };
  * File · Edit · Clip · … across the top, with the window controls on the right. `onClose` closes
  * Bhippi (every open project asks about its own unsaved work); without it the window closes.
  */
-export function MenuBar({ menus, onClose }: { menus: MenuGroup[]; onClose?: () => void }) {
+export function MenuBar({ menus, onClose, extra }: { menus: MenuGroup[]; onClose?: () => void; extra?: React.ReactNode }) {
   const [open, setOpen] = useState<{ index: number; anchor: DOMRect } | null>(null);
   const win = getCurrentWindow();
   return (
@@ -29,6 +29,7 @@ export function MenuBar({ menus, onClose }: { menus: MenuGroup[]; onClose?: () =
         </button>
       ))}
       <div className="menubar-drag" data-tauri-drag-region />
+      {extra}
       <div className="win-controls">
         <button type="button" className="win-btn" onClick={() => void win.minimize()} aria-label="Minimize"><Minus size={14} /></button>
         <button type="button" className="win-btn" onClick={() => void win.toggleMaximize()} aria-label="Maximize"><Square size={11} /></button>
@@ -63,6 +64,8 @@ type HeaderProps = {
   /** Opens Settings › About, where the full Profile lives — the account panel's "Account details". */
   onAccount: () => void;
   resourceMonitor?: React.ReactNode;
+  /** The projects panel holds the update, Settings and profile buttons at its foot, so the bar leaves them out. */
+  sideControls?: boolean;
   /** The open projects as tabs, in place of the single project's title. */
   tabs?: React.ReactNode;
 };
@@ -98,12 +101,16 @@ export function HeaderBar(props: HeaderProps) {
       )}
       <div className="header-actions">
         {props.resourceMonitor}
-        <button type="button" className="icon-btn" onClick={props.onExport} disabled={props.exportDisabled} title="Quick export (Ctrl+M)"><Share size={16} /></button>
+        <button type="button" className="header-export" onClick={props.onExport} disabled={props.exportDisabled} title="Export the video (Ctrl+M)"><Share size={14} />Export</button>
         <button type="button" className="icon-btn" onClick={props.onToggleMute} title={props.muted ? 'Unmute preview' : 'Mute preview'}>{props.muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
         <button type="button" className="icon-btn" onClick={props.onToggleProgramMax} title="Maximize Program monitor (`)">{props.programMaximized ? <Minimize size={15} /> : <Maximize size={15} />}</button>
-        <UpdateButton onDetails={props.onUpdates} />
-        <button type="button" className="icon-btn" onClick={props.onSettings} title="Settings (Ctrl+,)"><Settings size={16} /></button>
-        <AccountButton onDetails={props.onAccount} />
+        {!props.sideControls && (
+          <>
+            <UpdateButton onDetails={props.onUpdates} />
+            <button type="button" className="icon-btn" onClick={props.onSettings} title="Settings (Ctrl+,)"><Settings size={16} /></button>
+            <AccountButton onDetails={props.onAccount} />
+          </>
+        )}
       </div>
     </div>
   );

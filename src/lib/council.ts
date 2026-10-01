@@ -144,7 +144,7 @@ export const SEAT_TOOLS: Record<CouncilRole, ReadonlySet<string>> = {
     'synthesize_speech_voiceover', 'analyze_clip_speech', 'podcast_cut', 'search_sfx', 'place_sfx',
   ]),
   animator: new Set([
-    'create_motion_scene', 'update_motion_scene', 'render_3d_scene', 'create_ui_screen', 'update_ui_screen', 'create_motion_sequence', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'import_lottie', 'create_motion_graphic', 'add_graphic', 'set_keyframes', 'add_text', 'reveal_subject',
+    'create_motion_scene', 'update_motion_scene', 'layout_panels', 'render_3d_scene', 'create_ui_screen', 'update_ui_screen', 'create_motion_sequence', 'add_fx', 'check_pacing', 'create_character', 'animate_character', 'lip_sync_character', 'import_lottie', 'create_motion_graphic', 'add_graphic', 'set_keyframes', 'add_text', 'reveal_subject',
     'add_text_behind_subject', 'add_media_behind_subject', 'rotoscope_clip', 'erase_subject_clip', 'nest_motion_scenes', 'react_bits', 'add_captions',
     'cutout_image', 'detect_faces', 'key_green_screen',
   ]),
@@ -421,10 +421,24 @@ function isStill(source: FootageSource, assets: Map<string, Asset>): boolean {
   return STILL_FILE.test(source.path ?? source.asset ?? '');
 }
 
-/** Still pictures in a scene, and the elements that move on their own (precomps walked). */
-function pictureTally(scene: MotionScene, assets: Map<string, Asset>, depth = 0): { pictures: number; movers: number } {
+/**
+ * Something on screen that changes inside, the way an interface does when it is used: moving
+ * footage (a recording, a sequence), a shape that animates, a character, type that is typed or
+ * counted. A still picture sliding about, or a lyric revealed word by word, does not.
+ */
+function actsInside(layer: Layer, assets: Map<string, Asset>): boolean {
+  if (layer.type === 'footage') return !isStill(layer.source, assets);
+  if (layer.type === 'character' || layer.type === 'drawing') return true;
+  if (layer.type === 'shape') return /"k":\[\{/.test(JSON.stringify(layer.shape));
+  if (layer.type === 'text') return ['type', 'retype', 'counter'].some((key) => key in layer.text);
+  return false;
+}
+
+/** Still pictures in a scene, the elements that move on their own, and those that act inside (precomps walked). */
+function pictureTally(scene: MotionScene, assets: Map<string, Asset>, depth = 0): { pictures: number; movers: number; acts: number } {
   let pictures = 0;
   let movers = 0;
+  let acts = 0;
   for (const layer of scene.layers) {
     if (layer.type === 'camera' || layer.type === 'null' || layer.type === 'solid' || layer.type === 'procedural' || layer.type === 'particles') continue;
     if (CURSOR_PART.test(layer.name ?? '')) continue;
@@ -434,21 +448,32 @@ function pictureTally(scene: MotionScene, assets: Map<string, Asset>, depth = 0)
         const inner = pictureTally(layer.scene, assets, depth + 1);
         pictures += inner.pictures;
         movers += inner.movers;
+        acts += inner.acts;
       }
       continue;
     }
+    if (actsInside(layer, assets)) acts++;
     if (layer.type === 'footage' && isStill(layer.source, assets)) {
       pictures++;
       if (movesOnItsOwn(layer)) movers++;
     } else if (layer.type === 'footage' || movesOnItsOwn(layer)) movers++;
   }
-  return { pictures, movers };
+  return { pictures, movers, acts };
 }
 
-/** A scene carried by still pictures that only a camera, a cursor or a state swap changes. */
+/** Still pictures in one scene before sliding them about, with nothing acting inside, reads as a slideshow. */
+const MOVING_SLIDES = 3;
+
+/**
+ * A scene carried by still pictures that only a camera, a cursor or a state swap changes; or by
+ * several still pictures that slide and scale about while nothing in the interface acts (no
+ * recording, no typing, nothing animating inside): screenshots moved around, a moving slideshow.
+ * create_ui_screen's own scenes are the rebuild, never the fault.
+ */
 export function pictureLed(scene: MotionScene, assets: Map<string, Asset>): boolean {
   const tally = pictureTally(scene, assets);
-  return tally.pictures > 0 && tally.movers < SLIDESHOW_MOVERS;
+  if (tally.pictures > 0 && tally.movers < SLIDESHOW_MOVERS) return true;
+  return tally.pictures >= MOVING_SLIDES && tally.acts === 0 && scene.template?.id !== 'ui-screen';
 }
 
 /**
@@ -514,7 +539,7 @@ function reviewSlideshow(ctx: Ctx, out: CouncilNote[]): number {
       severity: 'fix',
       at: [from, to],
       text: `${span(from, to)} is still pictures that only a camera or a cursor moves over (${Math.round((to - from) * fps)} frames): it reads as a slideshow, not motion design.`,
-      fix: 'Rebuild that moment as parts that move on their own: create_ui_screen {screenshot, parts, actions} (assemble, type, lift, sweep, count) or the product\'s HTML/CSS, shape groups, icons and live type. Keep the picture as a background or a short close-up.',
+      fix: 'Make the interface act inside the shot: record_app_scene records the real app being used (its own menus, typing and timeline) for create_product_demo {recording}; or rebuild it as parts that move on their own with create_ui_screen {screenshot, parts, actions} (assemble, type, lift, sweep, count), the product\'s HTML/CSS, shape groups, icons and live type. Keep a picture as a background or a short close-up.',
     });
   }
   if (long.length > 4) out.push({ member: 'animator', severity: 'fix', text: `${long.length - 4} more slideshow stretches after ${s(long[3][1])}.`, fix: 'Rebuild each the same way.' });

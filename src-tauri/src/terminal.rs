@@ -104,7 +104,7 @@ fn spawn(state: TerminalState, cwd: Option<String>, cols: u16, rows: u16, emit: 
 pub async fn terminal_open(window: WebviewWindow, state: State<'_, TerminalState>, cwd: Option<String>, cols: u16, rows: u16) -> Result<Opened, String> {
     editor(&window)?;
     let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || spawn(state, cwd, cols, rows, move |event| { let _ = window.emit(EVENT, event); })).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || spawn(state, cwd, cols, rows, move |event| { let _ = window.emit_to(tauri::EventTarget::webview(window.label()), EVENT, event); })).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn terminal_write(window: WebviewWindow, state: State<'_, TerminalState>, session_id: String, data: String) -> Result<(), String> {
