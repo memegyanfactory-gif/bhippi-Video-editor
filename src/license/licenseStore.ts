@@ -1,6 +1,6 @@
 // The one license status the gate and About › Profile both read.
 import { useSyncExternalStore } from 'react';
-import { api, type LicenseStatus } from '../lib/ipc';
+import { api, events, type LicenseStatus } from '../lib/ipc';
 
 type Snapshot = {
   status: LicenseStatus | null;
@@ -67,6 +67,10 @@ export const licenseStore = {
     licenseStore.setStatus(await api.licenseSignOut());
   },
 };
+
+// Each project tab is a webview with its own copy of this store: a sign-in or sign-out in any tab
+// reaches every tab, so a tab opened while signed out doesn't ask again after signing in elsewhere.
+void events.license((status) => licenseStore.setStatus(status)).catch(() => undefined);
 
 export function useLicense(): Snapshot {
   return useSyncExternalStore(licenseStore.subscribe, licenseStore.get);

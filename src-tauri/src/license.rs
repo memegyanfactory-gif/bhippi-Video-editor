@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 const API: &str = "https://bhippi.com/api/helios";
 /// Raw Ed25519 public key matching the site's LICENSE_SIGNING_KEY secret.
@@ -413,9 +413,19 @@ async fn check(app: &AppHandle) -> CommandResult<LicenseStatus> {
 
 // ───────────────────────────── commands ─────────────────────────────
 
+/// Every project tab is a webview with its own gate (tabs.rs): a status any of them gets is sent to
+/// all, so signing in (or out) in one tab unlocks (or locks) the rest instead of leaving them
+/// asking to sign in again.
+fn announce(app: &AppHandle, status: CommandResult<LicenseStatus>) -> CommandResult<LicenseStatus> {
+    if let Ok(status) = &status {
+        let _ignored = app.emit("bhippi://license", status);
+    }
+    status
+}
+
 #[tauri::command]
 pub async fn license_status(app: AppHandle) -> CommandResult<LicenseStatus> {
-    check(&app).await
+    announce(&app, check(&app).await)
 }
 
 #[derive(Serialize)]
@@ -472,7 +482,7 @@ pub async fn license_login_poll(app: AppHandle) -> CommandResult<LoginPoll> {
             *PENDING.lock().map_err(|error| error.to_string())? = None;
             let token = response.get("token").and_then(Value::as_str).unwrap_or_default();
             write_secret(SESSION_ENTRY, token)?;
-            Ok(LoginPoll { state: "done".to_owned(), status: Some(check(&app).await?) })
+            Ok(LoginPoll { state: "done".to_owned(), status: Some(announce(&app, check(&app).await)?) })
         }
         Some("expired") => {
             *PENDING.lock().map_err(|error| error.to_string())? = None;
@@ -492,41 +502,49 @@ pub fn license_login_cancel() {
 /// Signed in with Google: links the key to the account. Not signed in: activates this PC on the key alone.
 #[tauri::command]
 pub async fn license_redeem(app: AppHandle, key: String) -> CommandResult<LicenseStatus> {
+    announce(&app, redeem(&app, key).await)
+}
+
+async fn redeem(app: &AppHandle, key: String) -> CommandResult<LicenseStatus> {
     let Some(token) = read_secret(SESSION_ENTRY) else {
         let key = key.trim().to_uppercase();
-        return match post("app/key/activate", None, json!({ "key": key, "device": device(&app) })).await {
+        return match post("app/key/activate", None, json!({ "key": key, "device": device(app) })).await {
             Ok(response) => {
                 write_secret(KEY_ENTRY, &key)?;
-                Ok(apply(&app, response))
+                Ok(apply(app, response))
             }
             Err(Failure::Network(_)) => Err("Couldn’t reach bhippi.com. Check your internet connection.".to_owned()),
             Err(Failure::Api(_, message)) => Err(message),
         };
     };
-    match post("app/redeem", Some(&token), json!({ "key": key.trim(), "device": device(&app) })).await {
-        Ok(response) => Ok(apply(&app, response)),
+    match post("app/redeem", Some(&token), json!({ "key": key.trim(), "device": device(app) })).await {
+        Ok(response) => Ok(apply(app, response)),
         Err(Failure::Network(_)) => Err("Couldn’t reach bhippi.com. Check your internet connection.".to_owned()),
-        Err(failure) => failed(&app, failure),
+        Err(failure) => failed(app, failure),
     }
 }
 
 /// Frees one of the key's PC slots (another PC), then takes it for this one if needed.
 #[tauri::command]
 pub async fn license_release_device(app: AppHandle, device_id: String) -> CommandResult<LicenseStatus> {
+    announce(&app, release_device(&app, device_id).await)
+}
+
+async fn release_device(app: &AppHandle, device_id: String) -> CommandResult<LicenseStatus> {
     let id: String = device_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
     let Some(token) = read_secret(SESSION_ENTRY) else {
         let key = read_secret(KEY_ENTRY).ok_or("Sign in with Google or enter your key first.")?;
-        return match post("app/key/release", None, json!({ "key": key, "deviceId": id, "device": device(&app) })).await {
-            Ok(response) => Ok(apply(&app, response)),
+        return match post("app/key/release", None, json!({ "key": key, "deviceId": id, "device": device(app) })).await {
+            Ok(response) => Ok(apply(app, response)),
             Err(Failure::Network(_)) => Err("Couldn’t reach bhippi.com. Check your internet connection.".to_owned()),
             Err(Failure::Api(_, message)) => Err(message),
         };
     };
     let path = format!("app/devices/{id}/release");
-    match post(&path, Some(&token), json!({ "device": device(&app) })).await {
-        Ok(response) => Ok(apply(&app, response)),
+    match post(&path, Some(&token), json!({ "device": device(app) })).await {
+        Ok(response) => Ok(apply(app, response)),
         Err(Failure::Network(_)) => Err("Couldn’t reach bhippi.com. Check your internet connection.".to_owned()),
-        Err(failure) => failed(&app, failure),
+        Err(failure) => failed(app, failure),
     }
 }
 
@@ -536,7 +554,7 @@ pub async fn license_sign_out(app: AppHandle) -> CommandResult<LicenseStatus> {
         let _ignored = post("app/logout", Some(&token), json!({})).await;
     }
     clear_all(&app);
-    Ok(LicenseStatus::new(&app, "signed_out"))
+    announce(&app, Ok(LicenseStatus::new(&app, "signed_out")))
 }
 
 #[cfg(test)]

@@ -825,6 +825,8 @@ export const events = {
   overviewTarget: on<string | null>('bhippi://overview-target'),
   /** The overview turned on or off. */
   overview: on<boolean>('bhippi://overview'),
+  /** A license status from any tab's check, sign-in or sign-out (license.rs `announce`): every tab's gate follows it. */
+  license: on<LicenseStatus>('bhippi://license'),
   /** Another window changed the shared settings (the payload is its window label). */
   settingsChanged: on<string>('bhippi://settings-changed'),
   /** A model finished downloading or was removed; the Speech panel refreshes itself. */
