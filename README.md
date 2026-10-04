@@ -4,7 +4,7 @@
 
 # Bhippi Video Editor
 
-**The desktop video editor with an AI producer built in.**
+**The desktop video editor with an AI producer built in.** Windows 10/11 (x64). MIT licensed — free forever, no account, no license key, no credits.
 
 Version 1.0.13
 
@@ -15,15 +15,15 @@ Version 1.0.13
 [![React 19](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Ready-007808?style=flat-square&logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
 
-[Download for Windows (bhippi.com)](https://bhippi.com) · [Quick Start](#quick-start) · [How it Works](#how-the-ai-works) · [Features](#what-it-does) · [Comparison](#how-it-compares) · [Documentation](#architecture--codebase)
+[⬇ Download for Windows](https://github.com/memegyanfactory-gif/bhippi-Video-editor/releases) · [Website](https://bhippi.com) · [Quick Start](#quick-start) · [How it Works](#how-the-ai-works) · [Features](#what-it-does) · [Comparison](#how-it-compares) · [Documentation](#architecture--codebase)
 
 ---
 
 </div>
 
 <p align="center">
-  <img src="docs/assets/bhippi-editor-ui.png" alt="Bhippi Video Editor v1.0.12 Workspace" width="100%" />
-  <em>Bhippi Video Editor v1.0.12 in action: multi-track timeline with cut blocks & audio waveforms, dual monitors, project bin, audio VU meters, and the connected AI co-pilot.</em>
+  <img src="docs/assets/bhippi-editor-ui.png" alt="Bhippi Video Editor v1.0.13 Workspace" width="100%" />
+  <em>Bhippi Video Editor v1.0.13 in action: multi-track timeline with cut blocks & audio waveforms, dual monitors, project bin, audio VU meters, and the connected AI co-pilot.</em>
 </p>
 
 ---
