@@ -25,3 +25,11 @@ scratch/
 # Installer payload, downloaded by scripts/fetch-bundle.mjs
 src-tauri/bundled/*
 !src-tauri/bundled/README.md
+
+# Local scratch & tooling
+.mcp.json
+opencode.json
+Output/
+film/
+todos/
+Research/
