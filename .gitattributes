@@ -1,2 +1,21 @@
 # Plugin libraries are pinned by SHA-256 (src/plugins/libraries.ts): never convert their line endings.
 public/plugin-libs/** -text
+
+# Normalise text in the repository so a Windows checkout matches the LF blobs in
+# the index. Prompt and brief files under src-tauri/prompts are compared
+# byte-for-byte against string constants in src/ (tests/styles.test.ts), so CRLF
+# in the working copy makes that test fail on Windows checkouts only.
+* text=auto eol=lf
+
+# Binary assets: never touched by line-ending conversion.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.mp4 binary
+*.mov binary
+*.wasm binary
+*.ico binary
+*.woff binary
+*.woff2 binary
