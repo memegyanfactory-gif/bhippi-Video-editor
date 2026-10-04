@@ -32,7 +32,7 @@ export function ProfileSection() {
       </div>
 
       <div className="profile-actions" style={{ marginTop: 16 }}>
-        <button type="button" className="btn btn-small" onClick={() => void api.openUrl('https://github.com/memegyanfactory-gif/Bhippi')}>
+        <button type="button" className="btn btn-small" onClick={() => void api.openUrl('https://github.com/memegyanfactory-gif/bhippi-Video-editor')}>
           <ExternalLink size={12} /> GitHub Repository
         </button>
         <button type="button" className="btn btn-small btn-ghost" onClick={() => void api.openUrl('https://bhippi.com')}>
