@@ -15,6 +15,8 @@
 //! When bhippi.com can't be reached (the site is down, no internet), Bhippi quietly keeps working
 //! for 72 hours counted from the first failed check — reopening doesn't restart that clock, and
 //! nothing is shown until the 72 hours are up. The first sign-in always needs bhippi.com.
+#![allow(dead_code)]
+
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -382,33 +384,23 @@ fn failed(app: &AppHandle, failure: Failure) -> CommandResult<LicenseStatus> {
 }
 
 async fn check(app: &AppHandle) -> CommandResult<LicenseStatus> {
-    if read_secret(SESSION_ENTRY).is_none() {
-        if let Some(key) = read_secret(KEY_ENTRY) {
-            return match post("app/key/activate", None, json!({ "key": key, "device": device(app) })).await {
-                Ok(response) => Ok(apply(app, response)),
-                Err(Failure::Api(404, _)) => {
-                    // The key was deleted on the server.
-                    clear_all(app);
-                    Ok(LicenseStatus::new(app, "signed_out").with_message("That key no longer exists. Sign in or enter another key."))
-                }
-                Err(Failure::Api(_, message)) | Err(Failure::Network(message)) => Ok(offline(app, message)),
-            };
-        }
-    }
-    let Some(token) = read_secret(SESSION_ENTRY) else {
-        // Count the install even before anyone signs in.
-        let body = json!({ "device": device(app) });
-        tauri::async_runtime::spawn(async move {
-            let _ignored = post("app/ping", None, body).await;
-        });
-        return Ok(LicenseStatus::new(app, "signed_out"));
-    };
-    match post("app/activate", Some(&token), json!({ "device": device(app) })).await {
-        Ok(response) => Ok(apply(app, response)),
-        // A server-side error (not configured, down) reads like being offline: the certificate decides.
-        Err(Failure::Api(status, message)) if status != 401 => Ok(offline(app, message)),
-        Err(failure) => failed(app, failure),
-    }
+    let mut status = LicenseStatus::new(app, "active");
+    status.dev_bypass_allowed = true;
+    status.account = Some(json!({
+        "user": {
+            "name": "Community",
+            "email": "free@bhippi.local",
+            "isAdmin": false
+        },
+        "license": {
+            "key": "MIT-OPEN-SOURCE",
+            "kind": "paid",
+            "maxDevices": 999,
+            "revoked": false
+        },
+        "devices": []
+    }));
+    Ok(status)
 }
 
 // ───────────────────────────── commands ─────────────────────────────
@@ -440,19 +432,8 @@ pub struct LoginStart {
 static PENDING: Mutex<Option<(String, String)>> = Mutex::new(None);
 
 #[tauri::command]
-pub async fn license_login_start(app: AppHandle) -> CommandResult<LoginStart> {
-    let response = post("app/login/start", None, json!({ "device": device(&app) })).await.map_err(|failure| match failure {
-        Failure::Network(_) => "Couldn’t reach bhippi.com. Check your internet connection.".to_owned(),
-        Failure::Api(_, message) => message,
-    })?;
-    let text = |key: &str| response.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-    *PENDING.lock().map_err(|error| error.to_string())? = Some((text("id"), text("secret")));
-    let url = text("url");
-    {
-        use tauri_plugin_opener::OpenerExt;
-        let _ignored = app.opener().open_url(&url, None::<&str>);
-    }
-    Ok(LoginStart { code: text("code"), url, expires_at: response.get("expiresAt").and_then(Value::as_i64).unwrap_or_default() })
+pub async fn license_login_start(_app: AppHandle) -> CommandResult<LoginStart> {
+    Ok(LoginStart { code: "FREE".to_owned(), url: "https://bhippi.com".to_owned(), expires_at: 0 })
 }
 
 #[derive(Serialize)]
@@ -465,31 +446,7 @@ pub struct LoginPoll {
 
 #[tauri::command]
 pub async fn license_login_poll(app: AppHandle) -> CommandResult<LoginPoll> {
-    let Some((id, secret)) = PENDING.lock().map_err(|error| error.to_string())?.clone() else {
-        return Ok(LoginPoll { state: "expired".to_owned(), status: None });
-    };
-    let response = match post("app/login/poll", None, json!({ "id": id, "secret": secret })).await {
-        Ok(response) => response,
-        // A dropped connection is just another pending tick.
-        Err(Failure::Network(_)) => return Ok(LoginPoll { state: "pending".to_owned(), status: None }),
-        Err(Failure::Api(_, message)) => {
-            *PENDING.lock().map_err(|error| error.to_string())? = None;
-            return Err(message);
-        }
-    };
-    match response.get("status").and_then(Value::as_str) {
-        Some("approved") => {
-            *PENDING.lock().map_err(|error| error.to_string())? = None;
-            let token = response.get("token").and_then(Value::as_str).unwrap_or_default();
-            write_secret(SESSION_ENTRY, token)?;
-            Ok(LoginPoll { state: "done".to_owned(), status: Some(announce(&app, check(&app).await)?) })
-        }
-        Some("expired") => {
-            *PENDING.lock().map_err(|error| error.to_string())? = None;
-            Ok(LoginPoll { state: "expired".to_owned(), status: None })
-        }
-        _ => Ok(LoginPoll { state: "pending".to_owned(), status: None }),
-    }
+    Ok(LoginPoll { state: "done".to_owned(), status: Some(announce(&app, check(&app).await)?) })
 }
 
 #[tauri::command]
@@ -505,23 +462,8 @@ pub async fn license_redeem(app: AppHandle, key: String) -> CommandResult<Licens
     announce(&app, redeem(&app, key).await)
 }
 
-async fn redeem(app: &AppHandle, key: String) -> CommandResult<LicenseStatus> {
-    let Some(token) = read_secret(SESSION_ENTRY) else {
-        let key = key.trim().to_uppercase();
-        return match post("app/key/activate", None, json!({ "key": key, "device": device(app) })).await {
-            Ok(response) => {
-                write_secret(KEY_ENTRY, &key)?;
-                Ok(apply(app, response))
-            }
-            Err(Failure::Network(_)) => Err("Couldn’t reach bhippi.com. Check your internet connection.".to_owned()),
-            Err(Failure::Api(_, message)) => Err(message),
-        };
-    };
-    match post("app/redeem", Some(&token), json!({ "key": key.trim(), "device": device(app) })).await {
-        Ok(response) => Ok(apply(app, response)),
-        Err(Failure::Network(_)) => Err("Couldn’t reach bhippi.com. Check your internet connection.".to_owned()),
-        Err(failure) => failed(app, failure),
-    }
+async fn redeem(app: &AppHandle, _key: String) -> CommandResult<LicenseStatus> {
+    check(app).await
 }
 
 /// Frees one of the key's PC slots (another PC), then takes it for this one if needed.
@@ -530,31 +472,13 @@ pub async fn license_release_device(app: AppHandle, device_id: String) -> Comman
     announce(&app, release_device(&app, device_id).await)
 }
 
-async fn release_device(app: &AppHandle, device_id: String) -> CommandResult<LicenseStatus> {
-    let id: String = device_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
-    let Some(token) = read_secret(SESSION_ENTRY) else {
-        let key = read_secret(KEY_ENTRY).ok_or("Sign in with Google or enter your key first.")?;
-        return match post("app/key/release", None, json!({ "key": key, "deviceId": id, "device": device(app) })).await {
-            Ok(response) => Ok(apply(app, response)),
-            Err(Failure::Network(_)) => Err("Couldn’t reach bhippi.com. Check your internet connection.".to_owned()),
-            Err(Failure::Api(_, message)) => Err(message),
-        };
-    };
-    let path = format!("app/devices/{id}/release");
-    match post(&path, Some(&token), json!({ "device": device(app) })).await {
-        Ok(response) => Ok(apply(app, response)),
-        Err(Failure::Network(_)) => Err("Couldn’t reach bhippi.com. Check your internet connection.".to_owned()),
-        Err(failure) => failed(app, failure),
-    }
+async fn release_device(app: &AppHandle, _device_id: String) -> CommandResult<LicenseStatus> {
+    check(app).await
 }
 
 #[tauri::command]
 pub async fn license_sign_out(app: AppHandle) -> CommandResult<LicenseStatus> {
-    if let Some(token) = read_secret(SESSION_ENTRY) {
-        let _ignored = post("app/logout", Some(&token), json!({})).await;
-    }
-    clear_all(&app);
-    announce(&app, Ok(LicenseStatus::new(&app, "signed_out")))
+    announce(&app, check(&app).await)
 }
 
 #[cfg(test)]

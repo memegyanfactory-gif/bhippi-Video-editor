@@ -6,7 +6,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/ipc';
-import { useLicense } from '../license/licenseStore';
 import appPackage from '../../package.json';
 import { LEGAL } from '../settings/legal';
 import { useBoot } from './bootStore';
@@ -50,7 +49,6 @@ function endBoot() {
 
 export function BootSplash() {
   const boot = useBoot();
-  const license = useLicense();
   const [phase, setPhase] = useState<Phase>('idle');
   const [shown, setShown] = useState(0);
   const [gaveUp, setGaveUp] = useState(false);
@@ -104,9 +102,8 @@ export function BootSplash() {
     return () => window.clearTimeout(timer);
   }, [shown, lastLine]);
 
-  // Ready: the license answered and, when it lets the editor open, the editor has loaded.
-  const unlocked = license.status?.state === 'active' || (license.devBypass && license.status?.devBypassAllowed === true);
-  const ready = gaveUp || (boot.licenseSettled && (!unlocked || boot.appReady));
+  // Ready: the splash opens onto the editor once boot is ready.
+  const ready = gaveUp || (boot.licenseSettled && boot.appReady);
   const caughtUp = shown >= lastLine;
   useEffect(() => {
     if (phase !== 'idle' || !ready || (!caughtUp && !gaveUp)) return;
@@ -140,8 +137,7 @@ export function BootSplash() {
               Artwork drawn live by <b>Bhippi</b> — a new composition every launch.
             </p>
             <p>
-              © {new Date().getFullYear()} {LEGAL.owner}. All rights reserved. {LEGAL.product} is licensed, not sold, to one
-              account for use on up to two PCs.
+              © {new Date().getFullYear()} {LEGAL.owner}. Free and open-source software (MIT). All features unlocked for everyone.
             </p>
             <p>
               By using Bhippi you agree to the Terms of Service and the Privacy Policy. Your projects, footage and exports stay

@@ -1,141 +1,299 @@
+<div align="center">
+
+<img src="docs/assets/bhippi-app-logo.png" alt="Bhippi Video Editor Logo" width="340" />
+
 # Bhippi Video Editor
 
-Version 1.0.12
+**The desktop video editor with an AI producer built in.**
 
-Bhippi Video Editor is a desktop video editor with an AI producer built in. Bhippi looks and cuts like a professional NLE (multi-track timeline, ripple and roll edits, keyframes, nested comps, audio meters) and ships with a co-pilot that plans, gathers, edits and polishes a video through real tools on your timeline. Everything runs on your machine: the models, the media, the render.
+Version 1.0.13
 
-Built with Tauri v2 + Rust, React 19 + TypeScript, FFmpeg. MIT licensed.
+[![Release](https://img.shields.io/badge/Release-v1.0.13-ff5c35?style=flat-square)](https://bhippi.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Tauri v2](https://img.shields.io/badge/Tauri-v2-24c8db?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
+[![Rust](https://img.shields.io/badge/Rust-1.85+-orange?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![React 19](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](https://react.dev)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-Ready-007808?style=flat-square&logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
 
-## What it does
+[Download for Windows (bhippi.com)](https://bhippi.com) · [Quick Start](#quick-start) · [How it Works](#how-the-ai-works) · [Features](#what-it-does) · [Comparison](#how-it-compares) · [Documentation](#architecture--codebase)
 
-- **Edit like a pro.** Selection, razor, ripple, roll, rate stretch, slip, slide, pen and type tools; unlimited video and audio tracks; nested sequences; real-time waveforms and meters; undo for everything, including what the AI does.
-- **Let the AI produce.** Ask for a video and the co-pilot works in phases you control with buttons in the chat: **plan** (research, script, shot list, graphics, music) → **Start generating** → **gather** (local video, images, voice-over, downloads) → **Start editing** → **edit and polish** (cuts on speech, levels, beat sync, roto, graphics, captions, frame QA).
-- **Quick edits on finished work.** Draw an annotation on the preview or select a layer on the timeline and send it to the chat: a **Quick** turn works only on that part, with no new plan, so a small fix costs few tokens. Bhippi picks Full or Quick for each message (the chip in the chat shows which, and you can switch it).
-- **AI work stays in the project.** Everything a turn makes (scripts, renders, notes) is saved in the project's `AI Work` folder, the chat saves as it goes, and a stopped turn resumes where it left off, so closing the app loses nothing.
-- **Films in one call.** Film recipes (launch film, product demo, identity film, kinetic explainer, fluid SaaS) build a whole layered film from a few beats: the song is mapped to the lyric word, the real app is captured part by part, words land on the beat, joins and sounds are placed and the film is reviewed frame by frame. Every piece is offered, never forced: strong models can still build their own way.
-- **Generate locally.** Wan 2.1 / LTX text-to-video, SDXL images, SAM 2 / RVM rotoscoping, Depth Anything, Whisper transcription, Piper voice-over, Stable Audio sound effects, LaMa magic eraser. No cloud, no credits.
-- **After Effects-style motion engine.** A WebGL2 compositor draws motion scenes the same way in the preview and the export. It has:
-  - layers with bezier-eased keyframes and expressions, parenting, masks, track mattes, 17 blend modes and motion blur;
-  - 3D layers and a camera with real depth of field;
-  - vector shape trees (SVG paths, gradient strokes, trim paths, repeaters, morphs, merge/offset/round-corner path operations) and 2,100+ Lucide icons;
-  - layer styles (bevel, inner shadow and glow, gradient overlay);
-  - a type engine for live typing, retyping, scattered glyphs and word-by-word animators timed to the voice-over.
+---
 
-  60 templates cover titles, subject reveals, stats, brand pieces, kinetic type (fly-through words, slams, whip pans), film pieces (logo lockups, glass marks, connect hubs, glow and flash joins) and product demos (a captured app as 3D layers, window explodes, named cursors). Finish presets add grade, grain, vignette and bloom as one editable layer. Timing, eases and beat recipes come from measured professional reference films (`motion_guide`). See [docs/MOTION-ENGINE.md](docs/MOTION-ENGINE.md).
-- **Real 3D through Blender.** When Blender is installed, the AI renders 3D scenes headless in the background: glass and pearl orbs, gem crystals lit by gradient environments, device heroes, extruded logos. Draft renders use EEVEE; final renders use Cycles on the GPU. The frames come back with alpha and composite under 2D type, together with the camera and object tracks.
-- **HTML motion graphics.** Graphics written as HTML/CSS animate in the preview and export as rendered frames with alpha:
-  - **Crimson**, the house motion system: hook titles, teaching cards, side panels, comparisons, stat charts, timelines, lower thirds.
-  - **The UI library**: the full React Bits catalogue (205 pieces) plus Animate.css, Open Props, Magic UI, Aceternity and Uiverse-style pieces, all deterministic and exportable. See [docs/REACT-BITS-LIBRARY.md](docs/REACT-BITS-LIBRARY.md).
-- **Brand kits.** Define your brand once in Settings → Brand kit (logo, colours, type, voice, motion, imagery rules, layout, audio). Every graphic, caption, generated image and voice-over follows it, and the AI can create and edit kits itself. See [docs/BRAND-KIT.md](docs/BRAND-KIT.md).
-- **Bring media in.** Import anything FFmpeg reads; download from YouTube, Instagram, TikTok, X and direct links with trimming and cropping; scrape article and page media for research.
-- **Sound design.** 24 synthesised effects (UI ticks and clicks, send pops, keystrokes and typing beds, whooshes, glass pings, cursor taps, sub drops), levelled under the voice and the music; every motion cue can be sounded in one call. Music analysis finds beats, bars, 4-bar phrases, drops and hits, and times each sung lyric word, and cuts can be snapped to any of them.
-- **Built in for the work around the edit.** A real shell terminal panel, and a Usage page (Settings → Usage) with each AI provider's account usage and history, plus a one-click update when a provider's CLI has a new version.
-- **Export.** Presets for YouTube 4K/1080p, Reels/Shorts 9:16, square, ProRes; a background render queue.
+</div>
 
-## How it compares
+<p align="center">
+  <img src="docs/assets/bhippi-editor-ui.png" alt="Bhippi Video Editor v1.0.12 Workspace" width="100%" />
+  <em>Bhippi Video Editor v1.0.12 in action: multi-track timeline with cut blocks & audio waveforms, dual monitors, project bin, audio VU meters, and the connected AI co-pilot.</em>
+</p>
 
-Bhippi combines four kinds of tools in one app: an editor, a motion-graphics tool, an AI producer and a local media generator. Most tools cover one or two of these. The tables below compare it with the tools people usually pair together to get the same result.
+---
 
-**Editing and production**
+## 🎬 Overview
 
-| | Bhippi | Premiere Pro | DaVinci Resolve | CapCut | Runway |
-| --- | :---: | :---: | :---: | :---: | :---: |
-| Multi-track NLE (ripple, roll, slip, slide, nesting) | ✅ | ✅ | ✅ | Basic | — |
-| AI that edits the timeline through undoable tools | ✅ | Assistive features | Assistive features | Assistive features | — |
-| Plan → gather → edit → polish workflow | ✅ | — | — | Templates | Prompt to clip |
-| Transcript-based cutting and captions | ✅ Local | ✅ | ✅ Studio | ✅ Cloud | — |
-| Beat, bar and phrase-aware cut snapping | ✅ | Partial | Partial | Auto-beat | — |
-| Frame QA (safe area, face overlap, blank frames, joins, beat sync) | ✅ | — | — | — | — |
-| Download from YouTube, Instagram, TikTok, X | ✅ | — | — | — | — |
+**Bhippi Video Editor** combines the precision of a professional desktop Non-Linear Editor (NLE) with an autonomous AI producer. 
 
-**Motion graphics and 3D**
+Unlike simple prompt-to-video wrappers, Bhippi gives you a full professional editing suite—unlimited video and audio tracks, ripple and roll edits, bezier-eased keyframes, nested compositions, and real-time waveforms. Operating alongside your timeline is an AI co-pilot that can plan, research, download assets, cut on speech, snap to music beats, apply motion graphics, rotoscope subjects, and review frames.
 
-| | Bhippi | After Effects | Resolve (Fusion) | Remotion | Runway |
-| --- | :---: | :---: | :---: | :---: | :---: |
-| Keyframed layers, masks, mattes, blend modes | ✅ | ✅ | ✅ (nodes) | In code | — |
-| 2.5D layers and camera with depth of field | ✅ | ✅ | ✅ | In code | — |
-| Vector shapes, trim paths, repeaters, path operations | ✅ | ✅ | Partial | In code | — |
-| Scenes built and revised by the AI from a chat | ✅ | — | — | An LLM writes code | Generative clips |
-| Real 3D (glass, metal, extruded type) | ✅ Your Blender, headless | ✅ Advanced 3D | ✅ Fusion 3D | ✅ Three.js | Generative |
-| Template library | 60 engine templates, 500+ HTML pieces | Marketplace | Templates | Community | — |
-| Brand kit that every graphic follows | ✅ | Libraries (manual) | — | — | — |
+**Everything runs on your machine:** your footage, your models, and your render. No forced subscriptions, no cloud queue, and no token caps on your own hardware.
 
-**Privacy and cost**
+---
 
-| | Bhippi | Premiere Pro / After Effects | DaVinci Resolve | CapCut | Runway |
-| --- | :---: | :---: | :---: | :---: | :---: |
-| Footage stays on your machine | ✅ | Partly (cloud AI features) | ✅ | — | — |
-| Local text-to-video and images | ✅ | Cloud (Firefly) | — | Cloud | Cloud |
-| Local rotoscoping and clean plates | ✅ | Roto Brush, Content-Aware Fill | Magic Mask (Studio) | Cloud cutout | Cloud |
-| Local voice-over | ✅ | — | — | Cloud | Cloud |
-| Price | Free | Subscription | Free / Studio one-time | Free + Pro subscription | Credits |
+## 📽️ UI & Motion in Action
 
-✅ means built in; "—" means not offered. The other tools' columns describe their public feature sets at the time of writing and change often; check each vendor's site for current features and plans. Bhippi uses Blender only when it is installed on the user's machine, and runs it as a separate program.
+<div align="center">
+  <table>
+    <tr>
+      <td width="50%" align="center">
+        <strong>⚡ Intelligent First Cut & Speech Sync</strong><br /><br />
+        <img src="docs/assets/first-cut-demo-anim.webp" alt="AI First Cut Demo" width="100%" /><br />
+        <em>The AI analyzes spoken dialogue, cuts dead air, and places synchronized titles automatically.</em>
+      </td>
+      <td width="50%" align="center">
+        <strong>🎞️ Responsive Multi-Track Timeline</strong><br /><br />
+        <img src="docs/assets/timeline-demo-anim.webp" alt="Timeline Interaction Demo" width="100%" /><br />
+        <em>Smooth scrubbing, snapping, ripple/roll trimming, slip/slide, and live audio scrubbing.</em>
+      </td>
+    </tr>
+  </table>
+  <p>
+    📹 <em>Full video clips available: <a href="docs/assets/first-cut-demo.mp4">first-cut-demo.mp4</a> · <a href="docs/assets/timeline-demo.mp4">timeline-demo.mp4</a></em>
+  </p>
+</div>
 
-## How the AI works
+---
 
-The co-pilot is any model you connect: Claude, OpenAI-compatible APIs, local servers, or coding-agent CLIs (Claude Code, Codex, Gemini). It changes the timeline only through Bhippi tools (over 200 of them), so every edit is a real, undoable operation. Coding-agent CLIs also keep their own tools (files, shell, code), working inside the project's `AI Work` folder, so they can write their own renderer when that makes a better film. A workflow guard keeps the phases honest: no media generation while planning, no timeline edits before the plan is saved.
+## ✨ What it does
 
-Bhippi adjusts to the model. A frontier model (Opus, GPT-5, Gemini Pro) runs the whole production at full detail. A smaller, free or local model runs **guided**: the one-call builds (`build_edit_from_brief`, film recipes, `add_graphic`) lead, graphics come from checked templates, and results come back compact. Nothing is taken away from either tier; set it in Settings → General.
+### 1. Edit like a pro
+- **Industry-standard toolset:** Selection, Razor (`C`), Ripple Edit (`B`), Rolling Edit (`N`), Rate Stretch (`R`), Slip (`Y`), Slide (`U`), Pen (`P`), and Type (`T`).
+- **Deep timeline control:** Unlimited video and audio tracks, nested sequences, track grouping, master volume, real-time audio meters (dBFS / LUFS), and full undo/redo for every action—including operations executed by the AI.
+- **Precision snapping:** Snap cuts to playhead, clip boundaries, markers, or detected musical beats and bar phrases.
 
-Useful tools to know about:
+### 2. Autonomous AI producer with phase control
+- **Collaborative production workflow:** The co-pilot breaks production into transparent, controllable phases:
+  $$\text{Plan} \longrightarrow \text{Gather} \longrightarrow \text{Edit} \longrightarrow \text{Polish}$$
+- **Full vs. Quick turns:** Need a minor tweak? Click a layer or draw an annotation on the preview monitor—a **Quick turn** focuses only on that element without recalculating a full video blueprint.
+- **Persistent AI work:** All generated scripts, storyboards, voice-overs, and frame QA logs stay organized inside your project's `AI Work` bin. Closing the application never loses progress.
+- **Over 200 native AI tools:** The AI interacts with your timeline through undoable API calls (`place_clip`, `snap_cuts_to_beats`, `level_audio`, `create_motion_scene`).
 
-| Area | Tools |
-| --- | --- |
-| Reading | `get_comp`, `analyze_clip_speech`, `inspect_clip_frames`, `run_frame_qa`, `review_frames` |
-| Planning | `online_research`, `save_video_blueprint`, `save_storyboard`, `query_frame_atlas` |
-| Gathering | `generate_local_media`, `synthesize_speech_voiceover`, `download_online_media`, `scrape_videos`, `capture_app_session` |
-| Music and sound | `analyze_song`, `analyze_music_beats`, `compose_music`, `sound_the_motion` |
-| Whole films | `build_edit_from_brief` (with `recipe`), `add_graphic`, `create_product_demo`, `make_background`, `judge_edit` |
-| Editing | `apply_edit`, `apply_recipe`, `place_clip`, `level_audio`, `snap_cuts_to_beats`, `rotoscope_clip`, `erase_subject_clip` |
-| Motion | `motion_guide`, `list_motion_templates`, `create_motion_scene`, `update_motion_scene`, `search_icons`, `svg_to_shape`, `track_motion` |
-| 3D | `list_3d_presets`, `render_3d_scene` (headless Blender) |
-| Graphics | `create_motion_graphic` (Crimson templates, `react-bits` pieces, custom HTML), `react_bits`, `add_text`, `add_captions` |
-| Brand | `list_brand_kits`, `get_brand_kit`, `create_brand_kit`, `update_brand_kit`, `apply_brand_kit`, `render_brand_board`, `brand_kit_prompt` |
+### 3. Local media generation — zero cloud credits
+- **Local Text-to-Video:** Generate cinematic b-roll with local Wan 2.1 or LTX Video.
+- **Image Generation:** Photorealistic stills and backdrops via SDXL.
+- **Rotoscoping & Mattes:** Zero-click subject cutouts using Segment Anything 2 (SAM 2) and Robust Video Matting (RVM).
+- **Speech & Audio:** Local Whisper speech-to-text transcription, Piper neural voice-over, and Stable Audio sound effect synthesis.
+- **Magic Eraser:** Object removal and clean-plate inpainting powered by LaMa.
 
-## Quick start
+### 4. GPU motion engine & After Effects-grade graphics
+- **WebGL2 Compositor:** Unified motion engine rendering identical frames in both preview and final export.
+- **Keyframe animation:** Bezier easing, parenting, track mattes, 17 blend modes, and motion blur.
+- **2.5D Camera:** True 3D spatial layers with focal length and depth of field.
+- **Vector shape trees:** SVG path morphing, trim paths, gradient strokes, repeaters, and 2,100+ Lucide icons.
+- **60+ Motion templates:** Kinetic typography, fly-through words, lower thirds, stat charts, and brand lockups. See [docs/MOTION-ENGINE.md](docs/MOTION-ENGINE.md).
 
-Requirements: Node.js 20 or 22, Rust 1.85+, FFmpeg on your PATH. Optional: `yt-dlp` for downloads, [Blender](https://www.blender.org) 4.2+ for 3D renders, Python 3.10+ with PyTorch for the local models (Bhippi installs model weights from Settings → Local media).
+### 5. Headless Blender 3D integration
+- When [Blender 4.2+](https://www.blender.org) is detected on your machine, Bhippi can orchestrate headless 3D renders in the background:
+  - Glass and chrome orbs, extruded 3D logos, floating device mockups, and crystal refraction.
+  - Fast draft previews using EEVEE; final broadcast renders with GPU Cycles raytracing.
+  - Transparent alpha passes composite automatically under your 2D timeline layers.
+
+### 6. HTML/CSS motion graphics & React Bits library
+- **Crimson Design System:** Premium hook cards, side panels, comparison boards, and animated lower thirds.
+- **React Bits & Modern UI:** Deterministic, exportable web animations—including the full 205-piece React Bits catalogue, Magic UI, and Aceternity components. See [docs/REACT-BITS-LIBRARY.md](docs/REACT-BITS-LIBRARY.md).
+
+### 7. Brand Kits & Sound Design
+- **Consistent brand identity:** Save your brand colors, fonts, voice tone, layout guidelines, and logos once in **Settings → Brand kit**. The AI automatically applies them to all generated graphics, voice styles, and captions. See [docs/BRAND-KIT.md](docs/BRAND-KIT.md).
+- **Built-in SFX synthesizer:** 24 procedural sound effects (UI ticks, typing beds, glass pings, sub-bass drops, whooshes) automatically ducked beneath dialogue and music.
+
+---
+
+## 🔍 Interface Tour
+
+<div align="center">
+  <table>
+    <tr>
+      <td width="50%" align="center">
+        <img src="docs/assets/bhippi-copilot.webp" alt="Bhippi AI Copilot Panel" width="100%" /><br />
+        <strong>AI Co-Pilot & Chat</strong><br />
+        <em>Connect Claude Code, Codex, OpenAI, or local Ollama. Phase-guarded workflow with one-click actions.</em>
+      </td>
+      <td width="50%" align="center">
+        <img src="docs/assets/bhippi-timeline.webp" alt="Multi-Track Timeline" width="100%" /><br />
+        <strong>Multi-Track Timeline</strong><br />
+        <em>Audio waveforms, clip markers, ripple/roll trimming, track locks, and beat-snapping guides.</em>
+      </td>
+    </tr>
+    <tr>
+      <td width="50%" align="center">
+        <img src="docs/assets/bhippi-monitor.webp" alt="Dual Monitors" width="100%" /><br />
+        <strong>Program & Canvas Monitor</strong><br />
+        <em>Interactive transform handles, safe-title overlays, annotation pencil, and real-time playback.</em>
+      </td>
+      <td width="50%" align="center">
+        <img src="docs/assets/bhippi-export.webp" alt="Export Presets" width="100%" /><br />
+        <strong>Export & Render Queue</strong><br />
+        <em>Presets for YouTube 4K/1080p, TikTok/Reels 9:16, square, ProRes, and background batch rendering.</em>
+      </td>
+    </tr>
+  </table>
+</div>
+
+---
+
+## 📊 How it compares
+
+Bhippi combines four discrete workflows into a unified native application: an NLE editor, a motion graphics compositor, an autonomous AI producer, and a local generative engine.
+
+### Editing & Production
+
+| Feature | Bhippi | Premiere Pro | DaVinci Resolve | CapCut | Runway |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Multi-track NLE** *(ripple, roll, slip, slide, nesting)* | ✅ | ✅ | ✅ | Basic | — |
+| **AI that edits timeline via undoable operations** | ✅ | Assistive only | Assistive only | Assistive only | — |
+| **Structured Plan → Gather → Edit → Polish pipeline** | ✅ | — | — | Fixed templates | Prompt to video |
+| **Transcript-based cutting & sync captions** | ✅ *(Local)* | ✅ | ✅ *(Studio)* | ✅ *(Cloud)* | — |
+| **Beat, bar & phrase-aware cut snapping** | ✅ | Partial | Partial | Auto-beat | — |
+| **Automated Frame QA** *(safe area, face obstruction, blank frames)* | ✅ | — | — | — | — |
+| **Media download** *(YouTube, Instagram, TikTok, X)* | ✅ | — | — | — | — |
+
+### Motion Graphics & 3D
+
+| Feature | Bhippi | After Effects | Resolve (Fusion) | Remotion | Runway |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Keyframed layers, masks, mattes & blend modes** | ✅ | ✅ | ✅ *(Nodes)* | In code | — |
+| **2.5D spatial layers & camera depth-of-field** | ✅ | ✅ | ✅ | In code | — |
+| **Vector shapes, trim paths, path operations** | ✅ | ✅ | Partial | In code | — |
+| **Natural language scene synthesis from chat** | ✅ | — | — | LLM code-gen | Generative clips |
+| **Real 3D render pipeline** *(glass, metal, lights)* | ✅ *(Headless Blender)* | ✅ *(Advanced 3D)* | ✅ *(Fusion 3D)* | ✅ *(Three.js)* | Generative |
+| **Component template library** | **60+ engine, 500+ HTML** | Marketplace | Templates | Community | — |
+| **Global Brand Kit applied to all graphics** | ✅ | CC Libraries *(Manual)*| — | — | — |
+
+### Privacy & Economics
+
+| Aspect | Bhippi | Premiere / AE | DaVinci Resolve | CapCut | Runway |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Media stays strictly on local storage** | ✅ | Partial *(Cloud AI)* | ✅ | — | — |
+| **Local Text-to-Video & Image synthesis** | ✅ | Cloud *(Firefly)* | — | Cloud | Cloud |
+| **Local rotoscoping & subject cutout** | ✅ | Roto Brush | Magic Mask *(Studio)* | Cloud cutout | Cloud |
+| **Local neural voice-over** | ✅ | — | — | Cloud | Cloud |
+| **Pricing model** | **Free & Open Source** | Monthly subscription | Free / $295 Studio | Subscription + cloud | Credit subscription |
+
+---
+
+## 🧠 How the AI works
+
+The co-pilot adapts to whichever model you connect: **Claude** (Claude Code, Anthropic API), **OpenAI / Codex**, local LLM servers (**Ollama**, **vLLM**, **LM Studio**), or custom API endpoints.
+
+```
+       ┌─────────────────┐
+       │   User Prompt   │
+       └────────┬────────┘
+                │
+                ▼
+      ┌──────────────────┐
+      │  Workflow Guard  │ ◄─── Ensures honest phases (no editing before planning)
+      └─────────┬────────┘
+                │
+     ┌──────────┴──────────┐
+     ▼                     ▼
+┌──────────────┐    ┌──────────────┐
+│ Frontier Tier│    │ Guided Tier  │
+│(Opus, GPT-5) │    │(Local, 8B-70B│
+└──────┬───────┘    └──────┬───────┘
+       │                   │
+       ▼                   ▼
+┌──────────────────────────────────┐
+│  200+ Native Timeline AI Tools   │
+│  (Cuts, Rotoscoping, Audio, SFX) │
+└──────────────────┬───────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────┐
+│   Undoable Project State Bin     │
+│   (Saved inside project folder)  │
+└──────────────────────────────────┘
+```
+
+### Essential Tool Categories
+
+| Domain | Key Tools |
+| :--- | :--- |
+| **Inspection** | `get_comp`, `analyze_clip_speech`, `inspect_clip_frames`, `run_frame_qa`, `review_frames` |
+| **Planning** | `online_research`, `save_video_blueprint`, `save_storyboard`, `query_frame_atlas` |
+| **Asset Gathering** | `generate_local_media`, `synthesize_speech_voiceover`, `download_online_media`, `scrape_videos`, `capture_app_session` |
+| **Audio & SFX** | `analyze_song`, `analyze_music_beats`, `compose_music`, `sound_the_motion`, `level_audio` |
+| **End-to-End Films** | `build_edit_from_brief`, `apply_recipe`, `create_product_demo`, `judge_edit` |
+| **Timeline Editing** | `apply_edit`, `place_clip`, `snap_cuts_to_beats`, `rotoscope_clip`, `erase_subject_clip` |
+| **Motion & Compositing** | `motion_guide`, `create_motion_scene`, `update_motion_scene`, `search_icons`, `track_motion` |
+| **3D Rendering** | `list_3d_presets`, `render_3d_scene` *(headless Blender bridge)* |
+| **Graphics & Text** | `create_motion_graphic`, `react_bits`, `add_text`, `add_captions` |
+| **Brand Management** | `list_brand_kits`, `get_brand_kit`, `create_brand_kit`, `apply_brand_kit`, `render_brand_board` |
+
+---
+
+## 🚀 Quick Start
+
+### Installation
+
+Download the latest installer directly from **[bhippi.com](https://bhippi.com)** or build from source:
+
+#### System Requirements
+- **OS:** Windows 10/11 (x64)
+- **Node.js:** v20.x or v22.x
+- **Rust:** 1.85+
+- **FFmpeg:** Installed and available on your system `PATH`
+- *Optional:* [Blender 4.2+](https://www.blender.org) for 3D rendering; Python 3.10+ with PyTorch for local AI models.
+
+#### Building from source
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/memegyanfactory-gif/Bhippi.git
 cd Bhippi
+
+# 2. Install dependencies
 npm install
-npm run dev        # Tauri desktop app with hot reload
-npm run dev:web    # browser-only preview of the UI
+
+# 3. Launch the desktop application in development mode (hot-reload enabled)
+npm run dev
+
+# Or run the browser-only UI preview
+npm run dev:web
 ```
 
-Then open Settings → AI providers and connect a model, and Settings → Local media to install the models you want.
+### Initial Configuration
+1. Open **Settings → AI providers** to connect your preferred model (API key, Claude Code CLI, or local server).
+2. Open **Settings → Local media** to download optional local model weights (SAM 2, Whisper, Piper, SDXL).
+3. If you have Blender installed, ensure its path is registered under **Settings → 3D** to unlock the 3D generator.
 
-## Development
+---
+
+## 🛠️ Architecture & Codebase
 
 ```bash
-npm run typecheck   # tsc
-npm run test:ui     # vitest (frontend)
-npm test            # vitest + cargo test
-npm run lint        # eslint + clippy
-npm run bundle      # production build
+npm run typecheck    # Validate TypeScript types across frontend
+npm run test:ui      # Run Vitest test suite
+npm test             # Run Vitest + Cargo test suite
+npm run lint         # Check ESLint and Rust Clippy
+npm run bundle       # Package full production NSIS installer
 ```
 
-Where things live:
+### Directory Map
 
-| Path | What |
-| --- | --- |
-| `src/editor/` | Timeline, monitors, compositor, motion-graphic layer |
-| `src/lib/aiTools.ts`, `src/lib/ai-tools.json` | The AI tool catalogue and its handlers |
-| `src/lib/editWorkflow.ts` | The phase guard |
-| `src/motion/` | The GPU motion engine (scene model, WebGL renderer, vector and type engines, templates) |
-| `src/lib/motionTools.ts`, `src/lib/blender3d.ts` | Motion and 3D AI tools, Blender presets |
-| `src/lib/motionGuide.ts` | Crimson motion system |
-| `src/lib/filmRecipes.ts`, `src/lib/songMap.ts`, `src/lib/reviewFrames.ts` | Film recipes, song and lyric maps, frame review |
-| `src/lib/modelProfile.ts`, `src/lib/workflowRoute.ts` | Full vs guided model tiers; Full vs Quick routing |
-| `src/lib/rbx/` | The animated UI library (React Bits and friends) |
-| `src/lib/brandKit/` | Brand kit model, archetypes, DaisyUI themes, renderers |
-| `src-tauri/src/` | Rust core: project store, FFmpeg render, providers, local model workers, Blender bridge |
-| `src-tauri/prompts/copilot.md` | The co-pilot's system prompt |
-| `docs/` | Plans, references and the research behind the libraries (the motion engine roadmap is `docs/plans/MOTION-ENGINE-MASTER-PLAN.md`) |
-| `docs/benchmark/`, `scripts/film-bench.ts` | Benchmark kit: rebuild reference films with several models and score them blind |
+| Path | Purpose |
+| :--- | :--- |
+| `src/editor/` | Core NLE UI: timeline, canvas monitors, trimmer, audio tracks, and transport controls |
+| `src/motion/` | GPU WebGL2 compositor: scene graph, bezier keyframes, 2.5D camera, vector trees |
+| `src/lib/aiTools.ts` | The 200+ native AI tool implementations invoked by the co-pilot |
+| `src/lib/editWorkflow.ts` | Phase guard ensuring deterministic transitions between planning, gathering, and cutting |
+| `src/lib/blender3d.ts` | Headless Blender subprocess bridge, scene templates, and Cycles render dispatch |
+| `src/lib/filmRecipes.ts` | Complete film templates (product demo, kinetic explainer, SaaS walkthrough) |
+| `src/lib/rbx/` | Component library containing React Bits, Animate.css, and interactive UI widgets |
+| `src/lib/brandKit/` | Brand kit management, archetypes, color palettes, and typographic scales |
+| `src-tauri/src/` | Native Rust backend: project state serialization, FFmpeg pipelines, local model workers |
+| `docs/` | Deep-dive architectural specs: [Motion Engine](docs/MOTION-ENGINE.md), [Brand Kit](docs/BRAND-KIT.md), [React Bits](docs/REACT-BITS-LIBRARY.md) |
 
-## License
+---
 
-MIT. See `LICENSE`.
+## 📄 License
+
+Bhippi Video Editor is open source software licensed under the **[MIT License](LICENSE)**.

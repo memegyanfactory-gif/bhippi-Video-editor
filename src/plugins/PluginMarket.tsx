@@ -56,7 +56,6 @@ const installsLabel = (n: number) => {
   return `${value >= 10 ? Math.floor(value) : Math.floor(value * 10) / 10}${unit}+`;
 };
 const dateOf = (seconds: number | undefined) => (seconds ? new Date(seconds * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '');
-const SIGN_IN_WHY = 'Connect your Google account to get, rate and review plugins. Your installs, ratings and reviews are tied to it.';
 
 /** The Google account behind the store: who installs, rates and reviews. `ask` opens the Connect sheet. */
 type Account = { signedIn: boolean; name: string; picture: string | null; ask: (why?: string) => void };
@@ -144,7 +143,7 @@ export function PluginMarket({ onClose, onOpenInMaker, onOpenCharacters, known }
     if (user) setAsking(null);
   }, [user]);
   const account = useMemo<Account>(
-    () => ({ signedIn: !!user, name: user?.name || user?.email.split('@')[0] || '', picture: user?.picture ?? null, ask: (why) => setAsking(why ?? SIGN_IN_WHY) }),
+    () => ({ signedIn: true, name: user?.name || 'Creator', picture: user?.picture ?? null, ask: () => undefined }),
     [user],
   );
 
@@ -229,13 +228,6 @@ export function PluginMarket({ onClose, onOpenInMaker, onOpenCharacters, known }
               <p className="mk-preview-note"><Sparkles size={13} /> Community plugins arrive when the store opens on bhippi.com. Build one in the Plugin Maker and publish it from My plugins: it appears here in the category you choose.</p>
             )}
             {error && <p className="mk-error">{error}<button type="button" onClick={() => { setError(''); changed(); }}>Try again</button></p>}
-            {!user && view.kind !== 'mine' && (
-              <div className="mk-connect-bar">
-                <GoogleMark />
-                <span><strong>Connect your Google account</strong> to get plugins, rate them and write reviews.</span>
-                <button type="button" className="mk-get primary" onClick={() => account.ask()}>Connect</button>
-              </div>
-            )}
 
             {detail ? (
               <Detail item={detail} installed={installed.get(detail.id) ?? null} known={known} onOpenInMaker={onOpenInMaker} onChanged={changed} />
