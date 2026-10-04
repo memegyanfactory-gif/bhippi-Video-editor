@@ -247,8 +247,8 @@ Download the latest installer directly from **[bhippi.com](https://bhippi.com)**
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/memegyanfactory-gif/Bhippi.git
-cd Bhippi
+git clone https://github.com/memegyanfactory-gif/bhippi-Video-editor.git
+cd bhippi-Video-editor
 
 # 2. Install dependencies
 npm install
