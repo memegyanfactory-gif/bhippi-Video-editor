@@ -72,6 +72,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.0",
     "eslint": "^9.25.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^16.0.0",
     "three": "^0.186.1",
     "typescript": "~5.8.3",

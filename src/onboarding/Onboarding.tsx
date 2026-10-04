@@ -123,7 +123,6 @@ export function Onboarding({ onPatch, onDone }: Props) {
       },
     ];
     return list;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models, whisper, voice, pack, byId]);
 
   const wantsLocal = genChoice.local && [...localTasks].some((task) => !localInstalled.has(task));

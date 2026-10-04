@@ -98,7 +98,7 @@ function appendWord(line: string, word: string): string {
   if (!line) return word;
   // Preserve the transcriber’s wording while keeping punctuation attached to its word.
   if (/^[,.;:!?%…)}\]}]/.test(word) || /^['’]/.test(word)) return line + word;
-  if (/^[(\[{]$/.test(word)) return line + word;
+  if (/^[({\[]$/.test(word)) return line + word; // eslint-disable-line no-useless-escape -- \[ is escaped for clarity inside the character class
   return `${line} ${word}`;
 }
 

@@ -50,7 +50,7 @@ const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
 
 /** A project name as a folder name — the same rules as `storage::sanitize`. */
 export function projectFolderName(name: string): string {
-  let out = name.replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, ' ').split(/\s+/).filter(Boolean).join(' ');
+  let out = name.replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, ' ').split(/\s+/).filter(Boolean).join(' '); // eslint-disable-line no-control-regex -- strips control characters Windows rejects in file names
   out = [...out].slice(0, 80).join('');
   out = out.replace(/[. ]+$/, '').replace(/^[. ]+/, '');
   if (!out) return UNTITLED_PROJECT;

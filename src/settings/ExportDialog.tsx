@@ -77,7 +77,6 @@ export function ExportDialog({ project, comp: initial, prefs, onClose, onExport,
       .catch(() => (prefs.folder ? use(prefs.folder) : videoDir().then(use)))
       .catch(() => undefined);
     return () => { live = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opening
   }, []);
 
   const ranged = comp.inPoint !== null && comp.outPoint !== null && comp.outPoint > comp.inPoint;

@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 
 export default tseslint.config(
@@ -25,6 +26,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx,js,mjs}'],
+    plugins: { 'react-hooks': reactHooks },
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     rules: {
       // A leading underscore marks a deliberately unused parameter or binding
@@ -44,6 +46,12 @@ export default tseslint.config(
     // Tests build partial stand-ins for API responses, so `any` is the honest
     // annotation there instead of a type the test would only pretend to satisfy.
     files: ['tests/**/*.{ts,tsx}'],
+    rules: { '@typescript-eslint/no-explicit-any': 'off' },
+  },
+  {
+    // `scene3d` carries a Blender-side scene, a different shape from the motion
+    // engine's MotionScene, so it stays `any` until that shape is typed.
+    files: ['src/lib/types.ts'],
     rules: { '@typescript-eslint/no-explicit-any': 'off' },
   },
 );

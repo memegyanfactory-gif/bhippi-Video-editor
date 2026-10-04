@@ -2012,7 +2012,6 @@ export default function App() {
     }
     editTree((current) => movePanel(current, panel, drop));
     setMaximized(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plugins]);
   const { drag: panelDrag, begin: beginPanelDrag } = usePanelDrag(dockAreaRef, panelName, dropPanel);
 
