@@ -3,7 +3,7 @@ import { parseSvgPath, pathBounds } from '../src/motion/vector/path';
 import { elementPath } from '../src/motion/vector/svg';
 it('every Lucide icon parses inside its 24 box', async () => {
   const { icons } = await import('lucide') as unknown as { icons: Record<string, [string, Record<string, string | number>][]> };
-  let bad: string[] = [];
+  const bad: string[] = [];
   let count = 0;
   for (const [name, node] of Object.entries(icons)) {
     for (const [tag, attrs] of node) {

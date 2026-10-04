@@ -5,8 +5,8 @@ import type { Comp, Project } from '../src/lib/types';
 const comp = (patch: Partial<Comp>): Comp => ({ id: 'c1', name: 'Launch', width: 1080, height: 1920, fps: 30, tracks: [], clips: [], markers: [], transitions: [], inPoint: null, outPoint: null, ...patch } as unknown as Comp);
 
 describe('rewritePaths', () => {
-  const from = 'C:\Users\me\AppData\bhippi\work\j1\shot.mp4';
-  const to = 'D:\Films\Launch\Generated\Video\shot.mp4';
+  const from = String.raw`C:\Users\me\AppData\bhippi\work\j1\shot.mp4`;
+    const to = String.raw`D:\Films\Launch\Generated\Video\shot.mp4`;
 
   it('points path fields at their new location and keeps untouched branches', () => {
     const project = { comps: [{ clips: [{ rotoMatte: from, source: { type: 'text', text: from } }], storyboard: [{ thumbnail: from, visual: 'x' }] }], items: [] };
@@ -19,7 +19,7 @@ describe('rewritePaths', () => {
   });
 
   it('returns the same object when nothing moved', () => {
-    const project = { comps: [{ clips: [{ rotoMatte: 'C:\elsewhere\m.mp4' }] }] };
+    const project = { comps: [{ clips: [{ rotoMatte: String.raw`C:\elsewhere\m.mp4` }] }] };
     expect(rewritePaths(project, [{ from, to }])).toBe(project);
     expect(rewritePaths(project, [])).toBe(project);
   });
