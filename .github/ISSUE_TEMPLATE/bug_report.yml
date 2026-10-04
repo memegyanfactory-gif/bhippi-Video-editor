@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in Bhippi behaves incorrectly or crashes
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, including what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The shortest path that shows the problem.
+      placeholder: |
+        1. Open a project and import X
+        2. Run the AI first cut
+        3. Click Y
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output or logs
+      description: Console output, render log, or the QA log from the AI Work bin. Wrap code in backticks.
+  - type: input
+    id: version
+    attributes:
+      label: Bhippi version
+      placeholder: 1.0.13
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: gpu
+    attributes:
+      label: GPU
+      options:
+        - NVIDIA
+        - AMD
+        - Intel
+        - No dedicated GPU
+    validations:
+      required: false
