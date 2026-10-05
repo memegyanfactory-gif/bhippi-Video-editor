@@ -46,6 +46,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # `tauri::generate_context!()` reads tauri.conf.json at compile time and
+      # fails if `frontendDist` ("../dist") is absent. The Rust crate therefore
+      # cannot be checked on a fresh checkout without building the frontend
+      # first, even though no Rust code is involved in that build.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend (provides ../dist for generate_context!)
+        run: npm run build
+
       # Reports findings without failing the build. The workspace currently has
       # ~42 pre-existing clippy findings (mostly dead code and pedantic lints
       # such as too_many_arguments and type_complexity). Turning these into hard
