@@ -21,7 +21,8 @@ Run the same checks CI runs:
 
 ```bash
 npm run typecheck    # TypeScript types
-npm run lint         # ESLint + cargo clippy
+npm run lint         # ESLint
+npm run lint:rust    # cargo clippy (advisory for now)
 npm run test:ui      # Vitest
 ```
 

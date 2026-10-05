@@ -273,7 +273,7 @@ npm run dev:web
 npm run typecheck    # Validate TypeScript types across frontend
 npm run test:ui      # Run Vitest test suite
 npm test             # Run Vitest + Cargo test suite
-npm run lint         # Check ESLint and Rust Clippy
+npm run lint         # ESLint (Rust: npm run lint:rust, advisory)
 npm run bundle       # Package full production NSIS installer
 ```
 
