@@ -61,6 +61,16 @@ jobs:
       - name: Build frontend (provides ../dist for generate_context!)
         run: npm run build
 
+      # The `render::e2e` tests actually encode and read back real frames, so
+      # they panic without an FFmpeg binary on PATH. GitHub's windows-latest
+      # image does not ship one. (These same tests pass locally, which is why a
+      # green `cargo test` locally did not predict CI.)
+      - name: Install FFmpeg
+        run: |
+          choco install ffmpeg --no-progress -y
+          echo "C:\ProgramData\chocolatey\bin" >> $env:GITHUB_PATH
+          ffmpeg -version
+
       # Reports findings without failing the build. The workspace currently has
       # ~42 pre-existing clippy findings (mostly dead code and pedantic lints
       # such as too_many_arguments and type_complexity). Turning these into hard
