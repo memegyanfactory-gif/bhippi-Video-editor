@@ -199,7 +199,7 @@ impl Hub {
                             input_schema: tool
                                 .get("inputSchema")
                                 .cloned()
-                                .unwrap_or_else(|| serde_json::json!({ "type": "object" })),
+                                .unwrap_or_else(|| serde_json::json!({ "type": "object", "properties": {} })),
                         })
                     })
                     .collect();

@@ -71,7 +71,7 @@ pub fn slim(tool: &ToolSpec) -> ToolSpec {
     ToolSpec {
         name: tool.name.clone(),
         description: format!("{} (params: tool_help)", first_sentence(&tool.description)),
-        input_schema: json!({ "type": "object", "additionalProperties": true }),
+        input_schema: json!({ "type": "object", "properties": {} }),
     }
 }
 

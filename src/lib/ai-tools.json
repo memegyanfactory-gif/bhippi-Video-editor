@@ -564,7 +564,7 @@
           },
           "speech": {
             "type": "array",
-            "maxItems": 2000,
+            "maxItems": 100,
             "items": {
               "type": "object",
               "properties": {
@@ -1622,7 +1622,7 @@
           },
           "points": {
             "type": "array",
-            "maxItems": 2000,
+            "maxItems": 100,
             "items": {
               "type": "object",
               "properties": {

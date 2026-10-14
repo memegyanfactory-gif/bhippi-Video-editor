@@ -540,6 +540,22 @@ pub fn advise_as(spec: &ProviderSpec, kind: FaultKind, reason: &str) -> Advice {
             Remedy::SwitchProvider,
             Some("Switch provider".to_owned()),
         ),
+        FaultKind::Unauthenticated if reason.to_ascii_lowercase().contains("anthropic-workspace-id") => (
+            "Workspace needed".to_owned(),
+            format!("{label} refused the key because it is not scoped to a workspace."),
+            "In Settings › AI providers, paste the workspace id after the key              (`sk-ant-… wrkspc_…`), or create a key inside a workspace at              console.anthropic.com and use that instead."
+                .to_owned(),
+            Remedy::SignIn,
+            None,
+        ),
+        FaultKind::Unauthenticated if spec.kind == crate::model::ProviderKind::CloudApi => (
+            "Key rejected".to_owned(),
+            format!("{label} refused the API key."),
+            "Check or replace the key in Settings › AI providers, then send the message again."
+                .to_owned(),
+            Remedy::SignIn,
+            None,
+        ),
         FaultKind::Unauthenticated => (
             "Signed out".to_owned(),
             format!("{label} is not signed in, or its credential expired."),

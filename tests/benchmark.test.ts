@@ -20,7 +20,7 @@ const PROMPT = readFileSync('src-tauri/prompts/copilot.md', 'utf8');
 function slim(tool: Tool): Tool {
   const cut = tool.description.indexOf('. ');
   const first = tool.description.slice(0, Math.min(cut < 0 ? tool.description.length : cut + 1, 72));
-  return { name: tool.name, description: `${first} (params: tool_help)`, input_schema: { type: 'object', additionalProperties: true } };
+  return { name: tool.name, description: `${first} (params: tool_help)`, input_schema: { type: 'object', properties: {} } };
 }
 
 /** Mirrors chat.rs `gate_genres`. */

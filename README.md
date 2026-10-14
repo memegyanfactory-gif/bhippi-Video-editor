@@ -6,9 +6,9 @@
 
 **The desktop video editor with an AI producer built in.** Windows 10/11 (x64). MIT licensed — free forever, no account, no license key, no credits.
 
-Version 1.0.13
+Version 1.0.14
 
-[![Release](https://img.shields.io/badge/Release-v1.0.13-ff5c35?style=flat-square)](https://bhippi.com)
+[![Release](https://img.shields.io/badge/Release-v1.0.14-ff5c35?style=flat-square)](https://bhippi.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24c8db?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-1.85+-orange?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)

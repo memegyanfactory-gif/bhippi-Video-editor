@@ -75,12 +75,14 @@ impl OllamaProvider {
                 .tools
                 .iter()
                 .map(|tool| {
+                    let mut parameters = tool.input_schema.clone();
+                    crate::openai_compat::sanitize_tool_parameters(&mut parameters);
                     serde_json::json!({
                         "type": "function",
                         "function": {
                             "name": tool.name,
                             "description": tool.description,
-                            "parameters": tool.input_schema,
+                            "parameters": parameters,
                         },
                     })
                 })

@@ -320,10 +320,7 @@ async fn list_cloud_models(entry: &ProviderSpec, key: &str) -> Result<Vec<String
     let base = entry.base_url.unwrap_or_default().trim_end_matches('/');
     let client = reqwest::Client::new();
     let request = match entry.api {
-        Api::Anthropic => client
-            .get(format!("{base}/models?limit=100"))
-            .header("x-api-key", key)
-            .header("anthropic-version", crate::anthropic::API_VERSION),
+        Api::Anthropic => crate::anthropic::authorize(client.get(format!("{base}/models?limit=100")), key),
         _ => client.get(format!("{base}/models")).bearer_auth(key),
     };
     let response = request

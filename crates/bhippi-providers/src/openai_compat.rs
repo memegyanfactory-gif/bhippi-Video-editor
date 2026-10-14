@@ -88,7 +88,52 @@ impl OpenAiCompatProvider {
         };
         ProviderError::new(&self.label, reason).with_hint(hint)
     }
+}
 
+pub(crate) fn sanitize_tool_parameters(parameters: &mut serde_json::Value) {
+    if let Some(map) = parameters.as_object_mut() {
+        if !map.contains_key("type") {
+            map.insert("type".to_string(), serde_json::json!("object"));
+        }
+        if !map.contains_key("properties") {
+            map.insert("properties".to_string(), serde_json::json!({}));
+        }
+        sanitize_schema_recursive(map);
+    } else {
+        *parameters = serde_json::json!({
+            "type": "object",
+            "properties": {},
+        });
+    }
+}
+
+fn sanitize_schema_recursive(map: &mut serde_json::Map<String, serde_json::Value>) {
+    // llama.cpp / LM Studio grammar compiler fails with "failed to parse grammar"
+    // if maxItems or maxLength exceeds internal repetition thresholds.
+    if let Some(max_items) = map.get("maxItems").and_then(serde_json::Value::as_u64) {
+        if max_items > 100 {
+            map.insert("maxItems".to_string(), serde_json::json!(100));
+        }
+    }
+    if let Some(max_len) = map.get("maxLength").and_then(serde_json::Value::as_u64) {
+        if max_len > 2000 {
+            map.insert("maxLength".to_string(), serde_json::json!(2000));
+        }
+    }
+    for value in map.values_mut() {
+        if let Some(child_map) = value.as_object_mut() {
+            sanitize_schema_recursive(child_map);
+        } else if let Some(arr) = value.as_array_mut() {
+            for item in arr.iter_mut() {
+                if let Some(item_map) = item.as_object_mut() {
+                    sanitize_schema_recursive(item_map);
+                }
+            }
+        }
+    }
+}
+
+impl OpenAiCompatProvider {
     fn request_body(&self, req: &CompletionRequest, model: &str) -> serde_json::Value {
         let mut messages = Vec::with_capacity(req.messages.len() + 1);
         if !req.system.trim().is_empty() {
@@ -146,12 +191,14 @@ impl OpenAiCompatProvider {
                 .tools
                 .iter()
                 .map(|tool| {
+                    let mut parameters = tool.input_schema.clone();
+                    sanitize_tool_parameters(&mut parameters);
                     serde_json::json!({
                         "type": "function",
                         "function": {
                             "name": tool.name,
                             "description": tool.description,
-                            "parameters": tool.input_schema,
+                            "parameters": parameters,
                         },
                     })
                 })
@@ -545,6 +592,16 @@ mod tests {
         assert_eq!(messages[3]["tool_call_id"], "call_1");
         let bare = provider.request_body(&CompletionRequest::new("", vec![Message::user("hi".to_owned())]), "qwen");
         assert!(bare.get("tools").is_none());
+
+        // LM Studio and OpenAI reject schemas without a properties object (HTTP 400 invalid_type).
+        let mut slim_req = CompletionRequest::new("", vec![Message::user("hi".to_owned())]);
+        slim_req.tools = vec![ToolSpec {
+            name: "slim_tool".to_owned(),
+            description: "A tool".to_owned(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }];
+        let slim_body = provider.request_body(&slim_req, "qwen");
+        assert_eq!(slim_body["tools"][0]["function"]["parameters"]["properties"], serde_json::json!({}));
     }
 
     #[test]

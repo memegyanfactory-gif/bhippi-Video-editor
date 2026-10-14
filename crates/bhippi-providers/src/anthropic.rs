@@ -13,6 +13,45 @@ use std::collections::HashMap;
 pub const API_VERSION: &str = "2023-06-01";
 const LABEL: &str = "Anthropic API";
 
+/// Splits a saved Anthropic credential into the key and the workspace it must name.
+///
+/// A key that is not scoped to a workspace is refused unless every request carries
+/// `anthropic-workspace-id`, so the workspace id may be pasted after the key
+/// (`sk-ant-… wrkspc_…`) or set in `ANTHROPIC_WORKSPACE_ID`.
+#[must_use]
+pub fn credential(raw: &str) -> (String, Option<String>) {
+    let mut key = String::new();
+    let mut workspace = None;
+    for part in raw.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '|') {
+        let part = part.trim();
+        if part.starts_with("wrkspc_") {
+            workspace = Some(part.to_owned());
+        } else if key.is_empty() && !part.is_empty() {
+            key = part.to_owned();
+        }
+    }
+    let workspace = workspace.or_else(|| {
+        std::env::var("ANTHROPIC_WORKSPACE_ID")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    });
+    (key, workspace)
+}
+
+/// Adds the key, API version and (when known) workspace headers to an Anthropic request.
+#[must_use]
+pub fn authorize(request: reqwest::RequestBuilder, raw_key: &str) -> reqwest::RequestBuilder {
+    let (key, workspace) = credential(raw_key);
+    let request = request
+        .header("x-api-key", key)
+        .header("anthropic-version", API_VERSION);
+    match workspace {
+        Some(workspace) => request.header("anthropic-workspace-id", workspace),
+        None => request,
+    }
+}
+
 /// The output ceiling of a budget-thinking model: 64k on Haiku 4.5, Sonnet 4.5 and 4, Opus 4.5
 /// and Sonnet 3.7, 32k on Opus 4 and 4.1.
 fn budget_model_max_output(model: &str) -> u32 {
@@ -44,7 +83,7 @@ impl AnthropicProvider {
 
     fn error(reason: String) -> ProviderError {
         ProviderError::new(LABEL, reason)
-            .with_hint("Check the Anthropic key in Settings › AI providers, then try again.")
+            .with_hint("Check the Anthropic key in Settings › AI providers, then try again. A key that is not scoped to a workspace needs the workspace id pasted after it (`sk-ant-… wrkspc_…`).")
     }
 
     fn request_body(req: &CompletionRequest, model: &str) -> serde_json::Value {
@@ -158,10 +197,12 @@ impl AnthropicProvider {
                 .tools
                 .iter()
                 .map(|tool| {
+                    let mut input_schema = tool.input_schema.clone();
+                    crate::openai_compat::sanitize_tool_parameters(&mut input_schema);
                     serde_json::json!({
                         "name": tool.name,
                         "description": tool.description,
-                        "input_schema": tool.input_schema,
+                        "input_schema": input_schema,
                     })
                 })
                 .collect();
@@ -364,11 +405,10 @@ impl Provider for AnthropicProvider {
                 "no model selected and none could be listed".to_owned(),
             ));
         }
-        let response = self
-            .client
-            .post(format!("{}/messages", self.base_url))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", API_VERSION)
+        let response = authorize(
+            self.client.post(format!("{}/messages", self.base_url)),
+            &self.api_key,
+        )
             .json(&Self::request_body(&req, &model))
             .timeout(req.timeout)
             .send()
@@ -405,7 +445,16 @@ impl Provider for AnthropicProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_event, AnthropicProvider, StreamState};
+    use super::{credential, parse_event, AnthropicProvider, StreamState};
+
+    #[test]
+    fn a_workspace_id_pasted_after_the_key_is_split_off() {
+        assert_eq!(
+            credential("sk-ant-abc wrkspc_123"),
+            ("sk-ant-abc".to_owned(), Some("wrkspc_123".to_owned()))
+        );
+        assert_eq!(credential("sk-ant-abc").0, "sk-ant-abc");
+    }
     use crate::model::{CompletionRequest, Delta, Message, StopReason, ToolCall, ToolSpec};
 
     fn drain(payloads: &[&str]) -> Vec<Delta> {
