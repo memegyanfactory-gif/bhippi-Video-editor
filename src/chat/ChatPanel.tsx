@@ -7,7 +7,7 @@ import { speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { ArrowDown, ArrowUp, ChevronRight, CircleHelp, Crosshair, File as FileIcon, Film, Laugh, MapPin, Music, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { FaultCard } from '../components/FaultCard';
 import { ModelPicker } from '../components/ModelPicker';
 import { useToast } from '../components/ui';
@@ -1257,7 +1257,7 @@ ${text}` : text));
               </div>
             </div>
           ) : (
-            <AssistantMessage
+            <AssistantRow
               key={message.id}
               message={message}
               latest={message.id === lastAnswerId}
@@ -1687,6 +1687,77 @@ function workflowLine(workflow: WorkflowView, worked: boolean): { tone: 'ok' | '
   if (workflow.nextUserAction === 'start-editing') return { tone: 'next', text: 'Everything is gathered. Press Start editing when you are ready.' };
   if (workflow.phase === 'gathering') return { tone: 'next', text: 'Gathering in progress. The assistant closes this phase with finish_gathering.' };
   return { tone: 'warn', text: 'The workflow is not finished — some stages have not run or could not be verified.' };
+}
+
+type AssistantProps = { message: Assistant; latest: boolean; asking?: boolean; workflow: WorkflowView; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; changes?: TurnChange[]; onJump?: (change: TurnChange) => void; highlighted?: boolean; onHighlight?: (on: boolean) => void; kits?: TrainedKit[]; onUpdateKit?: (kitId: string, change: (kit: TrainedKit) => TrainedKit) => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void; onDropSteer: (id: string) => void; steerActions?: SteerActions };
+
+const sameList = (a: readonly unknown[] | undefined, b: readonly unknown[] | undefined) =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((item, index) => item === b[index]));
+const sameFlat = (a: object | null | undefined, b: object | null | undefined) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key]);
+};
+
+/**
+ * Re-renders an answer only when what it shows changed. While one answer streams, the rest of a
+ * long conversation stays put instead of re-rendering on every chunk, which is what made the
+ * transcript heavy to scroll. Handlers are compared by presence only: the row calls through to
+ * the newest ones, so a skipped render never runs a stale callback.
+ */
+const MemoAssistantMessage = memo(AssistantMessage, (prev, next) =>
+  prev.message === next.message &&
+  prev.latest === next.latest &&
+  prev.asking === next.asking &&
+  prev.highlighted === next.highlighted &&
+  prev.canRevert === next.canRevert &&
+  prev.steerActions?.streaming === next.steerActions?.streaming &&
+  !prev.onJump === !next.onJump &&
+  !prev.onHighlight === !next.onHighlight &&
+  !prev.onUpdateKit === !next.onUpdateKit &&
+  !prev.onContinue === !next.onContinue &&
+  sameFlat(prev.workflow, next.workflow) &&
+  sameList(prev.tools, next.tools) &&
+  sameList(prev.changes, next.changes) &&
+  sameList(prev.kits, next.kits),
+);
+
+function AssistantRow(props: AssistantProps) {
+  const live = useRef(props);
+  live.current = props;
+  const calls = useMemo(
+    () => ({
+      onRevert: () => live.current.onRevert(),
+      onRemedy: (remedy: TurnFault['remedy']) => live.current.onRemedy(remedy),
+      onContinue: () => live.current.onContinue?.(),
+      onDropSteer: (id: string) => live.current.onDropSteer(id),
+      onJump: (change: TurnChange) => live.current.onJump?.(change),
+      onHighlight: (on: boolean) => live.current.onHighlight?.(on),
+      onUpdateKit: (kitId: string, change: (kit: TrainedKit) => TrainedKit) => live.current.onUpdateKit?.(kitId, change),
+      edit: (text: string) => live.current.steerActions?.edit(text),
+      send: (text: string) => live.current.steerActions?.send(text),
+    }),
+    [],
+  );
+  const streaming = props.steerActions?.streaming;
+  const hasSteer = !!props.steerActions;
+  const steerActions = useMemo(() => (hasSteer ? { edit: calls.edit, send: calls.send, streaming: !!streaming } : undefined), [calls, hasSteer, streaming]);
+  return (
+    <MemoAssistantMessage
+      {...props}
+      steerActions={steerActions}
+      onRevert={calls.onRevert}
+      onRemedy={calls.onRemedy}
+      onDropSteer={calls.onDropSteer}
+      onContinue={props.onContinue ? calls.onContinue : undefined}
+      onJump={props.onJump ? calls.onJump : undefined}
+      onHighlight={props.onHighlight ? calls.onHighlight : undefined}
+      onUpdateKit={props.onUpdateKit ? calls.onUpdateKit : undefined}
+    />
+  );
 }
 
 function AssistantMessage({ message, latest, workflow, tools, canRevert, onRevert, onRemedy, onContinue, onDropSteer, steerActions, changes: changesProp = [], onJump, highlighted = false, onHighlight, kits = [], onUpdateKit, asking = false }: { message: Assistant; latest: boolean; asking?: boolean; workflow: WorkflowView; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; changes?: TurnChange[]; onJump?: (change: TurnChange) => void; highlighted?: boolean; onHighlight?: (on: boolean) => void; kits?: TrainedKit[]; onUpdateKit?: (kitId: string, change: (kit: TrainedKit) => TrainedKit) => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void; onDropSteer: (id: string) => void; steerActions?: SteerActions }) {

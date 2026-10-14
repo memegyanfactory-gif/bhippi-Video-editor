@@ -120,6 +120,22 @@ describe('image-sequence frames', () => {
     expect(bitmaps[0].close).toHaveBeenCalled();
   });
 
+  it('fetches an export frame again when its first decode came back empty, so the frame is never drawn without it', async () => {
+    const b = bank();
+    let refusals = 1;
+    vi.stubGlobal('fetch', (url: string) => {
+      fetched.push(url);
+      // The asset protocol refuses the file once (busy), then serves it.
+      const ok = refusals-- <= 0;
+      return Promise.resolve({ ok, blob: async () => ({ url }) });
+    });
+    await b.prepareExact(scene, 1);
+    expect(fetched).toEqual(['asset://D:/film/s01/stage/00031.png', 'asset://D:/film/s01/stage/00031.png']);
+    const picture = b.frame(source, 1)!;
+    expect(picture.image).toBe(bitmaps[0]);
+    expect(picture.approximate).toBeUndefined();
+  });
+
   it('loads through an <img> where the webview cannot decode a bitmap', async () => {
     vi.stubGlobal('createImageBitmap', undefined);
     class FakeImage {

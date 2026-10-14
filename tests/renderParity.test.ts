@@ -264,6 +264,37 @@ describe('media bank', () => {
     expect(videos[0].currentTime).toBeCloseTo(6.2, 6);
   });
 
+  it('shows one file at two moments at once (a dissolve between two cuts of it) on an element each', async () => {
+    const b = bank();
+    const dissolve = { width: 1920, height: 1080, duration: 9, layers: [
+      { id: 'out', type: 'footage', in: 0, out: 5, source: { asset: 'a', in: 0 } },
+      { id: 'in', type: 'footage', in: 4, out: 9, source: { asset: 'a', in: 20 } },
+    ] } as unknown as MotionScene;
+    // At 4.5 s both pieces are on screen: source 4.5 s under source 24.5 s. One element can only sit
+    // on one of them, and the other layer used to be left out of the exported frame.
+    const ready = b.prepareExact(dissolve, 4.5, { presented: false });
+    await vi.advanceTimersByTimeAsync(10);
+    await ready;
+    expect(videos).toHaveLength(2);
+    expect(videos.map((video) => video.currentTime).sort((x, y) => x - y)).toEqual([4.5, 24.5]);
+    expect(b.frame({ asset: 'a', in: 0 } as never, 4.5)).not.toBeNull();
+    expect(b.frame({ asset: 'a', in: 20 } as never, 24.5)).not.toBeNull();
+  });
+
+  it('opens a video afresh for the export when its element failed', async () => {
+    const b = bank();
+    const first = b.prepareExact(razored, 1, { presented: false });
+    await vi.advanceTimersByTimeAsync(10);
+    await first;
+    (videos[0] as unknown as { error: unknown }).error = { code: 3 };
+    const again = b.prepareExact(razored, 1.5, { presented: false });
+    await vi.advanceTimersByTimeAsync(10);
+    await again;
+    expect(videos).toHaveLength(2);
+    expect(videos[1].currentTime).toBeCloseTo(1.5, 6);
+    expect(b.frame({ asset: 'a' } as never, 1.5)).not.toBeNull();
+  });
+
   it('gives no frame for a moment the video is not on', async () => {
     const b = bank();
     const ready = b.prepareExact(razored, 2, { presented: false });

@@ -148,7 +148,10 @@ export function useChatScroll(listRef: RefObject<HTMLDivElement | null>, reserve
     };
     // Opening a step or a code window is reading, not following: the view stays where you put it.
     const onPointer = (event: PointerEvent) => {
-      if ((event.target as HTMLElement | null)?.closest('button, summary, a')) detach();
+      // A press on the scrollbar itself: while an answer streams the height changes every frame,
+      // so the drag would never read as yours and the spring would pull against it.
+      if (event.target === list && event.offsetX >= list.clientWidth) detach();
+      else if ((event.target as HTMLElement | null)?.closest('button, summary, a')) detach();
     };
 
     const sizes = new ResizeObserver(schedule);
@@ -156,11 +159,13 @@ export function useChatScroll(listRef: RefObject<HTMLDivElement | null>, reserve
     const watchChildren = () => {
       for (const child of Array.from(list.children)) sizes.observe(child);
     };
+    // Only messages arriving or leaving: growth inside a message reaches the ResizeObserver on its
+    // row, so watching every text change would just add layout work to each streamed chunk.
     const content = new MutationObserver(() => {
       watchChildren();
       schedule();
     });
-    content.observe(list, { childList: true, subtree: true, characterData: true });
+    content.observe(list, { childList: true });
     watchChildren();
     list.addEventListener('scroll', onScroll, { passive: true });
     list.addEventListener('wheel', onWheel, { passive: true });

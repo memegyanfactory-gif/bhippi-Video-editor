@@ -50,6 +50,9 @@ const EXACT_SEEK_TIMEOUT = 4000;
 /** An export frame gives up on footage that has not loaded (or sought) by then. */
 const FOOTAGE_TIMEOUT = 20000;
 
+/** The bank's key for a video element: the URL for lane 0, a lane-tagged URL for the others. */
+const videoKey = (url: string, lane: number) => (lane ? `${url}#lane${lane}` : url);
+
 /** `wait`, or a rejection naming `url` once FOOTAGE_TIMEOUT passes without it settling. */
 function loaded<T>(wait: Promise<T>, url: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -138,6 +141,8 @@ export class MediaBank {
   /** Image-sequence frames (a Blender render…), decoded: least recently used first, never unbounded. */
   private seqFrames = new Map<string, FrameEntry>();
   private seqBytes = 0;
+  /** Counts disposals: a load begun before one is not retried after it. */
+  private generation = 0;
   private listeners = new Set<(everything: boolean) => void>();
   private onFrame = () => { for (const listener of this.listeners) listener(false); };
   /** The frame rate draws run at (the renderer sets it): a video within half a frame of the time asked for shows that time. */
@@ -241,8 +246,14 @@ export class MediaBank {
    */
   listen(listener: (everything: boolean) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
 
-  private video(url: string): VideoEntry {
-    let entry = this.videos.get(url);
+  /**
+   * The element showing `url`. Lane 0 is the one the preview runs; an export draw gives each other
+   * moment of the same file on screen together (a dissolve between two cuts of one recording, the
+   * same clip twice) a lane of its own, since one element can only sit on one frame.
+   */
+  private video(url: string, lane = 0): VideoEntry {
+    const key = videoKey(url, lane);
+    let entry = this.videos.get(key);
     if (entry) { entry.lastUsed = performance.now(); return entry; }
     const el = document.createElement('video');
     el.muted = true;
@@ -258,8 +269,35 @@ export class MediaBank {
     entry = { el, ready, lastUsed: performance.now(), width: 0, height: 0 };
     el.addEventListener('loadedmetadata', () => { entry!.width = el.videoWidth; entry!.height = el.videoHeight; });
     el.addEventListener('seeked', () => this.onFrame());
-    this.videos.set(url, entry);
+    this.videos.set(key, entry);
     return entry;
+  }
+
+  /** A video element that failed (a decoder error under load) is let go, so the next request opens the file afresh. */
+  private reopenIfFailed(url: string, lane: number) {
+    const key = videoKey(url, lane);
+    const entry = this.videos.get(key);
+    if (!entry?.el.error) return;
+    entry.el.removeAttribute('src');
+    entry.el.load();
+    this.videos.delete(key);
+  }
+
+  /**
+   * An image-sequence frame decoded for an export draw. A decode that came back empty (a fetch the
+   * asset protocol refused for a moment) or a frame dropped while it decoded left the draw without
+   * it; such a frame is fetched again.
+   */
+  private async sequenceExact(url: string): Promise<void> {
+    const generation = this.generation;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const entry = this.sequenceImage(url);
+      await entry.ready;
+      // Let go with everything else (dispose): nobody is drawing it now.
+      if (this.generation !== generation) return;
+      if (entry.width && !entry.dropped) return;
+      if (this.seqFrames.get(url) === entry) this.dropSequenceFrame(url, entry);
+    }
   }
 
   private image(url: string, map = this.images): ImageEntry {
@@ -336,10 +374,17 @@ export class MediaBank {
     const waits: Promise<unknown>[] = [ensureFonts(scene)];
     // Library characters are drawn by the Characters room's engine, loaded on first use.
     if (sceneHasStudio(scene.layers)) waits.push(loadStudio());
+    // The moments of each video file this draw shows, one lane (element) per moment.
+    const lanes = new Map<string, number[]>();
+    const near = 0.5 / this.fps;
     for (const { layer, time, resolved } of this.footage(scene, t)) {
-      if (resolved.seq) { waits.push(loaded(this.sequenceImage(resolved.url).ready, resolved.url)); continue; }
+      if (resolved.seq) { waits.push(loaded(this.sequenceExact(resolved.url), resolved.url)); continue; }
       if (resolved.kind === 'image') { waits.push(loaded(this.image(resolved.url).ready, resolved.url)); continue; }
-      const entry = this.video(resolved.url);
+      const moments = lanes.get(resolved.url) ?? [];
+      let lane = moments.findIndex((at) => Math.abs(at - time) <= near);
+      if (lane < 0) { lane = moments.length; moments.push(time); lanes.set(resolved.url, moments); }
+      this.reopenIfFailed(resolved.url, lane);
+      const entry = this.video(resolved.url, lane);
       waits.push(loaded(entry.ready, resolved.url).then(() => loaded(seekExact(entry.el, time, options.presented ?? true), resolved.url)));
       if (layer.source.matte) {
         const path = layer.source.matte;
@@ -406,13 +451,17 @@ export class MediaBank {
       if (!entry.el.complete || !entry.width) return null;
       return { image: entry.el, width: entry.width, height: entry.height, key: resolved.url };
     }
-    const entry = this.video(resolved.url);
-    if (entry.el.readyState < 2 || !entry.el.videoWidth) return null;
-    // The element shows another moment (another layer's, or it is still seeking): not this
-    // layer's frame. A playing one runs within syncPreview's drift allowance of the playhead.
-    const off = Math.abs(entry.el.currentTime - (Number.isFinite(entry.el.duration) ? Math.min(time, entry.el.duration - 1e-3) : time));
-    if (entry.el.seeking || off > (entry.el.paused ? 0.5 / this.fps : 0.25)) return null;
-    return { image: entry.el, width: entry.el.videoWidth, height: entry.el.videoHeight, key: `${resolved.url}@${entry.el.currentTime.toFixed(4)}` };
+    // Lane 0 first (the preview's), then any lane an export draw opened for another moment.
+    for (let lane = 0; ; lane++) {
+      const entry = lane === 0 ? this.video(resolved.url) : this.videos.get(videoKey(resolved.url, lane));
+      if (!entry) return null;
+      if (entry.el.readyState < 2 || !entry.el.videoWidth) continue;
+      // The element shows another moment (another layer's, or it is still seeking): not this
+      // layer's frame. A playing one runs within syncPreview's drift allowance of the playhead.
+      const off = Math.abs(entry.el.currentTime - (Number.isFinite(entry.el.duration) ? Math.min(time, entry.el.duration - 1e-3) : time));
+      if (entry.el.seeking || off > (entry.el.paused ? 0.5 / this.fps : 0.25)) continue;
+      return { image: entry.el, width: entry.el.videoWidth, height: entry.el.videoHeight, key: `${videoKey(resolved.url, lane)}@${entry.el.currentTime.toFixed(4)}` };
+    }
   }
 
   /** The image-sequence frame for `time`: the exact one, else (preview) the nearest loaded one while it loads. */
@@ -493,6 +542,7 @@ export class MediaBank {
   }
 
   dispose() {
+    this.generation++;
     for (const { el } of this.videos.values()) { el.pause(); el.removeAttribute('src'); el.load(); }
     this.videos.clear();
     this.images.clear();

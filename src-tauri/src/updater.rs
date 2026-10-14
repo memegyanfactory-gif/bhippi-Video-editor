@@ -1,7 +1,7 @@
 //! In-app updates from bhippi.com.
 //!
-//! `app/release` names the newest version (public); `app/download` streams its installer to a
-//! licensed copy of Bhippi, proven by the Google sign-in's token or the pasted key (license.rs).
+//! `app/release` names the newest version and `app/download` streams its installer; both are public,
+//! since Bhippi is free. A saved Google sign-in or pasted key (license.rs) is still sent along.
 //! The installer lands in the data folder's `updates` and is kept only when it is a newer version,
 //! a Windows program, and matches the SHA-256 (and size) the site published; without a published
 //! checksum nothing is kept. It runs only when the user says so: the NSIS installer in silent
@@ -351,10 +351,8 @@ async fn unless_stopped<T>(cancel: &mut watch::Receiver<bool>, idle: Duration, s
 }
 
 async fn download(app: &AppHandle, cancel: &mut watch::Receiver<bool>) -> CommandResult<String> {
+    // Bhippi is free, so bhippi.com sends the update to every copy; a saved sign-in is only passed along.
     let (token, key) = license::credentials();
-    if token.is_none() && key.is_none() {
-        return Err("Sign in to Bhippi to download updates.".to_owned());
-    }
     let mut request = client(None).post(format!("{}/app/download", license::api_base())).json(&json!({ "key": key, "device": license::device(app) }));
     if let Some(token) = &token {
         request = request.bearer_auth(token);

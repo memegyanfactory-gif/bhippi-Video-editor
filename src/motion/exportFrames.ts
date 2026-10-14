@@ -29,6 +29,35 @@ function previewSurface() {
   };
 }
 
+/** Draws a frame may take before it is written with a picture still missing; after one that ran out, later frames of the clip get this many. */
+const FRAME_ATTEMPTS = 6;
+const FRAME_ATTEMPTS_AFTER_MISS = 2;
+
+/**
+ * Scene time `t` drawn with every footage, sequence and matte frame it shows. A draw that had to
+ * leave a picture out (a seek that timed out while the machine was busy, a frame file the decoder
+ * refused for a moment) used to be written as it was: an empty or black frame in the export where
+ * the preview, which draws again as soon as the picture arrives, looked right. Such a draw is
+ * prepared and made again, waiting a little longer each time. One still missing a picture after
+ * that is written as drawn (the source is really gone, as the preview shows it), and `patience`
+ * drops so a clip whose file is missing does not redraw every frame six times.
+ */
+async function exactPixels(renderer: MotionRenderer, scene: MotionSource['scene'], t: number, options: { scale: number; fps: number }, patience: { attempts: number }, cancelled: () => void) {
+  for (let attempt = 1; ; attempt++) {
+    await renderer.bank.prepareExact(scene, t);
+    cancelled();
+    const px = renderer.pixels(scene, t, { scale: options.scale, fps: options.fps, motionBlur: true });
+    if (!renderer.incomplete && !renderer.approximate) return px;
+    if (attempt >= patience.attempts) {
+      console.warn(`Bhippi export: scene frame at ${t.toFixed(3)} s drawn with ${renderer.incomplete + renderer.approximate} picture(s) not loaded`);
+      patience.attempts = FRAME_ATTEMPTS_AFTER_MISS;
+      return px;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 40 * attempt));
+    cancelled();
+  }
+}
+
 /** An off-screen renderer for export frames. */
 function exportRenderer(assets: Asset[]): MotionRenderer {
   const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : document.createElement('canvas');
@@ -58,15 +87,14 @@ export async function renderMotionClipFrames(source: MotionSource, clip: Clip, c
   try {
     // Frame i's PNG is encoded (on workers) and written while frame i+1 renders.
     writer = await openFrameWriter(dir, (done) => options.onProgress?.(done, frames), options.signal, options.onInflight);
+    const patience = { attempts: FRAME_ATTEMPTS };
     for (let index = first; index <= last; index++) {
       cancelled();
       const local = index / fps;
       // The preview's scene time (Compositor 'motion': sourceTimeAt, held inside the scene) — a
       // frame hold is clamped the same way, so a hold past the scene's end shows its last frame.
       const t = Math.max(0, Math.min(scene.duration - 1e-3, clip.hold !== null ? clip.hold : clip.in + (clip.reverse ? clip.duration - local : local) * clip.speed));
-      await renderer.bank.prepareExact(scene, t);
-      cancelled();
-      const px = renderer.pixels(scene, t, { scale, fps, motionBlur: true });
+      const px = await exactPixels(renderer, scene, t, { scale, fps }, patience, cancelled);
       size = { width: px.width, height: px.height };
       if (options.onCanvas) options.onCanvas(preview(px.width, px.height, px.data));
       await writer.pixels(index, px.width, px.height, px.data);
@@ -244,12 +272,12 @@ export async function renderMotionStill(project: Project, compId: string, times:
       const scene = target.source.scene;
       const dir = await api.mogrtFramesBegin(`${clip.id}-still`);
       const writer = await openFrameWriter(dir, () => undefined);
+      const patience = { attempts: FRAME_ATTEMPTS };
       try {
         for (const index of indices) {
           const local = index / fps;
           const sceneTime = Math.max(0, Math.min(scene.duration - 1e-3, clip.hold !== null ? clip.hold : clip.in + (clip.reverse ? clip.duration - local : local) * clip.speed));
-          await renderer.bank.prepareExact(scene, sceneTime);
-          const px = renderer.pixels(scene, sceneTime, { scale: 1, fps, motionBlur: true });
+          const px = await exactPixels(renderer, scene, sceneTime, { scale: 1, fps }, patience, () => undefined);
           await writer.pixels(index, px.width, px.height, px.data);
         }
         await writer.finish();
