@@ -24,5 +24,6 @@ export function harnessRefusal(id: HarnessId, name: string): string | null {
 
 /** The toolset a harness's chat sends: its tools whole, no genres, no playbook. */
 export function harnessToolset(id: HarnessId): Toolset {
-  return { genres: [], full: [...harnessTools(id)] };
+  const tools = [...harnessTools(id)];
+  return { genres: [], full: tools, core: tools };
 }

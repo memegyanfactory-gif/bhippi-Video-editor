@@ -195,6 +195,7 @@ mod tests {
             name: "add_text".to_owned(),
             description: "Adds a text clip".to_owned(),
             input_schema: serde_json::json!({"type": "object"}),
+            defer: false,
         }];
         let body = provider.request_body(&req);
         assert_eq!(body["tools"][0]["function"]["name"], "add_text");

@@ -580,7 +580,8 @@ export type TurnFault = {
   detail: string;
 };
 
-export type Usage = { inputTokens: number; outputTokens: number };
+/** `inputTokens` counts every input token; of those, `cacheReadTokens` came from the prompt cache and `cacheWriteTokens` were written to it. */
+export type Usage = { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 
 export type ChatEvent =
   | { event: 'start'; turnId: string; providerId: string; providerLabel: string; model: string | null }

@@ -47,6 +47,10 @@ pub struct ToolSpec {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
+    /// Sent whole but kept out of the model's context until it finds the tool with the API's
+    /// tool search (Anthropic `defer_loading`). Backends without tool search never get one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub defer: bool,
 }
 
 /// One tool call a model made, with its arguments complete.
@@ -199,6 +203,10 @@ impl ToolActivity {
 #[derive(Clone, Debug)]
 pub struct CompletionRequest {
     pub system: String,
+    /// Where in `system` the part that changes from turn to turn begins (the project summary).
+    /// Everything before it is the same on every turn, so a backend with prompt caching caches
+    /// it on its own and reads it back on the next turn instead of writing it again.
+    pub system_volatile_from: Option<usize>,
     pub messages: Vec<Message>,
     pub max_tokens: u32,
     pub temperature: f32,
@@ -234,6 +242,7 @@ impl CompletionRequest {
     pub fn new(system: impl Into<String>, messages: Vec<Message>) -> Self {
         Self {
             system: system.into(),
+            system_volatile_from: None,
             messages,
             max_tokens: 4096,
             temperature: 0.4,
@@ -276,7 +285,8 @@ pub enum Delta {
     },
     /// A whole thinking (or redacted thinking) block once it closes, signature included, for
     /// the caller to hand back unchanged on the next tool round. Never shown: its words already
-    /// streamed as `Thinking`.
+    /// streamed as `Thinking`. A server tool's call and result (the API's tool search) travel
+    /// the same way: they too must go back byte for byte, in the order they came.
     ThinkingBlock {
         block: serde_json::Value,
     },
@@ -289,9 +299,15 @@ pub enum Delta {
         detail: String,
         done: bool,
     },
+    /// `input_tokens` counts every input token, cached or not; the two cache counts say how many
+    /// of them were read from the prompt cache (billed at a tenth or less) and written to it.
     Usage {
         input_tokens: u64,
         output_tokens: u64,
+        #[serde(default)]
+        cache_read_tokens: u64,
+        #[serde(default)]
+        cache_write_tokens: u64,
     },
     /// A native tool call whose arguments have finished streaming. Emitted once per call,
     /// in the order the model made them; the caller runs it and continues the conversation.
@@ -488,6 +504,8 @@ pub fn parse_ollama_ndjson(text: &str) -> (Vec<Delta>, bool) {
                     .get("eval_count")
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or_default(),
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
             });
             deltas.push(Delta::Done {
                 stop_reason: StopReason::Completed,
@@ -522,7 +540,9 @@ mod tests {
                 },
                 Delta::Usage {
                     input_tokens: 9,
-                    output_tokens: 21
+                    output_tokens: 21,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
                 },
                 Delta::Done {
                     stop_reason: StopReason::Completed
@@ -568,6 +588,8 @@ mod tests {
         let delta = Delta::Usage {
             input_tokens: 3,
             output_tokens: 4,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
         };
         let value = serde_json::to_value(&delta).unwrap_or_default();
         assert_eq!(value["kind"], "usage");

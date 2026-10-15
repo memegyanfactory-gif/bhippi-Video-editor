@@ -40,6 +40,17 @@ function save(ledger: Ledger) {
   }
 }
 
+/**
+ * A turn's input as it is billed: tokens read from the prompt cache cost a tenth, tokens written
+ * to it a quarter more. Counted whole, a long cached turn read as millions of tokens, and the
+ * budget told the model to wrap up early over input that cost almost nothing.
+ */
+export function billedInput(usage: { inputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number }): number {
+  const read = Math.max(0, usage.cacheReadTokens ?? 0);
+  const write = Math.max(0, usage.cacheWriteTokens ?? 0);
+  return Math.max(0, Math.round(usage.inputTokens - read * 0.9 + write * 0.25));
+}
+
 /** The ledger key for a project: its folder, or one bucket for unsaved work. */
 export const projectKey = (folder: string | null | undefined) => (folder && folder.trim() ? folder.trim().toLowerCase() : 'unsaved');
 

@@ -114,9 +114,20 @@ const MAX_ROUNDS: usize = 120;
 
 /// A tool result larger than this, serialised, has its long strings shortened before the model
 /// reads it: every result stays in the conversation for all the rounds after it.
-const RESULT_BUDGET: usize = 48 * 1024;
+const RESULT_BUDGET: usize = 32 * 1024;
 /// Strings longer than this are shortened when a result is over [`RESULT_BUDGET`].
 const LONG_STRING: usize = 4 * 1024;
+/// No result is kept larger than this (see `shorten_result`).
+const RESULT_CAP: usize = 40 * 1024;
+/// Replies cut off at the output limit that are carried on automatically before the turn stops.
+const MAX_CONTINUATIONS: usize = 3;
+/// What the model is told when its reply hit the output limit (or a server tool paused the turn).
+const CONTINUE_CUT_OFF: &str = "Your last reply hit the output limit and was cut off. Carry on directly from where it stopped: no apology, no recap. Keep each reply shorter: split large work into several smaller tool calls.";
+/// Frame images one turn sends at most: every image stays in the conversation for all later rounds.
+const MAX_TURN_IMAGES: usize = 36;
+
+/// Told to a model whose tools outside the core are deferred behind the API's tool search.
+const TOOL_SEARCH_NOTE: &str = "## Finding tools\nOnly the core tools are loaded. Every other Bhippi tool is a search away: search the tool catalogue by name or purpose (\"color grade\", \"voiceover\", \"lottie\") and the tool you find loads whole, ready to call; `tool_help` is not needed for them. When this guide names a tool you do not see, search for it.\n\n";
 
 /// What a tool call cut off at the output limit is answered with instead of running.
 const CUT_OFF_CALL: &str = "your reply hit the output limit while writing this call, so its arguments were cut off and nothing ran. Resend it more compactly (fewer items per call / patches).";
@@ -209,8 +220,12 @@ pub struct TurnFault {
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
+    /// Every input token, cached or not (what the provider counted).
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Of `input_tokens`, read from the prompt cache (billed at a tenth or less) and written to it.
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
 }
 
 // Events are serialised and emitted immediately, never stored, so variant size is moot.
@@ -475,8 +490,12 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     let mut shown = req.context.clone();
     if let Some(toolset) = shown.get_mut("toolset").and_then(Value::as_object_mut) {
         toolset.remove("full");
+        toolset.remove("core");
     }
-    let context = serde_json::to_string_pretty(&shown).unwrap_or_default();
+    // Compact: the summary is read by a model, and indentation was a quarter of its tokens.
+    let context = serde_json::to_string(&shown).unwrap_or_default();
+    // The API's tool search defers every tool outside the phase's core (native rounds only).
+    let searching = mode == ToolMode::Native && harness_of(req).is_none() && tool_search(row, req.model.as_deref());
     let styles = crate::caption_styles::all()
         .iter()
         .map(|style| format!("`{}` {} ({})", style.id, style.label, style.category))
@@ -505,6 +524,11 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
                 base.push_str("\n\n");
                 base.push_str(&section);
             }
+        }
+    }
+    if searching {
+        if let Some(at) = base.find(SUMMARY_HEADING) {
+            base.insert_str(at, TOOL_SEARCH_NOTE);
         }
     }
     let mut system = base.replace("{{STYLES}}", &styles).replace("{{CONTEXT}}", &context);
@@ -578,6 +602,9 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     let mut user_message = Message::user(req.message.trim().to_owned());
     user_message.images = req.images.clone();
     messages.push(user_message);
+    // Everything before the project summary is the same turn after turn (the handoff and a CLI's
+    // transcript come after it), so a backend with prompt caching keeps that part on its own.
+    let volatile_from = system.find(SUMMARY_HEADING);
     let mut request = CompletionRequest::new(system, messages)
         .with_model(req.model.clone())
         .with_effort(harness.map_or_else(|| req.effort.clone(), |h| h.effort(req.effort.clone())));
@@ -589,9 +616,14 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     request.sealed = harness.is_some();
     request.workspace = req.workspace.clone();
     request.resume = req.resume_session.clone();
+    request.system_volatile_from = volatile_from;
     if mode == ToolMode::Native {
         request.tools = match harness {
             Some(harness) => harness.catalogue(),
+            None if searching => match ai_tools::loaded_from(&req.context) {
+                Some(loaded) => ai_tools::deferred_catalogue(&loaded),
+                None => ai_tools::catalogue_for(None),
+            },
             None => ai_tools::catalogue_for(ai_tools::toolset_from(&req.context).as_ref()),
         };
         request.max_tokens = output_cap(row, request.model.as_deref());
@@ -634,9 +666,25 @@ fn output_cap(row: &ProviderInfo, model: Option<&str>) -> u32 {
         8_192
     } else if ["claude-3-opus", "claude-3-sonnet", "claude-3-haiku"].iter().any(|old| model.contains(old)) {
         4_096
-    } else {
+    } else if ["claude-opus-4-0", "claude-opus-4-1", "claude-opus-4-2025"].iter().any(|old| model.contains(old)) {
         32_000
+    } else {
+        // Adaptive thinking spends from this same cap, so 32k ended long-thinking rounds before
+        // any tool call ("cut off at the model's output limit"). Claude 4.5 and later output 64k
+        // (the 4.6+ and 5.x models up to 128k; 64k is the streaming recommendation).
+        64_000
     }
+}
+
+/// Whether the API's tool search can defer this turn's tools: the Anthropic API itself, on a
+/// model that has it (Claude 4.5 and later; not Claude 3, Opus 4 / 4.1 or Sonnet 4).
+fn tool_search(row: &ProviderInfo, model: Option<&str>) -> bool {
+    let anthropic = bhippi_providers::spec(&row.id).is_some_and(|spec| matches!(spec.api, Api::Anthropic));
+    let model = model.or(row.models.first().map(String::as_str)).unwrap_or_default().to_ascii_lowercase();
+    anthropic
+        && model.starts_with("claude-")
+        && !model.contains("claude-3")
+        && !["claude-opus-4-0", "claude-opus-4-1", "claude-opus-4-2025", "claude-sonnet-4-0", "claude-sonnet-4-2025"].iter().any(|old| model.contains(old))
 }
 
 /// Shortens a tool result the model would otherwise carry for the rest of the turn: when it is
@@ -644,10 +692,10 @@ fn output_cap(row: &ProviderInfo, model: Option<&str>) -> u32 {
 /// the size of the cut in between. The fields the model steers by stay whole, and so does a message
 /// the user sent mid-turn (src/chat/steer.ts).
 pub(crate) fn shorten_result(result: &mut Value) {
-    fn walk(value: &mut Value) {
+    fn walk(value: &mut Value, long: usize) {
         match value {
-            Value::String(text) if text.len() > LONG_STRING => {
-                let keep = LONG_STRING / 3;
+            Value::String(text) if text.len() > long => {
+                let keep = long / 3;
                 let mut head = keep;
                 while !text.is_char_boundary(head) {
                     head -= 1;
@@ -658,11 +706,11 @@ pub(crate) fn shorten_result(result: &mut Value) {
                 }
                 *text = format!("{}…{} bytes omitted…{}", &text[..head], tail - head, &text[tail..]);
             }
-            Value::Array(items) => items.iter_mut().for_each(walk),
+            Value::Array(items) => items.iter_mut().for_each(|item| walk(item, long)),
             Value::Object(map) => {
                 for (key, item) in map.iter_mut() {
-                    if !matches!(key.as_str(), "ok" | "summary" | "error" | "id" | "userMessage") {
-                        walk(item);
+                    if !STEERING.contains(&key.as_str()) {
+                        walk(item, long);
                     }
                 }
             }
@@ -670,7 +718,30 @@ pub(crate) fn shorten_result(result: &mut Value) {
         }
     }
     if result.to_string().len() > RESULT_BUDGET {
-        walk(result);
+        walk(result, LONG_STRING);
+    }
+    // Many medium strings (a scene's every layer, a comp's every clip) stay over the budget after
+    // that: a 1 MB scene used to ride along for the rest of the turn. Past the cap, shorter cuts,
+    // and then only the start of the rest is kept, with what to ask for instead.
+    if result.to_string().len() > RESULT_CAP {
+        walk(result, LONG_STRING / 4);
+    }
+    let size = result.to_string().len();
+    if size > RESULT_CAP {
+        let Value::Object(map) = result else { return };
+        let (steering, rest): (serde_json::Map<String, Value>, serde_json::Map<String, Value>) =
+            std::mem::take(map).into_iter().partition(|(key, _)| STEERING.contains(&key.as_str()));
+        let rest = Value::Object(rest).to_string();
+        let mut end = (RESULT_CAP / 2).min(rest.len());
+        while !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        *map = steering;
+        map.insert("partial".to_owned(), Value::String(rest[..end].to_owned()));
+        map.insert(
+            "truncated".to_owned(),
+            Value::String(format!("This result was {} KB, too large to keep for the rest of the turn; only its start is above. Ask for less: one scene, layer, clip or time range, or a summary.", size / 1024)),
+        );
     }
 }
 
@@ -1005,10 +1076,12 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                 }
                 // Bhippi draws tool rows from its own tool-call events, never from deltas.
                 Some(Ok(Delta::ToolCall { id, name, arguments })) => calls.push(ToolCall { id, name, arguments }),
-                Some(Ok(Delta::Usage { input_tokens, output_tokens })) => {
+                Some(Ok(Delta::Usage { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens })) => {
                     let usage = self.progress.usage.get_or_insert_with(Usage::default);
                     usage.input_tokens += input_tokens;
                     usage.output_tokens += output_tokens;
+                    usage.cache_read_tokens += cache_read_tokens;
+                    usage.cache_write_tokens += cache_write_tokens;
                 }
                 Some(Ok(delta)) => self.delta(delta),
                 Some(Err(error)) => return Err(Interrupt::Failed(error.reason)),
@@ -1034,8 +1107,12 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
     /// model answers without calling anything.
     async fn native(&mut self, provider: &dyn Provider, req: &ChatRequest, executor: &dyn ToolExecutor) {
         let mut request = build_request(req, self.row, ToolMode::Native);
-        let mut retries = 0;
+        let mut continuations = 0;
+        let mut images_sent = 0;
         for round in 0..self.max_rounds {
+            // Per round: a long turn used to share three retries across all its rounds, so the
+            // fourth blip of a half-hour edit ended it.
+            let mut retries = 0;
             let Round { text, calls, thinking, stop_reason } = loop {
                 let shown = self.progress.reply.len();
                 match self.round(provider, request.clone(), None).await {
@@ -1064,6 +1141,16 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
             };
             let cut_off = stop_reason == StopReason::MaxTokens;
             if calls.is_empty() {
+                // Cut off before any call (a long think spends the same cap) or paused by a server
+                // tool: the reply goes back as it is and the model carries on from it, instead of
+                // the turn ending and the person typing "continue".
+                if cut_off && continuations < MAX_CONTINUATIONS && !self.stopped() {
+                    continuations += 1;
+                    tracing::info!(provider = %self.row.id, continuations, "reply cut off at the output limit; continuing");
+                    request.messages.extend(assistant_turns(text, &calls, thinking));
+                    request.messages.push(Message::user(CONTINUE_CUT_OFF.to_owned()));
+                    continue;
+                }
                 if cut_off {
                     self.progress.notes.push("The reply was cut off at the model's output limit. Ask Bhippi AI to continue.".to_owned());
                 }
@@ -1083,8 +1170,18 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                     ai_tools::run_call(executor, &call.name, call.arguments.clone()).await
                 };
                 if let Some(serde_json::Value::Array(images)) = result.as_object_mut().and_then(|object| object.remove("images")) {
-                    let room = 6_usize.saturating_sub(visual_evidence.images.len());
+                    // Six a round, and a ceiling for the turn: every image stays in the conversation
+                    // for the rounds after it (it cannot be taken out later without breaking the
+                    // cache and the model's own thinking), so a QA-heavy turn carried dozens.
+                    let room = 6_usize.saturating_sub(visual_evidence.images.len()).min(MAX_TURN_IMAGES.saturating_sub(images_sent));
+                    let before = visual_evidence.images.len();
                     visual_evidence.images.extend(images.iter().filter_map(serde_json::Value::as_str).filter(|image| is_inline_image(image)).take(room).map(str::to_owned));
+                    images_sent += visual_evidence.images.len() - before;
+                    if room == 0 && !images.is_empty() {
+                        if let Some(object) = result.as_object_mut() {
+                            object.insert("imagesOmitted".to_owned(), json!(format!("{} frame image(s) not attached: this turn already carries {MAX_TURN_IMAGES}. Judge from the timestamps and the QA findings.", images.len())));
+                        }
+                    }
                 }
                 shorten_result(&mut result);
                 request.messages.push(Message::tool_result(call, result.to_string(), !ai_tools::is_ok(&result)));
@@ -1343,7 +1440,7 @@ pub async fn ask_once(row: &ProviderInfo, keys: &ApiKeys, req: AskRequest) -> Re
     while let Some(item) = stream.next().await {
         match item.map_err(|error| error.reason)? {
             Delta::Text { delta } => text.push_str(&delta),
-            Delta::Usage { input_tokens: sent, output_tokens: got } => {
+            Delta::Usage { input_tokens: sent, output_tokens: got, .. } => {
                 input_tokens += sent;
                 output_tokens += got;
             }
@@ -1415,14 +1512,14 @@ mod tests {
         req.context = json!({ "toolset": { "genres": ["saas"], "full": ["add_text", "tool_help", "get_comp"] } });
         let row = row_of("openai", ProviderKind::CloudApi, true);
         let native = super::build_request(&req, &row, super::ToolMode::Native);
-        let whole: Vec<&str> = native.tools.iter().filter(|tool| tool.input_schema.get("properties").is_some()).map(|tool| tool.name.as_str()).collect();
+        let whole: Vec<&str> = native.tools.iter().filter(|tool| !tool.description.ends_with("(params: tool_help)")).map(|tool| tool.name.as_str()).collect();
         assert!(whole.contains(&"add_text") && whole.contains(&"get_comp") && !whole.contains(&"color_grade"), "{whole:?}");
         let text = super::build_request(&req, &row, super::ToolMode::Text);
         assert!(text.system.contains("- `color_grade` — ") && text.system.contains("- `add_text`("));
         let args = super::bridge_args(4242, "tok", &req.context, None);
         let full = args.iter().find_map(|arg| arg.strip_prefix(crate::mcp::FULL_FLAG)).expect("the toolset reaches the bridge");
         let listed = crate::mcp::tool_list(Some(&crate::mcp::Scope { full: Some(full.split(',').map(str::to_owned).collect()), only: None }));
-        let bridged: Vec<&str> = listed["tools"].as_array().expect("tools").iter().filter(|tool| tool["inputSchema"].get("properties").is_some()).filter_map(|tool| tool["name"].as_str()).collect();
+        let bridged: Vec<&str> = listed["tools"].as_array().expect("tools").iter().filter(|tool| !tool["description"].as_str().unwrap_or_default().ends_with("(params: tool_help)")).filter_map(|tool| tool["name"].as_str()).collect();
         let mut native_sorted = whole.clone();
         native_sorted.sort_unstable();
         let mut bridged_sorted = bridged.clone();
@@ -1648,9 +1745,9 @@ kept
     #[tokio::test]
     async fn native_calls_run_in_order_and_their_results_go_back_until_the_model_is_done() {
         let provider = Scripted::new(vec![
-            Ok(vec![text("Checking."), tool("c1", "get_comp", json!({})), Delta::Usage { input_tokens: 10, output_tokens: 2 }]),
+            Ok(vec![text("Checking."), tool("c1", "get_comp", json!({})), Delta::Usage { input_tokens: 10, output_tokens: 2, cache_read_tokens: 0, cache_write_tokens: 0 }]),
             Ok(vec![tool("c2", "add_text", json!({"text": "Goa"})), tool("c3", "set_playhead", json!({"time": 1}))]),
-            Ok(vec![text("Added the title."), Delta::Usage { input_tokens: 30, output_tokens: 5 }]),
+            Ok(vec![text("Added the title."), Delta::Usage { input_tokens: 30, output_tokens: 5, cache_read_tokens: 0, cache_write_tokens: 0 }]),
         ]);
         let executor = FakeExecutor::new(|name, _| match name {
             "set_playhead" => json!({"ok": false, "error": "no comp"}),
@@ -1901,8 +1998,9 @@ kept
     }
 
     #[tokio::test]
-    async fn a_reply_cut_off_without_calls_says_so() {
-        let provider = Scripted::new(vec![Ok(vec![text("The plan is"), Delta::Done { stop_reason: StopReason::MaxTokens }])]);
+    async fn a_reply_cut_off_without_calls_carries_on_by_itself() {
+        let cut = || Ok(vec![text("The plan is"), Delta::Done { stop_reason: StopReason::MaxTokens }]);
+        let provider = Scripted::new(vec![cut(), Ok(vec![text(" done.")])]);
         let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
         let row = row_of("anthropic", ProviderKind::CloudApi, true);
         let req = request("plan it");
@@ -1910,8 +2008,66 @@ kept
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
         let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
         turn.native(&provider, &req, &executor).await;
+        assert!(turn.progress.notes.is_empty(), "{:?}", turn.progress.notes);
+        let seen = provider.seen();
+        assert_eq!(seen.len(), 2);
+        // The cut-off reply goes back as it was, followed by the instruction to carry on.
+        let sent = &seen[1].messages;
+        assert_eq!(sent[sent.len() - 2].content, "The plan is");
+        assert_eq!(sent[sent.len() - 1].content, super::CONTINUE_CUT_OFF);
+    }
+
+    #[tokio::test]
+    async fn a_reply_cut_off_again_and_again_stops_and_says_so() {
+        let cut = || Ok(vec![text("The plan is"), Delta::Done { stop_reason: StopReason::MaxTokens }]);
+        let provider = Scripted::new((0..=super::MAX_CONTINUATIONS).map(|_| cut()).collect());
+        let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
+        let row = row_of("anthropic", ProviderKind::CloudApi, true);
+        let req = request("plan it");
+        let (emit, _) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        turn.native(&provider, &req, &executor).await;
+        assert_eq!(provider.seen().len(), super::MAX_CONTINUATIONS + 1);
         assert_eq!(turn.progress.notes.len(), 1);
         assert!(turn.progress.notes[0].contains("cut off"), "{:?}", turn.progress.notes);
+    }
+
+    #[test]
+    fn on_the_anthropic_api_only_the_core_is_loaded_and_the_rest_waits_behind_tool_search() {
+        let mut req = request("make a saas ad");
+        req.context = json!({ "playhead": 1.5, "toolset": { "genres": ["saas"], "full": ["add_text", "tool_help", "get_comp", "online_research"], "core": ["add_text", "tool_help", "get_comp"] } });
+        let mut anthropic = row_of("anthropic", ProviderKind::CloudApi, true);
+        anthropic.models = vec!["claude-opus-5-5".to_owned()];
+        let native = build_request(&req, &anthropic, ToolMode::Native);
+        let loaded: Vec<&str> = native.tools.iter().filter(|tool| !tool.defer).map(|tool| tool.name.as_str()).collect();
+        assert_eq!(loaded.len(), 3, "{loaded:?}");
+        // Deferred tools go whole (the search needs their schemas), never as one-liners.
+        let deferred = native.tools.iter().find(|tool| tool.name == "online_research").expect("listed");
+        assert!(deferred.defer && !deferred.description.ends_with("(params: tool_help)"));
+        assert!(native.system.contains("## Finding tools"));
+        // The fixed part ends where the project summary begins; the summary is compact JSON.
+        let at = native.system_volatile_from.expect("split");
+        assert!(native.system[at..].starts_with(super::SUMMARY_HEADING));
+        assert!(!native.system[..at].contains("\"playhead\""));
+        assert!(!native.system.contains("\"core\""), "the name lists stay out of the prompt");
+        // Older models and other providers keep the slim catalogue.
+        anthropic.models = vec!["claude-3-5-haiku-20241022".to_owned()];
+        assert!(build_request(&req, &anthropic, ToolMode::Native).tools.iter().all(|tool| !tool.defer));
+        let openai = build_request(&req, &row_of("openai", ProviderKind::CloudApi, true), ToolMode::Native);
+        assert!(openai.tools.iter().all(|tool| !tool.defer) && !openai.system.contains("## Finding tools"));
+    }
+
+    #[test]
+    fn no_tool_result_rides_along_larger_than_the_cap() {
+        // A scene of many medium strings: shortening long strings alone leaves it huge.
+        let layers: Vec<serde_json::Value> = (0..600).map(|n| json!({ "id": format!("layer-{n}"), "note": "x".repeat(900) })).collect();
+        let mut result = json!({ "ok": true, "summary": "Scene read", "layers": layers });
+        super::shorten_result(&mut result);
+        assert!(result.to_string().len() <= super::RESULT_CAP + 1024, "{}", result.to_string().len());
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["summary"], "Scene read");
+        assert!(result["truncated"].as_str().is_some_and(|note| note.contains("Ask for less")));
     }
 
     /// run_frame_qa's contact frames are PNGs; they reach a vision model like JPEG frames do.
@@ -1980,8 +2136,10 @@ kept
         let req = request("hi");
         let mut anthropic = row_of("anthropic", ProviderKind::CloudApi, true);
         let native = build_request(&req, &anthropic, ToolMode::Native);
-        assert_eq!(native.max_tokens, 32_000);
+        assert_eq!(native.max_tokens, 64_000);
         assert!(native.timeout >= std::time::Duration::from_secs(20 * 60));
+        anthropic.models = vec!["claude-opus-4-1-20250805".to_owned()];
+        assert_eq!(build_request(&req, &anthropic, ToolMode::Native).max_tokens, 32_000);
         anthropic.models = vec!["claude-3-5-haiku-20241022".to_owned()];
         assert_eq!(build_request(&req, &anthropic, ToolMode::Native).max_tokens, 8_192);
         anthropic.models = vec!["claude-3-opus-20240229".to_owned()];
@@ -2030,7 +2188,7 @@ kept
         assert!(!native.tools.is_empty() && text.tools.is_empty() && mcp.tools.is_empty());
         for request in [&native, &text, &mcp] {
             assert!(!request.system.contains("{{"), "every placeholder is filled");
-            assert!(request.system.contains("\"playhead\": 1.5"), "the context is in the prompt");
+            assert!(request.system.contains("\"playhead\":1.5"), "the context is in the prompt");
         }
         assert!(text.system.contains("`add_text`(") && !native.system.contains("```bhippi-tools"));
         assert!(
@@ -2070,7 +2228,7 @@ Only licence-clear media.".to_owned());
             let fence = system.find("## ACTIVE EDIT STYLE").expect("fence");
             assert!(system.find("You are **Bhippi AI**").expect("house prompt") < fence, "after the house rules");
             assert!(fence < system.find("## Project summary").expect("summary"), "before the project summary");
-            assert!(!system.contains("{{") && system.contains("\"playhead\": 1.5"));
+            assert!(!system.contains("{{") && system.contains("\"playhead\":1.5"));
         }
     }
 

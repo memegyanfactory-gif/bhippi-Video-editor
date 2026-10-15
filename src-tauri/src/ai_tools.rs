@@ -72,6 +72,7 @@ pub fn slim(tool: &ToolSpec) -> ToolSpec {
         name: tool.name.clone(),
         description: format!("{} (params: tool_help)", first_sentence(&tool.description)),
         input_schema: json!({ "type": "object", "properties": {} }),
+        defer: false,
     }
 }
 
@@ -83,6 +84,24 @@ pub fn catalogue_for(full: Option<&Toolset>) -> Vec<ToolSpec> {
             Some(set) if !set.contains(&tool.name) => slim(tool),
             _ => tool.clone(),
         })
+        .collect()
+}
+
+/// The tools that stay loaded where the provider has tool search: the phase's core
+/// (`context.toolset.core`), else the whole toolset. `None` without a router.
+pub fn loaded_from(context: &Value) -> Option<Toolset> {
+    let names = context.pointer("/toolset/core").and_then(Value::as_array);
+    let set: Toolset = names.into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+    if set.is_empty() { toolset_from(context) } else { Some(set) }
+}
+
+/// The catalogue for a provider with tool search: `loaded` whole, every other tool whole too
+/// but deferred, so the model finds it by searching (its full schema loads the moment it is
+/// found) instead of reading a one-liner and spending a round on `tool_help`.
+pub fn deferred_catalogue(loaded: &Toolset) -> Vec<ToolSpec> {
+    specs()
+        .iter()
+        .map(|tool| ToolSpec { defer: !loaded.contains(&tool.name), ..tool.clone() })
         .collect()
 }
 
@@ -571,7 +590,7 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use super::{
-        catalogue_for, compact_catalogue, extract_calls, is_known, run_call, specs, testing::FakeExecutor, EventExecutor,
+        catalogue_for, compact_catalogue, deferred_catalogue, loaded_from, extract_calls, is_known, run_call, specs, testing::FakeExecutor, EventExecutor,
         toolset_from, without_echo, FenceFilter, PendingCalls, ToolCallEvent, ToolExecutor,
     };
     use serde_json::json;
@@ -608,13 +627,28 @@ mod tests {
         assert_eq!(add_text.input_schema["required"], json!(["text"]));
         let grade = tools.iter().find(|tool| tool.name == "color_grade").expect("color_grade");
         assert!(grade.description.contains("tool_help"));
-        assert!(grade.input_schema.get("properties").is_none());
+        assert_eq!(grade.input_schema["properties"], json!({}), "no parameters until tool_help");
         let whole: usize = specs().iter().map(|tool| serde_json::to_string(tool).map_or(0, |s| s.len())).sum();
         let slimmed: usize = tools.iter().map(|tool| serde_json::to_string(tool).map_or(0, |s| s.len())).sum();
         assert!(slimmed * 3 < whole, "slim catalogue {slimmed} B vs whole {whole} B");
         assert!(toolset_from(&json!({})).is_none());
         let compact = compact_catalogue(Some(&set));
         assert!(compact.contains("- `add_text`(") && compact.contains("text*: string") && compact.contains("- `color_grade` — "), "{compact}");
+    }
+
+    #[test]
+    fn with_tool_search_the_core_loads_and_every_other_tool_waits_whole() {
+        let context = json!({ "toolset": { "full": ["add_text", "tool_help", "color_grade"], "core": ["add_text", "tool_help"] } });
+        let loaded = loaded_from(&context).expect("a core");
+        assert_eq!(loaded.len(), 2);
+        let tools = deferred_catalogue(&loaded);
+        assert_eq!(tools.len(), specs().len(), "every tool stays callable");
+        assert_eq!(tools.iter().filter(|tool| !tool.defer).count(), 2);
+        let grade = tools.iter().find(|tool| tool.name == "color_grade").expect("color_grade");
+        assert!(grade.defer && !grade.description.contains("tool_help") && grade.input_schema.get("properties").is_some_and(|p| p.as_object().is_some_and(|map| !map.is_empty())));
+        // No core (an older client): the toolset stands in for it.
+        let older = loaded_from(&json!({ "toolset": { "full": ["add_text"] } })).expect("the toolset");
+        assert!(older.contains("add_text") && older.len() == 1);
     }
 
     #[tokio::test]

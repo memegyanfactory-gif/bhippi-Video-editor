@@ -772,6 +772,8 @@ async fn forward(tx: &mpsc::Sender<Result<Delta>>, event: TranscriptEvent) -> Op
         TranscriptEvent::Usage(counts) => Delta::Usage {
             input_tokens: counts.input,
             output_tokens: counts.output,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
         },
         TranscriptEvent::Tool {
             id,

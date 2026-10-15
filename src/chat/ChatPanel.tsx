@@ -17,7 +17,7 @@ import { ChatStatusBar, type AgentRun, type Connection } from './ChatStatusBar';
 import { UsageMeter } from './UsageMeter';
 import * as usage from '../lib/usage';
 import { recordUsageTurn } from '../lib/usageHistory';
-import { projectKey, recordTurn } from '../lib/tokenLedger';
+import { billedInput, projectKey, recordTurn } from '../lib/tokenLedger';
 import { routeTools, type Toolset } from '../lib/toolRouter';
 import { GUIDED_BRIEF, modelTier, type GuidedSetting } from '../lib/modelProfile';
 import type { HarnessId } from '../lib/harness';
@@ -471,6 +471,8 @@ ${text}` : text));
   const sendRef = useRef<(text: string, mode?: 'full' | 'quick') => void>(() => undefined);
   /** Turns that were themselves an automatic finishing round ('pending' marks the next one sent). */
   const autoFinished = useRef(new Set<string>());
+  /** Automatic gather rounds since the person last sent a message themselves. */
+  const autoGathers = useRef(0);
   /** Auto (the default) runs a request to make a video as Full and a targeted change as Quick; remembered. */
   const [workflowChoice, setWorkflowChoice] = useState<WorkflowChoice>(savedWorkflowChoice);
   const active = props.providers.find((provider) => provider.id === props.providerId);
@@ -705,7 +707,7 @@ ${text}` : text));
         if (event.usage) {
           const folder = (propsRef.current.getContext() as { projectFolder?: { path?: string } | null }).projectFolder?.path;
           const who = turnMeta.current.get(event.turnId)?.provider ?? `${propsRef.current.providerId ?? 'bhippi'} (subagent)`;
-          recordTurn(projectKey(folder), who, event.usage.inputTokens, event.usage.outputTokens);
+          recordTurn(projectKey(folder), who, billedInput(event.usage), event.usage.outputTokens);
           const meta = turnMeta.current.get(event.turnId);
           if (meta) recordUsageTurn(event.turnId, meta.providerId, meta.model, event.usage);
         }
@@ -781,6 +783,14 @@ ${text}` : text));
               autoFinished.current.add('pending');
               sendRef.current(finish);
             }, 400);
+          } else if (!event.stopped && !event.fault && status?.mode === 'full' && status.phase === 'gathering'
+            && (status.gather?.pending?.length ?? 0) > 0 && runs.length > 0 && autoGathers.current < MAX_AUTO_GATHERS) {
+            // Gathering stopped with shots still pending (the reply ran out, or the model wrote a
+            // progress report and ended): it carries on by itself a few times, as long as each turn
+            // did something, instead of waiting for the person to type "continue".
+            autoGathers.current += 1;
+            const more = `[Automatic gather round: the last turn ended with shots still pending.] ${continuePrompt(status)}`;
+            setTimeout(() => sendRef.current(more), 400);
           }
         }
       }
@@ -791,6 +801,7 @@ ${text}` : text));
   }, [patch]);
 
   const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick', resumeSession?: string) => {
+    if (!text.startsWith('[Automatic')) autoGathers.current = 0;
     const attachedImages=[...imagesRef.current];
     const attachedFiles=[...filesRef.current];
     // Annotations from the Program monitor go with the next message that starts a turn; mid-turn
@@ -1658,6 +1669,19 @@ const EMPTY_PROMPTS = ['Cut the dead air', 'Add bold captions', 'Make a 9:16 sho
  * the actual pending shots (from live production state, not the model's own stale plan) points it
  * at the one thing left to do.
  */
+const tokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+/** A turn's tokens under its answer: input with how much of it came from the prompt cache (billed at a tenth or less), and output. */
+function tokenLine(usage: Usage | null | undefined): string | null {
+  if (!usage || !(usage.inputTokens > 0)) return null;
+  const cached = usage.cacheReadTokens ?? 0;
+  const share = cached > 0 ? ` (${Math.round((cached / usage.inputTokens) * 100)}% cached)` : '';
+  return `${tokens(usage.inputTokens)} in${share} · ${tokens(usage.outputTokens)} out`;
+}
+
+/** Gather turns that carry on by themselves in a row before it waits for the person. */
+const MAX_AUTO_GATHERS = 3;
+
 function continuePrompt(status: WorkflowPhaseStatus): string {
   const phase = status?.phase ?? null;
   const shared = 'Call editing_workflow_status first and trust what it reports over anything you planned earlier — the project may already be further along than your last reply assumed.';
@@ -1685,7 +1709,7 @@ function workflowLine(workflow: WorkflowView, worked: boolean): { tone: 'ok' | '
   if (workflow.structurallyVerified) return { tone: 'ok', text: 'Workflow steps and timeline structure verified. Render, matte and audio quality still need review.' };
   if (workflow.nextUserAction === 'start-generating') return { tone: 'next', text: 'Plan saved. Review it above, then press Start generating.' };
   if (workflow.nextUserAction === 'start-editing') return { tone: 'next', text: 'Everything is gathered. Press Start editing when you are ready.' };
-  if (workflow.phase === 'gathering') return { tone: 'next', text: 'Gathering in progress. The assistant closes this phase with finish_gathering.' };
+  if (workflow.phase === 'gathering') return { tone: 'next', text: 'Gathering in progress: Bhippi AI carries on until every shot is in. If it stops, press Continue.' };
   return { tone: 'warn', text: 'The workflow is not finished — some stages have not run or could not be verified.' };
 }
 
@@ -1769,7 +1793,7 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
   const timelineChanges = changes > 0 ? changesProp : [];
   const line = streaming ? null : workflowLine(workflow, tools.length > 0);
   // The footer says which AI answered (each project keeps its own), the model and how long it took.
-  const meta = [message.providerLabel && message.providerLabel !== 'Bhippi' ? message.providerLabel : null, message.model, seconds].filter(Boolean).join(' · ');
+  const meta = [message.providerLabel && message.providerLabel !== 'Bhippi' ? message.providerLabel : null, message.model, seconds, tokenLine(message.usage)].filter(Boolean).join(' · ');
   const working = tools.some((run) => run.status === 'running') || message.steps.some((step) => !step.done);
   const thinkingLive = streaming && !visible && !working;
   // The mark plays "done" only for a turn seen finishing here, not for every answer a reload brings back.
@@ -1806,7 +1830,7 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
       {line && (
         <div className={`workflow-note ${line.tone}`} role="status">
           <span>{line.text}</span>
-          {line.tone === 'warn' && onContinue && (
+          {(line.tone === 'warn' || workflow?.phase === 'gathering') && onContinue && (
             <button type="button" className="workflow-continue" onClick={onContinue}>
               <Play size={10} /> Continue
             </button>

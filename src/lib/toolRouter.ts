@@ -129,7 +129,12 @@ function forPhase(full: Set<string>, phase: string | null | undefined) {
   // No production yet (a quick edit, or a plan about to start): every phase's tools stay whole.
 }
 
-export type Toolset = { genres: Genre[]; full: string[]; playbook?: { id: string; title: string; beats: unknown; look: unknown; timing: unknown; rules: unknown; gaps?: unknown; templates?: unknown; vary?: unknown } };
+/**
+ * `full`: the tools sent whole. `core`: the ones every turn of this phase uses, which stay loaded
+ * where the provider has tool search (Anthropic): everything else is deferred and found by
+ * searching, so the loaded list is the same from one message to the next and stays cached.
+ */
+export type Toolset = { genres: Genre[]; full: string[]; core: string[]; playbook?: { id: string; title: string; beats: unknown; look: unknown; timing: unknown; rules: unknown; gaps?: unknown; templates?: unknown; vary?: unknown } };
 
 /**
  * The kinds of video in this ask (the message first, then recent asks for a follow-up like
@@ -146,6 +151,9 @@ export function routeTools(message: string, earlier: string[] = [], editStyle?: 
   for (const genre of genres) for (const tool of GENRE_TOOLS[genre]) full.add(tool);
   if (guided) for (const tool of GUIDED_TOOLS) full.add(tool);
   forPhase(full, phase);
+  const core = new Set<string>(CORE_TOOLS);
+  if (guided) for (const tool of GUIDED_TOOLS) core.add(tool);
+  forPhase(core, phase);
   // A drawn look (riso, sketchbook, paper) opens with the hand-made playbook built from the drawn films.
   const drawn = /\b(hand[- ]?drawn|hand[- ]?made|riso|sketch(book)?|doodle|paper|ink|crayon|pencil)\b/i.test(`${message}\n${earlier.slice(-4).join('\n')}`);
   const film = FILM_SIGNALS.find(([, signal]) => signal.test(`${message}\n${earlier.slice(-4).join('\n')}`))?.[0];
@@ -156,6 +164,7 @@ export function routeTools(message: string, earlier: string[] = [], editStyle?: 
   return {
     genres,
     full: [...full],
+    core: [...core],
     ...(book ? { playbook: { id: book.id, title: book.title, beats: book.beats, look: book.look, timing: book.timing, rules: book.rules, ...(book.gaps ? { gaps: book.gaps } : {}), ...(book.templates ? { templates: book.templates } : {}), ...(book.vary ? { vary: book.vary } : {}) } } : {}),
   };
 }

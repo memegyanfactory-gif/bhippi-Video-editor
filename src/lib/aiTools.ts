@@ -1225,7 +1225,9 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
           maxRounds: num(args, 'maxRounds') ?? undefined,
           // A council seat works from its own brief and sees the project the lead sees.
           persona: member?.brief,
-          context: aiContext(project, assets, host.selection()),
+          // Routed from its own task like a chat turn: without a toolset every one of ~220 tools went
+          // out whole on each of the worker's rounds (~65 K tokens a round). The rest stay reachable.
+          context: { ...aiContext(project, assets, host.selection()), toolset: { ...routeTools(task), playbook: undefined } },
         });
         return done(`Spawned ${member ? `the ${member.name}` : 'subagent'} "${labelText}"`, { subagentId: result.subagentId, label: labelText, role: member?.id ?? null });
       } catch (err) {
@@ -1480,7 +1482,10 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const report = gatherReport({ ...comp, storyboard: scenes, production });
       return done(production.phase === 'plan-ready'
         ? `Plan saved: ${scenes.length} scenes, ${report.total} shot(s) to gather, music ${production.music?.source ?? 'none'}. The plan is now waiting for the user — END YOUR TURN with a short summary (script spine, shots, graphics, music). Do not generate media or edit the timeline; the user presses Start generating.`
-        : `Plan updated (${production.phase} phase): ${scenes.length} scenes, ${report.ready}/${report.total} shots ready.`, { scenes, production });
+        : `Plan updated (${production.phase} phase): ${scenes.length} scenes, ${report.ready}/${report.total} shots ready.`,
+        // Counts, not the plan: the model just wrote it, and echoing the parsed plan back (55 KB in
+        // a real turn) carried it a second time through every later round. get_comp reads it.
+        { scenes: scenes.length, shots: report.total, ready: report.ready, phase: production.phase, music: production.music?.source ?? null });
     }
     case 'save_video_blueprint': {
       const comp = pickComp(project, args);
@@ -1565,7 +1570,9 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
       const report = gatherReport({ ...comp, videoBlueprint: blueprint, production });
       return done(production.phase === 'plan-ready'
         ? `Blueprint saved: ${scenes.length} scenes, ${round(total)}s total, ${report.total} shot(s) to gather, music ${production.music?.source ?? 'none'}. The plan is now waiting for the user — END YOUR TURN with a short summary (script, shots, graphics, music). Do not generate media or edit the timeline; the user presses Start generating.`
-        : `Blueprint updated (${production.phase} phase): ${scenes.length} scenes, ${report.ready}/${report.total} shots ready.`, { blueprint, production });
+        : `Blueprint updated (${production.phase} phase): ${scenes.length} scenes, ${report.ready}/${report.total} shots ready.`,
+        // Counts, not the blueprint: see save_storyboard.
+        { scenes: scenes.length, seconds: round(total), shots: report.total, ready: report.ready, phase: production.phase, music: production.music?.source ?? null });
     }
     case 'execute_blueprint': {
       const comp = pickComp(project, args);

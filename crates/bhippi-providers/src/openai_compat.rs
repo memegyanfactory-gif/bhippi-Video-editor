@@ -349,6 +349,8 @@ pub fn parse_sse_data(payload: &str, calls: &mut ToolCalls) -> Vec<Delta> {
             out.push(Delta::Usage {
                 input_tokens: input,
                 output_tokens: output,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
             });
         }
     }
@@ -489,7 +491,9 @@ mod tests {
             deltas,
             vec![Delta::Usage {
                 input_tokens: 12,
-                output_tokens: 3
+                output_tokens: 3,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
             }]
         );
     }
@@ -579,6 +583,7 @@ mod tests {
             name: "set_playhead".to_owned(),
             description: "Moves the playhead".to_owned(),
             input_schema: serde_json::json!({"type": "object", "properties": {"time": {"type": "number"}}}),
+            defer: false,
         }];
         let body = provider.request_body(&req, "qwen");
         assert_eq!(body["tools"][0]["type"], "function");
@@ -599,6 +604,7 @@ mod tests {
             name: "slim_tool".to_owned(),
             description: "A tool".to_owned(),
             input_schema: serde_json::json!({"type": "object"}),
+            defer: false,
         }];
         let slim_body = provider.request_body(&slim_req, "qwen");
         assert_eq!(slim_body["tools"][0]["function"]["parameters"]["properties"], serde_json::json!({}));

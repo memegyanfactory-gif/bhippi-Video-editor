@@ -9,9 +9,50 @@ use crate::provider::Provider;
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const API_VERSION: &str = "2023-06-01";
 const LABEL: &str = "Anthropic API";
+/// The API's server-side tool search (BM25: the model searches in plain words), sent whenever
+/// any tool is deferred.
+const TOOL_SEARCH: &str = "tool_search_tool_bm25_20251119";
+const TOOL_SEARCH_NAME: &str = "tool_search_tool_bm25";
+
+/// The breakpoint for what stays the same across turns: the tools and the fixed system prompt.
+fn long_cache() -> serde_json::Value {
+    if PLAIN.load(Ordering::Relaxed) {
+        serde_json::json!({ "type": "ephemeral" })
+    } else {
+        serde_json::json!({ "type": "ephemeral", "ttl": "1h" })
+    }
+}
+
+/// Set once the API refused a request for its tool search or hour-long cache: from then on this
+/// session sends the older shape (deferred tools as one-liners, the 5-minute cache).
+static PLAIN: AtomicBool = AtomicBool::new(false);
+
+/// Whether a 400 is about one of the newer request features rather than the request itself.
+fn refuses_newer_shape(said: &str) -> bool {
+    let said = said.to_ascii_lowercase();
+    ["defer_loading", "tool_search", "tool_reference", "ttl"].iter().any(|word| said.contains(word))
+}
+
+/// `req` without deferred tools: each goes out as a one-liner whose parameters are a `tool_help`
+/// call away, the way every backend without tool search gets them.
+fn plain_request(req: &CompletionRequest) -> CompletionRequest {
+    let mut plain = req.clone();
+    for tool in plain.tools.iter_mut().filter(|tool| tool.defer) {
+        let cut = tool.description.find(". ").map_or(tool.description.len(), |at| at + 1);
+        let mut end = cut.min(72);
+        while !tool.description.is_char_boundary(end) {
+            end -= 1;
+        }
+        tool.description = format!("{} (params: tool_help)", &tool.description[..end]);
+        tool.input_schema = serde_json::json!({ "type": "object", "properties": {} });
+        tool.defer = false;
+    }
+    plain
+}
 
 /// Splits a saved Anthropic credential into the key and the workspace it must name.
 ///
@@ -162,9 +203,26 @@ impl AnthropicProvider {
         });
         // Prompt caching: the prefix (tools, then system, then the conversation so far) is the
         // same on every round of a tool loop, so it is marked for the cache and read back at a
-        // tenth of the price instead of paid in full each round.
+        // tenth of the price instead of paid in full each round. The tools and the fixed part of
+        // the system prompt are the same on every turn too, so they are kept for an hour: a turn
+        // spends minutes on renders and generations between rounds, and the person reads and
+        // types between turns, either of which outlasted the 5-minute entry and paid the whole
+        // prefix again. The project summary changes every turn, so it goes after that entry,
+        // uncached on its own (the moving breakpoints in `messages` still cover it within a turn).
         if !req.system.trim().is_empty() {
-            body["system"] = serde_json::json!([{ "type": "text", "text": req.system, "cache_control": { "type": "ephemeral" } }]);
+            let split = req
+                .system_volatile_from
+                .filter(|&at| at > 0 && at < req.system.len() && req.system.is_char_boundary(at));
+            body["system"] = match split {
+                Some(at) => {
+                    let (fixed, volatile) = req.system.split_at(at);
+                    serde_json::json!([
+                        { "type": "text", "text": fixed, "cache_control": long_cache() },
+                        { "type": "text", "text": volatile },
+                    ])
+                }
+                None => serde_json::json!([{ "type": "text", "text": req.system, "cache_control": long_cache() }]),
+            };
         }
         // Thinking, in the shape each model family takes. Adaptive models size their own
         // thinking inside `max_tokens` and are steered by effort; `budget_tokens` is a 400 there.
@@ -193,30 +251,52 @@ impl AnthropicProvider {
             }
         }
         if !req.tools.is_empty() {
-            body["tools"] = req
-                .tools
-                .iter()
-                .map(|tool| {
-                    let mut input_schema = tool.input_schema.clone();
-                    crate::openai_compat::sanitize_tool_parameters(&mut input_schema);
-                    serde_json::json!({
-                        "name": tool.name,
-                        "description": tool.description,
-                        "input_schema": input_schema,
-                    })
-                })
-                .collect();
-            if let Some(last) = body["tools"].as_array_mut().and_then(|tools| tools.last_mut()) {
-                last["cache_control"] = serde_json::json!({ "type": "ephemeral" });
+            let spec = |tool: &crate::model::ToolSpec| {
+                let mut input_schema = tool.input_schema.clone();
+                crate::openai_compat::sanitize_tool_parameters(&mut input_schema);
+                let mut entry = serde_json::json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": input_schema,
+                });
+                if tool.defer {
+                    entry["defer_loading"] = serde_json::Value::Bool(true);
+                }
+                entry
+            };
+            // Loaded tools first, the cache breakpoint on the last of them (a deferred tool may
+            // not carry one), then the deferred ones. With any deferred, the API's tool search
+            // leads the list: the model finds a deferred tool by searching, and the API appends
+            // its definition to the conversation without touching the cached prefix.
+            let (loaded, deferred): (Vec<_>, Vec<_>) = req.tools.iter().partition(|tool| !tool.defer);
+            let mut tools: Vec<serde_json::Value> = Vec::new();
+            if !deferred.is_empty() {
+                tools.push(serde_json::json!({ "type": TOOL_SEARCH, "name": TOOL_SEARCH_NAME }));
             }
+            tools.extend(loaded.into_iter().map(spec));
+            if let Some(last) = tools.last_mut() {
+                last["cache_control"] = long_cache();
+            }
+            tools.extend(deferred.into_iter().map(spec));
+            body["tools"] = serde_json::Value::Array(tools);
         }
-        if let Some(block) = body["messages"]
-            .as_array_mut()
-            .and_then(|messages| messages.last_mut())
-            .and_then(|message| message["content"].as_array_mut())
-            .and_then(|blocks| blocks.last_mut())
-        {
-            block["cache_control"] = serde_json::json!({ "type": "ephemeral" });
+        // Two moving breakpoints: the end of the conversation, and the end of the turn before it.
+        // A cache read looks back at most 20 blocks from a breakpoint for an earlier entry, and a
+        // round of several parallel calls (each a call and a result, plus thinking and frame
+        // images) adds more than that, which missed the last round's entry and wrote the whole
+        // history again. The second breakpoint sits where the previous round's request ended.
+        if let Some(messages) = body["messages"].as_array_mut() {
+            let count = messages.len();
+            for at in [count.checked_sub(1), count.checked_sub(3)].into_iter().flatten() {
+                // Only a user turn (text, results, images): an assistant turn can end on a thinking
+                // block or a server tool's result, which take no breakpoint.
+                if messages[at]["role"] != "user" {
+                    continue;
+                }
+                if let Some(block) = messages[at]["content"].as_array_mut().and_then(|blocks| blocks.last_mut()) {
+                    block["cache_control"] = serde_json::json!({ "type": "ephemeral" });
+                }
+            }
         }
         body
     }
@@ -237,9 +317,14 @@ struct PendingTool {
 struct StreamState {
     input: u64,
     output: u64,
+    cache_read: u64,
+    cache_write: u64,
     stop_reason: Option<StopReason>,
     tools: HashMap<u64, PendingTool>,
     thinking: HashMap<u64, serde_json::Value>,
+    /// A server tool's call (tool search) whose input is still streaming, and its result block:
+    /// both go back to the API unchanged, like thinking.
+    server: HashMap<u64, (serde_json::Value, String)>,
 }
 
 /// Turns one SSE `data:` payload into deltas. Pure + tested.
@@ -260,9 +345,9 @@ fn parse_event(payload: &str, state: &mut StreamState) -> Vec<Result<Delta>> {
     match event.get("type").and_then(serde_json::Value::as_str) {
         Some("message_start") => {
             if let Some(counts) = event.pointer("/message/usage") {
-                state.input = read(counts, "input_tokens")
-                    + read(counts, "cache_read_input_tokens")
-                    + read(counts, "cache_creation_input_tokens");
+                state.cache_read = read(counts, "cache_read_input_tokens");
+                state.cache_write = read(counts, "cache_creation_input_tokens");
+                state.input = read(counts, "input_tokens") + state.cache_read + state.cache_write;
                 state.output = read(counts, "output_tokens");
             }
             Vec::new()
@@ -275,6 +360,12 @@ fn parse_event(payload: &str, state: &mut StreamState) -> Vec<Result<Delta>> {
                 Some("tool_use") => {}
                 Some("thinking" | "redacted_thinking") => {
                     state.thinking.insert(index, block.clone());
+                    return Vec::new();
+                }
+                // The search runs on the API's side: its call streams its input, its result
+                // arrives whole. Neither is a call for Bhippi to run.
+                Some("server_tool_use" | "tool_search_tool_result") => {
+                    state.server.insert(index, (block.clone(), String::new()));
                     return Vec::new();
                 }
                 _ => return Vec::new(),
@@ -327,10 +418,12 @@ fn parse_event(payload: &str, state: &mut StreamState) -> Vec<Result<Delta>> {
                     Vec::new()
                 }
                 Some("input_json_delta") => {
-                    if let (Some(pending), Some(piece)) =
-                        (state.tools.get_mut(&index), text("partial_json"))
-                    {
-                        pending.json.push_str(&piece);
+                    if let Some(piece) = text("partial_json") {
+                        if let Some(pending) = state.tools.get_mut(&index) {
+                            pending.json.push_str(&piece);
+                        } else if let Some((_, json)) = state.server.get_mut(&index) {
+                            json.push_str(&piece);
+                        }
                     }
                     Vec::new()
                 }
@@ -339,6 +432,12 @@ fn parse_event(payload: &str, state: &mut StreamState) -> Vec<Result<Delta>> {
         }
         Some("content_block_stop") => {
             if let Some(block) = state.thinking.remove(&index) {
+                return vec![Ok(Delta::ThinkingBlock { block })];
+            }
+            if let Some((mut block, json)) = state.server.remove(&index) {
+                if !json.is_empty() {
+                    block["input"] = serde_json::from_str(&json).unwrap_or_else(|_| serde_json::json!({}));
+                }
                 return vec![Ok(Delta::ThinkingBlock { block })];
             }
             state
@@ -364,7 +463,9 @@ fn parse_event(payload: &str, state: &mut StreamState) -> Vec<Result<Delta>> {
                 state.output = read(counts, "output_tokens").max(state.output);
             }
             if let Some(reason) = event.pointer("/delta/stop_reason").and_then(serde_json::Value::as_str) {
-                state.stop_reason = Some(if reason == "max_tokens" {
+                // `pause_turn`: a server tool's loop stopped mid-turn and the reply is to be sent
+                // back to carry on, which is what the caller does for a reply cut off at the limit.
+                state.stop_reason = Some(if reason == "max_tokens" || reason == "pause_turn" {
                     StopReason::MaxTokens
                 } else {
                     StopReason::Completed
@@ -376,6 +477,8 @@ fn parse_event(payload: &str, state: &mut StreamState) -> Vec<Result<Delta>> {
             Ok(Delta::Usage {
                 input_tokens: state.input,
                 output_tokens: state.output,
+                cache_read_tokens: state.cache_read,
+                cache_write_tokens: state.cache_write,
             }),
             Ok(Delta::Done {
                 stop_reason: state.stop_reason.unwrap_or(StopReason::Completed),
@@ -405,16 +508,20 @@ impl Provider for AnthropicProvider {
                 "no model selected and none could be listed".to_owned(),
             ));
         }
-        let response = authorize(
-            self.client.post(format!("{}/messages", self.base_url)),
-            &self.api_key,
-        )
-            .json(&Self::request_body(&req, &model))
-            .timeout(req.timeout)
-            .send()
-            .await
-            .map_err(|error| Self::error(error.to_string()))?;
-        if !response.status().is_success() {
+        let mut req = if PLAIN.load(Ordering::Relaxed) { plain_request(&req) } else { req };
+        let response = loop {
+            let response = authorize(
+                self.client.post(format!("{}/messages", self.base_url)),
+                &self.api_key,
+            )
+                .json(&Self::request_body(&req, &model))
+                .timeout(req.timeout)
+                .send()
+                .await
+                .map_err(|error| Self::error(error.to_string()))?;
+            if response.status().is_success() {
+                break response;
+            }
             let status = response.status().as_u16();
             let body = response.text().await.unwrap_or_default();
             let said = serde_json::from_str::<serde_json::Value>(&body)
@@ -426,8 +533,16 @@ impl Provider for AnthropicProvider {
                         .map(str::to_owned)
                 })
                 .unwrap_or_else(|| body.chars().take(400).collect());
+            // The API (or a proxy in front of it) refused tool search or the hour-long cache: the
+            // same request once more in the older shape, and every later one too.
+            if status == 400 && !PLAIN.load(Ordering::Relaxed) && refuses_newer_shape(&said) {
+                tracing::warn!(%said, "the Anthropic API refused tool search or the 1h cache; sending the older request shape");
+                PLAIN.store(true, Ordering::Relaxed);
+                req = plain_request(&req);
+                continue;
+            }
             return Err(Self::error(format!("HTTP {status}: {said}")));
-        }
+        };
 
         let mut state = StreamState::default();
         let stream = crate::sse::lines(response)
@@ -445,7 +560,7 @@ impl Provider for AnthropicProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::{credential, parse_event, AnthropicProvider, StreamState};
+    use super::{credential, parse_event, AnthropicProvider, StreamState, TOOL_SEARCH};
 
     #[test]
     fn a_workspace_id_pasted_after_the_key_is_split_off() {
@@ -480,10 +595,79 @@ mod tests {
             vec![
                 Delta::Text { delta: "PO".to_owned() },
                 Delta::Text { delta: "NG".to_owned() },
-                Delta::Usage { input_tokens: 120, output_tokens: 4 },
+                Delta::Usage { input_tokens: 120, output_tokens: 4, cache_read_tokens: 100, cache_write_tokens: 0 },
                 Delta::Done { stop_reason: StopReason::Completed },
             ]
         );
+    }
+
+    #[test]
+    fn a_tool_search_comes_back_whole_to_be_sent_again_and_is_not_a_call_to_run() {
+        let deltas = drain(&[
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"tool_search_tool_bm25"}}"#,
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"color "}}"#,
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"grade\"}"}}"#,
+            r#"{"type":"content_block_stop","index":0}"#,
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_search_tool_result","tool_use_id":"srvtoolu_1","content":{"type":"tool_search_tool_search_result","tool_references":[{"type":"tool_reference","tool_name":"color_grade"}]}}}"#,
+            r#"{"type":"content_block_stop","index":1}"#,
+            r#"{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_1","name":"color_grade"}}"#,
+            r#"{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{}"}}"#,
+            r#"{"type":"content_block_stop","index":2}"#,
+        ]);
+        assert_eq!(deltas.len(), 3, "{deltas:?}");
+        let Delta::ThinkingBlock { block } = &deltas[0] else { panic!("{deltas:?}") };
+        assert_eq!(block["type"], "server_tool_use");
+        assert_eq!(block["input"]["query"], "color grade");
+        let Delta::ThinkingBlock { block } = &deltas[1] else { panic!("{deltas:?}") };
+        assert_eq!(block["content"]["tool_references"][0]["tool_name"], "color_grade");
+        assert!(matches!(&deltas[2], Delta::ToolCall { name, .. } if name == "color_grade"));
+    }
+
+    #[test]
+    fn deferred_tools_bring_the_tool_search_and_the_fixed_prefix_is_kept_for_an_hour() {
+        let mut req = CompletionRequest::new("RULES\n## Project summary\n{}", vec![Message::user("hi".to_owned())]);
+        req.system_volatile_from = Some("RULES\n".len());
+        let tool = |name: &str, defer: bool| ToolSpec { name: name.to_owned(), description: String::new(), input_schema: serde_json::json!({"type": "object"}), defer };
+        req.tools = vec![tool("get_comp", false), tool("color_grade", true), tool("split_clips", false)];
+        let body = AnthropicProvider::request_body(&req, "claude-opus-5-5");
+        let tools = body["tools"].as_array().expect("tools");
+        let names: Vec<&str> = tools.iter().map(|tool| tool["name"].as_str().unwrap_or_default()).collect();
+        assert_eq!(names, ["tool_search_tool_bm25", "get_comp", "split_clips", "color_grade"]);
+        assert_eq!(tools[0]["type"], TOOL_SEARCH);
+        // The breakpoint sits on the last loaded tool: a deferred one may not carry it.
+        assert_eq!(tools[2]["cache_control"]["ttl"], "1h");
+        assert!(tools[3].get("cache_control").is_none() && tools[3]["defer_loading"] == true);
+        assert_eq!(body["system"][0]["text"], "RULES\n");
+        assert_eq!(body["system"][0]["cache_control"]["ttl"], "1h");
+        assert!(body["system"][1].get("cache_control").is_none());
+        assert_eq!(body["system"][1]["text"], "## Project summary\n{}");
+    }
+
+    #[test]
+    fn the_older_shape_sends_deferred_tools_as_one_liners_and_only_for_a_refusal_about_them() {
+        let mut req = CompletionRequest::new("RULES", vec![Message::user("hi".to_owned())]);
+        let tool = |name: &str, defer: bool| ToolSpec { name: name.to_owned(), description: "Grades colour. Takes a look.".to_owned(), input_schema: serde_json::json!({"type": "object", "properties": {"look": {"type": "string"}}}), defer };
+        req.tools = vec![tool("get_comp", false), tool("color_grade", true)];
+        let plain = super::plain_request(&req);
+        assert!(plain.tools.iter().all(|tool| !tool.defer));
+        assert_eq!(plain.tools[1].description, "Grades colour. (params: tool_help)");
+        assert_eq!(plain.tools[1].input_schema["properties"], serde_json::json!({}));
+        assert_eq!(plain.tools[0].input_schema, req.tools[0].input_schema, "loaded tools stay whole");
+        assert!(super::refuses_newer_shape("tools.1.defer_loading: Extra inputs are not permitted"));
+        assert!(!super::refuses_newer_shape("messages: text content blocks must be non-empty"));
+    }
+
+    #[test]
+    fn the_previous_round_keeps_a_breakpoint_so_a_big_round_still_reads_the_cache() {
+        let mut req = CompletionRequest::new("RULES", vec![Message::user("cut it".to_owned())]);
+        let call = ToolCall { id: "toolu_1".to_owned(), name: "get_comp".to_owned(), arguments: serde_json::json!({}) };
+        req.messages.push(Message { tool_calls: vec![call.clone()], ..Message::assistant(String::new()) });
+        req.messages.push(Message::tool_result(&call, "{}".to_owned(), false));
+        let body = AnthropicProvider::request_body(&req, "claude-opus-5-5");
+        let messages = body["messages"].as_array().expect("messages");
+        assert_eq!(messages.len(), 3);
+        let marked = |at: usize| messages[at]["content"].as_array().and_then(|blocks| blocks.last()).is_some_and(|block| block.get("cache_control").is_some());
+        assert!(marked(0) && !marked(1) && marked(2));
     }
 
     #[test]
@@ -544,7 +728,7 @@ mod tests {
                     name: "get_comp".to_owned(),
                     arguments: serde_json::json!({}),
                 },
-                Delta::Usage { input_tokens: 900, output_tokens: 40 },
+                Delta::Usage { input_tokens: 900, output_tokens: 40, cache_read_tokens: 0, cache_write_tokens: 0 },
                 Delta::Done { stop_reason: StopReason::Completed },
             ]
         );
@@ -572,6 +756,7 @@ mod tests {
             name: "split_clips".to_owned(),
             description: "Razor cut".to_owned(),
             input_schema: serde_json::json!({"type": "object"}),
+            defer: false,
         }];
         let body = AnthropicProvider::request_body(&req, "claude-x");
         assert_eq!(body["tools"][0]["name"], "split_clips");
@@ -723,7 +908,7 @@ mod tests {
             deltas,
             vec![
                 Delta::Text { delta: "A long".to_owned() },
-                Delta::Usage { input_tokens: 50, output_tokens: 4096 },
+                Delta::Usage { input_tokens: 50, output_tokens: 4096, cache_read_tokens: 0, cache_write_tokens: 0 },
                 Delta::Done { stop_reason: StopReason::MaxTokens },
             ]
         );
