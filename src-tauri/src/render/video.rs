@@ -187,9 +187,15 @@ impl<'a> Graph<'a> {
         let mut spans: Vec<(i64, i64)> = Vec::new();
         let mut cursor = 0;
         for piece in &pieces {
-            let (from, to) = (piece.from(), piece.to());
+            let (mut from, to) = (piece.from(), piece.to());
             if from < cursor {
-                continue;
+                // A clip that starts before the one ahead of it ends loses only the overlap: it
+                // used to be skipped whole, a hole as long as the clip where the preview shows it.
+                // A transition is never cut into; its window was already made to follow the last.
+                if to <= cursor || !matches!(piece, Piece::Clip { .. }) {
+                    continue;
+                }
+                from = cursor;
             }
             let label = match piece {
                 Piece::Clip { clip, .. } => self.picture(clip, frame, span, from, to, depth)?,

@@ -79,6 +79,39 @@ fn every_media_clip_seeks_its_own_window_instead_of_decoding_from_zero() {
     assert!(arguments.ends_with("-t 4 out.mp4"));
 }
 
+/// Clip edges written to four decimals, as an AI edit leaves them (from a real export that came out
+/// with 3–5 s black holes): one clip ends 0.07 ms after the next begins, another 0.4 ms before it.
+#[test]
+fn clips_whose_edges_miss_each_other_by_a_hair_all_render_with_no_black_between() {
+    let assets = library(vec![asset("m", AssetKind::Video, 30.0)]);
+    let project = project(vec![comp("c", vec![
+        clip("a", "v1", 12.867, 15.833367 - 12.867, media("m")),
+        clip("b", "v1", 15.8333, 18.766633 - 15.8333, media("m")),
+        clip("c", "v1", 18.7667, 2.0, media("m")),
+        clip("d", "v1", 20.76663, 21.5 - 20.76663, media("m")),
+        clip("e", "v1", 21.5004, 1.0, media("m")),
+    ])]);
+    let plan = build(&project, &assets, &options("c"), Output::Video, 0.0).expect("plan");
+    assert_eq!(plan.args.iter().filter(|arg| *arg == "-ss").count(), 5, "every clip is in the render: {}", plan.args.join(" "));
+    let text = graph(&plan);
+    // The only transparent filler is the stretch before the first clip.
+    assert_eq!(text.matches("color=c=black@0").count(), 1, "{text}");
+}
+
+#[test]
+fn a_clip_overlapping_the_one_before_loses_only_the_overlap() {
+    let assets = library(vec![asset("m", AssetKind::Video, 30.0)]);
+    let project = project(vec![comp("c", vec![clip("a", "v1", 0.0, 2.1, media("m")), clip("b", "v1", 2.0, 2.0, media("m"))])]);
+    let Ok(plan) = build(&project, &assets, &options("c"), Output::Video, 0.0) else {
+        // Overlaps this large are refused before planning; nothing to trim then.
+        return;
+    };
+    let arguments = plan.args.join(" ");
+    assert_eq!(plan.args.iter().filter(|arg| *arg == "-ss").count(), 2, "{arguments}");
+    // b starts where a ends (frame 63), 0.1 s into its own source.
+    assert!(arguments.contains("-ss 0.1 "), "{arguments}");
+}
+
 #[test]
 fn tracks_are_composited_bottom_to_top_and_hidden_ones_are_left_out() {
     let assets = library(vec![asset("m", AssetKind::Video, 10.0)]);

@@ -266,6 +266,8 @@ pub const RESOLUTIONS: [u32; 7] = [360, 480, 540, 720, 1080, 1440, 2160];
 /// Nesting deeper than this is refused rather than rendered.
 const MAX_DEPTH: usize = 12;
 const SAMPLE_RATE: u32 = 48_000;
+/// Seconds within which a clip edge counts as lying on a frame (see `frame_at`).
+const FRAME_SNAP: f64 = 0.001;
 /// Once the inputs and the graph together pass this, the graph goes into a file the graph option
 /// reads: Windows caps a command line at 32,767 characters. Staying inline where it fits keeps
 /// working with FFmpeg builds older than 7.0, which have no `-/filter_complex`.
@@ -406,7 +408,7 @@ pub fn plan_with_codecs(
         }
         Output::Video | Output::Audio | Output::Loudness => {
             let (t0, duration) = range(comp, options.in_to_out)?;
-            (t0, duration, ((duration * rate.fps() - 1e-6).ceil() as u64).max(1))
+            (t0, duration, frames_in(duration, rate.fps()).max(1) as u64)
         }
     };
 
@@ -691,6 +693,18 @@ struct Frame {
     ratio: f64,
 }
 
+/// Frames from 0 up to `seconds` at `fps`, rounded up, except that a time within [`FRAME_SNAP`]
+/// of a frame is that frame (see `Graph::frame_at`).
+fn frames_in(seconds: f64, fps: f64) -> i64 {
+    let exact = seconds * fps;
+    let nearest = exact.round();
+    if (exact - nearest).abs() <= FRAME_SNAP * fps {
+        nearest as i64
+    } else {
+        exact.ceil() as i64
+    }
+}
+
 /// A run of output frames: frame `i` shows comp time `t0 + i / fps`.
 #[derive(Clone, Copy, Debug)]
 struct Span {
@@ -758,9 +772,14 @@ impl<'a> Graph<'a> {
         name
     }
 
-    /// The index of the first frame of `span` at or after comp time `t` (may lie outside).
+    /// The index of the first frame of `span` at or after comp time `t` (may lie outside). A time
+    /// within [`FRAME_SNAP`] of a frame is that frame: edits are written to a few decimals, so one
+    /// clip ends at 15.833367 and the next starts at 15.8333. Rounded up as they were, the first
+    /// ended a frame after the second began (the second was then dropped whole: a 3 s black hole
+    /// in the export), and a 0.4 ms gap between two clips became a black frame. The preview,
+    /// which asks which clip is on at each moment, showed neither.
     fn frame_at(&self, span: Span, t: f64) -> i64 {
-        ((t - span.t0) * self.fps() - 1e-6).ceil() as i64
+        frames_in(t - span.t0, self.fps())
     }
 
     /// Output frames with timestamps exactly `N / fps`, once a stream holds the right frames.
