@@ -366,14 +366,15 @@ export type UpdateProgress = {
 /** The download running in updater.rs right now (`downloading` false when none). */
 export type UpdateStatus = { downloading: boolean; version: string | null; received: number; total: number | null };
 
-export type BrainNodeKind = 'memory' | 'user' | 'skill' | 'tool' | 'topic' | 'episode' | 'provider';
+export type BrainNodeKind = 'memory' | 'user' | 'skill' | 'recipe' | 'tool' | 'topic' | 'episode' | 'provider';
+/** An episode's `wins` is 1 when its turn succeeded, so the episodes in order are the learning curve. */
 export type BrainNode = { id: string; kind: BrainNodeKind; title: string; weight: number; uses: number; wins: number; fails: number; created: string; updated: string };
 export type BrainEdge = { a: string; b: string; kind: string; w: number };
 export type BrainGraph = {
   dir: string;
   nodes: BrainNode[];
   edges: BrainEdge[];
-  stats: { memories: number; userFacts: number; skills: number; tools: number; topics: number; episodes: number; providers: number; edges: number };
+  stats: { memories: number; userFacts: number; skills: number; tools: number; topics: number; episodes: number; providers: number; recipes?: number; edges: number };
   nudges: string[];
   lastDream: string | null;
   learning: boolean;
@@ -395,6 +396,8 @@ export const api = {
   ideagraphIngest: (text: string, source: string) => invoke<string>('ideagraph_ingest', { text, source }),
   ideagraphInit: () => invoke<string>('ideagraph_init'),
   brainGraph: () => invoke<BrainGraph>('brain_graph'),
+  /** Per-model results scanned from the turn traces (Settings → Brain → Model report card). */
+  brainReport: () => invoke<import('../settings/modelReport').ModelReportRow[]>('brain_report'),
   brainNode: (id: string) => invoke<BrainNodeDetail>('brain_node', { id }),
   brainRecordTurn: (outcome: unknown, note?: string) => invoke<{ episode?: string; learned?: string[]; skipped?: string }>('brain_record_turn', { outcome, note }),
   traceAppend: (project: string | null, turn: string, lines: unknown[]) => invoke<boolean>('trace_append', { project, turn, lines }),
@@ -406,6 +409,7 @@ export const api = {
   brainSaveSkill: (request: { name: string; description?: string; body?: string; mode?: string; old?: string; new?: string }) => invoke<{ name: string; version: string; mode: string; file: string }>('brain_save_skill', { request }),
   brainLoadSkill: (name: string) => invoke<{ name: string; description: string; version: string; procedure: string; record: string }>('brain_load_skill', { name }),
   brainDream: () => invoke<{ merged: number; pruned: number; topicsDissolved: number }>('brain_dream'),
+  brainToolLessons: () => invoke<{ lessons: { tool: string; error: string; fix: string; count: number }[] }>('brain_tool_lessons'),
   ffmpegRefresh: () => invoke<ToolStatus>('ffmpeg_refresh'),
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   openPath: (path: string) => invoke<void>('open_path', { path }),

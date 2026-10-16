@@ -7,6 +7,7 @@
 )]
 
 mod brain;
+mod brain_report;
 mod hardware;
 mod ideagraph;
 mod local_media;
@@ -86,7 +87,7 @@ use crate::chat::{ChatEvent, ChatRequest, McpLink, TurnContext, CHAT_EVENT};
 use crate::jobs::{Job, Jobs};
 use crate::files::Document;
 use crate::ideagraph::{
-    brain_dream, brain_forget, brain_graph, brain_load_skill, brain_node, brain_recall, brain_record_turn, brain_remember, brain_save_skill,
+    brain_dream, brain_forget, brain_graph, brain_load_skill, brain_node, brain_recall, brain_record_turn, brain_remember, brain_save_skill, brain_tool_lessons,
     ideagraph_init, ideagraph_ingest, ideagraph_status,
 };
 use crate::library::{Asset, LIBRARY_EVENT};
@@ -3539,7 +3540,8 @@ fn chat_send(app: AppHandle, webview: tauri::Webview, state: State<'_, Arc<AppSt
         if let Some(context) = request.context.as_object_mut() {
             let quick = context.get("editingWorkflow").and_then(serde_json::Value::as_str) == Some("quick");
             let dir = ideagraph::brain_dir(&state);
-            let brief = if quick { brain::quick_brief(&dir, &request.message) } else { brain::brief(&dir, &request.message) };
+            let guided = context.get("modelTier").and_then(serde_json::Value::as_str) == Some("guided");
+            let brief = brain::brief_for(&dir, &request.message, quick, guided);
             context.insert("brain".to_owned(), brief);
         }
     }
@@ -4187,6 +4189,7 @@ pub fn run() {
             ideagraph_ingest,
             ideagraph_init,
             brain_graph,
+            brain_report::brain_report,
             brain_node,
             brain_record_turn,
             brain_remember,
@@ -4195,6 +4198,7 @@ pub fn run() {
             brain_save_skill,
             brain_load_skill,
             brain_dream,
+            brain_tool_lessons,
             trace::trace_append,
             trace::trace_list,
             trace::trace_read,

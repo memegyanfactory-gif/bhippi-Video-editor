@@ -19,6 +19,8 @@ import { StatusDot, type DotState } from './BhippiMark';
 /** A tool call, from the moment it starts rather than when it finishes. */
 export type ToolRun = {
   changedProject?: boolean;
+  /** The argument names the call carried; the brain learns what a retry changed. */
+  argKeys?: string[];
   callId: string;
   name: string;
   /** What it was asked to do, read off the arguments. Shown while it runs. */

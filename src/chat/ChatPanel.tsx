@@ -37,7 +37,7 @@ import { api, errorText, events, type ChatAttachment, type ReferenceFilm } from 
 import { findStyle, styleInMessage, stylesMatching, type StyleDef, type StyleId } from '../lib/styles';
 import { actionLogger } from '../lib/actionLogger';
 import { avatarBus } from '../avatar/bus';
-import type { TurnOutcome } from '../lib/ideagraph';
+import { toolSummary, type TurnOutcome } from '../lib/ideagraph';
 import { changeSummary, type TurnChange } from '../lib/turnChanges';
 import { TrainingCard } from './TrainingCard';
 import { BhippiMark, StatusDot, type MarkState } from './BhippiMark';
@@ -448,7 +448,7 @@ ${text}` : text));
   /** Turn ids the backend did not list last time it was asked; see the watchdog below. */
   const missing = useRef<Set<string>>(new Set());
   /** Per-turn facts for the IdeaGraph outcome hook: set on send/start, consumed on done. */
-  const turnMeta = useRef(new Map<string, { provider: string; providerId: string; model: string | null; prompt: string }>());
+  const turnMeta = useRef(new Map<string, { provider: string; providerId: string; model: string | null; prompt: string; phase?: string | null; tier?: string }>());
   /**
    * The turns this chat sent. Its events are about these only (and their subagents', whose ids are
    * `<turn>:sub:<id>`): another chat's turn, in this project (the Plugin Maker's) or anywhere else,
@@ -657,7 +657,7 @@ ${text}` : text));
         trace(event.turnId, { ev: 'turn_start', provider: event.providerLabel, providerId: event.providerId, model: event.model ?? null });
         patch(event.turnId, (message) => ({ ...message, providerId: event.providerId, providerLabel: event.providerLabel, model: event.model }));
         const meta = turnMeta.current.get(event.turnId);
-        turnMeta.current.set(event.turnId, { provider: event.providerLabel, providerId: event.providerId, model: event.model, prompt: meta?.prompt ?? '' });
+        turnMeta.current.set(event.turnId, { provider: event.providerLabel, providerId: event.providerId, model: event.model, prompt: meta?.prompt ?? '', phase: meta?.phase, tier: meta?.tier });
       } else if (event.event === 'delta') {
         const delta = event.delta;
         patch(event.turnId, (message) => {
@@ -766,7 +766,9 @@ ${text}` : text));
             stopped: event.stopped,
             faultKind: event.fault?.kind ?? null,
             verified: propsRef.current.workflowStatus(event.turnId)?.structurallyVerified ?? null,
-            tools: runs.map((run) => ({ name: run.name, status: run.status, ms: run.ms, changedProject: run.changedProject ?? false })),
+            phase: meta.phase ?? null,
+            tier: meta.tier ?? null,
+            tools: runs.map((run) => toolSummary(run)),
           });
           // An edit turn that changed the timeline but stopped short of the Judge and verify gets
           // one automatic finishing round (never a second: that one reports whatever it reached).
@@ -869,7 +871,7 @@ ${text}` : text));
     // nobody to hand over from and starts clean.
     const handoff = handoffFor(messages, providerId, model);
     const provider = propsRef.current.providers.find((item) => item.id === providerId);
-    turnMeta.current.set(turnId, { provider: provider?.label ?? 'Bhippi', providerId: providerId ?? 'bhippi', model, prompt: message });
+    turnMeta.current.set(turnId, { provider: provider?.label ?? 'Bhippi', providerId: providerId ?? 'bhippi', model, prompt: message, phase: propsRef.current.workflowStatus(turnId)?.phase ?? null, tier: profile.tier });
     const extra = [hiddenExtra, brief, scope ? scopeBrief(scope) : null, filesBrief(attachedFiles)].filter(Boolean).join('\n\n');
     const assistant: Assistant = {
       id: uid(), role: 'assistant', turnId, providerId: providerId ?? 'bhippi', providerLabel: provider?.label ?? 'Bhippi', model,

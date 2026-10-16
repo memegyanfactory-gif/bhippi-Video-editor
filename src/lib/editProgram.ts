@@ -73,6 +73,30 @@ export type Outcome =
 
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
+/** Clip ids as models send them: an array, one id, a comma list, or an object ({ids:[…]}, {id:…} or a map of ids/clips). */
+export function clipIdList(value: unknown): string[] {
+  if (typeof value === 'string') return value.split(/[\s,]+/).filter(Boolean);
+  if (Array.isArray(value)) return value.flatMap((entry) => (entry && typeof entry === 'object' && typeof (entry as { id?: unknown }).id === 'string' ? [(entry as { id: string }).id] : clipIdList(entry)));
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of ['ids', 'clips', 'items', 'item', 'clipIds', 'id']) if (record[key] !== undefined) return clipIdList(record[key]);
+    return Object.entries(record).flatMap(([key, entry]) => (typeof entry === 'string' ? [entry] : entry === true ? [key] : clipIdList(entry)));
+  }
+  return [];
+}
+
+/** An op with its `clips` as an id array and numeric fields (db: "-8") as numbers. */
+function normalizeOp(op: Op): Op {
+  const loose = op as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...loose };
+  if ('clips' in loose) out.clips = clipIdList(loose.clips);
+  for (const key of ['db', 'by', 'speed', 'scale', 'x', 'y', 'rotation', 'opacity', 'at', 'from', 'to']) {
+    const value = loose[key];
+    if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) out[key] = Number(value);
+  }
+  return out as unknown as Op;
+}
+
 // ── running one ────────────────────────────────────────────────────────────
 
 /**
@@ -97,7 +121,8 @@ export function runProgram(project: Project, assets: AssetMap, comp: Comp, progr
     return { comp: free.comp, id: free.track.id };
   };
 
-  for (const [index, op] of program.ops.entries()) {
+  for (const [index, rawOp] of program.ops.entries()) {
+    const op = normalizeOp(rawOp);
     const fail = (error: string): Outcome => ({ ok: false, error, at: index, warnings });
     try {
       switch (op.op) {
@@ -239,6 +264,8 @@ export function runProgram(project: Project, assets: AssetMap, comp: Comp, progr
         }
 
         case 'volume': {
+          if (!op.clips.length) return fail('volume needs clips: an array of clip ids');
+          if (!Number.isFinite(op.db)) return fail('volume needs db as a number (e.g. -8)');
           const gain = 10 ** (op.db / 20);
           current = {
             ...current,

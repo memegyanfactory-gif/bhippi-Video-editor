@@ -199,7 +199,7 @@ pub(crate) async fn brain_forget(app: AppHandle, state: State<'_, Arc<AppState>>
 #[tauri::command]
 pub(crate) async fn brain_recall(state: State<'_, Arc<AppState>>, query: String, limit: Option<usize>, kinds: Option<Vec<String>>) -> CommandResult<serde_json::Value> {
     let dir = brain_dir(&state);
-    blocking(move || crate::brain::recall(&dir, &query, limit.unwrap_or(6), &kinds.unwrap_or_default())).await
+    blocking(move || crate::brain::recall(&dir, &query, limit.unwrap_or(6), &kinds.unwrap_or_default(), None)).await
 }
 
 #[tauri::command]
@@ -216,6 +216,13 @@ pub(crate) async fn brain_load_skill(app: AppHandle, state: State<'_, Arc<AppSta
     let result = blocking(move || crate::brain::load_skill(&dir, &name)).await??;
     changed(&app, "skill-used");
     Ok(result)
+}
+
+/// What went wrong with each tool before and what fixed it: `{ lessons: [{ tool, error, fix, count }] }`.
+#[tauri::command]
+pub(crate) async fn brain_tool_lessons(state: State<'_, Arc<AppState>>) -> CommandResult<serde_json::Value> {
+    let dir = brain_dir(&state);
+    blocking(move || crate::brain::tool_lessons(&dir)).await
 }
 
 #[tauri::command]

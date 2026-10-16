@@ -366,6 +366,18 @@ function resolveMotion(project: Project, id: string): { kind: 'stack'; comp: Com
   return clip ? { kind: 'clip', clip, comp: inner } : null;
 }
 
+/** Why a clipId is not a motion scene: what it is instead, and where to look. */
+function motionClipError(project: Project, id: string | undefined): string {
+  const want = 'Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.';
+  if (!id) return want;
+  const found = findClip(project, id);
+  if (!found) return project.comps.some((c) => c.id === id) ? `Comp "${id}" has no motion layers or motion scene (it is a plain edit). get_comp reads it.` : `No clip or comp with id "${id}". ${want} get_comp lists the ids.`;
+  const source = found.clip.source;
+  if (source.type === 'media') return `Clip "${found.clip.name ?? id}" is imported media, not a motion scene. get_comp reads it; review_frames {compId, times} shows how it renders.`;
+  if (source.type === 'comp') return `Clip "${found.clip.name ?? id}" holds comp ${source.compId}, which has no motion layers. get_comp {compId:"${source.compId}"} reads it.`;
+  return `Clip "${found.clip.name ?? id}" is a ${source.type} clip, not a motion scene. ${want}`;
+}
+
 /** A layered comp's layers as the AI reads them: where each clip is, on which track, whether it shows. */
 function layerListing(project: Project, comp: Comp): Record<string, unknown>[] {
   const video = tracksOf(comp, 'video');
@@ -504,6 +516,27 @@ function updateStack(comp: Comp, args: Args, ctx: MotionToolContext): ToolResult
   });
   const after = ctx.current().comps.find((c) => c.id === comp.id) ?? comp;
   return done(`Updated "${comp.name}": ${edit.changes.join('; ')}. Its layers keep their clips, tracks and the user's timing and Motion changes${timing === 'scene' ? ' (clips nobody moved take the new timing)' : ''}.${edit.fitNote}`, { compId: comp.id, layers: layerListing(ctx.current(), after), outline: summarizeScene(edit.scene) });
+}
+
+/** The playbook a loose genre name stands for: its id, a spelling of it, a part of it, or the one whose title and use share the most words. */
+export function closestGenre(asked: string): { id: string } | null {
+  const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const want = slug(asked);
+  if (!want) return null;
+  const index = playbookIndex();
+  const exact = index.find((p) => p.id === asked || slug(p.id) === want);
+  if (exact) return exact;
+  const part = index.find((p) => slug(p.id).includes(want) || (want.length > 3 && want.includes(slug(p.id))));
+  if (part) return part;
+  const words = want.split('-').filter((w) => w.length > 2);
+  let best: { id: string } | null = null;
+  let bestScore = 0;
+  for (const p of index) {
+    const hay = `${slug(p.id)}-${slug(p.title)}-${slug(p.use)}`;
+    const score = words.reduce((sum, w) => sum + (slug(p.id).includes(w) ? 3 : hay.includes(w) ? 1 : 0), 0);
+    if (score > bestScore) { best = p; bestScore = score; }
+  }
+  return best;
 }
 
 // ───────────────────────── the tools ─────────────────────────
@@ -689,13 +722,18 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'check_pacing': {
       const comp = ctx.pickComp(project, args);
       if (!comp) return fail('There is no composition to check.');
-      const genre = str(args, 'genre');
+      const asked = str(args, 'genre');
+      const found = asked ? closestGenre(asked) : null;
+      const genre = found?.id ?? null;
       const book = genre ? playbook(genre) : null;
-      if (genre && !book) return fail(`No genre "${genre}". Genres: ${playbookIndex().map((p) => p.id).join(', ')}.`);
+      // A genre that is not a playbook id maps to the nearest one; with no near match the error lists them all.
+      if (asked && !found) return fail(`No genre "${asked}". Genres: ${playbookIndex().map((p) => p.id).join(', ')}.`);
+      const genreNote = asked && found && found.id !== asked ? ` (No genre "${asked}": used the nearest, ${found.id}.)` : '';
       const target: PacingTarget = { ...(book?.pacing ?? GENERIC_TARGET), ...((obj(args, 'target') as PacingTarget | undefined) ?? {}) };
       const beats = Array.isArray(args.beats) ? (args.beats as unknown[]).filter((b): b is number => typeof b === 'number') : undefined;
       const report = pacingReport(project, comp, target, beats);
-      return done(`${report.summary}${genre ? ` (genre ${genre})` : args.target ? ' (reference target)' : ' (generic target; pass genre or a reference pacingTarget)'}`, { checks: report.checks, ok: report.ok, target });
+      // `passed`, not `ok`: a data field called ok overrides the result's own flag, so a report with failing checks used to come back as a failed call with the error "undefined".
+      return done(`${report.summary}${genre ? ` (genre ${genre})` : args.target ? ' (reference target)' : ' (generic target; pass genre or a reference pacingTarget)'}${genreNote}`, { checks: report.checks, passed: report.ok, target });
     }
 
     case 'list_transitions':
@@ -845,7 +883,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'check_motion_arcs': {
       // The flip test: dot-to-dot paths of every moving layer and named drawing item.
       const target = resolveMotion(project, str(args, 'clipId') ?? str(args, 'compId') ?? '');
-      if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
+      if (!target) return fail(motionClipError(project, str(args, 'clipId') ?? str(args, 'compId')));
       const scene = target.kind === 'stack' ? logicalScene(project, target.comp) : (target.clip.source as MotionSource).scene;
       if (!scene) return fail('That comp has no motion layers.');
       const report = motionReport(scene);
@@ -1106,7 +1144,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       // slots that never overlap, each keeping its shape, applied as update_motion_scene patches.
       const ref = str(args, 'clipId') ?? str(args, 'compId') ?? '';
       const target = resolveMotion(project, ref);
-      if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
+      if (!target) return fail(motionClipError(project, ref));
       const scene = target.kind === 'stack' ? layeredCompScene(project, target.comp) ?? logicalScene(project, target.comp) : (target.clip.source as MotionSource).scene;
       if (!scene) return fail('That comp has no motion layers.');
       const arrangement = str(args, 'arrangement');
@@ -1128,7 +1166,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
 
     case 'get_motion_scene': {
       const target = resolveMotion(project, str(args, 'clipId') ?? str(args, 'compId') ?? '');
-      if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
+      if (!target) return fail(motionClipError(project, str(args, 'clipId') ?? str(args, 'compId')));
       if (target.kind === 'stack') {
         const scene = logicalScene(project, target.comp);
         if (!scene) return fail('That comp has no motion layers.');
@@ -1157,7 +1195,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
 
     case 'update_motion_scene': {
       const target = resolveMotion(project, str(args, 'clipId') ?? str(args, 'compId') ?? '');
-      if (!target) return fail('Supply clipId: a "[Motion]" comp clip on the timeline, one of its layer clips, the comp id itself, or a motion scene clip.');
+      if (!target) return fail(motionClipError(project, str(args, 'clipId') ?? str(args, 'compId')));
       if (target.kind === 'stack') return updateStack(target.comp, await withIcons(args), ctx);
       const { clip, comp } = target;
       const source = clip.source as MotionSource;

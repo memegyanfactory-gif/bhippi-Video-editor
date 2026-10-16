@@ -1182,7 +1182,7 @@ export default function App() {
           ...current,
           [call.turnId]: [
             ...(current[call.turnId] ?? []),
-            { callId: call.callId, name: call.name, request: describeArgs(call.args), summary: '', status: 'running' as const, at: started, ms: null },
+            { callId: call.callId, name: call.name, request: describeArgs(call.args), summary: '', status: 'running' as const, at: started, ms: null, argKeys: call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? Object.keys(call.args as object).slice(0, 24) : [] },
           ],
         }));
       }

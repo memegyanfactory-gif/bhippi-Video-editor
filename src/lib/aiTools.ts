@@ -44,6 +44,8 @@ import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, r
 // src/lib/ai-tools.json; this file is the other half of that contract.
 import catalog from './ai-tools.json';
 import { repairArgs } from './argRepair';
+import { cachedLessons, loadLearnedLessons, withHint } from './toolLessons';
+import { noteOutcome, priorFailure, repeatMessage } from './retryGuard';
 import { inferGenres, judge, JUDGE_ROUNDS, PASS_MARK } from './judge';
 import { ANGLES, debate, parseProposal } from './director';
 import { GENRE_TOOLS, PLAYBOOK_FOR, routeTools, type Genre } from './toolRouter';
@@ -518,8 +520,40 @@ function frameFromArgs(args: Args, base: { width: number; height: number }): { w
 
 function pickComp(project: Project, args: Args): Comp | undefined {
   const wanted = str(args, 'compId');
-  if (wanted) return project.comps.find((comp) => comp.id === wanted || comp.name === wanted);
+  if (wanted) return project.comps.find((comp) => comp.id === wanted) ?? compByName(project, wanted);
   return project.comps.find((comp) => comp.id === project.activeCompId) ?? project.comps[0];
+}
+
+/** The comp called `name`; of several with that name (a stray empty duplicate) the one with the most clips. */
+function compByName(project: Project, name: string): Comp | undefined {
+  const same = project.comps.filter((comp) => comp.name === name);
+  return same.length > 1 ? [...same].sort((a, b) => b.clips.length - a.clips.length)[0] : same[0];
+}
+
+/** Every comp as `id "name" (n clips)`, for errors about a comp id that does not exist. */
+export function compChoices(project: Project): string {
+  return project.comps.length ? project.comps.map((comp) => `${comp.id} "${comp.name}" (${comp.clips.length} clip${comp.clips.length === 1 ? '' : 's'})`).join('; ') : 'none: the project has no comps';
+}
+
+/**
+ * The error for a clipId that is missing or the wrong kind for a media tool: what the clip is,
+ * and which tool reads that kind instead ("Supply a video clipId" said none of that).
+ */
+export function clipKindError(project: Project, assets: AssetMap, id: string | undefined, wants: 'video' | 'media'): string {
+  const need = wants === 'video' ? 'a video clip (a clip of an imported video)' : 'a clip of imported video or audio';
+  if (!id) return `Give clipId: ${need}. get_comp lists the clip ids.`;
+  const found = findClipIn(project, id);
+  if (!found) return `No clip with id "${id}" in this project. Give clipId: ${need}; get_comp lists the clip ids.`;
+  const source = found.clip.source;
+  const label = found.clip.name ?? id;
+  if (source.type === 'media') {
+    const kind = assets.get(source.assetId)?.kind ?? 'unknown';
+    if (kind === 'image') return `Clip "${label}" is an image (a still), so it has no frames to step through. Use review_frames {compId, times} to see it as rendered in the edit.`;
+    if (kind === 'audio') return `Clip "${label}" is audio, so it has no picture. ${wants === 'video' ? 'Use analyze_clip_speech for its words or get_comp for its levels.' : ''}`.trim();
+    return `Clip "${label}" is ${kind} media, not ${need}.`;
+  }
+  const what = source.type === 'motion' ? 'a motion scene' : source.type === 'comp' ? `a nested comp (${source.compId})` : `a ${source.type} clip`;
+  return `Clip "${label}" is ${what}, not ${need}. To see how it renders use review_frames {compId, times:[seconds]} or run_frame_qa; ${source.type === 'motion' || source.type === 'comp' ? 'get_motion_scene reads its layers' : 'get_comp reads its settings'}.`;
 }
 
 /** A track by label or id, creating tracks up to that number when the label runs past the end. */
@@ -1137,10 +1171,56 @@ export function transcriptForModel(transcript: Transcript) {
   return { assetId: transcript.assetId, provider: transcript.provider, language: transcript.language, words: transcript.words.length, timed: parts.join(' '), end: last ? Math.round(last.end * 100) / 100 : 0, text: transcript.text, diarized: transcript.diarized };
 }
 
+/**
+ * Fills an argument the model left out when the runtime can tell what it meant: list_directory with
+ * no path lists the project's AI Work folder; analyze_song with no song takes the one audio clip on
+ * the comp (several is an error naming them). Anything the model did send is left alone.
+ */
+async function resolveDefaults(host: ToolHost, name: string, args: Args): Promise<{ args: Args } | { error: string }> {
+  if (name === 'list_directory' && !str(args, 'path')) {
+    try {
+      const aiWork = (await api.storageInfo()).categories.find((category) => category.id === 'ai-work')?.path;
+      if (aiWork) return { args: { ...args, path: aiWork } };
+    } catch { /* no project folder to default to: the tool asks for a path */ }
+  }
+  if (name === 'analyze_song' && !str(args, 'clipId') && !str(args, 'assetId')) {
+    const project = host.history.current();
+    const comp = pickComp(project, args);
+    if (comp && !comp.production?.music?.assetId) {
+      const assets = host.assets();
+      const songs = new Map<string, string>();
+      for (const clip of comp.clips) {
+        if (clip.source.type !== 'media') continue;
+        const asset = assets.get(clip.source.assetId);
+        if (asset?.kind === 'audio') songs.set(asset.id, asset.name);
+      }
+      if (songs.size === 1) return { args: { ...args, assetId: [...songs.keys()][0] } };
+      if (songs.size > 1) return { error: `Which song? Pass assetId: ${[...songs].map(([id, label]) => `${id} (${label})`).join(', ')}.` };
+    }
+  }
+  return { args };
+}
+
 export async function runTool(host: ToolHost, name: string, sentArgs: unknown, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
-  // Quoted numbers, stringified arrays and the like are mended against the schema first.
-  const rawArgs = repairArgs(name, sentArgs);
+  // Quoted numbers, stringified arrays, renamed keys and the like are mended against the schema first.
+  let rawArgs = repairArgs(name, sentArgs);
+  if (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) {
+    const resolved = await resolveDefaults(host, name, rawArgs as Args);
+    if ('error' in resolved) return { ok: false, error: withHint(name, resolved.error, cachedLessons()) };
+    rawArgs = resolved.args;
+  }
+  const turn = turnId ?? host.turnId;
+  const earlier = priorFailure(turn, name, rawArgs);
+  if (earlier) return { ok: false, error: repeatMessage(earlier), guarded: true };
   const before = host.history.current();
+  const result = await runToolChecked(host, name, rawArgs, before, signal, turnId);
+  noteOutcome(turn, name, rawArgs, result.ok, host.history.current() !== before, result.ok ? undefined : result.error);
+  if (result.ok) return result;
+  void loadLearnedLessons();
+  return { ...result, error: withHint(name, result.error, cachedLessons()) };
+}
+
+async function runToolChecked(host: ToolHost, name: string, rawArgs: unknown, before: Project, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
   const inner = await runToolInner(host, name, rawArgs, signal, turnId);
   if (inner.ok) fileNewEntries(host, before);
   const note = inner.ok ? coverageNote(host, name, rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? (rawArgs as Args) : {}, before) : null;
@@ -1368,7 +1448,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
     }
     case 'inspect_clip_frames': {
       const found = findClipIn(project, str(args, 'clipId') ?? '');
-      if (!found || found.clip.source.type !== 'media' || assets.get(found.clip.source.assetId)?.kind !== 'video') return fail('Supply a video clipId.');
+      if (!found || found.clip.source.type !== 'media' || assets.get(found.clip.source.assetId)?.kind !== 'video') return fail(clipKindError(project, assets, str(args, 'clipId'), 'video'));
       const { clip, comp } = found;
       const total = Math.ceil(clip.duration * comp.fps);
       const first = num(args, 'fromFrame') ?? 0;
@@ -1431,7 +1511,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
     }
     case 'inspect_source_frames': {
       const found = findClipIn(project, str(args, 'clipId') ?? '');
-      if (!found || found.clip.source.type !== 'media') return fail('Supply a video clipId.');
+      if (!found || found.clip.source.type !== 'media') return fail(clipKindError(project, assets, str(args, 'clipId'), 'video'));
       if (!Array.isArray(args.times) || args.times.some(t => typeof t !== 'number' || !Number.isFinite(t))) return fail('Supply source timestamps.');
       const textOnly = bool(args, 'textOnly') || bool(args, 'omitImages') || false;
       if (textOnly) {
@@ -1611,7 +1691,7 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
     }
     case 'depth_occlusion_clip': {
       const found = findClipIn(project, str(args, 'clipId') ?? '');
-      if (!found || found.clip.source.type !== 'media' || assets.get(found.clip.source.assetId)?.kind !== 'video') return fail('Supply a video clipId.');
+      if (!found || found.clip.source.type !== 'media' || assets.get(found.clip.source.assetId)?.kind !== 'video') return fail(clipKindError(project, assets, str(args, 'clipId'), 'video'));
       const { comp, clip } = found;
       if (comp.tracks.find(t => t.id === clip.trackId)?.locked || clip.reverse || clip.hold !== null || clip.speed !== 1) return fail('Depth requires an unlocked forward clip at normal speed.');
       const threshold = num(args, 'depthPlane') ?? 0.5, softness = num(args, 'softness') ?? 0.03;
@@ -2513,7 +2593,7 @@ ${notes.trim()}${paletteLine}
     }
     case 'analyze_clip_speech': {
       const found = findClipIn(project, str(args, 'clipId') ?? '');
-      if (!found || found.clip.source.type !== 'media') return fail('Supply a media clipId.');
+      if (!found || found.clip.source.type !== 'media') return fail(clipKindError(project, assets, str(args, 'clipId'), 'media'));
       try {
         const transcript = await api.transcribeAsset(found.clip.source.assetId, str(args, 'language') ?? 'auto');
         return done('Source transcript obtained; no subtitle layers were created. `timed` is "<start s> <word>" in source seconds; the last word ends at `end`.', { transcript: transcriptForModel(transcript), sourceIn: found.clip.in, sourceOut: sourceOut(found.clip), timelineStart: found.clip.start, speed: found.clip.speed, reverse: found.clip.reverse });
@@ -2896,9 +2976,13 @@ ${notes.trim()}${paletteLine}
     }
 
     case 'get_comp': {
-      const comp = pickComp(project, args);
-      if (!comp) return fail('there is no comp to read');
-      return { ok: true, ...compDetail(project, assets, comp, args.plan === true) };
+      const asked = str(args, 'compId');
+      let comp = pickComp(project, args);
+      // A stale compId on a read: show the active comp and say so, instead of failing.
+      const fellBack = !comp && !!asked && project.comps.length > 0;
+      if (fellBack) comp = project.comps.find((item) => item.id === project.activeCompId) ?? project.comps[0];
+      if (!comp) return fail(asked ? `No comp "${asked}". Comps: ${compChoices(project)}.` : `The project has no comp to read. Comps: ${compChoices(project)}.`);
+      return { ok: true, ...compDetail(project, assets, comp, args.plan === true), ...(fellBack ? { note: `No comp "${asked}", so this is the active comp "${comp.name}" (${comp.id}). Comps: ${compChoices(project)}.` } : {}) };
     }
 
     case 'apply_edit': {
@@ -3219,8 +3303,9 @@ ${notes.trim()}${paletteLine}
     }
 
     case 'open_comp': {
-      const comp = project.comps.find((item) => item.id === str(args, 'compId'));
-      if (!comp) return fail('no comp with that id');
+      const wanted = str(args, 'compId');
+      const comp = wanted ? project.comps.find((item) => item.id === wanted) ?? compByName(project, wanted) : undefined;
+      if (!comp) return fail(`${wanted ? `no comp with that id ("${wanted}")` : 'give compId'}. Comps: ${compChoices(project)}.`);
       host.history.view((current) => ({ ...current, activeCompId: comp.id, openCompIds: current.openCompIds.includes(comp.id) ? current.openCompIds : [...current.openCompIds, comp.id] }));
       return done(`Opened “${comp.name}”`, { compId: comp.id });
     }

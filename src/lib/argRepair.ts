@@ -100,5 +100,48 @@ export function repairArgs<T>(tool: string, args: T): T {
   if (!schema) return args;
   // A whole argument object sent as a JSON string.
   const whole = typeof args === 'string' ? parseJson(args) ?? args : args;
-  return repairValue(whole, { ...schema, type: 'object' }) as T;
+  return repairValue(aliasKeys(tool, whole), { ...schema, type: 'object' }) as T;
+}
+
+/**
+ * Names a weak model sends for a parameter the tool calls something else. Only used when the tool's
+ * schema lacks the sent key and has the target, so a tool that really has `id` keeps it.
+ */
+const ALIASES: Record<string, string> = {
+  filepath: 'path', file: 'path', filename: 'path', dir: 'path', directory: 'path', folder: 'path', dirpath: 'path', folderpath: 'path', directorypath: 'path',
+  oldstring: 'oldString', oldstr: 'oldString', old: 'oldString', oldtext: 'oldString', targetcontent: 'oldString', search: 'oldString', find: 'oldString',
+  newstring: 'newString', newstr: 'newString', new: 'newString', newtext: 'newString', replacementcontent: 'newString', replacement: 'newString', replace: 'newString',
+  allowmultiple: 'allowMultiple', replaceall: 'allowMultiple',
+};
+/** Names a skill or tool is looked up by. Per tool, since elsewhere `name` is a new label and `id` an existing thing. */
+const NAMED_BY = { id: 'name', skillid: 'name', skill: 'name', skillname: 'name', toolname: 'name', tool: 'name' };
+/** Per-tool extras, e.g. what a model calls the body of a saved skill. */
+const TOOL_ALIASES: Record<string, Record<string, string>> = {
+  brain_save_skill: { ...NAMED_BY, text: 'body', steps: 'body', content: 'body', procedure: 'body' },
+  brain_load_skill: NAMED_BY,
+  call_custom_tool: NAMED_BY,
+  tool_help: NAMED_BY,
+};
+
+const squash = (key: string) => key.replace(/[_\-\s]/g, '').toLowerCase();
+
+/**
+ * A call's keys renamed to the schema's own where the match is certain: the same word in another
+ * case or with underscores (file_path ↔ filePath), or a known synonym (oldString ← old_str).
+ * A key the schema has, or a target already sent, is never touched.
+ */
+export function aliasKeys<T>(tool: string, args: T): T {
+  const props = SCHEMAS.get(tool)?.properties;
+  if (!props || !args || typeof args !== 'object' || Array.isArray(args)) return args;
+  const input = args as Record<string, unknown>;
+  const known = new Map(Object.keys(props).map((key) => [squash(key), key]));
+  const out: Record<string, unknown> = {};
+  let changed = false;
+  for (const [key, value] of Object.entries(input)) {
+    if (key in props) { out[key] = value; continue; }
+    const squashed = squash(key);
+    const target = known.get(squashed) ?? [TOOL_ALIASES[tool]?.[squashed], ALIASES[squashed]].find((candidate) => candidate && candidate in props);
+    if (target && !(target in input) && !(target in out)) { out[target] = value; changed = true; } else out[key] = value;
+  }
+  return changed ? (out as T) : args;
 }

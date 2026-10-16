@@ -4,7 +4,13 @@ const NAMED: Record<string, string> = { white: '#ffffff', black: '#000000', red:
 const cache = new Map<string, [number, number, number, number]>();
 
 export function parseColor(input: string | null | undefined): [number, number, number, number] {
-  const raw = (input ?? '#000000').trim().toLowerCase();
+  // A scene from a model can carry a colour as an object ({hex}, {color}) or a number: read it, never throw.
+  const loose = input as unknown;
+  const text = typeof loose === 'string' ? loose
+    : loose && typeof loose === 'object' ? ['hex', 'color', 'value', 'fill'].map((key) => (loose as Record<string, unknown>)[key]).find((v): v is string => typeof v === 'string')
+    : typeof loose === 'number' && Number.isFinite(loose) ? `#${Math.max(0, Math.min(0xffffff, Math.round(loose))).toString(16).padStart(6, '0')}`
+    : undefined;
+  const raw = (text ?? '#000000').trim().toLowerCase();
   const hit = cache.get(raw);
   if (hit) return hit;
   let out: [number, number, number, number] = [0, 0, 0, 1];

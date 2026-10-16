@@ -113,6 +113,7 @@ export function toolEvent(input: {
     ms: input.ms,
     // argRepair mended the call's JSON types before it ran.
     repaired: JSON.stringify(input.sentArgs ?? null) !== argsJson,
+    ...(input.result.guarded ? { guarded: true } : {}),
     // readDedupe answered with a one-line "unchanged" note instead of the full body.
     deduped: Boolean(input.reply.unchanged) && !result.unchanged,
     changedProject: input.changedProject,

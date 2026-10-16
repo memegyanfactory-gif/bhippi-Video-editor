@@ -20,6 +20,12 @@ use std::sync::Mutex;
 
 use crate::store;
 
+// Recipes (what worked in each production phase) and skill hygiene live beside the engine.
+#[path = "brain_recipes.rs"]
+mod recipes;
+#[path = "brain_skills.rs"]
+mod skills;
+
 /// One writer at a time: turns, tools and the UI all touch the same files.
 static LOCK: Mutex<()> = Mutex::new(());
 
@@ -42,7 +48,7 @@ pub const CHANGED_EVENT: &str = "bhippi://brain-changed";
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     pub id: String,
-    /// memory | user | skill | tool | topic | episode | provider
+    /// memory | user | skill | tool | topic | episode | provider | recipe
     pub kind: String,
     pub title: String,
     #[serde(default)]
@@ -107,6 +113,15 @@ pub struct Graph {
     /// the user deleted stays deleted and one the model patched is never overwritten.
     #[serde(default)]
     pub seeded: HashMap<String, String>,
+    /// Set once the phase-aware re-scoring of old episodes has run (see `migrate`).
+    #[serde(default)]
+    pub rescored: u32,
+    /// Set once the failure reasons were backfilled from the turn traces.
+    #[serde(default)]
+    pub reasons_backfilled: u32,
+    /// Set once the per-phase recipes were first built from the turn traces (dream refreshes them).
+    #[serde(default)]
+    pub recipes_built: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -118,6 +133,12 @@ pub struct TurnTool {
     pub ms: Option<f64>,
     #[serde(default)]
     pub changed_project: bool,
+    /// Why a failed call failed (clipped), so the brain keeps the reason, not just the count.
+    #[serde(default)]
+    pub error: Option<String>,
+    /// The argument names the call carried, to learn what a later working call changed.
+    #[serde(default)]
+    pub arg_keys: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -138,6 +159,13 @@ pub struct TurnOutcome {
     pub verified: Option<bool>,
     #[serde(default)]
     pub tools: Vec<TurnTool>,
+    /// The production phase when the turn started (null, planning, plan-ready, gathering, gathered,
+    /// editing, polishing, done).
+    #[serde(default)]
+    pub phase: Option<String>,
+    /// The model tier of the turn: full | guided.
+    #[serde(default)]
+    pub tier: Option<String>,
 }
 
 fn now() -> String {
@@ -191,12 +219,20 @@ fn words(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Content words worth a topic hub: long enough, not filler, not a number.
+/// A word worth a topic hub: long enough, not filler, not a number, and not an id or hash
+/// ("gqldoo6kiu8", "clip_01h2x9") that only names one file or job.
+fn topic_word(word: &str) -> bool {
+    let len = word.chars().count();
+    let digits = word.chars().filter(char::is_ascii_digit).count();
+    len >= 4 && !STOPWORDS.contains(&word) && digits < len && !(digits > 0 && len >= 7)
+}
+
+/// Content words worth a topic hub.
 fn keywords(text: &str) -> Vec<String> {
     let mut seen = HashSet::new();
     words(text)
         .into_iter()
-        .filter(|w| w.chars().count() >= 4 && !STOPWORDS.contains(&w.as_str()) && !w.chars().all(|c| c.is_ascii_digit()))
+        .filter(|w| topic_word(w))
         .filter(|w| seen.insert(w.clone()))
         .take(8)
         .collect()
@@ -258,14 +294,46 @@ fn save(dir: &Path, graph: &Graph) -> Result<(), String> {
     store::write_json(&graph_file(dir), graph)?;
     let render = |kind: &str, heading: &str| {
         let mut text = format!("# {heading}\n\n");
-        for node in graph.nodes.iter().filter(|n| n.kind == kind) {
+        for node in graph.nodes.iter().filter(|n| n.kind == kind && project_of(n).is_none()) {
             text.push_str(&format!("- {}\n", node.body.replace('\n', " ")));
+        }
+        // What was saved for one project only reads under that project's name.
+        let mut projects: Vec<(String, String)> = Vec::new();
+        for node in graph.nodes.iter().filter(|n| n.kind == kind) {
+            if let Some(key) = project_of(node) {
+                if !projects.iter().any(|(k, _)| k == key) {
+                    projects.push((key.to_owned(), project_name_of(node)));
+                }
+            }
+        }
+        for (key, name) in projects {
+            text.push_str(&format!("\n## Project: {name}\n\n"));
+            for node in graph.nodes.iter().filter(|n| n.kind == kind && project_of(n) == Some(key.as_str())) {
+                text.push_str(&format!("- {}\n", node.body.replace('\n', " ")));
+            }
         }
         text
     };
     let _ = std::fs::write(dir.join("MEMORY.md"), render("memory", "Memory"));
     let _ = std::fs::write(dir.join("USER.md"), render("user", "User"));
     Ok(())
+}
+
+/// The project key a memory is scoped to (None: it applies everywhere).
+fn project_of(node: &Node) -> Option<&str> {
+    node.meta.get("project").and_then(Value::as_str).filter(|key| !key.is_empty())
+}
+
+fn project_name_of(node: &Node) -> String {
+    node.meta.get("projectName").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| "this project".to_owned())
+}
+
+/// Whether a memory shows in a turn of `project`: a global one always, a project one only there.
+fn visible_in(node: &Node, project: Option<&str>) -> bool {
+    match project_of(node) {
+        None => true,
+        Some(key) => project == Some(key),
+    }
 }
 
 impl Graph {
@@ -357,6 +425,7 @@ impl Graph {
             "topics": count("topic"),
             "episodes": count("episode"),
             "providers": count("provider"),
+            "recipes": count("recipe"),
             "edges": self.edges.len(),
         })
     }
@@ -380,8 +449,462 @@ fn failed(status: &str) -> bool {
     !matches!(status, "done" | "ok" | "running" | "success")
 }
 
-fn outcome_ok(outcome: &TurnOutcome) -> bool {
-    outcome.fault_kind.is_none() && !outcome.stopped && outcome.verified != Some(false)
+/// Tools whose success closes the plan phase.
+const PLAN_TOOLS: &[&str] = &["save_storyboard", "save_video_blueprint", "propose_storyboards"];
+
+/// How a turn ended, judged by what its phase is for: a plan turn ends at the saved plan, a gather
+/// turn at `finish_gathering`, and only the editing phases are held to `verify_edit_workflow`.
+/// `ran` is every call with whether it succeeded. Returns (succeeded, result text).
+fn score(fault: Option<&str>, stopped: bool, verified: Option<bool>, phase: Option<&str>, ran: &[(&str, bool)]) -> (bool, String) {
+    if let Some(fault) = fault {
+        return (false, format!("fault: {fault}"));
+    }
+    if stopped {
+        return (false, "stopped by user".to_owned());
+    }
+    let done = |name: &str| ran.iter().any(|(tool, ok)| *tool == name && *ok);
+    if verified == Some(true) {
+        return (true, "workflow verified".to_owned());
+    }
+    let planned = PLAN_TOOLS.iter().any(|tool| done(tool));
+    match phase {
+        None | Some("planning") if done("finish_gathering") => return (true, "phase complete (gathering)".to_owned()),
+        None | Some("planning") if planned => return (true, "phase complete (plan)".to_owned()),
+        Some("plan-ready" | "gathering") => {
+            if done("finish_gathering") {
+                return (true, "phase complete (gathering)".to_owned());
+            }
+            if planned {
+                return (true, "phase complete (plan)".to_owned());
+            }
+            // A turn that never ran a tool (a question in the phase) says nothing either way.
+            if !ran.is_empty() {
+                return (false, "phase incomplete (gathering)".to_owned());
+            }
+            return (true, "done".to_owned());
+        }
+        _ => {}
+    }
+    match verified {
+        Some(false) => (false, "workflow unverified".to_owned()),
+        _ => (true, "done".to_owned()),
+    }
+}
+
+fn outcome_score(outcome: &TurnOutcome) -> (bool, String) {
+    let ran: Vec<(&str, bool)> = outcome.tools.iter().map(|t| (t.name.as_str(), !failed(&t.status))).collect();
+    score(outcome.fault_kind.as_deref(), outcome.stopped, outcome.verified, outcome.phase.as_deref(), &ran)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Failure reasons: why a tool call failed and what the next working call did differently.
+
+const MAX_REASONS: usize = 6;
+const REASON_CLIP: usize = 160;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Reason {
+    /// The error with numbers and ids replaced by #, so repeats of one mistake count together.
+    error: String,
+    count: u32,
+    last: String,
+    #[serde(default)]
+    fix: String,
+}
+
+/// One call of a turn, in order, reduced to what failure learning needs.
+struct Call {
+    name: String,
+    ok: bool,
+    error: Option<String>,
+    keys: Vec<String>,
+}
+
+fn is_break(c: char) -> bool {
+    c.is_whitespace() || matches!(c, '"' | '\'' | ',' | ':' | '(' | ')' | '[' | ']' | '{' | '}' | '=')
+}
+
+/// An error with digits and long id-like tokens collapsed to #.
+fn normalize_error(error: &str) -> String {
+    let mut out = String::new();
+    for token in error.trim().split_inclusive(is_break) {
+        let word = token.trim_end_matches(is_break);
+        let tail = &token[word.len()..];
+        let idlike = word.chars().count() >= 14
+            && word.chars().any(|c| c.is_ascii_digit())
+            && word.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if idlike {
+            out.push('#');
+        } else {
+            let mut last_digit = false;
+            for c in word.chars() {
+                if c.is_ascii_digit() {
+                    if !last_digit {
+                        out.push('#');
+                    }
+                    last_digit = true;
+                } else {
+                    last_digit = false;
+                    out.push(c);
+                }
+            }
+        }
+        out.push_str(tail);
+    }
+    clip(&out, REASON_CLIP)
+}
+
+/// What a working call did with its arguments compared with the failed one.
+fn fix_hint(bad: &[String], good: &[String]) -> String {
+    let added: Vec<&String> = good.iter().filter(|k| !bad.contains(k)).collect();
+    let removed: Vec<&String> = bad.iter().filter(|k| !good.contains(k)).collect();
+    let join = |keys: &[&String]| keys.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", ");
+    let action = if added.len() == 1 && removed.len() == 1 {
+        format!("rename {} to {}", removed[0], added[0])
+    } else {
+        let mut parts = Vec::new();
+        if !added.is_empty() {
+            parts.push(format!("pass {}", join(&added)));
+        }
+        if !removed.is_empty() {
+            parts.push(format!("drop {}", join(&removed)));
+        }
+        if parts.is_empty() {
+            "correct the values".to_owned()
+        } else {
+            parts.join(", ")
+        }
+    };
+    if good.is_empty() {
+        action
+    } else {
+        format!("{action} (worked: {{{}}})", good.iter().take(6).cloned().collect::<Vec<_>>().join(", "))
+    }
+}
+
+fn reasons_of(node: &Node) -> Vec<Reason> {
+    node.meta.get("reasons").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default()
+}
+
+fn set_reasons(node: &mut Node, reasons: Vec<Reason>) {
+    let mut meta = node.meta.as_object().cloned().unwrap_or_default();
+    meta.insert("reasons".into(), serde_json::to_value(reasons).unwrap_or(Value::Null));
+    node.meta = Value::Object(meta);
+}
+
+/// Value of a reason for keeping or showing it: how often, and how recently.
+fn reason_rank(reason: &Reason) -> f32 {
+    reason.count as f32 * 0.5f32.powf(age_days(&reason.last) / 21.0)
+}
+
+/// Keeps each failed call's reason on its tool hub, with what the next working call of the same
+/// tool in this turn did differently as the fix.
+fn absorb_failures(graph: &mut Graph, calls: &[Call], stamp: &str) {
+    for (at, call) in calls.iter().enumerate() {
+        absorb_one(graph, call, &calls[at + 1..], stamp);
+    }
+}
+
+/// Errors that are Bhippi's own faults (a script crash) or the retry guard's echo, not a mistake a
+/// model can learn from: a "lesson" drawn from them teaches a workaround for a bug that gets fixed.
+fn not_a_lesson(error: &str) -> bool {
+    const CRASH: &[&str] = &["is not iterable", "is not a function", "cannot read properties", "tainted canvas", "is not defined", "already failed this turn"];
+    let lower = error.trim().to_lowercase();
+    matches!(lower.as_str(), "undefined" | "null" | "[object object]") || CRASH.iter().any(|cue| lower.contains(cue))
+}
+
+/// Failures Bhippi now prevents (argRepair.ts aliases and defaults) or words differently, plus
+/// verify's raw status dump: kept as lessons they would only crowd out the live ones.
+const RETIRED: &[(&str, &str)] = &[
+    ("list_directory", "Supply a directory path"),
+    ("analyze_song", "Give the song assetId or clipId"),
+    ("edit_file", "Supply a file path"),
+    ("read_file", "Supply a file path"),
+    ("inspect_clip_frames", "Supply a video clipId"),
+    ("analyze_clip_speech", "Supply a media clipId"),
+    ("get_comp", "there is no comp to read"),
+    ("get_motion_scene", "Supply clipId: a "),
+    ("verify_edit_workflow", "Workflow incomplete: {"),
+];
+
+fn retired(tool: &str, error: &str) -> bool {
+    RETIRED.iter().any(|(name, start)| *name == tool && error.trim_start().starts_with(start))
+}
+
+/// One failed call's reason; `later` are the calls after it, where the fix is looked for.
+fn absorb_one(graph: &mut Graph, call: &Call, later: &[Call], stamp: &str) {
+    {
+        let Some(error) = call.error.as_deref().filter(|e| !call.ok && !e.trim().is_empty()) else { return };
+        // The hint Bhippi appends at call time (toolLessons.ts) is not part of the error itself.
+        let error = error.split("\nHint: ").next().unwrap_or(error);
+        if not_a_lesson(error) || retired(&call.name, error) {
+            return;
+        }
+        let normal = normalize_error(error);
+        let fix = later
+            .iter()
+            .find(|next| next.name == call.name && next.ok)
+            .map(|next| fix_hint(&call.keys, &next.keys))
+            .unwrap_or_default();
+        let tool_id = format!("tool:{}", call.name);
+        let node = graph.hub(&tool_id, "tool", &call.name);
+        let mut reasons = reasons_of(node);
+        match reasons.iter_mut().find(|r| r.error == normal) {
+            Some(reason) => {
+                reason.count += 1;
+                reason.last = stamp.to_owned();
+                if !fix.is_empty() {
+                    reason.fix = fix;
+                }
+            }
+            None => reasons.push(Reason { error: normal, count: 1, last: stamp.to_owned(), fix }),
+        }
+        reasons.sort_by(|a, b| reason_rank(b).total_cmp(&reason_rank(a)));
+        reasons.truncate(MAX_REASONS);
+        set_reasons(node, reasons);
+    }
+}
+
+/// The best lesson per tool, ranked by count and recency; tools the prompt names come first.
+fn lessons_in(graph: &Graph, prompt: &str, take: usize) -> Vec<(String, Reason)> {
+    let prompt = prompt.to_lowercase();
+    let mut ranked: Vec<(f32, String, Reason)> = Vec::new();
+    for node in graph.nodes.iter().filter(|n| n.kind == "tool") {
+        let relevant = node.title.split('_').any(|part| part.chars().count() >= 4 && prompt.contains(part));
+        let best = reasons_of(node).into_iter().filter(|r| r.count >= 2).max_by(|a, b| reason_rank(a).total_cmp(&reason_rank(b)));
+        if let Some(reason) = best {
+            let score = reason_rank(&reason) * if relevant { 2.0 } else { 1.0 };
+            ranked.push((score, node.title.clone(), reason));
+        }
+    }
+    ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
+    ranked.into_iter().take(take).map(|(_, tool, reason)| (tool, reason)).collect()
+}
+
+/// Every tool's top lesson for the UI and the model: `{ lessons: [{ tool, error, fix, count }] }`.
+pub fn tool_lessons(dir: &Path) -> Value {
+    let graph = load(dir);
+    let lessons: Vec<Value> = lessons_in(&graph, "", 40)
+        .into_iter()
+        .map(|(tool, r)| json!({ "tool": tool, "error": r.error, "fix": r.fix, "count": r.count }))
+        .collect();
+    json!({ "lessons": lessons })
+}
+
+fn call_of(tool: &TurnTool) -> Call {
+    Call { name: tool.name.clone(), ok: !failed(&tool.status), error: tool.error.clone(), keys: tool.arg_keys.clone() }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Migration: re-score old episodes by phase and backfill failure reasons from the turn traces.
+
+/// One turn read back from its trace file.
+struct TraceTurn {
+    start_ms: i64,
+    end_ms: i64,
+    phase: Option<String>,
+    tier: Option<String>,
+    calls: Vec<Call>,
+    /// Failed calls' times, for the reasons' "last seen".
+    failed_at: Vec<(usize, i64)>,
+}
+
+fn stamp_of(ms: i64) -> String {
+    DateTime::from_timestamp_millis(ms).map(|t| t.to_rfc3339()).unwrap_or_else(now)
+}
+
+fn read_trace(path: &Path) -> Option<TraceTurn> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut turn = TraceTurn { start_ms: 0, end_ms: 0, phase: None, tier: None, calls: Vec::new(), failed_at: Vec::new() };
+    let mut sent = false;
+    for line in text.lines() {
+        let Ok(event) = serde_json::from_str::<Value>(line) else { continue };
+        let at = event.get("t").and_then(Value::as_i64).unwrap_or(0);
+        turn.end_ms = turn.end_ms.max(at);
+        match event.get("ev").and_then(Value::as_str) {
+            Some("turn_sent") => {
+                sent = true;
+                turn.start_ms = at;
+                turn.phase = event.get("phase").and_then(Value::as_str).map(str::to_owned);
+                turn.tier = event.get("tier").and_then(Value::as_str).map(str::to_owned);
+            }
+            Some("tool") => {
+                let status = event.get("status").and_then(Value::as_str).unwrap_or("");
+                let keys = event.get("args").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+                if status == "failed" {
+                    turn.failed_at.push((turn.calls.len(), at));
+                }
+                turn.calls.push(Call {
+                    name: event.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+                    ok: status == "done",
+                    error: if status == "failed" { event.get("error").and_then(Value::as_str).map(|e| clip(e, 200)) } else { None },
+                    keys,
+                });
+            }
+            _ => {}
+        }
+    }
+    sent.then_some(turn)
+}
+
+/// Every readable turn trace under `<app data>/traces`, skipping files still being written.
+fn read_traces(root: &Path) -> Vec<TraceTurn> {
+    let mut turns = Vec::new();
+    let Ok(projects) = std::fs::read_dir(root) else { return turns };
+    for project in projects.flatten().filter(|p| p.path().is_dir()) {
+        let Ok(files) = std::fs::read_dir(project.path()) else { continue };
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let fresh = file.metadata().and_then(|m| m.modified()).ok().and_then(|m| m.elapsed().ok()).is_some_and(|age| age.as_secs() < 300);
+            if fresh {
+                continue;
+            }
+            turns.extend(read_trace(&path));
+        }
+    }
+    turns.sort_by_key(|t| t.start_ms);
+    turns
+}
+
+fn traces_root(dir: &Path) -> PathBuf {
+    dir.parent().map(|p| p.join("traces")).unwrap_or_else(|| dir.join("traces"))
+}
+
+/// The tools an old episode recorded in its body: `Tools: a(done), b(failed).`
+fn body_tools(body: &str) -> Vec<(String, bool)> {
+    let Some(line) = body.lines().find_map(|l| l.strip_prefix("Tools: ")) else { return Vec::new() };
+    line.trim_end_matches('.')
+        .split(", ")
+        .filter_map(|item| {
+            let (name, status) = item.strip_suffix(')')?.split_once('(')?;
+            Some((name.to_owned(), !failed(status)))
+        })
+        .collect()
+}
+
+/// The trace of the turn that ended just before this episode was written, if one fits.
+fn trace_for<'a>(turns: &'a [TraceTurn], used: &HashSet<usize>, created_ms: i64, elapsed_ms: f64) -> Option<(usize, &'a TraceTurn)> {
+    turns
+        .iter()
+        .enumerate()
+        .filter(|(i, t)| !used.contains(i) && t.end_ms <= created_ms + 5_000 && created_ms - t.end_ms < 180_000)
+        .filter(|(_, t)| elapsed_ms <= 0.0 || (((t.end_ms - t.start_ms) as f64) - elapsed_ms).abs() < 20_000.0 + elapsed_ms * 0.25)
+        .min_by_key(|(_, t)| (created_ms - t.end_ms).abs())
+}
+
+/// Counts of how episodes were scored, for the migration report.
+#[derive(Debug, Default, PartialEq)]
+pub struct Rescored {
+    pub changed: usize,
+    pub wins_before: u32,
+    pub wins_after: u32,
+    pub matched_trace: usize,
+}
+
+fn episode_result(node: &Node) -> Option<String> {
+    node.meta.get("result").and_then(Value::as_str).map(str::to_owned)
+}
+
+/// Re-classifies "workflow unverified" episodes with the phase-aware scoring (the phase and the full
+/// tool list come from the matching trace, else from the episode's own tool list), then moves the
+/// skills that episodes scored by the same amount.
+fn rescore_episodes(graph: &mut Graph, turns: &[TraceTurn]) -> Rescored {
+    let mut report = Rescored::default();
+    let mut used = HashSet::new();
+    let ids: Vec<String> = graph.nodes.iter().filter(|n| n.kind == "episode" && episode_result(n).as_deref() == Some("workflow unverified")).map(|n| n.id.clone()).collect();
+    report.wins_before = graph.nodes.iter().filter(|n| n.kind == "episode").map(|n| n.wins).sum();
+    for id in ids {
+        let Some(node) = graph.find(&id) else { continue };
+        let created = DateTime::parse_from_rfc3339(&node.created).map(|t| t.timestamp_millis()).unwrap_or(0);
+        let elapsed = node.meta.get("elapsedMs").and_then(Value::as_f64).unwrap_or(0.0);
+        let matched = trace_for(turns, &used, created, elapsed);
+        let (phase, tier, ran): (Option<String>, Option<String>, Vec<(String, bool)>) = match matched {
+            Some((index, turn)) => {
+                used.insert(index);
+                report.matched_trace += 1;
+                (turn.phase.clone(), turn.tier.clone(), turn.calls.iter().map(|c| (c.name.clone(), c.ok)).collect())
+            }
+            None => (None, None, body_tools(&node.body)),
+        };
+        let ran_refs: Vec<(&str, bool)> = ran.iter().map(|(n, ok)| (n.as_str(), *ok)).collect();
+        let (ok, result) = score(None, false, Some(false), phase.as_deref(), &ran_refs);
+        if result == "workflow unverified" {
+            // Unchanged verdict; still note what the trace knew.
+            if let Some(node) = graph.find_mut(&id) {
+                if let Some(meta) = node.meta.as_object_mut() {
+                    if let Some(phase) = &phase {
+                        meta.insert("phase".into(), json!(phase));
+                    }
+                    if let Some(tier) = &tier {
+                        meta.insert("tier".into(), json!(tier));
+                    }
+                }
+            }
+            continue;
+        }
+        if let Some(node) = graph.find_mut(&id) {
+            node.body = node.body.replace("Result: workflow unverified.", &format!("Result: {result}."));
+            node.wins = u32::from(ok);
+            node.fails = u32::from(!ok);
+            let mut meta = node.meta.as_object().cloned().unwrap_or_default();
+            meta.insert("result".into(), json!(result));
+            meta.insert("rescored".into(), json!(true));
+            if let Some(phase) = &phase {
+                meta.insert("phase".into(), json!(phase));
+            }
+            if let Some(tier) = &tier {
+                meta.insert("tier".into(), json!(tier));
+            }
+            node.meta = Value::Object(meta);
+        }
+        report.changed += 1;
+        if ok {
+            // Skills this episode scored counted it as a fail; it was not one.
+            let skills: Vec<String> = graph.edges.iter().filter(|e| e.kind == "derived" && e.a == id && e.b.starts_with("skill:")).map(|e| e.b.clone()).collect();
+            for skill in skills {
+                if let Some(node) = graph.find_mut(&skill) {
+                    node.fails = node.fails.saturating_sub(1);
+                    node.wins += 1;
+                    node.weight = skill_weight(node);
+                }
+            }
+        }
+    }
+    report.wins_after = graph.nodes.iter().filter(|n| n.kind == "episode").map(|n| n.wins).sum();
+    report
+}
+
+/// Runs the one-time migrations a graph still needs; true when it changed.
+fn migrate(dir: &Path, graph: &mut Graph) -> bool {
+    if graph.rescored >= 1 && graph.reasons_backfilled >= 1 && graph.recipes_built >= 1 {
+        return false;
+    }
+    let turns = read_traces(&traces_root(dir));
+    if graph.rescored < 1 {
+        rescore_episodes(graph, &turns);
+        graph.rescored = 1;
+    }
+    if graph.reasons_backfilled < 1 {
+        for turn in &turns {
+            for (at, call) in turn.calls.iter().enumerate() {
+                if call.error.is_none() {
+                    continue;
+                }
+                // Each failed call is absorbed on its own, with the calls after it for the fix.
+                let when = turn.failed_at.iter().find(|(i, _)| *i == at).map(|(_, ms)| stamp_of(*ms)).unwrap_or_else(now);
+                absorb_one(graph, call, &turn.calls[at + 1..], &when);
+            }
+        }
+        graph.reasons_backfilled = 1;
+    }
+    if graph.recipes_built < 1 {
+        recipes::refresh(graph, &recipes::read_turns(&traces_root(dir)));
+        graph.recipes_built = 1;
+    }
+    true
 }
 
 /// Records one finished turn and answers what the brain learned from it.
@@ -389,15 +912,10 @@ pub fn record_turn(dir: &Path, outcome: &TurnOutcome) -> Result<Value, String> {
     let _guard = LOCK.lock().map_err(|_| "the brain is busy")?;
     let mut graph = load(dir);
     let stamp = now();
-    let ok = outcome_ok(outcome);
+    migrate(dir, &mut graph);
+    let (ok, result) = outcome_score(outcome);
     let id = format!("ep-{}", ulid::Ulid::new());
-    let result = match (&outcome.fault_kind, outcome.stopped, outcome.verified) {
-        (Some(fault), _, _) => format!("fault: {fault}"),
-        (None, true, _) => "stopped by user".to_owned(),
-        (None, false, Some(true)) => "workflow verified".to_owned(),
-        (None, false, Some(false)) => "workflow unverified".to_owned(),
-        _ => "done".to_owned(),
-    };
+    let guided = outcome.tier.as_deref() == Some("guided");
     let tool_list = outcome
         .tools
         .iter()
@@ -427,6 +945,8 @@ pub fn record_turn(dir: &Path, outcome: &TurnOutcome) -> Result<Value, String> {
             "elapsedMs": outcome.elapsed_ms.round(),
             "toolCalls": outcome.tools.len(),
             "result": result,
+            "phase": outcome.phase,
+            "tier": outcome.tier,
             "changedProject": outcome.tools.iter().any(|t| t.changed_project),
         }),
     });
@@ -447,10 +967,15 @@ pub fn record_turn(dir: &Path, outcome: &TurnOutcome) -> Result<Value, String> {
         if let Some(ms) = tool.ms {
             // A running mean of how long the tool takes, for the mind map's inspector.
             let mean = node.meta.get("avgMs").and_then(Value::as_f64).unwrap_or(ms);
-            node.meta = json!({ "avgMs": (mean + (ms - mean) / f64::from(node.uses)).round() });
+            let mut meta = node.meta.as_object().cloned().unwrap_or_default();
+            meta.insert("avgMs".into(), json!((mean + (ms - mean) / f64::from(node.uses)).round()));
+            node.meta = Value::Object(meta);
         }
         graph.link(&id, &tool_id, "used", 1.0);
     }
+    // Why calls failed, and what the next working call of the same tool changed.
+    let calls: Vec<Call> = outcome.tools.iter().map(call_of).collect();
+    absorb_failures(&mut graph, &calls, &stamp);
     let provider_id = format!("provider:{}", outcome.provider);
     let provider_title = outcome.provider.clone();
     let provider = graph.hub(&provider_id, "provider", &provider_title);
@@ -525,7 +1050,8 @@ pub fn record_turn(dir: &Path, outcome: &TurnOutcome) -> Result<Value, String> {
     let first_fail = outcome.tools.iter().position(|t| failed(&t.status));
     let recovered = first_fail.is_some_and(|at| outcome.tools[at + 1..].iter().any(|t| !failed(&t.status)));
     let quoted = clip(&outcome.prompt, 90);
-    if ok && (calls >= 5 || recovered) {
+    // Only full-tier turns are nudged to save skills and memories: small models mostly fail at it.
+    if ok && !guided && (calls >= 5 || recovered) {
         let why = if recovered { format!("{calls} tool calls and recovered from a failed step") } else { format!("{calls} tool calls") };
         graph.nudge(Nudge {
             kind: "skill".into(),
@@ -536,7 +1062,7 @@ pub fn record_turn(dir: &Path, outcome: &TurnOutcome) -> Result<Value, String> {
         });
         learned.push("skill candidate".to_owned());
     }
-    if is_correction(&outcome.prompt) {
+    if !guided && is_correction(&outcome.prompt) {
         graph.nudge(Nudge {
             kind: "user".into(),
             target: None,
@@ -560,7 +1086,7 @@ pub fn record_turn(dir: &Path, outcome: &TurnOutcome) -> Result<Value, String> {
     }
 
     graph.turns_since_dream += 1;
-    let dreamed = if graph.turns_since_dream >= DREAM_EVERY { Some(dream_graph(&mut graph)) } else { None };
+    let dreamed = if graph.turns_since_dream >= DREAM_EVERY { Some(dream_all(dir, &mut graph)) } else { None };
     save(dir, &graph)?;
     Ok(json!({ "episode": id, "learned": learned, "dream": dreamed }))
 }
@@ -574,6 +1100,35 @@ fn skill_weight(node: &Node) -> f32 {
 /// Saves a durable fact (`memory`) or something about the user (`user`). A near-duplicate is
 /// updated in place; past the character budget the least valuable entries make room.
 pub fn remember(dir: &Path, kind: &str, text: &str) -> Result<Value, String> {
+    remember_in(dir, kind, text, None)
+}
+
+/// The project a memory belongs to: a stable key (its folder, lower-cased) and the name to show.
+#[derive(Clone, Debug)]
+pub struct ProjectScope {
+    pub key: String,
+    pub name: String,
+}
+
+impl ProjectScope {
+    /// From a project folder; None for no folder (an unsaved project has no stable key to hold memory).
+    pub fn of_folder(folder: &str) -> Option<Self> {
+        let key = folder.trim().to_lowercase();
+        if key.is_empty() {
+            return None;
+        }
+        let name = Path::new(folder.trim().trim_end_matches(['/', '\\'])).file_name().and_then(|n| n.to_str()).unwrap_or("this project").to_owned();
+        Some(Self { key, name })
+    }
+}
+
+fn scope_meta(scope: &ProjectScope) -> Value {
+    json!({ "project": scope.key, "projectName": scope.name })
+}
+
+/// `remember` for a memory that may belong to one project: it shows, dedups and is evicted only
+/// among that project's own memories, and only that project's turns are briefed with it.
+pub fn remember_in(dir: &Path, kind: &str, text: &str, project: Option<&ProjectScope>) -> Result<Value, String> {
     if !matches!(kind, "memory" | "user") {
         return Err("kind must be \"memory\" or \"user\"".into());
     }
@@ -587,7 +1142,14 @@ pub fn remember(dir: &Path, kind: &str, text: &str) -> Result<Value, String> {
     let _guard = LOCK.lock().map_err(|_| "the brain is busy")?;
     let mut graph = load(dir);
     let stamp = now();
-    let twin = graph.nearest(&text, &[kind], "", SAME_FACT, 1).first().map(|(id, _)| id.clone());
+    // Twins and eviction stay within one scope: a global fact and a project's own are not rivals.
+    let key = project.map(|p| p.key.as_str());
+    let same_scope = |n: &Node| project_of(n) == key;
+    let twin = graph
+        .nearest(&text, &[kind], "", SAME_FACT, 4)
+        .into_iter()
+        .find(|(id, _)| graph.find(id).is_some_and(same_scope))
+        .map(|(id, _)| id);
     let (id, updated) = match twin.and_then(|existing| graph.find_mut(&existing)) {
         Some(node) => {
             let existing = node.id.clone();
@@ -611,7 +1173,7 @@ pub fn remember(dir: &Path, kind: &str, text: &str) -> Result<Value, String> {
                 fails: 0,
                 created: stamp.clone(),
                 updated: stamp,
-                meta: Value::Null,
+                meta: project.map_or(Value::Null, scope_meta),
             });
             (id, false)
         }
@@ -623,14 +1185,14 @@ pub fn remember(dir: &Path, kind: &str, text: &str) -> Result<Value, String> {
     let cap = if kind == "user" { USER_CAP } else { MEMORY_CAP };
     let mut evicted = Vec::new();
     loop {
-        let used: usize = graph.nodes.iter().filter(|n| n.kind == kind).map(|n| n.body.chars().count() + 3).sum();
+        let used: usize = graph.nodes.iter().filter(|n| n.kind == kind && same_scope(n)).map(|n| n.body.chars().count() + 3).sum();
         if used <= cap {
             break;
         }
         let victim = graph
             .nodes
             .iter()
-            .filter(|n| n.kind == kind && n.id != id)
+            .filter(|n| n.kind == kind && n.id != id && same_scope(n))
             .min_by(|a, b| value_score(a).total_cmp(&value_score(b)))
             .map(|n| n.id.clone());
         match victim {
@@ -646,8 +1208,35 @@ pub fn remember(dir: &Path, kind: &str, text: &str) -> Result<Value, String> {
         graph.nudges.retain(|n| n.kind != "user");
     }
     save(dir, &graph)?;
-    let used: usize = graph.nodes.iter().filter(|n| n.kind == kind).map(|n| n.body.chars().count() + 3).sum();
-    Ok(json!({ "ok": true, "id": id, "updated": updated, "evicted": evicted, "budget": format!("{used}/{cap} characters") }))
+    let used: usize = graph.nodes.iter().filter(|n| n.kind == kind && same_scope(n)).map(|n| n.body.chars().count() + 3).sum();
+    let scope = project.map_or("global", |_| "project");
+    Ok(json!({ "ok": true, "id": id, "updated": updated, "scope": scope, "evicted": evicted, "budget": format!("{used}/{cap} characters") }))
+}
+
+/// Limits a memory to one project (the "Make project-only" action), or back to everywhere (None).
+pub fn scope_memory(dir: &Path, id: &str, project: Option<&ProjectScope>) -> Result<Value, String> {
+    let _guard = LOCK.lock().map_err(|_| "the brain is busy")?;
+    let mut graph = load(dir);
+    let node = graph.find_mut(id).ok_or_else(|| format!("no brain entry {id}"))?;
+    if !matches!(node.kind.as_str(), "memory" | "user") {
+        return Err("only a memory or a user fact can be limited to a project".into());
+    }
+    let mut meta = node.meta.as_object().cloned().unwrap_or_default();
+    match project {
+        Some(scope) => {
+            meta.insert("project".into(), json!(scope.key));
+            meta.insert("projectName".into(), json!(scope.name));
+        }
+        None => {
+            meta.remove("project");
+            meta.remove("projectName");
+        }
+    }
+    node.meta = Value::Object(meta);
+    node.updated = now();
+    let title = node.title.clone();
+    save(dir, &graph)?;
+    Ok(json!({ "ok": true, "scoped": title, "project": project.map(|p| p.name.clone()) }))
 }
 
 fn value_score(node: &Node) -> f32 {
@@ -670,19 +1259,21 @@ pub fn forget(dir: &Path, id: &str) -> Result<Value, String> {
 }
 
 /// Semantic search over everything the brain holds.
-pub fn recall(dir: &Path, query: &str, limit: usize, kinds: &[String]) -> Value {
+pub fn recall(dir: &Path, query: &str, limit: usize, kinds: &[String], project: Option<&ProjectScope>) -> Value {
     let graph = load(dir);
-    recall_in(&graph, query, limit, kinds)
+    recall_in(&graph, query, limit, kinds, project.map(|p| p.key.as_str()))
 }
 
-fn recall_in(graph: &Graph, query: &str, limit: usize, kinds: &[String]) -> Value {
+/// Memories of other projects stay out of the answer; `project` is the turn's own.
+fn recall_in(graph: &Graph, query: &str, limit: usize, kinds: &[String], project: Option<&str>) -> Value {
     let vector = embed(query);
     let top_weight = graph.nodes.iter().map(|n| n.weight).fold(1.0f32, f32::max);
     let mut hits: Vec<(f32, &Node)> = graph
         .nodes
         .iter()
         .filter(|n| kinds.is_empty() || kinds.iter().any(|k| k == &n.kind))
-        .filter(|n| n.kind != "provider")
+        .filter(|n| n.kind != "provider" && n.kind != "recipe")
+        .filter(|n| visible_in(n, project))
         .map(|n| (cosine(&vector, &embed(&node_text(n))), n))
         .filter(|(score, _)| *score > 0.12)
         .map(|(score, n)| (score * 0.8 + 0.2 * (n.weight / top_weight), n))
@@ -943,6 +1534,7 @@ pub fn load_skill(dir: &Path, name: &str) -> Result<Value, String> {
     }
     node.uses += 1;
     node.updated = now();
+    skills::wake(node);
     node.weight = skill_weight(node);
     let (wins, fails) = (node.wins, node.fails);
     if !graph.active_skills.contains(&name) {
@@ -1004,7 +1596,14 @@ fn dream_graph(graph: &mut Graph) -> Value {
         *m.entry(id).or_default() += 1;
         m
     });
-    let lonely: Vec<String> = graph.nodes.iter().filter(|n| n.kind == "topic" && linked.get(&n.id).copied().unwrap_or(0) < 2).map(|n| n.id.clone()).collect();
+    // So do id-like topics grown before ids were filtered out.
+    let lonely: Vec<String> = graph
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "topic" && (linked.get(&n.id).copied().unwrap_or(0) < 2 || !topic_word(&n.title)))
+        .map(|n| n.id.clone())
+        .collect();
+    graph.keywords.retain(|word, _| topic_word(word));
     for id in &lonely {
         graph.remove(id);
     }
@@ -1020,10 +1619,26 @@ fn dream_graph(graph: &mut Graph) -> Value {
     json!({ "merged": merged, "pruned": pruned, "topicsDissolved": lonely.len() })
 }
 
+/// The whole dream: the graph's own consolidation, then what needs the disk (skill hygiene) and
+/// the turn traces (recipes).
+fn dream_all(dir: &Path, graph: &mut Graph) -> Value {
+    let mut report = dream_graph(graph);
+    let hygiene = skills::tidy(dir, graph);
+    let recipes = recipes::refresh(graph, &recipes::read_turns(&traces_root(dir)));
+    graph.recipes_built = 1;
+    if let Some(map) = report.as_object_mut() {
+        map.insert("skillsMerged".into(), json!(hygiene.merged.len()));
+        map.insert("skillsDormant".into(), json!(hygiene.dormant.len()));
+        map.insert("recipes".into(), json!(recipes));
+    }
+    report
+}
+
 pub fn dream(dir: &Path) -> Result<Value, String> {
     let _guard = LOCK.lock().map_err(|_| "the brain is busy")?;
     let mut graph = load(dir);
-    let report = dream_graph(&mut graph);
+    migrate(dir, &mut graph);
+    let report = dream_all(dir, &mut graph);
     save(dir, &graph)?;
     Ok(report)
 }
@@ -1036,26 +1651,60 @@ Before a multi-step job, check brain.skills and load a matching one with brain_l
 After finishing a complex job (5+ tool calls, a fix after an error, or a non-obvious approach that worked), save the procedure with brain_save_skill; when a loaded skill was wrong or incomplete, patch it. \
 When the user states a preference, a dislike, their audience, brand or style, save it with brain_remember kind \"user\"; save durable project or environment facts as kind \"memory\". \
 Do not save one-off task details, secrets or things already in the project. Use brain_recall to look up past work. \
+brain.toolLessons lists mistakes made with a tool before and what fixed them: read the line before calling that tool. \
 Act on brain.nudges first when they apply. Never mention the brain unless asked.";
 
 /// What one chat turn is told: the curated memory, the user model, the skills index,
-/// what the brain recalls about this prompt, weak tools and pending nudges (delivered once).
+/// what the brain recalls about this prompt, tool lessons (why calls failed and what worked) and
+/// pending nudges (delivered once).
 pub fn brief(dir: &Path, prompt: &str) -> Value {
-    brief_sized(dir, prompt, 15, 4)
+    brief_sized(dir, prompt, 15, 4, 8, &Aim::default())
+}
+
+/// What the turn being briefed is: its model tier, production phase, playbook and project.
+#[derive(Clone, Debug, Default)]
+pub struct Aim {
+    /// A guided (small-model) turn: no save-a-skill nudges, but a recipe for the phase.
+    pub guided: bool,
+    /// The production phase when the turn started (null, planning, plan-ready, gathering, gathered, editing, polishing, done).
+    pub phase: Option<String>,
+    pub playbook: Option<String>,
+    pub project: Option<ProjectScope>,
+}
+
+/// The brief for a turn of this model tier: a guided (small-model) turn is never handed the
+/// nudges to save skills or memories, they stay pending for a full-tier turn.
+pub fn brief_for(dir: &Path, prompt: &str, quick: bool, guided: bool) -> Value {
+    brief_aimed(dir, prompt, quick, &Aim { guided, ..Aim::default() })
+}
+
+/// `brief_for` that also knows the phase, playbook and project: only this project's memories are
+/// listed, and a guided turn gets the recipe that worked before in its phase.
+pub fn brief_aimed(dir: &Path, prompt: &str, quick: bool, aim: &Aim) -> Value {
+    if quick {
+        // A Quick edit changes one thing: no production phase to give a recipe for.
+        brief_sized(dir, prompt, 5, 2, 4, &Aim { phase: None, playbook: None, ..aim.clone() })
+    } else {
+        brief_sized(dir, prompt, 15, 4, 8, aim)
+    }
 }
 
 /// `brief` for a Quick edit: the memory and the user model whole (they are how this user works),
 /// but a short skills index and fewer recalled episodes, since the change is one thing.
+#[allow(dead_code)]
 pub fn quick_brief(dir: &Path, prompt: &str) -> Value {
-    brief_sized(dir, prompt, 5, 2)
+    brief_sized(dir, prompt, 5, 2, 4, &Aim::default())
 }
 
-fn brief_sized(dir: &Path, prompt: &str, skill_count: usize, related_count: usize) -> Value {
+fn brief_sized(dir: &Path, prompt: &str, skill_count: usize, related_count: usize, lesson_count: usize, aim: &Aim) -> Value {
+    let guided = aim.guided;
+    let project = aim.project.as_ref().map(|p| p.key.as_str());
     let Ok(_guard) = LOCK.lock() else { return Value::Null };
     let mut graph = load(dir);
-    let seeded = seed_skills(dir, &mut graph);
+    let migrated = migrate(dir, &mut graph);
+    let seeded = seed_skills(dir, &mut graph) || migrated;
     let texts = |kind: &str| -> Vec<String> {
-        let mut nodes: Vec<&Node> = graph.nodes.iter().filter(|n| n.kind == kind).collect();
+        let mut nodes: Vec<&Node> = graph.nodes.iter().filter(|n| n.kind == kind && visible_in(n, project)).collect();
         nodes.sort_by(|a, b| value_score(b).total_cmp(&value_score(a)));
         nodes.iter().map(|n| n.body.clone()).collect()
     };
@@ -1066,7 +1715,10 @@ fn brief_sized(dir: &Path, prompt: &str, skill_count: usize, related_count: usiz
         .nodes
         .iter()
         .filter(|n| n.kind == "skill" && !seed_waits(n, prompt))
-        .map(|n| (cosine(&query, &embed(&node_text(n))) * 2.0 + n.weight * 0.1, n))
+        .map(|n| (cosine(&query, &embed(&node_text(n))), n))
+        // A skill gone dormant (never used for a month) is listed only when the ask clearly matches it.
+        .filter(|(similar, n)| !skills::dormant(n) || *similar >= skills::DORMANT_MATCH)
+        .map(|(similar, n)| (similar * 2.0 + n.weight * 0.1, n))
         .collect();
     skills.sort_by(|a, b| b.0.total_cmp(&a.0));
     let skills: Vec<Value> = skills
@@ -1078,35 +1730,45 @@ fn brief_sized(dir: &Path, prompt: &str, skill_count: usize, related_count: usiz
                 "name": n.title,
                 "description": clip(&n.body, 200),
                 "uses": n.uses,
-                "winRate": (n.wins * 100).checked_div(total).map_or(Value::Null, |rate| json!(format!("{rate}%"))),
+                // A rate from one or two tries is noise ("0%" after a single failed turn).
+                "winRate": if total >= 3 { (n.wins * 100).checked_div(total).map_or(Value::Null, |rate| json!(format!("{rate}%"))) } else { Value::Null },
             })
         })
         .collect();
-    let related = recall_in(&graph, prompt, related_count, &["episode".into(), "memory".into(), "user".into()]);
-    let weak: Vec<String> = graph
-        .nodes
-        .iter()
-        .filter(|n| n.kind == "tool" && n.uses >= 4 && n.fails * 3 >= n.uses)
-        .map(|n| format!("{} ({} of {} calls failed)", n.title, n.fails, n.uses))
-        .take(5)
+    let related = recall_in(&graph, prompt, related_count, &["episode".into(), "memory".into(), "user".into()], project);
+    // What went wrong before and what worked, one line per tool, instead of a bare failure count.
+    let tool_lessons: Vec<String> = lessons_in(&graph, prompt, lesson_count)
+        .into_iter()
+        .map(|(tool, r)| {
+            let fix = if r.fix.is_empty() { String::new() } else { format!(" → {}", clip(&r.fix, 110)) };
+            format!("{tool}: {}× '{}'{fix}", r.count, clip(&r.error, 90))
+        })
         .collect();
-    let nudges: Vec<String> = graph.nudges.iter().map(|n| n.text.clone()).collect();
+    // A guided (small-model) turn is not asked to save skills or memories; those nudges wait.
+    // Only a guided turn is shown a recipe; a frontier model keeps its full freedom.
+    let recipe = if guided { recipes::for_phase(&graph, aim.phase.as_deref(), aim.playbook.as_deref()) } else { Value::Null };
+    let held = |n: &Nudge| guided && matches!(n.kind.as_str(), "skill" | "user");
+    let nudges: Vec<String> = graph.nudges.iter().filter(|n| !held(n)).map(|n| n.text.clone()).collect();
     let empty = memory.is_empty() && user.is_empty() && skills.is_empty() && nudges.is_empty();
     // Nudges are delivered once; the next qualifying turn leaves fresh ones.
-    if seeded || !graph.nudges.is_empty() {
-        graph.nudges.clear();
+    if seeded || !nudges.is_empty() {
+        graph.nudges.retain(|n| held(n));
         let _ = save(dir, &graph);
     }
-    json!({
+    let mut brief = json!({
         "rules": RULES,
         "memory": memory,
         "user": user,
         "skills": skills,
         "related": related,
-        "weakTools": weak,
+        "toolLessons": tool_lessons,
         "nudges": nudges,
         "note": if empty { "The brain is new: learn this user as you work." } else { "" },
-    })
+    });
+    if !recipe.is_null() {
+        brief["recipe"] = recipe;
+    }
+    brief
 }
 
 /// Everything the mind map draws, light enough to redraw on every change.
@@ -1120,6 +1782,7 @@ pub fn snapshot(dir: &Path) -> Value {
                 "id": n.id, "kind": n.kind, "title": n.title, "weight": n.weight,
                 "uses": n.uses, "wins": n.wins, "fails": n.fails,
                 "created": n.created, "updated": n.updated,
+                "project": project_of(n).map(|_| project_name_of(n)),
             })
         })
         .collect();
@@ -1171,7 +1834,9 @@ mod tests {
             stopped: false,
             fault_kind: None,
             verified: Some(true),
-            tools: tools.iter().map(|(n, s)| TurnTool { name: (*n).into(), status: (*s).into(), ms: None, changed_project: false }).collect(),
+            tools: tools.iter().map(|(n, s)| TurnTool { name: (*n).into(), status: (*s).into(), ms: None, changed_project: false, error: None, arg_keys: Vec::new() }).collect(),
+            phase: None,
+            tier: None,
         }
     }
 
@@ -1314,11 +1979,289 @@ mod tests {
     }
 
     #[test]
+    fn ids_and_hashes_never_become_topics() {
+        assert_eq!(keywords("render gqldoo6kiu8 and clip_01h2x9 as 1080p showreel"), vec!["render", "1080p", "showreel"]);
+        let dir = temp();
+        for _ in 0..TOPIC_AT {
+            record_turn(&dir, &turn("fix gqldoo6kiu8 showreel", &[])).unwrap();
+        }
+        let mut graph = load(&dir);
+        assert!(graph.find("topic:showreel").is_some() && graph.find("topic:gqldoo6kiu8").is_none());
+        // A topic grown before the filter dissolves at the next dream.
+        let stamp = now();
+        graph.nodes.push(Node { id: "topic:zx81k2ab9".into(), kind: "topic".into(), title: "zx81k2ab9".into(), body: String::new(), weight: 1.0, uses: 3, wins: 0, fails: 0, created: stamp.clone(), updated: stamp, meta: Value::Null });
+        let episodes: Vec<String> = graph.nodes.iter().filter(|n| n.kind == "episode").map(|n| n.id.clone()).collect();
+        for id in &episodes {
+            graph.link(id, "topic:zx81k2ab9", "about", 0.6);
+        }
+        dream_graph(&mut graph);
+        assert!(graph.find("topic:zx81k2ab9").is_none() && graph.find("topic:showreel").is_some());
+    }
+
+    #[test]
     fn recall_finds_what_matches() {
         let dir = temp();
         remember(&dir, "memory", "The channel intro music is lofi-sunrise.mp3").unwrap();
         remember(&dir, "user", "Audience is Indian teenagers who like fast memes").unwrap();
-        let hits = recall(&dir, "which intro music", 3, &[]);
+        let hits = recall(&dir, "which intro music", 3, &[], None);
         assert!(hits[0]["text"].as_str().unwrap().contains("lofi"));
+    }
+
+    fn failing(name: &str, status: &str, error: Option<&str>, keys: &[&str]) -> TurnTool {
+        TurnTool { name: name.into(), status: status.into(), ms: None, changed_project: false, error: error.map(str::to_owned), arg_keys: keys.iter().map(|k| (*k).to_owned()).collect() }
+    }
+
+    fn call(name: &str, ok: bool, error: Option<&str>, keys: &[&str]) -> Call {
+        Call { name: name.into(), ok, error: error.map(str::to_owned), keys: keys.iter().map(|k| (*k).to_owned()).collect() }
+    }
+
+    #[test]
+    fn plan_and_gather_turns_are_scored_by_their_own_goal() {
+        let mut plan = turn("plan the launch film", &[("save_video_blueprint", "done")]);
+        plan.verified = Some(false);
+        assert_eq!(outcome_score(&plan), (true, "phase complete (plan)".into()));
+        let mut gather = turn("start generating", &[("generate_media", "done"), ("finish_gathering", "done")]);
+        gather.verified = Some(false);
+        gather.phase = Some("plan-ready".into());
+        assert_eq!(outcome_score(&gather), (true, "phase complete (gathering)".into()));
+        let mut stuck = turn("start generating", &[("generate_media", "done")]);
+        stuck.verified = Some(false);
+        stuck.phase = Some("gathering".into());
+        assert_eq!(outcome_score(&stuck), (false, "phase incomplete (gathering)".into()));
+        let mut edit = turn("start editing", &[("apply_edit", "done")]);
+        edit.verified = Some(false);
+        edit.phase = Some("editing".into());
+        assert_eq!(outcome_score(&edit), (false, "workflow unverified".into()));
+        edit.verified = Some(true);
+        assert_eq!(outcome_score(&edit), (true, "workflow verified".into()));
+        edit.fault_kind = Some("timeout".into());
+        assert_eq!(outcome_score(&edit), (false, "fault: timeout".into()));
+        let mut stopped = turn("plan", &[("save_storyboard", "done")]);
+        stopped.stopped = true;
+        assert_eq!(outcome_score(&stopped).1, "stopped by user");
+    }
+
+    #[test]
+    fn a_plan_turn_scores_the_skill_it_loaded_as_a_win() {
+        let dir = temp();
+        let request = SkillRequest {
+            name: "Launch Plan".into(),
+            description: Some("Plan a launch film from the playbook".into()),
+            body: Some("1. propose storyboards\n2. save the blueprint\n3. end the turn".into()),
+            ..SkillRequest::default()
+        };
+        save_skill(&dir, &request).unwrap();
+        load_skill(&dir, "launch-plan").unwrap();
+        let mut plan = turn("plan the launch film", &[("save_video_blueprint", "done")]);
+        plan.verified = Some(false);
+        record_turn(&dir, &plan).unwrap();
+        let graph = load(&dir);
+        let skill = graph.find("skill:launch-plan").unwrap();
+        assert_eq!((skill.wins, skill.fails), (1, 0));
+    }
+
+    #[test]
+    fn errors_normalize_and_a_fix_is_the_next_working_calls_argument_change() {
+        assert_eq!(normalize_error("Clip 12345 not found at 3.5s id 01M3SBZKMNQ2AWC4XYWT6JRTY8"), "Clip # not found at #.#s id #");
+        assert_eq!(fix_hint(&["dir".into()], &["path".into()]), "rename dir to path (worked: {path})");
+        assert_eq!(fix_hint(&[], &["path".into(), "depth".into()]), "pass path, depth (worked: {path, depth})");
+        assert_eq!(fix_hint(&["x".into(), "a".into()], &["a".into()]), "drop x (worked: {a})");
+        let dir = temp();
+        let mut tools = vec![
+            failing("scan_folder", "failed", Some("Supply a directory path."), &[]),
+            failing("other", "done", None, &["z"]),
+            failing("scan_folder", "done", None, &["path"]),
+        ];
+        record_turn(&dir, &TurnOutcome { tools: tools.clone(), ..turn("look around", &[]) }).unwrap();
+        tools.truncate(1);
+        record_turn(&dir, &TurnOutcome { tools, ..turn("look around", &[]) }).unwrap();
+        let graph = load(&dir);
+        let reasons = reasons_of(graph.find("tool:scan_folder").unwrap());
+        assert_eq!(reasons.len(), 1);
+        assert_eq!((reasons[0].count, reasons[0].fix.as_str()), (2, "pass path (worked: {path})"));
+    }
+
+    #[test]
+    fn reasons_are_capped_and_lessons_rank_by_count_and_prompt() {
+        let mut graph = Graph::default();
+        for n in 0..9u8 {
+            for _ in 0..=n {
+                absorb_failures(&mut graph, &[call("t", false, Some(&format!("reason letter {}", (b'a' + n) as char)), &[])], &now());
+            }
+        }
+        assert_eq!(reasons_of(graph.find("tool:t").unwrap()).len(), MAX_REASONS);
+        for _ in 0..5 {
+            absorb_failures(&mut graph, &[call("apply_edit", false, Some("Bad clip"), &[])], &now());
+        }
+        for _ in 0..6 {
+            absorb_failures(&mut graph, &[call("scan_folder", false, Some("Supply a path"), &[])], &now());
+        }
+        let top = lessons_in(&graph, "fix the apply edit", 8);
+        assert_eq!(top[0].0, "apply_edit", "a tool the prompt names comes first");
+        let plain = lessons_in(&graph, "hello", 8);
+        assert_eq!(plain[0].0, "t");
+    }
+
+    #[test]
+    fn crashes_and_guard_echoes_are_not_lessons_and_hints_are_stripped() {
+        let mut graph = Graph::default();
+        let calls = [
+            call("update_motion_scene", false, Some("u is not iterable"), &["clipId", "scene"]),
+            call("update_motion_scene", true, None, &["clipId", "patches"]),
+            call("check_pacing", false, Some("undefined"), &["genre"]),
+            call("open_comp", false, Some("This exact call already failed this turn: no comp with that id"), &[]),
+            call("open_comp", false, Some("no comp with that id\nHint: call get_comp"), &[]),
+            call("open_comp", false, Some("no comp with that id"), &[]),
+            call("list_directory", false, Some("Supply a directory path."), &[]),
+        ];
+        absorb_failures(&mut graph, &calls, &now());
+        for retired in ["update_motion_scene", "check_pacing", "list_directory"] {
+            assert!(graph.find(&format!("tool:{retired}")).map_or(true, |n| reasons_of(n).is_empty()), "{retired}");
+        }
+        let reasons = reasons_of(graph.find("tool:open_comp").unwrap());
+        assert_eq!((reasons.len(), reasons[0].count, reasons[0].error.as_str()), (1, 2, "no comp with that id"));
+    }
+
+    #[test]
+    fn the_lessons_command_has_its_exact_shape_and_the_brief_lists_lessons() {
+        let dir = temp();
+        let bad = failing("scan_folder", "failed", Some("Supply a directory path."), &[]);
+        let good = failing("scan_folder", "done", None, &["path"]);
+        for _ in 0..3 {
+            record_turn(&dir, &TurnOutcome { tools: vec![bad.clone(), good.clone()], ..turn("list the folder", &[]) }).unwrap();
+        }
+        let lessons = tool_lessons(&dir);
+        let first = &lessons["lessons"][0];
+        assert_eq!(first["tool"], "scan_folder");
+        assert_eq!(first["error"], "Supply a directory path.");
+        assert_eq!(first["fix"], "pass path (worked: {path})");
+        assert_eq!(first["count"], 3);
+        let brief = brief(&dir, "list the folder");
+        assert!(brief.get("weakTools").is_none());
+        assert_eq!(brief["toolLessons"][0], "scan_folder: 3× 'Supply a directory path.' → pass path (worked: {path})");
+    }
+
+    #[test]
+    fn guided_turns_leave_and_receive_no_skill_or_memory_nudges() {
+        let dir = temp();
+        let tools = [("a", "done"), ("b", "error"), ("c", "done"), ("d", "done"), ("e", "done")];
+        let mut small = turn("no, I prefer subtle captions", &tools);
+        small.tier = Some("guided".into());
+        record_turn(&dir, &small).unwrap();
+        assert!(load(&dir).nudges.is_empty(), "a guided turn leaves no skill or user nudge");
+        record_turn(&dir, &turn("no, I prefer subtle captions", &tools)).unwrap();
+        let held = brief_for(&dir, "captions", false, true);
+        assert!(held["nudges"].as_array().unwrap().is_empty(), "a guided turn is handed none");
+        assert_eq!(brief_for(&dir, "captions", false, false)["nudges"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn old_unverified_plan_and_gather_episodes_are_rescored_and_their_skills_follow() {
+        let mut graph = Graph::default();
+        graph.hub("skill:launch", "skill", "launch").fails = 2;
+        let stamp = now();
+        let episode = |id: &str, tools: &str| Node {
+            id: id.into(),
+            kind: "episode".into(),
+            title: id.into(),
+            body: format!("p\nTools: {tools}.\nResult: workflow unverified."),
+            weight: 1.0,
+            uses: 1,
+            wins: 0,
+            fails: 1,
+            created: stamp.clone(),
+            updated: stamp.clone(),
+            meta: json!({ "result": "workflow unverified" }),
+        };
+        graph.nodes.push(episode("ep-plan", "get_comp(done), save_storyboard(done)"));
+        graph.nodes.push(episode("ep-gather", "generate_media(done), finish_gathering(done)"));
+        graph.nodes.push(episode("ep-edit", "apply_edit(done), tool_help(done)"));
+        for id in ["ep-plan", "ep-edit"] {
+            graph.link(id, "skill:launch", "derived", 1.0);
+        }
+        let report = rescore_episodes(&mut graph, &[]);
+        assert_eq!((report.changed, report.wins_before, report.wins_after), (2, 0, 2));
+        assert_eq!(episode_result(graph.find("ep-plan").unwrap()).as_deref(), Some("phase complete (plan)"));
+        assert_eq!(episode_result(graph.find("ep-gather").unwrap()).as_deref(), Some("phase complete (gathering)"));
+        assert_eq!(episode_result(graph.find("ep-edit").unwrap()).as_deref(), Some("workflow unverified"));
+        assert!(graph.find("ep-plan").unwrap().body.contains("Result: phase complete (plan)."));
+        let skill = graph.find("skill:launch").unwrap();
+        assert_eq!((skill.wins, skill.fails), (1, 1));
+    }
+
+    #[test]
+    fn a_trace_supplies_the_phase_and_the_failure_reasons_once() {
+        // The app keeps traces next to the brain folder: <app>/brain and <app>/traces/<project>.
+        let app = temp();
+        let brain = app.join("brain");
+        std::fs::create_dir_all(app.join("traces").join("p-1")).unwrap();
+        let start = Utc::now().timestamp_millis() - 3_600_000;
+        let lines = [
+            json!({ "ev": "turn_sent", "t": start, "phase": "gathering", "tier": "full" }),
+            json!({ "ev": "tool", "t": start + 1000, "name": "scan_folder", "status": "failed", "error": "Supply a directory path.", "args": {} }),
+            json!({ "ev": "tool", "t": start + 2000, "name": "scan_folder", "status": "done", "args": { "path": "x" } }),
+            json!({ "ev": "tool", "t": start + 3000, "name": "finish_gathering", "status": "done", "args": {} }),
+        ];
+        let text = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+        let file = app.join("traces").join("p-1").join("turn1.jsonl");
+        std::fs::write(&file, text).unwrap();
+        // Written an hour ago: age the file so it counts as finished.
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(old).unwrap();
+        let mut graph = Graph::default();
+        let created = stamp_of(start + 3500);
+        graph.nodes.push(Node {
+            id: "ep-1".into(),
+            kind: "episode".into(),
+            title: "t".into(),
+            body: "p\nTools: scan_folder(failed).\nResult: workflow unverified.".into(),
+            weight: 1.0,
+            uses: 1,
+            wins: 0,
+            fails: 1,
+            created: created.clone(),
+            updated: created,
+            meta: json!({ "result": "workflow unverified", "elapsedMs": 3500 }),
+        });
+        assert!(migrate(&brain, &mut graph));
+        assert_eq!(episode_result(graph.find("ep-1").unwrap()).as_deref(), Some("phase complete (gathering)"));
+        let reasons = reasons_of(graph.find("tool:scan_folder").unwrap());
+        assert_eq!((reasons[0].count, reasons[0].fix.as_str()), (1, "pass path (worked: {path})"));
+        assert!(!migrate(&brain, &mut graph), "a migrated graph is left alone");
+        assert_eq!(reasons_of(graph.find("tool:scan_folder").unwrap())[0].count, 1);
+    }
+
+    /// Run by hand against a copy of the live brain and traces:
+    /// `BRAIN_COPY=<dir with brain/ and traces/> cargo test -p bhippi migrate_copy -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn migrate_copy() {
+        let Ok(copy) = std::env::var("BRAIN_COPY") else { return };
+        let brain = PathBuf::from(&copy).join("brain");
+        let mut graph = load(&brain);
+        let tally = |g: &Graph| {
+            let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+            for n in g.nodes.iter().filter(|n| n.kind == "episode") {
+                *counts.entry(episode_result(n).unwrap_or_default()).or_default() += 1;
+            }
+            counts
+        };
+        let skills = |g: &Graph| g.nodes.iter().filter(|n| n.kind == "skill").map(|n| format!("{} {}w/{}f", n.title, n.wins, n.fails)).collect::<Vec<_>>();
+        println!("BEFORE episodes {:?}", tally(&graph));
+        println!("BEFORE skills {:?}", skills(&graph));
+        let turns = read_traces(&traces_root(&brain));
+        println!("traces read: {}", turns.len());
+        let report = rescore_episodes(&mut graph, &turns);
+        println!("rescore {report:?}");
+        graph.rescored = 1;
+        migrate(&brain, &mut graph);
+        println!("AFTER episodes {:?}", tally(&graph));
+        println!("AFTER skills {:?}", skills(&graph));
+        let tools_with_reasons = graph.nodes.iter().filter(|n| n.kind == "tool" && !reasons_of(n).is_empty()).count();
+        let total: u32 = graph.nodes.iter().filter(|n| n.kind == "tool").flat_map(reasons_of).map(|r| r.count).sum();
+        println!("reasons: {tools_with_reasons} tools, {total} failures kept");
+        for (tool, r) in lessons_in(&graph, "", 16) {
+            println!("  {tool}: {}x '{}' -> {}", r.count, r.error, r.fix);
+        }
     }
 }

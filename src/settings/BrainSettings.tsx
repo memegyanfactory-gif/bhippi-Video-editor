@@ -1,15 +1,17 @@
-import { ChevronDown, FolderOpen, LoaderCircle, Maximize2, Minimize2, Moon, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react';
+import { ChevronDown, FolderOpen, LoaderCircle, Maximize2, Minimize2, Minus, Moon, RefreshCw, Search, Sparkles, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Toggle, useToast } from '../components/ui';
 import { api, errorText, events, type BrainGraph, type BrainNodeDetail, type BrainNodeKind } from '../lib/ipc';
 import type { BrainStatus } from '../lib/ideagraph';
 import type { Settings } from '../lib/types';
-import { BrainMap, KIND_COLORS, KIND_LABELS } from './BrainMap';
+import { ModelReportCard } from './ModelReportCard';
+import { BrainMap, KIND_COLORS, KIND_LABELS, KIND_LOBES } from './BrainMap';
+import { learningCurve } from './brainCurve';
 import { Row, Section, SettingsHeader } from './SettingsLayout';
 
 type Props = { settings: Settings; onSettings: (settings: Settings) => void };
 
-const KINDS: BrainNodeKind[] = ['user', 'memory', 'skill', 'topic', 'tool', 'provider', 'episode'];
+const KINDS: BrainNodeKind[] = ['user', 'memory', 'skill', 'recipe', 'topic', 'tool', 'provider', 'episode'];
 
 const when = (stamp: string) => {
   const date = new Date(stamp);
@@ -109,7 +111,7 @@ export function BrainSettings({ settings, onSettings }: Props) {
       <div className="brain-map-toolbar">
         <div className="brain-legend">
           {KINDS.map((kind) => (
-            <button key={kind} type="button" className={`brain-chip${visible.has(kind) ? ' on' : ''}`} onClick={() => toggleKind(kind)} title={`Show or hide ${KIND_LABELS[kind].toLowerCase()}`}>
+            <button key={kind} type="button" className={`brain-chip${visible.has(kind) ? ' on' : ''}`} onClick={() => toggleKind(kind)} title={`${KIND_LABELS[kind]} live in the ${KIND_LOBES[kind]}. Click to show or hide them.`}>
               <span className="brain-dot" style={{ background: KIND_COLORS[kind] }} />
               {KIND_LABELS[kind]} <span className="brain-chip-count">{counts[kind]}</span>
             </button>
@@ -124,7 +126,7 @@ export function BrainSettings({ settings, onSettings }: Props) {
         </button>
       </div>
       <div className="brain-map-stage">
-        <BrainMap graph={graph} selected={selected} onSelect={setSelected} visible={visible} search={search} />
+        <BrainMap graph={graph} selected={selected} onSelect={setSelected} visible={visible} search={search} dreaming={dreaming} />
         {empty && (
           <div className="brain-empty">
             <Sparkles size={18} />
@@ -137,7 +139,7 @@ export function BrainSettings({ settings, onSettings }: Props) {
           <aside className="brain-inspector">
             <div className="brain-inspector-head">
               <span className="brain-dot" style={{ background: KIND_COLORS[detail.node.kind] }} />
-              <span className="brain-inspector-kind">{KIND_LABELS[detail.node.kind]}</span>
+              <span className="brain-inspector-kind">{KIND_LABELS[detail.node.kind]} · {KIND_LOBES[detail.node.kind]}</span>
               <button type="button" className="icon-btn" onClick={() => setSelected(null)} aria-label="Close details"><X size={13} /></button>
             </div>
             <h5>{detail.node.title}</h5>
@@ -201,11 +203,15 @@ export function BrainSettings({ settings, onSettings }: Props) {
       {loadError ? <p className="muted">The brain could not be read: {loadError}</p> : !graph ? <p className="muted"><LoaderCircle size={13} className="spin" /> Waking the brain…</p> : null}
       {expanded ? <div className="brain-overlay" role="dialog" aria-label="Brain mind map">{map}</div> : map}
 
+      {graph && <LearningCurveCard graph={graph} />}
+
       {!!graph?.nudges.length && (
         <Section title="Next turn it will">
           <ul className="brain-gaps">{graph.nudges.map((nudge) => <li key={nudge}>{nudge}</li>)}</ul>
         </Section>
       )}
+
+      <ModelReportCard />
 
       <Section title="Learning">
         <Row title="Learn from every AI turn" hint="Each turn becomes a dot linked to its tools and topics, and the assistant is briefed with your memory and skills before it answers.">
@@ -219,6 +225,51 @@ export function BrainSettings({ settings, onSettings }: Props) {
 
       <IdeaGraphMirror settings={settings} onSettings={onSettings} />
     </div>
+  );
+}
+
+/** Is it getting better? The success rate of recorded turns over time, newest last. */
+function LearningCurveCard({ graph }: { graph: BrainGraph }) {
+  const curve = useMemo(() => learningCurve(graph.nodes), [graph]);
+  const [hover, setHover] = useState<number | null>(null);
+  if (curve.recent === null || curve.points.length < 2) return null;
+  const pct = (rate: number) => `${Math.round(rate * 100)}%`;
+  const delta = curve.earlier === null ? null : Math.round((curve.recent - curve.earlier) * 100);
+  const W = 300;
+  const H = 60;
+  const x = (i: number) => (curve.points.length === 1 ? W / 2 : (i * W) / (curve.points.length - 1));
+  const y = (rate: number) => 4 + (1 - rate) * (H - 8);
+  const line = curve.points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(p.rate).toFixed(1)}`).join(' ');
+  const shown = hover === null ? null : curve.points[hover];
+  const Trend = delta === null || Math.abs(delta) < 3 ? Minus : delta > 0 ? TrendingUp : TrendingDown;
+  return (
+    <Section title="Is it getting better?">
+      <div className="brain-curve">
+        <div className="brain-curve-head">
+          <strong>{pct(curve.recent)}</strong>
+          <span>of the last {Math.min(30, curve.turns)} turns reached their goal</span>
+          {delta !== null && (
+            <span className="brain-curve-delta"><Trend size={13} /> {delta > 0 ? '+' : ''}{delta} pts vs the 30 before</span>
+          )}
+        </div>
+        <div className="brain-curve-plot" onMouseLeave={() => setHover(null)}>
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Turn success rate over the last ${curve.turns} turns`}>
+            {[0, 0.5, 1].map((rate) => <line key={rate} className="brain-curve-grid" x1={0} x2={W} y1={y(rate)} y2={y(rate)} />)}
+            <path className="brain-curve-line" d={line} />
+            {shown && hover !== null && <line className="brain-curve-cross" x1={x(hover)} x2={x(hover)} y1={0} y2={H} />}
+            {curve.points.map((p, i) => (
+              <rect key={p.first} x={x(i) - W / curve.points.length / 2} y={0} width={W / curve.points.length} height={H} fill="transparent" onMouseEnter={() => setHover(i)} />
+            ))}
+          </svg>
+          {shown && hover !== null && (
+            <span className="brain-curve-dot" style={{ left: `${(x(hover) / W) * 100}%`, top: `${(y(shown.rate) / H) * 100}%` }} />
+          )}
+        </div>
+        <div className="brain-curve-foot">
+          {shown ? <span>Turns {shown.first}–{shown.last}: <strong>{pct(shown.rate)}</strong> reached their goal</span> : <span>Oldest kept turn on the left, newest on the right. Point at the line for a group of turns.</span>}
+        </div>
+      </div>
+    </Section>
   );
 }
 

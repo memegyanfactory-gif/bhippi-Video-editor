@@ -67,7 +67,8 @@ function forEachIcon(scene: MotionScene, fn: (item: ShapeItem) => void) {
   const walk = (items: ShapeItem[] | undefined) => { for (const it of items ?? []) { if (it.kind === 'icon') fn(it); if (it.items) walk(it.items); if (it.item) walk([it.item]); } };
   const drawn = (items: DrawItem[] | undefined) => { for (const it of items ?? []) { if (it.kind === 'icon') fn(it as unknown as ShapeItem); if (it.items) drawn(it.items); } };
   const layers = (list: Layer[]) => { for (const l of list) { if (l.type === 'drawing') drawn(l.drawing?.items); if (l.type === 'shape') walk(l.shape.groups); if (l.type === 'precomp') layers(l.scene.layers); } };
-  layers(scene.layers);
+  // A partial scene (update_motion_scene {scene:{motionBlur}}) has no layers to walk.
+  if (Array.isArray(scene.layers)) layers(scene.layers);
 }
 
 /** The scene with every `{kind:'icon'}` item replaced by its paths (unknown names are left out). */
@@ -97,5 +98,5 @@ export async function expandIcons(scene: MotionScene): Promise<MotionScene> {
     if (l.type === 'precomp') return { ...l, scene: { ...l.scene, layers: layers(l.scene.layers) } };
     return l;
   });
-  return { ...scene, layers: layers(scene.layers) };
+  return Array.isArray(scene.layers) ? { ...scene, layers: layers(scene.layers) } : scene;
 }

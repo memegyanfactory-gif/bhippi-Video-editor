@@ -305,7 +305,8 @@ export async function contactSheet(rows: { path: string; label: string }[][], ce
       ctx.strokeRect(x + 0.5, y + 0.5, cell.width - 1, cell.height + label - 1);
     }
   }
-  return canvas.toDataURL('image/jpeg', 0.85);
+  // A frame the webview let through without CORS taints the canvas; the sheet is only a preview, so no sheet beats a failed tool call.
+  try { return canvas.toDataURL('image/jpeg', 0.85); } catch { return null; }
 }
 
 /**
