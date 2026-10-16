@@ -230,3 +230,23 @@ export function prettyModel(id: string): string {
   }
   return words.join(' ') || tail;
 }
+
+/**
+ * The short name a message badge shows: `claude-opus-5-5[1m]` → "Opus 5.5". The vendor's own name is
+ * dropped from Claude ids because the provider label already says "Claude Code"; context-window
+ * suffixes (`[1m]`) are not part of the model's name. GPT and Gemini keep theirs ("GPT 5.1 Codex").
+ */
+export function shortModelName(id: string): string {
+  const name = prettyModel(id.trim().replace(/\[[^\]]*\]$/, ''));
+  return name.replace(/^Claude\s+/i, '');
+}
+
+/**
+ * What the assistant message header says about who answered: "Claude Code · Opus 5.5", or just the
+ * provider when the model is not known (the CLI was left on its default). Null when there is nothing to say.
+ */
+export function modelChipText(providerLabel: string | null | undefined, model: string | null | undefined): string | null {
+  const provider = providerLabel && providerLabel !== 'Bhippi' ? providerLabel : null;
+  const name = model?.trim() ? shortModelName(model) : null;
+  return [provider, name].filter(Boolean).join(' · ') || null;
+}

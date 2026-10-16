@@ -66,6 +66,10 @@ pub enum TranscriptEvent {
     /// The vendor's id for this conversation (Claude Code's `session_id`, Codex's `thread_id`,
     /// Gemini's `session_id`), once per turn, so a turn cut off by closing the app can be resumed.
     Session(String),
+    /// The model that is answering, as the backend names it (Claude Code's `init` and
+    /// `assistant` events, Gemini's `init`), once per turn. A CLI agent picks its own default,
+    /// so this is the only way to learn it.
+    Model(String),
 }
 
 /// One rolling allowance and how much of it is gone.
@@ -233,6 +237,8 @@ pub struct Reader {
     break_pending: bool,
     /// The vendor's conversation id has been passed on (it is announced once per turn).
     session_told: bool,
+    /// The model has been passed on (it is announced once per turn).
+    model_told: bool,
 }
 
 impl Reader {
@@ -249,6 +255,7 @@ impl Reader {
             spoke: false,
             break_pending: false,
             session_told: false,
+            model_told: false,
         }
     }
 
@@ -337,6 +344,12 @@ impl Reader {
             if let Some(id) = event_session(&event) {
                 self.session_told = true;
                 out.push(TranscriptEvent::Session(id));
+            }
+        }
+        if !self.model_told {
+            if let Some(model) = event_model(&event) {
+                self.model_told = true;
+                out.push(TranscriptEvent::Model(model));
             }
         }
         self.collect_text(&event, &mut out);
@@ -913,6 +926,20 @@ fn event_session(event: &Value) -> Option<String> {
     id.as_str().map(str::trim).filter(|id| !id.is_empty()).map(str::to_owned)
 }
 
+/// The model a stream names: `model` on Claude Code's `system`/`init` and Gemini's `init`, or
+/// `message.model` on Claude Code's `assistant` events. Kept raw; empty and Claude's
+/// `<synthetic>` placeholder (its own error messages) are not a model.
+fn event_model(event: &Value) -> Option<String> {
+    let kind = event.get("type").and_then(Value::as_str)?;
+    let model = match kind {
+        "system" if event.get("subtype").and_then(Value::as_str) == Some("init") => event.get("model"),
+        "init" => event.get("model"),
+        "assistant" => event.get("message").and_then(|message| message.get("model")),
+        _ => None,
+    }?;
+    model.as_str().map(str::trim).filter(|model| !model.is_empty() && *model != "<synthetic>").map(str::to_owned)
+}
+
 fn event_limits(event: &Value) -> Option<LimitReport> {
     if event.get("type").and_then(Value::as_str) != Some("rate_limit_event") {
         return None;
@@ -1038,7 +1065,8 @@ pub fn read(transcript: Transcript, stdout: &str) -> Answer {
                 TranscriptEvent::Thought(_)
                 | TranscriptEvent::Tool { .. }
                 | TranscriptEvent::Limit(_)
-                | TranscriptEvent::Session(_) => {}
+                | TranscriptEvent::Session(_)
+                | TranscriptEvent::Model(_) => {}
             }
         }
     };
@@ -1194,6 +1222,29 @@ mod tests {
         assert_eq!(sessions(r#"{"type":"thread.started","thread_id":"t-1"}"#), vec!["t-1".to_owned()]);
         assert_eq!(sessions(r#"{"type":"init","session_id":"abc","model":"gemini-x"}"#), vec!["abc".to_owned()]);
         assert!(sessions(CLAUDE_STREAM).is_empty(), "no id, nothing to resume");
+    }
+
+    /// The answering model is passed on once, raw, from whichever event names it first.
+    #[test]
+    fn the_model_is_passed_on_once_when_the_stream_names_it() {
+        let models = |text: &str| -> Vec<String> {
+            let mut reader = Reader::new(Transcript::JsonLines);
+            text.lines().flat_map(|line| reader.push_line(line)).filter_map(|event| match event {
+                TranscriptEvent::Model(model) => Some(model),
+                _ => None,
+            }).collect()
+        };
+        let claude = concat!(
+            r#"{"type":"system","subtype":"init","session_id":"s","model":"claude-opus-5-5[1m]"}"#, "\n",
+            r#"{"type":"assistant","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"hi"}]}}"#, "\n",
+        );
+        assert_eq!(models(claude), vec!["claude-opus-5-5[1m]".to_owned()]);
+        let assistant_only = r#"{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[]}}"#;
+        assert_eq!(models(assistant_only), vec!["claude-sonnet-5-5".to_owned()]);
+        assert_eq!(models(r#"{"type":"init","session_id":"abc","model":"gemini-x"}"#), vec!["gemini-x".to_owned()]);
+        assert!(models(r#"{"type":"system","subtype":"init","session_id":"s","model":""}"#).is_empty());
+        assert!(models(r#"{"type":"init","session_id":"abc"}"#).is_empty());
+        assert!(models(r#"{"type":"thread.started","thread_id":"t-1"}"#).is_empty());
     }
 
     #[test]

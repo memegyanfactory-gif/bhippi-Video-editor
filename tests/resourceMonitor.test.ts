@@ -40,7 +40,7 @@ describe('ResourceMonitor', () => {
     expect(html).toContain('Encoding frame 210');
     expect(html).not.toContain('Whisper model');
     expect(html).toContain('Running tools');
-    expect(html).toContain('generate video');
+    expect(html).toContain('Generate video');
     expect(html).not.toContain('read file');
     expect(html).toContain('role="dialog"');
     expect(html).toContain('GPU');

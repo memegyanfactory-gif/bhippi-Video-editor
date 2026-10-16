@@ -299,6 +299,8 @@ pub enum Delta {
         detail: String,
         done: bool,
     },
+    /// The model the backend actually answered with, once it says (a CLI agent picks its own default).
+    Model { model: String },
     /// `input_tokens` counts every input token, cached or not; the two cache counts say how many
     /// of them were read from the prompt cache (billed at a tenth or less) and written to it.
     Usage {

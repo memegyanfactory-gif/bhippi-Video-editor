@@ -797,6 +797,7 @@ async fn forward(tx: &mpsc::Sender<Result<Delta>>, event: TranscriptEvent) -> Op
             weekly_resets_at: report.weekly.and_then(|window| window.resets_at),
         },
         TranscriptEvent::Session(id) => Delta::Session { id },
+        TranscriptEvent::Model(model) => Delta::Model { model },
         TranscriptEvent::Failure(reason) => return Some(reason),
     };
     let _ignored = tx.send(Ok(delta)).await;

@@ -72,3 +72,17 @@ describe('step kind icons', () => {
     expect(kindIcon('Zzz')).toBe(Wrench);
   });
 });
+
+describe('programs in the activity list', () => {
+  it('reads the program a command runs, and leaves ordinary tools alone', () => {
+    const command = { ...run('c', 1, 'running'), name: 'run_command', request: 'command: blender -b scene.blend -a' };
+    const [item] = toItems([], [command]);
+    expect(item.kind === 'tool' && item.app).toMatchObject({ app: 'blender', label: 'Blender' });
+    const [plain] = toItems([], [run('p', 1, 'done', 'ok')]);
+    expect(plain.kind === 'tool' && plain.app).toBeUndefined();
+  });
+  it('writes the headline with readable times', () => {
+    const slow = [{ ...run('a', 1_000_000_000_000, 'done'), ms: 174 * 60_000 + 28_000 }];
+    expect(summarize(toItems([], slow), slow, []).headline).toBe('Worked for 2h 54m');
+  });
+});

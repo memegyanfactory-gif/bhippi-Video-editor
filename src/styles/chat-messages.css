@@ -9,6 +9,7 @@
 .chat-list > .msg-assistant + .msg-user-row, .chat-list > .msg-user-row + .msg-assistant { margin-top: 6px; }
 .msg-assistant .msg-meta { gap: 7px; font-size: 12px; font-weight: 600; color: var(--text); min-height: 20px; }
 .msg-assistant .msg-meta .muted { color: var(--text-faint); font-weight: 400; }
+.msg-assistant .msg-meta .msg-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 11px; font-weight: 400; cursor: default; }
 /* The avatar is the mark itself, moving with the turn (src/chat/BhippiMark.tsx). */
 .msg-assistant .msg-avatar { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
 .msg-assistant .msg-who { letter-spacing: 0.01em; }
@@ -143,16 +144,20 @@
 .wk-now { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .wk-now-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
 
-/* ── The opened list: a small timeline ── */
+/* ── The opened list: a tree hanging off a thin rail, like Claude Code's transcript ── */
 .wk-list, .wk-sub { list-style: none; margin: 0; padding: 0; }
 .wk-list { padding: 4px 6px 6px 8px; border-top: 1px solid var(--line); }
-.wk-sub { margin: 2px 0 4px; }
-.wk-row { position: relative; display: flex; gap: 8px; min-width: 0; animation: wk-in 220ms ease both; }
-/* The rail joining one row's dot to the next. */
-.wk-row::before { content: ''; position: absolute; left: 7.5px; top: 20px; bottom: -3px; width: 1px; background: var(--line-strong); }
-.wk-row.done::before { background: linear-gradient(rgba(63, 185, 80, 0.35), var(--line-strong)); }
-.wk-row:last-child::before { display: none; }
+.wk-sub { margin: 0 0 2px; }
+/* Each row owns a 16px gutter: a rail running down it and a 1px elbow into the row at the dot's height.
+   The last row's rail stops in a rounded corner instead (a └ rather than a ├). Drawn in borders, not text. */
+.wk-row { position: relative; display: flex; gap: 7px; min-width: 0; padding-left: 16px; animation: wk-in 220ms ease both; }
+.wk-row::before { content: ''; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: var(--line-strong); opacity: 0.7; }
+.wk-row::after { content: ''; position: absolute; left: 4px; top: 11px; width: 8px; height: 1px; background: var(--line-strong); opacity: 0.7; }
+.wk-row:last-child::before { bottom: auto; height: 12px; width: 8px; background: none; border-left: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); border-bottom-left-radius: 5px; box-sizing: border-box; }
+.wk-row:last-child::after { display: none; }
 .wk-dot { position: relative; z-index: 1; flex: none; display: grid; place-items: center; width: 16px; height: 16px; margin-top: 3px; border-radius: 50%; background: var(--panel); }
+.wk-app { flex-shrink: 0; margin-right: 6px; vertical-align: -3px; }
+.wk-now-wrap .wk-app { margin-right: 0; align-self: center; }
 .wk-row-main { flex: 1; min-width: 0; padding-bottom: 2px; }
 .wk-line { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; padding: 3px 6px; margin: 0 -6px; border: 0; border-radius: var(--r1); background: transparent; color: var(--text-dim); font: inherit; font-size: 12px; line-height: 1.45; text-align: left; cursor: pointer; }
 .wk-line:disabled { cursor: default; opacity: 1; color: var(--text-dim); }
@@ -161,6 +166,10 @@
 .wk-row.failed > .wk-row-main > .wk-line .wk-label { color: #ff9a9a; }
 .wk-row.denied > .wk-row-main > .wk-line .wk-label { color: var(--text-dim); }
 .wk-times { margin-left: 5px; padding: 0 5px; border-radius: 999px; background: var(--panel-3); color: var(--text-dim); font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* What came back, one dim line under the call, hooked on with an elbow as in Claude Code. */
+.wk-result { position: relative; margin: -1px 0 2px; padding: 0 0 0 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 11.5px; line-height: 1.4; }
+.wk-result::before { content: ''; position: absolute; left: 1px; top: -2px; width: 9px; height: 9px; border-left: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); border-bottom-left-radius: 4px; box-sizing: border-box; opacity: 0.7; }
+.wk-row.failed > .wk-row-main > .wk-result { color: #ff9a9a; }
 .wk-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
 .wk-path { font-family: var(--mono); font-size: 0.9em; color: var(--text-dim); }
 .wk-ms { flex: none; margin-left: auto; color: var(--text-faint); font-size: 11px; font-variant-numeric: tabular-nums; }

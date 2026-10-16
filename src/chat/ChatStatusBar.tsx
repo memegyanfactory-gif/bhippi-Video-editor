@@ -6,6 +6,7 @@ import { Boxes, Plug, Wrench, X } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { Portal, usePlacement } from '../components/Portal';
 import type { ToolRun } from './ChatPanel';
+import { formatDuration } from '../lib/duration';
 
 /** One MCP server or HTTP API this chat can reach. */
 export type Connection = {
@@ -29,11 +30,6 @@ export type AgentRun = {
   elapsedMs: number;
   tokens: number | null;
   summary: string | null;
-};
-
-const seconds = (ms: number) => {
-  const total = Math.round(ms / 1000);
-  return total >= 60 ? `${Math.floor(total / 60)}m ${total % 60}s` : `${total}s`;
 };
 
 const tokens = (count: number | null) => (count === null ? '' : count >= 1000 ? `${(count / 1000).toFixed(1)}k tokens` : `${count} tokens`);
@@ -157,7 +153,7 @@ export function ChatStatusBar({ usage, runs, connections, agents, onStopAgent, o
                 <span className="agent-copy">
                   <span className="agent-name">{agent.label}</span>
                   <span className="agent-meta">
-                    {[agent.model, seconds(agent.elapsedMs), tokens(agent.tokens)].filter(Boolean).join(' · ')}
+                    {[agent.model, formatDuration(agent.elapsedMs), tokens(agent.tokens)].filter(Boolean).join(' · ')}
                   </span>
                   {agent.summary && <span className="agent-summary">{agent.summary}</span>}
                 </span>

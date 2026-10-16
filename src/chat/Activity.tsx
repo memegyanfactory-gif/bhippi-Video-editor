@@ -13,6 +13,9 @@
 // and what came back. Nothing is thrown away, it is only folded.
 import { Brain, ChevronRight, Download, Eye, FileText, Film, Music, Pencil, Scissors, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { AppLogo } from '../components/AppLogo';
+import { identifyCommand, type CommandApp } from '../lib/commandApps';
+import { formatDuration } from '../lib/duration';
 import { toolLabel } from '../lib/toolLabels';
 import { StatusDot, type DotState } from './BhippiMark';
 
@@ -59,6 +62,8 @@ export type Item =
       result?: string;
       status: ToolRun['status'] | 'warning';
       ms: number | null;
+      /** The program this call runs ("Blender" · "Rendering scene.blend"), when it is a command. */
+      app?: CommandApp;
     };
 
 /** A step the model announced is already in words; only its first letter is raised. */
@@ -91,6 +96,7 @@ export function toItems(steps: Step[], runs: ToolRun[]): Item[] {
       result: run.summary,
       status: run.status,
       ms: run.ms,
+      app: identifyCommand(run.name, run.request) ?? undefined,
     })),
   ];
   const inspections = runs.filter(run => ['inspect_clip_frames', 'inspect_source_frames'].includes(run.name));
@@ -123,7 +129,8 @@ export function groupRows(items: Item[]): Row[] {
   const rows: Row[] = [];
   for (const item of items) {
     const last = rows[rows.length - 1];
-    if (last && item.kind === 'tool' && last.lead.kind === 'tool' && last.lead.label === item.label && isOver(item) && last.members.every(isOver)) {
+    // Two commands fold only when they ran the same program: an FFmpeg encode and a Python script are not "×2".
+    if (last && item.kind === 'tool' && last.lead.kind === 'tool' && last.lead.label === item.label && last.lead.app?.app === item.app?.app && isOver(item) && last.members.every(isOver)) {
       last.members.push(item);
     } else {
       rows.push({ key: item.key, lead: item, members: [item] });
@@ -176,13 +183,8 @@ export function toTimeline(segments: TextSegment[], steps: Step[], runs: ToolRun
   return blocks;
 }
 
-/** "3.1s", "42s", "2m 05s". */
-export function duration(ms: number): string {
-  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const seconds = Math.round(ms / 1000);
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
-}
+/** "3.1s", "42s", "2m 05s", "2h 54m" (see src/lib/duration.ts). */
+export const duration = (ms: number): string => formatDuration(ms);
 
 /** How long a stretch of work took on the wall clock, rather than the sum of its calls. */
 export function wallTime(runs: ToolRun[]): number {
@@ -284,14 +286,18 @@ function Detail({ item }: { item: Item }) {
   );
 }
 
-function RowView({ row, expanded, toggle }: { row: Row; expanded: Set<string>; toggle: (key: string) => void }) {
+function RowView({ row, expanded, toggle, now }: { row: Row; expanded: Set<string>; toggle: (key: string) => void; /** The live clock (0 when the stretch is over), so a running call shows how long it has run. */ now: number }) {
   const { lead, members } = row;
   const folded = members.length > 1;
   const last = members[members.length - 1];
   const hasBody = folded || (lead.kind === 'tool' && !!lead.body);
   const isOpen = expanded.has(row.key);
+  const app = !folded && lead.kind === 'tool' ? lead.app : undefined;
+  // A finished call reads like Claude Code's transcript: what it was, then what came back beneath it.
+  const result = !folded && lead.kind === 'tool' && lead.status !== 'running' && lead.request ? lead.result : undefined;
   const state = rowTone(row);
-  const ms = members.reduce((sum, item) => sum + (item.kind === 'tool' ? item.ms ?? 0 : 0), 0);
+  const running = lead.kind === 'tool' && lead.status === 'running' && now > 0 && lead.at > 1e12 ? now - lead.at : 0;
+  const ms = running || members.reduce((sum, item) => sum + (item.kind === 'tool' ? item.ms ?? 0 : 0), 0);
   return (
     <li className={`wk-row ${state}${isOpen ? ' open' : ''}`}>
       <span className="wk-dot"><StatusDot state={dotState(state)} /></span>
@@ -300,21 +306,24 @@ function RowView({ row, expanded, toggle }: { row: Row; expanded: Set<string>; t
           type="button"
           className="wk-line"
           disabled={!hasBody}
+          title={app && lead.kind === 'tool' ? lead.request : undefined}
           aria-expanded={hasBody ? isOpen : undefined}
           onClick={() => toggle(row.key)}
         >
           <span className="wk-label">
-            {lead.label}
+            {app && <AppLogo app={app.app} size={14} className="wk-app" />}
+            {app ? app.label : lead.label}
             {folded && <span className="wk-times">×{members.length}</span>}
           </span>
-          <span className="wk-detail">{renderDetail(last.detail)}</span>
-          {ms > 400 && <span className="wk-ms">{duration(ms)}</span>}
+          <span className="wk-detail">{app ? app.action : renderDetail(result !== undefined && lead.kind === 'tool' ? lead.request : last.detail)}</span>
+          {ms > 400 && <span className="wk-ms">{formatDuration(ms, { tenths: !running })}</span>}
           {hasBody && <ChevronRight size={11} className={`wk-chevron${isOpen ? ' rotate-90' : ''}`} />}
         </button>
+        {result && !isOpen && <div className="wk-result" title={result}>{result.split(String.fromCharCode(10))[0]}</div>}
         {isOpen && (folded ? (
           <ul className="wk-sub">
             {members.map((member) => (
-              <RowView key={member.key} row={{ key: member.key, lead: member, members: [member] }} expanded={expanded} toggle={toggle} />
+              <RowView key={member.key} row={{ key: member.key, lead: member, members: [member] }} expanded={expanded} toggle={toggle} now={now} />
             ))}
           </ul>
         ) : <Detail item={lead} />)}
@@ -337,10 +346,14 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
   const live = streaming && running > 0;
   const open = chosen ?? live;
   const elapsed = useElapsed(items[0]?.at ?? 0, live);
+  const current = live ? [...items].reverse().find((item) => !isOver(item)) : undefined;
+  // Folded, the head names the call running now, so its clock is that call's, not the stretch's.
+  const callElapsed = useElapsed(current?.at ?? 0, live);
   if (items.length === 0) return null;
+  const clock = live && items[0].at > 1e12 ? items[0].at + elapsed : 0;
 
   const { count, failed, headline, tally, state } = summarize(items, runs, steps);
-  const current = live ? [...items].reverse().find((item) => !isOver(item)) : undefined;
+  const liveApp = current?.kind === 'tool' ? current.app : undefined;
   const toggle = (key: string) =>
     setExpanded((keys) => {
       const next = new Set(keys);
@@ -348,10 +361,10 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
       else next.add(key);
       return next;
     });
-  const progress = (
+  const progress = (clock: number) => (
     <span className="wk-head-meta">
-      {count > 1 && <>{count - running} of {count}</>}
-      {elapsed >= 1000 && <>{count > 1 ? ' · ' : ''}{duration(elapsed)}</>}
+      {count > 1 && <>{count - running} of {count} steps</>}
+      {clock >= 1000 && <>{count > 1 ? ' · ' : ''}{formatDuration(clock, { tenths: false })}</>}
     </span>
   );
 
@@ -362,15 +375,20 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
         {live && open ? (
           <>
             <span className="wk-headline ai-shimmer">Working</span>
-            {progress}
+            {progress(elapsed)}
           </>
         ) : current ? (
           <>
             <span key={current.key} className="wk-now-wrap">
-              <span className="wk-now ai-shimmer">{current.label}</span>
-              {current.detail && <span className="wk-now-detail">{current.detail}</span>}
+              {liveApp && <AppLogo app={liveApp.app} size={14} className="wk-app" />}
+              <span className="wk-now ai-shimmer">{liveApp ? liveApp.label : current.label}</span>
+              {(liveApp ? liveApp.action : current.detail) && (
+                <span className="wk-now-detail" title={liveApp && current.kind === 'tool' ? current.request : undefined}>
+                  {liveApp ? liveApp.action : current.detail}
+                </span>
+              )}
             </span>
-            {progress}
+            {progress(callElapsed)}
           </>
         ) : (
           <>
@@ -385,7 +403,7 @@ export function Activity({ steps, runs, streaming }: { steps: Step[]; runs: Tool
         <div className="wk-collapse-inner">
           <ul className="wk-list">
             {groupRows(items).map((row) => (
-              <RowView key={row.key} row={row} expanded={expanded} toggle={toggle} />
+              <RowView key={row.key} row={row} expanded={expanded} toggle={toggle} now={clock} />
             ))}
           </ul>
         </div>

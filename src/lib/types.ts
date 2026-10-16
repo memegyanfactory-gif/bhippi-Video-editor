@@ -565,6 +565,7 @@ export type Delta =
   | { kind: 'usage'; inputTokens: number; outputTokens: number }
   | { kind: 'limit'; status: string; sessionUsed: number | null; sessionResetsAt: number | null; weeklyUsed: number | null; weeklyResetsAt: number | null }
   | { kind: 'session'; id: string }
+  | { kind: 'model'; model: string }
   | { kind: 'done'; stopReason: string };
 
 export type TurnFault = {

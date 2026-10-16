@@ -233,6 +233,7 @@ const ARG_ID = /^ids?$|Ids?$/;
 const ARG_TIME = /^(start|end|at|time|from|to|in|out|duration|seconds|offset)$|(Start|End|Time|At|Seconds|Duration)$/;
 const argWords = (key: string) => key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
 const argTime = (seconds: number) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
+const ARG_COMMAND = /^(command|cmd|script|commandline|command_line)$/i;
 function describeArgs(args: Record<string, unknown>): string {
   const given = Object.entries(args).filter(([, value]) => value !== null && value !== undefined && value !== '');
   const readable = given.filter(([name]) => !ARG_ID.test(name));
@@ -243,7 +244,9 @@ function describeArgs(args: Record<string, unknown>): string {
       if (typeof value === 'object') return argWords(name);
       if (typeof value === 'number' && ARG_TIME.test(name) && value >= 0) return `${argWords(name)} ${argTime(value)}`;
       const text = String(value);
-      return `${argWords(name)}: ${text.length > 44 ? `${text.slice(0, 44)}…` : text}`;
+      // A command keeps enough to name the program it runs (the System panel shows its logo); the rest stay short.
+      const room = ARG_COMMAND.test(name) ? 300 : 44;
+      return `${argWords(name)}: ${text.length > room ? `${text.slice(0, room)}…` : text}`;
     })
     .join(' · ');
 }

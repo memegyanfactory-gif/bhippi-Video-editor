@@ -16,6 +16,11 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Job } from '../lib/types';
 import type { ToolRun } from '../chat/Activity';
 import { api } from '../lib/ipc';
+import { identifyCommand } from '../lib/commandApps';
+import type { CommandApp } from '../lib/commandApps';
+import { formatDuration } from '../lib/duration';
+import { toolLabel } from '../lib/toolLabels';
+import { AppLogo } from './AppLogo';
 
 type Gpu = { name: string | null; utilPercent: number | null; vramUsedMb: number | null; vramTotalMb: number | null; tempC: number | null };
 type Drive = { letter: string; freeGb: number; totalGb: number; role: 'models' | 'project' | null };
@@ -63,10 +68,41 @@ export function formatGb(gb: number, withUnit = true): string {
 
 const percentOf = (used: number, total: number) => (total > 0 ? Math.min(100, Math.max(0, (used / total) * 100)) : null);
 const clampPercent = (value: number | null | undefined) => (value == null || !Number.isFinite(value) ? null : Math.min(100, Math.max(0, value)));
-const elapsedText = (ms: number) => {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+
+/**
+ * The program a bare name points at ("blender.exe", "ffmpeg"), or null when it is not one we know.
+ * Used for background jobs and Bhippi's own processes, which only carry a name, never a command line.
+ */
+const appNamed = (name: string): CommandApp | null => {
+  const found = identifyCommand('run_command', `command: ${name.replace(/\.exe$/i, '')}`);
+  return found && found.app !== 'terminal' && found.app !== 'powershell' && found.app !== 'cmd' ? found : null;
 };
+
+/** A job names a program only when its own label or message does ("Encoding with FFmpeg"); otherwise no logo. */
+const jobApp = (job: Job): CommandApp | null => {
+  const word = `${job.label} ${job.message}`.match(/\b(blender|ffmpeg|whisper|yt-dlp|magick|imagemagick)\b/i)?.[1]?.toLowerCase();
+  return word ? appNamed(word === 'imagemagick' ? 'magick' : word) : null;
+};
+
+/**
+ * One running tool: the program's logo, its name in bold and what it is doing in plain words, then
+ * how long it has run. A tool that runs no program keeps its own name, de-underscored. The raw
+ * request stays in the tooltip for anyone who wants the exact command.
+ */
+function RunRow({ run, elapsed }: { run: ToolRun; elapsed: number }) {
+  const found = identifyCommand(run.name, run.request);
+  const plainName = toolLabel(run.name);
+  const detail = found ? found.action : run.request;
+  return (
+    <div className="rm-run" title={run.request ? `${plainName}: ${run.request}` : plainName}>
+      <span className="rm-run-logo">{found ? <AppLogo app={found.app} size={16} /> : <Wrench size={14} aria-hidden="true" />}</span>
+      <span className="rm-run-name">{found ? found.label : plainName}</span>
+      <LoaderCircle size={11} className="rm-spin rm-run-live" aria-label="Running" />
+      {detail && <span className="rm-run-request">{detail}</span>}
+      <span className="rm-run-time">{formatDuration(elapsed, { tenths: false })}</span>
+    </div>
+  );
+}
 
 /** A thin bar. `percent` null draws it empty; `tone` picks the colour, `accent` is the neutral blue for job progress. */
 function Bar({ percent, tone }: { percent: number | null; tone?: Tone | 'accent' }) {
@@ -429,12 +465,7 @@ export function ResourceMonitor({
               <div className="rm-section-title"><Wrench size={11} />Running tools{activeRuns.length > 0 && <span className="rm-count">{activeRuns.length}</span>}</div>
               {activeRuns.length === 0 && <div className="rm-empty">Nothing running</div>}
               {activeRuns.map((run) => (
-                <div className="rm-run" key={run.callId}>
-                  <LoaderCircle size={12} className="rm-spin" />
-                  <span className="rm-run-name">{run.name.replace(/_/g, ' ')}</span>
-                  {run.request && <span className="rm-run-request" title={run.request}>{run.request}</span>}
-                  <span className="rm-run-time">{elapsedText(now - run.at)}</span>
-                </div>
+                <RunRow key={run.callId} run={run} elapsed={now - run.at} />
               ))}
             </div>
 
@@ -448,11 +479,14 @@ export function ResourceMonitor({
                 const percent = Math.round(Math.min(1, Math.max(0, job.progress)) * 100);
                 const isVideo = isVideoJob(job);
                 const isBusy = !!busyJobs[job.id];
+                const appOfJob = jobApp(job);
                 return (
                   <div className={`rm-job${isVideo ? ' rm-job-video' : ''}`} key={job.id}>
                     <div className="rm-job-head">
                       <div className="rm-job-title-group">
                         {isVideo && <span title="Video generation task" style={{ display: 'inline-flex', alignItems: 'center' }}><Video size={12} className="rm-job-video-icon" /></span>}
+                        {appOfJob && <AppLogo app={appOfJob.app} size={14} />}
+                        {appOfJob && <span className="rm-app-name">{appOfJob.label}</span>}
                         <span className="rm-job-label">{job.label}</span>
                       </div>
                       <div className="rm-job-actions">
@@ -504,13 +538,17 @@ export function ResourceMonitor({
                 </button>
                 {showProcesses && (
                   <div className="rm-procs">
-                    {visibleGroups.map((group) => (
+                    {visibleGroups.map((group) => {
+                      const procApp = appNamed(group.name);
+                      return (
                       <div className="rm-proc" key={group.name} title={`PID ${group.pids.join(', ')}`}>
+                        {procApp && <AppLogo app={procApp.app} size={13} />}
                         <span className="rm-proc-name">{group.name}</span>
                         {group.pids.length > 1 && <span className="rm-proc-count">×{group.pids.length}</span>}
                         <span className="rm-proc-ram">{formatGb(group.ramGb)}</span>
                       </div>
-                    ))}
+                      );
+                    })}
                     {groups.length > TOP_PROCESSES && (
                       <button type="button" className="rm-link" onClick={() => setAllProcesses(!allProcesses)}>
                         {allProcesses ? 'Show fewer' : `Show all ${groups.length}`}

@@ -3,7 +3,7 @@ import type { GenPlan } from '../lib/cloudGen';
 import type { Asset } from '../lib/types';
 import { modelVariants, variantModel } from '../lib/modelVariants';
 import { rememberTurnPrompt } from '../lib/turnPrompts';
-import { speedIndex, speedSteps } from '../lib/modelTiers';
+import { modelChipText, speedIndex, speedSteps } from '../lib/modelTiers';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { ArrowDown, ArrowUp, ChevronRight, CircleHelp, Crosshair, File as FileIcon, Film, Laugh, MapPin, Music, Paperclip, Pencil, Play, RotateCcw, SendHorizontal, X } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -22,6 +22,7 @@ import { routeTools, type Toolset } from '../lib/toolRouter';
 import { GUIDED_BRIEF, modelTier, type GuidedSetting } from '../lib/modelProfile';
 import type { HarnessId } from '../lib/harness';
 import { trace } from '../lib/turnTrace';
+import { addStretch, formatDuration } from '../lib/duration';
 import { type Interjection, type Step, type TextSegment, type ToolRun } from './Activity';
 import { steer } from './steer';
 import { AnswerBody, type SteerActions } from './AnswerBody';
@@ -660,11 +661,18 @@ ${text}` : text));
         turnMeta.current.set(event.turnId, { provider: event.providerLabel, providerId: event.providerId, model: event.model, prompt: meta?.prompt ?? '', phase: meta?.phase, tier: meta?.tier });
       } else if (event.event === 'delta') {
         const delta = event.delta;
+        // A CLI left on its default names the model it picked once the stream starts: the brain records that one.
+        if (delta.kind === 'model') {
+          const meta = turnMeta.current.get(event.turnId);
+          if (meta) turnMeta.current.set(event.turnId, { ...meta, model: delta.model });
+        }
         patch(event.turnId, (message) => {
           // A turn the user stopped, or one the watchdog closed, stays closed: a chunk that was
           // already in flight must not put it back to writing and lock the composer again.
           if (message.status !== 'streaming') return message;
           switch (delta.kind) {
+            case 'model':
+              return message.model === delta.model ? message : { ...message, model: delta.model };
             case 'text':
               return { ...message, ...appendText(message, delta.delta, propsRef.current.tools[message.turnId] ?? [], Date.now()) };
             case 'thinking':
@@ -1788,14 +1796,14 @@ function AssistantRow(props: AssistantProps) {
 
 function AssistantMessage({ message, latest, workflow, tools, canRevert, onRevert, onRemedy, onContinue, onDropSteer, steerActions, changes: changesProp = [], onJump, highlighted = false, onHighlight, kits = [], onUpdateKit, asking = false }: { message: Assistant; latest: boolean; asking?: boolean; workflow: WorkflowView; tools: ToolRun[]; canRevert: boolean; onRevert: () => void; changes?: TurnChange[]; onJump?: (change: TurnChange) => void; highlighted?: boolean; onHighlight?: (on: boolean) => void; kits?: TrainedKit[]; onUpdateKit?: (kitId: string, change: (kit: TrainedKit) => TrainedKit) => void; onRemedy: (remedy: TurnFault['remedy']) => void; onContinue?: () => void; onDropSteer: (id: string) => void; steerActions?: SteerActions }) {
   const visible = message.content;
-  const seconds = message.elapsedMs !== null ? `${(message.elapsedMs / 1000).toFixed(1)}s` : null;
+  const seconds = message.elapsedMs !== null ? formatDuration(message.elapsedMs) : null;
   const streaming = message.status === 'streaming';
-  // Every answer is Bhippi's; which provider wrote it stays out of the header.
   const changes = tools.filter((run) => run.status === 'done' && run.changedProject).length;
   const timelineChanges = changes > 0 ? changesProp : [];
   const line = streaming ? null : workflowLine(workflow, tools.length > 0);
-  // The footer says which AI answered (each project keeps its own), the model and how long it took.
-  const meta = [message.providerLabel && message.providerLabel !== 'Bhippi' ? message.providerLabel : null, message.model, seconds, tokenLine(message.usage)].filter(Boolean).join(' · ');
+  // The header says which AI and model answered; the footer how long it took and what it cost.
+  const meta = [seconds, tokenLine(message.usage)].filter(Boolean).join(' · ');
+  const chip = modelChipText(message.providerLabel, message.model);
   const working = tools.some((run) => run.status === 'running') || message.steps.some((step) => !step.done);
   const thinkingLive = streaming && !visible && !working;
   // The mark plays "done" only for a turn seen finishing here, not for every answer a reload brings back.
@@ -1814,6 +1822,7 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
       <div className="msg-meta">
         <span className="msg-avatar bhippi"><BhippiMark state={mark} size={20} /></span>
         <span className="msg-who">Bhippi</span>
+        {chip && <span className="msg-model" title={message.model ?? message.providerLabel ?? undefined}>{chip}</span>}
         {message.mode && <span className={`msg-mode mode-${message.mode}`} title={message.mode === 'full' ? 'Full workflow: plan, gather, edit and polish' : 'Quick edit: only the change asked for, no workflow'}>{message.mode === 'full' ? 'Full workflow' : 'Quick edit'}</span>}
         {message.status === 'stopped' && <span className="msg-flag">Stopped</span>}
       </div>
@@ -1896,9 +1905,13 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
  * one click away. A reloaded answer has no clock to go by, so it just says "Thought process".
  */
 function ThinkingRow({ text, live }: { text: string; live: boolean }) {
-  const [started] = useState(() => Date.now());
-  const [now, setNow] = useState(started);
-  const [took, setTook] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  /** Time from every live stretch that has already ended. The row stays mounted for the whole turn, so only the live stretches count. */
+  const [total, setTotal] = useState(0);
+  /** When the current live stretch began, or null while the row is idle. */
+  const [stretchStart, setStretchStart] = useState<number | null>(live ? Date.now() : null);
+  /** Whether the row has ever been live. A reloaded answer never is, so it has no time to show. */
+  const [timed, setTimed] = useState(live);
   /** What the user asked for: all of it, or none; null follows the stream (a peek while it thinks). */
   const [chosen, setChosen] = useState<'full' | 'closed' | null>(null);
   const [lingering, setLingering] = useState(live);
@@ -1910,10 +1923,18 @@ function ThinkingRow({ text, live }: { text: string; live: boolean }) {
   }, [live]);
   useEffect(() => {
     if (live) {
+      const startedAt = Date.now();
+      setNow(startedAt);
+      setStretchStart(startedAt);
+      setTimed(true);
       setLingering(true);
       return;
     }
-    if (lingering) setTook(Math.max(1, Math.round((Date.now() - started) / 1000)));
+    if (stretchStart !== null) {
+      const endedAt = Date.now();
+      setTotal((sum) => addStretch(sum, stretchStart, endedAt));
+      setStretchStart(null);
+    }
     const handle = window.setTimeout(() => setLingering(false), 1000);
     return () => window.clearTimeout(handle);
   }, [live]);
@@ -1924,13 +1945,14 @@ function ThinkingRow({ text, live }: { text: string; live: boolean }) {
   // A peek (the last lines) while it thinks; the whole text once the user opens it; nothing after.
   const view: 'peek' | 'full' | 'closed' = chosen ?? (lingering ? 'peek' : 'closed');
   const open = view !== 'closed';
-  const seconds = Math.max(1, Math.round((now - started) / 1000));
+  // Live: the closed stretches plus the one running now. Idle: the total alone.
+  const spent = stretchStart === null ? total : addStretch(total, stretchStart, now);
   return (
     <div className={`think${open ? ' open' : ''}${view === 'peek' ? ' peek' : ''}${view === 'full' ? ' full' : ''}`}>
       <button type="button" className="think-btn" onClick={() => setChosen(view === 'full' ? 'closed' : 'full')} aria-expanded={view === 'full'}
         title={view === 'full' ? 'Hide the thinking' : 'Show all of the thinking'}>
-        <span className={live ? 'ai-shimmer' : undefined}>{live ? 'Thinking' : took ? `Thought for ${took}s` : 'Thought process'}</span>
-        {live && <span className="think-time">· {seconds}s</span>}
+        <span className={live ? 'ai-shimmer' : undefined}>{live ? 'Thinking' : timed ? `Thought for ${formatDuration(Math.max(1000, total), { tenths: false })}` : 'Thought process'}</span>
+        {live && <span className="think-time">· {formatDuration(Math.max(1000, spent), { tenths: false })}</span>}
         <ChevronRight size={12} className={`think-chevron${open ? ' rotate-90' : ''}`} />
       </button>
       <div className="think-fold" aria-hidden={!open}>
