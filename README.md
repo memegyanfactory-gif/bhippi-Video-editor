@@ -9,14 +9,14 @@
 Version 1.0.21
 
 [![Release](https://img.shields.io/badge/Release-v1.0.21-ff5c35?style=flat-square)](https://github.com/memegyanfactory-gif/bhippi-Video-editor/releases/latest)
-[![Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/wtUSq3uRw)
+[![Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/WY3XNWdf9B)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24c8db?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-1.85+-orange?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![React 19](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Ready-007808?style=flat-square&logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
 
-[⬇ Download for Windows](https://github.com/memegyanfactory-gif/bhippi-Video-editor/releases) · [💬 Join our Discord](https://discord.gg/wtUSq3uRw) · [Website](https://bhippi.com) · [What's new](#-whats-new) · [Model Library](#-model-library-local-ai-models-in-one-place) · [Quick Start](#quick-start) · [How it Works](#how-the-ai-works) · [Features](#what-it-does) · [Comparison](#how-it-compares) · [Documentation](#architecture--codebase)
+[⬇ Download for Windows](https://github.com/memegyanfactory-gif/bhippi-Video-editor/releases) · [💬 Join our Discord](https://discord.gg/WY3XNWdf9B) · [Website](https://bhippi.com) · [What's new](#-whats-new) · [Model Library](#-model-library-local-ai-models-in-one-place) · [Quick Start](#quick-start) · [How it Works](#how-the-ai-works) · [Features](#what-it-does) · [Comparison](#how-it-compares) · [Documentation](#architecture--codebase)
 
 ---
 
@@ -410,9 +410,9 @@ npm run bundle       # Package full production NSIS installer
 
 ## 💬 Community
 
-Join the **[Bhippi Discord](https://discord.gg/wtUSq3uRw)** to ask questions, share what you made, report bugs, suggest features and hear about new releases first.
+Join the **[Bhippi Discord](https://discord.gg/WY3XNWdf9B)** to ask questions, share what you made, report bugs, suggest features and hear about new releases first.
 
-<a href="https://discord.gg/wtUSq3uRw"><img src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join us on Discord" /></a>
+<a href="https://discord.gg/WY3XNWdf9B"><img src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join us on Discord" /></a>
 
 Found a bug? You can also open an [issue on GitHub](https://github.com/memegyanfactory-gif/bhippi-Video-editor/issues).
 
