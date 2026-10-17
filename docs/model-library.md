@@ -54,6 +54,17 @@ commands do it).
   license link) into the model's folder, emit `bhippi://model-library` `{ id, reason }`.
 - `model_library_list` also re-checks installed files exist with the right size (no hashing on every
   list) and sets `broken` when not.
+- Queue (`model_library/queue.rs` rules, `queue_run.rs` commands): `model_library_download` adds the
+  download to a queue instead of starting it outright (its `jobId` is empty while it waits). At most
+  `maxParallel` run at once (1 by default, 1 to 3 with `model_library_set_parallel`), the rest wait in
+  order. The queue, the last 8 finished downloads and the limit are saved in `state.json`. Once per run,
+  whatever was running or waiting when Bhippi closed becomes Paused; nothing resumes on its own. A
+  `.part` file with no queue entry (from an older version) also shows as Paused. Resume puts a paused or
+  failed download back at the end of the line and it continues from its part-file. Commands:
+  `model_library_queue`, `_pause`, `_resume`, `_discard`, `_reorder`, `_move_to_top`, `_pause_all`,
+  `_resume_all`, `_set_parallel`; `bhippi://model-queue` fires on every change. Only ComfyUI and
+  llama.cpp entries queue; `local-media`, `model-center` and `strata` entries keep their own installers
+  and show on the Downloads page as jobs. The page is `src/settings/library/DownloadsPage.tsx`.
 - `enabled` can only be true for an installed, non-broken model. Turning a model on is the user's
   explicit permission for Bhippi's AI to use it (it overrides the old "disable local generation"
   switch for that model only).
