@@ -11,7 +11,7 @@ const hw = (name: string, vramGb: number | null, ramGb: number | null = 64): Har
 });
 
 const view = (state: Partial<LibraryView['state']>): LibraryView => ({
-  entry: { id: 'qwen3.8-flash-next', runtime: 'strata' } as LibraryView['entry'],
+  entry: { id: 'qwen3.8-flash-next', runtime: 'strata', variants: [{ id: 'iq2_xs' }, { id: 'iq3_s' }, { id: 'q2_0' }] } as LibraryView['entry'],
   state: { installedVariant: null, installedVariants: [], installedAddons: [], enabled: false, accepted: null, download: null, partialBytes: 0, broken: null, ...state },
   thumbnailPath: null,
 });
@@ -44,6 +44,13 @@ describe('Strata sizes', () => {
     expect(statusOfSize(card, undefined, 'iq2_xs').id).toBe('ready');
     expect(statusOfSize(card, undefined, 'iq3_s').id).toBe('downloading');
     expect(statusOfSize(card, undefined, 'q2_0').id).toBe('none');
+  });
+  it('a llama.cpp pick with several sizes shows progress and Downloaded only on its own size', () => {
+    const card: LibraryView = { ...view({ installedVariant: 'q4_k_m', installedVariants: undefined, download: { jobId: 'j', variant: 'q6_k', addons: [], bytesDone: 1, bytesTotal: 10 } }),
+      entry: { id: 'qwen3.6-35b-a3b', runtime: 'llama-cpp', variants: [{ id: 'q4_k_m' }, { id: 'q6_k' }, { id: 'q8_0' }] } as LibraryView['entry'] };
+    expect(statusOfSize(card, undefined, 'q4_k_m').id).toBe('ready');
+    expect(statusOfSize(card, undefined, 'q6_k').id).toBe('downloading');
+    expect(statusOfSize(card, undefined, 'q8_0').id).toBe('none');
   });
   it('stops showing a download that ended', () => {
     const card = view({ download: { jobId: 'j', variant: 'q2_0', addons: [], bytesDone: 1, bytesTotal: 10 } });

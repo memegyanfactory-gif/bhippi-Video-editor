@@ -13,7 +13,7 @@ import { libraryApi, type LibraryEntry, type LibraryView, type LlmPlan, type Llm
 import type { HardwareInfo } from '../../lib/ipc';
 import type { Job } from '../../lib/types';
 import { Markdown } from '../../components/Markdown';
-import { statusOf, statusOfSize, useDownloadProgress, useQueueWatch } from '../libraryShared';
+import { statusOfSize, useDownloadProgress, useQueueWatch } from '../libraryShared';
 import { HfSignIn } from '../library/HfSignIn';
 import { CapChips, CopyButton, FitPill, MakerLogo, VerifiedTick } from './parts';
 import { RunningSpeeds, TuneControls } from './SpeedPanel';
@@ -219,7 +219,7 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
     for (const option of options) {
       if (!(option.key in starting) || !option.view) continue;
       const job = option.view.state.download ? jobs.find((candidate) => candidate.id === option.view?.state.download?.jobId) : undefined;
-      const id = (option.view.entry.runtime === 'strata' ? statusOfSize(option.view, job, option.variantId) : statusOf(option.view, job)).id;
+      const id = statusOfSize(option.view, job, option.variantId).id;
       if (id === 'downloading' || id === 'queued' || id === 'ready' || id === 'on') clearStarting(option.key);
     }
   }, [options, jobs, starting]);
@@ -441,10 +441,10 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
             {options.map((option) => {
               const view = option.view;
               const job = view?.state.download ? jobs.find((candidate) => candidate.id === view.state.download?.jobId) : undefined;
-              // A Strata card keeps several sizes at once, so each size has its own status and its own running state.
-              const status = view ? (view.entry.runtime === 'strata' ? statusOfSize(view, job, option.variantId) : statusOf(view, job)) : null;
+              // A card with several sizes: each size has its own status (only the size downloading shows progress).
+              const status = view ? statusOfSize(view, job, option.variantId) : null;
               const running = !!view && runningId === view.entry.id && (view.entry.runtime !== 'strata' || llm?.running?.variant === option.variantId);
-              const otherSetUp = !!view && view.entry.runtime === 'strata' && !!view.state.download && view.state.download.variant !== option.variantId;
+              const otherSetUp = !!view && view.entry.variants.length > 1 && !!view.state.download && view.state.download.variant !== option.variantId;
               const startingNote = starting[option.key];
               const working = busy === option.key || (!!view && busy === view.entry.id) || !!startingNote;
               const total = option.bytes + option.projectorBytes;

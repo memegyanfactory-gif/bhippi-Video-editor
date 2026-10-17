@@ -95,12 +95,12 @@ export function FitDot({ fit }: { fit: FitResult }) {
 export type ModelStatus = { id: 'none' | 'queued' | 'downloading' | 'paused' | 'ready' | 'on' | 'problem'; label: string };
 
 // Downloads waiting their turn (model id → place in line), shared by every card and panel.
-let waiting = new Map<string, number>();
+let waiting = new Map<string, { place: number; variant: string }>();
 const waitListeners = new Set<() => void>();
 let waitWatch: Promise<unknown> | null = null;
 const readQueue = () => libraryApi.queue().then((view) => {
-  const next = new Map(view.rows.filter((row) => row.state === 'queued').map((row) => [row.id, row.position ?? 0] as [string, number]));
-  const same = next.size === waiting.size && [...next].every(([id, at]) => waiting.get(id) === at);
+  const next = new Map(view.rows.filter((row) => row.state === 'queued').map((row) => [row.id, { place: row.position ?? 0, variant: row.variant }] as const));
+  const same = next.size === waiting.size && [...next].every(([id, at]) => waiting.get(id)?.place === at.place && waiting.get(id)?.variant === at.variant);
   if (same) return;
   waiting = next;
   waitListeners.forEach((listener) => listener());
@@ -122,8 +122,8 @@ export const useQueueWatch = () => {
 export const statusOf = (view: LibraryView, job: Job | undefined, inUse = false): ModelStatus => {
   const { state } = view;
   if (state.broken) return { id: 'problem', label: 'Problem' };
-  const place = waiting.get(view.entry.id);
-  if (place !== undefined && job?.status !== 'running') return { id: 'queued', label: place > 0 ? `Queued · #${place}` : 'Queued' };
+  const wait = waiting.get(view.entry.id);
+  if (wait && job?.status !== 'running') return { id: 'queued', label: wait.place > 0 ? `Queued · #${wait.place}` : 'Queued' };
   if (state.download && (!job || job.status === 'running')) {
     const pct = job ? Math.round(job.progress * 100) : state.download.bytesTotal ? Math.round((state.download.bytesDone / state.download.bytesTotal) * 100) : 0;
     return { id: 'downloading', label: `Downloading ${pct}%` };
@@ -136,8 +136,12 @@ export const statusOf = (view: LibraryView, job: Job | undefined, inUse = false)
 /** `statusOf` for one size of a card that can have several on disk at once (Strata): only that size's download and files count. */
 export const statusOfSize = (view: LibraryView, job: Job | undefined, size: string | null): ModelStatus => {
   const { state } = view;
-  const here = !!size && state.installedVariants?.includes(size);
+  // A card with one size: the card's status is that size's.
+  if (!size || view.entry.variants.length <= 1) return statusOf(view, job);
+  const here = state.installedVariants?.includes(size) || state.installedVariant === size;
   if (state.download && state.download.variant === size && (!job || job.status === 'running')) return statusOf(view, job);
+  const wait = waiting.get(view.entry.id);
+  if (wait && wait.variant === size && job?.status !== 'running') return statusOf(view, job);
   if (here) return state.broken ? { id: 'problem', label: 'Problem' } : { id: 'ready', label: 'Downloaded' };
   return { id: 'none', label: 'Not downloaded' };
 };
