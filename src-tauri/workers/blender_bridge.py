@@ -9,6 +9,8 @@
 # engine's own `Ease`; a CSS cubic-bezier is exactly a bezier F-curve segment in (time, value), so
 # the handles map 1:1. Output, in request["out"]:
 #   00001.png …      frames with alpha (film transparent), numbered in render order
+#   layers/<id>/…    with request["layers"]: one such sequence per layer instead, plus layers.json
+#                    [{id, name, kind, dir, frames, objects, depth}] back to front (see "layers" below)
 #   camera.json      per frame: position, point of interest, zoom (motion-engine axes and pixels)
 #   objects2d.json   per frame: each object's screen centre and box (2D glints and callouts track them)
 #   result.json      frames, fps, size, timings
@@ -493,15 +495,242 @@ frames = req.get("frames") or list(range(scene.frame_start, scene.frame_end + 1)
 step = max(1, int(req.get("step", 1)))
 frames = frames[::step]
 times = []
-say(0.03, f"rendering {len(frames)} frame(s) with {engine}")
-for i, f in enumerate(frames):
-    scene.frame_set(f)
-    # Files are numbered 00001… in render order, so a stepped or picked run is still one sequence.
-    scene.render.filepath = os.path.join(out, f"{i + 1:05d}.png")
+
+
+# ------------------------------------------------------------------ layers
+# req["layers"] (resolved by Bhippi): [{id, name, kind: objects|shadow|background, objects: [ids]}].
+# Every layer is its own transparent sequence in out/layers/<id>/. Lights, world and every object stay
+# in the scene for every pass, so lighting and shadows are those of the single render. Object layers:
+#   1. one "beauty" render of all objects (the floor hidden from the camera) gives their colour, so
+#      reflections and glass refraction still show every other object (EEVEE does not trace into holdouts);
+#   2. a matte render per layer, every other object a holdout (Object.is_holdout, Blender 3.0+), gives
+#      that layer's exact coverage and the cut-outs where something is in front of it.
+#   layer = beauty colour with the matte's alpha, except where a layer above covers it: there a second,
+#   full-quality pass of the layer alone (the others camera-hidden) fills the colour, so hiding or moving the
+#   front layer shows no ghost of it (only rendered for frames where something is covered).
+#   shadow layer   the floor only; every object is invisible to the camera but still casts its shadow
+#   background     the world only (opaque); every object is hidden from rendering
+#   (a matte holds out only the layers drawn below it and hides the rest; see show_pass)
+# Composited back to front with plain alpha-over, the layers rebuild the single render.
+def descendants(ids):
+    seen = set()
+    todo = [i for i in ids if i in objects]
+    while todo:
+        cur = todo.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        todo += [o["id"] for o in req.get("objects", []) if o.get("parent") == cur and o["id"] in objects]
+    return seen
+
+
+FLOORS = [o["id"] for o in req.get("objects", []) if o.get("kind") == "floor" and o["id"] in objects]
+HIDDEN = {oid: ob.hide_render for oid, ob in objects.items()}  # a floor with shadow "none" stays hidden
+REAL = [ob for oid, ob in objects.items() if ob.type in ("MESH", "FONT") and oid not in FLOORS]
+
+
+def holdout(ob, on):
+    try:
+        ob.is_holdout = on  # Blender 3.0+; EEVEE Next (4.2+) and Cycles
+    except AttributeError:
+        pass
+
+
+def layer_depth(ids):
+    """Distance from the camera to the layer's nearest bounding-box corner: the mean over the first, middle
+    and last frame that renders (the first alone mis-orders objects that fall or fly into place)."""
+    total = 0.0
+    picks = [frames[0], frames[len(frames) // 2], frames[-1]]
+    for f in picks:
+        scene.frame_set(f)
+        cam_at = cam.matrix_world.to_translation()
+        best = None
+        for oid in ids:
+            ob = objects.get(oid)
+            if ob is None or ob.type not in ("MESH", "FONT") or oid in FLOORS:
+                continue
+            for c in ob.bound_box:
+                d = (ob.matrix_world @ Vector(c) - cam_at).length
+                best = d if best is None else min(best, d)
+        total += best if best is not None else 0.0
+    return round(total / len(picks), 3)
+
+
+def show_pass(kind, mine=(), behind=()):
+    """Set what the camera sees for one pass: "beauty", "objects" (matte of `mine`), "shadow" or "background".
+    A matte cuts holes only for `behind` (the layers drawn UNDER this one, in case one stands in front of it);
+    every other object is hidden from the camera, because the layers above simply paint over this one. That way
+    the alphas add up exactly where two objects' edges meet (cutting both would leave a seam)."""
+    scene.render.film_transparent = kind != "background"
+    for oid, ob in objects.items():
+        ob.hide_render = HIDDEN[oid]
+        ob.visible_camera = True
+        holdout(ob, False)
+    if kind in ("beauty", "objects"):
+        for oid in FLOORS:
+            objects[oid].visible_camera = False  # the Shadow layer owns the floor's shadow
+        if kind == "objects":
+            for ob in REAL:
+                if ob.name in behind:
+                    holdout(ob, True)  # an exact cut-out wherever a lower layer's object is in front
+                elif ob.name not in mine:
+                    ob.visible_camera = False
+    elif kind == "shadow":
+        for ob in REAL:
+            ob.visible_camera = False  # they still cast their shadows onto the floor
+    else:  # background: nothing but the world
+        for ob in objects.values():
+            ob.hide_render = True
+
+
+SAMPLES = req.get("samples", 32)
+
+
+def cheap(on):
+    """Matte passes only need coverage: no raytraced reflections (EEVEE), fewer samples (Cycles)."""
+    if engine == "cycles":
+        scene.cycles.samples = max(16, SAMPLES // 2) if on else SAMPLES
+    elif hasattr(scene.eevee, "use_raytracing"):
+        scene.eevee.use_raytracing = not on
+
+
+def read_png(path):
+    """Straight RGBA of an 8-bit PNG as floats 0..1, exactly as stored (no colour management)."""
+    import numpy as np
+    img = bpy.data.images.load(path)
+    img.colorspace_settings.name = "Non-Color"
+    img.alpha_mode = "CHANNEL_PACKED"
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    bpy.data.images.remove(img)
+    return px.reshape(h, w, 4)
+
+
+def write_png(px, path):
+    h, w = px.shape[:2]
+    img = bpy.data.images.new("bhippi-layer", w, h, alpha=True)
+    img.colorspace_settings.name = "Non-Color"
+    img.alpha_mode = "CHANNEL_PACKED"
+    img.pixels.foreach_set(px.astype("float32").ravel())
+    img.filepath_raw = path
+    img.file_format = "PNG"
+    img.save()
+    bpy.data.images.remove(img)
+
+
+def render_png(path):
+    scene.render.filepath = path
     t0 = time.time()
     bpy.ops.render.render(write_still=True)
     times.append(round(time.time() - t0, 3))
-    say(0.03 + 0.96 * (i + 1) / len(frames), f"frame {i + 1}/{len(frames)} in {times[-1]} s")
+
+
+layer_list = req.get("layers")
+if isinstance(layer_list, list) and layer_list:
+    # Back to front: Background, Shadow, then the objects from far to near.
+    info = []
+    for layer in layer_list:
+        kind = layer.get("kind", "objects")
+        depth = 1e6 if kind == "background" else 1e5 if kind == "shadow" else layer_depth(descendants(layer.get("objects", [])))
+        info.append((layer, kind, depth))
+    info.sort(key=lambda e: -e[2])
+    N = len(info)
+    for layer, _, _ in info:
+        os.makedirs(os.path.join(out, "layers", layer["id"]), exist_ok=True)
+    matte_tmp = os.path.join(out, "_matte.png")
+    beauty_tmp = os.path.join(out, "_beauty.png")
+    has_objects = any(kind == "objects" for _, kind, _ in info)
+    passes = len(frames) * (N + (1 if has_objects else 0))
+    done = 0
+    import numpy as np
+    seen = set()  # object layers that show something in at least one frame
+    say(0.03, f"rendering {len(frames)} frame(s) in {N} layers with {engine}")
+    for i, f in enumerate(frames):
+        scene.frame_set(f)
+        beauty = None
+        if has_objects:
+            # One full render of every object (reflections, refraction, glass see everything) gives the
+            # colour of every object layer; each layer's holdout render then gives only its coverage.
+            show_pass("beauty")
+            cheap(False)
+            render_png(beauty_tmp)
+            beauty = read_png(beauty_tmp)
+            done += 1
+        def objects_pass(n, layer):
+            below = set()
+            for other, other_kind, _ in info[:n]:
+                if other_kind == "objects":
+                    below |= descendants(other.get("objects", []))
+            show_pass("objects", descendants(layer.get("objects", [])), below)
+
+        # 1. every object layer's matte (cheap): its full coverage, cut only where a lower layer is in front
+        mattes = {}
+        for n, (layer, kind, _) in enumerate(info):
+            if kind != "objects":
+                continue
+            say(min(0.99, 0.03 + 0.96 * done / passes), f"Rendering layer {n + 1} of {N}: {layer.get('name') or layer['id']} (frame {i + 1}/{len(frames)})")
+            objects_pass(n, layer)
+            cheap(True)
+            render_png(matte_tmp)
+            mattes[n] = read_png(matte_tmp)
+            done += 1
+        # 2. the layers
+        for n, (layer, kind, _) in enumerate(info):
+            name = layer.get("name") or layer["id"]
+            target = os.path.join(out, "layers", layer["id"], f"{i + 1:05d}.png")
+            if kind == "objects":
+                alpha = mattes[n][..., 3]
+                if alpha.max() > 1.5 / 255:
+                    seen.add(layer["id"])
+                # Where the layers above cover this one the picture must be this layer's OWN (no ghost of the
+                # front object to show when it is hidden or moved); elsewhere the all-objects colour keeps
+                # reflections and refraction exact.
+                clear = np.ones_like(alpha)
+                for m, matte in mattes.items():
+                    if m > n:
+                        clear *= 1.0 - matte[..., 3]
+                cover = 1.0 - clear
+                rgb = beauty[..., :3]
+                if (alpha * cover).max() > 1.5 / 255:
+                    say(min(0.99, 0.03 + 0.96 * done / passes), f"Rendering layer {n + 1} of {N}: {name}, behind other layers (frame {i + 1}/{len(frames)})")
+                    objects_pass(n, layer)
+                    cheap(False)
+                    render_png(matte_tmp)
+                    own = read_png(matte_tmp)
+                    rgb = rgb * (1.0 - cover[..., None]) + own[..., :3] * cover[..., None]
+                    done += 1
+                px = np.concatenate([rgb, alpha[..., None]], axis=2)
+                px[alpha <= 0, :3] = 0.0
+                write_png(px, target)
+            else:
+                say(min(0.99, 0.03 + 0.96 * done / passes), f"Rendering layer {n + 1} of {N}: {name} (frame {i + 1}/{len(frames)})")
+                show_pass(kind)
+                cheap(kind == "background")
+                render_png(target)
+                done += 1
+        say(min(0.99, 0.03 + 0.96 * done / passes), f"frame {i + 1}/{len(frames)} done")
+    for tmp in (matte_tmp, beauty_tmp):
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    # A layer wholly hidden behind another (a core inside a glass shell: the shell's layer already holds
+    # what shows through it) has nothing to show: drop it.
+    import shutil
+    for layer, kind, _ in info:
+        if kind == "objects" and layer["id"] not in seen:
+            shutil.rmtree(os.path.join(out, "layers", layer["id"]), ignore_errors=True)
+    info = [e for e in info if e[1] != "objects" or e[0]["id"] in seen]
+    entries = [{"id": layer["id"], "name": layer.get("name") or layer["id"], "kind": kind, "dir": f"layers/{layer['id']}", "frames": len(frames),
+                "objects": sorted(descendants(layer.get("objects", []))) if kind == "objects" else list(layer.get("objects", [])), "depth": depth}
+               for layer, kind, depth in info]
+    json.dump(entries, open(os.path.join(out, "layers.json"), "w"), indent=1)
+else:
+    say(0.03, f"rendering {len(frames)} frame(s) with {engine}")
+    for i, f in enumerate(frames):
+        scene.frame_set(f)
+        # Files are numbered 00001… in render order, so a stepped or picked run is still one sequence.
+        render_png(os.path.join(out, f"{i + 1:05d}.png"))
+        say(0.03 + 0.96 * (i + 1) / len(frames), f"frame {i + 1}/{len(frames)} in {times[-1]} s")
 
 json.dump({"ok": True, "engine": engine, "frames": len(frames), "frameNumbers": frames, "step": step, "fps": fps, "width": W, "height": H,
            "secondsPerFrame": times, "totalSeconds": round(time.time() - t_start, 2), "blender": bpy.app.version_string},

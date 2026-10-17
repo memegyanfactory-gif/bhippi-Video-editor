@@ -11,6 +11,8 @@ import {
   compact, displayName, entryCapabilities, entryMatches, hubCapabilities, needsClientCheck, passesFilters, paramsLabel, prettyMaker, QUICK_FILTERS, relativeDate, searchText,
   type HubRow, type QuickFilter,
 } from '../../lib/llmHub';
+import { withRamLimit } from '../../lib/modelFit';
+import type { SettingsTab } from '../SettingsModal';
 import { libraryApi, onLibraryChange, type HubSort, type LibraryListing, type LibraryView, type LlmRuntimeStatus } from '../../lib/modelLibrary';
 import { statusOf, useQueueWatch } from '../libraryShared';
 import { useHardware } from '../LocalModelAdvisor';
@@ -55,8 +57,9 @@ type Row = {
   mark: { tone: 'use' | 'done' | 'busy'; label: string } | null;
 };
 
-export function LlmBrowser({ onChanged }: { onChanged: () => void }) {
-  const { hw } = useHardware();
+export function LlmBrowser({ onChanged, ramLimitPercent, onTab }: { onChanged: () => void; /** The memory limit from Settings (25-100), so the fit badges tell the truth. */ ramLimitPercent?: number | null; onTab?: (tab: SettingsTab) => void }) {
+  const { hw: measured } = useHardware();
+  const hw = useMemo(() => withRamLimit(measured, ramLimitPercent), [measured, ramLimitPercent]);
   useQueueWatch();
   const jobs = useLiveJobs();
   const [listing, setListing] = useState<LibraryListing | null>(null);
@@ -312,7 +315,7 @@ export function LlmBrowser({ onChanged }: { onChanged: () => void }) {
 
       <section className="lb-detail-pane" aria-label="Model details">
         {selection ? (
-          <LlmDetail selection={selection} ctx={{ hw, freeGb, views: llmViews, jobs, llm, refresh: () => void refresh(), onSelectCard: (id) => setSelection(id ? { kind: 'card', id } : null) }} />
+          <LlmDetail selection={selection} ctx={{ hw, onTab, freeGb, views: llmViews, jobs, llm, refresh: () => void refresh(), onSelectCard: (id) => setSelection(id ? { kind: 'card', id } : null) }} />
         ) : (
           <div className="lb-state big">{hub.loading || (!listing && !listError) ? <><LoaderCircle size={18} className="spin" /><span>Loading…</span></> : <><SearchX size={18} /><span>Pick a model on the left to see its sizes.</span></>}</div>
         )}

@@ -533,6 +533,17 @@ pub const CATALOG: &[ProviderSpec] = &[
         )
     },
     ProviderSpec {
+        models: &["glm-5.3", "glm-5.2", "glm-5.1", "glm-5", "glm-4.7"],
+        ..cloud(
+            "zai",
+            "Z.ai (GLM) API",
+            Api::OpenAiCompat,
+            "https://api.z.ai/api/paas/v4",
+            &["ZAI_API_KEY", "ZHIPUAI_API_KEY"],
+            "https://z.ai/manage-apikey/apikey-list",
+        )
+    },
+    ProviderSpec {
         // Offline fallback, recommended first. The live list replaces it (keeping this order at
         // the front); GPT, Grok, Muse and Gemini models are left out because Zen serves them on
         // endpoints Bhippi has no adapter for (see `crate::zen`).

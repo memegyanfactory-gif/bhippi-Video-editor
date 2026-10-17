@@ -542,8 +542,13 @@ export class EditWorkflow {
     for (const id of this.shorts) walk(id);
     return [...seen].map(id => byId.get(id)!);
   }
-  private outOfScope(comp: Comp): string {
-    return `This turn edits "${comp.name}" and the comps nested in it; for a motion comp use update_motion_scene {"clipId":"<its holder clip id>"} or open_comp {"compId":"${this.compId}"}. Another composition needs a turn of its own.`;
+  /** Which comp an id from a refused call belongs to, so the refusal can say where the clip really is. */
+  private whereIs(project: Project, id: string): string {
+    const owner = project.comps.find(c => c.id === id || c.name === id) ?? project.comps.find(c => c.clips.some(clip => clip.id === id));
+    return owner ? ` ("${id}" is ${owner.id === id || owner.name === id ? 'the comp' : 'a clip of the comp'} "${owner.name}", compId ${owner.id}, which this turn does not own.)` : ` ("${id}" is not a clip or comp of this project: get_comp lists the real ids.)`;
+  }
+  private outOfScope(comp: Comp, project?: Project, id?: string): string {
+    return `${project && id ? `${this.whereIs(project, id).trim()} ` : ''}This turn edits "${comp.name}" and the comps nested in it; for a motion comp use update_motion_scene {"clipId":"<its holder clip id>"} or open_comp {"compId":"${this.compId}"}. Another composition needs a turn of its own.`;
   }
   status(project: Project) {
     const comp = this.comp(project);
@@ -619,7 +624,7 @@ export class EditWorkflow {
     if (this.onShort(name, args, project)) return name.startsWith('mcp__') ? 'External tools cannot bypass this workflow. Use the native editing tools.' : null;
     // Reads are never refused over which comp they look at.
     const scope = ALWAYS_TOOLS.has(name) ? null : this.scopeComps(project);
-    if (scope && typeof args.compId === 'string' && !scope.some(c => c.id === args.compId || c.name === args.compId)) return this.outOfScope(comp);
+    if (scope && typeof args.compId === 'string' && !scope.some(c => c.id === args.compId || c.name === args.compId)) return this.outOfScope(comp, project, args.compId);
     const gate = this.phaseGate(name, args, comp);
     if (gate) return gate;
     // Reads, catalogues, notes and the storyboard debate edit nothing: they never wait on the edit prerequisites.
@@ -628,7 +633,8 @@ export class EditWorkflow {
     const clipIds = [args.clipId, ...(Array.isArray(args.clipIds) ? args.clipIds : [])].filter((id): id is string => typeof id === 'string');
     // A clip of a nested comp, or a nested comp's own id (update_motion_scene takes either as clipId).
     const inScope = (id: string) => (scope ?? this.scopeComps(project)).some(c => c.id === id || c.clips.some(clip => clip.id === id));
-    if (clipIds.some(id => !inScope(id))) return this.outOfScope(comp);
+    const stray = clipIds.find(id => !inScope(id));
+    if (stray) return this.outOfScope(comp, project, stray);
     const state = this.status(project);
     if (!state.timelineRead) return 'Read the current timeline with get_comp before editing or planning. Timing changed or has not been inspected.';
     if (this.producing(comp)) {

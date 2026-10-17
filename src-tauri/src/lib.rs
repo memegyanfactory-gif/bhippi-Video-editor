@@ -78,6 +78,7 @@ mod ui_screen;
 mod app_capture;
 mod app_record;
 mod render_passes;
+mod resources;
 mod demo_pack;
 mod cdp;
 mod vocal;
@@ -309,6 +310,8 @@ async fn settings_save(app: AppHandle, webview: tauri::Webview, state: State<'_,
         let tools = tools::resolve(settings.ffmpeg_path.as_deref()).await;
         *state.tools.write().map_err(lock_error)? = tools;
     }
+    // New processor and memory shares reach the running workers at once.
+    resources::apply_settings(settings.cpu_limit_percent, settings.ram_limit_percent);
     settings_changed(&app, webview.label());
     Ok(settings)
 }
@@ -2689,6 +2692,12 @@ async fn hardware_info(state:State<'_,Arc<AppState>>)->Result<serde_json::Value,
 #[tauri::command]
 async fn resource_usage(state:State<'_,Arc<AppState>>)->Result<serde_json::Value,String> {hardware::usage(&state.paths.root).await}
 
+/// The processor and memory limits in force and what the contained workers use now.
+#[tauri::command]
+async fn resources_status() -> Result<serde_json::Value, String> {
+    Ok(resources::status())
+}
+
 #[tauri::command]
 fn learning_load(app:AppHandle,state: State<'_, Arc<AppState>>) -> serde_json::Value {
     let value: serde_json::Value = store::read_json(&state.paths.root.join("learning.json"));
@@ -3999,6 +4008,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         frame_sink: tokio::sync::Mutex::new(None),
     });
     app.manage(state.clone());
+    // The processor and memory share the heavy workers may use (Settings › Performance).
+    resources::apply_settings(settings.cpu_limit_percent, settings.ram_limit_percent);
 
     // FFmpeg and provider detection never block the window from opening.
     let background = state.clone();
@@ -4398,6 +4409,7 @@ pub fn run() {
             ref_motion::reference_motion_start,
             hardware_info,
             resource_usage,
+            resources_status,
             learning_load,
             learning_save,
             custom_tools_load,

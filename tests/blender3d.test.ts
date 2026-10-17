@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS_3D, cameraLayer, find3dPreset, renderScene, scene3dRequest, trackLayers, withPxPerMetre, type CameraFile, type ObjectsFile } from '../src/lib/blender3d';
+import { MAX_OBJECT_LAYERS, PRESETS_3D, cameraLayer, find3dPreset, renderScene, scene3dRequest, trackLayers, withPxPerMetre, type CameraFile, type ObjectsFile, type Scene3D } from '../src/lib/blender3d';
 import type { Layer } from '../src/motion/types';
 import { validateScene } from '../src/motion/validate';
 import { sequenceFile, sequenceIndex } from '../src/motion/sources';
@@ -105,5 +105,96 @@ describe('Blender pipeline: camera sync, tracks, product screens', () => {
     expect((track.transform!.position as { k: { v: number[] }[] }).k.map((k) => k.v)).toEqual([[10, 20], [12, 21]]);
     const scene = renderScene({ dir: 'd', frames: 2, fps: 30, width: 1920, height: 1080 }, { width: 1920, height: 1080 }, 'x', [cam, track]);
     expect(validateScene(scene)).toEqual([]);
+  });
+});
+
+
+describe('layered 3D renders', () => {
+  const sphere = (id: string, extra: Record<string, unknown> = {}) => ({ id, kind: 'sphere' as const, radius: 0.4, position: [0, 0, 0] as [number, number, number], ...extra });
+  const request = (scene: Partial<Scene3D>) => scene3dRequest({ scene: { camera: { position: [0, -6, 0], target: [0, 0, 0] }, ...scene } as never }, frame);
+  const names = (layers: Scene3D['layers']) => (Array.isArray(layers) ? layers.map((l) => `${l.kind}:${l.name}`) : layers);
+
+  it('auto: each top-level object is a layer, children ride along, the floor is the Shadow layer', () => {
+    const layers = request({ objects: [{ id: 'floor', kind: 'floor' }, { id: 'body', label: 'Phone', kind: 'rounded-box' }, { id: 'screen', kind: 'plane', parent: 'body' }, { id: 'orb-1', kind: 'sphere' }] }).layers;
+    expect(layers).toEqual([
+      { id: 'body', name: 'Phone', objects: ['body', 'screen'], kind: 'objects' },
+      { id: 'orb-1', name: 'Orb 1', objects: ['orb-1'], kind: 'objects' },
+      { id: 'shadow', name: 'Shadow', objects: ['floor'], kind: 'shadow' },
+    ]);
+  });
+
+  it('a world that is not transparent adds a Background layer; no floor means no Shadow', () => {
+    expect(names(request({ transparent: false, objects: [sphere('a'), sphere('b')] }).layers)).toEqual(['objects:A', 'objects:B', 'background:Background']);
+    expect(names(request({ objects: [{ id: 'floor', kind: 'floor' }, sphere('a'), sphere('b')] }).layers)).toEqual(['objects:A', 'objects:B', 'shadow:Shadow']);
+  });
+
+  it('stays one sequence for a lone object with nothing else to split, for layers:"single" and for one group', () => {
+    expect(request({ objects: [sphere('only')] }).layers).toBe('single');
+    expect(names(request({ objects: [{ id: 'floor', kind: 'floor' }, sphere('only')] }).layers)).toEqual(['objects:Only', 'shadow:Shadow']);
+    expect(request({ layers: 'single', objects: [sphere('a'), sphere('b')] }).layers).toBe('single');
+    expect(request({ objects: [{ id: 'ring', kind: 'empty' }, sphere('a', { parent: 'ring' }), sphere('b', { parent: 'ring' })] }).layers).toBe('single');
+  });
+
+  it('caps object layers at 6: the smallest and furthest share "Other objects"', () => {
+    const spheres = Array.from({ length: 9 }, (_, i) => sphere(`s${i}`, { radius: 0.2 + i * 0.05, position: [0, 0, 0] }));
+    const layers = request({ objects: spheres }).layers as { name: string; objects: string[]; kind: string }[];
+    const objectLayers = layers.filter((l) => l.kind === 'objects');
+    expect(objectLayers).toHaveLength(MAX_OBJECT_LAYERS);
+    const other = objectLayers.find((l) => l.name === 'Other objects')!;
+    expect(other.objects.sort()).toEqual(['s0', 's1', 's2', 's3']);
+    expect(objectLayers.flatMap((l) => l.objects).sort()).toEqual(spheres.map((s) => s.id).sort());
+  });
+
+  it('explicit groups are honoured, children join their parent, leftovers go to Other objects', () => {
+    const layers = request({ layers: [{ id: 'phone', name: 'Phone', objects: ['body'] }], objects: [{ id: 'floor', kind: 'floor' }, { id: 'body', kind: 'box' }, { id: 'screen', kind: 'plane', parent: 'body' }, sphere('extra')] }).layers as { id: string; name: string; objects: string[] }[];
+    expect(layers.map((l) => [l.id, l.name, l.objects])).toEqual([['phone', 'Phone', ['body', 'screen']], ['other-objects', 'Other objects', ['extra']], ['shadow', 'Shadow', ['floor']]]);
+  });
+
+  it('presets are named for people and every preset resolves to valid layers', () => {
+    expect(names(scene3dRequest({ preset: 'device-hero' }, frame).layers)).toEqual(['objects:Phone', 'shadow:Shadow']);
+    expect(names(scene3dRequest({ preset: 'device-hero', params: { device: 'laptop' } }, frame).layers)).toEqual(['objects:Laptop', 'shadow:Shadow']);
+    expect(names(scene3dRequest({ preset: 'logo-extrude' }, frame).layers)).toEqual(['objects:Logo text', 'shadow:Shadow']);
+    expect(names(scene3dRequest({ preset: 'pearl-core-orb' }, frame).layers)).toEqual(['objects:Orb', 'shadow:Shadow']);
+    expect(names(scene3dRequest({ preset: 'pearl-core-orb', scene: { layers: 'auto' } }, frame).layers)).toEqual(['objects:Pearl orb', 'objects:Glass shell', 'shadow:Shadow']);
+    for (const preset of PRESETS_3D) {
+      const layers = scene3dRequest({ preset: preset.id }, frame).layers;
+      if (layers === 'single') continue;
+      const ids = new Set<string>();
+      for (const layer of layers as { id: string; name?: string }[]) {
+        expect(layer.id).toMatch(/^[a-z0-9_-]{1,32}$/);
+        expect(ids.has(layer.id)).toBe(false);
+        ids.add(layer.id);
+        expect(layer.name).toBeTruthy();
+      }
+    }
+  });
+
+  const layered = { dir: 'D:/p/3D renders/x', frames: 8, fps: 30, width: 1920, height: 1080,
+    layers: [
+      { id: 'background', name: 'Background', dir: 'D:/p/3D renders/x/layers/background', frames: 8, objects: [], depth: 1e6, kind: 'background' as const },
+      { id: 'shadow', name: 'Shadow', dir: 'D:/p/3D renders/x/layers/shadow', frames: 8, objects: ['floor'], depth: 1e5, kind: 'shadow' as const },
+      { id: 'phone', name: 'Phone', dir: 'D:/p/3D renders/x/layers/phone', frames: 8, objects: ['body', 'screen'], depth: 5.7, kind: 'objects' as const },
+    ] };
+
+  it('renderScene: one footage layer per rendered layer, back to front (the first layer draws at the bottom), named by layer', () => {
+    const cam = { id: 'blender-camera', name: 'Camera', type: 'camera' } as Layer;
+    const scene = renderScene(layered, { width: 1920, height: 1080 }, '3D render', [cam]);
+    expect(validateScene(scene)).toEqual([]);
+    expect(scene.layers.map((l) => l.name)).toEqual(['Background', 'Shadow', 'Phone', 'Camera']);
+    expect(scene.layers.map((l) => l.id)).toEqual(['render3d-background', 'render3d-shadow', 'render3d-phone', 'blender-camera']);
+    const phone = scene.layers[2] as { source: { sequence: { dir: string; frames: number; fps: number } } };
+    expect(phone.source.sequence).toMatchObject({ dir: 'D:/p/3D renders/x/layers/phone', frames: 8, fps: 30 });
+    expect(sequenceFile(phone.source.sequence as never, 0)).toBe('D:/p/3D renders/x/layers/phone/00001.png');
+  });
+
+  it('renderScene: a render without layers is the single footage layer as before', () => {
+    const scene = renderScene({ dir: 'D:/p/x', frames: 8, fps: 30, width: 1920, height: 1080 }, { width: 1920, height: 1080 }, 'Orb');
+    expect(scene.layers.map((l) => [l.id, l.name])).toEqual([['render3d', 'Orb']]);
+    expect(renderScene({ ...layered, layers: [] }, { width: 1920, height: 1080 }, 'Orb').layers.map((l) => l.id)).toEqual(['render3d']);
+  });
+
+  it('the tool schema offers layers auto|single', () => {
+    const tool = (tools as unknown as { tools: { name: string; input_schema: { properties: Record<string, { enum?: string[] }> } }[] }).tools.find((t) => t.name === 'render_3d_scene')!;
+    expect(tool.input_schema.properties.layers.enum).toEqual(['auto', 'single']);
   });
 });

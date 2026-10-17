@@ -906,6 +906,7 @@ fn stitch_blocking(ffmpeg: &Path, inputs: &[StitchInput], spans: Vec<(usize, usi
             command.args(["-v", "error", "-nostdin", "-i"]).arg(&input.matte).args(["-f", "image2pipe", "-c:v", "pgm", "-pix_fmt", "gray16be", "-"]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::from(error_log));
             hide_window(&mut command);
             let mut decoder = command.spawn().map_err(|e| format!("cannot start FFmpeg: {e}"))?;
+            crate::resources::contain_std(&decoder);
             let stdout = decoder.stdout.take().ok_or("FFmpeg gave no output")?;
             let mut reader = BufReader::with_capacity(1 << 20, stdout);
             let mut index = 0;
@@ -924,6 +925,7 @@ fn stitch_blocking(ffmpeg: &Path, inputs: &[StitchInput], spans: Vec<(usize, usi
                         .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::from(error_log));
                     hide_window(&mut command);
                     let mut child = command.spawn().map_err(|e| format!("cannot start FFmpeg: {e}"))?;
+                    crate::resources::contain_std(&child);
                     let stdin = child.stdin.take().ok_or("FFmpeg took no input")?;
                     encoder = Some((child, stdin));
                 }

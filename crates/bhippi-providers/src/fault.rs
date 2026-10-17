@@ -299,6 +299,7 @@ const NETWORK: &[&str] = &[
     "proxy",
     "socket hang up",
     "network is unreachable",
+    "network error",
     "connection refused",
     "connection reset",
     "fetch failed",

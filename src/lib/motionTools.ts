@@ -805,7 +805,7 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
     case 'list_3d_presets': {
       let status: Awaited<ReturnType<typeof api.blenderStatus>> | null = null;
       try { status = await api.blenderStatus(); } catch { status = null; }
-      return done(`${PRESETS_3D.length} 3D presets rendered in headless Blender${status?.found ? ` (${status.version ?? 'Blender'} found)` : ' — Blender is NOT installed on this machine: ' + (status?.hint ?? 'install Blender 4.2+ from blender.org')}. Render one with render_3d_scene {"preset":"<id>","params":{…},"start":<s>}; or write a raw scene (objects of kind box/rounded-box/sphere/icosphere/torus/cylinder/cone/capsule/crystal/text/floor, material presets plastic/glass/frosted/pearl/metal/gem/clay/emission/flat, world colour or gradient, camera with keys). Draft (EEVEE, ~0.7 s/frame) first; quality "final" (Cycles GPU, ~3 s/frame) for the export.`, {
+      return done(`${PRESETS_3D.length} 3D presets rendered in headless Blender${status?.found ? ` (${status.version ?? 'Blender'} found)` : ' — Blender is NOT installed on this machine: ' + (status?.hint ?? 'install Blender 4.2+ from blender.org')}. Render one with render_3d_scene {"preset":"<id>","params":{…},"start":<s>}; or write a raw scene (objects of kind box/rounded-box/sphere/icosphere/torus/cylinder/cone/capsule/crystal/text/floor, material presets plastic/glass/frosted/pearl/metal/gem/clay/emission/flat, world colour or gradient, camera with keys). Renders arrive as layers by default (Background / Shadow / one clip per object, back to front; give objects a label like "Phone" or "Glass shell"), which multiplies render time; layers "single" gives one clip. Draft (EEVEE, ~0.7 s/frame) first; quality "final" (Cycles GPU, ~3 s/frame) for the export.`, {
         blender: status, presets: PRESETS_3D.map(({ id, label, use, params, seconds }) => ({ id, label, use, params, seconds })),
       });
     }
@@ -823,7 +823,8 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
         const frame = { width: comp.width, height: comp.height, fps: Math.round(comp.fps), duration };
         let request;
         try {
-          request = scene3dRequest({ preset: str(args, 'preset'), params: obj(args, 'params'), scene: obj(args, 'scene') as never }, frame, quality);
+          const layers = args.layers === 'single' || args.layers === 'auto' || Array.isArray(args.layers) ? args.layers : undefined;
+          request = scene3dRequest({ preset: str(args, 'preset'), params: obj(args, 'params'), scene: { ...(obj(args, 'scene') ?? {}), ...(layers ? { layers } : {}) } as never }, frame, quality);
         } catch (error) { return fail(errorText(error)); }
         const step = num(args, 'step');
         if (step) request.step = Math.max(1, Math.round(step));
@@ -850,10 +851,11 @@ export async function runMotionTool(name: string, args: Args, ctx: MotionToolCon
       const track = Array.isArray(args.track) ? (args.track as unknown[]).filter((x): x is string => typeof x === 'string') : [];
       if (track.length) { const objects = await readJson<ObjectsFile>(render.objects2d); if (objects?.frames?.length) extras.push(...trackLayers(objects, track)); }
       const scene = renderScene(render, comp, title, extras);
-      if (args.place === false) return done(`3D render ready: ${render.frames} frame(s) in ${render.dir}. Add "layer" to any motion scene (update_motion_scene addLayers) to composite it.`, { render, layer: scene.layers[0], jobId });
+      const footage = scene.layers.filter((layer) => layer.type === 'footage');
+      if (args.place === false) return done(`3D render ready: ${render.frames} frame(s) in ${render.dir}${render.layers?.length ? `, in ${footage.length} layers (back to front: ${footage.map((layer) => layer.name).join(', ')})` : ''}. Add "layer"${footage.length > 1 ? ' (all of "layers", in order)' : ''} to any motion scene (update_motion_scene addLayers) to composite it.`, { render, layer: scene.layers[0], layers: footage, jobId });
       const placed = await runMotionTool('create_motion_scene', { ...(args.compId ? { compId: args.compId } : {}), scene, start, title, duration: scene.duration, fit: false, sfx: false, useBrand: false }, ctx);
       if (!placed.ok) return placed;
-      return done(`${placed.summary} The 3D frames (${render.frames}, with alpha) came from headless Blender; camera.json and objects2d.json beside them give the camera and each object's screen box per frame, so 2D layers (glints, callouts, UI) can track it. Re-render the same scene with quality "final" for the export.`, { ...placed, render, layer: scene.layers[0], jobId });
+      return done(`${placed.summary} ${render.layers?.length ? `The 3D came in ${render.layers.length} layers, back to front: ${render.layers.map((layer) => layer.name).join(', ')}. Each is its own clip, so you can grade, blur, time-offset or hide one, and put 2D type between them (text behind the object but over the Shadow layer); ask for layers "single" for one clip. ` : ''}The 3D frames (${render.frames}, with alpha) came from headless Blender; camera.json and objects2d.json beside them give the camera and each object's screen box per frame, so 2D layers (glints, callouts, UI) can track it. Re-render the same scene with quality "final" for the export.`, { ...placed, render, layer: scene.layers[0], layers: footage, jobId });
     }
 
     case 'search_icons': {

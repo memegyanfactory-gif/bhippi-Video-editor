@@ -532,7 +532,11 @@ async fn bench_once(models: &Path, args: &[String], job: &JobHandle) -> Result<B
     let mut command = tokio::process::Command::new(bench_exe(models));
     command.args(args).current_dir(runtime_dir(models)).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).kill_on_drop(true);
     hide(&mut command);
+    if !args.iter().any(|arg| arg == "-t" || arg == "--threads") {
+        command.args(["-t", crate::resources::current().threads().to_string().as_str()]);
+    }
     let child = command.spawn().map_err(|error| format!("could not start llama-bench: {error}"))?;
+    crate::resources::contain(&child);
     let waiting = child.wait_with_output();
     tokio::pin!(waiting);
     let started = Instant::now();

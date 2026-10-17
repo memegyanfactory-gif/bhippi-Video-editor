@@ -48,6 +48,7 @@ pub fn vendor_of(provider_id: &str) -> Option<&'static str> {
         "deepseek" => "deepseek",
         "mistral" => "mistral",
         "moonshot" => "moonshotai",
+        "zai" => "zai",
         "opencode-zen" => "opencode",
         _ => return None,
     })
@@ -261,7 +262,7 @@ mod tests {
 
     #[test]
     fn every_single_vendor_provider_has_a_registry_vendor() {
-        for id in ["claude", "anthropic", "codex", "openai", "google", "xai", "grok", "groq", "deepseek", "mistral", "moonshot", "opencode-zen"] {
+        for id in ["claude", "anthropic", "codex", "openai", "google", "xai", "grok", "groq", "deepseek", "mistral", "moonshot", "zai", "opencode-zen"] {
             assert!(vendor_of(id).is_some(), "{id}");
         }
         for id in ["openrouter", "opencode", "ollama", "lmstudio"] {

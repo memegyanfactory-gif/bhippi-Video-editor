@@ -37,7 +37,9 @@ pub async fn run_program(program: &Path, args: &[&std::ffi::OsStr], job: &JobHan
     let mut command = tokio::process::Command::new(program);
     command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(windows)] command.creation_flags(0x08000000);
+    crate::resources::limit_threads_env(&mut command);
     let mut child = command.spawn().map_err(|e| format!("Cannot start {}: {e}", program.display()))?;
+    crate::resources::contain(&child);
     let stdout = child.stdout.take().ok_or("Missing worker output")?;
     let stderr = child.stderr.take().ok_or("Missing worker diagnostics")?;
     let errors = tauri::async_runtime::spawn(async move {
@@ -98,6 +100,8 @@ pub async fn run_program(program: &Path, args: &[&std::ffi::OsStr], job: &JobHan
         Err("Cancelled".into())
     } else if status.success() {
         Ok(())
+    } else if let Some(message) = crate::resources::memory_stop_message(label) {
+        Err(message)
     } else {
         let stdout_tail = out_tail.into_iter().filter(|line| line.contains("Error") || line.contains("error") || line.contains("Traceback") || line.contains("  File ")).collect::<Vec<_>>().join("
 ");

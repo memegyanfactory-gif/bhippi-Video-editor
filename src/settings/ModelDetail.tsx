@@ -11,6 +11,7 @@ import { libraryApi, type CapabilityChoice, type ComfyStatus, type LibraryStorag
 import { localTaskOf, needsHfToken } from '../lib/modelUse';
 import type { Settings } from '../lib/types';
 import type { SettingsTab } from './SettingsModal';
+import { ChangeLimit } from './llm/parts';
 import { LocalFolderPick } from './library/DetailExtras';
 import { HfSignIn } from './library/HfSignIn';
 import { hfRepoOf } from '../lib/hfSteps';
@@ -216,6 +217,7 @@ export function ModelDetail({ view, hw, storage, comfy, comfyError, llm, inUse, 
             <strong>{variant ? `${variant.label}${bytes > 0 ? ` · ${formatBytes(remaining || bytes)}` : ''}` : entry.name}</strong>
             <span className={fit?.diskShort ? 'bad' : undefined}>
               {fit?.diskShort ? fit.reasons[fit.reasons.length - 1] : resumable ? `${formatBytes(state.partialBytes)} already downloaded` : reason ? reason : afterFree != null ? `${formatGb(Math.max(0, afterFree))} free afterwards` : 'Runs on this computer'}
+              {fit?.overLimit && !fit.diskShort && !resumable && <ChangeLimit onTab={onTab} />}
             </span>
           </span>
           <span className="ml-foot-actions">

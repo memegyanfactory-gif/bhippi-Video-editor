@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '../components/ui';
 import { errorText } from '../lib/ipc';
 import { useLiveJobs } from '../lib/jobsStore';
-import { defaultVariant, fitOf, fitRank, variantBytes } from '../lib/modelFit';
+import { defaultVariant, fitOf, fitRank, variantBytes, withRamLimit } from '../lib/modelFit';
 import { capabilityOfEntry } from '../lib/modelUse';
 import type { Settings } from '../lib/types';
 import { libraryApi, onLibraryChange, usable, type CapabilityChoice, type ComfyStatus, type LibraryListing, type LlmRuntimeStatus } from '../lib/modelLibrary';
@@ -54,7 +54,8 @@ const PAGE_TITLES: Record<string, { title: string; blurb: string }> = {
 
 export function ModelLibrary({ onTab, settings, onSettings, initialPage }: { onTab?: (tab: SettingsTab) => void; settings: Settings; onSettings: (settings: Settings) => void; /** Opens on this page (a category, Downloaded, Engines or In use). */ initialPage?: LibraryPage }) {
   const toast = useToast();
-  const { hw } = useHardware();
+  const { hw: measured } = useHardware();
+  const hw = useMemo(() => withRamLimit(measured, settings.ramLimitPercent), [measured, settings.ramLimitPercent]);
   const jobs = useLiveJobs();
   const [listing, setListing] = useState<LibraryListing | null>(null);
   const [error, setError] = useState('');
@@ -185,7 +186,7 @@ export function ModelLibrary({ onTab, settings, onSettings, initialPage }: { onT
   } else if (page === 'engines') {
     body = <EnginesPage ctx={ctx} />;
   } else if (isLlm) {
-    body = <LlmBrowser onChanged={() => void refresh()} />;
+    body = <LlmBrowser onChanged={() => void refresh()} ramLimitPercent={settings.ramLimitPercent} onTab={onTab} />;
   } else {
     body = <CategoryPage views={categoryRows} ctx={ctx} empty={query ? 'No models match that search.' : 'No models in this category yet.'}
       above={page === 'voice' || page === 'speech' ? <CategoryPrefs kind={page} settings={settings} onSettings={onSettings} /> : undefined} />;

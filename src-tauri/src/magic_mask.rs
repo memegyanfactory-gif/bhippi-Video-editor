@@ -75,7 +75,9 @@ async fn spawn(python: &Path, folder: &Path) -> Result<Resident, String> {
     command.arg(&script).arg("--serve").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
+    crate::resources::limit_threads_env(&mut command);
     let mut child = command.spawn().map_err(|e| format!("Cannot start the Magic Mask worker: {e}"))?;
+    crate::resources::contain(&child);
     let stdin = child.stdin.take().ok_or("Magic Mask worker has no input")?;
     let stdout = child.stdout.take().ok_or("Magic Mask worker has no output")?;
     let stderr = child.stderr.take().ok_or("Magic Mask worker has no diagnostics")?;

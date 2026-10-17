@@ -148,6 +148,10 @@ pub struct Settings {
     pub preview_cache_enabled: Option<bool>,
     /// Its RAM budget in megabytes; the UI's default (1536) when unset.
     pub preview_cache_mb: Option<u32>,
+    /// The share of this PC's processor Bhippi's heavy work may use (resources.rs), 25–100; 75 when unset.
+    pub cpu_limit_percent: Option<u8>,
+    /// The share of this PC's memory Bhippi's heavy work may use (resources.rs), 25–100; 75 when unset.
+    pub ram_limit_percent: Option<u8>,
     /// The pixel avatar that acts out what Bhippi AI is doing; off unless the user turns it on.
     pub avatar: Option<bool>,
     /// Who the avatar is (`heli`, `cat`, `woman`, `genie`, `puppy`, `senior`); Heli when unset.

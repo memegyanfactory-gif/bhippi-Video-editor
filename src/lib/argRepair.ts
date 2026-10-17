@@ -84,12 +84,44 @@ export function repairValue(value: unknown, schema: Schema | undefined): unknown
 
   if (Array.isArray(out) && schema.items) {
     const items = schema.items;
-    out = out.map((item) => repairValue(item, items));
-  } else if (out && typeof out === 'object' && !Array.isArray(out) && schema.properties) {
-    const props = schema.properties;
+    out = flattenWrapped(out, items).map((item) => repairValue(item, items));
+  } else if (out && typeof out === 'object' && !Array.isArray(out)) {
+    const props = schema.properties ?? {};
     const obj: Record<string, unknown> = { ...(out as Record<string, unknown>) };
     for (const [key, sub] of Object.entries(props)) if (key in obj) obj[key] = repairValue(obj[key], sub);
+    // Keys the schema leaves open (apply_edit's ops): the wrapper and quoted numbers still get mended.
+    if (schema.type === 'object' || schema.properties) {
+      for (const key of Object.keys(obj)) {
+        if (key in props) continue;
+        const value = obj[key];
+        const wrapped = itemList(value);
+        if (wrapped) obj[key] = /s$/.test(key) ? wrapped : wrapped.length === 1 ? wrapped[0] : wrapped;
+        else if (typeof value === 'string' && LOOSE_NUMBERS.has(key) && /^\s*-?\d+(\.\d+)?\s*$/.test(value)) obj[key] = Number(value);
+      }
+    }
     out = obj;
+  }
+  return out;
+}
+
+/** Names that are always numbers where a tool's schema leaves the object open (an op's `at`, `by`, `db`). */
+const LOOSE_NUMBERS = new Set(['at', 'from', 'to', 'by', 'db', 'in', 'duration', 'speed', 'gain', 'volume', 'start', 'end', 'time']);
+
+/**
+ * The entries of a list a weak model wrapped: a JSON-text entry ("[{...}]" inside the array) is
+ * parsed and spread, and an entry that is only {"item": [...]} is replaced by what it holds.
+ * Only where the list's items are objects or lists, so a list of strings is never reinterpreted.
+ */
+function flattenWrapped(list: unknown[], items: Schema): unknown[] {
+  const wants = kinds(items);
+  if (!wants.includes('object') && !wants.includes('array')) return list;
+  const out: unknown[] = [];
+  for (const entry of list) {
+    const parsed = typeof entry === 'string' ? parseJson(entry) : undefined;
+    if (Array.isArray(parsed)) { out.push(...parsed); continue; }
+    if (parsed !== undefined) { out.push(parsed); continue; }
+    const inner = !items.properties || !('item' in items.properties) ? itemList(entry) : undefined;
+    if (inner) out.push(...inner); else out.push(entry);
   }
   return out;
 }

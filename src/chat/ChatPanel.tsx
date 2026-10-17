@@ -245,6 +245,11 @@ type Props = {
   tools: Record<string, ToolRun[]>;
   /** Fires once per finished turn so the host can record the outcome (IdeaGraph brain). */
   onTurnDone?: (outcome: TurnOutcome) => void;
+  /**
+   * A full-workflow turn ended after editing but before verify: Bhippi runs its own deterministic
+   * finishing pass (src/lib/autoPolish.ts) and answers the one-paragraph report, or null.
+   */
+  onAutoPolish?: (turnId: string) => Promise<string | null>;
   /** Puts the project back to where it was before a turn's edits; false when it has moved on. */
   /** Resolves true once reverted; false when there was nothing to revert or the user said no. */
   onRevert: (turnId: string) => boolean | Promise<boolean>;
@@ -785,13 +790,24 @@ ${text}` : text));
           // A follow-up edit of a finished production, or an edit with no production at all, is held
           // to the same finish; only the plan and gather phases end at the user's button.
           const editing = !status?.phase || status.phase === 'editing' || status.phase === 'polishing' || status.phase === 'done';
+          // Whatever the model skipped, Bhippi runs its own deterministic finishing pass (black edges,
+          // a missing bed, the mix, the Judge) and says so in the turn's notes; the finishing round
+          // below then starts from that cleaner cut.
+          const polishing: Promise<string | null> | null = !event.stopped && !event.fault && edited && status && status.mode === 'full' && !status.structurallyVerified && editing && propsRef.current.onAutoPolish
+            ? propsRef.current.onAutoPolish(event.turnId).then((report) => {
+              if (report) patch(event.turnId, (item) => ({ ...item, notes: [...item.notes, report] }));
+              return report;
+            }).catch(() => null)
+            : null;
           if (!event.stopped && !event.fault && edited && status && status.mode === 'full' && !status.structurallyVerified
             && editing && !autoFinished.current.has(event.turnId)) {
             const asked = meta.prompt && !meta.prompt.startsWith('[Automatic finishing round') ? ` The user's request, which verify_edit_workflow's asks must cover: "${meta.prompt.slice(0, 800)}"` : '';
             const finish = `[Automatic finishing round: the last turn ended before verify_edit_workflow.] ${continuePrompt(status)}${asked}`;
             setTimeout(() => {
-              autoFinished.current.add('pending');
-              sendRef.current(finish);
+              void (polishing ?? Promise.resolve(null)).then((report) => {
+                autoFinished.current.add('pending');
+                sendRef.current(report ? `${finish}\n[Bhippi already ran its own checks on this cut, and fixed what was safe (judge_edit and verify_edit_workflow still have to be called by you): ${report}]` : finish);
+              });
             }, 400);
           } else if (!event.stopped && !event.fault && status?.mode === 'full' && status.phase === 'gathering'
             && (status.gather?.pending?.length ?? 0) > 0 && runs.length > 0 && autoGathers.current < MAX_AUTO_GATHERS) {

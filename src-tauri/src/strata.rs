@@ -1007,6 +1007,7 @@ pub(crate) async fn start_for_library(app: AppHandle, state: Arc<AppState>, id: 
         est_tokens_per_second: None,
         verdict,
         note,
+        over_limit: false,
     };
     if dry_run {
         return Ok(StartResult { plan, running: running_now() });
@@ -1081,15 +1082,17 @@ async fn launch(app: &AppHandle, state: &Arc<AppState>, entry: &LibraryEntry, va
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUNBUFFERED", "1");
     hide_std(&mut command);
+    crate::resources::limit_threads_env_std(&mut command);
     job.progress(0.03, format!("Loading {} into memory. Your PC may be slow or stop responding for a few minutes.", entry.name));
     let mut child = command.spawn().map_err(|error| format!("Could not start Strata: {error}"))?;
+    crate::resources::contain_std(&child);
 
     let client = reqwest::Client::new();
     let started = Instant::now();
     let expected = 90.0 + model_library::variant_bytes(variant) as f64 / 1e9 * 3.0;
     loop {
         if let Ok(Some(_)) = child.try_wait() {
-            return Err(explain_failure(&log_tail(&root, task, &server_log)));
+            return Err(crate::resources::explain_failure("Strata", explain_failure(&log_tail(&root, task, &server_log))));
         }
         if *job.cancel.borrow() {
             stop_child(child);

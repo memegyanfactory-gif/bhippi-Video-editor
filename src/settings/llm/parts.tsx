@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { copyText } from '../../lib/clipboard';
 import type { Capabilities } from '../../lib/llmHub';
 import type { FitResult } from '../../lib/modelFit';
+import type { SettingsTab } from '../SettingsModal';
 
 /** A stable colour (0-359) from a name, so a logo without a picture always gets the same one. */
 const hueOf = (name: string): number => {
@@ -24,6 +25,12 @@ export function FitPill({ fit }: { fit: FitResult }) {
       {fit.label}
     </span>
   );
+}
+
+/** "Change limit": opens Settings › General, where the memory limit is (Performance). Nothing when there is no way to navigate. */
+export function ChangeLimit({ onTab }: { onTab?: (tab: SettingsTab) => void }) {
+  if (!onTab) return null;
+  return <> <a href="#performance" onClick={(event) => { event.preventDefault(); onTab('general'); }}>Change limit</a></>;
 }
 
 /** A round logo from the cached file; a neutral circle with the first letter when there is none or it does not load. */

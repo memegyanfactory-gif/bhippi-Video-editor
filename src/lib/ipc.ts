@@ -71,6 +71,16 @@ export type HardwareInfo = {
   adapters?: { name: string; vramMb: number | null; driver?: string | null }[];
   /** NVIDIA cards as nvidia-smi reports them; computeCap is null on drivers that predate it. */
   nvidia: { name: string; vramMb: number; computeCap?: number | null; driver?: string | null }[];
+  /** Added by the UI (`withRamLimit`), not by the backend: the memory Bhippi may use, in GB, and the share it is. */
+  ramLimitGb?: number | null;
+  ramLimitPercent?: number | null;
+};
+export type ResourcesStatus = {
+  cpuPercent: number; ramPercent: number; threads: number; totalThreads: number;
+  ramLimitBytes: number; totalRamBytes: number;
+  /** Null where the workers cannot be measured (not Windows). */
+  usedBytes: number | null; peakBytes: number | null; processes: number | null; cpuSeconds: number | null;
+  memoryLimitHit: boolean;
 };
 export type ImportResult = { imported: Asset[]; existing: Asset[]; failed: { path: string; reason: string }[] };
 
@@ -668,6 +678,8 @@ export const api = {
   /** Ids of library media whose file is gone — cheap, for noticing deletions made in Explorer. */
   libraryMissing: () => invoke<string[]>('library_missing'),
   hardwareInfo: () => invoke<HardwareInfo>('hardware_info'),
+  /** The processor and memory limits in force and what the contained workers use now (Settings › Performance). */
+  resourcesStatus: () => invoke<ResourcesStatus>('resources_status'),
   learningLoad: () => invoke<import('./learning').LearningSkill[]>('learning_load'),
   learningSave: (skills: import('./learning').LearningSkill[]) => invoke<void>('learning_save', { skills }),
   customToolsLoad: () => invoke<import('./customTools').CustomTool[]>('custom_tools_load'),

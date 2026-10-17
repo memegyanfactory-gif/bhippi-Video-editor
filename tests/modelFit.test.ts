@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HardwareInfo } from '../src/lib/ipc';
-import { defaultVariant, fitOf, formatBytes, formatEta, formatGb, formatProgress, taskLabel, totalBytes, variantBytes } from '../src/lib/modelFit';
+import { clampPreviewCacheMb, defaultVariant, fitOf, formatBytes, formatEta, formatGb, formatProgress, previewCacheChoices, taskLabel, totalBytes, variantBytes, withRamLimit } from '../src/lib/modelFit';
 
 const hw = (vramGb: number | null, ramGb: number | null = 64): HardwareInfo => ({
   os: 'Windows', architecture: 'x64', threads: 16, cpu: null, ramGb, diskFreeGb: 500, gpus: [],
@@ -36,6 +36,39 @@ describe('fitOf', () => {
     expect(result.diskShort).toBe(true);
     expect(result.reasons.join(' ')).toMatch(/41 GB is free/);
     expect(fitOf(variant, hw(24), { freeGb: 100 }).diskShort).toBe(false);
+  });
+});
+
+describe('the memory limit', () => {
+  it('blames the limit, not the PC, when a size needs more than the cap but less than the RAM', () => {
+    const result = fitOf(variant, hw(24), { ramLimitGb: 40 });
+    expect(result.fit).toBe('no');
+    expect(result.overLimit).toBe(true);
+    expect(result.reasons[0]).toBe('Needs about 48 GB of memory; your limit is 40 GB (63%, Settings › Performance). Raise the limit or pick a smaller size.');
+    expect(fitOf(variant, hw(24), { ramLimitGb: 56 }).fit).toBe('great');
+    // More than the whole PC: the ordinary "too big" reason, no limit link.
+    const whole = fitOf(variant, hw(24, 32), { ramLimitGb: 24 });
+    expect(whole.fit).toBe('no');
+    expect(whole.overLimit).toBeUndefined();
+  });
+  it('reads the limit that withRamLimit put on the hardware, 75% by default', () => {
+    const limited = withRamLimit(hw(24, 64), undefined)!;
+    expect(limited.ramLimitGb).toBe(48);
+    expect(fitOf(variant, limited).fit).toBe('great');
+    const tight = withRamLimit(hw(24, 64), 50)!;
+    const result = fitOf(variant, tight);
+    expect(result.overLimit).toBe(true);
+    expect(result.reasons[0]).toContain('your limit is 32 GB (50%');
+    expect(withRamLimit(hw(24, 64), 5)!.ramLimitPercent).toBe(25);
+    expect(withRamLimit(null, 75)).toBeNull();
+  });
+  it('keeps the preview cache within a quarter of the limit', () => {
+    const sizes = [512, 1024, 1536, 2048, 3072, 4096];
+    expect(previewCacheChoices(sizes, 48)).toEqual(sizes);
+    expect(previewCacheChoices(sizes, 6)).toEqual([512, 1024, 1536]);
+    expect(previewCacheChoices(sizes, 1)).toEqual([512]);
+    expect(clampPreviewCacheMb(4096, sizes, 6)).toBe(1536);
+    expect(clampPreviewCacheMb(1024, sizes, 6)).toBe(1024);
   });
 });
 

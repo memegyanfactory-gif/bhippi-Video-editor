@@ -41,6 +41,11 @@ const STATIC_HINTS: StaticHint[] = [
   { tool: 'update_clip', match: /nothing to change/i, hint: 'pass clipId plus at least one property whose value differs from the clip\'s now.' },
   { tool: null, match: /Supply a (video|media) clipId/i, hint: 'pass clipId of a clip on the timeline (get_comp lists them); it must hold video or sound.' },
   { tool: 'get_motion_scene', match: /Supply clipId/i, hint: 'pass clipId of a motion comp clip on the timeline (get_comp lists them).' },
+  { tool: 'verify_edit_workflow', match: /Polish pass missing|Judge has not scored/i, hint: 'judge_edit runs the frame pass too: call judge_edit {} once after your last edit, fix its list, then verify_edit_workflow.' },
+  { tool: 'verify_edit_workflow', match: /Frame QA is not clear/i, hint: 'fix each overlap at its source (move or shrink one graphic), run_frame_qa again, or pass acceptedQaIssues [{kind, a, reason}] for an intended one.' },
+  { tool: 'normalize_audio', match: /no clips with sound/i, hint: 'there is nothing to level yet: place music or voice first (compose_music, place_clip), then level_audio {}.' },
+  { tool: 'save_video_blueprint', match: /narration needs the spoken text/i, hint: 'give every scene narration of at least 10 characters: the exact words spoken in it (a sentence), the same for audio (sound design) and visual.' },
+  { tool: 'update_motion_scene', match: /No layer ".*" in the scene/i, hint: 'patch layers by the id the error lists (layer: "<id>"); get_motion_scene {clipId} shows each layer\'s paths.' },
   { tool: 'place_clip', match: /no media with that id/i, hint: 'use the assetId of media already in the project (get_comp or the bin), not a path or name.' },
 ];
 

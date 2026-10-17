@@ -175,6 +175,8 @@ impl OpenAiCompatProvider {
         if self.local {
             body["temperature"] = serde_json::json!(req.temperature);
             body["max_tokens"] = serde_json::json!(req.max_tokens);
+        } else if let Some(cap) = cloud_output_cap(&self.id, model, req.max_tokens) {
+            body["max_tokens"] = serde_json::json!(cap);
         }
         // Only for models documented to accept it: a reasoning model takes the setting, and one
         // that does not answers 400 rather than ignoring it.
@@ -208,6 +210,26 @@ impl OpenAiCompatProvider {
     }
 }
 
+/// The output cap a hosted API is sent, for the families whose own default is too small for one
+/// large tool call, or one long reasoning pass, to fit. `None` leaves the vendor's default: OpenAI
+/// and Gemini reasoning models reject `max_tokens`, and a cap above a model's real limit is a 400.
+/// GLM thinks at length by default (always, on 5.3) and takes 128K out, so it gets 32K; Kimi and
+/// the Qwen/MiniMax/DeepSeek models behind OpenRouter get the request's own cap; DeepSeek's chat
+/// model defaults to 4K and stops at 8K.
+pub(crate) fn cloud_output_cap(provider: &str, model: &str, asked: u32) -> Option<u32> {
+    let model = model.to_ascii_lowercase();
+    let family = |names: &[&str]| names.iter().any(|name| model.contains(name));
+    if family(&["glm"]) {
+        return Some(asked.max(32_000));
+    }
+    match provider {
+        "moonshot" => Some(asked),
+        "deepseek" if model.contains("chat") => Some(asked.min(8_192)),
+        "openrouter" if family(&["kimi", "qwen", "minimax", "deepseek"]) => Some(asked),
+        _ => None,
+    }
+}
+
 /// One streamed tool call whose name and argument text are still arriving.
 #[derive(Default)]
 struct PendingCall {
@@ -223,6 +245,29 @@ struct PendingCall {
 #[derive(Default)]
 pub struct ToolCalls {
     pending: BTreeMap<u64, PendingCall>,
+    /// The last `finish_reason` the stream carried, which decides how it ends (see [`stop_reason`]).
+    finish: Option<String>,
+}
+
+/// How a `finish_reason` ends the round. `length` (and Z.ai's `model_context_window_exceeded`)
+/// is a reply cut off by its limit, which the turn carries on from; every other value, including
+/// ones a vendor invents, is a normal end.
+fn stop_reason(finish: Option<&str>) -> StopReason {
+    match finish {
+        Some("length" | "model_context_window_exceeded") => StopReason::MaxTokens,
+        _ => StopReason::Completed,
+    }
+}
+
+/// The error a finish reason stands for, when the reply did not really finish: Z.ai ends a stream
+/// with `sensitive` (its safety filter) or `network_error` (its own backend dropped) instead of an
+/// HTTP error, and a silent "stop" there used to end the turn with half a reply.
+fn finish_failure(finish: &str) -> Option<&'static str> {
+    match finish {
+        "sensitive" | "content_filter" => Some("the provider's safety filter stopped the reply (finish_reason sensitive); rephrase the request or try another model"),
+        "network_error" => Some("the provider reported a network error mid-reply (finish_reason network_error)"),
+        _ => None,
+    }
 }
 
 impl ToolCalls {
@@ -292,7 +337,7 @@ pub fn parse_sse_data(payload: &str, calls: &mut ToolCalls) -> Vec<Delta> {
     if payload == "[DONE]" {
         let mut out = calls.flush();
         out.push(Delta::Done {
-            stop_reason: StopReason::Completed,
+            stop_reason: stop_reason(calls.finish.as_deref()),
         });
         return out;
     }
@@ -305,13 +350,24 @@ pub fn parse_sse_data(payload: &str, calls: &mut ToolCalls) -> Vec<Delta> {
         .and_then(serde_json::Value::as_array)
         .and_then(|choices| choices.first())
     {
-        if let Some(delta) = choice.get("delta") {
+        // Some vendors (and non-streamed fallbacks) put the whole message under `message`.
+        if let Some(delta) = choice.get("delta").or_else(|| choice.get("message")) {
+            let mut reasoned = false;
             for key in ["reasoning_content", "reasoning"] {
                 if let Some(reasoning) = delta.get(key).and_then(serde_json::Value::as_str) {
                     if !reasoning.is_empty() {
+                        reasoned = true;
                         out.push(Delta::Thinking {
                             delta: reasoning.to_owned(),
                         });
+                    }
+                }
+            }
+            // OpenRouter also sends `reasoning_details: [{text}]`; it repeats `reasoning` when both come.
+            if !reasoned {
+                if let Some(details) = delta.get("reasoning_details").and_then(serde_json::Value::as_array) {
+                    for text in details.iter().filter_map(|part| part.get("text").and_then(serde_json::Value::as_str)).filter(|text| !text.is_empty()) {
+                        out.push(Delta::Thinking { delta: text.to_owned() });
                     }
                 }
             }
@@ -329,10 +385,10 @@ pub fn parse_sse_data(payload: &str, calls: &mut ToolCalls) -> Vec<Delta> {
                 calls.push(fragments);
             }
         }
-        if choice
-            .get("finish_reason")
-            .is_some_and(|reason| !reason.is_null())
-        {
+        if let Some(reason) = choice.get("finish_reason").and_then(serde_json::Value::as_str) {
+            calls.finish = Some(reason.to_owned());
+            out.extend(calls.flush());
+        } else if choice.get("finish_reason").is_some_and(|reason| !reason.is_null()) {
             out.extend(calls.flush());
         }
     }
@@ -389,7 +445,11 @@ fn read_line(line: &str, calls: &mut ToolCalls, label: &str) -> Vec<Result<Delta
     {
         return vec![Err(ProviderError::new(label, message))];
     }
-    parse_sse_data(payload, calls).into_iter().map(Ok).collect()
+    let mut items: Vec<Result<Delta>> = parse_sse_data(payload, calls).into_iter().map(Ok).collect();
+    if let Some(said) = calls.finish.as_deref().and_then(finish_failure) {
+        items.push(Err(ProviderError::new(label, said.to_owned())));
+    }
+    items
 }
 
 #[async_trait]
@@ -445,7 +505,12 @@ impl Provider for OpenAiCompatProvider {
                             vec![Err(ProviderError::new(&label, reason))],
                             Some((lines, calls)),
                         )),
-                        None => Some((calls.flush().into_iter().map(Ok).collect(), None)),
+                        // A close without `[DONE]` still ends the round the way its last finish reason said.
+                        None => {
+                            let mut rest: Vec<Result<Delta>> = calls.flush().into_iter().map(Ok).collect();
+                            rest.push(Ok(Delta::Done { stop_reason: stop_reason(calls.finish.as_deref()) }));
+                            Some((rest, None))
+                        }
                     }
                 }
             },
@@ -608,6 +673,86 @@ mod tests {
         }];
         let slim_body = provider.request_body(&slim_req, "qwen");
         assert_eq!(slim_body["tools"][0]["function"]["parameters"]["properties"], serde_json::json!({}));
+    }
+
+    fn stop_of(deltas: &[Delta]) -> Option<StopReason> {
+        deltas.iter().rev().find_map(|delta| match delta {
+            Delta::Done { stop_reason } => Some(*stop_reason),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_reply_cut_by_length_ends_as_max_tokens() {
+        // GLM, DeepSeek and Kimi all end a capped reply with finish_reason "length".
+        let deltas = drain(&[
+            r#"{"choices":[{"delta":{"content":"The plan"},"finish_reason":null}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"length"}]}"#,
+            "[DONE]",
+        ]);
+        assert_eq!(stop_of(&deltas), Some(StopReason::MaxTokens));
+        let window = drain(&[r#"{"choices":[{"delta":{},"finish_reason":"model_context_window_exceeded"}]}"#, "[DONE]"]);
+        assert_eq!(stop_of(&window), Some(StopReason::MaxTokens));
+    }
+
+    #[test]
+    fn an_unknown_finish_reason_is_a_normal_end() {
+        let deltas = drain(&[r#"{"choices":[{"delta":{"content":"ok"},"finish_reason":"eos_token"}]}"#, "[DONE]"]);
+        assert_eq!(stop_of(&deltas), Some(StopReason::Completed));
+        assert!(deltas.contains(&Delta::Text { delta: "ok".to_owned() }));
+    }
+
+    #[test]
+    fn glm_chunks_reasoning_first_then_a_tool_call_split_across_chunks() {
+        // Z.ai streams reasoning_content while it thinks, then the call: id and name once, the
+        // arguments in pieces, finish_reason "tool_calls" on the last chunk.
+        let deltas = drain(&[
+            r#"{"choices":[{"delta":{"role":"assistant","reasoning_content":"Need the comp first."}}]}"#,
+            r#"{"choices":[{"delta":{"reasoning_content":" Then a title."}}]}"#,
+            r#"{"choices":[{"delta":{"content":"","tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"add_text","arguments":""}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"text\":\"Go"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"a\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":3}}"#,
+            "[DONE]",
+        ]);
+        let thinking: String = deltas.iter().filter_map(|d| if let Delta::Thinking { delta } = d { Some(delta.as_str()) } else { None }).collect();
+        assert_eq!(thinking, "Need the comp first. Then a title.");
+        let calls: Vec<_> = deltas.iter().filter(|d| matches!(d, Delta::ToolCall { .. })).collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0], &Delta::ToolCall { id: "call_a".to_owned(), name: "add_text".to_owned(), arguments: serde_json::json!({"text": "Goa"}) });
+        assert_eq!(stop_of(&deltas), Some(StopReason::Completed));
+    }
+
+    #[test]
+    fn a_whole_message_with_tool_calls_and_reasoning_details_is_read_too() {
+        let deltas = drain(&[
+            r#"{"choices":[{"message":{"reasoning_details":[{"type":"reasoning.text","text":"hmm"}],"tool_calls":[{"id":"c1","type":"function","function":{"name":"get_comp","arguments":"{}"}}]},"finish_reason":"stop"}]}"#,
+        ]);
+        assert!(deltas.contains(&Delta::Thinking { delta: "hmm".to_owned() }));
+        assert!(deltas.iter().any(|d| matches!(d, Delta::ToolCall { name, .. } if name == "get_comp")));
+    }
+
+    #[test]
+    fn z_ai_failure_finish_reasons_are_errors_not_quiet_ends() {
+        use super::read_line;
+        let mut calls = ToolCalls::default();
+        let sensitive = read_line(r#"data: {"choices":[{"delta":{"content":"x"},"finish_reason":"sensitive"}]}"#, &mut calls, "Z.ai");
+        assert!(sensitive.iter().any(|item| item.as_ref().is_err_and(|e| e.reason.contains("sensitive"))));
+        let mut calls = ToolCalls::default();
+        let dropped = read_line(r#"data: {"choices":[{"delta":{},"finish_reason":"network_error"}]}"#, &mut calls, "Z.ai");
+        let reason = dropped.iter().find_map(|item| item.as_ref().err()).map(|e| e.reason.clone()).expect("an error");
+        assert_eq!(crate::fault::classify(&reason), crate::fault::FaultKind::Network);
+    }
+
+    #[test]
+    fn hosted_families_get_an_output_cap_that_fits() {
+        use super::cloud_output_cap;
+        assert_eq!(cloud_output_cap("zai", "glm-5.3", 16_000), Some(32_000));
+        assert_eq!(cloud_output_cap("openrouter", "z-ai/glm-5.3", 16_000), Some(32_000));
+        assert_eq!(cloud_output_cap("deepseek", "deepseek-chat", 16_000), Some(8_192));
+        assert_eq!(cloud_output_cap("deepseek", "deepseek-v4-pro", 16_000), None);
+        assert_eq!(cloud_output_cap("moonshot", "kimi-k3", 16_000), Some(16_000));
+        assert_eq!(cloud_output_cap("openai", "gpt-6-sol", 16_000), None);
+        assert_eq!(cloud_output_cap("google", "gemini-3.1-pro", 16_000), None);
     }
 
     #[test]

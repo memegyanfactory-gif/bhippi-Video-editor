@@ -23,8 +23,12 @@ export type Object3D = {
   positionKeys?: Key3[]; rotationKeys?: Key3[]; scaleKeys?: Key3[];
   /** An earlier object's id: this one moves with it (position/rotation are relative to it). */
   parent?: string;
+  /** What this object is called as a render layer ("Phone", "Glass shell"); the id, tidied, when left out. */
+  label?: string;
   [extra: string]: unknown;
 };
+/** One footage layer of a render: the objects it shows (their children come too). `kind` is set when the request is resolved. */
+export type LayerSpec = { id: string; name?: string; objects: string[]; kind?: 'objects' | 'shadow' | 'background' };
 export type Scene3D = {
   width: number; height: number; fps: number; duration: number;
   engine?: 'eevee' | 'cycles'; samples?: number; step?: number; frames?: number[];
@@ -33,6 +37,8 @@ export type Scene3D = {
   lights?: 'studio' | { id: string; position: Vec3; power?: number; size?: number; color?: string; target?: Vec3; kind?: 'area' | 'point' | 'sun' | 'spot' }[];
   camera?: { position?: Vec3; target?: Vec3; lens?: number; fstop?: number; positionKeys?: Key3[]; targetKeys?: Key3[] };
   objects: Object3D[];
+  /** How the render is split into footage layers. 'auto' (default): one layer per top-level object (its children ride along), a "Shadow" layer for the floor and a "Background" layer when `transparent` is false. 'single': one sequence. Or your own groups of object ids. */
+  layers?: 'auto' | 'single' | LayerSpec[];
   /** Scene px per metre in camera.json; chosen so a 2D layer at the camera target's depth keeps its size. */
   pxPerMetre?: number;
 };
@@ -56,14 +62,16 @@ export const PRESETS_3D: Preset3D[] = [
     params: { color: 'core colour (#hex)', shell: 'glass tint (#hex)', spin: 'degrees turned over the shot (default 60)' },
     seconds: 4,
     build: (p, f) => ({
+      // The pearl sits wholly behind its glass shell, so the shell's layer already holds it: one "Orb" layer.
+      layers: [{ id: 'orb', name: 'Orb', objects: ['core', 'shell'] }],
       // Glass only reads against light: the shell refracts a bright lavender world (aflow's palette).
       world: { gradient: [[0, '#f4f1ff'], [0.25, '#b9a8ff'], [0.5, '#ffffff'], [0.75, '#9fd8ff']], strength: 1.2 },
       camera: { position: [0, -5.2, 0.7], target: [0, 0, 0.05], lens: 50, positionKeys: [{ t: 0, v: [0, -5.6, 0.75], ease: 'settle' }, { t: f.duration, v: [0, -5.0, 0.65] }] },
       objects: [
         floor(-0.62),
-        { id: 'core', kind: 'sphere', radius: 0.4, material: { preset: 'pearl', color: str(p, 'color', '#9d8cff') },
+        { id: 'core', label: 'Pearl orb', kind: 'sphere', radius: 0.4, material: { preset: 'pearl', color: str(p, 'color', '#9d8cff') },
           rotationKeys: [{ t: 0, v: [0, 0, 0], ease: 'linear' }, { t: f.duration, v: [0, 0, num(p, 'spin', 60)] }] },
-        { id: 'shell', kind: 'sphere', radius: 0.56, material: { preset: 'glass', color: str(p, 'shell', '#ffffff'), roughness: 0.02, thinFilm: 380 },
+        { id: 'shell', label: 'Glass shell', kind: 'sphere', radius: 0.56, material: { preset: 'glass', color: str(p, 'shell', '#ffffff'), roughness: 0.02, thinFilm: 380 },
           scaleKeys: [{ t: 0, v: 0.9, ease: 'rise' }, { t: Math.min(1.2, f.duration), v: 1 }] },
       ],
     }),
@@ -83,7 +91,7 @@ export const PRESETS_3D: Preset3D[] = [
         camera: { position: [0, -4.2, 0.5], target: [0, 0, 0.1], lens: 45 },
         objects: [
           { ...floor(-0.75), fade: 2.2, lit: 0.55 },
-          { id: 'crystal', kind: 'crystal', material: { preset: 'gem', color: '#ffffff', metallic: 1, roughness: 0.15 },
+          { id: 'crystal', label: 'Crystal', kind: 'crystal', material: { preset: 'gem', color: '#ffffff', metallic: 1, roughness: 0.15 },
             rotationKeys: [{ t: 0, v: [0, 0, 0], ease: 'linear' }, { t: f.duration, v: [0, 0, num(p, 'spin', 90)] }],
             positionKeys: [{ t: 0, v: [0, 0, -0.08], ease: 'ease-in-out' }, { t: f.duration / 2, v: [0, 0, 0.05], ease: 'ease-in-out' }, { t: f.duration, v: [0, 0, -0.08] }] },
         ],
@@ -105,12 +113,12 @@ export const PRESETS_3D: Preset3D[] = [
         camera: { position: [0, -5.5, 0.4], target: [0, 0, 0], lens: 55 },
         objects: [
           floor(-size[2] / 2 - 0.25),
-          { id: 'body', kind: 'rounded-box', size, radius: device === 'laptop' ? 0.05 : 0.09, material: { preset: 'plastic', color: str(p, 'color', '#1d1f2b'), roughness: 0.25 },
+          { id: 'body', label: device === 'laptop' ? 'Laptop' : device === 'tablet' ? 'Tablet' : 'Phone', kind: 'rounded-box', size, radius: device === 'laptop' ? 0.05 : 0.09, material: { preset: 'plastic', color: str(p, 'color', '#1d1f2b'), roughness: 0.25 },
             rotationKeys: [{ t: 0, v: [8, 0, num(p, 'from', -35)], ease: 'house' }, { t: land, v: [0, 0, 0] }],
             positionKeys: [{ t: 0, v: [0, 0.6, -0.15], ease: 'house' }, { t: land, v: [0, 0, 0] }] },
           typeof p.screenImage === 'string' && p.screenImage
-            ? { id: 'screen', kind: 'plane', parent: 'body', size: [size[0] * 0.9, size[2] * 0.92], position: [0, -size[1] / 2 - 0.006, 0], material: { preset: 'image', image: p.screenImage } }
-            : { id: 'screen', kind: 'box', parent: 'body', size: [size[0] * 0.9, 0.01, size[2] * 0.92], position: [0, -size[1] / 2 - 0.006, 0], material: { preset: 'flat', color: str(p, 'screen', '#6a5cff') } },
+            ? { id: 'screen', label: 'Screen', kind: 'plane', parent: 'body', size: [size[0] * 0.9, size[2] * 0.92], position: [0, -size[1] / 2 - 0.006, 0], material: { preset: 'image', image: p.screenImage } }
+            : { id: 'screen', label: 'Screen', kind: 'box', parent: 'body', size: [size[0] * 0.9, 0.01, size[2] * 0.92], position: [0, -size[1] / 2 - 0.006, 0], material: { preset: 'flat', color: str(p, 'screen', '#6a5cff') } },
         ],
       };
     },
@@ -129,7 +137,7 @@ export const PRESETS_3D: Preset3D[] = [
         camera: { position: [0, -5, 0.3], target: [0, 0, 0], lens: 50 },
         objects: [
           floor(-0.45),
-          { id: 'word', kind: 'text', text, size: Math.min(0.9, 5 / Math.max(3, text.length)), extrude: 0.1, bevel: 0.02, rotation: [90, 0, 0],
+          { id: 'word', label: 'Logo text', kind: 'text', text, size: Math.min(0.9, 5 / Math.max(3, text.length)), extrude: 0.1, bevel: 0.02, rotation: [90, 0, 0],
             material: { preset: str(p, 'material', 'metal') as MaterialSpec['preset'], color: str(p, 'color', '#e8e8ff') },
             rotationKeys: [{ t: 0, v: [90, 0, -28], ease: 'snap-settle' }, { t: land, v: [90, 0, 0] }],
             scaleKeys: [{ t: 0, v: 0.82, ease: 'snap-settle' }, { t: land, v: 1 }] },
@@ -157,7 +165,7 @@ export const PRESETS_3D: Preset3D[] = [
             const x = (i - (letters.length - 1) / 2) * gap;
             const at = i * stagger;
             return {
-              id: `l${i}`, kind: 'text', text: letter, size, extrude: size * 0.25, bevel: size * 0.06, rotation: [90, 0, 0],
+              id: `l${i}`, label: `Letter ${letter}`, kind: 'text', text: letter, size, extrude: size * 0.25, bevel: size * 0.06, rotation: [90, 0, 0],
               material: { preset: 'plastic', color: str(p, 'color', '#6a5cff') },
               positionKeys: [
                 { t: 0, v: [x, 0, 2.6] }, { t: at, v: [x, 0, 2.6], ease: 'cubic-in' }, { t: at + 0.42, v: [x, 0, size * 0.36], ease: 'cubic-out' },
@@ -193,7 +201,7 @@ export const PRESETS_3D: Preset3D[] = [
         camera: { position: [0, -6.2, 1.1], target: [0, 0, 0], lens: 40 },
         objects: [
           floor(-0.7),
-          { id: 'ring', kind: 'empty', rotationKeys: [{ t: 0, v: [0, 0, 0], ease: 'linear' }, { t: f.duration, v: [0, 0, num(p, 'spin', 90)] }] },
+          { id: 'ring', label: 'Cards', kind: 'empty', rotationKeys: [{ t: 0, v: [0, 0, 0], ease: 'linear' }, { t: f.duration, v: [0, 0, num(p, 'spin', 90)] }] },
           ...cards,
         ],
       };
@@ -214,7 +222,7 @@ export const PRESETS_3D: Preset3D[] = [
         objects: [
           floor(-0.8),
           ...spots.map(([x, y, z, r], i): Object3D => ({
-            id: `s${i}`, kind: 'sphere', radius: r, position: [x, y, z],
+            id: `s${i}`, label: `Sphere ${i + 1}`, kind: 'sphere', radius: r, position: [x, y, z],
             material: { preset: str(p, 'material', 'pearl') as MaterialSpec['preset'], color: colors[i % colors.length] },
             positionKeys: [{ t: 0, v: [x * 1.6, y, z + 2.2], ease: 'settle' }, { t: 0.9 + i * 0.07, v: [x, y, z], ease: 'ease-in-out' }, { t: f.duration, v: [x, y, z + 0.08 * ((i % 2) * 2 - 1)] }],
           })),
@@ -233,10 +241,106 @@ export function scene3dRequest(input: { preset?: string; params?: Params; scene?
   if (input.preset) {
     const preset = find3dPreset(input.preset);
     if (!preset) throw new Error(`No 3D preset "${input.preset}". Presets: ${PRESETS_3D.map((p) => p.id).join(', ')}.`);
-    return withPxPerMetre({ ...base, ...frame, ...preset.build(input.params ?? {}, frame), ...(input.scene ?? {}) } as Scene3D);
+    return withLayers(withPxPerMetre({ ...base, ...frame, ...preset.build(input.params ?? {}, frame), ...(input.scene ?? {}) } as Scene3D));
   }
   if (!input.scene?.objects?.length) throw new Error('Give a preset (list_3d_presets) or a scene with objects.');
-  return withPxPerMetre({ ...base, ...frame, ...input.scene } as Scene3D);
+  return withLayers(withPxPerMetre({ ...base, ...frame, ...input.scene } as Scene3D));
+}
+
+/** Most object layers a render is split into; the smallest and furthest objects share "Other objects". */
+export const MAX_OBJECT_LAYERS = 6;
+
+const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+const tidy = (id: string) => { const words = id.replace(/[-_]+/g, ' ').replace(/([a-z])(\d)/g, '$1 $2').trim(); return words ? words[0].toUpperCase() + words.slice(1) : id; };
+const vec = (v: unknown): Vec3 | null => (Array.isArray(v) && v.length >= 3 && v.every((n) => typeof n === 'number') ? [v[0], v[1], v[2]] : null);
+
+/** A rough size in metres, for choosing which objects keep their own layer. */
+function objectSize(o: Object3D): number {
+  const n = (k: string) => (typeof o[k] === 'number' ? (o[k] as number) : 0);
+  const arr = (k: string) => (Array.isArray(o[k]) ? (o[k] as unknown[]).filter((x): x is number => typeof x === 'number') : []);
+  let size = Math.max(n('radius') * 2, n('height'), ...arr('size'), n('major') * 2);
+  if (o.kind === 'text') size = Math.max(size, n('size') * Math.max(1, String(o.text ?? '').length) * 0.5);
+  const scale = typeof o.scale === 'number' ? o.scale : Array.isArray(o.scale) ? Math.max(...(o.scale as number[])) : 1;
+  return (size || 1) * (scale || 1);
+}
+
+/**
+ * The layers a request renders in. `auto` (the default) gives every top-level object its own layer
+ * (children ride with their parent), the floor's shadow a "Shadow" layer, and a world that is not
+ * transparent a "Background" layer; a scene that would come out as one layer (one object, no floor,
+ * a transparent world) stays one sequence.
+ * Past MAX_OBJECT_LAYERS the smallest, furthest objects are grouped as "Other objects". A list of
+ * groups you wrote is honoured the same way; objects it leaves out go to "Other objects".
+ * Returns `'single'` or the list the Blender bridge renders (back to front is decided there).
+ */
+export function resolveLayers(scene: Scene3D): 'single' | LayerSpec[] {
+  const mode = scene.layers ?? 'auto';
+  if (mode === 'single') return 'single';
+  const byId = new Map(scene.objects.map((o) => [o.id, o]));
+  const rootOf = (o: Object3D): Object3D => {
+    let cur = o;
+    for (let guard = 0; cur.parent && byId.has(cur.parent) && guard < 64; guard++) cur = byId.get(cur.parent)!;
+    return cur;
+  };
+  const floors = scene.objects.filter((o) => o.kind === 'floor' && o.shadow !== 'none').map((o) => o.id);
+  const shows = (o: Object3D) => o.kind !== 'floor' && o.kind !== 'empty';
+  const visible = scene.objects.filter(shows);
+  if (!visible.length) return 'single';
+  const family = new Map<string, Object3D[]>();
+  for (const o of scene.objects) if (o.kind !== 'floor') family.set(rootOf(o).id, [...(family.get(rootOf(o).id) ?? []), o]);
+
+  const cam = scene.camera ?? {};
+  const eye = vec(cam.positionKeys?.[0]?.v) ?? vec(cam.position) ?? [0, -6, 1.2];
+  const near = (o: Object3D) => {
+    const at = vec(o.positionKeys?.[o.positionKeys.length - 1]?.v) ?? vec(o.position) ?? [0, 0, 0];
+    return Math.max(0.5, Math.hypot(at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]));
+  };
+  type Group = { id: string; name: string; objects: string[]; score: number };
+  let groups: Group[] = [];
+  if (Array.isArray(mode)) {
+    const claimed = new Set<string>();
+    for (const spec of mode) {
+      const ids = new Set<string>();
+      const take = (id: string) => {
+        if (claimed.has(id) || byId.get(id)?.kind === 'floor') return;
+        ids.add(id);
+        claimed.add(id);
+        for (const o of scene.objects) if (o.parent === id) take(o.id);
+      };
+      for (const id of spec.objects ?? []) if (byId.has(id)) take(id);
+      const members = [...ids].map((id) => byId.get(id)!);
+      if (!members.some(shows)) continue;
+      groups.push({ id: spec.id || members[0].id, name: spec.name || members[0].label || tidy(members[0].id), objects: [...ids], score: Math.max(...members.filter(shows).map((m) => objectSize(m) / near(m))) });
+    }
+    const left = visible.filter((o) => !claimed.has(o.id));
+    if (left.length) groups.push({ id: 'other-objects', name: 'Other objects', objects: scene.objects.filter((o) => o.kind !== 'floor' && !claimed.has(o.id)).map((o) => o.id), score: 0 });
+  } else {
+    groups = [...family.values()].filter((members) => members.some(shows)).map((members) => {
+      const root = rootOf(members[0]);
+      return { id: root.id, name: root.label || tidy(root.id), objects: members.map((m) => m.id), score: Math.max(...members.filter(shows).map((m) => objectSize(m) / near(m))) };
+    });
+  }
+  if (groups.length > MAX_OBJECT_LAYERS) {
+    const ranked = [...groups].sort((a, b) => b.score - a.score);
+    const keep = new Set(ranked.slice(0, MAX_OBJECT_LAYERS - 1));
+    const rest = groups.filter((g) => !keep.has(g));
+    groups = [...groups.filter((g) => keep.has(g)), { id: 'other-objects', name: 'Other objects', objects: rest.flatMap((g) => g.objects), score: 0 }];
+  }
+  const taken = new Set(['shadow', 'background']);
+  const layers: LayerSpec[] = groups.map((g) => {
+    let id = slug(g.id) || 'layer';
+    for (let n = 2; taken.has(id); n++) id = `${slug(g.id) || 'layer'}-${n}`;
+    taken.add(id);
+    return { id, name: g.name, objects: g.objects, kind: 'objects' };
+  });
+  if (floors.length) layers.push({ id: 'shadow', name: 'Shadow', objects: floors, kind: 'shadow' });
+  if (scene.transparent === false) layers.push({ id: 'background', name: 'Background', objects: [], kind: 'background' });
+  return layers.length >= 2 ? layers : 'single';
+}
+
+/** The scene with its layers settled: 'single', or the explicit list the bridge renders. */
+export function withLayers(scene: Scene3D): Scene3D {
+  return { ...scene, layers: resolveLayers(scene) };
 }
 
 /** Pixels per metre in camera.json, chosen so a 2D 3D-layer at the camera target's depth shows at its own size (AE zoom = lens / sensor × width). */
@@ -250,7 +354,9 @@ export function withPxPerMetre(scene: Scene3D): Scene3D {
   return { ...scene, pxPerMetre: Math.round((zoom / Math.max(0.1, d)) * 100) / 100 };
 }
 
-export type Render3DResult = { dir: string; frames: number; fps: number; step?: number; width: number; height: number; camera?: string; objects2d?: string };
+/** One rendered layer: its own PNG sequence (`dir`, absolute), the object ids it shows and its distance from the camera. */
+export type RenderLayer = { id: string; name: string; dir: string; frames: number; objects: string[]; depth: number; kind?: LayerSpec['kind'] };
+export type Render3DResult = { dir: string; frames: number; fps: number; step?: number; width: number; height: number; camera?: string; objects2d?: string; /** Back to front; absent for a single render. */ layers?: RenderLayer[] };
 
 export type CameraFile = { fps: number; width: number; height: number; pxPerMetre: number; frames: { frame: number; t: number; position: number[]; pointOfInterest: number[]; zoom: number }[] };
 export type ObjectsFile = { fps: number; frames: ({ frame: number } & Record<string, { x: number; y: number; box: number[]; behind: boolean } | number>)[] };
@@ -276,15 +382,21 @@ export function trackLayers(file: ObjectsFile, ids: string[], every = 2): Layer[
   });
 }
 
-/** The motion scene that plays a finished render: one footage layer reading the PNG sequence. */
+/**
+ * The motion scene that plays a finished render: one footage layer reading the PNG sequence, or,
+ * for a layered render, one footage layer per rendered layer. The engine draws `layers[0]` at the
+ * bottom, so a layered render keeps the bridge's back-to-front order (Background, Shadow, then the
+ * objects far to near) and each layer is named by its layer name ("Phone", "Shadow").
+ */
 export function renderScene(render: Render3DResult, size: { width: number; height: number }, title = '3D render', extras: Layer[] = []): MotionScene {
   const fps = render.fps / Math.max(1, render.step ?? 1);
   const duration = Math.max(1 / render.fps, render.frames / fps);
-  return {
-    version: 1, width: size.width, height: size.height, duration,
-    layers: [{
-      id: 'render3d', name: title, type: 'footage', fit: 'contain',
-      source: { sequence: { dir: render.dir, fps, frames: render.frames, start: 1, digits: 5, ext: 'png' }, kind: 'image', width: render.width, height: render.height },
-    }, ...extras],
-  } as MotionScene;
+  const footage = (id: string, name: string, dir: string, frames: number): Layer => ({
+    id, name, type: 'footage', fit: 'contain',
+    source: { sequence: { dir, fps, frames, start: 1, digits: 5, ext: 'png' }, kind: 'image', width: render.width, height: render.height },
+  } as Layer);
+  const parts = render.layers?.length
+    ? render.layers.map((layer) => footage(`render3d-${layer.id}`, layer.name || tidy(layer.id), layer.dir, layer.frames || render.frames))
+    : [footage('render3d', title, render.dir, render.frames)];
+  return { version: 1, width: size.width, height: size.height, duration, layers: [...parts, ...extras] } as MotionScene;
 }

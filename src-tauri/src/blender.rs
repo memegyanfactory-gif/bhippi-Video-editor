@@ -6,7 +6,9 @@
 //!
 //! Output folder (the project's `3D renders/<name> <job>`): `00001.png …`, `camera.json` (the
 //! camera per frame in motion-engine pixels, so 2D layers can ride the same move), `objects2d.json`
-//! (each object's screen box per frame, for glints and callouts) and `result.json`.
+//! (each object's screen box per frame, for glints and callouts) and `result.json`. A layered
+//! render (request `layers`) writes `layers/<id>/00001.png …` per layer and `layers.json` instead of
+//! the root sequence; the job result lists the layers back to front.
 
 use crate::{local_media, storage, store, AppState};
 use serde_json::{json, Value};
@@ -18,6 +20,8 @@ type CommandResult<T> = Result<T, String>;
 
 const ENGINES: [&str; 2] = ["eevee", "cycles"];
 const KINDS: [&str; 13] = ["box", "rounded-box", "sphere", "icosphere", "torus", "cylinder", "cone", "capsule", "crystal", "text", "plane", "empty", "floor"];
+/** Footage layers one render splits into: up to 6 object layers plus Shadow and Background. */
+const MAX_LAYERS: usize = 8;
 const MATERIALS: [&str; 10] = ["plastic", "glass", "frosted", "pearl", "metal", "gem", "clay", "emission", "flat", "image"];
 
 /// `blender(.exe)` in a Blender install folder.
@@ -160,6 +164,26 @@ pub fn check_request(mut request: Value) -> Result<(Value, usize), String> {
             return Err(format!("Object \"{id}\": 3D text is at most 80 characters"));
         }
     }
+    match object.get("layers") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(mode)) if mode == "single" || mode == "auto" => {}
+        Some(Value::Array(list)) => {
+            if list.is_empty() || list.len() > MAX_LAYERS {
+                return Err(format!("layers: 1–{MAX_LAYERS} layers (or \"single\")"));
+            }
+            let mut seen = std::collections::HashSet::new();
+            for layer in list {
+                let id = layer.get("id").and_then(Value::as_str).filter(|id| !id.is_empty() && id.len() <= 32 && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')).ok_or("Every layer needs an id of lowercase letters, digits and dashes")?;
+                if !seen.insert(id.to_owned()) {
+                    return Err(format!("Layer id \"{id}\" is repeated"));
+                }
+                if !layer.get("objects").is_some_and(|objects| objects.as_array().is_some_and(|list| list.iter().all(Value::is_string))) {
+                    return Err(format!("Layer \"{id}\": objects must list object ids"));
+                }
+            }
+        }
+        Some(_) => return Err("layers must be \"single\", \"auto\" or a list of {id, name, objects}".into()),
+    }
     if let Some(lens) = object.get("camera").and_then(|camera| number(camera, "lens")) {
         if !(8.0..=300.0).contains(&lens) {
             return Err("camera.lens must be 8–300 mm".into());
@@ -175,13 +199,19 @@ pub fn check_request(mut request: Value) -> Result<(Value, usize), String> {
     Ok((request, frames))
 }
 
+/// How many sequences the bridge renders: the layers listed, or one.
+pub fn layer_count(request: &Value) -> usize {
+    request.get("layers").and_then(Value::as_array).map_or(1, |list| list.len().max(1))
+}
+
 /// A generous ceiling for the render: measured 3.5 s per 1080p Cycles frame at 64 samples on an
 /// RTX 3080 (0.7 s EEVEE), scaled by pixels and samples, times ten for slower GPUs, plus start-up.
+/// A layered render draws every frame once per layer, so the frame time is multiplied by the layer count.
 pub fn timeout_for(request: &Value, frames: usize) -> std::time::Duration {
     let pixels = number(request, "width").unwrap_or(1920.0) * number(request, "height").unwrap_or(1080.0) / (1920.0 * 1080.0);
     let samples = number(request, "samples").unwrap_or(32.0);
     let per_frame = if request["engine"] == "cycles" { 3.5 * (samples / 64.0).max(0.25) } else { 0.7 * (samples / 32.0).max(0.25) };
-    let seconds = 120.0 + frames as f64 * per_frame * pixels.max(0.1) * 10.0;
+    let seconds = 120.0 + frames as f64 * layer_count(request) as f64 * per_frame * pixels.max(0.1) * 10.0;
     std::time::Duration::from_secs_f64(seconds.min(6.0 * 3600.0))
 }
 
@@ -229,17 +259,27 @@ pub async fn blender_render_start(app: AppHandle, webview: tauri::Webview, state
     tauri::async_runtime::spawn(async move {
         let _lease = lease;
         let os = std::ffi::OsStr::new;
-        let args = [os("-b"), os("--factory-startup"), os("--python-exit-code"), os("1"), os("-P"), worker.as_os_str(), os("--"), input.as_os_str()];
+        let threads = crate::resources::current().threads().to_string();
+        let args = [os("-b"), os("-t"), os(threads.as_str()), os("--factory-startup"), os("--python-exit-code"), os("1"), os("-P"), worker.as_os_str(), os("--"), input.as_os_str()];
         let outcome = local_media::run_program(&blender, &args, &job, Some(timeout), "Blender").await;
         let result: Option<Value> = std::fs::read_to_string(folder.join("result.json")).ok().and_then(|text| serde_json::from_str(&text).ok());
         match (outcome, result) {
             (Ok(()), Some(result)) if result["ok"] == true => {
                 let _ignored = std::fs::remove_dir_all(&work);
                 let rendered = result["frames"].as_u64().unwrap_or(0);
+                // A layered render: each layer's own folder, back to front, with absolute paths.
+                let layers: Option<Vec<Value>> = std::fs::read_to_string(folder.join("layers.json")).ok().and_then(|text| serde_json::from_str::<Vec<Value>>(&text).ok()).filter(|list| !list.is_empty()).map(|list| {
+                    list.into_iter().map(|mut layer| {
+                        let relative = layer["dir"].as_str().unwrap_or("").to_owned();
+                        layer["dir"] = json!(folder.join(relative));
+                        layer
+                    }).collect()
+                });
+                let first = layers.as_ref().and_then(|list| list.first()).and_then(|layer| layer["dir"].as_str()).map_or_else(|| folder.join("00001.png"), |dir| Path::new(dir).join("00001.png"));
                 job.done(
                     format!("3D render ready · {rendered} frame(s) in {} s", result["totalSeconds"]),
                     Some(json!({
-                        "task": "blender", "dir": folder, "path": folder.join("00001.png"),
+                        "task": "blender", "dir": folder, "path": first, "layers": layers,
                         "frames": rendered, "frameNumbers": result["frameNumbers"], "step": result["step"], "fps": fps, "width": width, "height": height,
                         "camera": folder.join("camera.json"), "objects2d": folder.join("objects2d.json"),
                         "secondsPerFrame": result["secondsPerFrame"], "blender": result["blender"],
@@ -309,6 +349,26 @@ mod tests {
         assert!(timeout_for(&cycles, frames) > timeout_for(&eevee, frames));
         assert!(timeout_for(&eevee, 600) > timeout_for(&eevee, 60));
         assert!(timeout_for(&eevee, 1).as_secs() >= 120);
+    }
+
+    #[test]
+    fn layers_multiply_the_timeout_and_are_checked() {
+        let (single, frames) = check_request(scene()).unwrap();
+        assert_eq!(layer_count(&single), 1);
+        let mut layered = scene();
+        layered["layers"] = json!([{ "id": "orb", "objects": ["orb"] }, { "id": "shadow", "objects": [] }, { "id": "background", "objects": [] }]);
+        let (layered, _) = check_request(layered).unwrap();
+        assert_eq!(layer_count(&layered), 3);
+        let extra = |request: &Value| timeout_for(request, frames).as_secs_f64() - 120.0;
+        assert!((extra(&layered) / extra(&single) - 3.0).abs() < 0.01);
+        for bad in [json!([]), json!("double"), json!([{ "id": "A b", "objects": [] }]), json!([{ "id": "a", "objects": [] }, { "id": "a", "objects": [] }]), json!([{ "id": "a", "objects": "orb" }])] {
+            let mut request = scene();
+            request["layers"] = bad;
+            assert!(check_request(request).is_err());
+        }
+        let mut request = scene();
+        request["layers"] = json!("single");
+        assert!(check_request(request).is_ok());
     }
 
     #[test]

@@ -294,6 +294,7 @@ pub async fn run_streaming(
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("could not start {}: {error}", program.display()))?;
+    crate::resources::contain(&child);
     let Some(mut stdout) = child.stdout.take() else {
         return Err("the tool produced no output stream".to_owned());
     };
@@ -332,6 +333,7 @@ pub async fn run_watching_stderr(
         .stdout(Stdio::null())
         .spawn()
         .map_err(|error| format!("could not start {}: {error}", program.display()))?;
+    crate::resources::contain(&child);
     let mut tail: Vec<String> = Vec::new();
     if let Some(stderr) = child.stderr.take() {
         let mut lines = BufReader::new(stderr).lines();
@@ -365,6 +367,7 @@ pub async fn run_with_input(program: &Path, args: &[&str], input: &str, cwd: Opt
         .stdin(Stdio::piped())
         .spawn()
         .map_err(|error| format!("could not start {}: {error}", program.display()))?;
+    crate::resources::contain(&child);
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(input.as_bytes())
@@ -446,13 +449,24 @@ pub async fn run_ffmpeg_collect(
 ) -> Result<String, String> {
     let mut command = command(ffmpeg, cwd);
     command.args(["-hide_banner", "-nostats", "-progress", "pipe:1", "-y"]);
-    command.args(args);
+    // The processor share from Settings › Performance: filter graphs and the encoder stay within
+    // it (`-threads` goes just before the output, so it sets the encoder, not the first decoder).
+    let threads = crate::resources::current().threads().to_string();
+    if !args.iter().any(|arg| arg == "-threads") && !args.is_empty() {
+        command.args(["-filter_threads", threads.as_str(), "-filter_complex_threads", threads.as_str()]);
+        command.args(&args[..args.len() - 1]);
+        command.args(["-threads", threads.as_str()]);
+        command.arg(&args[args.len() - 1]);
+    } else {
+        command.args(args);
+    }
     if let Some(file) = &env.fontconfig_file {
         command.env("FONTCONFIG_FILE", file);
     }
     let mut child = command
         .spawn()
         .map_err(|error| format!("could not start FFmpeg: {error}"))?;
+    crate::resources::contain(&child);
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stderr_task = tauri::async_runtime::spawn(async move {

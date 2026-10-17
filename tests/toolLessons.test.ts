@@ -16,6 +16,15 @@ describe('static hints', () => {
     expect(hintFor('inspect_clip_frames', 'Supply a video clipId.', [])).toMatch(/clipId/);
   });
 
+  it('covers the verify gates and the other repeat failures of the 2026-10 traces', () => {
+    expect(hintFor('verify_edit_workflow', 'Polish pass missing: call run_frame_qa after your last edit', [])).toMatch(/judge_edit/);
+    expect(hintFor('verify_edit_workflow', 'The Judge has not scored this cut: call judge_edit', [])).toMatch(/judge_edit/);
+    expect(hintFor('verify_edit_workflow', 'Frame QA is not clear: graphic-overlap "a"', [])).toMatch(/acceptedQaIssues/);
+    expect(hintFor('normalize_audio', 'no clips with sound to normalize', [])).toMatch(/compose_music/);
+    expect(hintFor('update_motion_scene', 'No layer "x" in the scene. Layers: a, b.', [])).toMatch(/layer/);
+    expect(hintFor('save_video_blueprint', 'Scene 2: narration needs the spoken text for this beat (≥10 chars).', [])).toMatch(/10 characters/);
+  });
+
   it('adds nothing for an unknown failure, and never doubles a hint', () => {
     expect(hintFor('list_directory', 'disk exploded', [])).toBeNull();
     expect(withHint('read_file', 'weird', [])).toBe('weird');

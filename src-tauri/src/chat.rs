@@ -124,6 +124,39 @@ const RESULT_CAP: usize = 40 * 1024;
 const MAX_CONTINUATIONS: usize = 3;
 /// What the model is told when its reply hit the output limit (or a server tool paused the turn).
 const CONTINUE_CUT_OFF: &str = "Your last reply hit the output limit and was cut off. Carry on directly from where it stopped: no apology, no recap. Keep each reply shorter: split large work into several smaller tool calls.";
+/// Times one turn pushes a model that stopped mid-task ("I'll now…" and then nothing) to carry on.
+const MAX_NUDGES: usize = 2;
+/// What a model that announced work and then stopped is told. Short on purpose.
+const CONTINUE_NUDGE: &str = "Continue: do it now with tools.";
+/// Tools that close a production phase: after one, the turn ends and the user presses the next button.
+const PHASE_CLOSERS: [&str; 3] = ["save_video_blueprint", "save_storyboard", "finish_gathering"];
+/// What an agent whose run went silent and was stopped is told when the run starts again.
+const CONTINUE_STALLED: &str = "Your last run went silent and was stopped. Everything its tools already did is saved in the project: check where things stand (editing_workflow_status, get_comp) and carry on from there. Do not redo finished steps, do not ask the user, and make your next move a tool call.";
+/// Silent-run restarts one MCP turn gets.
+const MAX_STALL_RESTARTS: usize = 2;
+
+/// Whether a reply that made no tool call ends on an announcement of work still to do
+/// ("Next, I'll add the captions", "Let me check the timeline", "...in one batch:") rather than on
+/// a finished report or a question for the user. Only the last paragraph counts. Pure + tested.
+fn announces_work(text: &str) -> bool {
+    let Some(last) = text.trim().rsplit("\n\n").next().map(str::trim).filter(|last| !last.is_empty()) else { return false };
+    let tail: String = last.chars().rev().take(400).collect::<Vec<_>>().into_iter().rev().collect();
+    let lower = tail.to_lowercase().replace('\u{2019}', "'");
+    // A question, an invitation, or a finished report hands the turn back to the user.
+    if lower.trim_end().ends_with('?') || ["let me know", "would you like", "want me to", "shall i", "should i ", "tell me", "your call", "ready to ", "press start", "start generating", "start editing", "next phase", "phase is closed", "once you press", "when you press", "when you're ready", "all done", "is done", "are done", "complete."].iter().any(|word| lower.contains(word)) {
+        return false;
+    }
+    if lower.trim_end().ends_with(':') {
+        return true;
+    }
+    ["i'll now", "i will now", "now i'll", "now i will", "now, i'll", "next, i", "next i'll", "next i will", "i'll next", "let me ", "i'm going to", "i am going to", "i'll start", "i'll go ahead", "going to now", "then the final", "then i'll", "then i will", "recreating", "retrying", "pulling "].iter().any(|phrase| lower.contains(phrase))
+}
+
+/// Whether an agent's run failed by going silent: the CLI's own idle watchdog (providers `cli.rs`).
+fn went_silent(reason: &str) -> bool {
+    reason.to_ascii_lowercase().contains("with no output")
+}
+
 /// Frame images one turn sends at most: every image stays in the conversation for all later rounds.
 const MAX_TURN_IMAGES: usize = 36;
 
@@ -1189,6 +1222,10 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
     async fn native(&mut self, provider: &dyn Provider, req: &ChatRequest, executor: &dyn ToolExecutor) {
         let mut request = build_request_in(req, self.row, ToolMode::Native, self.window);
         let mut continuations = 0;
+        let mut nudges = 0;
+        // A phase closed this turn (the plan saved, gathering finished) or the workflow guard refused
+        // a call: the turn is meant to end, and announcing the next phase is not stopping mid-task.
+        let mut phase_closed = false;
         let mut images_sent = 0;
         for round in 0..self.max_rounds {
             // Tool results pile up: when a local model's window is about to overflow, the oldest
@@ -1254,6 +1291,19 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                 }
                 if cut_off {
                     self.progress.notes.push("The reply was cut off at the model's output limit. Ask Bhippi AI to continue.".to_owned());
+                    return;
+                }
+                // Stopped mid-task: work was under way and the reply ends by announcing more of it
+                // (or says nothing at all after a reasoning-only round). One short push, twice at most.
+                let stalled = !phase_closed && self.progress.tool_calls > 0 && (announces_work(&text) || text.trim().is_empty());
+                if stalled && nudges < MAX_NUDGES && !self.stopped() {
+                    nudges += 1;
+                    tracing::info!(provider = %self.row.id, nudges, "the model stopped mid-task; nudging it to continue");
+                    // An empty assistant message is refused by some APIs.
+                    let said = if text.trim().is_empty() { "(no reply)".to_owned() } else { text };
+                    request.messages.extend(assistant_turns(said, &calls, thinking));
+                    request.messages.push(Message::user(CONTINUE_NUDGE.to_owned()));
+                    continue;
                 }
                 return;
             }
@@ -1284,6 +1334,9 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                         }
                     }
                 }
+                if ai_tools::is_guard_blocked(&result) || (ai_tools::is_ok(&result) && PHASE_CLOSERS.contains(&call.name.as_str())) {
+                    phase_closed = true;
+                }
                 shorten_result(&mut result);
                 request.messages.push(Message::tool_result(call, result.to_string(), !ai_tools::is_ok(&result)));
             }
@@ -1310,8 +1363,34 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
             args: bridge_args(link.hub.port(), registration.token(), &req.context, harness_of(req)),
         });
         request.activity = Some(activity);
-        if let Err(interrupt) = self.round(provider, request, None).await {
-            self.interrupted(interrupt);
+        // The agent runs its own loop, so a stop it makes on its own is only noticed here. Two
+        // things end a run early that the user never meant: the run goes silent and is killed
+        // (a free or reasoning model thinking for longer than the idle budget), and the agent's
+        // last words announce work it then never starts. Each starts the run again, with what was
+        // said so far and one short instruction; Plan turns, which must not act, never do.
+        let may_act = !request.read_only && !request.sealed;
+        let (mut restarts, mut nudges) = (0, 0);
+        loop {
+            match self.round(provider, request.clone(), None).await {
+                Ok(done) => {
+                    let worked = calls.load(Ordering::Relaxed) > 0;
+                    if may_act && worked && nudges < MAX_NUDGES && done.stop_reason == StopReason::Completed && announces_work(&done.text) && !self.stopped() {
+                        nudges += 1;
+                        tracing::info!(provider = %self.row.id, nudges, "the agent stopped mid-task; running it again with a nudge");
+                        request.messages.push(Message::assistant(done.text));
+                        request.messages.push(Message::user(CONTINUE_NUDGE.to_owned()));
+                        continue;
+                    }
+                }
+                Err(Interrupt::Failed(reason)) if may_act && restarts < MAX_STALL_RESTARTS && went_silent(&reason) && !self.stopped() => {
+                    restarts += 1;
+                    tracing::warn!(provider = %self.row.id, %reason, restarts, "the agent went silent; running it again");
+                    request.messages.push(Message::user(CONTINUE_STALLED.to_owned()));
+                    continue;
+                }
+                Err(interrupt) => self.interrupted(interrupt),
+            }
+            break;
         }
         drop(registration);
         self.progress.tool_calls += calls.load(Ordering::Relaxed);
@@ -2241,6 +2320,159 @@ kept
         assert_eq!(provider.seen().len(), super::MAX_CONTINUATIONS + 1);
         assert_eq!(turn.progress.notes.len(), 1);
         assert!(turn.progress.notes[0].contains("cut off"), "{:?}", turn.progress.notes);
+    }
+
+    #[test]
+    fn work_announced_and_not_started_is_told_from_a_report_or_a_question() {
+        use super::announces_work;
+        assert!(announces_work("Captions are in.\n\nNext, I'll add the sound effects and then verify."));
+        assert!(announces_work("Let me check the timeline now."));
+        assert!(announces_work("Tailoring the guideline and saving the full plan in one batch:"));
+        assert!(announces_work("Now I\u{2019}ll add the music bed."));
+        assert!(!announces_work("The reel is built. Let me know if you want changes."));
+        assert!(!announces_work("Which size do you want, 9:16 or 16:9?"));
+        assert!(!announces_work("Added the title."));
+        assert!(!announces_work("Everything is ready. Press Start editing and I'll assemble it."));
+        assert!(!announces_work(""));
+        assert!(!announces_work("The plan is saved.
+
+Next, I'll generate every shot once you press Start generating."));
+        assert!(!announces_work("Gathering is finished. Next phase: the edit."));
+    }
+
+    #[tokio::test]
+    async fn a_model_that_announces_work_and_stops_is_nudged_to_carry_on() {
+        let provider = Scripted::new(vec![
+            Ok(vec![tool("c1", "get_comp", json!({}))]),
+            Ok(vec![text("The timeline is empty. Next, I'll add the captions now.")]),
+            Ok(vec![tool("c2", "add_text", json!({"text": "Goa"}))]),
+            Ok(vec![text("Added the captions.")]),
+        ]);
+        let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
+        let row = row_of("openai", ProviderKind::CloudApi, true);
+        let req = request("caption the clip");
+        let (emit, _) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.native(&provider, &req, &executor).await;
+
+        assert_eq!(executor.names(), vec!["get_comp", "add_text"]);
+        let seen = provider.seen();
+        assert_eq!(seen.len(), 4);
+        let sent = &seen[2].messages;
+        assert!(sent[sent.len() - 2].content.contains("add the captions"));
+        assert_eq!(sent[sent.len() - 1].content, super::CONTINUE_NUDGE);
+    }
+
+    #[tokio::test]
+    async fn the_nudge_is_given_twice_at_most_and_never_before_any_work() {
+        let announce = || Ok(vec![text("Now I'll build the whole thing.")]);
+        // Work first, then three announce-and-stop replies: two nudges, and the third ends the turn.
+        let provider = Scripted::new(vec![Ok(vec![tool("c1", "get_comp", json!({}))]), announce(), announce(), announce()]);
+        let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
+        let row = row_of("openai", ProviderKind::CloudApi, true);
+        let req = request("build it");
+        let (emit, _) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.native(&provider, &req, &executor).await;
+        assert_eq!(provider.seen().len(), 1 + 1 + super::MAX_NUDGES);
+
+        // No tool has run: the model is answering, not abandoning a job.
+        let provider = Scripted::new(vec![announce()]);
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.native(&provider, &req, &executor).await;
+        assert_eq!(provider.seen().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_reasoning_only_reply_after_work_is_nudged_and_a_reasoning_then_call_reply_runs() {
+        let thought = |words: &str| Delta::Thinking { delta: words.to_owned() };
+        let provider = Scripted::new(vec![
+            // Reasoning streamed first, then the call: the call runs.
+            Ok(vec![thought("Look at the comp."), tool("c1", "get_comp", json!({}))]),
+            // Reasoning and nothing else: the round says nothing, so the model is pushed.
+            Ok(vec![thought("Now what to add...")]),
+            Ok(vec![text("Added the title.")]),
+        ]);
+        let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
+        let row = row_of("openai", ProviderKind::CloudApi, true);
+        let req = request("title it");
+        let (emit, events) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.native(&provider, &req, &executor).await;
+
+        assert_eq!(executor.names(), vec!["get_comp"]);
+        assert_eq!(provider.seen().len(), 3);
+        let events = events.lock().expect("events");
+        let thinking: String = events.iter().filter_map(|event| match event { ChatEvent::Delta { delta: Delta::Thinking { delta }, .. } => Some(delta.as_str()), _ => None }).collect();
+        assert_eq!(thinking, "Look at the comp.Now what to add...");
+        assert_eq!(streamed(&events), "Added the title.");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_stop_reason_with_a_finished_answer_ends_the_turn_quietly() {
+        // The adapters turn a vendor's invented finish_reason into a normal end; the loop must not
+        // read it as a cut, a fault or a reason to go again.
+        let provider = Scripted::new(vec![
+            Ok(vec![tool("c1", "get_comp", json!({}))]),
+            Ok(vec![text("Added the title."), Delta::Done { stop_reason: StopReason::Completed }]),
+        ]);
+        let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
+        let row = row_of("openai", ProviderKind::CloudApi, true);
+        let req = request("title it");
+        let (emit, _) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.native(&provider, &req, &executor).await;
+        assert_eq!(provider.seen().len(), 2);
+        assert!(turn.progress.notes.is_empty() && turn.progress.fault.is_none());
+    }
+
+    /// A CLI agent whose first run goes silent and is killed by the idle watchdog, then answers.
+    struct StallsOnce {
+        runs: Mutex<usize>,
+        seen: Mutex<Vec<CompletionRequest>>,
+    }
+
+    #[async_trait]
+    impl Provider for StallsOnce {
+        fn id(&self) -> &str {
+            "stalls"
+        }
+
+        async fn complete(&self, req: CompletionRequest) -> bhippi_providers::Result<DeltaStream> {
+            self.seen.lock().expect("seen").push(req);
+            let mut runs = self.runs.lock().expect("runs");
+            *runs += 1;
+            let items: Vec<bhippi_providers::Result<Delta>> = if *runs == 1 {
+                vec![Err(ProviderError::new("OpenCode", "timed out after 480s with no output".to_owned()))]
+            } else {
+                vec![Ok(Delta::Text { delta: "Finished the edit.".to_owned() })]
+            };
+            Ok(futures_util::stream::iter(items).boxed())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_agent_run_that_goes_silent_is_started_again_with_a_short_instruction() {
+        let provider = StallsOnce { runs: Mutex::new(0), seen: Mutex::new(Vec::new()) };
+        let executor: Arc<dyn super::ToolExecutor> = Arc::new(FakeExecutor::new(|_, _| json!({"ok": true})));
+        let link = McpLink { hub: crate::mcp::start_hub(), bridge: "bhippi.exe".into() };
+        let row = row("opencode", true);
+        let req = request("edit it");
+        let (emit, _) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.mcp(&provider, &req, executor, &link).await;
+
+        assert!(turn.progress.fault.is_none(), "{:?}", turn.progress.fault.as_ref().map(|f| &f.summary));
+        assert_eq!(turn.progress.reply, "Finished the edit.");
+        let seen = provider.seen.lock().expect("seen");
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[1].messages.last().expect("message").content, super::CONTINUE_STALLED);
     }
 
     #[test]

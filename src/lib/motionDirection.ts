@@ -300,7 +300,7 @@ export const PLAYBOOKS: Playbook[] = [
     ],
     look: ['Dark or pure-white seamless stage; one key light, one rim light, soft floor reflection.', 'Thin 1–2 px callout lines, small caps labels, lots of empty space.', 'Colour only from the product and one accent.'],
     timing: ['Camera moves are slow and continuous (ease `push` over 2–4 s); never a static hold longer than 2 s.', 'Detail shots 2.5–3.5 s each; cuts on beat or hidden inside a light sweep.', 'Text enters after the camera settles, 6–10 f later.'],
-    rules: ['One hero object per shot.', 'Hide cuts in light flashes, whip pans or the object filling the frame.', 'Sub hit + shimmer on the reveal and the logo.'],
+    rules: ['One hero object per shot.', 'Hide cuts in light flashes, whip pans or the object filling the frame.', 'Sub hit + shimmer on the reveal and the logo.', 'render_3d_scene comes in as layers by default (Background, Shadow, one per object, back to front): put the headline between the Shadow and the hero so the product overlaps the type, grade or blur one layer, or ask for layers "single" when one clip is wanted.'],
     tools: ['list_3d_presets', 'render_3d_scene', 'generate_cloud_media', 'create_motion_scene', 'create_motion_sequence', 'add_fx', 'analyze_music_beats', 'snap_cuts_to_beats', 'add_sound_effect', 'run_frame_qa'],
     eases: ['push', 'settle', 'emphasized'],
     features: ['camera.aperture', 'effects.glow'],

@@ -268,6 +268,8 @@ export type LlmPlan = {
   estTokensPerSecond: [number, number] | null;
   verdict: 'great' | 'ok' | 'slow' | 'no';
   note: string;
+  /** 'no' only because of the memory limit in Settings; show a "Change limit" link. */
+  overLimit?: boolean;
 };
 
 /**

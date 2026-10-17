@@ -59,6 +59,7 @@ import { DEFAULT_DISPLAY, dropClips, dropIntoEmpty, LABELS, Timeline, type Displ
 import { AudioMeters, DEFAULT_METERS, ToolsPanel, TOOL_LABEL } from './editor/ToolsAndMeters';
 import { aiContext, generatedFolderId, quickContext, rootFolderId, runTool, TOOL_SPECS, warmCustomTools } from './lib/aiTools';
 import { AI_WORK_BIN, aiWorkOutputDir, readyOutputs } from './lib/aiWork';
+import { autoPolish } from './lib/autoPolish';
 import { scopeFromClips } from './lib/quickScope';
 import { repairArgs } from './lib/argRepair';
 import { readDedupeFor } from './lib/readDedupe';
@@ -213,7 +214,7 @@ const EMPTY_SETTINGS: Settings = {
 };
 
 /** When the saved choice is unusable, prefer agents the user is signed in to, then local, then cloud. */
-const PREFERENCE = ['claude', 'codex', 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', 'openrouter', 'groq', 'xai', 'deepseek', 'mistral', 'moonshot', 'opencode-zen', 'opencode', 'grok', 'antigravity', 'bhippi'];
+const PREFERENCE = ['claude', 'codex', 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', 'openrouter', 'groq', 'xai', 'deepseek', 'mistral', 'moonshot', 'zai', 'opencode-zen', 'opencode', 'grok', 'antigravity', 'bhippi'];
 
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || (target.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes((target as HTMLInputElement).type)));
@@ -4094,6 +4095,16 @@ export default function App() {
             const quick = turn?.mode === 'quick';
             const summary = quick ? quickContext(history.current(), assetMap, selection, turn?.scope ?? null) : aiContext(history.current(), assetMap, selection);
             return { ...(summary as object), ...(quick ? {} : { reference: referenceBrief }), ...(editStyle ? { editStyle } : {}), brandKit: kit ? (quick ? brandKitQuickContext(kit) : brandKitContext(kit)) : null, ...(quick ? {} : { brandKits: kits.map((k) => ({ id: k.id, name: k.name, style: k.style, industry: k.industry, tagline: k.tagline, active: k.id === kit?.id })) }), customTools: customToolsBrief(), plugins: pluginsBrief(), cloudGeneration: settingsRef.current.cloudGeneration?.enabled ? 'on: connected cloud video/image generators may be used; call cloud_generation_capabilities before planning a generated shot, and pass the images the editor attached as referenceAssetIds' : 'off: never call generate_cloud_media', tokenBudget: ledgerBrief(projectKey(projectDirRef.current)), projectFolder: projectDirRef.current ? { path: projectDirRef.current, note: 'The open project folder. Downloads, generated media, voice-overs, roto and exports are filed here automatically; save research notes and scraped pages you write yourself under its Research subfolder. todos/… files you write land in its Guidelines folder, where the user reads them in the Project panel. Your own shell and file tools start in its "AI Work" subfolder (the aiWork path): keep scripts, caches and test renders there. Put every finished piece meant for the edit (a rendered scene, a still, a stem) in "AI Work/Output" (the aiWorkOutput path): Bhippi brings each new file there into the "AI Work" bin of the Project panel as it appears, so the user sees the work arrive. Never leave finished work only in a scratch folder.', aiWork: aiWorkOutputDir(projectDirRef.current).replace(/[\\/]Output$/, ''), aiWorkOutput: aiWorkOutputDir(projectDirRef.current) } : null }; }} tools={toolRuns}
+          onAutoPolish={async (turnId) => {
+            // The turn ended unverified: Bhippi's own deterministic pass (black edges, a missing bed, the mix, the Judge).
+            const report = await autoPolish({
+              run: (name, args) => runTool(hostRef.current, name, args, undefined, turnId) as Promise<{ ok: boolean; summary?: string; error?: string }>,
+              project: () => history.current(),
+              assets: () => assetMap,
+              mix: async (compId) => { try { return await api.mixLoudness(history.current(), compId); } catch { return null; } },
+            });
+            return report?.message ?? null;
+          }}
           onTurnDone={(outcome: TurnOutcome) => {
             // A render finished in the turn's last seconds: two looks, so its size is seen settled.
             void syncAiWorkRef.current();

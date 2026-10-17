@@ -16,7 +16,56 @@ export type FitResult = {
   reasons: string[];
   /** The download would not leave 2 GB free on the model drive. */
   diskShort: boolean;
+  /** 'no' only because of the memory limit in Settings (the PC has enough): offer a link to raise it. */
+  overLimit?: boolean;
 };
+
+/** The share of memory used when Settings does not say. */
+export const DEFAULT_LIMIT_PERCENT = 75;
+
+/** The measured hardware with the memory limit from Settings (25-100 %) attached, so every fit check sees it. */
+export const withRamLimit = (hw: HardwareInfo | null, percent: number | null | undefined): HardwareInfo | null => {
+  if (!hw || hw.ramGb == null) return hw;
+  const share = Math.min(100, Math.max(25, Math.round(percent ?? DEFAULT_LIMIT_PERCENT)));
+  return { ...hw, ramLimitPercent: share, ramLimitGb: (hw.ramGb * share) / 100 };
+};
+
+/** Settings › Performance: the shares the sliders offer, and the lines under them. */
+export const LIMIT_STEPS = { min: 25, max: 100, step: 5 };
+export const snapLimit = (percent: number | null | undefined): number => {
+  const value = Math.round((percent ?? DEFAULT_LIMIT_PERCENT) / LIMIT_STEPS.step) * LIMIT_STEPS.step;
+  return Math.min(LIMIT_STEPS.max, Math.max(LIMIT_STEPS.min, value));
+};
+/** "Up to 12 of 16 threads" (at least one thread, as the backend counts). */
+export const threadsReadout = (totalThreads: number | null | undefined, percent: number): string => {
+  if (!totalThreads || totalThreads < 1) return `${percent}% of the processor`;
+  const used = Math.min(totalThreads, Math.max(1, Math.floor((totalThreads * percent) / 100)));
+  return `Up to ${used} of ${totalThreads} thread${totalThreads === 1 ? '' : 's'}`;
+};
+/** "Up to 48 of 64 GB" (whole numbers when they are, one decimal otherwise). */
+export const memoryReadout = (totalGb: number | null | undefined, percent: number): string => {
+  if (!totalGb || totalGb <= 0) return `${percent}% of the memory`;
+  const text = (gb: number) => (Math.abs(gb - Math.round(gb)) < 0.05 ? String(Math.round(gb)) : gb.toFixed(1));
+  return `Up to ${text((totalGb * percent) / 100)} of ${text(totalGb)} GB`;
+};
+
+/** The most of the memory limit the RAM preview cache may take. */
+export const PREVIEW_CACHE_SHARE = 0.25;
+
+/** The preview cache sizes (MB) that fit the memory limit (at least the smallest), and the stored choice clamped to them. */
+export const previewCacheChoices = (sizesMb: number[], limitGb: number | null | undefined): number[] => {
+  if (limitGb == null) return sizesMb;
+  const allowed = sizesMb.filter((mb) => mb <= limitGb * 1024 * PREVIEW_CACHE_SHARE);
+  return allowed.length ? allowed : sizesMb.slice(0, 1);
+};
+export const clampPreviewCacheMb = (mb: number, sizesMb: number[], limitGb: number | null | undefined): number => {
+  const choices = previewCacheChoices(sizesMb, limitGb);
+  return Math.min(mb, choices[choices.length - 1]);
+};
+
+/** The sentence for a model that needs more memory than the limit allows. */
+export const limitReason = (needGb: number, limitGb: number, percent: number): string =>
+  `Needs about ${Math.ceil(needGb)} GB of memory; your limit is ${Math.round(limitGb)} GB (${percent}%, Settings › Performance). Raise the limit or pick a smaller size.`;
 
 /** Runtimes that need a CUDA-capable NVIDIA card (Strata has no processor-only mode); llama.cpp and the Model Center downloads do not. */
 export const NEEDS_NVIDIA: LibraryRuntime[] = ['comfyui', 'local-media', 'strata'];
@@ -59,17 +108,18 @@ export const totalBytes = (variant: Pick<LibraryVariant, 'files'>, addons: Pick<
 export const fitOf = (
   variant: Pick<LibraryVariant, 'minVramGb' | 'recVramGb' | 'minRamGb' | 'files'> & { approxBytes?: number },
   hw: HardwareInfo | null,
-  options: { runtime?: LibraryRuntime; freeGb?: number | null; extraBytes?: number } = {},
+  options: { runtime?: LibraryRuntime; freeGb?: number | null; extraBytes?: number; /** Memory Bhippi may use, GB; defaults to the limit on `hw`. */ ramLimitGb?: number | null } = {},
 ): FitResult => {
   const needsGpu = NEEDS_NVIDIA.includes(options.runtime ?? 'comfyui');
   const bytes = variantBytes(variant) + (options.extraBytes ?? 0);
   const needGb = bytes / 1e9;
   const diskShort = options.freeGb != null && options.freeGb < needGb + DISK_MARGIN_GB;
-  const make = (fit: ModelFit, reasons: string[]): FitResult => ({
+  const make = (fit: ModelFit, reasons: string[], overLimit = false): FitResult => ({
     fit,
-    label: FIT_LABELS[fit],
+    label: overLimit ? 'Over your memory limit' : FIT_LABELS[fit],
     reasons: diskShort ? [...reasons, `Needs about ${needGb.toFixed(1)} GB on the model drive; ${Math.max(0, options.freeGb ?? 0).toFixed(0)} GB is free.`] : reasons,
     diskShort,
+    ...(overLimit ? { overLimit } : {}),
   });
   if (!hw) return { fit: 'checking', label: FIT_LABELS.checking, reasons: [], diskShort };
 
@@ -78,6 +128,11 @@ export const fitOf = (
   if (needsGpu && !gpu) return make('nvidia', ['This model runs through CUDA, which needs an NVIDIA graphics card.']);
   if (ram != null && ram < variant.minRamGb) {
     return make('no', [`Needs ${variant.minRamGb} GB of system RAM; this PC has ${Math.round(ram)} GB.`]);
+  }
+  const limit = options.ramLimitGb !== undefined ? options.ramLimitGb : (hw.ramLimitGb ?? null);
+  if (ram != null && limit != null && limit < ram && variant.minRamGb > limit) {
+    const percent = hw.ramLimitPercent ?? Math.round((limit / ram) * 100);
+    return make('no', [limitReason(variant.minRamGb, limit, percent)], true);
   }
   if (!gpu) {
     // Without a GPU the model runs from system RAM alone: it works, but nothing is quick.

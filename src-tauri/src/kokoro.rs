@@ -98,7 +98,9 @@ pub async fn run(job: &Job) -> Result<(), String> {
         // No console window flashing up for a background voice read.
         command.creation_flags(0x0800_0000);
     }
+    crate::resources::limit_threads_env(&mut command);
     let mut child = command.spawn().map_err(|error| format!("could not start the voice engine: {error}"))?;
+    crate::resources::contain(&child);
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(input.as_bytes()).await.map_err(|error| format!("could not send the script to the voice engine: {error}"))?;
         drop(stdin);

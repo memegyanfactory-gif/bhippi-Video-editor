@@ -53,3 +53,25 @@ describe('argument key aliases', () => {
     expect(repairArgs('read_file', { path: 'p', whatever: 1 })).toEqual({ path: 'p', whatever: 1 });
   });
 });
+
+describe('shapes seen in real turn traces (2026-10)', () => {
+  it('unwraps the {"item": …} lists an XML-style call leaves inside an apply_edit op, and its quoted numbers', () => {
+    const fixed = repairArgs('apply_edit', { label: 'x', ops: [{ op: 'volume', clips: { item: ['a', 'b'] }, db: '-8' }, { op: 'move', clips: { item: 'c' }, by: '0', track: { item: 'V1' } }] }) as { ops: Record<string, unknown>[] };
+    expect(fixed.ops[0]).toEqual({ op: 'volume', clips: ['a', 'b'], db: -8 });
+    expect(fixed.ops[1]).toEqual({ op: 'move', clips: ['c'], by: 0, track: 'V1' });
+  });
+
+  it('keeps an apply_edit place op whose real `item` is next to other keys, and text that looks like a number', () => {
+    const op = { op: 'place', item: 'asset1', at: 2 };
+    expect((repairArgs('apply_edit', { ops: [op] }) as { ops: unknown[] }).ops[0]).toEqual(op);
+    const text = { op: 'text', preset: 'title', text: '10', at: 1, duration: 2 };
+    expect((repairArgs('apply_edit', { ops: [text] }) as { ops: unknown[] }).ops[0]).toEqual(text);
+  });
+
+  it('reads beats sent as JSON text inside the array, or as {"item": [...]}', () => {
+    const beats = [{ text: 'One' }, { text: 'Two' }];
+    expect(repairArgs('build_edit_from_brief', { beats: [JSON.stringify(beats)] })).toEqual({ beats });
+    expect(repairArgs('build_edit_from_brief', { beats: [{ item: beats }] })).toEqual({ beats });
+    expect(repairArgs('build_edit_from_brief', { beats: JSON.stringify(beats) })).toEqual({ beats });
+  });
+});

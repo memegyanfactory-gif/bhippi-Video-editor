@@ -772,6 +772,10 @@ export type Settings = {
   previewCacheEnabled?: boolean | null;
   /** Its RAM budget in megabytes; 1536 when unset. */
   previewCacheMb?: number | null;
+  /** Share of the processor Bhippi's heavy work may use (25–100); 75 when unset. */
+  cpuLimitPercent?: number | null;
+  /** Share of the memory Bhippi's heavy work may use (25–100); 75 when unset. */
+  ramLimitPercent?: number | null;
   /** The pixel avatar that acts out what Bhippi AI is doing (src/avatar); off unless the user turns it on (onboarding or Settings › Avatar). */
   avatar?: boolean | null;
   /** Who the avatar is: 'heli', 'cat', 'woman', 'genie', 'puppy', 'senior' or one of the heroes (avatar/heroes.ts); Heli when unset. */

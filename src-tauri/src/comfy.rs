@@ -304,7 +304,7 @@ fn free_port() -> Result<u16, String> {
 
 /// The command line after the Python executable.
 fn server_args(main_py: &Path, port: u16, yaml: &Path, output: &Path) -> Vec<OsString> {
-    vec![
+    let mut args: Vec<OsString> = vec![
         main_py.into(),
         "--listen".into(),
         "127.0.0.1".into(),
@@ -315,7 +315,22 @@ fn server_args(main_py: &Path, port: u16, yaml: &Path, output: &Path) -> Vec<OsS
         yaml.into(),
         "--output-directory".into(),
         output.into(),
-    ]
+    ];
+    args.extend(cache_ram_args(&crate::resources::current()));
+    args
+}
+
+/// ComfyUI 0.41's `--cache-ram GB` keeps that much system memory free: it drops cached node
+/// results and pinned models once free RAM falls below it. The share of memory the user did not
+/// give Bhippi is that headroom (never under ComfyUI's own 2 GB minimum), so the cache gives way
+/// before the limit is crossed. Nothing is passed at 100% or when the PC's memory is unknown.
+fn cache_ram_args(limits: &crate::resources::ResourceLimits) -> Vec<OsString> {
+    let total = limits.total_ram_bytes as f64 / 1e9;
+    if limits.ram_percent >= 100 || total <= 0.0 {
+        return Vec::new();
+    }
+    let headroom = (total - limits.ram_gb()).max(2.0);
+    vec!["--cache-ram".into(), format!("{headroom:.1}").into()]
 }
 
 fn http_api() -> reqwest::Client {
@@ -395,9 +410,11 @@ async fn ensure_server(state: &Arc<AppState>) -> CommandResult<Endpoint> {
         .stdout(std::process::Stdio::from(log_file))
         .stderr(std::process::Stdio::from(log_copy))
         .kill_on_drop(true);
+    crate::resources::limit_threads_env(&mut command);
     #[cfg(windows)]
     command.creation_flags(NO_WINDOW);
     let child = command.spawn().map_err(|error| format!("Could not start ComfyUI: {error}"))?;
+    crate::resources::contain(&child);
     let base = format!("http://127.0.0.1:{port}");
     let pid = child.id();
     let input_dir = main_dir.join("input");
@@ -411,6 +428,9 @@ async fn ensure_server(state: &Arc<AppState>) -> CommandResult<Endpoint> {
             return Ok(Endpoint { base, input_dir: Some(input_dir), owned: true });
         }
         if live_server().is_none() {
+            if let Some(message) = crate::resources::memory_stop_message("ComfyUI") {
+                return Err(message);
+            }
             let detail = tail_of(&log, 12);
             return Err(format!("ComfyUI closed while starting. {}", if detail.is_empty() { "Its log is empty.".to_owned() } else { format!("Its last messages:\n{detail}") }));
         }
@@ -1274,6 +1294,16 @@ mod tests {
         let port = free_port().unwrap();
         assert!(port > 0);
         assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_ok());
+    }
+
+    #[test]
+    fn the_ram_cache_leaves_the_unlimited_share_free() {
+        use crate::resources::limits_for;
+        let shown = |limits| cache_ram_args(&limits).iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        assert_eq!(shown(limits_for(None, None, 16, 64_000_000_000)), ["--cache-ram", "16.0"]);
+        assert_eq!(shown(limits_for(None, Some(25), 16, 8_000_000_000)), ["--cache-ram", "6.0"]);
+        assert!(shown(limits_for(None, Some(100), 16, 64_000_000_000)).is_empty());
+        assert!(shown(limits_for(None, None, 16, 0)).is_empty());
     }
 
     #[test]

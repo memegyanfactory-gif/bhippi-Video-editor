@@ -111,4 +111,5 @@ export const FALLBACK_MARKS: Record<string, { bg: string; fg: string; glyph: str
   antigravity: { bg: "#1A73E8", fg: "#FFFFFF", glyph: "A" },
   deepseek: { bg: "#4D6BFE", fg: "#FFFFFF", glyph: "D" },
   mistral: { bg: "#FA520F", fg: "#FFFFFF", glyph: "M" },
+  zai: { bg: "#1F3CFF", fg: "#FFFFFF", glyph: "Z" },
 };

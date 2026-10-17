@@ -25,6 +25,8 @@ chrono = { workspace = true }
 futures-util = { workspace = true }
 bhippi-providers = { path = "../crates/bhippi-providers" }
 bhippi-kokoro = { path = "../crates/bhippi-kokoro" }
+# The Windows Job Object that holds the heavy workers to the processor and memory share (src/resources.rs).
+bhippi-job = { path = "../crates/bhippi-job" }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -12,6 +12,8 @@ import type { AppInfo, ProviderInfo, Settings } from '../lib/types';
 import { Row, Section, SettingsHeader } from './SettingsLayout';
 import { chooseStorageRoot } from './StorageSettings';
 import type { SettingsTab } from './SettingsModal';
+import { clampPreviewCacheMb, LIMIT_STEPS, memoryReadout, previewCacheChoices, snapLimit, threadsReadout, withRamLimit } from '../lib/modelFit';
+import { useHardware } from './LocalModelAdvisor';
 
 type Props = {
   settings: Settings;
@@ -45,6 +47,25 @@ export function GeneralSettings({ settings, onSettings, providers, info, onTab, 
   const usable = providers.filter((row) => row.usable && row.enabled);
   const permission = PERMISSION_MODES.some((mode) => mode.id === settings.permission) ? settings.permission : DEFAULT_PERMISSION;
   const cacheOn = settings.previewCacheEnabled ?? true;
+  // The RAM cache stays within the memory limit: only sizes up to a quarter of it are offered.
+  const { hw } = useHardware();
+  const ramLimitGb = withRamLimit(hw, settings.ramLimitPercent)?.ramLimitGb ?? null;
+  const cpuPercent = snapLimit(settings.cpuLimitPercent);
+  const ramPercent = snapLimit(settings.ramLimitPercent);
+  // What the contained workers use right now, polled while this page is open.
+  const [usedBytes, setUsedBytes] = useState<number | null>(null);
+  useEffect(() => {
+    const read = () => void api.resourcesStatus().then((status) => setUsedBytes(status.usedBytes)).catch(() => undefined);
+    read();
+    const timer = window.setInterval(read, 3000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const usedNow = usedBytes ? `Using now: ${(usedBytes / 1e9).toFixed(1)} GB.` : '';
+  const cacheSizes = previewCacheChoices(CACHE_SIZES, ramLimitGb);
+  const cacheMb = clampPreviewCacheMb(settings.previewCacheMb ?? 1536, CACHE_SIZES, ramLimitGb);
+  useEffect(() => {
+    if (ramLimitGb != null && settings.previewCacheMb != null && cacheMb < settings.previewCacheMb) onSettings({ ...settings, previewCacheMb: cacheMb });
+  }, [ramLimitGb, cacheMb]);
 
   const moveProjects = async () => {
     setMoving(true);
@@ -118,11 +139,22 @@ export function GeneralSettings({ settings, onSettings, providers, info, onTab, 
         </Row>
         <Row title="RAM preview cache" hint="Keeps rendered frames in memory so playback of effects-heavy parts stays smooth.">
           {cacheOn && (
-            <select value={settings.previewCacheMb ?? 1536} onChange={(event) => set({ previewCacheMb: Number(event.target.value) })} aria-label="Preview cache size">
-              {CACHE_SIZES.map((mb) => <option key={mb} value={mb}>{mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`}</option>)}
+            <select value={cacheMb} onChange={(event) => set({ previewCacheMb: Number(event.target.value) })} aria-label="Preview cache size">
+              {cacheSizes.map((mb) => <option key={mb} value={mb}>{mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`}</option>)}
             </select>
           )}
           <Toggle checked={cacheOn} onChange={(on) => set({ previewCacheEnabled: on })} label="RAM preview cache" />
+        </Row>
+      </Section>
+
+      <Section title="Performance">
+        <Row title="Processor" hint={<>{threadsReadout(hw?.threads, cpuPercent)}. Keeps the mouse and other programs smooth while models and renders run; 100% is fastest. Programs already running keep their threads until they restart.</>}>
+          <input type="range" min={LIMIT_STEPS.min} max={LIMIT_STEPS.max} step={LIMIT_STEPS.step} value={cpuPercent} onChange={(event) => set({ cpuLimitPercent: Number(event.target.value) })} aria-label="Processor limit" />
+          <span className="set-row-hint">{cpuPercent}%</span>
+        </Row>
+        <Row title="Memory" hint={<>{memoryReadout(hw?.ramGb, ramPercent)}. Models, renders and generators stop at this limit instead of freezing the PC; 100% is fastest.{usedNow ? ` ${usedNow}` : ''}</>}>
+          <input type="range" min={LIMIT_STEPS.min} max={LIMIT_STEPS.max} step={LIMIT_STEPS.step} value={ramPercent} onChange={(event) => set({ ramLimitPercent: Number(event.target.value) })} aria-label="Memory limit" />
+          <span className="set-row-hint">{ramPercent}%</span>
         </Row>
       </Section>
 

@@ -8,6 +8,8 @@
 import type { ScoreMood, PlateStyle } from './ipc';
 import type { PacingTarget } from './pacing';
 import type { TransitionKind } from '../motion/sequence';
+import { MIN_FIT } from './templateFix';
+import { BRAND_SLOTS } from './templateSlots';
 
 export type BeatKind = 'title' | 'statement' | 'stat' | 'list' | 'quote' | 'lower-third' | 'end' | 'chapter' | 'question' | 'steps' | 'logo';
 export const BEAT_KINDS: BeatKind[] = ['title', 'statement', 'stat', 'list', 'quote', 'lower-third', 'end', 'chapter', 'question', 'steps', 'logo'];
@@ -117,8 +119,58 @@ function accentOf(beat: BriefBeat): string | undefined {
   return list.sort((a, b) => b.length - a.length)[0];
 }
 
+const TRAILING_FILLER = /\s+(?:a|an|the|of|and|or|to|for|in|on|with|that|is|are|your|our|every|all)$/i;
+
+/**
+ * `text` cut to at most `max` characters without changing what it says first: whole clauses while
+ * they fit, else whole words, never ending on a dangling "the" or "of". A weaker model's 100-word
+ * headline would otherwise fail the whole build; a pro editor shortens the line, not the film.
+ */
+export function tighten(text: string, max: number): string {
+  // Text that already fits is left exactly as written (a steps beat's "1  Research" keeps its double space).
+  if (text.trim().length <= max) return text.trim();
+  const clean = text.replace(/\s+/g, ' ').trim();
+  // Whole sentences first, then (if even the first is too long) its clauses.
+  const gather = (parts: string[]) => {
+    let kept = '';
+    for (const part of parts) {
+      const next = kept ? `${kept} ${part}` : part;
+      if (next.length > max) break;
+      kept = next;
+    }
+    return kept;
+  };
+  let out = gather(clean.split(/(?<=[.!?])\s+/));
+  if (!out) out = gather(clean.split(/(?<=[;:—–])\s+|,\s+|\s[-–—]\s/));
+  if (!out) {
+    const cut = clean.slice(0, max + 1);
+    const space = cut.lastIndexOf(' ');
+    out = cut.slice(0, space >= max * 0.4 ? space : max);
+    while (TRAILING_FILLER.test(out)) out = out.replace(TRAILING_FILLER, '');
+  }
+  return out.replace(/[\s,;:—–-]+$/, '').slice(0, max);
+}
+
+/** Every text or list slot of a brand template cut to the longest the template can set (its box at 60%). */
+function fitSlots(template: string, params: Record<string, unknown>): Record<string, unknown> {
+  const schema = BRAND_SLOTS[template];
+  if (!schema) return params;
+  const out: Record<string, unknown> = { ...params };
+  for (const [slot, spec] of Object.entries(schema)) {
+    const value = out[slot];
+    if (spec.kind === 'text' && typeof value === 'string') out[slot] = tighten(value, Math.floor(spec.max / MIN_FIT));
+    else if (spec.kind === 'list' && Array.isArray(value)) out[slot] = value.slice(0, spec.maxItems).map((item) => (typeof item === 'string' ? tighten(item, Math.floor(spec.itemMax / MIN_FIT)) : item));
+  }
+  return out;
+}
+
 /** The template and parameters that carry a beat, over a plate (no stage of their own). */
 export function beatTemplate(beat: BriefBeat, kind: BeatKind, hold: number): { template: string; params: Record<string, unknown> } {
+  const raw = rawTemplate(beat, kind, hold);
+  return { template: raw.template, params: fitSlots(raw.template, raw.params) };
+}
+
+function rawTemplate(beat: BriefBeat, kind: BeatKind, hold: number): { template: string; params: Record<string, unknown> } {
   const duration = Math.round(hold * 100) / 100;
   switch (kind) {
     case 'stat': {
@@ -142,6 +194,9 @@ export function beatTemplate(beat: BriefBeat, kind: BeatKind, hold: number): { t
     case 'lower-third':
       return { template: 'brand-lower-third', params: { name: beat.text, role: beat.subtitle ?? beat.kicker ?? '', duration } };
     case 'end':
+      // An end card with no call to action has nothing for its button line: a closing title instead
+      // (the build used to fail here), never invented words.
+      if (!(beat.cta ?? beat.subtitle ?? '').trim()) return { template: 'brand-title', params: { title: beat.text, kicker: beat.kicker ?? '', subtitle: '', accentWord: accentOf(beat), background: 'none', duration } };
       return { template: 'brand-end-card', params: { headline: beat.text, cta: beat.cta ?? beat.subtitle ?? '', accentWord: accentOf(beat), background: 'none', duration } };
     case 'quote':
       return { template: 'brand-title', params: { title: `“${beat.text.replace(/^["“]|["”]$/g, '')}”`, subtitle: beat.subtitle ?? '', kicker: beat.kicker ?? '', accentWord: accentOf(beat), background: 'none', duration } };

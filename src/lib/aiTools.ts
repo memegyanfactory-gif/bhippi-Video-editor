@@ -492,7 +492,7 @@ export function frameBrief(comp: Comp) {
 
 /** What every turn is reminded of about the frame: it is read each turn with the project. */
 const LAYOUT_RULES = [
-  'Motion scenes open as layered "[Motion]" comps: one clip per layer on its own track, so the user can open one and change any layer. Edit them with update_motion_scene (clipId = the comp clip, the comp or a layer clip; patches by layer id); split_motion_layers opens older single-clip ones.',
+  'Motion scenes open as layered "[Motion]" comps: one clip per layer on its own track, so the user can open one and change any layer. Edit them with update_motion_scene (clipId = the comp clip, the comp or a layer clip; patches by layer id); split_motion_layers opens older single-clip ones. A render_3d_scene also arrives layered (Background, Shadow, then each object back to front), so 2D type can sit between its layers; layers "single" gives one clip.',
   'Know the frame before designing: `frame` gives the active comp size, aspect, orientation, safe area and the layouts that suit it. Design for that shape: a 9:16 comp is not a squeezed 16:9 one. To change the shape use update_comp {format | orientation | resolution, reframe: fill | blur | fit | keep}; it re-fits the footage and rebuilds the motion graphics for the new canvas. When the user wants a NEW comp in another shape for an edit already made ("make a portrait version", "new comp in 9:16 and adjust everything"), use create_comp {fromCompId, format | orientation, reframe}: it copies every clip, graphic, shape, caption and sound into the new comp and refits them, leaving the original as it was; never rebuild it by hand in an empty comp. For two or more pictures at once use split_screen (stacked in tall frames, side by side in wide ones).',
   'Everything rests inside the frame: panels, cards, type and reduced footage sit inside the safe area (16:9: 5% sides, 6% top/bottom; 9:16: 6% left, 13% right, 12% top, 20% bottom; 4:5, 3:4 and 1:1: 6% all round), never against or past an edge. layout_clip slots, split_screen and fitted motion scenes already do; a hand-set x/y/scale must too.',
   'No blank frames: when the project has a designed background plate (a generated gradient on V1), full-frame templates go over it with background "none" — a light brand stage covering it reads as a white screen. Reduced footage always has a designed background behind it, never flat white or black.',
@@ -3706,13 +3706,20 @@ ${notes.trim()}${paletteLine}
         patch.enhanceSpeech = enhance;
         changes.push(enhance ? 'Enhance Speech on' : 'Enhance Speech off');
       }
-      if ('audioType' in args) patch.audioType = args.audioType === null ? null : (str(args, 'audioType') as Clip['audioType']);
+      if ('audioType' in args) {
+        patch.audioType = args.audioType === null ? null : (str(args, 'audioType') as Clip['audioType']);
+        // Reported like every other change: a call that only set the type or the name used to be refused as "nothing to change" and never applied.
+        changes.push(`audio type ${patch.audioType ?? 'none'}`);
+      }
       if ('hold' in args) {
         patch.hold = args.hold === null ? null : (num(args, 'hold') ?? null);
         changes.push(patch.hold === null ? 'frame hold off' : `frame hold at ${timecode(patch.hold, fps(comp))}`);
       }
       const name_ = str(args, 'name');
-      if (name_) patch.name = name_;
+      if (name_) {
+        patch.name = name_;
+        changes.push(`renamed to “${name_}”`);
+      }
       const transform = record(args, 'transform');
       if (transform) {
         const base = next.clips.find((item) => item.id === found.clip.id)?.transform ?? DEFAULT_TRANSFORM;
@@ -4186,7 +4193,10 @@ ${notes.trim()}${paletteLine}
         if (!isFilmRecipe(recipe)) return fail(`No recipe "${recipe}". Recipes: ${FILM_RECIPES.map((id) => `${id} (${RECIPE_ABOUT[id]})`).join('; ')}.`);
         return buildFilmFromRecipe({ host, comp, commit, editComp, signal, turnId }, recipe, brief as FilmBeat[], args);
       }
-      const genre = str(args, 'genre') ?? inferGenres(project, comp)[0] ?? 'motion';
+      // With no picture under the graphics (a video made from titles) the kind is motion: an empty
+      // timeline otherwise reads as "edit" (or "shorts" in a tall frame) and the build came out calm and slow.
+      const pictureAlready = comp.clips.some((clip) => clip.enabled && tracksOf(comp, 'video').some((t) => t.id === clip.trackId));
+      const genre = str(args, 'genre') ?? (pictureAlready ? inferGenres(project, comp)[0] : 'motion') ?? 'motion';
       const book = playbook(PLAYBOOK_FOR[genre as Genre] ?? genre);
       const moodArg = str(args, 'mood');
       // A reference film's pacing when one is active; otherwise the cut rate the brand kit learned

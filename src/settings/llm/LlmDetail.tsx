@@ -13,9 +13,10 @@ import { libraryApi, type LibraryEntry, type LibraryView, type LlmPlan, type Llm
 import type { HardwareInfo } from '../../lib/ipc';
 import type { Job } from '../../lib/types';
 import { Markdown } from '../../components/Markdown';
+import type { SettingsTab } from '../SettingsModal';
 import { statusOfSize, useDownloadProgress, useQueueWatch } from '../libraryShared';
 import { HfSignIn } from '../library/HfSignIn';
-import { CapChips, CopyButton, FitPill, MakerLogo, VerifiedTick } from './parts';
+import { CapChips, ChangeLimit, CopyButton, FitPill, MakerLogo, VerifiedTick } from './parts';
 import { RunningSpeeds, TuneControls } from './SpeedPanel';
 import { STRATA_BADGE, StrataNotes, StrataStartConfirm, useStrataStatus } from './StrataPanel';
 
@@ -72,6 +73,8 @@ const CONTEXT_CHOICES = [8192, 16384, 32768, 65536];
 
 export type DetailContext = {
   hw: HardwareInfo | null;
+  /** Opens a Settings tab (the "Change limit" link goes to General). */
+  onTab?: (tab: SettingsTab) => void;
   freeGb: number | null;
   views: LibraryView[];
   jobs: Job[];
@@ -468,7 +471,8 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
                       <FitPill fit={option.fit} />
                     </div>
                     {option.plan && option.plan.verdict !== 'no' && !strata && <p className="lb-plan">{option.plan.note}</p>}
-                    {option.plan && option.plan.verdict === 'no' && <p className="lb-plan bad">{option.plan.note}</p>}
+                    {option.plan && option.plan.verdict === 'no' && <p className="lb-plan bad">{option.plan.note}{option.plan.overLimit && <ChangeLimit onTab={ctx.onTab} />}</p>}
+                    {option.fit.overLimit && !(option.plan && option.plan.verdict === 'no') && <p className="lb-plan bad">{option.fit.reasons[0]}<ChangeLimit onTab={ctx.onTab} /></p>}
                     {startingNote && status?.id !== 'downloading' && <p className="lb-starting" role="status" aria-live="polite"><LoaderCircle size={12} className="spin" /> {startingNote}</p>}
                     {status?.id === 'queued' && <p className="lb-starting" role="status" aria-live="polite">{status.label}: starts when the download ahead of it finishes.</p>}
                     {status?.id === 'downloading' && view && <DownloadStatus view={view} job={job} busy={busy === view.entry.id} onPause={() => pause(view)} onCancel={() => cancel(view)} />}

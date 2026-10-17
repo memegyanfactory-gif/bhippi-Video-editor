@@ -112,6 +112,9 @@ pub struct LlmPlan {
     pub est_tokens_per_second: Option<(f64, f64)>,
     pub verdict: Verdict,
     pub note: String,
+    /// The verdict is No only because of the memory limit in Settings (the PC itself has enough):
+    /// the UI offers a link to raise it.
+    pub over_limit: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -178,6 +181,24 @@ pub struct Pc {
     /// Installed system memory, in GiB.
     pub ram_gb: f64,
     pub ram_bandwidth_gbs: f64,
+    /// Memory Bhippi may use (Settings › Performance), in GiB; at most `ram_gb`.
+    pub ram_cap_gb: f64,
+    /// The share of the memory that cap is, for the notes.
+    pub ram_percent: u8,
+    /// Threads llama.cpp may use; the CPU-side speed scales with them up to the memory bandwidth.
+    pub cpu_threads: usize,
+}
+
+/// Threads at which one desktop's CPU kernels already saturate the system memory's bandwidth;
+/// below it, decode speed on the processor is roughly proportional to the threads used.
+const BANDWIDTH_THREADS: f64 = 8.0;
+
+impl Pc {
+    /// System-memory bandwidth reachable with the threads the limit allows.
+    fn cpu_bandwidth_gbs(&self) -> f64 {
+        let share = (self.cpu_threads as f64 / BANDWIDTH_THREADS).clamp(1.0 / BANDWIDTH_THREADS, 1.0);
+        self.ram_bandwidth_gbs.max(1.0) * share
+    }
 }
 
 /// The share of a mixture-of-experts file that is routed experts (the part `--n-cpu-moe` moves to
@@ -277,7 +298,7 @@ fn ideal_speed(shape: &ModelShape, pc: &Pc, split: &Split) -> f64 {
     let layers = f64::from(shape.layers.max(1));
     let has_gpu = pc.vram_gb >= MIN_USEFUL_VRAM_GB;
     let gpu = pc.gpu_bandwidth_gbs.max(1.0);
-    let ram = pc.ram_bandwidth_gbs.max(1.0);
+    let ram = pc.cpu_bandwidth_gbs();
     let seconds = if shape.moe {
         let active = shape.file_gb * (shape.active_params_b / shape.total_params_b.max(0.1)).min(1.0);
         if !has_gpu {
@@ -293,6 +314,16 @@ fn ideal_speed(shape: &ModelShape, pc: &Pc, split: &Split) -> f64 {
         shape.file_gb * on_gpu / gpu + shape.file_gb * (1.0 - on_gpu) / ram
     };
     1.0 / seconds.max(1e-6)
+}
+
+/// The note when a model fits the PC but not the memory limit.
+fn limit_note(ram_gb: f64, pc: &Pc) -> String {
+    format!(
+        "Needs about {:.0} GB of memory; your limit is {:.0} GB ({}%, Settings \u{203a} Performance). Raise the limit or pick a smaller size.",
+        ram_gb.ceil(),
+        pc.ram_cap_gb.round(),
+        pc.ram_percent
+    )
 }
 
 fn round1(value: f64) -> f64 {
@@ -346,6 +377,7 @@ pub fn plan(shape: &ModelShape, pc: &Pc, requested_context: Option<u32>) -> LlmP
         est_tokens_per_second: estimate,
         verdict,
         note,
+        over_limit: false,
     };
 
     if !at.core_fits {
@@ -364,6 +396,11 @@ pub fn plan(shape: &ModelShape, pc: &Pc, requested_context: Option<u32>) -> LlmP
             pc.ram_gb.round()
         );
         return make(Verdict::No, None, note);
+    }
+    if at.ram_gb > pc.ram_cap_gb {
+        let mut over = make(Verdict::No, None, limit_note(at.ram_gb, pc));
+        over.over_limit = true;
+        return over;
     }
     if middle < 1.5 {
         let note = format!("It would manage {}, which is too slow to be useful. Pick a smaller version.", words(range));
@@ -410,7 +447,7 @@ pub fn fit_plan(file_gb: f64, projector_gb: f64, pc: &Pc, requested_context: Opt
     let mut context = requested_context.unwrap_or(DEFAULT_CONTEXT).clamp(2_048, 1_048_576);
     let mut plan = fit_plan_at(file_gb, projector_gb, pc, context);
     // Aims for 32K and halves (to 8K) only when the memory does not hold it; an explicit choice is kept.
-    while requested_context.is_none() && plan.ram_gb > pc.ram_gb && context > FIT_FLOOR_CONTEXT {
+    while requested_context.is_none() && plan.ram_gb > pc.ram_cap_gb.min(pc.ram_gb) && context > FIT_FLOOR_CONTEXT {
         context /= 2;
         plan = fit_plan_at(file_gb, projector_gb, pc, context);
     }
@@ -433,7 +470,7 @@ fn fit_plan_at(file_gb: f64, projector_gb: f64, pc: &Pc, context: u32) -> LlmPla
     let vram_gb = if has_gpu { (on_gpu_gb + kv.min(budget) + COMPUTE_GB + projector_gb).min(pc.vram_gb - HEADROOM_GB).max(0.0) } else { 0.0 };
     let ram_gb = file_gb * (1.0 - gpu_share) + if has_gpu { (kv - kv.min(budget)).max(0.0) } else { kv + projector_gb } + RAM_OVERHEAD_GB;
     let gpu = pc.gpu_bandwidth_gbs.max(1.0);
-    let ram = pc.ram_bandwidth_gbs.max(1.0);
+    let ram = pc.cpu_bandwidth_gbs();
     let seconds = on_gpu_gb / gpu + (file_gb - on_gpu_gb) / ram;
     let ideal = 1.0 / seconds.max(1e-6);
     let range = (round1(ideal * SPEED_LOW), round1(ideal * SPEED_HIGH));
@@ -447,10 +484,16 @@ fn fit_plan_at(file_gb: f64, projector_gb: f64, pc: &Pc, context: u32) -> LlmPla
         est_tokens_per_second: estimate,
         verdict,
         note,
+        over_limit: false,
     };
     if ram_gb > pc.ram_gb {
         let note = format!("It needs about {:.0} GB between the graphics card and system memory, and this PC has {:.0} GB of RAM. Pick a smaller version.", (ram_gb + vram_gb).ceil(), pc.ram_gb.round());
         return make(Verdict::No, None, note);
+    }
+    if ram_gb > pc.ram_cap_gb {
+        let mut over = make(Verdict::No, None, limit_note(ram_gb, pc));
+        over.over_limit = true;
+        return over;
     }
     let verdict = if middle >= 20.0 {
         Verdict::Great
@@ -695,12 +738,16 @@ pub(crate) async fn read_machine(state: &AppState) -> Machine {
 /// The plan's view of this PC. When Bhippi's own server is running it holds video memory itself,
 /// so the free reading is replaced by the card's total less what Windows keeps.
 fn pc_from(machine: &Machine, own_server_running: bool) -> Pc {
+    let limits = crate::resources::current();
     let usable = if own_server_running { (machine.vram_total_gb - 0.8).max(0.0) } else { machine.vram_free_gb.min(machine.vram_total_gb - 0.3).max(0.0) };
     Pc {
         vram_gb: usable,
         gpu_bandwidth_gbs: machine.gpu_name.as_deref().map_or(300.0, gpu_bandwidth_gbs),
         ram_gb: machine.ram_gb,
         ram_bandwidth_gbs: RAM_BANDWIDTH_GBS,
+        ram_cap_gb: machine.ram_gb * f64::from(limits.ram_percent) / 100.0,
+        ram_percent: limits.ram_percent,
+        cpu_threads: limits.threads(),
     }
 }
 
@@ -1176,6 +1223,14 @@ async fn spawn_and_wait(models: &Path, args: &[String], job: &JobHandle, label: 
     let log_err = log_out.try_clone().map_err(|error| error.to_string())?;
     let mut command = std::process::Command::new(server_exe(models));
     command.args(args).current_dir(runtime_dir(models)).stdin(std::process::Stdio::null()).stdout(log_out).stderr(log_err);
+    // The processor share from Settings › Performance, unless the user or the tuner chose threads.
+    let threads = crate::resources::current().threads().to_string();
+    if !args.iter().any(|arg| arg == "-t" || arg == "--threads") {
+        command.args(["-t", threads.as_str()]);
+    }
+    if !args.iter().any(|arg| arg == "-tb" || arg == "--threads-batch") {
+        command.args(["-tb", threads.as_str()]);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1183,12 +1238,13 @@ async fn spawn_and_wait(models: &Path, args: &[String], job: &JobHandle, label: 
     }
     job.progress(base, format!("Loading {label} into memory"));
     let mut child = command.spawn().map_err(|error| format!("could not start llama-server: {error}"))?;
+    crate::resources::contain_std(&child);
     let client = reqwest::Client::new();
     let started = Instant::now();
     let limit = Duration::from_secs(20 * 60);
     loop {
         if let Ok(Some(_)) = child.try_wait() {
-            return Err(explain_failure(&log));
+            return Err(crate::resources::explain_failure("llama-server", explain_failure(&log)));
         }
         if *job.cancel.borrow() {
             let _ignored = child.kill();
@@ -1483,11 +1539,50 @@ mod tests {
 
     /// The user's PC: an RTX 3080 with 10 GB (about 9.2 GiB free with the desktop running) and 64 GB of RAM.
     fn rtx3080() -> Pc {
-        Pc { vram_gb: 9.2, gpu_bandwidth_gbs: gpu_bandwidth_gbs("NVIDIA GeForce RTX 3080"), ram_gb: 63.8, ram_bandwidth_gbs: RAM_BANDWIDTH_GBS }
+        pc(9.2, 63.8, "NVIDIA GeForce RTX 3080")
     }
 
+    /// No limit in force: all the memory and enough threads to saturate it.
     fn pc(vram: f64, ram: f64, name: &str) -> Pc {
-        Pc { vram_gb: vram, gpu_bandwidth_gbs: gpu_bandwidth_gbs(name), ram_gb: ram, ram_bandwidth_gbs: RAM_BANDWIDTH_GBS }
+        Pc { vram_gb: vram, gpu_bandwidth_gbs: gpu_bandwidth_gbs(name), ram_gb: ram, ram_bandwidth_gbs: RAM_BANDWIDTH_GBS, ram_cap_gb: ram, ram_percent: 100, cpu_threads: 16 }
+    }
+
+    fn limited(mut pc: Pc, ram_percent: u8, threads: usize) -> Pc {
+        pc.ram_percent = ram_percent;
+        pc.ram_cap_gb = pc.ram_gb * f64::from(ram_percent) / 100.0;
+        pc.cpu_threads = threads;
+        pc
+    }
+
+    #[test]
+    fn a_pc_at_the_default_limit_plans_within_three_quarters_of_its_memory() {
+        let machine = Machine { gpu_name: None, vram_total_gb: 0.0, vram_free_gb: 0.0, ram_gb: 64.0 };
+        let pc = pc_from(&machine, false);
+        assert!((pc.ram_cap_gb - 48.0).abs() < 1e-9 && pc.ram_percent == 75 && pc.cpu_threads >= 1, "{pc:?}");
+    }
+
+    #[test]
+    fn a_model_over_the_memory_limit_but_within_the_pc_gets_the_limit_note() {
+        let pc = limited(pc(0.0, 64.0, ""), 75, 12);
+        let plan = fit_plan(44.0, 0.0, &pc, None);
+        assert_eq!(plan.verdict, Verdict::No);
+        assert!(plan.over_limit, "{plan:?}");
+        assert!(plan.note.contains("your limit is 48 GB (75%, Settings \u{203a} Performance)"), "{}", plan.note);
+        // The same model with no limit runs.
+        let free = fit_plan(44.0, 0.0, &limited(pc.clone(), 100, 12), None);
+        assert_ne!(free.verdict, Verdict::No);
+        assert!(!free.over_limit);
+        // A model bigger than the whole PC is not blamed on the limit.
+        let huge = fit_plan(70.0, 0.0, &pc, None);
+        assert!(huge.verdict == Verdict::No && !huge.over_limit);
+    }
+
+    #[test]
+    fn processor_speed_follows_the_threads_the_limit_allows() {
+        let base = pc(0.0, 64.0, "");
+        let speed = |threads: usize| fit_plan(10.0, 0.0, &limited(base.clone(), 100, threads), None).est_tokens_per_second.unwrap().1;
+        assert!((speed(4) * 2.0 - speed(8)).abs() < 0.3, "{} {}", speed(4), speed(8));
+        assert!((speed(8) - speed(16)).abs() < 1e-9, "memory bandwidth caps it");
     }
 
     fn model(id: &str, variant: &str) -> ModelShape {

@@ -59,6 +59,20 @@ fn is_hung(silent_for: Duration, tools_idle_for: Option<Duration>, in_flight: us
     in_flight == 0 && silent_for >= budget && tools_idle_for.is_none_or(|idle| idle >= budget)
 }
 
+/// How long a CLI may be silent, with no Bhippi tool running, before the chat says it is still thinking.
+const STILL_THINKING_AFTER: Duration = Duration::from_secs(45);
+
+/// The activity-dock step that shows a silent CLI is working, then closes when it speaks again.
+fn still_thinking(done: bool) -> Delta {
+    Delta::Step {
+        id: "bhippi-still-thinking".to_owned(),
+        verb: "thinking".to_owned(),
+        title: "Still thinking…".to_owned(),
+        detail: "No output yet; a reasoning model can take a few minutes before its next step.".to_owned(),
+        done,
+    }
+}
+
 /// The path [`CliProvider::argv_for`] substitutes for `{prompt_file}` in tests.
 const STAND_IN_PROMPT_FILE: &str = "<prompt-file>";
 
@@ -622,6 +636,9 @@ impl Provider for CliProvider {
             let mut failure: Option<String> = None;
             let started = tokio::time::Instant::now();
             let mut last_line = started;
+            // Whether a "still thinking" step is showing: a reasoning model can say nothing for
+            // minutes, and a chat that looks frozen is a chat the user stops.
+            let mut waiting = false;
 
             loop {
                 let remaining = hard_timeout.saturating_sub(started.elapsed());
@@ -645,6 +662,10 @@ impl Provider for CliProvider {
                         let (in_flight, tools_idle_for) = activity
                             .as_deref()
                             .map_or((0, None), |activity| (activity.in_flight(), activity.since_last()));
+                        if !waiting && in_flight == 0 && last_line.elapsed() >= STILL_THINKING_AFTER {
+                            waiting = true;
+                            let _ignored = tx.send(Ok(still_thinking(false))).await;
+                        }
                         if is_hung(last_line.elapsed(), tools_idle_for, in_flight, idle_budget) {
                             failure = Some(format!(
                                 "timed out after {}s with no output",
@@ -661,6 +682,10 @@ impl Provider for CliProvider {
                     Ok(Ok(None)) => break,
                     Ok(Ok(Some(line))) => {
                         last_line = tokio::time::Instant::now();
+                        if waiting {
+                            waiting = false;
+                            let _ignored = tx.send(Ok(still_thinking(true))).await;
+                        }
                         line
                     }
                 };

@@ -1,0 +1,20 @@
+[package]
+name = "bhippi-job"
+description = "A Windows Job Object that holds Bhippi's heavy worker programs to a processor and memory share."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# Calling the Windows API cannot be done without `unsafe`; the workspace forbids it everywhere else,
+# so it stays fenced in here behind a small safe API (like bhippi-kokoro).
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
