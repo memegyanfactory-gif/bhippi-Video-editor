@@ -91,6 +91,15 @@ pub struct HubQuant {
     pub bits: Option<f64>,
 }
 
+/// A speculative-decoding file (`mtp`, `draft`, `eagle3`): not a model, it only speeds one up and needs a full size.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct HubHelper {
+    pub kind: String,
+    pub path: String,
+    pub bytes: u64,
+    pub sha256: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct HubDetail {
     #[serde(flatten)]
@@ -98,6 +107,8 @@ pub struct HubDetail {
     pub quants: Vec<HubQuant>,
     pub summary: Option<String>,
     pub mmproj: Option<HubQuant>,
+    #[serde(default)]
+    pub helpers: Vec<HubHelper>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -552,6 +563,65 @@ fn split_stem(stem: &str) -> (&str, u32, u32) {
     (stem, 1, 1)
 }
 
+/// What a GGUF file is when it is a speculative-decoding helper rather than a model: `mtp`, `eagle3` or
+/// `draft` (also `dflash` and `speculator` files). Decided by whole words in the file name (split on
+/// `-`, `_`, `.` and spaces) or the folder, so `Qwen-MTP-draft.gguf` and `mtp-Q8_0.gguf` count but a
+/// model called `Draftsman` does not.
+pub(crate) fn helper_kind(folder: &str, lower_file: &str) -> Option<&'static str> {
+    let words: Vec<&str> = lower_file.trim_end_matches(".gguf").split(['-', '_', '.', ' ']).collect();
+    let has = |names: &[&str]| words.iter().any(|word| names.contains(word)) || names.iter().any(|name| folder.eq_ignore_ascii_case(name));
+    if has(&["eagle", "eagle3"]) {
+        Some("eagle3")
+    } else if has(&["mtp"]) && (words.first() == Some(&"mtp") || has(&["draft", "head", "drafter"]) || folder.eq_ignore_ascii_case("mtp")) {
+        Some("mtp")
+    } else if has(&["draft", "drafter", "dflash", "speculator"]) {
+        Some("draft")
+    } else {
+        None
+    }
+}
+
+/// The helper files of a file tree (see `helper_kind`), smallest first. A split helper is not expected.
+pub(crate) fn parse_helpers(tree: &Value) -> Vec<HubHelper> {
+    let mut helpers: Vec<HubHelper> = Vec::new();
+    for item in tree.as_array().map(Vec::as_slice).unwrap_or_default() {
+        if item["type"].as_str().is_some_and(|kind| kind != "file") {
+            continue;
+        }
+        let Some(path) = item["path"].as_str() else { continue };
+        let (folder, file) = path.rsplit_once('/').unwrap_or(("", path));
+        let lower = file.to_ascii_lowercase();
+        if !lower.ends_with(".gguf") || lower.contains("mmproj") {
+            continue;
+        }
+        let Some(kind) = helper_kind(folder, &lower) else { continue };
+        let bytes = item["lfs"]["size"].as_u64().or_else(|| item["size"].as_u64()).unwrap_or(0);
+        helpers.push(HubHelper { kind: kind.to_owned(), path: path.to_owned(), bytes, sha256: text_of(&item["lfs"]["oid"]) });
+    }
+    helpers.sort_by(|a, b| a.bytes.cmp(&b.bytes).then_with(|| a.path.cmp(&b.path)));
+    helpers
+}
+
+/// Whether a stored licence name is one of the common open licences (they need no acceptance in Bhippi).
+pub(crate) fn is_open_license_name(name: &str) -> bool {
+    OPEN_LICENSES.iter().any(|(id, label)| name.eq_ignore_ascii_case(label) || name.eq_ignore_ascii_case(id))
+}
+
+/// Brings an entry written by an older build in line: Hugging Face's own gate (sign-in and terms) is
+/// handled by the sign-in flow, so a repo being gated no longer forces Bhippi's licence step. Only a
+/// licence that is not a common open one still asks. True when the entry changed.
+pub(crate) fn normalize_acceptance(entry: &mut Value) -> bool {
+    if entry["source"].as_str() != Some("huggingface") {
+        return false;
+    }
+    let open = entry["license"]["name"].as_str().is_some_and(is_open_license_name);
+    if open && entry["license"]["requiresAcceptance"].as_bool() == Some(true) {
+        entry["license"]["requiresAcceptance"] = Value::Bool(false);
+        return true;
+    }
+    false
+}
+
 /// The GGUF files of a repository's file tree, grouped: each quantization (a split set counts as
 /// one, its parts in order and only when every part is there) with exact sizes, and the picture
 /// reader (`mmproj`) best suited to it. Speculative-decoding heads (`mtp-…`) and imatrix files are
@@ -570,7 +640,7 @@ pub(crate) fn parse_tree(tree: &Value, params_b: Option<f64>) -> (Vec<HubQuant>,
         }
         let (folder, file) = path.rsplit_once('/').unwrap_or(("", path));
         let lower = file.to_ascii_lowercase();
-        if lower.starts_with("mtp-") || folder.eq_ignore_ascii_case("mtp") || lower.contains("imatrix") {
+        if helper_kind(folder, &lower).is_some() || lower.contains("imatrix") {
             continue;
         }
         let stem = &file[..file.len() - 5];
@@ -718,7 +788,8 @@ async fn detail_impl(models: &Path, repo: &str) -> Result<HubDetail, String> {
         return Err("This repository has no GGUF files Bhippi can run.".to_owned());
     }
     fill_avatars(models, std::slice::from_mut(&mut model)).await;
-    let detail = HubDetail { model, quants, summary: readme.as_deref().and_then(readme_summary), mmproj };
+    let helpers = parse_helpers(&tree);
+    let detail = HubDetail { model, quants, summary: readme.as_deref().and_then(readme_summary), mmproj, helpers };
     remember(&DETAILS, repo.to_owned(), detail.clone());
     Ok(detail)
 }
@@ -1087,7 +1158,19 @@ pub(crate) fn build_entry(detail: &HubDetail, quant: &HubQuant, gguf: Option<&Gg
     }
     tags.extend(model.tags.iter().filter(|tag| !tag.contains(':') && tag.len() < 24 && !tags.contains(tag)).take(6).cloned().collect::<Vec<_>>());
     let from = if model.maker != model.author { format!("{}'s {title}, quantized by {}", model.maker, model.author) } else { format!("{title} from {}", model.author) };
-    json!({
+    // Speed-up helpers ride along as optional add-ons of this size (like the EAGLE3 helper of the big gpt-oss).
+    let mut addons: Vec<Value> = Vec::new();
+    for helper in &detail.helpers {
+        let addon_id = if helper.kind == "eagle3" && !addons.iter().any(|addon| addon["id"] == "eagle3") { "eagle3".to_owned() } else { format!("{}-{}", helper.kind, addons.len() + 1) };
+        let file_name = helper.path.rsplit('/').next().unwrap_or(&helper.path);
+        addons.push(json!({
+            "id": addon_id,
+            "label": "Speed-up helper",
+            "detail": format!("{file_name} ({}): drafts words ahead for this model. Optional; it needs this size.", gb(helper.bytes)),
+            "files": [{ "url": resolve_url(&model.repo, &helper.path), "dest": format!("{folder}/{file_name}"), "bytes": helper.bytes, "sha256": helper.sha256 }],
+        }));
+    }
+    let mut card = json!({
         "id": id,
         "name": format!("{title} \u{b7} {}", quant.quant),
         "maker": model.maker,
@@ -1110,14 +1193,19 @@ pub(crate) fn build_entry(detail: &HubDetail, quant: &HubQuant, gguf: Option<&Gg
             "url": format!("{HF}/{}", model.repo),
             "summary": license.summary,
             "notice": format!("{title} is published by {} on Hugging Face ({HF}/{}) under the license it lists there. Keep the model's license and notices with any copy you pass on.", model.author, model.repo),
-            "requiresAcceptance": license.needs_acceptance || model.gated,
+            // Hugging Face's own gate is the sign-in flow's job (hf_auth), not a second licence step.
+            "requiresAcceptance": license.needs_acceptance,
         },
         "links": [
             { "label": "Model page", "url": format!("{HF}/{}", model.repo) },
             { "label": "Files", "url": format!("{HF}/{}/tree/main", model.repo) },
         ],
         "variants": [variant],
-    })
+    });
+    if !addons.is_empty() {
+        card["addons"] = Value::Array(addons);
+    }
+    card
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1138,6 +1226,10 @@ fn read_entries(path: &Path) -> Vec<Value> {
 pub(crate) fn upsert_entry(path: &Path, entry: Value) -> Result<(), String> {
     let _guard = HUB_FILE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut entries = read_entries(path);
+    // Older files kept "requiresAcceptance" true for every gated repo; fix them whenever the file is rewritten.
+    for existing in &mut entries {
+        normalize_acceptance(existing);
+    }
     let id = entry["id"].as_str().unwrap_or_default().to_owned();
     match entries.iter().position(|existing| existing["id"].as_str() == Some(id.as_str())) {
         Some(at) => entries[at] = entry,

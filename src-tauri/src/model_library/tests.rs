@@ -837,3 +837,19 @@ fn defaults_survive_in_state_json() {
     let old: StateFile = serde_json::from_str("{\"models\":{}}").unwrap();
     assert!(old.defaults.is_empty());
 }
+
+#[test]
+fn a_saved_draft_head_is_not_listed_as_a_model() {
+    let card = |id: &str, file: &str| {
+        serde_json::json!({
+            "id": id, "source": "huggingface",
+            "variants": [{ "id": "v", "files": [
+                { "url": format!("https://huggingface.co/a/b/resolve/main/{file}") },
+                { "url": "https://huggingface.co/a/b/resolve/main/mmproj-F16.gguf" },
+            ] }],
+        })
+    };
+    assert!(only_helper_files(&card("draft", "Qwen3.8-Flash-Next-Uncensored-MTP-draft.gguf")));
+    assert!(!only_helper_files(&card("model", "Qwen3.8-Flash-Next-Uncensored-Q4_K_M.gguf")));
+    assert!(!only_helper_files(&card("mtp-build", "Big-MTP-Q8_0.gguf")));
+}

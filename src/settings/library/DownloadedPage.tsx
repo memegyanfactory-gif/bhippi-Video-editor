@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useLiveJobs } from '../../lib/jobsStore';
 import { formatBytes, variantBytes } from '../../lib/modelFit';
 import { libraryApi, type LibraryView } from '../../lib/modelLibrary';
-import { CATEGORIES, StatusPill, Thumb, statusOf } from '../libraryShared';
+import { CATEGORIES, StatusPill, Thumb, statusOf, useQueueWatch } from '../libraryShared';
 import { UseToggle } from './UseToggle';
 import type { LibraryContext } from './shared';
 
@@ -14,6 +14,7 @@ function Row({ view, ctx }: { view: LibraryView; ctx: LibraryContext }) {
   const jobs = useLiveJobs();
   const job = state.download ? jobs.find((row) => row.id === state.download?.jobId) : undefined;
   const uses = ctx.inUse.get(entry.id) ?? [];
+  useQueueWatch();
   const status = statusOf(view, job, uses.length > 0);
     const [confirm, setConfirm] = useState(false);
   const variant = entry.variants.find((row) => row.id === state.installedVariant);

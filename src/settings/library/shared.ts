@@ -5,7 +5,7 @@ import type { CapabilityChoice, ComfyStatus, LibraryKind, LibraryStorage, Librar
 
 export type Run = (work: () => Promise<unknown>, failure: string) => Promise<boolean>;
 
-export type LibraryPage = 'inuse' | 'downloaded' | 'engines' | LibraryKind;
+export type LibraryPage = 'inuse' | 'downloaded' | 'downloads' | 'engines' | LibraryKind;
 
 export type LibraryContext = {
   views: LibraryView[];

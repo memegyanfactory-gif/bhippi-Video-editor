@@ -2,7 +2,7 @@
 // there is room, over it with a back arrow when there is not), never against the window. A sticky
 // header names the model, the body scrolls through About, what it makes, sizes, add-ons, licence and
 // links, and a sticky footer carries the one action that matters now: download, progress, or use.
-import { ArrowLeft, Cloud, ExternalLink, Pause, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Cloud, ExternalLink, LoaderCircle, Pause, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type HardwareInfo } from '../lib/ipc';
 import { useLiveJobs } from '../lib/jobsStore';
@@ -16,7 +16,7 @@ import { HfSignIn } from './library/HfSignIn';
 import { hfRepoOf } from '../lib/hfSteps';
 import { UseToggle } from './library/UseToggle';
 import { ComfyEngine, LlmControls } from './ModelEngine';
-import { CATEGORY_BY_KIND, FitDot, Thumb, statusOf, useDownloadProgress } from './libraryShared';
+import { CATEGORY_BY_KIND, FitDot, Thumb, statusOf, useDownloadProgress, useQueueWatch } from './libraryShared';
 
 type Run = (work: () => Promise<unknown>, failure: string) => Promise<boolean>;
 
@@ -64,6 +64,7 @@ export function ModelDetail({ view, hw, storage, comfy, comfyError, llm, inUse, 
   const jobs = useLiveJobs();
   const job = state.download ? jobs.find((row) => row.id === state.download?.jobId) : undefined;
   const installJob = (pattern: RegExp) => jobs.find((row) => row.kind === 'install' && row.status === 'running' && pattern.test(row.label));
+  useQueueWatch();
   const status = statusOf(view, job, inUse.length > 0);
   const progress = useDownloadProgress(view, job);
   const category = CATEGORY_BY_KIND[entry.kind];
@@ -75,6 +76,8 @@ export function ModelDetail({ view, hw, storage, comfy, comfyError, llm, inUse, 
   const [read, setRead] = useState(false);
   const [territory, setTerritory] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Download was just pressed and its job is not listed yet. */
+  const [starting, setStarting] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const licenceRef = useRef<HTMLElement>(null);
 
@@ -120,7 +123,10 @@ export function ModelDetail({ view, hw, storage, comfy, comfyError, llm, inUse, 
       return run(() => Promise.reject(new Error('Sign in to Hugging Face and accept this model\'s terms first. The steps are just above.')), 'This model is gated');
     }
     const work = gated && task ? () => api.localMediaInstall(task) : () => libraryApi.download(entry.id, variantId, addonIds);
-    return run(work, 'Could not start the download').then((ok) => { if (ok) onChanged(); return ok; });
+    // Show "Starting…" at once; the live progress takes over when the job appears.
+    setStarting(true);
+    window.setTimeout(() => setStarting(false), 15_000);
+    return run(work, 'Could not start the download').then((ok) => { if (ok) onChanged(); else setStarting(false); return ok; });
   };
   const accept = async () => {
     const ok = await run(() => libraryApi.acceptLicense(entry.id, territories.length === 0 || territory), 'Could not record your acceptance');
@@ -155,6 +161,17 @@ export function ModelDetail({ view, hw, storage, comfy, comfyError, llm, inUse, 
               <button type="button" className="btn btn-ghost" onClick={() => void run(() => libraryApi.cancel(entry.id, false), 'Could not cancel').then(onChanged)}>Cancel</button>
             </span>
           </div>
+        </div>
+      );
+    }
+    if (status.id === 'queued') {
+      return (
+        <div className="ml-foot-row" aria-live="polite">
+          <span className="ml-foot-text"><strong>{status.label}</strong><span>Starts when the download ahead of it finishes. Model Library → Downloads shows the line.</span></span>
+          <span className="ml-foot-actions">
+            <button type="button" className="btn" onClick={() => void run(() => libraryApi.moveToTop(entry.id), 'Could not move it up').then(onChanged)}>Download next</button>
+            <button type="button" className="btn btn-ghost" onClick={() => void run(() => libraryApi.discard(entry.id), 'Could not remove it').then(onChanged)}>Remove</button>
+          </span>
         </div>
       );
     }
@@ -203,7 +220,7 @@ export function ModelDetail({ view, hw, storage, comfy, comfyError, llm, inUse, 
           </span>
           <span className="ml-foot-actions">
             {resumable && <button type="button" className="btn btn-ghost" onClick={() => void run(() => libraryApi.cancel(entry.id, false), 'Could not cancel').then(onChanged)}>Discard</button>}
-            <button type="button" className="btn btn-primary" disabled={!variant || fit?.diskShort} onClick={() => (needsGate ? openGate() : void startDownload())}>{resumable ? 'Resume' : 'Download'}</button>
+            <button type="button" className="btn btn-primary" disabled={!variant || fit?.diskShort || starting} onClick={() => (needsGate ? openGate() : void startDownload())}>{starting ? <><LoaderCircle size={13} className="spin" /> Starting…</> : resumable ? 'Resume' : 'Download'}</button>
           </span>
         </div>
         {entry.cloudAlternative && <p className="ml-foot-reason">Prefer not to download? <a href="#cloud" onClick={(event) => { event.preventDefault(); cloud(); }}>Use the cloud version</a>.</p>}

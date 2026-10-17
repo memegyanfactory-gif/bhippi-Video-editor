@@ -12,7 +12,7 @@ import {
   type HubRow, type QuickFilter,
 } from '../../lib/llmHub';
 import { libraryApi, onLibraryChange, type HubSort, type LibraryListing, type LibraryView, type LlmRuntimeStatus } from '../../lib/modelLibrary';
-import { statusOf } from '../libraryShared';
+import { statusOf, useQueueWatch } from '../libraryShared';
 import { useHardware } from '../LocalModelAdvisor';
 import { LlmDetail, repoOfEntry, type Selection } from './LlmDetail';
 import { CapIcons, MakerLogo, VerifiedTick } from './parts';
@@ -57,6 +57,7 @@ type Row = {
 
 export function LlmBrowser({ onChanged }: { onChanged: () => void }) {
   const { hw } = useHardware();
+  useQueueWatch();
   const jobs = useLiveJobs();
   const [listing, setListing] = useState<LibraryListing | null>(null);
   const [listError, setListError] = useState('');
@@ -205,7 +206,7 @@ export function LlmBrowser({ onChanged }: { onChanged: () => void }) {
       engine: entry.runtime === 'strata' ? STRATA_BADGE : null,
       downloads: known?.downloads ?? null,
       mark: runningId === entry.id ? { tone: 'use', label: 'In use' }
-        : status.id === 'downloading' ? { tone: 'busy', label: status.label }
+        : status.id === 'downloading' || status.id === 'queued' ? { tone: 'busy', label: status.label }
         : status.id === 'ready' || status.id === 'on' ? { tone: 'done', label: 'Downloaded' }
         : null,
     };

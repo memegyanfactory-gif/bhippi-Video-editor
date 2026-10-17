@@ -5,13 +5,14 @@ import { UseToggle } from './UseToggle';
 import { useLiveJobs } from '../../lib/jobsStore';
 import { defaultVariant, fitOf } from '../../lib/modelFit';
 import type { LibraryView } from '../../lib/modelLibrary';
-import { FitDot, StatusPill, Thumb, shownVariant, sizeText, statusOf, useDownloadProgress } from '../libraryShared';
+import { FitDot, StatusPill, Thumb, shownVariant, sizeText, statusOf, useDownloadProgress, useQueueWatch } from '../libraryShared';
 import type { LibraryContext } from './shared';
 
 export function ModelCard({ view, ctx, onOpen }: { view: LibraryView; ctx: LibraryContext; onOpen: () => void }) {
   const { entry, state } = view;
   const jobs = useLiveJobs();
   const job = state.download ? jobs.find((row) => row.id === state.download?.jobId) : undefined;
+  useQueueWatch();
   const status = statusOf(view, job, ctx.inUse.has(entry.id));
   const progress = useDownloadProgress(view, job);
   const variant = shownVariant(view, ctx.hw) ?? defaultVariant(entry.variants, ctx.hw, entry.runtime);

@@ -216,7 +216,16 @@ fn parse_user_entries(text: &str, taken: &[&str]) -> Vec<LibraryEntry> {
     let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(text) else { return Vec::new() };
     let mut seen: Vec<String> = taken.iter().map(|id| (*id).to_owned()).collect();
     let mut entries = Vec::new();
-    for item in items {
+    for mut item in items {
+        // Older builds forced the licence step on every gated repo; Hugging Face's own gate is its sign-in flow.
+        if item.get("source").is_none() {
+            item["source"] = serde_json::Value::String("huggingface".to_owned());
+        }
+        crate::llm_hub::normalize_acceptance(&mut item);
+        // Older builds offered a speculative-decoding head (`…-MTP-draft.gguf`) as a model of its own.
+        if only_helper_files(&item) {
+            continue;
+        }
         match serde_json::from_value::<LibraryEntry>(item) {
             Ok(mut entry) if !seen.contains(&entry.id) && !entry.variants.is_empty() => {
                 seen.push(entry.id.clone());
@@ -230,6 +239,21 @@ fn parse_user_entries(text: &str, taken: &[&str]) -> Vec<LibraryEntry> {
         }
     }
     entries
+}
+
+/// Whether every model file of a Hugging Face entry (picture readers aside) is a draft, MTP or
+/// EAGLE helper, so the entry is not a model anyone can run.
+fn only_helper_files(item: &serde_json::Value) -> bool {
+    let models: Vec<String> = item["variants"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|variant| variant["files"].as_array().into_iter().flatten())
+        .filter_map(|file| file["url"].as_str().or_else(|| file["dest"].as_str()))
+        .map(|path| path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase())
+        .filter(|file| file.ends_with(".gguf") && !file.contains("mmproj"))
+        .collect();
+    !models.is_empty() && models.iter().all(|file| crate::llm_hub::helper_kind("", file).is_some())
 }
 
 /// The embedded entries plus whatever `user_file` holds.
@@ -425,6 +449,12 @@ struct StateFile {
     /// The model in use per job (`video`, `image`, …). A record with no `model_id` is the person
     /// saying "none"; no record at all means "whatever the older settings say".
     defaults: BTreeMap<String, DefaultRecord>,
+    /// Downloads running, waiting, paused or failed, in line order (see `queue.rs`).
+    queue: Vec<queue::QueueItem>,
+    /// The last few downloads that finished, newest first.
+    recent: Vec<queue::Recent>,
+    /// How many downloads may run at once.
+    max_parallel: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -621,6 +651,8 @@ struct Active {
     addons: Vec<String>,
     total: u64,
     done: Arc<AtomicU64>,
+    /// Bytes per second, smoothed; written by the download task.
+    speed: Arc<AtomicU64>,
     /// Set by `model_library_cancel`: true pauses (the part-files stay), false removes them.
     keep_partial: Arc<AtomicBool>,
 }
@@ -1001,6 +1033,7 @@ struct DownloadJob {
     files: Vec<LibraryFile>,
     folder: PathBuf,
     done: Arc<AtomicU64>,
+    speed: Arc<AtomicU64>,
     total: u64,
     keep_partial: Arc<AtomicBool>,
 }
@@ -1009,7 +1042,7 @@ async fn run_download(work: DownloadJob, job: JobHandle) {
     let _guard = ActiveGuard(work.entry.id.clone());
     let cancel = job.cancel.clone();
     let outcome = fetch_all(&work, &job, &cancel).await;
-    match outcome {
+    let end = match outcome {
         Ok(()) => {
             let recorded = update_state(&work.state.paths, |state| {
                 let record = state.models.entry(work.entry.id.clone()).or_default();
@@ -1031,10 +1064,12 @@ async fn run_download(work: DownloadJob, job: JobHandle) {
                     }
                     job.done(format!("{} is ready", work.entry.name), Some(serde_json::json!({ "id": work.entry.id })));
                     notify(&work.app, &work.entry.id, "installed");
+                    queue_run::End::Done
                 }
                 Err(error) => {
-                    job.fail(error);
+                    job.fail(error.clone());
                     notify(&work.app, &work.entry.id, "failed");
+                    queue_run::End::Failed(error)
                 }
             }
         }
@@ -1045,18 +1080,25 @@ async fn run_download(work: DownloadJob, job: JobHandle) {
             }
             job.fail("cancelled");
             notify(&work.app, &work.entry.id, if keep { "paused" } else { "cancelled" });
+            queue_run::End::Stopped { keep }
         }
         Err(DownloadError::Failed(message)) => {
-            job.fail(message);
+            job.fail(message.clone());
             notify(&work.app, &work.entry.id, "failed");
+            queue_run::End::Failed(message)
         }
-    }
+    };
+    // The slot is free before the queue looks for the next download.
+    drop(_guard);
+    queue_run::finished(&work.app, &work.state, &work.entry.id, &work.variant.id, end);
 }
 
 async fn fetch_all(work: &DownloadJob, job: &JobHandle, cancel: &watch::Receiver<bool>) -> Result<(), DownloadError> {
     let client = http_client().map_err(DownloadError::Failed)?;
     let label = format!("{} ({})", work.entry.name, work.variant.label);
     let mut last_report = Instant::now();
+    // Speed is measured over each report window and smoothed, so the Downloads page can show it.
+    let mut last_bytes = work.done.load(Ordering::Relaxed);
     for file in &work.files {
         let target = safe_join(&work.folder, &file.dest).map_err(DownloadError::Failed)?;
         if complete_file(&target, file) {
@@ -1064,7 +1106,14 @@ async fn fetch_all(work: &DownloadJob, job: &JobHandle, cancel: &watch::Receiver
         }
         let mut on_progress = || {
             if last_report.elapsed() >= Duration::from_millis(400) {
+                let seconds = last_report.elapsed().as_secs_f64();
                 last_report = Instant::now();
+                let now_bytes = work.done.load(Ordering::Relaxed);
+                let instant = now_bytes.saturating_sub(last_bytes) as f64 / seconds;
+                last_bytes = now_bytes;
+                let before = work.speed.load(Ordering::Relaxed) as f64;
+                let smooth = if before > 0.0 { before * 0.7 + instant * 0.3 } else { instant };
+                work.speed.store(smooth as u64, Ordering::Relaxed);
                 let so_far = work.done.load(Ordering::Relaxed).min(work.total);
                 let fraction = if work.total > 0 { so_far as f64 / work.total as f64 } else { 0.0 };
                 job.progress(fraction, format!("Downloading {label}: {} of {}", human(so_far), human(work.total)));
@@ -1334,7 +1383,41 @@ pub(crate) async fn model_library_download(
             watch_installer(app, state.inner().clone(), id, job_id.clone());
             Ok(DownloadStarted { job_id })
         }
-        _ => start_file_download(app, state.inner().clone(), entry, variant, addons.unwrap_or_default()).await,
+        _ => queue_file_download(app, state.inner(), entry, variant, addons.unwrap_or_default()).await,
+    }
+}
+
+/// A download of our own kind goes into the queue: it starts when a slot is free (at once, when
+/// nothing else is downloading) and waits as "Queued" otherwise. The job id is empty while it waits.
+async fn queue_file_download(app: AppHandle, state: &Arc<AppState>, entry: &'static LibraryEntry, variant: Option<String>, addons: Vec<String>) -> Result<DownloadStarted, String> {
+    if active_lock().contains_key(&entry.id) {
+        return Err(format!("{} is already downloading.", entry.name));
+    }
+    let chosen = match variant {
+        Some(id) => entry.variants.iter().find(|candidate| candidate.id == id).ok_or_else(|| format!("{} has no size called {id}.", entry.name))?.id.clone(),
+        None => default_variant(entry).ok_or_else(|| format!("{} has nothing to download.", entry.name))?.id.clone(),
+    };
+    plan_files(entry, &chosen, &addons)?;
+    update_state(&state.paths, |file| {
+        queue::enqueue(&mut file.queue, &entry.id, &chosen, &addons);
+        Ok(())
+    })?;
+    let started = queue_run::pump(&app, state).await;
+    match started.into_iter().find(|(id, _)| *id == entry.id) {
+        Some((_, Ok(job_id))) => Ok(DownloadStarted { job_id }),
+        // It could not start (for example, not enough space): the caller hears why, and it is not left waiting.
+        Some((_, Err(message))) => {
+            let _ignored = update_state(&state.paths, |file| {
+                queue::remove(&mut file.queue, &entry.id);
+                Ok(())
+            });
+            queue_run::emit_queue(&app);
+            Err(message)
+        }
+        None => {
+            notify(&app, &entry.id, "queued");
+            Ok(DownloadStarted { job_id: String::new() })
+        }
     }
 }
 
@@ -1442,11 +1525,12 @@ async fn start_file_download(
     let job_id = job.id().to_owned();
     let done = Arc::new(AtomicU64::new(on_disk));
     let keep_partial = Arc::new(AtomicBool::new(true));
+    let speed = Arc::new(AtomicU64::new(0));
     active_lock().insert(
         entry.id.clone(),
-        Active { job_id: job_id.clone(), variant: chosen.id.clone(), addons: addons.clone(), total, done: done.clone(), keep_partial: keep_partial.clone() },
+        Active { job_id: job_id.clone(), variant: chosen.id.clone(), addons: addons.clone(), total, done: done.clone(), speed: speed.clone(), keep_partial: keep_partial.clone() },
     );
-    let work = DownloadJob { app: app.clone(), state, entry, variant: chosen.clone(), addons, files, folder, done, total, keep_partial };
+    let work = DownloadJob { app: app.clone(), state, entry, variant: chosen.clone(), addons, files, folder, done, speed, total, keep_partial };
     notify(&app, &entry.id, "started");
     tauri::async_runtime::spawn(run_download(work, job));
     Ok(DownloadStarted { job_id })
@@ -1477,10 +1561,23 @@ pub(crate) async fn model_library_cancel(app: AppHandle, state: State<'_, Arc<Ap
         }
         return Ok(());
     }
+    // Not running: a waiting, paused or failed download. Discarding removes it and its part-files;
+    // pausing a waiting one holds it where it is.
+    let _ignored = update_state(&state.paths, |file| {
+        if keep_partial {
+            if file.queue.iter().any(|item| item.id == id && item.state == queue::QueueState::Queued) {
+                queue::set_state(&mut file.queue, &id, queue::QueueState::Paused, None);
+            }
+        } else {
+            queue::remove(&mut file.queue, &id);
+        }
+        Ok(())
+    });
     if !keep_partial {
         remove_parts(&current_storage(&state.paths, &read_state(&state.paths)), entry);
         notify(&app, &id, "cancelled");
     }
+    queue_run::emit_queue(&app);
     Ok(())
 }
 
@@ -1709,6 +1806,8 @@ async fn fetch_thumbnail(url: &str) -> Result<Vec<u8>, String> {
 }
 
 mod defaults;
+mod queue;
+pub(crate) mod queue_run;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]

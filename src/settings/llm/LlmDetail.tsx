@@ -1,19 +1,19 @@
 // The right pane of the language-model browser: who made the model, its numbers, what it can do,
 // the sizes to download (each with how it fits this PC) and its README.
-import { ArrowDownToLine, ExternalLink, LoaderCircle, Play, Square, Star, Trash2, TriangleAlert, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ArrowDownToLine, ExternalLink, LoaderCircle, Pause, Play, Square, Star, Trash2, TriangleAlert, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../../components/ui';
 import { errorText } from '../../lib/ipc';
 import {
-  activeParamsIn, compact, contextLabel, displayName, entryCapabilities, hubCapabilities, looksMoe, paramsLabel, prettyMaker, quantFit, readmeText, recommendQuant, relativeDate,
+  activeParamsIn, compact, contextLabel, displayName, entryCapabilities, helperLabel, hubCapabilities, hubEntryId, hubIdPart, looksMoe, paramsLabel, prettyMaker, quantFit, readmeText, recommendQuant, relativeDate,
   type HubFullDetail, type HubRow,
 } from '../../lib/llmHub';
-import { defaultVariant, fitOf, formatBytes, type FitResult } from '../../lib/modelFit';
+import { defaultVariant, fitOf, formatBytes, formatProgress, type FitResult } from '../../lib/modelFit';
 import { libraryApi, type LibraryEntry, type LibraryView, type LlmPlan, type LlmRuntimeStatus } from '../../lib/modelLibrary';
 import type { HardwareInfo } from '../../lib/ipc';
 import type { Job } from '../../lib/types';
 import { Markdown } from '../../components/Markdown';
-import { statusOf, statusOfSize, useDownloadProgress } from '../libraryShared';
+import { statusOf, statusOfSize, useDownloadProgress, useQueueWatch } from '../libraryShared';
 import { HfSignIn } from '../library/HfSignIn';
 import { CapChips, CopyButton, FitPill, MakerLogo, VerifiedTick } from './parts';
 import { RunningSpeeds, TuneControls } from './SpeedPanel';
@@ -82,25 +82,43 @@ function Fact({ label, value }: { label: string; value: string }) {
   return <div className="lb-fact"><span className="lb-fact-label">{label}</span><span className="lb-fact-value">{value}</span></div>;
 }
 
-function Progress({ view, job }: { view: LibraryView; job: Job | undefined }) {
+/** The live state of one running download: bar, "1.2 of 5.0 GB · 38 MB/s · 2 min left", Pause and Cancel. */
+function DownloadStatus({ view, job, busy, onPause, onCancel }: { view: LibraryView; job: Job | undefined; busy: boolean; onPause: () => void; onCancel: () => void }) {
   const progress = useDownloadProgress(view, job);
   const pct = Math.round(progress.fraction * 100);
+  const detail = [progress.speed > 0 ? `${formatBytes(progress.speed)}/s` : null, progress.eta ? `${progress.eta.replace(/^about /, '')} left` : null].filter(Boolean).join(' · ');
   return (
-    <div className="lb-progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} title={`${formatBytes(progress.done)} of ${formatBytes(progress.total)}`}>
-      <span className="lb-progress-bar"><span style={{ width: `${pct}%` }} /></span>
-      <span className="lb-progress-text">{pct}%</span>
+    <div className="lb-dl" aria-live="polite">
+      <div className="lb-progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <span className="lb-progress-bar"><span style={{ width: `${pct}%` }} /></span>
+        <span className="lb-progress-text">{pct}%</span>
+      </div>
+      <div className="lb-dl-row">
+        <span className="lb-dl-text">{progress.total > 0 ? formatProgress(progress.done, progress.total) : 'Starting…'}{detail ? ` · ${detail}` : progress.total > 0 ? ' · measuring speed…' : ''}</span>
+        <button type="button" className="btn btn-small" disabled={busy} onClick={onPause}><Pause size={11} /> Pause</button>
+        <button type="button" className="btn btn-small btn-ghost" disabled={busy} onClick={onCancel}><X size={11} /> Cancel</button>
+      </div>
     </div>
   );
 }
 
+type Consent = { key: string; id: string; variant: string; entry: LibraryEntry; name: string; size: string };
+
 export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: DetailContext }) {
   const toast = useToast();
+  useQueueWatch();
   const { hw, freeGb, views, jobs, llm, refresh } = ctx;
   const cardView = selection.kind === 'card' ? views.find((view) => view.entry.id === selection.id) ?? null : null;
   const repo = selection.kind === 'hub' ? selection.row.repo : cardView ? repoOfEntry(cardView.entry) : null;
   const { detail, error: hubError, loading } = useHubDetail(repo);
   const [busy, setBusy] = useState<string | null>(null);
-  const [consent, setConsent] = useState<{ id: string; variant: string; entry: LibraryEntry } | null>(null);
+  const [consent, setConsent] = useState<Consent | null>(null);
+  /** Sizes whose Download was just clicked, with what Bhippi is doing for each, until their job shows. */
+  const [starting, setStarting] = useState<Record<string, string>>({});
+  const consentRef = useRef<HTMLDivElement>(null);
+  const acceptRef = useRef<HTMLButtonElement>(null);
+  const markStarting = (key: string, note: string) => setStarting((now) => ({ ...now, [key]: note }));
+  const clearStarting = (key: string) => setStarting((now) => { if (!(key in now)) return now; const { [key]: _gone, ...rest } = now; return rest; });
   const [confirming, setConfirming] = useState<string | null>(null);
   const [plans, setPlans] = useState<Record<string, LlmPlan>>({});
   /** The Strata size waiting for the person to confirm a start (loading can freeze the PC for minutes). */
@@ -113,7 +131,14 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
   /** Library cards made from this repository (sizes already added). */
   const added = useMemo(() => (repo ? views.filter((view) => view.entry.source === 'huggingface' && view.entry.publisher?.repo === repo) : []), [views, repo]);
 
-  useEffect(() => { setConsent(null); setConfirming(null); setConfirmStart(null); setBusy(null); }, [selection.kind, selection.kind === 'card' ? selection.id : selection.row.repo]);
+  useEffect(() => { setConsent(null); setConfirming(null); setConfirmStart(null); setBusy(null); setStarting({}); }, [selection.kind, selection.kind === 'card' ? selection.id : selection.row.repo]);
+
+  // The licence step opens right under the row that asked for it: bring it into view and put the keyboard on its button.
+  useEffect(() => {
+    if (!consent) return;
+    consentRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    acceptRef.current?.focus({ preventScroll: true });
+  }, [consent]);
 
   // How each size of a card would run on this PC, from llama.cpp's plan (a dry run).
   const planned = cardView ?? (added.length === 1 ? added[0] : null);
@@ -169,7 +194,9 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
     const fits = (quant: { bytes: number }) => quantFit(quant, projectorBytes, moe, hw, freeGb).fit;
     const best = recommendQuant(detail.quants, fits);
     return detail.quants.map((quant) => {
-      const match = added.find((view) => view.entry.variants[0]?.label === quant.quant) ?? null;
+      // The card llm_hub.rs made for this size: found by its id (repo + size), never by a display label.
+      const wantedId = repo ? hubEntryId(repo, quant.quant) : '';
+      const match = added.find((view) => view.entry.id === wantedId) ?? added.find((view) => view.entry.variants[0]?.id === hubIdPart(quant.quant)) ?? added.find((view) => view.entry.variants[0]?.label === quant.quant) ?? null;
       return {
         key: quant.quant,
         title: quant.quant,
@@ -185,7 +212,35 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
         plan: match && added.length === 1 ? plans[match.entry.variants[0]?.id ?? ''] ?? null : null,
       };
     });
-  }, [cardView, detail, hw, freeGb, added, plans, projectorBytes, moe]);
+  }, [cardView, detail, hw, freeGb, added, plans, projectorBytes, moe, repo]);
+
+  // A size stops being "starting" once its job shows (or it is already on disk).
+  useEffect(() => {
+    for (const option of options) {
+      if (!(option.key in starting) || !option.view) continue;
+      const job = option.view.state.download ? jobs.find((candidate) => candidate.id === option.view?.state.download?.jobId) : undefined;
+      const id = (option.view.entry.runtime === 'strata' ? statusOfSize(option.view, job, option.variantId) : statusOf(option.view, job)).id;
+      if (id === 'downloading' || id === 'queued' || id === 'ready' || id === 'on') clearStarting(option.key);
+    }
+  }, [options, jobs, starting]);
+
+  /** Every size of this model is past what this PC can hold. */
+  const allTooBig = !!hw && options.length > 0 && options.every((option) => option.fit.fit === 'no');
+  /** Bhippi's own picks that do fit, largest first: where to point someone when nothing here fits. */
+  const fittingPicks = useMemo(() => {
+    if (!allTooBig) return [];
+    return views
+      .filter((view) => view.entry.kind === 'llm' && view.entry.source !== 'huggingface' && view.entry.runtime === 'llama-cpp' && view.entry.id !== cardView?.entry.id)
+      .flatMap((view) => {
+        const variant = defaultVariant(view.entry.variants, hw, view.entry.runtime);
+        if (!variant) return [];
+        const fit = fitOf(variant, hw, { runtime: view.entry.runtime, freeGb });
+        return fit.fit === 'great' || fit.fit === 'ok' ? [{ view, bytes: variant.files.reduce((sum, file) => sum + file.bytes, 0) }] : [];
+      })
+      .sort((a, b) => b.bytes - a.bytes)
+      .slice(0, 3)
+      .map((row) => row.view);
+  }, [allTooBig, views, hw, freeGb, cardView]);
 
   const guard = async (key: string, work: () => Promise<unknown>, failure: string) => {
     setBusy(key);
@@ -201,37 +256,64 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
     }
   };
 
-  /** Starts the download of a card's size, asking for the license first when it needs accepting. */
-  const startDownload = async (id: string, variant: string) => {
-    const listing = await libraryApi.list();
-    const entry = listing.models.find((view) => view.entry.id === id);
-    if (entry && entry.entry.license.requiresAcceptance && !entry.state.accepted) {
-      setConsent({ id, variant, entry: entry.entry });
-      return;
-    }
-    await libraryApi.download(id, variant);
+  /** Tells the person the download began, and where to watch it. */
+  const announce = (name: string, size: string) => {
+    toast({ tone: 'success', title: `${name} (${size}) added to downloads`, body: 'It starts right away, or after the download ahead of it. Progress shows here and in Model Library → Downloads.' });
+    // Safety net: if no job ever appears in the listing, do not leave the row "starting" forever.
+    window.setTimeout(() => setStarting({}), 15_000);
   };
 
-  const download = (option: Option) => guard(option.key, async () => {
-    if (option.view && option.variantId) {
-      await startDownload(option.view.entry.id, option.variantId);
-    } else if (option.quant && repo) {
-      const made = await libraryApi.hubAdd(repo, option.quant);
-      await startDownload(made.id, made.variant);
+  /** Starts the download of a card's size, asking for the license first (right under its row) when the license needs accepting. */
+  const startDownload = async (option: Option, id: string, variant: string) => {
+    const listing = await libraryApi.list();
+    const found = listing.models.find((view) => view.entry.id === id);
+    if (!found) throw new Error('Bhippi added this size but could not find it in the library yet. Close this page, open it again and press Download once more.');
+    const name = found.entry.name;
+    const size = formatBytes(option.bytes + option.projectorBytes);
+    if (found.entry.license.requiresAcceptance && !found.state.accepted) {
+      clearStarting(option.key);
+      setConsent({ key: option.key, id, variant, entry: found.entry, name, size });
+      return;
     }
-  }, 'Could not start the download');
+    markStarting(option.key, 'Starting download…');
+    await libraryApi.download(id, variant);
+    announce(name, size);
+  };
+
+  const download = async (option: Option) => {
+    if (gated) {
+      toast({ tone: 'error', title: 'Sign in to Hugging Face first', body: 'This model is gated. Sign in and accept its terms in the box above, then press Download again.' });
+      return;
+    }
+    markStarting(option.key, option.view ? 'Starting download…' : 'Adding it to your library…');
+    const ok = await guard(option.key, async () => {
+      if (option.view && option.variantId) {
+        await startDownload(option, option.view.entry.id, option.variantId);
+      } else if (option.quant && repo) {
+        const made = await libraryApi.hubAdd(repo, option.quant);
+        markStarting(option.key, 'Starting download…');
+        await startDownload(option, made.id, made.variant);
+      } else {
+        throw new Error('Bhippi could not tell which size this is. Reload the model page and try again.');
+      }
+    }, 'Could not start the download');
+    if (!ok) clearStarting(option.key);
+  };
 
   const accept = () => {
     if (!consent) return;
-    const { id, variant } = consent;
+    const { key, id, variant, name, size } = consent;
+    markStarting(key, 'Starting download…');
     void guard(`license:${id}`, async () => {
       await libraryApi.acceptLicense(id, true);
       setConsent(null);
       await libraryApi.download(id, variant);
-    }, 'Could not start the download');
+      announce(name, size);
+    }, 'Could not start the download').then((ok) => { if (!ok) clearStarting(key); });
   };
 
   const cancel = (view: LibraryView) => void guard(view.entry.id, () => libraryApi.cancel(view.entry.id, false), 'Could not stop the download');
+  const pause = (view: LibraryView) => void guard(view.entry.id, () => libraryApi.cancel(view.entry.id, true), 'Could not pause the download');
   const start = (view: LibraryView, size: string | null) => void guard(view.entry.id, async () => {
     const result = await libraryApi.llmStart(view.entry.id, size ? { variant: size } : {});
     setConfirmStart(null);
@@ -341,6 +423,19 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
           <h4 className="lb-h">Download options</h4>
           {loading && !options.length && <div className="lb-skeleton-rows" aria-label="Loading sizes">{[0, 1, 2, 3].map((index) => <span key={index} className="lb-skeleton row" />)}</div>}
           {!loading && hubError && !options.length && <div className="lb-note warn"><TriangleAlert size={14} /><span>{hubError}</span></div>}
+          {allTooBig && (
+            <div className="lb-note warn" role="status">
+              <TriangleAlert size={14} />
+              <div>
+                <strong>Every size of this model needs more memory than this PC has.</strong>
+                {fittingPicks.length > 0 ? (
+                  <span> Smaller models that fit: {fittingPicks.map((pick, index) => (
+                    <span key={pick.entry.id}>{index > 0 ? ', ' : ''}<button type="button" className="ml-link-btn" onClick={() => ctx.onSelectCard(pick.entry.id)}>{pick.entry.name}</button></span>
+                  ))}.</span>
+                ) : <span> Look for a smaller model, or one with fewer parameters.</span>}
+              </div>
+            </div>
+          )}
           {gatedRepo && <HfSignIn repo={repo} modelName={name} onAccess={setHfGranted} />}
           <ul className="lb-options">
             {options.map((option) => {
@@ -350,8 +445,10 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
               const status = view ? (view.entry.runtime === 'strata' ? statusOfSize(view, job, option.variantId) : statusOf(view, job)) : null;
               const running = !!view && runningId === view.entry.id && (view.entry.runtime !== 'strata' || llm?.running?.variant === option.variantId);
               const otherSetUp = !!view && view.entry.runtime === 'strata' && !!view.state.download && view.state.download.variant !== option.variantId;
-              const working = busy === option.key || (!!view && busy === view.entry.id);
+              const startingNote = starting[option.key];
+              const working = busy === option.key || (!!view && busy === view.entry.id) || !!startingNote;
               const total = option.bytes + option.projectorBytes;
+              const askingLicense = consent?.key === option.key;
               return (
                 <li key={option.key} className={`lb-option${option.recommended ? ' recommended' : ''}`}>
                   <div className="lb-option-main">
@@ -367,32 +464,41 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
                     </div>
                     {option.plan && option.plan.verdict !== 'no' && !strata && <p className="lb-plan">{option.plan.note}</p>}
                     {option.plan && option.plan.verdict === 'no' && <p className="lb-plan bad">{option.plan.note}</p>}
+                    {startingNote && status?.id !== 'downloading' && <p className="lb-starting" role="status" aria-live="polite"><LoaderCircle size={12} className="spin" /> {startingNote}</p>}
+                    {status?.id === 'queued' && <p className="lb-starting" role="status" aria-live="polite">{status.label}: starts when the download ahead of it finishes.</p>}
+                    {status?.id === 'downloading' && view && <DownloadStatus view={view} job={job} busy={busy === view.entry.id} onPause={() => pause(view)} onCancel={() => cancel(view)} />}
                     {status?.id === 'downloading' && job?.message && view?.entry.runtime === 'strata' && <p className="lb-plan" aria-live="polite">{job.message}</p>}
                     {(status?.id === 'ready' || status?.id === 'on') && view && view.entry.runtime === 'llama-cpp' && view.state.installedVariant === option.variantId && (
                       <>
                         {running && llm?.running && <RunningSpeeds running={llm.running} />}
                         <TuneControls view={view} runtimeInstalled={!!llm?.installed} onChanged={refresh} />
-                        {view.entry.addons?.some((addon) => addon.id === 'eagle3') && !view.state.installedAddons.includes('eagle3') && (
-                          <p className="lb-plan">
-                            <button type="button" className="ml-link-btn" disabled={working} onClick={() => void guard(option.key, () => libraryApi.download(view.entry.id, option.variantId ?? view.state.installedVariant ?? '', ['eagle3']), 'Could not start the download')}>Add the speed-up helper (about 850 MB)</button>
-                            {' '}It drafts words ahead for this model. Bhippi uses it only if Tune for this PC measures that it helps.
-                          </p>
-                        )}
+                        {(view.entry.addons ?? []).filter((addon) => !view.state.installedAddons.includes(addon.id)).map((addon) => {
+                          const addonBytes = addon.files.reduce((sum, file) => sum + file.bytes, 0);
+                          return (
+                            <p key={addon.id} className="lb-plan">
+                              <button type="button" className="ml-link-btn" disabled={working} onClick={() => {
+                                markStarting(option.key, 'Starting download…');
+                                void guard(option.key, async () => {
+                                  await libraryApi.download(view.entry.id, option.variantId ?? view.state.installedVariant ?? '', [addon.id]);
+                                  announce(`the speed-up helper for ${view.entry.name}`, formatBytes(addonBytes));
+                                }, 'Could not start the download').then((ok) => { if (!ok) clearStarting(option.key); });
+                              }}>Add the speed-up helper (about {formatBytes(addonBytes)})</button>
+                              {' '}It drafts words ahead for this model. Bhippi uses it only if Tune for this PC measures that it helps.
+                            </p>
+                          );
+                        })}
                       </>
                     )}
                   </div>
                   <div className="lb-option-action">
-                    {status?.id === 'downloading' && view && (
-                      <>
-                        <Progress view={view} job={job} />
-                        <button type="button" className="lb-icon-btn" title="Stop the download" aria-label="Stop the download" onClick={() => cancel(view)}><X size={14} /></button>
-                      </>
-                    )}
                     {(!status || status.id === 'none' || status.id === 'paused') && (
-                      <button type="button" className={`btn btn-small${option.recommended ? ' btn-primary' : ''}`} disabled={working || gated || otherSetUp} title={otherSetUp ? 'Another size is being set up. Wait for it, or stop it first.' : undefined} onClick={() => void download(option)}>
+                      <button type="button" className={`btn btn-small${option.recommended ? ' btn-primary' : ''}`} disabled={working || otherSetUp || askingLicense} title={otherSetUp ? 'Another size is being set up. Wait for it, or stop it first.' : undefined} onClick={() => void download(option)}>
                         {working ? <LoaderCircle size={12} className="spin" /> : <ArrowDownToLine size={12} />}
-                        {status?.id === 'paused' ? 'Resume' : 'Download'}
+                        {working ? 'Starting…' : status?.id === 'paused' ? 'Resume' : 'Download'}
                       </button>
+                    )}
+                    {status?.id === 'queued' && view && (
+                      <button type="button" className="btn btn-small btn-ghost" disabled={working} onClick={() => void guard(view.entry.id, () => libraryApi.discard(view.entry.id), 'Could not remove it from the queue')}>Remove from queue</button>
                     )}
                     {(status?.id === 'ready' || status?.id === 'on') && view && (
                       <>
@@ -418,6 +524,18 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
                       </>
                     )}
                   </div>
+                  {consent && askingLicense && (
+                    <div className="lb-consent" role="group" aria-label="License" ref={consentRef}>
+                      <strong>One step before {consent.name} downloads: {consent.entry.license.name}</strong>
+                      <ul>{consent.entry.license.summary.map((line) => <li key={line}>{line}</li>)}</ul>
+                      <div className="lb-consent-actions">
+                        <a href={consent.entry.license.url} target="_blank" rel="noreferrer" className="lb-link">Read the license <ExternalLink size={11} /></a>
+                        <span className="lb-spacer" />
+                        <button type="button" className="btn btn-small" onClick={() => setConsent(null)}>Not now</button>
+                        <button type="button" ref={acceptRef} className="btn btn-small btn-primary" disabled={busy === `license:${consent.id}`} onClick={accept}>Accept and download</button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -425,16 +543,15 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
           {strata && confirmStart && cardView && (
             <StrataStartConfirm name={cardView.entry.name} busy={busy === cardView.entry.id} onCancel={() => setConfirmStart(null)} onStart={() => start(cardView, confirmStart)} />
           )}
-          {consent && (
-            <div className="lb-consent" role="group" aria-label="License">
-              <strong>{consent.entry.license.name}</strong>
-              <ul>{consent.entry.license.summary.map((line) => <li key={line}>{line}</li>)}</ul>
-              <div className="lb-consent-actions">
-                <a href={consent.entry.license.url} target="_blank" rel="noreferrer" className="lb-link">Read the license <ExternalLink size={11} /></a>
-                <span className="lb-spacer" />
-                <button type="button" className="btn btn-small" onClick={() => setConsent(null)}>Not now</button>
-                <button type="button" className="btn btn-small btn-primary" disabled={busy === `license:${consent.id}`} onClick={accept}>Accept and download</button>
-              </div>
+          {(detail?.helpers?.length ?? 0) > 0 && (
+            <div className="lb-helpers">
+              <h5 className="lb-h2">Speed-up helper (optional, needs one of the sizes above)</h5>
+              <ul>
+                {detail?.helpers?.map((helper) => (
+                  <li key={helper.path}><strong>{helperLabel(helper.kind)}</strong> <span className="lb-faint">{helper.path.split('/').pop()} · {formatBytes(helper.bytes)}</span></li>
+                ))}
+              </ul>
+              <p className="lb-plan">Not a model on its own: it drafts words ahead for a full size. Download a size first, then add the helper from that size's row.</p>
             </div>
           )}
         </section>

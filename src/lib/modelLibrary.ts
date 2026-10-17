@@ -130,6 +130,32 @@ export type LibraryState = {
 
 export type LibraryView = { entry: LibraryEntry; state: LibraryState; thumbnailPath: string | null };
 
+export type QueueRowState = 'running' | 'queued' | 'paused' | 'failed' | 'verifying' | 'done';
+
+/** One download in the queue (model_library/queue_run.rs). */
+export type QueueRow = {
+  id: string;
+  name: string;
+  variant: string;
+  variantLabel: string;
+  addons: string[];
+  state: QueueRowState;
+  bytesDone: number;
+  bytesTotal: number;
+  /** Bytes per second while running, else 0. */
+  speed: number;
+  etaSeconds: number | null;
+  error: string | null;
+  thumbnailPath: string | null;
+  /** Place among the waiting downloads, from 1. */
+  position: number | null;
+  jobId: string | null;
+  /** Unix seconds, for finished downloads. */
+  finishedAt: number | null;
+};
+
+export type QueueView = { rows: QueueRow[]; maxParallel: number };
+
 export type LibraryStorage = { dir: string; freeGb: number; totalGb: number; usedGb: number };
 
 export type LibraryListing = { storage: LibraryStorage; models: LibraryView[] };
@@ -301,7 +327,10 @@ export type HubQuant = {
   bits: number | null;
 };
 
-export type HubDetail = HubModel & { quants: HubQuant[]; summary: string | null; mmproj: HubQuant | null };
+/** A speculative-decoding file (MTP head, draft model, EAGLE3): not a model, it only speeds a full size up. */
+export type HubHelper = { kind: 'mtp' | 'draft' | 'eagle3'; path: string; bytes: number; sha256: string | null };
+
+export type HubDetail = HubModel & { quants: HubQuant[]; summary: string | null; mmproj: HubQuant | null; helpers?: HubHelper[] };
 
 export type HubSort = 'downloads' | 'trending' | 'likes' | 'updated';
 
@@ -357,6 +386,21 @@ export const libraryApi = {
   /** Local path of the cached card picture (downloads it the first time), or null when there is none. */
   thumbnail: (id: string) => invoke<string | null>('model_library_thumbnail', { id }),
 
+  /** The download queue: running, waiting (in order), paused, failed and the last few finished. */
+  queue: () => invoke<QueueView>('model_library_queue'),
+  /** Stops a download but keeps what it fetched; `resume` continues from there. */
+  pause: (id: string) => invoke<null>('model_library_pause', { id }),
+  resume: (id: string) => invoke<null>('model_library_resume', { id }),
+  /** Stops a download and deletes the part-files, or removes a waiting one from the line. */
+  discard: (id: string) => invoke<null>('model_library_discard', { id }),
+  /** Moves a waiting download to a place in line (1 is next). */
+  reorder: (id: string, position: number) => invoke<null>('model_library_reorder', { id, position }),
+  moveToTop: (id: string) => invoke<null>('model_library_move_to_top', { id }),
+  pauseAll: () => invoke<null>('model_library_pause_all'),
+  resumeAll: () => invoke<null>('model_library_resume_all'),
+  /** How many downloads run at once (1 to 3); returns the limit in force. */
+  setParallel: (limit: number) => invoke<number>('model_library_set_parallel', { limit }),
+
   comfyStatus: () => invoke<ComfyStatus>('comfy_status'),
   comfyInstall: () => invoke<{ jobId: string }>('comfy_install'),
   comfyStart: () => invoke<ComfyStatus>('comfy_start'),
@@ -384,7 +428,12 @@ export const libraryApi = {
 export const MODEL_LIBRARY_EVENT = 'bhippi://model-library';
 
 /** The library changed (a download finished, a model was switched on or off, ComfyUI or an LLM started). */
-export const onLibraryChange = (handler: (payload: { id: string | null; reason: string }) => void): Promise<UnlistenFn> =>
+export const MODEL_QUEUE_EVENT = 'bhippi://model-queue';
+
+/** The download queue changed (a download added, paused, moved or finished). Progress is read by polling `libraryApi.queue()`. */
+export const onQueueChange = (handler: () => void): Promise<UnlistenFn> => listen(MODEL_QUEUE_EVENT, () => handler());
+
+export const onLibraryChange =(handler: (payload: { id: string | null; reason: string }) => void): Promise<UnlistenFn> =>
   listen<{ id: string | null; reason: string }>(MODEL_LIBRARY_EVENT, (event) => handler(event.payload));
 
 /** True when the AI may use this model: installed, switched on, and not broken. */

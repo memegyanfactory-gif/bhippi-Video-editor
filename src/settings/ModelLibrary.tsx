@@ -18,6 +18,8 @@ import { ModelDetail } from './ModelDetail';
 import { CATEGORIES, CATEGORY_BY_CAPABILITY, CATEGORY_BY_KIND } from './libraryShared';
 import { CategoryPage } from './library/CategoryPage';
 import { DownloadedPage } from './library/DownloadedPage';
+import { DownloadsPage, useDownloadQueue } from './library/DownloadsPage';
+import { activeCount, otherDownloads } from './library/downloadsModel';
 import { EnginesPage } from './library/engines/EnginesPage';
 import { InUsePage } from './library/InUsePage';
 import { Rail } from './library/Rail';
@@ -46,6 +48,7 @@ const guessDefaults = (listing: LibraryListing | null): CapabilityChoice[] =>
 const PAGE_TITLES: Record<string, { title: string; blurb: string }> = {
   inuse: { title: 'In use', blurb: 'The model Bhippi’s AI uses for each job. Everything runs on this computer.' },
   downloaded: { title: 'Downloaded', blurb: 'Models on this computer. Switch one on and Bhippi’s AI uses it for that job.' },
+  downloads: { title: 'Downloads', blurb: 'What is downloading, what waits in line and what you paused. Pause any time and continue from where it stopped.' },
   engines: { title: 'Engines', blurb: 'The programs Bhippi runs local models on.' },
 };
 
@@ -138,11 +141,13 @@ export function ModelLibrary({ onTab, settings, onSettings, initialPage }: { onT
     return out;
   }, [views]);
   const downloaded = views.filter((view) => !!view.state.installedVariant).length;
+  const downloadQueue = useDownloadQueue();
+  const activeDownloads = activeCount(downloadQueue.view?.rows ?? [], otherDownloads(jobs, downloadQueue.view?.rows ?? []));
 
   const needle = query.trim().toLowerCase();
   const matches = useCallback((view: (typeof views)[number]) => !needle || [view.entry.name, view.entry.maker, view.entry.summary, ...view.entry.tags].some((text) => text.toLowerCase().includes(needle)), [needle]);
   const categoryRows = useMemo(() => {
-    if (page === 'inuse' || page === 'downloaded' || page === 'engines') return [];
+    if (page === 'inuse' || page === 'downloaded' || page === 'downloads' || page === 'engines') return [];
     const items = views.filter((view) => view.entry.kind === page && matches(view)).map((view, index) => {
       const variant = defaultVariant(view.entry.variants, hw, view.entry.runtime);
       const fit = variant ? fitOf(variant, hw, { runtime: view.entry.runtime }).fit : 'no';
@@ -156,7 +161,7 @@ export function ModelLibrary({ onTab, settings, onSettings, initialPage }: { onT
   const downloadedRows = useMemo(() => views.filter(matches), [views, matches]);
 
   const open = views.find((view) => view.entry.id === openId) ?? null;
-  const category = page === 'inuse' || page === 'downloaded' || page === 'engines' ? null : CATEGORY_BY_KIND[page];
+  const category = page === 'inuse' || page === 'downloaded' || page === 'downloads' || page === 'engines' ? null : CATEGORY_BY_KIND[page];
   const head = category ? { title: category.label, blurb: category.blurb } : PAGE_TITLES[page];
   const isLlm = page === 'llm';
 
@@ -175,6 +180,8 @@ export function ModelLibrary({ onTab, settings, onSettings, initialPage }: { onT
     body = <InUsePage ctx={ctx} />;
   } else if (page === 'downloaded') {
     body = <DownloadedPage views={downloadedRows} ctx={ctx} />;
+  } else if (page === 'downloads') {
+    body = <DownloadsPage queue={downloadQueue.view} jobs={jobs} ctx={ctx} onRefresh={() => { downloadQueue.refresh(); void refresh(); }} />;
   } else if (page === 'engines') {
     body = <EnginesPage ctx={ctx} />;
   } else if (isLlm) {
@@ -186,7 +193,7 @@ export function ModelLibrary({ onTab, settings, onSettings, initialPage }: { onT
 
   return (
     <div className="model-library">
-      <Rail page={page} onPage={goto} counts={counts} downloaded={downloaded} storage={storage} hw={hw} changing={changing} onChangeFolder={() => void changeFolder()} />
+      <Rail page={page} onPage={goto} counts={counts} downloaded={downloaded} active={activeDownloads} storage={storage} hw={hw} changing={changing} onChangeFolder={() => void changeFolder()} />
       <div className={`ml-main${open ? ' has-detail' : ''}`}>
         <div className={`ml-page${isLlm ? ' flush' : ''}`}>
           {!isLlm && (

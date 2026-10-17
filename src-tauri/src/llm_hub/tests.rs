@@ -380,7 +380,7 @@ fn detail_from_fixtures() -> HubDetail {
     let mut model = parse_model(&fixture_json("model-qwen36.json")).unwrap();
     model.avatar_path = Some("D:/models/library/avatars/unsloth.png".into());
     let (quants, mmproj) = parse_tree(&fixture_json("tree-qwen38.json"), model.params_b);
-    HubDetail { model, quants, summary: None, mmproj }
+    HubDetail { model, quants, summary: None, mmproj, helpers: Vec::new() }
 }
 
 #[test]
@@ -435,7 +435,34 @@ fn unknown_or_restrictive_licenses_ask_for_acceptance() {
     assert_eq!(json["license"]["requiresAcceptance"], true);
     detail.model.license = Some("apache-2.0".into());
     detail.model.gated = true;
-    assert_eq!(build_entry(&detail, &detail.quants[0].clone(), None)["license"]["requiresAcceptance"], true, "a gated repo always asks");
+    assert_eq!(build_entry(&detail, &detail.quants[0].clone(), None)["license"]["requiresAcceptance"], false, "a gated repo is the sign-in flow's job, not a licence step");
+}
+
+#[test]
+fn draft_files_are_helpers_not_quants() {
+    let tree = json!([
+        { "type": "file", "path": "M-Q4_K_M.gguf", "size": 100, "lfs": { "oid": "a", "size": 100 } },
+        { "type": "file", "path": "M-MTP-draft.gguf", "size": 41, "lfs": { "oid": "b", "size": 41 } },
+        { "type": "file", "path": "M-eagle3-Q8_0.gguf", "size": 8, "lfs": { "oid": "c", "size": 8 } },
+        { "type": "file", "path": "M-dflash.gguf", "size": 9, "lfs": { "oid": "d", "size": 9 } },
+        { "type": "file", "path": "Draftsman-Q8_0.gguf", "size": 300, "lfs": { "oid": "e", "size": 300 } },
+    ]);
+    let (quants, _) = parse_tree(&tree, None);
+    let names: Vec<&str> = quants.iter().map(|quant| quant.quant.as_str()).collect();
+    assert_eq!(names, ["Q4_K_M", "Q8_0"], "{names:?}");
+    let helpers = parse_helpers(&tree);
+    let kinds: Vec<(&str, u64)> = helpers.iter().map(|helper| (helper.kind.as_str(), helper.bytes)).collect();
+    assert_eq!(kinds, [("eagle3", 8), ("draft", 9), ("mtp", 41)]);
+}
+
+#[test]
+fn old_entries_lose_the_forced_acceptance_of_a_gated_repo() {
+    let mut entry = json!({ "source": "huggingface", "license": { "name": "Apache License 2.0", "requiresAcceptance": true } });
+    assert!(normalize_acceptance(&mut entry));
+    assert_eq!(entry["license"]["requiresAcceptance"], false);
+    let mut other = json!({ "source": "huggingface", "license": { "name": "gemma (read its terms)", "requiresAcceptance": true } });
+    assert!(!normalize_acceptance(&mut other));
+    assert_eq!(other["license"]["requiresAcceptance"], true);
 }
 
 #[test]

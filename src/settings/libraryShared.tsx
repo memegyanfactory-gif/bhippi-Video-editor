@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { HardwareInfo } from '../lib/ipc';
 import { defaultVariant, formatBytes, formatEta, variantBytes } from '../lib/modelFit';
 import type { FitResult } from '../lib/modelFit';
-import { libraryApi, type LibraryCapability, type LibraryKind, type LibraryVariant, type LibraryView } from '../lib/modelLibrary';
+import { libraryApi, onQueueChange, type LibraryCapability, type LibraryKind, type LibraryVariant, type LibraryView } from '../lib/modelLibrary';
 import type { Job } from '../lib/types';
 
 export type Category = { id: LibraryKind; label: string; /** Shorter, for the rail. */ short: string; icon: LucideIcon; capability: LibraryCapability; blurb: string };
@@ -92,12 +92,38 @@ export function FitDot({ fit }: { fit: FitResult }) {
   return <span className={`ml-fit tone-${tone}`} title={fit.reasons.join(' ') || undefined}><i aria-hidden="true" />{fit.label}</span>;
 }
 
-export type ModelStatus = { id: 'none' | 'downloading' | 'paused' | 'ready' | 'on' | 'problem'; label: string };
+export type ModelStatus = { id: 'none' | 'queued' | 'downloading' | 'paused' | 'ready' | 'on' | 'problem'; label: string };
+
+// Downloads waiting their turn (model id → place in line), shared by every card and panel.
+let waiting = new Map<string, number>();
+const waitListeners = new Set<() => void>();
+let waitWatch: Promise<unknown> | null = null;
+const readQueue = () => libraryApi.queue().then((view) => {
+  const next = new Map(view.rows.filter((row) => row.state === 'queued').map((row) => [row.id, row.position ?? 0] as [string, number]));
+  const same = next.size === waiting.size && [...next].every(([id, at]) => waiting.get(id) === at);
+  if (same) return;
+  waiting = next;
+  waitListeners.forEach((listener) => listener());
+}).catch(() => undefined);
+
+/** Re-renders the caller when the download queue changes, so `statusOf` can say "Queued". */
+export const useQueueWatch = () => {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const listener = () => bump((n) => n + 1);
+    waitListeners.add(listener);
+    if (!waitWatch) waitWatch = onQueueChange(() => void readQueue()).catch(() => undefined);
+    void readQueue();
+    return () => { waitListeners.delete(listener); };
+  }, []);
+};
 
 /** Where a model stands, in the words the card and the panel show. `inUse` is true when a job uses it. */
 export const statusOf = (view: LibraryView, job: Job | undefined, inUse = false): ModelStatus => {
   const { state } = view;
   if (state.broken) return { id: 'problem', label: 'Problem' };
+  const place = waiting.get(view.entry.id);
+  if (place !== undefined && job?.status !== 'running') return { id: 'queued', label: place > 0 ? `Queued · #${place}` : 'Queued' };
   if (state.download && (!job || job.status === 'running')) {
     const pct = job ? Math.round(job.progress * 100) : state.download.bytesTotal ? Math.round((state.download.bytesDone / state.download.bytesTotal) * 100) : 0;
     return { id: 'downloading', label: `Downloading ${pct}%` };

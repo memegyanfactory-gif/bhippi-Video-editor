@@ -1,6 +1,6 @@
 // The library's left rail: the two overviews (In use, Downloaded), the categories with counts, and
 // at the bottom where models are stored and what this PC can run.
-import { Check, Cpu, FolderOpen, HardDrive, LoaderCircle, Sparkles, Wrench } from 'lucide-react';
+import { Check, Cpu, Download, FolderOpen, HardDrive, LoaderCircle, Sparkles, Wrench } from 'lucide-react';
 import type { HardwareInfo } from '../../lib/ipc';
 import { formatGb, primaryVramGb } from '../../lib/modelFit';
 import type { LibraryStorage } from '../../lib/modelLibrary';
@@ -12,22 +12,24 @@ type Props = {
   onPage: (page: LibraryPage) => void;
   counts: Record<string, number>;
   downloaded: number;
+  /** Downloads running or waiting: shown as a badge on "Downloads". */
+  active?: number;
   storage: LibraryStorage | null;
   hw: HardwareInfo | null;
   changing: boolean;
   onChangeFolder: () => void;
 };
 
-export function Rail({ page, onPage, counts, downloaded, storage, hw, changing, onChangeFolder }: Props) {
+export function Rail({ page, onPage, counts, downloaded, active = 0, storage, hw, changing, onChangeFolder }: Props) {
   const gpu = primaryVramGb(hw);
   const gpuName = hw ? (gpu ? gpu.name.replace(/^NVIDIA\s+(GeForce\s+)?/i, '') : 'No NVIDIA GPU') : 'This PC';
   const specs = hw ? [gpu ? `${Math.round(gpu.vramGb)} GB VRAM` : null, hw.ramGb != null ? `${Math.round(hw.ramGb)} GB RAM` : null].filter(Boolean).join(' · ') : 'Reading this computer…';
   const pcLine = `${gpuName} · ${specs}`;
-  const item = (id: LibraryPage, label: string, icon: React.ReactNode, count?: number) => (
+  const item = (id: LibraryPage, label: string, icon: React.ReactNode, count?: number, live = false) => (
     <button key={id} type="button" className={`ml-rail-item${page === id ? ' active' : ''}`} aria-current={page === id ? 'page' : undefined} title={label} onClick={() => onPage(id)}>
       {icon}
       <span className="ml-rail-label">{label}</span>
-      {count != null && <span className="ml-rail-count">{count}</span>}
+      {count != null && <span className={`ml-rail-count${live ? ' live' : ''}`}>{count}</span>}
     </button>
   );
   return (
@@ -35,6 +37,7 @@ export function Rail({ page, onPage, counts, downloaded, storage, hw, changing, 
       <div className="ml-rail-list">
         {item('inuse', 'In use', <Sparkles size={15} />)}
         {item('downloaded', 'Downloaded', <Check size={15} />, downloaded)}
+        {item('downloads', 'Downloads', <Download size={15} />, active > 0 ? active : undefined, true)}
         {item('engines', 'Engines', <Wrench size={15} />)}
         <hr className="ml-rail-rule" />
         {CATEGORIES.map((row) => item(row.id, row.short, <row.icon size={15} />, counts[row.id] ?? 0))}

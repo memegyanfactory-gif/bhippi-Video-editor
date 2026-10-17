@@ -4340,7 +4340,7 @@ export default function App() {
       {/* Downloads and the Plugin Maker's build share the bottom-right corner, above the status bar. */}
       <CornerStack>
         <ProviderUpdates providers={providers} onModels={() => setSettingsTab('providers')} onProviders={setProviders} busy={chatActivity?.status === 'streaming' || Object.values(toolRuns).some((runs) => runs.some((run) => run.status === 'running')) || makerActivity?.status === 'streaming'} />
-        <DownloadsBadge onCancel={(id) => void cancelJob(id)} />
+        <DownloadsBadge onCancel={(id) => void cancelJob(id)} onSeeAll={() => openLibrary('downloads')} />
         {!makerOpen && (
           <MakerStatusBadge activity={makerActivity} asking={makerAsks.length > 0} seen={makerSeen} onSeen={setMakerSeen}
             onOpen={() => setMakerOpen(true)} onCancel={() => makerChatApi.current?.stop()} />

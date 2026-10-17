@@ -15,7 +15,7 @@ const pct = (fraction: number) => `${Math.round(Math.min(1, Math.max(0, fraction
 /** "Downloading Whisper large v3 turbo" → "Whisper large v3 turbo"; the row's state says the rest. */
 const nameOf = (job: Job) => job.label.replace(/^(Downloading|Installing|Updating)\s+/, '');
 
-export function DownloadsBadge({ onCancel }: { onCancel?: (id: string) => void }) {
+export function DownloadsBadge({ onCancel, onSeeAll }: { onCancel?: (id: string) => void; /** Opens Settings › Model Library › Downloads. */ onSeeAll?: () => void }) {
   const live = useLiveJobs();
   /** Finished downloads the user has dismissed; running ones always show. */
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -77,6 +77,11 @@ export function DownloadsBadge({ onCancel }: { onCancel?: (id: string) => void }
               </li>
             ))}
           </ul>
+          {onSeeAll && (
+            <footer className="dl-list-foot">
+              <button type="button" className="btn btn-ghost btn-small" onClick={() => { setOpen(false); onSeeAll(); }}>See all downloads</button>
+            </footer>
+          )}
         </div>
       )}
       <div className={`pm-badge dl-badge ${state}`} role="status" aria-live="polite">

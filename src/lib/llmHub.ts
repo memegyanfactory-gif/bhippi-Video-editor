@@ -61,6 +61,18 @@ export const quantNeeds = (weightsBytes: number, projectorBytes: number, moe: bo
   };
 };
 
+/** A piece of an id with anything unusual turned into `-` (the same as `sanitize` in llm_hub.rs). */
+export const hubIdPart = (text: string): string => text.replace(/[^A-Za-z0-9._-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
+
+/** The library card id llm_hub.rs gives one size of a repository: `hf:<author>/<name>:<quant>`. */
+export const hubEntryId = (repo: string, quant: string): string => {
+  const [author, name = ''] = repo.includes('/') ? [repo.slice(0, repo.indexOf('/')), repo.slice(repo.indexOf('/') + 1)] : ['', repo];
+  return `hf:${hubIdPart(author)}/${hubIdPart(name)}:${hubIdPart(quant)}`;
+};
+
+/** The words for what a helper file is. */
+export const helperLabel = (kind: 'mtp' | 'draft' | 'eagle3'): string => (kind === 'mtp' ? 'MTP draft head' : kind === 'eagle3' ? 'EAGLE3 helper' : 'Draft model');
+
 /** How a quantization of a hub model fits this PC. */
 export const quantFit = (quant: Pick<HubQuant, 'bytes'>, projectorBytes: number, moe: boolean, hw: HardwareInfo | null, freeGb: number | null): FitResult => {
   const needs = quantNeeds(quant.bytes, projectorBytes, moe);
