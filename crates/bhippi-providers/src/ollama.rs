@@ -61,13 +61,18 @@ impl OllamaProvider {
             }
             messages.push(entry);
         }
+        let model = req.model.as_deref().unwrap_or(&self.model);
+        // Ollama cuts a prompt longer than its window from the front, silently (the system prompt
+        // first); ask for the window Bhippi fitted the request to (context_window.rs).
+        let window = crate::context_window::cached(&self.base_url, Some(model)).unwrap_or(crate::context_window::ASSUMED);
         let mut body = serde_json::json!({
-            "model": req.model.as_deref().unwrap_or(&self.model),
+            "model": model,
             "messages": messages,
             "stream": true,
             "options": {
                 "temperature": req.temperature,
                 "num_predict": req.max_tokens,
+                "num_ctx": window,
             },
         });
         if !req.tools.is_empty() {
@@ -174,6 +179,15 @@ impl Provider for OllamaProvider {
 mod tests {
     use super::OllamaProvider;
     use crate::model::{CompletionRequest, Message, ToolCall, ToolSpec};
+
+    #[test]
+    fn ollama_is_asked_for_the_window_the_request_was_fitted_to() {
+        let provider = OllamaProvider::new("http://127.0.0.1:11999", "gemma4");
+        let req = CompletionRequest::new("sys", vec![Message::user("hi".to_owned())]);
+        assert_eq!(provider.request_body(&req)["options"]["num_ctx"], crate::context_window::ASSUMED);
+        crate::context_window::remember("http://127.0.0.1:11999", Some("gemma4"), 32_768);
+        assert_eq!(provider.request_body(&req)["options"]["num_ctx"], 32_768);
+    }
 
     #[test]
     fn tools_and_tool_turns_use_ollamas_chat_shapes() {

@@ -13,6 +13,7 @@
 pub mod anthropic;
 pub mod account_usage;
 pub mod catalog;
+pub mod context_window;
 pub mod cli;
 mod command;
 mod node;

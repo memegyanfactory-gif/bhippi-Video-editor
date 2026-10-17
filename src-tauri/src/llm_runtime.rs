@@ -134,7 +134,9 @@ const COMPUTE_GB: f64 = 0.5;
 const HEADROOM_GB: f64 = 1.0;
 /// The operating system, llama.cpp's own buffers and a little slack, on top of the weights in RAM.
 const RAM_OVERHEAD_GB: f64 = 4.0;
-const DEFAULT_CONTEXT: u32 = 16_384;
+/// Aimed at by default: the chat sends a long system prompt and tool list, and 32K leaves room for
+/// them, the project summary and the answer. Halved when the part that must sit in memory would not fit.
+const DEFAULT_CONTEXT: u32 = 32_768;
 const MIN_CONTEXT: u32 = 4_096;
 /// What a desktop's system memory sustains while llama.cpp reads experts: dual-channel DDR4/DDR5
 /// peaks at 50 to 90 GB/s and the CPU kernels reach roughly half of it. An assumption, not a reading.
@@ -316,7 +318,7 @@ fn words(range: (f64, f64)) -> String {
 }
 
 /// How one model runs on one PC: the split, the memory it takes, a speed range and a verdict,
-/// before anything starts. With `requested_context` None it aims for 16K tokens and halves that
+/// before anything starts. With `requested_context` None it aims for 32K tokens and halves that
 /// (down to 4K) when the part that must sit on the GPU would not fit; an explicit context is kept
 /// as asked.
 pub fn plan(shape: &ModelShape, pc: &Pc, requested_context: Option<u32>) -> LlmPlan {
@@ -405,7 +407,23 @@ pub fn plan(shape: &ModelShape, pc: &Pc, requested_context: Option<u32>) -> LlmP
 /// the file size against this PC's video memory and RAM. It treats the model as dense, which is the
 /// slow case, so a mixture-of-experts model usually does better than said here.
 pub fn fit_plan(file_gb: f64, projector_gb: f64, pc: &Pc, requested_context: Option<u32>) -> LlmPlan {
-    let context = requested_context.unwrap_or(DEFAULT_CONTEXT).clamp(2_048, 1_048_576);
+    let mut context = requested_context.unwrap_or(DEFAULT_CONTEXT).clamp(2_048, 1_048_576);
+    let mut plan = fit_plan_at(file_gb, projector_gb, pc, context);
+    // Aims for 32K and halves (to 8K) only when the memory does not hold it; an explicit choice is kept.
+    while requested_context.is_none() && plan.ram_gb > pc.ram_gb && context > FIT_FLOOR_CONTEXT {
+        context /= 2;
+        plan = fit_plan_at(file_gb, projector_gb, pc, context);
+    }
+    if requested_context.is_none() && context < DEFAULT_CONTEXT && plan.verdict != Verdict::No {
+        plan.note.push_str(&format!(" The context is shortened to {} tokens to fit.", context_label(context)));
+    }
+    plan
+}
+
+/// The smallest context [`fit_plan`] halves the default down to.
+const FIT_FLOOR_CONTEXT: u32 = 8_192;
+
+fn fit_plan_at(file_gb: f64, projector_gb: f64, pc: &Pc, context: u32) -> LlmPlan {
     // A rough cache size for a mid-sized model with grouped attention and an 8-bit cache.
     let kv = file_gb * 0.04 * f64::from(context) / 8_192.0;
     let has_gpu = pc.vram_gb >= MIN_USEFUL_VRAM_GB;
@@ -1402,6 +1420,8 @@ async fn launch(
         let _ignored = child.kill();
         return Err("Could not keep track of the model server.".into());
     }
+    // The chat fits each request to this window (chat_fit.rs) instead of learning it from a 400.
+    bhippi_providers::context_window::remember(&running.url, None, plan.context_tokens);
     // Offer it to chat: the llama.cpp provider's address is this server until it stops.
     job.progress(0.96, "Adding it to the AI chat");
     let previous = point_provider(app, state, Some(running.url.clone()), None).await?;
@@ -1492,7 +1512,7 @@ mod tests {
     #[test]
     fn rtx3080_runs_a_35b_moe_with_most_experts_in_ram() {
         let plan = plan(&model("qwen3.5-35b-a3b", "q4"), &rtx3080(), None);
-        assert_eq!(plan.context_tokens, 16_384);
+        assert_eq!(plan.context_tokens, 32_768);
         assert!(plan.cpu_moe_blocks > 20 && plan.cpu_moe_blocks < 40, "some blocks fit the card, most do not: {plan:?}");
         assert_eq!(plan.gpu_layers, 40, "attention and shared weights are all on the card");
         assert!(plan.vram_gb <= 9.2 - HEADROOM_GB + 0.05, "never plans past the headroom: {plan:?}");
@@ -1501,6 +1521,29 @@ mod tests {
         assert!(low >= 15.0 && high <= 90.0 && low < high, "{plan:?}");
         assert_eq!(plan.verdict, Verdict::Great);
         assert!(plan.note.starts_with("Experts of ") && plan.note.contains("blocks stay in RAM") && plan.note.contains("words a second expected"), "{}", plan.note);
+    }
+
+    /// Bhippi's chat needs room for its guide and tools, so a model starts with 32K when the PC holds
+    /// it, halves (to 8K) only when it does not, and keeps whatever the user chose.
+    #[test]
+    fn the_default_context_is_32k_and_halves_only_when_memory_is_short() {
+        assert_eq!(DEFAULT_CONTEXT, 32_768);
+        let tuned = plan(&model("qwen3.5-9b", "q4"), &rtx3080(), None);
+        assert_eq!(tuned.context_tokens, 32_768, "{tuned:?}");
+        assert!(tuned.context_tokens >= 32_768 / 2 && !tuned.note.contains("shortened"), "{}", tuned.note);
+        // A model nobody hand-tuned: 32K on a PC with room, an explicit 16K kept.
+        let roomy = fit_plan(5.0, 0.0, &rtx3080(), None);
+        assert_eq!(roomy.context_tokens, 32_768);
+        assert_eq!(fit_plan(5.0, 0.0, &rtx3080(), Some(16_384)).context_tokens, 16_384);
+        assert_eq!(fit_plan(5.0, 0.0, &rtx3080(), Some(65_536)).context_tokens, 65_536);
+        // RAM so short that 32K's cache tips it over: the default halves, never below 8K, and says so.
+        let file_gb = 20.0;
+        let tight_ram = fit_plan_at(file_gb, 0.0, &pc(0.0, 32.0, ""), 32_768).ram_gb - 0.05;
+        let tight = fit_plan(file_gb, 0.0, &pc(0.0, tight_ram, ""), None);
+        assert!(tight.context_tokens < 32_768 && tight.context_tokens >= 8_192, "{tight:?}");
+        assert!(tight.note.contains("shortened"), "{}", tight.note);
+        // An explicit choice is never halved, even when it does not fit.
+        assert_eq!(fit_plan(file_gb, 0.0, &pc(0.0, tight_ram, ""), Some(32_768)).context_tokens, 32_768);
     }
 
     #[test]
@@ -1560,7 +1603,7 @@ mod tests {
         // GLM's cache is large: at 16K the shared part plus cache does not fit 4 GB, at 4K it does.
         let tight = pc(3.0, 64.0, "RTX 3050");
         let plan = plan(&model("glm-4.7-flash", "q4"), &tight, None);
-        assert!(plan.context_tokens < 16_384, "{plan:?}");
+        assert!(plan.context_tokens < 32_768, "{plan:?}");
         assert!(plan.context_tokens >= MIN_CONTEXT);
         if plan.verdict != Verdict::No {
             assert!(plan.note.contains("context is shortened"), "{}", plan.note);
@@ -1725,7 +1768,7 @@ mod tests {
         let moe_plan = plan(&model("qwen3.5-35b-a3b", "q4"), &rtx3080(), None);
         let args = server_args(Path::new("D:/m/model.gguf"), "qwen3.5-35b-a3b", &moe_plan, Tuning::Planned { moe: true }, None, 9876);
         let joined = args.join(" ");
-        assert!(joined.starts_with("-m D:/m/model.gguf --alias qwen3.5-35b-a3b -c 16384 -ngl 999 --n-cpu-moe "), "{joined}");
+        assert!(joined.starts_with("-m D:/m/model.gguf --alias qwen3.5-35b-a3b -c 32768 -ngl 999 --n-cpu-moe "), "{joined}");
         assert!(joined.contains(&format!("--n-cpu-moe {}", moe_plan.cpu_moe_blocks)));
         for flag in ["-fa on", "--cache-type-k q8_0", "--cache-type-v q8_0", "--jinja", "--host 127.0.0.1", "--port 9876", "--no-webui", "--fit off"] {
             assert!(joined.contains(flag), "{flag} in {joined}");
@@ -1750,7 +1793,7 @@ mod tests {
         let plan = fit_plan(18.0, 0.9, &rtx3080(), None);
         let args = server_args(Path::new("D:/m/model.gguf"), "hf:x", &plan, Tuning::Fitted, Some(Path::new("D:/m/mmproj-F16.gguf")), 7000);
         let joined = args.join(" ");
-        assert!(joined.starts_with("-m D:/m/model.gguf --alias hf:x -c 16384 --mmproj D:/m/mmproj-F16.gguf "), "{joined}");
+        assert!(joined.starts_with("-m D:/m/model.gguf --alias hf:x -c 32768 --mmproj D:/m/mmproj-F16.gguf "), "{joined}");
         assert!(joined.contains("--fit on") && joined.contains("--jinja"), "{joined}");
         for flag in ["-ngl", "--n-cpu-moe", "--fit off"] {
             assert!(!joined.contains(flag), "{flag} must not be set when llama.cpp fits the model: {joined}");

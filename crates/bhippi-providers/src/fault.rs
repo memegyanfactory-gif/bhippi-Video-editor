@@ -172,7 +172,38 @@ const CONTEXT: &[&str] = &[
     "reduce the length",
     "request_too_large",
     "conversation is too long",
+    // llama.cpp: "request (92073 tokens) exceeds the available context size (16384 tokens)".
+    "available context size",
+    "exceed_context_size",
+    // LM Studio and others: the prompt does not fit the loaded model's window.
+    "greater than the context length",
+    "context overflow",
 ];
+
+/// What a local server said about a prompt that did not fit: the tokens the request needed and
+/// the window the model runs with. llama.cpp words it "request (92073 tokens) exceeds the
+/// available context size (16384 tokens)" and also sends `n_prompt_tokens` / `n_ctx` fields.
+#[must_use]
+pub fn context_numbers(reason: &str) -> Option<(u64, u64)> {
+    fn number_after(text: &str, marker: &str) -> Option<u64> {
+        let start = text.find(marker)? + marker.len();
+        let digits: String = text[start..].trim_start_matches(|c: char| c == '"' || c == ':' || c == ' ').chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().ok()
+    }
+    let said = reason.replace("\\\"", "\"");
+    let needed = number_after(&said, "\"n_prompt_tokens\"").or_else(|| number_after(&said, "request ("))?;
+    let window = number_after(&said, "\"n_ctx\"").or_else(|| number_after(&said, "context size ("))?;
+    Some((needed, window))
+}
+
+/// 16384 reads "16K" (a window is a round number of 1024s), 92073 reads "92K" (a rough count).
+fn tokens_in_k(tokens: u64) -> String {
+    if tokens >= 1000 {
+        if tokens % 1024 == 0 { format!("{}K", tokens / 1024) } else { format!("{}K", (tokens + 500) / 1000) }
+    } else {
+        tokens.to_string()
+    }
+}
 
 const QUOTA: &[&str] = &[
     "402",
@@ -499,6 +530,18 @@ pub fn advise_as(spec: &ProviderSpec, kind: FaultKind, reason: &str) -> Advice {
     let elsewhere = "Pick another provider in the composer to keep going now.";
 
     let (title, summary, fix, remedy, action_label) = match kind {
+        // A model Bhippi serves locally: compacting the chat cannot make its window bigger.
+        FaultKind::ContextExceeded if spec.kind == crate::model::ProviderKind::LocalServer => (
+            "This model's context is too small".to_owned(),
+            match context_numbers(reason) {
+                Some((needed, window)) => format!("This model is running with room for {} tokens and this turn needs about {}.", tokens_in_k(window), tokens_in_k(needed)),
+                None => "This model is running with less room than this turn needs.".to_owned(),
+            },
+            "Bhippi trimmed what it could. Restart the model with a bigger context in Settings \u{203a} Model Library \u{203a} Language models, or pick a model with a longer context."
+                .to_owned(),
+            Remedy::SwitchProvider,
+            Some("Switch model".to_owned()),
+        ),
         FaultKind::ContextExceeded => (
             "Context window full".to_owned(),
             format!("This conversation is now longer than {label} can read in one turn."),
@@ -855,6 +898,25 @@ mod tests {
         assert_eq!(advice.remedy, Remedy::Compact);
         assert!(!FaultKind::ContextExceeded.retryable());
         assert!(advice.title.contains("Context"), "{}", advice.title);
+    }
+
+    /// llama.cpp's 400 for a prompt larger than the server's window says so in plain numbers, with
+    /// no terminal advice, and compacting the chat is not offered (it cannot grow the window).
+    #[test]
+    fn a_local_servers_context_overflow_names_both_sizes() {
+        let llama = crate::catalog::spec("llamacpp").expect("llamacpp");
+        let reason = "HTTP 400: request (92073 tokens) exceeds the available context size (16384 tokens), try increasing it";
+        assert_eq!(classify(reason), FaultKind::ContextExceeded);
+        assert_eq!(super::context_numbers(reason), Some((92_073, 16_384)));
+        assert_eq!(super::context_numbers("{\"error\":{\"code\":400,\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":92073,\"n_ctx\":16384}}"), Some((92_073, 16_384)));
+        let advice = advise(llama, reason);
+        assert_eq!(advice.kind, FaultKind::ContextExceeded);
+        assert_eq!(advice.summary, "This model is running with room for 16K tokens and this turn needs about 92K.");
+        assert!(advice.fix.contains("Restart the model with a bigger context in Settings") && advice.fix.contains("Model Library"), "{}", advice.fix);
+        assert!(!advice.fix.contains("terminal") && !advice.summary.contains("could not complete"), "{advice:?}");
+        assert_eq!(advice.remedy, Remedy::SwitchProvider);
+        // A cloud provider keeps the compaction advice.
+        assert_eq!(advise(claude(), "prompt is too long: 213000 tokens > 200000 maximum").remedy, Remedy::Compact);
     }
 
     /// The vendor's own reset wording is more useful than any paraphrase of it.

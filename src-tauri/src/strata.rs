@@ -1144,6 +1144,8 @@ async fn launch(app: &AppHandle, state: &Arc<AppState>, entry: &LibraryEntry, va
         stop_child(child);
         return Err("Could not keep track of the model server.".to_owned());
     }
+    // The chat fits each request to this window (chat_fit.rs) instead of learning it from a 400.
+    bhippi_providers::context_window::remember(&running.url, None, arg_after(&running.args, "--max-context").and_then(|tokens| tokens.parse().ok()).unwrap_or(DEFAULT_CONTEXT));
     job.progress(0.96, "Adding it to the AI chat");
     let previous = crate::llm_runtime::point_provider(app, state, Some(running.url.clone()), None).await?;
     if let Ok(mut server) = SERVER.lock() {

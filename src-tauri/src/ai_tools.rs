@@ -142,7 +142,26 @@ pub fn is_guard_blocked(result: &Value) -> bool {
 }
 
 /// Runs a call a model made, refusing what cannot be a Bhippi call before it reaches the UI.
+///
+/// A compact turn (chat_fit.rs) carries only a few tools plus `find_tools` and `use_tool`. The first
+/// is answered here from the catalogue; the second is unwrapped into the real call, so the executor
+/// (the UI, with its workflow guard, permissions and undo) only ever sees a real tool name. Any model
+/// may use either, whether or not it was sent them.
 pub async fn run_call(executor: &dyn ToolExecutor, name: &str, args: Value) -> Value {
+    if name == crate::chat_fit::FIND_TOOLS {
+        return crate::chat_fit::find_tools(&args);
+    }
+    if name == crate::chat_fit::USE_TOOL {
+        return match crate::chat_fit::unwrap_use_tool(&args) {
+            Ok((inner, arguments)) if inner == crate::chat_fit::FIND_TOOLS => crate::chat_fit::find_tools(&arguments),
+            Ok((inner, arguments)) => run_known(executor, &inner, arguments).await,
+            Err(reason) => failure(reason),
+        };
+    }
+    run_known(executor, name, args).await
+}
+
+async fn run_known(executor: &dyn ToolExecutor, name: &str, args: Value) -> Value {
     if !is_known(name) {
         return failure(format!("{name} is not a Bhippi tool"));
     }
@@ -508,8 +527,14 @@ pub fn compact_catalogue(full: Option<&Toolset>) -> String {
 
 /// The text-protocol catalogue of exactly these tools, each whole (a harness's; harness.rs).
 pub fn compact_only(only: &Toolset) -> String {
+    let chosen: Vec<ToolSpec> = specs().iter().filter(|tool| only.contains(&tool.name)).cloned().collect();
+    compact_list(&chosen)
+}
+
+/// The text-protocol catalogue of exactly these tool specs, each whole, in the order given.
+pub fn compact_list(tools: &[ToolSpec]) -> String {
     let mut out = String::new();
-    for tool in specs().iter().filter(|tool| only.contains(&tool.name)) {
+    for tool in tools {
         let _ignored = writeln!(out, "- `{}`({}) — {}", tool.name, params(&tool.input_schema), tool.description);
     }
     out
@@ -660,6 +685,30 @@ mod tests {
         assert_eq!(not_object["ok"], false);
         assert!(executor.names().is_empty());
         assert_eq!(run_call(&executor, "undo", json!({})).await["ok"], true);
+    }
+
+    /// A compact turn loads a few tools plus `find_tools` and `use_tool`; a tool that was not sent
+    /// still runs through `use_tool`, under its own name, so the UI's guard and undo see a real call.
+    #[tokio::test]
+    async fn use_tool_runs_any_tool_by_name_and_find_tools_never_reaches_the_ui() {
+        let executor = FakeExecutor::new(|name, args| json!({"ok": true, "summary": format!("{name} ran"), "args": args}));
+        let ran = run_call(&executor, "use_tool", json!({"name": "color_grade", "arguments": {"clipIds": ["c1"], "preset": "teal"}})).await;
+        assert_eq!(ran["ok"], true);
+        assert_eq!(executor.names(), ["color_grade"], "the executor sees the real tool");
+        assert_eq!(executor.calls.lock().expect("calls")[0].1["preset"], "teal");
+        // The arguments beside the name, or as a JSON string, are read too.
+        run_call(&executor, "use_tool", json!({"name": "undo"})).await;
+        run_call(&executor, "use_tool", json!({"name": "add_text", "arguments": "{\"text\":\"Goa\"}"})).await;
+        assert_eq!(executor.names(), ["color_grade", "undo", "add_text"]);
+        // A name that is no Bhippi tool never reaches it.
+        let refused = run_call(&executor, "use_tool", json!({"name": "format_disk", "arguments": {}})).await;
+        assert_eq!(refused["ok"], false);
+        assert!(run_call(&executor, "use_tool", json!({"arguments": {}})).await["ok"] == false);
+        // find_tools is answered from the catalogue.
+        let found = run_call(&executor, "find_tools", json!({"query": "color grade"})).await;
+        assert_eq!(found["ok"], true);
+        assert!(found["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool["name"] == "color_grade")));
+        assert_eq!(executor.names().len(), 3);
     }
 
     fn event_executor(pending: &Arc<PendingCalls>, timeout: Duration) -> (EventExecutor, Arc<Mutex<Vec<ToolCallEvent>>>, tokio::sync::watch::Sender<bool>) {

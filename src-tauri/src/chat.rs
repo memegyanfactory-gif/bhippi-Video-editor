@@ -17,6 +17,7 @@
 //! blind in one shot. The builtin offline parser calls the same tools directly.
 
 use crate::ai_tools::{self, FenceFilter, ToolExecutor};
+use crate::chat_fit;
 use crate::mcp::{McpHub, BRIDGE_FLAG, FULL_FLAG, ONLY_FLAG, SERVER_NAME};
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
@@ -485,17 +486,47 @@ fn bridge_args(port: u16, token: &str, context: &Value, harness: Option<&crate::
 }
 
 fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> CompletionRequest {
+    build_request_in(req, row, mode, None)
+}
+
+/// The compact guide a model with a small window gets in place of copilot.md.
+const COMPACT_PROMPT: &str = include_str!("../prompts/copilot-compact.md");
+
+/// The request for a turn on a local server whose window is `window` tokens (`None`: no limit, as
+/// for every cloud provider, CLI agent and harness). The full request is built first; when it would
+/// fill more than [`chat_fit::CEILING`] of the window, the compact one (chat_fit.rs) replaces it, so
+/// the server never answers HTTP 400 for a prompt it cannot hold.
+fn build_request_in(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode, window: Option<u32>) -> CompletionRequest {
+    let Some(window) = window.filter(|_| harness_of(req).is_none() && row.kind == ProviderKind::LocalServer && mode != ToolMode::Mcp) else {
+        return build_with(req, row, mode, None);
+    };
+    let full = build_with(req, row, mode, None);
+    if chat_fit::request_tokens(&full.system, &full.tools, &full.messages) <= chat_fit::ceiling(window) {
+        return full;
+    }
+    build_with(req, row, mode, Some(window))
+}
+
+/// Builds the request; with `compact` (the window in tokens) the guide, tools and history are cut down to fit it.
+fn build_with(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode, compact: Option<u32>) -> CompletionRequest {
     // The toolset's name list steers the catalogue (ai_tools::catalogue_for); the model already
     // sees those tools, so the prompt keeps only the genres and the playbook.
     let mut shown = req.context.clone();
     if let Some(toolset) = shown.get_mut("toolset").and_then(Value::as_object_mut) {
         toolset.remove("full");
         toolset.remove("core");
+        if compact.is_some() {
+            toolset.remove("playbook");
+        }
     }
     // Compact: the summary is read by a model, and indentation was a quarter of its tokens.
-    let context = serde_json::to_string(&shown).unwrap_or_default();
+    let context = match compact {
+        // A fifth of the window at most, so the guide, the tools and the history still fit beside it.
+        Some(window) => chat_fit::shrink_context(&shown, window as usize * 18 / 100 * 35 / 10),
+        None => serde_json::to_string(&shown).unwrap_or_default(),
+    };
     // The API's tool search defers every tool outside the phase's core (native rounds only).
-    let searching = mode == ToolMode::Native && harness_of(req).is_none() && tool_search(row, req.model.as_deref());
+    let searching = compact.is_none() && mode == ToolMode::Native && harness_of(req).is_none() && tool_search(row, req.model.as_deref());
     let styles = crate::caption_styles::all()
         .iter()
         .map(|style| format!("`{}` {} ({})", style.id, style.label, style.category))
@@ -510,10 +541,24 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     // when what the user pointed at holds no motion scene (with no scope, the ask could be one).
     let quick = req.context.get("editingWorkflow").and_then(Value::as_str) == Some("quick");
     let motion = req.context.pointer("/quickScope/motion").and_then(Value::as_bool).unwrap_or(true);
-    let workflow = gate_workflow(harness.map_or(PROMPT, |h| h.prompt), quick, motion);
-    let mut base = gate_genres(&workflow, req.context.pointer("/toolset/genres").and_then(Value::as_array));
+    let mut base = if compact.is_some() {
+        // Identity, safety, the workflow rules and how to find tools; no playbooks or examples.
+        let mut base = COMPACT_PROMPT.to_owned();
+        if quick {
+            let note = "## This turn is a Quick edit\nThere are no phases: do the one thing asked, with `get_comp` first. When `quickScope` is in the project summary, change only those clips and that stretch of time.\n\n";
+            if let Some(at) = base.find(SUMMARY_HEADING) {
+                base.insert_str(at, note);
+            }
+        }
+        base
+    } else {
+        let workflow = gate_workflow(harness.map_or(PROMPT, |h| h.prompt), quick, motion);
+        gate_genres(&workflow, req.context.pointer("/toolset/genres").and_then(Value::as_array))
+    };
     if let Some((id, brief)) = &brief {
         let body = brief.lines().filter(|line| !line.starts_with("Persona:")).collect::<Vec<_>>().join("\n");
+        // A style's long brief would take a small window whole: keep its opening, where its rules start.
+        let body = if compact.is_some() && body.len() > 3_000 { body.chars().take(3_000).collect::<String>() } else { body };
         let section = format!(
             "## ACTIVE EDIT STYLE: @{id}\n\nThe user switched this style on; it holds for this turn and every worker you spawn.\n\n{}\n\n## END OF THE @{id} STYLE\n\n",
             body.trim()
@@ -542,11 +587,23 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
 
 {system}");
     }
+    // A compact turn's tools: a small stable set, and the map of the rest when the window has room.
+    let compact_tools = compact.map(chat_fit::compact_tools);
+    if let (Some(window), Some(tools)) = (compact, &compact_tools) {
+        let index = chat_fit::index_section();
+        let used = chat_fit::estimate_tokens(system.len() + index.len()) + chat_fit::tools_tokens(tools);
+        if used <= chat_fit::ceiling(window) * 2 / 3 {
+            if let Some(at) = system.find(SUMMARY_HEADING) {
+                system.insert_str(at, &index);
+            }
+        }
+    }
     if mode == ToolMode::Text {
         system.push_str("\n\n");
-        let tools = match harness {
-            Some(harness) => ai_tools::compact_only(&harness.tools),
-            None => ai_tools::compact_catalogue(ai_tools::toolset_from(&req.context).as_ref()),
+        let tools = match (harness, &compact_tools) {
+            (Some(harness), _) => ai_tools::compact_only(&harness.tools),
+            (None, Some(tools)) => ai_tools::compact_list(tools),
+            (None, None) => ai_tools::compact_catalogue(ai_tools::toolset_from(&req.context).as_ref()),
         };
         system.push_str(&FALLBACK_PROMPT.replace("{{TOOLS}}", &tools));
     }
@@ -602,6 +659,15 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     let mut user_message = Message::user(req.message.trim().to_owned());
     user_message.images = req.images.clone();
     messages.push(user_message);
+    // What is left of the ceiling after the guide and the tools is the conversation's: the oldest
+    // tool results shrink first, then the oldest whole turns go. The last message stays whole.
+    if let (Some(window), Some(tools)) = (compact, &compact_tools) {
+        let room = chat_fit::ceiling(window).saturating_sub(chat_fit::estimate_tokens(system.len()) + chat_fit::tools_tokens(tools));
+        let trimmed = chat_fit::fit_messages(&mut messages, room);
+        if trimmed != chat_fit::Trimmed::default() {
+            tracing::info!(provider = %row.id, window, ?trimmed, "history trimmed to fit the model's context");
+        }
+    }
     // Everything before the project summary is the same turn after turn (the handoff and a CLI's
     // transcript come after it), so a backend with prompt caching keeps that part on its own.
     let volatile_from = system.find(SUMMARY_HEADING);
@@ -620,6 +686,7 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
     if mode == ToolMode::Native {
         request.tools = match harness {
             Some(harness) => harness.catalogue(),
+            None if compact_tools.is_some() => compact_tools.clone().unwrap_or_default(),
             None if searching => match ai_tools::loaded_from(&req.context) {
                 Some(loaded) => ai_tools::deferred_catalogue(&loaded),
                 None => ai_tools::catalogue_for(None),
@@ -627,6 +694,10 @@ fn build_request(req: &ChatRequest, row: &ProviderInfo, mode: ToolMode) -> Compl
             None => ai_tools::catalogue_for(ai_tools::toolset_from(&req.context).as_ref()),
         };
         request.max_tokens = output_cap(row, request.model.as_deref());
+    }
+    if let Some(window) = compact {
+        // A quarter of the window for the answer: a 16K cap on a 16K window leaves no room to read.
+        request.max_tokens = request.max_tokens.min((window / 4).max(1_024));
     }
     // For a CLI, this is a *silence* budget (see `CliProvider`'s doc comment): the vendor is only
     // judged hung if it produces no output line at all for this long, not if the whole round runs
@@ -1007,6 +1078,8 @@ struct Turn<'a, E: Fn(ChatEvent) + Send + Sync> {
     stop: watch::Receiver<bool>,
     progress: Progress,
     max_rounds: usize,
+    /// A local server's context window in tokens, when the turn must fit one (chat_fit.rs).
+    window: Option<u32>,
 }
 
 impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
@@ -1094,6 +1167,14 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
         Ok(Round { text: raw, calls, thinking, stop_reason })
     }
 
+    /// The window a local server says it really has, when that is smaller than the one this turn
+    /// was built for (a 400 such as "request (92073 tokens) exceeds the available context size (8192 tokens)").
+    fn smaller_window(&self, reason: &str) -> Option<u32> {
+        let assumed = self.window?;
+        let (_, real) = bhippi_providers::fault::context_numbers(reason)?;
+        u32::try_from(real).ok().filter(|real| *real >= 1_024 && *real < assumed)
+    }
+
     fn interrupted(&mut self, interrupt: Interrupt) {
         match interrupt {
             Interrupt::Stopped => self.progress.stopped = true,
@@ -1106,10 +1187,20 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
     /// Native tools: stream, run the calls in order, hand the results back, repeat until the
     /// model answers without calling anything.
     async fn native(&mut self, provider: &dyn Provider, req: &ChatRequest, executor: &dyn ToolExecutor) {
-        let mut request = build_request(req, self.row, ToolMode::Native);
+        let mut request = build_request_in(req, self.row, ToolMode::Native, self.window);
         let mut continuations = 0;
         let mut images_sent = 0;
         for round in 0..self.max_rounds {
+            // Tool results pile up: when a local model's window is about to overflow, the oldest
+            // results shrink and the oldest rounds go (whole, call with its result) before this
+            // round is sent. Under the ceiling nothing is touched, so the server's cache holds.
+            if let Some(window) = self.window {
+                let room = chat_fit::ceiling(window).saturating_sub(chat_fit::estimate_tokens(request.system.len()) + chat_fit::tools_tokens(&request.tools));
+                let trimmed = chat_fit::fit_messages(&mut request.messages, room);
+                if trimmed != chat_fit::Trimmed::default() {
+                    tracing::info!(provider = %self.row.id, window, round, ?trimmed, "conversation trimmed to fit the model's context");
+                }
+            }
             // Per round: a long turn used to share three retries across all its rounds, so the
             // fourth blip of a half-hour edit ended it.
             let mut retries = 0;
@@ -1117,9 +1208,19 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                 let shown = self.progress.reply.len();
                 match self.round(provider, request.clone(), None).await {
                     Ok(done) => break done,
+                    // The server's window is smaller than assumed (it would not say): take its word, rebuild
+                    // the request to fit it and send the round again.
+                    Err(Interrupt::Refused(reason)) if round == 0 && self.smaller_window(&reason).is_some() => {
+                        if let Some(real) = self.smaller_window(&reason) {
+                            tracing::info!(provider = %self.row.id, real, "the server's context is smaller than assumed; rebuilding the request");
+                            bhippi_providers::context_window::remember(&local_base(self.row), req.model.as_deref(), real);
+                            self.window = Some(real);
+                            request = build_request_in(req, self.row, ToolMode::Native, self.window);
+                        }
+                    }
                     Err(Interrupt::Refused(reason)) if round == 0 && rejects_tools(&reason) => {
                         tracing::info!(provider = %self.row.id, %reason, "tools refused; using the text protocol");
-                        return self.text(provider, build_request(req, self.row, ToolMode::Text), executor).await;
+                        return self.text(provider, build_request_in(req, self.row, ToolMode::Text, self.window), executor).await;
                     }
                     // A busy server or a dropped connection: the same round again after a short
                     // wait, so one blip does not end a long edit. Only while nothing of the round
@@ -1323,6 +1424,18 @@ fn text_round_feedback(results: &[(String, Value)]) -> String {
     out
 }
 
+/// The context window of the local server behind `row`, for this model: remembered, else asked
+/// of the server, else assumed ([`bhippi_providers::context_window::ASSUMED`]).
+async fn local_window(row: &ProviderInfo, model: Option<&str>) -> u32 {
+    bhippi_providers::context_window::window(&row.id, &local_base(row), model).await
+}
+
+/// The address a local row's server answers on (as `adapter` reads it).
+fn local_base(row: &ProviderInfo) -> String {
+    let port = row.detected_port.or_else(|| bhippi_providers::spec(&row.id).and_then(|spec| spec.port)).unwrap_or(0);
+    row.base_url.clone().unwrap_or_else(|| format!("http://127.0.0.1:{port}"))
+}
+
 /// Runs one turn to completion, emitting events through `emit`. `stop` flips to true when the
 /// user presses Stop.
 pub async fn run_turn(
@@ -1348,7 +1461,10 @@ pub async fn run_turn(
         provider_label: row.label.clone(),
         model: req.model.clone(),
     });
-    let mut turn = Turn { turn_id: &req.turn_id, row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: req.max_rounds.map_or(MAX_ROUNDS, |cap| cap.clamp(1, MAX_ROUNDS)) };
+    // A local server reads only what it was started with: ask it (once per address and model), so
+    // the request is built to fit instead of being refused with an HTTP 400.
+    let window = if row.kind == ProviderKind::LocalServer && harness_of(&req).is_none() { Some(local_window(&row, req.model.as_deref()).await) } else { None };
+    let mut turn = Turn { turn_id: &req.turn_id, row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: req.max_rounds.map_or(MAX_ROUNDS, |cap| cap.clamp(1, MAX_ROUNDS)), window };
 
     if row.kind == ProviderKind::Builtin {
         let reply = crate::offline::run(&req.message, &req.context, executor.as_ref()).await;
@@ -1360,7 +1476,7 @@ pub async fn run_turn(
                 (ToolMode::Mcp, Some(link)) => turn.mcp(provider.as_ref(), &req, executor, link).await,
                 (ToolMode::Native, _) => turn.native(provider.as_ref(), &req, executor.as_ref()).await,
                 (ToolMode::Text | ToolMode::Mcp, _) => {
-                    let request = build_request(&req, &row, ToolMode::Text);
+                    let request = build_request_in(&req, &row, ToolMode::Text, window);
                     turn.text(provider.as_ref(), request, executor.as_ref()).await;
                 }
             },
@@ -1457,7 +1573,101 @@ pub async fn ask_once(row: &ProviderInfo, keys: &ApiKeys, req: AskRequest) -> Re
 
 #[cfg(test)]
 mod tests {
-    use super::{build_request, mode_for, resolve_row, run_turn, transient, ChatEvent, ChatRequest, McpLink, Progress, ToolMode, Turn};
+    use super::{build_request, build_request_in, fault_for, mode_for, resolve_row, run_turn, transient, ChatEvent, ChatRequest, HistoryItem, McpLink, Progress, ToolMode, Turn};
+
+    /// The tools the UI's router sends a guided turn (src/lib/toolRouter.ts CORE_TOOLS + GUIDED_TOOLS).
+    const ROUTED: [&str; 53] = ["tool_help","editing_workflow_status","verify_edit_workflow","get_project","get_comp","ask_user","choose_comp_size","save_storyboard","propose_storyboards","save_video_blueprint","execute_blueprint","attach_production_asset","finish_gathering","place_clip","add_text","update_clip","delete_clips","split_clips","remove_range","add_tracks","import_media","add_transition","seamless_transition","set_keyframes","add_marker","undo","analyze_clip_speech","inspect_clip_frames","local_media_capabilities","find_free_media","download_online_media","add_sound_effect","search_sfx","place_sfx","level_audio","analyze_music_beats","add_captions","set_caption_style","motion_guide","list_motion_templates","create_motion_scene","get_motion_scene","update_motion_scene","run_frame_qa","judge_edit","consult_council","check_pacing","write_file","edit_file","build_edit_from_brief","add_graphic","compose_music","make_background"];
+
+    fn guided_context() -> serde_json::Value {
+        json!({"playhead": 1.5, "modelTier": "guided", "toolset": {"genres": ["edit", "motion"], "full": ROUTED.to_vec(), "core": ROUTED.to_vec()}})
+    }
+
+    fn total(request: &CompletionRequest) -> usize {
+        crate::chat_fit::request_tokens(&request.system, &request.tools, &request.messages)
+    }
+
+    /// The user's screenshot: "hi" to a llama.cpp server started with 16K. The full request was ~92K
+    /// tokens; the compact one is under the 65 percent ceiling, loads the same tools every turn, and
+    /// reaches every other tool through find_tools and use_tool.
+    #[test]
+    fn a_16k_local_model_gets_a_compact_request_for_hi() {
+        let row = row_of("llamacpp", ProviderKind::LocalServer, true);
+        for (label, context) in [("no toolset", json!({"playhead": 1.5})), ("guided toolset", guided_context())] {
+            let mut req = request("hi");
+            req.context = context;
+            let full = build_request(&req, &row, ToolMode::Native);
+            let compact = build_request_in(&req, &row, ToolMode::Native, Some(16_384));
+            println!(
+                "BREAKDOWN {label}: full = system {} tok + tools {} tok ({} tools) = {} tok; compact = system {} tok + tools {} tok ({} tools) + messages {} tok = {} tok (ceiling {})",
+                crate::chat_fit::estimate_tokens(full.system.len()), crate::chat_fit::tools_tokens(&full.tools), full.tools.len(), total(&full),
+                crate::chat_fit::estimate_tokens(compact.system.len()), crate::chat_fit::tools_tokens(&compact.tools), compact.tools.len(), crate::chat_fit::messages_tokens(&compact.messages), total(&compact), crate::chat_fit::ceiling(16_384),
+            );
+            assert!(total(&full) > 16_384, "{label}: the full request cannot fit 16K");
+            assert!(total(&compact) < 10_600, "{label}: {} tokens", total(&compact));
+            let names: Vec<&str> = compact.tools.iter().map(|tool| tool.name.as_str()).collect();
+            assert!(names.contains(&"find_tools") && names.contains(&"use_tool") && names.contains(&"add_text") && names.len() <= 25, "{names:?}");
+            assert!(compact.system.contains("find_tools") && compact.system.contains("## Project summary"));
+            assert!(!compact.system.contains("MOTION ENGINE") && !compact.system.contains("(params: tool_help)"));
+            assert!(compact.max_tokens <= 4_096, "{}", compact.max_tokens);
+            // The same tools every turn, whatever the message, so the server's prompt cache holds.
+            let mut other = request("make a 30 second saas ad with captions and a voiceover");
+            other.context = req.context.clone();
+            let again = build_request_in(&other, &row, ToolMode::Native, Some(16_384));
+            assert_eq!(serde_json::to_string(&again.tools).unwrap(), serde_json::to_string(&compact.tools).unwrap());
+            assert!(again.system.starts_with(compact.system.split("## Project summary").next().unwrap_or_default()));
+        }
+    }
+
+    /// A server with room keeps today's request, and so does every cloud provider whatever the window.
+    #[test]
+    fn a_roomy_window_and_a_cloud_row_keep_the_full_request() {
+        let mut req = request("hi");
+        req.context = guided_context();
+        let local = row_of("llamacpp", ProviderKind::LocalServer, true);
+        let full = build_request(&req, &local, ToolMode::Native);
+        let roomy = build_request_in(&req, &local, ToolMode::Native, Some(262_144));
+        assert_eq!((roomy.system.as_str(), serde_json::to_string(&roomy.tools).unwrap()), (full.system.as_str(), serde_json::to_string(&full.tools).unwrap()));
+        for id in ["openai", "anthropic", "gemini"] {
+            let cloud = row_of(id, ProviderKind::CloudApi, true);
+            let plain = build_request(&req, &cloud, ToolMode::Native);
+            let small = build_request_in(&req, &cloud, ToolMode::Native, Some(8_192));
+            assert_eq!(small.system, plain.system, "{id}");
+            assert_eq!(serde_json::to_string(&small.tools).unwrap(), serde_json::to_string(&plain.tools).unwrap(), "{id}");
+            assert!(small.tools.len() > 200, "{id}: every tool is still sent");
+        }
+    }
+
+    /// A long chat on a small window loses its oldest turns whole, never the new message.
+    #[test]
+    fn old_turns_are_dropped_whole_to_fit_a_small_window() {
+        let row = row_of("llamacpp", ProviderKind::LocalServer, true);
+        let mut req = request("what did we do first?");
+        req.history = (0..12)
+            .flat_map(|n| [
+                HistoryItem { images: Vec::new(), role: "user".to_owned(), content: format!("ask {n} {}", "word ".repeat(300)), speaker: None },
+                HistoryItem { images: Vec::new(), role: "assistant".to_owned(), content: format!("answer {n} {}", "word ".repeat(300)), speaker: None },
+            ])
+            .collect();
+        let built = build_request_in(&req, &row, ToolMode::Native, Some(16_384));
+        assert!(total(&built) <= crate::chat_fit::ceiling(16_384), "{}", total(&built));
+        let last = built.messages.last().expect("the new message");
+        assert_eq!(last.content, "what did we do first?");
+        assert_eq!(built.messages.first().map(|message| message.role), Some(Role::User), "a turn is never half dropped");
+        assert!(built.messages.len() < 25 && built.messages.len() > 1);
+        assert!(built.messages.iter().any(|message| message.content.starts_with("answer 11")), "the newest turns stay");
+        assert!(!built.messages.iter().any(|message| message.content.starts_with("ask 0 ")), "the oldest go");
+    }
+
+    /// llama.cpp's refusal reads as a plain sentence with both sizes, not "Run `llamacpp` in a terminal".
+    #[test]
+    fn a_context_overflow_from_llama_cpp_is_a_plain_message() {
+        let row = row_of("llamacpp", ProviderKind::LocalServer, true);
+        let fault = fault_for(&row, "llama.cpp server could not complete this turn. HTTP 400: request (92073 tokens) exceeds the available context size (16384 tokens), try increasing it");
+        assert_eq!(fault.kind, "context_exceeded");
+        assert_eq!(fault.summary, "This model is running with room for 16K tokens and this turn needs about 92K.");
+        assert!(fault.fix.starts_with("Bhippi trimmed what it could. Restart the model with a bigger context in Settings"), "{}", fault.fix);
+        assert!(!fault.fix.contains("terminal") && !fault.summary.contains("could not complete"));
+    }
 
     #[test]
     fn only_failures_that_clear_by_themselves_are_retried() {
@@ -1757,7 +1967,7 @@ kept
         let req = request("add a Goa title");
         let (emit, recorded) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
         let progress = turn.progress;
         let events = recorded.lock().expect("events").clone();
@@ -1808,7 +2018,7 @@ kept
         let req = request("whoosh at 2 and cut at 3");
         let (emit, recorded) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
         let progress = turn.progress;
         let events = recorded.lock().expect("events").clone();
@@ -1850,7 +2060,7 @@ kept
         let req = request("assemble the edit");
         let (emit, _recorded) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         let request0 = build_request(&req, &row, ToolMode::Text);
         turn.text(&provider, request0, &executor).await;
         let progress = turn.progress;
@@ -1879,7 +2089,7 @@ kept
         let row = row_of("openai", ProviderKind::CloudApi, true);
         let req = request("two titles");
         let (emit, _) = recorder();
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
         assert!(turn.progress.stopped);
         assert_eq!(executor.names(), vec!["add_text"], "the second call is not run after Stop");
@@ -1896,7 +2106,7 @@ kept
         let req = request("loop");
         let (emit, _) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
         let progress = turn.progress;
         assert_eq!(executor.names().len(), super::MAX_ROUNDS);
@@ -1921,7 +2131,7 @@ kept
         let req = request("check");
         let (emit, recorded) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
 
         let seen = provider.seen();
@@ -1954,7 +2164,7 @@ kept
         let req = request("check");
         let (emit, _) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
 
         let messages = &provider.seen()[1].messages;
@@ -1985,7 +2195,7 @@ kept
         let req = request("add a long title");
         let (emit, _) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
 
         assert_eq!(executor.names(), vec!["get_comp"]);
@@ -2006,7 +2216,7 @@ kept
         let req = request("plan it");
         let (emit, _) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
         assert!(turn.progress.notes.is_empty(), "{:?}", turn.progress.notes);
         let seen = provider.seen();
@@ -2026,7 +2236,7 @@ kept
         let req = request("plan it");
         let (emit, _) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
         assert_eq!(provider.seen().len(), super::MAX_CONTINUATIONS + 1);
         assert_eq!(turn.progress.notes.len(), 1);
@@ -2081,7 +2291,7 @@ kept
         let req = request("check the frames");
         let (emit, _) = recorder();
         let (_stop_sender, stop) = tokio::sync::watch::channel(false);
-        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS };
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
         turn.native(&provider, &req, &executor).await;
 
         let messages = &provider.seen()[1].messages;

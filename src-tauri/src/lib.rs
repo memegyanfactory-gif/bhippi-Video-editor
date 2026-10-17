@@ -17,6 +17,7 @@ mod magic_mask;
 mod ai_tools;
 mod caption_styles;
 mod chat;
+mod chat_fit;
 mod files;
 mod jobs;
 mod kokoro;

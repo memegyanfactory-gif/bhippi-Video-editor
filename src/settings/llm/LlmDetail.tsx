@@ -67,6 +67,9 @@ type Option = {
 
 const isProjector = (dest: string) => /(^|\/)mmproj/i.test(dest);
 
+/** The context sizes the Start control offers besides Auto. */
+const CONTEXT_CHOICES = [8192, 16384, 32768, 65536];
+
 export type DetailContext = {
   hw: HardwareInfo | null;
   freeGb: number | null;
@@ -123,6 +126,8 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
   const [plans, setPlans] = useState<Record<string, LlmPlan>>({});
   /** The Strata size waiting for the person to confirm a start (loading can freeze the PC for minutes). */
   const [confirmStart, setConfirmStart] = useState<string | null>(null);
+  /** The context window to start a model with: 0 lets Bhippi pick the largest one this PC holds (32K at best). */
+  const [contextChoice, setContextChoice] = useState(0);
   /** Whether the signed-in Hugging Face account may download this gated repository. */
   const [hfGranted, setHfGranted] = useState(false);
 
@@ -315,7 +320,7 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
   const cancel = (view: LibraryView) => void guard(view.entry.id, () => libraryApi.cancel(view.entry.id, false), 'Could not stop the download');
   const pause = (view: LibraryView) => void guard(view.entry.id, () => libraryApi.cancel(view.entry.id, true), 'Could not pause the download');
   const start = (view: LibraryView, size: string | null) => void guard(view.entry.id, async () => {
-    const result = await libraryApi.llmStart(view.entry.id, size ? { variant: size } : {});
+    const result = await libraryApi.llmStart(view.entry.id, { ...(size ? { variant: size } : {}), ...(contextChoice && view.entry.runtime !== 'strata' ? { contextTokens: contextChoice } : {}) });
     setConfirmStart(null);
     toast({ tone: 'success', title: `${view.entry.name} is ready`, body: result.running?.tokensPerSecond ? `About ${Math.round(result.running.tokensPerSecond * 0.75)} words a second. It is now a chat provider.` : 'It is now a chat provider.' });
   }, 'Could not start the model');
@@ -506,9 +511,20 @@ export function LlmDetail({ selection, ctx }: { selection: Selection; ctx: Detai
                         {running ? (
                           <button type="button" className="btn btn-small" disabled={busy === 'stop'} onClick={stop}><Square size={11} /> Stop</button>
                         ) : (
+                          <>
+                          {view.entry.runtime !== 'strata' && (
+                            <label className="lb-context" title="How much text the model reads at once. Bigger needs more memory; Bhippi's chat needs about 16K at least.">
+                              Context{' '}
+                              <select value={contextChoice} onChange={(event) => setContextChoice(Number(event.target.value))} aria-label="Context size to start with">
+                                <option value={0}>Auto</option>
+                                {CONTEXT_CHOICES.map((tokens) => <option key={tokens} value={tokens}>{tokens / 1024}K</option>)}
+                              </select>
+                            </label>
+                          )}
                           <button type="button" className="btn btn-small btn-primary" disabled={working || (!!llm && !llm.installed && view.entry.runtime !== 'strata')} onClick={() => (view.entry.runtime === 'strata' ? setConfirmStart(option.variantId) : start(view, null))}>
                             {working ? <LoaderCircle size={12} className="spin" /> : <Play size={11} />} Start
                           </button>
+                          </>
                         )}
                         {confirming === view.entry.id ? (
                           <button type="button" className="btn btn-small lb-danger" onClick={() => remove(view)} onBlur={() => setConfirming(null)} autoFocus>Delete?</button>
