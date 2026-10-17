@@ -6,9 +6,9 @@
 
 **The desktop video editor with an AI producer built in.** Windows 10/11 (x64). MIT licensed — free forever, no account, no license key, no credits.
 
-Version 1.0.23
+Version 1.0.24
 
-[![Release](https://img.shields.io/badge/Release-v1.0.23-ff5c35?style=flat-square)](https://github.com/memegyanfactory-gif/bhippi-Video-editor/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v1.0.24-ff5c35?style=flat-square)](https://github.com/memegyanfactory-gif/bhippi-Video-editor/releases/latest)
 [![Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/WY3XNWdf9B)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-24c8db?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -43,6 +43,7 @@ Unlike simple prompt-to-video wrappers, Bhippi gives you a full professional edi
 
 | Version | What changed |
 | :--- | :--- |
+| **1.0.24** | **Closing Bhippi closes everything it started.** Local language models, ComfyUI video and image models, Blender, FFmpeg, AI agent CLIs, MCP servers, the capture browser and commands the AI ran all end with Bhippi, even after a crash (Windows job objects). Your own browser, Ollama, LM Studio and the update installer are left alone. |
 | **1.0.23** | **3D renders as layers, CPU/RAM limits, any provider more reliable.** A Blender render arrives as one layer per object plus Shadow and Background, matching the single render, so any object can be hidden, graded or retimed. Settings › General › Performance caps Bhippi's heavy work (llama.cpp, ComfyUI, Blender, FFmpeg) at 75% CPU and memory by default, enforced by Windows. Silent or stalled agents restart, models that stop mid-task are nudged on, and an unfinished production gets Bhippi's own polish (black edges, mix level, the Judge). |
 | **1.0.22** | **Local language models just work.** Bhippi checks how much text a local model can read and, when its full request would not fit, sends a compact one (a few core tools plus "find tools" for the 200+ others), so "hi" to a 16K model costs about 6K tokens instead of 92K. Local models start with a 32K context when the PC can hold it, with a Context choice next to Start; a model's sizes each show their own download status. |
 | **1.0.21** | **Downloads page and queue.** See what is downloading, waiting, paused, failed and finished; pause any download and resume it later from where it stopped, even after closing Bhippi. Hugging Face downloads always show what is happening, and draft/MTP helper files are no longer offered as models. [Details ↓](#downloads-queue-pause-and-resume) |

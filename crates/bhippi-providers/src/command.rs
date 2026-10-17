@@ -152,6 +152,19 @@ pub fn set_agent_workspace(dir: PathBuf) {
     let _ignored = WORKSPACE.set(std::fs::create_dir_all(&dir).ok().map(|()| dir));
 }
 
+pub(crate) fn tie_to_app(child: &tokio::process::Child) {
+    // Ties a long-lived provider process to Bhippi's life through bhippi-job's "tied" job, so a
+    // crash or a kill of Bhippi ends it too (kill_on_drop never runs then). Failure is not fatal.
+    #[cfg(windows)]
+    if let Some(handle) = child.raw_handle() {
+        if let Err(error) = bhippi_job::tie(handle as usize) {
+            tracing::warn!("a provider process is not tied to Bhippi's life: {error}");
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = child;
+}
+
 pub(crate) fn agent_workspace() -> Option<&'static Path> {
     WORKSPACE
         .get_or_init(|| {

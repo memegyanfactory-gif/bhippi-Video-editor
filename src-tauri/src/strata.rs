@@ -680,6 +680,8 @@ async fn setup_job(state: &Arc<AppState>, task: &Task, data: &Path, model_bytes:
     command.creation_flags(0x0800_0000);
     job.progress(0.02, "Starting Strata's setup");
     let mut child = command.spawn().map_err(|error| format!("Could not start Strata's setup: {error}"))?;
+    // Tied to Bhippi's life: an installer left running after the app closed would keep downloading and writing files.
+    crate::resources::tie(&child);
     let pid = child.id().unwrap_or(0);
     let (sender, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();
     if let Some(out) = child.stdout.take() {

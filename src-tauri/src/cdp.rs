@@ -27,8 +27,43 @@ pub struct Browser {
     events: Vec<(String, String, Value)>,
 }
 
+/// The headless browsers running now: process id to throwaway profile folder.
+static LIVE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<u32, PathBuf>>> = std::sync::LazyLock::new(Default::default);
+
+/// The polite stop when the app closes: ends every running capture browser with its process tree
+/// and removes its profile, waiting no longer than `grace`. (The tied job ends anything left.)
+pub fn shutdown(grace: Duration) {
+    let live: Vec<(u32, PathBuf)> = LIVE.lock().map(|mut live| live.drain().collect()).unwrap_or_default();
+    if live.is_empty() {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut command = std::process::Command::new("taskkill");
+        command.args(["/T", "/F"]);
+        for (pid, _) in &live {
+            command.arg("/PID").arg(pid.to_string());
+        }
+        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(0x0800_0000);
+        if let Ok(mut child) = command.spawn() {
+            let deadline = std::time::Instant::now() + grace;
+            while child.try_wait().ok().flatten().is_none() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let _ignored = child.kill();
+        }
+    }
+    for (_, profile) in live {
+        let _ignored = std::fs::remove_dir_all(profile);
+    }
+}
+
 impl Drop for Browser {
     fn drop(&mut self) {
+        if let (Some(pid), Ok(mut live)) = (self.child.id(), LIVE.lock()) {
+            live.remove(&pid);
+        }
         let _ignored = self.child.start_kill();
         let profile = self.profile.clone();
         // The browser holds its profile open for a moment after it is told to die.
@@ -73,6 +108,13 @@ impl Browser {
             .kill_on_drop(true)
             .spawn()
             .map_err(|error| format!("could not start {}: {error}", program.display()))?;
+        // Tied to Bhippi's life: the headless browser (and its renderer processes) end with the app, even after a crash.
+        crate::resources::tie(&child);
+        if let Some(pid) = child.id() {
+            if let Ok(mut live) = LIVE.lock() {
+                live.insert(pid, profile.clone());
+            }
+        }
         // The browser writes its port and websocket path to the profile once it listens.
         let port_file = profile.join("DevToolsActivePort");
         let started = std::time::Instant::now();

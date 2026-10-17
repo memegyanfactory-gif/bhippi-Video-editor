@@ -34,6 +34,7 @@ pub async fn codex_limits() -> Result<Vec<UsageBucket>, String> {
     let mut command = resolved.command();
     command.arg("app-server").stdin(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
     let mut child = command.spawn().map_err(|_| "Could not start the Codex usage connection".to_owned())?;
+    crate::command::tie_to_app(&child);
     let read = async {
         let mut input = child.stdin.take().ok_or("Codex usage input unavailable")?;
         let output = child.stdout.take().ok_or("Codex usage output unavailable")?;

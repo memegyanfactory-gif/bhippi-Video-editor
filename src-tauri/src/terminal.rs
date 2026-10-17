@@ -19,6 +19,13 @@ impl Drop for Session {
 #[derive(Clone, Default)]
 pub struct TerminalState(Arc<Mutex<Option<Session>>>);
 
+impl TerminalState {
+    /// The polite stop when the app closes: ends the open shell (the session's drop kills it).
+    pub fn shutdown(&self) {
+        if let Ok(mut held) = self.0.try_lock() { held.take(); }
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Output { session_id: String, data: Vec<u8>, exit_code: Option<u32>, error: Option<String> }
@@ -61,6 +68,9 @@ fn spawn(state: TerminalState, cwd: Option<String>, cols: u16, rows: u16, emit: 
     }
     let (shell, mut child) = spawned.ok_or_else(|| format!("Could not start a shell: {last_error}"))?;
     drop(pair.slave);
+    // Tied to Bhippi's life: the user's shell and whatever runs in it end with the app, even after a crash.
+    #[cfg(windows)]
+    if let Some(handle) = child.as_raw_handle() { crate::resources::tie_handle(handle as usize, child.process_id()); }
     let reader = pair.master.try_clone_reader().map_err(|e| { let _ = child.kill(); e.to_string() })?;
     let writer = pair.master.take_writer().map_err(|e| { let _ = child.kill(); e.to_string() })?;
     let id = ulid::Ulid::new().to_string();

@@ -90,6 +90,7 @@ pub async fn run_recipe_with(
         .stderr(std::process::Stdio::piped())
         .stdin(std::process::Stdio::null());
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    command::tie_to_app(&child);
 
     // Both streams feed one channel, so lines arrive in the order the installer printed them.
     let (sender, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();

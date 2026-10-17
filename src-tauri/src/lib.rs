@@ -4475,9 +4475,18 @@ pub fn run() {
         ]))
         .build(tauri::generate_context!())
         .map(|app| {
-            app.run(|_app, event| {
+            app.run(|app, event| {
                 // The local engines Bhippi started (ComfyUI, a llama.cpp server) go with it, however it exits.
                 if let tauri::RunEvent::Exit = event {
+                    // The polite stop first, about 1.5 s at most in all (MCP servers, the capture browser, the
+                    // shell); whatever is left is ended by the jobs' kill-on-close when this process ends.
+                    if let Some(state) = app.try_state::<Arc<AppState>>() {
+                        state.mcp_out.shutdown(std::time::Duration::from_millis(1000));
+                    }
+                    if let Some(terminal) = app.try_state::<terminal::TerminalState>() {
+                        terminal.shutdown();
+                    }
+                    cdp::shutdown(std::time::Duration::from_millis(500));
                     comfy::shutdown();
                     llm_runtime::shutdown();
                     strata::shutdown();

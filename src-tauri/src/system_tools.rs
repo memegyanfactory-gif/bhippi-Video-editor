@@ -588,6 +588,8 @@ pub async fn run_command(
     let spawned = shell("sh", &["-c", command]);
 
     let mut child = spawned.map_err(|e| format!("Failed to execute command: {e}"))?;
+    // Tied to Bhippi's life: whatever the AI started (and its children) ends with the app, even after a crash.
+    crate::resources::tie(&child);
     let pid = child.id();
     // Both pipes drain while the command runs; a full pipe would stall it.
     let (mut stdout_task, mut stderr_task) = (drain(child.stdout.take()), drain(child.stderr.take()));

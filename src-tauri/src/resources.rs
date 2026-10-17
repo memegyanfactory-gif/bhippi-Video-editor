@@ -141,6 +141,37 @@ fn contain_handle(handle: usize, pid: Option<u32>) {
     }
 }
 
+/// Ties a long-lived program that needs no limits (a provider CLI agent, an MCP server, the capture
+/// browser, a shell the AI started) to Bhippi's life: when Bhippi ends, however it ends, Windows ends
+/// the program too. Never use it for what must outlive Bhippi (the updater's installer) or for what
+/// was opened for the user (links, folders, files in their own apps).
+pub fn tie(child: &tokio::process::Child) {
+    #[cfg(windows)]
+    if let Some(handle) = child.raw_handle() {
+        tie_handle(handle as usize, child.id());
+    }
+    #[cfg(not(windows))]
+    let _ = child;
+}
+
+/// The same for a program started with `std::process`.
+pub fn tie_std(child: &std::process::Child) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        tie_handle(child.as_raw_handle() as usize, Some(child.id()));
+    }
+    #[cfg(not(windows))]
+    let _ = child;
+}
+
+#[cfg(windows)]
+pub fn tie_handle(handle: usize, pid: Option<u32>) {
+    if let Err(error) = bhippi_job::tie(handle) {
+        tracing::warn!("process {pid:?} is not tied to Bhippi's life: {error}");
+    }
+}
+
 /// Caps the threads a Python or native worker starts by itself (numpy, torch, ONNX, ...).
 pub fn limit_threads_env(command: &mut tokio::process::Command) {
     let threads = current().threads().to_string();

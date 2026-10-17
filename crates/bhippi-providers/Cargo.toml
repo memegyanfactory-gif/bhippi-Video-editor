@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 base64 = "0.22"
+bhippi-job = { path = "../bhippi-job" }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 futures-core = { workspace = true }

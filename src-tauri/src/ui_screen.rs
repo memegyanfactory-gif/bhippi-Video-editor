@@ -104,7 +104,14 @@ pub async fn ui_capture(app: AppHandle, webview: tauri::Webview, state: State<'_
     command.arg(&url).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
-    let outcome = tokio::time::timeout(std::time::Duration::from_secs(60), command.status()).await;
+    // Tied to Bhippi's life (a screenshot browser must not outlive the app); dropped on a timeout, kill_on_drop ends it.
+    let outcome = match command.spawn() {
+        Ok(mut child) => {
+            crate::resources::tie(&child);
+            tokio::time::timeout(std::time::Duration::from_secs(60), child.wait()).await
+        }
+        Err(error) => Ok(Err(error)),
+    };
     let _ignored = std::fs::remove_dir_all(&profile);
     match outcome {
         Err(_) => return Err("The page took more than a minute to capture".into()),

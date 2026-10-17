@@ -165,6 +165,8 @@ impl Hub {
                 return status;
             }
         };
+        // Tied to Bhippi's life: a stdio server the user configured must not outlive the app, even after a crash.
+        crate::resources::tie_std(&child);
         let mut session = Session { child, next_id: 0 };
 
         let hello = serde_json::json!({
@@ -235,6 +237,31 @@ impl Hub {
         }
         if let Ok(mut known) = self.known.lock() {
             known.remove(id);
+        }
+    }
+
+    /// The polite stop when the app closes: closes every server's input (a stdio server exits when
+    /// its input ends), gives them up to `grace` together, then kills what is left. The tied job
+    /// ends anything that still remains when the app's process ends.
+    pub fn shutdown(&self, grace: Duration) {
+        let mut sessions: Vec<Session> = match self.sessions.try_lock() {
+            Ok(mut guard) => guard.drain().map(|(_, session)| session).collect(),
+            // A call is in flight: leave it, the job will end the server with the app.
+            Err(_) => return,
+        };
+        for session in &mut sessions {
+            drop(session.child.stdin.take());
+        }
+        let deadline = Instant::now() + grace;
+        loop {
+            sessions.retain_mut(|session| !matches!(session.child.try_wait(), Ok(Some(_))));
+            if sessions.is_empty() || Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for session in &mut sessions {
+            let _ignored = session.child.kill();
         }
     }
 

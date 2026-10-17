@@ -560,6 +560,7 @@ impl Provider for CliProvider {
         let mut child = command
             .spawn()
             .map_err(|error| provider_error(spec, spawn_reason(error)))?;
+        crate::command::tie_to_app(&child);
         let Some(stdout) = child.stdout.take() else {
             return Err(provider_error(spec, "the CLI gave no output pipe".to_owned()));
         };

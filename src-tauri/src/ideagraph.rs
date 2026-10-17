@@ -52,6 +52,8 @@ async fn run_ig(settings: &Settings, args: &[&str], input: Option<&str>) -> Resu
             program.display()
         )
     })?;
+    // Tied to Bhippi's life: a brain-CLI call must not outlive the app, even after a crash.
+    crate::resources::tie(&child);
     if let Some(text) = input {
         use tokio::io::AsyncWriteExt;
         if let Some(mut stdin) = child.stdin.take() {

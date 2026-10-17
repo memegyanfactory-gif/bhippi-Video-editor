@@ -186,7 +186,8 @@ pub async fn start(id: &str) -> Result<String, String> {
             }
         }
         "ollama" => {
-            // A detached process: the server must outlive this call and Bhippi itself.
+            // Deliberately NOT tied to Bhippi: this is the user's own Ollama (an app other tools share),
+            // started here only as a convenience. It must outlive this call and Bhippi itself.
             let mut command = if let Some(app) = ollama_app() {
                 std::process::Command::new(app)
             } else {

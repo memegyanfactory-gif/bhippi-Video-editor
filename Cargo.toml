@@ -3,7 +3,7 @@ members = ["crates/bhippi-providers", "crates/bhippi-kokoro", "crates/bhippi-job
 resolver = "2"
 
 [workspace.package]
-version = "1.0.23"
+version = "1.0.24"
 edition = "2021"
 rust-version = "1.85"
 license = "UNLICENSED"
