@@ -1,0 +1,10 @@
+/* Labels over the 3D brain: moved with transforms by brain3d/labels.ts. */
+.brain-map-host { position: absolute; inset: 0; }
+.brain-labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.brain-label, .brain-lobe { position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform, opacity; transition: opacity 0.18s ease; font-family: system-ui, sans-serif; }
+.brain-label { padding: 1px 7px; border-radius: 8px; font-size: 10.5px; font-weight: 600; line-height: 14px; color: rgba(232, 230, 245, 0.92); background: rgba(12, 11, 22, 0.55); border: 1px solid rgba(190, 180, 255, 0.1); backdrop-filter: blur(3px); }
+.brain-label.soft { font-weight: 500; color: rgba(222, 220, 240, 0.8); }
+.brain-label.active { color: #fff; background: rgba(24, 20, 48, 0.88); border-color: rgba(220, 210, 255, 0.38); box-shadow: 0 0 14px rgba(150, 130, 255, 0.35); }
+.brain-lobe { display: flex; flex-direction: column; gap: 1px; padding-left: 9px; border-left: 1px solid rgba(200, 190, 255, 0.22); text-shadow: 0 0 10px rgba(5, 5, 14, 0.9); }
+.brain-lobe b { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(226, 222, 245, 0.85); }
+.brain-lobe span { font-size: 10px; color: rgba(226, 222, 245, 0.5); }

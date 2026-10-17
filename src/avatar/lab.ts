@@ -2,7 +2,7 @@
 // `?stage` swaps to a stand-in workspace that drives the real engine (stageLab.ts); `?settings`
 // opens the real Settings modal on the Avatar tab (settingsLab.tsx); `?who=cat` plays another character.
 import { ANIMS, poseAt, type AnimName } from './poses';
-import { ART_H, ART_W, paint, type Character } from './sprite';
+import { ART_H, ART_W, CHARACTERS, paint, type Character } from './sprite';
 
 const params = new URLSearchParams(location.search);
 
@@ -15,8 +15,10 @@ if (params.has('stage')) {
   const scale = Number(params.get('scale') ?? 4);
   const only = params.get('only')?.split(',');
   const frozen = params.get('t');
-  const character = (params.get('who') ?? 'heli') as Character;
-  const cells = (Object.keys(ANIMS) as AnimName[]).filter((name) => !only || only.includes(name)).map((name) => {
+  // `?who=cat,spider` plays several characters (every character with `?who=all`), one row each.
+  const who = params.get('who') ?? 'heli';
+  const cast = (who === 'all' ? CHARACTERS.map((entry) => entry.id) : who.split(',')) as Character[];
+  const cells = cast.flatMap((character) => (Object.keys(ANIMS) as AnimName[]).filter((name) => !only || only.includes(name)).map((name) => {
     const cell = document.createElement('div');
     cell.className = 'cell';
     const canvas = document.createElement('canvas');
@@ -25,15 +27,15 @@ if (params.has('stage')) {
     canvas.style.width = `${ART_W * scale}px`;
     canvas.style.height = `${ART_H * scale}px`;
     const label = document.createElement('div');
-    label.textContent = name;
+    label.textContent = cast.length > 1 ? `${character} · ${name}` : name;
     cell.append(canvas, label);
     grid.append(cell);
-    return { name, ctx: canvas.getContext('2d')! };
-  });
+    return { name, character, ctx: canvas.getContext('2d')! };
+  }));
   const start = performance.now();
   const frame = () => {
     const t = frozen !== null ? Number(frozen) : (performance.now() - start) / 1000;
-    for (const { name, ctx } of cells) paint(ctx, poseAt(name, ['kick', 'slap', 'place', 'land'].includes(name) ? t % 1.6 : name === 'celebrate' ? t % 2.6 : t, { color: '#6fa8ff', character }));
+    for (const { name, character, ctx } of cells) paint(ctx, poseAt(name, ['kick', 'slap', 'place', 'land'].includes(name) ? t % 1.6 : name === 'celebrate' ? t % 2.6 : t, { color: '#6fa8ff', character }));
     requestAnimationFrame(frame);
   };
   frame();

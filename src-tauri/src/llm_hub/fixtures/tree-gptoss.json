@@ -1,0 +1,75 @@
+[
+ {
+  "type": "directory",
+  "oid": "d88fd14fd892ff2976a372f8c77e5006f6611f6e",
+  "size": 0,
+  "path": "Q8_0"
+ },
+ {
+  "type": "directory",
+  "oid": "4e83004e84dbee562c6223892772c433387e6839",
+  "size": 0,
+  "path": "UD-Q4_K_XL"
+ },
+ {
+  "type": "file",
+  "oid": "3ab959bd6ec68ea005c096d107432d34f6532a0e",
+  "size": 49607357152,
+  "path": "Q8_0/gpt-oss-120b-Q8_0-00001-of-00002.gguf",
+  "lfs": {
+   "oid": "2df55ef7d0ee02bd941f8b1190cf537bf5bc7d161ed4b7a369f58a022c77d6f3",
+   "size": 49607357152,
+   "pointerSize": 136
+  }
+ },
+ {
+  "type": "file",
+  "oid": "17785ee3dab11a245fe33cf92261b5775de855a5",
+  "size": 13779990368,
+  "path": "Q8_0/gpt-oss-120b-Q8_0-00002-of-00002.gguf",
+  "lfs": {
+   "oid": "0f6f066d1686419c28d771ef593f26e8b515e077c7b96542c13980f743c00eb3",
+   "size": 13779990368,
+   "pointerSize": 136
+  }
+ },
+ {
+  "type": "file",
+  "oid": "92e419e51b6e2304202122458be5829fe22193bd",
+  "size": 8644,
+  "path": "README.md"
+ },
+ {
+  "type": "file",
+  "oid": "3e8780c2f4985352a6b7115871e7d4ebe867c8df",
+  "size": 49866326912,
+  "path": "UD-Q4_K_XL/gpt-oss-120b-UD-Q4_K_XL-00001-of-00002.gguf",
+  "lfs": {
+   "oid": "c7b59d68c889ada280736d9b82685baeb6152f4d7423a169a369bb3492b3056e",
+   "size": 49866326912,
+   "pointerSize": 136
+  }
+ },
+ {
+  "type": "file",
+  "oid": "f02392f07e057ee5f2f4ac0a95310fcb0b4dbfa8",
+  "size": 13149984480,
+  "path": "UD-Q4_K_XL/gpt-oss-120b-UD-Q4_K_XL-00002-of-00002.gguf",
+  "lfs": {
+   "oid": "7c77ca781792a28565c311ace40620ef7fb1cf67d123db347aa34f30ff48ad16",
+   "size": 13149984480,
+   "pointerSize": 136
+  }
+ },
+ {
+  "type": "file",
+  "oid": "7e8d86608164c2dc283c4539a477d7fbf6e8ebc6",
+  "size": 65369017728,
+  "path": "gpt-oss-120b-F16.gguf",
+  "lfs": {
+   "oid": "2d1f0298ae4b6c874d5a468598c5ce17c1763b3fea99de10b1a07df93cef014f",
+   "size": 65369017728,
+   "pointerSize": 136
+  }
+ }
+]

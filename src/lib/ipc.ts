@@ -242,7 +242,7 @@ export type TypesafeChoice = { id: string; confidence: number; probabilities: Re
 export type TranscriptWord = { text: string; start: number; end: number; speaker?: number; /** Where a timeline word was spoken: its file and source seconds (for corrections). */ origin?: { assetId: string; start: number; end: number } };
 
 /** One downloadable piece of offline speech: a runtime, a Whisper model, or a voice. */
-export type ModelKind = 'matte' | 'matte-candidate' | 'stt-runtime' | 'stt-model' | 'tts-runtime' | 'tts-voice';
+export type ModelKind = 'matte' | 'matte-candidate' | 'stt-runtime' | 'stt-model' | 'tts-runtime' | 'tts-voice' | 'tts-pack';
 
 export type ModelInfo = {
   id: string;
@@ -281,7 +281,7 @@ export type CloudSpeechModels = { elevenlabs: CloudSpeechModel[]; elevenlabsDefa
 export type Voice = {
   id: string;
   label: string;
-  engine: 'kokoro' | 'elevenlabs' | 'openai';
+  engine: 'kokoro' | 'sherpa' | 'elevenlabs' | 'openai';
   languages: string[];
   /** True when nothing leaves this computer to use it. */
   offline: boolean;

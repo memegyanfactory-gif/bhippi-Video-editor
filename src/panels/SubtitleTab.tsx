@@ -383,7 +383,7 @@ export function SubtitleTab({
       {generating && <div className="sub-status">{statusMessage || 'Transcribing this sequence…'}</div>}
       {engines?.length === 0 && (
         <div className="sub-note">
-          No transcription engine yet. Add an API key in Settings › AI providers, or set up offline speech in Settings › Speech &amp; voice.
+          No transcription engine yet. Add an API key in Settings › AI providers, or download an offline transcription model in Settings › Model Library › Transcription.
         </div>
       )}
 

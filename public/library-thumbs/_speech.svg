@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+<defs>
+<linearGradient id="b" x1="0" y1="0" x2="0.6" y2="1"><stop offset="0" stop-color="#101828"/><stop offset="1" stop-color="#070a12"/></linearGradient>
+<radialGradient id="g"><stop offset="0" stop-color="#3cc8f0" stop-opacity="0.5"/><stop offset="0.55" stop-color="#3cc8f0" stop-opacity="0.14"/><stop offset="1" stop-color="#3cc8f0" stop-opacity="0"/></radialGradient>
+<radialGradient id="f"><stop offset="0" stop-color="#3cc8f0" stop-opacity="0.5"/><stop offset="1" stop-color="#3cc8f0" stop-opacity="0"/></radialGradient>
+<radialGradient id="v" cx="0.4" cy="0.5" r="0.8"><stop offset="0.6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.5"/></radialGradient>
+<filter id="n" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="1" seed="4"/><feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.9 -0.2"/></filter>
+</defs>
+<rect width="640" height="360" fill="url(#b)"/>
+<ellipse cx="200" cy="190" rx="270" ry="210" fill="url(#g)"/>
+<ellipse cx="600" cy="30" rx="260" ry="170" fill="url(#f)" fill-opacity="0.18"/>
+
+<linearGradient id="wg" x1="0" x2="1"><stop offset="0" stop-color="#3cc8f0" stop-opacity="0.25"/><stop offset="0.5" stop-color="#3cc8f0"/><stop offset="1" stop-color="#8adef6"/></linearGradient>
+<linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="#94e1f7"/><stop offset="1" stop-color="#3cc8f0" stop-opacity="0.6"/></linearGradient>
+<path d="M40 172.4V197.6M52 166.3V203.7M64 160V210M76 155.7V214.3M88 142.3V227.7M100 122.8V247.2M112 131.6V238.4M124 136.9V233.1M136 126.7V243.3M148 140.9V229.1M160 142.9V227.1M172 120.2V249.8M184 109.3V260.7M196 136.1V233.9M208 121.6V248.4M220 121.4V248.6M232 143.9V226.1M244 153.1V216.9M256 149.4V220.6M268 152.3V217.7M280 163.3V206.7M292 165.3V204.7M304 172.4V197.6" stroke="url(#wg)" stroke-width="5" stroke-linecap="round"/>
+<path d="M40 172.4V197.6M52 166.3V203.7M64 160V210M76 155.7V214.3M88 142.3V227.7M100 122.8V247.2M112 131.6V238.4M124 136.9V233.1M136 126.7V243.3M148 140.9V229.1M160 142.9V227.1M172 120.2V249.8M184 109.3V260.7M196 136.1V233.9M208 121.6V248.4M220 121.4V248.6M232 143.9V226.1M244 153.1V216.9M256 149.4V220.6M268 152.3V217.7M280 163.3V206.7M292 165.3V204.7M304 172.4V197.6" stroke="#3cc8f0" stroke-opacity="0.14" stroke-width="14" stroke-linecap="round" transform="translate(0 0)"/>
+<path d="M310 185C334 185 336 111 355 103" stroke="#3cc8f0" stroke-opacity="0.6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 7"/>
+<rect x="355" y="96" width="189" height="15" rx="7.5" fill="url(#lg)" fill-opacity="1"/><rect x="355" y="130" width="144" height="15" rx="7.5" fill="url(#lg)" fill-opacity="0.73"/><rect x="355" y="164" width="203.4" height="15" rx="7.5" fill="url(#lg)" fill-opacity="0.66"/><rect x="355" y="198" width="108" height="15" rx="7.5" fill="url(#lg)" fill-opacity="0.5900000000000001"/><rect x="355" y="232" width="167.4" height="15" rx="7.5" fill="url(#lg)" fill-opacity="0.52"/><rect x="355" y="266" width="81" height="15" rx="7.5" fill="url(#lg)" fill-opacity="0.45"/>
+<rect width="640" height="360" fill="url(#v)"/>
+<rect width="640" height="360" filter="url(#n)" opacity="0.07"/>
+</svg>

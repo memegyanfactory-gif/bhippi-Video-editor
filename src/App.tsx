@@ -27,6 +27,8 @@ import { RENDERED_EFFECTS } from './lib/effectSupport';
 import { LearningWorkspace } from './panels/LearningWorkspace';
 import { ChatPanel, type ChatActivity, type ChatApi, type ToolRun } from './chat/ChatPanel';
 import { StoryboardViewer } from './chat/StoryboardViewer';
+import { BRAND_PROMPT_EVENT, brandPromptMessage, type BrandPromptDetail } from './lib/brandKit/promptEvent';
+import { ADD_BRAND_MOTION_EVENT, type AddBrandMotionDetail } from './lib/brandKit/motionEvent';
 import { steer } from './chat/steer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
 import { ProjectTabs, tabName } from './components/ProjectTabs';
@@ -128,6 +130,7 @@ const projectNameFromPath = (path: string) => (path.split(/[\\/]/).pop() ?? '').
 const isEmptyProject = (value: Project) => !value.media.length && value.comps.every((comp) => !comp.clips.length);
 import { rewritePaths, storyboardDocs } from './lib/projectDocs';
 import { SettingsModal, type SettingsTab } from './settings/SettingsModal';
+import type { LibraryPage } from './settings/library/shared';
 import type { GenPlan } from './lib/cloudGen';
 import { isSetUp } from './settings/ProvidersSettings';
 import { settingsSync } from './lib/settingsSync';
@@ -475,7 +478,11 @@ export default function App() {
   const [chatTab, setChatTab] = useState<'chat' | 'providers' | 'preview'>('chat');
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceRanges, setSourceRanges] = useState<Record<string, SourceRange>>({});
-  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  const [settingsTab, setSettingsTabState] = useState<SettingsTab | null>(null);
+  const [libraryPage, setLibraryPage] = useState<LibraryPage | undefined>(undefined);
+  /** Any tab change forgets a page asked for earlier; openLibrary asks for one on purpose. */
+  const setSettingsTab = useCallback((tab: SettingsTab | null) => { setLibraryPage(undefined); setSettingsTabState(tab); }, []);
+  const openLibrary = useCallback((page: LibraryPage) => { setLibraryPage(page); setSettingsTabState('model-library'); }, []);
   /** First run: the storage + models onboarding, until Settings.onboarded is true. */
   const [onboarding, setOnboarding] = useState(false);
   /** The welcome tour over the editor; starts on its own once, after the first-run setup. */
@@ -950,6 +957,30 @@ export default function App() {
     const timer = window.setInterval(() => { if (chatApi.current?.busy()) void syncAiWorkRef.current(); }, 4000);
     return () => window.clearInterval(timer);
   }, []);
+  // Brand Studio's prompt bar ("make it feel more premium"): one Quick turn on that kit.
+  useEffect(() => {
+    const onBrandPrompt = (event: Event) => {
+      const detail = (event as CustomEvent<BrandPromptDetail>).detail;
+      if (!detail?.text?.trim()) return;
+      if (chatApi.current?.busy()) { toastRef.current({ tone: 'info', title: 'Bhippi AI is busy', body: 'Ask again when the current turn is done.' }); return; }
+      chatApi.current?.send(brandPromptMessage(detail), { mode: 'quick' });
+    };
+    window.addEventListener(BRAND_PROMPT_EVENT, onBrandPrompt);
+    return () => window.removeEventListener(BRAND_PROMPT_EVENT, onBrandPrompt);
+  }, []);
+  // Brand Studio's "Add to timeline" (src/lib/brandKit/motionEvent.ts): the motion pack piece (or the
+  // brand film) goes in at the playhead through the same tool the AI uses, brand_motion_pack.
+  useEffect(() => {
+    const onAddBrandMotion = (event: Event) => {
+      const detail = (event as CustomEvent<AddBrandMotionDetail>).detail;
+      if (!detail?.kitId || !detail.id) return;
+      void runTool(hostRef.current, 'brand_motion_pack', { action: 'use', id: detail.kitId, piece: detail.id, start: Math.max(0, playhead.get()), ...(detail.copy ?? {}) }).then((result) => {
+        toastRef.current(result.ok ? { tone: 'success', title: 'Added to the timeline', body: result.summary?.slice(0, 140) } : { tone: 'error', title: 'Could not add it', body: result.error });
+      });
+    };
+    window.addEventListener(ADD_BRAND_MOTION_EVENT, onAddBrandMotion);
+    return () => window.removeEventListener(ADD_BRAND_MOTION_EVENT, onAddBrandMotion);
+  }, []);
   // A Full-workflow turn that has worked for ten minutes with no plan saved is reminded, once, to
   // save it: until then the user sees no storyboard, no scenes and no Start button, only a turn
   // that seems to do nothing (29 Sep: 50 minutes of rendering with nothing in the project).
@@ -998,8 +1029,8 @@ export default function App() {
     const engine = automaticRotoEngine(settings.localRotoEngine, clip.rotoCorrections ?? [], comp.fps);
     const model = engine === 'rvm' ? await api.matteModel().catch(() => null) : { id: 'sam2.1-vitmatte-experimental', path: '' };
     if (!model) {
-      setSettingsTab('speech');
-      toast({tone:'info',title:'Choose a matting model',body:'Download Robust Video Matting in Model Center, then run Auto Roto again. No model was downloaded automatically.'});
+      openLibrary('matte');
+      toast({tone:'info',title:'Choose a matting model',body:'Download Robust Video Matting in the Model Library, then run Auto Roto again. No model was downloaded automatically.'});
       return;
     }
     if(rotoAbort.current)return;
@@ -3554,7 +3585,8 @@ export default function App() {
       { label: 'Keyboard Shortcuts', shortcut: 'Ctrl+Alt+K', onSelect: () => setShortcutsOpen(true) },
       { label: 'AI Providers…', onSelect: () => setSettingsTab('providers') },
       { label: 'Generation Connectors…', onSelect: () => setSettingsTab('connectors') },
-      { label: 'Speech & Voice…', onSelect: () => setSettingsTab('speech') },
+      { label: 'Speech & Voice…', onSelect: () => openLibrary('voice') },
+      { label: 'Model Library…', onSelect: () => openLibrary('inuse') },
       { label: 'FFmpeg & Media…', onSelect: () => setSettingsTab('media') },
       { label: 'About Bhippi Video Editor', onSelect: () => setSettingsTab('about') },
     ] },
@@ -4523,7 +4555,7 @@ export default function App() {
       {dialog}
       {onboarding && loaded && <Onboarding onPatch={(patch) => saveSettings(patch)} onDone={() => setOnboarding(false)} />}
       {tour && !onboarding && <Tour onStep={tourStep} onDone={endTour} />}
-      {settingsTab && <LiveJobs>{(live) => <SettingsModal onTour={startTour} tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
+      {settingsTab && <LiveJobs>{(live) => <SettingsModal onTour={startTour} tab={settingsTab} libraryPage={libraryPage} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} info={info} onTools={(ffmpeg) => setInfo((current) => (current ? { ...current, ffmpeg } : current))} settings={settings} onSettings={(next) => saveSettings(next)} providers={providers} onProviders={setProviders} jobs={live} projectBrandKitId={project.activeBrandKitId ?? null} onProjectBrandKit={(id) => history.commit((current) => ({ ...current, activeBrandKitId: id }), "Brand kit")} importMedia={toolHost.importMedia} />}</LiveJobs>}
       <ErrorBoundary scope="Render window"><RenderWindow /></ErrorBoundary>
       {historyOpen && <HistoryDialog steps={history.steps} onJump={(steps) => history.jump(steps)} onClose={() => setHistoryOpen(false)} />}
       {exportOpen && comp && <ExportDialog project={project} comp={comp} prefs={settings.export} onClose={() => setExportOpen(false)} onExport={(options, folder, preset) => void startExport(options, folder, preset)} onPrefs={(patch) => saveSettings({ export: { ...settingsRef.current.export, ...patch } })} />}

@@ -21,10 +21,10 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Voice {
-    /// `kokoro:<speaker>` · `elevenlabs:<voice id>` · `openai:<name>`.
+    /// `kokoro:<speaker>` · `sherpa:<pack>/<voice>` · `elevenlabs:<voice id>` · `openai:<name>`.
     pub id: String,
     pub label: String,
-    /// `kokoro` · `elevenlabs` · `openai`.
+    /// `kokoro` · `sherpa` (Kokoro v1.1, Kitten, Piper, Matcha) · `elevenlabs` · `openai`.
     pub engine: String,
     pub languages: Vec<String>,
     /// True when nothing leaves this computer to use it.
@@ -334,6 +334,23 @@ fn kokoro_ready(root: &Path, prefs: &SpeechPrefs) -> Option<(PathBuf, PathBuf)> 
     Some((models::kokoro_library(root, prefs.tts_path.as_deref())?, models::kokoro_model_dir(root)?))
 }
 
+/// What an offline voice pack other than Kokoro v1.0 needs to speak: the engine, its folder and, for
+/// Matcha, the shared vocoder. `None` until all of it is downloaded.
+fn pack_ready(root: &Path, prefs: &SpeechPrefs, pack: &kokoro::voices::Pack) -> Option<(PathBuf, PathBuf, Option<PathBuf>)> {
+    let library = models::kokoro_library(root, prefs.tts_path.as_deref())?;
+    let dir = models::voice_pack_dir(root, pack.id)?;
+    let vocoder = if pack.family == kokoro::Family::Matcha { Some(models::matcha_vocoder(root)?) } else { None };
+    Some((library, dir, vocoder))
+}
+
+/// The voice a downloaded pack other than Kokoro v1.0 offers first, for when nothing else can speak.
+fn first_pack_voice(root: &Path, prefs: &SpeechPrefs) -> Option<String> {
+    kokoro::voices::PACKS
+        .iter()
+        .filter(|pack| pack_ready(root, prefs, pack).is_some())
+        .find_map(|pack| pack.voices.first().map(|voice| kokoro::voices::voice_id(pack, voice)))
+}
+
 /// Every voice usable right now: the Kokoro speakers once the pack is here, plus cloud voices
 /// when a key for them is saved. ElevenLabs is asked for the user's own voice list.
 pub async fn voices(root: &Path, prefs: &SpeechPrefs) -> Vec<Voice> {
@@ -363,6 +380,16 @@ pub async fn voices(root: &Path, prefs: &SpeechPrefs) -> Vec<Voice> {
             },
             offline: true,
             detail: format!("Offline · Kokoro · {}", speaker.detail),
+        }));
+    }
+    for pack in kokoro::voices::PACKS.iter().filter(|pack| pack_ready(root, prefs, pack).is_some()) {
+        out.extend(pack.voices.iter().map(|voice| Voice {
+            id: kokoro::voices::voice_id(pack, voice),
+            label: voice.label.to_owned(),
+            engine: "sherpa".to_owned(),
+            languages: pack.languages.iter().map(|language| (*language).to_owned()).collect(),
+            offline: true,
+            detail: format!("Offline · {} · {}", pack.family.name(), voice.detail),
         }));
     }
     out
@@ -498,6 +525,9 @@ async fn automatic_voice(root: &Path, prefs: &SpeechPrefs) -> Result<String, Str
     if kokoro_ready(root, prefs).is_some() {
         return Ok(format!("kokoro:{DEFAULT_ENGLISH}"));
     }
+    if let Some(voice) = first_pack_voice(root, prefs) {
+        return Ok(voice);
+    }
     Err("No voice is ready yet. Open Settings › Speech & voice and download the Kokoro engine and voices (about 350 MB, then everything runs offline), or add an ElevenLabs or OpenAI key.".to_owned())
 }
 
@@ -556,6 +586,8 @@ pub async fn synthesize(
             let job = kokoro::Job {
                 library,
                 model_dir,
+                family: kokoro::Family::Kokoro,
+                vocoder: None,
                 speed: speed as f32,
                 parts: parts
                     .into_iter()
@@ -565,6 +597,32 @@ pub async fn synthesize(
             };
             report(0.1, "Reading the script with Kokoro");
             raw_parts = job.parts.iter().map(|part| part.out.clone()).collect();
+            if let Err(error) = kokoro::run(&job).await {
+                for part in &raw_parts {
+                    let _ignored = std::fs::remove_file(part);
+                }
+                return Err(error);
+            }
+        }
+        // Kokoro v1.1, Kitten TTS, Piper and Matcha: one speaker reads the whole script in one pass.
+        "sherpa" => {
+            let (pack, voice) = kokoro::voices::find(name).ok_or_else(|| format!("unknown voice: {name}"))?;
+            let (library, model_dir, vocoder) = pack_ready(root, prefs, pack).ok_or_else(|| {
+                format!("That voice ({}) is not downloaded yet. Open Settings › Model Library, download it, then try again.", voice.label)
+            })?;
+            let line = sherpa_line(text, mode, pack)?;
+            breathe = false;
+            let out_part = work.join(format!("speech-{stamp}-0.raw.wav"));
+            let job = kokoro::Job {
+                library,
+                model_dir,
+                family: pack.family,
+                vocoder,
+                speed: speed as f32,
+                parts: vec![kokoro::Part { text: line, sid: voice.sid, reading: pack.reading, out: out_part.clone() }],
+            };
+            report(0.1, &format!("Reading the script with {}", pack.family.name()));
+            raw_parts = vec![out_part];
             if let Err(error) = kokoro::run(&job).await {
                 for part in &raw_parts {
                     let _ignored = std::fs::remove_file(part);
@@ -641,6 +699,21 @@ fn kokoro_parts(text: &str, mode: Mode, chosen: &str, hindi_choice: Option<&str>
     // speaker reading plain English keeps American spelling-to-sound rules.
     let reading = if main.lang == "en-gb" { kokoro::Reading::EnGb } else { kokoro::Reading::EnUs };
     Ok(vec![(text.to_owned(), main.sid, reading)])
+}
+
+/// The text a Kokoro v1.1, Kitten, Piper or Matcha voice reads. A Hindi voice gets the same
+/// Hinglish treatment as Kokoro's: romanised Hindi is respelled in Devanagari, English stays Latin.
+/// Every other voice reads the script as written.
+fn sherpa_line(text: &str, mode: Mode, pack: &kokoro::voices::Pack) -> Result<String, String> {
+    if pack.languages != ["hi"] {
+        return Ok(text.to_owned());
+    }
+    let mode = if mode == Mode::Auto { Mode::Hinglish } else { mode };
+    let runs = plan(text, mode);
+    if runs.is_empty() {
+        return Err("there is nothing to say".to_owned());
+    }
+    Ok(runs.into_iter().map(|run| run.text).collect::<Vec<_>>().join(" "))
 }
 
 async fn cloud_openai(text: &str, voice: &str, speed: f64, prefs: &SpeechPrefs, out: &Path) -> Result<(), String> {
@@ -803,7 +876,7 @@ fn join(parts: &[PathBuf], out: &Path, breathe: bool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{devanagari, join, kokoro_parts, plan, upgrade_legacy, wav_header, wav_samples, Lang, Mode, HINDI_WORDS};
+    use super::{devanagari, join, kokoro_parts, plan, sherpa_line, upgrade_legacy, wav_header, wav_samples, Lang, Mode, HINDI_WORDS};
     use crate::kokoro::Reading;
 
     #[test]
@@ -822,6 +895,16 @@ mod tests {
         let hindi = kokoro_parts("accha, phir?", Mode::Hinglish, "af_heart", Some("kokoro:hm_omega")).expect("parts");
         assert_eq!(hindi[0].1, 33);
         assert!(kokoro_parts("hello", Mode::Auto, "no_such_voice", None).is_err());
+    }
+
+    #[test]
+    fn other_packs_read_the_script_as_written_and_hindi_ones_respell_it() {
+        let english = crate::kokoro::voices::pack("kitten-mini-v0_8").expect("pack");
+        assert_eq!(sherpa_line("Welcome back, yaar.", Mode::Auto, english).expect("line"), "Welcome back, yaar.");
+        let hindi = crate::kokoro::voices::pack("piper-hi_IN-rohan-medium").expect("pack");
+        let line = sherpa_line("yaar ye transition bahut smooth hai", Mode::Auto, hindi).expect("line");
+        assert_eq!(line, "यार ये transition बहुत smooth है");
+        assert!(sherpa_line("   ", Mode::Auto, hindi).is_err());
     }
 
     #[test]

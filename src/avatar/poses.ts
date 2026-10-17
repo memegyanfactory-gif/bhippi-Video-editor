@@ -4,39 +4,12 @@
 // sprite moves across the screen smoothly; its drawing changes in steps). Poses only move hands,
 // feet, eyes and mouth — sprite.ts draws whatever they describe.
 
-import { CX, FEET_Y, REST, TORSO_Y, type CatPose, type CatTail, type Character, type Gear, type Pose, type Prop } from './sprite';
+import { CX, FEET_Y, TORSO_Y, type CatPose, type CatTail, type Gear, type Pose, type Prop } from './sprite';
+import { FPS, blinking, cyc, lerp, make, smooth, walkLegs, type AnimFn, type AnimName, type AnimOptions } from './poseKit';
+import { HERO_ANIMS, heroFilter } from './heroPoses';
 
-export type AnimName =
-  | 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'land' | 'dizzy'
-  | 'research' | 'cut' | 'carry' | 'place' | 'kick' | 'polish' | 'mix' | 'direct' | 'draw' | 'think' | 'talk' | 'ask' | 'push' | 'tweak'
-  | 'dangle' | 'slap' | 'celebrate' | 'sleep' | 'wave' | 'poked';
-
-export type AnimOptions = {
-  /** Extra headwear for the council seat at work. */
-  gear?: Gear[];
-  /** Colour of the clip being carried or placed. */
-  color?: string;
-  /** Who plays it (Settings › Avatar); Heli when unset. */
-  character?: Character;
-};
-
-export const FPS = 12;
-
-const cyc = (t: number, rate: number, n: number) => Math.floor(t * rate) % n;
-const make = (over: Partial<Pose>, options: AnimOptions, own: Gear[] = []): Pose => ({
-  ...REST,
-  ...over,
-  character: options.character,
-  gear: [...new Set([...own, ...(options.gear ?? []), ...(over.gear ?? [])])],
-});
-
-/** Blinks every few seconds so a still character still looks alive. */
-const blinking = (t: number, eyes: Pose['eyes'] = 'open'): Pose['eyes'] => ((t % 3.4) > 3.26 ? 'blink' : eyes);
-
-const walkLegs = (k: number, stride = 1): Pick<Pose, 'legL' | 'legR'> => ({
-  legL: ([[stride, 0], [0, 2], [-stride, 0], [0, 0]] as [number, number][])[k],
-  legR: ([[-stride, 0], [0, 0], [stride, 0], [0, 2]] as [number, number][])[k],
-});
+export { FPS };
+export type { AnimName, AnimOptions };
 
 /** A film clip held in front of the chest (x, y are its top-left corner). */
 const clip = (y: number, color: string, lean = 0): Prop => ({ kind: 'clip', x: CX - 8 + lean, y, color });
@@ -48,8 +21,6 @@ const clip = (y: number, color: string, lean = 0): Prop => ({ kind: 'clip', x: C
 const notice = (t: number, o: AnimOptions, gear: Gear[]): Pose | null =>
   t < 0.34 ? make({ y: t < 0.1 ? -2 : 0, eyes: 'wide', mouth: 'o', armR: [3, -5], armL: [-2, 6], legL: [-1, 0], legR: [1, 0] }, o, gear) : null;
 
-type AnimFn = (t: number, options: AnimOptions) => Pose;
-
 /**
  * The puppy's bedtime: where its kennel goes (the art column of its centre) and when, in seconds
  * into the sleep, the kennel lands and when the puppy is curled up inside it.
@@ -57,9 +28,6 @@ type AnimFn = (t: number, options: AnimOptions) => Pose;
 export const KENNEL = { x: CX + 10, landsAt: 2.1, asleepAt: 3.9 };
 /** Where the puppy stands to set the kennel down and admire it: to the left of it. */
 const KENNEL_STEP = -14;
-
-const smooth = (u: number) => { const v = Math.max(0, Math.min(1, u)); return v * v * (3 - 2 * v); };
-const lerp = (a: number, b: number, u: number) => Math.round(a + (b - a) * u);
 
 /**
  * A yawn; it reaches behind its back and hauls out a little kennel, steps aside and swings it
@@ -289,6 +257,10 @@ export const ANIMS: Record<AnimName, AnimFn> = {
   },
   wave: (t, o) => make({ armR: cyc(t, 5, 2) ? [4, -8] : [6, -7], eyes: 'happy', mouth: 'laugh' }, o),
   poked: (t, o) => make({ y: cyc(t, 12, 2) ? -1 : 0, eyes: 'squeeze', mouth: 'laugh', blush: true, armL: [-1, 4], armR: [1, 4] }, o),
+  // The heroes' own moves; everyone else plays them as a flourish, a hop and a hop.
+  power: (t, o) => make({ y: t < 0.3 ? -cyc(t, 12, 2) * 2 : 0, armR: [5, -9], armL: [-3, 5], eyes: 'wink', mouth: 'grin', headX: 1 }, o),
+  fly: (_t, o) => make({ legL: [-1, 3], legR: [1, 3], armL: [-4, -7], armR: [4, -7], eyes: 'wide', mouth: 'open', look: 1, sway: 0.4 }, o),
+  swing: (_t, o) => make({ legL: [-1, 3], legR: [1, 3], armL: [-4, -7], armR: [4, -7], eyes: 'wide', mouth: 'open', look: 1, sway: 0.4 }, o),
 };
 
 // ── the cat ────────────────────────────────────────────────────────────────
@@ -476,9 +448,18 @@ const CAT_ANIMS: Record<AnimName, AnimFn> = {
   },
   wave: (t, o) => kitty({ eyes: 'happy', mouth: 'open' }, { body: 'sit', tail: { a: 84, curl: 0.9 }, raise: cyc(t, 5, 2) ? [11, -8] : [13, -6] }, o),
   poked: (t, o) => kitty({ y: cyc(t, 12, 2) ? 1 : 0, eyes: 'squeeze', blush: true }, { body: 'loaf', tail: { a: 70, curl: 0.6 }, earsBack: cyc(t, 6, 2) === 1 }, o),
+  // A pounce, and the same leap for flying and swinging.
+  power: (t, o) => kitty({ y: -cyc(t, 8, 3) * 2, eyes: 'angry', mouth: 'open', look: 1 }, { body: 'leap', tail: { a: 25, curl: 0.3 }, claws: true }, o),
+  fly: (_t, o) => kitty({ eyes: 'wide', mouth: 'o' }, { body: 'leap', tail: { a: 25, curl: 0.3 } }, o),
+  swing: (_t, o) => kitty({ eyes: 'wide', mouth: 'o' }, { body: 'leap', tail: { a: 25, curl: 0.3 } }, o),
 };
 
 /** The pose of `anim` at `t` seconds, stepped to the pixel frame rate. */
 export function poseAt(anim: AnimName, t: number, options: AnimOptions = {}): Pose {
-  return (options.character === 'cat' ? CAT_ANIMS : ANIMS)[anim](Math.floor(Math.max(0, t) * FPS) / FPS, options);
+  const step = Math.floor(Math.max(0, t) * FPS) / FPS;
+  const who = options.character;
+  if (who === 'cat') return CAT_ANIMS[anim](step, options);
+  const base = (who && HERO_ANIMS[who]?.[anim]) || ANIMS[anim];
+  const pose = base(step, options);
+  return who ? heroFilter(who, anim, step, pose) : pose;
 }

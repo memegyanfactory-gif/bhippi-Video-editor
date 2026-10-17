@@ -18,7 +18,10 @@ import type { AvatarEvent, Ghost, TurnOutcome } from './bus';
 import { ChatMirror, type Desire } from './mirror';
 import { GLYPH_H, drawText, textWidth, wrap } from './pixelFont';
 import { CAT_NAP, FPS, KENNEL, poseAt, type AnimName, type AnimOptions } from './poses';
-import { ART_H, ART_W, CHARACTERS, CAT_TOP, CX, FEET_Y, HAIR_TOP, TORSO_Y, handPoint, paint, type Character, type Gear } from './sprite';
+import { ART_H, ART_W, CHARACTERS, CAT_TOP, CX, FEET_Y, HAIR_TOP, HEAD_Y, TORSO_Y, handPoint, paint, type Character, type Gear } from './sprite';
+import { isHero } from './heroes';
+import { HERO_LINES, HERO_STRIKE, HERO_TRAVEL, type Strike } from './heroPoses';
+import { FX_MS, LANDS, drawProjectile, type Projectile } from './fx';
 import { releaseOf, startSwing, stepSwing, swingDegrees, swingStretch, type Swing } from './swing';
 
 /** Screen pixels per art pixel. */
@@ -50,17 +53,19 @@ const MAX_REACTIONS = 4;
 
 type Vec = { x: number; y: number };
 /** One stretch of a trip: a walk or run along a level, or a hop between levels. */
-type Leg = { from: Vec; to: Vec; t0: number; dur: number; arc: number; anim: AnimName };
+type Leg = { from: Vec; to: Vec; t0: number; dur: number; arc: number; anim: AnimName; rope?: 'web' | 'grapple' };
 type Spot = { x: number; y: number; sit?: boolean; slideTo?: number };
 
 /** Timeline edits the chat just made. */
 type EditKind = 'cut' | 'add' | 'delete' | 'push' | 'tweak';
 /** How a turn closed, and what the user does to the character. */
-type ReactionKind = EditKind | 'celebrate' | 'failed' | 'wave' | 'slap' | 'dizzy' | 'poked';
+type ReactionKind = EditKind | 'celebrate' | 'failed' | 'wave' | 'slap' | 'dizzy' | 'poked' | 'power';
 type JobKind = ActivityKind | ReactionKind;
 
 /** Live jobs done where the character stands; the rest go to their place first. */
-const IN_PLACE = new Set<JobKind>(['think', 'talk', 'ask', 'celebrate', 'failed', 'wave', 'dizzy', 'poked']);
+const IN_PLACE = new Set<JobKind>(['think', 'talk', 'celebrate', 'failed', 'wave', 'dizzy', 'poked', 'power']);
+/** The strike moves, which for a hero are done with its own power. */
+const SPIN = new Set<AnimName>(['power', 'cut', 'kick', 'slap']);
 const EDITS = new Set<JobKind>(['cut', 'add', 'delete', 'push', 'tweak']);
 /** Long work that gets the "!" (or the lightbulb) as it begins. */
 const WORK = new Set<JobKind>(['research', 'mix', 'direct', 'draw', 'polish', 'tinker']);
@@ -103,7 +108,7 @@ const GEAR: Record<CouncilRole, Gear> = { researcher: 'glasses', audio: 'headpho
 const JOB_ANIM: Record<JobKind, AnimName> = {
   research: 'research', mix: 'mix', direct: 'direct', draw: 'draw', polish: 'polish', think: 'think', talk: 'talk', ask: 'ask', tinker: 'tweak',
   cut: 'cut', add: 'place', delete: 'kick', push: 'push', tweak: 'tweak', celebrate: 'celebrate', failed: 'dizzy', wave: 'wave', slap: 'slap',
-  dizzy: 'dizzy', poked: 'poked',
+  dizzy: 'dizzy', poked: 'poked', power: 'power',
 };
 
 /** The arrow cursor, in pixels: X outline, W fill. */
@@ -174,6 +179,13 @@ export class AvatarEngine {
   private bubble: { text: string; until: number; style: 'normal' | 'shout' | 'laugh'; lines: string[]; w: number; h: number; drawnAt: number } | null = null;
   private tag: CouncilRole | null = null;
   private particles: Particle[] = [];
+  /** Things a hero has thrown, fired or spun out, drawn on the effects canvas until they are over. */
+  private projectiles: Projectile[] = [];
+  /** The line a swinging or grappling hero hangs from: drawn from its hand to the anchor. */
+  private rope: { kind: 'rope-web' | 'rope-grapple'; anchor: Vec } | null = null;
+  /** When a hero next shows off its power on a panel (idle flourish). */
+  private nextFlourish = performance.now() + 15_000;
+  private nextHa = 0;
   private lastJob: JobKind | null = null;
   private styled = new WeakMap<HTMLElement, Partial<Record<'transform' | 'display' | 'opacity' | 'transformOrigin', string>>>();
   private fxDirty = false;
@@ -233,12 +245,18 @@ export class AvatarEngine {
   /** The grab-and-poke area over the drawing, sized to whoever is on screen. */
   private fitHitbox() {
     const cat = this.character === 'cat';
-    Object.assign(this.hitbox.style, { left: `${(CX - (cat ? 20 : 14)) * S}px`, top: `${(this.top + 3) * S}px`, width: `${(cat ? 42 : 28) * S}px`, height: `${(FEET_Y - this.top - 3) * S}px` });
+    const half = cat ? 20 : this.character === 'brute' ? 17 : 14;
+    Object.assign(this.hitbox.style, { left: `${(CX - half) * S}px`, top: `${(this.top + 3) * S}px`, width: `${half * 2 * S + (cat ? 2 : 0)}px`, height: `${(FEET_Y - this.top - 3) * S}px` });
     this.hitbox.title = `${this.name} — drag me, poke me, right-click for options`;
   }
 
   private get name() {
     return CHARACTERS.find((entry) => entry.id === this.character)?.name ?? 'Heli';
+  }
+
+  /** A line in this character's own voice, else the shared one (brain.ts LINES). */
+  private line(key: string): string {
+    return pick(HERO_LINES[this.character]?.[key] ?? LINES[key]);
   }
 
   /** Swaps who is on screen, mid-animation; the next frame draws the new character. */
@@ -247,6 +265,8 @@ export class AvatarEngine {
     this.character = character;
     this.fitHitbox();
     this.lastKey = '';
+    this.rope = null;
+    this.projectiles = [];
   }
 
   destroy() {
@@ -277,7 +297,7 @@ export class AvatarEngine {
     switch (change.type) {
       case 'started':
         this.parked = false;
-        this.say(pick(change.plugin ? LINES.pluginWake : LINES.wake), 1100);
+        this.say(change.plugin ? pick(LINES.pluginWake) : this.line('wake'), 1100);
         break;
       case 'edited':
         if (change.event.diff) this.fromDiff(change.event.diff, change.event.ghosts, now);
@@ -301,12 +321,12 @@ export class AvatarEngine {
       this.sitting = false;
       this.parked = true;
       this.setAnim('idle', now);
-      if (outcome === 'failed') this.react(this.makeJob('failed', { line: pick(LINES.failed), minMs: 1400 }));
-      else this.say(pick(LINES.stopped), 1600);
+      if (outcome === 'failed') this.react(this.makeJob('failed', { line: this.line('failed'), minMs: 1400 }));
+      else this.say(this.line('stopped'), 1600);
       return;
     }
     // Finished: the last edits it made play out first, then the thumbs-up.
-    this.react(this.makeJob('celebrate', { line: pick(plugin ? LINES.pluginDone : LINES.done), minMs: 2300 }));
+    this.react(this.makeJob('celebrate', { line: plugin ? pick(LINES.pluginDone) : this.line('done'), minMs: 2300 }));
   }
 
   private fromDiff(diff: ClipDiff, ghosts: Ghost[], now: number) {
@@ -314,7 +334,7 @@ export class AvatarEngine {
     if (ghosts.length) {
       const first = ghosts[0];
       // The deleted clips stay as ghosts where they stood until the avatar gets there and kicks them.
-      this.react(this.makeJob('delete', { ghostEls: this.showGhosts(ghosts.slice(0, 6)), spot: () => this.pointOnTracks(first.x + Math.min(first.w / 2, 36), first.y), line: Math.random() < 0.5 ? pick(LINES.delete) : null, created: now }));
+      this.react(this.makeJob('delete', { ghostEls: this.showGhosts(ghosts.slice(0, 6)), spot: () => this.pointOnTracks(first.x + Math.min(first.w / 2, 36), first.y), line: Math.random() < 0.5 ? this.line('delete') : null, created: now }));
       count++;
     }
     for (const cut of diff.cuts.slice(0, 2)) {
@@ -327,11 +347,12 @@ export class AvatarEngine {
       // The clip waits, faded, until the avatar has carried it over and put it down.
       el.dataset.avatar = 'pending';
       this.later(() => { if (el.dataset.avatar === 'pending') delete el.dataset.avatar; }, REACTION_STALE_MS + 4000);
-      this.react(this.makeJob('add', { clipId: id, color: getComputedStyle(el).backgroundColor, spot: () => this.clipSpot(id, 'mid', 0), line: Math.random() < 0.35 ? pick(LINES.add) : null, created: now }));
+      this.react(this.makeJob('add', { clipId: id, color: getComputedStyle(el).backgroundColor, spot: () => this.clipSpot(id, 'mid', 0), line: Math.random() < 0.35 ? this.line('add') : null, created: now }));
       count++;
     }
     if (diff.moved.length && count < 4) this.react(this.makeJob('push', { clipId: diff.moved[0], spot: () => this.clipSpot(diff.moved[0], 'left', -18), created: now }));
-    else if (diff.changed.length && count < 3) this.react(this.makeJob('tweak', { clipId: diff.changed[0], spot: () => this.clipSpot(diff.changed[0], 'mid', -10), created: now }));
+    // A changed setting is a visit to the Properties panel when it is open, where the avatar fiddles with the controls.
+    else if (diff.changed.length && count < 3) this.react(this.makeJob('tweak', { clipId: diff.changed[0], spot: () => this.panelSpot('properties', 0.5) ?? this.clipSpot(diff.changed[0], 'mid', -10), created: now }));
   }
 
   private makeJob(kind: JobKind, over: Partial<Job> = {}): Job {
@@ -416,15 +437,19 @@ export class AvatarEngine {
     const tl = this.panel('timeline') ?? rectOf('.timeline');
     if (!tl) return null;
     const edge = (fraction: number, sit = false): Spot => ({ x: tl.left + tl.width * fraction, y: tl.top + 2, sit });
+    // Each kind of work goes to the panel it belongs to when that panel is open, else to the timeline as before.
     switch (kind) {
-      case 'research': return edge(0.2, true);
-      case 'draw': return edge(0.42);
-      case 'tinker': return edge(0.3);
+      case 'research': return this.panelSpot('project', 0.4, true) ?? this.panelSpot('source', 0.5, true) ?? edge(0.2, true);
+      case 'draw': return this.panelSpot('storyboard', 0.5) ?? edge(0.42);
+      case 'tinker': return this.panelSpot(this.mirror.buildingPlugin(performance.now()) ? 'plugins' : 'tools', 0.5) ?? edge(0.3);
+      case 'ask': return this.panelSpot('chat', 0.5) ?? null;
       case 'direct': {
         const frame = rectOf('[data-panel="program"] .monitor-frame');
         return frame && frame.width > 120 ? { x: frame.right - 46, y: frame.bottom } : edge(0.55);
       }
       case 'mix': {
+        const meters = this.panelSpot('meters', 0.5);
+        if (meters) return meters;
         const divider = rectOf('.tl-divider');
         const scroll = rectOf('.tl-scroll');
         if (divider && scroll && divider.top > scroll.top && divider.top < scroll.bottom) return { x: scroll.left + scroll.width * 0.6, y: divider.top + 1 };
@@ -439,6 +464,13 @@ export class AvatarEngine {
       }
       default: return this.home();
     }
+  }
+
+  /** A place on the top edge of a panel, when that panel is open and big enough to stand on. */
+  private panelSpot(id: string, fraction: number, sit = false): Spot | null {
+    const r = this.panel(id);
+    if (!r || r.width < 90 || r.height < 60 || r.bottom < 0 || r.top > window.innerHeight - 40) return null;
+    return { x: r.left + r.width * fraction, y: Math.max(r.top + 2, 70), sit };
   }
 
   private trackHead() {
@@ -494,6 +526,7 @@ export class AvatarEngine {
       if (this.angle || this.angleVel) this.settleAngle(dt);
       this.updateFree(dt, now);
     }
+    this.ambient(now);
     this.updateParticles(Math.min(0.25, real));
     this.render(now);
   };
@@ -523,17 +556,41 @@ export class AvatarEngine {
     const to = { x: spot.x, y: spot.y };
     const dx = to.x - from.x;
     const dy = to.y - from.y;
+    const travel = isHero(this.character) ? HERO_TRAVEL[this.character] : 'walk';
     const leg = (a: Vec, b: Vec): Omit<Leg, 't0' | 'from'> => {
       const dist = Math.hypot(b.x - a.x, b.y - a.y);
       const level = Math.abs(b.y - a.y) <= 6;
       const speed = fast ? 620 : dist > 220 ? 420 : 140;
       // Hop between levels (a panel edge down to a clip); along one level it walks or runs.
-      const arc = level ? 0 : Math.min(70, 22 + Math.abs(b.y - a.y) * 0.25);
-      const dur = level ? clamp(dist / speed, 0.12, fast ? 0.4 : 1.8) : clamp(0.3 + Math.abs(b.y - a.y) / 900 + Math.abs(b.x - a.x) / 1400, 0.3, 0.75);
-      return { to: b, dur: dur * 1000, arc, anim: anim ?? (arc ? 'jump' : speed > 200 ? 'run' : 'walk') };
+      let arc = level ? 0 : Math.min(70, 22 + Math.abs(b.y - a.y) * 0.25);
+      let dur = level ? clamp(dist / speed, 0.12, fast ? 0.4 : 1.8) : clamp(0.3 + Math.abs(b.y - a.y) / 900 + Math.abs(b.x - a.x) / 1400, 0.3, 0.75);
+      let name: AnimName = anim ?? (arc ? 'jump' : speed > 200 ? 'run' : 'walk');
+      let rope: Leg['rope'];
+      // Heroes get around their own way (a carried clip keeps its plain walk): flying, swinging on a web, grappling up, leaping, pouncing.
+      if (!anim) {
+        switch (travel) {
+          case 'fly': arc = 0; dur = clamp(dist / 650, 0.25, 1.2); name = 'fly'; break;
+          case 'swing':
+            if (dist > 90) { arc = clamp(dist * 0.3 + 20, 50, 130); dur = clamp(0.35 + dist / 900, 0.4, 0.95); name = 'swing'; rope = 'web'; }
+            break;
+          case 'grapple':
+            if (b.y < a.y - 10) { arc = 18; dur = clamp(0.3 + (a.y - b.y) / 900, 0.35, 0.6); name = 'swing'; rope = 'grapple'; }
+            else if (!level) { arc = 12; name = 'swing'; }
+            break;
+          case 'leap':
+            if (dist > 140) { arc = clamp(dist * 0.28, 40, 130); dur = clamp(0.35 + dist / 1100, 0.45, 0.95); name = 'jump'; }
+            break;
+          case 'pounce':
+            if (dist > 140) { arc = clamp(dist * 0.16, 24, 60); dur = clamp(0.25 + dist / 1500, 0.3, 0.6); name = 'jump'; }
+            break;
+          default: break;
+        }
+      }
+      return { to: b, dur: dur * 1000, arc, anim: name, rope };
     };
-    // A long way to another level: run along this one to above the target, then hop down (or up).
-    this.legs = Math.abs(dy) > 6 && Math.abs(dx) > 150
+    // A long way to another level: run along this one to above the target, then hop down (or up). Flyers, swingers and leapers go in one.
+    const single = travel !== 'walk' && travel !== 'grapple' && !anim;
+    this.legs = !single && Math.abs(dy) > 6 && Math.abs(dx) > 150
       ? [leg(from, { x: to.x - Math.sign(dx) * 70, y: from.y }), leg({ x: to.x - Math.sign(dx) * 70, y: from.y }, to)]
       : [leg(from, to)];
     if (Math.abs(dx) > 2) this.facing = dx > 0 ? 1 : -1;
@@ -544,6 +601,112 @@ export class AvatarEngine {
   private startLeg(now: number) {
     const next = this.legs.shift();
     this.travel = next ? { ...next, from: { ...this.pos }, t0: now } : null;
+    // A web swing hangs from a point high above the middle of the leap; a grapple is fired at where it is going.
+    if (next?.rope === 'web') this.rope = { kind: 'rope-web', anchor: { x: (this.pos.x + next.to.x) / 2, y: Math.max(10, Math.min(this.pos.y, next.to.y) - 150) } };
+    else if (next?.rope === 'grapple') this.rope = { kind: 'rope-grapple', anchor: { x: next.to.x, y: next.to.y - 10 } };
+    else this.rope = null;
+  }
+
+  /** Where a hand is on screen right now, for whatever starts at it. */
+  private handScreen(which: 'l' | 'r', now: number): Vec {
+    const [x, y] = this.artToScreen(handPoint(poseAt(this.anim, (now - this.animT0) / 1000, { ...this.opts, character: this.character }), which));
+    return { x, y };
+  }
+
+  /** The hero's own power leaves its hands: a web, a batarang, a blast… and what it does when it lands. */
+  private fire(kind: Strike, to: Vec) {
+    const now = performance.now();
+    if (kind === 'smash') {
+      const at = { x: this.pos.x + this.facing * 22, y: this.pos.y };
+      this.projectiles.push({ kind: 'shock', from: at, to: at, t0: now, dur: FX_MS.smash, facing: this.facing });
+      this.dust(at.x, at.y, 10);
+      this.emit({ kind: 'text', text: 'SMASH!', x: at.x - 18, y: at.y - 60, vx: 0, vy: -40, color: '#ffc23d', life: 0.8 });
+      this.rumble(at.x, 380);
+      this.hitPanel(to);
+      return;
+    }
+    let from = this.handScreen(kind === 'shield' ? 'l' : 'r', now);
+    if (kind === 'beam') {
+      const pose = poseAt(this.anim, (now - this.animT0) / 1000, { ...this.opts, character: this.character });
+      const [x, y] = this.artToScreen([CX + pose.headX + pose.lean, HEAD_Y + pose.y + pose.headY - 6]);
+      from = { x, y };
+    }
+    if (kind === 'swipe' || kind === 'claw') from = to;
+    this.projectiles.push({ kind, from, to, t0: now, dur: FX_MS[kind], facing: this.facing });
+    this.later(() => this.land(kind, to), FX_MS[kind] * LANDS[kind]);
+  }
+
+  /** The blow lands: sparks, a word, and the panel it hit flashes. */
+  private land(kind: Strike, at: Vec) {
+    const look: Record<Exclude<Strike, 'smash'>, [string, string]> = {
+      web: ['THWIP!', '#ffffff'], batarang: ['THUNK!', '#8792a8'], card: ['HA!', '#c8102e'], swipe: ['SWISH!', '#ffffff'], blast: ['BZZT!', '#7df3ff'],
+      beam: ['ZAP!', '#ffe040'], arrow: ['THUNK!', '#cdd5e5'], shield: ['CLANG!', '#c8222e'], claw: ['SLASH!', '#d8dfef'], whirl: ['WHOOSH!', '#9cc4ee'],
+    };
+    if (kind === 'smash') return;
+    const [text, color] = look[kind];
+    this.burst(at.x, at.y, color, 10);
+    this.burst(at.x, at.y, '#ffffff', 5);
+    this.emit({ kind: 'text', text, x: at.x - 14, y: at.y - 24, vx: 0, vy: -40, color, life: 0.8 });
+    this.hitPanel(at);
+  }
+
+  /** Whatever panel is under a hit takes a quick flash (see avatar.css). */
+  private hitPanel(at: Vec) {
+    const el = document.elementFromPoint(at.x, at.y)?.closest<HTMLElement>('[data-panel]');
+    if (!el || el.dataset.avatarHit) return;
+    el.dataset.avatarHit = '1';
+    this.later(() => delete el.dataset.avatarHit, 450);
+  }
+
+  /** A slam shakes the clips near it. */
+  private rumble(x: number, radius: number) {
+    for (const el of document.querySelectorAll<HTMLElement>('.tl-clip[data-clip-id]')) {
+      const r = el.getBoundingClientRect();
+      if (Math.abs(r.left + r.width / 2 - x) > radius || el.dataset.avatar === 'pending') continue;
+      el.dataset.avatar = 'bump';
+      this.later(() => { if (el.dataset.avatar === 'bump') delete el.dataset.avatar; }, 400);
+    }
+  }
+
+  /** The exhaust of a flying hero: jets, golden sparks, a rush of wind. */
+  private trail() {
+    if (Math.random() > 0.8) return;
+    const [x, y] = this.artToScreen([CX - 2, FEET_Y - 3]);
+    const colours = this.character === 'ironclad' ? ['#7df3ff', '#ffffff', '#ffb52e'] : this.character === 'synth' ? ['#ffe040', '#fff0a0'] : ['#ffffff', '#9cc4ee'];
+    this.emit({ kind: 'px', x: x + (Math.random() - 0.5) * 8, y: y + Math.random() * 6, vx: -this.facing * (60 + Math.random() * 60), vy: 20 + Math.random() * 40, color: pick(colours), life: 0.35 });
+  }
+
+  /** The leaper's landing: dust, a ring along the ground, clips knocked about. */
+  private slam() {
+    const at = { x: this.pos.x, y: this.pos.y };
+    this.projectiles.push({ kind: 'shock', from: at, to: at, t0: performance.now(), dur: FX_MS.smash, facing: this.facing });
+    this.dust(at.x, at.y, 10);
+    this.rumble(at.x, 320);
+  }
+
+  /** Laughing, tingling, roaring: what a poke sets off for each character. */
+  private pokedFx() {
+    const head = this.pos.y - (FEET_Y - this.top) * S;
+    const say = (text: string, color: string, n = 3) => {
+      for (let i = 0; i < n; i++) this.emit({ kind: 'text', text, x: this.pos.x - 22 + i * 18, y: head + 14 - (i % 2) * 10, vx: (i - 1) * 14, vy: -34, color, life: 0.8 });
+    };
+    switch (this.character) {
+      case 'spider': say('!', '#ff5a5a'); break;
+      case 'jester': say('HA', '#7ee06a', 2); break;
+      case 'brute': say('GRR', '#a8e060', 1); break;
+      case 'chakra': say('!', '#ffd23d', 2); break;
+      case 'ironclad': say('BEEP', '#7df3ff', 1); break;
+      default: break;
+    }
+  }
+
+  /** What is always going on around some characters, whatever they do: the jester's laugh. */
+  private ambient(now: number) {
+    if (this.character !== 'jester' || this.mode === 'held' || this.anim === 'sleep' || now < this.nextHa) return;
+    this.nextHa = now + 1500 + Math.random() * 1700;
+    const [x, y] = this.artToScreen([CX + 8, HEAD_Y - 10]);
+    this.emit({ kind: 'text', text: pick(['HA', 'HAHA', 'HEE', 'HA HA']), x, y, vx: 14 * this.facing, vy: -34, color: '#7ee06a', life: 0.9 });
+    if (!this.bubble && Math.random() < 0.3) this.say(pick(['HAHAHA!', 'HEE HEE!', 'HA HA HA!']), 1100, 'laugh');
   }
 
   private updateFree(dt: number, now: number) {
@@ -561,9 +724,11 @@ export class AvatarEngine {
         const e = tr.arc ? u : u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
         this.pos = { x: tr.from.x + (tr.to.x - tr.from.x) * e, y: tr.from.y + (tr.to.y - tr.from.y) * e - tr.arc * 4 * u * (1 - u) };
         this.setAnim(tr.anim, now, this.jobOptions(this.job));
+        if (tr.anim === 'fly') this.trail();
         if (u >= 1) {
           this.pos = { ...tr.to };
           if (tr.arc) this.dust(this.pos.x, this.pos.y, 4);
+          if (tr.arc && this.character === 'brute' && tr.dur > 400) this.slam();
           this.startLeg(now);
         }
         return;
@@ -597,6 +762,14 @@ export class AvatarEngine {
       // A live job lasts as long as the chat does that; a reaction, its own length.
       if (!job.live && now - job.started >= (job.fast ? job.minMs * 0.6 : job.minMs)) this.endJob(job, now);
       return;
+    }
+    // Idle heroes now and then show off their power on one of the panels.
+    if (isHero(this.character) && !this.parked && now > this.nextFlourish && now - this.lastActive > 5000 && now - this.lastActive < 55_000) {
+      this.nextFlourish = now + 20_000 + Math.random() * 25_000;
+      const panels = [...document.querySelectorAll<HTMLElement>('[data-panel]')].map((el) => el.getBoundingClientRect()).filter((r) => r.width > 120 && r.height > 80);
+      const r = panels.length ? pick(panels) : null;
+      const point = r ? { x: r.left + r.width * (0.3 + Math.random() * 0.4), y: r.top + r.height * 0.4 } : { x: this.pos.x + 200 * this.facing, y: this.pos.y - 60 };
+      this.react(this.makeJob('power', { point, minMs: 1800 }));
     }
     // Nothing to do: go home (unless it stopped where the chat stopped), then idle, and sleep when left alone.
     const home = this.home();
@@ -639,7 +812,7 @@ export class AvatarEngine {
     this.lastJob = job.kind;
     this.tag = job.role;
     this.sitting = !!job.slide?.sit;
-    if (job.kind === 'slap' && job.point) this.facing = job.point.x >= this.pos.x ? 1 : -1;
+    if ((job.kind === 'slap' || job.kind === 'power') && job.point) this.facing = job.point.x >= this.pos.x ? 1 : -1;
     if (job.kind === 'push' || job.kind === 'tweak' || job.kind === 'cut') {
       const el = job.clipId ? clipEl(job.clipId) : null;
       if (el) this.facing = el.getBoundingClientRect().left + 10 >= this.pos.x ? 1 : -1;
@@ -661,7 +834,19 @@ export class AvatarEngine {
     const hand = (which: 'l' | 'r') => this.artToScreen(handPoint(poseAt(this.anim, t, { ...this.opts, character: this.character }), which));
     const overHead = this.pos.y - (FEET_Y - this.top) * S;
     this.setAnim(job.anim, now, this.jobOptions(job));
+    // A hero cuts, deletes and slaps with its own power instead of scissors and a kick.
+    const strike = isHero(this.character) ? HERO_STRIKE[this.character] : null;
+    if (strike === 'whirl' && SPIN.has(job.anim)) every(0.07, () => this.emit({ kind: 'px', x: this.pos.x + (Math.random() - 0.5) * 40, y: this.pos.y - Math.random() * 50, vx: (Math.random() - 0.5) * 120, vy: -20, color: pick(['#ffffff', '#9cc4ee']), life: 0.4 }));
     switch (job.kind) {
+      case 'power':
+        once('fire', 0.3, () => {
+          if (strike) this.fire(strike, job.point ?? { x: this.pos.x + 200 * this.facing, y: this.pos.y - 60 });
+          if (Math.random() < 0.6) this.say(this.line('wake'), 1400);
+        });
+        break;
+      case 'poked':
+        if (job.anim === 'poked') once('fx', 0.02, () => this.pokedFx());
+        break;
       case 'polish': {
         const slide = job.slide;
         if (slide?.slideTo !== undefined) {
@@ -714,11 +899,17 @@ export class AvatarEngine {
         every(0.35, () => this.say(['.', '..', '...'][Math.floor(t / 0.35) % 3], 600));
         break;
       case 'ask':
-        once('ask', 0.05, () => this.say(pick(LINES.ask), 2600));
+        once('ask', 0.05, () => this.say(this.line('ask'), 2600));
         every(1.1, () => this.emit({ kind: 'text', text: '?', x: this.pos.x + 18 * this.facing, y: overHead - 4, vx: 6 * this.facing, vy: -28, color: '#ffd35a', life: 1 }));
         break;
       case 'cut': {
-        every(1 / 3, () => {
+        if (strike) {
+          once('fire', 0.25, () => {
+            const el = job.clipId ? clipEl(job.clipId) : null;
+            if (el) { const r = el.getBoundingClientRect(); this.fire(strike, { x: r.left, y: r.top + r.height / 2 }); }
+            if (Math.random() < 0.4) this.say(this.line('cut'), 1200);
+          });
+        } else every(1 / 3, () => {
           if (Math.floor(t * 3) % 2 !== 1) return;
           const [x, y] = hand('r');
           this.burst(x + 18 * this.facing, y, '#ffffff', 4);
@@ -744,6 +935,12 @@ export class AvatarEngine {
         });
         break;
       case 'delete':
+        if (strike) {
+          once('fire', 0.2, () => {
+            const ghost = job.ghostEls?.[0]?.getBoundingClientRect();
+            if (ghost) this.fire(strike, { x: ghost.left + ghost.width / 2, y: ghost.top + ghost.height / 2 });
+          });
+        }
         once('kick', 0.3, () => this.launchGhosts(job));
         break;
       case 'push':
@@ -753,13 +950,14 @@ export class AvatarEngine {
         every(0.5, () => { const [x, y] = hand('r'); this.burst(x + 8 * this.facing, y - 10, '#ffd35a', 3); this.bump(job.clipId); });
         break;
       case 'slap':
+        if (strike) once('fire', 0.1, () => this.fire(strike, job.point ?? this.pos));
         once('hit', 0.2, () => {
           const p = job.point ?? this.pos;
           this.burst(p.x, p.y, '#ffffff', 10);
           this.burst(p.x, p.y, '#ffd35a', 6);
           this.emit({ kind: 'text', text: 'SLAP!', x: p.x - 14, y: p.y - 26, vx: 0, vy: -50, color: '#ff5a5a', life: 0.9 });
           this.flingCursor(p);
-          this.say(pick(LINES.slap), 1700, 'shout');
+          this.say(this.line('slap'), 1700, 'shout');
         });
         break;
       case 'celebrate':
@@ -858,7 +1056,7 @@ export class AvatarEngine {
       this.angle = 0;
       this.angleVel = 0;
       this.pos = held.origin;
-      this.interrupt(this.makeJob('poked', { line: pick(LINES.poked), minMs: 700 }));
+      this.interrupt(this.makeJob('poked', { line: this.line('poked'), minMs: 700 }));
       return;
     }
     // Let go: it flies on with its body's real velocity (the hand's, plus the swing) and keeps
@@ -911,7 +1109,7 @@ export class AvatarEngine {
     this.tag = null;
     if (now - held.lastLine > 1100) {
       held.lastLine = now;
-      this.say(pick(LINES.grabbed), 1100, 'laugh');
+      this.say(this.line('grabbed'), 1100, 'laugh');
     }
     if (Math.random() < dt * 3) this.emit({ kind: 'px', x: this.pos.x + (Math.random() - 0.5) * 30, y: this.pos.y - 90, vx: (Math.random() - 0.5) * 60, vy: -40, g: 300, color: '#bfe6ff', life: 0.6 });
   }
@@ -922,6 +1120,11 @@ export class AvatarEngine {
     if (tl && x > tl.left && x < tl.right) floors.push(tl.top + 2);
     const frame = rectOf('[data-panel="program"] .monitor-frame');
     if (frame && x > frame.left && x < frame.right) floors.push(frame.bottom);
+    // Every open panel is something to land on: its top edge is a floor.
+    for (const el of document.querySelectorAll<HTMLElement>('[data-panel]')) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 90 && r.height > 60 && x > r.left && x < r.right) floors.push(r.top + 2);
+    }
     // Over the tracks it lands on a clip, or the bottom of the track area.
     const scroll = rectOf('.tl-scroll');
     if (scroll && x > scroll.left && x < scroll.right) {
@@ -972,7 +1175,7 @@ export class AvatarEngine {
       this.homeOverride = { ...this.pos };
       this.parked = false;
       // It lands, then walks back to whatever the chat is doing.
-      this.interrupt(this.makeJob(height > 260 ? 'dizzy' : 'poked', { minMs: height > 260 ? 1500 : 450, line: height > 260 ? pick(LINES.dizzy) : null, anim: height > 260 ? 'dizzy' : 'land' }));
+      this.interrupt(this.makeJob(height > 260 ? 'dizzy' : 'poked', { minMs: height > 260 ? 1500 : 450, line: height > 260 ? this.line('dizzy') : null, anim: height > 260 ? 'dizzy' : 'land' }));
       if (height > 260) this.later(() => this.emit({ kind: 'star', x: this.pos.x, y: this.pos.y - 110, vx: 0, vy: -10, color: '#ffd35a', life: 1.2 }), 50);
     }
   }
@@ -1233,7 +1436,13 @@ export class AvatarEngine {
       }
     }
     this.put(this.body, 'transform', `translate3d(${left}px, ${top}px, 0) ${turn}`);
-    this.put(this.sprite, 'transform', this.facing < 0 ? 'scaleX(-1)' : '');
+    // The golden hero's whirlwind: the sprite turns like a top (its width swings through zero and flips).
+    let flip: number = this.facing;
+    if (this.character === 'chakra' && SPIN.has(this.anim)) {
+      const c = Math.cos(t * 16);
+      flip *= Math.sign(c || 1) * Math.max(0.12, Math.abs(c));
+    }
+    this.put(this.sprite, 'transform', flip === 1 ? '' : flip === -1 ? 'scaleX(-1)' : `scaleX(${flip.toFixed(2)})`);
     // The shadow stays on the surface under a hop, and fades the higher it goes.
     const groundY = this.travel ? this.travel.from.y + (this.travel.to.y - this.travel.from.y) * clamp((now - this.travel.t0) / this.travel.dur, 0, 1) : this.pos.y;
     const lift = Math.max(0, groundY - this.pos.y);
@@ -1264,9 +1473,12 @@ export class AvatarEngine {
     } else this.put(this.bubbleEl, 'display', 'none');
 
     const ctx = this.fxCtx;
-    if (this.particles.length || this.fxDirty) {
+    if (this.particles.length || this.projectiles.length || this.rope || this.fxDirty) {
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      this.fxDirty = this.particles.length > 0;
+      this.fxDirty = this.particles.length > 0 || this.projectiles.length > 0 || !!this.rope;
+      // Webs and grapples hang from the hand; whatever a hero threw flies until it is over.
+      if (this.rope) drawProjectile(ctx, { kind: this.rope.kind, from: this.handScreen('r', now), to: this.rope.anchor, t0: now, dur: 1000, facing: this.facing }, now, S);
+      if (this.projectiles.length) this.projectiles = this.projectiles.filter((p) => drawProjectile(ctx, p, now, S));
       for (const p of this.particles) {
         // Pixel-game fade: blink out over the last third instead of going transparent.
         if (p.age > p.life * 0.66 && Math.floor(p.age * 20) % 2) continue;

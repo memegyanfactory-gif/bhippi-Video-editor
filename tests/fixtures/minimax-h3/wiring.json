@@ -1,0 +1,429 @@
+{
+  "source": "ComfyUI workflow templates, video_minimax_h3_{t2v,i2v,r2v}.json, https://github.com/Comfy-Org/workflow_templates (MIT License). Trimmed to node classes and class-level wiring; primitives, notes and the resolution/length math nodes are left out.",
+  "t2v": {
+    "turboOff": {
+      "classes": [
+        "BasicGuider",
+        "BasicScheduler",
+        "CLIPLoader",
+        "CreateVideo",
+        "KSamplerSelect",
+        "MiniMaxH3ImageToVideo",
+        "RandomNoise",
+        "SamplerCustomAdvanced",
+        "SaveVideo",
+        "UNETLoader",
+        "VAEDecode",
+        "VAEDecodeAudio",
+        "VAELoader[audio]",
+        "VAELoader[video]"
+      ],
+      "edges": [
+        "BasicGuider.0->SamplerCustomAdvanced.guider",
+        "BasicScheduler.0->SamplerCustomAdvanced.sigmas",
+        "CLIPLoader.0->MiniMaxH3ImageToVideo.clip",
+        "CreateVideo.0->SaveVideo.video",
+        "KSamplerSelect.0->SamplerCustomAdvanced.sampler",
+        "MiniMaxH3ImageToVideo.0->BasicGuider.conditioning",
+        "MiniMaxH3ImageToVideo.1->SamplerCustomAdvanced.latent_image",
+        "RandomNoise.0->SamplerCustomAdvanced.noise",
+        "SamplerCustomAdvanced.0->VAEDecode.samples",
+        "SamplerCustomAdvanced.0->VAEDecodeAudio.samples",
+        "UNETLoader.0->BasicGuider.model",
+        "UNETLoader.0->BasicScheduler.model",
+        "VAEDecode.0->CreateVideo.images",
+        "VAEDecodeAudio.0->CreateVideo.audio",
+        "VAELoader[audio].0->VAEDecodeAudio.vae",
+        "VAELoader[video].0->MiniMaxH3ImageToVideo.vae",
+        "VAELoader[video].0->VAEDecode.vae"
+      ],
+      "widgets": {
+        "SaveVideo": [
+          "video/MiniMax_H3",
+          "auto",
+          "auto"
+        ],
+        "KSamplerSelect": [
+          "res_multistep"
+        ],
+        "BasicScheduler": [
+          "simple",
+          4,
+          1
+        ],
+        "UNETLoader": [
+          "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+          "default"
+        ],
+        "CLIPLoader": [
+          "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "minimax",
+          "default"
+        ],
+        "CreateVideo": [
+          24,
+          8
+        ]
+      }
+    },
+    "turboOn": {
+      "classes": [
+        "BasicGuider",
+        "BasicScheduler",
+        "CLIPLoader",
+        "CreateVideo",
+        "KSamplerSelect",
+        "LoraLoaderModelOnly",
+        "MiniMaxH3ImageToVideo",
+        "RandomNoise",
+        "SamplerCustomAdvanced",
+        "SaveVideo",
+        "UNETLoader",
+        "VAEDecode",
+        "VAEDecodeAudio",
+        "VAELoader[audio]",
+        "VAELoader[video]"
+      ],
+      "edges": [
+        "BasicGuider.0->SamplerCustomAdvanced.guider",
+        "BasicScheduler.0->SamplerCustomAdvanced.sigmas",
+        "CLIPLoader.0->MiniMaxH3ImageToVideo.clip",
+        "CreateVideo.0->SaveVideo.video",
+        "KSamplerSelect.0->SamplerCustomAdvanced.sampler",
+        "LoraLoaderModelOnly.0->BasicGuider.model",
+        "LoraLoaderModelOnly.0->BasicScheduler.model",
+        "MiniMaxH3ImageToVideo.0->BasicGuider.conditioning",
+        "MiniMaxH3ImageToVideo.1->SamplerCustomAdvanced.latent_image",
+        "RandomNoise.0->SamplerCustomAdvanced.noise",
+        "SamplerCustomAdvanced.0->VAEDecode.samples",
+        "SamplerCustomAdvanced.0->VAEDecodeAudio.samples",
+        "UNETLoader.0->LoraLoaderModelOnly.model",
+        "VAEDecode.0->CreateVideo.images",
+        "VAEDecodeAudio.0->CreateVideo.audio",
+        "VAELoader[audio].0->VAEDecodeAudio.vae",
+        "VAELoader[video].0->MiniMaxH3ImageToVideo.vae",
+        "VAELoader[video].0->VAEDecode.vae"
+      ],
+      "widgets": {
+        "SaveVideo": [
+          "video/MiniMax_H3",
+          "auto",
+          "auto"
+        ],
+        "KSamplerSelect": [
+          "res_multistep"
+        ],
+        "BasicScheduler": [
+          "simple",
+          4,
+          1
+        ],
+        "UNETLoader": [
+          "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+          "default"
+        ],
+        "CLIPLoader": [
+          "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "minimax",
+          "default"
+        ],
+        "CreateVideo": [
+          24,
+          8
+        ],
+        "LoraLoaderModelOnly": [
+          "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+          1
+        ]
+      }
+    }
+  },
+  "i2v": {
+    "turboOff": {
+      "classes": [
+        "BasicGuider",
+        "BasicScheduler",
+        "CLIPLoader",
+        "CreateVideo",
+        "KSamplerSelect",
+        "LoadImage",
+        "MiniMaxH3ImageToVideo",
+        "RandomNoise",
+        "SamplerCustomAdvanced",
+        "SaveVideo",
+        "UNETLoader",
+        "VAEDecode",
+        "VAEDecodeAudio",
+        "VAELoader[audio]",
+        "VAELoader[video]"
+      ],
+      "edges": [
+        "BasicGuider.0->SamplerCustomAdvanced.guider",
+        "BasicScheduler.0->SamplerCustomAdvanced.sigmas",
+        "CLIPLoader.0->MiniMaxH3ImageToVideo.clip",
+        "CreateVideo.0->SaveVideo.video",
+        "KSamplerSelect.0->SamplerCustomAdvanced.sampler",
+        "LoadImage.0->MiniMaxH3ImageToVideo.first_frame",
+        "MiniMaxH3ImageToVideo.0->BasicGuider.conditioning",
+        "MiniMaxH3ImageToVideo.1->SamplerCustomAdvanced.latent_image",
+        "RandomNoise.0->SamplerCustomAdvanced.noise",
+        "SamplerCustomAdvanced.0->VAEDecode.samples",
+        "SamplerCustomAdvanced.0->VAEDecodeAudio.samples",
+        "UNETLoader.0->BasicGuider.model",
+        "UNETLoader.0->BasicScheduler.model",
+        "VAEDecode.0->CreateVideo.images",
+        "VAEDecodeAudio.0->CreateVideo.audio",
+        "VAELoader[audio].0->VAEDecodeAudio.vae",
+        "VAELoader[video].0->MiniMaxH3ImageToVideo.vae",
+        "VAELoader[video].0->VAEDecode.vae"
+      ],
+      "widgets": {
+        "SaveVideo": [
+          "video/MiniMax_H3",
+          "auto",
+          "auto"
+        ],
+        "KSamplerSelect": [
+          "res_multistep"
+        ],
+        "BasicScheduler": [
+          "simple",
+          4,
+          1
+        ],
+        "UNETLoader": [
+          "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+          "default"
+        ],
+        "CLIPLoader": [
+          "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "minimax",
+          "default"
+        ],
+        "CreateVideo": [
+          24,
+          8
+        ]
+      }
+    },
+    "turboOn": {
+      "classes": [
+        "BasicGuider",
+        "BasicScheduler",
+        "CLIPLoader",
+        "CreateVideo",
+        "KSamplerSelect",
+        "LoadImage",
+        "LoraLoaderModelOnly",
+        "MiniMaxH3ImageToVideo",
+        "RandomNoise",
+        "SamplerCustomAdvanced",
+        "SaveVideo",
+        "UNETLoader",
+        "VAEDecode",
+        "VAEDecodeAudio",
+        "VAELoader[audio]",
+        "VAELoader[video]"
+      ],
+      "edges": [
+        "BasicGuider.0->SamplerCustomAdvanced.guider",
+        "BasicScheduler.0->SamplerCustomAdvanced.sigmas",
+        "CLIPLoader.0->MiniMaxH3ImageToVideo.clip",
+        "CreateVideo.0->SaveVideo.video",
+        "KSamplerSelect.0->SamplerCustomAdvanced.sampler",
+        "LoadImage.0->MiniMaxH3ImageToVideo.first_frame",
+        "LoraLoaderModelOnly.0->BasicGuider.model",
+        "LoraLoaderModelOnly.0->BasicScheduler.model",
+        "MiniMaxH3ImageToVideo.0->BasicGuider.conditioning",
+        "MiniMaxH3ImageToVideo.1->SamplerCustomAdvanced.latent_image",
+        "RandomNoise.0->SamplerCustomAdvanced.noise",
+        "SamplerCustomAdvanced.0->VAEDecode.samples",
+        "SamplerCustomAdvanced.0->VAEDecodeAudio.samples",
+        "UNETLoader.0->LoraLoaderModelOnly.model",
+        "VAEDecode.0->CreateVideo.images",
+        "VAEDecodeAudio.0->CreateVideo.audio",
+        "VAELoader[audio].0->VAEDecodeAudio.vae",
+        "VAELoader[video].0->MiniMaxH3ImageToVideo.vae",
+        "VAELoader[video].0->VAEDecode.vae"
+      ],
+      "widgets": {
+        "SaveVideo": [
+          "video/MiniMax_H3",
+          "auto",
+          "auto"
+        ],
+        "KSamplerSelect": [
+          "res_multistep"
+        ],
+        "BasicScheduler": [
+          "simple",
+          4,
+          1
+        ],
+        "UNETLoader": [
+          "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+          "default"
+        ],
+        "CLIPLoader": [
+          "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "minimax",
+          "default"
+        ],
+        "CreateVideo": [
+          24,
+          8
+        ],
+        "LoraLoaderModelOnly": [
+          "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+          1
+        ]
+      }
+    }
+  },
+  "r2v": {
+    "turboOff": {
+      "classes": [
+        "BasicGuider",
+        "BasicScheduler",
+        "CLIPLoader",
+        "CreateVideo",
+        "KSamplerSelect",
+        "LoadImage",
+        "MiniMaxH3ReferenceToVideo",
+        "RandomNoise",
+        "SamplerCustomAdvanced",
+        "SaveVideo",
+        "UNETLoader",
+        "VAEDecode",
+        "VAEDecodeAudio",
+        "VAELoader[audio]",
+        "VAELoader[video]"
+      ],
+      "edges": [
+        "BasicGuider.0->SamplerCustomAdvanced.guider",
+        "BasicScheduler.0->SamplerCustomAdvanced.sigmas",
+        "CLIPLoader.0->MiniMaxH3ReferenceToVideo.clip",
+        "CreateVideo.0->SaveVideo.video",
+        "KSamplerSelect.0->SamplerCustomAdvanced.sampler",
+        "LoadImage.0->MiniMaxH3ReferenceToVideo.ref_images.ref_image_0",
+        "LoadImage.0->MiniMaxH3ReferenceToVideo.ref_images.ref_image_1",
+        "MiniMaxH3ReferenceToVideo.0->BasicGuider.conditioning",
+        "MiniMaxH3ReferenceToVideo.1->SamplerCustomAdvanced.latent_image",
+        "RandomNoise.0->SamplerCustomAdvanced.noise",
+        "SamplerCustomAdvanced.0->VAEDecode.samples",
+        "SamplerCustomAdvanced.0->VAEDecodeAudio.samples",
+        "UNETLoader.0->BasicGuider.model",
+        "UNETLoader.0->BasicScheduler.model",
+        "VAEDecode.0->CreateVideo.images",
+        "VAEDecodeAudio.0->CreateVideo.audio",
+        "VAELoader[audio].0->MiniMaxH3ReferenceToVideo.audio_vae",
+        "VAELoader[audio].0->VAEDecodeAudio.vae",
+        "VAELoader[video].0->MiniMaxH3ReferenceToVideo.vae",
+        "VAELoader[video].0->VAEDecode.vae"
+      ],
+      "widgets": {
+        "SaveVideo": [
+          "video/MiniMax_H3",
+          "auto",
+          "auto"
+        ],
+        "KSamplerSelect": [
+          "res_multistep"
+        ],
+        "BasicScheduler": [
+          "simple",
+          20,
+          1
+        ],
+        "UNETLoader": [
+          "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "default"
+        ],
+        "CLIPLoader": [
+          "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "minimax",
+          "default"
+        ],
+        "CreateVideo": [
+          24,
+          8
+        ]
+      }
+    },
+    "turboOn": {
+      "classes": [
+        "BasicGuider",
+        "BasicScheduler",
+        "CLIPLoader",
+        "CreateVideo",
+        "KSamplerSelect",
+        "LoadImage",
+        "LoraLoaderModelOnly",
+        "MiniMaxH3ReferenceToVideo",
+        "RandomNoise",
+        "SamplerCustomAdvanced",
+        "SaveVideo",
+        "UNETLoader",
+        "VAEDecode",
+        "VAEDecodeAudio",
+        "VAELoader[audio]",
+        "VAELoader[video]"
+      ],
+      "edges": [
+        "BasicGuider.0->SamplerCustomAdvanced.guider",
+        "BasicScheduler.0->SamplerCustomAdvanced.sigmas",
+        "CLIPLoader.0->MiniMaxH3ReferenceToVideo.clip",
+        "CreateVideo.0->SaveVideo.video",
+        "KSamplerSelect.0->SamplerCustomAdvanced.sampler",
+        "LoadImage.0->MiniMaxH3ReferenceToVideo.ref_images.ref_image_0",
+        "LoadImage.0->MiniMaxH3ReferenceToVideo.ref_images.ref_image_1",
+        "LoraLoaderModelOnly.0->BasicGuider.model",
+        "MiniMaxH3ReferenceToVideo.0->BasicGuider.conditioning",
+        "MiniMaxH3ReferenceToVideo.1->SamplerCustomAdvanced.latent_image",
+        "RandomNoise.0->SamplerCustomAdvanced.noise",
+        "SamplerCustomAdvanced.0->VAEDecode.samples",
+        "SamplerCustomAdvanced.0->VAEDecodeAudio.samples",
+        "UNETLoader.0->BasicScheduler.model",
+        "UNETLoader.0->LoraLoaderModelOnly.model",
+        "VAEDecode.0->CreateVideo.images",
+        "VAEDecodeAudio.0->CreateVideo.audio",
+        "VAELoader[audio].0->MiniMaxH3ReferenceToVideo.audio_vae",
+        "VAELoader[audio].0->VAEDecodeAudio.vae",
+        "VAELoader[video].0->MiniMaxH3ReferenceToVideo.vae",
+        "VAELoader[video].0->VAEDecode.vae"
+      ],
+      "widgets": {
+        "SaveVideo": [
+          "video/MiniMax_H3",
+          "auto",
+          "auto"
+        ],
+        "KSamplerSelect": [
+          "res_multistep"
+        ],
+        "BasicScheduler": [
+          "simple",
+          20,
+          1
+        ],
+        "UNETLoader": [
+          "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "default"
+        ],
+        "CLIPLoader": [
+          "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "minimax",
+          "default"
+        ],
+        "CreateVideo": [
+          24,
+          8
+        ],
+        "LoraLoaderModelOnly": [
+          "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+          1
+        ]
+      }
+    }
+  }
+}

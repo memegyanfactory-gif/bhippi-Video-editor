@@ -25,6 +25,10 @@ pub enum Kind {
     TtsRuntime,
     /// The Kokoro voice pack: one model, every speaker.
     TtsVoice,
+    /// Any other offline voice pack (Kokoro v1.1, Kitten TTS, Piper, Matcha), read by the same
+    /// engine. Kept apart from `TtsVoice` so Settings › Speech & voice, which lists every
+    /// `tts-voice`, is not buried under dozens of voices; the Model Library is where they live.
+    TtsPack,
     /// A matting model: separates the subject from the background, frame by frame.
     Matte,
     /// A research candidate requiring an explicit runtime and license benchmark.
@@ -61,6 +65,8 @@ struct Entry {
 const HF_WHISPER: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 #[cfg(test)]
 const SHERPA_RELEASES: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/";
+#[cfg(test)]
+const HF_DISTIL: &str = "https://huggingface.co/distil-whisper/";
 
 macro_rules! whisper_model {
     ($id:literal, $file:literal, $label:literal, $detail:literal, $size:literal, $langs:expr, $rec:literal) => {
@@ -79,6 +85,101 @@ macro_rules! whisper_model {
             marker: concat!("stt/", $file),
             recommended: $rec,
             license: "MIT · OpenAI Whisper weights",
+        }
+    };
+}
+
+/// A Distil-Whisper ggml model: its repo keeps it under a generic name, so it is saved under a clear one.
+macro_rules! distil_model {
+    ($id:literal, $repo:literal, $remote:literal, $file:literal, $label:literal, $detail:literal, $size:literal) => {
+        Entry {
+            id: $id,
+            kind: Kind::SttModel,
+            label: $label,
+            detail: $detail,
+            languages: &["en"],
+            size_mb: $size,
+            files: &[Source {
+                url: concat!("https://huggingface.co/distil-whisper/", $repo, "/resolve/main/", $remote),
+                path: concat!("stt/", $file),
+            }],
+            archive: false,
+            marker: concat!("stt/", $file),
+            recommended: false,
+            license: "MIT · Distil-Whisper (Hugging Face)",
+        }
+    };
+}
+
+/// A sherpa-onnx voice pack from the `tts-models` release, unpacked into `tts/<stem>`.
+macro_rules! sherpa_pack {
+    ($id:literal, $stem:literal, $label:literal, $detail:literal, $size:literal, $langs:expr, $license:literal) => {
+        Entry {
+            id: $id,
+            kind: Kind::TtsPack,
+            label: $label,
+            detail: $detail,
+            languages: $langs,
+            size_mb: $size,
+            files: &[Source {
+                url: concat!("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/", $stem, ".tar.bz2"),
+                path: concat!("tts/", $stem, ".tar.bz2"),
+            }],
+            archive: true,
+            marker: concat!("tts/", $stem),
+            recommended: false,
+            license: $license,
+        }
+    };
+}
+
+/// One Piper voice (the small int8 build) from the same release. `$code` is Piper's
+/// `<language>-<voice>-<quality>` name; the pack's id is `piper-<code>`.
+macro_rules! piper_voice {
+    ($code:literal, $label:literal, $detail:literal, $size:literal, $langs:expr, $license:literal) => {
+        Entry {
+            id: concat!("piper-", $code),
+            kind: Kind::TtsPack,
+            label: $label,
+            detail: $detail,
+            languages: $langs,
+            size_mb: $size,
+            files: &[Source {
+                url: concat!("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-", $code, "-int8.tar.bz2"),
+                path: concat!("tts/vits-piper-", $code, "-int8.tar.bz2"),
+            }],
+            archive: true,
+            marker: concat!("tts/vits-piper-", $code, "-int8"),
+            recommended: false,
+            license: $license,
+        }
+    };
+}
+
+/// A Matcha-TTS voice: its own pack plus the vocoder every Matcha voice shares.
+macro_rules! matcha_pack {
+    ($id:literal, $stem:literal, $label:literal, $detail:literal, $size:literal, $langs:expr, $license:literal) => {
+        Entry {
+            id: $id,
+            kind: Kind::TtsPack,
+            label: $label,
+            detail: $detail,
+            languages: $langs,
+            size_mb: $size,
+            files: &[
+                Source {
+                    url: concat!("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/", $stem, ".tar.bz2"),
+                    path: concat!("tts/", $stem, ".tar.bz2"),
+                },
+                Source {
+                    url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx",
+                    path: "tts/vocoders/vocos-22khz-univ.onnx",
+                },
+            ],
+            archive: true,
+            marker: concat!("tts/", $stem),
+            recommended: false,
+            license: $license,
         }
     };
 }
@@ -114,7 +215,7 @@ const KOKORO_RUNTIME_FILES: &[Source] = if cfg!(windows) {
 };
 
 const WHISPER_NAMES: &[&str] = &["whisper-cli", "whisper", "whisper-cpp", "main"];
-/// What proves the Kokoro pack is unpacked: its speaker table sits beside the model.
+/// What proves the Kokoro v1.0 pack is unpacked: its speaker table sits beside the model.
 const KOKORO_MARKER_FILE: &str = "voices.bin";
 
 /// Robust Video Matting. Chosen over a photo matting model because it carries recurrent state
@@ -178,6 +279,29 @@ const CATALOG: &[Entry] = &[
     Entry { id: "matanyone2", kind: Kind::MatteCandidate, label: "MatAnyone2 (restricted candidate)", detail: "Restricted research candidate. Kept visible for review only; never downloaded or enabled automatically.", languages: &["restricted"], size_mb: 0, files: &[], archive: false, marker: "candidates/matanyone2", recommended: false, license: "Commercial-use permission required" },
     Entry { id: "videomama", kind: Kind::MatteCandidate, label: "VideoMaMa (restricted candidate)", detail: "Restricted research candidate. Kept visible for review only; never downloaded or enabled automatically.", languages: &["restricted"], size_mb: 0, files: &[], archive: false, marker: "candidates/videomama", recommended: false, license: "Commercial-use permission required" },
     Entry { id: "corridorkey", kind: Kind::MatteCandidate, label: "CorridorKey (review required)", detail: "Separate commercial integration review required before any runtime or checkpoint can be used.", languages: &["review"], size_mb: 0, files: &[], archive: false, marker: "candidates/corridorkey", recommended: false, license: "Commercial integration review required" },
+    whisper_model!("whisper-tiny", "ggml-tiny.bin", "Whisper tiny", "The smallest and fastest. Rough on anything but clear English; use it for quick drafts.", 78, &["multilingual"], false),
+    whisper_model!("whisper-tiny-en", "ggml-tiny.en.bin", "Whisper tiny (English only)", "The smallest and fastest. English only, a little better at it than the multilingual tiny.", 78, &["en"], false),
+    whisper_model!("whisper-base-en", "ggml-base.en.bin", "Whisper base (English only)", "Quick and light, English only. Good for clear, single-speaker English.", 148, &["en"], false),
+    whisper_model!("whisper-small-en", "ggml-small.en.bin", "Whisper small (English only)", "A good speed and accuracy balance for English. It will not understand Hindi or other languages.", 488, &["en"], false),
+    whisper_model!("whisper-medium-en", "ggml-medium.en.bin", "Whisper medium (English only)", "More accurate English than small, at roughly three times the size and time. English only.", 1534, &["en"], false),
+    distil_model!(
+        "whisper-distil-large-v3",
+        "distil-large-v3-ggml",
+        "ggml-distil-large-v3.bin",
+        "ggml-distil-large-v3.bin",
+        "Distil-Whisper large v3 (English only)",
+        "Close to large-v3 accuracy on English in about half the time, English only. Not for Hindi or code-switched speech.",
+        1520
+    ),
+    distil_model!(
+        "whisper-distil-large-v3-5",
+        "distil-large-v3.5-ggml",
+        "ggml-model.bin",
+        "ggml-distil-large-v3.5.bin",
+        "Distil-Whisper large v3.5 (English only)",
+        "The newest Distil-Whisper: the best fast English transcription here, trained on four times more data than v3. English only.",
+        1520
+    ),
     whisper_model!("whisper-base", "ggml-base.bin", "Whisper base", "Quick and tiny. Fine for clear English; it will mangle Hindi.", 148, &["en"], false),
     whisper_model!("whisper-small", "ggml-small.bin", "Whisper small", "A good balance for English. Hindi is hit and miss.", 488, &["en", "hi"], false),
     whisper_model!("whisper-medium", "ggml-medium.bin", "Whisper medium", "Solid Hindi and English, but slower than turbo for no real gain.", 1530, &["en", "hi", "hinglish"], false),
@@ -189,6 +313,24 @@ const CATALOG: &[Entry] = &[
         574,
         &["en", "hi", "hinglish"],
         true
+    ),
+    whisper_model!(
+        "whisper-large-v3-turbo-q8",
+        "ggml-large-v3-turbo-q8_0.bin",
+        "Whisper large v3 turbo (q8)",
+        "Turbo at 8-bit: a hair more accurate than q5, nearly full precision, and half the size of the unquantized file.",
+        874,
+        &["en", "hi", "hinglish"],
+        false
+    ),
+    whisper_model!(
+        "whisper-large-v3-turbo",
+        "ggml-large-v3-turbo.bin",
+        "Whisper large v3 turbo (full)",
+        "Turbo at full 16-bit precision. The quality reference for turbo; q5 or q8 is nearly identical for much less disk.",
+        1625,
+        &["en", "hi", "hinglish"],
+        false
     ),
     whisper_model!(
         "whisper-large-v3-q5",
@@ -233,10 +375,113 @@ const CATALOG: &[Entry] = &[
             path: "tts/kokoro-multi-lang-v1_0.tar.bz2",
         }],
         archive: true,
-        marker: "tts",
+        marker: "tts/kokoro-multi-lang-v1_0",
         recommended: true,
         license: "Apache-2.0 · Kokoro-82M (hexgrad)",
     },
+    sherpa_pack!(
+        "kokoro-v1_1-int8",
+        "kokoro-int8-multi-lang-v1_1",
+        "Kokoro v1.1 multilingual (small)",
+        "Kokoro's Chinese and English release: 3 English voices and 100 Mandarin voices, 8-bit so it downloads and runs lighter.",
+        140,
+        &["en", "zh"],
+        "Apache-2.0 · Kokoro-82M (hexgrad)"
+    ),
+    sherpa_pack!(
+        "kokoro-v1_1",
+        "kokoro-multi-lang-v1_1",
+        "Kokoro v1.1 multilingual (full)",
+        "Kokoro's Chinese and English release at full precision: 3 English voices and 100 Mandarin voices.",
+        348,
+        &["en", "zh"],
+        "Apache-2.0 · Kokoro-82M (hexgrad)"
+    ),
+    sherpa_pack!(
+        "kitten-nano-v0_8",
+        "kitten-nano-en-v0_8-int8",
+        "Kitten TTS nano",
+        "A tiny English voice (15M parameters, 8-bit): eight voices, very fast on any CPU, a little flatter than Kokoro.",
+        30,
+        &["en"],
+        "Apache-2.0 · KittenML Kitten TTS"
+    ),
+    sherpa_pack!(
+        "kitten-micro-v0_8",
+        "kitten-micro-en-v0_8",
+        "Kitten TTS micro",
+        "Kitten TTS at 40M parameters: the same eight English voices with smoother delivery than nano, still quick.",
+        43,
+        &["en"],
+        "Apache-2.0 · KittenML Kitten TTS"
+    ),
+    sherpa_pack!(
+        "kitten-mini-v0_8",
+        "kitten-mini-en-v0_8",
+        "Kitten TTS mini",
+        "Kitten TTS at 80M parameters: the most natural of the three sizes, eight English voices, still fast on a CPU.",
+        65,
+        &["en"],
+        "Apache-2.0 · KittenML Kitten TTS"
+    ),
+    matcha_pack!(
+        "matcha-en-ljspeech",
+        "matcha-icefall-en_US-ljspeech",
+        "Matcha-TTS LJSpeech (English)",
+        "A single calm American English voice from the Matcha-TTS model, with the shared vocoder. Smooth, not as expressive as Kokoro.",
+        125,
+        &["en"],
+        "Apache-2.0 · icefall Matcha model; LJSpeech data is public domain"
+    ),
+    matcha_pack!(
+        "matcha-zh-baker",
+        "matcha-icefall-zh-baker",
+        "Matcha-TTS Baker (Mandarin)",
+        "A single Mandarin female voice from the Matcha-TTS model, with the shared vocoder. Non-commercial: the Baker data is CC BY-NC-ND.",
+        124,
+        &["zh"],
+        "CC BY-NC-ND 4.0 · Baker (Databaker) data, non-commercial"
+    ),
+    piper_voice!("en_US-joe-medium", "Piper Joe · English (US), male", "A plain, steady American male read.", 20, &["en"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("en_US-kristin-medium", "Piper Kristin · English (US), female", "A clear American female read.", 20, &["en"], "Public domain · Piper voice via sherpa-onnx"),
+    piper_voice!("en_US-ljspeech-high", "Piper LJSpeech · English (US), female", "The classic audiobook voice at high quality; calm and even.", 32, &["en"], "Public domain · Piper voice via sherpa-onnx"),
+    piper_voice!("en_US-libritts_r-medium", "Piper LibriTTS-R readers · English (US), mixed", "Four of the 904 audiobook readers in this model, each a different person.", 22, &["en"], "CC BY 4.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("en_GB-alba-medium", "Piper Alba · English (Scottish), female", "A Scottish female voice.", 20, &["en"], "CC BY 4.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("en_GB-cori-high", "Piper Cori · English (UK), female", "A British female narrator at high quality.", 33, &["en"], "Public domain · Piper voice via sherpa-onnx"),
+    piper_voice!("en_GB-northern_english_male-medium", "Piper Northern English male · English (UK, Northern), male", "A Northern English male accent.", 20, &["en"], "CC BY-SA 4.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("en_GB-vctk-medium", "Piper VCTK speakers · English (UK and Ireland), mixed", "Four of the 109 regional British and Irish speakers in this model.", 22, &["en"], "CC BY 4.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("hi_IN-priyamvada-medium", "Piper Priyamvada · Hindi, female", "A Hindi female voice for Devanagari text. For commercial work use the Kokoro Hindi voices instead.", 20, &["hi"], "CC BY-NC-SA 4.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("hi_IN-pratham-medium", "Piper Pratham · Hindi, male", "A Hindi male voice for Devanagari text. For commercial work use the Kokoro Hindi voices instead.", 20, &["hi"], "CC BY-NC-SA 4.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("hi_IN-rohan-medium", "Piper Rohan · Hindi, male", "A Hindi male voice for Devanagari text, from the IIT Madras IndicTTS corpus.", 20, &["hi"], "IIT Madras IndicTTS licence · Piper voice via sherpa-onnx"),
+    piper_voice!("ne_NP-chitwan-medium", "Piper Chitwan · Nepali", "A Nepali voice.", 20, &["ne"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("ur_PK-fasih-medium", "Piper Fasih · Urdu", "An Urdu voice for Urdu script.", 20, &["ur"], "MIT · Piper voice via sherpa-onnx"),
+    piper_voice!("de_DE-thorsten-medium", "Piper Thorsten · German, male", "The well-known clear German male voice.", 20, &["de"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("de_DE-thorsten_emotional-medium", "Piper Thorsten (moods) · German, male", "The same German male voice in several moods.", 22, &["de"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("de_DE-kerstin-low", "Piper Kerstin · German, female", "A German female voice (lower quality, very small).", 20, &["de"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("fr_FR-siwis-medium", "Piper Siwis · French, female", "A clear French female narrator.", 20, &["fr"], "CC BY 4.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("fr_FR-gilles-low", "Piper Gilles · French, male", "A French male voice (lower quality, small).", 20, &["fr"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("es_ES-davefx-medium", "Piper DaveFX · Spanish (Spain), male", "A Castilian Spanish male voice.", 20, &["es"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("es_ES-sharvard-medium", "Piper Sharvard · Spanish (Spain)", "A Castilian Spanish pair: one male, one female.", 22, &["es"], "CC BY 3.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("es_MX-claude-high", "Piper Claude · Spanish (Mexico)", "A Mexican Spanish voice at high quality.", 20, &["es"], "Apache 2.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("pt_BR-faber-medium", "Piper Faber · Portuguese (Brazil), male", "A Brazilian Portuguese male voice.", 20, &["pt"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("pt_BR-cadu-medium", "Piper Cadu · Portuguese (Brazil), male", "Another Brazilian Portuguese male voice.", 20, &["pt"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("nl_NL-pim-medium", "Piper Pim · Dutch", "A Dutch voice.", 20, &["nl"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("sv_SE-nst-medium", "Piper NST · Swedish", "A Swedish voice.", 20, &["sv"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("da_DK-talesyntese-medium", "Piper Talesyntese · Danish", "A Danish voice.", 20, &["da"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("no_NO-talesyntese-medium", "Piper Talesyntese · Norwegian", "A Norwegian voice.", 20, &["no"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("ru_RU-denis-medium", "Piper Denis · Russian, male", "A Russian male voice.", 20, &["ru"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("uk_UA-ukrainian_tts-medium", "Piper Ukrainian TTS · Ukrainian", "Three Ukrainian voices: Lada, Mykyta and Tetiana.", 22, &["uk"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("pl_PL-darkman-medium", "Piper Darkman · Polish, male", "A Polish male voice.", 20, &["pl"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("pl_PL-gosia-medium", "Piper Gosia · Polish, female", "A Polish female voice.", 20, &["pl"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("cs_CZ-jirka-medium", "Piper Jirka · Czech, male", "A Czech male voice.", 20, &["cs"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("sk_SK-lili-medium", "Piper Lili · Slovak, female", "A Slovak female voice.", 20, &["sk"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("sl_SI-artur-medium", "Piper Artur · Slovenian, male", "A Slovenian male voice.", 20, &["sl"], "CC BY 4.0 · Piper voice via sherpa-onnx"),
+    piper_voice!("lv_LV-aivars-medium", "Piper Aivars · Latvian, male", "A Latvian male voice.", 20, &["lv"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("ro_RO-mihai-medium", "Piper Mihai · Romanian, male", "A Romanian male voice.", 20, &["ro"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("hu_HU-anna-medium", "Piper Anna · Hungarian, female", "A Hungarian female voice.", 20, &["hu"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("fi_FI-harri-medium", "Piper Harri · Finnish, male", "A Finnish male voice.", 20, &["fi"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("el_GR-rapunzelina-low", "Piper Rapunzelina · Greek, female", "A Greek female voice (lower quality, small).", 20, &["el"], "CC0 · Piper voice via sherpa-onnx"),
+    piper_voice!("vi_VN-vais1000-medium", "Piper VAIS1000 · Vietnamese", "A Vietnamese voice.", 21, &["vi"], "CC BY 4.0 · Piper voice via sherpa-onnx"),
 ];
 
 // ───────────────────────────── what the UI sees ─────────────────────────────
@@ -323,6 +568,30 @@ fn find_named(dir: &Path, name: &str, depth: usize) -> Option<PathBuf> {
     dirs.into_iter().find_map(|child| find_named(&child, name, depth - 1))
 }
 
+/// Every file called `name` under `dir`, at most `depth` levels down.
+fn find_all(dir: &Path, name: &str, depth: usize, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut dirs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if entry.file_name().to_string_lossy().eq_ignore_ascii_case(name) {
+                out.push(path);
+            }
+        } else if path.is_dir() {
+            dirs.push(path);
+        }
+    }
+    if depth > 0 {
+        dirs.sort();
+        for child in dirs {
+            find_all(&child, name, depth - 1, out);
+        }
+    }
+}
+
 /// The first of `names`, in the order given, found on PATH.
 fn on_path(names: &[String]) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
@@ -382,15 +651,47 @@ fn installed_path(root: &Path, item: &Entry) -> Option<PathBuf> {
     own_path(root, item).or_else(|| external_path(root, item))
 }
 
+/// A voice pack's unpacked folder, when it holds everything its model type needs.
+fn voice_dir(root: &Path, item: &Entry) -> Option<PathBuf> {
+    let dir = root.join(item.marker);
+    if !dir.is_dir() {
+        return None;
+    }
+    let whole = match crate::kokoro::voices::pack(item.id) {
+        Some(pack) => crate::kokoro::voices::is_complete(pack, &dir, Some(&root.join(crate::kokoro::voices::MATCHA_VOCODER))),
+        None => pack_files_usable(&dir),
+    };
+    whole.then_some(dir)
+}
+
+/// Kokoro v1.0's folder is whole when its three required files are there.
+fn pack_files_usable(dir: &Path) -> bool {
+    bhippi_kokoro::resolve(bhippi_kokoro::Family::Kokoro, dir, None, bhippi_kokoro::Reading::EnUs).is_ok()
+}
+
+/// The unpacked folder of an installed voice pack other than Kokoro v1.0, by catalogue id.
+pub fn voice_pack_dir(root: &Path, id: &str) -> Option<PathBuf> {
+    entry(id).filter(|item| item.kind == Kind::TtsPack).and_then(|item| voice_dir(root, item))
+}
+
+/// The Matcha vocoder's path, when it is on disk.
+pub fn matcha_vocoder(root: &Path) -> Option<PathBuf> {
+    Some(root.join(crate::kokoro::voices::MATCHA_VOCODER)).filter(|path| path.is_file())
+}
+
+/// Whether a Model Center id is a voice (it needs the sherpa-onnx engine) rather than a Whisper size.
+pub fn is_voice(id: &str) -> bool {
+    entry(id).is_some_and(|item| matches!(item.kind, Kind::TtsVoice | Kind::TtsPack))
+}
+
 fn own_path(root: &Path, item: &Entry) -> Option<PathBuf> {
     if item.archive {
         return match item.kind {
             Kind::SttRuntime => find_under(&root.join(item.marker), &exe_names(WHISPER_NAMES), 3),
             Kind::TtsRuntime => find_under(&root.join(item.marker), &kokoro_names(), 3),
-            // A voice pack is a folder; the file inside only proves it finished unpacking.
-            _ => find_under(&root.join(item.marker), &[KOKORO_MARKER_FILE.to_owned()], 2)
-                .and_then(|file| file.parent().map(Path::to_path_buf))
-                .filter(|dir| dir.join("model.onnx").is_file()),
+            // A voice pack is a folder; it counts once everything its model type needs is in it.
+            Kind::TtsVoice | Kind::TtsPack => voice_dir(root, item),
+            _ => None,
         };
     }
     // A download still in flight is a `.part`; only a renamed file counts as installed.
@@ -405,6 +706,18 @@ pub fn installed(root: &Path, kind: Kind) -> Vec<(&'static str, PathBuf)> {
         .filter(|item| item.kind == kind)
         .filter_map(|item| installed_path(root, item).map(|path| (item.id, path)))
         .collect()
+}
+
+/// What kind of model a catalogue id is.
+#[cfg(test)]
+pub fn kind_of(id: &str) -> Option<Kind> {
+    entry(id).map(|item| item.kind)
+}
+
+/// The language tags the catalogue gives an id.
+#[cfg(test)]
+pub fn languages_of(id: &str) -> Option<&'static [&'static str]> {
+    entry(id).map(|item| item.languages)
 }
 
 /// The label the catalogue gives an id, for naming a voice in the UI.
@@ -467,7 +780,8 @@ fn external_path(root: &Path, item: &Entry) -> Option<PathBuf> {
 /// Whether `path` is something Bhippi can run as this entry.
 fn usable(item: &Entry, path: &Path) -> bool {
     match item.kind {
-        Kind::TtsVoice => path.join(KOKORO_MARKER_FILE).is_file() && path.join("model.onnx").is_file() && path.join("tokens.txt").is_file(),
+        Kind::TtsVoice => pack_files_usable(path),
+        Kind::TtsPack => false,
         _ => path.is_file(),
     }
 }
@@ -511,11 +825,20 @@ pub fn scan(root: &Path, other_roots: &[PathBuf]) -> Vec<&'static str> {
                 let names = if item.kind == Kind::SttRuntime { exe_names(WHISPER_NAMES) } else { kokoro_names() };
                 find_under(&other.join(item.marker), &names, 3)
             }),
-            Kind::TtsVoice => places.iter().find_map(|(dir, depth)| {
-                find_under(dir, &[KOKORO_MARKER_FILE.to_owned()], *depth)
-                    .and_then(|file| file.parent().map(Path::to_path_buf))
-                    .filter(|pack| usable(item, pack))
-            }),
+            // Only Kokoro v1.0, and only a folder of the same name: other packs keep `voices.bin`
+            // too, and one of them must never pass for it.
+            Kind::TtsVoice => {
+                let folder = Path::new(item.marker).file_name().map(|name| name.to_os_string());
+                places.iter().find_map(|(dir, depth)| {
+                    let mut candidates = Vec::new();
+                    find_all(dir, KOKORO_MARKER_FILE, *depth, &mut candidates);
+                    candidates
+                        .into_iter()
+                        .filter_map(|file| file.parent().map(Path::to_path_buf))
+                        .find(|pack| pack.file_name().map(|name| name.to_os_string()) == folder && usable(item, pack))
+                })
+            }
+            Kind::TtsPack => None,
             _ => {
                 let Some(name) = Path::new(item.marker).file_name().map(|name| name.to_string_lossy().into_owned()) else { continue };
                 places
@@ -640,6 +963,11 @@ pub(crate) async fn unpack(archive: &Path, into: &Path) -> Result<(), String> {
     ))
 }
 
+/// Whether a catalogue file is a bundle to unpack. A voice pack can also list a loose file (Matcha's vocoder).
+fn is_archive_path(path: &str) -> bool {
+    path.ends_with(".tar.bz2") || path.ends_with(".tar.gz") || path.ends_with(".zip")
+}
+
 /// Fetches one catalogue entry, reporting through `job`. Files already on disk are skipped,
 /// so a retry after a broken download only fetches what is missing.
 pub async fn download(root: &Path, id: &str, job: &JobHandle) -> Result<String, String> {
@@ -655,13 +983,15 @@ pub async fn download(root: &Path, id: &str, job: &JobHandle) -> Result<String, 
     let count = item.files.len() as f64;
     for (index, file) in item.files.iter().enumerate() {
         let target = root.join(file.path);
-        if target.is_file() && !item.archive {
+        let is_archive = item.archive && is_archive_path(file.path);
+        // A plain file already on disk is done; an archive is fetched again (its folder may be half-unpacked).
+        if target.is_file() && !is_archive {
             continue;
         }
         let base = index as f64 / count;
         job.progress(base, format!("Downloading {}", item.label));
         fetch(file.url, &target, job, base, 0.9 / count, item.label).await?;
-        if item.archive {
+        if is_archive {
             job.progress(base + 0.9 / count, format!("Unpacking {}", item.label));
             let into = target.parent().map(Path::to_path_buf).unwrap_or_else(|| root.to_path_buf());
             unpack(&target, &into).await?;
@@ -691,12 +1021,8 @@ pub fn remove(root: &Path, id: &str) -> Result<(), String> {
         return write_found(root, &found);
     }
     if item.archive {
-        // The voice pack's marker is the shared `tts` folder; only its own unpacked folder goes.
-        let dir = if item.kind == Kind::TtsVoice {
-            installed_path(root, item).unwrap_or_else(|| root.join("tts/kokoro-multi-lang-v1_0"))
-        } else {
-            root.join(item.marker)
-        };
+        // A voice pack's marker is its own unpacked folder, so only that goes (never the shared `tts` folder).
+        let dir = root.join(item.marker);
         if dir.is_dir() {
             std::fs::remove_dir_all(&dir).map_err(|error| format!("cannot remove {}: {error}", dir.display()))?;
         }
@@ -713,7 +1039,7 @@ pub fn remove(root: &Path, id: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{entry, exe, exe_names, find_under, human, installed_path, CATALOG, HF_WHISPER, SHERPA_RELEASES};
+    use super::{entry, exe, exe_names, find_under, human, installed_path, CATALOG, HF_DISTIL, HF_WHISPER, SHERPA_RELEASES};
 
     #[test]
     fn every_catalogue_id_is_unique_and_downloads_over_https() {
@@ -734,12 +1060,143 @@ mod tests {
         for item in CATALOG {
             for file in item.files {
                 let hosted = file.url.starts_with(HF_WHISPER)
+                    || file.url.starts_with(HF_DISTIL)
                     || file.url.starts_with(SHERPA_RELEASES)
                     || file.url.starts_with("https://github.com/ggml-org/whisper.cpp/releases/")
                     || file.url.starts_with("https://github.com/PeterL1n/RobustVideoMatting/releases/");
                 assert!(hosted, "{} downloads from somewhere unexpected: {}", item.id, file.url);
             }
         }
+    }
+
+    #[test]
+    fn the_added_whisper_sizes_are_real_ggml_files_and_english_only_ones_say_so() {
+        let wanted = [
+            ("whisper-tiny", "ggml-tiny.bin", false),
+            ("whisper-tiny-en", "ggml-tiny.en.bin", true),
+            ("whisper-base-en", "ggml-base.en.bin", true),
+            ("whisper-small-en", "ggml-small.en.bin", true),
+            ("whisper-medium-en", "ggml-medium.en.bin", true),
+            ("whisper-large-v3-turbo-q8", "ggml-large-v3-turbo-q8_0.bin", false),
+            ("whisper-large-v3-turbo", "ggml-large-v3-turbo.bin", false),
+        ];
+        for (id, file, english_only) in wanted {
+            let item = entry(id).unwrap_or_else(|| panic!("{id} is missing"));
+            assert_eq!(item.kind, super::Kind::SttModel);
+            assert_eq!(item.files.len(), 1);
+            assert_eq!(item.files[0].url, format!("{HF_WHISPER}/{file}"));
+            assert_eq!(item.files[0].path, format!("stt/{file}"));
+            assert_eq!(item.marker, format!("stt/{file}"));
+            assert!(!item.archive);
+            assert_eq!(item.languages == ["en"], english_only, "{id}");
+            assert_eq!(item.recommended, false);
+        }
+        // Distil-Whisper's repos keep the ggml file under a generic name; Bhippi saves it under a clear one.
+        for (id, url, path) in [
+            ("whisper-distil-large-v3", "distil-large-v3-ggml/resolve/main/ggml-distil-large-v3.bin", "stt/ggml-distil-large-v3.bin"),
+            ("whisper-distil-large-v3-5", "distil-large-v3.5-ggml/resolve/main/ggml-model.bin", "stt/ggml-distil-large-v3.5.bin"),
+        ] {
+            let item = entry(id).expect("distil entry");
+            assert_eq!(item.files[0].url, format!("{HF_DISTIL}{url}"));
+            assert_eq!(item.files[0].path, path);
+            assert_eq!(item.languages, ["en"]);
+            assert!(item.size_mb >= 1500, "distil large is about 1.5 GB");
+        }
+        // The best-installed fallback is the last Whisper in the list: no new size may outrank the large ones.
+        let whispers: Vec<&str> = CATALOG.iter().filter(|item| item.kind == super::Kind::SttModel).map(|item| item.id).collect();
+        assert_eq!(whispers.last().copied(), Some("whisper-large-v3"));
+        assert_eq!(whispers[whispers.len() - 2], "whisper-large-v3-q5");
+        assert!(whispers.iter().position(|id| *id == "whisper-distil-large-v3-5") < whispers.iter().position(|id| *id == "whisper-base"));
+    }
+
+    #[test]
+    fn archives_keep_their_name_and_every_voice_pack_unpacks_into_its_own_folder() {
+        for item in CATALOG.iter().filter(|item| item.archive) {
+            let archive = item.files.iter().find(|file| super::is_archive_path(file.path)).expect("an archive to unpack");
+            assert_eq!(archive.url.rsplit('/').next(), archive.path.rsplit('/').next(), "{} saves its archive under another name", item.id);
+        }
+        for item in CATALOG.iter().filter(|item| item.kind == super::Kind::TtsPack) {
+            let stem = item.files[0].path.trim_end_matches(".tar.bz2");
+            assert_eq!(item.marker, stem, "{} is found in the folder its archive unpacks to", item.id);
+            assert!(item.marker.starts_with("tts/") && !item.marker["tts/".len()..].contains('/'), "{}", item.id);
+            assert!(item.files[0].url.starts_with(&format!("{SHERPA_RELEASES}tts-models/")), "{} comes from the tts-models release", item.id);
+            assert!(crate::kokoro::voices::pack(item.id).is_some(), "{} has no speaker table", item.id);
+            assert!(!item.license.is_empty() && item.size_mb >= 10);
+        }
+        // Kokoro v1.0 keeps its place so installs made before the other packs existed are still found.
+        assert_eq!(entry("kokoro-v1").expect("kokoro").marker, "tts/kokoro-multi-lang-v1_0");
+        // Matcha's vocoder is a loose file shared by both of its voices.
+        for id in ["matcha-en-ljspeech", "matcha-zh-baker"] {
+            let item = entry(id).expect("matcha");
+            assert_eq!(item.files.len(), 2);
+            assert!(!super::is_archive_path(item.files[1].path));
+            assert_eq!(item.files[1].path, crate::kokoro::voices::MATCHA_VOCODER);
+            assert_eq!(item.files[1].url, "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx");
+        }
+    }
+
+    fn fake_pack(root: &std::path::Path, folder: &str, files: &[&str]) -> std::path::PathBuf {
+        let dir = root.join("tts").join(folder);
+        std::fs::create_dir_all(dir.join("espeak-ng-data")).expect("dirs");
+        for file in files {
+            std::fs::write(dir.join(file), b"x").expect("file");
+        }
+        dir
+    }
+
+    #[test]
+    fn a_voice_pack_counts_as_installed_by_its_own_files_and_never_stands_in_for_another() {
+        let root = std::env::temp_dir().join(format!("bhippi-packs-{}", crate::store::new_id()));
+        let kitten = fake_pack(&root, "kitten-nano-en-v0_8-int8", &["model.int8.onnx", "voices.bin", "tokens.txt"]);
+        let status = super::status(&root, None, None);
+        let installed = |id: &str| status.models.iter().find(|model| model.id == id).map(|model| model.installed);
+        assert_eq!(installed("kitten-nano-v0_8"), Some(true));
+        // Kitten's folder also holds voices.bin and a model, but it is not the Kokoro pack.
+        assert_eq!(installed("kokoro-v1"), Some(false));
+        assert_eq!(installed("kitten-mini-v0_8"), Some(false));
+        assert_eq!(super::voice_pack_dir(&root, "kitten-nano-v0_8"), Some(kitten.clone()));
+        assert!(super::voice_pack_dir(&root, "kitten-mini-v0_8").is_none());
+        assert_eq!(super::kokoro_model_dir(&root), None);
+
+        // A Piper voice needs its model, tokens and espeak data; its json beside it is not the model.
+        let piper = fake_pack(&root, "vits-piper-hi_IN-rohan-medium-int8", &["hi_IN-rohan-medium.onnx.json", "tokens.txt"]);
+        assert!(super::voice_pack_dir(&root, "piper-hi_IN-rohan-medium").is_none(), "only the json is there");
+        std::fs::write(piper.join("hi_IN-rohan-medium.onnx"), b"x").expect("model");
+        assert_eq!(super::voice_pack_dir(&root, "piper-hi_IN-rohan-medium"), Some(piper.clone()));
+
+        // Matcha is whole only once its shared vocoder is on disk too.
+        let matcha = fake_pack(&root, "matcha-icefall-en_US-ljspeech", &["model-steps-3.onnx", "tokens.txt"]);
+        assert!(super::voice_pack_dir(&root, "matcha-en-ljspeech").is_none());
+        let vocoder = root.join(crate::kokoro::voices::MATCHA_VOCODER);
+        std::fs::create_dir_all(vocoder.parent().expect("parent")).expect("dirs");
+        std::fs::write(&vocoder, b"x").expect("vocoder");
+        assert_eq!(super::voice_pack_dir(&root, "matcha-en-ljspeech"), Some(matcha));
+        assert_eq!(super::matcha_vocoder(&root), Some(vocoder.clone()));
+
+        // Removing one voice takes its folder and leaves the others (and the shared vocoder).
+        super::remove(&root, "piper-hi_IN-rohan-medium").expect("remove");
+        assert!(!piper.exists() && kitten.is_dir() && vocoder.is_file());
+        let _ignored = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_kitten_pack_found_elsewhere_is_not_mistaken_for_kokoro() {
+        let base = std::env::temp_dir().join(format!("bhippi-notkokoro-{}", crate::store::new_id()));
+        let root = base.join("models");
+        let other = base.join("older-bhippi");
+        fake_pack(&other, "kitten-nano-en-v0_8-int8", &["model.int8.onnx", "voices.bin", "tokens.txt", "model.onnx"]);
+        assert!(!super::scan(&root, std::slice::from_ref(&other)).contains(&"kokoro-v1"));
+        let _ignored = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn voice_packs_are_listed_so_the_library_can_follow_them_but_speech_settings_does_not_list_them() {
+        let root = std::env::temp_dir().join(format!("bhippi-listed-{}", crate::store::new_id()));
+        let status = super::status(&root, None, None);
+        let packs = status.models.iter().filter(|model| matches!(model.kind, super::Kind::TtsPack)).count();
+        assert!(packs >= 45, "all the new voice packs are in the status the library reads (found {packs})");
+        assert_eq!(serde_json::to_value(super::Kind::TtsPack).expect("kind"), "tts-pack", "the Settings voice list filters on tts-voice, so packs use their own kind");
+        assert_eq!(status.models.iter().filter(|model| matches!(model.kind, super::Kind::TtsVoice)).count(), 1, "Settings still shows Kokoro v1.0 only");
     }
 
     #[test]

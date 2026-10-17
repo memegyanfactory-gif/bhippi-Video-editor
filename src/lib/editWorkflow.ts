@@ -5,6 +5,7 @@ import type { Asset, Comp, Production, ProductionPhase, Project, ToolResult } fr
 import { compDuration, needsFrameSize } from './timeline';
 import { hasMedia } from './production';
 import type { QuickScope } from './quickScope';
+import { getInUse, localGenerationGate, refreshInUse } from './inUse';
 
 type Args = Record<string, unknown>;
 export type StoryboardSceneInput = { start: number; end: number; intent?: unknown; visual?: unknown; audio?: unknown; evidence?: unknown; refs?: unknown };
@@ -162,6 +163,7 @@ const preparation = new Set([
   'cloud_generation_capabilities',
   'install_local_model',
   'generate_local_media',
+  'generate_with_library_model',
   'generate_cloud_media',
   'generation_job',
   'import_generated_media',
@@ -241,6 +243,7 @@ const timing = (comp: Comp) => JSON.stringify([comp.fps, comp.clips.map(c => [c.
  */
 const GATHER_TOOLS = new Set([
   'generate_local_media',
+  'generate_with_library_model',
   'generate_cloud_media',
   'generation_job',
   'import_generated_media',
@@ -262,7 +265,7 @@ const BUILTIN_MEDIA = new Set(['compose_music', 'make_background']);
 const MAKES_COMP = new Set(['choose_comp_size', 'create_comp']);
 
 /** Tools that run a local model: local_media_capabilities comes first so the model is known to exist. */
-const LOCAL_MODEL_TOOLS = new Set(['generate_local_media', 'rotoscope_clip', 'depth_occlusion_clip', 'erase_subject_clip', 'track_people', 'add_text_behind_subject', 'add_media_behind_subject', 'reveal_subject']);
+const LOCAL_MODEL_TOOLS = new Set(['generate_local_media', 'generate_with_library_model', 'rotoscope_clip', 'depth_occlusion_clip', 'erase_subject_clip', 'track_people', 'add_text_behind_subject', 'add_media_behind_subject', 'reveal_subject']);
 
 /** A plate or score Bhippi rendered itself (make_background, compose_music, the guided build). */
 export const bhippiMade = (asset: Pick<Asset, 'name'> & { path?: string }) =>
@@ -272,13 +275,18 @@ export const bhippiMade = (asset: Pick<Asset, 'name'> & { path?: string }) =>
  * video only; local voice/music (`task: "audio"`) and the erase model are unaffected. */
 const LOCAL_GENERATION_TASKS = new Set(['image', 'image-edit', 'image-inpaint', 'video']);
 
+/** Music and sound made locally: `generate_local_media` task "audio", or a library model's "song" / "audio" task. */
+const isAudioTask = (task: unknown): boolean => task === 'audio' || task === 'song';
+
 const LOCAL_GENERATION_OFF =
   'Local image/video generation is turned off (Settings → Local Media). Source real footage instead: ' +
   '`online_research` (`gatherMedia: true`) to find and download footage for the subject, or `download_online_media` / ' +
   '`scrape_videos` for a specific URL. For a shot with no real footage to find — an abstract or technical concept, e.g. ' +
   '"how a git repository works" — research it first with `online_research`, then build an animated explainer instead of a ' +
   'video: `create_motion_graphic` (the `teaching-card` layout, or custom html/css/js) using the facts you found. The user ' +
-  'can turn local generation back on in Settings → Local Media if they want it for this project.';
+  'can turn local generation back on in Settings → Local Media if they want it for this project. A generation model the user ' +
+  'downloaded and switched on in Settings → Model Library (local_media_capabilities.libraryModels) is allowed regardless: ' +
+  'use generate_with_library_model for it.';
 
 /** Reads and bookkeeping that are fine in any phase, including after a phase has just closed. */
 /** Tools usable in any phase that still wait for the frame size of a picture-less comp: notes, memory, research, plugin writes. */
@@ -458,6 +466,8 @@ export class EditWorkflow {
    * stay in scope and say why when it cannot.
    */
   constructor(project: Project, assets: Map<string, Asset>, readonly mode: 'full' | 'quick' = 'full', readonly disableLocalGeneration = false, readonly askFrameSize = true, readonly scope: QuickScope | null = null, readonly guided = false) {
+    // Which local models the editor put in use is read from the library; ask again at the start of each turn.
+    void refreshInUse();
     for (const each of project.comps) for (const clip of each.clips) this.startClips.add(clip.id);
     const comp = project.comps.find(c => c.id === project.activeCompId) ?? project.comps[0];
     this.compId = comp?.id ?? '';
@@ -574,7 +584,17 @@ export class EditWorkflow {
   before(name: string, args: Args, project: Project): string | null {
     // A hard switch, not a phase gate: checked before the quick-mode bypass so a one-off Quick
     // edit turn cannot route around the setting either.
-    if (this.disableLocalGeneration && name === 'generate_local_media' && LOCAL_GENERATION_TASKS.has(String(args.task))) return LOCAL_GENERATION_OFF;
+    // Per job: what the editor put in use for video and for images decides, not one global switch.
+    // Until the library has answered, the old switch decides as before.
+    if (name === 'generate_local_media' && LOCAL_GENERATION_TASKS.has(String(args.task))) {
+      const gate = localGenerationGate(String(args.task), getInUse(), this.disableLocalGeneration);
+      if (!gate.allowed) return gate.why ? `${gate.why} ${LOCAL_GENERATION_OFF}` : LOCAL_GENERATION_OFF;
+    }
+    // Music and sound: only when a library template model (ACE-Step, Stable Audio, YuE) is in use does the AI use its own tool instead.
+    if (name === 'generate_local_media' && String(args.task) === 'audio') {
+      const gate = localGenerationGate('audio', getInUse(), this.disableLocalGeneration);
+      if (!gate.allowed) return gate.why;
+    }
     if (name === 'verify_edit_workflow') {
       this.pendingWaivers = Array.isArray(args.acceptedQaIssues) ? args.acceptedQaIssues : [];
       this.pendingAsks = Array.isArray(args.asks) ? args.asks : null;
@@ -855,10 +875,10 @@ export class EditWorkflow {
         }
       }
     }
-    if (name === 'generate_local_media') {
+    if (name === 'generate_local_media' || name === 'generate_with_library_model') {
       if (typeof result.jobId === 'string') {
         this.jobs.add(result.jobId);
-        if (args.task === 'audio') this.audioJobs.add(result.jobId);
+        if (isAudioTask(args.task ?? result.task)) this.audioJobs.add(result.jobId);
       }
       if (Array.isArray(result.assets) && result.assets.length) {
         if (typeof result.jobId === 'string') {
@@ -871,7 +891,7 @@ export class EditWorkflow {
             this.generated.add(asset.id);
           }
         }
-        if (args.task === 'audio') this.soundPass = true;
+        if (isAudioTask(args.task ?? result.task)) this.soundPass = true;
       }
     }
     // Import is the receipt that a successful generated artifact really reached the project.

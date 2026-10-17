@@ -284,7 +284,7 @@ function buildKit(arch: BrandArchetype, input: NewBrandKitInput): BrandKit {
 export const newBrandKit = (input: NewBrandKitInput = {}): BrandKit => kitFromArchetype(findArchetype(input.style) ?? HOUSE_ARCHETYPE, input);
 
 const SECTION_KEYS: Record<BrandKitSection, (keyof BrandKit)[]> = {
-  identity: ['name', 'tagline', 'description', 'industry', 'audience', 'values', 'style', 'voice'],
+  identity: ['name', 'tagline', 'description', 'industry', 'audience', 'values', 'style', 'voice', 'personality'],
   logos: ['logos'],
   colors: ['colors', 'palette'],
   typography: ['typography', 'fonts', 'type'],

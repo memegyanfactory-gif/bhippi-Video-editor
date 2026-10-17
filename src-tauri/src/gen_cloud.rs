@@ -74,6 +74,10 @@ const BOTH: &[&str] = &["text", "image"];
 const WIDE_TALL: &[&str] = &["16:9", "9:16"];
 const WIDE_TALL_SQUARE: &[&str] = &["16:9", "9:16", "1:1"];
 
+const H3_DURATIONS: &[u32] = &[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const H3_MAX_DURATIONS: &[u32] = &[5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const H3_ASPECTS: &[&str] = &["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
+
 pub const CONNECTORS: &[ConnectorSpec] = &[
     ConnectorSpec {
         id: "higgsfield", label: "Higgsfield", tagline: "Kling, Hailuo and Soul in one account",
@@ -141,11 +145,13 @@ pub const CONNECTORS: &[ConnectorSpec] = &[
         ],
     },
     ConnectorSpec {
-        id: "minimax", label: "MiniMax Hailuo", tagline: "Hailuo 2.3 direct from MiniMax",
+        id: "minimax", label: "MiniMax Hailuo", tagline: "MiniMax H3 and Hailuo 2.3 direct from MiniMax",
         site: "https://www.minimax.io", key_url: "https://platform.minimax.io/user-center/basic-information/interface-key", docs_url: "https://platform.minimax.io/docs/api-reference/video-generation-t2v",
         key_label: "API key", secret_label: None,
         key_hint: "International platform (minimax.io) keys.",
         models: &[
+            ModelSpec { id: "MiniMax-H3", label: "MiniMax H3", kind: "video", modes: BOTH, max_refs: 9, durations: H3_DURATIONS, aspects: H3_ASPECTS, quality: 5, note: "Video with its own dialogue, effects and music, 768p or 2K, 4–15 s. Needs the strict H3 prompt format (checked for you). First frame, first+last frame or up to 9 reference images." },
+            ModelSpec { id: "MiniMax-H3-Max", label: "MiniMax H3 Max", kind: "video", modes: BOTH, max_refs: 9, durations: H3_MAX_DURATIONS, aspects: H3_ASPECTS, quality: 4, note: "The fast H3: 480p or 768p, 5–15 s. Same prompt format." },
             ModelSpec { id: "MiniMax-Hailuo-2.3", label: "Hailuo 2.3", kind: "video", modes: BOTH, max_refs: 1, durations: &[6, 10], aspects: &["16:9"], quality: 4, note: "6 s at 1080p, 10 s at 768p." },
             ModelSpec { id: "MiniMax-Hailuo-2.3-Fast", label: "Hailuo 2.3 Fast", kind: "video", modes: IMAGE, max_refs: 1, durations: &[6, 10], aspects: &["16:9"], quality: 3, note: "Image to video only." },
         ],
@@ -405,6 +411,46 @@ pub struct GenRequest {
     pub aspect: Option<String>,
     #[serde(default)]
     pub seed: Option<i64>,
+    /// MiniMax H3: what each reference image is, in order (`first_frame`, `last_frame`, `reference_image`).
+    #[serde(default)]
+    pub reference_roles: Vec<String>,
+    /// MiniMax H3: `768P` or `2K` (H3 Max: `480P` or `768P`).
+    #[serde(default)]
+    pub resolution: Option<String>,
+}
+
+fn is_h3(model_id: &str) -> bool {
+    model_id.starts_with("MiniMax-H3")
+}
+
+/// The role of each of `count` reference images for MiniMax H3. Frames and references cannot be mixed
+/// (a reference anywhere turns every image into a reference); one image defaults to the first frame.
+fn h3_roles(count: usize, wanted: &[String]) -> Result<Vec<&'static str>, String> {
+    let known = |r: &str| match r { "first_frame" => Some("first_frame"), "last_frame" => Some("last_frame"), "reference_image" => Some("reference_image"), _ => None };
+    let mut roles: Vec<&'static str> = (0..count)
+        .map(|i| wanted.get(i).and_then(|r| known(r)).unwrap_or(if count == 1 { "first_frame" } else if count == 2 && wanted.is_empty() { if i == 0 { "first_frame" } else { "last_frame" } } else { "reference_image" }))
+        .collect();
+    if roles.contains(&"reference_image") {
+        roles.iter_mut().for_each(|r| *r = "reference_image");
+    }
+    if roles.iter().filter(|r| **r == "first_frame").count() > 1 || roles.iter().filter(|r| **r == "last_frame").count() > 1 {
+        return Err("MiniMax H3 takes one first frame and one last frame at most".into());
+    }
+    Ok(roles)
+}
+
+/// The v2 request body for MiniMax H3 / H3 Max (POST /v2/video_generation).
+fn h3_body(model_id: &str, prompt: &str, duration: u32, aspect: &str, resolution: Option<&str>, images: &[String], roles: &[&str]) -> Value {
+    let max = model_id.ends_with("Max");
+    let allowed: &[&str] = if max { &["480P", "768P"] } else { &["768P", "2K"] };
+    let resolution = resolution.map(str::to_ascii_uppercase).filter(|r| allowed.contains(&r.as_str())).unwrap_or_else(|| "768P".into());
+    let mut content = vec![json!({ "type": "text", "text": prompt.chars().take(7000).collect::<String>() })];
+    for (uri, role) in images.iter().zip(roles) {
+        content.push(json!({ "type": "image_url", "image_url": { "url": uri }, "role": role }));
+    }
+    // Text-only needs a real ratio; first/last frame follows the picture; references may choose.
+    let ratio = if images.is_empty() || roles.contains(&"reference_image") { aspect } else { "adaptive" };
+    json!({ "model": model_id, "content": content, "resolution": resolution, "duration": duration, "ratio": ratio })
 }
 
 /// How to follow a submitted task to its file.
@@ -588,6 +634,14 @@ async fn submit(spec: &ConnectorSpec, model: &ModelSpec, creds: &Creds, req: &Ge
             Ok(Pending::Poll { url: format!("https://agents.lumalabs.ai/v1/generations/{id}"), result: None })
         }
         // ── MiniMax ──
+        ("minimax", id) if is_h3(id) => {
+            let roles = h3_roles(refs.len(), &req.reference_roles)?;
+            let uris: Vec<String> = refs.iter().map(RefImage::data_uri).collect();
+            let body = h3_body(id, prompt, duration, &aspect, req.resolution.as_deref(), &uris, &roles);
+            let r = post(spec, creds, "https://api.minimax.io/v2/video_generation", &body).await?;
+            let task = find_str(&r, &["task_id"]).ok_or("MiniMax returned no task id")?;
+            Ok(Pending::Poll { url: format!("https://api.minimax.io/v2/query/video_generation/{task}"), result: None })
+        }
         ("minimax", id) => {
             if first.is_none() && id.ends_with("Fast") { return Err("Hailuo 2.3 Fast needs a reference image; use Hailuo 2.3 for text-only clips.".into()); }
             let resolution = if duration >= 10 { "768P" } else { "1080P" };
@@ -690,6 +744,19 @@ fn read_state(spec: &ConnectorSpec, value: &Value) -> State {
             }
             State::Done(value.clone())
         }
+        // v2 (H3): {"task": {"status": "queued|running|succeeded|failed|cancelled", "content": {"url"}, "error": {"code","message"}}}
+        "minimax" if value["task"].is_object() => {
+            let task = &value["task"];
+            match task["status"].as_str().unwrap_or("") {
+                "succeeded" => State::Done(value.clone()),
+                "failed" | "cancelled" => State::Failed(match (task["error"]["message"].as_str(), task["error"]["code"].as_str()) {
+                    (Some(m), Some(c)) => format!("{m} ({c})"),
+                    (Some(m), None) => m.to_owned(),
+                    _ => if task["status"] == "cancelled" { "the task was cancelled".into() } else { "generation failed".into() },
+                }),
+                other => State::Running(Some(other.to_owned())),
+            }
+        }
         "minimax" => match value["status"].as_str().unwrap_or("") {
             "Success" => State::Done(value.clone()),
             "Fail" => State::Failed(message()),
@@ -715,6 +782,9 @@ async fn output_url(spec: &ConnectorSpec, creds: &Creds, done: &Value, result: O
     };
     match spec.id {
         "google" => return value["response"]["generateVideoResponse"]["generatedSamples"][0]["video"]["uri"].as_str().map(str::to_owned).ok_or_else(|| "Veo finished without a video".into()),
+        "minimax" if value["task"].is_object() => {
+            return value["task"]["content"]["url"].as_str().map(str::to_owned).ok_or_else(|| "MiniMax finished without a video URL".into());
+        }
         "minimax" => {
             let file = value["file_id"].as_str().map(str::to_owned).or_else(|| value["file_id"].as_i64().map(|n| n.to_string())).ok_or("MiniMax finished without a file id")?;
             let r = get(spec, creds, &format!("https://api.minimax.io/v1/files/retrieve?file_id={file}")).await?;
@@ -768,8 +838,9 @@ pub fn prepare(prefs: &CloudPrefs, req: &GenRequest, ref_paths: Vec<PathBuf>) ->
         return Err(format!("{} makes {}s, not {}s", model.label, model.kind, req.kind));
     }
     let prompt = req.prompt.trim();
-    if prompt.is_empty() || prompt.len() > 4000 {
-        return Err("Give a prompt of 1–4000 characters".into());
+    let limit = if is_h3(model.id) { 7000 } else { 4000 };
+    if prompt.is_empty() || prompt.chars().count() > limit {
+        return Err(format!("Give a prompt of 1–{limit} characters"));
     }
     if !ref_paths.is_empty() && model.max_refs == 0 {
         return Err(format!("{} does not take reference images; choose a model that does or drop the reference.", model.label));
@@ -951,7 +1022,7 @@ mod tests {
 
     #[test]
     fn prepare_enforces_the_switches() {
-        let req = GenRequest { connector: "fal".into(), model: "flux-dev".into(), kind: "image".into(), prompt: "a cat".into(), negative_prompt: None, reference_asset_ids: vec![], duration: None, aspect: None, seed: None };
+        let req = GenRequest { connector: "fal".into(), model: "flux-dev".into(), kind: "image".into(), prompt: "a cat".into(), negative_prompt: None, reference_asset_ids: vec![], duration: None, aspect: None, seed: None, reference_roles: vec![], resolution: None };
         assert!(prepare(&CloudPrefs::default(), &req, vec![]).is_err());
         let on = CloudPrefs { enabled: true, ..Default::default() };
         assert!(prepare(&on, &req, vec![]).is_ok());
@@ -959,6 +1030,78 @@ mod tests {
         let mut off = on.clone();
         off.connectors.insert("fal".into(), ConnectorPrefs { enabled: Some(false), ..Default::default() });
         assert!(prepare(&off, &req, vec![]).is_err());
+    }
+
+    #[test]
+    fn minimax_offers_h3_next_to_hailuo() {
+        let minimax = connector("minimax").unwrap();
+        let h3 = minimax.models.iter().find(|m| m.id == "MiniMax-H3").unwrap();
+        assert_eq!((h3.durations.first(), h3.durations.last()), (Some(&4), Some(&15)));
+        assert_eq!(h3.max_refs, 9);
+        let max = minimax.models.iter().find(|m| m.id == "MiniMax-H3-Max").unwrap();
+        assert_eq!(max.durations.first(), Some(&5));
+        assert!(minimax.models.iter().any(|m| m.id == "MiniMax-Hailuo-2.3"), "Hailuo stays on its v1 path");
+        assert_eq!(pick_duration(h3, Some(20)), 15);
+        assert_eq!(pick_duration(max, Some(4)), 5);
+    }
+
+    #[test]
+    fn h3_roles_follow_the_content_rules() {
+        let none: Vec<String> = vec![];
+        assert_eq!(h3_roles(0, &none).unwrap(), Vec::<&str>::new());
+        assert_eq!(h3_roles(1, &none).unwrap(), vec!["first_frame"]);
+        assert_eq!(h3_roles(2, &none).unwrap(), vec!["first_frame", "last_frame"]);
+        assert_eq!(h3_roles(3, &none).unwrap(), vec!["reference_image"; 3]);
+        assert_eq!(h3_roles(1, &["last_frame".to_string()]).unwrap(), vec!["last_frame"]);
+        // A reference anywhere makes every image a reference: frames and references cannot be mixed.
+        assert_eq!(h3_roles(2, &["first_frame".to_string(), "reference_image".to_string()]).unwrap(), vec!["reference_image"; 2]);
+        assert!(h3_roles(2, &["first_frame".to_string(), "first_frame".to_string()]).is_err());
+    }
+
+    #[test]
+    fn h3_requests_use_the_v2_shape() {
+        // Text only: an explicit ratio.
+        let t2v = h3_body("MiniMax-H3", "A cat.", 6, "9:16", None, &[], &[]);
+        assert_eq!(t2v, json!({ "model": "MiniMax-H3", "content": [{ "type": "text", "text": "A cat." }], "resolution": "768P", "duration": 6, "ratio": "9:16" }));
+        // First frame: adaptive ratio, the image as a data URI with its role, 2K when asked.
+        let i2v = h3_body("MiniMax-H3", "Go.", 5, "16:9", Some("2k"), &["data:image/png;base64,AAAA".into()], &["first_frame"]);
+        assert_eq!(i2v["ratio"], "adaptive");
+        assert_eq!(i2v["resolution"], "2K");
+        assert_eq!(i2v["content"][1], json!({ "type": "image_url", "image_url": { "url": "data:image/png;base64,AAAA" }, "role": "first_frame" }));
+        // References may pick a ratio; Max has no 2K.
+        let r2v = h3_body("MiniMax-H3-Max", "Go.", 5, "1:1", Some("2K"), &["data:image/png;base64,AAAA".into()], &["reference_image"]);
+        assert_eq!(r2v["ratio"], "1:1");
+        assert_eq!(r2v["resolution"], "768P");
+        assert_eq!(h3_body("MiniMax-H3-Max", "Go.", 5, "1:1", Some("480p"), &[], &[])["resolution"], "480P");
+        // The prompt is cut at 7000 characters.
+        assert_eq!(h3_body("MiniMax-H3", &"a".repeat(8000), 5, "16:9", None, &[], &[])["content"][0]["text"].as_str().unwrap().chars().count(), 7000);
+    }
+
+    #[test]
+    fn reads_the_v2_task_reply() {
+        let minimax = connector("minimax").unwrap();
+        assert!(matches!(read_state(minimax, &json!({"task": {"status": "queued"}})), State::Running(_)));
+        assert!(matches!(read_state(minimax, &json!({"task": {"status": "running"}})), State::Running(_)));
+        let done = json!({"task": {"status": "succeeded", "content": {"url": "https://cdn.example.com/h3.mp4"}}});
+        assert!(matches!(read_state(minimax, &done), State::Done(_)));
+        match read_state(minimax, &json!({"task": {"status": "failed", "error": {"code": "1026", "message": "video description contains sensitive content"}}})) {
+            State::Failed(m) => assert_eq!(m, "video description contains sensitive content (1026)"),
+            _ => panic!("expected a failure"),
+        }
+        assert!(matches!(read_state(minimax, &json!({"task": {"status": "cancelled"}})), State::Failed(_)));
+        // The v1 reply still reads as before.
+        assert!(matches!(read_state(minimax, &json!({"status": "Success", "file_id": "1"})), State::Done(_)));
+    }
+
+    #[test]
+    fn h3_allows_long_prompts_and_nine_references() {
+        let long = "a".repeat(6000);
+        let req = |model: &str| GenRequest { connector: "minimax".into(), model: model.into(), kind: "video".into(), prompt: long.clone(), negative_prompt: None, reference_asset_ids: vec![], duration: None, aspect: None, seed: None, reference_roles: vec![], resolution: None };
+        let on = CloudPrefs { enabled: true, ..Default::default() };
+        assert!(prepare(&on, &req("MiniMax-H3"), vec![]).is_ok());
+        assert!(prepare(&on, &req("MiniMax-Hailuo-2.3"), vec![]).is_err(), "Hailuo keeps its 4000-character limit");
+        let nine: Vec<PathBuf> = (0..12).map(|i| PathBuf::from(format!("{i}.png"))).collect();
+        assert_eq!(prepare(&on, &req("MiniMax-H3"), nine).unwrap().refs.len(), 9);
     }
 
     #[test]

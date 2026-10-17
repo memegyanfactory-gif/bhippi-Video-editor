@@ -4,6 +4,7 @@
 
 import { avatarBus } from './bus';
 import { AvatarEngine } from './engine';
+import type { Character } from './sprite';
 import type { Clip, Project } from '../lib/types';
 import '../styles/avatar.css';
 
@@ -167,6 +168,6 @@ for (const [label, run] of actions) {
 }
 
 render();
-const engine = new AvatarEngine(document.getElementById('avatar-root')!);
+const engine = new AvatarEngine(document.getElementById('avatar-root')!, (new URLSearchParams(location.search).get('who') ?? 'heli') as Character);
 avatarBus.subscribe((event) => engine.handle(event));
 Object.assign(window, { engine, avatarBus, tool, stream, step, close });

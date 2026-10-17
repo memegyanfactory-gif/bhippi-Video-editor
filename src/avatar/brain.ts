@@ -13,7 +13,7 @@ export type ActivityKind = 'research' | 'mix' | 'direct' | 'draw' | 'polish' | '
 export type Activity = { kind: ActivityKind; role: CouncilRole | null };
 
 const POLISH = new Set(['run_frame_qa', 'check_brand_compliance', 'verify_edit_workflow', 'consult_council', 'apply_brand_kit']);
-const MAKING = new Set(['generate_local_media', 'import_generated_media', 'install_local_model', 'render_brand_board']);
+const MAKING = new Set(['generate_local_media', 'generate_with_library_model', 'import_generated_media', 'install_local_model', 'render_brand_board']);
 const LOOKING = new Set([
   'get_comp', 'get_project', 'editing_workflow_status', 'list_recipes', 'list_effects', 'list_motion_templates', 'get_motion_scene', 'read_file',
   'write_file', 'edit_file', 'list_directory', 'glob_search', 'grep_search', 'local_media_capabilities', 'list_brand_kits', 'get_brand_kit',

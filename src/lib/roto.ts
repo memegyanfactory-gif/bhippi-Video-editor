@@ -51,9 +51,9 @@ async function load(path: string): Promise<ort.InferenceSession> {
   // filename and reports a misleading "failed to load external data" error even for
   // the self-contained RVM .onnx file.
   const response = await fetchFile(path);
-  if (!response.ok) throw new Error(`The matting model could not be read (${response.status}). Re-download it in Model Center.`);
+  if (!response.ok) throw new Error(`The matting model could not be read (${response.status}). Re-download it in the Model Library.`);
   const bytes = await response.arrayBuffer();
-  if (bytes.byteLength < 1024 * 1024) throw new Error('The matting model download is incomplete. Remove it in Model Center and download it again.');
+  if (bytes.byteLength < 1024 * 1024) throw new Error('The matting model download is incomplete. Remove it in the Model Library and download it again.');
   session = await ort.InferenceSession.create(bytes, {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',

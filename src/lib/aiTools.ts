@@ -68,6 +68,11 @@ import { explodeScene } from './motionStack';
 import { BEAT_KINDS, planBuild, SCORE_MOODS, type BriefBeat } from './guidedBuild';
 import { bpmFromText, moodFromText, placeMusicBed, placePlate } from './builtinMedia';
 import { cloudPrefs, genApi, pickModel, usableConnectors, type GenPlan, type GenPlanItem } from './cloudGen';
+import { libraryApi } from './modelLibrary';
+import type { ObjectInfo } from './comfyTemplates';
+import { inUseForAi, refreshInUse } from './inUse';
+import { LIBRARY_TOOL, libraryModelsForAi, runLibraryGeneration } from './libraryGeneration';
+import { H3_PROMPT_RULES, checkH3Prompt, type H3Task } from './minimaxH3';
 import { describe as describeDiff, runProgram, type Op, type Program } from './editProgram';
 import { buildRecipe, findRecipe, recipeCatalogue, registerCustomRecipe, setCustomRecipes } from './recipes';
 import {
@@ -1008,7 +1013,7 @@ function parseProduction(args: Args, mode: Production['mode'], existing: Product
 }
 
 /** Tools that produce media; with a `sceneIndex` their result attaches to the plan by itself. */
-const MEDIA_TOOLS = new Set(['generate_cloud_media', 'generate_local_media', 'import_generated_media', 'download_online_media', 'scrape_videos', 'find_free_media', 'synthesize_speech_voiceover', 'erase_subject_clip', 'get_meme_media', 'cutout_image']);
+const MEDIA_TOOLS = new Set(['generate_cloud_media', 'generate_local_media', 'generate_with_library_model', 'import_generated_media', 'download_online_media', 'scrape_videos', 'find_free_media', 'synthesize_speech_voiceover', 'erase_subject_clip', 'get_meme_media', 'cutout_image']);
 
 const resultAssetId = (result: ToolResult): string | null => {
   const r = result as Record<string, unknown>;
@@ -1284,7 +1289,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
 
   // Brand kits: read in any phase, written through the host's settings callbacks.
   if (BRAND_KIT_TOOLS.has(name)) {
-    return runBrandKitTool(host, name, args, { project, comp: pickComp(project, args) ?? null, commit, folderFor: (folder) => findOrCreateFolder(project, commit, folder) });
+    return runBrandKitTool(host, name, args, {
+      project, comp: pickComp(project, args) ?? null, commit, folderFor: (folder) => findOrCreateFolder(project, commit, folder),
+      // brand_motion_pack builds a scene; create_motion_scene places it (nested layered comp, same as every AI scene).
+      placeScene: (sceneArgs) => runMotionTool('create_motion_scene', sceneArgs, { project, assets, commit, editComp, pickComp, current: () => host.history.current(), setReference: host.setReference, brand: null, signal, prompt: turnPrompt(turnId ?? host.turnId) }),
+    });
   }
 
   switch (name) {
@@ -1860,8 +1869,8 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
             const missing = ['kokoro-runtime', 'kokoro-v1'].filter((id) => !status?.models.find((model) => model.id === id)?.installed);
             for (const id of missing) await api.modelDownload(id).catch(() => undefined);
             return fail(missing.length
-              ? 'No voice is ready yet. Downloading the Kokoro offline voices now (about 350 MB) — try again once the download finishes, or add an ElevenLabs or OpenAI key in Settings › Speech & voice.'
-              : 'No voice is ready yet. Add an ElevenLabs or OpenAI key, or download the Kokoro voices in Settings › Speech & voice.');
+              ? 'No voice is ready yet. Downloading the Kokoro offline voices now (about 350 MB) — try again once the download finishes, or add an ElevenLabs or OpenAI key in Settings › Model Library › Voice.'
+              : 'No voice is ready yet. Add an ElevenLabs or OpenAI key, or download the Kokoro voices in Settings › Model Library › Voice.');
           }
         }
 
@@ -2354,11 +2363,28 @@ ${notes.trim()}${paletteLine}
     case 'local_media_capabilities': {
       const capabilities = await api.localMediaStatus();
       const disableLocalGeneration = await api.settingsGet().then((s) => s.disableLocalGeneration ?? true).catch(() => true);
+      // Models the editor downloaded and switched on in the Model Library: their opt-in overrides the setting above, per model.
+      const libraryModels = libraryModelsForAi(await libraryApi.list().catch(() => null));
+      const generators = libraryModels.filter((m) => m.useWith === LIBRARY_TOOL).map((m) => String(m.name));
+      const libraryNote = generators.length
+        ? ` The editor switched on ${generators.join(', ')} in Settings → Model Library, so generate_with_library_model is allowed even though local generation is off; read libraryModels[].promptRules before writing its prompt.`
+        : '';
+      // The models the editor put in use per job (Model Library → In use): use exactly these.
+      const choices = await refreshInUse();
+      const inUse = inUseForAi(choices);
+      const inUseNote = choices
+        ? inUse.length
+          ? ` In use (the editor's choice, use these and no other local model for the job): ${inUse.map((row) => `${row.capability}: ${String(row.name)}${row.size ? ` (${String(row.size)})` : ''}${row.tool ? ` via ${String(row.tool)}${row.task ? ` task "${String(row.task)}"` : ''}` : ''}`).join('; ')}.`
+          : ' The editor has put no local model in use.'
+        : '';
+      const localOff = choices
+        ? !['video', 'image'].some((job) => inUse.some((row) => row.capability === job && row.tool === 'generate_local_media'))
+        : disableLocalGeneration;
       return done(
-        disableLocalGeneration
-          ? 'Configured direct model adapters; configured does not mean verified. Local image/video generation is turned OFF in Settings (Local Media) — plan every shot as either real footage to find online (online_research / download_online_media / scrape_videos) or, for a topic with nothing real to find, an animated explainer built with create_motion_graphic. Local audio generation (music) is unaffected.'
-          : 'Configured direct model adapters; configured does not mean verified.',
-        { capabilities, disableLocalGeneration, cloudGeneration: 'Cloud generators (Settings › Connectors) are separate: call cloud_generation_capabilities.' },
+        (localOff
+          ? 'Configured direct model adapters; configured does not mean verified. Local image/video generation through generate_local_media is not in use (Settings → Model Library → In use) — plan every shot as either real footage to find online (online_research / download_online_media / scrape_videos) or, for a topic with nothing real to find, an animated explainer built with create_motion_graphic. Local audio generation (music) is unaffected.'
+          : 'Configured direct model adapters; configured does not mean verified.') + libraryNote + inUseNote,
+        { capabilities, disableLocalGeneration, inUse, libraryModels, cloudGeneration: 'Cloud generators (Settings › Connectors) are separate: call cloud_generation_capabilities.' },
       );
     }
     case 'cloud_generation_capabilities': {
@@ -2408,11 +2434,27 @@ ${notes.trim()}${paletteLine}
         if (!choice) return fail(`No connected model makes ${kind === 'video' ? (refIds.length ? 'video from an image' : 'text-to-video') : 'images'}. Check cloud_generation_capabilities.`);
         let negative = typeof item.negativePrompt === 'string' ? item.negativePrompt : undefined;
         // The active brand kit frames generated imagery here as it does for local generation.
-        if (kit) { const branded = brandedPrompt(kit, prompt, negative, kind); prompt = branded.prompt; negative = branded.negative; }
+        if (kit && !choice.model.id.startsWith('MiniMax-H3')) { const branded = brandedPrompt(kit, prompt, negative, kind); prompt = branded.prompt; negative = branded.negative; }
+        let duration = kind === 'video' ? (typeof item.duration === 'number' ? item.duration : 5) : undefined;
+        let roles = Array.isArray(item.referenceRoles) ? (item.referenceRoles as unknown[]).filter((r): r is string => typeof r === 'string') : undefined;
+        // MiniMax H3 takes a strict prompt format: repair what can be repaired, refuse what cannot.
+        if (kind === 'video' && choice.model.id.startsWith('MiniMax-H3')) {
+          duration = Math.round(Math.min(15, Math.max(choice.model.id.endsWith('Max') ? 5 : 4, duration ?? 5)));
+          const used = refIds.slice(0, choice.model.maxRefs);
+          roles = used.map((_, i) => roles?.[i] ?? (used.length === 1 ? 'first_frame' : used.length === 2 && !roles ? (i === 0 ? 'first_frame' : 'last_frame') : 'reference_image'));
+          const has = (r: string) => roles!.includes(r);
+          const refs = roles.filter((r) => r === 'reference_image').length;
+          const h3Task: H3Task = refs ? 'ref2va' : has('first_frame') && has('last_frame') ? 'fl2va' : has('first_frame') ? 'i2va' : has('last_frame') ? 'l2va' : 't2va';
+          const checked = checkH3Prompt(prompt, { task: h3Task, seconds: duration, imageCount: refs ? undefined : used.length, refs: refs ? { images: refs, videos: 0, audio: 0 } : undefined });
+          const blocking = checked.problems.filter((p) => !/^(Write an overall_soundscape|Dialogue \d+ has no speaker ID)/.test(p));
+          if (blocking.length) return fail(`Item ${index + 1}: the prompt is not in MiniMax H3's format, nothing was generated or charged: ${blocking.join(' · ')} The format rules are in tool_help for generate_with_library_model (promptRules).`);
+          prompt = checked.prompt;
+        }
         planned.push({
           key: `${index}-${uid()}`, kind, prompt, negativePrompt: negative, referenceAssetIds: refIds.slice(0, choice.model.maxRefs),
+          referenceRoles: roles, resolution: typeof item.resolution === 'string' ? item.resolution : undefined,
           connector: choice.connector.id, model: choice.model.id,
-          duration: kind === 'video' ? (typeof item.duration === 'number' ? item.duration : 5) : undefined,
+          duration,
           aspect: typeof item.aspect === 'string' ? item.aspect : shape,
           purpose: typeof item.purpose === 'string' ? item.purpose : undefined,
           sceneIndex: Number.isInteger(item.sceneIndex) ? (item.sceneIndex as number) : undefined,
@@ -2431,7 +2473,7 @@ ${notes.trim()}${paletteLine}
       // Every approved item starts at once — they queue on the services, not here.
       const started = await Promise.all(run.map(async (item) => {
         try {
-          const jobId = await genApi.generate({ connector: item.connector, model: item.model, kind: item.kind, prompt: item.prompt, negativePrompt: item.negativePrompt, referenceAssetIds: item.referenceAssetIds, duration: item.duration, aspect: item.aspect });
+          const jobId = await genApi.generate({ connector: item.connector, model: item.model, kind: item.kind, prompt: item.prompt, negativePrompt: item.negativePrompt, referenceAssetIds: item.referenceAssetIds, referenceRoles: item.referenceRoles, resolution: item.resolution, duration: item.duration, aspect: item.aspect });
           return { item, jobId, error: null as string | null };
         } catch (error) { return { item, jobId: null as string | null, error: errorText(error) }; }
       }));
@@ -2466,6 +2508,30 @@ ${notes.trim()}${paletteLine}
         `Generated ${made.length} of ${run.length}${results.length > made.length ? ` (${results.length - made.length} failed)` : ''} into the Generated bin${edited.length ? `; the editor changed ${edited.length} item(s) on the plan card, so follow their version` : ''}. Place them with place_clip using these asset IDs.`,
         { results, assets: made.map((r) => ({ id: r.assetId, name: r.name })) },
       );
+    }
+    case 'generate_with_library_model': {
+      const comp = pickComp(project, args);
+      const defaultAspect = comp ? (comp.height > comp.width * 1.1 ? '9:16' : Math.abs(comp.width - comp.height) < comp.width * 0.1 ? '1:1' : '16:9') : '16:9';
+      return runLibraryGeneration(args, {
+        list: libraryApi.list,
+        comfyStatus: libraryApi.comfyStatus,
+        comfyStart: libraryApi.comfyStart,
+        comfyRun: libraryApi.comfyRun,
+        inUse: refreshInUse,
+        loadTemplate: async (name) => {
+          // The workflow templates ship with the app (public/comfy-templates).
+          const response = await fetch(`/comfy-templates/${encodeURIComponent(name)}.json`);
+          if (!response.ok) throw new Error(`The bundled workflow "${name}" could not be read (${response.status}).`);
+          return response.json();
+        },
+        objectInfo: async (classes) => (await libraryApi.comfyObjectInfo(classes)) as ObjectInfo,
+        jobs: () => api.jobsList(),
+        importMedia: (paths, folderId) => host.importMedia(paths, folderId),
+        assets,
+        folderId: () => generatedFolderId(project, commit),
+        defaultAspect,
+        signal,
+      });
     }
     case 'install_local_model':
       try { return done('Model download started. It continues as a background job; generation requires successful installation.', { jobId: await api.localMediaInstall(str(args, 'task') ?? '') }); }
@@ -2569,7 +2635,7 @@ ${notes.trim()}${paletteLine}
         if (!['rvm', 'sam2-vitmatte'].includes(chosenEngine)) return fail('Choose rvm or sam2-vitmatte.');
         const engine = chosenEngine as 'rvm' | 'sam2-vitmatte';
         const model = engine === 'rvm' ? await api.matteModel() : { id: 'sam2.1-vitmatte-experimental', path: '' };
-        if (!model) return fail('Install Robust Video Matting in Model Center first.');
+        if (!model) return fail('Download Robust Video Matting in Settings › Model Library › Cutouts & tracking first.');
         const supplied = Array.isArray(args.points) ? args.points : clip.rotoCorrections ?? [];
         const points = supplied.map(raw => { const row = raw as Args; return { at: num(row, 'at') ?? 0, x: num(row, 'x') ?? -1, y: num(row, 'y') ?? -1, mode: str(row, 'mode') === 'exclude' ? 'exclude' as const : 'include' as const, kind: 'click' as const, radius: 0.035, softness: 0.5 }; });
         const actualFps = (asset.fps && Number.isFinite(asset.fps) && asset.fps > 0 ? asset.fps : comp.fps);
@@ -2958,7 +3024,7 @@ ${notes.trim()}${paletteLine}
       const wanted = str(args, 'name')?.replace(/^mcp__bhippi__/, '');
       const spec = (catalog as { tools: { name: string; description: string; input_schema: unknown }[] }).tools.find((tool) => tool.name === wanted);
       if (!spec) return fail(`No tool "${wanted ?? ''}". Every tool is listed in your catalogue by name.`);
-      return done(`${spec.name}: ${spec.description}`, { name: spec.name, parameters: spec.input_schema });
+      return done(`${spec.name}: ${spec.description}`, { name: spec.name, parameters: spec.input_schema, ...(spec.name === LIBRARY_TOOL ? { promptRules: H3_PROMPT_RULES } : {}) });
     }
 
     case 'ask_user': {

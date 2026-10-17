@@ -29,6 +29,7 @@ const MOVES: Move[] = [
   { anim: 'ask', label: 'Question', when: 'Hand up, waiting on you, when Bhippi AI asks you something in the chat.' },
   { anim: 'dangle', label: 'Picked up', when: 'Grab Heli with the mouse: AHAHAHA — it wriggles to get loose until you let go, then lands where you drop it.' },
   { anim: 'slap', label: 'No no no', when: 'Touch a clip, a layer or a setting while the AI is working and Heli slaps your cursor away: no no no.' },
+  { anim: 'power', label: 'Power move', when: 'Its signature move — heroes cut, delete and push your cursor away with it (a web, a batarang, a blast, a shield…), swing or fly between panels, and show it off when idle.' },
   { anim: 'celebrate', label: 'Done', when: 'A fist pump and a thumbs-up when the turn finishes.' },
   { anim: 'sleep', label: 'Nap', when: 'Nods off after a minute with nothing to do; wakes when you send a message.' },
 ];
@@ -36,7 +37,7 @@ const MOVES: Move[] = [
 const SEAT_ANIM: Record<CouncilRole, AnimName> = { researcher: 'research', animator: 'draw', audio: 'mix', director: 'direct', comedian: 'celebrate' };
 
 /** One-shot moves loop on their own length so they keep playing on the stage. */
-const LOOP: Partial<Record<AnimName, number>> = { slap: 1.6, kick: 1.6, place: 1.6, celebrate: 2.6, land: 1 };
+const LOOP: Partial<Record<AnimName, number>> = { slap: 1.6, kick: 1.6, place: 1.6, celebrate: 2.6, land: 1, power: 1.8 };
 
 export function PixelStage({ anim, scale, color, character, className }: { anim: AnimName; scale: number; color?: string; character?: Character; className?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);

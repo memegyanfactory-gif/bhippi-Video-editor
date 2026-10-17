@@ -88,6 +88,8 @@ export type BrandVoice = {
   avoid: string[];
   /** Example lines in the brand's voice. */
   samples: string[];
+  /** Lines that break the voice, shown as "don't" cards (Brand Studio). Optional on older kits. */
+  dontSamples?: string[];
   language: string;
   /** How captions read: length, casing, punctuation, emoji. */
   captionRules: string[];
@@ -309,6 +311,18 @@ export type BrandGuideline = {
   donts: string[];
 };
 
+/** Where the brand sits on four axes, each 0…1 (0 = the left word, 1 = the right): Brand Studio's Overview sliders. */
+export type BrandPersonality = {
+  /** Playful (0) ↔ Serious (1). */
+  tone: number;
+  /** Minimal (0) ↔ Expressive (1). */
+  expression: number;
+  /** Warm (0) ↔ Cool (1). */
+  temperature: number;
+  /** Classic (0) ↔ Modern (1). */
+  era: number;
+};
+
 /** A complete brand kit. `Brand`'s fields stay the quick summary the older code reads. */
 export type BrandKit = Brand & {
   id: string;
@@ -320,6 +334,8 @@ export type BrandKit = Brand & {
   industry: string;
   audience: string;
   values: string[];
+  /** Optional: kits made before Brand Studio have none (the studio then infers a starting point). */
+  personality?: BrandPersonality;
   createdAt: string;
   updatedAt: string;
   logos: BrandLogo[];

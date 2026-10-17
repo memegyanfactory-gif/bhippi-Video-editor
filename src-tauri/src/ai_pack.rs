@@ -23,7 +23,7 @@ type CommandResult<T> = Result<T, String>;
 const PYTHON_URL: &str = "https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.13.15%2B20260924-x86_64-pc-windows-msvc-install_only_stripped.tar.gz";
 const PYTHON_SHA256: &str = "e42fa944748a50e9ff481cbb817ef8a6e3da6fbcf0cf6f29b554e1acb8c7384d";
 const TORCH: [&str; 2] = ["torch==2.11.0", "torchvision==0.26.0"];
-const REQUIREMENTS: &str = include_str!("../workers/ai-pack-requirements.txt");
+pub(crate) const REQUIREMENTS: &str = include_str!("../workers/ai-pack-requirements.txt");
 /// The checkpoints the pack installs, in order, with the names the progress shows.
 pub const TASKS: [(&str, &str); 5] = [
     ("sam2", "Magic Mask · SAM 2.1"),
@@ -95,7 +95,9 @@ async fn pip(python: &Path, args: &[&str], job: &JobHandle, label: &str) -> Resu
     local_media::run_program(python, &full, job, None, label).await
 }
 
-async fn install(app: &AppHandle, state: &Arc<AppState>, job: &JobHandle) -> Result<String, String> {
+/// Steps 1–3 of the pack (Python, PyTorch, the pinned libraries), reporting 0–60 % on `job`.
+/// ComfyUI (comfy.rs) runs on this same Python, so it installs just this much, not the checkpoints.
+pub(crate) async fn ensure_runtime(app: &AppHandle, state: &Arc<AppState>, job: &JobHandle) -> Result<(), String> {
     let models = state.paths.models.clone();
     let runtime = runtime_dir(&models);
     std::fs::create_dir_all(&runtime).map_err(|error| format!("cannot create {}: {error}", runtime.display()))?;
@@ -140,6 +142,14 @@ async fn install(app: &AppHandle, state: &Arc<AppState>, job: &JobHandle) -> Res
     // The pack's Python is the local-media Python from now on.
     let saved = state.update_settings(|prefs| prefs.local_media_python = Some(python.display().to_string()))?;
     let _ignored = tauri::Emitter::emit(app, crate::SETTINGS_EVENT, &saved);
+    Ok(())
+}
+
+async fn install(app: &AppHandle, state: &Arc<AppState>, job: &JobHandle) -> Result<String, String> {
+    ensure_runtime(app, state, job).await?;
+    let models = state.paths.models.clone();
+    let python = python_exe(&models);
+    let cuda = has_nvidia(state);
 
     // 4. Checkpoints.
     let mut installed = Vec::new();

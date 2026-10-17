@@ -6,6 +6,8 @@ import type { AvatarEvent } from '../src/avatar/bus';
 import { ChatMirror, TURN_STALE_MS, WRITING_MS } from '../src/avatar/mirror';
 import { ANIMS, poseAt, type AnimName } from '../src/avatar/poses';
 import { ART_H, ART_W, CHARACTERS, FEET_Y, HAIR_TOP, REST, renderPose, type Pose } from '../src/avatar/sprite';
+import { FIRE_AT, HERO_STRIKE, HERO_TRAVEL } from '../src/avatar/heroPoses';
+import type { HeroId } from '../src/avatar/heroes';
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
 
@@ -256,5 +258,34 @@ describe('the pixel character', () => {
     const before = renderPose(REST).join();
     renderPose({ ...REST, character: 'genie' });
     expect(renderPose(REST).join()).toBe(before);
+  });
+});
+
+describe('the heroes', () => {
+  const heroes = CHARACTERS.filter((entry) => !['heli', 'cat', 'woman', 'genie', 'puppy', 'senior'].includes(entry.id));
+
+  it('adds eleven distinct heroes, each with its own look, strike and way of travelling', () => {
+    expect(heroes).toHaveLength(11);
+    const looks = new Set<string>();
+    for (const { id } of heroes) {
+      looks.add(renderPose({ ...REST, character: id }).join());
+      expect(HERO_STRIKE[id as HeroId], id).toBeTruthy();
+      expect(HERO_TRAVEL[id as HeroId], id).toBeTruthy();
+    }
+    expect(looks.size).toBe(11);
+  });
+
+  it('keeps the jester laughing in every animation but sleep', () => {
+    for (const name of ['idle', 'walk', 'talk', 'think', 'celebrate'] as AnimName[]) {
+      for (const t of [0, 0.1, 0.3, 0.7]) expect(['laugh', 'shout'], `${name} at ${t}s`).toContain(poseAt(name, t, { character: 'jester' }).mouth);
+    }
+  });
+
+  it('lets each hero strike differently, and lands the blow at the same moment for all', () => {
+    for (const { id } of heroes) {
+      const before = renderPose(poseAt('power', FIRE_AT - 0.1, { character: id })).join();
+      const after = renderPose(poseAt('power', FIRE_AT + 0.1, { character: id })).join();
+      expect(before === after, `${id} strikes`).toBe(false);
+    }
   });
 });

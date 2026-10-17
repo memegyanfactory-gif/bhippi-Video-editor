@@ -124,7 +124,7 @@ export function GenerationStep({ choice, onChoice, localTasks, onLocalTasks, ins
               selected={localTasks.has(model.task)}
               onSelect={(on) => { const next = new Set(localTasks); if (on) next.add(model.task); else next.delete(model.task); onLocalTasks(next); }} />
           ))}
-          <p className="muted small">Ticked models download in the background with the AI pack (Python + PyTorch). FLUX.1 needs a free Hugging Face token, so it is offered in Settings › Local generation instead.</p>
+          <p className="muted small">Ticked models download in the background with the AI pack (Python + PyTorch). FLUX.1 needs a free Hugging Face token, so it is offered in Settings › Model Library instead.</p>
         </div>
       )}
     </div>

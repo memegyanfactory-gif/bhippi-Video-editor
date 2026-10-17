@@ -649,7 +649,7 @@ export type SpeechPrefs = {
   /** Explicit whisper.cpp program / sherpa-onnx library, when they are not ones Bhippi downloaded. */
   whisperPath: string | null;
   ttsPath: string | null;
-  /** `kokoro:<speaker>` · `elevenlabs:<id>` · `openai:<name>`; null picks automatically (cloud key, else Kokoro). */
+  /** `kokoro:<speaker>` · `sherpa:<pack>/<voice>` (Kitten, Piper, Matcha, Kokoro v1.1) · `elevenlabs:<id>` · `openai:<name>`; null picks automatically (cloud key, else Kokoro). */
   voice: string | null;
   /** The Kokoro Hindi speaker that reads Hindi and Hinglish when the main voice is English. */
   hindiVoice: string | null;
@@ -774,7 +774,7 @@ export type Settings = {
   previewCacheMb?: number | null;
   /** The pixel avatar that acts out what Bhippi AI is doing (src/avatar); off unless the user turns it on (onboarding or Settings › Avatar). */
   avatar?: boolean | null;
-  /** Who the avatar is: 'heli', 'cat', 'woman', 'genie', 'puppy' or 'senior'; Heli when unset. */
+  /** Who the avatar is: 'heli', 'cat', 'woman', 'genie', 'puppy', 'senior' or one of the heroes (avatar/heroes.ts); Heli when unset. */
   avatarCharacter?: string | null;
   /** The user's own colours for each character: character → colour slot (sprite.ts COLOUR_SLOTS) → #rrggbb. */
   avatarColors?: Record<string, Record<string, string>> | null;

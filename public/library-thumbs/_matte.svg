@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+<defs>
+<linearGradient id="b" x1="0" y1="0" x2="0.6" y2="1"><stop offset="0" stop-color="#101828"/><stop offset="1" stop-color="#070a12"/></linearGradient>
+<radialGradient id="g"><stop offset="0" stop-color="#34d399" stop-opacity="0.5"/><stop offset="0.55" stop-color="#34d399" stop-opacity="0.14"/><stop offset="1" stop-color="#34d399" stop-opacity="0"/></radialGradient>
+<radialGradient id="f"><stop offset="0" stop-color="#34d399" stop-opacity="0.5"/><stop offset="1" stop-color="#34d399" stop-opacity="0"/></radialGradient>
+<radialGradient id="v" cx="0.4" cy="0.5" r="0.8"><stop offset="0.6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.5"/></radialGradient>
+<filter id="n" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="1" seed="4"/><feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.9 -0.2"/></filter>
+</defs>
+<rect width="640" height="360" fill="url(#b)"/>
+<ellipse cx="231" cy="190" rx="270" ry="210" fill="url(#g)"/>
+<ellipse cx="600" cy="30" rx="260" ry="170" fill="url(#f)" fill-opacity="0.18"/>
+<ellipse cx="231" cy="318" rx="230" ry="26" fill="url(#f)"/>
+<linearGradient id="pf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#217b61"/><stop offset="1" stop-color="#0f272b"/></linearGradient><clipPath id="pc"><rect x="0" y="0" width="640" height="300"/></clipPath>
+<rect x="56" y="118" width="350" height="182" rx="12" fill="#0d141e"/><path d="M56 118h22v22h-22zM100 118h22v22h-22zM144 118h22v22h-22zM188 118h22v22h-22zM232 118h22v22h-22zM78 140h22v22h-22zM122 140h22v22h-22zM166 140h22v22h-22zM210 140h22v22h-22zM56 162h22v22h-22zM100 162h22v22h-22zM144 162h22v22h-22zM188 162h22v22h-22zM232 162h22v22h-22zM78 184h22v22h-22zM122 184h22v22h-22zM166 184h22v22h-22zM210 184h22v22h-22zM56 206h22v22h-22zM100 206h22v22h-22zM144 206h22v22h-22zM188 206h22v22h-22zM232 206h22v22h-22zM78 228h22v22h-22zM122 228h22v22h-22zM166 228h22v22h-22zM210 228h22v22h-22zM56 250h22v22h-22zM100 250h22v22h-22zM144 250h22v22h-22zM188 250h22v22h-22zM232 250h22v22h-22zM78 272h22v22h-22zM122 272h22v22h-22zM166 272h22v22h-22zM210 272h22v22h-22zM56 294h22v22h-22zM100 294h22v22h-22zM144 294h22v22h-22zM188 294h22v22h-22zM232 294h22v22h-22z" fill="#fff" fill-opacity="0.06"/><rect x="56" y="118" width="350" height="182" rx="12" stroke="#ffffff" stroke-opacity="0.14" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<g clip-path="url(#pc)"><g fill="none" stroke="#34d399" stroke-opacity="0.16" stroke-width="14" stroke-linejoin="round"><circle cx="231" cy="116.4" r="54.4"/><path d="M103 302C103 206 163.8 161.2 231 161.2S359 206 359 302Z"/></g><g fill="url(#pf)" stroke="#34d399" stroke-opacity="0.95" stroke-width="3.5" stroke-linejoin="round"><circle cx="231" cy="116.4" r="54.4"/><path d="M103 302C103 206 163.8 161.2 231 161.2S359 206 359 302Z"/></g></g>
+<rect width="640" height="360" fill="url(#v)"/>
+<rect width="640" height="360" filter="url(#n)" opacity="0.07"/>
+</svg>

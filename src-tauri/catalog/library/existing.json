@@ -1,0 +1,629 @@
+[
+  {
+    "id": "wan21-1-3b",
+    "name": "Wan 2.1 · 1.3B",
+    "maker": "Alibaba Wan",
+    "kind": "video",
+    "tasks": ["t2v"],
+    "summary": "Small, lightweight text-to-video: 832×480 at 16 fps, up to 5 seconds.",
+    "description": "A small model: soft detail and warped motion on busy scenes. Fine for rough B-roll. Installed and run by Bhippi's own local media worker (about 29 GB download).",
+    "tags": ["video", "lightweight", "1.3B"],
+    "thumbnail": {
+      "src": "library-thumbs/wan21-1-3b.webp",
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/text_to_video_wan-1.webp",
+      "credit": "ComfyUI workflow templates (Comfy-Org, MIT)"
+    },
+    "runtime": "local-media",
+    "install": { "task": "video-wan" },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license."],
+      "requiresAcceptance": false
+    },
+    "output": { "minSeconds": 1, "maxSeconds": 5, "fps": 16, "audio": false, "shortEdge": 480 },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-Diffusers" }],
+    "variants": [
+      { "id": "standard", "label": "Standard", "detail": "About 29 GB download. Needs 8 GB of video memory (12 GB recommended) and 16 GB of RAM.", "minVramGb": 8, "recVramGb": 12, "minRamGb": 16, "default": true, "approxBytes": 31138512896, "files": [] }
+    ]
+  },
+  {
+    "id": "wan22-5b",
+    "name": "Wan 2.2 · 5B",
+    "maker": "Alibaba Wan",
+    "kind": "video",
+    "tasks": ["t2v"],
+    "summary": "Sharp 720p with steady motion: 1280×704 at 24 fps, up to 5 seconds.",
+    "description": "Wan's own guidance is a 24 GB card; 16 GB works with offload, slowly. Installed and run by Bhippi's own local media worker (about 34 GB download).",
+    "tags": ["video", "720p", "5B"],
+    "thumbnail": {
+      "src": "library-thumbs/wan22-5b.webp",
+      "credit": "ComfyUI workflow templates (Comfy-Org, MIT)"
+    },
+    "runtime": "local-media",
+    "install": { "task": "video-wan22" },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license."],
+      "requiresAcceptance": false
+    },
+    "output": { "minSeconds": 1, "maxSeconds": 5, "fps": 24, "audio": false, "shortEdge": 704 },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers" }],
+    "variants": [
+      { "id": "standard", "label": "Standard", "detail": "About 34 GB download. Needs 16 GB of video memory (24 GB recommended) and 32 GB of RAM.", "minVramGb": 16, "recVramGb": 24, "minRamGb": 32, "default": true, "approxBytes": 36507222016, "files": [] }
+    ]
+  },
+  {
+    "id": "ltx-video-2b",
+    "name": "LTX-Video · 2B",
+    "maker": "Lightricks",
+    "kind": "video",
+    "tasks": ["t2v"],
+    "summary": "The fastest local video model: 768×512 at 24 fps, up to 5 seconds.",
+    "description": "Loose prompt following and lower detail than Wan 2.2, but quick. Installed and run by Bhippi's own local media worker (about 28 GB download).",
+    "tags": ["video", "fast", "2B"],
+    "thumbnail": {
+      "src": "library-thumbs/ltx-video-2b.webp",
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/ltxv_text_to_video-1.webp",
+      "credit": "ComfyUI workflow templates (Comfy-Org, MIT)"
+    },
+    "runtime": "local-media",
+    "install": { "task": "video-ltx" },
+    "license": {
+      "name": "LTX-Video license",
+      "url": "https://huggingface.co/Lightricks/LTX-Video",
+      "summary": ["Open weights under Lightricks' LTX-Video license. Read the model card for the terms on commercial use."],
+      "requiresAcceptance": false
+    },
+    "output": { "minSeconds": 1, "maxSeconds": 5, "fps": 24, "audio": false, "shortEdge": 512 },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/Lightricks/LTX-Video" }],
+    "variants": [
+      { "id": "standard", "label": "Standard", "detail": "About 28 GB download. Needs 8 GB of video memory (10 GB recommended) and 16 GB of RAM.", "minVramGb": 8, "recVramGb": 10, "minRamGb": 16, "default": true, "approxBytes": 30064771072, "files": [] }
+    ]
+  },
+  {
+    "id": "ltx-2-3",
+    "name": "LTX-2.3 · 22B",
+    "maker": "Lightricks",
+    "kind": "video",
+    "tasks": ["t2va"],
+    "summary": "Near-cloud quality with synchronized audio, up to 1080p at 24 fps.",
+    "description": "Bhippi cannot download this one. It uses a ComfyUI fp8 checkpoint you already have on this PC and shows as installed when it finds it.",
+    "tags": ["video", "audio", "1080p", "22B"],
+    "thumbnail": {
+      "src": "library-thumbs/ltx-2-3.webp",
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_3_t2v-1.webp",
+      "credit": "ComfyUI workflow templates (Comfy-Org, MIT)"
+    },
+    "runtime": "local-media",
+    "install": { "task": "video-ltx23" },
+    "license": {
+      "name": "LTX-2 license",
+      "url": "https://huggingface.co/Lightricks/LTX-2",
+      "summary": ["Open weights under Lightricks' LTX-2 license. Read the model card for the terms on commercial use."],
+      "requiresAcceptance": false
+    },
+    "output": { "minSeconds": 1, "maxSeconds": 5, "fps": 24, "audio": true, "shortEdge": 1080 },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/Lightricks/LTX-2" }],
+    "variants": [
+      { "id": "standard", "label": "fp8 checkpoint", "detail": "About 29 GB, already on your PC. Needs 16 GB of video memory (32 GB recommended) and 64 GB of RAM.", "minVramGb": 16, "recVramGb": 32, "minRamGb": 64, "default": true, "approxBytes": 31138512896, "files": [] }
+    ]
+  },
+  {
+    "id": "sdxl",
+    "name": "Stable Diffusion XL",
+    "maker": "Stability AI",
+    "kind": "image",
+    "tasks": ["t2i", "i2i", "inpaint"],
+    "summary": "Reliable photos and illustrations at 1024×1024 (and 16:9 / 9:16), plus image edits.",
+    "description": "Hands and text are weak. Also does image to image and masked replacement. Installed and run by Bhippi's own local media worker (about 7 GB download).",
+    "tags": ["image", "photo", "illustration", "edit"],
+    "thumbnail": {
+      "src": "library-thumbs/sdxl.webp",
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_sdxl_simple-1.webp",
+      "credit": "ComfyUI workflow templates (Comfy-Org, MIT)"
+    },
+    "runtime": "local-media",
+    "install": { "task": "image" },
+    "license": {
+      "name": "CreativeML Open RAIL++-M",
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/LICENSE.md",
+      "summary": ["Free to use, including commercially, under the OpenRAIL++ license, which forbids certain harmful uses."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0" }],
+    "variants": [
+      { "id": "standard", "label": "Standard", "detail": "About 7 GB download. Needs 6 GB of video memory (8 GB recommended) and 12 GB of RAM.", "minVramGb": 6, "recVramGb": 8, "minRamGb": 12, "default": true, "approxBytes": 7516192768, "files": [] }
+    ]
+  },
+  {
+    "id": "flux-schnell",
+    "name": "FLUX.1 schnell",
+    "maker": "Black Forest Labs",
+    "kind": "image",
+    "tasks": ["t2i"],
+    "summary": "Much better prompt following and legible text than SDXL: 1024×1024 in 4 steps.",
+    "description": "Under 24 GB of video memory it streams weights from RAM and gets slow. The download is gated on Hugging Face: use your own authorized login. Installed by Bhippi's own local media worker (about 34 GB download).",
+    "tags": ["image", "text in images", "gated download"],
+    "thumbnail": {
+      "src": "library-thumbs/flux-schnell.webp",
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_schnell-1.webp",
+      "credit": "ComfyUI workflow templates (Comfy-Org, MIT)"
+    },
+    "runtime": "local-media",
+    "install": { "task": "image-flux" },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-schnell",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/black-forest-labs/FLUX.1-schnell" }],
+    "variants": [
+      { "id": "standard", "label": "Standard", "detail": "About 34 GB download. Needs 10 GB of video memory (24 GB recommended) and 32 GB of RAM.", "minVramGb": 10, "recVramGb": 24, "minRamGb": 32, "default": true, "approxBytes": 36507222016, "files": [] }
+    ]
+  },
+  {
+    "id": "stable-audio-open",
+    "name": "Stable Audio Open 1.0",
+    "maker": "Stability AI",
+    "kind": "audio",
+    "tasks": ["t2a"],
+    "summary": "Sound effects and short music clips from a text prompt.",
+    "description": "The download is gated on Hugging Face: use your own authorized login. Installed by Bhippi's own local media worker (roughly 5 GB).",
+    "tags": ["audio", "sound effects", "music", "gated download"],
+    "thumbnail": { "src": "library-thumbs/stable-audio-open.svg", "credit": "Bhippi" },
+    "runtime": "local-media",
+    "install": { "task": "audio" },
+    "license": {
+      "name": "Stability AI model license",
+      "url": "https://huggingface.co/stabilityai/stable-audio-open-1.0",
+      "summary": ["A model-specific Stability AI license applies and the download is gated. Read the model card for the terms."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/stabilityai/stable-audio-open-1.0" }],
+    "variants": [
+      { "id": "standard", "label": "Standard", "detail": "About 5 GB. Installed by Bhippi's local media worker.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 5368709120, "files": [] }
+    ]
+  },
+  {
+    "id": "sam2",
+    "name": "SAM 2.1 (tiny)",
+    "maker": "Meta",
+    "kind": "matte",
+    "tasks": ["roto", "tracking"],
+    "summary": "Follows a subject through a clip from a point you click. Used by tracked Roto.",
+    "description": "SAM 2.1 tiny. Used with ViTMatte by the experimental tracked Roto. Installed by Bhippi's own local media worker.",
+    "tags": ["roto", "tracking", "segmentation"],
+    "thumbnail": { "src": "library-thumbs/sam2.svg", "credit": "Bhippi" },
+    "runtime": "local-media",
+    "install": { "task": "sam2" },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://github.com/facebookresearch/sam2/blob/main/LICENSE",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Project", "url": "https://github.com/facebookresearch/sam2" }],
+    "variants": [
+      { "id": "standard", "label": "Tiny", "detail": "About 160 MB. Installed by Bhippi's local media worker.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 167772160, "files": [] }
+    ]
+  },
+  {
+    "id": "vitmatte",
+    "name": "ViTMatte (small)",
+    "maker": "HUST Vision Lab",
+    "kind": "matte",
+    "tasks": ["roto", "matting"],
+    "summary": "Refines a rough subject mask into a clean alpha with soft edges.",
+    "description": "ViTMatte small. Refines SAM trimaps into alpha; tracked Roto needs SAM 2.1 too. Installed by Bhippi's own local media worker.",
+    "tags": ["roto", "matting", "edges"],
+    "thumbnail": { "src": "library-thumbs/vitmatte.svg", "credit": "Bhippi" },
+    "runtime": "local-media",
+    "install": { "task": "vitmatte" },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://huggingface.co/hustvl/vitmatte-small-composition-1k",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/hustvl/vitmatte-small-composition-1k" }],
+    "variants": [
+      { "id": "standard", "label": "Small", "detail": "About 105 MB. Installed by Bhippi's local media worker.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 110100480, "files": [] }
+    ]
+  },
+  {
+    "id": "depth-anything-3",
+    "name": "Depth Anything 3 (small)",
+    "maker": "ByteDance Seed",
+    "kind": "matte",
+    "tasks": ["depth", "occlusion"],
+    "summary": "Relative video depth, so text, images or video can sit behind a subject.",
+    "description": "Depth Anything 3 Small. Gives relative depth and foreground occlusion. It is not hair matting or metre-accurate placement. Installed by Bhippi's own local media worker.",
+    "tags": ["depth", "occlusion"],
+    "thumbnail": { "src": "library-thumbs/depth-anything-3.svg", "credit": "Bhippi" },
+    "runtime": "local-media",
+    "install": { "task": "depth" },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://github.com/ByteDance-Seed/Depth-Anything-3",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Project", "url": "https://github.com/ByteDance-Seed/Depth-Anything-3" }],
+    "variants": [
+      { "id": "standard", "label": "Small", "detail": "About 130 MB. Installed by Bhippi's local media worker.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 136314880, "files": [] }
+    ]
+  },
+  {
+    "id": "person-tracking",
+    "name": "People tracking (RF-DETR Nano)",
+    "maker": "Roboflow",
+    "kind": "matte",
+    "tasks": ["person-track"],
+    "summary": "Finds and follows people in a clip. About 120 MB, runs on the CPU.",
+    "description": "RF-DETR Nano with ByteTrack. Also installs the rfdetr and supervision packages. Powers track_people and the podcast cut's auto-tracking. No GPU needed.",
+    "tags": ["tracking", "people", "CPU"],
+    "thumbnail": { "src": "library-thumbs/person-tracking.svg", "credit": "Bhippi" },
+    "runtime": "local-media",
+    "install": { "task": "person-track" },
+    "license": {
+      "name": "Apache 2.0 / MIT",
+      "url": "https://github.com/roboflow/rf-detr",
+      "summary": ["Free to use, including commercially (Apache 2.0 for RF-DETR, MIT for ByteTrack)."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Project", "url": "https://github.com/roboflow/rf-detr" }],
+    "variants": [
+      { "id": "standard", "label": "Nano", "detail": "About 120 MB. Runs on the CPU.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 125829120, "files": [] }
+    ]
+  },
+  {
+    "id": "lama-erase",
+    "name": "Magic eraser (LaMa)",
+    "maker": "Samsung AI Center",
+    "kind": "matte",
+    "tasks": ["erase", "clean-plate"],
+    "summary": "Builds a clean background behind a cut-out subject. About 200 MB.",
+    "description": "LaMa big-lama. Makes a clean background plate behind a rotoscoped subject so text and graphics can sit truly behind the person. Also installs simple-lama-inpainting.",
+    "tags": ["inpainting", "clean plate"],
+    "thumbnail": { "src": "library-thumbs/lama-erase.svg", "credit": "Bhippi" },
+    "runtime": "local-media",
+    "install": { "task": "erase" },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://github.com/advimman/lama/blob/main/LICENSE",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Project", "url": "https://github.com/advimman/lama" }],
+    "variants": [
+      { "id": "standard", "label": "big-lama", "detail": "About 200 MB.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 209715200, "files": [] }
+    ]
+  },
+  {
+    "id": "whisper",
+    "name": "Whisper",
+    "maker": "OpenAI",
+    "kind": "speech",
+    "tasks": ["transcribe"],
+    "summary": "Offline transcription on whisper.cpp: English, Hindi and code-switched Hinglish, with English-only and faster Distil sizes too. Pick a size: bigger is more accurate and slower.",
+    "description": "OpenAI's speech recognition, run on this PC with whisper.cpp: no key, no upload, no length limit. Large v3 turbo (q5) is the recommended size: near large-v3 accuracy at a fraction of the time. Sizes marked English only are smaller and a little better at English but cannot transcribe Hindi or any other language. The Distil sizes are English-only models trained to match large-v3 in about half the time. The whisper.cpp program (about 28 MB) is downloaded automatically with the first size you pick.",
+    "tags": ["speech", "transcription", "english", "hindi", "hinglish", "multilingual", "distil"],
+    "thumbnail": {
+      "src": "library-thumbs/whisper.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "MIT",
+      "url": "https://github.com/openai/whisper/blob/main/LICENSE",
+      "summary": ["Free to use, including commercially (MIT, OpenAI Whisper weights).", "The Distil-Whisper sizes are MIT licensed too (Hugging Face)."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Project", "url": "https://github.com/openai/whisper" }, { "label": "Distil-Whisper", "url": "https://github.com/huggingface/distil-whisper" }],
+    "variants": [
+      { "id": "tiny", "label": "Tiny", "detail": "78 MB. The smallest and fastest, multilingual. Rough on anything but clear English; fine for quick drafts.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 77691713, "install": { "modelCenterId": "whisper-tiny" }, "files": [] },
+      { "id": "tiny-en", "label": "Tiny (English only)", "detail": "78 MB. The smallest and fastest, English only.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 77704715, "install": { "modelCenterId": "whisper-tiny-en" }, "files": [] },
+      { "id": "base", "label": "Base", "detail": "148 MB. Quick and tiny. Fine for clear English; it will mangle Hindi.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 155189248, "install": { "modelCenterId": "whisper-base" }, "files": [] },
+      { "id": "base-en", "label": "Base (English only)", "detail": "148 MB. Quick and light, English only. Good for clear, single-speaker English.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 147964211, "install": { "modelCenterId": "whisper-base-en" }, "files": [] },
+      { "id": "small", "label": "Small", "detail": "488 MB. A good balance for English. Hindi is hit and miss.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 511705088, "install": { "modelCenterId": "whisper-small" }, "files": [] },
+      { "id": "small-en", "label": "Small (English only)", "detail": "488 MB. A good speed and accuracy balance for English. It will not understand Hindi or other languages.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 487614201, "install": { "modelCenterId": "whisper-small-en" }, "files": [] },
+      { "id": "medium", "label": "Medium", "detail": "1.5 GB. Solid Hindi and English, but slower than turbo for no real gain.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 1604812800, "install": { "modelCenterId": "whisper-medium" }, "files": [] },
+      { "id": "medium-en", "label": "Medium (English only)", "detail": "1.5 GB. More accurate English than small, English only.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 1533774781, "install": { "modelCenterId": "whisper-medium-en" }, "files": [] },
+      { "id": "large-v3-turbo-q5", "label": "Large v3 turbo (q5)", "detail": "574 MB. Large-v3 accuracy several times faster, for English, Hindi and Hinglish. Recommended.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 601882624, "install": { "modelCenterId": "whisper-large-v3-turbo-q5" }, "files": [] },
+      { "id": "large-v3-turbo-q8", "label": "Large v3 turbo (q8)", "detail": "874 MB. Turbo at 8-bit: a hair more accurate than q5, for English, Hindi and Hinglish.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 874188075, "install": { "modelCenterId": "whisper-large-v3-turbo-q8" }, "files": [] },
+      { "id": "large-v3-turbo", "label": "Large v3 turbo (full)", "detail": "1.6 GB. Turbo at full 16-bit precision. q5 or q8 is nearly identical for much less disk.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 1624555275, "install": { "modelCenterId": "whisper-large-v3-turbo" }, "files": [] },
+      { "id": "large-v3-q5", "label": "Large v3 (q5)", "detail": "1.1 GB. The most accurate size that still fits in a sane amount of memory; slower than turbo.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 1132462080, "install": { "modelCenterId": "whisper-large-v3-q5" }, "files": [] },
+      { "id": "large-v3", "label": "Large v3 (full)", "detail": "3 GB. Full precision: the highest accuracy offline transcription.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 3250585600, "install": { "modelCenterId": "whisper-large-v3" }, "files": [] },
+      { "id": "distil-large-v3", "label": "Distil large v3 (English only)", "detail": "1.5 GB. Close to large-v3 accuracy on English in about half the time. Not for Hindi or code-switched speech.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 1519521155, "install": { "modelCenterId": "whisper-distil-large-v3" }, "files": [] },
+      { "id": "distil-large-v3-5", "label": "Distil large v3.5 (English only)", "detail": "1.5 GB. The newest Distil-Whisper, the best fast English transcription here. Not for Hindi or code-switched speech.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 1519521155, "install": { "modelCenterId": "whisper-distil-large-v3-5" }, "files": [] }
+    ]
+  },
+  {
+    "id": "kokoro-v1",
+    "name": "Kokoro v1.0 voices",
+    "maker": "hexgrad",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "Natural, studio-clean offline voices: English (US and UK), Hindi, and Hinglish read with an Indian accent. 334 MB.",
+    "description": "10 English and 4 Hindi speakers that run on this computer's CPU. Needs the Kokoro engine (sherpa-onnx, about 20 MB), which is downloaded automatically with the voices.",
+    "tags": ["voice", "text to speech", "english", "hindi", "hinglish"],
+    "thumbnail": { "src": "library-thumbs/kokoro-v1.svg", "credit": "Bhippi" },
+    "runtime": "model-center",
+    "install": { "modelCenterId": "kokoro-v1" },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://huggingface.co/hexgrad/Kokoro-82M",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license (Kokoro-82M by hexgrad)."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/hexgrad/Kokoro-82M" }],
+    "variants": [
+      { "id": "standard", "label": "v1.0", "detail": "334 MB download.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 350224384, "files": [] }
+    ]
+  },
+  {
+    "id": "rvm",
+    "name": "Robust Video Matting",
+    "maker": "Peter Lin",
+    "kind": "matte",
+    "tasks": ["roto", "matting"],
+    "summary": "Separates a person from the background across a whole clip, with a steady edge.",
+    "description": "Carries state from frame to frame, so the matte is steady where a per-frame model flickers. Runs on this computer. Full precision is 15 MB; half precision is half the size and roughly twice the speed, with a slightly softer edge.",
+    "tags": ["matting", "person", "background removal"],
+    "thumbnail": { "src": "library-thumbs/rvm.svg", "credit": "Bhippi" },
+    "runtime": "model-center",
+    "license": {
+      "name": "GPL-3.0",
+      "url": "https://github.com/PeterL1n/RobustVideoMatting/blob/master/LICENSE",
+      "summary": ["Released under the GPL-3.0 license (Robust Video Matting by Peter Lin)."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Project", "url": "https://github.com/PeterL1n/RobustVideoMatting" }],
+    "variants": [
+      { "id": "fp32", "label": "Full precision", "detail": "15 MB download.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 15728640, "install": { "modelCenterId": "matte-rvm" }, "files": [] },
+      { "id": "fp16", "label": "Half precision", "detail": "8 MB download. About twice as fast, with a slightly softer edge.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 8388608, "install": { "modelCenterId": "matte-rvm-fp16" }, "files": [] }
+    ]
+  },
+  {
+    "id": "piper-english-us",
+    "name": "Piper voices: English (US)",
+    "maker": "Piper / Rhasspy community voices, run by sherpa-onnx",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "Small, fast American English voices. 4 voices, each about 20 to 32 MB, running offline on the CPU.",
+    "description": "Piper voices are small neural voices that read text in one language each, quickly and with no GPU. Each size below is one voice; download the ones you want and put one in use. Every voice has its own licence, so check it (shown below and in the voice's description). The offline voice engine (sherpa-onnx, about 20 MB) downloads automatically with the first voice.",
+    "tags": ["voice", "text to speech", "piper"],
+    "thumbnail": {
+      "src": "library-thumbs/piper-english-us.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "Per voice",
+      "url": "https://huggingface.co/rhasspy/piper-voices",
+      "summary": ["CC0: Public domain dedication: free for any use, including commercial.", "Public domain: Public domain: free for any use, including commercial.", "CC BY 4.0: Free for any use including commercial, with credit to the voice's authors.", "Voices by name: Joe: CC0; Kristin: Public domain; LJSpeech: Public domain; LibriTTS-R readers: CC BY 4.0."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Voice list", "url": "https://huggingface.co/rhasspy/piper-voices" }, { "label": "sherpa-onnx voices", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models" }],
+    "variants": [
+      { "id": "en_US-joe-medium", "label": "Joe · English (US), male", "detail": "A plain, steady American male read. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21230019, "install": { "modelCenterId": "piper-en_US-joe-medium" }, "files": [], "default": true },
+      { "id": "en_US-kristin-medium", "label": "Kristin · English (US), female", "detail": "A clear American female read. 20 MB. Licence: Public domain.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 20882061, "install": { "modelCenterId": "piper-en_US-kristin-medium" }, "files": [] },
+      { "id": "en_US-ljspeech-high", "label": "LJSpeech · English (US), female", "detail": "The classic audiobook voice at high quality; calm and even. 32 MB. Licence: Public domain.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 33886472, "install": { "modelCenterId": "piper-en_US-ljspeech-high" }, "files": [] },
+      { "id": "en_US-libritts_r-medium", "label": "LibriTTS-R readers · English (US), mixed", "detail": "Four of the 904 audiobook readers in this model, each a different person. 22 MB. Licence: CC BY 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 23398348, "install": { "modelCenterId": "piper-en_US-libritts_r-medium" }, "files": [] }
+    ]
+  },
+  {
+    "id": "piper-english-uk",
+    "name": "Piper voices: English (UK)",
+    "maker": "Piper / Rhasspy community voices, run by sherpa-onnx",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "British, Scottish and Northern English voices. 4 voices, each about 20 to 33 MB, running offline on the CPU.",
+    "description": "Piper voices are small neural voices that read text in one language each, quickly and with no GPU. Each size below is one voice; download the ones you want and put one in use. Every voice has its own licence, so check it (shown below and in the voice's description). The offline voice engine (sherpa-onnx, about 20 MB) downloads automatically with the first voice.",
+    "tags": ["voice", "text to speech", "piper"],
+    "thumbnail": {
+      "src": "library-thumbs/piper-english-uk.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "Per voice",
+      "url": "https://huggingface.co/rhasspy/piper-voices",
+      "summary": ["CC BY 4.0: Free for any use including commercial, with credit to the voice's authors.", "Public domain: Public domain: free for any use, including commercial.", "CC BY-SA 4.0: Free for commercial use with credit; anything you derive from the voice itself must be shared under the same licence.", "Voices by name: Alba: CC BY 4.0; Cori: Public domain; Northern English male: CC BY-SA 4.0; VCTK speakers: CC BY 4.0."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Voice list", "url": "https://huggingface.co/rhasspy/piper-voices" }, { "label": "sherpa-onnx voices", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models" }],
+    "variants": [
+      { "id": "en_GB-alba-medium", "label": "Alba · English (Scottish), female", "detail": "A Scottish female voice. 20 MB. Licence: CC BY 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21104326, "install": { "modelCenterId": "piper-en_GB-alba-medium" }, "files": [], "default": true },
+      { "id": "en_GB-cori-high", "label": "Cori · English (UK), female", "detail": "A British female narrator at high quality. 33 MB. Licence: Public domain.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 35038210, "install": { "modelCenterId": "piper-en_GB-cori-high" }, "files": [] },
+      { "id": "en_GB-northern_english_male-medium", "label": "Northern English male · English (UK, Northern), male", "detail": "A Northern English male accent. 20 MB. Licence: CC BY-SA 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21100291, "install": { "modelCenterId": "piper-en_GB-northern_english_male-medium" }, "files": [] },
+      { "id": "en_GB-vctk-medium", "label": "VCTK speakers · English (UK and Ireland), mixed", "detail": "Four of the 109 regional British and Irish speakers in this model. 22 MB. Licence: CC BY 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 23366127, "install": { "modelCenterId": "piper-en_GB-vctk-medium" }, "files": [] }
+    ]
+  },
+  {
+    "id": "piper-hindi-south-asia",
+    "name": "Piper voices: Hindi and South Asia",
+    "maker": "Piper / Rhasspy community voices, run by sherpa-onnx",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "Hindi, Nepali and Urdu voices. The Hindi ones are for personal use only; see the licence. 5 voices, each about 20 to 20 MB, running offline on the CPU.",
+    "description": "Piper voices are small neural voices that read text in one language each, quickly and with no GPU. Each size below is one voice; download the ones you want and put one in use. Every voice has its own licence, so check it (shown below and in the voice's description). The offline voice engine (sherpa-onnx, about 20 MB) downloads automatically with the first voice.",
+    "tags": ["voice", "text to speech", "piper"],
+    "thumbnail": {
+      "src": "library-thumbs/piper-hindi-south-asia.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "Per voice (some non-commercial)",
+      "url": "https://huggingface.co/rhasspy/piper-voices",
+      "summary": ["CC BY-NC-SA 4.0: Personal and non-commercial use only. Do not use it for client work, monetised videos or anything sold.", "IIT Madras IndicTTS licence: The voice comes from IIT Madras' IndicTTS corpus under its own licence (iitm.ac.in/donlab/indictts/downloads/license.pdf). Read it before using the voice for anything commercial.", "CC0: Public domain dedication: free for any use, including commercial.", "MIT: Free for any use, including commercial.", "The Hindi voices Priyamvada and Pratham are CC BY-NC-SA 4.0: personal, non-commercial use only.", "Voices by name: Priyamvada: CC BY-NC-SA 4.0; Pratham: CC BY-NC-SA 4.0; Rohan: IIT Madras IndicTTS licence; Chitwan: CC0; Fasih: MIT."],
+      "requiresAcceptance": true
+    },
+    "links": [{ "label": "Voice list", "url": "https://huggingface.co/rhasspy/piper-voices" }, { "label": "sherpa-onnx voices", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models" }],
+    "variants": [
+      { "id": "hi_IN-priyamvada-medium", "label": "Priyamvada · Hindi, female", "detail": "A Hindi female voice for Devanagari text. For commercial work use the Kokoro Hindi voices instead. 20 MB. Licence: CC BY-NC-SA 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21097319, "install": { "modelCenterId": "piper-hi_IN-priyamvada-medium" }, "files": [], "default": true },
+      { "id": "hi_IN-pratham-medium", "label": "Pratham · Hindi, male", "detail": "A Hindi male voice for Devanagari text. For commercial work use the Kokoro Hindi voices instead. 20 MB. Licence: CC BY-NC-SA 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 20987965, "install": { "modelCenterId": "piper-hi_IN-pratham-medium" }, "files": [] },
+      { "id": "hi_IN-rohan-medium", "label": "Rohan · Hindi, male", "detail": "A Hindi male voice for Devanagari text, from the IIT Madras IndicTTS corpus. 20 MB. Licence: IIT Madras IndicTTS licence.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21064499, "install": { "modelCenterId": "piper-hi_IN-rohan-medium" }, "files": [] },
+      { "id": "ne_NP-chitwan-medium", "label": "Chitwan · Nepali", "detail": "A Nepali voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21165758, "install": { "modelCenterId": "piper-ne_NP-chitwan-medium" }, "files": [] },
+      { "id": "ur_PK-fasih-medium", "label": "Fasih · Urdu", "detail": "An Urdu voice for Urdu script. 20 MB. Licence: MIT.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21167855, "install": { "modelCenterId": "piper-ur_PK-fasih-medium" }, "files": [] }
+    ]
+  },
+  {
+    "id": "piper-europe-west",
+    "name": "Piper voices: Western Europe",
+    "maker": "Piper / Rhasspy community voices, run by sherpa-onnx",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "German, French, Spanish, Portuguese, Dutch and Scandinavian voices. 14 voices, each about 20 to 22 MB, running offline on the CPU.",
+    "description": "Piper voices are small neural voices that read text in one language each, quickly and with no GPU. Each size below is one voice; download the ones you want and put one in use. Every voice has its own licence, so check it (shown below and in the voice's description). The offline voice engine (sherpa-onnx, about 20 MB) downloads automatically with the first voice.",
+    "tags": ["voice", "text to speech", "piper"],
+    "thumbnail": {
+      "src": "library-thumbs/piper-europe-west.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "Per voice",
+      "url": "https://huggingface.co/rhasspy/piper-voices",
+      "summary": ["CC0: Public domain dedication: free for any use, including commercial.", "CC BY 4.0: Free for any use including commercial, with credit to the voice's authors.", "CC BY 3.0: Free for any use including commercial, with credit to the voice's authors.", "Apache 2.0: Free for any use, including commercial.", "Voices by name: Thorsten: CC0; Thorsten (moods): CC0; Kerstin: CC0; Siwis: CC BY 4.0; Gilles: CC0; DaveFX: CC0; Sharvard: CC BY 3.0; Claude: Apache 2.0; Faber: CC0; Cadu: CC0; Pim: CC0; NST: CC0; Talesyntese: CC0; Talesyntese: CC0."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Voice list", "url": "https://huggingface.co/rhasspy/piper-voices" }, { "label": "sherpa-onnx voices", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models" }],
+    "variants": [
+      { "id": "de_DE-thorsten-medium", "label": "Thorsten · German, male", "detail": "The well-known clear German male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 20949833, "install": { "modelCenterId": "piper-de_DE-thorsten-medium" }, "files": [], "default": true },
+      { "id": "de_DE-thorsten_emotional-medium", "label": "Thorsten (moods) · German, male", "detail": "The same German male voice in several moods. 22 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 23479221, "install": { "modelCenterId": "piper-de_DE-thorsten_emotional-medium" }, "files": [] },
+      { "id": "de_DE-kerstin-low", "label": "Kerstin · German, female", "detail": "A German female voice (lower quality, very small). 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21174728, "install": { "modelCenterId": "piper-de_DE-kerstin-low" }, "files": [] },
+      { "id": "fr_FR-siwis-medium", "label": "Siwis · French, female", "detail": "A clear French female narrator. 20 MB. Licence: CC BY 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 20914888, "install": { "modelCenterId": "piper-fr_FR-siwis-medium" }, "files": [] },
+      { "id": "fr_FR-gilles-low", "label": "Gilles · French, male", "detail": "A French male voice (lower quality, small). 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21248965, "install": { "modelCenterId": "piper-fr_FR-gilles-low" }, "files": [] },
+      { "id": "es_ES-davefx-medium", "label": "DaveFX · Spanish (Spain), male", "detail": "A Castilian Spanish male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21171632, "install": { "modelCenterId": "piper-es_ES-davefx-medium" }, "files": [] },
+      { "id": "es_ES-sharvard-medium", "label": "Sharvard · Spanish (Spain)", "detail": "A Castilian Spanish pair: one male, one female. 22 MB. Licence: CC BY 3.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 23477120, "install": { "modelCenterId": "piper-es_ES-sharvard-medium" }, "files": [] },
+      { "id": "es_MX-claude-high", "label": "Claude · Spanish (Mexico)", "detail": "A Mexican Spanish voice at high quality. 20 MB. Licence: Apache 2.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21216685, "install": { "modelCenterId": "piper-es_MX-claude-high" }, "files": [] },
+      { "id": "pt_BR-faber-medium", "label": "Faber · Portuguese (Brazil), male", "detail": "A Brazilian Portuguese male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21336772, "install": { "modelCenterId": "piper-pt_BR-faber-medium" }, "files": [] },
+      { "id": "pt_BR-cadu-medium", "label": "Cadu · Portuguese (Brazil), male", "detail": "Another Brazilian Portuguese male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21135464, "install": { "modelCenterId": "piper-pt_BR-cadu-medium" }, "files": [] },
+      { "id": "nl_NL-pim-medium", "label": "Pim · Dutch", "detail": "A Dutch voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21127183, "install": { "modelCenterId": "piper-nl_NL-pim-medium" }, "files": [] },
+      { "id": "sv_SE-nst-medium", "label": "NST · Swedish", "detail": "A Swedish voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 20972387, "install": { "modelCenterId": "piper-sv_SE-nst-medium" }, "files": [] },
+      { "id": "da_DK-talesyntese-medium", "label": "Talesyntese · Danish", "detail": "A Danish voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21025554, "install": { "modelCenterId": "piper-da_DK-talesyntese-medium" }, "files": [] },
+      { "id": "no_NO-talesyntese-medium", "label": "Talesyntese · Norwegian", "detail": "A Norwegian voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21072816, "install": { "modelCenterId": "piper-no_NO-talesyntese-medium" }, "files": [] }
+    ]
+  },
+  {
+    "id": "piper-europe-east",
+    "name": "Piper voices: Eastern Europe and Vietnamese",
+    "maker": "Piper / Rhasspy community voices, run by sherpa-onnx",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "Russian, Ukrainian, Polish, Czech, Slovak, Slovenian, Latvian, Romanian, Hungarian, Finnish, Greek and Vietnamese voices. 13 voices, each about 20 to 22 MB, running offline on the CPU.",
+    "description": "Piper voices are small neural voices that read text in one language each, quickly and with no GPU. Each size below is one voice; download the ones you want and put one in use. Every voice has its own licence, so check it (shown below and in the voice's description). The offline voice engine (sherpa-onnx, about 20 MB) downloads automatically with the first voice.",
+    "tags": ["voice", "text to speech", "piper"],
+    "thumbnail": {
+      "src": "library-thumbs/piper-europe-east.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "Per voice",
+      "url": "https://huggingface.co/rhasspy/piper-voices",
+      "summary": ["CC0: Public domain dedication: free for any use, including commercial.", "CC BY 4.0: Free for any use including commercial, with credit to the voice's authors.", "Voices by name: Denis: CC0; Ukrainian TTS: CC0; Darkman: CC0; Gosia: CC0; Jirka: CC0; Lili: CC0; Artur: CC BY 4.0; Aivars: CC0; Mihai: CC0; Anna: CC0; Harri: CC0; Rapunzelina: CC0; VAIS1000: CC BY 4.0."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Voice list", "url": "https://huggingface.co/rhasspy/piper-voices" }, { "label": "sherpa-onnx voices", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models" }],
+    "variants": [
+      { "id": "ru_RU-denis-medium", "label": "Denis · Russian, male", "detail": "A Russian male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21058905, "install": { "modelCenterId": "piper-ru_RU-denis-medium" }, "files": [], "default": true },
+      { "id": "uk_UA-ukrainian_tts-medium", "label": "Ukrainian TTS · Ukrainian", "detail": "Three Ukrainian voices: Lada, Mykyta and Tetiana. 22 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 22767075, "install": { "modelCenterId": "piper-uk_UA-ukrainian_tts-medium" }, "files": [] },
+      { "id": "pl_PL-darkman-medium", "label": "Darkman · Polish, male", "detail": "A Polish male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21078264, "install": { "modelCenterId": "piper-pl_PL-darkman-medium" }, "files": [] },
+      { "id": "pl_PL-gosia-medium", "label": "Gosia · Polish, female", "detail": "A Polish female voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21109262, "install": { "modelCenterId": "piper-pl_PL-gosia-medium" }, "files": [] },
+      { "id": "cs_CZ-jirka-medium", "label": "Jirka · Czech, male", "detail": "A Czech male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21002417, "install": { "modelCenterId": "piper-cs_CZ-jirka-medium" }, "files": [] },
+      { "id": "sk_SK-lili-medium", "label": "Lili · Slovak, female", "detail": "A Slovak female voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21281868, "install": { "modelCenterId": "piper-sk_SK-lili-medium" }, "files": [] },
+      { "id": "sl_SI-artur-medium", "label": "Artur · Slovenian, male", "detail": "A Slovenian male voice. 20 MB. Licence: CC BY 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21404286, "install": { "modelCenterId": "piper-sl_SI-artur-medium" }, "files": [] },
+      { "id": "lv_LV-aivars-medium", "label": "Aivars · Latvian, male", "detail": "A Latvian male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 20990634, "install": { "modelCenterId": "piper-lv_LV-aivars-medium" }, "files": [] },
+      { "id": "ro_RO-mihai-medium", "label": "Mihai · Romanian, male", "detail": "A Romanian male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21081899, "install": { "modelCenterId": "piper-ro_RO-mihai-medium" }, "files": [] },
+      { "id": "hu_HU-anna-medium", "label": "Anna · Hungarian, female", "detail": "A Hungarian female voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21113090, "install": { "modelCenterId": "piper-hu_HU-anna-medium" }, "files": [] },
+      { "id": "fi_FI-harri-medium", "label": "Harri · Finnish, male", "detail": "A Finnish male voice. 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 20984753, "install": { "modelCenterId": "piper-fi_FI-harri-medium" }, "files": [] },
+      { "id": "el_GR-rapunzelina-low", "label": "Rapunzelina · Greek, female", "detail": "A Greek female voice (lower quality, small). 20 MB. Licence: CC0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21090546, "install": { "modelCenterId": "piper-el_GR-rapunzelina-low" }, "files": [] },
+      { "id": "vi_VN-vais1000-medium", "label": "VAIS1000 · Vietnamese", "detail": "A Vietnamese voice. 21 MB. Licence: CC BY 4.0.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 21574925, "install": { "modelCenterId": "piper-vi_VN-vais1000-medium" }, "files": [] }
+    ]
+  },
+  {
+    "id": "kokoro-v1_1",
+    "name": "Kokoro v1.1 multilingual",
+    "maker": "hexgrad",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "Kokoro with Mandarin Chinese: 3 English voices and 100 Mandarin voices, reading mixed Chinese and English in one pass.",
+    "description": "Kokoro's Chinese and English release, run on this computer's CPU. For English and Hindi use Kokoro v1.0; this one adds Mandarin. Needs the voice engine (sherpa-onnx, about 20 MB), downloaded automatically with the first voice. The small build is 8-bit: it downloads and runs lighter with no change you will hear on a voice-over.",
+    "tags": ["voice", "text to speech", "kokoro", "chinese", "mandarin", "english"],
+    "thumbnail": {
+      "src": "library-thumbs/kokoro-v1_1.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://huggingface.co/hexgrad/Kokoro-82M",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license (Kokoro-82M by hexgrad)."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Model card", "url": "https://huggingface.co/hexgrad/Kokoro-82M" }, { "label": "sherpa-onnx voices", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models" }],
+    "variants": [
+      { "id": "int8", "label": "Small (8-bit)", "detail": "147 MB download. Recommended.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 147031220, "install": { "modelCenterId": "kokoro-v1_1-int8" }, "files": [] },
+      { "id": "full", "label": "Full precision", "detail": "365 MB download.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 364816464, "install": { "modelCenterId": "kokoro-v1_1" }, "files": [] }
+    ]
+  },
+  {
+    "id": "kitten-tts",
+    "name": "Kitten TTS",
+    "maker": "KittenML",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "Tiny, very fast English voices: eight speakers in 30 to 67 MB.",
+    "description": "KittenTTS v0.8 reads English with eight voices (four male, four female) and runs quickly on any CPU, even a laptop's. Nano is the smallest and fastest; mini is the most natural. Not as rich as Kokoro, but a fraction of the size. Needs the voice engine (sherpa-onnx, about 20 MB), downloaded automatically with the first size.",
+    "tags": ["voice", "text to speech", "english", "tiny", "fast"],
+    "thumbnail": {
+      "src": "library-thumbs/kitten-tts.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://github.com/KittenML/KittenTTS",
+      "summary": ["Free to use, including commercially, under the Apache 2.0 license (KittenML)."],
+      "requiresAcceptance": false
+    },
+    "links": [{ "label": "Project", "url": "https://github.com/KittenML/KittenTTS" }, { "label": "sherpa-onnx voices", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models" }],
+    "variants": [
+      { "id": "nano", "label": "Nano (15M)", "detail": "31 MB download. The smallest and fastest.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 31220690, "install": { "modelCenterId": "kitten-nano-v0_8" }, "files": [] },
+      { "id": "micro", "label": "Micro (40M)", "detail": "44 MB download. Smoother than nano, still quick.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 44423643, "install": { "modelCenterId": "kitten-micro-v0_8" }, "files": [] },
+      { "id": "mini", "label": "Mini (80M)", "detail": "68 MB download. The most natural Kitten voice.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 67547594, "install": { "modelCenterId": "kitten-mini-v0_8" }, "files": [] }
+    ]
+  },
+  {
+    "id": "matcha-tts",
+    "name": "Matcha-TTS",
+    "maker": "k2-fsa (icefall)",
+    "kind": "voice",
+    "tasks": ["tts"],
+    "summary": "A single smooth voice per language from the Matcha-TTS model: English (LJSpeech) and Mandarin (Baker).",
+    "description": "Matcha-TTS pairs an acoustic model with a separate vocoder (downloaded once and shared). The English voice is calm and audiobook-like; the Mandarin voice is a clear female read. Neither is as expressive as Kokoro. The Mandarin voice is for non-commercial use only. Needs the voice engine (sherpa-onnx, about 20 MB), downloaded automatically.",
+    "tags": ["voice", "text to speech", "english", "mandarin"],
+    "thumbnail": {
+      "src": "library-thumbs/matcha-tts.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "model-center",
+    "license": {
+      "name": "Per voice (Mandarin is non-commercial)",
+      "url": "https://github.com/k2-fsa/icefall",
+      "summary": ["English (LJSpeech): the model is Apache 2.0 and the LJSpeech recordings are public domain, so it is free for any use.", "Mandarin (Baker): the Baker recordings are CC BY-NC-ND 4.0, so personal and non-commercial use only."],
+      "requiresAcceptance": true
+    },
+    "links": [{ "label": "Matcha-TTS", "url": "https://github.com/shivammehta25/Matcha-TTS" }, { "label": "sherpa-onnx voices", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models" }],
+    "variants": [
+      { "id": "en-ljspeech", "label": "English · LJSpeech", "detail": "125 MB download (voice 77 MB plus the shared 54 MB vocoder). Free for any use.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "default": true, "approxBytes": 130597854, "install": { "modelCenterId": "matcha-en-ljspeech" }, "files": [] },
+      { "id": "zh-baker", "label": "Mandarin · Baker", "detail": "130 MB download (voice 75 MB plus the shared 54 MB vocoder). Non-commercial use only.", "minVramGb": 0, "recVramGb": 0, "minRamGb": 0, "approxBytes": 129364484, "install": { "modelCenterId": "matcha-zh-baker" }, "files": [] }
+    ]
+  }
+]

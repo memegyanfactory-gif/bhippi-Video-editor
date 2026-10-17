@@ -15,6 +15,14 @@
 // hair, a genie out of a lamp floating on a wisp of smoke, a floppy-eared puppy and a bearded
 // senior dev in a hoodie. Each is a palette swap (LOOKS) plus its own head, hair and torso, so
 // every animation plays for all of them.
+//
+// Then eleven heroes (heroes.ts): original characters in the spirit of the superheroes people love
+// — a web-slinger, a cowled night vigilante, a cackling prankster, a butler, a suit of armour, a
+// green giant, an android sage, an archer, a star-spangled soldier, a panther king and a golden
+// desi hero. They wear the same skeleton too, but bring their own heads, suits, capes, eyes, hands
+// and things to hold, so every animation (and every panel interaction) works for them as well.
+
+import { HEROES, HERO_IDS, drawHeroProp, isHero, type HeroId, type Kit } from './heroes';
 
 export const ART_W = 64;
 /** Rows below the ground line leave room for legs dangling over an edge. */
@@ -95,9 +103,11 @@ export const PALETTE = {
   accentLight: '#78e3d7',
   accentDark: '#1b7d85',
   nose: '#ff7f9a',
+  /** The hands: the skin unless a character wears gloves or gauntlets (see `build`). */
+  glove: '#ffdcc1',
 } as const;
 
-export type Character = 'heli' | 'cat' | 'woman' | 'genie' | 'puppy' | 'senior';
+export type Character = 'heli' | 'cat' | 'woman' | 'genie' | 'puppy' | 'senior' | HeroId;
 
 export const CHARACTERS: { id: Character; name: string; title: string }[] = [
   { id: 'heli', name: 'Heli', title: 'The pixel producer — flame hair, lab coat, backpack.' },
@@ -106,6 +116,7 @@ export const CHARACTERS: { id: Character; name: string; title: string }[] = [
   { id: 'genie', name: 'Jinn', title: 'A genie out of the lamp, floating on a wisp of smoke.' },
   { id: 'puppy', name: 'Biscuit', title: 'A floppy-eared puppy with a wagging tail.' },
   { id: 'senior', name: 'Sudo', title: 'A bearded senior dev: browline glasses, hoodie, lanyard.' },
+  ...HERO_IDS.map((id) => ({ id, name: HEROES[id].info.name, title: HEROES[id].info.title })),
 ];
 
 /** Each character's palette, over Heli's. */
@@ -142,12 +153,17 @@ const LOOKS: Record<Character, Partial<Record<keyof typeof PALETTE, string>>> = 
     pants: '#3e5f8a', pantsShadow: '#2e4868', shoe: '#e8ebf2', shoeLight: '#ffffff', sole: '#9aa3b5',
     accent: '#e5484d', accentLight: '#ffffff', accentDark: '#2d7fd3',
   },
+  ...(Object.fromEntries(HERO_IDS.map((id) => [id, HEROES[id].look])) as Record<HeroId, Partial<Record<keyof typeof PALETTE, string>>>),
 };
 
 type Key = keyof typeof PALETTE;
-type Colours = Record<Key, number>;
-const build = (id: Character, own: Partial<Record<Key, string>> = {}) =>
-  Object.fromEntries(Object.entries({ ...PALETTE, ...LOOKS[id], ...own }).map(([key, hex]) => [key, rgb(hex)])) as Colours;
+export type Colours = Record<Key, number>;
+const build = (id: Character, own: Partial<Record<Key, string>> = {}) => {
+  const merged: Record<string, string> = { ...PALETTE, ...LOOKS[id], ...own };
+  // Bare hands take whatever skin colour the character ends up with, unless it wears gloves.
+  if (!LOOKS[id].glove && !own.glove) merged.glove = merged.skin;
+  return Object.fromEntries(Object.entries(merged).map(([key, hex]) => [key, rgb(hex)])) as Colours;
+};
 const COLOURS = Object.fromEntries((Object.keys(LOOKS) as Character[]).map((id) => [id, build(id)])) as Record<Character, Colours>;
 
 /** `hex` mixed towards white (amount > 0) or black (amount < 0). */
@@ -213,6 +229,7 @@ export const COLOUR_SLOTS: Record<Character, ColourSlot[]> = {
     { id: 'shoe', label: 'Shoes', keys: [['shoe', 0], ['shoeLight', 0.5], ['sole', -0.3]] },
     SKIN, EYES,
   ],
+  ...(Object.fromEntries(HERO_IDS.map((id) => [id, HEROES[id].slots])) as unknown as Record<HeroId, ColourSlot[]>),
 };
 
 /** The colour a slot starts with, before the user changes it. */
@@ -248,7 +265,16 @@ export type Prop =
   | { kind: 'flipbook'; page: number }
   | { kind: 'mixer'; phase: number }
   | { kind: 'wrench' }
-  | { kind: 'magnifier' };
+  | { kind: 'magnifier' }
+  // What the heroes hold, and what gathers at their hands (heroes.ts draws these).
+  | { kind: 'boomerang'; angle: number }
+  | { kind: 'shield' }
+  | { kind: 'bow'; draw: number }
+  | { kind: 'tray'; steam?: number }
+  | { kind: 'glow'; hand: 'L' | 'R' | 'both'; size: number; color: string }
+  | { kind: 'claws'; out: number }
+  | { kind: 'card'; flip: number }
+  | { kind: 'whirl'; phase: number };
 
 export type Pose = {
   /** Whole body up/down (negative is up), art pixels. */
@@ -283,6 +309,8 @@ export type Pose = {
   props?: Prop[];
   /** Who is wearing the pose; Heli when unset. */
   character?: Character;
+  /** A hero's cape: 0 hangs, 1 flutters, 2 is blown wide (worked out from the motion when unset). */
+  cape?: number;
   /** The genie going to sleep in its lamp: 1 the smoke streams into the spout, 2 the last wisp, 3 inside. Other characters ignore it. */
   lamp?: 1 | 2 | 3;
   /** Asleep in the lamp and breathing out: the lid lifts and a puff leaves the spout. */
@@ -331,7 +359,7 @@ export const REST: Pose = {
 
 // ── the pixel buffer ───────────────────────────────────────────────────────
 
-class Buf {
+export class Buf {
   readonly data = new Uint32Array(ART_W * ART_H);
   clear() { this.data.fill(0); }
   at(x: number, y: number) { return x >= 0 && y >= 0 && x < ART_W && y < ART_H ? this.data[y * ART_W + x] : 0; }
@@ -592,8 +620,12 @@ function drawFace(hx: number, hy: number, pose: Pose) {
   if (pose.blush && pose.character !== 'senior') for (const x of [x0 - 9, x0 - 8, x0 + 7, x0 + 8]) main.set(x, hy + 4, C.blush);
   eyeBox(x0 - 7, eyeY, pose.eyes, pose.look, false);
   eyeBox(x0 + 3, eyeY, pose.eyes, pose.look, true);
-  const m = (x: number, y: number, c: number = C.mouth) => main.set(x0 + x, Math.round(hy) + 5 + y, c);
-  switch (pose.mouth) {
+  drawMouth(x0, Math.round(hy), pose.mouth);
+}
+
+function drawMouth(x0: number, hy: number, mouth: Mouth, colour: number = C.mouth) {
+  const m = (x: number, y: number, c: number = colour) => main.set(x0 + x, hy + 5 + y, c);
+  switch (mouth) {
     case 'smile': m(-2, 0); m(-1, 1); m(0, 1); m(1, 0); break;
     case 'cat': m(-3, 0); m(-2, 1); m(-1, 0); m(0, 0); m(1, 1); m(2, 0); break;
     case 'flat': for (let x = -2; x <= 1; x++) m(x, 1); break;
@@ -686,7 +718,7 @@ function drawPack(bx: number, ty: number) {
   });
 }
 
-function drawLegs(pose: Pose, torsoY: number) {
+function drawLegs(pose: Pose, torsoY: number, w = 3) {
   const hip = torsoY + 10;
   const bx = CX + pose.lean;
   if (pose.sit === 'floor') {
@@ -703,13 +735,13 @@ function drawLegs(pose: Pose, torsoY: number) {
     return;
   }
   // Left leg columns CX-5…CX-3 and right CX+2…CX+4 mirror each other around the centre line.
-  const legs = [[CX - 5, pose.legL, -2], [CX + 2, pose.legR, 0]] as const;
+  const legs = [[CX - 2 - w, pose.legL, -2], [CX + 2, pose.legR, 0]] as const;
   part((b) => {
     if (pose.sit === 'edge') {
       // On an edge: thighs towards the viewer, shins and shoes dangling over it.
       for (const [x0, [dx], out] of legs) {
-        b.rect(x0, hip, 3, 2, C.pants);
-        for (let y = hip + 2; y <= hip + 6; y++) b.rect(x0 + (y > hip + 4 ? dx : 0), y, 3, 1, C.pants);
+        b.rect(x0, hip, w, 2, C.pants);
+        for (let y = hip + 2; y <= hip + 6; y++) b.rect(x0 + (y > hip + 4 ? dx : 0), y, w, 1, C.pants);
         b.rect(x0 + dx + out, hip + 7, 5, 2, C.shoe);
         b.rect(x0 + dx + out, hip + 9, 5, 1, C.sole);
         b.set(x0 + dx + (out ? 1 : 3), hip + 7, C.shoeLight);
@@ -721,7 +753,7 @@ function drawLegs(pose: Pose, torsoY: number) {
       const bottom = sole - 3;
       for (let y = hip; y <= bottom; y++) {
         const off = Math.round((dx * (y - hip)) / Math.max(1, bottom - hip));
-        b.rect(x0 + off, y, 3, 1, y === bottom ? C.pantsShadow : C.pants);
+        b.rect(x0 + off, y, w, 1, y === bottom ? C.pantsShadow : C.pants);
       }
       b.rect(x0 + dx + out, sole - 2, 5, 2, C.shoe);
       b.rect(x0 + dx + out, sole, 5, 1, C.sole);
@@ -758,17 +790,17 @@ function drawTorso(bx: number, ty: number) {
   });
 }
 
-function drawArm(shoulderX: number, shoulderY: number, [dx, dy]: [number, number], finger: boolean, thumb: boolean, side: -1 | 1) {
+function drawArm(shoulderX: number, shoulderY: number, [dx, dy]: [number, number], finger: boolean, thumb: boolean, side: -1 | 1, width = 3.4, fist = 2.1) {
   const hx = shoulderX + dx;
   const hy = shoulderY + dy;
   part((b) => {
-    b.line(shoulderX, shoulderY, hx, hy, C.sleeve, 3.4);
+    b.line(shoulderX, shoulderY, hx, hy, C.sleeve, width);
     // The cuff, a shade darker, just short of the hand.
     const len = Math.hypot(dx, dy) || 1;
-    b.ellipse(hx - (dx / len) * 1.8, hy - (dy / len) * 1.8, 1.5, 1.5, C.cuff);
-    b.ellipse(hx, hy, 2.1, 2.1, C.skin);
-    if (finger) { b.set(hx, hy - 2, C.skin); b.set(hx, hy - 3, C.skin); b.set(hx, hy - 4, C.skin); }
-    if (thumb) { b.set(hx - side, hy - 2, C.skin); b.set(hx - side, hy - 3, C.skin); b.set(hx - side, hy - 4, C.skin); }
+    b.ellipse(hx - (dx / len) * (fist - 0.3), hy - (dy / len) * (fist - 0.3), fist - 0.6, fist - 0.6, C.cuff);
+    b.ellipse(hx, hy, fist, fist, C.glove);
+    if (finger) { b.set(hx, hy - 2, C.glove); b.set(hx, hy - 3, C.glove); b.set(hx, hy - 4, C.glove); }
+    if (thumb) { b.set(hx - side, hy - 2, C.glove); b.set(hx - side, hy - 3, C.glove); b.set(hx - side, hy - 4, C.glove); }
   });
   return [hx, hy] as const;
 }
@@ -787,6 +819,7 @@ function drawClip(b: Buf, x: number, y: number, color: string) {
 }
 
 function drawProp(prop: Prop, hands: { l: readonly [number, number]; r: readonly [number, number] }, bx: number) {
+  if (drawHeroProp(KIT, prop, hands, bx)) return;
   const [rx, ry] = hands.r;
   const [lx, ly] = hands.l;
   switch (prop.kind) {
@@ -1590,9 +1623,10 @@ export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
   const fingerL = pose.finger === 'L' || pose.finger === 'both';
   const fingerR = pose.finger === 'R' || pose.finger === 'both';
   const props = pose.props ?? [];
+  const hero = isHero(who) ? HEROES[who] : null;
   const arm = (which: 'L' | 'R') => which === 'L'
-    ? drawArm(shoulderL[0], shoulderL[1], pose.armL, fingerL, pose.thumb === 'L', -1)
-    : drawArm(shoulderR[0], shoulderR[1], pose.armR, fingerR, pose.thumb === 'R', 1);
+    ? drawArm(shoulderL[0], shoulderL[1], pose.armL, fingerL, pose.thumb === 'L', -1, hero?.armW, hero?.fist)
+    : drawArm(shoulderR[0], shoulderR[1], pose.armR, fingerR, pose.thumb === 'R', 1, hero?.armW, hero?.fist);
   const sway = pose.sway ?? 0;
   const kennel = who === 'puppy' ? pose.kennel : undefined;
   if (kennel) {
@@ -1604,10 +1638,12 @@ export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
   if (who === 'heli') drawPack(bx, ty);
   else if (who === 'cat' || who === 'puppy') drawTail(pose, bx, ty, who);
   else if (who === 'woman') drawLongHair(hx, hy, sway);
+  else hero?.back?.(KIT, bx, ty, hx, hy, pose);
   if (pose.armLBack) arm('L');
   if (pose.armRBack) arm('R');
   if (who === 'genie') drawSmoke(pose, ty);
-  else drawLegs(pose, ty);
+  else drawLegs(pose, ty, hero?.legW);
+  hero?.torso(KIT, bx, ty, pose);
   switch (who) {
     case 'heli': drawTorso(bx, ty); break;
     case 'cat': case 'puppy': drawFurBody(bx, ty); break;
@@ -1633,8 +1669,13 @@ export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
     case 'genie': part((b) => drawGenieHead(b, hx, hy, sway), C.hairOutline); break;
     case 'senior': part((b) => drawSeniorHead(b, hx, hy), C.hairOutline); break;
   }
-  drawFace(hx, hy, pose);
-  drawFaceExtras(who, hx, hy, pose.eyes);
+  if (hero) {
+    hero.head(KIT, hx, hy, pose);
+    hero.face(KIT, hx, hy, pose);
+  } else {
+    drawFace(hx, hy, pose);
+    drawFaceExtras(who, hx, hy, pose.eyes);
+  }
   // Sudo's own glasses stay on; the round research pair would sit on top of them.
   drawGear(hx, hy, (pose.gear ?? []).filter((gear) => !(who === 'senior' && gear === 'glasses')));
   for (const prop of props) if (MID_PROPS.has(prop.kind)) drawProp(prop, hands, bx);
@@ -1645,6 +1686,21 @@ export function renderPose(pose: Pose): Uint8ClampedArray<ArrayBuffer> {
   if (kennel?.stage === 'inside') stampKennel(kennel.x, true);
   return new Uint8ClampedArray(main.data.buffer.slice(0));
 }
+
+/** What heroes.ts draws with (it never imports this file's values, so the two can live apart). */
+const KIT: Kit = {
+  main,
+  get C() { return C; },
+  part,
+  colour,
+  shade,
+  strand,
+  eyeBox,
+  mouth: drawMouth,
+  CX,
+  FEET_Y,
+  COAT,
+};
 
 /** Where a hand ends up in art pixels, for effects that start at the hand (sparks, notes). */
 export function handPoint(pose: Pose, which: 'l' | 'r'): [number, number] {

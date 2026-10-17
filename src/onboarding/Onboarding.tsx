@@ -166,7 +166,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
         const job = jobsStore.list().find((entry) => entry.id === packJob);
         if (!job || job.status === 'done') break;
         if (job.status === 'error' || job.status === 'cancelled') {
-          setGenJobs(Object.fromEntries(tasks.map((task) => [task, { error: 'The AI pack did not install — download this model later in Settings › Local generation.' }])));
+          setGenJobs(Object.fromEntries(tasks.map((task) => [task, { error: 'The AI pack did not install — download this model later in Settings › Model Library.' }])));
           return;
         }
       }
@@ -395,7 +395,7 @@ export function Onboarding({ onPatch, onDone }: Props) {
           {step === 4 && (
             <div className="onboarding-body">
               <h2>{allDone ? 'Downloads finished' : 'Downloading'}</h2>
-              <p className="onboarding-lead">{allDone ? 'Everything you picked is ready.' : 'You can carry on — downloads keep running in the background, and Settings › Model Center shows them too.'}</p>
+              <p className="onboarding-lead">{allDone ? 'Everything you picked is ready.' : 'You can carry on — downloads keep running in the background, and Settings › Model Library shows them too.'}</p>
               <div className="onboarding-models">
                 {downloading.length === 0 && Object.keys(failed).length === 0 && !Object.keys(genJobs).length && <p className="muted small">Nothing to download.</p>}
                 {Object.entries(genJobs).map(([task, entry]) => {

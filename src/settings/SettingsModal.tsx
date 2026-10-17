@@ -1,11 +1,11 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Boxes, Brain, LifeBuoy, Lock, Check, Code2, Cpu, Film, FolderOpen, Gem, HardDrive, Info, LoaderCircle, Mic, Palette, PlugZap, RefreshCw, Scissors, Settings2, ShieldCheck, Smile, Sparkles, TriangleAlert, Wand2 } from 'lucide-react';
+import { Boxes, Brain, LayoutGrid, LifeBuoy, Lock, Check, Code2, Cpu, Film, FolderOpen, Gem, HardDrive, Info, LoaderCircle, Mic, Palette, PlugZap, RefreshCw, Scissors, Settings2, ShieldCheck, Smile, Sparkles, TriangleAlert } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Modal, useToast } from '../components/ui';
-import { SpeechSettings } from './SpeechSettings';
+import { ModelLibrary } from './ModelLibrary';
+import type { LibraryPage } from './library/shared';
 import { BrainSettings } from './BrainSettings';
 import { BrandKitSettings } from './BrandKitSettings';
-import { LocalMediaSettings } from './LocalMediaSettings';
 import { ConnectorsSettings } from './ConnectorsSettings';
 import { StorageSettings } from './StorageSettings';
 import { ProvidersSettings } from './ProvidersSettings';
@@ -25,7 +25,7 @@ import '../styles/about.css';
 import { display, findCommand, keymapFrom } from '../lib/keymap';
 import '../styles/settings.css';
 
-export type SettingsTab = 'general' | 'providers' | 'usage' | 'connectors' | 'speech' | 'local-media' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'privacy' | 'support' | 'about';
+export type SettingsTab = 'general' | 'providers' | 'usage' | 'connectors' | 'model-library' | 'media' | 'storage' | 'appearance' | 'avatar' | 'brain' | 'brand' | 'privacy' | 'support' | 'about';
 
 type Props = {
   tab: SettingsTab;
@@ -43,6 +43,8 @@ type Props = {
   onProjectBrandKit?: (id: string | null) => void;
   /** Imports files into the project library (logos land in a "Brand" folder). */
   importMedia?: (paths: string[], folderId?: string | null) => Promise<Asset[]>;
+  /** Opens the Model Library on this page (a category, Downloaded, Engines or In use). */
+  libraryPage?: LibraryPage;
   /** Closes Settings and runs the welcome tour. */
   onTour?: () => void;
 };
@@ -81,9 +83,8 @@ const NAV: { title?: string; items: { id: SettingsTab; label: string; icon: Reac
   { title: 'AI', items: [
     { id: 'providers', label: 'AI providers', icon: <Sparkles size={15} /> },
     { id: 'usage', label: 'Usage', icon: <Activity size={15} /> },
-    { id: 'speech', label: 'Model Center', icon: <Mic size={15} /> },
+    { id: 'model-library', label: 'Model Library', icon: <LayoutGrid size={15} /> },
     { id: 'connectors', label: 'Connectors', icon: <PlugZap size={15} /> },
-    { id: 'local-media', label: 'Local generation', icon: <Wand2 size={15} /> },
     { id: 'brain', label: 'Brain', icon: <Brain size={15} /> },
   ] },
   { title: 'Projects and media', items: [
@@ -122,10 +123,9 @@ export function SettingsModal(props: Props) {
         <div className="settings-body">
           {props.tab === 'brand' && <BrandKitSettings settings={props.settings} onSettings={props.onSettings} projectBrandKitId={props.projectBrandKitId ?? null} onProjectBrandKit={props.onProjectBrandKit ?? (() => undefined)} importMedia={props.importMedia} />}
           {props.tab === 'connectors' && <ConnectorsSettings settings={props.settings} onSettings={props.onSettings} />}
-          {props.tab === 'local-media' && <LocalMediaSettings settings={props.settings} onSettings={props.onSettings} />}
+          {props.tab === 'model-library' && <ModelLibrary onTab={props.onTab} settings={props.settings} onSettings={props.onSettings} initialPage={props.libraryPage} />}
           {props.tab === 'providers' && <ProvidersSettings providers={props.providers} onProviders={props.onProviders} settings={props.settings} onSettings={props.onSettings} jobs={props.jobs} onUsage={() => props.onTab('usage')} />}
           {props.tab === 'usage' && <UsageSettings providers={props.providers} settings={props.settings} />}
-          {props.tab === 'speech' && <SpeechSettings settings={props.settings} onSettings={props.onSettings} jobs={props.jobs} />}
           {props.tab === 'media' && <MediaSettings {...props} />}
           {props.tab === 'storage' && <StorageSettings settings={props.settings} onSettings={props.onSettings} />}
           {props.tab === 'general' && <GeneralSettings settings={props.settings} onSettings={props.onSettings} providers={props.providers} info={props.info} onTab={props.onTab} onTour={props.onTour} />}

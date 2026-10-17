@@ -46,6 +46,10 @@ export type GenRequest = {
   negativePrompt?: string;
   /** Imported image assets used as references (first frame / style / subject). */
   referenceAssetIds?: string[];
+  /** MiniMax H3: what each reference image is, in the same order (first_frame, last_frame or reference_image). */
+  referenceRoles?: string[];
+  /** MiniMax H3: 768P or 2K (Max: 480P or 768P). */
+  resolution?: string;
   duration?: number;
   aspect?: string;
   seed?: number;
@@ -109,6 +113,8 @@ export type GenPlanItem = {
   negativePrompt?: string;
   /** Imported image assets used as the start frame / reference. */
   referenceAssetIds: string[];
+  referenceRoles?: string[];
+  resolution?: string;
   connector: string;
   model: string;
   duration?: number;

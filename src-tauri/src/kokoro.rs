@@ -13,8 +13,11 @@
 //! One worker reads every part of a take, keeping one loaded model per language, so a Hinglish
 //! line that switches language five times still loads the weights at most twice.
 
-pub use bhippi_kokoro::{Job, Part, Reading};
+pub use bhippi_kokoro::{Family, Job, Part, Reading};
 use std::path::Path;
+
+/// The other offline voice packs (Kokoro v1.1, Kitten TTS, Piper, Matcha) and their speakers.
+pub mod voices;
 
 /// Starts this executable as a Kokoro worker instead of the editor.
 pub const WORKER_FLAG: &str = "--kokoro-worker";
@@ -106,7 +109,7 @@ pub async fn run(job: &Job) -> Result<(), String> {
     }
     let said = String::from_utf8_lossy(&output.stderr);
     let reason = said.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("it exited without saying why").trim();
-    Err(format!("Kokoro could not read that script: {reason}"))
+    Err(format!("{} could not read that script: {reason}", job.family.name()))
 }
 
 /// The worker's whole life: read a [`Job`] from stdin, write every part, exit. Returns the

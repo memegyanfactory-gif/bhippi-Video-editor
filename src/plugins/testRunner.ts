@@ -34,7 +34,7 @@ export const SCRATCH_TOOLS = new Set([
   // Graphics and motion built inside the project.
   'create_motion_graphic', 'add_graphic', 'react_bits', 'remotion_kit', 'create_motion_sequence', 'create_motion_scene', 'update_motion_scene', 'layout_panels', 'create_product_demo',
   'nest_motion_scenes', 'split_motion_layers', 'create_stick_figure', 'animate_character', 'create_ui_screen', 'update_ui_screen',
-  'apply_brand_kit', 'save_beat_sheet', 'roast_move', 'apply_roast_edl',
+  'apply_brand_kit', 'brand_motion_pack', 'save_beat_sheet', 'roast_move', 'apply_roast_edl',
   // Local reads of the project and its media.
   'inspect_clip_frames', 'inspect_source_frames', 'detect_scenes', 'analyze_music_beats', 'review_frames', 'score_audio_clip', 'inspect_color',
   'check_brand_compliance', 'list_brand_archetypes', 'brand_kit_prompt', 'validate_roast_edl', 'edit_dna',
@@ -53,7 +53,7 @@ export const SCRATCH_SKIPPED: Record<string, string> = Object.fromEntries([
     .map((name) => [name, 'it writes or imports files']),
   ...['analyze_clip_speech', 'analyze_song', 'podcast_cut', 'track_people', 'lip_sync_character', 'detect_faces', 'track_motion', 'rotoscope_clip', 'erase_subject_clip',
     'reveal_subject', 'depth_occlusion_clip', 'add_text_behind_subject', 'add_media_behind_subject', 'key_green_screen', 'cutout_image',
-    'render_3d_scene', 'generate_local_media', 'generation_job']
+    'render_3d_scene', 'generate_local_media', 'generate_with_library_model', 'generation_job']
     .map((name) => [name, 'it transcribes or runs a heavy local model']),
   ...['search_sfx', 'place_sfx'].map((name) => [name, 'it may search or download online']),
   ...['choose_shorts_format', 'set_playhead'].map((name) => [name, 'it asks the user or moves the real playhead']),

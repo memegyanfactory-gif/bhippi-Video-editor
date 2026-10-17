@@ -21,6 +21,12 @@ mod files;
 mod jobs;
 mod kokoro;
 mod library;
+mod model_library;
+mod comfy;
+mod llm_runtime;
+mod strata;
+mod llm_hub;
+mod hf_auth;
 mod license;
 mod mcp;
 mod mcp_client;
@@ -1422,6 +1428,8 @@ pub(crate) fn local_install_files(paths: &Paths, work: &Path, task: &str, hf_tok
         std::fs::write(work.join("person_track.py"), include_str!("../workers/person_track.py")).map_err(|e| e.to_string())?;
     }
     let input = work.join("request.json");
+    // Without a token typed in for this call, the one saved by signing in to Hugging Face is used.
+    let hf_token = hf_token.filter(|token| !token.trim().is_empty()).or_else(hf_auth::token);
     store::write_json(&input, &serde_json::json!({ "action": "install", "task": task, "output": output, "hf_token": hf_token }))?;
     Ok((worker, input, output))
 }
@@ -4199,6 +4207,40 @@ pub fn run() {
             brain_load_skill,
             brain_dream,
             brain_tool_lessons,
+            // Model Library (docs/model-library.md): catalog and downloads, the ComfyUI engine, local LLMs.
+            model_library::model_library_list,
+            model_library::model_library_download,
+            model_library::model_library_cancel,
+            model_library::model_library_delete,
+            model_library::model_library_set_enabled,
+            model_library::model_library_accept_license,
+            model_library::model_library_set_storage,
+            model_library::model_library_thumbnail,
+            model_library::model_library_defaults,
+            model_library::model_library_set_default,
+            comfy::comfy_status,
+            comfy::comfy_install,
+            comfy::comfy_start,
+            comfy::comfy_stop,
+            comfy::comfy_use_external,
+            comfy::comfy_run,
+            comfy::comfy_object_info,
+            llm_runtime::llm_runtime_status,
+            llm_runtime::llm_runtime_install,
+            llm_runtime::llm_start,
+            llm_runtime::llm_stop,
+            llm_runtime::llm_tune,
+            llm_runtime::llm_tuning,
+            strata::strata_status,
+            llm_hub::llm_hub_search,
+            llm_hub::llm_hub_model,
+            llm_hub::llm_hub_add,
+            llm_hub::llm_hub_remove,
+            hf_auth::hf_status,
+            hf_auth::hf_sign_in,
+            hf_auth::hf_sign_out,
+            hf_auth::hf_token_page,
+            hf_auth::hf_repo_access,
             trace::trace_append,
             trace::trace_list,
             trace::trace_read,
@@ -4409,7 +4451,17 @@ pub fn run() {
             chat_list_subagents,
             chat_wait_subagent,
         ]))
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|_app, event| {
+                // The local engines Bhippi started (ComfyUI, a llama.cpp server) go with it, however it exits.
+                if let tauri::RunEvent::Exit = event {
+                    comfy::shutdown();
+                    llm_runtime::shutdown();
+                    strata::shutdown();
+                }
+            });
+        });
     if let Err(error) = result {
         eprintln!("Bhippi could not start: {error}");
         std::process::exit(1);

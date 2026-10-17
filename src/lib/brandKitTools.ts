@@ -16,6 +16,7 @@ import type { NewBrandKitInput } from './brandKit/build';
 import { relativeLuminance } from './brandKit/build';
 import { brandFromPage } from './brandKit/fromWebsite';
 import { guidelineOf } from './brandKit/guideline';
+import { REEL_SECONDS, packItems, packPlacement, type PackCopy } from './brandKit/motionPack';
 import { api, errorText } from './ipc';
 import { createMotionGraphicComp } from './motionGraphics';
 import { playhead } from './playhead';
@@ -29,13 +30,15 @@ export type BrandToolContext = {
   commit: (change: (current: Project) => Project, label?: string) => void;
   /** A project folder by name, created when missing (logos land in "Brand"). */
   folderFor: (name: string) => string;
+  /** Places a motion scene as create_motion_scene does (brand_motion_pack builds the scene, this puts it on the timeline). */
+  placeScene?: (args: Record<string, unknown>) => Promise<ToolResult>;
 };
 
 export const BRAND_KIT_TOOLS = new Set([
   'list_brand_kits', 'get_brand_kit', 'list_brand_archetypes', 'create_brand_kit', 'update_brand_kit', 'delete_brand_kit',
   'set_active_brand_kit', 'apply_brand_kit', 'brand_kit_prompt', 'render_brand_board', 'import_brand_logo', 'export_brand_kit', 'import_brand_kit',
   'get_brand_guideline', 'extract_brand_from_url', 'check_brand_compliance',
-  'train_brand_kit', 'forget_training',
+  'train_brand_kit', 'forget_training', 'brand_motion_pack',
 ]);
 
 const fail = (error: string): ToolResult => ({ ok: false, error });
@@ -438,7 +441,7 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
             moves: g.moves.map((m) => ({ id: m.id, name: m.name, frames: m.frames, use: m.use, description: m.description })),
             layouts: layouts.map((l) => ({ id: l.id, aspect: l.aspect, use: l.use, zones: l.zones.map((z) => z.role) })),
             recipes: g.recipes.map((r) => ({ id: r.id, name: r.name, template: r.template, moves: r.moves, layout: r.layout, hold: r.hold })),
-            howToUse: 'Build beats with the recipe templates (create_motion_scene {"template":"brand-title"|"brand-lower-third"|"brand-stat"|"brand-panel"|"brand-logo-sting"|"brand-end-card"|"brand-transition"}); they render these moves and layouts exactly. Other templates are recoloured, re-typed and re-timed to the brand automatically. Refine with update_brand_kit {"section":"guideline","patch":{…}}: moves, layouts and recipes merge by id.',
+            howToUse: 'Build beats with the recipe templates (create_motion_scene {"template":"brand-title"|"brand-lower-third"|"brand-stat"|"brand-panel"|"brand-logo-sting"|"brand-end-card"|"brand-transition"}); they render these moves and layouts exactly. Other templates are recoloured, re-typed and re-timed to the brand automatically. Refine with update_brand_kit {"section":"guideline","patch":{…}}: moves, layouts and recipes merge by id. Ready-made branded pieces (logo stings, lower thirds, title cards, transitions, end screens, subscribe, the brand film): brand_motion_pack {"action":"list"}.',
           });
         case 'color': return done(`${kit.name} colour usage: ${g.color.ratio}.`, { color: g.color });
         case 'type': return done(`${kit.name} type scale (px at 1080p).`, { typeScale: g.typeScale });
@@ -450,6 +453,34 @@ export async function runBrandKitTool(host: ToolHost, name: string, args: Args, 
         case 'all': return done(`${kit.name} guideline, complete.`, { guideline: { ...g, layouts } });
         default: return fail('part is one of summary, color, type, motion, moves, layouts, recipes, rules, all.');
       }
+    }
+
+    case 'brand_motion_pack': {
+      // The kit's motion pack (src/lib/brandKit/motionPack.ts): named, ready-made animated pieces in
+      // the brand. "list" shows them; "use" builds one at the comp's size and places it through
+      // create_motion_scene, exactly as the Brand Studio's "Add to timeline" does.
+      const kit = kitOf(host, project, args);
+      if (!kit) return noKit(str(args, 'id'));
+      const id = str(args, 'piece');
+      const action = str(args, 'action') ?? (id ? 'use' : 'list');
+      const items = packItems(kit);
+      if (action === 'list') {
+        return done(`${items.length + 1} branded motion pieces for "${kit.name}": the brand film plus ${items.map((i) => i.id).join(', ')}. Place one with brand_motion_pack {"action":"use","piece":"<id>","start":<s>}.`, {
+          kit: kit.id,
+          pieces: [{ id: 'reel', group: 'film', name: 'Brand film', blurb: 'The full 11.6 s brand film: logo, tagline, type, palette light, lower third, end card.', seconds: REEL_SECONDS }, ...items],
+          copy: 'Optional wording on use: name, tagline, person, role, headline, kicker, cta, handle.',
+        });
+      }
+      if (action !== 'use') return fail('action is "list" or "use".');
+      if (!id) return fail('piece is required: an id from brand_motion_pack {"action":"list"}.');
+      const comp = ctx.comp;
+      if (!comp) return fail('No composition to place the piece in.');
+      if (!ctx.placeScene) return fail('This host cannot place motion scenes.');
+      const copy = Object.fromEntries(['name', 'tagline', 'person', 'role', 'headline', 'kicker', 'cta', 'handle'].flatMap((k) => (str(args, k) ? [[k, str(args, k)!]] : []))) as PackCopy;
+      const placement = packPlacement(kit, id, { width: comp.width, height: comp.height }, Math.max(0, num(args, 'start') ?? playhead.get()), { copy, assets: true, ...(bool(args, 'background') !== undefined ? { background: bool(args, 'background') } : {}) });
+      if (!placement) return fail(`No motion piece "${id}". Ids: reel, ${items.map((i) => i.id).join(', ')}.`);
+      const placed = await ctx.placeScene({ ...placement.args, ...(str(args, 'compId') ? { compId: str(args, 'compId') } : {}) });
+      return placed.ok ? { ...placed, summary: `Added "${placement.title}" (${placement.scene.duration.toFixed(1)} s) in the "${kit.name}" brand. ${placed.summary ?? ''}`.trim() } : placed;
     }
 
     case 'extract_brand_from_url': {

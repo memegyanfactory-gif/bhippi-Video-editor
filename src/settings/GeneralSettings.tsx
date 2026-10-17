@@ -104,8 +104,8 @@ export function GeneralSettings({ settings, onSettings, providers, info, onTab, 
             ))}
           </div>
         </Row>
-        <Row title="Generate images and video on this computer" hint="Off: the AI finds real footage online instead. Local models stay available when you ask for them.">
-          <Toggle checked={!(settings.disableLocalGeneration ?? true)} onChange={(on) => set({ disableLocalGeneration: !on })} label="Local generation" />
+        <Row title="Models on this computer" hint={<>Which downloaded model the AI uses for video, pictures, music, voice and transcription, or none, is set in one place. {more('model-library', 'Model Library → In use')}</>}>
+          <span />
         </Row>
         <Row title="Generate clips with online models" hint={<>Higgsfield, Magnific (Freepik), Veo, Runway, Kling and more on your own keys. You approve every prompt first. {more('connectors', 'Connectors')}</>}>
           <Toggle checked={settings.cloudGeneration?.enabled ?? false} onChange={(on) => set({ cloudGeneration: { ...settings.cloudGeneration, enabled: on } })} label="Cloud generation" />

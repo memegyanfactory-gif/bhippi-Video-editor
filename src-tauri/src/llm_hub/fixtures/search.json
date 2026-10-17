@@ -1,0 +1,187 @@
+[
+ {
+  "_id": "69e066230bd313faad5d76e7",
+  "id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+  "author": "unsloth",
+  "cardData": {
+   "license": "apache-2.0",
+   "base_model": [
+    "Qwen/Qwen3.6-35B-A3B"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  "gated": false,
+  "lastModified": "2026-04-20T12:42:25.000Z",
+  "likes": 1694,
+  "downloads": 1219066,
+  "gguf": {
+   "total": 34660610688,
+   "architecture": "qwen35moe",
+   "context_length": 262144
+  },
+  "tags": [
+   "transformers",
+   "gguf",
+   "unsloth",
+   "qwen",
+   "qwen3_5_moe",
+   "image-text-to-text",
+   "base_model:Qwen/Qwen3.6-35B-A3B",
+   "base_model:quantized:Qwen/Qwen3.6-35B-A3B",
+   "license:apache-2.0",
+   "endpoints_compatible",
+   "region:us",
+   "imatrix",
+   "conversational",
+   "deploy:azure"
+  ],
+  "pipeline_tag": "image-text-to-text"
+ },
+ {
+  "_id": "6a01d228550577cadfac8843",
+  "id": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+  "author": "unsloth",
+  "cardData": {
+   "license": "apache-2.0",
+   "base_model": [
+    "Qwen/Qwen3.6-35B-A3B"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  "gated": false,
+  "lastModified": "2026-05-20T08:48:17.000Z",
+  "likes": 1003,
+  "downloads": 1043014,
+  "gguf": {
+   "total": 35505251456,
+   "architecture": "qwen35moe",
+   "context_length": 262144
+  },
+  "tags": [
+   "transformers",
+   "gguf",
+   "unsloth",
+   "qwen",
+   "qwen3_5_moe",
+   "image-text-to-text",
+   "base_model:Qwen/Qwen3.6-35B-A3B",
+   "base_model:quantized:Qwen/Qwen3.6-35B-A3B",
+   "license:apache-2.0",
+   "endpoints_compatible",
+   "region:us",
+   "imatrix",
+   "conversational"
+  ],
+  "pipeline_tag": "image-text-to-text"
+ },
+ {
+  "_id": "6a1977c791f1a95deb74b2fa",
+  "id": "unsloth/gemma-4-12b-it-GGUF",
+  "author": "unsloth",
+  "cardData": {
+   "license": "apache-2.0",
+   "base_model": "google/gemma-4-12B-it",
+   "pipeline_tag": "image-text-to-text"
+  },
+  "gated": false,
+  "lastModified": "2026-07-17T12:52:56.000Z",
+  "likes": 912,
+  "downloads": 1615593,
+  "gguf": {
+   "total": 11907350576,
+   "architecture": "gemma4",
+   "context_length": 262144
+  },
+  "tags": [
+   "gguf",
+   "gemma4",
+   "unsloth",
+   "gemma",
+   "google",
+   "gemma4_unified",
+   "image-text-to-text",
+   "base_model:google/gemma-4-12B-it",
+   "base_model:quantized:google/gemma-4-12B-it",
+   "license:apache-2.0",
+   "endpoints_compatible",
+   "region:us",
+   "conversational"
+  ],
+  "pipeline_tag": "image-text-to-text"
+ },
+ {
+  "_id": "6a3947825cc4ec067c8e0a4c",
+  "id": "HauhauCS/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced",
+  "author": "HauhauCS",
+  "cardData": {
+   "license": "gemma",
+   "base_model": "google/gemma-4-12B-it",
+   "pipeline_tag": "image-text-to-text"
+  },
+  "gated": false,
+  "lastModified": "2026-06-25T00:22:34.000Z",
+  "likes": 452,
+  "downloads": 921815,
+  "gguf": {
+   "total": 11907350576,
+   "architecture": "gemma4",
+   "context_length": 262144
+  },
+  "tags": [
+   "gguf",
+   "uncensored",
+   "gemma4",
+   "vision",
+   "multimodal",
+   "agentic",
+   "coding",
+   "creative-writing",
+   "roleplay",
+   "rp",
+   "conversational",
+   "image-text-to-text",
+   "en",
+   "base_model:google/gemma-4-12B-it"
+  ],
+  "pipeline_tag": "image-text-to-text"
+ },
+ {
+  "_id": "69efd84e4fa58d0490a525e4",
+  "id": "unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF",
+  "author": "unsloth",
+  "cardData": {
+   "license": "other",
+   "base_model": [
+    "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  "gated": false,
+  "lastModified": "2026-04-28T16:14:16.000Z",
+  "likes": 145,
+  "trendingScore": 1,
+  "downloads": 13678,
+  "gguf": {
+   "total": 31577940288,
+   "architecture": "nemotron_h_moe",
+   "context_length": 1048576
+  },
+  "tags": [
+   "gguf",
+   "nvidia",
+   "unsloth",
+   "nemotron-3",
+   "multimodal",
+   "text-generation",
+   "en",
+   "fr",
+   "es",
+   "it",
+   "de",
+   "ja",
+   "zh",
+   "dataset:nvidia/nemotron-post-training-v3"
+  ],
+  "pipeline_tag": "text-generation"
+ }
+]

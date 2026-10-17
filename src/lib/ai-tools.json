@@ -334,7 +334,7 @@
           },
           "voice": {
             "type": "string",
-            "description": "Optional voice identifier (e.g. 'kokoro:af_heart', 'kokoro:am_michael', 'kokoro:bf_emma', 'kokoro:hf_alpha', 'kokoro:hm_omega', 'elevenlabs:<voiceId>', 'openai:coral'). Omit to use the automatic choice."
+            "description": "Optional voice identifier (e.g. 'kokoro:af_heart', 'kokoro:am_michael', 'kokoro:bf_emma', 'kokoro:hf_alpha', 'kokoro:hm_omega', 'sherpa:<pack>/<voice>' for the other offline voices the person downloaded in the Model Library (Piper, Kitten, Kokoro v1.1, Matcha), 'elevenlabs:<voiceId>', 'openai:coral'). Omit to use the automatic choice."
           },
           "speed": {
             "type": "number",
@@ -1378,10 +1378,56 @@
     },
     {
       "name": "local_media_capabilities",
-      "description": "Read actual configured local model adapters BEFORE planning visuals or storyboard: image (SDXL), video (Wan text-to-video), audio (Stable Audio Open), sam2/vitmatte (Roto pair), depth (Depth Anything 3). Required before save_storyboard and before generate/rotoscope/depth calls. Configured is not proof of inference. Never claim unsupported image edits, 3D, music structure or endpoint video conditioning.",
+      "description": "Read actual configured local model adapters BEFORE planning visuals or storyboard: image (SDXL), video (Wan text-to-video), audio (Stable Audio Open), sam2/vitmatte (Roto pair), depth (Depth Anything 3). Required before save_storyboard and before generate/rotoscope/depth calls. Configured is not proof of inference. Never claim unsupported image edits, 3D, music structure or endpoint video conditioning. Also returns libraryModels: generation models the editor downloaded and switched on in Settings → Model Library (e.g. MiniMax H3), with their limits and prompt rules; use them through generate_with_library_model.",
       "input_schema": {
         "type": "object",
         "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "generate_with_library_model",
+      "description": "Make one video clip, picture, song or sound with a generation model the editor downloaded AND switched on in Settings → Model Library (listed in local_media_capabilities.libraryModels, with each model's tasks, limits and promptRules; read them before writing a prompt). Video: MiniMax H3 (tasks t2va, i2va, fl2va, l2va, ref2va). Pictures: task t2i (text to image; prompt, aspect, megapixels, optional negativePrompt/steps/cfg/seed) and edit (imageAssetId, optional image2AssetId, prompt = the instruction), with whichever image model is in use (Z-Image Turbo, FLUX.2 klein, ERNIE-Image Turbo, Qwen Image 2.1, Qwen Image Edit 2511). Music and sound: task song (ACE-Step 1.5 or YuE 2: prompt = comma-separated style tags, lyrics with [Verse]/[Chorus] tags, seconds, optional bpm, keyscale, timeSignature, language) and audio (Stable Audio 3: prompt = the sound, seconds; effects, loops, instrumentals, no singing). Leave `model` out for a picture or audio task and it uses the model the editor put in use for that job (Settings → Model Library → In use); a job set to None is refused, and so is a model that is not downloaded or switched off: relay the message and ask the editor to fix it, or use another source (generate_cloud_media). Some models are non-commercial (promptRules / license: commercialUse false): do not use them for paid work without telling the user. Results are imported into the Generated bin (Images or Audio) and returned as assetId. Everything below describes MiniMax H3's video. It is separate from generate_local_media because it has its own tasks, inputs and a strict prompt format. Read libraryModels[].promptRules first: H3 was trained on a fixed structure (task line, integrated_multimodal_description with [Shot N] and cut times, overall_soundscape, non_diegetic_music, speakers (S1) and <d>[Language] words</d>). Bhippi repairs small format slips (task line, missing fields, cut times) and tells you what it changed in `fixes`; format errors it cannot repair stop the call before any GPU time is spent. Tasks: t2va (text only), i2va (firstFrameAssetId), fl2va (first + last frame), l2va (lastFrameAssetId), ref2va (references: up to 9 images, 3 videos, 3 audio clips; needs the Reference-to-video add-on). Leave `task` out and it is inferred from the inputs. Refuses with a message to relay when the model is not downloaded or is switched off: then ask the editor to switch it on in Settings → Model Library, or use another source. Local runs are slow (minutes); turbo (4 steps, only when its add-on is installed) is for quick drafts. wait=true (default) waits and imports the clip into the Generated bin, returning assetId. Pass sceneIndex (GATHER phase) so it attaches to the plan.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "enum": ["minimax-h3", "z-image-turbo", "flux2-klein-4b", "ernie-image-turbo", "qwen-image-2-1", "qwen-image-2-1-turbo", "qwen-image-edit-2511", "ace-step-1-5-xl-turbo", "ace-step-1-5-turbo", "stable-audio-3-medium", "yue2-3b"], "description": "Library model id. Video defaults to minimax-h3. For a picture or audio task leave it out to use the model in use for that job." },
+          "task": { "type": "string", "enum": ["t2va", "i2va", "fl2va", "l2va", "ref2va", "t2i", "edit", "song", "audio"], "description": "Optional; inferred from the inputs given. t2i / edit: pictures. song: a sung song. audio: sound effects, loops, instrumentals." },
+          "prompt": { "type": "string", "description": "Video: the whole H3 prompt in the format of promptRules, at most 7000 characters; dialogue and on-screen text stay in their own language. Picture: the description (or, for edit, the instruction). Song: the style as comma-separated tags. Audio: the sound described." },
+          "seconds": { "type": "number", "minimum": 1, "maximum": 380, "description": "Length in seconds. H3 video: 4-15 (default 5), plan the shots and dialogue to fit it. Music: ACE-Step 10-240 (default 120), YuE 20-120; Stable Audio 1-380 (default 30)." },
+          "aspect": { "type": "string", "description": "Video: one of 21:9, 16:9, 4:3, 1:1, 3:4, 9:16 (defaults to the frame picture's shape, else the timeline's). Picture t2i: any ratio from 1:3 to 3:1 such as 16:9, 1:1, 9:16 (defaults to the timeline's shape)." },
+          "negativePrompt": { "type": "string", "description": "Pictures: what to avoid. Only some models take one (Qwen Image 2.1 standard, Qwen Image Edit); the others ignore it and say so." },
+          "megapixels": { "type": "number", "minimum": 0.25, "maximum": 4, "description": "Picture size, 1 = about 1024x1024 (default 1). Bigger is slower; each model caps it." },
+          "steps": { "type": "integer", "minimum": 1, "maximum": 60, "description": "Pictures and Stable Audio: sampling steps. Leave out for the model's default; turbo models are fixed." },
+          "cfg": { "type": "number", "minimum": 0, "maximum": 10, "description": "Pictures: guidance, only for models that have it (Qwen Image 2.1 standard, Qwen Image Edit)." },
+          "imageAssetId": { "type": "string", "description": "Picture edit: the imported image to change (\"image 1\" in the prompt)." },
+          "image2AssetId": { "type": "string", "description": "Picture edit: an optional second picture, a reference such as a material or style (\"image 2\" in the prompt)." },
+          "lyrics": { "type": "string", "description": "Song: the words to sing with [Verse] / [Chorus] / [Bridge] section tags. Leave out for an instrumental (ACE-Step). YuE 2 requires it." },
+          "bpm": { "type": "integer", "minimum": 10, "maximum": 300, "description": "ACE-Step: tempo." },
+          "keyscale": { "type": "string", "description": "ACE-Step: key like \"A minor\" or \"C# major\"." },
+          "timeSignature": { "type": "string", "enum": ["2", "3", "4", "6"], "description": "ACE-Step: beats per bar (default 4)." },
+          "language": { "type": "string", "description": "ACE-Step: ISO code of the lyrics' language (en, hi, es, zh, ja, ko, fr, de, pt, ar, ru ...). Default en." },
+          "firstFrameAssetId": { "type": "string", "description": "Imported image asset used as the first frame (i2va, fl2va)." },
+          "lastFrameAssetId": { "type": "string", "description": "Imported image asset the video ends on (fl2va, l2va)." },
+          "references": {
+            "type": "object",
+            "description": "ref2va only: asset IDs in the order the prompt's <Picture N>, <Video N>, <Audio N> labels count them.",
+            "properties": {
+              "images": { "type": "array", "items": { "type": "string" }, "maxItems": 9 },
+              "videos": { "type": "array", "items": { "type": "string" }, "maxItems": 3 },
+              "audio": { "type": "array", "items": { "type": "string" }, "maxItems": 3 }
+            },
+            "additionalProperties": false
+          },
+          "useReferenceVideoAudio": { "type": "boolean", "description": "ref2va: also give each reference video's own sound track to the model." },
+          "turbo": { "type": "boolean", "description": "4 steps instead of 20: much faster, a little less detail. Needs the Turbo (or, for ref2va, the Reference to video) add-on; otherwise ignored." },
+          "seed": { "type": "integer" },
+          "name": { "type": "string", "description": "Readable name for the imported clip." },
+          "wait": { "type": "boolean", "description": "Default true: wait and import. false starts a background job (generation_job / import_generated_media)." },
+          "sceneIndex": { "type": "integer", "description": "GATHER phase: the 0-based plan scene this clip belongs to; it attaches to that scene's pending shot." },
+          "shotIndex": { "type": "integer", "description": "Optional 0-based shot within the scene." }
+        },
+        "required": ["prompt"],
         "additionalProperties": false
       }
     },
@@ -1540,6 +1586,16 @@
                     "21:9"
                   ],
                   "description": "Defaults to the timeline's shape."
+                },
+                "referenceRoles": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["first_frame", "last_frame", "reference_image"] },
+                  "description": "MiniMax H3 only: what each referenceAssetIds image is, in order. One image defaults to first_frame, two to first+last frame. H3 prompts must follow the format in tool_help generate_with_library_model (promptRules); it is checked and repaired before sending."
+                },
+                "resolution": {
+                  "type": "string",
+                  "enum": ["480P", "768P", "2K"],
+                  "description": "MiniMax H3 only: 768P (default) or 2K; H3-Max offers 480P or 768P."
                 },
                 "purpose": {
                   "type": "string",
@@ -8213,6 +8269,50 @@
             "type": "string",
             "description": "Composition to check; the active one when omitted."
           }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "brand_motion_pack",
+      "description": "The brand's ready-made motion pieces, built from the kit: reel (11.6 s brand film), sting-clean|bloom|kinetic|glitch|punch (3 fit the kit), lower-third-panel|line|tag, title-statement|chapter, transition-brand|flash, end-logo|next, cta-subscribe. Use for a logo sting, intro/outro, lower third, title card or subscribe button in the brand. {action:list} shows ids (read-only); {action:use, piece, start} places one at the comp size as a layered motion comp (like create_motion_scene). Optional wording: name, tagline, person, role, headline, kicker, cta, handle. Lower thirds, subscribe and transitions are overlays unless background is true.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "use"
+            ]
+          },
+          "piece": {
+            "type": "string",
+            "description": "Piece id from the list (or \"reel\"). Required for use."
+          },
+          "id": {
+            "type": "string",
+            "description": "Brand kit id or name; the project's active kit when omitted."
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline seconds; the playhead when omitted."
+          },
+          "compId": {
+            "type": "string"
+          },
+          "background": {
+            "type": "boolean",
+            "description": "Force the brand stage on (true) or off (false) behind the piece."
+          },
+          "name": { "type": "string" },
+          "tagline": { "type": "string" },
+          "person": { "type": "string", "description": "Lower thirds: the name shown." },
+          "role": { "type": "string", "description": "Lower thirds: the role line." },
+          "headline": { "type": "string", "description": "Title cards: the headline." },
+          "kicker": { "type": "string" },
+          "cta": { "type": "string", "description": "End screen and subscribe card: the button text." },
+          "handle": { "type": "string" }
         },
         "additionalProperties": false
       }

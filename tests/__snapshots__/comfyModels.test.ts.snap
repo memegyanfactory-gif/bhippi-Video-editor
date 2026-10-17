@@ -1,0 +1,1851 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`graphs per model family > ace-step-1-5-turbo song 1`] = `
+{
+  "104": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "acestep_v1.5_turbo.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "105": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "qwen_0.6b_ace15.safetensors",
+      "clip_name2": "qwen_4b_ace15.safetensors",
+      "device": "default",
+      "type": "ace",
+    },
+  },
+  "106": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ace_1.5_vae.safetensors",
+    },
+  },
+  "107": {
+    "class_type": "SaveAudioMP3",
+    "inputs": {
+      "audio": [
+        "18",
+        0,
+      ],
+      "filename_prefix": "audio/ComfyUI",
+      "quality": "V0",
+    },
+  },
+  "18": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "3",
+        0,
+      ],
+      "vae": [
+        "106",
+        0,
+      ],
+    },
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "98",
+        0,
+      ],
+      "model": [
+        "78",
+        0,
+      ],
+      "negative": [
+        "47",
+        0,
+      ],
+      "positive": [
+        "94",
+        0,
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "seed": 7,
+      "steps": 8,
+    },
+  },
+  "47": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "94",
+        0,
+      ],
+    },
+  },
+  "78": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "104",
+        0,
+      ],
+      "sampling": "flow",
+      "shift": 3,
+    },
+  },
+  "94": {
+    "class_type": "TextEncodeAceStepAudio1.5",
+    "inputs": {
+      "bpm": 190,
+      "cfg_scale": 2,
+      "clip": [
+        "105",
+        0,
+      ],
+      "duration": 45,
+      "generate_audio_codes": true,
+      "keyscale": "E minor",
+      "language": "en",
+      "lyrics": "[Instrumental]",
+      "min_p": 0,
+      "seed": 7,
+      "tags": "lofi, mellow piano",
+      "temperature": 0.85,
+      "timesignature": "4",
+      "top_k": 0,
+      "top_p": 0.9,
+    },
+  },
+  "98": {
+    "class_type": "EmptyAceStep1.5LatentAudio",
+    "inputs": {
+      "batch_size": 1,
+      "seconds": 45,
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > ace-step-1-5-xl-turbo song 1`] = `
+{
+  "104": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "acestep_v1.5_xl_turbo_bf16.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "105": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "qwen_0.6b_ace15.safetensors",
+      "clip_name2": "qwen_4b_ace15.safetensors",
+      "device": "default",
+      "type": "ace",
+    },
+  },
+  "106": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ace_1.5_vae.safetensors",
+    },
+  },
+  "109": {
+    "_meta": {
+      "title": "Int (Seed)",
+    },
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 7,
+    },
+  },
+  "111": {
+    "class_type": "SaveAudioAdvanced",
+    "inputs": {
+      "audio": [
+        "18",
+        0,
+      ],
+      "filename_prefix": "audio/ACE_Step1.5_xl_turbo",
+      "format": "flac",
+    },
+  },
+  "18": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "3",
+        0,
+      ],
+      "vae": [
+        "106",
+        0,
+      ],
+    },
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "98",
+        0,
+      ],
+      "model": [
+        "78",
+        0,
+      ],
+      "negative": [
+        "47",
+        0,
+      ],
+      "positive": [
+        "94",
+        0,
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "seed": [
+        "109",
+        0,
+      ],
+      "steps": 8,
+    },
+  },
+  "47": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "94",
+        0,
+      ],
+    },
+  },
+  "78": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "104",
+        0,
+      ],
+      "sampling": "flow",
+      "shift": 3,
+    },
+  },
+  "94": {
+    "class_type": "TextEncodeAceStepAudio1.5",
+    "inputs": {
+      "bpm": 110,
+      "cfg_scale": 2,
+      "clip": [
+        "105",
+        0,
+      ],
+      "duration": 90,
+      "generate_audio_codes": true,
+      "keyscale": "A minor",
+      "language": "en",
+      "lyrics": "[Verse]
+Neon on the road
+[Chorus]
+We are going home",
+      "min_p": 0,
+      "seed": [
+        "109",
+        0,
+      ],
+      "tags": "synthwave, 110 BPM, warm female vocals",
+      "temperature": 0.85,
+      "timesignature": "4",
+      "top_k": 0,
+      "top_p": 0.9,
+    },
+  },
+  "98": {
+    "class_type": "EmptyAceStep1.5LatentAudio",
+    "inputs": {
+      "batch_size": 1,
+      "seconds": 90,
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > ernie-image-turbo t2i 1`] = `
+{
+  "73": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Ernie-Image-Turbo",
+      "images": [
+        "88:65",
+        0,
+      ],
+    },
+  },
+  "88:62": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "ministral-3-3b.safetensors",
+      "device": "default",
+      "type": "flux2",
+    },
+  },
+  "88:63": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors",
+    },
+  },
+  "88:65": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "88:70",
+        0,
+      ],
+      "vae": [
+        "88:63",
+        0,
+      ],
+    },
+  },
+  "88:66": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "ernie-image-turbo.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "88:67": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "88:62",
+        0,
+      ],
+      "text": [
+        "88:94",
+        0,
+      ],
+    },
+  },
+  "88:70": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "88:71",
+        0,
+      ],
+      "model": [
+        "88:66",
+        0,
+      ],
+      "negative": [
+        "88:91",
+        0,
+      ],
+      "positive": [
+        "88:67",
+        0,
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "seed": 7,
+      "steps": 8,
+    },
+  },
+  "88:71": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "height": 1360,
+      "width": 768,
+    },
+  },
+  "88:91": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "88:67",
+        0,
+      ],
+    },
+  },
+  "88:94": {
+    "_meta": {
+      "title": "String (Multiline - Prompt)",
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "A poster with the words "OPEN" in red",
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > flux2-klein-4b edit 1`] = `
+{
+  "75:121": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "75:82",
+        0,
+      ],
+      "latent": [
+        "75:122",
+        0,
+      ],
+    },
+  },
+  "75:122": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "75:80",
+        0,
+      ],
+      "vae": [
+        "75:72",
+        0,
+      ],
+    },
+  },
+  "75:123": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "75:74",
+        0,
+      ],
+      "latent": [
+        "75:122",
+        0,
+      ],
+    },
+  },
+  "75:61": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler",
+    },
+  },
+  "75:62": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "height": [
+        "75:99",
+        1,
+      ],
+      "steps": 4,
+      "width": [
+        "75:99",
+        0,
+      ],
+    },
+  },
+  "75:63": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "75:70",
+        0,
+      ],
+      "negative": [
+        "75:121",
+        0,
+      ],
+      "positive": [
+        "75:123",
+        0,
+      ],
+    },
+  },
+  "75:64": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "guider": [
+        "75:63",
+        0,
+      ],
+      "latent_image": [
+        "75:66",
+        0,
+      ],
+      "noise": [
+        "75:73",
+        0,
+      ],
+      "sampler": [
+        "75:61",
+        0,
+      ],
+      "sigmas": [
+        "75:62",
+        0,
+      ],
+    },
+  },
+  "75:65": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "75:64",
+        0,
+      ],
+      "vae": [
+        "75:72",
+        0,
+      ],
+    },
+  },
+  "75:66": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "height": [
+        "75:99",
+        1,
+      ],
+      "width": [
+        "75:99",
+        0,
+      ],
+    },
+  },
+  "75:70": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b-fp8.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "75:71": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "device": "default",
+      "type": "flux2",
+    },
+  },
+  "75:72": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors",
+    },
+  },
+  "75:73": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 7,
+    },
+  },
+  "75:74": {
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)",
+    },
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "75:71",
+        0,
+      ],
+      "text": "Change the bag color to blue.",
+    },
+  },
+  "75:80": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": [
+        "76",
+        0,
+      ],
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "upscale_method": "nearest-exact",
+    },
+  },
+  "75:82": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "75:74",
+        0,
+      ],
+    },
+  },
+  "75:99": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "75:80",
+        0,
+      ],
+    },
+  },
+  "76": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "staged-1.png",
+    },
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Flux2-Klein",
+      "images": [
+        "75:65",
+        0,
+      ],
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > flux2-klein-4b t2i 1`] = `
+{
+  "76": {
+    "_meta": {
+      "title": "Prompt",
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "A hedgehog in a party hat",
+    },
+  },
+  "77:61": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler",
+    },
+  },
+  "77:62": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "height": [
+        "77:69",
+        0,
+      ],
+      "steps": 4,
+      "width": [
+        "77:68",
+        0,
+      ],
+    },
+  },
+  "77:63": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "77:70",
+        0,
+      ],
+      "negative": [
+        "77:76",
+        0,
+      ],
+      "positive": [
+        "77:74",
+        0,
+      ],
+    },
+  },
+  "77:64": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "guider": [
+        "77:63",
+        0,
+      ],
+      "latent_image": [
+        "77:66",
+        0,
+      ],
+      "noise": [
+        "77:73",
+        0,
+      ],
+      "sampler": [
+        "77:61",
+        0,
+      ],
+      "sigmas": [
+        "77:62",
+        0,
+      ],
+    },
+  },
+  "77:65": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "77:64",
+        0,
+      ],
+      "vae": [
+        "77:72",
+        0,
+      ],
+    },
+  },
+  "77:66": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "height": [
+        "77:69",
+        0,
+      ],
+      "width": [
+        "77:68",
+        0,
+      ],
+    },
+  },
+  "77:68": {
+    "_meta": {
+      "title": "Width",
+    },
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 1024,
+    },
+  },
+  "77:69": {
+    "_meta": {
+      "title": "Height",
+    },
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 1024,
+    },
+  },
+  "77:70": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b-fp8.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "77:71": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "device": "default",
+      "type": "flux2",
+    },
+  },
+  "77:72": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors",
+    },
+  },
+  "77:73": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 7,
+    },
+  },
+  "77:74": {
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)",
+    },
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "77:71",
+        0,
+      ],
+      "text": [
+        "76",
+        0,
+      ],
+    },
+  },
+  "77:76": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "77:74",
+        0,
+      ],
+    },
+  },
+  "78": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Flux2-Klein",
+      "images": [
+        "77:65",
+        0,
+      ],
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > qwen-image-2-1 edit 1`] = `
+{
+  "459:451": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_2.1_int8_convrot.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "459:453": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+      "device": "default",
+      "type": "qwen_image",
+    },
+  },
+  "459:454": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_2.1_vae_bf16.safetensors",
+    },
+  },
+  "459:457": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "459:458",
+        0,
+      ],
+      "vae": [
+        "459:454",
+        0,
+      ],
+    },
+  },
+  "459:458": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "459:474",
+        2,
+      ],
+      "model": [
+        "459:469",
+        0,
+      ],
+      "negative": [
+        "459:474",
+        1,
+      ],
+      "positive": [
+        "459:474",
+        0,
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "seed": 7,
+      "steps": 25,
+    },
+  },
+  "459:469": {
+    "class_type": "QwenImage21Cache",
+    "inputs": {
+      "device": "auto",
+      "dtype": "default",
+      "model": [
+        "459:451",
+        0,
+      ],
+    },
+  },
+  "459:474": {
+    "class_type": "TextEncodeQwenImage21",
+    "inputs": {
+      "clip": [
+        "459:453",
+        0,
+      ],
+      "images.image_1": [
+        "470",
+        0,
+      ],
+      "images.image_2": [
+        "475",
+        0,
+      ],
+      "negative_prompt": "",
+      "prompt": [
+        "459:480",
+        0,
+      ],
+      "resolution": 1024,
+      "vae": [
+        "459:454",
+        0,
+      ],
+    },
+  },
+  "459:480": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": "Replace the costume with image 2",
+    },
+  },
+  "461": {
+    "class_type": "SaveImageAdvanced",
+    "inputs": {
+      "filename_prefix": "Qwen_image_2.1",
+      "format": "png",
+      "format.bit_depth": "8-bit",
+      "format.input_color_space": "sRGB",
+      "images": [
+        "459:457",
+        0,
+      ],
+    },
+  },
+  "470": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "staged-1.png",
+    },
+  },
+  "475": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "staged-2.png",
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > qwen-image-2-1 t2i 1`] = `
+{
+  "459:451": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_2.1_int8_convrot.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "459:452": {
+    "class_type": "TextEncodeQwenImage21",
+    "inputs": {
+      "clip": [
+        "459:453",
+        0,
+      ],
+      "negative_prompt": "blurry",
+      "prompt": [
+        "459:472",
+        0,
+      ],
+      "resolution": 1024,
+    },
+  },
+  "459:453": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+      "device": "default",
+      "type": "qwen_image",
+    },
+  },
+  "459:454": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_2.1_vae_bf16.safetensors",
+    },
+  },
+  "459:456": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "height": 896,
+      "width": 1184,
+    },
+  },
+  "459:457": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "459:458",
+        0,
+      ],
+      "vae": [
+        "459:454",
+        0,
+      ],
+    },
+  },
+  "459:458": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "459:456",
+        0,
+      ],
+      "model": [
+        "459:480",
+        0,
+      ],
+      "negative": [
+        "459:452",
+        1,
+      ],
+      "positive": [
+        "459:452",
+        0,
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "seed": 7,
+      "steps": 25,
+    },
+  },
+  "459:472": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": "A poster saying "HELLO"",
+    },
+  },
+  "459:480": {
+    "class_type": "QwenImage21Cache",
+    "inputs": {
+      "device": "auto",
+      "dtype": "default",
+      "model": [
+        "459:451",
+        0,
+      ],
+    },
+  },
+  "461": {
+    "class_type": "SaveImageAdvanced",
+    "inputs": {
+      "filename_prefix": "Qwen_image_2.1",
+      "format": "png",
+      "format.bit_depth": "8-bit",
+      "format.input_color_space": "sRGB",
+      "images": [
+        "459:457",
+        0,
+      ],
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > qwen-image-2-1-turbo t2i 1`] = `
+{
+  "459:451": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_2.1_turbo_int8_convrot.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "459:452": {
+    "class_type": "TextEncodeQwenImage21",
+    "inputs": {
+      "clip": [
+        "459:453",
+        0,
+      ],
+      "negative_prompt": "",
+      "prompt": [
+        "459:472",
+        0,
+      ],
+      "resolution": 1024,
+    },
+  },
+  "459:453": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+      "device": "default",
+      "type": "qwen_image",
+    },
+  },
+  "459:454": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_2.1_vae_bf16.safetensors",
+    },
+  },
+  "459:456": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "height": 768,
+      "width": 1376,
+    },
+  },
+  "459:457": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "459:486",
+        0,
+      ],
+      "vae": [
+        "459:454",
+        0,
+      ],
+    },
+  },
+  "459:472": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": "A poster saying "FAST"",
+    },
+  },
+  "459:484": {
+    "_meta": {
+      "title": "Manual Sigmas (Qwen-Image-2.1-Turbo 8-step schedule)",
+    },
+    "class_type": "ManualSigmas",
+    "inputs": {
+      "sigmas": "1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0",
+    },
+  },
+  "459:486": {
+    "_meta": {
+      "title": "Sampler Custom Advanced",
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "guider": [
+        "459:489",
+        0,
+      ],
+      "latent_image": [
+        "459:456",
+        0,
+      ],
+      "noise": [
+        "459:488",
+        0,
+      ],
+      "sampler": [
+        "459:487",
+        0,
+      ],
+      "sigmas": [
+        "459:484",
+        0,
+      ],
+    },
+  },
+  "459:487": {
+    "_meta": {
+      "title": "KSampler Select (euler)",
+    },
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler",
+    },
+  },
+  "459:488": {
+    "_meta": {
+      "title": "Random Noise",
+    },
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 7,
+    },
+  },
+  "459:489": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "459:490",
+        0,
+      ],
+      "negative": [
+        "459:452",
+        1,
+      ],
+      "positive": [
+        "459:452",
+        0,
+      ],
+    },
+  },
+  "459:490": {
+    "class_type": "QwenImage21Cache",
+    "inputs": {
+      "device": "auto",
+      "dtype": "default",
+      "model": [
+        "459:451",
+        0,
+      ],
+    },
+  },
+  "461": {
+    "class_type": "SaveImageAdvanced",
+    "inputs": {
+      "filename_prefix": "Qwen_image_2.1",
+      "format": "png",
+      "format.bit_depth": "8-bit",
+      "format.input_color_space": "sRGB",
+      "images": [
+        "459:457",
+        0,
+      ],
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > qwen-image-edit-2511 edit 1`] = `
+{
+  "170:145": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "170:161",
+        0,
+      ],
+      "sampling": "flow",
+      "shift": 3.1,
+    },
+  },
+  "170:146": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors",
+    },
+  },
+  "170:147": {
+    "class_type": "FluxKontextMultiReferenceLatentMethod",
+    "inputs": {
+      "conditioning": [
+        "170:149",
+        0,
+      ],
+      "reference_latents_method": "index_timestep_zero",
+    },
+  },
+  "170:148": {
+    "class_type": "FluxKontextMultiReferenceLatentMethod",
+    "inputs": {
+      "conditioning": [
+        "170:151",
+        0,
+      ],
+      "reference_latents_method": "index_timestep_zero",
+    },
+  },
+  "170:149": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "170:162",
+        0,
+      ],
+      "image1": [
+        "170:160",
+        0,
+      ],
+      "image2": [
+        "83",
+        0,
+      ],
+      "prompt": "",
+      "vae": [
+        "170:146",
+        0,
+      ],
+    },
+  },
+  "170:151": {
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus (Positive)",
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "170:162",
+        0,
+      ],
+      "image1": [
+        "170:160",
+        0,
+      ],
+      "image2": [
+        "83",
+        0,
+      ],
+      "prompt": "Change the sofa leather in image 1 to the fur in image 2",
+      "vae": [
+        "170:146",
+        0,
+      ],
+    },
+  },
+  "170:152": {
+    "class_type": "CFGNorm",
+    "inputs": {
+      "model": [
+        "170:145",
+        0,
+      ],
+      "pre_cfg": false,
+      "strength": 1,
+    },
+  },
+  "170:154": {
+    "_meta": {
+      "title": "CFG",
+    },
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 4,
+    },
+  },
+  "170:156": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "170:160",
+        0,
+      ],
+      "vae": [
+        "170:146",
+        0,
+      ],
+    },
+  },
+  "170:158": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "170:169",
+        0,
+      ],
+      "vae": [
+        "170:146",
+        0,
+      ],
+    },
+  },
+  "170:160": {
+    "class_type": "FluxKontextImageScale",
+    "inputs": {
+      "image": [
+        "41",
+        0,
+      ],
+    },
+  },
+  "170:161": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_edit_2511_fp8mixed.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "170:162": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "device": "default",
+      "type": "qwen_image",
+    },
+  },
+  "170:166": {
+    "_meta": {
+      "title": "Steps",
+    },
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 40,
+    },
+  },
+  "170:169": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": [
+        "170:154",
+        0,
+      ],
+      "denoise": 1,
+      "latent_image": [
+        "170:156",
+        0,
+      ],
+      "model": [
+        "170:152",
+        0,
+      ],
+      "negative": [
+        "170:147",
+        0,
+      ],
+      "positive": [
+        "170:148",
+        0,
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "seed": 7,
+      "steps": [
+        "170:166",
+        0,
+      ],
+    },
+  },
+  "41": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "staged-1.png",
+    },
+  },
+  "83": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "staged-2.png",
+    },
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Qwen_Edit_2511",
+      "images": [
+        "170:158",
+        0,
+      ],
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > stable-audio-3-medium audio 1`] = `
+{
+  "52:11": {
+    "class_type": "EmptyLatentAudio",
+    "inputs": {
+      "batch_size": 1,
+      "seconds": [
+        "52:36",
+        0,
+      ],
+    },
+  },
+  "52:12": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "52:3",
+        0,
+      ],
+      "vae": [
+        "52:25",
+        2,
+      ],
+    },
+  },
+  "52:25": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "stable_audio_3_medium.safetensors",
+    },
+  },
+  "52:26": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "t5gemma_b_b_ul2.safetensors",
+      "device": "default",
+      "type": "stable_audio",
+    },
+  },
+  "52:3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "52:11",
+        0,
+      ],
+      "model": [
+        "52:25",
+        0,
+      ],
+      "negative": [
+        "52:7",
+        0,
+      ],
+      "positive": [
+        "52:6",
+        0,
+      ],
+      "sampler_name": "lcm",
+      "scheduler": "simple",
+      "seed": 7,
+      "steps": 8,
+    },
+  },
+  "52:31": {
+    "_meta": {
+      "title": "User: short description (USER_INPUT in template)",
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "Heavy wooden door slam in a stone hallway, long reverb tail",
+    },
+  },
+  "52:36": {
+    "_meta": {
+      "title": "Float (Duration)",
+    },
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 4,
+    },
+  },
+  "52:6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "52:26",
+        0,
+      ],
+      "text": [
+        "52:31",
+        0,
+      ],
+    },
+  },
+  "52:7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "52:26",
+        0,
+      ],
+      "text": "",
+    },
+  },
+  "57": {
+    "class_type": "SaveAudioAdvanced",
+    "inputs": {
+      "audio": [
+        "52:12",
+        0,
+      ],
+      "filename_prefix": "audio/stable_audio_3",
+      "format": "flac",
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > yue2-3b song 1`] = `
+{
+  "10": {
+    "class_type": "SaveAudioAdvanced",
+    "inputs": {
+      "audio": [
+        "33:9",
+        0,
+      ],
+      "filename_prefix": "audio/YuE2",
+      "format": "flac",
+    },
+  },
+  "33:14": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": [
+        "33:24",
+        0,
+      ],
+    },
+  },
+  "33:15": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "yue2_3b_int8_convrot.safetensors",
+    },
+  },
+  "33:18": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "33:25",
+        0,
+      ],
+    },
+  },
+  "33:24": {
+    "class_type": "YuE2GenerateABC",
+    "inputs": {
+      "clip": [
+        "33:15",
+        1,
+      ],
+      "lyrics": [
+        "33:37",
+        0,
+      ],
+      "max_abc_tokens": 8192,
+      "mode": "full",
+      "penalty_window": 100,
+      "repetition_penalty": 1.005,
+      "seed": [
+        "33:34",
+        0,
+      ],
+      "style": [
+        "33:36",
+        0,
+      ],
+      "temperature": 0.7,
+      "top_k": 30,
+      "top_p": 0.9,
+    },
+  },
+  "33:25": {
+    "class_type": "YuE2GenerateMusic",
+    "inputs": {
+      "abc": [
+        "33:14",
+        0,
+      ],
+      "cfg_scale": 1,
+      "clip": [
+        "33:15",
+        1,
+      ],
+      "lyrics": [
+        "33:37",
+        0,
+      ],
+      "max_duration": 60,
+      "mode": "full",
+      "repetition_penalty": 1.2,
+      "seed": [
+        "33:34",
+        0,
+      ],
+      "style": [
+        "33:36",
+        0,
+      ],
+      "temperature": 1,
+      "top_k": 100,
+      "top_p": 0.95,
+    },
+  },
+  "33:34": {
+    "class_type": "SeedNode",
+    "inputs": {
+      "seed": 7,
+    },
+  },
+  "33:36": {
+    "_meta": {
+      "title": "Text (Style)",
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "English, warm female vocal, pop, 96 BPM, piano",
+    },
+  },
+  "33:37": {
+    "_meta": {
+      "title": "Text (Lyrics)",
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "[Verse]
+Morning light
+[Chorus]
+Run with me",
+    },
+  },
+  "33:5": {
+    "class_type": "EmptyYuE2LatentAudio",
+    "inputs": {
+      "batch_size": 1,
+      "seconds": [
+        "33:25",
+        1,
+      ],
+    },
+  },
+  "33:8": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "33:5",
+        0,
+      ],
+      "model": [
+        "33:15",
+        0,
+      ],
+      "negative": [
+        "33:18",
+        0,
+      ],
+      "positive": [
+        "33:25",
+        0,
+      ],
+      "sampler_name": "dpm_2",
+      "scheduler": "sgm_uniform",
+      "seed": [
+        "33:34",
+        0,
+      ],
+      "steps": 32,
+    },
+  },
+  "33:9": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "33:8",
+        0,
+      ],
+      "vae": [
+        "33:15",
+        2,
+      ],
+    },
+  },
+}
+`;
+
+exports[`graphs per model family > z-image-turbo t2i 1`] = `
+{
+  "57:11": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "57:28",
+        0,
+      ],
+      "sampling": "flow",
+      "shift": 3,
+    },
+  },
+  "57:13": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "height": 768,
+      "width": 1360,
+    },
+  },
+  "57:27": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "57:30",
+        0,
+      ],
+      "text": "A red fox in snow at sunrise",
+    },
+  },
+  "57:28": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "z_image_turbo_int8_convrot.safetensors",
+      "weight_dtype": "default",
+    },
+  },
+  "57:29": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors",
+    },
+  },
+  "57:3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "57:13",
+        0,
+      ],
+      "model": [
+        "57:11",
+        0,
+      ],
+      "negative": [
+        "57:33",
+        0,
+      ],
+      "positive": [
+        "57:27",
+        0,
+      ],
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "seed": 7,
+      "steps": 8,
+    },
+  },
+  "57:30": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b_fp8_mixed.safetensors",
+      "device": "default",
+      "type": "lumina2",
+    },
+  },
+  "57:33": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "57:27",
+        0,
+      ],
+    },
+  },
+  "57:8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "57:3",
+        0,
+      ],
+      "vae": [
+        "57:29",
+        0,
+      ],
+    },
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "z-image-turbo",
+      "images": [
+        "57:8",
+        0,
+      ],
+    },
+  },
+}
+`;

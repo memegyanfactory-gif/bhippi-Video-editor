@@ -157,12 +157,12 @@ describe('media tool contracts', () => {
     vi.mocked(api.settingsGet).mockResolvedValue({ disableLocalGeneration: true } as any);
     const off = await runTool(host, 'local_media_capabilities', {});
     if (!off.ok) throw new Error(off.error);
-    expect(off.summary).toContain('turned OFF');
+    expect(off.summary).toContain('is not in use (Settings → Model Library → In use)');
     expect(off.disableLocalGeneration).toBe(true);
     vi.mocked(api.settingsGet).mockResolvedValue({ disableLocalGeneration: false } as any);
     const on = await runTool(host, 'local_media_capabilities', {});
     if (!on.ok) throw new Error(on.error);
-    expect(on.summary).not.toContain('turned OFF');
+    expect(on.summary).not.toContain('is not in use');
     expect(on.disableLocalGeneration).toBe(false);
   });
 });

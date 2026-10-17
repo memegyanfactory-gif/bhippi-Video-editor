@@ -1,0 +1,2155 @@
+[
+  {
+    "id": "qwen3.5-4b",
+    "name": "Qwen3.5 4B",
+    "maker": "Alibaba Qwen",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools"
+    ],
+    "summary": "A small, quick assistant that runs on almost any PC, even without a graphics card.",
+    "description": "Qwen3.5 4B is a compact dense model from Alibaba Qwen with a long 262K context. It follows instructions and calls tools well for its size, speaks many languages and thinks before answering when it helps. Pick it for laptops, small GPUs or when you want answers in a blink; the bigger models here write better.",
+    "tags": [
+      "small",
+      "dense",
+      "tool calling",
+      "multilingual",
+      "low-end PCs"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/qwen3.5-4b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Qwen3.5 4B is licensed under the Apache License 2.0 (https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/Qwen/Qwen3.5-4B"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "3-bit weights: the smallest download, a little less accurate.",
+        "minVramGb": 0,
+        "recVramGb": 4,
+        "minRamGb": 7,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q3_K_M.gguf",
+            "dest": "llm/qwen3.5-4b/Qwen3.5-4B-Q3_K_M.gguf",
+            "bytes": 2293388448,
+            "sha256": "d6981ab4d77ba712b48ef69d69042d75b5e39b9dce5fb5a5b054fd08e06afb95"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 4.2,
+          "activeParamsB": 4.2,
+          "moe": false,
+          "layers": 32,
+          "contextMax": 262144,
+          "quant": "Q3_K_M"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights: the usual size and quality trade-off.",
+        "minVramGb": 0,
+        "recVramGb": 4.5,
+        "minRamGb": 7,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+            "dest": "llm/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf",
+            "bytes": 2740937888,
+            "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 4.2,
+          "activeParamsB": 4.2,
+          "moe": false,
+          "layers": 32,
+          "contextMax": 262144,
+          "quant": "Q4_K_M"
+        }
+      },
+      {
+        "id": "q4-mtp",
+        "label": "Balanced, faster writing (MTP)",
+        "detail": "The same quantization as \"Balanced\" with the model's own draft head built in (about 3% larger). llama.cpp drafts a few words ahead and the model checks them, so the text is the same and can come out faster. Use \"Tune for this PC\" to measure whether it helps on your PC.",
+        "minVramGb": 0,
+        "recVramGb": 4.6,
+        "minRamGb": 8,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-4B-MTP-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+            "dest": "llm/qwen3.5-4b/Qwen3.5-4B-Q4_K_M-MTP.gguf",
+            "bytes": 2834975040,
+            "sha256": "3874209241c9a397e2f62cd3f70f80fd2dfbf0dfccb6838416bdb48a714e8630"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 4.2,
+          "activeParamsB": 4.2,
+          "moe": false,
+          "layers": 32,
+          "contextMax": 262144,
+          "quant": "Q4_K_M",
+          "speculative": "mtp"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: almost identical to the original, about twice the size.",
+        "minVramGb": 0,
+        "recVramGb": 6.5,
+        "minRamGb": 9,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q8_0.gguf",
+            "dest": "llm/qwen3.5-4b/Qwen3.5-4B-Q8_0.gguf",
+            "bytes": 4482403488,
+            "sha256": "10cc391b403021dd11c614679d2fd92f611c3681d29e29651b717316965d61e1"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 4.2,
+          "activeParamsB": 4.2,
+          "moe": false,
+          "layers": 32,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "gemma-4-12b",
+    "name": "Gemma 4 12B",
+    "maker": "Google DeepMind",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning",
+      "vision"
+    ],
+    "summary": "Google's mid-size all-rounder: reads pictures, thinks before it answers, and fits a 12 GB graphics card.",
+    "description": "Gemma 4 12B is a dense model from Google DeepMind that understands text and pictures in one network. It supports a 256K context, over 140 languages and configurable thinking, and it is strong at reasoning, coding and tool use for its size. At 4-bit it fits completely in 8 to 10 GB of video memory. The picture reader is downloaded with it.",
+    "tags": [
+      "dense",
+      "vision",
+      "tool calling",
+      "multilingual",
+      "reasoning"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/gemma-4-12b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://ai.google.dev/gemma/docs/gemma_4_license",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Gemma 4 is licensed under the Apache License 2.0 (https://ai.google.dev/gemma/docs/gemma_4_license). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/google/gemma-4-12B-it"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: fits 6 GB cards, a little less accurate.",
+        "minVramGb": 0,
+        "recVramGb": 6.5,
+        "minRamGb": 10,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/gemma-4-12b-it-UD-IQ3_XXS.gguf",
+            "dest": "llm/gemma-4-12b/gemma-4-12b-it-UD-IQ3_XXS.gguf",
+            "bytes": 4639716160,
+            "sha256": "0cf13ac91a6c1b1aaaeae633181c75af0f1fa3da1a89abf2086038e105c789f0"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/gemma-4-12b/mmproj-F16.gguf",
+            "bytes": 175115840,
+            "sha256": "91f086971e56d7a7d8d39e271873fccdb49541bd259d6e02c401a4f1cb7a219e"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 11.9,
+          "activeParamsB": 11.9,
+          "moe": false,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights: the usual size and quality trade-off.",
+        "minVramGb": 0,
+        "recVramGb": 9,
+        "minRamGb": 13,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/gemma-4-12b-it-Q4_K_M.gguf",
+            "dest": "llm/gemma-4-12b/gemma-4-12b-it-Q4_K_M.gguf",
+            "bytes": 7121861440,
+            "sha256": "0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/gemma-4-12b/mmproj-F16.gguf",
+            "bytes": 175115840,
+            "sha256": "91f086971e56d7a7d8d39e271873fccdb49541bd259d6e02c401a4f1cb7a219e"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 11.9,
+          "activeParamsB": 11.9,
+          "moe": false,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "Q4_K_M"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: nearly the original quality; wants a 16 GB card to stay fully on the GPU.",
+        "minVramGb": 0,
+        "recVramGb": 14,
+        "minRamGb": 18,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/gemma-4-12b-it-Q8_0.gguf",
+            "dest": "llm/gemma-4-12b/gemma-4-12b-it-Q8_0.gguf",
+            "bytes": 12669647680,
+            "sha256": "f20e7ff1be28c283eeeb18fc895733791c56a5851d5cd3fe9691b7f7d12afa72"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/gemma-4-12b/mmproj-F16.gguf",
+            "bytes": 175115840,
+            "sha256": "91f086971e56d7a7d8d39e271873fccdb49541bd259d6e02c401a4f1cb7a219e"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 11.9,
+          "activeParamsB": 11.9,
+          "moe": false,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "qwen3.5-9b",
+    "name": "Qwen3.5 9B",
+    "maker": "Alibaba Qwen",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code"
+    ],
+    "summary": "A capable everyday assistant that fits entirely on an 8 GB graphics card.",
+    "description": "Qwen3.5 9B is a dense model from Alibaba Qwen with a 262K context window. At 4-bit it fits completely in 8 GB of video memory and answers quickly; it handles tool calls, multilingual chat and light coding. A good first model on a mid-range PC.",
+    "tags": [
+      "dense",
+      "tool calling",
+      "multilingual",
+      "fits 8 GB GPUs"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/qwen3.5-9b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3.5-9B/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Qwen3.5 9B is licensed under the Apache License 2.0 (https://huggingface.co/Qwen/Qwen3.5-9B/blob/main/LICENSE). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/Qwen/Qwen3.5-9B"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: fits 6 GB cards, a little less accurate.",
+        "minVramGb": 0,
+        "recVramGb": 6,
+        "minRamGb": 9,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3.5-9b/Qwen3.5-9B-UD-IQ3_XXS.gguf",
+            "bytes": 4016235744,
+            "sha256": "40d0f32cd3030b04f0784139a589fb63e876cfbf8667d56311b79783c74fd149"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 9,
+          "activeParamsB": 9,
+          "moe": false,
+          "layers": 32,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights: the usual size and quality trade-off.",
+        "minVramGb": 0,
+        "recVramGb": 7.5,
+        "minRamGb": 10,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf",
+            "dest": "llm/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf",
+            "bytes": 5680522464,
+            "sha256": "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 9,
+          "activeParamsB": 9,
+          "moe": false,
+          "layers": 32,
+          "contextMax": 262144,
+          "quant": "Q4_K_M"
+        }
+      },
+      {
+        "id": "q4-mtp",
+        "label": "Balanced, faster writing (MTP)",
+        "detail": "The same quantization as \"Balanced\" with the model's own draft head built in (about 3% larger). llama.cpp drafts a few words ahead and the model checks them, so the text is the same and can come out faster. Use \"Tune for this PC\" to measure whether it helps on your PC.",
+        "minVramGb": 0,
+        "recVramGb": 7.7,
+        "minRamGb": 11,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-9B-MTP-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf",
+            "dest": "llm/qwen3.5-9b/Qwen3.5-9B-Q4_K_M-MTP.gguf",
+            "bytes": 5868826976,
+            "sha256": "e8dd94817e95d6c0939102049d068418269978377b13616c4726235e232841fe"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 9,
+          "activeParamsB": 9,
+          "moe": false,
+          "layers": 32,
+          "contextMax": 262144,
+          "quant": "Q4_K_M",
+          "speculative": "mtp"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: nearly the original quality; wants a 12 GB card to stay fully on the GPU.",
+        "minVramGb": 0,
+        "recVramGb": 11.5,
+        "minRamGb": 14,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q8_0.gguf",
+            "dest": "llm/qwen3.5-9b/Qwen3.5-9B-Q8_0.gguf",
+            "bytes": 9527502048,
+            "sha256": "809626574d0cb43d4becfa56169980da2bb448f2299270f7be443cb89d0a6ae4"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 9,
+          "activeParamsB": 9,
+          "moe": false,
+          "layers": 32,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "gpt-oss-20b",
+    "name": "gpt-oss 20B",
+    "maker": "OpenAI",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning"
+    ],
+    "summary": "OpenAI's small open model: 21B parameters but only 3.6B work per word, so it is fast.",
+    "description": "gpt-oss-20b is OpenAI's open-weight reasoning model. It is a mixture of experts: 32 experts per block and only 4 used per word, so it reads about a sixth of its weights each step. It is built for tool calling and structured answers and can show its reasoning at low, medium or high effort. The weights are already 4-bit (MXFP4), so every download here is about 12 to 14 GB. Runs well on a 10 GB GPU with some experts in RAM.",
+    "tags": [
+      "MoE",
+      "tool calling",
+      "reasoning",
+      "fast"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/gpt-oss-20b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://huggingface.co/openai/gpt-oss-20b/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes.",
+        "OpenAI also asks you to follow its gpt-oss usage policy (no use for illegal or harmful purposes)."
+      ],
+      "notice": "gpt-oss-20b is licensed under the Apache License 2.0 (https://huggingface.co/openai/gpt-oss-20b/blob/main/LICENSE). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/openai/gpt-oss-20b"
+      },
+      {
+        "label": "Usage policy",
+        "url": "https://huggingface.co/openai/gpt-oss-20b/blob/main/USAGE_POLICY"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/gpt-oss-20b-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q4",
+        "label": "Standard",
+        "detail": "Unsloth's tuned 4-bit mix: the one most people should take.",
+        "minVramGb": 3,
+        "recVramGb": 13.5,
+        "minRamGb": 15,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-UD-Q4_K_XL.gguf",
+            "dest": "llm/gpt-oss-20b/gpt-oss-20b-UD-Q4_K_XL.gguf",
+            "bytes": 11872347328,
+            "sha256": "10fe673de12c20b74b8d670a9fdf0fd36b43b0a86ffc04daeb175c0a2b98c4f9"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 21,
+          "activeParamsB": 3.6,
+          "moe": true,
+          "layers": 24,
+          "contextMax": 131072,
+          "quant": "UD-Q4_K_XL"
+        }
+      },
+      {
+        "id": "native",
+        "label": "Original precision",
+        "detail": "The weights as OpenAI released them (4-bit experts, 16-bit the rest): the reference quality, 2 GB larger.",
+        "minVramGb": 3.5,
+        "recVramGb": 15.5,
+        "minRamGb": 17,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-F16.gguf",
+            "dest": "llm/gpt-oss-20b/gpt-oss-20b-F16.gguf",
+            "bytes": 13792639168,
+            "sha256": "4e4f9cd88d6456e4f389e7262eca4a8d565211e2b22ece9ca7a8556168ff3c66"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 21,
+          "activeParamsB": 3.6,
+          "moe": true,
+          "layers": 24,
+          "contextMax": 131072,
+          "quant": "MXFP4 + F16"
+        }
+      }
+    ]
+  },
+  {
+    "id": "gemma-4-26b-a4b",
+    "name": "Gemma 4 26B A4B",
+    "maker": "Google DeepMind",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning"
+    ],
+    "summary": "Google's open mixture-of-experts model: about 4B parameters work per word out of 26B.",
+    "description": "Gemma 4 26B A4B is Google DeepMind's mixture-of-experts model: 128 experts per block with 8 used per word, so it answers about as fast as a 4B model while knowing far more. It mixes local and global attention, which keeps its memory use for long chats small, supports a 256K context and many languages, and is strong at reasoning, coding and tool use. (Pictures are not used here; this runs the text side.)",
+    "tags": [
+      "MoE",
+      "tool calling",
+      "multilingual",
+      "reasoning"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/gemma-4-26b-a4b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://ai.google.dev/gemma/docs/gemma_4_license",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Gemma 4 is licensed under the Apache License 2.0 (https://ai.google.dev/gemma/docs/gemma_4_license). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/google/gemma-4-26B-A4B-it"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: the smallest comfortable size.",
+        "minVramGb": 3,
+        "recVramGb": 14.5,
+        "minRamGb": 16,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q3_K_M.gguf",
+            "dest": "llm/gemma-4-26b-a4b/gemma-4-26B-A4B-it-UD-Q3_K_M.gguf",
+            "bytes": 12728497888,
+            "sha256": "811882f6df81c8ea204a5d382f196d6bd601245091786912d4c70df41cdfa052"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 25.2,
+          "activeParamsB": 3.8,
+          "moe": true,
+          "layers": 30,
+          "contextMax": 262144,
+          "quant": "UD-Q3_K_M"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights tuned by Unsloth: the usual size and quality trade-off.",
+        "minVramGb": 3.5,
+        "recVramGb": 19,
+        "minRamGb": 20,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf",
+            "dest": "llm/gemma-4-26b-a4b/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf",
+            "bytes": 16947541728,
+            "sha256": "f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 25.2,
+          "activeParamsB": 3.8,
+          "moe": true,
+          "layers": 30,
+          "contextMax": 262144,
+          "quant": "UD-Q4_K_M"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: close to the original; needs about 27 GB of RAM plus the GPU.",
+        "minVramGb": 4.5,
+        "recVramGb": 29,
+        "minRamGb": 29,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-Q8_0.gguf",
+            "dest": "llm/gemma-4-26b-a4b/gemma-4-26B-A4B-it-Q8_0.gguf",
+            "bytes": 26859861728,
+            "sha256": "5f7cbd0f4564e84342fc34321a09acb54b1a3da9215124e5bf444baa6dda152c"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 25.2,
+          "activeParamsB": 3.8,
+          "moe": true,
+          "layers": 30,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "glm-4.7-flash",
+    "name": "GLM-4.7 Flash",
+    "maker": "Z.ai (Zhipu AI)",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning"
+    ],
+    "summary": "A 30B mixture-of-experts model tuned for agents and tool calling; only 3B work per word.",
+    "description": "GLM-4.7 Flash is Z.ai's 30B-A3B mixture-of-experts model, the strongest of its size on agent and tool benchmarks (79.5 on tau2-Bench, 59.2 on SWE-bench Verified in its model card). It has a 200K context and an MIT license, which is the most relaxed there is. Strongest in English and Chinese.",
+    "tags": [
+      "MoE",
+      "tool calling",
+      "coding",
+      "agents",
+      "English and Chinese"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/glm-4.7-flash.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "MIT License",
+      "url": "https://opensource.org/license/mit",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no conditions beyond keeping the copyright notice.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "GLM-4.7-Flash is released by Z.ai under the MIT License (huggingface.co/zai-org/GLM-4.7-Flash). The GGUF files are converted and quantized by Unsloth.",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/zai-org/GLM-4.7-Flash"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: the smallest comfortable size.",
+        "minVramGb": 3,
+        "recVramGb": 15,
+        "minRamGb": 17,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF/resolve/main/GLM-4.7-Flash-UD-IQ3_XXS.gguf",
+            "dest": "llm/glm-4.7-flash/GLM-4.7-Flash-UD-IQ3_XXS.gguf",
+            "bytes": 12907368800,
+            "sha256": "36b022b9cc24dd09bac703def9b065267e7ea3e51367d927958baa21484d745c"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 30,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 47,
+          "contextMax": 202752,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights: the usual size and quality trade-off.",
+        "minVramGb": 3.5,
+        "recVramGb": 20.5,
+        "minRamGb": 22,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF/resolve/main/GLM-4.7-Flash-Q4_K_M.gguf",
+            "dest": "llm/glm-4.7-flash/GLM-4.7-Flash-Q4_K_M.gguf",
+            "bytes": 18312339808,
+            "sha256": "29837ed2c0fc5f51981adf8ac8083fcf80743c598381f13e9f06cbad0498b174"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 30,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 47,
+          "contextMax": 202752,
+          "quant": "Q4_K_M"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: close to the original; about 32 GB.",
+        "minVramGb": 4,
+        "recVramGb": 34,
+        "minRamGb": 34,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF/resolve/main/GLM-4.7-Flash-Q8_0.gguf",
+            "dest": "llm/glm-4.7-flash/GLM-4.7-Flash-Q8_0.gguf",
+            "bytes": 31842799968,
+            "sha256": "8c0922b03326932a40315ce92bbee01cc836ad18664268019143c898bdd7dd0b"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 30,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 47,
+          "contextMax": 202752,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "qwen3.6-35b-a3b",
+    "name": "Qwen3.6 35B A3B",
+    "maker": "Alibaba Qwen",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning",
+      "vision"
+    ],
+    "summary": "The quick all-rounder, now with better coding: 35B mixture-of-experts, 3B working per word, sees pictures.",
+    "description": "Qwen3.6 35B A3B follows the Qwen3.5 model of the same size with a focus on stable, practical agentic coding: front-end work and reasoning across a whole code repository. 256 experts per block with 8 plus one shared used per word, so it costs about as much to run as a 3B model. It thinks before it answers, can keep its earlier reasoning in view, and reads pictures. A good first choice for a 10 to 12 GB GPU with 32 GB or more of RAM.",
+    "tags": [
+      "MoE",
+      "vision",
+      "coding",
+      "agents",
+      "tool calling",
+      "reasoning",
+      "long context"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/qwen3.6-35b-a3b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Qwen3.6 35B A3B is licensed under the Apache License 2.0 (https://huggingface.co/Qwen/Qwen3.6-35B-A3B/blob/main/LICENSE). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: the smallest comfortable size.",
+        "minVramGb": 3.5,
+        "recVramGb": 15,
+        "minRamGb": 17,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf",
+            "bytes": 13211155424,
+            "sha256": "9c964e657212fea1f24905dd7b0a89b82fd807d19fab0b41da14251b07b88fbe"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/mmproj-F16.gguf",
+            "bytes": 899283680,
+            "sha256": "8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q3-mtp",
+        "label": "Smaller, faster writing (MTP)",
+        "detail": "The same quantization as \"Smaller\" with the model's own draft head built in (about 6% larger). llama.cpp drafts a few words ahead and the model checks them, so the text is the same and can come out faster. Use \"Tune for this PC\" to measure whether it helps on your PC.",
+        "minVramGb": 3.5,
+        "recVramGb": 15.8,
+        "minRamGb": 18,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/Qwen3.6-35B-A3B-UD-IQ3_XXS-MTP.gguf",
+            "bytes": 14069266720,
+            "sha256": "36f9ec0e4c775f6efd3a61c1ea76f0875128469c3d012e3d9e2495a90e7a7150"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/mmproj-F16.gguf",
+            "bytes": 899283680,
+            "sha256": "8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS",
+          "speculative": "mtp"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights tuned by Unsloth: the usual size and quality trade-off.",
+        "minVramGb": 4,
+        "recVramGb": 23.5,
+        "minRamGb": 25,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+            "bytes": 22134528992,
+            "sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/mmproj-F16.gguf",
+            "bytes": 899283680,
+            "sha256": "8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "UD-Q4_K_M"
+        }
+      },
+      {
+        "id": "q4-mtp",
+        "label": "Balanced, faster writing (MTP)",
+        "detail": "The same quantization as \"Balanced\" with the model's own draft head built in (about 2% larger). llama.cpp drafts a few words ahead and the model checks them, so the text is the same and can come out faster. Use \"Tune for this PC\" to measure whether it helps on your PC.",
+        "minVramGb": 4,
+        "recVramGb": 24,
+        "minRamGb": 26,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/Qwen3.6-35B-A3B-UD-Q4_K_M-MTP.gguf",
+            "bytes": 22663387424,
+            "sha256": "0b21525e972670ed59e1812e170b27c26355381f0656ecc4e25617ece7dac58b"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/mmproj-F16.gguf",
+            "bytes": 899283680,
+            "sha256": "8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "UD-Q4_K_M",
+          "speculative": "mtp"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: close to the original; about 37 GB.",
+        "minVramGb": 4.5,
+        "recVramGb": 37,
+        "minRamGb": 38,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-Q8_0.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/Qwen3.6-35B-A3B-Q8_0.gguf",
+            "bytes": 36903140320,
+            "sha256": "d1a395809f65a43a13ad119eb4e7acdef1ac6d68120f39902c8ab96e72794a59"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/qwen3.6-35b-a3b/mmproj-F16.gguf",
+            "bytes": 899283680,
+            "sha256": "8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "qwen3.5-35b-a3b",
+    "name": "Qwen3.5 35B A3B",
+    "maker": "Alibaba Qwen",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning"
+    ],
+    "summary": "The all-rounder: 35B mixture-of-experts, 3B working per word, 262K context.",
+    "description": "Qwen3.5 35B A3B has 256 experts per block and uses 8 plus one shared per word, so it costs about as much to run as a 3B model. Three of every four blocks use a light \"linear\" attention, which makes long conversations cheap in memory. It thinks before it answers, calls tools reliably and speaks many languages. The best starting point for a 10 to 12 GB GPU with 32 GB or more of RAM.",
+    "tags": [
+      "MoE",
+      "tool calling",
+      "multilingual",
+      "long context",
+      "reasoning"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/qwen3.5-35b-a3b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3.5-35B-A3B/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Qwen3.5 35B A3B is licensed under the Apache License 2.0 (https://huggingface.co/Qwen/Qwen3.5-35B-A3B/blob/main/LICENSE). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/Qwen/Qwen3.5-35B-A3B"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: the smallest comfortable size.",
+        "minVramGb": 2.5,
+        "recVramGb": 15,
+        "minRamGb": 17,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/Qwen3.5-35B-A3B-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3.5-35b-a3b/Qwen3.5-35B-A3B-UD-IQ3_XXS.gguf",
+            "bytes": 13080066688,
+            "sha256": "9f7f59280fcac9373f9122de0ed7a19e014fc14120a68b343ea46ac5f5dd96cd"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q3-mtp",
+        "label": "Smaller, faster writing (MTP)",
+        "detail": "The same quantization as \"Smaller\" with the model's own draft head built in (about 8% larger). llama.cpp drafts a few words ahead and the model checks them, so the text is the same and can come out faster. Use \"Tune for this PC\" to measure whether it helps on your PC.",
+        "minVramGb": 2.5,
+        "recVramGb": 16,
+        "minRamGb": 18,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-MTP-GGUF/resolve/main/Qwen3.5-35B-A3B-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3.5-35b-a3b/Qwen3.5-35B-A3B-UD-IQ3_XXS-MTP.gguf",
+            "bytes": 14068758688,
+            "sha256": "68d21976070d4746a64bc3c5394d1947306406610b823a31ebbe7de6401d5d4f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS",
+          "speculative": "mtp"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights: the usual size and quality trade-off.",
+        "minVramGb": 3,
+        "recVramGb": 24,
+        "minRamGb": 25,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/Qwen3.5-35B-A3B-Q4_K_M.gguf",
+            "dest": "llm/qwen3.5-35b-a3b/Qwen3.5-35B-A3B-Q4_K_M.gguf",
+            "bytes": 22016023168,
+            "sha256": "3b46d1066bc91cc2d613e3bc22ce691dd77e6f0d33c9060690d24ce6de494375"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "Q4_K_M"
+        }
+      },
+      {
+        "id": "q4-mtp",
+        "label": "Balanced, faster writing (MTP)",
+        "detail": "The same quantization as \"Balanced\" with the model's own draft head built in (about 3% larger). llama.cpp drafts a few words ahead and the model checks them, so the text is the same and can come out faster. Use \"Tune for this PC\" to measure whether it helps on your PC.",
+        "minVramGb": 3,
+        "recVramGb": 24.6,
+        "minRamGb": 26,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-MTP-GGUF/resolve/main/Qwen3.5-35B-A3B-UD-Q4_K_M.gguf",
+            "dest": "llm/qwen3.5-35b-a3b/Qwen3.5-35B-A3B-UD-Q4_K_M-MTP.gguf",
+            "bytes": 22627735712,
+            "sha256": "a20c5a9f0cee94d24af3553e7828df1337c7d24213789911c74e1f4936894936"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "Q4_K_M",
+          "speculative": "mtp"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: close to the original; about 37 GB.",
+        "minVramGb": 4,
+        "recVramGb": 39,
+        "minRamGb": 40,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/Qwen3.5-35B-A3B-Q8_0.gguf",
+            "dest": "llm/qwen3.5-35b-a3b/Qwen3.5-35B-A3B-Q8_0.gguf",
+            "bytes": 36903139968,
+            "sha256": "3808866c016ab02b4adb26b873f7008a2cdd2c0704a39704050119ab0631db46"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 35,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 40,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "nemotron-3-nano-omni",
+    "name": "Nemotron 3 Nano Omni",
+    "maker": "NVIDIA",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "reasoning",
+      "vision"
+    ],
+    "summary": "NVIDIA's 31B mixture-of-experts that reads pictures, documents and video frames, with only about 3B working per word.",
+    "description": "Nemotron 3 Nano Omni mixes Mamba state-space blocks, a few attention blocks and mixture-of-experts layers, so it stays fast and light on memory even with a very long context. It reasons by default (switchable), and is built for reading documents, charts and screens, and for describing video, plus tool use. The picture reader is downloaded with it. NVIDIA's own license applies, so you accept it before downloading.",
+    "tags": [
+      "MoE",
+      "vision",
+      "documents",
+      "tool calling",
+      "reasoning",
+      "long context"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/nemotron-3-nano-omni.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "NVIDIA Open Model License",
+      "url": "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/",
+      "summary": [
+        "NVIDIA's own license, not a standard open-source one: you may use, change and share the model, including in commercial work, under its terms.",
+        "Read it for the details, such as keeping attribution and not removing the safety features it describes.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "NVIDIA Nemotron 3 Nano Omni is licensed under the NVIDIA Open Model License (https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": true
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q2",
+        "label": "Smaller",
+        "detail": "About 2-bit weights tuned by Unsloth: the smallest size; noticeably less accurate.",
+        "minVramGb": 4.5,
+        "recVramGb": 20.5,
+        "minRamGb": 22,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF/resolve/main/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-UD-IQ2_M.gguf",
+            "dest": "llm/nemotron-3-nano-omni/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-UD-IQ2_M.gguf",
+            "bytes": 18499970496,
+            "sha256": "33c36ec33650e76d4a4b6a7bc2772cb316acc44e76fdd27c26b37ff3b5e0877c"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/nemotron-3-nano-omni/mmproj-F16.gguf",
+            "bytes": 1587540224,
+            "sha256": "8e72b13d61ac5972793b94e130e69d93ebbc96bc8e281500c03e762282b1840f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 31.6,
+          "activeParamsB": 3.5,
+          "moe": true,
+          "layers": 52,
+          "contextMax": 262144,
+          "quant": "UD-IQ2_M"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights tuned by Unsloth: the usual size and quality trade-off.",
+        "minVramGb": 5,
+        "recVramGb": 25.5,
+        "minRamGb": 26,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF/resolve/main/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-UD-Q4_K_M.gguf",
+            "dest": "llm/nemotron-3-nano-omni/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-UD-Q4_K_M.gguf",
+            "bytes": 23887023552,
+            "sha256": "46e71735339e86639b3786b57b6997c996e75a02f16c86dbe03e7c586a3e155f"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/nemotron-3-nano-omni/mmproj-F16.gguf",
+            "bytes": 1587540224,
+            "sha256": "8e72b13d61ac5972793b94e130e69d93ebbc96bc8e281500c03e762282b1840f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 31.6,
+          "activeParamsB": 3.5,
+          "moe": true,
+          "layers": 52,
+          "contextMax": 262144,
+          "quant": "UD-Q4_K_M"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: close to the original; about 34 GB.",
+        "minVramGb": 5.5,
+        "recVramGb": 34.5,
+        "minRamGb": 35,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF/resolve/main/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-Q8_0.gguf",
+            "dest": "llm/nemotron-3-nano-omni/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-Q8_0.gguf",
+            "bytes": 33585499584,
+            "sha256": "f56367045c588180ce6d54a0e23bde6c16cc6c4dc66dcadd1491f217cc176df9"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/nemotron-3-nano-omni/mmproj-F16.gguf",
+            "bytes": 1587540224,
+            "sha256": "8e72b13d61ac5972793b94e130e69d93ebbc96bc8e281500c03e762282b1840f"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 31.6,
+          "activeParamsB": 3.5,
+          "moe": true,
+          "layers": 52,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "qwen3.8-27b",
+    "name": "Qwen3.8 27B",
+    "maker": "Alibaba Qwen",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning",
+      "vision"
+    ],
+    "summary": "Alibaba's newest open model: a dense 27B for coding, agents and long tasks, and it sees pictures and video.",
+    "description": "Qwen3.8 27B is the newest generation of Qwen's open models, built on the Qwen3.5 design with large gains in coding, research and long, multi-step agent work. It is a native vision-language model, thinks by default (and can be told to think less), and has a 262K context. Three of every four blocks use a light linear attention, so long chats stay cheap in memory. The picture reader is downloaded with it.",
+    "tags": [
+      "dense",
+      "vision",
+      "coding",
+      "agents",
+      "tool calling",
+      "reasoning",
+      "long context"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/qwen3.8-27b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Qwen3.8 27B is licensed under the Apache License 2.0 (https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/LICENSE). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: the smallest comfortable size, for a 12 GB card.",
+        "minVramGb": 0,
+        "recVramGb": 13,
+        "minRamGb": 17,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3.8-27b/Qwen3.8-27B-UD-IQ3_XXS.gguf",
+            "bytes": 10934860704,
+            "sha256": "c0b7c3038681ed2e3040456c1dd45f9858b6c2290bed172c70388a94874f3eee"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/qwen3.8-27b/mmproj-F16.gguf",
+            "bytes": 927607488,
+            "sha256": "cbb841a9ee0636b2ec172f5bb8df2ea8dfeb01e90fe7c6126581d662a0b4e43e"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 27.3,
+          "activeParamsB": 27.3,
+          "moe": false,
+          "layers": 64,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "4-bit weights tuned by Unsloth: the usual size and quality trade-off.",
+        "minVramGb": 13.5,
+        "recVramGb": 18.5,
+        "minRamGb": 22,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_M.gguf",
+            "dest": "llm/qwen3.8-27b/Qwen3.8-27B-UD-Q4_K_M.gguf",
+            "bytes": 16464440224,
+            "sha256": "322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/qwen3.8-27b/mmproj-F16.gguf",
+            "bytes": 927607488,
+            "sha256": "cbb841a9ee0636b2ec172f5bb8df2ea8dfeb01e90fe7c6126581d662a0b4e43e"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 27.3,
+          "activeParamsB": 27.3,
+          "moe": false,
+          "layers": 64,
+          "contextMax": 262144,
+          "quant": "UD-Q4_K_M"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: close to the original; about 29 GB.",
+        "minVramGb": 20.5,
+        "recVramGb": 30,
+        "minRamGb": 34,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-Q8_0.gguf",
+            "dest": "llm/qwen3.8-27b/Qwen3.8-27B-Q8_0.gguf",
+            "bytes": 29047086048,
+            "sha256": "a680f44a06920e5d689774823782006aa3acc8db95750323373b24139b67e348"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/qwen3.8-27b/mmproj-F16.gguf",
+            "bytes": 927607488,
+            "sha256": "cbb841a9ee0636b2ec172f5bb8df2ea8dfeb01e90fe7c6126581d662a0b4e43e"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 27.3,
+          "activeParamsB": 27.3,
+          "moe": false,
+          "layers": 64,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "gemma-4-31b",
+    "name": "Gemma 4 31B",
+    "maker": "Google DeepMind",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning",
+      "vision"
+    ],
+    "summary": "Google's largest open Gemma: a dense 31B that reads pictures, with a quality-trained 4-bit version.",
+    "description": "Gemma 4 31B is the biggest dense model in Google DeepMind's Gemma 4 family: strong at reasoning, coding, long documents and tool use, with a 256K context, over 140 languages and picture understanding. The Balanced size is Google's quantization-aware 4-bit version, trained to lose almost nothing at 4 bits. It is slower than the mixture-of-experts models because every parameter works on every word.",
+    "tags": [
+      "dense",
+      "vision",
+      "tool calling",
+      "multilingual",
+      "reasoning",
+      "QAT"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/gemma-4-31b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://ai.google.dev/gemma/docs/gemma_4_license",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Gemma 4 is licensed under the Apache License 2.0 (https://ai.google.dev/gemma/docs/gemma_4_license). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/google/gemma-4-31B-it"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF"
+      },
+      {
+        "label": "Quantization-aware 4-bit files",
+        "url": "https://huggingface.co/unsloth/gemma-4-31B-it-qat-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: the smallest comfortable size, for a 16 GB card.",
+        "minVramGb": 0,
+        "recVramGb": 14.5,
+        "minRamGb": 18,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-UD-IQ3_XXS.gguf",
+            "dest": "llm/gemma-4-31b/gemma-4-31B-it-UD-IQ3_XXS.gguf",
+            "bytes": 11837782976,
+            "sha256": "beb8b6e69da5d3778d781664d376f94962528c84982e1bf5aa7453d9b2d739b8"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/gemma-4-31b/mmproj-F16.gguf",
+            "bytes": 1198957024,
+            "sha256": "6edcca228213c28d3567a35d22f849eea52d8360875093851959adf5d2f270eb"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 30.7,
+          "activeParamsB": 30.7,
+          "moe": false,
+          "layers": 60,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "Google's quantization-aware 4-bit version: the quality of the original at a third of the size.",
+        "minVramGb": 14,
+        "recVramGb": 20,
+        "minRamGb": 23,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-31B-it-qat-GGUF/resolve/main/gemma-4-31B-it-qat-UD-Q4_K_XL.gguf",
+            "dest": "llm/gemma-4-31b/gemma-4-31B-it-qat-UD-Q4_K_XL.gguf",
+            "bytes": 17287670048,
+            "sha256": "00b5a7c497f0c8934033088c10a7fa9a4c015e46ee6d89e9c6890650ba5d0e71"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-31B-it-qat-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/gemma-4-31b/mmproj-qat-F16.gguf",
+            "bytes": 1198957024,
+            "sha256": "4775e1bf6ef6f8df94caed2d672c74432f0722565e5225a170c72949ebe4cf23"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 30.7,
+          "activeParamsB": 30.7,
+          "moe": false,
+          "layers": 60,
+          "contextMax": 262144,
+          "quant": "QAT UD-Q4_K_XL"
+        }
+      },
+      {
+        "id": "q8",
+        "label": "Best quality",
+        "detail": "8-bit weights: close to the original; needs about 40 GB of memory in all.",
+        "minVramGb": 22.5,
+        "recVramGb": 34,
+        "minRamGb": 38,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q8_0.gguf",
+            "dest": "llm/gemma-4-31b/gemma-4-31B-it-Q8_0.gguf",
+            "bytes": 32635677632,
+            "sha256": "d5808e5874e660a85ab45b2da00c9e3b4a003621249a333772232d1a703e4d67"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/mmproj-F16.gguf",
+            "dest": "llm/gemma-4-31b/mmproj-F16.gguf",
+            "bytes": 1198957024,
+            "sha256": "6edcca228213c28d3567a35d22f849eea52d8360875093851959adf5d2f270eb"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 30.7,
+          "activeParamsB": 30.7,
+          "moe": false,
+          "layers": 60,
+          "contextMax": 262144,
+          "quant": "Q8_0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "qwen3-coder-next",
+    "name": "Qwen3-Coder-Next",
+    "maker": "Alibaba Qwen",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code"
+    ],
+    "summary": "The coding specialist: 80B mixture-of-experts, 3B working per word, built for coding agents.",
+    "description": "Qwen3-Coder-Next is an 80B model with 512 experts per block and 10 used per word, tuned for coding agents: it works through long tasks, calls tools and fixes its own mistakes, with a 262K context. It needs 40 GB or more of RAM, but the GPU only has to hold the small shared part, so a 10 GB card is enough.",
+    "tags": [
+      "MoE",
+      "coding",
+      "agents",
+      "tool calling",
+      "long context"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/qwen3-coder-next.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Qwen3-Coder-Next is licensed under the Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/Qwen/Qwen3-Coder-Next"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q3",
+        "label": "Smaller",
+        "detail": "About 3-bit weights tuned by Unsloth: for 32 GB of RAM.",
+        "minVramGb": 3.5,
+        "recVramGb": 30.5,
+        "minRamGb": 32,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3-coder-next/Qwen3-Coder-Next-UD-IQ3_XXS.gguf",
+            "bytes": 28482506752,
+            "sha256": "00a9bf4f9dcb6ef4fb78ef810e6b5dbd13cc604ceb0fa10f56c9ae2529c0ade4"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 80,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Balanced",
+        "detail": "About 4-bit weights tuned by Unsloth: good quality for 48 GB of RAM.",
+        "minVramGb": 4,
+        "recVramGb": 40.5,
+        "minRamGb": 41,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-UD-IQ4_XS.gguf",
+            "dest": "llm/qwen3-coder-next/Qwen3-Coder-Next-UD-IQ4_XS.gguf",
+            "bytes": 38429272064,
+            "sha256": "abf56d7fe8a0a99c15d220c13de4aa57b69cfba6ef4c2a007b56e34d7b40cd11"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 80,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "UD-IQ4_XS"
+        }
+      },
+      {
+        "id": "q4m",
+        "label": "Higher quality",
+        "detail": "Standard 4-bit weights: the most accurate size that fits 64 GB of RAM.",
+        "minVramGb": 4.5,
+        "recVramGb": 50.5,
+        "minRamGb": 51,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-Q4_K_M.gguf",
+            "dest": "llm/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M.gguf",
+            "bytes": 48528320544,
+            "sha256": "9e6032d2f3b50a60f17ce8bf5a1d85c71af9b53b89c7978020ae7c660f29b090"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 80,
+          "activeParamsB": 3,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "Q4_K_M"
+        }
+      }
+    ]
+  },
+  {
+    "id": "qwen3.5-122b-a10b",
+    "name": "Qwen3.5 122B A10B",
+    "maker": "Alibaba Qwen",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning"
+    ],
+    "summary": "A 122B mixture-of-experts model with 10B working per word: the big, careful thinker.",
+    "description": "Qwen3.5 122B A10B has 256 experts per block with 8 used per word. It is much more capable than the 35B model at hard reasoning, long documents and agent work, and is slower because ten billion parameters work per word. It needs about 48 to 64 GB of RAM; the GPU holds the shared part and as many experts as fit.",
+    "tags": [
+      "MoE",
+      "tool calling",
+      "reasoning",
+      "multilingual",
+      "big"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/qwen3.5-122b-a10b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3.5-122B-A10B/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes."
+      ],
+      "notice": "Qwen3.5 122B A10B is licensed under the Apache License 2.0 (https://huggingface.co/Qwen/Qwen3.5-122B-A10B/blob/main/LICENSE). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/Qwen/Qwen3.5-122B-A10B"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q2",
+        "label": "Smaller",
+        "detail": "About 2-bit weights tuned by Unsloth: for 48 GB of RAM; noticeably less accurate.",
+        "minVramGb": 4,
+        "recVramGb": 41,
+        "minRamGb": 42,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/Qwen3.5-122B-A10B-UD-IQ2_M.gguf",
+            "dest": "llm/qwen3.5-122b-a10b/Qwen3.5-122B-A10B-UD-IQ2_M.gguf",
+            "bytes": 39148942528,
+            "sha256": "5466fa1ac7d2dc7c213db5f3030190af5a7107ca85e9ab28b39fe7cd9c97446e"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 122,
+          "activeParamsB": 10,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "UD-IQ2_M"
+        }
+      },
+      {
+        "id": "q3",
+        "label": "Balanced",
+        "detail": "About 3-bit weights tuned by Unsloth: the best fit for 64 GB of RAM.",
+        "minVramGb": 4,
+        "recVramGb": 46.5,
+        "minRamGb": 47,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/Qwen3.5-122B-A10B-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3.5-122b-a10b/Qwen3.5-122B-A10B-UD-IQ3_XXS.gguf",
+            "bytes": 44745020608,
+            "sha256": "a40f83c53128a739814132f30a442b029d02ff3224e32d0f52946427d48efe3c"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 122,
+          "activeParamsB": 10,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS"
+        }
+      },
+      {
+        "id": "q3-mtp",
+        "label": "Balanced, faster writing (MTP)",
+        "detail": "The same quantization as \"Balanced\" with the model's own draft head built in (about 7% larger). llama.cpp drafts a few words ahead and the model checks them, so the text is the same and can come out faster. Use \"Tune for this PC\" to measure whether it helps on your PC.",
+        "minVramGb": 4,
+        "recVramGb": 49.4,
+        "minRamGb": 50,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-MTP-GGUF/resolve/main/Qwen3.5-122B-A10B-UD-IQ3_XXS.gguf",
+            "dest": "llm/qwen3.5-122b-a10b/Qwen3.5-122B-A10B-UD-IQ3_XXS-MTP.gguf",
+            "bytes": 47842478784,
+            "sha256": "998a8924ff6a12661b60b898553f1771ed1c22c8bfe75e5c8a6f47d01776becc"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 122,
+          "activeParamsB": 10,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "UD-IQ3_XXS",
+          "speculative": "mtp"
+        }
+      },
+      {
+        "id": "q4",
+        "label": "Higher quality",
+        "detail": "About 4-bit weights tuned by Unsloth: 60 GB, needs 64 GB of RAM with little else open.",
+        "minVramGb": 5,
+        "recVramGb": 62,
+        "minRamGb": 62,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/UD-IQ4_XS/Qwen3.5-122B-A10B-UD-IQ4_XS-00001-of-00003.gguf",
+            "dest": "llm/qwen3.5-122b-a10b/Qwen3.5-122B-A10B-UD-IQ4_XS-00001-of-00003.gguf",
+            "bytes": 10943552,
+            "sha256": "1bd4c860d2300566087683d8b971830eaea466eec8f8c5ee69f9ddc2bcea3613"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/UD-IQ4_XS/Qwen3.5-122B-A10B-UD-IQ4_XS-00002-of-00003.gguf",
+            "dest": "llm/qwen3.5-122b-a10b/Qwen3.5-122B-A10B-UD-IQ4_XS-00002-of-00003.gguf",
+            "bytes": 49719606080,
+            "sha256": "1f77e62d600cb255e327e76ffa058755d1de2b8a1872dd58c89eeb5f8c90e7e8"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/UD-IQ4_XS/Qwen3.5-122B-A10B-UD-IQ4_XS-00003-of-00003.gguf",
+            "dest": "llm/qwen3.5-122b-a10b/Qwen3.5-122B-A10B-UD-IQ4_XS-00003-of-00003.gguf",
+            "bytes": 10498961024,
+            "sha256": "c644a84cedb93cb85aaedc9bf711d6a388d8205a59566638a9eb1f5c8afd04f2"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 122,
+          "activeParamsB": 10,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "UD-IQ4_XS"
+        }
+      }
+    ]
+  },
+  {
+    "id": "gpt-oss-120b",
+    "name": "gpt-oss 120B",
+    "maker": "OpenAI",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "reasoning"
+    ],
+    "summary": "OpenAI's big open model: 117B parameters, only 5.1B work per word. Needs 64 GB of RAM.",
+    "description": "gpt-oss-120b is OpenAI's large open-weight reasoning model: 128 experts per block, 4 used per word. Its weights are already 4-bit (MXFP4), so there is no smaller version, about 63 GB in all. It reasons at low, medium or high effort and calls tools well. This is the model that shows why the technique works: only 5 billion parameters are read per word, so with the shared part on the GPU and the experts in RAM it answers at a usable speed even though it could never fit a consumer graphics card.",
+    "tags": [
+      "MoE",
+      "tool calling",
+      "reasoning",
+      "big"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/gpt-oss-120b.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "llama-cpp",
+    "license": {
+      "name": "Apache License 2.0",
+      "url": "https://huggingface.co/openai/gpt-oss-120b/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change and share, personal or commercial, with no fees and no usage reporting.",
+        "If you pass the model on, keep the license text and its notices with it. The license includes a patent grant.",
+        "The model is provided as is, without warranty. You are responsible for how you use what it writes.",
+        "OpenAI also asks you to follow its gpt-oss usage policy (no use for illegal or harmful purposes)."
+      ],
+      "notice": "gpt-oss-120b is licensed under the Apache License 2.0 (https://huggingface.co/openai/gpt-oss-120b/blob/main/LICENSE). The GGUF files are converted and quantized by Unsloth (huggingface.co/unsloth).",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/openai/gpt-oss-120b"
+      },
+      {
+        "label": "Usage policy",
+        "url": "https://huggingface.co/openai/gpt-oss-120b/blob/main/USAGE_POLICY"
+      },
+      {
+        "label": "GGUF files",
+        "url": "https://huggingface.co/unsloth/gpt-oss-120b-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "q4",
+        "label": "Standard",
+        "detail": "Unsloth's tuned 4-bit mix of the original weights: the one to take.",
+        "minVramGb": 5,
+        "recVramGb": 65,
+        "minRamGb": 64,
+        "default": true,
+        "files": [
+          {
+            "url": "https://huggingface.co/unsloth/gpt-oss-120b-GGUF/resolve/main/UD-Q4_K_XL/gpt-oss-120b-UD-Q4_K_XL-00001-of-00002.gguf",
+            "dest": "llm/gpt-oss-120b/gpt-oss-120b-UD-Q4_K_XL-00001-of-00002.gguf",
+            "bytes": 49866326912,
+            "sha256": "c7b59d68c889ada280736d9b82685baeb6152f4d7423a169a369bb3492b3056e"
+          },
+          {
+            "url": "https://huggingface.co/unsloth/gpt-oss-120b-GGUF/resolve/main/UD-Q4_K_XL/gpt-oss-120b-UD-Q4_K_XL-00002-of-00002.gguf",
+            "dest": "llm/gpt-oss-120b/gpt-oss-120b-UD-Q4_K_XL-00002-of-00002.gguf",
+            "bytes": 13149984480,
+            "sha256": "7c77ca781792a28565c311ace40620ef7fb1cf67d123db347aa34f30ff48ad16"
+          }
+        ],
+        "llm": {
+          "totalParamsB": 117,
+          "activeParamsB": 5.1,
+          "moe": true,
+          "layers": 36,
+          "contextMax": 131072,
+          "quant": "UD-Q4_K_XL"
+        }
+      }
+    ],
+    "addons": [
+      {
+        "id": "eagle3",
+        "label": "Speed-up helper",
+        "detail": "A small helper file (about 850 MB) that drafts a few words ahead for gpt-oss 120B while the model checks them, so the text is the same. It uses some video memory, so Bhippi switches it on only if \"Tune for this PC\" measures that it helps on your PC.",
+        "files": [
+          {
+            "url": "https://huggingface.co/ggml-org/gpt-oss-120b-GGUF/resolve/main/eagle3-gpt-oss-120b-Q8_0.gguf",
+            "dest": "llm/gpt-oss-120b/eagle3-gpt-oss-120b-Q8_0.gguf",
+            "bytes": 849103296,
+            "sha256": "1f428ef9de7e761a34392253a6371b4a027595ccdafa18212b06d38a8db34b41"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "qwen3.8-flash-next",
+    "name": "Qwen3.8 Flash Next",
+    "maker": "Qwen",
+    "kind": "llm",
+    "tasks": [
+      "chat",
+      "tools",
+      "code",
+      "vision",
+      "reasoning"
+    ],
+    "summary": "A 125-billion-parameter thinking model that runs on one gaming PC, through the Strata engine.",
+    "description": "Qwen3.8 Flash Next is a very large mixture-of-experts model: 24,576 small specialists, of which only 10 work on each word, so it needs far less computing than its size suggests. It thinks before it answers, writes code, calls tools and can read pictures. It does not run through llama.cpp: Bhippi sets up Strata, a free engine made for exactly this model, which keeps the specialists in your system RAM and the rest on the graphics card. Plan on 64 GB of RAM, a card with 12 GB of video memory (8 GB works, more slowly) and about 80 GB of free disk space. Reading pictures needs a card with 16 GB or more and is left off on smaller ones.",
+    "tags": [
+      "MoE",
+      "125B",
+      "reasoning",
+      "coding",
+      "vision",
+      "tool calling",
+      "Strata"
+    ],
+    "thumbnail": {
+      "src": "library-thumbs/qwen3.8-flash-next.svg",
+      "credit": "Bhippi"
+    },
+    "runtime": "strata",
+    "license": {
+      "name": "Qwen Community License 1.0",
+      "url": "https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE",
+      "summary": [
+        "Free to use, change, share and sell, personal or commercial, with no fees. Keep the license text with any copy you pass on.",
+        "A company with more than 100 million monthly users, or more than US$ 20 million of revenue a month, must show the model's name in the product that uses it.",
+        "Selling other people access to the model (an API or hosted service) or building a coding or office AI assistant product with it needs a separate license from Qwen. Using it yourself, inside your own work, is fine.",
+        "Strata, the engine that runs it, is a separate program under the MIT license. The Swift 1.5 version is a fine-tune by UkisAI with its own license (see its page)."
+      ],
+      "notice": "Qwen3.8-Flash-Next is licensed under the Qwen Community License 1.0 (https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE). It runs through Strata (https://github.com/Niko1221/Strata, MIT license). The compressed model files are made by ISTA-DASLab (huggingface.co/ISTA-DASLab); the Swift 1.5 version is by UkisAI (huggingface.co/ukisai) under its own license.",
+      "requiresAcceptance": false
+    },
+    "links": [
+      {
+        "label": "Model card",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-Flash-Next"
+      },
+      {
+        "label": "Strata (the engine)",
+        "url": "https://github.com/Niko1221/Strata"
+      },
+      {
+        "label": "Strata: which size to take",
+        "url": "https://github.com/Niko1221/Strata/blob/main/docs/MODELS.md"
+      },
+      {
+        "label": "Strata: troubleshooting",
+        "url": "https://github.com/Niko1221/Strata/blob/main/docs/TROUBLESHOOTING.md"
+      },
+      {
+        "label": "Compressed files",
+        "url": "https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+      }
+    ],
+    "variants": [
+      {
+        "id": "iq2_xs",
+        "label": "Recommended",
+        "detail": "2-bit i-quant: fast, a little better than the fastest size. The size Strata recommends for 48 to 64 GB of RAM.",
+        "minVramGb": 8,
+        "recVramGb": 12,
+        "minRamGb": 48,
+        "default": true,
+        "files": [],
+        "approxBytes": 74000000000,
+        "install": {
+          "task": "qwen:IQ2_XS"
+        },
+        "llm": {
+          "totalParamsB": 125,
+          "activeParamsB": 6,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "IQ2_XS"
+        }
+      },
+      {
+        "id": "q2_0",
+        "label": "Fastest",
+        "detail": "2-bit: the quickest size, with good quality.",
+        "minVramGb": 8,
+        "recVramGb": 12,
+        "minRamGb": 48,
+        "files": [],
+        "approxBytes": 72400000000,
+        "install": {
+          "task": "qwen:Q2_0"
+        },
+        "llm": {
+          "totalParamsB": 125,
+          "activeParamsB": 6,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "Q2_0"
+        }
+      },
+      {
+        "id": "iq3_xxs",
+        "label": "Better quality",
+        "detail": "3-bit i-quant: slower, better answers. Needs 64 GB of RAM.",
+        "minVramGb": 8,
+        "recVramGb": 12,
+        "minRamGb": 60,
+        "files": [],
+        "approxBytes": 81800000000,
+        "install": {
+          "task": "qwen:IQ3_XXS"
+        },
+        "llm": {
+          "totalParamsB": 125,
+          "activeParamsB": 6,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "IQ3_XXS"
+        }
+      },
+      {
+        "id": "iq3_s",
+        "label": "Best quality",
+        "detail": "3.5-bit i-quant: matches the full model on published tests, and is the slowest. Needs 64 GB of RAM with little else open.",
+        "minVramGb": 8,
+        "recVramGb": 12,
+        "minRamGb": 62,
+        "files": [],
+        "approxBytes": 89600000000,
+        "install": {
+          "task": "qwen:IQ3_S"
+        },
+        "llm": {
+          "totalParamsB": 125,
+          "activeParamsB": 6,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "IQ3_S"
+        }
+      },
+      {
+        "id": "swift-iq2_xs",
+        "label": "Swift 1.5 (thinks shorter)",
+        "detail": "A fine-tune by UkisAI that thinks much less before it answers, so replies come sooner at about the same quality. Same speed per word as the recommended size; its own license applies.",
+        "minVramGb": 8,
+        "recVramGb": 12,
+        "minRamGb": 48,
+        "files": [],
+        "approxBytes": 74000000000,
+        "install": {
+          "task": "swift:IQ2_XS"
+        },
+        "llm": {
+          "totalParamsB": 125,
+          "activeParamsB": 6,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "IQ2_XS"
+        }
+      },
+      {
+        "id": "coder-iq1_m",
+        "label": "Coder (for 32 GB PCs)",
+        "detail": "Half of the specialists, chosen for code, tools and pictures. Fits a PC with 32 GB of RAM and is quick, but weaker outside coding and in languages other than English.",
+        "minVramGb": 8,
+        "recVramGb": 12,
+        "minRamGb": 32,
+        "files": [],
+        "approxBytes": 64400000000,
+        "install": {
+          "task": "coder:IQ1_M"
+        },
+        "llm": {
+          "totalParamsB": 125,
+          "activeParamsB": 6,
+          "moe": true,
+          "layers": 48,
+          "contextMax": 262144,
+          "quant": "IQ1_M"
+        }
+      }
+    ]
+  }
+]
