@@ -4,7 +4,7 @@
 // duplicates, right-click removes; the ruler sets the loop region (drag) and the play position
 // (click); the marker lane holds named, coloured section markers.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Eraser, Flag, Headphones, LayoutList, Layers, Lock, MousePointer2, Paintbrush, Plus, Scissors, Trash2, Unlock, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
+import { Eraser, Flag, Headphones, LayoutList, Layers, Lock, MousePointer2, Paintbrush, Plus, Scissors, Trash2, Unlock, VolumeX, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import { addClip, musicId, newTrack, patternSteps, songLengthSteps } from '../model';
 import { stepsPerBar, type MarkerKind, type MusicProject, type Note, type PlaylistClip } from '../types';
 import { ColorInput, ScrollBar } from './Controls';
@@ -13,7 +13,7 @@ import { ASSET_DRAG } from './Browser';
 import { beatSteps, clamp, MARKER_COLORS, MARKER_KINDS, readPalette, shade, snapDown, snapTo, withAlpha, type Palette } from './format';
 import { FollowButton, PlayLine, placeLine, useFollowMode } from './Playhead';
 import { followScroll, songLine } from './playpos';
-import { prepCanvas, trackPointer, typingTarget, useRaf, useSize, useThemeVersion, useWheel } from './studioUtil';
+import { prepCanvas, setZoomFocus, trackPointer, typingTarget, useRaf, useSize, useThemeVersion, useWheel, useZoomKeys } from './studioUtil';
 import { TitleBar } from './Window';
 
 const HEAD_W = 172;
@@ -123,6 +123,17 @@ export function Playlist() {
     setZoomState(next);
     setScroll(clamp(at * next - anchorX, 0, Math.max(0, (songLengthSteps(song) + bar * 8) * next - gridW)), sy);
   };
+  /** The whole song in view (again: back to where it was, as the timeline's fit does). */
+  const fitBack = useRef<{ zoom: number; sx: number } | null>(null);
+  const fit = () => {
+    if (fitBack.current) { const back = fitBack.current; fitBack.current = null; setZoom(back.zoom); setScroll(back.sx, sy); return; }
+    fitBack.current = { zoom, sx };
+    const next = clamp(gridW / Math.max(bar * 4, songLengthSteps(song) + bar), 0.6, 60);
+    store.current.plZoom = next;
+    setZoomState(next);
+    setScroll(0, sy);
+  };
+  useZoomKeys('playlist', (command) => { if (command === 'fit') fit(); else { fitBack.current = null; setZoom(zoom * (command > 0 ? 1.3 : 1 / 1.3)); } });
   const stepAt = (px: number) => (px + live.current.sx) / live.current.zoom;
   const trackAt = (py: number) => clamp(Math.floor((py + live.current.sy) / TRACK_H), 0, Math.max(0, tracks.length - 1));
   const snapStart = (v: number) => (snap > 0 ? snapDown(v, snap) : Math.max(0, v));
@@ -534,7 +545,8 @@ export function Playlist() {
     e.preventDefault();
     const l = live.current;
     const r = grid.current?.getBoundingClientRect();
-    if (e.ctrlKey || e.metaKey) setZoom(l.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), r ? e.clientX - r.left : undefined);
+    // Alt or Ctrl zooms around the pointer, as on the video timeline.
+    if (e.ctrlKey || e.metaKey || e.altKey) setZoom(l.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), r ? e.clientX - r.left : undefined);
     else if (e.shiftKey) setScroll(clamp(l.sx + e.deltaY, 0, maxX), l.sy);
     else setScroll(clamp(l.sx + e.deltaX, 0, maxX), clamp(l.sy + e.deltaY, 0, maxY));
   });
@@ -580,8 +592,10 @@ export function Playlist() {
     <section className="ms-pl ms-win" tabIndex={-1} onKeyDown={keyDown} aria-label="Playlist">
       <TitleBar icon={<LayoutList size={13} />} title="Playlist" onClose={() => act.setUi({ playlist: false })} closeLabel="Hide the playlist (F5)">
         <FollowButton mode={follow} onCycle={cycleFollow} />
-        <button type="button" className="ms-win-btn" aria-label="Zoom out" title="Zoom out (Ctrl+wheel)" onClick={() => setZoom(zoom / 1.3)}><ZoomOut size={13} /></button>
-        <button type="button" className="ms-win-btn" aria-label="Zoom in" title="Zoom in (Ctrl+wheel)" onClick={() => setZoom(zoom * 1.3)}><ZoomIn size={13} /></button>
+        <button type="button" className="ms-win-btn" aria-label="Zoom out" title="Zoom out (-, or Alt / Ctrl + wheel)" onClick={() => setZoom(zoom / 1.3)}><ZoomOut size={13} /></button>
+        <input type="range" className="ms-zoom-slider" min={0} max={100} step={1} value={Math.round((Math.log(zoom / 0.6) / Math.log(60 / 0.6)) * 100)} onChange={(e) => setZoom(0.6 * Math.pow(60 / 0.6, Number(e.target.value) / 100))} aria-label="Playlist zoom" title="Zoom" />
+        <button type="button" className="ms-win-btn" aria-label="Zoom in" title="Zoom in (=, or Alt / Ctrl + wheel)" onClick={() => setZoom(zoom * 1.3)}><ZoomIn size={13} /></button>
+        <button type="button" className="ms-win-btn" aria-label="Zoom to fit" title="Zoom to the whole song (\\; again to go back)" onClick={fit}><Maximize2 size={13} /></button>
       </TitleBar>
       <div className="ms-tools">
         <div className="ms-seg" role="group" aria-label="Tools">
@@ -592,7 +606,7 @@ export function Playlist() {
         {selected.length > 0 && <button type="button" className="ms-btn" onClick={() => edit((s) => withClips(s, s.playlist.clips.filter((c) => !sel.has(c.id))), 'remove clips')}><Trash2 size={12} /> Remove {selected.length}</button>}
         <span className="ms-dim ms-hint">Ruler: drag = loop · click = play from · double-click marker lane = section</span>
       </div>
-      <div ref={body} className="ms-pl-body" onDragOver={(e) => { if (e.dataTransfer.types.includes(ASSET_DRAG)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={drop}>
+      <div ref={body} className="ms-pl-body" onPointerEnter={() => setZoomFocus('playlist')} onDragOver={(e) => { if (e.dataTransfer.types.includes(ASSET_DRAG)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }} onDrop={drop}>
         <div className="ms-pl-corner" style={{ width: HEAD_W, height: TOP }}><Flag size={12} /> Tracks</div>
         <canvas ref={top} className="ms-pl-top" style={{ left: HEAD_W, top: 0 }} onPointerDown={topDown} onDoubleClick={topDouble} onContextMenu={(e) => e.preventDefault()} aria-label="Ruler, loop region and section markers" />
         <div className="ms-pl-heads" style={{ top: TOP, width: HEAD_W, height: gridH }}>

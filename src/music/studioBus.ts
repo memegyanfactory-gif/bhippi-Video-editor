@@ -34,3 +34,18 @@ export function onStudioRequest(listener: (request: StudioRequest) => void): () 
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+let keyHandler: ((event: KeyboardEvent) => void) | null = null;
+
+/** The open studio registers its key handler here (null when it closes). */
+export const setStudioKeys = (handler: ((event: KeyboardEvent) => void) | null): void => { keyHandler = handler; };
+
+/**
+ * Hands a key to the open studio, wherever the focus is (the title-bar switch, a toolbar button):
+ * Space plays the song, not the video timeline. Answers whether a studio took it.
+ */
+export function studioKeyDown(event: KeyboardEvent): boolean {
+  if (!keyHandler) return false;
+  keyHandler(event);
+  return true;
+}

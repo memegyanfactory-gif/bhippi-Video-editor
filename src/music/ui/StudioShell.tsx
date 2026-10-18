@@ -8,7 +8,7 @@ import type { Project } from '../../lib/types';
 import { assetSampleLoader } from '../engine';
 import type { MusicEngineApi } from '../engine/api';
 import { ensureInserts, songOf, withSong } from '../model';
-import { onStudioRequest, setStudioOpen } from '../studioBus';
+import { onStudioRequest, setStudioKeys, setStudioOpen } from '../studioBus';
 import type { Channel, MusicProject, MusicView } from '../types';
 import { Browser } from './Browser';
 import { ChannelRack } from './ChannelRack';
@@ -153,6 +153,13 @@ export function StudioShell({ engine, props }: { engine: MusicEngineApi; props: 
   // Focus lives inside the studio so its shortcuts (and the QWERTY piano) win over the app's.
   useEffect(() => { root.current?.focus(); }, []);
   const { onKeyDown, onKeyUp } = useShortcuts(engine, actions, channel, song, ui.playlist);
+  // Keys that land outside the studio (focus on the title bar, the chat's buttons) still reach it.
+  const keyRef = useRef(onKeyDown);
+  keyRef.current = onKeyDown;
+  useEffect(() => {
+    setStudioKeys((event) => keyRef.current(event as never));
+    return () => setStudioKeys(null);
+  }, []);
 
   const splitDown = (e: React.PointerEvent) => {
     e.preventDefault();

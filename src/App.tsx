@@ -163,7 +163,7 @@ import { activatePanel, defaultTree, frameOf, leafPanels, movePanel, panelsIn, r
 import { PluginFrame } from './plugins/PluginFrame';
 import { selectedPlugin, setPluginChecker } from './plugins/aiTools';
 import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/CharactersWindow';
-import { onStudioRequest } from './music/studioBus';
+import { onStudioRequest, studioKeyDown } from './music/studioBus';
 import { placeSongLayer, songPlacement } from './music/timeline';
 
 /** The Music Studio (src/music, docs/MUSIC-STUDIO-PLAN.md), loaded the first time it opens. */
@@ -3707,6 +3707,15 @@ export default function App() {
       if (event.key === 'Escape' && menu) setMenu(null);
       return;
     }
+    // The Music Studio covers the editor: its keys (Space, zoom, the QWERTY piano) go to the song
+    // wherever the focus is, and of the editor's shortcuts only the app-wide ones still run.
+    if (musicOpen) {
+      if (!event.ctrlKey && !event.metaKey) {
+        if (event.key !== 'Escape' && studioKeyDown(event)) return;
+      }
+      const appId = commandFor(keymap, event);
+      if (!appId || !findCommand(appId)?.app) return;
+    }
     const id = commandFor(keymap, event);
     if (!id) return;
     // Only file and app commands work on the home screen.
@@ -4487,7 +4496,7 @@ export default function App() {
         </div>
       ) : (
       <HeaderBar
-        resourceMonitor={<LiveJobs>{(live) => <ResourceMonitor jobs={live} runs={Object.values(toolRuns).flat()} onCancelJob={cancelJob} onDeleteJob={deleteJob} />}</LiveJobs>}
+        resourceMonitor={<LiveJobs>{(live) => <ResourceMonitor jobs={live} runs={Object.values(toolRuns).flat()} onCancelJob={cancelJob} onDeleteJob={deleteJob} limits={{ cpu: settings.cpuLimitPercent, ram: settings.ramLimitPercent }} onLimits={(patch) => void saveSettings(patch)} />}</LiveJobs>}
         mode={mode} onHome={() => setMode('home')} onImport={() => { setMode('edit'); void pickFiles(); }} onEdit={() => setMode('edit')} onExport={() => { setMode('edit'); setExportOpen(true); }} onQueue={() => setQueueOpen(true)}
         exportDisabled={!hasClips} title={`${project.name}${dirty ? ' *' : ''}`} saved={!dirty} chatOpen={!hidden('chat')} onToggleChat={() => setPanelVisible('chat', hidden('chat'))}
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}

@@ -408,3 +408,6 @@
   .ms-tb-edit { order: 20; }
   .ms-patpick .ms-input, .ms-patpick select { width: 96px; }
 }
+
+/* The zoom slider beside the zoom buttons in the Playlist and Piano Roll title strips. */
+.ms-zoom-slider { width: 84px; height: 14px; margin: 0 2px; accent-color: var(--ms-accent); cursor: ew-resize; }

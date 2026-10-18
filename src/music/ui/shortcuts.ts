@@ -6,7 +6,7 @@ import type { MusicEngineApi } from '../engine/api';
 import type { Actions } from './ctx';
 import type { Channel, MusicProject } from '../types';
 import { pianoKey } from './piano';
-import { typingTarget } from './studioUtil';
+import { sendZoom, typingTarget } from './studioUtil';
 
 type Held = { channelId: string; key: number };
 
@@ -31,6 +31,10 @@ export function useShortcuts(engine: MusicEngineApi, actions: Actions, channel: 
     const k = e.key;
     const mine = () => { e.preventDefault(); e.stopPropagation(); };
     if (k === ' ') { mine(); if (!e.repeat) act.toggle(); return; }
+    // Zoom, as on the video timeline: = / - (and the numpad's + / -) zoom, \\ fits.
+    if (!e.altKey && (e.code === 'Equal' || e.code === 'NumpadAdd')) { mine(); sendZoom(1); return; }
+    if (!e.altKey && (e.code === 'Minus' || e.code === 'NumpadSubtract')) { mine(); sendZoom(-1); return; }
+    if (!e.altKey && e.code === 'Backslash') { mine(); sendZoom('fit'); return; }
     if (k === 'F5') { mine(); act.setUi({ playlist: !pl }); return; }
     if (k === 'F6') { mine(); act.setUi({ win: 'rack' }); return; }
     if (k === 'F7') { mine(); act.setUi({ win: 'pianoroll' }); return; }

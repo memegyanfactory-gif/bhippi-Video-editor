@@ -46,10 +46,11 @@ describe('ResourceMonitor', () => {
     expect(html).toContain('GPU');
   });
 
-  it('keeps the popover closed by default and shows the RAM, DISK and GPU rings, empty until the first reading', () => {
+  it('keeps the popover closed by default and shows RAM, GPU and DISK as one dial, empty until the first reading', () => {
     const html = renderToString(React.createElement(ResourceMonitor, { jobs: [], runs: [] }));
     expect(html).not.toContain('role="dialog"');
-    expect(html.match(/class="rm-ring empty"/g)).toHaveLength(3);
+    expect(html.match(/class="rm-rings empty"/g)).toHaveLength(1);
+    expect(html.match(/class="rm-rings-used"/g)).toHaveLength(3);
     for (const label of ['RAM —', 'DISK —', 'GPU —']) expect(html).toContain(label);
     // The detail waits for hover, and says it is still reading.
     expect(html).toContain('RAM: reading…');
@@ -95,5 +96,16 @@ describe('formatGb', () => {
     expect(formatGb(3726)).toBe('3.7 TB');
     expect(formatGb(63.9, false)).toBe('63.9');
     expect(formatGb(Number.NaN)).toBe('—');
+  });
+});
+
+describe('ResourceMonitor limits', () => {
+  it('offers the processor and memory limits from Settings inside the drop-down', () => {
+    const html = renderToString(React.createElement(ResourceMonitor, { jobs: [], runs: [], defaultOpen: true, limits: { cpu: 75, ram: 60 }, onLimits: () => undefined }));
+    expect(html).toContain('Bhippi limits');
+    expect(html).toContain('aria-label="Processor limit"');
+    expect(html).toContain('aria-label="Memory limit"');
+    expect(html).toMatch(/75(<!-- -->)?%/);
+    expect(html).toMatch(/60(<!-- -->)?%/);
   });
 });

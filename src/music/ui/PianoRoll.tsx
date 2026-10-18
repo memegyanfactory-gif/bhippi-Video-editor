@@ -3,7 +3,7 @@
 // other channels, marquee, resize, Ctrl-drag duplicate, arrow nudge, a velocity lane, the Tools menu
 // (editNotes ops) and chord stamps. All edits are gestures (`drag` + `settle`) or single `edit`s.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Eraser, Eye, EyeOff, Layers, Magnet, MousePointer2, Music, Paintbrush, Pencil, Piano, Scissors, Wand2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Eraser, Eye, EyeOff, Layers, Magnet, MousePointer2, Music, Paintbrush, Pencil, Piano, Scissors, Maximize2, Wand2, ZoomIn, ZoomOut } from 'lucide-react';
 import { CHORDS, SCALE_NAMES, chordKeys, inScale, noteName, pitchName, snapToScale, NOTE_NAMES } from '../theory';
 import { musicId, patternSteps, setNotes } from '../model';
 import { editNotes, type NoteOp } from '../edit';
@@ -14,7 +14,7 @@ import { useActions, useStudio } from './ctx';
 import { beatSteps, clamp, isBlackKey, readPalette, shade, snapDown, snapTo, withAlpha } from './format';
 import { FollowButton, PlayLine, placeLine, useFollowMode } from './Playhead';
 import { followScroll, patternLine } from './playpos';
-import { prepCanvas, trackPointer, typingTarget, useRaf, useSize, useThemeVersion, useWheel } from './studioUtil';
+import { prepCanvas, setZoomFocus, trackPointer, typingTarget, useRaf, useSize, useThemeVersion, useWheel, useZoomKeys } from './studioUtil';
 import { TitleBar } from './Window';
 
 const KEYW = 58;
@@ -87,6 +87,18 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
     store.current.prSy = y;
     setScrollState({ x, y });
   };
+  /** The whole pattern in view (again: back to where it was). */
+  const fitBack = useRef<{ zoom: number; sx: number } | null>(null);
+  const fit = () => {
+    if (fitBack.current) { const back = fitBack.current; fitBack.current = null; setZoom(back.zoom); setScroll(back.sx, sy); return; }
+    fitBack.current = { zoom, sx };
+    const next = clamp(gridW / Math.max(1, steps), 5, 180);
+    store.current.prZoom = next;
+    setZoomState(next);
+    setScroll(0, sy);
+  };
+  // The piano roll answers zoom keys when the pointer was last over it, or when it is the only grid showing.
+  useZoomKeys('pianoroll', (command) => { if (command === 'fit') fit(); else { fitBack.current = null; setZoom(zoom * (command > 0 ? 1.3 : 1 / 1.3)); } });
   const setZoom = (z: number, anchorX = gridW / 2) => {
     const next = clamp(z, 5, 180);
     const stepAtAnchor = (sx + anchorX) / zoom;
@@ -546,7 +558,8 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
     e.preventDefault();
     const l = live.current;
     const r = gridCanvas.current?.getBoundingClientRect();
-    if (e.ctrlKey || e.metaKey) setZoom(l.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), r ? e.clientX - r.left : undefined);
+    // Alt or Ctrl zooms around the pointer, as on the video timeline.
+    if (e.ctrlKey || e.metaKey || e.altKey) setZoom(l.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), r ? e.clientX - r.left : undefined);
     else if (e.shiftKey) setScroll(clamp(l.sx + e.deltaY, 0, maxX), l.sy);
     else setScroll(clamp(l.sx + e.deltaX, 0, maxX), clamp(l.sy + e.deltaY, 0, maxY));
   });
@@ -639,8 +652,10 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
       <TitleBar icon={<Piano size={13} />} title="Piano Roll">
         <span className="ms-chip" title="The channel being edited"><i className="ms-swatch" style={{ background: channel.color }} />{channel.name}</span>
         <FollowButton mode={follow} onCycle={cycleFollow} />
-        <button type="button" className="ms-win-btn" aria-label="Zoom out" title="Zoom out (Ctrl+wheel)" onClick={() => setZoom(zoom / 1.3)}><ZoomOut size={13} /></button>
-        <button type="button" className="ms-win-btn" aria-label="Zoom in" title="Zoom in (Ctrl+wheel)" onClick={() => setZoom(zoom * 1.3)}><ZoomIn size={13} /></button>
+        <button type="button" className="ms-win-btn" aria-label="Zoom out" title="Zoom out (-, or Alt / Ctrl + wheel)" onClick={() => setZoom(zoom / 1.3)}><ZoomOut size={13} /></button>
+        <input type="range" className="ms-zoom-slider" min={0} max={100} step={1} value={Math.round((Math.log(zoom / 5) / Math.log(180 / 5)) * 100)} onChange={(e) => setZoom(5 * Math.pow(180 / 5, Number(e.target.value) / 100))} aria-label="Piano roll zoom" title="Zoom" />
+        <button type="button" className="ms-win-btn" aria-label="Zoom in" title="Zoom in (=, or Alt / Ctrl + wheel)" onClick={() => setZoom(zoom * 1.3)}><ZoomIn size={13} /></button>
+        <button type="button" className="ms-win-btn" aria-label="Zoom to fit" title="Zoom to the whole pattern (\\; again to go back)" onClick={fit}><Maximize2 size={13} /></button>
       </TitleBar>
       <div className="ms-tools">
         <select aria-label="Channel" value={channel.id} style={{ borderColor: channel.color }} onChange={(e) => act.setView({ selectedChannelId: e.target.value })}>
@@ -670,7 +685,7 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
         <button type="button" className={`ms-icon ms-icon-lg${scaleLock ? ' on' : ''}`} aria-pressed={scaleLock} title="Snap to scale: drawn and moved notes stay in the song key" aria-label="Snap to scale" onClick={() => setScaleLock(!scaleLock)}><Magnet size={14} /></button>
         <button type="button" className={`ms-icon ms-icon-lg${ghosts ? ' on' : ''}`} aria-pressed={ghosts} title="Ghost notes: show the other channels' notes faintly" aria-label="Ghost notes" onClick={() => setGhosts(!ghosts)}>{ghosts ? <Eye size={14} /> : <EyeOff size={14} />}</button>
       </div>
-      <div ref={body} className="ms-pr-body" aria-label={`${channel.name} notes (${notes.length}), channel ${channelIndex + 1}`}>
+      <div ref={body} className="ms-pr-body" onPointerEnter={() => setZoomFocus('pianoroll')} aria-label={`${channel.name} notes (${notes.length}), channel ${channelIndex + 1}`}>
         <canvas ref={rulerCanvas} className="ms-pr-ruler" style={{ left: KEYW, top: 0 }} />
         <canvas ref={keysCanvas} className="ms-pr-keys" style={{ left: 0, top: RULER }} onPointerDown={keysDown} onPointerMove={(e) => { if (!e.buttons) setLitKey(toKey(e.clientY - e.currentTarget.getBoundingClientRect().top)); }} onPointerLeave={() => setLitKey(null)} aria-label="Piano keys (click to audition)" />
         <canvas ref={gridCanvas} className="ms-pr-grid" style={{ left: KEYW, top: RULER }} onPointerDown={down} onPointerMove={hover} onPointerLeave={() => setLitKey(null)} onContextMenu={(e) => e.preventDefault()} aria-label="Note grid" />

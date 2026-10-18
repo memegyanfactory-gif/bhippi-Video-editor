@@ -1,7 +1,8 @@
 // What the machine is doing, in the header.
 //
-// A chip with three ring meters — RAM, the busiest disk's activity, GPU — each a thin ring
-// around a line icon with its label and percentage under it, the detail on hover; and a drop-down
+// One chip with three nested activity rings — RAM outside, GPU in the middle, the busiest disk's
+// activity inside — and the busiest of the three as a number beside it, every reading on hover;
+// and a drop-down
 // with the detail: the same three as cards with a bar each, then whatever Bhippi itself is running
 // (tools mid-call, background jobs) and the memory its own processes take. The numbers come from
 // the `resource_usage` command every three seconds while the window is visible; a failed poll
@@ -9,13 +10,14 @@
 //
 // The activity lists come from props, not the poll, so a job's progress moves the moment the
 // event lands rather than on the next tick.
-import { ChevronDown, ChevronRight, Cpu, Gauge, HardDrive, LoaderCircle, MemoryStick, Microchip, Square, Trash2, Video, Wrench, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Cpu, Gauge, HardDrive, LoaderCircle, MemoryStick, Square, Trash2, Video, Wrench, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Job } from '../lib/types';
 import type { ToolRun } from '../chat/Activity';
 import { api } from '../lib/ipc';
+import { LIMIT_STEPS, snapLimit } from '../lib/modelFit';
 import { identifyCommand } from '../lib/commandApps';
 import type { CommandApp } from '../lib/commandApps';
 import { formatDuration } from '../lib/duration';
@@ -124,7 +126,54 @@ const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
  * and the detail only on hover. The used part is the accent colour and eases to each new reading;
  * no reading yet leaves the ring empty and the percentage a dash.
  */
-function RingMeter({ label, icon: Icon, percent, detail }: { label: string; icon: LucideIcon; percent: number | null; detail: string }) {
+/** The three meters as nested rings in one dial (outermost first), the way Apple's activity rings read. */
+function ActivityRings({ rings, detail }: { rings: { label: string; percent: number | null; tone: string }[]; detail: string[] }) {
+  const size = 30;
+  const known = rings.filter((ring) => ring.percent != null);
+  const peak = known.length ? Math.max(...known.map((ring) => ring.percent as number)) : null;
+  const summary = rings.map((ring) => (ring.percent == null ? `${ring.label} —` : `${ring.label} ${Math.round(ring.percent)}%`)).join(' · ');
+  return (
+    <span className={`rm-rings${known.length ? '' : ' empty'}`} aria-label={`${summary}. ${detail.join(' ')}`}>
+      <svg className="rm-rings-svg" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        {rings.map((ring, i) => {
+          const r = size / 2 - 2.5 - i * 4;
+          const length = 2 * Math.PI * r;
+          const used = ring.percent == null ? 0 : Math.min(100, Math.max(0, ring.percent));
+          return (
+            <g key={ring.label} className={`rm-rings-${ring.tone}`}>
+              <circle className="rm-rings-track" cx={size / 2} cy={size / 2} r={r} />
+              <circle className="rm-rings-used" cx={size / 2} cy={size / 2} r={r} strokeDasharray={length} strokeDashoffset={length * (1 - used / 100)} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+            </g>
+          );
+        })}
+      </svg>
+      <span className={`rm-rings-peak${peak == null ? '' : ` tone-${usageTone(peak)}`}`}>{peak == null ? '—' : `${Math.round(peak)}%`}</span>
+      <span className="rm-ring-tip rm-rings-tip" role="tooltip">
+        {rings.map((ring, i) => (
+          <span key={ring.label} className="rm-rings-tip-row">
+            <i className={`rm-rings-dot rm-rings-${ring.tone}`} />
+            {detail[i]}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
+/** One slider of Bhippi's own limits (Settings › General › Performance), here too. */
+function LimitRow({ icon: Icon, label, value, onChange, hint }: { icon: LucideIcon; label: string; value: number; onChange: (value: number) => void; hint: string }) {
+  return (
+    <label className="rm-limit" title={hint}>
+      <Icon size={12} />
+      <span className="rm-limit-label">{label}</span>
+      <input type="range" min={LIMIT_STEPS.min} max={LIMIT_STEPS.max} step={LIMIT_STEPS.step} value={value} onChange={(event) => onChange(Number(event.target.value))} aria-label={`${label} limit`} />
+      <span className="rm-limit-value">{value}%</span>
+    </label>
+  );
+}
+
+// The single-meter dial, kept for anything that still wants one.
+export function RingMeter({ label, icon: Icon, percent, detail }: { label: string; icon: LucideIcon; percent: number | null; detail: string }) {
   const used = percent == null ? 0 : Math.min(100, Math.max(0, percent));
   const text = percent == null ? `${label} —` : `${label} ${Math.round(used)}%`;
   return (
@@ -161,12 +210,17 @@ export function ResourceMonitor({
   defaultOpen = false,
   onCancelJob,
   onDeleteJob,
+  limits,
+  onLimits,
 }: {
   jobs: Job[];
   runs: ToolRun[];
   defaultOpen?: boolean;
   onCancelJob?: (id: string) => Promise<void> | void;
   onDeleteJob?: (id: string) => Promise<void> | void;
+  /** Bhippi's processor and memory limits (percent), the same ones as Settings › General. */
+  limits?: { cpu: number | null | undefined; ram: number | null | undefined };
+  onLimits?: (patch: { cpuLimitPercent?: number; ramLimitPercent?: number }) => void;
 }) {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [stale, setStale] = useState(false);
@@ -344,9 +398,10 @@ export function ResourceMonitor({
         aria-haspopup="dialog"
         aria-label="System usage and Bhippi activity"
       >
-        <RingMeter label="RAM" icon={MemoryStick} percent={ramPercent} detail={ramDetail} />
-        <RingMeter label="DISK" icon={HardDrive} percent={diskActivity} detail={diskDetail} />
-        <RingMeter label="GPU" icon={Microchip} percent={gpuPercent} detail={gpuDetail} />
+        <ActivityRings
+          rings={[{ label: 'RAM', percent: ramPercent, tone: 'ram' }, { label: 'GPU', percent: gpuPercent, tone: 'gpu' }, { label: 'DISK', percent: diskActivity, tone: 'disk' }]}
+          detail={[ramDetail, gpuDetail, diskDetail]}
+        />
         {activeCount > 0 && (
           <span className="rm-chip-badge" title={`${activeCount} running`}>
             <LoaderCircle size={10} className="rm-spin" />
@@ -414,6 +469,14 @@ export function ResourceMonitor({
                 ))}
               </div>
             </div>
+
+            {limits && onLimits && (
+              <div className="rm-limits">
+                <div className="rm-limits-head"><Gauge size={12} /> Bhippi limits <span className="rm-meta">models, renders and generators stay under these</span></div>
+                <LimitRow icon={Cpu} label="Processor" value={snapLimit(limits.cpu)} onChange={(value) => onLimits({ cpuLimitPercent: value })} hint="How much of the processor Bhippi's models and renders may use; 100% is fastest. Programs already running keep their threads until they restart." />
+                <LimitRow icon={MemoryStick} label="Memory" value={snapLimit(limits.ram)} onChange={(value) => onLimits({ ramLimitPercent: value })} hint="Models, renders and generators stop at this much RAM instead of freezing the PC; 100% is fastest." />
+              </div>
+            )}
 
             {activeVideoJob && (
               <div className="rm-urgent-card">

@@ -4170,3 +4170,28 @@ button.mr-row:hover { background: rgba(255, 255, 255, 0.04); }
 .ws-switch button.on { background: var(--blue-soft); color: #fff; }
 .ws-switch button.on.music { background: var(--blue); color: #fff; }
 .ws-switch .ms-beta { margin-left: 2px; }
+
+/* The header's one activity dial (components/ResourceMonitor.tsx): RAM, GPU and disk as nested rings. */
+.rm-rings { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.rm-rings-svg { flex: none; }
+.rm-rings-track, .rm-rings-used { fill: none; stroke-width: 2.6; stroke-linecap: round; }
+.rm-rings-track { stroke: color-mix(in srgb, var(--text) 12%, transparent); stroke-linecap: butt; }
+.rm-rings-used { transition: stroke-dashoffset 600ms cubic-bezier(0.22, 1, 0.36, 1); }
+.rm-rings-ram .rm-rings-used, .rm-rings-dot.rm-rings-ram { stroke: var(--accent); background: var(--accent); }
+.rm-rings-gpu .rm-rings-used, .rm-rings-dot.rm-rings-gpu { stroke: var(--green); background: var(--green); }
+.rm-rings-disk .rm-rings-used, .rm-rings-dot.rm-rings-disk { stroke: var(--amber); background: var(--amber); }
+.rm-rings.empty .rm-rings-used { opacity: 0; }
+.rm-rings-peak { min-width: 30px; font-size: 11.5px; font-weight: 600; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.rm-rings-peak.tone-warn { color: var(--amber); }
+.rm-rings-peak.tone-high { color: var(--red); }
+.rm-rings:hover .rm-rings-tip, .rm-chip:focus-visible .rm-rings-tip { opacity: 1; visibility: visible; }
+.rm-rings-tip { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.rm-rings-tip-row { display: inline-flex; align-items: center; gap: 6px; }
+.rm-rings-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+/* Bhippi's limits inside the drop-down, the same sliders as Settings › General › Performance. */
+.rm-limits { margin: 8px 12px 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; }
+.rm-limits-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text); }
+.rm-limits-head .rm-meta { font-weight: 400; }
+.rm-limit { display: grid; grid-template-columns: 14px 72px 1fr 38px; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); }
+.rm-limit input[type="range"] { width: 100%; accent-color: var(--accent); }
+.rm-limit-value { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }

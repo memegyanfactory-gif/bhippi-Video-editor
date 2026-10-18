@@ -16,6 +16,28 @@ export function useThemeVersion(): number {
   return version;
 }
 
+export type ZoomWindow = 'playlist' | 'pianoroll';
+export type ZoomCommand = 1 | -1 | 'fit';
+let zoomFocus: ZoomWindow = 'playlist';
+/** The window the zoom keys act on: the last one the pointer was over. */
+export const setZoomFocus = (window: ZoomWindow): void => { zoomFocus = window; };
+/** A zoom key: the focused window zooms in, out or fits. */
+export const sendZoom = (command: ZoomCommand): void => { window.dispatchEvent(new CustomEvent('ms-zoom', { detail: { command, target: zoomFocus } })); };
+
+/** Runs `apply` for zoom keys aimed at `name` (or at any window, when it is the only one showing). */
+export function useZoomKeys(name: ZoomWindow, apply: (command: ZoomCommand) => void, onlyOne = false): void {
+  const ref = useRef(apply);
+  ref.current = apply;
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ command: ZoomCommand; target: ZoomWindow }>).detail;
+      if (detail.target === name || onlyOne) ref.current(detail.command);
+    };
+    window.addEventListener('ms-zoom', listener);
+    return () => window.removeEventListener('ms-zoom', listener);
+  }, [name, onlyOne]);
+}
+
 /** Runs `fn` every animation frame while `active`. */
 export function useRaf(active: boolean, fn: (time: number) => void): void {
   const ref = useRef(fn);
