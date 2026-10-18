@@ -6,7 +6,7 @@
 
 **The desktop video editor with an AI producer built in.** Windows 10/11 (x64). MIT licensed — free forever, no account, no license key, no credits.
 
-Version 1.0.24
+Version 1.0.25
 
 [![Release](https://img.shields.io/badge/Release-v1.0.24-ff5c35?style=flat-square)](https://github.com/memegyanfactory-gif/bhippi-Video-editor/releases/latest)
 [![Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/WY3XNWdf9B)
