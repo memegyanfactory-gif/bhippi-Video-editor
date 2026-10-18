@@ -24,6 +24,7 @@ import { graphicCall } from './addGraphic';
 import { checkGraphic, issuesText, refit } from './graphicCheckRun';
 import { describeBit, findBit, isReactBitsTemplate, libraryCounts, listBits, type ReactBitsLayer } from './rbx';
 import { BRAND_KIT_TOOLS, activeBrandKit, runBrandKitTool } from './brandKitTools';
+import { songBeatsOnTimeline } from '../music/timeline';
 import { brandKitTheme, brandedPrompt, motionBrandFromKit } from './brandKit';
 import { advance, attachAsset, attachMedia, frameQa, gatherReport, hasMedia, newProduction, planScenes, qaTimes, type QaIssue } from './production';
 import { loadPasses, passScene, pngHasAlpha, type PassIo } from './renderPasses';
@@ -407,7 +408,13 @@ export function aiContext(project: Project, assets: AssetMap, selection: string[
   const counts = usage(project);
   const active = project.comps.find((comp) => comp.id === project.activeCompId) ?? project.comps[0];
   return {
-    project: { name: project.name, captionStyle: project.captionStyle, captionLook: project.captionLook === 'fiwn' ? 'watchfiwn (FIWN renderer: real fonts, animations, dynamic layouts)' : 'classic', activeCompId: active?.id ?? null },
+    project: {
+      name: project.name, captionStyle: project.captionStyle, captionLook: project.captionLook === 'fiwn' ? 'watchfiwn (FIWN renderer: real fonts, animations, dynamic layouts)' : 'classic', activeCompId: active?.id ?? null,
+      // Which workspace the user has open in THIS project, and its own song: music_* tools only
+      // ever read and write this project's song, never another open project's.
+      workspace: project.workspace === 'music' ? 'music (the Music Studio is on screen)' : 'video',
+      song: project.music ? { name: project.music.name, bpm: project.music.bpm, key: project.music.key, channels: project.music.channels.length, patterns: project.music.patterns.length, playlistClips: project.music.playlist.clips.length } : null,
+    },
     playhead: round(playhead.get()),
     selectedClipIds: selection,
     comps: project.comps.map((comp) => ({
@@ -4852,6 +4859,8 @@ ${notes.trim()}${paletteLine}
       if (!comp) return fail('Choose a composition.');
       const tolerance = clamp(num(args, 'tolerance') ?? 0.12, 0.02, 0.5);
       let beats: number[] = Array.isArray(args.beats) ? (args.beats as unknown[]).filter((b): b is number => typeof b === 'number') : [];
+      // A Music Studio song placed on this timeline brings its own beat grid (src/music/timeline.ts).
+      if (!beats.length && !comp.production?.music?.beats?.length) beats = songBeatsOnTimeline(project, comp.id) ?? [];
       if (!beats.length) {
         const music = comp.production?.music;
         const musicClip = music?.assetId ? comp.clips.find((c) => c.enabled && c.source.type === 'media' && c.source.assetId === music.assetId) : undefined;

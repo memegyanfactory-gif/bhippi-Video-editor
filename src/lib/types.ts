@@ -453,6 +453,8 @@ export type Project = {
   captionLook?: 'fiwn' | 'classic' | null;
   /** The Music Studio song (src/music, docs/MUSIC-STUDIO-PLAN.md); unset until a song is made. */
   music?: import('../music/types').MusicProject | null;
+  /** Which workspace this project shows: the video editor (unset) or the Music Studio. */
+  workspace?: 'video' | 'music' | null;
 };
 
 /** An imported LUT: its values as base64 little-endian 16-bit integers, red fastest. */

@@ -1,5 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Home, Maximize, Minimize, Minus, PanelLeft, Settings, Share, Square, Volume2, VolumeX, X } from 'lucide-react';
+import { Clapperboard, Home, Maximize, Minimize, Minus, Music, PanelLeft, Settings, Share, Square, Volume2, VolumeX, X } from 'lucide-react';
 import { useState } from 'react';
 import { AccountButton } from './AccountButton';
 import { UpdateButton } from './UpdateButton';
@@ -68,7 +68,24 @@ type HeaderProps = {
   sideControls?: boolean;
   /** The open projects as tabs, in place of the single project's title. */
   tabs?: React.ReactNode;
+  /** This project's workspace and how to switch it (the Video | Music switch beside the title). */
+  workspace?: 'video' | 'music';
+  onWorkspace?: (workspace: 'video' | 'music') => void;
 };
+
+/** Video | Music for this project: each project keeps its own (saved in it). */
+function WorkspaceSwitch({ value, onChange }: { value: 'video' | 'music'; onChange: (workspace: 'video' | 'music') => void }) {
+  return (
+    <div className="ws-switch" role="radiogroup" aria-label="Workspace for this project">
+      <button type="button" role="radio" aria-checked={value === 'video'} className={value === 'video' ? 'on' : ''} onClick={() => onChange('video')} title="Video editor for this project">
+        <Clapperboard size={13} /> Video
+      </button>
+      <button type="button" role="radio" aria-checked={value === 'music'} className={value === 'music' ? 'on music' : ''} onClick={() => onChange('music')} title="Music Studio for this project (Beta, work in progress)">
+        <Music size={13} /> Music <span className="ms-beta">Beta · WIP</span>
+      </button>
+    </div>
+  );
+}
 
 /** Home · Import · Edit · Export, the document title, and quick actions. */
 export function HeaderBar(props: HeaderProps) {
@@ -93,10 +110,11 @@ export function HeaderBar(props: HeaderProps) {
         </button>
       </nav>
       {props.tabs ? (
-        <div className="header-tabs" data-tauri-drag-region>{props.tabs}</div>
+        <div className="header-tabs" data-tauri-drag-region>{props.tabs}{props.onWorkspace && <WorkspaceSwitch value={props.workspace ?? 'video'} onChange={props.onWorkspace} />}</div>
       ) : (
         <div className="header-title" data-tauri-drag-region>
           {props.title} <span className="muted">- {props.saved ? 'Saved' : 'Edited'}</span>
+          {props.onWorkspace && <WorkspaceSwitch value={props.workspace ?? 'video'} onChange={props.onWorkspace} />}
         </div>
       )}
       <div className="header-actions">

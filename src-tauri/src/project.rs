@@ -1109,6 +1109,9 @@ pub struct Project {
     /// it: a song reaches a video only as a bounced WAV.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub music: Option<serde_json::Value>,
+    /// Which workspace the project shows: `video` (unset) or `music`. The UI owns the values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 pub const VERSION: u32 = 3;
@@ -1149,6 +1152,7 @@ impl Default for Project {
             luts: None,
             caption_look: None,
             music: None,
+            workspace: None,
         }
     }
 }

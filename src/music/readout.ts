@@ -21,6 +21,19 @@ export type ReadoutOptions = {
   channelId?: string;
   /** Names for sampler / audio assets. */
   assets?: { get(id: string): { name: string } | undefined };
+  /** Where the bounced song sits on each video composition (from song.placements). */
+  timeline?: TimelineEntry[];
+  /** Whether the Music Studio window is open (the AI can only play through an open studio). */
+  studioOpen?: boolean;
+};
+
+/** One placement of the song on a video composition, with the clip's place on that timeline when it is still there. */
+export type TimelineEntry = {
+  compId: string; compName: string; clipId: string; trackId: string; assetId: string; bpm: number; beats: number;
+  /** The clip is still on the composition (an editor may have removed it). */
+  live: boolean;
+  /** Seconds on the composition timeline. */
+  start?: number; duration?: number;
 };
 
 const fmt = (v: number): string => String(Math.round(v * 100) / 100);
@@ -76,7 +89,7 @@ function channelLine(song: MusicProject, c: Channel, assets: ReadoutOptions['ass
   const specs = INSTRUMENT_SPECS[c.instrument]?.params ?? [];
   const extra = [
     c.mute ? 'MUTED' : '', c.solo ? 'SOLO' : '', c.swing !== undefined ? `swing ${fmt(c.swing)}` : '', c.glide ? `glide ${fmt(c.glide)}s` : '',
-    c.polyphony === 1 ? 'mono' : '', c.instrument === 'sampler' ? `root ${noteName(c.rootKey)}` : '',
+    c.polyphony === 1 ? 'mono' : '', c.instrument === 'sampler' ? `root ${noteName(c.rootKey)}` : '', c.group ? `group "${c.group}"` : '',
   ].filter(Boolean).join(' ');
   const params = changedParams(specs, c.params);
   return ` [${c.id}] ${c.name} · ${channelKind(c, assets)} · ins ${c.insert}${c.insert > 0 && insert ? ` "${insert.name}"` : ' (master)'} · vol ${fmt(c.volume)} pan ${fmt(c.pan)}${extra ? ` · ${extra}` : ''}${params ? ` · ${params}` : ''}`;
@@ -153,6 +166,9 @@ function insertLine(song: MusicProject, ins: MixerInsert, index: number): string
   return ` ${index} "${ins.name}"${feeds.length ? ` ← ${feeds.join(', ')}` : ''}${bits ? ` · ${bits}` : ''}${sends ? ` · ${sends}` : ''}${fx ? ` · ${fx}` : ''}`;
 }
 
+/** A track's non-default state, e.g. " MUTED LOCKED" (empty when it has none). */
+const trackFlags = (t: { mute: boolean; solo: boolean; locked?: boolean } | undefined): string => (t ? `${t.mute ? ' MUTED' : ''}${t.solo ? ' SOLO' : ''}${t.locked ? ' LOCKED' : ''}` : '');
+
 /** What an automation drives, in words. */
 export function targetText(song: MusicProject, a: Automation): string {
   const t = a.target;
@@ -172,6 +188,8 @@ export function songReadout(song: MusicProject, options: ReadoutOptions): string
   const lines: string[] = [];
   lines.push(`SONG "${song.name}" · ${fmt(song.bpm)} BPM · ${song.timeSig[0]}/${song.timeSig[1]} · swing ${fmt(song.swing)} · key ${pitchName(song.key.root)} ${song.key.scale} · ${hasSong ? `${fmt(total / bar)} bars (${fmt(seconds)} s)` : 'no arrangement yet'} · master ${fmt(song.masterVolume)} dB${song.masterPitch ? `, pitch ${song.masterPitch}` : ''}`);
   lines.push('Ids are in [brackets]. Pattern positions are STEPS (1 step = a 16th note; a bar = ' + bar + ' steps); playlist positions are BARS counted from 0.');
+  const view = song.view;
+  lines.push(`VIEW: ${view.mode === 'song' ? 'SONG' : 'PAT'} mode · active pattern [${view.activePatternId ?? '-'}] · selected channel [${view.selectedChannelId ?? '-'}]${view.window ? ` · window ${view.window}` : ''}${options.studioOpen === undefined ? '' : ` · studio ${options.studioOpen ? 'open' : 'closed (music_open_studio opens it)'}`}`);
 
   lines.push('', `CHANNELS (${song.channels.length})`);
   if (!song.channels.length) lines.push(' (none — music_add_channel)');
@@ -192,7 +210,7 @@ export function songReadout(song: MusicProject, options: ReadoutOptions): string
 
   lines.push('', 'PLAYLIST');
   const { markers, clips, tracks } = song.playlist;
-  if (markers.length) lines.push(` sections: ${[...markers].sort((a, b) => a.at - b.at).map((m) => `${fmt(m.at / bar)} ${m.name}${m.kind !== 'marker' && m.kind !== m.name.toLowerCase() ? ` (${m.kind})` : ''}`).join(' · ')}`);
+  if (markers.length) lines.push(` sections: ${[...markers].sort((a, b) => a.at - b.at).map((m) => `${fmt(m.at / bar)} ${m.name}${m.kind !== 'marker' && m.kind !== m.name.toLowerCase() ? ` (${m.kind})` : ''} [${m.id}]`).join(' · ')}`);
   if (song.playlist.loop) lines.push(` loop: bars ${fmt(song.playlist.loop.start / bar)}–${fmt(song.playlist.loop.end / bar)}`);
   const byTrack = new Map<number, typeof clips>();
   for (const c of clips) byTrack.set(c.trackIndex, [...(byTrack.get(c.trackIndex) ?? []), c]);
@@ -203,14 +221,19 @@ export function songReadout(song: MusicProject, options: ReadoutOptions): string
     for (const c of sorted) {
       const label = c.kind === 'pattern' ? song.patterns.find((p) => p.id === c.patternId)?.name ?? c.patternId ?? '?'
         : c.kind === 'audio' ? `audio ${options.assets?.get(c.assetId ?? '')?.name ?? c.assetId}` : `automation ${song.automations.find((a) => a.id === c.automationId)?.name ?? c.automationId}`;
-      const entry = { from: c.start / bar, to: (c.start + c.length) / bar, label: `${label}${c.muted ? ' (muted)' : ''}`, id: c.id };
+      const extras = [c.offset > 0 ? `offset ${fmt(c.offset / bar)}` : '', c.gain ? `${fmt(c.gain)} dB` : '', c.fadeIn ? `fade-in ${fmt(c.fadeIn)}s` : '', c.fadeOut ? `fade-out ${fmt(c.fadeOut)}s` : ''].filter(Boolean).join(', ');
+      const entry = { from: c.start / bar, to: (c.start + c.length) / bar, label: `${label}${c.muted ? ' (muted)' : ''}${extras ? ` (${extras})` : ''}`, id: c.id };
       // Back-to-back clips of the same thing read as one run (the first clip's id names it).
       const last = runs[runs.length - 1];
       if (!full && last && Math.abs(last.to - entry.from) < 1e-6 && last.label === entry.label) { last.to = entry.to; last.id = last.id.replace(/…?$/, '…'); }
       else runs.push(entry);
     }
-    lines.push(` T${index} "${tracks[index]?.name ?? `Track ${index + 1}`}": ${runs.map((r) => `${fmt(r.from)}-${fmt(r.to)} ${r.label} [${r.id}]`).join(' · ')}`);
+    lines.push(` T${index} "${tracks[index]?.name ?? `Track ${index + 1}`}"${trackFlags(tracks[index])}: ${runs.map((r) => `${fmt(r.from)}-${fmt(r.to)} ${r.label} [${r.id}]`).join(' · ')}`);
   }
+  // Tracks with no clips show only when they say something (renamed, muted, soloed, locked); the rest are free, numbered from 0.
+  const idle = tracks.map((tr, i) => ({ tr, i })).filter(({ tr, i }) => !byTrack.has(i) && (trackFlags(tr) || !/^Track \d+$/.test(tr.name)));
+  if (idle.length) lines.push(` empty tracks: ${idle.map(({ tr, i }) => `T${i} "${tr.name}"${trackFlags(tr)}`).join(' · ')}`);
+  lines.push(` ${tracks.length} playlist tracks (T0–T${tracks.length - 1}); a clip on a higher index makes the tracks it needs.`);
 
   lines.push('', 'MIXER (inserts in use; 0 = master)');
   song.mixer.inserts.forEach((ins, i) => {
@@ -223,6 +246,12 @@ export function songReadout(song: MusicProject, options: ReadoutOptions): string
     for (const a of song.automations) {
       const vs = a.points.map((p) => p.v);
       lines.push(` [${a.id}] ${a.name} → ${targetText(song, a)} · ${a.points.length} points${vs.length ? `, normalized ${fmt(Math.min(...vs))}–${fmt(Math.max(...vs))}` : ''}`);
+    }
+  }
+  if (options.timeline?.length) {
+    lines.push('', 'ON THE VIDEO TIMELINE (the bounced song as the music layer; music_render {place:true} refreshes it in place)');
+    for (const p of options.timeline) {
+      lines.push(` comp "${p.compName}" [${p.compId}] · clip [${p.clipId}] on track [${p.trackId}] · asset [${p.assetId}] · ${fmt(p.bpm)} BPM, ${p.beats} beats stored${p.live ? `${p.start !== undefined ? ` · starts ${fmt(p.start)} s, runs ${fmt(p.duration ?? 0)} s` : ''}` : ' · the clip is no longer on that timeline (the next music_render {place:true} lays a fresh one)'}`);
     }
   }
   return lines.join('\n');

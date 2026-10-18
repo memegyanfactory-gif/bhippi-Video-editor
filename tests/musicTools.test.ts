@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import catalog from '../src/lib/ai-tools.json';
-import { MUSIC_TOOLS, parseKeyText, runMusicTool, validateParams, type MusicToolContext } from '../src/lib/musicTools';
+import { MUSIC_TOOLS, parseKeyText, runMusicTool, SNAP_NAMES, validateParams, type MusicToolContext } from '../src/lib/musicTools';
 import type { ToolHost } from '../src/lib/aiTools';
 import { TOOL_LABELS } from '../src/lib/toolLabels';
 import { isMusicAsk, MUSIC_GROUP, routeTools } from '../src/lib/toolRouter';
@@ -11,6 +11,7 @@ import { generatePart, GROOVES, PART_KINDS } from '../src/music/generate';
 import { DEFAULT_DRUM_KEYS, normalizeSong, parseSteps } from '../src/music/model';
 import { songReadout } from '../src/music/readout';
 import { onStudioRequest, setStudioOpen, type StudioRequest } from '../src/music/studioBus';
+import { placeSongLayer } from '../src/music/timeline';
 import { CHANNEL_PRESETS, SONG_TEMPLATE_LIST, layoutSections, presetChannel, songFromTemplate } from '../src/music/templates';
 import { SCALE_NAMES, SCALES } from '../src/music/theory';
 import { EFFECT_SPECS, INSTRUMENT_SPECS, type MusicProject } from '../src/music/types';
@@ -21,13 +22,13 @@ const tools = (catalog as unknown as { tools: Tool[] }).tools;
 const musicSpecs = tools.filter((t) => t.name.startsWith('music_'));
 
 /** A project and a host the music tools can run against, counting commits. */
-function rig() {
+function rig(assets: Map<string, unknown> = new Map()) {
   let project: Project = newProject('Test');
   let commits = 0;
   const imported: string[][] = [];
   const host = {
     history: { current: () => project, commit: (change: (p: Project) => Project) => { project = change(project); } },
-    assets: () => new Map(),
+    assets: () => assets,
     selection: () => [],
     setSelection: () => undefined,
     importMedia: async (paths: string[]) => { imported.push(paths); return []; },
@@ -37,7 +38,7 @@ function rig() {
   } as unknown as ToolHost;
   const ctx: MusicToolContext = { commit: (change) => { project = change(project); commits++; }, current: () => project, pickComp: (p) => p.comps[0], folderFor: () => 'folder-music' };
   const run = (name: string, args: Record<string, unknown> = {}) => runMusicTool(host, name, args, ctx);
-  return { run, song: (): MusicProject => project.music!, project: () => project, commits: () => commits, imported };
+  return { run, song: (): MusicProject => project.music!, project: () => project, setProject: (next: Project) => { project = next; }, commits: () => commits, imported };
 }
 const text = (r: { ok: boolean; summary?: string; error?: string }) => (r.ok ? r.summary ?? '' : r.error ?? '');
 const idOf = (r: { [k: string]: unknown }, key: string) => r[key] as string;
@@ -66,7 +67,7 @@ describe('the music tool catalogue', () => {
     expect(enumOf('music_new_song', 'scale')).toEqual(SCALE_NAMES);
     expect(enumOf('music_generate', 'part')).toEqual(PART_KINDS);
     expect(enumOf('music_studio_guide', 'effect')).toEqual(Object.keys(EFFECT_SPECS));
-    expect(enumOf('music_edit_notes', 'op')?.filter((op) => op !== 'remove')).toEqual(NOTE_OPS);
+    expect(enumOf('music_edit_notes', 'op')?.filter((op) => op !== 'remove' && !['length', 'slice', 'set', 'copy'].includes(op))).toEqual(NOTE_OPS);
   });
 });
 
@@ -607,5 +608,430 @@ describe('routing', () => {
     const open = routeTools('make it better');
     expect(open.full).toContain('music_get_song');
     expect(open.genres).toEqual(['edit', 'motion']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// "The AI has all the tools it needs to do everything inside the Music Studio": each block below
+// walks a family of studio actions (docs of the UI: Toolbar, PatternPicker, ChannelRack, PianoRoll,
+// Playlist, Mixer, Browser, ParamPanel) through the tools and checks the song the studio would show.
+
+describe('studio actions through the tools', () => {
+  afterEach(() => setStudioOpen(false));
+  const schemaProps = (tool: string) => Object.keys(musicSpecs.find((t) => t.name === tool)!.input_schema.properties);
+
+  it('exposes every new argument in the strict schemas', () => {
+    expect(schemaProps('music_open_studio')).toEqual(expect.arrayContaining(['window', 'patternId', 'channelId', 'mode', 'transport', 'fromBar', 'metronome', 'snap', 'browser', 'playlist', 'panel', 'closePanels']));
+    expect(schemaProps('music_arrange')).toEqual(expect.arrayContaining(['patterns', 'tracks', 'sections', 'clips', 'markers', 'loop']));
+    expect(schemaProps('music_edit_notes')).toEqual(expect.arrayContaining(['at', 'every', 'props', 'toPatternId', 'toChannelId', 'toStep']));
+    expect(schemaProps('music_update_channel')).toEqual(expect.arrayContaining(['clone', 'moveTo', 'group']));
+    expect(schemaProps('music_mixer')).toContain('color');
+    expect(musicSpecs.find((t) => t.name === 'music_open_studio')!.input_schema.properties.snap.enum).toEqual([...SNAP_NAMES]);
+    for (const spec of musicSpecs) expect(spec.input_schema.additionalProperties, spec.name).toBe(false);
+  });
+
+  it('copies, reorders, groups and recolours channels (Channel Rack row menu)', async () => {
+    const r = rig();
+    await r.run('music_new_song', { template: 'empty' });
+    const kick = idOf(await r.run('music_add_channel', { preset: 'kick-punchy' }), 'channelId');
+    const snare = idOf(await r.run('music_add_channel', { preset: 'snare-tight' }), 'channelId');
+    const lead = idOf(await r.run('music_add_channel', { preset: 'pluck-lead' }), 'channelId');
+    const made = await r.run('music_write_pattern', { name: 'Loop', channels: [{ channel: kick, steps: 'X---x---x---x---' }, { channel: lead, text: 'C4 0 4 100; E4 4 4' }] });
+    const patternId = idOf(made, 'patternId');
+
+    const cloned = await r.run('music_update_channel', { channelId: kick, clone: true });
+    expect(cloned.ok, text(cloned)).toBe(true);
+    const names = r.song().channels.map((c) => c.name);
+    expect(names).toEqual(['Punchy Kick', 'Punchy Kick copy', 'Tight Snare', 'Pluck Lead']);
+    const copy = r.song().channels[1];
+    expect(copy.insert).toBe(r.song().channels[0].insert);
+    expect(r.song().view.selectedChannelId).toBe(copy.id);
+    const loop = r.song().patterns.find((p) => p.id === patternId)!;
+    expect(loop.notes[copy.id].length).toBe(loop.notes[kick].length);
+    expect(loop.notes[copy.id].every((n) => !loop.notes[kick].some((o) => o.id === n.id))).toBe(true);
+
+    // clone with a name and another change in one call: the change goes to the copy
+    const named = await r.run('music_update_channel', { channelId: lead, clone: true, name: 'Lead 2', volume: 0.4, group: 'Leads' });
+    expect(named.ok, text(named)).toBe(true);
+    expect(r.song().channels.find((c) => c.name === 'Lead 2')).toMatchObject({ volume: 0.4, group: 'Leads' });
+    expect(r.song().channels.find((c) => c.id === lead)!.volume).not.toBe(0.4);
+    expect((await r.run('music_update_channel', { channelId: lead, clone: true, name: 'Lead 2' })).ok).toBe(false);
+
+    const moved = await r.run('music_update_channel', { channelId: 'Tight Snare', moveTo: 0 });
+    expect(moved.ok, text(moved)).toBe(true);
+    expect(r.song().channels[0].id).toBe(snare);
+    expect((await r.run('music_update_channel', { channelId: 'Tight Snare', moveTo: 99 })).ok).toBe(false);
+    expect((await r.run('music_update_channel', { channelId: snare, group: '' })).ok).toBe(true);
+    expect(r.song().channels.find((c) => c.id === snare)!.group).toBeUndefined();
+
+    const before = r.commits();
+    const bad = await r.run('music_update_channel', { channelId: snare, color: 'red' });
+    expect(bad.ok).toBe(false);
+    expect(text(bad)).toContain('#rrggbb');
+    expect((await r.run('music_add_channel', { preset: 'hat-house', color: 'nope' })).ok).toBe(false);
+    expect(r.commits()).toBe(before);
+    expect((await r.run('music_update_channel', { channelId: snare, color: '#336699' })).ok).toBe(true);
+    expect(r.song().channels.find((c) => c.id === snare)!.color).toBe('#336699');
+  });
+
+  it('resizes, slices, flags and copies notes (Piano Roll)', async () => {
+    const r = rig();
+    await r.run('music_new_song', { template: 'empty' });
+    const lead = idOf(await r.run('music_add_channel', { preset: 'pluck-lead' }), 'channelId');
+    const bass = idOf(await r.run('music_add_channel', { preset: 'sub-bass' }), 'channelId');
+    const patternId = idOf(await r.run('music_write_pattern', { name: 'Roll', channels: [{ channel: lead, text: 'C4 0 8 100; E4 8 4 90; G4 12 4 80' }] }), 'patternId');
+    const notes = () => r.song().patterns.find((p) => p.id === patternId)!.notes[lead];
+
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'length', set: 2 })).ok).toBe(true);
+    expect(notes().map((n) => n.length)).toEqual([2, 2, 2]);
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'length', multiply: 2, fromStep: 8 })).ok).toBe(true);
+    expect(notes().map((n) => n.length)).toEqual([2, 4, 4]);
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'length', set: 8, toStep: 1 })).ok).toBe(true);
+    expect(notes()[0].length).toBe(8);
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'length' })).ok).toBe(false);
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'length', set: -1 })).ok).toBe(false);
+
+    // slice: one cut, then chop
+    const cut = await r.run('music_edit_notes', { patternId, channelId: lead, op: 'slice', at: 4 });
+    expect(cut.ok, text(cut)).toBe(true);
+    expect(notes().filter((n) => n.key === 60).map((n) => [n.start, n.length])).toEqual([[0, 4], [4, 4]]);
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'slice', at: 100 })).ok).toBe(false);
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'slice' })).ok).toBe(false);
+    const chop = await r.run('music_edit_notes', { patternId, channelId: lead, op: 'slice', every: 1, minKey: 'E4', maxKey: 'E4' });
+    expect(chop.ok, text(chop)).toBe(true);
+    expect(notes().filter((n) => n.key === 64).map((n) => n.start)).toEqual([8, 9, 10, 11]);
+    expect(new Set(notes().map((n) => n.id)).size).toBe(notes().length);
+
+    // per-note flags: set and clear
+    const flagged = await r.run('music_edit_notes', { patternId, channelId: lead, op: 'set', fromStep: 12, props: { slide: true, probability: 0.5, ratchet: 3, pan: -0.5, fine: 20, mute: true } });
+    expect(flagged.ok, text(flagged)).toBe(true);
+    expect(notes().find((n) => n.key === 67)).toMatchObject({ slide: true, probability: 0.5, ratchet: 3, pan: -0.5, fine: 20, mute: true });
+    expect(notes().find((n) => n.key === 60)!.slide).toBeUndefined();
+    await r.run('music_edit_notes', { patternId, channelId: lead, op: 'set', fromStep: 12, props: { slide: false, probability: 1, ratchet: 1, pan: 0, fine: 0, mute: false } });
+    expect(Object.keys(notes().find((n) => n.key === 67)!).sort()).toEqual(['id', 'key', 'length', 'start', 'velocity']);
+    const unknown = await r.run('music_edit_notes', { patternId, channelId: lead, op: 'set', props: { wobble: 1 } });
+    expect(unknown.ok).toBe(false);
+    expect(text(unknown)).toContain('slide, probability, ratchet, pan, fine, mute');
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'set' })).ok).toBe(false);
+
+    // copy: to another channel in the same pattern, to another pattern shifted, and the guard against stacking in place
+    const toBass = await r.run('music_edit_notes', { patternId, channelId: lead, op: 'copy', toChannelId: bass, minKey: 'C4', maxKey: 'C4' });
+    expect(toBass.ok, text(toBass)).toBe(true);
+    expect(r.song().patterns.find((p) => p.id === patternId)!.notes[bass].length).toBe(2);
+    const other = idOf(await r.run('music_write_pattern', { name: 'Other', bars: 2, channels: [{ channel: bass, text: 'C2 0 4' }] }), 'patternId');
+    const shifted = await r.run('music_edit_notes', { patternId, channelId: lead, op: 'copy', toPatternId: other, toStep: 16, fromStep: 8 });
+    expect(shifted.ok, text(shifted)).toBe(true);
+    const copied = r.song().patterns.find((p) => p.id === other)!.notes[lead];
+    expect(copied.map((n) => n.start)).toEqual([16, 17, 18, 19, 20]);
+    expect(r.song().patterns.find((p) => p.id === other)!.bars).toBe(2);
+    expect(notes().length).toBeGreaterThan(copied.length - 1);
+    const guard = await r.run('music_edit_notes', { patternId, channelId: lead, op: 'copy' });
+    expect(guard.ok).toBe(false);
+    expect(text(guard)).toContain('toStep');
+    expect((await r.run('music_edit_notes', { patternId, channelId: lead, op: 'copy', toPatternId: 'ghost' })).ok).toBe(false);
+  });
+
+  it('manages patterns and playlist tracks, and edits clips and markers (Pattern picker, Playlist)', async () => {
+    const r = rig();
+    await r.run('music_new_song', { template: 'empty' });
+    const kick = idOf(await r.run('music_add_channel', { preset: 'kick-punchy' }), 'channelId');
+    const first = r.song().patterns[0].id;
+
+    // patterns: add, rename + colour + resize, clone, duplicate names, remove, last-pattern guard
+    const added = await r.run('music_arrange', { patterns: [{ op: 'add', name: 'Verse', bars: 4, color: '#112233' }] });
+    expect(added.ok, text(added)).toBe(true);
+    const verse = (added.patterns as string[])[0];
+    expect(r.song().patterns.find((p) => p.id === verse)).toMatchObject({ name: 'Verse', bars: 4, color: '#112233' });
+    expect(r.song().view.activePatternId).toBe(verse);
+    const renamed = await r.run('music_arrange', { patterns: [{ patternId: 'Verse', name: 'Verse A', color: '#445566', bars: 2 }] });
+    expect(renamed.ok, text(renamed)).toBe(true);
+    expect(r.song().patterns.find((p) => p.id === verse)).toMatchObject({ name: 'Verse A', color: '#445566', bars: 2 });
+    const clone = await r.run('music_arrange', { patterns: [{ op: 'clone', patternId: verse, name: 'Verse B' }] });
+    expect(clone.ok, text(clone)).toBe(true);
+    const verseB = (clone.patterns as string[])[0];
+    expect(r.song().patterns.find((p) => p.id === verseB)).toMatchObject({ name: 'Verse B', bars: 2 });
+    const dup = await r.run('music_arrange', { patterns: [{ op: 'add', name: 'verse a' }, { patternId: verseB, name: 'Verse A' }, { op: 'update', patternId: verse }, { op: 'add', color: 'blue' }, { op: 'explode' }] });
+    expect(dup.ok).toBe(false);
+    expect(text(dup)).toContain('already called "verse a"');
+    expect(text(dup)).toContain('update needs name, color or bars');
+    expect(text(dup)).toContain('#rrggbb');
+    expect(text(dup)).toContain('op is add, update, clone or remove');
+    await r.run('music_write_pattern', { patternId: verse, channels: [{ channel: kick, steps: 'x---' }] });
+
+    // tracks: add, update, resolve by name
+    const tracks = await r.run('music_arrange', { tracks: [{ op: 'add', count: 2, color: '#abcdef' }, { track: 0, name: 'Drums', color: '#ff0000', mute: true }, { track: 'Track 2', solo: true, locked: false }, { op: 'add', name: 'Solo bus' }] });
+    expect(tracks.ok, text(tracks)).toBe(true);
+    expect(tracks.tracks).toEqual([16, 17, 18]);
+    expect(r.song().playlist.tracks.length).toBe(19);
+    expect(r.song().playlist.tracks[0]).toMatchObject({ name: 'Drums', color: '#ff0000', mute: true });
+    expect(r.song().playlist.tracks[1].solo).toBe(true);
+    expect(r.song().playlist.tracks[18].name).toBe('Solo bus');
+    const badTrack = await r.run('music_arrange', { tracks: [{ track: 99, mute: true }, { track: 'Nope', mute: true }, { track: 0 }, { op: 'add', count: 999 }] });
+    expect(badTrack.ok).toBe(false);
+    expect(text(badTrack)).toContain('No track 99');
+    expect(text(badTrack)).toContain('No track named "Nope"');
+
+    // clips: add, duplicate (consecutive copies), slice, update with fades, lock refusal
+    const placed = await r.run('music_arrange', { clips: [{ op: 'add', patternId: verse, startBar: 0, bars: 2, track: 3 }] });
+    const clipId = (placed.clips as string[])[0];
+    const clips = () => r.song().playlist.clips;
+    const dups = await r.run('music_arrange', { clips: [{ op: 'duplicate', clipId, times: 2 }] });
+    expect(dups.ok, text(dups)).toBe(true);
+    expect(clips().filter((c) => c.trackIndex === 3).map((c) => c.start)).toEqual([0, 32, 64]);
+    const cut = await r.run('music_arrange', { clips: [{ op: 'slice', clipId, atBar: 1 }] });
+    expect(cut.ok, text(cut)).toBe(true);
+    const right = clips().find((c) => c.id === (cut.clips as string[])[0])!;
+    expect(right).toMatchObject({ start: 16, length: 16, offset: 16, trackIndex: 3 });
+    expect(clips().find((c) => c.id === clipId)!.length).toBe(16);
+    expect((await r.run('music_arrange', { clips: [{ op: 'slice', clipId, atBar: 5 }] })).ok).toBe(false);
+    const moved = await r.run('music_arrange', { clips: [{ op: 'update', clipId: right.id, startBar: 2, track: 21, muted: true }] });
+    expect(moved.ok, text(moved)).toBe(true);
+    expect(clips().find((c) => c.id === right.id)).toMatchObject({ start: 32, trackIndex: 21, muted: true });
+    expect(r.song().playlist.tracks.length).toBeGreaterThanOrEqual(22);
+    expect((await r.run('music_arrange', { clips: [{ op: 'update', clipId, fadeIn: -1 }] })).ok).toBe(false);
+
+    await r.run('music_arrange', { tracks: [{ track: 3, locked: true }] });
+    const locked = await r.run('music_arrange', { clips: [{ op: 'update', clipId, startBar: 9 }, { op: 'slice', clipId, atBar: 0.5 }, { op: 'duplicate', clipId }, { op: 'remove', clipId }, { op: 'add', patternId: verse, startBar: 40, track: 3 }] });
+    expect(locked.ok).toBe(false);
+    expect(text(locked)).toContain('track 3 is locked');
+    expect(clips().find((c) => c.id === clipId)).toMatchObject({ start: 0 });
+    const byPattern = await r.run('music_arrange', { clips: [{ op: 'remove', patternId: verse }] });
+    expect(byPattern.ok, text(byPattern)).toBe(true);
+    expect(text(byPattern)).toContain('locked tracks');
+    expect(clips().every((c) => c.trackIndex === 3)).toBe(true);
+    await r.run('music_arrange', { tracks: [{ track: 3, locked: false }] });
+    expect((await r.run('music_arrange', { clips: [{ op: 'remove', clipId }] })).ok).toBe(true);
+
+    // markers: add, update (rename, move, kind), remove by id
+    await r.run('music_arrange', { markers: [{ op: 'add', name: 'Tag', bar: 2 }] });
+    const marker = r.song().playlist.markers[0];
+    const edited = await r.run('music_arrange', { markers: [{ op: 'update', id: marker.id, name: 'Hook', bar: 4, kind: 'chorus' }] });
+    expect(edited.ok, text(edited)).toBe(true);
+    expect(r.song().playlist.markers[0]).toMatchObject({ id: marker.id, name: 'Hook', at: 64, kind: 'chorus' });
+    expect((await r.run('music_arrange', { markers: [{ op: 'update', id: marker.id }, { op: 'update', id: 'ghost', name: 'x' }, { op: 'update', id: marker.id, kind: 'solo' }] })).ok).toBe(false);
+    expect((await r.run('music_arrange', { markers: [{ op: 'remove', id: marker.id }] })).ok).toBe(true);
+    expect(r.song().playlist.markers.length).toBe(0);
+
+    // patterns last: removing one takes its clips, the last pattern stays
+    await r.run('music_arrange', { clips: [{ op: 'add', patternId: verseB, startBar: 0, bars: 2 }] });
+    const gone = await r.run('music_arrange', { patterns: [{ op: 'remove', patternId: verseB }] });
+    expect(gone.ok, text(gone)).toBe(true);
+    expect(text(gone)).toContain('1 playlist clip');
+    expect(r.song().patterns.some((p) => p.id === verseB)).toBe(false);
+    expect(clips().every((c) => c.patternId !== verseB)).toBe(true);
+    await r.run('music_arrange', { patterns: [{ op: 'remove', patternId: verse }] });
+    const only = await r.run('music_arrange', { patterns: [{ op: 'remove', patternId: first }] });
+    expect(only.ok).toBe(false);
+    expect(text(only)).toContain('a song needs one pattern');
+    expect(r.song().patterns.length).toBe(1);
+  });
+
+  it('colours and creates mixer inserts, and renames automations (Mixer, automation clips)', async () => {
+    const r = rig();
+    await r.run('music_new_song', { template: 'house', seed: 2 });
+    const before = r.song().mixer.inserts.length;
+    const coloured = await r.run('music_mixer', { inserts: [{ insert: 2, color: '#123456', name: 'Bass bus' }, { insert: 20, color: '#654321' }] });
+    expect(coloured.ok, text(coloured)).toBe(true);
+    expect(r.song().mixer.inserts[2]).toMatchObject({ color: '#123456', name: 'Bass bus' });
+    expect(r.song().mixer.inserts.length).toBeGreaterThan(before - 1);
+    expect(r.song().mixer.inserts[20].color).toBe('#654321');
+    const bad = await r.run('music_mixer', { insert: 2, color: 'teal' });
+    expect(bad.ok).toBe(false);
+    expect(text(bad)).toContain('#rrggbb');
+
+    const auto = await r.run('music_automate', { target: { kind: 'insert', insert: 2, param: 'volume' }, bars: 2, shape: 'ramp-up', from: -20, to: 0 });
+    const id = idOf(auto, 'automationId');
+    const rename = await r.run('music_automate', { automationId: id, name: 'Bass fade-in' });
+    expect(rename.ok, text(rename)).toBe(true);
+    expect(r.song().automations.find((a) => a.id === id)!.name).toBe('Bass fade-in');
+    expect((await r.run('music_automate', { automationId: id })).ok).toBe(false);
+    expect((await r.run('music_automate', { automationId: 'ghost', name: 'x' })).ok).toBe(false);
+    expect((await r.run('music_automate', { automationId: id, name: 'x', shape: 'sweep', to: 1 })).ok).toBe(false);
+  });
+
+  it('adds audio clips with fades from the bin, and reads them back', async () => {
+    const assets = new Map<string, unknown>([['a1', { id: 'a1', name: 'vocal.wav', kind: 'audio', duration: 4 }]]);
+    const r = rig(assets);
+    await r.run('music_new_song', { template: 'empty' });
+    const added = await r.run('music_arrange', { clips: [{ op: 'add', assetId: 'a1', startBar: 1, track: 4, gain: -3, fadeIn: 0.5, fadeOut: 1 }] });
+    expect(added.ok, text(added)).toBe(true);
+    const clip = r.song().playlist.clips[0];
+    expect(clip).toMatchObject({ kind: 'audio', assetId: 'a1', gain: -3, fadeIn: 0.5, fadeOut: 1, trackIndex: 4 });
+    await r.run('music_arrange', { tracks: [{ track: 4, name: 'Vocal', locked: true }, { track: 5, mute: true }] });
+    const read = text(await r.run('music_get_song', { detail: 'full' }));
+    expect(read).toContain('T4 "Vocal" LOCKED');
+    expect(read).toContain('audio vocal.wav');
+    expect(read).toContain('-3 dB');
+    expect(read).toContain('fade-in 0.5s');
+    expect(read).toContain('T5 "Track 6" MUTED');
+    expect(read).toContain('playlist tracks (T0–T15)');
+    expect(read).toContain(`[${clip.id}]`);
+  });
+
+  it('shows ids and placements on the video timeline in the readout', async () => {
+    const r = rig();
+    await r.run('music_new_song', { template: 'lofi', seed: 3 });
+    const song = r.song();
+    const read = text(await r.run('music_get_song'));
+    expect(read).toContain('VIEW:');
+    expect(read).toContain(`[${song.view.activePatternId}]`);
+    for (const m of song.playlist.markers) expect(read, m.name).toContain(`[${m.id}]`);
+    expect(read).toContain('studio closed');
+    expect(read).not.toContain('ON THE VIDEO TIMELINE');
+    const comp = r.project().comps[0];
+    const laid = placeSongLayer(r.project(), comp.id, { assetId: 'asset-song', duration: 12, beats: [0, 0.5, 1], downbeats: [0], bpm: song.bpm, name: 'Song' }, { start: 2, db: -6 });
+    r.setProject(laid.project);
+    const placed = text(await r.run('music_get_song'));
+    expect(placed).toContain('ON THE VIDEO TIMELINE');
+    expect(placed).toContain(`comp "${comp.name}" [${comp.id}]`);
+    expect(placed).toContain(`clip [${laid.clipId}]`);
+    expect(placed).toContain(`track [${laid.trackId}]`);
+    expect(placed).toContain('asset [asset-song]');
+    expect(placed).toContain('starts 2 s, runs 12 s');
+    expect(placed).toContain('3 beats stored');
+    // an editor removed the clip: the readout says the layer is gone
+    r.setProject({ ...laid.project, comps: laid.project.comps.map((c) => ({ ...c, clips: [] })) });
+    expect(text(await r.run('music_get_song'))).toContain('no longer on that timeline');
+    setStudioOpen(true);
+    expect(text(await r.run('music_get_song'))).toContain('studio open');
+  });
+
+  it('drives playback, play mode, metronome, snap, panels and windows (Toolbar, Transport)', async () => {
+    const r = rig();
+    const seen: StudioRequest[] = [];
+    const off = onStudioRequest((req) => seen.push(req));
+    try {
+      await r.run('music_new_song', { template: 'beat', seed: 1 });
+      const song = r.song();
+      const lead = song.channels.find((c) => c.instrument !== 'drum')!;
+      const withFx = song.mixer.inserts.findIndex((ins) => ins.effects.length > 0);
+      const effect = song.mixer.inserts[withFx].effects[0];
+      setStudioOpen(true);
+
+      // song mode, from a bar
+      const play = await r.run('music_open_studio', { transport: 'play', fromBar: 4 });
+      expect(play.ok, text(play)).toBe(true);
+      expect(text(play)).toContain('Playing the song from bar 4');
+      const playReq = seen[seen.length - 1];
+      expect(playReq).toMatchObject({ open: true, transport: 'play', mode: 'song', patternId: song.view.activePatternId, playFrom: 64 });
+      expect(seen[0]).toMatchObject({ open: true, playFrom: 64 });
+
+      // stop and rewind
+      expect((await r.run('music_open_studio', { transport: 'stop' })).ok).toBe(true);
+      expect(seen[seen.length - 1]).toMatchObject({ transport: 'stop' });
+      expect((await r.run('music_open_studio', { transport: 'rewind' })).ok).toBe(true);
+      expect(seen[seen.length - 1]).toMatchObject({ transport: 'rewind' });
+
+      // PAT mode loops the active pattern; the request carries the mode and pattern to play
+      const pat = song.patterns[1];
+      const loop = await r.run('music_open_studio', { mode: 'pattern', patternId: pat.name, transport: 'play' });
+      expect(loop.ok, text(loop)).toBe(true);
+      expect(text(loop)).toContain(`pattern ${pat.name} on loop`);
+      expect(seen[seen.length - 1]).toMatchObject({ transport: 'play', mode: 'pattern', patternId: pat.id });
+      // the view is the song's: an open studio takes it from the request, so no undo step is made
+      const commits = r.commits();
+      await r.run('music_open_studio', { mode: 'song', channelId: lead.id });
+      expect(r.commits()).toBe(commits);
+
+      // the toolbar's other switches and the floating panels
+      const flags = await r.run('music_open_studio', { metronome: true, snap: '1/8', browser: false, playlist: true, window: 'mixer' });
+      expect(flags.ok, text(flags)).toBe(true);
+      expect(seen[seen.length - 1]).toMatchObject({ open: true, window: 'mixer', metronome: true, snap: '1/8', browser: false, playlist: true });
+      expect(text(flags)).toContain('metronome on');
+      expect((await r.run('music_open_studio', { panel: { kind: 'instrument', channelId: lead.name } })).ok).toBe(true);
+      expect(seen[seen.length - 1]).toMatchObject({ panel: { kind: 'instrument', channelId: lead.id } });
+      expect((await r.run('music_open_studio', { panel: { kind: 'effect', insert: withFx, effectId: effect.type } })).ok).toBe(true);
+      expect(seen[seen.length - 1]).toMatchObject({ panel: { kind: 'effect', insert: withFx, effectId: effect.id } });
+      expect((await r.run('music_open_studio', { closePanels: true })).ok).toBe(true);
+      expect(seen[seen.length - 1]).toMatchObject({ closePanels: true });
+      expect((await r.run('music_open_studio', { fromBar: 8 })).ok).toBe(true);
+      expect(seen[seen.length - 1]).toMatchObject({ playFrom: 128 });
+
+      // bad input names the valid choices and sends nothing
+      const sent = seen.length;
+      for (const bad of [{ transport: 'pause' }, { mode: 'live' }, { snap: '1/3' }, { metronome: 'yes' }, { fromBar: -1 }, { panel: { kind: 'knob' } }, { panel: { kind: 'effect', insert: withFx, effectId: 'nope' } }, { panel: { kind: 'instrument', channelId: 'ghost' } }, { window: 'sky' }, { open: false, transport: 'play' }]) {
+        expect((await r.run('music_open_studio', bad)).ok, JSON.stringify(bad)).toBe(false);
+      }
+      expect(seen.length).toBe(sent);
+      expect(text(await r.run('music_open_studio', { snap: '1/3' }))).toContain('1/16');
+
+      // nothing to play
+      await r.run('music_new_song', { template: 'empty', replace: true });
+      const empty = await r.run('music_open_studio', { mode: 'song', transport: 'play' });
+      expect(empty.ok).toBe(false);
+      expect(text(empty)).toContain('playlist is empty');
+      expect((await r.run('music_open_studio', { transport: 'play', mode: 'pattern' })).ok).toBe(true);
+      expect((await r.run('music_open_studio', { open: false })).ok).toBe(true);
+      expect(seen[seen.length - 1]).toMatchObject({ open: false });
+    } finally {
+      off();
+    }
+  });
+
+  it('keeps the view in the song when the studio is closed, and refuses playback without one', async () => {
+    const r = rig();
+    await r.run('music_new_song', { template: 'beat', seed: 1 });
+    const song = r.song();
+    const chan = song.channels[2];
+    const pat = song.patterns[1];
+    setStudioOpen(false);
+    const commits = r.commits();
+    const set = await r.run('music_open_studio', { mode: 'pattern', patternId: pat.id, channelId: chan.id, window: 'pianoroll' });
+    expect(set.ok, text(set)).toBe(true);
+    expect(r.commits()).toBe(commits + 1);
+    expect(r.song().view).toMatchObject({ mode: 'pattern', activePatternId: pat.id, selectedChannelId: chan.id, window: 'pianoroll' });
+    await r.run('music_open_studio', { mode: 'pattern', patternId: pat.id, channelId: chan.id, window: 'pianoroll' });
+    expect(r.commits()).toBe(commits + 1);
+    const play = await r.run('music_open_studio', { transport: 'play' });
+    expect(play.ok).toBe(false);
+    expect(text(play)).toContain('did not open');
+  }, 15_000);
+
+  it('walks every studio action to a tool in one scripted session', async () => {
+    // [studio action, tool, arguments] — the table the report prints; each must succeed on a real song.
+    const r = rig(new Map<string, unknown>([['s1', { id: 's1', name: 'snap.wav', kind: 'audio', duration: 1 }]]));
+    await r.run('music_new_song', { template: 'trap', seed: 8 });
+    const song = r.song();
+    const hat = song.channels.find((c) => c.drum === 'hat')!;
+    const pattern = song.patterns[0];
+    const insert = song.channels[0].insert;
+    const effect = song.mixer.inserts.flatMap((ins, i) => ins.effects.map((e) => ({ i, e }))).find(({ e }) => e.type !== 'limiter')!;
+    const steps: [string, string, Record<string, unknown>][] = [
+      ['rename pattern', 'music_arrange', { patterns: [{ patternId: pattern.id, name: 'Main groove', color: '#aa5500' }] }],
+      ['new pattern / clone pattern', 'music_arrange', { patterns: [{ op: 'add', name: 'Fill' }, { op: 'clone', patternId: pattern.id, name: 'Main groove 2' }] }],
+      ['step accents', 'music_edit_notes', { patternId: pattern.id, channelId: hat.id, op: 'velocity', set: 1, fromStep: 0, toStep: 4 }],
+      ['fill every 4', 'music_write_pattern', { patternId: pattern.id, channels: [{ channel: hat.id, steps: 'x---', mode: 'replace' }] }],
+      ['shift steps right', 'music_edit_notes', { patternId: pattern.id, channelId: hat.id, op: 'shift', steps: 1, wrap: 16 }],
+      ['clear steps', 'music_write_pattern', { patternId: 'Fill', channels: [{ channel: hat.id, mode: 'clear' }] }],
+      ['pattern length +1 bar', 'music_arrange', { patterns: [{ patternId: 'Fill', bars: 2 }] }],
+      ['channel colour / rename / mute / solo', 'music_update_channel', { channelId: hat.id, color: '#00ff88', name: 'Hat X', mute: false, solo: false }],
+      ['channel insert / volume / pan', 'music_update_channel', { channelId: hat.id, insert: 30, volume: 0.6, pan: 0.2 }],
+      ['sampler from the bin', 'music_add_channel', { instrument: 'sampler', name: 'Snap', sampleAssetId: 's1' }],
+      ['audio clip from the bin', 'music_arrange', { clips: [{ op: 'add', assetId: 's1', startBar: 8, track: 20 }] }],
+      ['track rename / colour / mute / solo / lock', 'music_arrange', { tracks: [{ track: 20, name: 'Snaps', color: '#cc00cc', mute: true, solo: false, locked: false }, { op: 'add' }] }],
+      ['loop region', 'music_arrange', { loop: { startBar: 0, endBar: 4 } }],
+      ['mixer volume / pan / width / invert / colour', 'music_mixer', { insert, volume: -2, pan: 0.1, width: 1.2, invert: true, color: '#3355ff' }],
+      ['send level + sidechain', 'music_mixer', { insert, sends: [{ to: 25, level: 0.5, sidechain: false }] }],
+      ['effect mix / bypass / params', 'music_mixer', { insert: effect.i, effects: [{ op: 'update', effectId: effect.e.id, mix: 0.4, enabled: false }] }],
+      ['effect reorder', 'music_mixer', { insert: effect.i, effects: [{ op: 'move', effectId: effect.e.id, at: 0 }] }],
+      ['master volume / pitch / swing / time signature / tempo', 'music_set_song', { masterVolume: -1, masterPitch: 1, swing: 0.2, timeSig: '4/4', bpm: 140 }],
+      ['key / scale (piano roll)', 'music_set_song', { key: 'D minor' }],
+      ['automation clip', 'music_automate', { target: { kind: 'tempo' }, startBar: 0, bars: 4, shape: 'ramp-up', from: 130, to: 150 }],
+      ['bounce', 'music_render', { mode: 'pattern' }],
+    ];
+    const ran: string[] = [];
+    for (const [action, tool, args] of steps) {
+      const before = r.commits();
+      const res = await r.run(tool, args);
+      if (action === 'bounce') { expect(res.ok, action).toBe(false); continue; } // needs Web Audio in the app
+      expect(res.ok, `${action}: ${text(res)}`).toBe(true);
+      expect(r.commits(), action).toBe(before + 1);
+      ran.push(action);
+    }
+    expect(ran.length).toBe(steps.length - 1);
+    expect(r.song()).toMatchObject({ bpm: 140, masterVolume: -1, masterPitch: 1, swing: 0.2, key: { root: 2, scale: 'minor' } });
+    const read = text(await r.run('music_get_song', { detail: 'full' }));
+    for (const word of ['Main groove', 'Fill', 'Hat X', 'Snap', 'Snaps', 'MUTED', 'loop: bars 0–4', 'AUTOMATION']) expect(read, word).toContain(word);
+    expect(normalizeSong(r.song())).not.toBeNull();
   });
 });

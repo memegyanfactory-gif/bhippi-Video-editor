@@ -45,6 +45,22 @@ export function barBeatStep(song: MusicProject, steps: number): string {
   return `${Math.floor(s / bar) + 1}:${Math.floor((s % bar) / beat) + 1}:${Math.floor(s % beat) + 1}`;
 }
 
+/** LCD "bar:beat:tick" (bar zero-padded, ticks are 1/96 of a beat) for a position in steps. */
+export function lcdPosition(song: MusicProject, steps: number): string {
+  const bar = stepsPerBar(song);
+  const beat = beatSteps(song);
+  const s = Math.max(0, steps);
+  const tick = Math.min(95, Math.floor(((s % beat) / beat) * 96));
+  return `${String(Math.floor(s / bar) + 1).padStart(3, '0')}:${Math.floor((s % bar) / beat) + 1}:${String(tick).padStart(2, '0')}`;
+}
+
+/** LCD "m:ss.mmm" for a position in steps. */
+export function lcdClock(song: MusicProject, steps: number): string {
+  const ms = Math.max(0, Math.round(Math.max(0, steps) * stepSeconds(song) * 1000));
+  const m = Math.floor(ms / 60000);
+  return `${m}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}.${String(ms % 1000).padStart(3, '0')}`;
+}
+
 /** "m:ss.d" for a position in steps. */
 export function clockText(song: MusicProject, steps: number): string {
   const sec = Math.max(0, steps) * stepSeconds(song);
@@ -66,15 +82,59 @@ export function fmtValue(v: number, unit?: string, step?: number): string {
   return unit ? `${s} ${unit}` : s;
 }
 
-/** The theme variables the canvas windows paint with, read from the live theme. */
-export type Palette = { bg: string; lane: string; laneAlt: string; line: string; lineStrong: string; text: string; dim: string; faint: string; accent: string; panel: string };
+/** The studio tokens (--ms-*) the canvas windows paint with, read from the live root. */
+export type Palette = {
+  bg0: string; bg1: string; bg2: string; bg3: string; bg4: string; bandA: string; bandB: string;
+  line: string; lineHi: string; lineDark: string; text: string; dim: string; faint: string;
+  accent: string; accent2: string; warn: string; clip: string; orange: string; violet: string; pattern: string;
+};
 export function readPalette(el: Element): Palette {
   const cs = getComputedStyle(el);
-  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
+  // The tokens are Bhippi theme variables (styles/music.css), so this follows the theme in use.
+  const v = (name: string, fallback: string) => toHex(cs.getPropertyValue(name).trim(), fallback);
   return {
-    bg: v('--deep', '#161616'), lane: v('--well', '#1d1d1d'), laneAlt: v('--lane-a', '#212121'), line: v('--line', '#2f2f2f'), lineStrong: v('--line-strong', '#3d3d3d'),
-    text: v('--text', '#dcdcdc'), dim: v('--text-dim', '#a9a9a9'), faint: v('--text-faint', '#767676'), accent: v('--blue', '#2d8ceb'), panel: v('--panel-2', '#282828'),
+    bg0: v('--ms-bg-0', '#161616'), bg1: v('--ms-bg-1', '#1a1a1a'), bg2: v('--ms-bg-2', '#232323'), bg3: v('--ms-bg-3', '#282828'), bg4: v('--ms-bg-4', '#3a3a3a'),
+    bandA: v('--ms-band-a', '#161616'), bandB: v('--ms-band-b', '#1a1a1a'),
+    line: v('--ms-line', '#2f2f2f'), lineHi: v('--ms-line-hi', '#3d3d3d'), lineDark: v('--ms-line-dark', '#0f0f0f'),
+    text: v('--ms-text', '#dcdcdc'), dim: v('--ms-dim', '#a9a9a9'), faint: v('--ms-faint', '#767676'),
+    accent: v('--ms-accent', '#2d8ceb'), accent2: v('--ms-accent-2', '#4ea3ff'), warn: v('--ms-warn', '#e3a33c'), clip: v('--ms-clip', '#ff5d5d'),
+    orange: v('--ms-orange', '#e3a33c'), violet: v('--ms-violet', '#8878c4'), pattern: v('--ms-clip-pattern', '#2f6a45'),
   };
+}
+
+let probe: CanvasRenderingContext2D | null = null;
+
+/**
+ * Any CSS colour (a theme may use rgb(), hsl() or color-mix()) as `#rrggbb`, which the canvas
+ * helpers (withAlpha, shade) take; `fallback` when the browser cannot resolve it.
+ */
+export function toHex(color: string, fallback: string): string {
+  if (/^#[0-9a-f]{6}$/i.test(color)) return color.toLowerCase();
+  if (!color || typeof document === 'undefined') return fallback;
+  probe ??= document.createElement('canvas').getContext('2d');
+  if (!probe) return fallback;
+  probe.fillStyle = '#010203';
+  probe.fillStyle = color;
+  const out = String(probe.fillStyle);
+  if (/^#[0-9a-f]{6}$/i.test(out)) return out === '#010203' ? fallback : out;
+  const m = /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i.exec(out);
+  return m ? `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}` : fallback;
+}
+
+const themed = new Map<string, { at: number; hex: string }>();
+
+/**
+ * A Bhippi theme colour (`--green`, `--red`…) as `#rrggbb`, read from the document root. Meters ask
+ * every frame, so a reading is kept for a second (a theme switch shows within that).
+ */
+export function themeColor(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+  const now = performance.now();
+  const kept = themed.get(name);
+  if (kept && now - kept.at < 1000) return kept.hex;
+  const hex = toHex(getComputedStyle(document.documentElement).getPropertyValue(name).trim(), fallback);
+  themed.set(name, { at: now, hex });
+  return hex;
 }
 
 /** `#rrggbb` + alpha → rgba string (canvas colours). */

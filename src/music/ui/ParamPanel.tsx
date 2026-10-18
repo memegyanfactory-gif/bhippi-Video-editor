@@ -2,7 +2,7 @@
 // from the ParamSpec lists in types.ts (options → select, step 1 → stepped knob, wide positive
 // ranges like cutoff → logarithmic knob), grouped by name prefix (osc, filter, envelopes, LFO…).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Power, X } from 'lucide-react';
+import { AudioWaveform, Power, SlidersHorizontal, X } from 'lucide-react';
 import { EFFECT_SPECS, INSTRUMENT_SPECS, paramValue, type Channel, type DrumPiece, type Effect, type ParamSpec } from '../types';
 import { updateChannel, updateInsert } from '../model';
 import { noteName } from '../theory';
@@ -71,7 +71,7 @@ export function ParamGrid({ specs, values, onChange, onEnd, instrument }: { spec
   );
 }
 
-function Frame({ id, title, color, onClose, children, head, index }: { id: string; title: string; color?: string; onClose: () => void; children: React.ReactNode; head?: React.ReactNode; index: number }) {
+function Frame({ id, title, color, onClose, children, head, index, effect }: { id: string; title: string; color?: string; onClose: () => void; children: React.ReactNode; head?: React.ReactNode; index: number; effect?: boolean }) {
   const [pos, setPos] = useState({ x: 120 + index * 28, y: 70 + index * 28 });
   const ref = useRef<HTMLDivElement>(null);
   const down = (e: React.PointerEvent) => {
@@ -87,12 +87,13 @@ function Frame({ id, title, color, onClose, children, head, index }: { id: strin
   };
   return (
     <div ref={ref} id={id} className="ms-panel" style={{ left: pos.x, top: pos.y }} role="dialog" aria-label={title}>
-      <header className="ms-panel-head" onPointerDown={down}>
-        <i className="ms-swatch" style={{ background: color ?? 'var(--blue)' }} />
-        <strong>{title}</strong>
+      <header className="ms-titlebar ms-panel-head" onPointerDown={down}>
+        <span className="ms-titlebar-icon" aria-hidden="true">{effect ? <AudioWaveform size={13} /> : <SlidersHorizontal size={13} />}</span>
+        <i className="ms-swatch" style={{ background: color ?? 'var(--ms-accent)' }} />
+        <h3>{title}</h3>
         <span className="ms-grow" />
         {head}
-        <button type="button" className="ms-icon" aria-label="Close panel" title="Close" onClick={onClose}><X size={13} /></button>
+        <button type="button" className="ms-win-btn" aria-label="Close panel" title="Close" onClick={onClose}><X size={12} /></button>
       </header>
       <div className="ms-panel-body">{children}</div>
     </div>
@@ -151,10 +152,10 @@ function EffectPanel({ panel, index }: { panel: PanelRef & { kind: 'effect' }; i
   const set = (change: (e: Effect) => Effect) => drag((s) => updateInsert(s, panel.insert, (ins) => ({ ...ins, effects: ins.effects.map((e) => (e.id === effect.id ? change(e) : e)) })));
   return (
     <Frame
-      id={panel.id} index={index} title={`${insert.name} · ${spec.label}`} color={insert.color} onClose={() => closePanel(panel.id)}
+      id={panel.id} index={index} title={`${insert.name} · ${spec.label}`} color={insert.color} effect onClose={() => closePanel(panel.id)}
       head={(
         <>
-          <button type="button" className={`ms-icon${effect.enabled ? ' on' : ''}`} aria-pressed={effect.enabled} aria-label={effect.enabled ? 'Bypass effect' : 'Enable effect'} title={effect.enabled ? 'Enabled — click to bypass' : 'Bypassed — click to enable'}
+          <button type="button" className={`ms-win-btn${effect.enabled ? ' on' : ''}`} aria-pressed={effect.enabled} aria-label={effect.enabled ? 'Bypass effect' : 'Enable effect'} title={effect.enabled ? 'Enabled — click to bypass' : 'Bypassed — click to enable'}
             onClick={() => edit((s) => updateInsert(s, panel.insert, (ins) => ({ ...ins, effects: ins.effects.map((e) => (e.id === effect.id ? { ...e, enabled: !e.enabled } : e)) })), `${spec.label} ${effect.enabled ? 'off' : 'on'}`)}><Power size={13} /></button>
           <span className="ms-panel-mix">Mix <Knob value={effect.mix} min={0} max={1} def={1} size={24} label="Dry/wet mix" format={(v) => `${Math.round(v * 100)}%`} onChange={(v) => set((e) => ({ ...e, mix: v }))} onEnd={() => settle(`Music: ${spec.label} mix`)} /></span>
         </>

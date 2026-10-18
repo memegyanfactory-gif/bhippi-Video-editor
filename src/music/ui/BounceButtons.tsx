@@ -34,11 +34,11 @@ export function BounceButtons() {
 
   return (
     <>
-      <button type="button" className="ms-btn" disabled={!!busy} onClick={() => void run(false)} title="Render the song to a WAV and import it into the bin" aria-label="Bounce">
-        {busy === 'bounce' ? <Loader2 size={14} className="ms-spin" /> : <Download size={14} />} Bounce
+      <button type="button" className="ms-tbtn wide" disabled={!!busy} onClick={() => void run(false)} title="Render the song to a WAV and import it into the bin" aria-label="Bounce">
+        {busy === 'bounce' ? <Loader2 size={14} className="ms-spin" /> : <Download size={14} />}<span className="ms-tb-label">Bounce</span>
       </button>
-      <button type="button" className="ms-btn ms-primary" disabled={!!busy} onClick={() => void run(true)} title="Bounce, import and lay the song on the video timeline as the music bed" aria-label="Send to timeline">
-        {busy === 'place' ? <Loader2 size={14} className="ms-spin" /> : <Clapperboard size={14} />} Send to timeline
+      <button type="button" className="ms-tbtn wide ms-primary" disabled={!!busy} onClick={() => void run(true)} title="Bounce, import and lay the song on the video timeline as the music bed" aria-label="Send to timeline">
+        {busy === 'place' ? <Loader2 size={14} className="ms-spin" /> : <Clapperboard size={14} />}<span className="ms-tb-label">Send to timeline</span>
       </button>
     </>
   );

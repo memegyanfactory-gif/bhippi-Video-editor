@@ -8,25 +8,24 @@
 // is 16 steps); the playlist is in BARS counted from 0; keys are note names ("C4" = 60) or MIDI
 // numbers; every id comes from music_get_song and every result lists the ids it created.
 
-import { songReadout } from '../music/readout';
+import { songReadout, type TimelineEntry } from '../music/readout';
 import { bounceSong } from '../music/bounce';
 import { editNotes, NOTE_OPS, type NoteOp } from '../music/edit';
 import { fillWindow, GROOVES, generatePart, PART_KINDS, PART_STYLES, type PartKind } from '../music/generate';
 import {
-  addChannel, addClip, addPattern, clonePattern, DEFAULT_DRUM_KEYS, ensureInserts, freeInsert, freePlaylistTrack, isEffectType, isInstrumentType, musicId, newChannel, newEffect, noteFromJson, parseNoteText,
-  parseSteps, patternSteps, removeChannel, removeClips, setNotes, songLengthSteps, songOf, stepString, updateChannel, updateClip, updateInsert, updatePattern, withSong,
+  addChannel, addClip, addPattern, clonePattern, DEFAULT_DRUM_KEYS, ensureInserts, freeInsert, freePlaylistTrack, isEffectType, isInstrumentType, musicId, newChannel, newEffect, newTrack, noteFromJson, notesOf, parseNoteText,
+  parseSteps, patternSteps, removeChannel, removePattern, removeClips, setNotes, songLengthSteps, songOf, stepString, updateChannel, updateClip, updateInsert, updatePattern, withSong,
 } from '../music/model';
 import { CHANNEL_PRESETS, findPreset, layoutSections, presetChannel, SONG_TEMPLATE_LIST, songFromTemplate, type SectionSpec } from '../music/templates';
 import { CHORDS, isScale, noteName, parseNote, parseRoot, pitchName, PROGRESSIONS, SCALE_NAMES, STYLE_BPM } from '../music/theory';
-import { requestStudio, studioOpen, type StudioWindow } from '../music/studioBus';
+import { requestStudio, studioOpen, type StudioRequest, type StudioWindow } from '../music/studioBus';
 import {
   EFFECT_SPECS, INSTRUMENT_SPECS, MAX_EFFECTS, MAX_INSERTS, paramSpec, paramValue, stepSeconds, stepsPerBar,
   type Automation, type AutomationPoint, type AutomationTarget, type Channel, type DrumPiece, type EffectType, type InstrumentType, type MarkerKind, type MusicProject, type Note, type ParamSpec, type Pattern, type ScaleName,
 } from '../music/types';
 import type { SampleLoader } from '../music/engine/api';
-import { placeMusicBed } from './builtinMedia';
+import { placeSongLayer, songPlacement } from '../music/timeline';
 import { errorText, fileSrc } from './ipc';
-import { updateComp } from './timeline';
 import type { Comp, Project, ToolResult } from './types';
 import type { ToolHost } from './aiTools';
 
@@ -62,6 +61,9 @@ const obj = (v: unknown): Args | undefined => (v && typeof v === 'object' && !Ar
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const preview = (items: string[], max = 6) => (items.length > max ? `${items.slice(0, max).join('; ')}; … +${items.length - max} more` : items.join('; '));
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+/** An error text when `color` is given but is not #rrggbb, else null. */
+const badColor = (a: Args, k = 'color'): string | null => (a[k] === undefined || (typeof a[k] === 'string' && HEX_COLOR.test(a[k] as string)) ? null : `${k} must be a #rrggbb colour like "#e0715b".`);
 
 // ───────────────────────────── shared helpers ─────────────────────────────
 
@@ -111,6 +113,19 @@ function findChannel(song: MusicProject, ref: unknown): Channel | string {
   return hit ?? `No channel "${key}". Channels: ${channelList(song)}.`;
 }
 const channelList = (song: MusicProject) => (song.channels.length ? song.channels.map((c) => `${c.name} [${c.id}]`).join(', ') : 'none yet (music_add_channel)');
+
+/** A playlist track index from an index or a track's name. */
+function findTrack(song: MusicProject, ref: unknown): number | string {
+  const tracks = song.playlist.tracks;
+  if (typeof ref === 'number' && Number.isInteger(ref)) return ref >= 0 && ref < tracks.length ? ref : `No track ${ref}: the playlist has tracks 0–${tracks.length - 1} (add more with tracks:[{op:"add"}]).`;
+  if (typeof ref === 'string' && /^\d+$/.test(ref.trim())) return findTrack(song, Number(ref));
+  if (typeof ref === 'string' && ref.trim()) {
+    const i = tracks.findIndex((t) => t.name.toLowerCase() === ref.trim().toLowerCase());
+    if (i >= 0) return i;
+    return `No track named "${ref}". Tracks: ${tracks.map((t, n) => `${n} "${t.name}"`).slice(0, 20).join(', ')}.`;
+  }
+  return 'Name the track (its index from 0, or its name).';
+}
 
 function findPattern(song: MusicProject, ref: unknown): Pattern | string {
   if (typeof ref !== 'string' || !ref.trim()) return `Name a pattern (id or name). Patterns: ${patternList(song)}.`;
@@ -290,7 +305,13 @@ async function runMusic(host: ToolHost, name: string, args: Args, ctx: MusicTool
         if (typeof c === 'string') return fail(c);
         channelId = c.id;
       }
-      const text = songReadout(song, { detail, patternId: focus, grid: bool(args, 'grid') ?? false, channelId, assets: host.assets() });
+      // Where the bounced song sits on each video composition (the clip ids the timeline tools take).
+      const timeline: TimelineEntry[] = (song.placements ?? []).map((p) => {
+        const comp = project.comps.find((c) => c.id === p.compId);
+        const clip = comp?.clips.find((c) => c.id === p.clipId);
+        return { compId: p.compId, compName: comp?.name ?? '(composition removed)', clipId: p.clipId, trackId: p.trackId, assetId: p.assetId, bpm: p.bpm, beats: p.beats.length, live: !!clip, start: clip?.start, duration: clip?.duration };
+      });
+      const text = songReadout(song, { detail, patternId: focus, grid: bool(args, 'grid') ?? false, channelId, assets: host.assets(), timeline, studioOpen: studioOpen() });
       const prefix = project.music ? '' : 'No song in this project yet — this is a blank default (nothing is saved until you write something). Start with music_new_song or music_add_channel.\n';
       return done(prefix + text, { channels: song.channels.map((c) => c.id), patterns: song.patterns.map((p) => p.id), hasSong: !!project.music });
     }
@@ -361,6 +382,8 @@ async function runMusic(host: ToolHost, name: string, args: Args, ctx: MusicTool
       const presetId = str(args, 'preset');
       const drumArg = str(args, 'drum');
       if (drumArg && !(drumArg in DEFAULT_DRUM_KEYS)) return fail(`Unknown drum "${drumArg}". Use one of: ${Object.keys(DEFAULT_DRUM_KEYS).join(', ')}.`);
+      const colorProblem = badColor(args);
+      if (colorProblem) return fail(colorProblem);
       let channel: Channel;
       let from: string;
       if (presetId) {
@@ -416,72 +439,8 @@ async function runMusic(host: ToolHost, name: string, args: Args, ctx: MusicTool
       return done(`Added channel "${channel.name}" [${channel.id}] (${channel.drum ? `drum:${channel.drum}` : channel.instrument}, ${from}) on insert ${channel.insert}${set ? `, params ${set}` : ''}.${notes.length ? ` Note: ${notes.join('; ')}.` : ''} Write it notes with music_generate / music_write_pattern {channels:[{channel:"${channel.id}",…}]}.`, { channelId: channel.id, insert: channel.insert });
     }
 
-    case 'music_update_channel': {
-      const c = findChannel(song, args.channelId ?? args.channel);
-      if (typeof c === 'string') return fail(c);
-      if (args.remove === true || args[DELETE_WORD] === true) {
-        const lost = song.patterns.reduce((n, p) => n + (p.notes[c.id]?.length ?? 0), 0);
-        write(ctx, removeChannel(song, c.id));
-        return done(`Removed channel "${c.name}" [${c.id}] and its ${lost} notes (one undo step restores it).`);
-      }
-      let channel: Channel = c;
-      const changes: string[] = [];
-      const nm = str(args, 'name');
-      if (nm && nm !== c.name) {
-        if (song.channels.some((o) => o.id !== c.id && o.name.toLowerCase() === nm.toLowerCase())) return fail(`Another channel is already called "${nm}".`);
-        channel = { ...channel, name: nm }; changes.push(`name "${nm}"`);
-      }
-      const instrument = str(args, 'instrument');
-      if (instrument && instrument !== c.instrument) {
-        if (!isInstrumentType(instrument)) return fail(`Unknown instrument "${instrument}". Use one of: ${Object.keys(INSTRUMENT_SPECS).join(', ')}.`);
-        const kept = validateParams(instrument, 'instrument', c.params);
-        const dropped = Object.keys(c.params).filter((k) => !(k in kept.values));
-        channel = { ...channel, instrument, params: kept.values, drum: instrument === 'drum' ? channel.drum ?? 'kick' : undefined };
-        changes.push(`instrument ${instrument}${dropped.length ? ` (dropped params that do not exist there: ${dropped.join(', ')})` : ''}`);
-      }
-      const drumArg = str(args, 'drum');
-      if (drumArg) {
-        if (!(drumArg in DEFAULT_DRUM_KEYS)) return fail(`Unknown drum "${drumArg}". Use one of: ${Object.keys(DEFAULT_DRUM_KEYS).join(', ')}.`);
-        if (channel.instrument !== 'drum') return fail('drum only applies to a drum channel.');
-        channel = { ...channel, drum: drumArg as DrumPiece, rootKey: DEFAULT_DRUM_KEYS[drumArg as DrumPiece] }; changes.push(`drum ${drumArg}`);
-      }
-      if (args.resetParams === true) { channel = { ...channel, params: {} }; changes.push('params reset to defaults'); }
-      if (args.params !== undefined) {
-        const v = validateParams(channel.instrument, 'instrument', args.params);
-        if (v.errors.length) return fail(`params not applied — ${v.errors.join('; ')}`);
-        channel = { ...channel, params: { ...channel.params, ...v.values } };
-        changes.push(`${Object.entries(v.values).map(([k, x]) => `${k}=${r2(x)}`).join(' ')}${v.clamped.length ? ` (clamped: ${v.clamped.join(', ')})` : ''}`);
-      }
-      const vol = num(args, 'volume'); if (vol !== undefined) { channel = { ...channel, volume: clamp(vol, 0, 1.25) }; changes.push(`volume ${r2(channel.volume)}`); }
-      const pan = num(args, 'pan'); if (pan !== undefined) { channel = { ...channel, pan: clamp(pan, -1, 1) }; changes.push(`pan ${r2(channel.pan)}`); }
-      if (bool(args, 'mute') !== undefined) { channel = { ...channel, mute: bool(args, 'mute')! }; changes.push(channel.mute ? 'muted' : 'unmuted'); }
-      if (bool(args, 'solo') !== undefined) { channel = { ...channel, solo: bool(args, 'solo')! }; changes.push(channel.solo ? 'solo' : 'unsolo'); }
-      if (args.insert !== undefined) {
-        const i = findInsert(song, args.insert);
-        if (typeof i === 'string') return fail(i);
-        channel = { ...channel, insert: i }; changes.push(`insert ${i}`);
-      }
-      const glide = num(args, 'glide'); if (glide !== undefined) { channel = { ...channel, glide: clamp(glide, 0, 2) }; changes.push(`glide ${channel.glide}s`); }
-      const poly = num(args, 'polyphony'); if (poly !== undefined) { channel = { ...channel, polyphony: clamp(Math.round(poly), 1, 32) }; changes.push(`polyphony ${channel.polyphony}`); }
-      if (args.swing === null) { channel = { ...channel, swing: undefined }; changes.push('swing follows the song'); }
-      else { const sw = num(args, 'swing'); if (sw !== undefined) { channel = { ...channel, swing: clamp(sw, 0, 1) }; changes.push(`swing ${channel.swing}`); } }
-      if (args.rootKey !== undefined) {
-        const k = parseNote(args.rootKey as string | number);
-        if (k === null) return fail(`rootKey "${String(args.rootKey)}" is not a note (C4, 60).`);
-        channel = { ...channel, rootKey: k }; changes.push(`rootKey ${noteName(k)}`);
-      }
-      if (str(args, 'color')) { channel = { ...channel, color: str(args, 'color')! }; changes.push('color'); }
-      const sample = str(args, 'sampleAssetId');
-      if (sample) {
-        if (!host.assets().has(sample)) return fail(`Unknown sampleAssetId "${sample}".`);
-        channel = { ...channel, sampleAssetId: sample }; changes.push('sample');
-      }
-      if (!changes.length) return fail('Nothing to change. Give any of: name, params, volume, pan, mute, solo, insert, instrument, drum, glide, polyphony, swing, rootKey, color, sampleAssetId, remove.');
-      let next = updateChannel(song, c.id, () => channel);
-      if (channel.insert !== c.insert) next = ensureInserts(next, channel.insert + 1);
-      write(ctx, next);
-      return done(`Updated "${channel.name}" [${c.id}]: ${changes.join(', ')}.`);
-    }
+    case 'music_update_channel':
+      return updateChannelTool(host, args, ctx, song);
 
     case 'music_write_pattern':
       return writePattern(args, ctx, song);
@@ -507,31 +466,226 @@ async function runMusic(host: ToolHost, name: string, args: Args, ctx: MusicTool
     case 'music_render':
       return renderTool(host, args, ctx, project, song);
 
-    case 'music_open_studio': {
-      const window = str(args, 'window');
-      if (window && !['playlist', 'rack', 'pianoroll', 'mixer'].includes(window)) return fail('window is one of: playlist, rack, pianoroll, mixer.');
-      let patternId: string | undefined;
-      if (str(args, 'patternId')) {
-        const p = findPattern(song, args.patternId);
-        if (typeof p === 'string') return fail(p);
-        patternId = p.id;
-      }
-      let channelId: string | undefined;
-      if (str(args, 'channelId')) {
-        const c = findChannel(song, args.channelId);
-        if (typeof c === 'string') return fail(c);
-        channelId = c.id;
-      }
-      const open = args.open !== false;
-      requestStudio({ open, ...(window ? { window: window as StudioWindow } : {}), ...(patternId ? { patternId } : {}), ...(channelId ? { channelId } : {}) });
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      const state = studioOpen();
-      return done(open
-        ? `Asked the Music Studio to open${window ? ` on the ${window}` : ''}${patternId ? ` with pattern ${song.patterns.find((p) => p.id === patternId)!.name}` : ''}${channelId ? ` and channel ${song.channels.find((c) => c.id === channelId)!.name}` : ''}; the user can watch the song change. ${state ? 'It reports it is open.' : 'It has not confirmed it is open yet (the user may be on another screen).'}`
-        : 'Asked the Music Studio to close.', { open: state });
-    }
+    case 'music_open_studio':
+      return openStudio(args, ctx, song);
   }
   return fail(`Unknown music tool ${name}.`);
+}
+
+// ───────────────────────────── music_open_studio ─────────────────────────────
+
+/**
+ * What the AI can ask of the studio beyond showing it: the transport, play mode, metronome, snap, the
+ * browser and playlist panels and the floating parameter windows. These are studio state, not song
+ * data, so they travel on the studio bus: StudioRequest (src/music/studioBus.ts) mirrors these fields once StudioShell honours them.
+ */
+/** What music_open_studio asks the studio for (src/music/studioBus.ts, handled in StudioShell). */
+export type StudioControl = StudioRequest;
+
+export const SNAP_NAMES = ['none', 'bar', '1/2', '1/4', '1/8', '1/16', '1/32', '1/8T', '1/16T'] as const;
+export type SnapName = (typeof SNAP_NAMES)[number];
+const STUDIO_WINDOWS = ['playlist', 'rack', 'pianoroll', 'mixer'] as const;
+
+async function openStudio(args: Args, ctx: MusicToolContext, song: MusicProject): Promise<ToolResult> {
+  const window = str(args, 'window');
+  if (window && !(STUDIO_WINDOWS as readonly string[]).includes(window)) return fail('window is one of: playlist, rack, pianoroll, mixer.');
+  let patternId: string | undefined;
+  if (str(args, 'patternId')) {
+    const p = findPattern(song, args.patternId);
+    if (typeof p === 'string') return fail(p);
+    patternId = p.id;
+  }
+  let channelId: string | undefined;
+  if (str(args, 'channelId')) {
+    const c = findChannel(song, args.channelId);
+    if (typeof c === 'string') return fail(c);
+    channelId = c.id;
+  }
+  const mode = str(args, 'mode');
+  if (mode && mode !== 'pattern' && mode !== 'song') return fail('mode is pattern (PAT: loops the active pattern) or song (SONG: plays the playlist).');
+  const transport = str(args, 'transport');
+  if (transport && !['play', 'stop', 'rewind'].includes(transport)) return fail('transport is play, stop or rewind.');
+  const snap = str(args, 'snap');
+  if (snap && !(SNAP_NAMES as readonly string[]).includes(snap)) return fail(`snap is one of: ${SNAP_NAMES.join(', ')}.`);
+  for (const flag of ['metronome', 'browser', 'playlist', 'closePanels', 'open'] as const) if (args[flag] !== undefined && typeof args[flag] !== 'boolean') return fail(`${flag} is true or false.`);
+  const bar = barSteps(song);
+  const fromBar = num(args, 'fromBar');
+  if (args.fromBar !== undefined && (fromBar === undefined || fromBar < 0)) return fail('fromBar is 0 or more (bars from the song start; 0 = bar 1).');
+  let panel: StudioControl['panel'];
+  const panelArg = args.panel === undefined ? undefined : obj(args.panel);
+  if (args.panel !== undefined) {
+    if (!panelArg) return fail('panel is {kind:"instrument", channelId} or {kind:"effect", insert, effectId}.');
+    if (panelArg.kind === 'instrument') {
+      const c = findChannel(song, panelArg.channelId);
+      if (typeof c === 'string') return fail(`panel: ${c}`);
+      panel = { kind: 'instrument', channelId: c.id };
+    } else if (panelArg.kind === 'effect') {
+      const index = findInsert(song, panelArg.insert);
+      if (typeof index === 'string') return fail(`panel: ${index}`);
+      const chain = song.mixer.inserts[index]?.effects ?? [];
+      const ref = str(panelArg, 'effectId') ?? str(panelArg, 'effect');
+      const fx = chain.find((e) => e.id === ref) ?? chain.find((e) => e.type === ref);
+      if (!fx) return fail(`panel: insert ${index} has no effect "${ref ?? ''}" (it has: ${chain.map((e) => `${e.type}[${e.id}]`).join(', ') || 'none'}).`);
+      panel = { kind: 'effect', insert: index, effectId: fx.id };
+    } else return fail('panel.kind is instrument or effect.');
+  }
+  const open = args.open !== false;
+  const effectiveMode = (mode as 'pattern' | 'song' | undefined) ?? song.view.mode;
+  const effectivePattern = patternId ?? song.view.activePatternId ?? undefined;
+  if (transport === 'play') {
+    if (effectiveMode === 'song' && !song.playlist.clips.length) return fail('Song mode has nothing to play: the playlist is empty. Arrange it first (music_arrange), or play the active pattern with mode:"pattern".');
+    if (effectiveMode === 'pattern' && !song.patterns.find((p) => p.id === effectivePattern)) return fail(`Pattern mode needs an active pattern: pass patternId. Patterns: ${patternList(song)}.`);
+  }
+  if (!open && (transport || panel || mode || snap || fromBar !== undefined)) return fail('open:false only closes the studio; drop the other fields.');
+
+  // The view (mode, pattern, channel, window) is part of the song, so a studio that is not open picks it up when it opens
+  // (once there is a song to hold it); an open studio takes it from the request without an undo step.
+  const wasOpen = studioOpen();
+  const view = { ...song.view, ...(mode ? { mode: mode as 'pattern' | 'song' } : {}), ...(patternId ? { activePatternId: patternId } : {}), ...(channelId ? { selectedChannelId: channelId } : {}), ...(window ? { window: window as StudioWindow } : {}) };
+  if (open && !wasOpen && ctx.current().music && JSON.stringify(view) !== JSON.stringify(song.view)) write(ctx, { ...song, view });
+
+  const request: StudioControl = {
+    open, ...(window ? { window: window as StudioWindow } : {}), ...(patternId ? { patternId } : {}), ...(channelId ? { channelId } : {}),
+    ...(mode ? { mode: mode as 'pattern' | 'song' } : {}), ...(metronomeOf(args)), ...(snap ? { snap: snap as SnapName } : {}),
+    ...(typeof args.browser === 'boolean' ? { browser: args.browser } : {}), ...(typeof args.playlist === 'boolean' ? { playlist: args.playlist } : {}),
+    ...(panel ? { panel } : {}), ...(args.closePanels === true ? { closePanels: true } : {}),
+    ...(fromBar !== undefined ? { playFrom: fromBar * bar } : {}),
+  };
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  requestStudio(request);
+  await wait(120);
+  let state = studioOpen();
+  if (open && transport) {
+    // Playback is the open studio's: when it was closed it needs a moment to mount before it can hear the transport.
+    if (!wasOpen) { for (let i = 0; i < 8 && !state; i++) { await wait(150); state = studioOpen(); } await wait(150); }
+    if (!state) return fail('The Music Studio did not open (the user may be on another screen), so there is nothing to play it on. The view was set; call music_open_studio again once it is open.');
+    requestStudio({ open: true, transport: transport as 'play' | 'stop' | 'rewind', ...(transport === 'play' ? { mode: effectiveMode, ...(effectivePattern ? { patternId: effectivePattern } : {}), playFrom: fromBar !== undefined ? fromBar * bar : undefined } : {}) } as StudioControl);
+    await wait(60);
+  }
+  const doing = [
+    window ? `the ${window}` : '', patternId ? `pattern ${song.patterns.find((p) => p.id === patternId)!.name}` : '', channelId ? `channel ${song.channels.find((c) => c.id === channelId)!.name}` : '',
+    mode ? `${mode === 'song' ? 'SONG' : 'PAT'} mode` : '', typeof args.metronome === 'boolean' ? `metronome ${args.metronome ? 'on' : 'off'}` : '', snap ? `snap ${snap}` : '',
+    typeof args.browser === 'boolean' ? `browser ${args.browser ? 'shown' : 'hidden'}` : '', typeof args.playlist === 'boolean' ? `playlist ${args.playlist ? 'shown' : 'hidden'}` : '',
+    panel ? `the ${panel.kind} panel` : '', args.closePanels === true ? 'parameter panels closed' : '', fromBar !== undefined ? `play-from mark at bar ${r2(fromBar)}` : '',
+  ].filter(Boolean);
+  const transportText = transport === 'play' ? `Playing ${effectiveMode === 'song' ? `the song from bar ${r2(fromBar ?? 0)}` : `pattern ${song.patterns.find((p) => p.id === effectivePattern)?.name ?? ''} on loop`} in the user's studio (music_open_studio {transport:"stop"} stops it).` : transport === 'stop' ? 'Stopped playback.' : transport === 'rewind' ? 'Stopped and rewound to the start.' : '';
+  return done(open
+    ? `${doing.length ? `Asked the Music Studio for ${doing.join(', ')}. ` : 'Asked the Music Studio to open. '}${transportText ? `${transportText} ` : ''}${state ? 'It reports it is open.' : 'It has not confirmed it is open yet (the user may be on another screen).'}`
+    : 'Asked the Music Studio to close.', { open: state });
+}
+
+const metronomeOf = (args: Args): { metronome?: boolean } => (typeof args.metronome === 'boolean' ? { metronome: args.metronome } : {});
+
+// ───────────────────────────── music_update_channel ─────────────────────────────
+
+/** A copy of a channel right after it in the rack (same mixer insert, its notes copied into every pattern); named "<name> copy" unless given. */
+function cloneChannelIn(song: MusicProject, src: Channel, name?: string): { song: MusicProject; channel: Channel } | string {
+  if (name && song.channels.some((o) => o.name.toLowerCase() === name.toLowerCase())) return `Another channel is already called "${name}".`;
+  const base = name ?? `${src.name} copy`;
+  let unique = base; let n = 2;
+  while (song.channels.some((o) => o.name.toLowerCase() === unique.toLowerCase())) unique = `${base} ${n++}`;
+  const copy: Channel = { ...src, id: musicId(), name: unique, params: { ...src.params } };
+  let next = addChannel(song, copy);
+  const channels = next.channels.filter((x) => x.id !== copy.id);
+  channels.splice(song.channels.findIndex((x) => x.id === src.id) + 1, 0, copy);
+  next = { ...next, channels, view: { ...next.view, selectedChannelId: copy.id } };
+  for (const p of song.patterns) {
+    const notes = notesOf(p, src.id);
+    if (notes.length) next = setNotes(next, p.id, copy.id, notes.map((x) => ({ ...x, id: musicId() })));
+  }
+  return { song: next, channel: copy };
+}
+
+function updateChannelTool(host: ToolHost, args: Args, ctx: MusicToolContext, song0: MusicProject): ToolResult {
+  let song = song0;
+  const found = findChannel(song, args.channelId ?? args.channel);
+  if (typeof found === 'string') return fail(found);
+  if (args.remove === true || args[DELETE_WORD] === true) {
+    const lost = song.patterns.reduce((n, p) => n + (p.notes[found.id]?.length ?? 0), 0);
+    write(ctx, removeChannel(song, found.id));
+    return done(`Removed channel "${found.name}" [${found.id}] and its ${lost} notes (one undo step restores it).`);
+  }
+  const colorProblem = badColor(args);
+  if (colorProblem) return fail(colorProblem);
+  const changes: string[] = [];
+  let c: Channel = found;
+  if (args.clone === true) {
+    // The copy sits right after the original with its notes in every pattern; the other fields then apply to the copy.
+    const copy = cloneChannelIn(song, found, str(args, 'name'));
+    if (typeof copy === 'string') return fail(copy);
+    song = copy.song; c = copy.channel;
+    changes.push(`cloned "${found.name}" → "${c.name}" [${c.id}]`);
+  }
+  let channel: Channel = c;
+  const nm = str(args, 'name');
+  if (nm && nm !== c.name) {
+    if (song.channels.some((o) => o.id !== c.id && o.name.toLowerCase() === nm.toLowerCase())) return fail(`Another channel is already called "${nm}".`);
+    channel = { ...channel, name: nm }; changes.push(`name "${nm}"`);
+  }
+  const instrument = str(args, 'instrument');
+  if (instrument && instrument !== c.instrument) {
+    if (!isInstrumentType(instrument)) return fail(`Unknown instrument "${instrument}". Use one of: ${Object.keys(INSTRUMENT_SPECS).join(', ')}.`);
+    const kept = validateParams(instrument, 'instrument', c.params);
+    const dropped = Object.keys(c.params).filter((k) => !(k in kept.values));
+    channel = { ...channel, instrument, params: kept.values, drum: instrument === 'drum' ? channel.drum ?? 'kick' : undefined };
+    changes.push(`instrument ${instrument}${dropped.length ? ` (dropped params that do not exist there: ${dropped.join(', ')})` : ''}`);
+  }
+  const drumArg = str(args, 'drum');
+  if (drumArg) {
+    if (!(drumArg in DEFAULT_DRUM_KEYS)) return fail(`Unknown drum "${drumArg}". Use one of: ${Object.keys(DEFAULT_DRUM_KEYS).join(', ')}.`);
+    if (channel.instrument !== 'drum') return fail('drum only applies to a drum channel.');
+    channel = { ...channel, drum: drumArg as DrumPiece, rootKey: DEFAULT_DRUM_KEYS[drumArg as DrumPiece] }; changes.push(`drum ${drumArg}`);
+  }
+  if (args.resetParams === true) { channel = { ...channel, params: {} }; changes.push('params reset to defaults'); }
+  if (args.params !== undefined) {
+    const v = validateParams(channel.instrument, 'instrument', args.params);
+    if (v.errors.length) return fail(`params not applied — ${v.errors.join('; ')}`);
+    channel = { ...channel, params: { ...channel.params, ...v.values } };
+    changes.push(`${Object.entries(v.values).map(([k, x]) => `${k}=${r2(x)}`).join(' ')}${v.clamped.length ? ` (clamped: ${v.clamped.join(', ')})` : ''}`);
+  }
+  const vol = num(args, 'volume'); if (vol !== undefined) { channel = { ...channel, volume: clamp(vol, 0, 1.25) }; changes.push(`volume ${r2(channel.volume)}`); }
+  const pan = num(args, 'pan'); if (pan !== undefined) { channel = { ...channel, pan: clamp(pan, -1, 1) }; changes.push(`pan ${r2(channel.pan)}`); }
+  if (bool(args, 'mute') !== undefined) { channel = { ...channel, mute: bool(args, 'mute')! }; changes.push(channel.mute ? 'muted' : 'unmuted'); }
+  if (bool(args, 'solo') !== undefined) { channel = { ...channel, solo: bool(args, 'solo')! }; changes.push(channel.solo ? 'solo' : 'unsolo'); }
+  if (args.insert !== undefined) {
+    const i = findInsert(song, args.insert);
+    if (typeof i === 'string') return fail(i);
+    channel = { ...channel, insert: i }; changes.push(`insert ${i}`);
+  }
+  const glide = num(args, 'glide'); if (glide !== undefined) { channel = { ...channel, glide: clamp(glide, 0, 2) }; changes.push(`glide ${channel.glide}s`); }
+  const poly = num(args, 'polyphony'); if (poly !== undefined) { channel = { ...channel, polyphony: clamp(Math.round(poly), 1, 32) }; changes.push(`polyphony ${channel.polyphony}`); }
+  if (args.swing === null) { channel = { ...channel, swing: undefined }; changes.push('swing follows the song'); }
+  else { const sw = num(args, 'swing'); if (sw !== undefined) { channel = { ...channel, swing: clamp(sw, 0, 1) }; changes.push(`swing ${channel.swing}`); } }
+  if (args.rootKey !== undefined) {
+    const k = parseNote(args.rootKey as string | number);
+    if (k === null) return fail(`rootKey "${String(args.rootKey)}" is not a note (C4, 60).`);
+    channel = { ...channel, rootKey: k }; changes.push(`rootKey ${noteName(k)}`);
+  }
+  if (str(args, 'color')) { channel = { ...channel, color: str(args, 'color')! }; changes.push('color'); }
+  if (args.group !== undefined) {
+    const group = typeof args.group === 'string' ? args.group.trim() : '';
+    channel = { ...channel, group: group || undefined }; changes.push(group ? `group "${group}"` : 'group cleared');
+  }
+  const sample = str(args, 'sampleAssetId');
+  if (sample) {
+    if (!host.assets().has(sample)) return fail(`Unknown sampleAssetId "${sample}".`);
+    channel = { ...channel, sampleAssetId: sample }; changes.push('sample');
+  }
+  const moveTo = num(args, 'moveTo');
+  if (moveTo !== undefined) {
+    if (!Number.isInteger(moveTo) || moveTo < 0 || moveTo >= song.channels.length) return fail(`moveTo is a rack position 0–${song.channels.length - 1} (0 = top).`);
+    changes.push(`moved to rack position ${moveTo}`);
+  }
+  if (!changes.length) return fail('Nothing to change. Give any of: name, params, volume, pan, mute, solo, insert, instrument, drum, glide, polyphony, swing, rootKey, color, group, sampleAssetId, clone, moveTo, remove.');
+  let next = updateChannel(song, c.id, () => channel);
+  if (channel.insert !== c.insert) next = ensureInserts(next, channel.insert + 1);
+  if (moveTo !== undefined) {
+    const channels = next.channels.filter((x) => x.id !== c.id);
+    channels.splice(moveTo, 0, next.channels.find((x) => x.id === c.id)!);
+    next = { ...next, channels };
+  }
+  write(ctx, next);
+  return done(`Updated "${channel.name}" [${c.id}]: ${changes.join(', ')}.`);
 }
 
 // ───────────────────────────── music_write_pattern ─────────────────────────────
@@ -668,6 +822,75 @@ function writePattern(args: Args, ctx: MusicToolContext, song0: MusicProject): T
 
 // ───────────────────────────── music_edit_notes ─────────────────────────────
 
+/** Note edits the piano roll has that edit.ts's editNotes does not: set lengths, slice, per-note flags, copy elsewhere. */
+const LOCAL_NOTE_OPS = ['length', 'slice', 'set', 'copy'] as const;
+type LocalNoteOp = (typeof LOCAL_NOTE_OPS)[number];
+const NOTE_PROPS = ['slide', 'probability', 'ratchet', 'pan', 'fine', 'mute'] as const;
+/** What each flag is when it is "off": a note carrying only these is as plain as a hand-drawn one. */
+const NEUTRAL_PROPS: Record<string, unknown> = { slide: false, mute: false, probability: 1, ratchet: 1, pan: 0, fine: 0 };
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
+
+/** length / slice / set on the selected notes: the notes that replace them, or an error text. */
+function localNoteOp(op: Exclude<LocalNoteOp, 'copy'>, args: Args, selected: Note[]): Note[] | string {
+  if (op === 'length') {
+    const set = num(args, 'set'), mult = num(args, 'multiply'), add = num(args, 'add');
+    if (set === undefined && mult === undefined && add === undefined) return 'length needs set (steps, > 0), multiply or add (steps).';
+    if (set !== undefined && set <= 0) return 'length set must be more than 0 steps.';
+    if (mult !== undefined && mult <= 0) return 'length multiply must be more than 0.';
+    return selected.map((n) => ({ ...n, length: Math.max(0.0625, r3(set ?? n.length * (mult ?? 1) + (add ?? 0))) }));
+  }
+  if (op === 'slice') {
+    const at = num(args, 'at'), every = num(args, 'every');
+    if (at === undefined && every === undefined) return 'slice needs at (a step: every selected note that spans it is cut there) or every (steps: each selected note is chopped into pieces that long).';
+    if (every !== undefined && every < 0.0625) return 'slice every must be at least 0.0625 steps.';
+    const out: Note[] = [];
+    let cuts = 0;
+    for (const n of selected) {
+      const end = n.start + n.length;
+      const points: number[] = [];
+      if (at !== undefined) { if (at > n.start + 0.01 && at < end - 0.01) points.push(at); }
+      else for (let p = n.start + every!; p < end - 0.01; p += every!) points.push(p);
+      if (!points.length) { out.push(n); continue; }
+      const edges = [n.start, ...points, end];
+      edges.slice(0, -1).forEach((from, i) => { out.push({ ...n, id: i === 0 ? n.id : musicId(), start: r3(from), length: r3(edges[i + 1] - from) }); });
+      cuts += points.length;
+    }
+    return cuts ? out : `No selected note spans step ${at}: slice cuts notes that start before it and end after it.`;
+  }
+  const props = obj(args.props);
+  if (!props || !Object.keys(props).length) return `set needs props: {${NOTE_PROPS.join(', ')}}.`;
+  const patch: Partial<Note> = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (!(NOTE_PROPS as readonly string[]).includes(k)) return `Unknown note property "${k}". Valid: ${NOTE_PROPS.join(', ')}.`;
+    if ((k === 'slide' || k === 'mute') && typeof v !== 'boolean') return `props.${k} must be true or false.`;
+    if (k !== 'slide' && k !== 'mute' && (typeof v !== 'number' || !Number.isFinite(v))) return `props.${k} must be a number.`;
+    if (k === 'slide' || k === 'mute') (patch as Record<string, unknown>)[k] = v;
+    else if (k === 'probability') patch.probability = clamp(v as number, 0, 1);
+    else if (k === 'ratchet') patch.ratchet = clamp(Math.round(v as number), 1, 8);
+    else if (k === 'pan') patch.pan = clamp(v as number, -1, 1);
+    else patch.fine = clamp(v as number, -100, 100);
+  }
+  return selected.map((n) => Object.fromEntries(Object.entries({ ...n, ...patch }).filter(([k, v]) => !(k in NEUTRAL_PROPS && NEUTRAL_PROPS[k] === v))) as Note);
+}
+
+/** copy: the selected notes added (new ids) to another pattern and/or channel, or later in the same one. */
+function copyNotes(args: Args, ctx: MusicToolContext, song: MusicProject, pattern: Pattern, channel: Channel, selected: Note[]): ToolResult {
+  let target = pattern;
+  if (str(args, 'toPatternId')) { const p = findPattern(song, args.toPatternId); if (typeof p === 'string') return fail(p); target = p; }
+  let into = channel;
+  if (str(args, 'toChannelId')) { const c = findChannel(song, args.toChannelId); if (typeof c === 'string') return fail(c); into = c; }
+  const toStep = num(args, 'toStep');
+  if (toStep !== undefined && toStep < 0) return fail('toStep is 0 or more (steps).');
+  if (target.id === pattern.id && into.id === channel.id && toStep === undefined) return fail('copy needs toStep (where the first copied note lands), toPatternId or toChannelId: copying onto the same notes in place would stack duplicates.');
+  const shift = toStep === undefined ? 0 : toStep - Math.min(...selected.map((n) => n.start));
+  const copies = selected.map((n) => ({ ...n, id: musicId(), start: Math.max(0, r3(n.start + shift)) }));
+  const existing = notesOf(target, into.id);
+  let next = setNotes(song, target.id, into.id, [...existing, ...copies]);
+  next = fitPattern(next, target.id);
+  write(ctx, next);
+  return done(`copy: ${copies.length} note${copies.length === 1 ? '' : 's'} of "${channel.name}" in ${pattern.name} added to "${into.name}" in ${target.name}${toStep === undefined ? '' : ` from step ${r2(toStep)}`}; it now has ${existing.length + copies.length} notes there.`);
+}
+
 function editNotesTool(args: Args, ctx: MusicToolContext, song: MusicProject): ToolResult {
   const pattern = findPattern(song, str(args, 'patternId') ?? song.view.activePatternId ?? undefined);
   if (typeof pattern === 'string') return fail(pattern);
@@ -675,7 +898,8 @@ function editNotesTool(args: Args, ctx: MusicToolContext, song: MusicProject): T
   if (typeof channel === 'string') return fail(channel);
   const op = str(args, 'op');
   const removal = isRemoval(op);
-  if (!op || (!removal && !(NOTE_OPS as string[]).includes(op))) return fail(`op must be one of: ${[...NOTE_OPS, 'remove'].join(', ')}.`);
+  const local = !!op && (LOCAL_NOTE_OPS as readonly string[]).includes(op);
+  if (!op || (!removal && !local && !(NOTE_OPS as string[]).includes(op))) return fail(`op must be one of: ${[...NOTE_OPS, ...LOCAL_NOTE_OPS, 'remove'].join(', ')}.`);
   const all = pattern.notes[channel.id] ?? [];
   const from = num(args, 'fromStep') ?? -Infinity, to = num(args, 'toStep') ?? Infinity;
   const keyLo = args.minKey !== undefined ? parseNote(args.minKey as string | number) : -Infinity, keyHi = args.maxKey !== undefined ? parseNote(args.maxKey as string | number) : Infinity;
@@ -684,7 +908,12 @@ function editNotesTool(args: Args, ctx: MusicToolContext, song: MusicProject): T
   if (!selected.length) return fail(`No notes of "${channel.name}" in ${pattern.name} match${all.length ? ` (it has ${all.length} notes: music_get_song {"patternId":"${pattern.id}"})` : ' — the channel has no notes in this pattern'}.`);
   const rest = all.filter((n) => !selected.includes(n));
   let result: Note[] = [];
-  if (!removal) {
+  if (op === 'copy') return copyNotes(args, ctx, song, pattern, channel, selected);
+  if (local) {
+    const made = localNoteOp(op as Exclude<LocalNoteOp, 'copy'>, args, selected);
+    if (typeof made === 'string') return fail(made);
+    result = made;
+  } else if (!removal) {
     if (op === 'transpose' && num(args, 'semitones') === undefined && num(args, 'degrees') === undefined) return fail('transpose needs semitones (exact, e.g. 12 or -5) or degrees (steps along the song scale, e.g. 2).');
     if (op === 'shift' && num(args, 'steps') === undefined) return fail('shift needs steps (e.g. 2, or -1).');
     const key = readKey(args);
@@ -810,6 +1039,81 @@ function arrange(host: ToolHost, args: Args, ctx: MusicToolContext, song0: Music
   const bar = barSteps(song);
   const lines: string[] = [];
   const problems: string[] = [];
+  const made: { patterns: string[]; clips: string[]; tracks: number[] } = { patterns: [], clips: [], tracks: [] };
+  const colorOf = (e: Args, where: string): string | undefined | null => { const bad = badColor(e); if (bad) { problems.push(`${where}: ${bad}`); return null; } return str(e, 'color'); };
+  const nameTaken = (name: string, except?: string) => song.patterns.some((p) => p.id !== except && p.name.toLowerCase() === name.toLowerCase());
+
+  for (const [i, item] of (list(args, 'patterns') ?? []).entries()) {
+    const e = obj(item);
+    const rawOp = e ? str(e, 'op') ?? (str(e, 'patternId') ? 'update' : 'add') : undefined;
+    const op = isRemoval(rawOp) ? 'remove' : rawOp;
+    const where = `patterns[${i}]`;
+    if (!e || !op || !['add', 'update', 'clone', 'remove'].includes(op)) { problems.push(`${where}: op is add, update, clone or remove`); continue; }
+    const color = colorOf(e, where);
+    if (color === null) continue;
+    const barsArg = num(e, 'bars');
+    if (e.bars !== undefined && (barsArg === undefined || barsArg < 1 || barsArg > 64)) { problems.push(`${where}: bars is 1–64`); continue; }
+    const name = str(e, 'name');
+    if (op === 'add') {
+      if (name && nameTaken(name)) { problems.push(`${where}: a pattern is already called "${name}"`); continue; }
+      const added = addPattern(song, Math.round(barsArg ?? 1), name);
+      song = updatePattern(added.song, added.pattern.id, (p) => ({ ...p, ...(color ? { color } : {}) }));
+      song = { ...song, view: { ...song.view, activePatternId: added.pattern.id } };
+      made.patterns.push(added.pattern.id);
+      lines.push(`added pattern "${added.pattern.name}" [${added.pattern.id}] (${Math.round(barsArg ?? 1)} bar${Math.round(barsArg ?? 1) === 1 ? '' : 's'}; write notes into it with music_write_pattern {patternId})`);
+      continue;
+    }
+    const p = findPattern(song, e.patternId);
+    if (typeof p === 'string') { problems.push(`${where}: ${p}`); continue; }
+    if (op === 'remove') {
+      if (song.patterns.length <= 1) { problems.push(`${where}: a song needs one pattern; add another before removing "${p.name}"`); continue; }
+      const used = song.playlist.clips.filter((c) => c.patternId === p.id).length;
+      song = removePattern(song, p.id);
+      lines.push(`removed pattern "${p.name}"${used ? ` and its ${used} playlist clip${used === 1 ? '' : 's'}` : ''}`);
+      continue;
+    }
+    if (name && nameTaken(name, op === 'update' ? p.id : undefined)) { problems.push(`${where}: a pattern is already called "${name}"`); continue; }
+    if (op === 'clone') {
+      const cloned = clonePattern(song, p.id)!;
+      song = updatePattern(cloned.song, cloned.pattern.id, (x) => ({ ...x, ...(name ? { name } : {}), ...(color ? { color } : {}), ...(barsArg !== undefined ? { bars: Math.round(barsArg) } : {}) }));
+      song = { ...song, view: { ...song.view, activePatternId: cloned.pattern.id } };
+      made.patterns.push(cloned.pattern.id);
+      lines.push(`cloned "${p.name}" → "${name ?? cloned.pattern.name}" [${cloned.pattern.id}]`);
+      continue;
+    }
+    if (!name && !color && barsArg === undefined) { problems.push(`${where}: update needs name, color or bars`); continue; }
+    song = updatePattern(song, p.id, (x) => ({ ...x, ...(name ? { name } : {}), ...(color ? { color } : {}), ...(barsArg !== undefined ? { bars: Math.round(barsArg) } : {}) }));
+    lines.push(`pattern "${p.name}" [${p.id}]: ${[name ? `renamed "${name}"` : '', color ? 'colour' : '', barsArg !== undefined ? `${Math.round(barsArg)} bars` : ''].filter(Boolean).join(', ')}`);
+  }
+
+  for (const [i, item] of (list(args, 'tracks') ?? []).entries()) {
+    const e = obj(item);
+    const where = `tracks[${i}]`;
+    const op = e ? str(e, 'op') ?? (e.track !== undefined ? 'update' : 'add') : undefined;
+    if (!e || !op || !['add', 'update'].includes(op)) { problems.push(`${where}: op is add or update`); continue; }
+    const color = colorOf(e, where);
+    if (color === null) continue;
+    if (op === 'add') {
+      const count = num(e, 'count') ?? 1;
+      if (!Number.isInteger(count) || count < 1 || count > 64 || song.playlist.tracks.length + count > 256) { problems.push(`${where}: count is 1–64 (the playlist holds up to 256 tracks)`); continue; }
+      const first = song.playlist.tracks.length;
+      const added = Array.from({ length: count }, (_, k) => ({ ...newTrack(first + k), ...(count === 1 && str(e, 'name') ? { name: str(e, 'name')! } : {}), ...(color ? { color } : {}) }));
+      song = { ...song, playlist: { ...song.playlist, tracks: [...song.playlist.tracks, ...added] } };
+      made.tracks.push(...added.map((_, k) => first + k));
+      lines.push(`added ${count} track${count === 1 ? '' : 's'} (index ${first}${count > 1 ? `–${first + count - 1}` : ''})`);
+      continue;
+    }
+    const index = findTrack(song, e.track);
+    if (typeof index === 'string') { problems.push(`${where}: ${index}`); continue; }
+    const patch: Partial<MusicProject['playlist']['tracks'][number]> = {};
+    if (str(e, 'name')) patch.name = str(e, 'name')!;
+    if (color) patch.color = color;
+    for (const flag of ['mute', 'solo', 'locked'] as const) { if (e[flag] !== undefined && typeof e[flag] !== 'boolean') { problems.push(`${where}: ${flag} is true or false`); continue; } if (bool(e, flag) !== undefined) patch[flag] = bool(e, flag); }
+    if (!Object.keys(patch).length) { problems.push(`${where}: update needs name, color, mute, solo or locked`); continue; }
+    song = { ...song, playlist: { ...song.playlist, tracks: song.playlist.tracks.map((tr, k) => (k === index ? { ...tr, ...patch } : tr)) } };
+    lines.push(`track ${index} "${song.playlist.tracks[index].name}": ${Object.entries(patch).map(([k, v]) => (typeof v === 'boolean' ? `${k} ${v}` : k)).join(', ')}`);
+  }
+
   const sections = list(args, 'sections');
   if (sections) {
     const specs: SectionSpec[] = [];
@@ -830,69 +1134,119 @@ function arrange(host: ToolHost, args: Args, ctx: MusicToolContext, song0: Music
       lines.push(`${append ? 'appended' : 'laid out'} ${specs.length} sections (${r2(laid.bars)} bars, ${laid.laid} pattern clips): ${specs.map((s) => `${s.name} ${s.bars}`).join(' → ')}`);
     }
   }
+  const lockedTrack = (index: number) => !!song.playlist.tracks[index]?.locked;
+  const lockText = (index: number) => `track ${index} is locked (unlock it with tracks:[{track:${index},locked:false}])`;
   for (const [i, item] of (list(args, 'clips') ?? []).entries()) {
     const c = obj(item);
     const op = c ? str(c, 'op') ?? 'add' : undefined;
     const removal = isRemoval(op);
-    if (!c || !op || (!removal && !['add', 'update'].includes(op))) { problems.push(`clips[${i}]: op is add, update or remove`); continue; }
+    const where = `clips[${i}]`;
+    if (!c || !op || (!removal && !['add', 'update', 'duplicate', 'slice'].includes(op))) { problems.push(`${where}: op is add, update, duplicate, slice or remove`); continue; }
     const startSteps = c.startBar !== undefined ? (num(c, 'startBar') ?? NaN) * bar : num(c, 'start');
     const lengthSteps = c.bars !== undefined ? (num(c, 'bars') ?? NaN) * bar : num(c, 'length');
     const offsetSteps = c.offsetBar !== undefined ? (num(c, 'offsetBar') ?? NaN) * bar : num(c, 'offset');
     const good = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v);
+    const fadeBad = (['fadeIn', 'fadeOut'] as const).find((k) => c[k] !== undefined && !(num(c, k) !== undefined && num(c, k)! >= 0 && num(c, k)! <= 60));
+    if (fadeBad) { problems.push(`${where}: ${fadeBad} is 0–60 seconds`); continue; }
+    const fades = { ...(num(c, 'fadeIn') !== undefined ? { fadeIn: num(c, 'fadeIn') } : {}), ...(num(c, 'fadeOut') !== undefined ? { fadeOut: num(c, 'fadeOut') } : {}) };
+    const trackArg = num(c, 'track');
+    if (trackArg !== undefined && (!Number.isInteger(trackArg) || trackArg < 0)) { problems.push(`${where}: track is a playlist track index from 0`); continue; }
+    const source = str(c, 'clipId') ? song.playlist.clips.find((x) => x.id === str(c, 'clipId')) : undefined;
     if (removal) {
       const id = str(c, 'clipId');
       const patternRef = str(c, 'patternId');
       let ids: string[] = [];
-      if (id) ids = song.playlist.clips.filter((x) => x.id === id).map((x) => x.id);
-      else if (patternRef) { const p = findPattern(song, patternRef); if (typeof p === 'string') { problems.push(`clips[${i}]: ${p}`); continue; } ids = song.playlist.clips.filter((x) => x.patternId === p.id).map((x) => x.id); }
-      else { problems.push(`clips[${i}]: remove needs clipId or patternId`); continue; }
-      if (!ids.length) { problems.push(`clips[${i}]: no such clip`); continue; }
+      if (id) {
+        if (!source) { problems.push(`${where}: no clip [${id}]`); continue; }
+        if (lockedTrack(source.trackIndex)) { problems.push(`${where}: ${lockText(source.trackIndex)}`); continue; }
+        ids = [source.id];
+      } else if (patternRef) {
+        const p = findPattern(song, patternRef);
+        if (typeof p === 'string') { problems.push(`${where}: ${p}`); continue; }
+        const all = song.playlist.clips.filter((x) => x.patternId === p.id);
+        ids = all.filter((x) => !lockedTrack(x.trackIndex)).map((x) => x.id);
+        if (ids.length < all.length) problems.push(`${where}: ${all.length - ids.length} clip(s) of ${p.name} sit on locked tracks and stay`);
+      } else { problems.push(`${where}: remove needs clipId or patternId`); continue; }
+      if (!ids.length) { problems.push(`${where}: no such clip`); continue; }
       song = removeClips(song, ids);
       lines.push(`removed ${ids.length} clip${ids.length === 1 ? '' : 's'}`);
     } else if (op === 'update') {
       const id = str(c, 'clipId');
-      if (!id || !song.playlist.clips.some((x) => x.id === id)) { problems.push(`clips[${i}]: update needs an existing clipId`); continue; }
-      song = updateClip(song, id, (x) => ({
+      if (!id || !source) { problems.push(`${where}: update needs an existing clipId`); continue; }
+      if (lockedTrack(source.trackIndex)) { problems.push(`${where}: ${lockText(source.trackIndex)}`); continue; }
+      if (trackArg !== undefined && lockedTrack(trackArg)) { problems.push(`${where}: ${lockText(trackArg)}`); continue; }
+      const moved = updateClip(song, id, (x) => ({
         ...x, ...(good(startSteps) ? { start: Math.max(0, startSteps) } : {}), ...(good(lengthSteps) ? { length: Math.max(1, lengthSteps) } : {}),
-        ...(good(offsetSteps) ? { offset: Math.max(0, offsetSteps) } : {}), ...(num(c, 'track') !== undefined ? { trackIndex: Math.max(0, Math.round(num(c, 'track')!)) } : {}),
-        ...(bool(c, 'muted') !== undefined ? { muted: bool(c, 'muted') } : {}), ...(num(c, 'gain') !== undefined ? { gain: clamp(num(c, 'gain')!, -60, 12) } : {}),
+        ...(good(offsetSteps) ? { offset: Math.max(0, offsetSteps) } : {}), ...(trackArg !== undefined ? { trackIndex: trackArg } : {}),
+        ...(bool(c, 'muted') !== undefined ? { muted: bool(c, 'muted') } : {}), ...(num(c, 'gain') !== undefined ? { gain: clamp(num(c, 'gain')!, -60, 12) } : {}), ...fades,
       }));
+      // A clip moved past the last track makes the tracks it needs, the way painting there does.
+      song = trackArg !== undefined && trackArg >= song.playlist.tracks.length ? addClip(removeClips(moved, [id]), moved.playlist.clips.find((x) => x.id === id)!) : moved;
       lines.push(`updated clip ${id}`);
+    } else if (op === 'duplicate') {
+      if (!source) { problems.push(`${where}: duplicate needs an existing clipId`); continue; }
+      if (lockedTrack(source.trackIndex)) { problems.push(`${where}: ${lockText(source.trackIndex)}`); continue; }
+      const times = num(c, 'times') ?? 1;
+      if (!Number.isInteger(times) || times < 1 || times > 32) { problems.push(`${where}: times is 1–32`); continue; }
+      const idx = trackArg ?? source.trackIndex;
+      if (lockedTrack(idx)) { problems.push(`${where}: ${lockText(idx)}`); continue; }
+      let at = good(startSteps) ? Math.max(0, startSteps) : source.start + source.length;
+      const first = at;
+      for (let k = 0; k < times; k++) {
+        const id = musicId();
+        song = addClip(song, { ...source, id, trackIndex: idx, start: at });
+        made.clips.push(id);
+        at += source.length;
+      }
+      lines.push(`duplicated clip ${source.id} ×${times} from bar ${r2(first / bar)} on track ${idx}`);
+    } else if (op === 'slice') {
+      if (!source) { problems.push(`${where}: slice needs an existing clipId`); continue; }
+      if (lockedTrack(source.trackIndex)) { problems.push(`${where}: ${lockText(source.trackIndex)}`); continue; }
+      const at = c.atBar !== undefined ? (num(c, 'atBar') ?? NaN) * bar : num(c, 'at');
+      if (!good(at)) { problems.push(`${where}: slice needs atBar (or at in steps): the song position to cut at`); continue; }
+      if (at <= source.start + 0.01 || at >= source.start + source.length - 0.01) { problems.push(`${where}: clip ${source.id} runs bar ${r2(source.start / bar)}–${r2((source.start + source.length) / bar)}: cut inside it`); continue; }
+      const second = musicId();
+      song = { ...song, playlist: { ...song.playlist, clips: song.playlist.clips.flatMap((o) => (o.id === source.id ? [{ ...o, length: at - o.start }, { ...o, id: second, start: at, length: o.start + o.length - at, offset: o.offset + (at - o.start) }] : [o])) } };
+      made.clips.push(second);
+      lines.push(`sliced clip ${source.id} at bar ${r2(at / bar)} (the right part is [${second}])`);
     } else {
-      if (!good(startSteps) || startSteps < 0) { problems.push(`clips[${i}]: add needs startBar (0 = song start) or start in steps`); continue; }
-      const track = num(c, 'track');
+      if (!good(startSteps) || startSteps < 0) { problems.push(`${where}: add needs startBar (0 = song start) or start in steps`); continue; }
+      if (trackArg !== undefined && lockedTrack(trackArg)) { problems.push(`${where}: ${lockText(trackArg)}`); continue; }
       if (str(c, 'patternId')) {
         const p = findPattern(song, c.patternId);
-        if (typeof p === 'string') { problems.push(`clips[${i}]: ${p}`); continue; }
+        if (typeof p === 'string') { problems.push(`${where}: ${p}`); continue; }
         const length = good(lengthSteps) ? lengthSteps : patternSteps(song, p);
-        const idx = track !== undefined ? Math.max(0, Math.round(track)) : freePlaylistTrack(song, startSteps, startSteps + length);
+        const idx = trackArg ?? freePlaylistTrack(song, startSteps, startSteps + length);
         const id = musicId();
         song = addClip(song, { id, trackIndex: idx, start: startSteps, length, offset: good(offsetSteps) ? offsetSteps : 0, kind: 'pattern', patternId: p.id, ...(bool(c, 'muted') ? { muted: true } : {}) });
+        made.clips.push(id);
         lines.push(`added ${p.name} at bar ${r2(startSteps / bar)} for ${r2(length / bar)} bars on track ${idx} [${id}]`);
       } else if (str(c, 'assetId')) {
         const asset = host.assets().get(str(c, 'assetId')!);
-        if (!asset) { problems.push(`clips[${i}]: unknown assetId`); continue; }
+        if (!asset) { problems.push(`${where}: unknown assetId`); continue; }
         const length = good(lengthSteps) ? lengthSteps : Math.max(1, asset.duration / stepSeconds(song));
-        const idx = track !== undefined ? Math.max(0, Math.round(track)) : freePlaylistTrack(song, startSteps, startSteps + length);
+        const idx = trackArg ?? freePlaylistTrack(song, startSteps, startSteps + length);
         const id = musicId();
-        song = addClip(song, { id, trackIndex: idx, start: startSteps, length, offset: good(offsetSteps) ? offsetSteps : 0, kind: 'audio', assetId: asset.id, gain: num(c, 'gain') ?? 0 });
+        song = addClip(song, { id, trackIndex: idx, start: startSteps, length, offset: good(offsetSteps) ? offsetSteps : 0, kind: 'audio', assetId: asset.id, gain: num(c, 'gain') ?? 0, ...fades, ...(bool(c, 'muted') ? { muted: true } : {}) });
+        made.clips.push(id);
         lines.push(`added audio ${asset.name} at bar ${r2(startSteps / bar)} on track ${idx} [${id}]`);
       } else if (str(c, 'automationId')) {
         const a = song.automations.find((x) => x.id === str(c, 'automationId'));
-        if (!a) { problems.push(`clips[${i}]: unknown automationId`); continue; }
+        if (!a) { problems.push(`${where}: unknown automationId`); continue; }
         const length = good(lengthSteps) ? lengthSteps : Math.max(1, ...a.points.map((pt) => pt.t));
-        const idx = track !== undefined ? Math.max(0, Math.round(track)) : freePlaylistTrack(song, startSteps, startSteps + length);
+        const idx = trackArg ?? freePlaylistTrack(song, startSteps, startSteps + length);
         const id = musicId();
         song = addClip(song, { id, trackIndex: idx, start: startSteps, length, offset: good(offsetSteps) ? offsetSteps : 0, kind: 'automation', automationId: a.id });
+        made.clips.push(id);
         lines.push(`added automation ${a.name} at bar ${r2(startSteps / bar)} [${id}]`);
-      } else problems.push(`clips[${i}]: add needs patternId, assetId or automationId`);
+      } else problems.push(`${where}: add needs patternId, assetId or automationId`);
     }
   }
   for (const [i, item] of (list(args, 'markers') ?? []).entries()) {
     const m = obj(item);
     const op = m ? str(m, 'op') ?? 'add' : undefined;
     const removal = isRemoval(op);
-    if (!m || !op || (!removal && op !== 'add')) { problems.push(`markers[${i}]: op is add or remove`); continue; }
+    if (!m || !op || (!removal && !['add', 'update'].includes(op))) { problems.push(`markers[${i}]: op is add, update or remove`); continue; }
     if (removal) {
       const before = song.playlist.markers.length;
       const want = str(m, 'id') ?? str(m, 'name');
@@ -902,9 +1256,20 @@ function arrange(host: ToolHost, args: Args, ctx: MusicToolContext, song0: Music
       continue;
     }
     const at = m.bar !== undefined ? (num(m, 'bar') ?? NaN) * bar : num(m, 'at');
+    const kindArg = str(m, 'kind');
+    if (kindArg && !MARKER_KINDS.includes(kindArg as MarkerKind)) { problems.push(`markers[${i}]: kind must be one of ${MARKER_KINDS.join(', ')}`); continue; }
+    if (op === 'update') {
+      const id = str(m, 'id');
+      const hit = song.playlist.markers.find((x) => x.id === id);
+      if (!id || !hit) { problems.push(`markers[${i}]: update needs a marker id from music_get_song`); continue; }
+      if (at !== undefined && (!Number.isFinite(at) || at < 0)) { problems.push(`markers[${i}]: bar is 0 or more`); continue; }
+      if (!str(m, 'name') && at === undefined && !kindArg) { problems.push(`markers[${i}]: update needs name, bar or kind`); continue; }
+      song = { ...song, playlist: { ...song.playlist, markers: song.playlist.markers.map((x) => (x.id === id ? { ...x, ...(str(m, 'name') ? { name: str(m, 'name')! } : {}), ...(at !== undefined ? { at } : {}), ...(kindArg ? { kind: kindArg as MarkerKind } : {}) } : x)) } };
+      lines.push(`marker ${id} → ${[str(m, 'name') ? `"${str(m, 'name')}"` : '', at !== undefined ? `bar ${r2(at / bar)}` : '', kindArg ?? ''].filter(Boolean).join(' ')}`);
+      continue;
+    }
     if (at === undefined || !Number.isFinite(at) || at < 0 || !str(m, 'name')) { problems.push(`markers[${i}]: add needs name and bar (0-based)`); continue; }
-    const kind = (str(m, 'kind') ?? 'marker') as MarkerKind;
-    if (!MARKER_KINDS.includes(kind)) { problems.push(`markers[${i}]: kind must be one of ${MARKER_KINDS.join(', ')}`); continue; }
+    const kind = (kindArg ?? 'marker') as MarkerKind;
     song = { ...song, playlist: { ...song.playlist, markers: [...song.playlist.markers, { id: musicId(), at, name: str(m, 'name')!, kind }] } };
     lines.push(`marker "${str(m, 'name')}" at bar ${r2(at / bar)}`);
   }
@@ -917,11 +1282,11 @@ function arrange(host: ToolHost, args: Args, ctx: MusicToolContext, song0: Music
       else { song = { ...song, playlist: { ...song.playlist, loop: { start: s, end: e } } }; lines.push(`loop bars ${r2(s / bar)}–${r2(e / bar)}`); }
     }
   }
-  if (!lines.length) return fail(`Nothing was arranged. ${problems.length ? problems.join('; ') : 'Give sections, clips, markers or loop.'}`);
+  if (!lines.length) return fail(`Nothing was arranged. ${problems.length ? problems.join('; ') : 'Give sections, patterns, tracks, clips, markers or loop.'}`);
   write(ctx, { ...song, view: { ...song.view, mode: song.playlist.clips.length ? 'song' : song.view.mode } });
   return done(
     `Arranged: ${lines.join('; ')}. The song is now ${r2(songLengthSteps(song) / bar)} bars (${r2(songLengthSteps(song) * stepSeconds(song))} s).${problems.length ? ` ⚠ ${problems.join('; ')}.` : ''} Check with music_get_song, then music_mixer / music_analyze_mix.`,
-    { bars: r2(songLengthSteps(song) / bar), problems },
+    { bars: r2(songLengthSteps(song) / bar), problems, ...(made.patterns.length ? { patterns: made.patterns } : {}), ...(made.clips.length ? { clips: made.clips } : {}), ...(made.tracks.length ? { tracks: made.tracks } : {}) },
   );
 }
 
@@ -936,9 +1301,12 @@ function mixer(args: Args, ctx: MusicToolContext, song0: MusicProject): ToolResu
     const index = findInsert(song, item.insert);
     if (typeof index === 'string') { problems.push(index); continue; }
     const changes: string[] = [];
+    const colorProblem = badColor(item);
+    if (colorProblem) { problems.push(`insert ${index}: ${colorProblem}`); continue; }
     song = updateInsert(song, index, (ins) => {
       let next = ins;
       if (str(item, 'name')) { next = { ...next, name: str(item, 'name')! }; changes.push(`name "${next.name}"`); }
+      if (str(item, 'color')) { next = { ...next, color: str(item, 'color')! }; changes.push('colour'); }
       const vol = num(item, 'volume'); if (vol !== undefined) { next = { ...next, volume: clamp(vol, -60, 6) }; changes.push(`volume ${r2(next.volume)} dB`); }
       const pan = num(item, 'pan'); if (pan !== undefined) { next = { ...next, pan: clamp(pan, -1, 1) }; changes.push(`pan ${r2(next.pan)}`); }
       const width = num(item, 'width'); if (width !== undefined) { next = { ...next, width: clamp(width, 0, 2) }; changes.push(`width ${r2(next.width)}`); }
@@ -1027,7 +1395,7 @@ function mixer(args: Args, ctx: MusicToolContext, song0: MusicProject): ToolResu
       problems.push(`insert ${index} effects[${k}]: op is add, update, remove, move or clear`);
     }
     if (changes.length) lines.push(`insert ${index} "${song.mixer.inserts[index].name}": ${changes.join(', ')}`);
-    else if (!problems.some((p) => p.startsWith(`insert ${index}`))) problems.push(`insert ${index}: nothing to change (give volume, pan, width, mute, solo, sends, sidechainFrom or effects)`);
+    else if (!problems.some((p) => p.startsWith(`insert ${index}`))) problems.push(`insert ${index}: nothing to change (give name, color, volume, pan, width, mute, solo, invert, toMaster, sends, sidechainFrom or effects)`);
   }
   if (!lines.length) return fail(`Nothing changed. ${problems.join('; ') || 'Give insert and what to change.'}`);
   write(ctx, song);
@@ -1099,6 +1467,14 @@ function automate(args: Args, ctx: MusicToolContext, song0: MusicProject): ToolR
     song = { ...song, automations: song.automations.filter((a) => a.id !== id), playlist: { ...song.playlist, clips: song.playlist.clips.filter((c) => c.automationId !== id) } };
     write(ctx, song);
     return done(`Removed automation [${id}] and its clips.`);
+  }
+  if (str(args, 'automationId')) {
+    // Without remove, an automationId can only rename: a changed curve is a new call over the same control and span, which replaces the old clip.
+    const id = str(args, 'automationId')!;
+    if (!song.automations.some((a) => a.id === id)) return fail(`No automation [${id}].`);
+    if (!str(args, 'name') || args.target !== undefined || args.shape !== undefined || args.points !== undefined) return fail('automationId alone renames (with name) or removes (with remove:true). To change the curve, call music_automate again with the same target and the same startBar/bars: it replaces the old clip.');
+    write(ctx, { ...song, automations: song.automations.map((a) => (a.id === id ? { ...a, name: str(args, 'name')! } : a)) });
+    return done(`Renamed automation [${id}] to "${str(args, 'name')}".`);
   }
   const resolved = resolveTarget(song, obj(args.target) ?? args);
   if (typeof resolved === 'string') return fail(resolved);
@@ -1291,13 +1667,19 @@ async function renderTool(host: ToolHost, args: Args, ctx: MusicToolContext, pro
   const { result } = bounce;
   let placed = '';
   if (wantPlace && comp) {
-    const start = num(args, 'start') ?? 0;
     const level = num(args, 'db') ?? -6;
-    ctx.commit((current) => updateComp(current, comp.id, (c) => {
-      const next: Comp = c.production ? { ...c, production: { ...c.production, music: { ...(c.production.music ?? { source: 'generate' as const }), assetId: asset.id, status: 'ready' as const, bpm: song.bpm, beats: result.beats }, updatedAt: Date.now() } } : c;
-      return placeMusicBed(next, asset.id, start, result.duration, { db: level, name: asset.name }).comp;
-    }));
-    placed = ` Laid on the timeline of "${comp.name}" from ${start.toFixed(2)} s as the music bed (${level} dB, faded in and out); its beat grid is stored, so snap_cuts_to_beats needs no analysis.`;
+    const earlier = songPlacement(project, comp.id);
+    let laid: ReturnType<typeof placeSongLayer> | null = null;
+    // The song's music layer: placed once per composition, refreshed in place when sent again.
+    ctx.commit((current) => {
+      laid = placeSongLayer(current, comp.id, { assetId: asset.id, duration: result.duration, beats: result.beats, downbeats: result.downbeats, bpm: song.bpm, name: asset.name }, { start: num(args, 'start') ?? 0, db: level });
+      return laid.project;
+    });
+    const at = laid ? (laid as ReturnType<typeof placeSongLayer>) : null;
+    placed = earlier
+      ? ` Refreshed the song's music layer on "${comp.name}" in place (clip ${at?.clipId}; same start, track and level as the editor left it).`
+      : ` Laid on "${comp.name}" as its music layer on the "Music" audio track from ${(num(args, 'start') ?? 0).toFixed(2)} s (clip ${at?.clipId}, ${level} dB, faded in and out). Sending the song again refreshes this clip instead of adding another.`;
+    placed += ' Its beat grid is stored, so snap_cuts_to_beats needs no analysis.';
   }
   return done(`Rendered "${asset.name}" (${r2(result.duration)} s, ${song.bpm} BPM, ${mode === 'song' ? 'whole song' : 'one pattern'}) to the "Music" bin folder (asset ${asset.id}).${stemAssets.length ? ` Stems: ${stemAssets.map((s) => s.name).join(', ')}.` : ''}${placed || ' Place it with place_clip, or call music_render again with place:true.'}`, {
     assetId: asset.id, path: bounce.path, duration: result.duration, bpm: song.bpm, beats: result.beats.slice(0, 64), downbeats: result.downbeats.slice(0, 64), placed: !!placed,

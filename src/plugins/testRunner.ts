@@ -60,7 +60,7 @@ export const SCRATCH_SKIPPED: Record<string, string> = Object.fromEntries([
     .map((name) => [name, 'it transcribes or runs a heavy local model']),
   ...['search_sfx', 'place_sfx'].map((name) => [name, 'it may search or download online']),
   ...['music_render', 'music_analyze_mix'].map((name) => [name, 'it renders audio (Web Audio) and writes files']),
-  ...['music_open_studio'].map((name) => [name, 'it opens the real Music Studio']),
+  ...['music_open_studio'].map((name) => [name, 'it opens the real Music Studio and plays audio in it']),
   ...['choose_shorts_format', 'set_playhead'].map((name) => [name, 'it asks the user or moves the real playhead']),
   ...['propose_storyboards', 'save_storyboard', 'save_video_blueprint', 'execute_blueprint', 'attach_production_asset', 'finish_gathering',
     'judge_edit', 'run_frame_qa', 'query_frame_atlas', 'list_subagents', 'list_learned_skills', 'apply_learned_skill']

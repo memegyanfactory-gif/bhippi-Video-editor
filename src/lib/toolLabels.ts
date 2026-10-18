@@ -245,7 +245,7 @@ export const TOOL_LABELS: Record<string, string> = {
   music_automate: 'Automating a control',
   music_analyze_mix: 'Analysing the mix',
   music_render: 'Rendering the song',
-  music_open_studio: 'Opening the Music Studio',
+  music_open_studio: 'Controlling the Music Studio',
 };
 
 /** The chat row's label for a tool: its plain-English label, or its name with spaces. */

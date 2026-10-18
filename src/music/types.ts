@@ -179,6 +179,21 @@ export type MusicProject = {
   view: MusicView;
   /** Seed for noise, probability and humanise, so renders repeat. */
   seed: number;
+  /** Where the bounced song sits on the video timeline, one entry per composition (src/music/timeline.ts). */
+  placements?: SongPlacement[];
+};
+
+/** The song's music layer on one composition: sending the song again refreshes this clip in place. */
+export type SongPlacement = {
+  compId: string;
+  clipId: string;
+  trackId: string;
+  assetId: string;
+  bpm: number;
+  /** Beat and downbeat times in seconds from the start of the bounce (the clip's source time). */
+  beats: number[];
+  downbeats: number[];
+  placedAt: number;
 };
 
 // ---------------------------------------------------------------------------------------------

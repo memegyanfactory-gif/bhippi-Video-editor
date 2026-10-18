@@ -304,3 +304,83 @@ studio exists and to start with `music_get_song` / `music_studio_guide`.
 - Time-stretch / pitch-shift for audio clips (WSOLA in a worklet).
 - AudioWorklet-based voices for lower CPU on big projects.
 - Vocal synthesis tied to the TTS engine.
+
+## 11. Studio v2: the LMMS-grade look and the per-project workspace switch
+
+The first build worked but looked like the editor's panels with knobs on them. v2 gives the
+studio its own studio-hardware identity, modelled on LMMS (github.com/LMMS/lmms,
+`data/themes/default/style.css`) — its look only: LMMS is GPL and Bhippi is MIT, so no LMMS code
+or artwork is copied; palette, proportions and behaviours are re-drawn here.
+
+### 11.1 Visual system
+| Token | Value | Use |
+|---|---|---|
+| `--ms-bg-0` | `#0c0e0f` | deepest wells: grids, rack lanes, meters |
+| `--ms-bg-1` | `#14161a` | window bodies (LMMS editors / mixer channel) |
+| `--ms-bg-2` | `#1b1f24` | panels, track headers |
+| `--ms-bg-3` | `#262b30` | raised controls, toolbars (LMMS scale colour) |
+| `--ms-bg-4` | `#3b424a` | hover / active strips |
+| `--ms-line` | `#262b30` / `#3c444c` | fine grid / coarse (bar) grid |
+| `--ms-text` | `#d1d8e4` | primary text |
+| `--ms-dim` | `#8a94a3` | labels |
+| `--ms-accent` | `#0bd556` | notes, active steps, play state (LMMS green) |
+| `--ms-accent-2` | `#43b2ff` | selection, loop |
+| `--ms-warn` / `--ms-clip` | `#d6ec52` / `#c12038` | meter warn / clip |
+| `--ms-lcd` | `#040506` bg, `#43ff82` digits | LCD displays: position, tempo, CPU |
+
+- Every window is a framed sub-window: a 26 px title strip with an icon, a gradient from
+  `#3d454f` to `#262b30`, a 1 px `#090909` top line — the LMMS SubWindow.
+- Grids alternate darker/lighter bar bands (`#0c0e0f` / `#14151a`), 2 px bar lines, 1 px beat lines.
+- Clips: pattern/MIDI green `#21a14f`, sample `#2a333b` with orange text, automation violet
+  `#663de1`; mini note previews in white at 85 %.
+- Knobs draw a value arc (accent) over an inactive arc, a pointer line and a dark cap; faders
+  have LED-segment meters (green → yellow → red) with peak hold.
+- Icons on every control (lucide), consistent 14 px in toolbars, 12 px in rows.
+
+### 11.2 Playhead ("position line")
+- A 2 px white line with a fading tail gradient (LMMS `PositionLine`, tailGradient) in the
+  Playlist, Piano Roll, Channel Rack and Automation lanes; red while recording.
+- The ruler shows a playhead flag; the step grid lights the current step column; the toolbar LCD
+  ticks bar:beat:tick at 60 fps; auto-scroll follows the line (page / continuous / off, like LMMS).
+
+### 11.3 More detail
+- Channel Rack: per-row LED activity flash on each hit, an instrument icon per type, step
+  buttons with beat-group shading, velocity shown as fill height.
+- Piano Roll: key column with real white/black key shading and the pressed key lit, note
+  velocity as opacity, note names on long notes, a detuning/velocity lane switcher.
+- Mixer: channel strips 76 px wide with LCD channel number, LED meters with peak hold, send
+  knobs, effect chain list with power LEDs.
+- Toolbar: LCD position / tempo / time-signature group, CPU-ish voice meter, master LED meter.
+- Empty states with icon and one clear action.
+
+### 11.4 Per-project workspace switch
+- The rail's Music button moves to the title bar, beside the project name, as a two-way
+  **Video | Music** switch (with the Beta · WIP tag).
+- The choice is saved in the project (`Project.workspace: 'video' | 'music'`), so each open
+  project tab keeps its own mode and reopens in it; switching tabs never changes another project.
+- Each project tab is its own webview, so the studio bus, the engine and `studioOpen()` are
+  per project already; the AI's project context now states the workspace and the song summary
+  (name, tempo, key, channel / pattern counts) of *that* project, so a model working in one
+  project never edits another project's song.
+
+### 11.5 The song as a music layer on the timeline
+- `src/music/timeline.ts` `placeSongLayer`: a bounce is laid once per composition on an audio track
+  named **Music** (made when there is none), faded in and out, and remembered in
+  `MusicProject.placements` (comp, clip, track, asset, bpm, beats, downbeats).
+- Sending the song again — the studio's **Send to timeline** or `music_render {"place":true}` —
+  swaps that clip's audio in place, keeping the start, level and track the editor set; a layer the
+  editor deleted is placed fresh. `snap_cuts_to_beats` reads the placement's beats when the video
+  has no production plan, so cutting to the AI's song needs no waveform analysis.
+
+### 11.6 Theme
+- Every `--ms-*` token is a Bhippi theme variable (`--deep`, `--app`, `--panel…`, `--line…`,
+  `--text…`, `--accent`, `--blue-hi`, `--timecode` for the LCD digits, `--green/--amber/--red` for
+  meters), so the studio matches the editor in every theme (default, minimal, midnight, obsidian,
+  aurora) and accent. Canvas windows resolve the tokens to hex (`toHex`) and repaint when the theme
+  changes (`useThemeVersion`).
+
+### 11.7 Everything a person can do, the AI can do
+- Every studio action maps to a music_* tool argument (audit in the 2026-10-18 session): transport
+  (play / stop / rewind / play from a bar), PAT/SONG, metronome, snap, browser / playlist visibility
+  and instrument / effect panels go through `music_open_studio` → `StudioRequest` → `StudioShell`.
+  View-only gestures (zoom, scroll, auditioning) are the only things not exposed.

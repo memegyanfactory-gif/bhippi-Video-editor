@@ -9940,7 +9940,7 @@
     },
     {
       "name": "music_get_song",
-      "description": "Call first when working on music. Reads the Music Studio song as compact text: header (name, BPM, time signature, swing, key, length), every channel with its id, instrument or drum piece, mixer insert, volume/pan and non-default parameters, every pattern (drum channels as step strings like x---x---x---x---; pitched channels as notes like C4@0+4 v100 = key@start+length velocity, in STEPS where 1 step = a 16th note and a 4/4 bar = 16 steps), the playlist as a section map per track (in BARS counted from 0), the mixer chains in use with effect ids, and automations. Ids are shown in [brackets]; pass them to the other music tools. detail \"full\" prints every note; patternId limits the read to one pattern with all its notes; grid:true adds an ASCII piano roll of that pattern (channelId limits it to one channel). Read-only. If no song exists yet it shows a blank default and says so.",
+      "description": "Call first when working on music. Reads the Music Studio song as compact text: header (name, BPM, time signature, swing, key, length), every channel with its id, instrument or drum piece, mixer insert, volume/pan and non-default parameters, every pattern (drum channels as step strings like x---x---x---x---; pitched channels as notes like C4@0+4 v100 = key@start+length velocity, in STEPS where 1 step = a 16th note and a 4/4 bar = 16 steps), the playlist as a section map per track (in BARS counted from 0), the mixer chains in use with effect ids, automations, a VIEW line (PAT/SONG mode, active pattern, selected channel, whether the studio is open), the playlist tracks (index, name, MUTED/SOLO/LOCKED), section markers and clips with their ids and offsets, and where the bounced song sits on each video composition (comp, clip and track ids for the timeline tools). Ids are shown in [brackets]; pass them to the other music tools. detail \"full\" prints every note; patternId limits the read to one pattern with all its notes; grid:true adds an ASCII piano roll of that pattern (channelId limits it to one channel). Read-only. If no song exists yet it shows a blank default and says so.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -10329,7 +10329,7 @@
     },
     {
       "name": "music_update_channel",
-      "description": "Changes or removes a channel (id or name from music_get_song). Settable: name, params (merged, validated against the instrument's parameter list, clamped), volume 0–1.25, pan -1…1, mute, solo, mixer insert, instrument, drum piece, glide, polyphony, swing (null = follow the song), rootKey, color, sampleAssetId; resetParams:true returns the instrument to its defaults; remove:true removes the channel and its notes (one undo step restores it).",
+      "description": "Changes or removes a channel (id or name from music_get_song). Settable: name, params (merged, validated against the instrument's parameter list, clamped), volume 0–1.25, pan -1…1, mute, solo, mixer insert, instrument, drum piece, glide, polyphony, swing (null = follow the song), rootKey, color, sampleAssetId, group (the Channel Rack filter group; \"\" clears it); moveTo puts the channel at a rack position (0 = top, the order of music_get_song); clone:true copies the channel right after it (same insert, its notes in every pattern; name optional) and every other field then applies to the copy; resetParams:true returns the instrument to its defaults; remove:true removes the channel and its notes (one undo step restores it).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -10439,6 +10439,19 @@
           "sampleAssetId": {
             "type": "string",
             "description": "Bin asset id (sampler)."
+          },
+          "group": {
+            "type": "string",
+            "description": "Rack filter group name (\"\" clears)."
+          },
+          "moveTo": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Rack position, 0 = top."
+          },
+          "clone": {
+            "type": "boolean",
+            "description": "Copy this channel (with its notes) right after it; other fields apply to the copy."
           },
           "remove": {
             "type": "boolean",
@@ -10604,7 +10617,7 @@
     },
     {
       "name": "music_edit_notes",
-      "description": "Edits the notes of one channel in one pattern. patternId defaults to the active pattern. op: transpose (semitones, or degrees along the song scale) | quantize (grid steps, strength 0–1, lengths:true also snaps lengths) | humanize (timing steps ~0.12, velocity 0–1 ~0.1, seed) | legato (gap steps) | arpeggiate (chords → single notes: rate steps/note, pattern up|down|updown|downup|random, gate 0–1) | strum (spread steps per note, direction down|up) | chordize (stack a chord on every note: quality like min7/sus4, or the diatonic triad; sevenths:true; inversion) | scale-correct (snap out-of-key notes into the song key) | velocity (multiply, add, set, compress 0–1) | shift (steps, optional wrap) | duplicate (times, offset steps) | reverse | flip (mirror pitches around \"around\" or the middle, staying in key) | randomize (what velocity|timing|pitch|all, amount 0–1, seed) | remove (the selected notes). Select a subset with fromStep/toStep (steps) and minKey/maxKey; default is every note of the channel. Positions are in STEPS (1 step = a 16th note).",
+      "description": "Edits the notes of one channel in one pattern. patternId defaults to the active pattern. op: transpose (semitones, or degrees along the song scale) | quantize (grid steps, strength 0–1, lengths:true also snaps lengths) | humanize (timing steps ~0.12, velocity 0–1 ~0.1, seed) | legato (gap steps) | arpeggiate (chords → single notes: rate steps/note, pattern up|down|updown|downup|random, gate 0–1) | strum (spread steps per note, direction down|up) | chordize (stack a chord on every note: quality like min7/sus4, or the diatonic triad; sevenths:true; inversion) | scale-correct (snap out-of-key notes into the song key) | velocity (multiply, add, set, compress 0–1) | shift (steps, optional wrap) | duplicate (times, offset steps) | reverse | flip (mirror pitches around \"around\" or the middle, staying in key) | randomize (what velocity|timing|pitch|all, amount 0–1, seed) | length (set steps | multiply | add: resizes the selected notes) | slice (at: cut every selected note spanning that step | every: chop each into pieces that many steps long) | set (props:{slide,probability,ratchet,pan,fine,mute} on the selected notes; a neutral value such as probability 1 clears the flag) | copy (adds the selected notes to toPatternId and/or toChannelId, the first landing at toStep or in place; the originals stay) | remove (the selected notes). Select a subset with fromStep/toStep (steps) and minKey/maxKey; default is every note of the channel. Positions are in STEPS (1 step = a 16th note).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -10633,6 +10646,10 @@
               "reverse",
               "flip",
               "randomize",
+              "length",
+              "slice",
+              "set",
+              "copy",
               "remove"
             ]
           },
@@ -10642,7 +10659,7 @@
           },
           "toStep": {
             "type": "number",
-            "description": "…and before this step."
+            "description": "copy: step where the first copied note lands (default: the same positions)."
           },
           "minKey": {
             "type": [
@@ -10739,15 +10756,15 @@
           },
           "multiply": {
             "type": "number",
-            "description": "velocity: multiplier."
+            "description": "velocity or length: multiplier."
           },
           "add": {
             "type": "number",
-            "description": "velocity: add (0–1 or 1–127)."
+            "description": "velocity: add (0–1 or 1–127); length: add steps."
           },
           "set": {
             "type": "number",
-            "description": "velocity: set every note."
+            "description": "velocity: set every note (0–1 or 1–127); length: set every length in steps."
           },
           "compress": {
             "type": "number",
@@ -10793,6 +10810,53 @@
           "amount": {
             "type": "number",
             "description": "randomize: 0–1."
+          },
+          "at": {
+            "type": "number",
+            "description": "slice: the step to cut at."
+          },
+          "every": {
+            "type": "number",
+            "description": "slice: piece length in steps."
+          },
+          "props": {
+            "type": "object",
+            "description": "set: note flags to apply.",
+            "properties": {
+              "slide": {
+                "type": "boolean",
+                "description": "Glide into the note."
+              },
+              "probability": {
+                "type": "number",
+                "description": "0–1 chance the note plays (1 = always)."
+              },
+              "ratchet": {
+                "type": "integer",
+                "description": "Retriggers within the note, 1–8."
+              },
+              "pan": {
+                "type": "number",
+                "description": "-1…1."
+              },
+              "fine": {
+                "type": "number",
+                "description": "Fine pitch in cents, -100…100."
+              },
+              "mute": {
+                "type": "boolean",
+                "description": "Silence the note without removing it."
+              }
+            },
+            "additionalProperties": false
+          },
+          "toPatternId": {
+            "type": "string",
+            "description": "copy: target pattern id or name (default the same)."
+          },
+          "toChannelId": {
+            "type": "string",
+            "description": "copy: target channel id or name (default the same)."
           },
           "key": {
             "type": "string",
@@ -10975,10 +11039,97 @@
     },
     {
       "name": "music_arrange",
-      "description": "Lays patterns out as a song: sections, clips, markers, loop. POSITIONS ARE IN BARS counted from 0. sections:[{name:\"intro\",bars:8,patterns:[\"Chords\",\"Pad\"]},{name:\"drop\",bars:16,patterns:[\"Drums\",\"Bass\",\"Chords\",\"Lead\"]}] builds the whole song in one call — each pattern (id or name) gets its own playlist track and loops to fill its section, a marker (kind intro | verse | prechorus | chorus | drop | build | breakdown | bridge | outro, inferred from the name) is placed at each section start; mode \"replace\" (default) replaces all pattern clips and markers, \"append\" continues after the end. Vary the sections: no drums in the intro, a riser/fill pattern in a build before each drop, the lead only in the chorus. clips:[{op:\"add\",patternId,startBar,bars,track}, {op:\"update\",clipId,startBar,bars,muted}, {op:\"remove\",clipId}] edits single clips (audio clips: assetId + gain dB; automation clips: automationId). markers:[{op:\"add\",name,bar,kind}|{op:\"remove\",name}]. loop:{startBar,endBar} sets the loop region, null clears it.",
+      "description": "Lays patterns out as a song: sections, clips, markers, loop. It also adds, renames, clones and removes patterns and playlist tracks. POSITIONS ARE IN BARS counted from 0. sections:[{name:\"intro\",bars:8,patterns:[\"Chords\",\"Pad\"]},{name:\"drop\",bars:16,patterns:[\"Drums\",\"Bass\",\"Chords\",\"Lead\"]}] builds the whole song in one call — each pattern (id or name) gets its own playlist track and loops to fill its section, a marker (kind intro | verse | prechorus | chorus | drop | build | breakdown | bridge | outro, inferred from the name) is placed at each section start; mode \"replace\" (default) replaces all pattern clips and markers, \"append\" continues after the end. Vary the sections: no drums in the intro, a riser/fill pattern in a build before each drop, the lead only in the chorus. patterns:[{op:\"add\",name,bars,color}|{op:\"update\",patternId,name,color,bars}|{op:\"clone\",patternId,name}|{op:\"remove\",patternId}] manages the patterns themselves (names stay unique; remove also removes the pattern's clips and keeps at least one pattern). tracks:[{op:\"add\",count,name,color}|{track:<index or name>,name,color,mute,solo,locked}] manages playlist tracks (clips on a locked track cannot be edited until it is unlocked). clips:[{op:\"add\",patternId,startBar,bars,track}, {op:\"update\",clipId,startBar,bars,offsetBar,track,muted}, {op:\"duplicate\",clipId,times,startBar,track}, {op:\"slice\",clipId,atBar}, {op:\"remove\",clipId}] edits single clips (duplicates follow one another, from the clip's end unless startBar is given; audio clips: assetId + gain dB + fadeIn/fadeOut seconds; automation clips: automationId). markers:[{op:\"add\",name,bar,kind}|{op:\"update\",id,name,bar,kind}|{op:\"remove\",id or name}]. loop:{startBar,endBar} sets the loop region, null clears it. Ids come from music_get_song and the result.",
       "input_schema": {
         "type": "object",
         "properties": {
+          "patterns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "add",
+                    "update",
+                    "clone",
+                    "remove"
+                  ],
+                  "description": "Default update when patternId is given, else add."
+                },
+                "patternId": {
+                  "type": "string",
+                  "description": "Pattern id or name (update, clone, remove)."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Pattern name (unique)."
+                },
+                "color": {
+                  "type": "string",
+                  "description": "#rrggbb colour, e.g. \"#e0715b\"."
+                },
+                "bars": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 64,
+                  "description": "Pattern length in bars, 1–64."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Pattern add / update / clone / remove."
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "add",
+                    "update"
+                  ],
+                  "description": "Default update when track is given, else add."
+                },
+                "track": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "Track index from 0, or its name (update)."
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 64,
+                  "description": "add: how many tracks."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Track name."
+                },
+                "color": {
+                  "type": "string",
+                  "description": "#rrggbb colour, e.g. \"#e0715b\"."
+                },
+                "mute": {
+                  "type": "boolean"
+                },
+                "solo": {
+                  "type": "boolean"
+                },
+                "locked": {
+                  "type": "boolean",
+                  "description": "Locked tracks refuse clip edits."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Playlist track add / update (name, color, mute, solo, locked)."
+          },
           "sections": {
             "type": "array",
             "items": {
@@ -11044,6 +11195,8 @@
                   "enum": [
                     "add",
                     "update",
+                    "duplicate",
+                    "slice",
                     "remove"
                   ]
                 },
@@ -11065,7 +11218,7 @@
                 },
                 "track": {
                   "type": "integer",
-                  "description": "Playlist track index (default: a free one)."
+                  "description": "Playlist track index from 0 (default: a free one; a higher index makes the tracks)."
                 },
                 "startBar": {
                   "type": "number",
@@ -11098,6 +11251,28 @@
                 "gain": {
                   "type": "number",
                   "description": "Audio clip dB."
+                },
+                "times": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 32,
+                  "description": "duplicate: copies (default 1)."
+                },
+                "atBar": {
+                  "type": "number",
+                  "description": "slice: song bar to cut at (inside the clip)."
+                },
+                "at": {
+                  "type": "number",
+                  "description": "slice: the cut in steps (alternative to atBar)."
+                },
+                "fadeIn": {
+                  "type": "number",
+                  "description": "Audio clip fade-in, seconds 0–60."
+                },
+                "fadeOut": {
+                  "type": "number",
+                  "description": "Audio clip fade-out, seconds 0–60."
                 }
               },
               "additionalProperties": false
@@ -11112,12 +11287,13 @@
                   "type": "string",
                   "enum": [
                     "add",
+                    "update",
                     "remove"
                   ]
                 },
                 "id": {
                   "type": "string",
-                  "description": "Marker id (remove)."
+                  "description": "Marker id (update, remove)."
                 },
                 "name": {
                   "type": "string",
@@ -11170,7 +11346,7 @@
     },
     {
       "name": "music_mixer",
-      "description": "Edits the mixer: levels, pan, sends, sidechain, effects. insert is an index (0 = master, 1… = the inserts channels feed — music_get_song shows \"ins N\") or an insert name; give inserts:[{insert,…}] to change several at once. Per insert: volume (dB, -60…6; 0 = unity), pan -1…1, width 0–2, mute/solo/invert, name, sends:[{to,level,sidechain}], and effects:[{op,type,params,mix}] — op add (default) | update (effectId or type) | remove | move (at) | clear. Effect types: eq, compressor, limiter, reverb, delay, chorus, flanger, phaser, distortion, bitcrusher, filter, stereo, sidechain, gate, tremolo; params are validated against music_studio_guide {effect} (unknown names rejected with the valid list). Good defaults: eq {b1Freq:120} high-passes pads/keys/leads; compressor {threshold:-16, ratio:3, makeup:2} on bass and drums; reverb {decay:2.2} mix 0.2–0.3 on pads/leads/snare; delay {sync:5} mix 0.25 on leads. sidechainFrom:<kick insert> on the bass or pad insert makes them pump with the kick (adds the send and the ducker); sidechainAmount 0–1. Balance first (faders), then tone, then space.",
+      "description": "Edits the mixer: levels, pan, sends, sidechain, effects. insert is an index (0 = master, 1… = the inserts channels feed — music_get_song shows \"ins N\") or an insert name (an index past the last insert creates it, up to 125); give inserts:[{insert,…}] to change several at once. Per insert: volume (dB, -60…6; 0 = unity), pan -1…1, width 0–2, mute/solo/invert, name, color, toMaster, sends:[{to,level,sidechain}], and effects:[{op,type,params,mix}] — op add (default) | update (effectId or type) | remove | move (at) | clear. Effect types: eq, compressor, limiter, reverb, delay, chorus, flanger, phaser, distortion, bitcrusher, filter, stereo, sidechain, gate, tremolo; params are validated against music_studio_guide {effect} (unknown names rejected with the valid list). Good defaults: eq {b1Freq:120} high-passes pads/keys/leads; compressor {threshold:-16, ratio:3, makeup:2} on bass and drums; reverb {decay:2.2} mix 0.2–0.3 on pads/leads/snare; delay {sync:5} mix 0.25 on leads. sidechainFrom:<kick insert> on the bass or pad insert makes them pump with the kick (adds the send and the ducker); sidechainAmount 0–1. Balance first (faders), then tone, then space.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -11184,6 +11360,10 @@
           "name": {
             "type": "string",
             "description": "Rename the insert."
+          },
+          "color": {
+            "type": "string",
+            "description": "Insert colour, #rrggbb colour, e.g. \"#e0715b\"."
           },
           "volume": {
             "type": "number",
@@ -11341,6 +11521,10 @@
                   "type": "string",
                   "description": "Rename the insert."
                 },
+                "color": {
+                  "type": "string",
+                  "description": "Insert colour, #rrggbb colour, e.g. \"#e0715b\"."
+                },
                 "volume": {
                   "type": "number",
                   "description": "Fader in dB, -60…+6 (0 = unity, -60 = silence)."
@@ -11492,7 +11676,7 @@
     },
     {
       "name": "music_automate",
-      "description": "Automates a control over time (ramp, sweep, LFO, pump, points). target:{kind,…}: {kind:\"insert\",insert:3,param:\"volume|pan|width\"}, {kind:\"effect\",insert:3,effect:\"filter\" (type or effectId),param:\"cutoff\"}, {kind:\"channel\",channelId,param:\"cutoff\"} (any instrument parameter, or volume / pan), {kind:\"send\",insert,to}, {kind:\"tempo\"}. Values (from, to, points[].value) are in the parameter's real units (dB, Hz, 0–1…; music_studio_guide lists ranges; an out-of-range value is clamped). Time is in BARS from 0: startBar and bars (default: from startBar to the song end); points[].bar is relative to startBar. shape: ramp-up / ramp-down (linear from→to; from defaults to the current value), sweep (exponential build from→to: a filter opening before a drop), lfo (from..to sine, cycles per range, default 1 per bar), pump (duck to from each beat and recover to to; every = steps), or points:[{bar,value,curve:hold|linear|smooth|exp}]. A new clip replaces an older one for the same control over the same span. remove:true with automationId removes one.",
+      "description": "Automates a control over time (ramp, sweep, LFO, pump, points). target:{kind,…}: {kind:\"insert\",insert:3,param:\"volume|pan|width\"}, {kind:\"effect\",insert:3,effect:\"filter\" (type or effectId),param:\"cutoff\"}, {kind:\"channel\",channelId,param:\"cutoff\"} (any instrument parameter, or volume / pan), {kind:\"send\",insert,to}, {kind:\"tempo\"}. Values (from, to, points[].value) are in the parameter's real units (dB, Hz, 0–1…; music_studio_guide lists ranges; an out-of-range value is clamped). Time is in BARS from 0: startBar and bars (default: from startBar to the song end); points[].bar is relative to startBar. shape: ramp-up / ramp-down (linear from→to; from defaults to the current value), sweep (exponential build from→to: a filter opening before a drop), lfo (from..to sine, cycles per range, default 1 per bar), pump (duck to from each beat and recover to to; every = steps), or points:[{bar,value,curve:hold|linear|smooth|exp}]. A new clip replaces an older one for the same control over the same span. remove:true with automationId removes one; automationId with only name renames it. To change a curve, call again with the same target and span: it replaces the old clip.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -11619,7 +11803,7 @@
           },
           "automationId": {
             "type": "string",
-            "description": "With remove: the automation to remove."
+            "description": "With remove: the automation to remove; with only name: the automation to rename."
           },
           "remove": {
             "type": "boolean",
@@ -11698,7 +11882,7 @@
     },
     {
       "name": "music_open_studio",
-      "description": "Shows or hides the Music Studio for the user. It can focus a window (playlist, rack, pianoroll, mixer) and a pattern or channel. Use it after building something so the user sees it; it changes nothing in the song.",
+      "description": "Shows or hides the Music Studio for the user. It also focuses what to look at and plays the song. window: playlist | rack | pianoroll | mixer; patternId (the active pattern) and channelId (the selected channel); mode pattern (PAT: loops the active pattern) or song (SONG: plays the playlist). transport play starts playback in the user's studio (song mode from fromBar, bars from 0, default 0; pattern mode loops patternId), stop stops it, rewind stops and resets the play-from mark; play needs an arranged song or a pattern and an open studio. metronome, snap (none | bar | 1/2 | 1/4 | 1/8 | 1/16 | 1/32 | 1/8T | 1/16T), browser and playlist (show / hide those panels), panel {kind:instrument,channelId} or {kind:effect,insert,effectId} opens a floating parameter window, closePanels closes them all; open:false closes the studio. It never changes notes, channels or mixer settings; use it after building something so the user sees and hears it.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -11722,6 +11906,91 @@
           "channelId": {
             "type": "string",
             "description": "Channel id or name to focus."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "pattern",
+              "song"
+            ],
+            "description": "PAT loops the active pattern, SONG plays the playlist."
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "play",
+              "stop",
+              "rewind"
+            ],
+            "description": "Playback control."
+          },
+          "fromBar": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Song mode: the bar Play starts at (0 = the beginning)."
+          },
+          "metronome": {
+            "type": "boolean",
+            "description": "Metronome on / off."
+          },
+          "snap": {
+            "type": "string",
+            "enum": [
+              "none",
+              "bar",
+              "1/2",
+              "1/4",
+              "1/8",
+              "1/16",
+              "1/32",
+              "1/8T",
+              "1/16T"
+            ],
+            "description": "Snap grid of the playlist and piano roll."
+          },
+          "browser": {
+            "type": "boolean",
+            "description": "Show / hide the Browser panel."
+          },
+          "playlist": {
+            "type": "boolean",
+            "description": "Show / hide the Playlist."
+          },
+          "panel": {
+            "type": "object",
+            "description": "Open a floating parameter window.",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "instrument",
+                  "effect"
+                ]
+              },
+              "channelId": {
+                "type": "string",
+                "description": "instrument: channel id or name."
+              },
+              "insert": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "description": "effect: mixer insert index or name."
+              },
+              "effectId": {
+                "type": "string",
+                "description": "effect: an effect id (or its type) from music_get_song."
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "closePanels": {
+            "type": "boolean",
+            "description": "Close every floating parameter window."
           }
         },
         "additionalProperties": false

@@ -2,7 +2,7 @@
 // plus floating instrument and effect panels. It keeps the engine fed with the song and turns every
 // edit into a project history step (`Music: …`), so undo / redo are the app's own.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { PanelLeftOpen } from 'lucide-react';
 import { fileSrc } from '../../lib/ipc';
 import type { Project } from '../../lib/types';
 import { assetSampleLoader } from '../engine';
@@ -122,9 +122,33 @@ export function StudioShell({ engine, props }: { engine: MusicEngineApi; props: 
       else if (r.window) setUi({ win: r.window as BottomWindow });
       if (r.patternId) setView({ activePatternId: r.patternId });
       if (r.channelId) setView({ selectedChannelId: r.channelId });
+      if (r.mode && r.mode !== songRef.current.view.mode) {
+        if (uiRef.current.playing) actions.stop();
+        setView({ mode: r.mode });
+      }
+      if (r.metronome !== undefined) setUi({ metronome: r.metronome });
+      if (r.snap) setUi({ snapId: r.snap });
+      if (r.browser !== undefined) setUi({ browser: r.browser });
+      // Showing the playlist for the AI does not take the bottom window away from the person.
+      if (r.playlist !== undefined) setUiState((u) => ({ ...u, playlist: r.playlist as boolean }));
+      if (r.playFrom !== undefined) setUi({ playFrom: Math.max(0, r.playFrom) });
+      if (r.closePanels) setPanels([]);
+      if (r.panel) actions.openPanel(r.panel);
+      if (r.transport === 'stop') actions.stop();
+      else if (r.transport === 'rewind') { actions.stop(); setUi({ playFrom: 0 }); }
+      else if (r.transport === 'play') {
+        // The request's own mode and pattern: the song in songRef may not have caught up with them yet.
+        const mode = r.mode ?? songRef.current.view.mode;
+        engine.play({ mode, from: mode === 'song' ? (r.playFrom ?? uiRef.current.playFrom) : undefined, patternId: r.patternId ?? songRef.current.view.activePatternId ?? undefined })
+          .catch((e) => {
+            setUiState((u) => ({ ...u, playing: false }));
+            propsRef.current.toast({ tone: 'error', title: 'Could not start playback', body: e instanceof Error ? e.message : String(e) });
+          });
+        setUiState((u) => ({ ...u, playing: true }));
+      }
     });
     return () => { off(); setStudioOpen(false); };
-  }, [setUi, setView]);
+  }, [setUi, setView, actions, engine]);
 
   // Focus lives inside the studio so its shortcuts (and the QWERTY piano) win over the app's.
   useEffect(() => { root.current?.focus(); }, []);
@@ -144,13 +168,14 @@ export function StudioShell({ engine, props }: { engine: MusicEngineApi; props: 
         <div ref={root} className="ms-root" tabIndex={-1} onKeyDown={onKeyDown} onKeyUp={onKeyUp} role="application" aria-label="Music Studio">
           <Toolbar history={history} onClose={props.onClose} />
           <div className="ms-main">
-            {ui.browser && <Browser />}
-            <button type="button" className="ms-browser-toggle" aria-label={ui.browser ? 'Hide the browser' : 'Show the browser'} title={ui.browser ? 'Hide the browser' : 'Show the browser'} onClick={() => setUi({ browser: !ui.browser })}>
-              {ui.browser ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
-            </button>
+            {ui.browser ? <Browser /> : (
+              <button type="button" className="ms-browser-tab" aria-label="Show the browser" title="Show the browser" onClick={() => setUi({ browser: true })}>
+                <PanelLeftOpen size={14} /><span>Browser</span>
+              </button>
+            )}
             <div ref={center} className="ms-center">
               {ui.playlist && <div className="ms-top" style={{ flex: `0 0 ${frac * 100}%` }}><Playlist /></div>}
-              {ui.playlist && <div className="ms-split" role="separator" aria-orientation="horizontal" aria-label="Resize the playlist" onPointerDown={splitDown} />}
+              {ui.playlist && <div className="ms-split" role="separator" aria-orientation="horizontal" aria-label="Resize the playlist" title="Drag to resize" onPointerDown={splitDown} />}
               <div className="ms-bottom">{bottom}</div>
             </div>
           </div>

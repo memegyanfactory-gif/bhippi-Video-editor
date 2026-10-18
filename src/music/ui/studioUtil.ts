@@ -2,6 +2,20 @@
 // element size, a window-level pointer drag, HiDPI canvas set-up and a non-passive wheel listener.
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 
+/**
+ * Bumps when Bhippi's theme changes (Appearance switches `data-theme` / `data-surface` or the
+ * accent on the root), so canvas windows repaint in the new colours.
+ */
+export function useThemeVersion(): number {
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setVersion((v) => v + 1));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-surface', 'style', 'class'] });
+    return () => observer.disconnect();
+  }, []);
+  return version;
+}
+
 /** Runs `fn` every animation frame while `active`. */
 export function useRaf(active: boolean, fn: (time: number) => void): void {
   const ref = useRef(fn);

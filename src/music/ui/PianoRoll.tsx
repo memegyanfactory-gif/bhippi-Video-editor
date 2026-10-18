@@ -3,7 +3,7 @@
 // other channels, marquee, resize, Ctrl-drag duplicate, arrow nudge, a velocity lane, the Tools menu
 // (editNotes ops) and chord stamps. All edits are gestures (`drag` + `settle`) or single `edit`s.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Eraser, Magnet, MousePointer2, Paintbrush, Pencil, Scissors, Wand2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Eraser, Eye, EyeOff, Layers, Magnet, MousePointer2, Music, Paintbrush, Pencil, Piano, Scissors, Wand2, ZoomIn, ZoomOut } from 'lucide-react';
 import { CHORDS, SCALE_NAMES, chordKeys, inScale, noteName, pitchName, snapToScale, NOTE_NAMES } from '../theory';
 import { musicId, patternSteps, setNotes } from '../model';
 import { editNotes, type NoteOp } from '../edit';
@@ -12,7 +12,10 @@ import { Menu, ScrollBar, type MenuItem } from './Controls';
 import { EmptyChannels } from './ChannelRack';
 import { useActions, useStudio } from './ctx';
 import { beatSteps, clamp, isBlackKey, readPalette, shade, snapDown, snapTo, withAlpha } from './format';
-import { prepCanvas, trackPointer, typingTarget, useRaf, useSize, useWheel } from './studioUtil';
+import { FollowButton, PlayLine, placeLine, useFollowMode } from './Playhead';
+import { followScroll, patternLine } from './playpos';
+import { prepCanvas, trackPointer, typingTarget, useRaf, useSize, useThemeVersion, useWheel } from './studioUtil';
+import { TitleBar } from './Window';
 
 const KEYW = 58;
 const RULER = 22;
@@ -36,7 +39,7 @@ let clipboard: Note[] = [];
 type Hit = { note: Note; edge: 'body' | 'right' };
 
 function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Pattern }) {
-  const { song, snap, ui } = useStudio();
+  const { song, snap } = useStudio();
   const act = useActions();
   const { drag, settle, edit, store, engine } = act;
   const [tool, setTool] = useState<Tool>('draw');
@@ -53,8 +56,13 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
   const rulerCanvas = useRef<HTMLCanvasElement>(null);
   const gridCanvas = useRef<HTMLCanvasElement>(null);
   const velCanvas = useRef<HTMLCanvasElement>(null);
-  const playhead = useRef<HTMLDivElement>(null);
+  const playline = useRef<HTMLDivElement>(null);
+  const userScroll = useRef(0);
+  const flash = useRef(0);
+  const [litKey, setLitKey] = useState<number | null>(null);
+  const [follow, cycleFollow] = useFollowMode('prFollow');
   const size = useSize(body);
+  const theme = useThemeVersion();
 
   const notes = pattern.notes[channel.id] ?? EMPTY;
   const bar = stepsPerBar(song);
@@ -73,7 +81,8 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
   const live = useRef({ sx, sy, zoom, notes, sel, snap, tool, chord, inversion, scaleLock, steps });
   live.current = { sx, sy, zoom, notes, sel, snap, tool, chord, inversion, scaleLock, steps };
 
-  const setScroll = (x: number, y: number) => {
+  const setScroll = (x: number, y: number, auto?: boolean) => {
+    if (!auto) userScroll.current = performance.now();
     store.current.prSx = x;
     store.current.prSy = y;
     setScrollState({ x, y });
@@ -120,24 +129,31 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
         const y = (127 - k) * KEYH - sy;
         const black = isBlackKey(k);
         const ins = inScale(k, song.key.root, song.key.scale);
-        g.fillStyle = black ? p.bg : p.lane;
+        g.fillStyle = black ? p.bg0 : p.bg1;
         g.fillRect(0, y, gridW, KEYH);
-        if (ins) { g.fillStyle = withAlpha(p.accent, k % 12 === song.key.root ? 0.2 : 0.07); g.fillRect(0, y, gridW, KEYH); }
-        else { g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(0, y, gridW, KEYH); }
-        g.fillStyle = k % 12 === 0 ? p.lineStrong : p.line;
+        if (ins) { g.fillStyle = withAlpha(p.accent, k % 12 === song.key.root ? 0.15 : 0.05); g.fillRect(0, y, gridW, KEYH); }
+        else { g.fillStyle = 'rgba(0,0,0,0.2)'; g.fillRect(0, y, gridW, KEYH); }
+        g.fillStyle = k % 12 === 0 ? p.lineHi : withAlpha(p.line, 0.7);
         g.fillRect(0, y + KEYH - 1, gridW, 1);
+      }
+      // alternating bar bands, then 2 px bar lines, 1 px beat lines and faint step lines
+      for (let b = Math.floor(stepsFrom / bar); b * bar <= stepsTo; b++) {
+        if (b % 2 === 0) continue;
+        g.fillStyle = 'rgba(255,255,255,0.022)';
+        g.fillRect(Math.round(b * bar * zoom - sx), 0, Math.round(bar * zoom), gridH);
       }
       const sub = snap > 0 ? snap : 1;
       const lineStep = sub * zoom >= 7 ? sub : beat * zoom >= 7 ? beat : bar;
       for (let s = Math.floor(stepsFrom / lineStep) * lineStep; s <= stepsTo; s += lineStep) {
-        const x = Math.round(s * zoom - sx) + 0.5;
+        const x = Math.round(s * zoom - sx);
         const isBar = Math.abs(s / bar - Math.round(s / bar)) < 1e-6;
         const isBeat = Math.abs(s / beat - Math.round(s / beat)) < 1e-6;
-        g.fillStyle = isBar ? p.lineStrong : isBeat ? withAlpha(p.lineStrong, 0.55) : withAlpha(p.line, 0.7);
-        g.fillRect(x, 0, 1, gridH);
+        if (isBar) { g.fillStyle = p.lineHi; g.fillRect(x - 1, 0, 2, gridH); }
+        else if (isBeat) { g.fillStyle = withAlpha(p.lineHi, 0.55); g.fillRect(x, 0, 1, gridH); }
+        else { g.fillStyle = withAlpha(p.line, 0.55); g.fillRect(x, 0, 1, gridH); }
       }
       const endX = steps * zoom - sx;
-      if (endX < gridW) { g.fillStyle = 'rgba(0,0,0,0.38)'; g.fillRect(Math.max(0, endX), 0, gridW, gridH); g.fillStyle = p.accent; g.fillRect(endX, 0, 1, gridH); }
+      if (endX < gridW) { g.fillStyle = 'rgba(0,0,0,0.42)'; g.fillRect(Math.max(0, endX), 0, gridW, gridH); g.fillStyle = p.accent2; g.fillRect(endX, 0, 1, gridH); }
 
       const rect = (n: Note) => ({ x: n.start * zoom - sx, y: (127 - n.key) * KEYH - sy, w: Math.max(3, n.length * zoom - 1), h: KEYH - 1 });
       if (ghosts) {
@@ -145,7 +161,7 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
           if (other.id === channel.id) continue;
           const list = pattern.notes[other.id];
           if (!list) continue;
-          g.fillStyle = withAlpha(other.color, 0.22);
+          g.fillStyle = withAlpha(other.color, 0.24);
           for (const n of list) {
             const r = rect(n);
             if (r.x + r.w < 0 || r.x > gridW || r.y + r.h < 0 || r.y > gridH) continue;
@@ -153,90 +169,148 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
           }
         }
       }
-      g.font = '10px "Segoe UI", system-ui, sans-serif';
+      g.font = '9px "Segoe UI", system-ui, sans-serif';
+      g.textBaseline = 'alphabetic';
       for (const n of notes) {
         const r = rect(n);
         if (r.x + r.w < 0 || r.x > gridW || r.y + r.h < 0 || r.y > gridH) continue;
         const selected = sel.has(n.id);
-        const base = n.mute ? '#6a6a6a' : channel.color;
-        g.fillStyle = withAlpha(selected ? shade(base, 0.18) : base, 0.5 + 0.5 * n.velocity);
+        const base = n.mute ? '#6a727c' : channel.color;
+        // velocity as opacity: soft notes read as faint, hard notes as solid
+        g.globalAlpha = 0.42 + 0.58 * n.velocity;
+        const grad = g.createLinearGradient(0, r.y, 0, r.y + r.h);
+        grad.addColorStop(0, shade(base, selected ? 0.3 : 0.14));
+        grad.addColorStop(1, shade(base, selected ? 0.04 : -0.16));
+        g.fillStyle = grad;
         g.fillRect(r.x, r.y, r.w, r.h);
-        g.fillStyle = shade(base, selected ? 0.5 : -0.25);
-        g.fillRect(r.x, r.y, 2, r.h);
+        g.strokeStyle = shade(base, -0.42);
+        g.lineWidth = 1;
+        g.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+        g.fillStyle = shade(base, selected ? 0.55 : 0.32);
+        g.fillRect(r.x + 1, r.y + 1, 2, r.h - 2);
+        g.globalAlpha = 1;
         if (selected) { g.strokeStyle = '#fff'; g.lineWidth = 1; g.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); }
         if (n.slide) { g.fillStyle = '#fff'; g.fillRect(r.x + r.w - 5, r.y + 3, 3, 3); }
-        if (r.w > 30) { g.fillStyle = 'rgba(255,255,255,0.85)'; g.fillText(noteName(n.key), r.x + 5, r.y + KEYH - 4); }
+        if (r.w > 28) { g.fillStyle = 'rgba(255,255,255,0.92)'; g.fillText(noteName(n.key), r.x + 5, r.y + KEYH - 4); }
       }
     }
 
     // ruler
     const rc = prepCanvas(rulerCanvas.current, gridW, RULER);
     if (rc) {
-      rc.fillStyle = p.panel;
+      const grad = rc.createLinearGradient(0, 0, 0, RULER);
+      grad.addColorStop(0, p.bg4);
+      grad.addColorStop(1, p.bg3);
+      rc.fillStyle = grad;
       rc.fillRect(0, 0, gridW, RULER);
+      rc.fillStyle = p.lineDark;
+      rc.fillRect(0, RULER - 1, gridW, 1);
       rc.font = '10px Consolas, "Cascadia Code", monospace';
       rc.textBaseline = 'middle';
-      const lineStep = beat * zoom >= 14 ? beat : bar;
-      for (let s = Math.floor(stepsFrom / lineStep) * lineStep; s <= stepsTo; s += lineStep) {
-        const x = Math.round(s * zoom - sx) + 0.5;
+      const rulerStep = beat * zoom >= 14 ? beat : bar;
+      for (let s = Math.floor(stepsFrom / rulerStep) * rulerStep; s <= stepsTo; s += rulerStep) {
+        const x = Math.round(s * zoom - sx);
         const isBar = Math.abs(s / bar - Math.round(s / bar)) < 1e-6;
-        rc.fillStyle = isBar ? p.lineStrong : p.line;
-        rc.fillRect(x, isBar ? 0 : RULER - 7, 1, isBar ? RULER : 7);
-        if (isBar) { rc.fillStyle = p.dim; rc.fillText(String(Math.round(s / bar) + 1), x + 4, RULER / 2); }
-      }
-    }
-
-    // keys
-    const kc = prepCanvas(keysCanvas.current, KEYW, gridH);
-    if (kc) {
-      kc.font = '10px Consolas, "Cascadia Code", monospace';
-      kc.textBaseline = 'middle';
-      for (let k = firstKey; k <= lastKey; k++) {
-        const y = (127 - k) * KEYH - sy;
-        const black = isBlackKey(k);
-        const ins = inScale(k, song.key.root, song.key.scale);
-        kc.fillStyle = black ? '#26262a' : ins ? '#e6e6ea' : '#b4b4ba';
-        kc.fillRect(0, y, black ? KEYW * 0.62 : KEYW, KEYH - 1);
-        if (black) { kc.fillStyle = p.bg; kc.fillRect(KEYW * 0.62, y, KEYW * 0.38, KEYH - 1); }
-        if (k % 12 === 0) { kc.fillStyle = '#333'; kc.fillText(noteName(k), KEYW - 26, y + KEYH / 2); }
-        else if (k % 12 === song.key.root && !black) { kc.fillStyle = withAlpha(p.accent, 0.9); kc.fillRect(KEYW - 6, y + 3, 3, KEYH - 7); }
+        rc.fillStyle = isBar ? p.dim : p.bg4;
+        rc.fillRect(x, isBar ? 3 : RULER - 7, 1, isBar ? RULER - 4 : 6);
+        if (isBar) { rc.fillStyle = p.text; rc.fillText(String(Math.round(s / bar) + 1), x + 4, RULER / 2 - 1); }
       }
     }
 
     // velocity lane
     const vc = prepCanvas(velCanvas.current, gridW, VELH);
     if (vc) {
-      vc.fillStyle = p.lane;
+      vc.fillStyle = p.bg0;
       vc.fillRect(0, 0, gridW, VELH);
-      const lineStep = beat * zoom >= 7 ? beat : bar;
-      for (let s = Math.floor(stepsFrom / lineStep) * lineStep; s <= stepsTo; s += lineStep) {
-        const x = Math.round(s * zoom - sx) + 0.5;
-        vc.fillStyle = Math.abs(s / bar - Math.round(s / bar)) < 1e-6 ? p.lineStrong : p.line;
-        vc.fillRect(x, 0, 1, VELH);
+      for (let b = Math.floor(stepsFrom / bar); b * bar <= stepsTo; b++) {
+        if (b % 2) { vc.fillStyle = 'rgba(255,255,255,0.022)'; vc.fillRect(Math.round(b * bar * zoom - sx), 0, Math.round(bar * zoom), VELH); }
+      }
+      for (const frac of [0.25, 0.5, 0.75]) { vc.fillStyle = withAlpha(p.line, 0.7); vc.fillRect(0, Math.round((VELH - 6) * (1 - frac)) + 2, gridW, 1); }
+      const velStep = beat * zoom >= 7 ? beat : bar;
+      for (let s = Math.floor(stepsFrom / velStep) * velStep; s <= stepsTo; s += velStep) {
+        const x = Math.round(s * zoom - sx);
+        const isBar = Math.abs(s / bar - Math.round(s / bar)) < 1e-6;
+        vc.fillStyle = isBar ? p.lineHi : withAlpha(p.lineHi, 0.5);
+        vc.fillRect(isBar ? x - 1 : x, 0, isBar ? 2 : 1, VELH);
       }
       for (const n of notes) {
         const x = n.start * zoom - sx;
         if (x < -6 || x > gridW + 6) continue;
-        const h = Math.max(2, n.velocity * (VELH - 6));
-        vc.fillStyle = sel.has(n.id) ? '#fff' : withAlpha(channel.color, 0.9);
-        vc.fillRect(x, VELH - h - 2, 4, h);
-        vc.fillStyle = sel.has(n.id) ? '#fff' : channel.color;
-        vc.fillRect(x - 2, VELH - h - 4, 8, 3);
+        const h = Math.max(2, n.velocity * (VELH - 8));
+        const col = sel.has(n.id) ? '#ffffff' : channel.color;
+        const bar2 = vc.createLinearGradient(0, VELH - h - 2, 0, VELH);
+        bar2.addColorStop(0, shade(col, 0.1));
+        bar2.addColorStop(1, withAlpha(col, 0.35));
+        vc.fillStyle = bar2;
+        vc.fillRect(x, VELH - h - 2, 3, h);
+        vc.fillStyle = col;
+        vc.beginPath();
+        vc.arc(x + 1.5, VELH - h - 3, 3, 0, Math.PI * 2);
+        vc.fill();
       }
     }
-  }, [notes, pattern, song.channels, song.key, sel, sx, sy, zoom, gridW, gridH, snap, steps, ghosts, channel.color, bar, beat]);
+  }, [notes, pattern, song.channels, song.key, sel, sx, sy, zoom, gridW, gridH, snap, steps, ghosts, channel.color, bar, beat, theme]);
 
-  // playhead (pattern mode only: the pattern's own position)
-  useRaf(ui.playing, () => {
-    const el = playhead.current;
-    if (!el) return;
-    if (song.view.mode !== 'pattern') { el.style.display = 'none'; return; }
-    const pos = engine.position() % Math.max(1, steps);
-    const x = pos * zoom - sx;
-    el.style.display = x < 0 || x > gridW ? 'none' : 'block';
-    el.style.transform = `translateX(${x}px)`;
+  // keys: white / black key shading, the C labels and the key under the pointer (or auditioned) lit
+  useLayoutEffect(() => {
+    const root = body.current;
+    if (!root || gridH <= 0) return;
+    const p = readPalette(root);
+    const firstKey = clamp(127 - Math.floor((sy + gridH) / KEYH), 0, 127);
+    const lastKey = clamp(127 - Math.floor(sy / KEYH), 0, 127);
+    const kc = prepCanvas(keysCanvas.current, KEYW, gridH);
+    if (!kc) return;
+    kc.font = '9px Consolas, "Cascadia Code", monospace';
+    kc.textBaseline = 'middle';
+    const white = kc.createLinearGradient(0, 0, KEYW, 0);
+    white.addColorStop(0, '#c4cad3');
+    white.addColorStop(0.7, '#e9ecf0');
+    white.addColorStop(1, '#f6f7f9');
+    const black = kc.createLinearGradient(0, 0, KEYW * 0.62, 0);
+    black.addColorStop(0, '#0e1013');
+    black.addColorStop(1, '#3a4149');
+    for (let k = firstKey; k <= lastKey; k++) {
+      const y = (127 - k) * KEYH - sy;
+      const isBlack = isBlackKey(k);
+      const lit = k === litKey;
+      const ins = inScale(k, song.key.root, song.key.scale);
+      kc.fillStyle = white;
+      kc.fillRect(0, y, KEYW, KEYH);
+      if (isBlack) {
+        kc.fillStyle = 'rgba(0,0,0,0.2)';
+        kc.fillRect(KEYW * 0.62, y, KEYW * 0.38, KEYH);
+        kc.fillStyle = black;
+        kc.fillRect(0, y + 0.5, KEYW * 0.62, KEYH - 1);
+        kc.fillStyle = 'rgba(255,255,255,0.13)';
+        kc.fillRect(1, y + 1, KEYW * 0.62 - 2, 1);
+      } else {
+        kc.fillStyle = ins ? 'rgba(0,0,0,0)' : 'rgba(0,0,0,0.1)';
+        kc.fillRect(0, y, KEYW, KEYH);
+        kc.fillStyle = '#7f8691';
+        kc.fillRect(0, y + KEYH - 1, KEYW, 1);
+      }
+      if (lit) {
+        kc.fillStyle = withAlpha(p.accent, isBlack ? 0.85 : 0.75);
+        kc.fillRect(0, y + (isBlack ? 0.5 : 0), isBlack ? KEYW * 0.62 : KEYW, isBlack ? KEYH - 1 : KEYH - 1);
+      }
+      if (k % 12 === 0) { kc.fillStyle = lit ? '#04170b' : '#262b30'; kc.textAlign = 'right'; kc.fillText(noteName(k), KEYW - 4, y + KEYH / 2); kc.textAlign = 'left'; }
+      else if (k % 12 === song.key.root && !isBlack) { kc.fillStyle = withAlpha(p.accent, 0.95); kc.fillRect(KEYW - 7, y + 4, 3, KEYH - 9); }
+    }
+    kc.fillStyle = p.lineDark;
+    kc.fillRect(KEYW - 1, 0, 1, gridH);
+  }, [sy, gridH, song.key, litKey, theme]);
+
+  // The playhead: the pattern's own position (or the song's, mapped onto this pattern's clip), gliding at frame rate.
+  useRaf(true, () => {
+    const at = patternLine(engine, song, pattern.id);
+    if (at === null) { placeLine(playline.current, null, gridW); return; }
+    const px = at * zoom;
+    if (engine.playing && follow && performance.now() - userScroll.current > 1500) {
+      const to = followScroll(follow, px, gridW, sx, maxX);
+      if (to !== null) { setScroll(to, sy, true); placeLine(playline.current, px - to, gridW); return; }
+    }
+    placeLine(playline.current, px - sx, gridW);
   });
-  useEffect(() => { if (!ui.playing && playhead.current) playhead.current.style.display = 'none'; }, [ui.playing]);
 
   // ---- hit testing & note gestures --------------------------------------------------------------
   const localGrid = (e: { clientX: number; clientY: number }) => {
@@ -261,7 +335,12 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
     const keys = l.chord ? chordKeys(key % 12, l.chord, Math.floor(key / 12) - 1, l.inversion) : [fitKey(key)];
     return keys.map((k) => ({ id: musicId(), key: k, start: Math.max(0, step), length: len, velocity: 0.8 }));
   };
-  const audition = (key: number, vel = 0.8) => engine.previewNote(channel.id, key, vel, 0.28);
+  const audition = (key: number, vel = 0.8) => {
+    engine.previewNote(channel.id, key, vel, 0.28);
+    setLitKey(key);
+    window.clearTimeout(flash.current);
+    flash.current = window.setTimeout(() => setLitKey(null), 320);
+  };
 
   const down = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.button !== 2) return;
@@ -419,6 +498,7 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
     const pt = localGrid(e);
     const hit = hitAt(pt.x, pt.y);
     const t = live.current.tool;
+    setLitKey(toKey(pt.y));
     c.style.cursor = hit ? (hit.edge === 'right' && t !== 'erase' && t !== 'slice' ? 'ew-resize' : t === 'slice' ? 'col-resize' : t === 'erase' ? 'not-allowed' : 'move') : t === 'select' ? 'default' : 'crosshair';
   };
 
@@ -555,9 +635,14 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
 
   const channelIndex = song.channels.findIndex((c) => c.id === channel.id);
   return (
-    <section className="ms-pr" tabIndex={-1} onKeyDown={keyDown} aria-label={`Piano Roll — ${channel.name}`}>
-      <header className="ms-pane-head">
-        <h3>Piano Roll</h3>
+    <section className="ms-pr ms-win" tabIndex={-1} onKeyDown={keyDown} aria-label={`Piano Roll — ${channel.name}`}>
+      <TitleBar icon={<Piano size={13} />} title="Piano Roll">
+        <span className="ms-chip" title="The channel being edited"><i className="ms-swatch" style={{ background: channel.color }} />{channel.name}</span>
+        <FollowButton mode={follow} onCycle={cycleFollow} />
+        <button type="button" className="ms-win-btn" aria-label="Zoom out" title="Zoom out (Ctrl+wheel)" onClick={() => setZoom(zoom / 1.3)}><ZoomOut size={13} /></button>
+        <button type="button" className="ms-win-btn" aria-label="Zoom in" title="Zoom in (Ctrl+wheel)" onClick={() => setZoom(zoom * 1.3)}><ZoomIn size={13} /></button>
+      </TitleBar>
+      <div className="ms-tools">
         <select aria-label="Channel" value={channel.id} style={{ borderColor: channel.color }} onChange={(e) => act.setView({ selectedChannelId: e.target.value })}>
           {song.channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
@@ -567,14 +652,14 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
           ))}
         </div>
         <Menu className="ms-primary" title="Note tools: quantize, legato, arpeggiate, strum, chordize, scale-correct, humanize, transpose, reverse, flip" trigger={<><Wand2 size={13} /> Tools</>} items={toolItems} />
-        <label className="ms-field" title="Chord stamp: draw a whole chord with one click"><span>Stamp</span>
+        <label className="ms-field" title="Chord stamp: draw a whole chord with one click"><Layers size={12} />
           <select aria-label="Chord stamp" value={chord} onChange={(e) => setChord(e.target.value)}>
             <option value="">Single note</option>
             {Object.keys(CHORDS).map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           {chord && <select aria-label="Chord inversion" value={inversion} onChange={(e) => setInversion(Number(e.target.value))}>{[0, 1, 2, 3].map((i) => <option key={i} value={i}>{i === 0 ? 'root' : `inv ${i}`}</option>)}</select>}
         </label>
-        <label className="ms-field" title="The song key: highlighted on the grid"><span>Key</span>
+        <label className="ms-field" title="The song key: highlighted on the grid"><Music size={12} />
           <select aria-label="Key root" value={song.key.root} onChange={(e) => edit((s) => ({ ...s, key: { ...s.key, root: Number(e.target.value) } }), 'key')}>
             {NOTE_NAMES.map((n, i) => <option key={n} value={i}>{pitchName(i)}</option>)}
           </select>
@@ -583,16 +668,16 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
           </select>
         </label>
         <button type="button" className={`ms-icon ms-icon-lg${scaleLock ? ' on' : ''}`} aria-pressed={scaleLock} title="Snap to scale: drawn and moved notes stay in the song key" aria-label="Snap to scale" onClick={() => setScaleLock(!scaleLock)}><Magnet size={14} /></button>
-        <button type="button" className={`ms-chip btn${ghosts ? ' on' : ''}`} aria-pressed={ghosts} title="Show the other channels' notes faintly" onClick={() => setGhosts(!ghosts)}>Ghost</button>
-        <span className="ms-grow" />
-        <button type="button" className="ms-icon" aria-label="Zoom out" title="Zoom out (Ctrl+wheel)" onClick={() => setZoom(zoom / 1.3)}><ZoomOut size={13} /></button>
-        <button type="button" className="ms-icon" aria-label="Zoom in" title="Zoom in (Ctrl+wheel)" onClick={() => setZoom(zoom * 1.3)}><ZoomIn size={13} /></button>
-      </header>
+        <button type="button" className={`ms-icon ms-icon-lg${ghosts ? ' on' : ''}`} aria-pressed={ghosts} title="Ghost notes: show the other channels' notes faintly" aria-label="Ghost notes" onClick={() => setGhosts(!ghosts)}>{ghosts ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+      </div>
       <div ref={body} className="ms-pr-body" aria-label={`${channel.name} notes (${notes.length}), channel ${channelIndex + 1}`}>
         <canvas ref={rulerCanvas} className="ms-pr-ruler" style={{ left: KEYW, top: 0 }} />
-        <canvas ref={keysCanvas} className="ms-pr-keys" style={{ left: 0, top: RULER }} onPointerDown={keysDown} aria-label="Piano keys (click to audition)" />
-        <canvas ref={gridCanvas} className="ms-pr-grid" style={{ left: KEYW, top: RULER }} onPointerDown={down} onPointerMove={hover} onContextMenu={(e) => e.preventDefault()} aria-label="Note grid" />
-        <div ref={playhead} className="ms-playhead" style={{ left: KEYW, top: RULER, height: gridH, display: 'none' }} />
+        <canvas ref={keysCanvas} className="ms-pr-keys" style={{ left: 0, top: RULER }} onPointerDown={keysDown} onPointerMove={(e) => { if (!e.buttons) setLitKey(toKey(e.clientY - e.currentTarget.getBoundingClientRect().top)); }} onPointerLeave={() => setLitKey(null)} aria-label="Piano keys (click to audition)" />
+        <canvas ref={gridCanvas} className="ms-pr-grid" style={{ left: KEYW, top: RULER }} onPointerDown={down} onPointerMove={hover} onPointerLeave={() => setLitKey(null)} onContextMenu={(e) => e.preventDefault()} aria-label="Note grid" />
+        {litKey !== null && gridW > 0 && (
+          <div className="ms-clipbox" style={{ left: KEYW, top: RULER, width: gridW, height: gridH }}><div className="ms-pr-hover" style={{ top: (127 - litKey) * KEYH - sy, height: KEYH }} /></div>
+        )}
+        {gridW > 0 && gridH > 0 && <PlayLine lineRef={playline} left={KEYW} top={0} width={gridW} height={RULER + gridH} />}
         {marquee && <div className="ms-marquee" style={{ left: KEYW + marquee.x0, top: RULER + marquee.y0, width: marquee.x1 - marquee.x0, height: marquee.y1 - marquee.y0 }} />}
         <div className="ms-sb-v" style={{ top: RULER, height: gridH }}><ScrollBar vertical total={contentH} view={gridH} pos={sy} onPos={(v) => setScroll(sx, v)} /></div>
         <div className="ms-sb-h" style={{ left: KEYW, width: gridW }}><ScrollBar total={contentW} view={gridW} pos={sx} onPos={(v) => setScroll(v, sy)} /></div>
@@ -607,12 +692,12 @@ function PianoRollBody({ channel, pattern }: { channel: Channel; pattern: Patter
 
 export function PianoRoll() {
   const { song, channel, pattern } = useStudio();
-  if (song.channels.length === 0) return <section className="ms-pr"><header className="ms-pane-head"><h3>Piano Roll</h3></header><EmptyChannels /></section>;
+  if (song.channels.length === 0) return <section className="ms-pr ms-win"><TitleBar icon={<Piano size={13} />} title="Piano Roll" /><EmptyChannels /></section>;
   if (!channel || !pattern) {
     return (
-      <section className="ms-pr">
-        <header className="ms-pane-head"><h3>Piano Roll</h3></header>
-        <div className="ms-empty"><h3>Pick a channel</h3><p>Select a channel in the rack (or use the piano-roll button on its row) to edit its notes here.</p></div>
+      <section className="ms-pr ms-win">
+        <TitleBar icon={<Piano size={13} />} title="Piano Roll" />
+        <div className="ms-empty"><div className="ms-empty-icon"><Piano size={26} /></div><h3>Pick a channel</h3><p>Select a channel in the rack (or use the piano-roll button on its row) to edit its notes here.</p></div>
       </section>
     );
   }

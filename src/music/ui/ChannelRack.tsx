@@ -1,8 +1,8 @@
 // The Channel Rack: one row per channel (mute / solo LEDs, name, colour, volume, pan, mixer insert,
 // step grid, shortcuts to the piano roll and the instrument panel) plus a velocity lane for the
 // selected channel. Steps and piano-roll notes are the same data — a step is a one-step note.
-import { memo, useRef, useState } from 'react';
-import { MoreHorizontal, Piano, Plus, SlidersHorizontal } from 'lucide-react';
+import { createElement, memo, useRef, useState } from 'react';
+import { Grid3x3, Layers, Minus, MoreHorizontal, Music, Piano, Plus, SlidersHorizontal } from 'lucide-react';
 import { INSTRUMENT_SPECS, stepsPerBar, type Channel, type DrumPiece, type InstrumentType, type Note } from '../types';
 import { DEFAULT_DRUM_KEYS, ensureInserts, musicId, newChannel, notesOf, patternSteps, removeChannel, setNotes, updateChannel, updatePattern } from '../model';
 import { SONG_TEMPLATE_LIST, songFromTemplate } from '../templates';
@@ -10,9 +10,15 @@ import { ColorInput, DragNumber, Knob, Menu, type MenuItem } from './Controls';
 import { useActions, useStudio } from './ctx';
 import { beatSteps, clamp } from './format';
 import { cloneChannel, moveChannel, stepOp, withChannel } from './ops';
-import { trackPointer } from './studioUtil';
+import { instrumentIcon } from './icons';
+import { placeLine } from './Playhead';
+import { patternsAt } from './playpos';
+import { trackPointer, useRaf } from './studioUtil';
+import { TitleBar } from './Window';
 
 const CELL = 26;
+const HEAD_W = 410;
+const RULER_H = 20;
 const EMPTY: Note[] = [];
 const DRUM_PIECES = Object.keys(DEFAULT_DRUM_KEYS) as DrumPiece[];
 const INSTRUMENTS = Object.keys(INSTRUMENT_SPECS).filter((t) => t !== 'drum') as InstrumentType[];
@@ -33,6 +39,7 @@ export function EmptyChannels() {
   const add = (instrument: InstrumentType, drum?: DrumPiece) => act.edit((s) => withChannel(s, newChannel(s, instrument, drum ? { drum } : {})), 'add channel');
   return (
     <div className="ms-empty">
+      <div className="ms-empty-icon"><Music size={26} /></div>
       <h3>No channels yet</h3>
       <p>A channel is an instrument or a drum sound. Add one, then click the step grid or open the piano roll to write notes.</p>
       <div className="ms-empty-actions">
@@ -114,9 +121,11 @@ const ChannelRow = memo(function ChannelRow({ channel, notes, patternId, from, c
   return (
     <div className={`ms-row${selected ? ' sel' : ''}${channel.mute ? ' muted' : ''}`} onPointerDown={(e) => { if (e.button === 0 && !(e.target as HTMLElement).closest('button, input, select, .ms-steps, .ms-knob')) select(); }}>
       <div className="ms-row-head" style={{ ['--ch' as string]: channel.color }}>
+        <i className="ms-act" data-act={channel.id} title="Lights when this channel plays a note" />
         <button type="button" className={`ms-led${channel.mute ? '' : ' on'}`} aria-pressed={!channel.mute} aria-label={channel.mute ? `Unmute ${channel.name}` : `Mute ${channel.name}`} title={channel.mute ? 'Muted — click to unmute' : 'Click to mute'} onClick={() => edit((s) => updateChannel(s, channel.id, (c) => ({ ...c, mute: !c.mute })), 'mute channel')} />
         <button type="button" className={`ms-led solo${channel.solo ? ' on' : ''}`} aria-pressed={channel.solo} aria-label={`Solo ${channel.name}`} title="Solo" onClick={() => edit((s) => updateChannel(s, channel.id, (c) => ({ ...c, solo: !c.solo })), 'solo channel')} />
         <ColorInput label={`Colour of ${channel.name}`} value={channel.color} onChange={(color) => patch((c) => ({ ...c, color }))} onEnd={() => settle('Music: channel colour')} className="ms-color sm" />
+        <span className="ms-inst" title={INSTRUMENT_SPECS[channel.instrument].label}>{createElement(instrumentIcon(channel.instrument), { size: 13 })}</span>
         {renaming ? (
           <input
             className="ms-input ms-name" autoFocus defaultValue={channel.name} aria-label="Channel name"
@@ -140,7 +149,9 @@ const ChannelRow = memo(function ChannelRow({ channel, notes, patternId, from, c
           const vel = hit ? Math.max(...hit.map((n) => n.velocity)) : 0;
           const long = hit?.some((n) => n.length > 1.01);
           return (
-            <i key={step} className={`ms-cell${Math.floor(step / beat) % 2 ? ' alt' : ''}${step % barSteps === 0 ? ' bar' : ''}${hit ? ' on' : ''}${long ? ' long' : ''}`} style={hit ? { opacity: 0.35 + 0.65 * vel } : undefined} />
+            <i key={step} className={`ms-cell${Math.floor(step / beat) % 2 ? ' alt' : ''}${step % barSteps === 0 ? ' bar' : ''}${hit ? ' on' : ''}${long ? ' long' : ''}`}>
+              {hit && <b style={{ height: `${Math.round(22 + 78 * vel)}%` }} />}
+            </i>
           );
         })}
       </div>
@@ -186,7 +197,13 @@ function VelocityLane({ channel, notes, patternId, from, count }: { channel: Cha
 export function ChannelRack() {
   const { song, pattern, channel } = useStudio();
   const act = useActions();
+  const { engine } = act;
   const [page, setPage] = useState<number | 'all'>('all');
+  const inner = useRef<HTMLDivElement>(null);
+  const column = useRef<HTMLDivElement>(null);
+  const line = useRef<HTMLDivElement>(null);
+  const levels = useRef(new Map<string, number>());
+  const seen = useRef(new Map<string, number>());
   const bar = stepsPerBar(song);
   const beat = beatSteps(song);
   const steps = pattern ? patternSteps(song, pattern) : bar;
@@ -196,26 +213,88 @@ export function ChannelRack() {
   const count = shown === 'all' ? steps : bar;
   const add = (instrument: InstrumentType, drum?: DrumPiece) => act.edit((s) => withChannel(s, newChannel(s, instrument, drum ? { drum } : {})), 'add channel');
 
+  // Playhead: the lit step column, the gliding line and each channel's activity LED.
+  useRaf(true, () => {
+    const playing = engine.playing;
+    const here = playing ? patternsAt(song, engine.position()) : [];
+    const lit = new Set<string>();
+    if (playing) {
+      const anySolo = song.channels.some((c) => c.solo);
+      for (const h of here) {
+        const cur = Math.floor(h.step);
+        const prev = seen.current.get(h.pattern.id);
+        const first = prev === undefined ? cur : cur === prev ? -1 : (prev + 1) % h.len;
+        seen.current.set(h.pattern.id, cur);
+        if (first < 0) continue;
+        // every step passed since the last frame (the line may skip steps on a slow frame, or wrap)
+        for (let s = first, guard = 0; guard < h.len; guard++, s = (s + 1) % h.len) {
+          for (const c of song.channels) {
+            if (c.mute || (anySolo && !c.solo)) continue;
+            if (h.pattern.notes[c.id]?.some((n) => Math.floor(n.start + 1e-6) === s)) lit.add(c.id);
+          }
+          if (s === cur) break;
+        }
+      }
+    } else seen.current.clear();
+    const el = inner.current;
+    if (el) {
+      for (const led of el.querySelectorAll<HTMLElement>('[data-act]')) {
+        const id = led.dataset.act as string;
+        const v = lit.has(id) ? 1 : (levels.current.get(id) ?? 0) * 0.86;
+        levels.current.set(id, v < 0.02 ? 0 : v);
+        led.style.setProperty('--lvl', v < 0.02 ? '0' : v.toFixed(2));
+      }
+    }
+    const mine = pattern ? (playing ? here.find((h) => h.pattern.id === pattern.id)?.step ?? null : song.view.mode === 'pattern' ? 0 : null) : null;
+    const area = count * CELL;
+    if (mine === null) {
+      if (column.current && column.current.style.display !== 'none') column.current.style.display = 'none';
+      placeLine(line.current, null, area);
+      return;
+    }
+    const x = (mine - from) * CELL;
+    placeLine(line.current, x, area);
+    if (column.current) {
+      const cx = (Math.floor(mine) - from) * CELL;
+      const visible = playing && cx >= 0 && cx < area;
+      column.current.style.display = visible ? 'block' : 'none';
+      if (visible) column.current.style.transform = `translate3d(${cx}px,0,0)`;
+    }
+  });
+
   return (
-    <section className="ms-rack" aria-label="Channel Rack">
-      <header className="ms-pane-head">
-        <h3>Channel Rack</h3>
+    <section className="ms-rack ms-win" aria-label="Channel Rack">
+      <TitleBar icon={<Grid3x3 size={13} />} title="Channel Rack">
+        {pattern && <span className="ms-chip" title="The pattern the rack edits"><i className="ms-swatch" style={{ background: pattern.color }} />{pattern.name}</span>}
+      </TitleBar>
+      <div className="ms-tools">
         <Menu className="ms-primary" title="Add a channel" trigger={<><Plus size={13} /> Channel</>} items={() => addChannelItems(add)} />
         <span className="ms-sep" />
-        <span className="ms-dim">Pattern length</span>
-        <button type="button" className="ms-icon" aria-label="Shorter pattern" title="One bar shorter" disabled={!pattern || pattern.bars <= 1} onClick={() => pattern && act.edit((s) => updatePattern(s, pattern.id, (p) => ({ ...p, bars: Math.max(1, p.bars - 1) })), 'pattern length')}>−</button>
-        <span className="ms-chip">{pattern?.bars ?? 1} bar{(pattern?.bars ?? 1) === 1 ? '' : 's'}</span>
-        <button type="button" className="ms-icon" aria-label="Longer pattern" title="One bar longer" disabled={!pattern || pattern.bars >= 64} onClick={() => pattern && act.edit((s) => updatePattern(s, pattern.id, (p) => ({ ...p, bars: Math.min(64, p.bars + 1) })), 'pattern length')}>+</button>
+        <Layers size={13} className="ms-tools-icon" />
+        <span className="ms-dim">Length</span>
+        <button type="button" className="ms-icon" aria-label="Shorter pattern" title="One bar shorter" disabled={!pattern || pattern.bars <= 1} onClick={() => pattern && act.edit((s) => updatePattern(s, pattern.id, (p) => ({ ...p, bars: Math.max(1, p.bars - 1) })), 'pattern length')}><Minus size={12} /></button>
+        <span className="ms-chip lcd">{pattern?.bars ?? 1} bar{(pattern?.bars ?? 1) === 1 ? '' : 's'}</span>
+        <button type="button" className="ms-icon" aria-label="Longer pattern" title="One bar longer" disabled={!pattern || pattern.bars >= 64} onClick={() => pattern && act.edit((s) => updatePattern(s, pattern.id, (p) => ({ ...p, bars: Math.min(64, p.bars + 1) })), 'pattern length')}><Plus size={12} /></button>
         {totalBars > 1 && (
           <div className="ms-seg" role="group" aria-label="Bar page">
             <button type="button" className={shown === 'all' ? 'on' : ''} onClick={() => setPage('all')}>All</button>
             {Array.from({ length: Math.min(totalBars, 16) }, (_, i) => <button key={i} type="button" className={shown === i ? 'on' : ''} onClick={() => setPage(i)} title={`Bar ${i + 1}`}>{i + 1}</button>)}
           </div>
         )}
-      </header>
+      </div>
       {song.channels.length === 0 ? <EmptyChannels /> : (
         <div className="ms-rack-scroll">
-          <div className="ms-rack-inner">
+          <div ref={inner} className="ms-rack-inner" style={{ ['--ms-head-w' as string]: `${HEAD_W}px` }}>
+            <div className="ms-rack-ruler" style={{ height: RULER_H }}>
+              <div className="ms-rack-corner"><span>Channel</span><span className="ms-dim">Vol · Pan · Mix</span></div>
+              <div className="ms-rack-marks" style={{ width: count * CELL }}>
+                {Array.from({ length: Math.ceil(count / beat) }, (_, b) => {
+                  const step = from + b * beat;
+                  const isBar = step % bar === 0;
+                  return <span key={b} className={isBar ? 'bar' : ''} style={{ left: b * beat * CELL }}>{isBar ? Math.round(step / bar) + 1 : ''}</span>;
+                })}
+              </div>
+            </div>
             {song.channels.map((c, i) => (
               <ChannelRow
                 key={c.id} channel={c} notes={pattern?.notes[c.id] ?? EMPTY} patternId={pattern?.id ?? null} from={from} count={count}
@@ -223,6 +302,10 @@ export function ChannelRack() {
               />
             ))}
             {channel && pattern && <VelocityLane channel={channel} notes={pattern.notes[channel.id] ?? EMPTY} patternId={pattern.id} from={from} count={count} />}
+            <div className="ms-rack-play" style={{ left: HEAD_W, width: count * CELL }} aria-hidden="true">
+              <div ref={column} className="ms-playcol" style={{ width: CELL, display: 'none' }} />
+              <div ref={line} className="ms-playline" style={{ display: 'none' }}><span className="ms-playtail" /><span className="ms-playflag" /></div>
+            </div>
           </div>
         </div>
       )}

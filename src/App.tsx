@@ -6,7 +6,7 @@ import { turnPrompt } from './lib/turnPrompts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { CircleCheck, Film, LoaderCircle, MessageSquare, Mic, Music as MusicIcon, Puzzle, Settings as SettingsIcon, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
+import { CircleCheck, Film, LoaderCircle, MessageSquare, Mic, Puzzle, Settings as SettingsIcon, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
 import { AccountButton } from './components/AccountButton';
 import { UpdateButton } from './components/UpdateButton';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
@@ -164,7 +164,7 @@ import { PluginFrame } from './plugins/PluginFrame';
 import { selectedPlugin, setPluginChecker } from './plugins/aiTools';
 import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/CharactersWindow';
 import { onStudioRequest } from './music/studioBus';
-import { placeMusicBed } from './lib/builtinMedia';
+import { placeSongLayer, songPlacement } from './music/timeline';
 
 /** The Music Studio (src/music, docs/MUSIC-STUDIO-PLAN.md), loaded the first time it opens. */
 const MusicStudio = lazy(() => import('./music/ui/MusicStudio').then((module) => ({ default: module.MusicStudio })));
@@ -320,10 +320,18 @@ export default function App() {
   const history = useHistory(newProject());
   const { project } = history;
   const [learningOpen, setLearningOpen] = useState(false);
-  /** The Music Studio covers the editing area (the chat stays beside it, so the AI can be watched composing). */
-  const [musicOpen, setMusicOpen] = useState(false);
-  // The rail button and the AI's music_open_studio both go through the studio bus.
-  useEffect(() => onStudioRequest((request) => setMusicOpen(request.open)), []);
+  /**
+   * This project's workspace: the video editor, or the Music Studio covering the editing area (the
+   * chat stays beside it, so the AI can be watched composing). Saved in the project, so every
+   * project tab keeps its own mode; switching it is not an undo step.
+   */
+  const musicOpen = project.workspace === 'music';
+  const setMusicOpen = useCallback((open: boolean) => {
+    if (open) setMode('edit');
+    history.view((current) => ((current.workspace === 'music') === open ? current : { ...current, workspace: open ? 'music' : 'video' }));
+  }, [history.view]);
+  // The title-bar switch and the AI's music_open_studio both go through the studio bus.
+  useEffect(() => onStudioRequest((request) => setMusicOpen(request.open)), [setMusicOpen]);
   /** The Plugin Maker workspace, and the plugin it has open (null: a new one). */
   const [makerOpen, setMakerOpen] = useState(false);
   // Once opened, the Plugin Maker stays mounted (hidden while the user is back in the editor), so a
@@ -4436,10 +4444,6 @@ export default function App() {
             // Bottom up: the profile, Settings above it, and an update above that only when there is one.
             <>
               <UpdateButton side showLabel={!folded} onDetails={() => setSettingsTab('about')} />
-              <button type="button" className={`prail-action prail-foot-btn${folded ? ' icon-only' : ''}${musicOpen ? ' active' : ''}`} onClick={() => { if (!musicOpen) setMode('edit'); setMusicOpen(!musicOpen); }} title={musicOpen ? 'Back to the video editor' : 'Music Studio (Beta, work in progress): make music with patterns, a piano roll, a playlist and a mixer'} aria-label="Music Studio" aria-pressed={musicOpen}>
-                <MusicIcon size={16} />
-                {!folded && <span className="prail-foot-label">Music <span className="ms-beta" title="Beta: a work in progress, still being built">Beta · WIP</span></span>}
-              </button>
               <button type="button" className={`prail-action prail-foot-btn${folded ? ' icon-only' : ''}`} onClick={() => setSettingsTab('general')} title="Settings (Ctrl+,)" aria-label="Settings">
                 <SettingsIcon size={16} />
                 {!folded && <span className="prail-foot-label">Settings</span>}
@@ -4489,6 +4493,7 @@ export default function App() {
         muted={mutes.all} onToggleMute={() => setMuteState({ ...mutes, all: !mutes.all })} programMaximized={maximized === 'program'} onToggleProgramMax={() => toggleMax('program')}
         onSettings={() => setSettingsTab('general')} onUpdates={() => setSettingsTab('about')} onAccount={() => setSettingsTab('about')}
         sideControls={!!tabs}
+        workspace={musicOpen ? 'music' : 'video'} onWorkspace={(workspace) => setMusicOpen(workspace === 'music')}
       />
       )}
 
@@ -4513,11 +4518,15 @@ export default function App() {
                   <Suspense fallback={null}>
                     <MusicStudio project={project} history={history} assets={assetMap} toast={toast} onClose={() => setMusicOpen(false)}
                       importAudio={async (path) => (await toolHost.importMedia([path]))[0] ?? null}
-                      placeOnTimeline={(assetId, seconds) => {
-                        const compId = history.current().activeCompId;
+                      placeOnTimeline={(assetId, seconds, beats, downbeats) => {
+                        const current = history.current();
+                        const compId = current.activeCompId;
                         if (!compId) { toast({ tone: 'info', title: 'No timeline to place it on', body: 'Open or make a composition first; the song is in the bin.' }); return; }
-                        history.commit((current) => updateComp(current, compId, (comp) => placeMusicBed(comp, assetId, 0, seconds, { name: 'Music Studio song' }).comp), 'Music: send to timeline');
-                        toast({ tone: 'success', title: 'Song placed on the timeline', body: 'Laid as the music bed from the start, faded in and out.' });
+                        // The song's music layer: placed once on this comp, refreshed in place after (src/music/timeline.ts).
+                        const refresh = !!songPlacement(current, compId);
+                        const song = current.music;
+                        history.commit((now) => placeSongLayer(now, compId, { assetId, duration: seconds, beats, downbeats, bpm: song?.bpm ?? 120, name: assets.find((a) => a.id === assetId)?.name ?? song?.name ?? 'Song' }).project, refresh ? 'Music: refresh on timeline' : 'Music: send to timeline');
+                        toast({ tone: 'success', title: refresh ? 'Music layer refreshed' : 'Song placed on the timeline', body: refresh ? 'The song on the Music track now plays this version, where you left it.' : 'On the Music audio track from the start, faded in and out. Send it again after changes to refresh it in place.' });
                       }} />
                   </Suspense>
                 </div>

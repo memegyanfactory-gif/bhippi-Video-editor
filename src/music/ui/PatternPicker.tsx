@@ -1,6 +1,6 @@
 // The toolbar's pattern picker: select, rename, colour, new, clone and remove a pattern.
 import { useEffect, useState } from 'react';
-import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Copy, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
 import { addPattern, clonePattern, removePattern, updatePattern } from '../model';
 import { ColorInput } from './Controls';
 import { useActions, useStudio } from './ctx';
@@ -32,8 +32,8 @@ export function PatternPicker() {
   };
 
   return (
-    <div className="ms-field ms-patpick" title="Active pattern">
-      <span>Pattern</span>
+    <div className="ms-patpick" title="Active pattern">
+      <Layers size={13} className="ms-patpick-icon" />
       {renaming && pattern ? (
         <input
           className="ms-input" autoFocus defaultValue={pattern.name} aria-label="Pattern name"
@@ -53,10 +53,10 @@ export function PatternPicker() {
         label="Pattern colour" value={pattern?.color ?? '#5b8def'}
         onChange={(color) => pattern && drag((s) => updatePattern(s, pattern.id, (p) => ({ ...p, color })))} onEnd={() => settle('Music: pattern colour')}
       />
-      <button type="button" className="ms-icon" onClick={add} title="New pattern" aria-label="New pattern"><Plus size={13} /></button>
-      <button type="button" className="ms-icon" onClick={clone} title="Clone pattern" aria-label="Clone pattern" disabled={!pattern}><Copy size={13} /></button>
-      <button type="button" className="ms-icon" onClick={() => setRenaming(true)} title="Rename pattern" aria-label="Rename pattern" disabled={!pattern}><Pencil size={13} /></button>
-      <button type="button" className="ms-icon" onClick={() => void remove()} title="Remove pattern" aria-label="Remove pattern" disabled={!pattern}><Trash2 size={13} /></button>
+      <button type="button" className="ms-tbtn sm" onClick={add} title="New pattern" aria-label="New pattern"><Plus size={13} /></button>
+      <button type="button" className="ms-tbtn sm" onClick={clone} title="Clone pattern" aria-label="Clone pattern" disabled={!pattern}><Copy size={13} /></button>
+      <button type="button" className="ms-tbtn sm" onClick={() => setRenaming(true)} title="Rename pattern" aria-label="Rename pattern" disabled={!pattern}><Pencil size={13} /></button>
+      <button type="button" className="ms-tbtn sm" onClick={() => void remove()} title="Remove pattern" aria-label="Remove pattern" disabled={!pattern}><Trash2 size={13} /></button>
     </div>
   );
 }

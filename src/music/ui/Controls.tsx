@@ -85,7 +85,10 @@ export function Knob(p: KnobProps) {
   const n = toN(value);
   const angle = ARC_START + n * ARC_SWEEP;
   const zero = bipolar ? ARC_START + toN(min < 0 ? 0 : def) * ARC_SWEEP : ARC_START;
-  const r = size / 2 - 3;
+  const c = size / 2;
+  const r = size / 2 - 2.5;
+  const cap = Math.max(3, r - 3.4);
+  const rad = (angle * Math.PI) / 180;
   const text = `${label}: ${fmt(value)}`;
   return (
     <div
@@ -94,11 +97,12 @@ export function Knob(p: KnobProps) {
       onPointerDown={down} onKeyDown={key} onDoubleClick={() => { if (!disabled) { p.onChange(def); p.onEnd(); } }}
     >
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <path d={arcPath(size / 2, size / 2, r, ARC_START, ARC_START + ARC_SWEEP)} className="ms-knob-track" />
-        {Math.abs(angle - zero) > 0.5 && <path d={arcPath(size / 2, size / 2, r, Math.min(zero, angle), Math.max(zero, angle))} className="ms-knob-arc" />}
-        <line x1={size / 2} y1={size / 2} x2={size / 2 + (r - 3) * Math.sin((angle * Math.PI) / 180)} y2={size / 2 - (r - 3) * Math.cos((angle * Math.PI) / 180)} className="ms-knob-hand" />
+        <path d={arcPath(c, c, r, ARC_START, ARC_START + ARC_SWEEP)} className="ms-knob-track" />
+        {Math.abs(angle - zero) > 0.5 && <path d={arcPath(c, c, r, Math.min(zero, angle), Math.max(zero, angle))} className="ms-knob-arc" />}
+        <circle cx={c} cy={c} r={cap} className="ms-knob-cap" />
+        <line x1={c + cap * 0.3 * Math.sin(rad)} y1={c - cap * 0.3 * Math.cos(rad)} x2={c + (cap - 0.6) * Math.sin(rad)} y2={c - (cap - 0.6) * Math.cos(rad)} className="ms-knob-hand" />
       </svg>
-      {active && <span className="ms-knob-tip">{fmt(value)}</span>}
+      <span className="ms-knob-tip">{fmt(value)}</span>
     </div>
   );
 }
@@ -128,7 +132,7 @@ export function Fader({ value, onChange, onEnd, label, min = -60, max = 6 }: { v
     // A click on the track jumps there; the drag then follows relative to where it started.
     const startY = e.clientY;
     let startV = value;
-    if (rect && !(e.target as HTMLElement).classList.contains('ms-fader-cap')) {
+    if (rect && !(e.target as HTMLElement).closest('.ms-fader-cap')) {
       startV = clamp(min + (1 - (e.clientY - rect.top - 6) / span) * (max - min), min, max);
       live.current.onChange(startV);
     }
@@ -151,8 +155,8 @@ export function Fader({ value, onChange, onEnd, label, min = -60, max = 6 }: { v
       title={`${label}: ${fmtDb(value)} dB (double-click resets to 0 dB)`} onPointerDown={down} onKeyDown={key} onDoubleClick={() => { onChange(0); onEnd(); }}
     >
       <div className="ms-fader-rail" />
-      {[0, -6, -12, -24, -48].map((db) => <span key={db} className="ms-fader-tick" style={{ bottom: `calc(6px + (100% - 12px) * ${(db - min) / (max - min)})` }}>{db}</span>)}
-      <div className="ms-fader-cap" style={{ bottom: `calc((100% - 12px) * ${pos})` }} />
+      {[6, 0, -6, -12, -24, -48].map((db) => <span key={db} className={`ms-fader-tick${db === 0 ? ' zero' : ''}`} style={{ bottom: `calc(6px + (100% - 12px) * ${(db - min) / (max - min)})` }}>{db > 0 ? `+${db}` : db}</span>)}
+      <div className="ms-fader-cap" style={{ bottom: `calc((100% - 12px) * ${pos})` }}><i /></div>
     </div>
   );
 }
