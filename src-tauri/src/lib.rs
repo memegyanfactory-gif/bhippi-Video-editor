@@ -75,6 +75,7 @@ mod bundle;
 mod cutout;
 mod blender;
 mod ui_screen;
+mod music;
 mod app_capture;
 mod app_record;
 mod render_passes;
@@ -4401,6 +4402,7 @@ pub fn run() {
             blender::blender_status,
             blender::blender_render_start,
             ui_screen::ui_screen_save,
+            music::music_save_wav,
             ui_screen::ui_capture,
             app_capture::app_session_capture,
             app_record::app_session_record,

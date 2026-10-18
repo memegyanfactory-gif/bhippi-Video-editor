@@ -128,7 +128,10 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // Raised to 44,850 the same day for `layout_panels` (its slim entry, ~+37 a step): a scene's
       // pictures and cards laid out in slots that never overlap, the fix frame QA now names when
       // screenshots are stacked half on top of each other in one scene.
-      expect(row.step, row.id).toBeLessThan(44_850);
+      // Raised to 45,400 on 2026-10-18 for the Music Studio (src/music): the slim entries of its 15
+      // music_* tools (~+500 a step) and its one-line prompt section, the DAW every provider composes
+      // in note by note. They go out whole only on a music ask or with the studio open.
+      expect(row.step, row.id).toBeLessThan(45_400);
     }
   });
 

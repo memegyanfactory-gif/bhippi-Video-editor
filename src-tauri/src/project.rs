@@ -1105,6 +1105,10 @@ pub struct Project {
     /// (the look projects had before it). The UI owns the values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption_look: Option<String>,
+    /// The Music Studio song (see src/music/types.ts); the UI owns the shape. The export never reads
+    /// it: a song reaches a video only as a bounced WAV.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music: Option<serde_json::Value>,
 }
 
 pub const VERSION: u32 = 3;
@@ -1144,6 +1148,7 @@ impl Default for Project {
             provenance: None,
             luts: None,
             caption_look: None,
+            music: None,
         }
     }
 }

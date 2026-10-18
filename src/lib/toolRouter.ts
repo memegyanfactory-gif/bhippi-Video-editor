@@ -8,6 +8,7 @@
 //
 // The detected kind also picks the playbook the model starts from (motionDirection.ts), so the
 // studied beats and timing arrive with the brief instead of waiting for a discovery call.
+import { studioOpen } from '../music/studioBus';
 import { playbook } from './motionDirection';
 
 export type Genre = 'saas' | 'motion' | 'character2d' | '3d' | 'documentary' | 'meme' | 'edit' | 'shorts';
@@ -68,6 +69,26 @@ export const GENRE_TOOLS: Record<Genre, readonly string[]> = {
   ],
   shorts: ['choose_shorts_format', 'create_shorts', 'podcast_cut', 'layout_clip', 'track_people', 'fill_background', 'apply_recipe', 'list_recipes'],
 };
+
+/**
+ * The Music Studio's tools (src/lib/musicTools.ts). Not a kind of video: they go out whole, and stay
+ * loaded, for an ask that is about making music or while the studio is open; otherwise they are one
+ * `tool_help` call away like every other tool.
+ */
+export const MUSIC_GROUP = [
+  'music_get_song', 'music_studio_guide', 'music_new_song', 'music_set_song', 'music_add_channel', 'music_update_channel', 'music_write_pattern',
+  'music_edit_notes', 'music_generate', 'music_arrange', 'music_mixer', 'music_automate', 'music_analyze_mix', 'music_render', 'music_open_studio',
+] as const;
+
+/**
+ * An ask about making music: musical words that say little else ("chords", "melody", "808", "synth"), or a
+ * making verb next to a musical thing. Words a video ask uses too ("beat" to cut on, an "audio track", "bass
+ * boost", "add music") do not count on their own.
+ */
+const MUSIC_WORDS = /\b(melod(y|ies)|chords?|chord progressions?|bass ?lines?|sub ?bass|808s?|drums?|drum (loop|pattern|beat|kit|machine)|piano roll|music studio|daw|synthesi[sz]ers?|synths?|instrumental|jingle|sidechain|mixdown|mastering|bpm|lo-?fi (beat|track|song|hip))\b/i;
+const MUSIC_MAKING = /\b(compos(e|ing)|produc(e|ing)|make|making|create|creating|write|writing|build|building|generate|generating)\b[^.\n]{0,40}\b(songs?|tunes?|music|beats?|score|soundtrack|jingle|(music|backing|instrumental|beat) tracks?)\b/i;
+const MUSIC_COMPOSING = /\b(compos(e|ing)|produc(e|ing))\b[^.\n]{0,40}\b(tracks?|pieces?|cues?|themes?|bangers?)\b/i;
+export const isMusicAsk = (text: string): boolean => MUSIC_WORDS.test(text) || MUSIC_MAKING.test(text) || MUSIC_COMPOSING.test(text);
 
 /** Words that mark each kind of video (whole words, any case; Hinglish included where common). */
 const SIGNALS: Record<Genre, RegExp> = {
@@ -153,6 +174,10 @@ export function routeTools(message: string, earlier: string[] = [], editStyle?: 
   forPhase(full, phase);
   const core = new Set<string>(CORE_TOOLS);
   if (guided) for (const tool of GUIDED_TOOLS) core.add(tool);
+  // Making music (this ask, a recent one, or the studio on screen): the Music Studio's tools go out whole and stay loaded.
+  if (isMusicAsk(message) || isMusicAsk(earlier.slice(-4).join('\n')) || studioOpen()) {
+    for (const tool of MUSIC_GROUP) { full.add(tool); core.add(tool); }
+  }
   forPhase(core, phase);
   // A drawn look (riso, sketchbook, paper) opens with the hand-made playbook built from the drawn films.
   const drawn = /\b(hand[- ]?drawn|hand[- ]?made|riso|sketch(book)?|doodle|paper|ink|crayon|pencil)\b/i.test(`${message}\n${earlier.slice(-4).join('\n')}`);

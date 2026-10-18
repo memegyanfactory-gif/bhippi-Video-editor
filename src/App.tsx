@@ -6,10 +6,10 @@ import { turnPrompt } from './lib/turnPrompts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { pictureDir } from '@tauri-apps/api/path';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { CircleCheck, Film, LoaderCircle, MessageSquare, Mic, Puzzle, Settings as SettingsIcon, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
+import { CircleCheck, Film, LoaderCircle, MessageSquare, Mic, Music as MusicIcon, Puzzle, Settings as SettingsIcon, TriangleAlert, Upload, Terminal as TerminalIcon } from 'lucide-react';
 import { AccountButton } from './components/AccountButton';
 import { UpdateButton } from './components/UpdateButton';
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { actionLogger } from './lib/actionLogger';
 import { crashReporter } from './lib/crashReporter';
 import { TerminalPanel } from './panels/TerminalPanel';
@@ -99,7 +99,7 @@ import { registerSfx } from './lib/sfx';
 import {
   addFrameHold, addTracks, addTransition, clipEnd, exportFrameRate, fitToFillSpeed, slideClip, slipClip, threePointEdit, trimEdge, whereSourcePlays, type TrimMode, clipsForSource, closeGap, compDuration, deleteBinEntries, deleteTracks, editPoints, emptyTracks, freeTrack, gapAt, healProject, insertFrameHold, ITEM_LABEL, loadProject, moveClips, nestClips,
   newClip, newComp, newItem, newProject, nextPoint, pasteAttributes, pasteClips, placeClips, quarantineScripts, razor, removeAttributes, removeClips, removeRange, replaceSource, restoreScripts, setGrouped, setLinked, setSpeed, sourceInfo,
-  sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, trackOf, tracksOf, transitionsOnSelection, trimToPlayhead, updateComp, updateTrack, withLinked, wouldCycle,
+  sourceLimit, sourceOut, sourceTimeAt, synchronize, textSource, toggleMarker, trackIndex, trackLabel, trackOf, tracksOf, transitionsOnSelection, defaultTransitions, trimToPlayhead, updateComp, updateTrack, withLinked, wouldCycle,
   type AssetMap, type ClipboardEntry,
 } from './lib/timeline';
 import { isLayeredComp, splitMotionComps } from './lib/motionStack';
@@ -163,6 +163,11 @@ import { activatePanel, defaultTree, frameOf, leafPanels, movePanel, panelsIn, r
 import { PluginFrame } from './plugins/PluginFrame';
 import { selectedPlugin, setPluginChecker } from './plugins/aiTools';
 import { CHARACTERS_TAB, CharactersIcon, CharactersWindow } from './characters/CharactersWindow';
+import { onStudioRequest } from './music/studioBus';
+import { placeMusicBed } from './lib/builtinMedia';
+
+/** The Music Studio (src/music, docs/MUSIC-STUDIO-PLAN.md), loaded the first time it opens. */
+const MusicStudio = lazy(() => import('./music/ui/MusicStudio').then((module) => ({ default: module.MusicStudio })));
 
 /**
  * How narrow each panel may be dragged.
@@ -315,6 +320,10 @@ export default function App() {
   const history = useHistory(newProject());
   const { project } = history;
   const [learningOpen, setLearningOpen] = useState(false);
+  /** The Music Studio covers the editing area (the chat stays beside it, so the AI can be watched composing). */
+  const [musicOpen, setMusicOpen] = useState(false);
+  // The rail button and the AI's music_open_studio both go through the studio bus.
+  useEffect(() => onStudioRequest((request) => setMusicOpen(request.open)), []);
   /** The Plugin Maker workspace, and the plugin it has open (null: a new one). */
   const [makerOpen, setMakerOpen] = useState(false);
   // Once opened, the Plugin Maker stays mounted (hidden while the user is back in the editor), so a
@@ -2382,6 +2391,7 @@ export default function App() {
   }, [project.activeCompId]);
 
   const closeComp = (compId: string) => {
+    if (compId === comp?.id) { setSelection([]); playhead.seek(0); }
     history.view((current) => {
       const open = current.openCompIds.filter((id) => id !== compId);
       const active = current.activeCompId === compId ? (open[open.length - 1] ?? null) : current.activeCompId;
@@ -2426,8 +2436,10 @@ export default function App() {
     editComp((current) => razor(current, at, tracks), allTracks ? 'Add Edit to All Tracks' : 'Add Edit');
   };
 
-  const markIn = () => editComp((current) => ({ ...current, inPoint: playhead.get(), outPoint: current.outPoint !== null && current.outPoint <= playhead.get() ? null : current.outPoint }), 'Mark In');
-  const markOut = () => editComp((current) => ({ ...current, outPoint: playhead.get(), inPoint: current.inPoint !== null && current.inPoint >= playhead.get() ? null : current.inPoint }), 'Mark Out');
+  /** The playhead on a whole frame: marks and edits never land between frames. */
+  const playheadFrame = () => Math.round(playhead.get() * fps) / fps;
+  const markIn = () => { const at = playheadFrame(); editComp((current) => ({ ...current, inPoint: at, outPoint: current.outPoint !== null && current.outPoint <= at ? null : current.outPoint }), 'Mark In'); };
+  const markOut = () => { const at = playheadFrame(); editComp((current) => ({ ...current, outPoint: at, inPoint: current.inPoint !== null && current.inPoint >= at ? null : current.inPoint }), 'Mark Out'); };
   const markClip = () => {
     const clip = selectedClips[0] ?? (comp ? comp.clips.find((item) => item.start <= playhead.get() && clipEnd(item) > playhead.get() && targetedTracks().includes(item.trackId)) : undefined);
     if (clip) editComp((current) => ({ ...current, inPoint: clip.start, outPoint: clipEnd(clip) }), 'Mark Clip');
@@ -2446,6 +2458,12 @@ export default function App() {
     const at = comp.inPoint;
     editComp((current) => removeRange(current, current.inPoint ?? 0, current.outPoint ?? 0, mode), mode === 'lift' ? 'Lift' : 'Extract');
     playhead.seek(at);
+  };
+
+  const applyDefaultTransition = (kind: 'video' | 'audio') => {
+    if (!comp) return;
+    const name = kind === 'video' ? 'Apply Video Transition' : 'Apply Audio Transition';
+    editComp((current) => defaultTransitions(current, kind, selection, playhead.get(), targetedTracks(), kind === 'video' ? 'cross-dissolve' : 'constant-power', 1), name);
   };
 
   const goToPoint = (direction: 1 | -1, anyTrack: boolean) => {
@@ -2499,7 +2517,16 @@ export default function App() {
     const current = history.current().comps.find((item) => item.id === comp.id);
     if (!current) return;
     let next = current;
-    for (const id of selection) next = kind === 'slip' ? slipClip(next, id, frames * frame, limit) : slideClip(next, id, frames * frame, limit);
+    // Each call moves the clip's linked partners too, so one id per linked unit.
+    const units = new Set<string>();
+    for (const id of selection) {
+      const clip = current.clips.find((item) => item.id === id);
+      if (!clip) continue;
+      const unit = clip.linkId ? `${clip.linkId}:${clip.start.toFixed(4)}:${kind === 'slip' ? clip.duration.toFixed(4) : ''}` : id;
+      if (units.has(unit)) continue;
+      units.add(unit);
+      next = kind === 'slip' ? slipClip(next, id, frames * frame, limit) : slideClip(next, id, frames * frame, limit);
+    }
     if (next !== current) editComp(() => next, kind === 'slip' ? 'Slip' : 'Slide');
   };
 
@@ -3479,8 +3506,9 @@ export default function App() {
         { label: 'Extend Next Edit to Playhead', shortcut: 'Shift+W', onSelect: () => trimAtPlayhead('next', false) },
       ] },
       { separator: true },
-      { label: 'Apply Video Transition', shortcut: 'Ctrl+D', disabled: !selection.length, onSelect: () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition') },
-      { label: 'Apply Audio Transition', shortcut: 'Ctrl+Shift+D', disabled: !selection.length, onSelect: () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition') },
+      { label: 'Apply Video Transition', shortcut: 'Ctrl+D', disabled: !comp, onSelect: () => applyDefaultTransition('video') },
+      { label: 'Apply Audio Transition', shortcut: 'Ctrl+Shift+D', disabled: !comp, onSelect: () => applyDefaultTransition('audio') },
+      { label: 'Apply Default Transitions to Selection', shortcut: 'Shift+D', disabled: !selection.length, onSelect: () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition') },
       { separator: true },
       { label: 'Lift', shortcut: ';', onSelect: () => removeRangeNow('lift') },
       { label: 'Extract', shortcut: "'", onSelect: () => removeRangeNow('extract') },
@@ -3754,7 +3782,7 @@ export default function App() {
         case 'clear': return () => deleteSelection(false);
         case 'rippleDelete': return () => deleteSelection(true);
         case 'deselectAll': return () => { setSelection([]); setTransitionSelection(null); };
-        case 'selectAll': return () => comp && setSelection(comp.clips.map((clip) => clip.id));
+        case 'selectAll': return () => comp && setSelection(comp.clips.filter((clip) => !trackOf(comp, clip.trackId)?.locked).map((clip) => clip.id));
         case 'editOriginal': return () => {
           const clip = selectedClips[0];
           if (clip?.source.type === 'media') void api.openPath(assetMap.get(clip.source.assetId)?.path ?? '');
@@ -3796,8 +3824,8 @@ export default function App() {
         case 'nextEditAny': return () => goToPoint(1, true);
         case 'goStart': return () => playhead.seek(0);
         case 'goEnd': return () => comp && playhead.seek(compDuration(comp));
-        case 'jumpBack': return () => playhead.seek(Math.max(0, playhead.get() - 5));
-        case 'jumpForward': return () => playhead.seek(playhead.get() + 5);
+        case 'jumpBack': return () => playhead.seek(Math.max(0, playheadFrame() - 5));
+        case 'jumpForward': return () => playhead.seek(Math.min(comp ? compDuration(comp) : Infinity, playheadFrame() + 5));
         // Marking
         case 'markIn': return () => (sourceFocused ? sourceApi.current?.markIn() : markIn());
         case 'markOut': return () => (sourceFocused ? sourceApi.current?.markOut() : markOut());
@@ -3826,6 +3854,8 @@ export default function App() {
         case 'lift': return () => removeRangeNow('lift');
         case 'extract': return () => removeRangeNow('extract');
         case 'applyTransition': return () => editComp((current) => transitionsOnSelection(current, selection, { video: 'cross-dissolve', audio: 'constant-power' }, 1), 'Apply Transition');
+        case 'applyVideoTransition': return () => applyDefaultTransition('video');
+        case 'applyAudioTransition': return () => applyDefaultTransition('audio');
         case 'speed': return () => selectedClips[0] && speedDialog(selectedClips[0], selection);
         case 'enableToggle': return () => editComp((current) => ({ ...current, clips: current.clips.map((clip) => (selection.includes(clip.id) ? { ...clip, enabled: !selectedClips.every((item) => item.enabled) } : clip)) }), 'Enable');
         case 'link': return () => editComp((current) => setLinked(current, selection, !selectedClips.some((clip) => clip.linkId)), 'Link');
@@ -4258,7 +4288,7 @@ export default function App() {
   const timelinePanel = panel('timeline', [{ id: 'timeline', label: comp?.name ?? 'Timeline' }], 'timeline', (
     <Timeline project={project} assets={assetMap} comp={comp} history={history} selection={selection} onSelect={(ids) => { setSelection(ids); setSelectedEdit(null); }} aiChanged={aiHighlight?.clipIds} selectedEdit={selectedEdit} onSelectEdit={(clipId, edge) => setSelectedEdit({ clipId, edge })} transition={transitionSelection} onSelectTransition={setTransitionSelection}
       tool={tool} onTool={setTool} zoom={zoom} onZoom={setZoom} snapping={snapping} onSnapping={setSnapping} linkedSelection={linkedSelection} onLinkedSelection={setLinkedSelection}
-      nestComps={nestComps} onNestComps={setNestComps} display={display} onDisplay={setDisplay} onActivateComp={(id) => history.view((current) => ({ ...current, activeCompId: id }))}
+      nestComps={nestComps} onNestComps={setNestComps} display={display} onDisplay={setDisplay} onActivateComp={(id) => { if (id === comp?.id) return; history.view((current) => ({ ...current, activeCompId: id })); setSelection([]); playhead.seek(0); }}
       onCloseComp={closeComp} onOpenComp={openComp} onOpenInSource={openInSource} onClipMenu={(event, clipId, at) => clipMenu(event, clipId, at)} onTrackMenu={trackMenu} onEmptyMenu={emptyMenu}
       onMarkerEdit={markerDialog} onAddMarker={addMarker} onVoiceOver={(trackId) => void voiceOver(trackId)} recordingTrack={recordingTrack} incoming={incoming} apiRef={timelineApi} />
   ), { menu: [{ label: 'Comp Settings…', onSelect: compSettings }, { label: 'Zoom to Sequence', onSelect: () => timelineApi.current?.fit() }, { label: 'Add Marker', onSelect: addMarker }] });
@@ -4406,6 +4436,10 @@ export default function App() {
             // Bottom up: the profile, Settings above it, and an update above that only when there is one.
             <>
               <UpdateButton side showLabel={!folded} onDetails={() => setSettingsTab('about')} />
+              <button type="button" className={`prail-action prail-foot-btn${folded ? ' icon-only' : ''}${musicOpen ? ' active' : ''}`} onClick={() => { if (!musicOpen) setMode('edit'); setMusicOpen(!musicOpen); }} title={musicOpen ? 'Back to the video editor' : 'Music Studio (Beta, work in progress): make music with patterns, a piano roll, a playlist and a mixer'} aria-label="Music Studio" aria-pressed={musicOpen}>
+                <MusicIcon size={16} />
+                {!folded && <span className="prail-foot-label">Music <span className="ms-beta" title="Beta: a work in progress, still being built">Beta · WIP</span></span>}
+              </button>
               <button type="button" className={`prail-action prail-foot-btn${folded ? ' icon-only' : ''}`} onClick={() => setSettingsTab('general')} title="Settings (Ctrl+,)" aria-label="Settings">
                 <SettingsIcon size={16} />
                 {!folded && <span className="prail-foot-label">Settings</span>}
@@ -4473,7 +4507,21 @@ export default function App() {
         ) : (
           <>
             {!hidden('chat') && <Splitter direction="vertical" onDrag={resize('chatWidth', PANEL_MIN.chat, 720)} onStart={beginResize} />}
-            <div className="ws-main">
+            <div className="ws-main" style={musicOpen ? { position: 'relative' } : undefined}>
+              {musicOpen && (
+                <div className="ms-host" style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'flex' }}>
+                  <Suspense fallback={null}>
+                    <MusicStudio project={project} history={history} assets={assetMap} toast={toast} onClose={() => setMusicOpen(false)}
+                      importAudio={async (path) => (await toolHost.importMedia([path]))[0] ?? null}
+                      placeOnTimeline={(assetId, seconds) => {
+                        const compId = history.current().activeCompId;
+                        if (!compId) { toast({ tone: 'info', title: 'No timeline to place it on', body: 'Open or make a composition first; the song is in the bin.' }); return; }
+                        history.commit((current) => updateComp(current, compId, (comp) => placeMusicBed(comp, assetId, 0, seconds, { name: 'Music Studio song' }).comp), 'Music: send to timeline');
+                        toast({ tone: 'success', title: 'Song placed on the timeline', body: 'Laid as the music bed from the start, faded in and out.' });
+                      }} />
+                  </Suspense>
+                </div>
+              )}
               {/* Every panel of the editing area, where the user put it (lib/dockTree.ts). */}
               <DockArea tree={tree} areaRef={dockAreaRef} render={dockPanel}
                 onResize={(splitId, sizes) => editTree((current) => resizeSplit(current, splitId, sizes))}

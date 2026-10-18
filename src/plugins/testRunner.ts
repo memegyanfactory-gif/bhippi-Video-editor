@@ -24,6 +24,9 @@ export const SCRATCH_READS = PLUGIN_READS;
  * tracks nothing heavy and asks nothing (create_shorts, for one, uses cached words and skips faces).
  */
 export const SCRATCH_TOOLS = new Set([
+  // The Music Studio song lives in the project: composing it is a project edit.
+  'music_new_song', 'music_set_song', 'music_add_channel', 'music_update_channel', 'music_write_pattern', 'music_edit_notes', 'music_generate',
+  'music_arrange', 'music_mixer', 'music_automate',
   'add_fx', 'add_marker', 'add_plugin_clip', 'add_shape', 'add_text', 'add_tracks', 'add_transition', 'apply_edit', 'color_grade',
   'create_comp', 'create_folder', 'create_item', 'delete_clips', 'delete_project_items', 'delete_tracks', 'edit_effect',
   'frame_hold', 'group_clips', 'layout_clip', 'link_clips', 'nest_clips', 'open_comp', 'organize_bin', 'place_clip',
@@ -56,6 +59,8 @@ export const SCRATCH_SKIPPED: Record<string, string> = Object.fromEntries([
     'render_3d_scene', 'generate_local_media', 'generate_with_library_model', 'generation_job']
     .map((name) => [name, 'it transcribes or runs a heavy local model']),
   ...['search_sfx', 'place_sfx'].map((name) => [name, 'it may search or download online']),
+  ...['music_render', 'music_analyze_mix'].map((name) => [name, 'it renders audio (Web Audio) and writes files']),
+  ...['music_open_studio'].map((name) => [name, 'it opens the real Music Studio']),
   ...['choose_shorts_format', 'set_playhead'].map((name) => [name, 'it asks the user or moves the real playhead']),
   ...['propose_storyboards', 'save_storyboard', 'save_video_blueprint', 'execute_blueprint', 'attach_production_asset', 'finish_gathering',
     'judge_edit', 'run_frame_qa', 'query_frame_atlas', 'list_subagents', 'list_learned_skills', 'apply_learned_skill']

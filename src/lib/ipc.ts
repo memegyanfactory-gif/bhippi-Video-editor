@@ -519,6 +519,8 @@ export const api = {
    */
   /** Saves one rasterised UI-screen picture (PNG bytes) under Generated/UI screens/<screen>/<name>; returns its path. */
   uiScreenSave: (screen: string, name: string, png: Uint8Array) => invoke<string>('ui_screen_save', png, { headers: { 'x-screen': screen, 'x-name': name } }),
+  /** Saves a Music Studio bounce into Generated/Music (src-tauri/src/music.rs); answers its path. */
+  musicSaveWav: (name: string, wav: Uint8Array) => invoke<string>('music_save_wav', wav, { headers: { 'x-name': name } }),
   /** Screenshots a web page at 2× in a headless Edge/Chrome for a UI screen; returns the PNG path and CSS size. */
   uiCapture: (url: string, width?: number, height?: number, dark?: boolean) => invoke<{ path: string; width: number; height: number; scale: number }>('ui_capture', { url, width: width ?? null, height: height ?? null, dark: dark ?? null }),
   /** Measures a reference film's motion (cuts, hidden cuts, swaps, fitted eases, camera, twos, audio peaks) as an `analysis` job; its result names `profile` and `peaks`. */

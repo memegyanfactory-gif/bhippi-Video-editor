@@ -451,6 +451,8 @@ export type Project = {
    * new projects start on 'fiwn'.
    */
   captionLook?: 'fiwn' | 'classic' | null;
+  /** The Music Studio song (src/music, docs/MUSIC-STUDIO-PLAN.md); unset until a song is made. */
+  music?: import('../music/types').MusicProject | null;
 };
 
 /** An imported LUT: its values as base64 little-endian 16-bit integers, red fastest. */

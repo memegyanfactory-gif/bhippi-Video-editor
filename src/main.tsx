@@ -17,6 +17,7 @@ import './styles/themes.css';
 import './styles/terminal.css';
 import './styles/brandkit.css';
 import './styles/license.css';
+import './styles/music.css';
 // Last, so the composer's rules win over the older ones in app.css.
 import './styles/composer.css';
 

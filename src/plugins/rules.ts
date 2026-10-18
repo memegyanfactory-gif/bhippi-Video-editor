@@ -35,6 +35,8 @@ export const PLUGIN_READS = new Set([
   'list_motion_templates', 'list_caption_styles', 'list_recipes', 'list_characters', 'list_character_actions', 'list_drawn_styles', 'list_3d_presets',
   'list_ui_kinds', 'list_brand_kits', 'get_brand_kit', 'get_brand_guideline', 'list_custom_tools', 'check_pacing',
   'check_motion_arcs', 'motion_guide', 'search_icons', 'svg_to_shape',
+  // The Music Studio song (src/music): reading it changes nothing.
+  'music_get_song', 'music_studio_guide',
 ]);
 export const isPluginRead = (name: string) => PLUGIN_READS.has(name);
 

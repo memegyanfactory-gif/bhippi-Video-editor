@@ -96,6 +96,7 @@ import { playbook } from './motionDirection';
 import { PLUGIN_TOOLS, runPluginAiTool } from '../plugins/aiTools';
 import { findGenerator, findPlugin, pluginStore } from '../plugins/store';
 import { COLOR_TOOLS, LUT_REFUSAL, runColorTool } from './colorTools';
+import { MUSIC_TOOLS, runMusicTool } from './musicTools';
 import { asksForLut, turnPrompt } from './turnPrompts';
 import { GENERIC_TARGET, pacingReport } from './pacing';
 import { buildShortComp, MAX_SHORTS, normalizeSegments, orientationFromAnswer, orientationStated, SHORT_FORMAT_OPTIONS, SHORT_FRAMES, type ShortOrientation, type ShortSpec } from './shorts';
@@ -1285,6 +1286,11 @@ async function runToolInner(host: ToolHost, name: string, rawArgs: unknown, sign
   // Colour: the Color Studio grade and the frames and scopes it is judged by (colorTools.ts).
   if (COLOR_TOOLS.has(name)) {
     return runColorTool(name, args, { project, assets, commit, current: () => host.history.current(), pickComp, prompt: turnPrompt(turnId ?? host.turnId) });
+  }
+
+  // Music Studio: read and write the song in project.music, bounce it into the Music bin folder (musicTools.ts).
+  if (MUSIC_TOOLS.has(name)) {
+    return runMusicTool(host, name, args, { commit, signal, current: () => host.history.current(), pickComp, folderFor: (folder) => rootFolderId(host.history.current(), commit, folder) });
   }
 
   // Brand kits: read in any phase, written through the host's settings callbacks.

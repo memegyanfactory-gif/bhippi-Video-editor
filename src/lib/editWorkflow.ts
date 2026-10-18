@@ -259,7 +259,7 @@ const GATHER_TOOLS = new Set([
 ]);
 
 /** Bhippi's built-in score and background plates: gathered media while gathering, edits after. */
-const BUILTIN_MEDIA = new Set(['compose_music', 'make_background']);
+const BUILTIN_MEDIA = new Set(['compose_music', 'make_background', 'music_render']);
 
 /** Tools that make a composition: the way forward in a project that has none. */
 const MAKES_COMP = new Set(['choose_comp_size', 'create_comp']);
@@ -296,6 +296,10 @@ const HELD_FOR_SIZE = new Set([
 ]);
 
 const ALWAYS_TOOLS = new Set([
+  // The Music Studio's song (src/music) is not the timeline: composing it is fine in any phase. Its
+  // bounce (music_render) lays audio on the timeline, so it is gated like compose_music.
+  'music_get_song', 'music_studio_guide', 'music_new_song', 'music_set_song', 'music_add_channel', 'music_update_channel', 'music_write_pattern',
+  'music_edit_notes', 'music_generate', 'music_arrange', 'music_mixer', 'music_automate', 'music_analyze_mix', 'music_open_studio',
   // A tool's own documentation (the catalogue sends most tools slim): reading it changes nothing.
   'tool_help',
   // The Director's debate proposes storyboards; the lead still saves one through save_storyboard.
@@ -931,7 +935,7 @@ export class EditWorkflow {
     // Designed sound counts: shaped music/SFX automation or built-in accents.
     if (name === 'score_audio_clip' || name === 'add_sound_effect' || name === 'generate_selection_sound' || name === 'sound_the_motion') this.soundPass = true;
     // A placed score is a designed music bed; the guided build lays graphics, cues, music and its own storyboard.
-    if (name === 'compose_music' && result.placed === true) this.soundPass = true;
+    if ((name === 'compose_music' || name === 'music_render') && result.placed === true) this.soundPass = true;
     if (name === 'build_edit_from_brief') { this.proVisual = true; this.soundPass = true; this.storyboardRefs = true; }
     if (recipe === 'music-bed') this.soundPass = true;
     const audioTracks = comp.tracks.filter(t => t.kind === 'audio');

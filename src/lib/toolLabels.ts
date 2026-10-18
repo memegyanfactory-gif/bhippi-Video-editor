@@ -231,6 +231,21 @@ export const TOOL_LABELS: Record<string, string> = {
   call_plugin_action: 'Running a plugin action',
   show_plugin: 'Showing a plugin',
   delete_plugin: 'Deleting a plugin',
+  music_get_song: 'Reading the song',
+  music_studio_guide: 'Reading the music manual',
+  music_new_song: 'Starting a song',
+  music_set_song: 'Setting tempo and key',
+  music_add_channel: 'Adding an instrument',
+  music_update_channel: 'Changing an instrument',
+  music_write_pattern: 'Writing a pattern',
+  music_edit_notes: 'Editing notes',
+  music_generate: 'Generating a music part',
+  music_arrange: 'Arranging the song',
+  music_mixer: 'Mixing the song',
+  music_automate: 'Automating a control',
+  music_analyze_mix: 'Analysing the mix',
+  music_render: 'Rendering the song',
+  music_open_studio: 'Opening the Music Studio',
 };
 
 /** The chat row's label for a tool: its plain-English label, or its name with spaces. */

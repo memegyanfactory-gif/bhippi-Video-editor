@@ -9937,6 +9937,1795 @@
         ],
         "additionalProperties": false
       }
+    },
+    {
+      "name": "music_get_song",
+      "description": "Call first when working on music. Reads the Music Studio song as compact text: header (name, BPM, time signature, swing, key, length), every channel with its id, instrument or drum piece, mixer insert, volume/pan and non-default parameters, every pattern (drum channels as step strings like x---x---x---x---; pitched channels as notes like C4@0+4 v100 = key@start+length velocity, in STEPS where 1 step = a 16th note and a 4/4 bar = 16 steps), the playlist as a section map per track (in BARS counted from 0), the mixer chains in use with effect ids, and automations. Ids are shown in [brackets]; pass them to the other music tools. detail \"full\" prints every note; patternId limits the read to one pattern with all its notes; grid:true adds an ASCII piano roll of that pattern (channelId limits it to one channel). Read-only. If no song exists yet it shows a blank default and says so.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "full"
+            ],
+            "description": "summary (default) caps long note lists; full prints everything."
+          },
+          "patternId": {
+            "type": "string",
+            "description": "A pattern id or name: read only this one, with all notes."
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Channel id or name (for the grid)."
+          },
+          "grid": {
+            "type": "boolean",
+            "description": "Add an ASCII piano roll of the pattern."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_studio_guide",
+      "description": "Reads the Music Studio manual: workflow, syntax, parameters, presets. It holds the recommended workflow, note and drum-string syntax, every instrument and effect with parameter names and ranges, scales, chord qualities, progressions, drum grooves, channel presets and song templates. topic: overview (default: workflow + syntax + name lists), workflow, syntax, instruments, effects, theory, grooves, presets, templates, all. instrument:\"synth\" or effect:\"compressor\" returns the full parameter list of that one. Read-only; call it once when you do not know a parameter or preset name.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "enum": [
+              "overview",
+              "workflow",
+              "syntax",
+              "instruments",
+              "effects",
+              "theory",
+              "grooves",
+              "presets",
+              "templates",
+              "all"
+            ]
+          },
+          "instrument": {
+            "type": "string",
+            "enum": [
+              "synth",
+              "fm",
+              "drum",
+              "bass808",
+              "sampler",
+              "pluck",
+              "pad",
+              "organ",
+              "keys",
+              "noise"
+            ]
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "eq",
+              "compressor",
+              "limiter",
+              "reverb",
+              "delay",
+              "chorus",
+              "flanger",
+              "phaser",
+              "distortion",
+              "bitcrusher",
+              "filter",
+              "stereo",
+              "sidechain",
+              "gate",
+              "tremolo"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_new_song",
+      "description": "Starts a song from a template (trap, lofi, house, cinematic…). You get real channels with tuned instruments, mixer routing and effects (EQ, compression, reverb, kick-driven sidechain on bass and pads), patterns already written, and a playlist of sections (intro / verse / chorus / drop / outro) with markers. Templates: empty (blank), beat, lofi, trap, house, dnb, cinematic, corporate, pop, afrobeats, techno, ambient. key like \"A minor\", \"F# dorian\", \"Bb major\"; bpm 20–999; seed makes the generated parts repeatable. Refuses when a song already exists unless replace:true (one undo step restores the old one). Then call music_get_song to read it and change what the brief needs.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "beat",
+              "lofi",
+              "trap",
+              "house",
+              "dnb",
+              "cinematic",
+              "corporate",
+              "pop",
+              "afrobeats",
+              "techno",
+              "ambient"
+            ],
+            "description": "Default empty."
+          },
+          "name": {
+            "type": "string",
+            "description": "Song name."
+          },
+          "bpm": {
+            "type": "number",
+            "description": "20–999 (each template has a fitting default)."
+          },
+          "key": {
+            "type": "string",
+            "description": "Root and scale, e.g. \"A minor\", \"F# dorian\", \"C\"."
+          },
+          "scale": {
+            "type": "string",
+            "enum": [
+              "major",
+              "minor",
+              "harmonic-minor",
+              "melodic-minor",
+              "dorian",
+              "phrygian",
+              "lydian",
+              "mixolydian",
+              "locrian",
+              "major-pentatonic",
+              "minor-pentatonic",
+              "blues",
+              "whole-tone",
+              "chromatic",
+              "phrygian-dominant",
+              "hungarian-minor",
+              "japanese",
+              "arabic",
+              "bebop",
+              "lydian-dominant",
+              "super-locrian",
+              "neapolitan-minor",
+              "double-harmonic",
+              "egyptian"
+            ]
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Repeatable generation."
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "Throw away the existing song and start over."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_set_song",
+      "description": "Sets tempo, time signature, swing, key and master level. Settings: name, bpm (20–999), timeSig (\"4/4\", \"3/4\", \"6/8\"), swing (0–1: 0 straight, lofi ~0.3, shuffle 0.6), key (\"A minor\", \"F# dorian\", \"Bb\") and/or scale, masterVolume (dB, -60…6, default 0), masterPitch (semitones, -12…12). Changing the key does not move existing notes — use music_edit_notes transpose or scale-correct for that — but every generator afterwards writes in the new key.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Song name."
+          },
+          "bpm": {
+            "type": "number",
+            "description": "Tempo 20–999."
+          },
+          "timeSig": {
+            "type": "string",
+            "description": "\"4/4\", \"3/4\", \"6/8\"…"
+          },
+          "swing": {
+            "type": "number",
+            "description": "0–1."
+          },
+          "key": {
+            "type": "string",
+            "description": "Root and scale, e.g. \"A minor\", \"F# dorian\", \"C\"."
+          },
+          "scale": {
+            "type": "string",
+            "enum": [
+              "major",
+              "minor",
+              "harmonic-minor",
+              "melodic-minor",
+              "dorian",
+              "phrygian",
+              "lydian",
+              "mixolydian",
+              "locrian",
+              "major-pentatonic",
+              "minor-pentatonic",
+              "blues",
+              "whole-tone",
+              "chromatic",
+              "phrygian-dominant",
+              "hungarian-minor",
+              "japanese",
+              "arabic",
+              "bebop",
+              "lydian-dominant",
+              "super-locrian",
+              "neapolitan-minor",
+              "double-harmonic",
+              "egyptian"
+            ]
+          },
+          "masterVolume": {
+            "type": "number",
+            "description": "dB -60…6."
+          },
+          "masterPitch": {
+            "type": "number",
+            "description": "Semitones -12…12."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_add_channel",
+      "description": "Adds an instrument channel by preset or type. It gets its own mixer insert. Give preset (a tuned sound — drums: kick-808 kick-punchy kick-house kick-hard snare-tight snare-lofi snare-trap clap-classic clap-wide hat-trap hat-house hat-lofi openhat-house openhat-short tom-low tom-high rim-click cowbell crash ride shaker perc; bass: sub-bass reese bass-808 bass-808-hard bass-808-glide acid-bass pluck-bass fm-bass square-bass; leads: supersaw-lead square-lead pluck-lead saw-lead fm-lead; pads: warm-pad string-pad choir-pad dark-pad glass-pad; keys: e-piano piano organ bell; plucks: kalimba harp guitar-pluck marimba; fx: riser downlifter impact) OR instrument (synth, fm, drum, bass808, sampler, pluck, pad, organ, keys, noise; drum needs drum: kick|snare|clap|hat|openhat|tom|rim|cowbell|crash|ride|shaker|perc). params overrides instrument parameters by name — unknown names are rejected with the valid list, values are clamped, option parameters accept their names ({\"osc1Wave\":\"saw\"}); music_studio_guide {instrument} lists them. sampleAssetId makes a sampler play a bin asset. volume 0–1.25 (1 = unity), pan -1…1. Returns the channel id for music_generate / music_write_pattern.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "preset": {
+            "type": "string",
+            "enum": [
+              "kick-808",
+              "kick-punchy",
+              "kick-house",
+              "kick-hard",
+              "snare-tight",
+              "snare-lofi",
+              "snare-trap",
+              "clap-classic",
+              "clap-wide",
+              "hat-trap",
+              "hat-house",
+              "hat-lofi",
+              "openhat-house",
+              "openhat-short",
+              "tom-low",
+              "tom-high",
+              "rim-click",
+              "cowbell",
+              "crash",
+              "ride",
+              "shaker",
+              "perc",
+              "sub-bass",
+              "reese",
+              "bass-808",
+              "bass-808-hard",
+              "bass-808-glide",
+              "acid-bass",
+              "pluck-bass",
+              "fm-bass",
+              "square-bass",
+              "supersaw-lead",
+              "square-lead",
+              "pluck-lead",
+              "saw-lead",
+              "fm-lead",
+              "warm-pad",
+              "string-pad",
+              "choir-pad",
+              "dark-pad",
+              "glass-pad",
+              "e-piano",
+              "piano",
+              "organ",
+              "bell",
+              "kalimba",
+              "harp",
+              "guitar-pluck",
+              "marimba",
+              "riser",
+              "downlifter",
+              "impact"
+            ]
+          },
+          "instrument": {
+            "type": "string",
+            "enum": [
+              "synth",
+              "fm",
+              "drum",
+              "bass808",
+              "sampler",
+              "pluck",
+              "pad",
+              "organ",
+              "keys",
+              "noise"
+            ]
+          },
+          "drum": {
+            "type": "string",
+            "enum": [
+              "kick",
+              "snare",
+              "clap",
+              "hat",
+              "openhat",
+              "tom",
+              "rim",
+              "cowbell",
+              "crash",
+              "ride",
+              "shaker",
+              "perc"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Channel name (made unique)."
+          },
+          "params": {
+            "type": "object",
+            "description": "Instrument parameters by name → number (or an option name).",
+            "additionalProperties": {
+              "type": [
+                "number",
+                "string",
+                "boolean"
+              ]
+            }
+          },
+          "insert": {
+            "type": "integer",
+            "description": "Mixer insert 0–125 (omit = the next free one).",
+            "minimum": 0,
+            "maximum": 125
+          },
+          "volume": {
+            "type": "number",
+            "description": "0–1.25."
+          },
+          "pan": {
+            "type": "number",
+            "description": "-1…1."
+          },
+          "sampleAssetId": {
+            "type": "string",
+            "description": "A bin asset id for a sampler channel."
+          },
+          "color": {
+            "type": "string",
+            "description": "#rrggbb."
+          },
+          "rootKey": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "Sampler root key / the key step strings hit."
+          },
+          "glide": {
+            "type": "number",
+            "description": "Slide time in seconds 0–2."
+          },
+          "polyphony": {
+            "type": "integer",
+            "description": "Max voices, 1 = mono."
+          },
+          "group": {
+            "type": "string",
+            "description": "Channel Rack group name."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_update_channel",
+      "description": "Changes or removes a channel (id or name from music_get_song). Settable: name, params (merged, validated against the instrument's parameter list, clamped), volume 0–1.25, pan -1…1, mute, solo, mixer insert, instrument, drum piece, glide, polyphony, swing (null = follow the song), rootKey, color, sampleAssetId; resetParams:true returns the instrument to its defaults; remove:true removes the channel and its notes (one undo step restores it).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "description": "Channel id or name."
+          },
+          "name": {
+            "type": "string",
+            "description": "New name."
+          },
+          "params": {
+            "type": "object",
+            "description": "Parameters to change by name → number (or an option name).",
+            "additionalProperties": {
+              "type": [
+                "number",
+                "string",
+                "boolean"
+              ]
+            }
+          },
+          "resetParams": {
+            "type": "boolean",
+            "description": "Reset all parameters to defaults first."
+          },
+          "volume": {
+            "type": "number",
+            "description": "0–1.25."
+          },
+          "pan": {
+            "type": "number",
+            "description": "-1…1."
+          },
+          "mute": {
+            "type": "boolean",
+            "description": "Mute."
+          },
+          "solo": {
+            "type": "boolean",
+            "description": "Solo."
+          },
+          "insert": {
+            "type": "integer",
+            "description": "Move to this mixer insert.",
+            "minimum": 0,
+            "maximum": 125
+          },
+          "instrument": {
+            "type": "string",
+            "enum": [
+              "synth",
+              "fm",
+              "drum",
+              "bass808",
+              "sampler",
+              "pluck",
+              "pad",
+              "organ",
+              "keys",
+              "noise"
+            ]
+          },
+          "drum": {
+            "type": "string",
+            "enum": [
+              "kick",
+              "snare",
+              "clap",
+              "hat",
+              "openhat",
+              "tom",
+              "rim",
+              "cowbell",
+              "crash",
+              "ride",
+              "shaker",
+              "perc"
+            ]
+          },
+          "glide": {
+            "type": "number",
+            "description": "Seconds 0–2."
+          },
+          "polyphony": {
+            "type": "integer",
+            "description": "Max voices."
+          },
+          "swing": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "0–1, or null to follow the song."
+          },
+          "rootKey": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "Root key."
+          },
+          "color": {
+            "type": "string",
+            "description": "#rrggbb."
+          },
+          "sampleAssetId": {
+            "type": "string",
+            "description": "Bin asset id (sampler)."
+          },
+          "remove": {
+            "type": "boolean",
+            "description": "Remove the channel."
+          }
+        },
+        "required": [
+          "channelId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_write_pattern",
+      "description": "Writes notes into a pattern: drum steps, note text, chords. A new pattern is created when patternId is missing or \"new\". One entry per channel in channels: {channel (id or name), steps | text | notes | chords, mode}. POSITIONS ARE IN STEPS: 1 step = a 16th note, a 4/4 bar = 16 steps. steps = a drum step string, one character per step — x hit, X accent, o ghost, r/R ratchet, 1-9 velocity, - rest, _ hold; spaces and | are ignored; a string shorter than the pattern repeats to fill it: \"X---x---x---x---\" (kick on every beat), \"----x-------x---\" (snare on 2 and 4), \"x-xxx-x-x-xx-xrR\" (trap hats). For a pitched channel steps all hit one key (key:\"C2\"). text = compact notes \"KEY START LENGTH [VELOCITY] [slide|p0.5|r2]\" separated by ; or newlines, a chord joins keys with +: \"C3 0 4 100; E3+G3+B3 8 8 90; G2 12 4 slide\". notes = [{\"key\":\"C4\",\"start\":0,\"length\":4,\"velocity\":100}] (velocity 1–127 or 0–1). chords = a progression written as chords for that channel (\"i-VI-III-VII\" in the song key, or \"Am F C G\"), rhythm = whole | stabs | offbeat | pulse | syncopated | lofi | arp-pulse, octave 4 default. mode: replace (default, that channel's notes become exactly these) | merge (add to what is there) | clear. bars sets the pattern length (it also grows to fit the notes). copyFrom clones a pattern first — handy for a variation. Anything it cannot read is listed as NOT written: fix and resend; nothing is dropped silently. Returns patternId; put patterns in the song with music_arrange.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "patternId": {
+            "type": "string",
+            "description": "Existing pattern id or name, or \"new\" / omitted to create one."
+          },
+          "name": {
+            "type": "string",
+            "description": "Pattern name."
+          },
+          "bars": {
+            "type": "integer",
+            "description": "Pattern length in bars, 1–64.",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "copyFrom": {
+            "type": "string",
+            "description": "When creating: clone this pattern (id or name) first."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "merge",
+              "clear"
+            ],
+            "description": "Default for every channel entry."
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "type": "string",
+                  "description": "Channel id or name."
+                },
+                "steps": {
+                  "type": "string",
+                  "description": "Drum step string (x X o r R 1-9 - . _)."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "Compact notes \"C4 0 4 100; E4+G4 4 4 90\"."
+                },
+                "notes": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "properties": {
+                      "key": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ],
+                        "description": "Note name like \"C4\" or MIDI 0–127."
+                      },
+                      "start": {
+                        "type": "number",
+                        "description": "Steps from the pattern start."
+                      },
+                      "length": {
+                        "type": "number",
+                        "description": "Steps, > 0."
+                      },
+                      "velocity": {
+                        "type": "number",
+                        "description": "1–127 (or 0–1)."
+                      },
+                      "slide": {
+                        "type": "boolean",
+                        "description": "Glide into this note."
+                      },
+                      "probability": {
+                        "type": "number",
+                        "description": "0–1."
+                      },
+                      "ratchet": {
+                        "type": "integer",
+                        "description": "Retriggers within the note, 1–8."
+                      },
+                      "pan": {
+                        "type": "number",
+                        "description": "-1…1."
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "start",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "Note objects (or compact strings)."
+                },
+                "chords": {
+                  "type": "string",
+                  "description": "Progression to write as chords: \"i-VI-III-VII\" or \"Am F C G\"."
+                },
+                "rhythm": {
+                  "type": "string",
+                  "enum": [
+                    "whole",
+                    "stabs",
+                    "offbeat",
+                    "pulse",
+                    "syncopated",
+                    "lofi",
+                    "arp-pulse"
+                  ],
+                  "description": "Chord rhythm (default whole)."
+                },
+                "octave": {
+                  "type": "integer",
+                  "description": "Chord octave, default 4."
+                },
+                "key": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "For steps on a pitched channel: the key every step hits."
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "replace",
+                    "merge",
+                    "clear"
+                  ]
+                }
+              },
+              "required": [
+                "channel"
+              ],
+              "additionalProperties": false
+            },
+            "description": "One entry per channel."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_edit_notes",
+      "description": "Edits the notes of one channel in one pattern. patternId defaults to the active pattern. op: transpose (semitones, or degrees along the song scale) | quantize (grid steps, strength 0–1, lengths:true also snaps lengths) | humanize (timing steps ~0.12, velocity 0–1 ~0.1, seed) | legato (gap steps) | arpeggiate (chords → single notes: rate steps/note, pattern up|down|updown|downup|random, gate 0–1) | strum (spread steps per note, direction down|up) | chordize (stack a chord on every note: quality like min7/sus4, or the diatonic triad; sevenths:true; inversion) | scale-correct (snap out-of-key notes into the song key) | velocity (multiply, add, set, compress 0–1) | shift (steps, optional wrap) | duplicate (times, offset steps) | reverse | flip (mirror pitches around \"around\" or the middle, staying in key) | randomize (what velocity|timing|pitch|all, amount 0–1, seed) | remove (the selected notes). Select a subset with fromStep/toStep (steps) and minKey/maxKey; default is every note of the channel. Positions are in STEPS (1 step = a 16th note).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "patternId": {
+            "type": "string",
+            "description": "Pattern id or name."
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Channel id or name."
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "transpose",
+              "quantize",
+              "humanize",
+              "legato",
+              "arpeggiate",
+              "strum",
+              "chordize",
+              "scale-correct",
+              "velocity",
+              "shift",
+              "duplicate",
+              "reverse",
+              "flip",
+              "randomize",
+              "remove"
+            ]
+          },
+          "fromStep": {
+            "type": "number",
+            "description": "Select notes starting at or after this step."
+          },
+          "toStep": {
+            "type": "number",
+            "description": "…and before this step."
+          },
+          "minKey": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "Lowest key to select."
+          },
+          "maxKey": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "Highest key to select."
+          },
+          "semitones": {
+            "type": "number",
+            "description": "transpose: exact semitones (12 = up an octave)."
+          },
+          "degrees": {
+            "type": "integer",
+            "description": "transpose: scale steps along the song key (2 = up a third)."
+          },
+          "grid": {
+            "type": "number",
+            "description": "quantize: grid in steps (1 = 16ths, 2 = 8ths, 4 = quarters)."
+          },
+          "strength": {
+            "type": "number",
+            "description": "quantize: 0–1."
+          },
+          "lengths": {
+            "type": "boolean",
+            "description": "quantize: also snap lengths."
+          },
+          "timing": {
+            "type": "number",
+            "description": "humanize: max timing wobble in steps."
+          },
+          "velocity": {
+            "type": "number",
+            "description": "humanize: max velocity wobble 0–1."
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Repeatable randomness."
+          },
+          "gap": {
+            "type": "number",
+            "description": "legato: gap in steps."
+          },
+          "rate": {
+            "type": "number",
+            "description": "arpeggiate: steps per note."
+          },
+          "pattern": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "updown",
+              "downup",
+              "random"
+            ],
+            "description": "arpeggiate order."
+          },
+          "gate": {
+            "type": "number",
+            "description": "arpeggiate: note length fraction 0.1–1."
+          },
+          "spread": {
+            "type": "number",
+            "description": "strum: steps between notes."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "down",
+              "up"
+            ],
+            "description": "strum direction."
+          },
+          "quality": {
+            "type": "string",
+            "description": "chordize: maj, min, min7, maj7, 7, sus2, sus4, dim, aug, add9, 9… (omit for the diatonic triad)."
+          },
+          "sevenths": {
+            "type": "boolean",
+            "description": "chordize: add the 7th."
+          },
+          "inversion": {
+            "type": "integer",
+            "description": "chordize: inversion."
+          },
+          "multiply": {
+            "type": "number",
+            "description": "velocity: multiplier."
+          },
+          "add": {
+            "type": "number",
+            "description": "velocity: add (0–1 or 1–127)."
+          },
+          "set": {
+            "type": "number",
+            "description": "velocity: set every note."
+          },
+          "compress": {
+            "type": "number",
+            "description": "velocity: pull towards the middle 0–1."
+          },
+          "steps": {
+            "type": "number",
+            "description": "shift: steps to move (negative = earlier)."
+          },
+          "wrap": {
+            "type": "number",
+            "description": "shift: wrap inside this many steps."
+          },
+          "times": {
+            "type": "integer",
+            "description": "duplicate: copies (default 1)."
+          },
+          "offset": {
+            "type": "number",
+            "description": "duplicate: steps between copies (default = the notes' span in whole bars)."
+          },
+          "around": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "flip: pivot key."
+          },
+          "keepScale": {
+            "type": "boolean",
+            "description": "flip: stay in key (default true)."
+          },
+          "what": {
+            "type": "string",
+            "enum": [
+              "velocity",
+              "timing",
+              "pitch",
+              "all"
+            ],
+            "description": "randomize target."
+          },
+          "amount": {
+            "type": "number",
+            "description": "randomize: 0–1."
+          },
+          "key": {
+            "type": "string",
+            "description": "Override the key for scale ops, e.g. \"A minor\"."
+          },
+          "scale": {
+            "type": "string",
+            "enum": [
+              "major",
+              "minor",
+              "harmonic-minor",
+              "melodic-minor",
+              "dorian",
+              "phrygian",
+              "lydian",
+              "mixolydian",
+              "locrian",
+              "major-pentatonic",
+              "minor-pentatonic",
+              "blues",
+              "whole-tone",
+              "chromatic",
+              "phrygian-dominant",
+              "hungarian-minor",
+              "japanese",
+              "arabic",
+              "bebop",
+              "lydian-dominant",
+              "super-locrian",
+              "neapolitan-minor",
+              "double-harmonic",
+              "egyptian"
+            ]
+          }
+        },
+        "required": [
+          "channelId",
+          "op"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_generate",
+      "description": "Writes a theory-driven part into a pattern. They are real notes in the song key that you can keep editing. part: drums (every drum channel gets its piece of a groove; style = four-on-the-floor | house | techno | trap | drill | boom-bap | lofi | breakbeat | dnb | reggaeton | afrobeats | rock | funk | halftime), bass (root | octave | offbeat | syncopated | walking | 808-slide — follows the chord roots), chords (whole | stabs | offbeat | pulse | syncopated | lofi | arp-pulse — voice-led), melody (a 1–2 bar motif on chord tones, repeated and answered), arp (up | down | updown | downup | random; rate), counter (a held counter-line), pad (long chords), fill (a drum roll / tom fill in the last half bar, merged into the groove), riser (noise sweep, or impact). Pass the SAME progression (roman numerals \"i-VI-III-VII\" in the song key, chord names \"Am F C G\", or an id like pop-axis / lofi / epic-minor) to bass, chords, melody and arp so they agree. Stack parts in ONE pattern by passing the patternId a previous call returned (or name an existing pattern), or give parts:[{part,…}] to write several at once. channelId omitted: drums/fill go to all drum channels, other parts to the best-fitting channel. density 0–1 (default 0.5), octave sets the register, seed gives a different take. mode replace (default) | merge. Returns patternId.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "part": {
+            "type": "string",
+            "enum": [
+              "drums",
+              "bass",
+              "chords",
+              "melody",
+              "arp",
+              "fill",
+              "counter",
+              "pad",
+              "riser"
+            ]
+          },
+          "style": {
+            "type": "string",
+            "description": "Drums/fill: a groove id (four-on-the-floor, house, techno, trap, drill, boom-bap, lofi, breakbeat, dnb, reggaeton, afrobeats, rock, funk, halftime) or a genre word (hiphop, edm, pop…). Bass: root | octave | offbeat | syncopated | walking | 808-slide | pulse. Chords: whole | stabs | offbeat | pulse | syncopated | lofi | arp-pulse. Melody: motif | pentatonic. Arp: up | down | updown | downup | random. Riser: riser | downlifter | impact."
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Channel id or name to write into. Omitted: drums/fill go to every drum channel, other parts to the best-fitting channel."
+          },
+          "density": {
+            "type": "number",
+            "description": "0–1, how busy (default 0.5)."
+          },
+          "octave": {
+            "type": "integer",
+            "description": "Register the part is built around (C4 = octave 4). Defaults: bass 2 (808: 1), chords 4, pad 3, melody 5, arp 4.",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "progression": {
+            "type": "string",
+            "description": "Chords for bass/chords/melody/arp/pad: roman numerals in the song key (\"i-VI-III-VII\", \"I-V-vi-IV\") or names (\"Am F C G\") or a progression id (pop-axis, lofi, epic-minor, trap-dark…). Use the SAME one for every part of a pattern."
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Same seed = same notes; change it for a different take."
+          },
+          "rate": {
+            "type": "number",
+            "description": "Arp: steps per note (default 2 = 8ths)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "merge"
+            ],
+            "description": "replace (default) or merge with the notes already there."
+          },
+          "patternId": {
+            "type": "string",
+            "description": "Existing pattern id or name; omitted or \"new\" creates one (reusing a pattern with the same name)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for a new pattern."
+          },
+          "bars": {
+            "type": "integer",
+            "description": "Pattern length in bars, 1–64 (new patterns default 4).",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part": {
+                  "type": "string",
+                  "enum": [
+                    "drums",
+                    "bass",
+                    "chords",
+                    "melody",
+                    "arp",
+                    "fill",
+                    "counter",
+                    "pad",
+                    "riser"
+                  ]
+                },
+                "style": {
+                  "type": "string",
+                  "description": "Drums/fill: a groove id (four-on-the-floor, house, techno, trap, drill, boom-bap, lofi, breakbeat, dnb, reggaeton, afrobeats, rock, funk, halftime) or a genre word (hiphop, edm, pop…). Bass: root | octave | offbeat | syncopated | walking | 808-slide | pulse. Chords: whole | stabs | offbeat | pulse | syncopated | lofi | arp-pulse. Melody: motif | pentatonic. Arp: up | down | updown | downup | random. Riser: riser | downlifter | impact."
+                },
+                "channelId": {
+                  "type": "string",
+                  "description": "Channel id or name to write into. Omitted: drums/fill go to every drum channel, other parts to the best-fitting channel."
+                },
+                "density": {
+                  "type": "number",
+                  "description": "0–1, how busy (default 0.5)."
+                },
+                "octave": {
+                  "type": "integer",
+                  "description": "Register the part is built around (C4 = octave 4). Defaults: bass 2 (808: 1), chords 4, pad 3, melody 5, arp 4.",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "progression": {
+                  "type": "string",
+                  "description": "Chords for bass/chords/melody/arp/pad: roman numerals in the song key (\"i-VI-III-VII\", \"I-V-vi-IV\") or names (\"Am F C G\") or a progression id (pop-axis, lofi, epic-minor, trap-dark…). Use the SAME one for every part of a pattern."
+                },
+                "seed": {
+                  "type": "integer",
+                  "description": "Same seed = same notes; change it for a different take."
+                },
+                "rate": {
+                  "type": "number",
+                  "description": "Arp: steps per note (default 2 = 8ths)."
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "replace",
+                    "merge"
+                  ],
+                  "description": "replace (default) or merge with the notes already there."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Several parts into the same pattern in one call; each item takes the same fields as the top level."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_arrange",
+      "description": "Lays patterns out as a song: sections, clips, markers, loop. POSITIONS ARE IN BARS counted from 0. sections:[{name:\"intro\",bars:8,patterns:[\"Chords\",\"Pad\"]},{name:\"drop\",bars:16,patterns:[\"Drums\",\"Bass\",\"Chords\",\"Lead\"]}] builds the whole song in one call — each pattern (id or name) gets its own playlist track and loops to fill its section, a marker (kind intro | verse | prechorus | chorus | drop | build | breakdown | bridge | outro, inferred from the name) is placed at each section start; mode \"replace\" (default) replaces all pattern clips and markers, \"append\" continues after the end. Vary the sections: no drums in the intro, a riser/fill pattern in a build before each drop, the lead only in the chorus. clips:[{op:\"add\",patternId,startBar,bars,track}, {op:\"update\",clipId,startBar,bars,muted}, {op:\"remove\",clipId}] edits single clips (audio clips: assetId + gain dB; automation clips: automationId). markers:[{op:\"add\",name,bar,kind}|{op:\"remove\",name}]. loop:{startBar,endBar} sets the loop region, null clears it.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Section name, e.g. intro, verse, chorus, drop, outro."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "marker",
+                    "intro",
+                    "verse",
+                    "prechorus",
+                    "chorus",
+                    "drop",
+                    "build",
+                    "breakdown",
+                    "bridge",
+                    "outro"
+                  ],
+                  "description": "Marker kind (inferred from the name when omitted)."
+                },
+                "bars": {
+                  "type": "integer",
+                  "description": "Length in bars, 1–256.",
+                  "minimum": 1,
+                  "maximum": 256
+                },
+                "patterns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Pattern ids or names playing in this section."
+                }
+              },
+              "required": [
+                "name",
+                "bars",
+                "patterns"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "append"
+            ],
+            "description": "For sections: default replace."
+          },
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "add",
+                    "update",
+                    "remove"
+                  ]
+                },
+                "clipId": {
+                  "type": "string",
+                  "description": "A clip id from music_get_song (update/remove)."
+                },
+                "patternId": {
+                  "type": "string",
+                  "description": "Pattern id or name (add; or remove every clip of it)."
+                },
+                "assetId": {
+                  "type": "string",
+                  "description": "Bin asset id for an audio clip."
+                },
+                "automationId": {
+                  "type": "string",
+                  "description": "Automation id for an automation clip."
+                },
+                "track": {
+                  "type": "integer",
+                  "description": "Playlist track index (default: a free one)."
+                },
+                "startBar": {
+                  "type": "number",
+                  "description": "Start in bars from 0."
+                },
+                "bars": {
+                  "type": "number",
+                  "description": "Length in bars."
+                },
+                "offsetBar": {
+                  "type": "number",
+                  "description": "Bars into the source the clip starts at."
+                },
+                "start": {
+                  "type": "number",
+                  "description": "Start in steps (alternative to startBar)."
+                },
+                "length": {
+                  "type": "number",
+                  "description": "Length in steps (alternative to bars)."
+                },
+                "offset": {
+                  "type": "number",
+                  "description": "Offset in steps."
+                },
+                "muted": {
+                  "type": "boolean",
+                  "description": "Mute the clip."
+                },
+                "gain": {
+                  "type": "number",
+                  "description": "Audio clip dB."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "add",
+                    "remove"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Marker id (remove)."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Marker name."
+                },
+                "bar": {
+                  "type": "number",
+                  "description": "Bar from 0."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "marker",
+                    "intro",
+                    "verse",
+                    "prechorus",
+                    "chorus",
+                    "drop",
+                    "build",
+                    "breakdown",
+                    "bridge",
+                    "outro"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "loop": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Loop region in bars, or null to clear.",
+            "properties": {
+              "startBar": {
+                "type": "number",
+                "description": "Start bar."
+              },
+              "endBar": {
+                "type": "number",
+                "description": "End bar."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_mixer",
+      "description": "Edits the mixer: levels, pan, sends, sidechain, effects. insert is an index (0 = master, 1… = the inserts channels feed — music_get_song shows \"ins N\") or an insert name; give inserts:[{insert,…}] to change several at once. Per insert: volume (dB, -60…6; 0 = unity), pan -1…1, width 0–2, mute/solo/invert, name, sends:[{to,level,sidechain}], and effects:[{op,type,params,mix}] — op add (default) | update (effectId or type) | remove | move (at) | clear. Effect types: eq, compressor, limiter, reverb, delay, chorus, flanger, phaser, distortion, bitcrusher, filter, stereo, sidechain, gate, tremolo; params are validated against music_studio_guide {effect} (unknown names rejected with the valid list). Good defaults: eq {b1Freq:120} high-passes pads/keys/leads; compressor {threshold:-16, ratio:3, makeup:2} on bass and drums; reverb {decay:2.2} mix 0.2–0.3 on pads/leads/snare; delay {sync:5} mix 0.25 on leads. sidechainFrom:<kick insert> on the bass or pad insert makes them pump with the kick (adds the send and the ducker); sidechainAmount 0–1. Balance first (faders), then tone, then space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "insert": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "Mixer insert: its index (0 = master, 1… = the inserts channels are on) or its name."
+          },
+          "name": {
+            "type": "string",
+            "description": "Rename the insert."
+          },
+          "volume": {
+            "type": "number",
+            "description": "Fader in dB, -60…+6 (0 = unity, -60 = silence)."
+          },
+          "pan": {
+            "type": "number",
+            "description": "-1 (left) … 1 (right)."
+          },
+          "width": {
+            "type": "number",
+            "description": "Stereo width 0 (mono) … 2."
+          },
+          "mute": {
+            "type": "boolean",
+            "description": "Mute the insert."
+          },
+          "solo": {
+            "type": "boolean",
+            "description": "Solo the insert."
+          },
+          "invert": {
+            "type": "boolean",
+            "description": "Invert phase."
+          },
+          "toMaster": {
+            "type": "boolean",
+            "description": "false = the insert reaches the master only through its sends."
+          },
+          "sends": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "Mixer insert: its index (0 = master, 1… = the inserts channels are on) or its name."
+                },
+                "level": {
+                  "type": "number",
+                  "description": "0–1.25, default 1."
+                },
+                "sidechain": {
+                  "type": "boolean",
+                  "description": "true = feeds the target insert's sidechain (ducking) instead of its audio."
+                },
+                "remove": {
+                  "type": "boolean",
+                  "description": "Remove this send."
+                }
+              },
+              "required": [
+                "to"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Routes to other inserts (replaces a send to the same target)."
+          },
+          "sidechainFrom": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "Duck this insert from another insert (for example the kick's): adds a sidechain send from that insert and a sidechain effect here. Index or name."
+          },
+          "sidechainAmount": {
+            "type": "number",
+            "description": "Duck depth 0–1 (default 0.6) when sidechainFrom is used."
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "add",
+                    "update",
+                    "remove",
+                    "move",
+                    "clear"
+                  ],
+                  "description": "Default add (update when only effectId is given)."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "eq",
+                    "compressor",
+                    "limiter",
+                    "reverb",
+                    "delay",
+                    "chorus",
+                    "flanger",
+                    "phaser",
+                    "distortion",
+                    "bitcrusher",
+                    "filter",
+                    "stereo",
+                    "sidechain",
+                    "gate",
+                    "tremolo"
+                  ],
+                  "description": "Effect type to add (or to find when updating without effectId)."
+                },
+                "effectId": {
+                  "type": "string",
+                  "description": "An effect id from music_get_song."
+                },
+                "params": {
+                  "type": "object",
+                  "description": "Effect parameters by name (music_studio_guide {effect:\"eq\"} lists them); unknown names are rejected, values are clamped.",
+                  "additionalProperties": {
+                    "type": [
+                      "number",
+                      "string",
+                      "boolean"
+                    ]
+                  }
+                },
+                "mix": {
+                  "type": "number",
+                  "description": "Dry/wet 0–1."
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Bypass with false."
+                },
+                "at": {
+                  "type": "integer",
+                  "description": "Position in the chain (0 = first)."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Effect chain edits, applied in order."
+          },
+          "inserts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "insert": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "Mixer insert: its index (0 = master, 1… = the inserts channels are on) or its name."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Rename the insert."
+                },
+                "volume": {
+                  "type": "number",
+                  "description": "Fader in dB, -60…+6 (0 = unity, -60 = silence)."
+                },
+                "pan": {
+                  "type": "number",
+                  "description": "-1 (left) … 1 (right)."
+                },
+                "width": {
+                  "type": "number",
+                  "description": "Stereo width 0 (mono) … 2."
+                },
+                "mute": {
+                  "type": "boolean",
+                  "description": "Mute the insert."
+                },
+                "solo": {
+                  "type": "boolean",
+                  "description": "Solo the insert."
+                },
+                "invert": {
+                  "type": "boolean",
+                  "description": "Invert phase."
+                },
+                "toMaster": {
+                  "type": "boolean",
+                  "description": "false = the insert reaches the master only through its sends."
+                },
+                "sends": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "to": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ],
+                        "description": "Mixer insert: its index (0 = master, 1… = the inserts channels are on) or its name."
+                      },
+                      "level": {
+                        "type": "number",
+                        "description": "0–1.25, default 1."
+                      },
+                      "sidechain": {
+                        "type": "boolean",
+                        "description": "true = feeds the target insert's sidechain (ducking) instead of its audio."
+                      },
+                      "remove": {
+                        "type": "boolean",
+                        "description": "Remove this send."
+                      }
+                    },
+                    "required": [
+                      "to"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "Routes to other inserts (replaces a send to the same target)."
+                },
+                "sidechainFrom": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "Duck this insert from another insert (for example the kick's): adds a sidechain send from that insert and a sidechain effect here. Index or name."
+                },
+                "sidechainAmount": {
+                  "type": "number",
+                  "description": "Duck depth 0–1 (default 0.6) when sidechainFrom is used."
+                },
+                "effects": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "enum": [
+                          "add",
+                          "update",
+                          "remove",
+                          "move",
+                          "clear"
+                        ],
+                        "description": "Default add (update when only effectId is given)."
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "eq",
+                          "compressor",
+                          "limiter",
+                          "reverb",
+                          "delay",
+                          "chorus",
+                          "flanger",
+                          "phaser",
+                          "distortion",
+                          "bitcrusher",
+                          "filter",
+                          "stereo",
+                          "sidechain",
+                          "gate",
+                          "tremolo"
+                        ],
+                        "description": "Effect type to add (or to find when updating without effectId)."
+                      },
+                      "effectId": {
+                        "type": "string",
+                        "description": "An effect id from music_get_song."
+                      },
+                      "params": {
+                        "type": "object",
+                        "description": "Effect parameters by name (music_studio_guide {effect:\"eq\"} lists them); unknown names are rejected, values are clamped.",
+                        "additionalProperties": {
+                          "type": [
+                            "number",
+                            "string",
+                            "boolean"
+                          ]
+                        }
+                      },
+                      "mix": {
+                        "type": "number",
+                        "description": "Dry/wet 0–1."
+                      },
+                      "enabled": {
+                        "type": "boolean",
+                        "description": "Bypass with false."
+                      },
+                      "at": {
+                        "type": "integer",
+                        "description": "Position in the chain (0 = first)."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "description": "Effect chain edits, applied in order."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Several inserts in one call; each item takes the same fields as the top level."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_automate",
+      "description": "Automates a control over time (ramp, sweep, LFO, pump, points). target:{kind,…}: {kind:\"insert\",insert:3,param:\"volume|pan|width\"}, {kind:\"effect\",insert:3,effect:\"filter\" (type or effectId),param:\"cutoff\"}, {kind:\"channel\",channelId,param:\"cutoff\"} (any instrument parameter, or volume / pan), {kind:\"send\",insert,to}, {kind:\"tempo\"}. Values (from, to, points[].value) are in the parameter's real units (dB, Hz, 0–1…; music_studio_guide lists ranges; an out-of-range value is clamped). Time is in BARS from 0: startBar and bars (default: from startBar to the song end); points[].bar is relative to startBar. shape: ramp-up / ramp-down (linear from→to; from defaults to the current value), sweep (exponential build from→to: a filter opening before a drop), lfo (from..to sine, cycles per range, default 1 per bar), pump (duck to from each beat and recover to to; every = steps), or points:[{bar,value,curve:hold|linear|smooth|exp}]. A new clip replaces an older one for the same control over the same span. remove:true with automationId removes one.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "insert",
+                  "effect",
+                  "channel",
+                  "send",
+                  "tempo"
+                ]
+              },
+              "insert": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "description": "Mixer insert: its index (0 = master, 1… = the inserts channels are on) or its name."
+              },
+              "effect": {
+                "type": "string",
+                "description": "Effect type or id (kind effect)."
+              },
+              "effectId": {
+                "type": "string",
+                "description": "Effect id."
+              },
+              "channelId": {
+                "type": "string",
+                "description": "Channel id or name (kind channel)."
+              },
+              "param": {
+                "type": "string",
+                "description": "Parameter name."
+              },
+              "to": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "description": "Mixer insert: its index (0 = master, 1… = the inserts channels are on) or its name."
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "startBar": {
+            "type": "number",
+            "description": "Start bar from 0 (default 0)."
+          },
+          "bars": {
+            "type": "number",
+            "description": "Length in bars."
+          },
+          "shape": {
+            "type": "string",
+            "enum": [
+              "ramp-up",
+              "ramp-down",
+              "sweep",
+              "lfo",
+              "pump",
+              "points"
+            ]
+          },
+          "from": {
+            "type": "number",
+            "description": "Start / low value in real units."
+          },
+          "to": {
+            "type": "number",
+            "description": "End / high value in real units."
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "bar": {
+                  "type": "number",
+                  "description": "Bars from startBar."
+                },
+                "step": {
+                  "type": "number",
+                  "description": "Steps from startBar (alternative to bar)."
+                },
+                "value": {
+                  "type": "number",
+                  "description": "Real units."
+                },
+                "curve": {
+                  "type": "string",
+                  "enum": [
+                    "hold",
+                    "linear",
+                    "smooth",
+                    "exp"
+                  ]
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "cycles": {
+            "type": "number",
+            "description": "lfo: cycles over the range."
+          },
+          "every": {
+            "type": "number",
+            "description": "pump: steps between ducks (default 1 beat)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Automation name."
+          },
+          "automationId": {
+            "type": "string",
+            "description": "With remove: the automation to remove."
+          },
+          "remove": {
+            "type": "boolean",
+            "description": "Remove automationId and its clips."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_analyze_mix",
+      "description": "Renders the song and reports mix problems with concrete fixes. It measures per mixer insert and master, and the fixes are music_mixer / music_set_song calls: master peak, loudness (LUFS, target about -14), clipping, stereo correlation, frequency balance, a per-insert table (peak, rms, loudness, low-end share), parts that are too loud, buried or silent, kick–bass masking in the low end (fix: sidechainFrom + EQ), silent stretches and sections with no clips. Needs the Music Studio's Web Audio engine (it runs in the app). Whole song when arranged, otherwise one pattern (patternId). Changes nothing; run it after the mix and again after fixing.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "patternId": {
+            "type": "string",
+            "description": "When there is no arrangement: the pattern to analyse (default the active one)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_render",
+      "description": "Bounces the song to a WAV in the Music bin folder. It imports the 24-bit file and returns its asset id. place:true also lays it on the active comp as the music bed (faded in and out, level db, beat grid stored so snap_cuts_to_beats needs no analysis; start = seconds on the timeline) — use it when the song scores a video. mode \"song\" (default when the song is arranged) renders the playlist (fromBar/toBar for a range), \"pattern\" renders one pattern (patternId). stems:true also writes one WAV per mixer insert. Needs the app's Web Audio engine. Arrange the song first (music_arrange) and check it with music_analyze_mix.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "File / asset name (default the song name)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "song",
+              "pattern"
+            ]
+          },
+          "patternId": {
+            "type": "string",
+            "description": "Pattern for mode pattern."
+          },
+          "fromBar": {
+            "type": "number",
+            "description": "Range start in bars."
+          },
+          "toBar": {
+            "type": "number",
+            "description": "Range end in bars."
+          },
+          "stems": {
+            "type": "boolean",
+            "description": "Also export each insert."
+          },
+          "place": {
+            "type": "boolean",
+            "description": "Lay it on the active comp as the music bed."
+          },
+          "start": {
+            "type": "number",
+            "description": "Seconds on the timeline where the bed starts (default 0)."
+          },
+          "db": {
+            "type": "number",
+            "description": "Level of the placed clip in dB (default -6; -18 under a voice-over)."
+          },
+          "compId": {
+            "type": "string",
+            "description": "Composition for place (default the active one)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "music_open_studio",
+      "description": "Shows or hides the Music Studio for the user. It can focus a window (playlist, rack, pianoroll, mixer) and a pattern or channel. Use it after building something so the user sees it; it changes nothing in the song.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "boolean",
+            "description": "true (default) opens, false closes."
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "playlist",
+              "rack",
+              "pianoroll",
+              "mixer"
+            ]
+          },
+          "patternId": {
+            "type": "string",
+            "description": "Pattern id or name to show."
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Channel id or name to focus."
+          }
+        },
+        "additionalProperties": false
+      }
     }
   ]
 }

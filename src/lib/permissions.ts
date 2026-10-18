@@ -36,6 +36,8 @@ export function permissionBrief(mode: PermissionMode) {
 /** Tools that only look at the project. Always allowed. */
 const READS = new Set([
   'tool_help',
+  'music_get_song',
+  'music_studio_guide',
   'list_caption_styles',
   'online_research',
   'scrape_web_page',
