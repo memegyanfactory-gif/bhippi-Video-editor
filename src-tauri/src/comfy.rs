@@ -106,6 +106,41 @@ fn write_source(models: &Path, target: Option<&str>) -> CommandResult<()> {
     crate::store::write_json(&file, &json!({ "target": target }))
 }
 
+/// A ComfyUI the person installed themselves (a portable build, a manual install), picked up on
+/// its own while they have chosen nothing and Bhippi's own is not installed, so its models and
+/// custom nodes are used without a trip to Settings. Answers the folder it chose.
+pub(crate) fn adopt_own_install(models: &Path) -> Option<PathBuf> {
+    if source_file(models).is_file() || managed_installed(models) {
+        return None;
+    }
+    let found = own_install_candidates().into_iter().find(|dir| find_layout(dir).is_some())?;
+    write_source(models, Some(&found.display().to_string())).ok()?;
+    Some(found)
+}
+
+/// Folders named ComfyUI… where people unpack it: the home folder, Desktop, Documents, Downloads,
+/// the top of every drive, and one level into AI / tools folders there.
+fn own_install_candidates() -> Vec<PathBuf> {
+    let children = |dir: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(dir).map(|entries| entries.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()).collect()).unwrap_or_default()
+    };
+    let named = |path: &Path, test: &dyn Fn(&str) -> bool| path.file_name().is_some_and(|name| test(&name.to_string_lossy().to_ascii_lowercase()));
+    let mut parents = Vec::new();
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from) {
+        parents.extend(["Desktop", "Documents", "Downloads"].iter().map(|dir| home.join(dir)));
+        parents.push(home);
+    }
+    if cfg!(windows) {
+        for letter in b'C'..=b'Z' {
+            let drive = PathBuf::from(format!("{}:\\", letter as char));
+            let tools = children(&drive).into_iter().filter(|dir| named(dir, &|name| name == "ai" || name.starts_with("ai-") || name.starts_with("ai_") || name.starts_with("stable") || name == "tools" || name == "apps"));
+            parents.extend(tools.collect::<Vec<_>>());
+            parents.push(drive);
+        }
+    }
+    parents.iter().flat_map(|parent| children(parent)).filter(|dir| named(dir, &|name| name.starts_with("comfyui"))).collect()
+}
+
 fn is_url(text: &str) -> bool {
     let lower = text.trim().to_ascii_lowercase();
     lower.starts_with("http://") || lower.starts_with("https://")

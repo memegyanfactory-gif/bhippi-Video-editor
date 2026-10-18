@@ -804,7 +804,140 @@ fn common_places(other_roots: &[PathBuf]) -> Vec<(PathBuf, usize)> {
     if let Some(appdata) = std::env::var_os("APPDATA").map(PathBuf::from) {
         places.push((appdata.join("Subtitle Edit").join("Whisper"), 3));
     }
-    places.into_iter().filter(|(dir, _)| dir.is_dir()).collect()
+    if let Some(home) = &home {
+        places.push((home.join("Desktop"), 2));
+        places.push((home.join("Documents"), 3));
+        places.push((home.join("scoop").join("apps"), 3));
+        // ~/whisper, ~/whisper.cpp-1.7, ~/ai-models… named folders in the home folder.
+        places.extend(hinted_dirs(home).into_iter().map(|dir| (dir, 4)));
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        // Buzz keeps whisper.cpp models in its cache; other whisper apps install per user here.
+        places.push((local.join("Buzz").join("Buzz").join("Cache"), 3));
+        places.extend(hinted_dirs(&local.join("Programs")).into_iter().map(|dir| (dir, 3)));
+    }
+    for var in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(dir) = std::env::var_os(var).map(PathBuf::from) {
+            places.extend(hinted_dirs(&dir).into_iter().map(|dir| (dir, 3)));
+        }
+    }
+    // D:\whisper, E:\AI\models…: folders named for models at the top of every drive.
+    if cfg!(windows) {
+        for letter in b'C'..=b'Z' {
+            let drive = PathBuf::from(format!("{}:\\", letter as char));
+            places.extend(hinted_dirs(&drive).into_iter().map(|dir| (dir, 4)));
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    places.into_iter().filter(|(dir, _)| dir.is_dir() && seen.insert(dir.clone())).collect()
+}
+
+/// The folders directly in `dir` whose names say they hold models or speech tools.
+fn hinted_dirs(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            ["whisper", "model", "ggml", "llm", "speech", "subtitle"].iter().any(|word| name.contains(word)) || name == "ai" || name.starts_with("ai ") || name.starts_with("ai-") || name.starts_with("ai_")
+        })
+        .map(|entry| entry.path())
+        .collect()
+}
+
+/// The catalogue size a whisper.cpp model file stands for when its name is not the catalogue's
+/// own: a quantized copy (`ggml-medium-q5_0.bin`, `ggml-small.en-q8_0.bin`) or an older large
+/// (`ggml-large-v2.bin`). Distil models only count under their exact names.
+fn whisper_size_of(file_name: &str) -> Option<&'static str> {
+    let name = file_name.to_ascii_lowercase();
+    let mut stem = name.strip_prefix("ggml-")?.strip_suffix(".bin")?;
+    // Cut a quantization suffix: "-q5_0", "-q8_0", "-q4_k"…
+    if let Some(at) = stem.find("-q").filter(|at| stem[at + 2..].starts_with(|c: char| c.is_ascii_digit())) {
+        stem = &stem[..at];
+    }
+    Some(match stem {
+        "tiny" => "whisper-tiny",
+        "tiny.en" => "whisper-tiny-en",
+        "base" => "whisper-base",
+        "base.en" => "whisper-base-en",
+        "small" => "whisper-small",
+        "small.en" => "whisper-small-en",
+        "medium" => "whisper-medium",
+        "medium.en" => "whisper-medium-en",
+        "large-v3-turbo" => "whisper-large-v3-turbo",
+        "large-v3" | "large-v2" | "large-v1" | "large" => "whisper-large-v3",
+        _ => return None,
+    })
+}
+
+/// Whether `file_name` is the exact file of a catalogue entry.
+fn catalogue_file_name(file_name: &str) -> bool {
+    CATALOG.iter().any(|item| Path::new(item.marker).file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(file_name)))
+}
+
+/// A whisper.cpp model file starts with its ggml magic (0x67676d6c, little-endian).
+fn is_whisper_ggml(path: &Path) -> bool {
+    use std::io::Read as _;
+    let mut head = [0_u8; 4];
+    std::fs::File::open(path).and_then(|mut file| file.read_exact(&mut head)).is_ok() && &head == b"lmgg"
+}
+
+/// Every file under `dir` (at most `depth` levels down) whose name passes `wanted`.
+fn find_where(dir: &Path, depth: usize, wanted: &dyn Fn(&str) -> bool, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut dirs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if wanted(&entry.file_name().to_string_lossy()) {
+                out.push(path);
+            }
+        } else if path.is_dir() {
+            dirs.push(path);
+        }
+    }
+    if depth > 0 {
+        dirs.sort();
+        for child in dirs {
+            find_where(&child, depth - 1, wanted, out);
+        }
+    }
+}
+
+/// Whether a whisper.cpp program someone installed runs on this computer: `--help` answers
+/// within a few seconds (a build missing its DLLs, or the old `main.exe` stub, does not).
+fn whisper_runs(program: &Path) -> bool {
+    use std::process::{Command, Stdio};
+    // The help text goes to a file: a pipe nobody reads while waiting fills up and stalls it.
+    let log = std::env::temp_dir().join(format!("bhippi-whisper-check-{}.txt", crate::store::new_id()));
+    let (Ok(out), Ok(err)) = (std::fs::File::create(&log), std::fs::File::options().append(true).open(&log)) else { return false };
+    let mut command = Command::new(program);
+    command.arg("--help").stdin(Stdio::null()).stdout(out).stderr(err);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let Ok(mut child) = command.spawn() else {
+        let _ignored = std::fs::remove_file(&log);
+        return false;
+    };
+    let started = std::time::Instant::now();
+    let finished = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break true,
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(8) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            _ => {
+                let _ignored = child.kill();
+                let _ignored = child.wait();
+                break false;
+            }
+        }
+    };
+    let text = std::fs::read(&log).map(|bytes| String::from_utf8_lossy(&bytes).to_ascii_lowercase()).unwrap_or_default();
+    let _ignored = std::fs::remove_file(&log);
+    finished && text.contains("usage") && text.contains("model") && !text.contains("use whisper-cli instead")
 }
 
 /// Looks for catalogue models already on this computer and records each one it can use, so
@@ -816,15 +949,32 @@ pub fn scan(root: &Path, other_roots: &[PathBuf]) -> Vec<&'static str> {
     let places = common_places(other_roots);
     let mut found = read_found(root);
     let mut added = Vec::new();
+    // Whisper model files under names that are not the catalogue's, collected once (see `whisper_size_of`).
+    let mut ggml: Option<Vec<PathBuf>> = None;
     for item in CATALOG.iter().filter(|item| !item.files.is_empty()) {
         if own_path(root, item).is_some() || external_path(root, item).is_some() {
             continue;
         }
         let hit = match item.kind {
-            Kind::SttRuntime | Kind::TtsRuntime => other_roots.iter().find_map(|other| {
-                let names = if item.kind == Kind::SttRuntime { exe_names(WHISPER_NAMES) } else { kokoro_names() };
-                find_under(&other.join(item.marker), &names, 3)
-            }),
+            Kind::SttRuntime | Kind::TtsRuntime => other_roots
+                .iter()
+                .find_map(|other| {
+                    let names = if item.kind == Kind::SttRuntime { exe_names(WHISPER_NAMES) } else { kokoro_names() };
+                    find_under(&other.join(item.marker), &names, 3)
+                })
+                // whisper.cpp someone installed themselves (a build, Subtitle Edit's, scoop's): taken
+                // only under its own names, never a bare `whisper` (openai-whisper's launcher has
+                // that name) or `main`, and only once it runs here.
+                .or_else(|| {
+                    (item.kind == Kind::SttRuntime).then(|| {
+                        let names = exe_names(&["whisper-cli", "whisper-cpp"]);
+                        places.iter().find_map(|(dir, depth)| {
+                            let mut candidates = Vec::new();
+                            find_where(dir, *depth, &|name| names.iter().any(|wanted| wanted.eq_ignore_ascii_case(name)), &mut candidates);
+                            candidates.into_iter().find(|program| !program.starts_with(root) && whisper_runs(program))
+                        })
+                    })?
+                }),
             // Only Kokoro v1.0, and only a folder of the same name: other packs keep `voices.bin`
             // too, and one of them must never pass for it.
             Kind::TtsVoice => {
@@ -847,6 +997,32 @@ pub fn scan(root: &Path, other_roots: &[PathBuf]) -> Vec<&'static str> {
                     .filter(|path| usable(item, path))
                     // A half-finished download of a big model is not the model.
                     .filter(|path| std::fs::metadata(path).is_ok_and(|meta| meta.len() >= u64::from(item.size_mb) * 1024 * 1024 * 8 / 10))
+                    // Not under its catalogue name: the same size quantized, or an older large.
+                    .or_else(|| {
+                        if item.kind != Kind::SttModel {
+                            return None;
+                        }
+                        let files = ggml.get_or_insert_with(|| {
+                            let mut files = Vec::new();
+                            for (dir, depth) in &places {
+                                // A file another entry has under its own name is that entry's, not a stand-in.
+                                find_where(dir, *depth, &|name| whisper_size_of(name).is_some() && !catalogue_file_name(name), &mut files);
+                            }
+                            // Full-precision copies before quantized ones, newer large before older.
+                            files.sort_by_key(|path| {
+                                let name = path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                                let age = ["large-v3", "large-v2", "large-v1"].iter().position(|large| name.contains(large)).unwrap_or(3);
+                                (name.contains("-q"), age, name)
+                            });
+                            files
+                        });
+                        files
+                            .iter()
+                            .filter(|path| !path.starts_with(root))
+                            .filter(|path| path.file_name().and_then(|name| whisper_size_of(&name.to_string_lossy())) == Some(item.id))
+                            .find(|path| std::fs::metadata(path).is_ok_and(|meta| meta.len() >= 16 * 1024 * 1024) && is_whisper_ggml(path))
+                            .cloned()
+                    })
             }
         };
         // Bhippi's own models folder is never "elsewhere".
@@ -1273,6 +1449,44 @@ mod tests {
         super::remove(&root, "kokoro-v1").unwrap();
         assert!(pack.join("model.onnx").is_file());
         assert!(!super::status(&root, None, None).models.iter().any(|model| model.id == "kokoro-v1" && model.installed));
+        let _ignored = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn whisper_files_under_other_names_stand_in_for_their_size() {
+        use super::whisper_size_of as size;
+        assert_eq!(size("ggml-medium-q5_0.bin"), Some("whisper-medium"));
+        assert_eq!(size("ggml-small.en-q8_0.bin"), Some("whisper-small-en"));
+        assert_eq!(size("GGML-LARGE-V2.BIN"), Some("whisper-large-v3"));
+        assert_eq!(size("ggml-large-v3-turbo-q4_0.bin"), Some("whisper-large-v3-turbo"));
+        assert_eq!(size("ggml-tiny.bin"), Some("whisper-tiny"));
+        // Not whisper.cpp files, or not a size Bhippi offers.
+        assert_eq!(size("ggml-distil-large-v3.bin"), None);
+        assert_eq!(size("model.bin"), None);
+        assert_eq!(size("ggml-quantum.bin"), None);
+    }
+
+    #[test]
+    fn a_whisper_model_already_on_disk_is_found_and_used_for_transcription() {
+        let base = std::env::temp_dir().join(format!("bhippi-whisper-{}", crate::store::new_id()));
+        let root = base.join("models");
+        let other = base.join("their-models");
+        std::fs::create_dir_all(other.join("whisper")).unwrap();
+        // A quantized large-v2 another app downloaded: the ggml magic, then weights.
+        let mut weights = b"lmgg".to_vec();
+        weights.resize(17 * 1024 * 1024, 0);
+        std::fs::write(other.join("whisper").join("ggml-large-v2-q5_0.bin"), &weights).unwrap();
+        // Same size of file but not a model (no magic): never taken.
+        let mut junk = b"PK\x03\x04".to_vec();
+        junk.resize(17 * 1024 * 1024, 0);
+        std::fs::write(other.join("whisper").join("ggml-medium.en-q5_0.bin"), &junk).unwrap();
+        let found = super::scan(&root, std::slice::from_ref(&other));
+        assert!(found.contains(&"whisper-large-v3"), "found {found:?}");
+        assert!(!found.contains(&"whisper-medium-en"));
+        let installed = super::installed(&root, super::Kind::SttModel);
+        assert!(installed.iter().any(|(id, path)| *id == "whisper-large-v3" && path.ends_with("ggml-large-v2-q5_0.bin")));
+        // A second scan finds nothing new and keeps it.
+        assert!(super::scan(&root, std::slice::from_ref(&other)).is_empty());
         let _ignored = std::fs::remove_dir_all(&base);
     }
 }

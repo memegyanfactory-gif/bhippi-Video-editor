@@ -3926,6 +3926,24 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             Err(error) => tracing::warn!(%error, "bundled models could not be copied"),
         });
     }
+    // Speech models and engines the person already has (another app's Whisper, their own
+    // whisper.cpp, an older Bhippi folder) and their own ComfyUI: found on every launch, off the
+    // startup path, and used in place — not only when the onboarding wizard's scan runs.
+    {
+        let handle = app.handle().clone();
+        let models = paths.models.clone();
+        let others: Vec<PathBuf> = app.path().document_dir().map(|documents| vec![documents.join("Bhippi").join("models")]).unwrap_or_default();
+        std::thread::spawn(move || {
+            let found = models::scan(&models, &others);
+            if !found.is_empty() {
+                tracing::info!(?found, "using models already on this computer");
+                let _ignored = handle.emit(models::MODELS_EVENT, ());
+            }
+            if let Some(folder) = comfy::adopt_own_install(&models) {
+                tracing::info!(folder = %folder.display(), "using the ComfyUI already on this computer");
+            }
+        });
+    }
     watchdog::start(app.handle().clone(), paths.root.join("logs").join("hang.log"));
     bhippi_providers::set_agent_workspace(paths.agent_workspace.clone());
     if let Err(error) = sfx::ensure_all(&paths.sfx) {
