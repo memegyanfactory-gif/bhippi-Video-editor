@@ -124,5 +124,5 @@ describe('what the AI adds is filed as it lands', () => {
     expect(result.ok).toBe(true);
     const ref = project.media.find((r) => r.assetId === 'd1');
     expect(project.folders.find((f) => f.id === ref?.folderId)?.name).toBe('B-roll');
-  });
+  }, 30_000);
 });

@@ -35,7 +35,7 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { CompLayers } from '../src/editor/Compositor';
 import { HtmlMotionLayer } from '../src/editor/HtmlMotionLayer';
-import { ProgramMonitor, shouldStep } from '../src/editor/ProgramMonitor';
+import { frameIndex, ProgramMonitor } from '../src/editor/ProgramMonitor';
 import { correctionsOnFrame } from '../src/editor/RotoPreview';
 import { correctedAlpha } from '../src/lib/rotoCorrections';
 import { renderMotionScenesForExport, renderMotionStill } from '../src/motion/exportFrames';
@@ -390,20 +390,20 @@ describe('motion clip placement', () => {
 });
 
 describe('program monitor playback', () => {
-  it('moves the playhead 29-30 times a second on a jittery 60 Hz display', () => {
-    let seed = 7;
-    const jitter = () => { seed = (seed * 16807) % 2147483647; return ((seed / 2147483647) * 2 - 1) * 0.05; };
-    let last = 0;
-    let carry = 0;
-    let updates = 0;
-    for (let i = 1; i <= 600; i++) {
-      const now = (i * 1000) / 60 + jitter();
-      carry += (now - last) / 1000;
-      last = now;
-      if (shouldStep(carry)) { updates++; carry = 0; }
+  it('moves the playhead once per comp frame on a jittery 60 Hz display, whatever the frame rate', () => {
+    for (const fps of [24, 25, 30, 60]) {
+      let seed = 7;
+      const jitter = () => { seed = (seed * 16807) % 2147483647; return ((seed / 2147483647) * 2 - 1) * 0.05; };
+      let shown = 0;
+      let updates = 0;
+      for (let i = 1; i <= 600; i++) {
+        const at = frameIndex(((i * 1000) / 60 + jitter()) / 1000, fps);
+        if (at !== shown) { updates++; shown = at; }
+      }
+      // The last tick may land a hair before 10 s.
+      expect(updates).toBeGreaterThanOrEqual(fps * 10 - 1);
+      expect(updates).toBeLessThanOrEqual(fps * 10);
     }
-    expect(updates / 10).toBeGreaterThanOrEqual(29);
-    expect(updates / 10).toBeLessThanOrEqual(30);
   });
 
   it('keeps the layers in one wrapper whether or not the preview is downscaled', () => {

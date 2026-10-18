@@ -8,7 +8,7 @@ import { beep, ClipChain, startTone } from '../lib/audio';
 import { registerClock } from '../lib/masterClock';
 import { acquireMedia, releaseMedia } from '../lib/mediaPool';
 import { cssFilter, placement } from '../lib/editor';
-import { computeAppliedEffects } from '../lib/effectFilters';
+import { computeAppliedEffects, type ComputedEffectVisuals } from '../lib/effectFilters';
 import { api, fileSrc } from '../lib/ipc';
 import { previewPath } from '../lib/proxyMode';
 import { animated, effectsAt } from '../lib/keyframes';
@@ -642,6 +642,22 @@ function StackLayer({ group, comp, time, depth, zIndex, playing, rate, stageW, s
   );
 }
 
+/**
+ * A clip's effect stack as SVG defs and CSS. It depends on the stack and the stage height, never
+ * the time, so it is kept per stack (stacks are replaced on every edit, never changed in place):
+ * rebuilt on every playback tick it was a fresh set of defs elements for React to diff each frame.
+ */
+const stackVisuals = new WeakMap<AppliedEffect[], { clipId: string; stageH: number; value: ComputedEffectVisuals }>();
+function clipVisuals(clip: Clip, stageH: number): ComputedEffectVisuals {
+  const effects = clip.appliedEffects;
+  if (!effects?.length) return computeAppliedEffects(clip.id, effects, stageH);
+  const hit = stackVisuals.get(effects);
+  if (hit && hit.clipId === clip.id && hit.stageH === stageH) return hit.value;
+  const value = computeAppliedEffects(clip.id, effects, stageH);
+  stackVisuals.set(effects, { clipId: clip.id, stageH, value });
+  return value;
+}
+
 /** Every visible video track of `comp` at `time`, bottom to top. */
 export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: number; stageH: number; depth: number }) {
   const { comp, time, project } = props;
@@ -650,12 +666,18 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
   if (props.depth === 0) syncProjectLuts(project);
   const states = transitionStates(comp, time);
 
-  // Collect all SVG filter defs across all active clips, and the edge-keeping blurs they use.
+  // Whether a clip draws now: on screen, or mounted (hidden) ahead of its cut.
+  const drawsAt = (clip: Clip) => activeAt(comp, clip, time) || (props.playing && (clip.source.type === 'media'
+    ? upcomingAt(comp, clip, time)
+    : clip.source.type === 'html' && appearsAt(comp, clip) > time && appearsAt(comp, clip) - time < HTML_PRELOAD));
+
+  // The SVG filter defs and edge-keeping blurs of the clips that draw now; nothing else can
+  // reference them, and walking every clip of a long timeline each tick was most of the frame.
   const allDefs: ReactNode[] = [];
   const blurRadii: number[] = [];
   for (const clip of comp.clips) {
-    if (!clip.enabled) continue;
-    const computed = computeAppliedEffects(clip.id, clip.appliedEffects, props.stageH);
+    if (!clip.enabled || !drawsAt(clip)) continue;
+    const computed = clipVisuals(clip, props.stageH);
     if (computed.svgDefs.length > 0) {
       allDefs.push(...computed.svgDefs);
     }
@@ -687,10 +709,7 @@ export function CompLayers(props: Frame & { comp: Comp; time: number; stageW: nu
     for (let clipIdx = 0; clipIdx < trackClips.length; clipIdx++) {
       const clip = trackClips[clipIdx];
       const active = activeAt(comp, clip, time);
-      const upcoming = !active && props.playing && (clip.source.type === 'media'
-        ? upcomingAt(comp, clip, time)
-        : clip.source.type === 'html' && appearsAt(comp, clip) > time && appearsAt(comp, clip) - time < HTML_PRELOAD);
-      if (!active && !upcoming) continue;
+      if (!active && !drawsAt(clip)) continue;
 
       const clipState = states.get(clip.id);
       const roleBonus = clipState ? (clipState.role === 'in' ? 2 : 1) : 0;

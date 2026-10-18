@@ -5,7 +5,7 @@
 // rolls), track select, ripple, rolling, rate stretch, razor, slip, slide, pen keyframes, hand,
 // zoom and type.
 import { Bookmark, Eye, EyeOff, Film, Link2, Lock, Magnet, Mic, Unlock, Wrench, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { MenuList } from '../components/workspace';
 import { findStyle } from '../lib/captionStyles';
 import { clamp, FPS, dbToGain, gainToDb, isIdentityEffects, isIdentityTransform, parseTimecode, snap, timecode, toFrame, uid } from '../lib/editor';
@@ -112,7 +112,7 @@ type Gesture =
   | { kind: 'trim'; clipId: string; edge: 'in' | 'out'; mode: TrimMode; base: Comp; startTime: number; alone: boolean }
   | { kind: 'slip'; clipId: string; base: Comp; startX: number }
   | { kind: 'slide'; clipId: string; base: Comp; startX: number }
-  | { kind: 'marquee'; x0: number; y0: number; x1: number; y1: number; additive: boolean; before: string[] }
+  | { kind: 'marquee'; x0: number; y0: number; x1: number; y1: number; additive: boolean; before: string[]; picked: string }
   | { kind: 'keyframe'; clipId: string; property: 'opacity' | 'volume'; base: Comp; index: number | null; startY: number; startValue: number }
   | { kind: 'marker'; id: string; startX: number; moved: boolean }
   | { kind: 'transition'; id: string; edge: 'in' | 'out'; base: Comp; startX: number }
@@ -191,6 +191,7 @@ export function Timeline(props: Props) {
   const transitionsByTrack = useMemo(() => groupBy(comp?.transitions ?? [], (transition) => transition.trackId), [comp?.transitions]);
   const offlineIds = useMemo(() => new Set(project.media.filter((ref) => ref.offline).map((ref) => ref.assetId)), [project.media]);
   const gesture = useRef<Gesture | null>(null);
+  const clipActions = useRef<ClipActions | null>(null);
   const lastPoint = useRef<Pointer | null>(null);
   const edgeFrame = useRef<number | null>(null);
   /** The live drag handler, so the edge-scroll frame calls this render's version and not the first. */
@@ -328,6 +329,9 @@ export function Timeline(props: Props) {
   // Wheel: scroll vertically; Shift scrolls sideways; Alt or Ctrl zooms around the pointer.
   const zoomRef = useRef({ zoom, minZoom });
   zoomRef.current = { zoom, minZoom };
+  // Where the last wheel zoom wants the view, until its frame has scrolled there: ticks arriving
+  // within one frame must anchor on it, not on the scroll position the new zoom has not reached.
+  const pendingLeft = useRef<number | null>(null);
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
@@ -335,10 +339,20 @@ export function Timeline(props: Props) {
       if (event.ctrlKey || event.altKey) {
         event.preventDefault();
         const rect = node.getBoundingClientRect();
-        const pointer = Math.max(0, (event.clientX - rect.left + node.scrollLeft - HEAD) / zoomRef.current.zoom);
-        const next = clamp(zoomRef.current.zoom * (event.deltaY < 0 ? 1.25 : 0.8), zoomRef.current.minZoom, MAX_ZOOM);
+        const offset = event.clientX - rect.left - HEAD;
+        const pointer = Math.max(0, (offset + (pendingLeft.current ?? node.scrollLeft)) / zoomRef.current.zoom);
+        // Proportional to the delta: a mouse notch (~100) is about the old 1.25 step, while a
+        // trackpad pinch (Ctrl+wheel, small deltas) zooms smoothly instead of jumping.
+        const delta = event.deltaMode === 1 ? event.deltaY * 33 : event.deltaY;
+        const next = clamp(zoomRef.current.zoom * clamp(Math.pow(1.002, -delta), 0.5, 2), zoomRef.current.minZoom, MAX_ZOOM);
+        zoomRef.current.zoom = next;
         onZoom(next);
-        requestAnimationFrame(() => (node.scrollLeft = Math.max(0, pointer * next - (event.clientX - rect.left - HEAD))));
+        const left = Math.max(0, pointer * next - offset);
+        pendingLeft.current = left;
+        requestAnimationFrame(() => {
+          node.scrollLeft = left;
+          if (pendingLeft.current === left) pendingLeft.current = null;
+        });
       } else if (event.shiftKey) {
         event.preventDefault();
         node.scrollLeft += event.deltaY;
@@ -358,8 +372,9 @@ export function Timeline(props: Props) {
       const x = playhead.get() * zoom;
       const width = node.clientWidth - HEAD;
       if (playhead.isPlaying()) {
-        if (x > node.scrollLeft + width - 30) node.scrollLeft = x - 40;
-        else if (x < node.scrollLeft) node.scrollLeft = Math.max(0, x - 40);
+        // Paged in the direction of play, so the playhead lands with the screen ahead of it.
+        if (x > node.scrollLeft + width - 30) node.scrollLeft = playhead.rate() < 0 ? Math.max(0, x - width + 40) : x - 40;
+        else if (x < node.scrollLeft) node.scrollLeft = Math.max(0, playhead.rate() < 0 ? x - width + 40 : x - 40);
         return;
       }
       if (gesture.current) return;
@@ -369,21 +384,28 @@ export function Timeline(props: Props) {
   }, [zoom]);
 
   // Esc during a drag puts everything back as it was when the drag began, and goes no further
-  // (it would also clear the selection and the tool).
+  // (it would also clear the selection and the tool). A cancelled pointer or a lost capture does
+  // the same: a drag the timeline can no longer follow must not stay live or be committed.
+  const cancelRef = useRef(() => undefined as void);
+  cancelRef.current = () => {
+    if (!gesture.current) return;
+    gesture.current = null;
+    history.cancel();
+    setSnapLine(null);
+    if (edgeFrame.current !== null) cancelAnimationFrame(edgeFrame.current);
+    edgeFrame.current = null;
+    redraw((value) => value + 1);
+  };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !gesture.current) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      gesture.current = null;
-      history.cancel();
-      setSnapLine(null);
-      stopEdgeScroll();
-      redraw((value) => value + 1);
+      cancelRef.current();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  });
+  }, []);
 
   if (!comp) {
     return (
@@ -398,20 +420,24 @@ export function Timeline(props: Props) {
   const setComp = (change: (current: Comp) => Comp, label: string) => history.commit((current) => updateComp(current, comp.id, change), label);
   // Each drag step is rebuilt from where the gesture started — as history has it, so an edit
   // the assistant commits mid-drag is part of that start and survives the drag.
+  // A step that changes nothing (a click, a 1px jitter) leaves history alone, so no gesture
+  // starts: the click still selects the edit point and no empty undo step is pushed.
   const previewComp = (make: (base: Comp) => Comp) => history.preview((present, start) => {
     const base = start.comps.find((item) => item.id === comp.id);
-    return base ? updateComp(present, comp.id, () => make(base)) : present;
+    if (!base) return present;
+    const made = make(base);
+    return made === present.comps.find((item) => item.id === comp.id) ? present : updateComp(present, comp.id, () => made);
   });
   /** Where `value` snaps to, and the snap line to draw (null when it did not snap). Pure: safe during render. */
-  const snapAt = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }): { time: number; line: number | null } => {
+  const snapAt = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }, against: Comp = comp): { time: number; line: number | null } => {
     const on = snapping !== !!event?.shiftKey && tool !== 'hand';
     if (!on) return { time: toFrame(value, fps), line: null };
-    const result = snap(value, snapTargets(comp, exclude, playhead.get()), 10 / zoom);
+    const result = snap(value, snapTargets(against, exclude, playhead.get()), 10 / zoom);
     return result !== value ? { time: result, line: result } : { time: toFrame(value, fps), line: null };
   };
   /** snapAt for pointer handlers: it also shows the snap line. Never call it while rendering. */
-  const snapped = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }) => {
-    const { time, line } = snapAt(value, exclude, event);
+  const snapped = (value: number, exclude: Set<string>, event?: { shiftKey?: boolean }, against: Comp = comp) => {
+    const { time, line } = snapAt(value, exclude, event, against);
     setSnapLine(line);
     return time;
   };
@@ -424,7 +450,8 @@ export function Timeline(props: Props) {
       const groups = new Set(comp.clips.filter((item) => ids.includes(item.id) && item.groupId).map((item) => item.groupId));
       return [...new Set([...ids, ...comp.clips.filter((item) => item.groupId && groups.has(item.groupId)).map((item) => item.id)])];
     };
-    if (event.shiftKey || event.ctrlKey) {
+    // Only Shift toggles, as in Premiere: Ctrl is a plain press whose drag inserts.
+    if (event.shiftKey) {
       const group = expand([clip.id]);
       const has = selection.includes(clip.id);
       props.onSelect(has ? selection.filter((id) => !group.includes(id)) : [...new Set([...selection, ...group])]);
@@ -436,9 +463,12 @@ export function Timeline(props: Props) {
     return group;
   };
 
+  // Captured on the scroll area, not the pressed element: a trim handle, a clip scrolled out of
+  // the drawn range or the playhead behind the heads can unmount mid-drag and take the capture
+  // (and the pointer-up) with it. Double-clicks this retargets are handed back in onDoubleClick.
   const capture = (event: ReactPointerEvent, next: Gesture) => {
     event.stopPropagation();
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    (scrollRef.current ?? (event.currentTarget as HTMLElement)).setPointerCapture(event.pointerId);
     gesture.current = next;
     redraw((value) => value + 1);
   };
@@ -482,7 +512,8 @@ export function Timeline(props: Props) {
       default:
         break;
     }
-    const picked = selectClip(clip, event);
+    // Ctrl+Shift on an edge is a rolling edit, not a selection toggle.
+    const picked = selectClip(clip, edge && event.ctrlKey ? { shiftKey: false, ctrlKey: true, altKey: event.altKey } : event);
     if (trackLocked) return event.stopPropagation();
     if (edge && (tool === 'select' || tool === 'ripple' || tool === 'rolling' || tool === 'rate-stretch')) {
       const mode: TrimMode =
@@ -556,7 +587,7 @@ export function Timeline(props: Props) {
     // only reselects once the pointer moves, so waiting for it left the old clips selected.
     const additive = event.shiftKey || event.ctrlKey;
     if (!additive && selection.length) props.onSelect([]);
-    capture(event, { kind: 'marquee', x0: x, y0: y, x1: x, y1: y, additive: event.shiftKey || event.ctrlKey, before: selection });
+    capture(event, { kind: 'marquee', x0: x, y0: y, x1: x, y1: y, additive, before: selection, picked: additive ? selection.join(' ') : '' });
   };
 
   const onRulerDown = (event: ReactPointerEvent) => {
@@ -573,13 +604,20 @@ export function Timeline(props: Props) {
     };
     lastPoint.current = event;
     applyPointer(event);
-    if (gesture.current && gesture.current.kind !== 'pan') runEdgeScroll();
+    if (gesture.current && followsEdge(gesture.current)) runEdgeScroll();
   };
+  // A pan moves the view itself; a track resize or a keyframe drag is vertical, and scrolling
+  // sideways under it only threw the timeline left.
+  const followsEdge = (active: Gesture) => active.kind !== 'pan' && active.kind !== 'resize' && active.kind !== 'keyframe';
 
   const applyPointer = (event: Pointer) => {
     const at = timeAt(event.clientX);
     const row = rowAt(event.clientY);
-    if (tool === 'razor' || tool === 'type' || tool === 'vertical-type') setHover({ time: snapped(at, new Set(), event), rowTrack: row?.track.id ?? null });
+    if (tool === 'razor' || tool === 'type' || tool === 'vertical-type') {
+      const time = snapped(at, new Set(), event);
+      const rowTrack = row?.track.id ?? null;
+      setHover((current) => (current && current.time === time && current.rowTrack === rowTrack ? current : { time, rowTrack }));
+    }
     const active = gesture.current;
     if (!active) return;
     const node = scrollRef.current;
@@ -602,12 +640,20 @@ export function Timeline(props: Props) {
         const moving = comp.clips.filter((clip) => active.ids.includes(clip.id));
         const exclude = new Set(active.ids);
         const earliest = Math.min(...moving.map((clip) => clip.start));
-        let dt = (event.clientX - active.startX) / zoom;
-        const lead = snapped(active.grab.start + dt, exclude, event);
-        const tail = snapped(clipEnd(active.grab) + dt, exclude, event);
-        if (lead !== toFrame(active.grab.start + dt, fps)) dt = lead - active.grab.start;
-        else if (tail !== toFrame(clipEnd(active.grab) + dt, fps)) dt = tail - clipEnd(active.grab);
-        else dt = toFrame(active.grab.start + dt, fps) - active.grab.start;
+        // Both edges are tried and the nearer snap wins; the line is drawn for that one only.
+        const raw = (event.clientX - active.startX) / zoom;
+        const lead = snapAt(active.grab.start + raw, exclude, event);
+        const tail = snapAt(clipEnd(active.grab) + raw, exclude, event);
+        const leadGap = lead.line === null ? Infinity : Math.abs(lead.time - (active.grab.start + raw));
+        const tailGap = tail.line === null ? Infinity : Math.abs(tail.time - (clipEnd(active.grab) + raw));
+        let dt: number;
+        if (tailGap < leadGap) {
+          dt = tail.time - clipEnd(active.grab);
+          setSnapLine(tail.line);
+        } else {
+          dt = lead.time - active.grab.start;
+          setSnapLine(lead.line);
+        }
         active.dt = Math.max(dt, -earliest);
         const grabKind = comp.tracks.find((track) => track.id === active.grab.trackId)?.kind ?? 'video';
         const target = dropTarget(event.clientX, event.clientY);
@@ -622,8 +668,11 @@ export function Timeline(props: Props) {
         return;
       }
       case 'trim': {
-        const target = snapped(at, new Set([active.clipId]), event);
-        previewComp((base) => trimEdge(base, active.clipId, active.edge, target, active.mode, limit, { minDuration: frame, alone: active.alone || event.altKey && active.mode !== 'stretch' }));
+        // Snapped against the comp as the drag began, without the clip and the partners trimming
+        // with it: the live preview carries their edges along under the pointer, and they stuck.
+        const alone = active.alone || event.altKey && active.mode !== 'stretch';
+        const target = snapped(at, new Set(alone ? [active.clipId] : withLinked(active.base, [active.clipId])), event, active.base);
+        previewComp((base) => trimEdge(base, active.clipId, active.edge, target, active.mode, limit, { minDuration: frame, alone }));
         return;
       }
       case 'slip': {
@@ -647,7 +696,13 @@ export function Timeline(props: Props) {
           return clipRow && clip.start < t1 && clipEnd(clip) > t0 && clipRow.top < y1 && clipRow.top + clipRow.height > y0;
         }).map((clip) => clip.id);
         const expanded = props.linkedSelection ? withLinked(comp, hit) : hit;
-        props.onSelect(active.additive ? [...new Set([...active.before, ...expanded])] : expanded);
+        const next = active.additive ? [...new Set([...active.before, ...expanded])] : expanded;
+        // Only a change of what is inside reselects: every app panel re-renders on a selection.
+        const key = next.join(' ');
+        if (key !== active.picked) {
+          active.picked = key;
+          props.onSelect(next);
+        }
         redraw((value) => value + 1);
         return;
       }
@@ -726,7 +781,7 @@ export function Timeline(props: Props) {
     const node = scrollRef.current;
     const point = lastPoint.current;
     const active = gesture.current;
-    if (!node || !point || !active || active.kind === 'pan') return;
+    if (!node || !point || !active || !followsEdge(active)) return;
     const speed = edgeSpeed(point.clientX);
     if (speed !== 0) {
       const before = node.scrollLeft;
@@ -818,135 +873,58 @@ export function Timeline(props: Props) {
     return ghosts;
   };
 
-  /**
-   * A row of thumbnails across a clip. Each tile keeps the source's aspect ratio — stretching one
-   * image over the whole clip was what made the footage look squashed — and shows the filmstrip
-   * frame nearest that moment, so the picture still follows the time under it.
-   */
-  const stripTiles = (clip: Clip, asset: Asset, strip: string, rowHeight: number, sliceLeft: number, sliceWidth: number): ReactNode[] => {
-    const height = Math.max(10, rowHeight - 17);
-    const aspect = asset.width > 0 && asset.height > 0 ? asset.width / asset.height : 16 / 9;
-    const tileWidth = Math.max(16, Math.round(height * aspect));
-    const frames = asset.kind === 'video' ? FILMSTRIP_FRAMES : 1;
-    const total = Math.max(3, clip.duration * zoom);
-    const first = Math.max(0, Math.floor(sliceLeft / tileWidth));
-    const last = Math.min(Math.ceil(total / tileWidth), Math.ceil((sliceLeft + Math.max(0, sliceWidth)) / tileWidth));
-    const tiles: ReactNode[] = [];
-    for (let index = first; index < last; index++) {
-      const left = index * tileWidth;
-      const at = clip.in + ((left + tileWidth / 2) / zoom) * clip.speed;
-      const frame = frames > 1 ? clamp(Math.floor((at / Math.max(0.001, asset.duration)) * frames), 0, frames - 1) : 0;
-      tiles.push(
-        <div
-          key={index}
-          className="strip-tile"
-          style={{
-            left,
-            width: Math.min(tileWidth, total - left),
-            backgroundImage: `url("${fileSrc(strip)}")`,
-            backgroundSize: `${tileWidth * frames}px 100%`,
-            backgroundPositionX: -frame * tileWidth,
-          }}
-        />,
-      );
-    }
-    return tiles;
+  // Clips are memoized views: a drag step re-renders the timeline, but only the clips whose own
+  // props changed paint again. Everything they call goes through this ref, so it never invalidates them.
+  clipActions.current = {
+    down: onClipDown,
+    rubber: onRubberDown,
+    deleteKey: (clip, property, index) => setComp((current) => updateClipIn(current, clip.id, (item) => ({ ...item, keyframes: { ...item.keyframes, [property]: item.keyframes[property].filter((_, i) => i !== index) } })), 'Delete Keyframe'),
+    menu: (event, clip) => {
+      event.preventDefault();
+      event.stopPropagation();
+      props.onClipMenu(event, clip.id, timeAt(event.clientX));
+    },
+    open: (clip) => {
+      if (clip.source.type === 'comp') props.onOpenComp(clip.source.compId);
+      else if (clip.source.type === 'media') props.onOpenInSource(clip.source.assetId, { in: clip.in, out: clip.in + clip.duration * clip.speed });
+      else if (isLayerClip(clip)) {
+        // A precomp layer ("Shot as card") opens its own layered comp, like a nested comp clip.
+        const precomp = ownLayers(clip.source.scene).find((layer) => layer.type === 'precomp' && layer.comp);
+        if (precomp?.type === 'precomp' && precomp.comp && project.comps.some((entry) => entry.id === precomp.comp)) props.onOpenComp(precomp.comp);
+      }
+    },
   };
 
   const renderClip = (clip: Clip, row: Row) => {
     if (clipEnd(clip) < visibleStart || clip.start > visibleEnd) return null;
-    const track = row.track;
-    const selected = selection.includes(clip.id);
     const asset = clip.source.type === 'media' ? assets.get(clip.source.assetId) : undefined;
     const offline = clip.source.type === 'media' && (!asset || asset.missing || offlineIds.has(clip.source.assetId));
     const width = Math.max(3, clip.duration * zoom);
-    const kindClass = track.kind === 'audio' ? `a-${clip.source.type}` : `v-${clip.source.type}`;
-    const custom = labelColor(clip.label);
-    const fx = !isIdentityTransform(clip.transform) || !isIdentityEffects(clip.effects) || !!clip.mask || clip.adjustment;
-    const speed = clip.speed !== 1 || clip.reverse ? `${clip.reverse ? '-' : ''}${Math.round(clip.speed * 100)}%` : null;
-    const strip = track.kind === 'video' && display.thumbnails && asset ? (asset.kind === 'video' ? asset.filmstrip : asset.thumbnail) : null;
-    const wave = track.kind === 'audio' && display.waveforms && asset ? asset : null;
     // Only the on-screen part of a clip is painted: at high zoom a clip is far wider than the view.
     const sliceLeft = Math.max(0, Math.floor((visibleStart - clip.start) * zoom));
     const sliceWidth = Math.min(width, Math.ceil((visibleEnd - clip.start) * zoom)) - sliceLeft;
-    const property = track.kind === 'audio' ? 'volume' : 'opacity';
-    const keys = clip.keyframes[property];
-    const bandHeight = row.height - 20;
-    const showBand = display.keyframes && row.height >= 40;
-    const bandY = (value: number) => 16 + (property === 'opacity' ? (1 - value / 100) : volumeY(value)) * bandHeight;
-    const bandPoints = keys.length
-      ? [[0, bandY(valueAt(keys, 0) ?? 0)] as [number, number], ...keys.map((key) => [key.time * zoom, bandY(key.value)] as [number, number]), [width, bandY(valueAt(keys, clip.duration) ?? 0)] as [number, number]].map(([x, y]) => `${x},${y}`).join(' ')
-      : `0,${bandY(property === 'opacity' ? clip.transform.opacity : clip.volume)} ${width},${bandY(property === 'opacity' ? clip.transform.opacity : clip.volume)}`;
-    const title = `${clipName(project, assets, clip)}\nStart ${timecode(clip.start, fps)} · End ${timecode(clipEnd(clip), fps)} · Duration ${timecode(clip.duration, fps)}${speed ? `\nSpeed ${speed}` : ''}`;
     return (
-      <div
+      <ClipView
         key={clip.id}
-        data-clip-id={clip.id}
-        className={`tl-clip ${kindClass}${selected ? ' selected' : ''}${props.aiChanged?.has(clip.id) ? ' ai-changed' : ''}${clip.enabled ? '' : ' disabled'}${offline ? ' offline' : ''}${clip.hold !== null ? ' hold' : ''}`}
-        style={{ left: HEAD + clip.start * zoom, width, top: row.top + 1, height: row.height - 2, ...(custom ? { ['--clip-color' as string]: custom } : {}) }}
-        onPointerDown={(event) => onClipDown(event, clip, null)}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          props.onClipMenu(event, clip.id, timeAt(event.clientX));
-        }}
-        onDoubleClick={() => {
-          if (clip.source.type === 'comp') props.onOpenComp(clip.source.compId);
-          else if (clip.source.type === 'media') props.onOpenInSource(clip.source.assetId, { in: clip.in, out: clip.in + clip.duration * clip.speed });
-          else if (isLayerClip(clip)) {
-            // A precomp layer ("Shot as card") opens its own layered comp, like a nested comp clip.
-            const precomp = ownLayers(clip.source.scene).find((layer) => layer.type === 'precomp' && layer.comp);
-            if (precomp?.type === 'precomp' && precomp.comp && project.comps.some((entry) => entry.id === precomp.comp)) props.onOpenComp(precomp.comp);
-          }
-        }}
-        title={title}
-      >
-        {strip && asset && <div className="clip-strip">{stripTiles(clip, asset, strip, row.height, sliceLeft, sliceWidth)}</div>}
-        {wave && sliceWidth > 0 && (
-          <ClipWave asset={wave} in={clip.in} speed={clip.speed} left={sliceLeft} width={sliceWidth} height={Math.max(10, row.height - 17)} zoom={zoom} fallback={wave.waveform} />
-        )}
-        {clip.source.type === 'shape' && <div className="clip-swatch" style={{ background: clip.source.fill ?? 'transparent', borderColor: clip.source.stroke ?? 'transparent' }} />}
-        {width > 18 && (
-          <div className="clip-label">
-            {display.fxBadges && <span className={`fx-badge${fx ? ' on' : ''}`}>fx</span>}
-            {display.names && <span className="clip-name">{clipName(project, assets, clip)}{clip.linkId ? (track.kind === 'video' ? ' [V]' : ' [A]') : ''}</span>}
-            {(() => {
-              // Linked halves that slipped apart: Premiere's red frame-offset badge.
-              const offset = clip.linkId ? syncOffsetFrames(comp, clip, comp.fps) : 0;
-              return offset ? <span className="tl-sync-badge" title={`Out of sync with its linked ${track.kind === 'video' ? 'audio' : 'video'} by ${Math.abs(offset)} frame${Math.abs(offset) === 1 ? '' : 's'}`}>{offset > 0 ? '+' : '−'}{Math.abs(offset)}</span> : null;
-            })()}
-            {speed && <span className="clip-speed">{speed}</span>}
-            {clip.source.type === 'text' && clip.source.preset === 'caption' && <span className="clip-sub">{findStyle(clip.source.style)?.label ?? 'Caption'}</span>}
-          </div>
-        )}
-        {offline && <div className="clip-offline">Media Offline</div>}
-        {showBand && (
-          <svg className="rubber-band" width={width} height={row.height}>
-            <polyline className="band-line" points={bandPoints} />
-            {/* A thick transparent copy of the line is the only part that takes the pointer, so
-                dragging the clip body still moves the clip — as it does in Premiere. */}
-            <polyline className="band-hit" points={bandPoints} onPointerDown={(event) => onRubberDown(event, clip, null)} />
-            {keys.map((key, index) => (
-              <rect key={index} className="keyframe-dot" x={key.time * zoom - 4} y={bandY(key.value) - 4} width={8} height={8} transform={`rotate(45 ${key.time * zoom} ${bandY(key.value)})`}
-                onPointerDown={(event) => {
-                  if (event.altKey || (event.button === 0 && event.detail === 2)) {
-                    event.stopPropagation();
-                    setComp((current) => updateClipIn(current, clip.id, (item) => ({ ...item, keyframes: { ...item.keyframes, [property]: item.keyframes[property].filter((_, i) => i !== index) } })), 'Delete Keyframe');
-                    return;
-                  }
-                  onRubberDown(event, clip, index);
-                }} />
-            ))}
-          </svg>
-        )}
-        {!track.locked && (tool === 'select' || tool === 'ripple' || tool === 'rolling' || tool === 'rate-stretch') && width > 10 && (
-          <>
-            {props.selectedEdit?.clipId === clip.id && <span className={`tl-edit-mark ${props.selectedEdit.edge}`} />}
-            <span className={`clip-handle left ${tool}`} onPointerDown={(event) => onClipDown(event, clip, 'in')} />
-            <span className={`clip-handle right ${tool}`} onPointerDown={(event) => onClipDown(event, clip, 'out')} />
-          </>
-        )}
-      </div>
+        clip={clip}
+        track={row.track}
+        top={row.top}
+        height={row.height}
+        zoom={zoom}
+        fps={fps}
+        selected={selection.includes(clip.id)}
+        aiChanged={!!props.aiChanged?.has(clip.id)}
+        offline={offline}
+        asset={asset}
+        sliceLeft={sliceLeft}
+        sliceWidth={sliceWidth}
+        tool={tool}
+        display={display}
+        editEdge={props.selectedEdit?.clipId === clip.id ? props.selectedEdit.edge : null}
+        name={clipName(project, assets, clip)}
+        syncOffset={clip.linkId ? syncOffsetFrames(comp, clip, comp.fps) : 0}
+        actions={clipActions}
+      />
     );
   };
 
@@ -1115,8 +1093,22 @@ export function Timeline(props: Props) {
         }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onPointerLeave={() => setHover(null)}
+        // A pointer-up clears the gesture first, so these only see a drag that was taken away.
+        onPointerCancel={() => cancelRef.current()}
+        onLostPointerCapture={() => cancelRef.current()}
+        onPointerLeave={() => {
+          setHover(null);
+          if (!gesture.current) setSnapLine(null);
+        }}
+        onDoubleClick={(event) => {
+          // Pointer capture on this element makes it the target of the clicks that end a drag;
+          // hand a retargeted double-click back to whatever is under the pointer (a clip, a marker).
+          if (event.target !== event.currentTarget) return;
+          const hit = document.elementFromPoint(event.clientX, event.clientY);
+          if (hit && hit !== event.currentTarget && event.currentTarget.contains(hit)) {
+            hit.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: event.clientX, clientY: event.clientY, button: event.button, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, altKey: event.altKey }));
+          }
+        }}
       >
         <div className="tl-content" style={{ width: HEAD + lanesWidth, height: Math.max(rows.height, view.height) }}>
           <div className="tl-ruler" style={{ width: HEAD + lanesWidth }} onPointerDown={onRulerDown}>
@@ -1200,6 +1192,144 @@ export function Timeline(props: Props) {
     </div>
   );
 }
+
+type ClipActions = {
+  down: (event: ReactPointerEvent, clip: Clip, edge: 'in' | 'out' | null) => void;
+  rubber: (event: ReactPointerEvent, clip: Clip, index: number | null) => void;
+  deleteKey: (clip: Clip, property: 'opacity' | 'volume', index: number) => void;
+  menu: (event: React.MouseEvent, clip: Clip) => void;
+  open: (clip: Clip) => void;
+};
+
+type ClipViewProps = {
+  clip: Clip;
+  track: Track;
+  top: number;
+  height: number;
+  zoom: number;
+  fps: number;
+  selected: boolean;
+  aiChanged: boolean;
+  offline: boolean;
+  asset: Asset | undefined;
+  sliceLeft: number;
+  sliceWidth: number;
+  tool: Tool;
+  display: DisplaySettings;
+  editEdge: 'in' | 'out' | null;
+  name: string;
+  syncOffset: number;
+  actions: RefObject<ClipActions | null>;
+};
+
+/**
+ * A row of thumbnails across a clip. Each tile keeps the source's aspect ratio — stretching one
+ * image over the whole clip was what made the footage look squashed — and shows the filmstrip
+ * frame nearest that moment, so the picture still follows the time under it.
+ */
+function stripTiles(clip: Clip, asset: Asset, strip: string, rowHeight: number, sliceLeft: number, sliceWidth: number, zoom: number): ReactNode[] {
+  const height = Math.max(10, rowHeight - 17);
+  const aspect = asset.width > 0 && asset.height > 0 ? asset.width / asset.height : 16 / 9;
+  const tileWidth = Math.max(16, Math.round(height * aspect));
+  const frames = asset.kind === 'video' ? FILMSTRIP_FRAMES : 1;
+  const total = Math.max(3, clip.duration * zoom);
+  const first = Math.max(0, Math.floor(sliceLeft / tileWidth));
+  const last = Math.min(Math.ceil(total / tileWidth), Math.ceil((sliceLeft + Math.max(0, sliceWidth)) / tileWidth));
+  const tiles: ReactNode[] = [];
+  for (let index = first; index < last; index++) {
+    const left = index * tileWidth;
+    const at = clip.in + ((left + tileWidth / 2) / zoom) * clip.speed;
+    const frame = frames > 1 ? clamp(Math.floor((at / Math.max(0.001, asset.duration)) * frames), 0, frames - 1) : 0;
+    tiles.push(
+      <div
+        key={index}
+        className="strip-tile"
+        style={{
+          left,
+          width: Math.min(tileWidth, total - left),
+          backgroundImage: `url("${fileSrc(strip)}")`,
+          backgroundSize: `${tileWidth * frames}px 100%`,
+          backgroundPositionX: -frame * tileWidth,
+        }}
+      />,
+    );
+  }
+  return tiles;
+}
+
+const ClipView = memo(function ClipView({ clip, track, top, height, zoom, fps, selected, aiChanged, offline, asset, sliceLeft, sliceWidth, tool, display, editEdge, name, syncOffset, actions }: ClipViewProps) {
+  const act = () => actions.current;
+  const width = Math.max(3, clip.duration * zoom);
+  const kindClass = track.kind === 'audio' ? `a-${clip.source.type}` : `v-${clip.source.type}`;
+  const custom = labelColor(clip.label);
+  const fx = !isIdentityTransform(clip.transform) || !isIdentityEffects(clip.effects) || !!clip.mask || clip.adjustment;
+  const speed = clip.speed !== 1 || clip.reverse ? `${clip.reverse ? '-' : ''}${Math.round(clip.speed * 100)}%` : null;
+  const strip = track.kind === 'video' && display.thumbnails && asset ? (asset.kind === 'video' ? asset.filmstrip : asset.thumbnail) : null;
+  const wave = track.kind === 'audio' && display.waveforms && asset ? asset : null;
+  const property = track.kind === 'audio' ? 'volume' : 'opacity';
+  const keys = clip.keyframes[property];
+  const bandHeight = height - 20;
+  const showBand = display.keyframes && height >= 40;
+  const bandY = (value: number) => 16 + (property === 'opacity' ? (1 - value / 100) : volumeY(value)) * bandHeight;
+  const bandPoints = keys.length
+    ? [[0, bandY(valueAt(keys, 0) ?? 0)] as [number, number], ...keys.map((key) => [key.time * zoom, bandY(key.value)] as [number, number]), [width, bandY(valueAt(keys, clip.duration) ?? 0)] as [number, number]].map(([x, y]) => `${x},${y}`).join(' ')
+    : `0,${bandY(property === 'opacity' ? clip.transform.opacity : clip.volume)} ${width},${bandY(property === 'opacity' ? clip.transform.opacity : clip.volume)}`;
+  const title = `${name}\nStart ${timecode(clip.start, fps)} · End ${timecode(clipEnd(clip), fps)} · Duration ${timecode(clip.duration, fps)}${speed ? `\nSpeed ${speed}` : ''}`;
+  return (
+    <div
+      data-clip-id={clip.id}
+      className={`tl-clip ${kindClass}${selected ? ' selected' : ''}${aiChanged ? ' ai-changed' : ''}${clip.enabled ? '' : ' disabled'}${offline ? ' offline' : ''}${clip.hold !== null ? ' hold' : ''}`}
+      style={{ left: HEAD + clip.start * zoom, width, top: top + 1, height: height - 2, ...(custom ? { ['--clip-color' as string]: custom } : {}) }}
+      onPointerDown={(event) => act()?.down(event, clip, null)}
+      onContextMenu={(event) => act()?.menu(event, clip)}
+      onDoubleClick={() => act()?.open(clip)}
+      title={title}
+    >
+      {strip && asset && <div className="clip-strip">{stripTiles(clip, asset, strip, height, sliceLeft, sliceWidth, zoom)}</div>}
+      {wave && sliceWidth > 0 && (
+        <ClipWave asset={wave} in={clip.in} speed={clip.speed} left={sliceLeft} width={sliceWidth} height={Math.max(10, height - 17)} zoom={zoom} fallback={wave.waveform} total={width} />
+      )}
+      {clip.source.type === 'shape' && <div className="clip-swatch" style={{ background: clip.source.fill ?? 'transparent', borderColor: clip.source.stroke ?? 'transparent' }} />}
+      {width > 18 && (
+        <div className="clip-label">
+          {display.fxBadges && <span className={`fx-badge${fx ? ' on' : ''}`}>fx</span>}
+          {display.names && <span className="clip-name">{name}{clip.linkId ? (track.kind === 'video' ? ' [V]' : ' [A]') : ''}</span>}
+          {/* Linked halves that slipped apart: Premiere's red frame-offset badge. */}
+          {syncOffset ? <span className="tl-sync-badge" title={`Out of sync with its linked ${track.kind === 'video' ? 'audio' : 'video'} by ${Math.abs(syncOffset)} frame${Math.abs(syncOffset) === 1 ? '' : 's'}`}>{syncOffset > 0 ? '+' : '−'}{Math.abs(syncOffset)}</span> : null}
+          {speed && <span className="clip-speed">{speed}</span>}
+          {clip.source.type === 'text' && clip.source.preset === 'caption' && <span className="clip-sub">{findStyle(clip.source.style)?.label ?? 'Caption'}</span>}
+        </div>
+      )}
+      {offline && <div className="clip-offline">Media Offline</div>}
+      {showBand && (
+        <svg className="rubber-band" width={width} height={height}>
+          <polyline className="band-line" points={bandPoints} />
+          {/* A thick transparent copy of the line is the only part that takes the pointer, so
+              dragging the clip body still moves the clip — as it does in Premiere. */}
+          <polyline className="band-hit" points={bandPoints} onPointerDown={(event) => act()?.rubber(event, clip, null)} />
+          {keys.map((key, index) => (
+            <rect key={index} className="keyframe-dot" x={key.time * zoom - 4} y={bandY(key.value) - 4} width={8} height={8} transform={`rotate(45 ${key.time * zoom} ${bandY(key.value)})`}
+              onPointerDown={(event) => {
+                if (event.altKey || (event.button === 0 && event.detail === 2)) {
+                  event.stopPropagation();
+                  act()?.deleteKey(clip, property, index);
+                  return;
+                }
+                act()?.rubber(event, clip, index);
+              }} />
+          ))}
+        </svg>
+      )}
+      {!track.locked && (tool === 'select' || tool === 'ripple' || tool === 'rolling' || tool === 'rate-stretch') && width > 10 && (
+        <>
+          {editEdge && <span className={`tl-edit-mark ${editEdge}`} />}
+          <span className={`clip-handle left ${tool}`} onPointerDown={(event) => act()?.down(event, clip, 'in')} />
+          <span className={`clip-handle right ${tool}`} onPointerDown={(event) => act()?.down(event, clip, 'out')} />
+        </>
+      )}
+    </div>
+  );
+});
 
 /** Replaces one clip inside a comp. */
 export function updateClipIn(comp: Comp, clipId: string, change: (clip: Clip) => Clip): Comp {
@@ -1302,7 +1432,18 @@ function ensureTrackFor(comp: Comp, kind: 'video' | 'audio', index: number): { c
 /** The bar under the tracks: drag the thumb to scroll, drag its ends to zoom. */
 function Navigator({ viewportWidth, contentWidth, scrollLeft, zoom, minZoom, onScroll, onZoom }: { viewportWidth: number; contentWidth: number; scrollLeft: number; zoom: number; minZoom: number; onScroll: (value: number) => void; onZoom: (zoom: number) => void }) {
   const barRef = useRef<HTMLDivElement>(null);
-  const barWidth = Math.max(1, barRef.current?.clientWidth ?? viewportWidth);
+  // Measured by an observer rather than read off the DOM while rendering (a forced layout each time).
+  const [measured, setMeasured] = useState(0);
+  useLayoutEffect(() => {
+    const node = barRef.current;
+    if (!node) return;
+    const measure = () => setMeasured(node.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const barWidth = Math.max(1, measured || viewportWidth);
   const ratio = barWidth / Math.max(contentWidth, 1);
   const thumbLeft = scrollLeft * ratio;
   const thumbWidth = Math.max(24, Math.min(barWidth, viewportWidth * ratio));

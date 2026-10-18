@@ -6,17 +6,52 @@
 // timeline the AI had cut into dozens of pieces. So elements are borrowed from a pool instead:
 // the running element is handed straight to the next clip and never stops.
 
+import { ClipChain } from './audio';
+
 type Kind = 'video' | 'audio';
 
 const idle = new Map<string, HTMLMediaElement[]>();
 /** Per source: enough for a transition (two sides) plus one in reserve. */
 const LIMIT = 3;
+/** Across all sources: each idle element holds a decoder, and a long edit touches many files. */
+const IDLE_CAP = 24;
+/** Every idle element and its slot, least recently parked first (a Map keeps insertion order). */
+const parked = new Map<HTMLMediaElement, string>();
 
 const slot = (kind: Kind, src: string) => `${kind}:${src}`;
 
+/** Lets go of an element for good: its decoder, its network fetch and its audio nodes. */
+const discard = (element: HTMLMediaElement) => {
+  parked.delete(element);
+  element.pause();
+  element.removeAttribute('src');
+  element.load();
+  ClipChain.dispose(element);
+};
+
+const stash = (id: string, bucket: HTMLMediaElement[], element: HTMLMediaElement) => {
+  bucket.push(element);
+  idle.set(id, bucket);
+  parked.delete(element);
+  parked.set(element, id);
+  // Oldest first, never the element arriving (see releaseMedia).
+  for (const [oldest, oldestId] of parked) {
+    if (parked.size <= IDLE_CAP) break;
+    if (oldest === element) continue;
+    const list = idle.get(oldestId);
+    const index = list ? list.indexOf(oldest) : -1;
+    if (list && index >= 0) list.splice(index, 1);
+    if (list && !list.length) idle.delete(oldestId);
+    discard(oldest);
+  }
+};
+
 export const acquireMedia = (kind: Kind, src: string): HTMLMediaElement => {
   const pooled = idle.get(slot(kind, src))?.pop();
-  if (pooled) return pooled;
+  if (pooled) {
+    parked.delete(pooled);
+    return pooled;
+  }
   const element = document.createElement(kind);
   element.className = 'layer-media';
   element.preload = 'auto';
@@ -40,14 +75,9 @@ export const releaseMedia = (kind: Kind, src: string, element: HTMLMediaElement)
   // next. Dropping it would leave that clip a stale idle element to seek and start from cold.
   if (bucket.length >= LIMIT) {
     const oldest = bucket.shift();
-    if (oldest) {
-      oldest.pause();
-      oldest.removeAttribute('src');
-      oldest.load();
-    }
+    if (oldest) discard(oldest);
   }
-  bucket.push(element);
-  idle.set(id, bucket);
+  stash(id, bucket, element);
   // Stop it only if nothing picked it up: at a plain cut the next clip takes this very element, and
   // pausing it there is exactly the hiccup this pool exists to avoid. That hand-over happens inside
   // the same React commit (the old layer's cleanup and the new one's layout effect run in one
@@ -73,8 +103,7 @@ export const primeMedia = (kind: Kind, src: string, time: number): Promise<boole
     return Promise.resolve(ready.readyState >= 2);
   }
   const element = acquireMedia(kind, src);
-  bucket.push(element);
-  idle.set(id, bucket);
+  stash(id, bucket, element);
   return new Promise((resolve) => {
     let done = false;
     const finish = (ok: boolean) => { if (done) return; done = true; clearTimeout(timer); resolve(ok); };
@@ -93,12 +122,7 @@ export const primeMedia = (kind: Kind, src: string, time: number): Promise<boole
 
 /** Drops every idle element. Used when a project closes, so decoders are not held forever. */
 export const clearMediaPool = () => {
-  for (const bucket of idle.values()) {
-    for (const element of bucket) {
-      element.pause();
-      element.removeAttribute('src');
-      element.load();
-    }
-  }
+  for (const bucket of idle.values()) for (const element of bucket) discard(element);
   idle.clear();
+  parked.clear();
 };

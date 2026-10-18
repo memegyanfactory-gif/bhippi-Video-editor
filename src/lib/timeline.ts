@@ -8,7 +8,7 @@ import { normalizeEffectClip } from './effectState';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TEXT, DEFAULT_TRANSFORM, FPS, isHexColor, SFX_LENGTH, STILL_DEFAULT, uid } from './editor';
 import { EMPTY_KEYFRAMES, shiftEffectKeys, shiftKeys } from './keyframes';
 import { findRbCard, parseRbStyle } from './reactbits';
-import type { Asset, Clip, ClipSource, Comp, Folder, ItemKind, Marker, MediaRef, Preset, Project, ProjectItem, SfxKind, Track, TrackKind, Transition, TransitionKind } from './types';
+import type { Asset, Clip, ClipSource, Comp, EffectKeys, Folder, ItemKind, Marker, MediaRef, Preset, Project, ProjectItem, SfxKind, Track, TrackKind, Transition, TransitionKind } from './types';
 
 export const EPS = 1e-4;
 /** The shortest clip an edit may leave behind. */
@@ -666,25 +666,45 @@ export function placeClips(comp: Comp, incoming: Clip[], mode: PlaceMode): Comp 
   return tidy({ ...comp, clips: [...clips, ...placeable], markers }, ctx);
 }
 
+/** Effect keyframes stretched with a clip's new length. */
+const scaleEffectKeys = (keys: EffectKeys, scale: number): EffectKeys => Object.fromEntries(Object.entries(keys).map(([name, list]) => [name, list?.map((key) => ({ ...key, time: key.time * scale }))])) as EffectKeys;
+
+type RippleFrom = number | ((trackId: string) => number);
+const fromOn = (from: RippleFrom, trackId: string) => (typeof from === 'number' ? from : from(trackId));
+
 /**
- * Moves clips on `tracks` that start at or after `from` by `amount` (negative closes a gap),
- * skipping any track where the move would run into a clip that stays put.
+ * How far back (a negative amount) the material at or after `from` on every one of `tracks` can
+ * move before one of them runs into a clip that stays put; -Infinity when nothing limits it.
  */
-function rippleTracks(clips: Clip[], from: number, amount: number, tracks: Set<string>): Clip[] {
-  if (Math.abs(amount) < EPS) return clips;
-  const movable = new Set<string>();
+function rippleRoom(clips: Clip[], from: RippleFrom, tracks: Set<string>): number {
+  let room = -Infinity;
   for (const trackId of tracks) {
-    const onTrack = clips.filter((clip) => clip.trackId === trackId);
-    const later = onTrack.filter((clip) => clip.start >= from - EPS);
-    if (!later.length) continue;
-    if (amount < 0) {
-      const earliest = Math.min(...later.map((clip) => clip.start));
-      const blocking = onTrack.filter((clip) => clip.start < from - EPS).reduce((end, clip) => Math.max(end, clipEnd(clip)), 0);
-      if (earliest + amount < blocking - EPS) continue;
+    const start = fromOn(from, trackId);
+    let earliest = Infinity;
+    let blocking = 0;
+    for (const clip of clips) {
+      if (clip.trackId !== trackId) continue;
+      if (clip.start >= start - EPS) earliest = Math.min(earliest, clip.start);
+      else blocking = Math.max(blocking, clipEnd(clip));
     }
-    movable.add(trackId);
+    if (earliest !== Infinity) room = Math.max(room, Math.min(0, blocking - earliest));
   }
-  return clips.map((clip) => (movable.has(clip.trackId) && clip.start >= from - EPS ? { ...clip, start: Math.max(0, clip.start + amount) } : clip));
+  return room;
+}
+
+/**
+ * Moves clips on `tracks` that start at or after `from` by `amount` (negative closes a gap). Every
+ * track moves by the same amount, as sync lock does in Premiere: when one of them cannot close up
+ * that far, all of them move only as far as it can (or, with `partial` false, none of them move).
+ */
+function rippleTracks(clips: Clip[], from: RippleFrom, amount: number, tracks: Set<string>, partial = true): Clip[] {
+  if (amount < 0) {
+    const room = rippleRoom(clips, from, tracks);
+    if (amount < room - EPS && !partial) return clips;
+    amount = Math.max(amount, room);
+  }
+  if (Math.abs(amount) < EPS) return clips;
+  return clips.map((clip) => (tracks.has(clip.trackId) && clip.start >= fromOn(from, clip.trackId) - EPS ? { ...clip, start: Math.max(0, clip.start + amount) } : clip));
 }
 
 /** Deletes clips; with `ripple`, later material moves up to close each gap. */
@@ -702,8 +722,12 @@ export function removeClips(comp: Comp, ids: Iterable<string>, ripple: boolean):
     const spans = mergeSpans(removed.map((clip) => [clip.start, clipEnd(clip)] as [number, number]));
     const tracks = syncIds(comp, removed.map((clip) => clip.trackId));
     for (const [start, end] of spans.reverse()) {
-      const occupied = new Set(clips.filter((clip) => clip.start < end - EPS && clipEnd(clip) > start + EPS).map((clip) => clip.trackId));
-      clips = rippleTracks(clips, end, start - end, new Set([...tracks].filter((id) => !occupied.has(id))));
+      // A track that lost a clip here closes up from the end of what it lost (an L-cut's shorter
+      // half ends before the span does); any other track only where nothing else sits in the span.
+      const lostEnd = new Map<string, number>();
+      for (const clip of removed) if (clip.start >= start - EPS && clipEnd(clip) <= end + EPS) lostEnd.set(clip.trackId, Math.max(lostEnd.get(clip.trackId) ?? 0, clipEnd(clip)));
+      const occupied = new Set(clips.filter((clip) => !lostEnd.has(clip.trackId) && clip.start < end - EPS && clipEnd(clip) > start + EPS).map((clip) => clip.trackId));
+      clips = rippleTracks(clips, (trackId) => lostEnd.get(trackId) ?? end, start - end, new Set([...tracks].filter((id) => !occupied.has(id))));
     }
   }
   return tidy({ ...comp, clips });
@@ -757,7 +781,9 @@ export function gapAt(comp: Comp, trackId: string, time: number): { start: numbe
 export function closeGap(comp: Comp, trackId: string, time: number): Comp {
   const gap = gapAt(comp, trackId, time);
   if (!gap) return comp;
-  return tidy({ ...comp, clips: rippleTracks(comp.clips, gap.end, gap.start - gap.end, syncIds(comp, [trackId])) });
+  // Premiere will not close a gap that a sync-locked track cannot close too.
+  const clips = rippleTracks(comp.clips, gap.end, gap.start - gap.end, syncIds(comp, [trackId]), false);
+  return clips === comp.clips ? comp : tidy({ ...comp, clips });
 }
 
 // ───────────────────────────── move ─────────────────────────────
@@ -927,11 +953,17 @@ export function trimEdge(comp: Comp, clipId: string, edge: 'in' | 'out', target:
     }
   }
   if (low > high) return comp;
-  const to = clamp(target, low, high);
-  const delta = to - edgeTime;
+  let to = clamp(target, low, high);
+  let delta = to - edgeTime;
+  const groupIds = new Set(group.map((item) => item.id));
+  if (mode === 'ripple' && (edge === 'out' ? delta : -delta) < 0) {
+    // A ripple trim that shortens is limited by the sync-locked tracks that have to close up with it.
+    const room = rippleRoom(comp.clips.filter((item) => !groupIds.has(item.id)), clipEnd(clip), syncIds(comp, group.map((item) => item.trackId)));
+    if (edge === 'out' ? delta < room : -delta < room) delta = edge === 'out' ? room : -room;
+    to = edgeTime + delta;
+  }
   if (Math.abs(delta) < 1e-9) return comp;
 
-  const groupIds = new Set(group.map((item) => item.id));
   const extendHead = (item: Clip, amount: number): Clip => ({
     // `amount` > 0 trims the head; < 0 reveals more of it.
     ...item,
@@ -949,7 +981,7 @@ export function trimEdge(comp: Comp, clipId: string, edge: 'in' | 'out', target:
       const scale = duration / item.duration;
       const keyframes = { ...item.keyframes };
       for (const name of Object.keys(keyframes) as (keyof typeof keyframes)[]) keyframes[name] = keyframes[name].map((key) => ({ ...key, time: key.time * scale }));
-      return { ...item, start: edge === 'in' ? to : item.start, duration, speed: clamp(sourceLength / duration, 0.05, 20), keyframes };
+      return { ...item, start: edge === 'in' ? to : item.start, duration, speed: clamp(sourceLength / duration, 0.05, 20), keyframes, ...(item.effectKeys ? { effectKeys: scaleEffectKeys(item.effectKeys, scale) } : {}) };
     }
     if (edge === 'out') return { ...extendTail(item, delta), duration: to - item.start };
     if (mode === 'ripple') return { ...extendHead(item, delta), duration: item.duration - delta };
@@ -982,13 +1014,17 @@ export function trimEdge(comp: Comp, clipId: string, edge: 'in' | 'out', target:
  */
 export function trimToPlayhead(comp: Comp, trackIds: string[], at: number, side: 'previous' | 'next', ripple: boolean, limit: (clip: Clip) => number, frame: number): Comp {
   let next = comp;
+  // A trim takes the clip's linked partners with it: a partner on a later track is already done.
+  const trimmed = new Set<string>();
   for (const trackId of trackIds) {
     const clips = clipsOn(next, trackId);
     const inside = clips.find((clip) => clip.start < at - EPS && clipEnd(clip) > at + EPS);
     const target = inside ?? (side === 'previous' ? [...clips].reverse().find((clip) => clip.start < at - EPS) : clips.find((clip) => clipEnd(clip) > at + EPS));
-    if (!target) continue;
+    if (!target || trimmed.has(target.id)) continue;
     const edge = inside ? (side === 'previous' ? 'in' : 'out') : side === 'previous' ? 'out' : 'in';
+    const before = new Map(next.clips.map((clip) => [clip.id, clip]));
     next = trimEdge(next, target.id, edge, at, ripple ? 'ripple' : 'normal', limit, { minDuration: frame });
+    for (const clip of next.clips) if (before.get(clip.id)?.duration !== clip.duration) trimmed.add(clip.id);
   }
   return next;
 }
@@ -997,7 +1033,8 @@ export function trimToPlayhead(comp: Comp, trackIds: string[], at: number, side:
 export function slipClip(comp: Comp, clipId: string, sourceDelta: number, limit: (clip: Clip) => number): Comp {
   const clip = comp.clips.find((item) => item.id === clipId);
   if (!clip || trackOf(comp, clip.trackId)?.locked || clip.hold !== null) return comp;
-  const group = comp.clips.filter((item) => item.id === clip.id || (clip.linkId && item.linkId === clip.linkId && Math.abs(item.start - clip.start) < 2 * EPS && Math.abs(item.duration - clip.duration) < 2 * EPS));
+  const locked = lockedIds(comp);
+  const group = comp.clips.filter((item) => item.id === clip.id || (clip.linkId && item.linkId === clip.linkId && !locked.has(item.trackId) && Math.abs(item.start - clip.start) < 2 * EPS && Math.abs(item.duration - clip.duration) < 2 * EPS));
   let low = -Infinity;
   let high = Infinity;
   for (const item of group) {
@@ -1037,7 +1074,8 @@ export function slideClip(comp: Comp, clipId: string, dt: number, limit: (clip: 
   const changes = new Map<string, Clip>();
   for (const { item, previous, next } of plan) {
     changes.set(item.id, { ...item, start: item.start + delta });
-    if (previous) changes.set(previous.id, { ...previous, duration: previous.duration + delta });
+    // A reversed clip plays its tail from `in`: lengthening it must move `in`, or its first frame shifts.
+    if (previous) changes.set(previous.id, { ...previous, duration: previous.duration + delta, in: previous.reverse && previous.hold === null ? previous.in - delta * previous.speed : previous.in });
     if (next) changes.set(next.id, { ...next, start: next.start + delta, in: next.hold !== null || next.reverse ? next.in : next.in + delta * next.speed, duration: next.duration - delta, keyframes: shiftKeys(next.keyframes, delta), ...(next.effectKeys ? { effectKeys: shiftEffectKeys(next.effectKeys, delta) } : {}) });
   }
   return tidy({ ...comp, clips: comp.clips.map((item) => changes.get(item.id) ?? item) });
@@ -1071,11 +1109,12 @@ export function setSpeed(comp: Comp, ids: string[], options: { speed: number; du
     ));
     const members = new Set(unit.map((item) => item.id));
     for (const member of members) done.add(member);
-    let duration = Math.max(MIN_DURATION, Math.min(...unit.map((item) => {
-      const wanted = options.duration ?? (item.duration * item.speed) / rate;
-      const maxBySource = item.hold !== null ? Infinity : (options.limit(item) - item.in) / rate;
-      return Math.min(wanted, maxBySource);
-    })));
+    const maxBySource = Math.min(...unit.map((item) => (item.hold !== null ? Infinity : (options.limit(item) - item.in) / rate)));
+    let duration = Math.min(maxBySource, ...unit.map((item) => options.duration ?? (item.duration * item.speed) / rate));
+    // Premiere lands a retimed clip on whole frames (rounding down only where the source runs out).
+    const fps = next.fps > 0 ? next.fps : 30;
+    const frames = Math.round(duration * fps - 1e-6);
+    duration = Math.max(MIN_DURATION, (frames / fps > maxBySource + EPS ? Math.floor(duration * fps + 1e-6) : Math.max(1, frames)) / fps);
     let clips = next.clips;
     if (options.ripple) clips = [...rippleTracks(clips.filter((item) => !members.has(item.id)), clipEnd(clip), clip.start + duration - clipEnd(clip), syncIds(next, unit.map((item) => item.trackId))), ...unit];
     else duration = Math.min(duration, ...unit.map((item) => bounds(next.clips, item).after - item.start));
@@ -1090,6 +1129,7 @@ export function setSpeed(comp: Comp, ids: string[], options: { speed: number; du
         maintainPitch: options.maintainPitch ?? item.maintainPitch,
         interpolation: options.interpolation ?? item.interpolation,
         keyframes: Object.fromEntries(Object.entries(item.keyframes).map(([name, keys]) => [name, keys.map((key) => ({ ...key, time: key.time * scale }))])) as Clip['keyframes'],
+        ...(item.effectKeys ? { effectKeys: scaleEffectKeys(item.effectKeys, scale) } : {}),
       })),
     };
   }
@@ -1142,7 +1182,7 @@ export function compClocks(project: Project, compId: string, time: number): Map<
 
 /** Add Frame Hold: the part of each video clip after `time` freezes on the frame at `time`. */
 export function addFrameHold(comp: Comp, ids: string[], time: number): Comp {
-  const video = new Set(tracksOf(comp, 'video').map((track) => track.id));
+  const video = new Set(tracksOf(comp, 'video').filter((track) => !track.locked).map((track) => track.id));
   const targets = comp.clips.filter((clip) => ids.includes(clip.id) && video.has(clip.trackId) && clip.start < time && clipEnd(clip) > time);
   if (!targets.length) return comp;
   const ctx = newCtx();
@@ -1289,9 +1329,12 @@ export function addTransition(comp: Comp, trackId: string, time: number, kind: T
     if (Math.abs(candidate.at - time) > tolerance) return;
     if (!best || Math.abs(candidate.at - time) < Math.abs(best.at - time)) best = candidate;
   };
-  for (const clip of clips) {
-    const before = neighbour(clips, clip, 'before');
-    const after = neighbour(clips, clip, 'after');
+  // Clips on a track never overlap, so in start order a neighbour is the clip beside it (no scan).
+  for (const [index, clip] of clips.entries()) {
+    const previous = clips[index - 1];
+    const following = clips[index + 1];
+    const before = previous && Math.abs(clipEnd(previous) - clip.start) < 2 * EPS ? previous : undefined;
+    const after = following && Math.abs(following.start - clipEnd(clip)) < 2 * EPS ? following : undefined;
     consider({ fromClip: before?.id ?? null, toClip: clip.id, at: clip.start });
     if (!after) consider({ fromClip: clip.id, toClip: null, at: clipEnd(clip) });
   }
@@ -1312,6 +1355,22 @@ export function transitionsOnSelection(comp: Comp, ids: string[], kinds: { video
     next = addTransition(next, clip.trackId, clip.start, kind, duration, EPS * 10);
     next = addTransition(next, clip.trackId, clipEnd(clip), kind, duration, EPS * 10);
   }
+  return next;
+}
+
+/**
+ * Premiere's Ctrl+D (video) and Ctrl+Shift+D (audio): with clips selected, the default transition
+ * goes on the selected clips' edges on tracks of that kind; with nothing selected, on the edit
+ * nearest the playhead on each targeted track of that kind.
+ */
+export function defaultTransitions(comp: Comp, kind: 'video' | 'audio', ids: string[], playhead: number, targeted: string[], transition: TransitionKind, duration: number): Comp {
+  const ofKind = (trackId: string) => trackOf(comp, trackId)?.kind === kind;
+  if (ids.length) {
+    const chosen = comp.clips.filter((clip) => ids.includes(clip.id) && ofKind(clip.trackId)).map((clip) => clip.id);
+    return transitionsOnSelection(comp, chosen, { video: transition, audio: transition }, duration);
+  }
+  let next = comp;
+  for (const trackId of targeted.filter(ofKind)) next = addTransition(next, trackId, playhead, transition, duration);
   return next;
 }
 

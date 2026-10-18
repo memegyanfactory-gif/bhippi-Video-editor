@@ -153,6 +153,7 @@ export class ClipChain {
   private channels: Channels | null = null;
   private enhance: boolean | null = null;
   private mapping: AudioNode[] = [];
+  private readonly fixed: AudioNode[];
 
   private constructor(private readonly ctx: AudioContext, input: AudioNode, output: AudioNode) {
     this.input = input;
@@ -178,9 +179,30 @@ export class ClipChain {
     this.balance[0].connect(merge, 0, 0);
     this.balance[1].connect(merge, 0, 1);
     merge.connect(output);
+    this.fixed = [this.gain, this.highpass, this.compressor, split, merge, ...this.balance];
   }
 
   private static elements = new WeakMap<HTMLMediaElement, ClipChain>();
+
+  /**
+   * Unhooks an element the pool has thrown away. A connected MediaElementSource keeps its element
+   * (and the decoder behind it) alive for as long as the graph runs, so a discarded element whose
+   * chain stayed wired was never collected.
+   */
+  static dispose(element: HTMLMediaElement) {
+    const chain = ClipChain.elements.get(element);
+    if (!chain) return;
+    ClipChain.elements.delete(element);
+    stopSound(element);
+    for (const node of [chain.input, ...chain.mapping, ...chain.fixed]) {
+      try {
+        node.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+    }
+    chain.mapping = [];
+  }
 
   /** The chain for an element (created once; an element can only ever have one source node). */
   static for(element: HTMLMediaElement, target: 'program' | 'source' = 'program'): ClipChain | null {

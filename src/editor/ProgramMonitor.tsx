@@ -65,15 +65,18 @@ const QUALITIES: { label: string; value: number }[] = [
   { label: 'Full', value: 1 }, { label: '1/2', value: 0.5 }, { label: '1/4', value: 0.25 }, { label: '1/8', value: 0.125 },
 ];
 
-/** Playhead updates while playing: 30 a second is enough for overlays and the timeline. */
-const UI_STEP = 1 / 30;
-
 /**
- * Whether the playback tick moves the playhead, given the seconds carried since it last did.
- * Two 60 Hz vblanks sum to about 1/30 s, a hair under or over with timer jitter; a strict gate
- * let the short pairs through only on the third vblank, so the playhead ran at 20-30 Hz.
+ * The comp frame nearest a playback clock time: the playhead is published once per frame, as
+ * Premiere draws. Nearest, not floor: when the comp rate matches the display's, vblanks land right
+ * on frame boundaries and timer jitter would make a floor skip one frame and repeat the next.
  */
-export const shouldStep = (carry: number) => carry >= UI_STEP - 0.004;
+export const frameIndex = (time: number, fps: number) => Math.round(time * fps);
+
+/** `time` on the nearest frame of a comp at `fps`, as Premiere parks the playhead. */
+export const snapToFrame = (time: number, fps: number) => (fps > 0 ? Math.max(0, Math.round(time * fps) / fps) : Math.max(0, time));
+
+/** Stops playback on the nearest whole frame of `comp`. */
+const halt = (comp: Comp | undefined) => playhead.seek(comp ? Math.min(snapToFrame(playhead.get(), comp.fps), Math.max(playhead.get(), compDuration(comp))) : playhead.get());
 
 type Box = { left: number; top: number; width: number; height: number };
 type Drag =
@@ -165,6 +168,8 @@ export function ProgramMonitor(props: Props) {
   // A one-shot stop point for Play In to Out / Play Around: forward playback halts at `at`, then
   // parks the playhead on `returnTo` (Play Around goes back to where it started) or stays at `at`.
   const stopRef = useRef<{ at: number; returnTo: number | null } | null>(null);
+  // Set while playAround/playInToOut start playback, so the play-state listener keeps their stop.
+  const arming = useRef(false);
   compRef.current = comp;
   loopRef.current = loop;
 
@@ -299,7 +304,9 @@ export function ProgramMonitor(props: Props) {
     if (rulerTopRef.current) drawRuler(rulerTopRef.current, { axis: 'h', length: view.width, origin: rect.left - view.left, scale, extent: frameW, cursor: cursorX, marks: marks('v') });
     if (rulerLeftRef.current) drawRuler(rulerLeftRef.current, { axis: 'v', length: view.height, origin: rect.top - view.top, scale, extent: frameH, cursor: cursorY, marks: marks('h') });
   };
-  useLayoutEffect(() => drawRulers.current());
+  // Not while playing: measuring the frame and stage forces a layout every published frame, and
+  // nothing the rulers show moves during playback. The render that stops playback redraws them.
+  useLayoutEffect(() => { if (!playing) drawRulers.current(); });
 
   // A guide follows the pointer while dragged (snapping to the frame's edges and centre unless
   // Ctrl is held); letting go outside the picture area removes it.
@@ -394,29 +401,27 @@ export function ProgramMonitor(props: Props) {
     resumeAudio();
     let frame = 0;
     let last = performance.now();
-    let carry = 0;
     let held = 0;
-    // Video elements are their own high precision clock. Updating the React playhead at
-    // 30 fps is enough for overlays and the timeline while avoiding a full compositor
-    // reconciliation on every display refresh (which caused playback to collapse to ~2 fps
-    // on dense timelines).
+    // The clock runs at full precision here; the playhead is published only when it enters a new
+    // comp frame, so the compositor renders each frame once (video elements play natively between).
+    let precise = playhead.get();
+    let published = precise;
+    let shown = Number.NaN;
     const tick = (now: number) => {
-      const delta = Math.max(0, (now - last) / 1000);
+      const elapsed = Math.max(0, (now - last) / 1000);
       last = now;
-      carry += delta;
-      if (!shouldStep(carry)) {
-        frame = requestAnimationFrame(tick);
+      const current = compRef.current;
+      if (!current) {
+        playhead.setPlaying(false);
         return;
       }
-      const current = compRef.current;
-      if (!current) return;
+      // Moved from outside while playing (a click on the time ruler): play on from there.
+      if (playhead.get() !== published) precise = playhead.get();
       const end = compDuration(current);
       const speed = playhead.rate();
       const loopStart = current.inPoint ?? 0;
       const loopEnd = current.outPoint !== null && current.outPoint > loopStart ? current.outPoint : end;
-      const elapsed = carry;
-      carry = 0;
-      const step = stepPlayhead(playhead.get(), elapsed, speed, held, readClocks());
+      const step = stepPlayhead(precise, elapsed, speed, held, readClocks());
       held = step.held;
       let next = step.next;
       const stop = stopRef.current;
@@ -436,19 +441,56 @@ export function ProgramMonitor(props: Props) {
         playhead.seek(0);
         return;
       }
-      playhead.set(next);
+      precise = next;
+      const fps = current.fps > 0 ? current.fps : 30;
+      const at = frameIndex(next, fps);
+      if (at !== shown) {
+        shown = at;
+        published = Math.max(0, at / fps);
+        playhead.set(published);
+      }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      // Stopped by any route (Space, K, a seek, another panel): park on a whole frame. Not at the
+      // end: an end off the frame grid would round back inside it, and Space would not restart.
+      const current = compRef.current;
+      if (current && !playhead.isPlaying() && playhead.get() < compDuration(current)) playhead.set(snapToFrame(playhead.get(), current.fps));
+    };
   }, [playing]);
+
+  // A comp switch (tab change, close) ends playback of the old one and drops its pending stop: a
+  // Play Around armed on one sequence must not fire, or return, on another.
+  const shownComp = useRef(comp?.id);
+  useEffect(() => {
+    if (shownComp.current === comp?.id) return;
+    shownComp.current = comp?.id;
+    stopRef.current = null;
+    if (playhead.isPlaying()) playhead.setPlaying(false);
+  }, [comp?.id]);
+
+  // Playback started anywhere but Play Around / Play In to Out (the timeline, a keyboard shortcut
+  // routed past this monitor) plays freely: a stop left from an earlier one-shot is dropped.
+  useEffect(() => {
+    let was = playhead.isPlaying();
+    let speed = playhead.rate();
+    return playhead.subscribe(() => {
+      const now = playhead.isPlaying();
+      if (now && (!was || playhead.rate() !== speed) && !arming.current) stopRef.current = null;
+      was = now;
+      speed = playhead.rate();
+    });
+  }, []);
 
   const toggle = useCallback(() => {
     const current = compRef.current;
     if (!current || compDuration(current) <= 0) return;
     stopRef.current = null;
-    if (playhead.isPlaying()) return playhead.setPlaying(false);
-    if (playhead.get() >= compDuration(current) - 1 / current.fps) playhead.set(loopRef.current ? (current.inPoint ?? 0) : 0);
+    if (playhead.isPlaying()) return halt(current);
+    // Only from the very end, as Premiere: parked on the last frame, Space plays that frame.
+    if (playhead.get() >= compDuration(current) - 1e-6) playhead.set(loopRef.current ? (current.inPoint ?? 0) : 0);
     playhead.setPlaying(true, 1);
   }, []);
   const step = useCallback((frames: number) => {
@@ -459,7 +501,7 @@ export function ProgramMonitor(props: Props) {
   }, []);
   const shuttle = useCallback((direction: 1 | -1 | 0) => {
     stopRef.current = null;
-    if (direction === 0) return playhead.setPlaying(false);
+    if (direction === 0) return halt(compRef.current);
     const current = playhead.isPlaying() ? playhead.rate() : 0;
     const same = Math.sign(current) === direction;
     const next = same ? Math.min(8, Math.abs(current) * 2) * direction : direction;
@@ -472,7 +514,9 @@ export function ProgramMonitor(props: Props) {
     const at = playhead.get();
     playhead.seek(Math.max(0, at - 2));
     stopRef.current = { at: Math.min(compDuration(current), at + 2), returnTo: at };
+    arming.current = true;
     playhead.setPlaying(true, 1);
+    arming.current = false;
   }, []);
   // Plays the marked range (In, or the start, to Out, or the end) and stops at Out — or loops it
   // when Loop is on.
@@ -484,7 +528,9 @@ export function ProgramMonitor(props: Props) {
     const out = current.outPoint !== null && current.outPoint > start ? Math.min(current.outPoint, end) : end;
     playhead.seek(start);
     stopRef.current = loopRef.current ? null : { at: out, returnTo: null };
+    arming.current = true;
     playhead.setPlaying(true, 1);
+    arming.current = false;
   }, []);
   props.apiRef.current = { toggle, step, shuttle, playAround, playInToOut, getStage: () => stageRef.current,
     zoomStep: (direction) => zoomTo(stepZoom(zoom, fitScale, direction)), zoomFit: () => zoomTo(toggleFit(zoom)) };
@@ -802,7 +848,7 @@ export function ProgramMonitor(props: Props) {
   const percent = (value: number) => `${total > 0 ? (Math.min(value, total) / total) * 100 : 0}%`;
   const scrubAt = (clientX: number, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
-    playhead.seek(clamp(((clientX - rect.left) / rect.width) * total, 0, total));
+    playhead.seek(Math.min(total, snapToFrame(clamp(((clientX - rect.left) / rect.width) * total, 0, total), fps)));
   };
   const cursor = tool === 'hand' ? (panning ? 'grabbing' : 'grab') : tool === 'zoom' ? 'zoom-in' : tool === 'type' || tool === 'vertical-type' ? 'text' : tool === 'select' ? 'default' : 'crosshair';
   const rangeIn = comp?.inPoint ?? null;

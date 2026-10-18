@@ -81,8 +81,11 @@ export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patc
     if (rate < 0) {
       video.pause();
       let last = performance.now();
+      // A running target, not the element's time: that stands still while a seek is in flight, so
+      // stepping back from it dropped every frame's worth of time a slow seek took.
+      let next = video.currentTime;
       const back = (now: number) => {
-        const next = Math.max(0, video.currentTime - ((now - last) / 1000) * -rate);
+        next = Math.max(0, next - ((now - last) / 1000) * -rate);
         last = now;
         if (!video.seeking) video.currentTime = next;
         setTime(next);
@@ -109,12 +112,14 @@ export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patc
     return () => cancelAnimationFrame(frame);
   }, [playing, src, length, rate]);
 
-  const seek = useCallback((value: number) => {
+  // `frame`: land on frame `value` — the element shows the frame at or before its time, so it is
+  // aimed half a frame in (as the Compositor parks), else rounding can show the frame before.
+  const seek = useCallback((value: number, frame = false) => {
     const next = clamp(value, 0, length);
     setTime(next);
     const video = videoRef.current;
-    if (video && src) video.currentTime = next;
-  }, [length, src]);
+    if (video && src) video.currentTime = frame ? Math.min(next + 0.5 / fps, Math.max(next, length - 1e-3)) : next;
+  }, [length, src, fps]);
 
   // Match Frame: parked on the matched frame once its asset shows (after the reset to 0 above).
   useEffect(() => {
@@ -140,7 +145,7 @@ export function SourceMonitor({ asset, range, onRange, onInsert, onDragOut, patc
   }, [asset, src, playing, rate, time, length, seek]);
   const step = useCallback((frames: number) => {
     setPlaying(false);
-    seek(Math.round(time * fps + frames) / fps);
+    seek(Math.round(time * fps + frames) / fps, true);
   }, [seek, time, fps]);
   const markIn = useCallback(() => asset && onRange({ in: Math.min(time, current.out - 1 / fps), out: current.out }), [asset, onRange, time, current.out, fps]);
   const markOut = useCallback(() => asset && onRange({ in: current.in, out: Math.max(time, current.in + 1 / fps) }), [asset, onRange, time, current.in, fps]);

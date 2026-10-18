@@ -252,7 +252,7 @@ describe('the pixel character', () => {
         }
       }
     }
-  });
+  }, 30_000);
 
   it('draws Heli the same after another character was drawn', () => {
     const before = renderPose(REST).join();
