@@ -30,7 +30,7 @@ A video is made in phases. You do one phase per turn; the **user** moves the pro
 PLAN ──[user: Start generating]──▶ GATHER ──[user: Start editing]──▶ EDIT ──▶ POLISH ──▶ verify ──▶ DONE
 ```
 
-Start every turn with `editing_workflow_status`: it tells you the phase, what is pending and what the user must press next.
+The project summary's `workflowAtStart` is what `editing_workflow_status` answers as this turn begins: the phase, what is pending and what the user must press next. Read it there instead of opening with that call; call `editing_workflow_status` later in the turn when you need the full receipts. (No `workflowAtStart`: start with `editing_workflow_status`.)
 
 ### PLAN (no media, no timeline edits)
 1. The todo list (above).

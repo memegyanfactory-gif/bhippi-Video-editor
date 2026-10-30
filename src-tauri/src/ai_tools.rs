@@ -109,6 +109,56 @@ pub fn is_known(name: &str) -> bool {
     specs().iter().any(|tool| tool.name == name)
 }
 
+/// The Bhippi tool a model meant by a name that is not one exactly: the same name behind a
+/// namespace ("mcp__bhippi__get_comp", "functions.get_comp", "bhippi:get_comp"), in another case,
+/// or with dashes or spaces for underscores. `None` when no tool is meant that plainly.
+pub fn canonical(name: &str) -> Option<&'static str> {
+    let bare = name.trim().rsplit(['.', ':', '/']).next().unwrap_or_default();
+    let bare = bare.strip_prefix("mcp__").and_then(|rest| rest.split_once("__")).map_or(bare, |(_, tool)| tool);
+    let wanted = bare.to_ascii_lowercase().replace(['-', ' '], "_");
+    specs().iter().find(|tool| tool.name == wanted).map(|tool| tool.name.as_str())
+}
+
+/// Up to three real tool names near one a model made up ("list_media", "rename_item"), nearest first.
+pub fn similar_names(name: &str) -> Vec<&'static str> {
+    fn distance(a: &[u8], b: &[u8]) -> usize {
+        let mut row: Vec<usize> = (0..=b.len()).collect();
+        for (i, left) in a.iter().enumerate() {
+            let mut next = vec![i + 1];
+            for (j, right) in b.iter().enumerate() {
+                next.push((row[j + 1] + 1).min(next[j] + 1).min(row[j] + usize::from(left != right)));
+            }
+            row = next;
+        }
+        row[b.len()]
+    }
+    let wanted = name.trim().to_ascii_lowercase().replace(['-', ' ', '.'], "_");
+    let words: Vec<&str> = wanted.split('_').filter(|word| word.len() > 2).collect();
+    let near = (wanted.len() / 3).max(3);
+    let mut scored: Vec<(isize, &'static str)> = specs()
+        .iter()
+        .filter_map(|tool| {
+            let shared = tool.name.split('_').filter(|word| words.contains(word)).count();
+            let typos = distance(wanted.as_bytes(), tool.name.as_bytes());
+            // A shared word is worth more than a few typos; plain distance breaks ties.
+            (typos <= near || shared > 0).then(|| (typos as isize - 4 * shared as isize, tool.name.as_str()))
+        })
+        .collect();
+    scored.sort();
+    scored.into_iter().take(3).map(|(_, name)| name).collect()
+}
+
+/// What a call to a tool that does not exist is answered with: the nearest real names, so the
+/// next call is right without a search.
+pub fn unknown_tool(name: &str) -> String {
+    let near = similar_names(name);
+    if near.is_empty() {
+        format!("{name} is not a Bhippi tool")
+    } else {
+        format!("{name} is not a Bhippi tool. Did you mean {}?", near.join(", "))
+    }
+}
+
 /// Runs one tool call against the live project and answers with the result object.
 pub trait ToolExecutor: Send + Sync {
     fn call(&self, name: String, args: Value) -> BoxFuture<'static, Value>;
@@ -162,8 +212,10 @@ pub async fn run_call(executor: &dyn ToolExecutor, name: &str, args: Value) -> V
 }
 
 async fn run_known(executor: &dyn ToolExecutor, name: &str, args: Value) -> Value {
+    // "mcp__bhippi__get_comp" or "Get-Comp" is plainly get_comp: run it rather than refuse it.
+    let name = if is_known(name) { name } else { canonical(name).unwrap_or(name) };
     if !is_known(name) {
-        return failure(format!("{name} is not a Bhippi tool"));
+        return failure(unknown_tool(name));
     }
     if !args.is_object() {
         return failure(format!("the arguments for {name} must be a JSON object"));
@@ -621,6 +673,26 @@ mod tests {
     use serde_json::json;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+
+    #[test]
+    fn a_namespaced_or_misspelled_tool_name_finds_the_real_one() {
+        use super::{canonical, similar_names, unknown_tool};
+        assert_eq!(canonical("mcp__bhippi__get_comp"), Some("get_comp"));
+        assert_eq!(canonical("functions.get_comp"), Some("get_comp"));
+        assert_eq!(canonical("Get-Comp"), Some("get_comp"));
+        assert_eq!(canonical("get_compz"), None);
+        assert_eq!(similar_names("get_compz").first(), Some(&"get_comp"));
+        assert!(unknown_tool("list_media").contains("Did you mean"), "{}", unknown_tool("list_media"));
+    }
+
+    #[tokio::test]
+    async fn a_namespaced_call_runs_as_the_real_tool() {
+        let executor = FakeExecutor::new(|name, _| json!({"ok": true, "ran": name}));
+        let result = run_call(&executor, "mcp__bhippi__get_comp", json!({})).await;
+        assert_eq!(result["ran"], "get_comp");
+        let missing = run_call(&executor, "rename_everything_now", json!({})).await;
+        assert_eq!(missing["ok"], false);
+    }
 
     #[test]
     fn the_catalogue_loads_with_unique_names_and_object_schemas() {

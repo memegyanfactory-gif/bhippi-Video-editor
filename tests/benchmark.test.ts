@@ -131,7 +131,11 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // Raised to 45,400 on 2026-10-18 for the Music Studio (src/music): the slim entries of its 15
       // music_* tools (~+500 a step) and its one-line prompt section, the DAW every provider composes
       // in note by note. They go out whole only on a music ask or with the studio open.
-      expect(row.step, row.id).toBeLessThan(45_400);
+      // Raised to 46,000 on 2026-10-31 for five agent basics sent whole (brain_load_skill, read_file,
+      // list_directory, run_command, open_comp; ~+555 a step): turn traces had them among the most
+      // looked-up slim tools, and each tool_help lookup re-sent a whole ~45K step to learn a few
+      // hundred characters of schema.
+      expect(row.step, row.id).toBeLessThan(46_000);
     }
   });
 

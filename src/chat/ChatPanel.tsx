@@ -51,6 +51,7 @@ import type { TrainedKit } from '../lib/brandKit/learnings';
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 import { mergeScopes, scopeBrief, scopeFromAnnotations, scopeLabel, type QuickScope } from '../lib/quickScope';
 import { continuesTheJob, filmEffortHint, routeWorkflow, savedWorkflowChoice, saveWorkflowChoice, type RouteSignals, type WorkflowChoice, type WorkflowMode } from '../lib/workflowRoute';
+import { advanceChain, autoLead, freshChain, isAutomatic, MAX_AUTO_CONTINUES, nextAutoStep } from './autoContinue';
 import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 
 export type { ToolRun } from './Activity';
@@ -84,6 +85,8 @@ export type ChatMessage =
       usage: Usage | null;
       usageAt?: number;
       elapsedMs: number | null;
+      /** The turn ended on a budget (output limit, round cap) before the job was done: it shows Continue. */
+      cutShort?: 'output' | 'rounds' | null;
       /**
        * Where the account stood when this turn ran, exactly as the provider reported it. The
        * whole reading is kept, not just the worst number, because the chat log is what seeds the
@@ -175,13 +178,16 @@ export function workflowInstruction(status: WorkflowPhaseStatus): string {
 }
 
 /** Every turn starts by reading what the person actually wants. */
-const UNDERSTAND_FIRST = 'Read the message and work out what the person wants before any tool. A greeting, thanks, small talk or a question about the app, the project or editing gets a short, natural reply in their tone, using what you know of the project (what is open, what was just made) where it helps — no tools, no todo list, no workflow, no questions about the video. When a request is vague, ask about the one thing that matters for it in your own words, tied to what they said, not a scripted form.';
+const UNDERSTAND_FIRST = 'Read the message and work out what the person wants before any tool. A greeting, thanks, small talk or a question about the app, the project or editing gets a short, natural reply in their tone, using what you know of the project (what is open, what was just made) where it helps — no tools, no todo list, no workflow, no questions about the video. When a request is vague, ask about the one thing that matters for it in your own words, tied to what they said, not a scripted form. For a task, settle for yourself first what they asked for — every part, including details mentioned in passing (a colour, a time, a word, a clip they named) — and what finished looks like; then do all of it in this turn without stopping to report progress or to ask whether to carry on. Before you end the turn, check each part of the request against what you actually did.';
+
+/** Where a full-workflow turn reads its starting status: the context carries it, so no opening call. */
+const STATUS_FIRST = 'Start from workflowAtStart in the project summary (call editing_workflow_status first only when it is missing).';
 
 function phaseInstruction(status: WorkflowPhaseStatus): string {
-  if (!endsAtButton(status)) return 'Call editing_workflow_status first. In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.';
+  if (!endsAtButton(status)) return `${STATUS_FIRST} In full mode, do NOT stop after analysis — execute all cuts, motion graphics, b-roll and sound design, then call verify_edit_workflow before ending your turn.`;
   const phase = status?.phase;
   const next = phase === 'gathering' || phase === 'gathered' ? 'Start editing' : 'Start generating';
-  return `Call editing_workflow_status first. The production is in the ${phase} phase: finish this phase and end your turn — the user presses ${next} to move on. Do not edit the timeline in this turn.`;
+  return `${STATUS_FIRST} The production is in the ${phase} phase: finish this phase and end your turn — the user presses ${next} to move on. Do not edit the timeline in this turn.`;
 }
 
 export type ChatApi = { clear: () => void; focus: () => void; /** True while a turn is running. */ busy: () => boolean; /** `mode` runs this one turn in that editing workflow instead of the composer's. */ send: (text: string, options?: { mode?: 'full' | 'quick' }) => void; /** Replaces the transcript (opening a .bhippi that carries one). */ load: (messages: unknown[]) => void; /** Stops the turn that is running, if any. */ stop: () => void; /** Puts `text` in the composer (after anything typed) and focuses it, without sending. */ compose: (text: string) => void; /** Points the next message at clips the user picked ("Ask Bhippi AI about this clip"): a Quick edit's scope. */ attachScope: (scope: QuickScope | null) => void };
@@ -475,10 +481,12 @@ ${text}` : text));
     props.onActivity(latest ? { turnId: latest.turnId, status: latest.status, step: latestStep ? `${latestStep.verb} ${latestStep.title}`.trim() || null : null } : null);
   }, [activityKey]);
   const sendRef = useRef<(text: string, mode?: 'full' | 'quick') => void>(() => undefined);
-  /** Turns that were themselves an automatic finishing round ('pending' marks the next one sent). */
-  const autoFinished = useRef(new Set<string>());
-  /** Automatic gather rounds since the person last sent a message themselves. */
-  const autoGathers = useRef(0);
+  /** Rounds the chat sent by itself since the person last asked for something (autoContinue.ts). */
+  const autoChain = useRef(freshChain());
+  /** The request those rounds work on: the person's own words, which every automatic round repeats. */
+  const autoRequest = useRef('');
+  /** Set by the Continue button: the next send carries on the request rather than replacing it. */
+  const continuing = useRef(false);
   /** Auto (the default) runs a request to make a video as Full and a targeted change as Quick; remembered. */
   const [workflowChoice, setWorkflowChoice] = useState<WorkflowChoice>(savedWorkflowChoice);
   const active = props.providers.find((provider) => provider.id === props.providerId);
@@ -760,6 +768,7 @@ ${text}` : text));
             usage: event.usage,
             usageAt: Date.now(),
             elapsedMs: event.elapsedMs,
+            cutShort: event.cutShort ?? null,
             steps: message.steps.map((step) => ({ ...step, done: true })),
           };
         });
@@ -783,8 +792,6 @@ ${text}` : text));
             tier: meta.tier ?? null,
             tools: runs.map((run) => toolSummary(run)),
           });
-          // An edit turn that changed the timeline but stopped short of the Judge and verify gets
-          // one automatic finishing round (never a second: that one reports whatever it reached).
           const status = propsRef.current.workflowStatus(event.turnId);
           const edited = runs.some((run) => run.changedProject);
           // A follow-up edit of a finished production, or an edit with no production at all, is held
@@ -799,24 +806,31 @@ ${text}` : text));
               return report;
             }).catch(() => null)
             : null;
-          if (!event.stopped && !event.fault && edited && status && status.mode === 'full' && !status.structurallyVerified
-            && editing && !autoFinished.current.has(event.turnId)) {
-            const asked = meta.prompt && !meta.prompt.startsWith('[Automatic finishing round') ? ` The user's request, which verify_edit_workflow's asks must cover: "${meta.prompt.slice(0, 800)}"` : '';
-            const finish = `[Automatic finishing round: the last turn ended before verify_edit_workflow.] ${continuePrompt(status)}${asked}`;
+          // A turn that ended before the job was done — a budget cut it short, the connection dropped,
+          // the edit was never verified, shots are still pending — carries on by itself a few times,
+          // as long as each round got somewhere (autoContinue.ts). Past that, Continue is the fail-safe.
+          const end = { stopped: event.stopped, faultKind: event.fault?.kind ?? null, cutShort: event.cutShort ?? null, runs, workflow: status };
+          const kind = nextAutoStep(end, autoChain.current);
+          if (kind) {
+            autoChain.current = advanceChain(autoChain.current, kind);
+            const request = autoRequest.current;
+            const asked = request ? ` The user's request${kind === 'finish' ? ", which verify_edit_workflow's asks must cover" : ''}: "${request.slice(0, 800)}"` : '';
+            const body = kind === 'retry'
+              ? retryNote({ content: event.reply ?? '', steps: [] }, runs, status) ?? 'Do the request again from the start.'
+              : carryOnPrompt(status);
+            const text = `${autoLead(kind, end)} ${body}${asked}`;
+            patch(event.turnId, (item) => ({ ...item, notes: [...item.notes, `Carrying on by itself (${autoChain.current.count} of ${MAX_AUTO_CONTINUES}). Stop it any time.`] }));
+            // Stop, or a message of the person's own, replaces the chain: the round queued here is dropped.
+            const chain = autoChain.current;
+            // Same job, same workflow: Auto routing would read the carry-on wording, not the request.
+            const sameMode = status?.mode === 'quick' || status?.mode === 'full' ? status.mode : undefined;
+            // A dropped connection gets a moment to come back.
             setTimeout(() => {
-              void (polishing ?? Promise.resolve(null)).then((report) => {
-                autoFinished.current.add('pending');
-                sendRef.current(report ? `${finish}\n[Bhippi already ran its own checks on this cut, and fixed what was safe (judge_edit and verify_edit_workflow still have to be called by you): ${report}]` : finish);
+              void (kind === 'finish' && polishing ? polishing : Promise.resolve(null)).then((report) => {
+                if (autoChain.current !== chain || busyRef.current) return;
+                sendRef.current(report ? `${text}\n[Bhippi already ran its own checks on this cut, and fixed what was safe (judge_edit and verify_edit_workflow still have to be called by you): ${report}]` : text, sameMode);
               });
-            }, 400);
-          } else if (!event.stopped && !event.fault && status?.mode === 'full' && status.phase === 'gathering'
-            && (status.gather?.pending?.length ?? 0) > 0 && runs.length > 0 && autoGathers.current < MAX_AUTO_GATHERS) {
-            // Gathering stopped with shots still pending (the reply ran out, or the model wrote a
-            // progress report and ended): it carries on by itself a few times, as long as each turn
-            // did something, instead of waiting for the person to type "continue".
-            autoGathers.current += 1;
-            const more = `[Automatic gather round: the last turn ended with shots still pending.] ${continuePrompt(status)}`;
-            setTimeout(() => sendRef.current(more), 400);
+            }, kind === 'retry' ? 3000 : 400);
           }
         }
       }
@@ -827,7 +841,8 @@ ${text}` : text));
   }, [patch]);
 
   const send = async (text: string, hiddenExtra?: string, modeOverride?: 'full' | 'quick', resumeSession?: string) => {
-    if (!text.startsWith('[Automatic')) autoGathers.current = 0;
+    const carrying = continuing.current;
+    continuing.current = false;
     const attachedImages=[...imagesRef.current];
     const attachedFiles=[...filesRef.current];
     // Annotations from the Program monitor go with the next message that starts a turn; mid-turn
@@ -866,6 +881,12 @@ ${text}` : text));
       setDraft('');
       return;
     }
+    // The person asked for something (or pressed Continue): a fresh automatic budget. Only their own
+    // new request replaces the one the automatic rounds repeat; a "carry on" keeps it.
+    if (!isAutomatic(message)) {
+      autoChain.current = freshChain();
+      if (!carrying && !continuesTheJob(message)) autoRequest.current = message;
+    }
     const { providerId, getContext } = propsRef.current;
     // "@funny" typed into a message switches the style on. The host's context is a render behind
     // the state change, so this send carries the style itself.
@@ -879,7 +900,6 @@ ${text}` : text));
     const model=variantModel(providerModels,propsRef.current.model,propsRef.current.effort);
     const turnId = uid();
     ownTurns.current.add(turnId);
-    if (autoFinished.current.delete('pending')) autoFinished.current.add(turnId);
     rememberTurnPrompt(turnId, message);
     // How much of the craft this model carries: a guided model gets the one-call build and
     // Bhippi's own media first, and compact tool results (modelProfile.ts, chat.rs).
@@ -915,7 +935,9 @@ ${text}` : text));
       // A playbook is what a production plans from; a Quick edit changes one thing and does not need it.
       const toolset = mode === 'quick' ? { ...routed, playbook: undefined } : routed;
       const standing = propsRef.current.instruction ?? workflowInstruction(propsRef.current.workflowStatus(turnId));
-      const context = { ...(getContext({ mode, scope }) as object), ...(tagged ? { editStyle: tagged.id } : {}), ...kitOverride, toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, modelTier: profile.tier, workflowInstruction: guided ? `${GUIDED_BRIEF}\n\n${standing}` : standing };
+      // What editing_workflow_status would answer right now: most turns opened with that call, a whole round trip.
+      const atStart = workflowAtStart(propsRef.current.workflowStatus(turnId));
+      const context = { ...(getContext({ mode, scope }) as object), ...(tagged ? { editStyle: tagged.id } : {}), ...kitOverride, toolset, permission: permissionBrief(propsRef.current.permission), editingWorkflow: mode, ...(atStart ? { workflowAtStart: atStart } : {}), modelTier: profile.tier, workflowInstruction: guided ? `${GUIDED_BRIEF}\n\n${standing}` : standing };
       // The workflow and the context's size on every turn, so what a Quick edit saves can be measured.
       trace(turnId, { ev: 'turn_sent', harness: propsRef.current.harness ?? 'editor', providerId, model, effort: level, mode, scoped: !!scope, contextChars: JSON.stringify(context).length, messageChars: message.length, images: sentImages.length, historyTurns: history.length, phase: phase ?? null, permission: propsRef.current.permission, editStyle: tagged?.id ?? propsRef.current.editStyle ?? null, genres: toolset.genres, toolsWhole: toolset.full.length, playbook: toolset.playbook?.id ?? null, tier: profile.tier });
       await api.chatSend({ turnId, providerId, model, effort: level, message: extra ? `${message}\n\n${extra}` : message, images: sentImages, history, handoff, context, ...(propsRef.current.persona ? { persona: propsRef.current.persona } : {}), ...(propsRef.current.harness ? { harness: propsRef.current.harness } : {}), ...(resumeSession ? { resumeSession } : {}) });
@@ -975,6 +997,8 @@ ${text}` : text));
    * settled here so the composer is always free afterwards.
    */
   const stop = (note?: string) => {
+    // An automatic round already queued is dropped too: Stop means stop.
+    autoChain.current = { ...autoChain.current };
     for (const message of messages) {
       if (message.role !== 'assistant' || message.status !== 'streaming') continue;
       void api.chatStop(message.turnId).catch(() => undefined);
@@ -1315,7 +1339,11 @@ ${text}` : text));
                 });
               }}
               onRemedy={(action) => remedy(message, action)}
-              onContinue={() => void send(continuePrompt(props.workflowStatus(message.turnId)))}
+              onContinue={() => {
+                continuing.current = true;
+                const request = autoRequest.current ? ` The user's request: "${autoRequest.current.slice(0, 800)}"` : '';
+                void send(`${carryOnPrompt(props.workflowStatus(message.turnId))}${request}`, undefined, message.mode);
+              }}
               asking={!!props.ask && message.id === lastAnswerId}
             />
           ),
@@ -1705,12 +1733,36 @@ function tokenLine(usage: Usage | null | undefined): string | null {
   return `${tokens(usage.inputTokens)} in${share} · ${tokens(usage.outputTokens)} out`;
 }
 
-/** Gather turns that carry on by themselves in a row before it waits for the person. */
-const MAX_AUTO_GATHERS = 3;
+/**
+ * The workflow status a turn starts from, in the project summary: the phase, what the user presses
+ * next, the shots and reads still pending. Only what steers the first move; the full receipts stay
+ * one editing_workflow_status call away.
+ */
+export function workflowAtStart(status: unknown): Record<string, unknown> | null {
+  if (!status || typeof status !== 'object') return null;
+  const st = status as Record<string, unknown>;
+  const pick = ['phase', 'nextUserAction', 'gather', 'transcriptPending', 'frameReviewPending', 'blueprintActive', 'pendingJobs', 'frameSizeNeeded'];
+  const out: Record<string, unknown> = {};
+  for (const key of pick) {
+    const value = st[key];
+    // Empty lists and false flags say nothing the model needs.
+    if (value === undefined || value === null || value === false || (Array.isArray(value) && !value.length)) continue;
+    out[key] = key === 'frameReviewPending' && Array.isArray(value) ? value.map((item) => (item as { clipId?: string }).clipId ?? item) : value;
+  }
+  return out;
+}
+
+/** What a Quick edit (or a turn with no workflow) is told when it carries on after being cut short. */
+const QUICK_CARRY_ON = 'Carry on from the first unfinished part of the request: read the timeline with get_comp, do not redo edits already there, and finish every part that is left.';
+
+/** What a carry-on (the Continue button, an automatic round) tells the model, for the workflow the turn ran in. */
+function carryOnPrompt(status: WorkflowPhaseStatus & { mode?: string } | null): string {
+  return status?.mode === 'full' ? continuePrompt(status) : QUICK_CARRY_ON;
+}
 
 function continuePrompt(status: WorkflowPhaseStatus): string {
   const phase = status?.phase ?? null;
-  const shared = 'Call editing_workflow_status first and trust what it reports over anything you planned earlier — the project may already be further along than your last reply assumed.';
+  const shared = 'Trust workflowAtStart in the project summary (the live workflow status as this turn began) over anything you planned earlier — the project may already be further along than your last reply assumed.';
   if (phase === 'gathering') {
     const pending = status?.gather?.pending ?? [];
     const named = pending.length
@@ -1862,6 +1914,15 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
               <Play size={10} /> Continue
             </button>
           )}
+        </div>
+      )}
+      {/* Cut short by a budget outside the Full workflow's own line: the same fail-safe. */}
+      {!streaming && message.cutShort && latest && onContinue && !(line && (line.tone === 'warn' || workflow?.phase === 'gathering')) && (
+        <div className="workflow-note warn" role="status">
+          <span>{message.cutShort === 'rounds' ? 'This answer reached its round limit before the request was finished.' : 'This answer kept hitting the output limit before the request was finished.'}</span>
+          <button type="button" className="workflow-continue" onClick={onContinue}>
+            <Play size={10} /> Continue
+          </button>
         </div>
       )}
       {changes > 0 && !streaming && (

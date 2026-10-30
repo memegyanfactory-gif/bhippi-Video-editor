@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { repairArgs, repairValue } from '../src/lib/argRepair';
+import { repairArgs, repairValue, similarTools, toolSignature } from '../src/lib/argRepair';
+import { explainFailure } from '../src/lib/aiTools';
+
+describe('failures the model can fix from the error alone', () => {
+  it('a tool signature names every parameter, marks optional ones, and shows list shapes', () => {
+    const line = toolSignature('edit_file') ?? '';
+    expect(line).toMatch(/^\{path, oldString, newString, allowMultiple\?: boolean/);
+    expect(toolSignature('update_motion_scene')).toContain('patches?: [');
+    expect(toolSignature('no_such_tool')).toBeNull();
+  });
+
+  it('a crash on bad arguments is said as such, with the parameters', () => {
+    const error = explainFailure('update_motion_scene', 'u is not iterable');
+    expect(error).toMatch(/^update_motion_scene could not use these arguments \(u is not iterable\)\. Parameters: \{/);
+    expect(explainFailure('read_file', 'Supply a file path.')).toMatch(/^Supply a file path\. Parameters: \{path/);
+    expect(explainFailure('brain_save_skill', 'brain_save_skill needs a name')).toContain('Parameters:');
+    // Errors about the project, not the call, stay as they are.
+    expect(explainFailure('open_comp', 'This turn edits "Main" and the comps nested in it.')).toBe('This turn edits "Main" and the comps nested in it.');
+    expect(explainFailure('made_up_tool', 'Supply a path.')).toBe('Supply a path.');
+  });
+
+  it('a made-up tool name gets the nearest real ones', () => {
+    expect(similarTools('get_compz')[0]).toBe('get_comp');
+    expect(similarTools('mcp__bhippi__read_files')).toContain('read_file');
+    expect(similarTools('list_media').length).toBeGreaterThan(0);
+  });
+});
 
 describe('tool arguments mended against the schema', () => {
   it('turns the numbers a weak model quoted back into numbers, deep inside arrays', () => {

@@ -179,17 +179,39 @@ pub fn edit_file(
     let content = String::from_utf8(raw)
         .map_err(|_| "File contains invalid UTF-8 characters".to_string())?;
 
-    let count = content.matches(old_string).count();
+    let mut count = content.matches(old_string).count();
+    // A model writes "\n" into a file that has "\r\n": the same text, so the same edit.
+    let crlf = (count == 0 && content.contains("\r\n") && old_string.contains('\n') && !old_string.contains('\r'))
+        .then(|| (old_string.replace('\n', "\r\n"), new_string.replace('\n', "\r\n")));
+    let (old_string, new_string) = match &crlf {
+        Some((old, new)) if content.matches(old.as_str()).count() > 0 => {
+            count = content.matches(old.as_str()).count();
+            (old.as_str(), new.as_str())
+        }
+        _ => (old_string, new_string),
+    };
     if count == 0 {
-        return Err(format!(
-            "Target string to replace was not found in file: {path}"
-        ));
+        // Whole lines that differ only in trailing spaces are the same lines.
+        if let Some(range) = lines_ignoring_trailing_space(&content, old_string) {
+            let eol = if content.contains("\r\n") { "\r\n" } else { "\n" };
+            // The range stops before the last line's ending, so a trailing newline in the edit would double it.
+            let new_text = new_string.replace("\r\n", "\n");
+            let new_text = if old_string.ends_with('\n') { new_text.strip_suffix('\n').unwrap_or(&new_text) } else { &new_text };
+            let new_content = format!("{}{}{}", &content[..range.start], new_text.replace('\n', eol), &content[range.end..]);
+            fs::write(p, &new_content).map_err(|e| format!("Failed to write modified file: {e}"))?;
+            return Ok(EditFileResult { path: path.to_string(), replacements: 1, total_lines: new_content.lines().count() });
+        }
+        // The line the model most likely meant, so the next call can copy it instead of reading the file again.
+        let hint = closest_line(&content, old_string)
+            .map(|(number, line)| format!(" The closest line is {number}: \"{line}\". Copy oldString exactly as the file has it now (read_file {path} from line {}), whitespace included.", number.saturating_sub(2).max(1)))
+            .unwrap_or_else(|| " read_file it and copy oldString exactly as the file has it now, whitespace included.".to_owned());
+        return Err(format!("Target string to replace was not found in file: {path}.{hint}"));
     }
 
     let allow_mult = allow_multiple.unwrap_or(false);
     if count > 1 && !allow_mult {
         return Err(format!(
-            "Target string appears {count} times in {path}. Provide a more specific string or set allow_multiple: true."
+            "Target string appears {count} times in {path}. Add surrounding lines to oldString so it is unique, or set allowMultiple: true."
         ));
     }
 
@@ -207,6 +229,60 @@ pub fn edit_file(
         replacements: count,
         total_lines,
     })
+}
+
+/// The byte range of the one run of whole lines in `content` that equals `old`'s lines once trailing
+/// spaces are dropped from both; `None` when there is no such run or more than one.
+fn lines_ignoring_trailing_space(content: &str, old: &str) -> Option<std::ops::Range<usize>> {
+    let wanted: Vec<&str> = old.trim_end_matches(['\r', '\n']).split('\n').map(str::trim_end).collect();
+    if wanted.iter().all(|line| line.is_empty()) {
+        return None;
+    }
+    // Each line with where it starts, where it ends (its trailing space included, its line ending
+    // not), and its text without the trailing space.
+    let mut lines = Vec::new();
+    let mut start = 0;
+    for piece in content.split_inclusive('\n') {
+        lines.push((start, start + piece.trim_end_matches(['\r', '\n']).len(), piece.trim_end()));
+        start += piece.len();
+    }
+    let mut found = None;
+    for first in 0..lines.len().saturating_sub(wanted.len() - 1) {
+        let window = &lines[first..first + wanted.len()];
+        if window.iter().zip(&wanted).all(|((_, _, line), want)| line == want) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(window[0].0..window[wanted.len() - 1].1);
+        }
+    }
+    found
+}
+
+/// The file line most like `old`'s first non-empty line (1-based number, cut to 200 characters),
+/// when one is close enough to be what the model meant.
+fn closest_line(content: &str, old: &str) -> Option<(usize, String)> {
+    fn pairs(text: &str) -> Vec<(char, char)> {
+        let chars: Vec<char> = text.to_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+        chars.windows(2).map(|pair| (pair[0], pair[1])).collect()
+    }
+    // Dice similarity of the two lines' character pairs: 1 is the same text.
+    fn similarity(a: &[(char, char)], b: &[(char, char)]) -> f64 {
+        if a.is_empty() || b.is_empty() {
+            return 0.0;
+        }
+        let mut rest = b.to_vec();
+        let shared = a.iter().filter(|pair| rest.iter().position(|other| other == *pair).map(|at| rest.swap_remove(at)).is_some()).count();
+        2.0 * shared as f64 / (a.len() + b.len()) as f64
+    }
+    let wanted = pairs(old.lines().map(str::trim).find(|line| !line.is_empty())?);
+    content
+        .lines()
+        .enumerate()
+        .map(|(index, line)| (index + 1, line, similarity(&wanted, &pairs(line))))
+        .filter(|(_, _, score)| *score >= 0.5)
+        .max_by(|a, b| a.2.total_cmp(&b.2))
+        .map(|(number, line, _)| (number, line.trim().chars().take(200).collect::<String>()))
 }
 
 // ───────────────────────────── 4. list_directory ─────────────────────────────
@@ -659,7 +735,44 @@ async fn kill_tree(_pid: Option<u32>) {}
 
 #[cfg(test)]
 mod tests {
-    use super::{glob_search, match_pattern, read_file, run_command};
+    use super::{edit_file, glob_search, match_pattern, read_file, run_command};
+
+    fn edited(name: &str, before: &str, old: &str, new: &str) -> (Result<usize, String>, String) {
+        let path = std::env::temp_dir().join(format!("bhippi-edit-{name}-{}.md", std::process::id()));
+        std::fs::write(&path, before).unwrap();
+        let result = edit_file(path.to_str().unwrap(), old, new, None).map(|done| done.replacements);
+        let after = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        (result, after)
+    }
+
+    /// "\n" sent for a file with "\r\n" endings is the same text: the edit lands, in the file's endings.
+    #[test]
+    fn edit_file_matches_across_line_endings() {
+        let (result, after) = edited("crlf", "# Todo\r\n- [ ] cut\r\n- [ ] grade\r\n", "- [ ] cut\n- [ ] grade", "- [x] cut\n- [x] grade");
+        assert_eq!(result, Ok(1));
+        assert_eq!(after, "# Todo\r\n- [x] cut\r\n- [x] grade\r\n");
+    }
+
+    #[test]
+    fn edit_file_ignores_trailing_spaces_on_whole_lines() {
+        let (result, after) = edited("trail", "# Todo\n- [ ] cut  \n- [ ] grade\n", "- [ ] cut\n", "- [x] cut\n");
+        assert_eq!(result, Ok(1));
+        assert_eq!(after, "# Todo\n- [x] cut\n- [ ] grade\n");
+    }
+
+    /// A miss names the line the model most likely meant, so the next call can copy it.
+    #[test]
+    fn edit_file_miss_names_the_closest_line() {
+        let before = "# Todo\n- [ ] Re-time every beat onto the grid\n- [ ] Grade the interview\n";
+        let (result, after) = edited("miss", before, "- [ ] Re-time every beat onto that grid and add montage beats", "- [x] done");
+        let error = result.expect_err("not found");
+        assert!(error.contains("closest line is 2") && error.contains("Re-time every beat onto the grid"), "{error}");
+        assert_eq!(after, before);
+        // Nothing alike: no guess, just how to recover.
+        let (result, _) = edited("none", before, "zzzz qqqq", "x");
+        assert!(!result.expect_err("not found").contains("closest line"));
+    }
 
     /// With no range, a long file comes back one window at a time, saying where it stopped.
     #[test]

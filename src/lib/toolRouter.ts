@@ -23,6 +23,9 @@ export const CORE_TOOLS = [
   'add_sound_effect', 'search_sfx', 'place_sfx', 'level_audio', 'analyze_music_beats', 'add_captions', 'set_caption_style',
   'motion_guide', 'list_motion_templates', 'create_motion_scene', 'get_motion_scene', 'update_motion_scene',
   'run_frame_qa', 'judge_edit', 'consult_council', 'check_pacing', 'write_file', 'edit_file',
+  // The agent's own basics. Turn traces had these among the most looked-up slim tools (brain_load_skill
+  // alone 80 tool_help calls): a round trip each, for schemas of a few hundred characters.
+  'brain_load_skill', 'read_file', 'list_directory', 'run_command', 'open_comp',
 ] as const;
 
 /** Bhippi's own score and background plates: no generator needed. Whole for the graphics-led kinds of video. */

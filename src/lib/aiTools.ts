@@ -44,7 +44,7 @@ import { COUNCIL, councilMember, councilReview, describeReview, isCouncilRole, r
 // "AI: …", so a turn can be stepped back or reverted whole. The catalogue the models see is
 // src/lib/ai-tools.json; this file is the other half of that contract.
 import catalog from './ai-tools.json';
-import { repairArgs } from './argRepair';
+import { repairArgs, similarTools, toolSignature } from './argRepair';
 import { cachedLessons, loadLearnedLessons, withHint } from './toolLessons';
 import { noteOutcome, priorFailure, repeatMessage } from './retryGuard';
 import { inferGenres, judge, JUDGE_ROUNDS, PASS_MARK } from './judge';
@@ -1214,6 +1214,26 @@ async function resolveDefaults(host: ToolHost, name: string, args: Args): Promis
   return { args };
 }
 
+/** An error from inside a tool that only means its arguments had the wrong shape ("u is not iterable"). */
+const CRASH = /is not iterable|is not a function|Cannot read propert|Cannot destructure|undefined is not an object|Cannot convert undefined or null|^undefined$/i;
+/** An error asking for an argument the call left out ("Supply a file path.", "brain_save_skill needs a name"). */
+const MISSING_ARGUMENT = /^(Supply|Give|Pass)\b|^\S+ (needs|requires) (a|an|the) |\bis required\b|^Tool “[^”]+” needs /i;
+
+/**
+ * A failure the model can fix from the error alone. When the arguments were the problem — one left
+ * out, or a value of the wrong shape that crashed the tool — the tool's parameters ride along, so
+ * the next call is right without a tool_help round trip; a crash is said as what it means.
+ */
+export function explainFailure(name: string, error: string): string {
+  const crash = CRASH.test(error);
+  if (!crash && !MISSING_ARGUMENT.test(error)) return error;
+  const signature = toolSignature(name);
+  if (!signature) return error;
+  return crash
+    ? `${name} could not use these arguments (${error}). Parameters: ${signature} — check each value's type and shape against them and send the call again.`
+    : `${error} Parameters: ${signature}`;
+}
+
 export async function runTool(host: ToolHost, name: string, sentArgs: unknown, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
   // Quoted numbers, stringified arrays, renamed keys and the like are mended against the schema first.
   let rawArgs = repairArgs(name, sentArgs);
@@ -1226,11 +1246,20 @@ export async function runTool(host: ToolHost, name: string, sentArgs: unknown, s
   const earlier = priorFailure(turn, name, rawArgs);
   if (earlier) return { ok: false, error: repeatMessage(earlier), guarded: true };
   const before = host.history.current();
-  const result = await runToolChecked(host, name, rawArgs, before, signal, turnId);
+  let result: ToolResult;
+  try {
+    result = await runToolChecked(host, name, rawArgs, before, signal, turnId);
+  } catch (error) {
+    // A turn that ended stays an exception; a tool that threw on its arguments is an answer the model can act on.
+    if (signal?.aborted) throw error;
+    result = { ok: false, error: errorText(error) };
+  }
   noteOutcome(turn, name, rawArgs, result.ok, host.history.current() !== before, result.ok ? undefined : result.error);
   if (result.ok) return result;
   void loadLearnedLessons();
-  return { ...result, error: withHint(name, result.error, cachedLessons()) };
+  // A known hint already says the fix; otherwise the tool's parameters do.
+  const hinted = withHint(name, result.error, cachedLessons());
+  return { ...result, error: hinted !== result.error ? hinted : explainFailure(name, result.error) };
 }
 
 async function runToolChecked(host: ToolHost, name: string, rawArgs: unknown, before: Project, signal?: AbortSignal, turnId?: string): Promise<ToolResult> {
@@ -3036,7 +3065,10 @@ ${notes.trim()}${paletteLine}
     case 'tool_help': {
       const wanted = str(args, 'name')?.replace(/^mcp__bhippi__/, '');
       const spec = (catalog as { tools: { name: string; description: string; input_schema: unknown }[] }).tools.find((tool) => tool.name === wanted);
-      if (!spec) return fail(`No tool "${wanted ?? ''}". Every tool is listed in your catalogue by name.`);
+      if (!spec) {
+        const near = similarTools(wanted ?? '');
+        return fail(`No tool "${wanted ?? ''}".${near.length ? ` Did you mean ${near.join(', ')}?` : ''} Every tool is listed in your catalogue by name.`);
+      }
       return done(`${spec.name}: ${spec.description}`, { name: spec.name, parameters: spec.input_schema, ...(spec.name === LIBRARY_TOOL ? { promptRules: H3_PROMPT_RULES } : {}) });
     }
 
@@ -5208,8 +5240,10 @@ ${notes.trim()}${paletteLine}
       }
     }
 
-    default:
-      return fail(`Bhippi has no tool called ${name}`);
+    default: {
+      const near = similarTools(name);
+      return fail(`Bhippi has no tool called ${name}.${near.length ? ` Did you mean ${near.join(', ')}?` : ''}`);
+    }
   }
 }
 

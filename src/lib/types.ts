@@ -591,7 +591,8 @@ export type Usage = { inputTokens: number; outputTokens: number; cacheReadTokens
 export type ChatEvent =
   | { event: 'start'; turnId: string; providerId: string; providerLabel: string; model: string | null }
   | { event: 'delta'; turnId: string; delta: Delta }
-  | { event: 'done'; turnId: string; reply: string; notes: string[]; usage: Usage | null; fault: TurnFault | null; stopped: boolean; elapsedMs: number }
+  /** `cutShort`: the turn ended on a budget (replies at the output limit, the round cap), not on its own. */
+  | { event: 'done'; turnId: string; reply: string; notes: string[]; usage: Usage | null; fault: TurnFault | null; stopped: boolean; elapsedMs: number; cutShort?: 'output' | 'rounds' | null }
   | { event: 'subagent_update'; subagentId: string; parentTurnId: string; label: string; state: 'running' | 'done' | 'failed'; summary: string | null; elapsedMs: number; toolCalls: number };
 
 /** One AI tool call the backend asks the editor to run. */

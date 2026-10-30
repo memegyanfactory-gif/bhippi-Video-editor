@@ -135,8 +135,9 @@ pub fn handle_line(line: &str, scope: Option<&Scope>) -> Step {
             let Some(name) = params.get("name").and_then(Value::as_str) else {
                 return Step::Reply(error_reply(id, -32602, "tools/call needs a tool name"));
             };
+            let name = if ai_tools::is_known(name) { name } else { ai_tools::canonical(name).unwrap_or(name) };
             if !ai_tools::is_known(name) {
-                return Step::Reply(error_reply(id, -32602, &format!("Unknown tool: {name}")));
+                return Step::Reply(error_reply(id, -32602, &ai_tools::unknown_tool(name)));
             }
             if scope.and_then(|scope| scope.only.as_ref()).is_some_and(|only| !only.contains(name)) {
                 return Step::Reply(error_reply(id, -32602, &format!("{name} is not available in this chat")));

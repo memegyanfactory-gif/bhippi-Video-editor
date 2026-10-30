@@ -12,6 +12,7 @@ type Schema = {
   properties?: Record<string, Schema>;
   items?: Schema;
   enum?: unknown[];
+  required?: string[];
 };
 
 const SCHEMAS = new Map<string, Schema>(
@@ -176,4 +177,68 @@ export function aliasKeys<T>(tool: string, args: T): T {
     if (target && !(target in input) && !(target in out)) { out[target] = value; changed = true; } else out[key] = value;
   }
   return changed ? (out as T) : args;
+}
+
+/** A schema as one short line: `{clipId, patches?: [{layer, path, value}], fit?: boolean}`. Strings are the default and go unsaid. */
+function shape(schema: Schema | undefined, depth: number): string {
+  if (!schema) return '';
+  if (schema.enum?.length) return schema.enum.slice(0, 8).map((option) => JSON.stringify(option)).join('|');
+  const allowed = kinds(schema);
+  if (allowed.includes('array')) return `[${schema.items ? shape(schema.items, depth + 1) || 'string' : '…'}]`;
+  if (schema.properties && (allowed.includes('object') || !allowed.length)) {
+    if (depth > 2) return '{…}';
+    const required = new Set(schema.required ?? []);
+    const fields = Object.entries(schema.properties).map(([key, sub]) => {
+      const inner = shape(sub, depth + 1);
+      return `${key}${required.has(key) ? '' : '?'}${inner ? `: ${inner}` : ''}`;
+    });
+    return `{${fields.join(', ')}}`;
+  }
+  const named = allowed.filter((kind) => kind !== 'string' && kind !== 'null');
+  return named.join('|');
+}
+
+/** Longest signature put in an error, so it stays a hint and not a second catalogue entry. */
+const SIGNATURE_MAX = 700;
+
+/**
+ * A tool's parameters as one line, for an error that came from its arguments: the model fixes the
+ * call from the error itself instead of spending a round on tool_help. Null for an unknown tool.
+ */
+export function toolSignature(tool: string): string | null {
+  const schema = SCHEMAS.get(tool);
+  if (!schema) return null;
+  const line = shape({ ...schema, type: 'object', properties: schema.properties ?? {} }, 0);
+  return line.length > SIGNATURE_MAX ? `${line.slice(0, SIGNATURE_MAX)}…}` : line;
+}
+
+/** Edit distance, for telling a misspelled or misremembered tool name from the real one. */
+function distance(a: string, b: string): number {
+  let row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    row = next;
+  }
+  return row[b.length];
+}
+
+/**
+ * The real tool names nearest one a model made up ("list_media", "rename_item"): close spellings
+ * first, then names sharing a word with it. At most `limit`.
+ */
+export function similarTools(name: string, limit = 3): string[] {
+  const wanted = name.trim().toLowerCase().replace(/^mcp__\w+?__/, '').replace(/[-\s.]/g, '_');
+  const words = new Set(wanted.split('_').filter((word) => word.length > 2));
+  const scored = [...SCHEMAS.keys()].map((tool) => {
+    const shared = tool.split('_').filter((word) => words.has(word)).length;
+    // A shared word is worth more than a few typos; plain distance breaks ties.
+    return { tool, score: distance(wanted, tool) - shared * 4 };
+  });
+  const near = Math.max(3, Math.floor(wanted.length / 3));
+  return scored
+    .filter(({ tool, score }) => score <= near || tool.split('_').some((word) => words.has(word)))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, limit)
+    .map(({ tool }) => tool);
 }
