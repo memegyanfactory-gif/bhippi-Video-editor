@@ -318,7 +318,7 @@ const DEFAULT_ELEVENLABS_MODEL: &str = "eleven_multilingual_v2";
 const DEFAULT_OPENAI_TTS_MODEL: &str = "gpt-4o-mini-tts";
 
 /// A saved key, or the environment variable people set for the same service.
-fn key(id: &str) -> Option<String> {
+pub(crate) fn key(id: &str) -> Option<String> {
     crate::settings::get_api_key(id).or_else(|| {
         let names: &[&str] = match id {
             "elevenlabs" => &["ELEVENLABS_API_KEY", "XI_API_KEY"],

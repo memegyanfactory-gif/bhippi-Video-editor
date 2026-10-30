@@ -181,7 +181,7 @@ When the project summary carries a `brandKit`, it is **binding**: its colours, t
 - Never invent brand facts: ask for the logo file and the real colours when the user has them; otherwise say the kit started from an archetype.
 
 ## MUSIC STUDIO
-A song, beat or score to make: compose it note by note in the Music Studio (`music_get_song` first, then `music_studio_guide`) rather than `compose_music`; `music_render {"place":true}` lays it under the video.
+A song, beat or score: `music_create_song` (a produced, mastered song; `purpose:"score"` fits the voice-over and ducks under it; write lyrics with [Verse]/[Chorus] tags for a sung song). Note by note in the Studio: `music_get_song`, `music_studio_guide`, then `music_render {"place":true}`.
 
 ## Generation prompts
 Video (Wan 2.1 832×480 16 fps ≤81 frames; LTX 24 fps; LTX 2.3 25 fps with audio): `[Subject] [Action] [Setting & atmosphere] [Cinematography & lens] [Lighting & grade]`, `guidance_scale` 5.0 (Wan) / 3.0 (LTX), negative `"blurry, bad quality, worst quality, low resolution, deformed, distorted, bad anatomy, bad hands, missing fingers, extra digits, poorly drawn face, mutation, extra limbs, ugly, disfigured, text, watermark, signature, logo, jpeg artifacts, noisy, oversaturated, cropped, out of frame, plastic skin, doll, 3d render"`. Images: SDXL 1024×576 / 576×1024, `guidance_scale` 6.0, ≤60 words. Cut-outs: prompt "isolated on pure solid chroma green background (#00FF00), seamless studio green screen, flat lighting, centered, sharp silhouette edges" and key with `keylight` (`screenColor: "#00ff00"`). Generated video is opaque RGB; alpha comes from roto or a green key only.

@@ -25,13 +25,15 @@ import {
 } from '../music/types';
 import type { SampleLoader } from '../music/engine/api';
 import { placeSongLayer, songPlacement } from '../music/timeline';
+import { createSongTool, enginesForAi } from '../music/create/tool';
+import { createProgress } from '../music/create/events';
 import { errorText, fileSrc } from './ipc';
 import type { Comp, Project, ToolResult } from './types';
 import type { ToolHost } from './aiTools';
 
 export const MUSIC_TOOLS: ReadonlySet<string> = new Set([
   'music_get_song', 'music_studio_guide', 'music_new_song', 'music_set_song', 'music_add_channel', 'music_update_channel', 'music_write_pattern',
-  'music_edit_notes', 'music_generate', 'music_arrange', 'music_mixer', 'music_automate', 'music_analyze_mix', 'music_render', 'music_open_studio',
+  'music_edit_notes', 'music_generate', 'music_arrange', 'music_mixer', 'music_automate', 'music_analyze_mix', 'music_render', 'music_open_studio', 'music_create_song',
 ]);
 
 type Args = Record<string, unknown>;
@@ -468,6 +470,10 @@ async function runMusic(host: ToolHost, name: string, args: Args, ctx: MusicTool
 
     case 'music_open_studio':
       return openStudio(args, ctx, song);
+
+    case 'music_create_song':
+      if (args.listEngines === true) return { ok: true, summary: await enginesForAi() };
+      return createSongTool({ current: ctx.current, commit: ctx.commit, assets: host.assets, importMedia: host.importMedia, folderFor: ctx.folderFor, pickComp: ctx.pickComp, signal: ctx.signal, progress: createProgress }, args);
   }
   return fail(`Unknown music tool ${name}.`);
 }

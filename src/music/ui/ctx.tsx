@@ -27,6 +27,8 @@ export type Ui = {
   win: BottomWindow;
   playlist: boolean;
   browser: boolean;
+  /** The Create panel (AI song generation, CreatePanel.tsx). */
+  create: boolean;
   snapId: SnapId;
   metronome: boolean;
   playing: boolean;

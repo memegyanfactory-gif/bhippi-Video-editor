@@ -76,6 +76,7 @@ mod cutout;
 mod blender;
 mod ui_screen;
 mod music;
+mod music_cloud;
 mod app_capture;
 mod app_record;
 mod render_passes;
@@ -1998,6 +1999,33 @@ fn gen_cloud_generate(webview: tauri::Webview, state: State<'_, Arc<AppState>>, 
         let _ = std::fs::remove_dir_all(&scratch);
         match result {
             Ok(path) => job.done("Generated media is ready to import", Some(serde_json::json!({ "path": path, "task": kind, "connector": connector, "model": model }))),
+            Err(error) => job.fail(error),
+        }
+    });
+    Ok(id)
+}
+
+/// The cloud music engines (src-tauri/src/music_cloud.rs) and whether each is ready.
+#[tauri::command]
+fn music_cloud_engines(state: State<'_, Arc<AppState>>) -> serde_json::Value {
+    music_cloud::rows(&state.settings().cloud_generation)
+}
+
+/// Starts one cloud song as a background job; the job's result is `{path, task: "song", engine}`.
+#[tauri::command]
+fn music_cloud_generate(webview: tauri::Webview, state: State<'_, Arc<AppState>>, request: music_cloud::MusicRequest) -> CommandResult<String> {
+    let session = state.session(&webview);
+    let engine = music_cloud::engine(&request.engine).ok_or_else(|| format!("Unknown music engine {}", request.engine))?;
+    if let Some(why) = music_cloud::blocked(engine, &state.settings().cloud_generation) {
+        return Err(why);
+    }
+    let job = state.jobs.start_for(Some(session.clone()), "generation", format!("Song · {}", engine.label), true);
+    let id = job.id().to_owned();
+    let folder = storage::dir(&state, &session, storage::Category::Generated)?.join("Music");
+    let engine_id = engine.id;
+    tauri::async_runtime::spawn(async move {
+        match music_cloud::run(request, folder, &job).await {
+            Ok(path) => job.done("The song is ready to import", Some(serde_json::json!({ "path": path, "task": "song", "engine": engine_id }))),
             Err(error) => job.fail(error),
         }
     });
@@ -4289,6 +4317,8 @@ pub fn run() {
             gen_connector_set_key,
             gen_connector_test,
             gen_cloud_generate,
+            music_cloud_engines,
+            music_cloud_generate,
             depth_start,
             local_media_generate,
             local_media_install,

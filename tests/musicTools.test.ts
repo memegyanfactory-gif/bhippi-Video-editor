@@ -47,7 +47,7 @@ describe('the music tool catalogue', () => {
   it('has every tool dispatched, labelled and described', () => {
     const names = musicSpecs.map((t) => t.name).sort();
     expect(names).toEqual([...MUSIC_TOOLS].sort());
-    expect(names.length).toBe(15);
+    expect(names.length).toBe(16);
     for (const name of names) expect(TOOL_LABELS[name], name).toBeTruthy();
     for (const spec of musicSpecs) {
       expect(spec.input_schema.type, spec.name).toBe('object');
@@ -602,6 +602,9 @@ describe('routing', () => {
     for (const tool of MUSIC_GROUP) { expect(music.full, tool).toContain(tool); expect(music.core, tool).toContain(tool); }
     const followUp = routeTools('make it faster', ['write a melody and drums for my intro']);
     expect(followUp.full).toContain('music_generate');
+    // Music for the video itself reaches music_create_song.
+    expect(routeTools('add background music under my voiceover').full).toContain('music_create_song');
+    expect(routeTools('make a soundtrack for this reel').full).toContain('music_create_song');
     const plain = routeTools('add a video track to the timeline');
     for (const tool of MUSIC_GROUP) expect(plain.full, tool).not.toContain(tool);
     setStudioOpen(true);

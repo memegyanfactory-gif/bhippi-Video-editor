@@ -214,12 +214,12 @@ pub fn set_key(id: &str, key: &str, secret: Option<&str>) -> Result<(), String> 
     Ok(())
 }
 
-struct Creds {
+pub(crate) struct Creds {
     key: String,
     secret: Option<String>,
 }
 
-fn creds(spec: &ConnectorSpec) -> Result<Creds, String> {
+pub(crate) fn creds(spec: &ConnectorSpec) -> Result<Creds, String> {
     let key = settings::get_api_key(&key_name(spec.id)).ok_or_else(|| format!("No {} key saved — add it in Settings › Connectors.", spec.label))?;
     let secret = match spec.secret_label {
         Some(_) => Some(settings::get_api_key(&secret_name(spec.id)).ok_or_else(|| format!("The {} key secret is missing — reconnect it in Settings › Connectors.", spec.label))?),
@@ -230,7 +230,7 @@ fn creds(spec: &ConnectorSpec) -> Result<Creds, String> {
 
 // ───────────────────────────── HTTP plumbing ─────────────────────────────
 
-fn client() -> Result<reqwest::Client, String> {
+pub(crate) fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent("BhippiVideoEditor/1.0")
         .timeout(Duration::from_secs(120))
@@ -240,7 +240,7 @@ fn client() -> Result<reqwest::Client, String> {
 }
 
 /// Applies each service's own auth header.
-fn auth(spec: &ConnectorSpec, creds: &Creds, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+pub(crate) fn auth(spec: &ConnectorSpec, creds: &Creds, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     match spec.id {
         "higgsfield" => request.header("Authorization", format!("Key {}:{}", creds.key, creds.secret.as_deref().unwrap_or(""))),
         "magnific" => request.header("x-magnific-api-key", &creds.key),
@@ -252,7 +252,7 @@ fn auth(spec: &ConnectorSpec, creds: &Creds, request: reqwest::RequestBuilder) -
 }
 
 /// A service's error in its own words, never the key: status, then the message field it uses.
-fn describe(status: reqwest::StatusCode, body: &str) -> String {
+pub(crate) fn describe(status: reqwest::StatusCode, body: &str) -> String {
     let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     let message = [
         &parsed["error"]["message"], &parsed["message"], &parsed["detail"], &parsed["error"], &parsed["base_resp"]["status_msg"],
@@ -297,10 +297,10 @@ async fn send_json(spec: &ConnectorSpec, creds: &Creds, method: reqwest::Method,
     Ok(value)
 }
 
-async fn post(spec: &ConnectorSpec, creds: &Creds, url: &str, body: &Value) -> Result<Value, String> {
+pub(crate) async fn post(spec: &ConnectorSpec, creds: &Creds, url: &str, body: &Value) -> Result<Value, String> {
     send_json(spec, creds, reqwest::Method::POST, url, Some(body)).await
 }
-async fn get(spec: &ConnectorSpec, creds: &Creds, url: &str) -> Result<Value, String> {
+pub(crate) async fn get(spec: &ConnectorSpec, creds: &Creds, url: &str) -> Result<Value, String> {
     send_json(spec, creds, reqwest::Method::GET, url, None).await
 }
 

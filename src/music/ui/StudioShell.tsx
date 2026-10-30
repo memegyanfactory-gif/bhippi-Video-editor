@@ -13,6 +13,7 @@ import type { Channel, MusicProject, MusicView } from '../types';
 import { Browser } from './Browser';
 import { ChannelRack } from './ChannelRack';
 import { ConfirmDialog, type PendingConfirm } from './ConfirmDialog';
+import { CreatePanel } from './CreatePanel';
 import { ActionsContext, StudioContext, type Actions, type BottomWindow, type NewPanel, type PanelRef, type Studio, type StudioProps, type Ui } from './ctx';
 import { snapSteps } from './format';
 import { Mixer } from './Mixer';
@@ -38,7 +39,7 @@ export function StudioShell({ engine, props }: { engine: MusicEngineApi; props: 
 
   const [ui, setUiState] = useState<Ui>(() => ({
     win: (['rack', 'pianoroll', 'mixer'] as const).find((w) => w === song.view.window) ?? 'rack',
-    playlist: true, browser: true, snapId: '1/16', metronome: false, playing: false, playFrom: 0,
+    playlist: true, browser: true, create: false, snapId: '1/16', metronome: false, playing: false, playFrom: 0,
   }));
   const uiRef = useRef(ui);
   uiRef.current = ui;
@@ -185,6 +186,7 @@ export function StudioShell({ engine, props }: { engine: MusicEngineApi; props: 
               {ui.playlist && <div className="ms-split" role="separator" aria-orientation="horizontal" aria-label="Resize the playlist" title="Drag to resize" onPointerDown={splitDown} />}
               <div className="ms-bottom">{bottom}</div>
             </div>
+            {ui.create && <CreatePanel project={props.project} history={history} onClose={() => setUi({ create: false })} />}
           </div>
           <ParamPanels />
           {confirm && <ConfirmDialog pending={confirm} onDone={() => setConfirm(null)} />}

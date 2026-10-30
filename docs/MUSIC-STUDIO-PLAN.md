@@ -384,3 +384,42 @@ or artwork is copied; palette, proportions and behaviours are re-drawn here.
   (play / stop / rewind / play from a bar), PAT/SONG, metronome, snap, browser / playlist visibility
   and instrument / effect panels go through `music_open_studio` → `StudioRequest` → `StudioShell`.
   View-only gestures (zoom, scroll, auditioning) are the only things not exposed.
+
+## 12. Create: whole songs from music models (Suno-style)
+
+The Studio's synths write editable notes; **Create** makes finished, produced songs with neural music
+models, the way Suno does, and fits them to the video's voice-over. Toolbar → **Create** opens the panel;
+every AI provider gets the same path through `music_create_song`.
+
+| Part | Path |
+|---|---|
+| Voice-over reading: speech ranges, pauses, words per minute, language, mood, tempo | `src/music/create/voice.ts` |
+| The brief: genres, ACE-Step captions and section-tagged lyrics, prose prompts, timed section plan | `src/music/create/brief.ts` |
+| Engine choice, takes, job waiting (`createSong`, dependencies injected) | `src/music/create/run.ts` |
+| Mastering: 28 Hz high-pass, 2.5 kHz voice pocket for beds, glue compressor, -14 LUFS, look-ahead limiter under -1 dBTP, beat grid | `src/music/create/master.ts` |
+| The tool and its app dependencies, placing a take (ducked under the voice) and adding it to the playlist | `src/music/create/tool.ts` |
+| Cloud engines (ElevenLabs Music; fal: MiniMax Music 2.6, Lyria 3 Pro, ACE-Step, Stable Audio 2.5) | `src-tauri/src/music_cloud.rs` |
+| Panel ↔ app events (run the tool, ask Bhippi AI) | `src/music/create/events.ts`, `App.tsx` |
+| The panel | `src/music/ui/CreatePanel.tsx` |
+
+**Engines.** `auto` picks per brief: instrumentals and beds prefer ACE-Step 1.5 on this PC (MIT, free,
+exact length), then ElevenLabs, fal ACE-Step, Stable Audio, the Studio synths last. Sung songs prefer
+ElevenLabs, then MiniMax, ACE-Step (only with lyrics: it sings what it is given), Lyria. Without lyrics,
+only engines that write their own (ElevenLabs, MiniMax, Lyria) are used; otherwise the panel hands the
+request to Bhippi AI, which writes the lyrics and calls `music_create_song`. Suno and Udio have no public
+API (October 2026), and MiniMax's own music API is closed to new accounts, so MiniMax goes through fal.
+
+**Prompting (from each model's guidance).** ACE-Step: a caption of style tags (genre, mood, instruments,
+timbre, production, vocal type) with BPM, key and time signature in their own fields, never in the
+caption; lyrics with `[Verse]` / `[Chorus]` tags carrying at most one short modifier; `[Instrumental]` for
+no vocals. The prose models get the request, the tags, tempo, key, length and the timed structure.
+
+**Under a voice-over** (purpose `score`): instrumental, sparse, no lead in the voice's band; length =
+end of the voice + 2.5 s; tempo from the read's pace (about ±14 BPM around the mood's centre); a lift in
+the longest pause; the full statement after the last word. On the timeline it is ducked 10 dB under
+every phrase (50 ms attack, 400 ms release, word gaps held) with `scoreEnvelope`, so the bed sits about
+15-20 LU under the voice and swells in the gaps. The master's 2.5 kHz pocket (-4 dB) keeps words clear.
+
+**Takes** live in `MusicProject.takes` (newest first): the asset, engine, prompt, summary, tempo, key,
+loudness, beats and downbeats. The first take of a creation goes into the playlist at its own tempo, so
+the Studio's grid lines up and patterns can be layered on it.

@@ -2,7 +2,7 @@
 // master knobs, master LED meter, pattern picker, snap, metronome, window toggles, undo / redo and
 // bounce / send-to-timeline.
 import { useRef } from 'react';
-import { ArrowLeft, Grid3x3, LayoutList, Magnet, PanelLeft, Piano, Play, Redo2, SkipBack, SlidersVertical, Square, Timer, Undo2 } from 'lucide-react';
+import { ArrowLeft, Grid3x3, LayoutList, Magnet, PanelLeft, Piano, Play, Redo2, SkipBack, SlidersVertical, Sparkles, Square, Timer, Undo2 } from 'lucide-react';
 import type { History } from '../../lib/history';
 import { BounceButtons } from './BounceButtons';
 import { DragNumber, Knob } from './Controls';
@@ -94,6 +94,9 @@ export function Toolbar({ history, onClose }: { history: History; onClose: () =>
       </div>
 
       <span className="ms-grow" />
+      <button type="button" className={`ms-tbtn wide ms-create-btn${ui.create ? ' on' : ''}`} aria-pressed={ui.create} onClick={() => setUi({ create: !ui.create })} title="Create a full song or a score for the video with AI" aria-label="Create with AI">
+        <Sparkles size={14} /><span className="ms-tb-label">Create</span>
+      </button>
       <div className="ms-tb-group ms-tb-windows ms-windows" role="group" aria-label="Windows">
         {WINDOWS.map((w) => {
           const on = w.id === 'playlist' ? ui.playlist : w.id === 'browser' ? ui.browser : ui.win === w.id;
