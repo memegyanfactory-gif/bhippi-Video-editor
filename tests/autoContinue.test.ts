@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advanceChain, autoLead, freshChain, isAutomatic, MAX_AUTO_CONTINUES, nextAutoStep, type TurnEnd } from '../src/chat/autoContinue';
+import { advanceChain, autoLead, freshChain, isAutomatic, lastBlocker, MAX_AUTO_CONTINUES, nextAutoStep, type TurnEnd } from '../src/chat/autoContinue';
 import { workflowAtStart } from '../src/chat/ChatPanel';
 
 const edit = { status: 'done', changedProject: true };
@@ -42,6 +42,21 @@ describe('a turn that ended before the job was done carries on by itself', () =>
     expect(nextAutoStep(end({ faultKind: 'rate_limited_weekly' }), freshChain())).toBeNull();
     expect(nextAutoStep(end({ faultKind: 'unauthenticated' }), freshChain())).toBeNull();
     expect(nextAutoStep(end({ stopped: true, cutShort: 'rounds', runs: [edit] }), freshChain())).toBeNull();
+  });
+
+  it('a retried turn that failed again without getting anything through stops', () => {
+    const once = advanceChain(freshChain(), 'cut-short');
+    expect(nextAutoStep(end({ faultKind: 'timeout' }), once)).toBeNull();
+    expect(nextAutoStep(end({ faultKind: 'timeout', runs: [read] }), once)).toBe('retry');
+  });
+
+  it('names the last failure, the real blocker, for the carry-on and the warn line', () => {
+    expect(lastBlocker([
+      { name: 'get_comp', status: 'done', summary: 'done' },
+      { name: 'save_video_blueprint', status: 'failed', summary: 'Scene 2: narration needs the spoken text for this beat.' },
+      { name: 'editing_workflow_status', status: 'done', summary: 'ok' },
+    ])).toBe('save_video_blueprint: Scene 2: narration needs the spoken text for this beat.');
+    expect(lastBlocker([{ name: 'get_comp', status: 'done', summary: 'done' }])).toBeNull();
   });
 
   it('is bounded: after the automatic budget the Continue button is the fail-safe', () => {

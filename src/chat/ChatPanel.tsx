@@ -51,7 +51,7 @@ import type { TrainedKit } from '../lib/brandKit/learnings';
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 import { mergeScopes, scopeBrief, scopeFromAnnotations, scopeLabel, type QuickScope } from '../lib/quickScope';
 import { continuesTheJob, filmEffortHint, routeWorkflow, savedWorkflowChoice, saveWorkflowChoice, type RouteSignals, type WorkflowChoice, type WorkflowMode } from '../lib/workflowRoute';
-import { advanceChain, autoLead, freshChain, isAutomatic, MAX_AUTO_CONTINUES, nextAutoStep } from './autoContinue';
+import { advanceChain, autoLead, freshChain, isAutomatic, lastBlocker, MAX_AUTO_CONTINUES, nextAutoStep } from './autoContinue';
 import type { ProviderInfo, TurnFault, Usage } from '../lib/types';
 
 export type { ToolRun } from './Activity';
@@ -818,7 +818,7 @@ ${text}` : text));
             const body = kind === 'retry'
               ? retryNote({ content: event.reply ?? '', steps: [] }, runs, status) ?? 'Do the request again from the start.'
               : carryOnPrompt(status);
-            const text = `${autoLead(kind, end)} ${body}${asked}`;
+            const text = `${autoLead(kind, end)} ${body}${blockerNote(lastBlocker(runs))}${asked}`;
             patch(event.turnId, (item) => ({ ...item, notes: [...item.notes, `Carrying on by itself (${autoChain.current.count} of ${MAX_AUTO_CONTINUES}). Stop it any time.`] }));
             // Stop, or a message of the person's own, replaces the chain: the round queued here is dropped.
             const chain = autoChain.current;
@@ -1342,7 +1342,7 @@ ${text}` : text));
               onContinue={() => {
                 continuing.current = true;
                 const request = autoRequest.current ? ` The user's request: "${autoRequest.current.slice(0, 800)}"` : '';
-                void send(`${carryOnPrompt(props.workflowStatus(message.turnId))}${request}`, undefined, message.mode);
+                void send(`${carryOnPrompt(props.workflowStatus(message.turnId))}${blockerNote(lastBlocker(props.tools[message.turnId] ?? []))}${request}`, undefined, message.mode);
               }}
               asking={!!props.ask && message.id === lastAnswerId}
             />
@@ -1752,6 +1752,9 @@ export function workflowAtStart(status: unknown): Record<string, unknown> | null
   return out;
 }
 
+/** The real blocker, for a carry-on: what failed last, so that one thing is fixed instead of the phase redone. */
+const blockerNote = (blocker: string | null) => (blocker ? ` The last attempt failed — ${blocker} Fix exactly that first; do not redo what already worked.` : '');
+
 /** What a Quick edit (or a turn with no workflow) is told when it carries on after being cut short. */
 const QUICK_CARRY_ON = 'Carry on from the first unfinished part of the request: read the timeline with get_comp, do not redo edits already there, and finish every part that is left.';
 
@@ -1869,6 +1872,7 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
   const changes = tools.filter((run) => run.status === 'done' && run.changedProject).length;
   const timelineChanges = changes > 0 ? changesProp : [];
   const line = streaming ? null : workflowLine(workflow, tools.length > 0);
+  const blocker = line?.tone === 'warn' ? lastBlocker(tools) : null;
   // The header says which AI and model answered; the footer how long it took and what it cost.
   const meta = [seconds, tokenLine(message.usage)].filter(Boolean).join(' · ');
   const chip = modelChipText(message.providerLabel, message.model);
@@ -1908,7 +1912,11 @@ function AssistantMessage({ message, latest, workflow, tools, canRevert, onRever
       />
       {line && (
         <div className={`workflow-note ${line.tone}`} role="status">
-          <span>{line.text}</span>
+          <span>
+            {line.text}
+            {/* What actually stopped it, so neither the person nor Continue has to guess. */}
+            {line.tone === 'warn' && blocker && <><br /><em>Last failure: {blocker}</em></>}
+          </span>
           {(line.tone === 'warn' || workflow?.phase === 'gathering') && onContinue && (
             <button type="button" className="workflow-continue" onClick={onContinue}>
               <Play size={10} /> Continue

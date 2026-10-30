@@ -138,7 +138,9 @@ const CONTINUE_NUDGE: &str = "Continue: do it now with tools.";
 const PHASE_CLOSERS: [&str; 3] = ["save_video_blueprint", "save_storyboard", "finish_gathering"];
 /// What an agent whose run went silent and was stopped is told when the run starts again.
 const CONTINUE_STALLED: &str = "Your last run went silent and was stopped. Everything its tools already did is saved in the project: check where things stand (editing_workflow_status, get_comp) and carry on from there. Do not redo finished steps, do not ask the user, and make your next move a tool call.";
-/// Silent-run restarts one MCP turn gets.
+/// What a text-protocol round that went silent and was stopped is told when it runs again.
+const CONTINUE_STALLED_TEXT: &str = "Your last reply went silent for minutes and was stopped; nothing in it ran. Reply now, briefly: the next `bhippi-tools` block only (about 8 calls at most), using Bhippi's tools in the block and none of your own app's tools.";
+/// Silent-run restarts one MCP turn (or one text-protocol turn) gets.
 const MAX_STALL_RESTARTS: usize = 2;
 
 /// Whether a reply that made no tool call ends on an announcement of work still to do
@@ -1104,6 +1106,8 @@ struct Round {
     /// number of this round's calls that streamed before it.
     thinking: Vec<(usize, Value)>,
     stop_reason: StopReason,
+    /// The conversation id the vendor announced, for a CLI that can carry it on (Antigravity).
+    session: Option<String>,
 }
 
 /// Why a round did not finish.
@@ -1169,6 +1173,7 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
         let mut calls = Vec::new();
         let mut thinking = Vec::new();
         let mut stop_reason = StopReason::Completed;
+        let mut session = None;
         let mut spoke = false;
         loop {
             let item = tokio::select! {
@@ -1183,6 +1188,11 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                 }
                 // Its words already streamed as `Thinking`; the block is for the next round.
                 Some(Ok(Delta::ThinkingBlock { block })) => thinking.push((calls.len(), block)),
+                // The UI keeps it too (a turn cut off by closing the app resumes with it).
+                Some(Ok(Delta::Session { id })) => {
+                    session = Some(id.clone());
+                    self.delta(Delta::Session { id });
+                }
                 Some(Ok(Delta::Text { delta })) => {
                     raw.push_str(&delta);
                     let visible = match filter.as_deref_mut() {
@@ -1208,7 +1218,7 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
             let rest = filter.finish();
             self.show(&rest, &mut spoke);
         }
-        Ok(Round { text: raw, calls, thinking, stop_reason })
+        Ok(Round { text: raw, calls, thinking, stop_reason, session })
     }
 
     /// The window a local server says it really has, when that is smaller than the one this turn
@@ -1252,7 +1262,7 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
             // Per round: a long turn used to share three retries across all its rounds, so the
             // fourth blip of a half-hour edit ended it.
             let mut retries = 0;
-            let Round { text, calls, thinking, stop_reason } = loop {
+            let Round { text, calls, thinking, stop_reason, .. } = loop {
                 let shown = self.progress.reply.len();
                 match self.round(provider, request.clone(), None).await {
                     Ok(done) => break done,
@@ -1435,17 +1445,67 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
     /// guess whether earlier calls in the same batch even succeeded. Looping here so it sees each
     /// round's outcomes before choosing the next one is what makes that gated, multi-round
     /// workflow actually reachable from this protocol.
+    ///
+    /// A CLI that can carry its conversation on (Antigravity) gets each later round's results alone,
+    /// on the conversation it started, instead of a fresh process re-reading the whole prompt every
+    /// round. A round that went silent and was stopped runs again with a short note, twice at most.
     async fn text(&mut self, provider: &dyn Provider, req_request: CompletionRequest, executor: &dyn ToolExecutor) {
         let mut request = req_request;
+        let resumable = bhippi_providers::cli::resumes_conversations(&self.row.id);
+        let mut session: Option<String> = None;
+        let (mut restarts, mut fell_back) = (0, false);
+        let mut note: Option<&str> = None;
+        // The last round's failed calls, and whether the model was already shown them once.
+        let (mut unanswered, mut told_failures): (Vec<String>, bool) = (Vec::new(), false);
         for _round in 0..self.max_rounds {
             let mut filter = FenceFilter::default();
-            let raw = match self.round(provider, request.clone(), Some(&mut filter)).await {
-                Ok(round) => ai_tools::without_echo(&round.text),
+            let mut sent = match &session {
+                // Everything before the newest message is already in the vendor's conversation.
+                Some(id) => {
+                    let mut slim = request.clone();
+                    slim.system.clear();
+                    slim.messages = request.messages.last().cloned().into_iter().collect();
+                    slim.resume = Some(id.clone());
+                    slim
+                }
+                None => request.clone(),
+            };
+            if let Some(note) = note.take() {
+                sent.messages.push(Message::user(note.to_owned()));
+            }
+            let raw = match self.round(provider, sent, Some(&mut filter)).await {
+                Ok(round) => {
+                    if resumable && round.session.is_some() {
+                        session = round.session;
+                    }
+                    ai_tools::without_echo(&round.text)
+                }
+                Err(Interrupt::Refused(reason) | Interrupt::Failed(reason)) if restarts < MAX_STALL_RESTARTS && went_silent(&reason) && !self.stopped() => {
+                    restarts += 1;
+                    tracing::warn!(provider = %self.row.id, %reason, restarts, "the text-protocol round went silent; running it again");
+                    note = Some(CONTINUE_STALLED_TEXT);
+                    continue;
+                }
+                // The vendor would not carry its conversation on (gone, expired): the whole prompt once more.
+                Err(Interrupt::Refused(reason) | Interrupt::Failed(reason)) if session.is_some() && !fell_back && !self.stopped() => {
+                    tracing::warn!(provider = %self.row.id, %reason, "could not carry the conversation on; sending the whole prompt");
+                    (session, fell_back) = (None, true);
+                    continue;
+                }
                 Err(interrupt) => return self.interrupted(interrupt),
             };
             let (_, calls, notes) = ai_tools::extract_calls(&raw);
             self.progress.notes.extend(notes);
             if calls.is_empty() {
+                // The last block's calls failed and this reply carries no new one: most often it
+                // reports work that never happened ("saved the plan"), written before the results
+                // came back. Once, the model is shown exactly what failed.
+                if !unanswered.is_empty() && !told_failures && !owns_up(&raw) && !self.stopped() {
+                    told_failures = true;
+                    request.messages.push(Message::assistant(raw));
+                    request.messages.push(Message::user(failures_unanswered(&unanswered)));
+                    continue;
+                }
                 // A reply with no more calls is the model's own signal that it is done (or that
                 // it is deliberately stopping to report a blocker) — nothing left to feed back.
                 return;
@@ -1486,6 +1546,14 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
                 }
                 self.progress.notes.push(note);
             }
+            // A refusal that waits on the user's button (or says to end the turn) is answered by ending it.
+            unanswered = failed
+                .into_iter()
+                .filter(|failure| {
+                    let said = failure.to_ascii_lowercase();
+                    !["end your turn", "the user presses", "until the user", "waiting for the user"].iter().any(|phrase| said.contains(phrase))
+                })
+                .collect();
             if self.stopped() {
                 self.progress.stopped = true;
                 return;
@@ -1496,6 +1564,28 @@ impl<E: Fn(ChatEvent) + Send + Sync> Turn<'_, E> {
         self.progress.notes.push(format!("Bhippi AI paused after {} rounds. Your timeline and storyboard are saved — it carries on by itself from the next unfinished step; if it does not, press Continue.", self.max_rounds));
         self.progress.cut_short = Some("rounds");
     }
+}
+
+/// Whether a reply says that something did not work ("there was nothing to cut", "it failed"):
+/// an honest report of a failure is a fine end to a turn; only a reply that ignores one is pushed back on.
+fn owns_up(reply: &str) -> bool {
+    let said = reply.to_lowercase().replace('\u{2019}', "'");
+    ["fail", "error", "couldn't", "could not", "can't", "cannot", "unable", "didn't", "did not", "not able", "nothing to", "wasn't", "was not", "refused", "blocked", "missing"]
+        .iter()
+        .any(|word| said.contains(word))
+}
+
+/// What a text-protocol model that ended its turn over failed calls is told, once.
+fn failures_unanswered(failed: &[String]) -> String {
+    let mut out = String::from("These calls from your last block FAILED and changed nothing:\n");
+    for failure in failed.iter().take(8) {
+        let _ = writeln!(out, "- {}", failure.chars().take(600).collect::<String>());
+    }
+    out.push_str(
+        "Do not report them as done. Fix what each error says and send the corrected calls in a \
+         `bhippi-tools` block now. If one truly cannot be done, say which and why in plain words.",
+    );
+    out
 }
 
 /// What a CLI on the text protocol reads back after one round's calls run: its own reply (so it
@@ -2179,6 +2269,101 @@ kept
             progress.notes,
             vec!["1 of 3 edits did not apply — add_tracks: Gathering phase: no timeline edits until the user presses Start editing.; 2 more call(s) from the same reply were skipped — they would have failed for the same reason. Read the result below and send a different next step instead of repeating this batch."],
         );
+    }
+
+    /// Antigravity carries its conversation on: after the first round, each round sends only its
+    /// results, on the conversation the vendor named, not the whole prompt again.
+    #[tokio::test]
+    async fn a_resumable_cli_gets_only_the_results_after_the_first_round() {
+        let provider = Scripted::new(vec![
+            Ok(vec![Delta::Session { id: "conv-1".to_owned() }, text("```bhippi-tools\n[{\"tool\": \"get_comp\", \"args\": {}}]\n```")]),
+            Ok(vec![Delta::Session { id: "conv-1".to_owned() }, text("All set.")]),
+        ]);
+        let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
+        let row = row_of("antigravity", ProviderKind::Cli, true);
+        let req = request("check the timeline");
+        let (emit, _recorded) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        let request0 = build_request(&req, &row, ToolMode::Text);
+        turn.text(&provider, request0, &executor).await;
+        let seen = provider.seen();
+        assert_eq!(seen.len(), 2);
+        assert!(!seen[0].system.is_empty() && seen[0].resume.is_none());
+        assert!(seen[1].system.is_empty(), "the guide is already in the conversation");
+        assert_eq!(seen[1].resume.as_deref(), Some("conv-1"));
+        assert_eq!(seen[1].messages.len(), 1);
+        assert!(seen[1].messages[0].content.contains("get_comp"), "{:?}", seen[1].messages);
+        // A CLI that cannot carry a conversation on gets the whole prompt every round.
+        let provider = Scripted::new(vec![
+            Ok(vec![Delta::Session { id: "s-1".to_owned() }, text("```bhippi-tools\n[{\"tool\": \"get_comp\", \"args\": {}}]\n```")]),
+            Ok(vec![text("All set.")]),
+        ]);
+        let row = row_of("grok", ProviderKind::Cli, true);
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.text(&provider, build_request(&req, &row, ToolMode::Text), &executor).await;
+        let seen = provider.seen();
+        assert!(seen[1].resume.is_none() && !seen[1].system.is_empty());
+    }
+
+    /// A model that answers failed calls with "saved the plan" and no new block is shown what
+    /// failed, once; a refusal waiting on the user's button is not pushed back on.
+    #[tokio::test]
+    async fn a_reply_that_ignores_failed_calls_is_shown_them_once() {
+        let block = "```bhippi-tools\n[{\"tool\": \"save_video_blueprint\", \"args\": {}}]\n```";
+        let provider = Scripted::new(vec![
+            Ok(vec![text(block)]),
+            Ok(vec![text("Saved the complete production plan.")]),
+            Ok(vec![text(block)]),
+            Ok(vec![text("Plan saved; press Start generating.")]),
+        ]);
+        let answers = Arc::new(Mutex::new(vec![json!({"ok": true}), json!({"ok": false, "error": "Scene 2: narration needs the spoken text for this beat (>=10 chars)."})]));
+        let executor = FakeExecutor::new(move |_, _| answers.lock().expect("answers").pop().unwrap_or_else(|| json!({"ok": true})));
+        let row = row_of("antigravity", ProviderKind::Cli, true);
+        let req = request("plan the ad");
+        let (emit, _recorded) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.text(&provider, build_request(&req, &row, ToolMode::Text), &executor).await;
+        let seen = provider.seen();
+        assert_eq!(seen.len(), 4, "the false report was answered with the failure, and the fix ran");
+        let pushed = seen[2].messages.last().map(|m| m.content.clone()).unwrap_or_default();
+        assert!(pushed.contains("FAILED") && pushed.contains("narration needs the spoken text"), "{pushed}");
+        assert_eq!(executor.names(), vec!["save_video_blueprint", "save_video_blueprint"]);
+
+        // Waiting on the user's button: ending the turn is the right answer.
+        let provider = Scripted::new(vec![Ok(vec![text(block)]), Ok(vec![text("Waiting for you.")])]);
+        let executor = FakeExecutor::new(|_, _| json!({"ok": false, "error": "The plan is waiting for the user to press Start generating; end your turn.", "guardBlocked": true}));
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.text(&provider, build_request(&req, &row, ToolMode::Text), &executor).await;
+        assert_eq!(provider.seen().len(), 2);
+    }
+
+    /// A round that went silent and was stopped runs again with a short note instead of ending
+    /// the turn on a fault; the third silence in a turn is the fault.
+    #[tokio::test]
+    async fn a_silent_text_round_runs_again_before_the_turn_fails() {
+        let silent = || Err("timed out after 480s with no output".to_owned());
+        let provider = Scripted::new(vec![silent(), Ok(vec![text("Planned it.")])]);
+        let executor = FakeExecutor::new(|_, _| json!({"ok": true}));
+        let row = row_of("antigravity", ProviderKind::Cli, true);
+        let req = request("plan the ad");
+        let (emit, _recorded) = recorder();
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.text(&provider, build_request(&req, &row, ToolMode::Text), &executor).await;
+        assert!(turn.progress.fault.is_none());
+        let seen = provider.seen();
+        assert_eq!(seen[1].messages.last().map(|m| m.content.as_str()), Some(super::CONTINUE_STALLED_TEXT));
+
+        let provider = Scripted::new(vec![silent(), silent(), silent(), Ok(vec![text("never")])]);
+        let (_stop_sender, stop) = tokio::sync::watch::channel(false);
+        let mut turn = Turn { turn_id: "turn-1", row: &row, emit: &emit, stop, progress: Progress::default(), max_rounds: super::MAX_ROUNDS, window: None };
+        turn.text(&provider, build_request(&req, &row, ToolMode::Text), &executor).await;
+        assert!(turn.progress.fault.is_some());
+        assert_eq!(provider.seen().len(), 1 + super::MAX_STALL_RESTARTS);
     }
 
     #[tokio::test]

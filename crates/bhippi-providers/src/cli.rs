@@ -49,6 +49,11 @@ const HARD_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 /// hits this; Stop is the user's control.
 const MCP_HARD_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
 
+/// How long a CLI may be silent while one of its *own* tools is running (Antigravity's browser
+/// research, a shell command): the step said it started and has not said it ended. Longer than
+/// [`STALL_CAP`], since the tool is working; still bounded, since a command can hang for ever.
+const VENDOR_TOOL_STALL: Duration = Duration::from_secs(15 * 60);
+
 /// How often a silent CLI is re-checked against its idle budget.
 const IDLE_TICK: Duration = Duration::from_secs(5);
 
@@ -57,6 +62,11 @@ const IDLE_TICK: Duration = Duration::from_secs(5);
 /// prints nothing, so its silence alone proves nothing. Pure + tested.
 fn is_hung(silent_for: Duration, tools_idle_for: Option<Duration>, in_flight: usize, budget: Duration) -> bool {
     in_flight == 0 && silent_for >= budget && tools_idle_for.is_none_or(|idle| idle >= budget)
+}
+
+/// The silence a CLI is allowed now: its own budget, or longer while its own tools are running. Pure + tested.
+fn silence_budget(idle_budget: Duration, vendor_tools_running: usize) -> Duration {
+    if vendor_tools_running == 0 { idle_budget } else { idle_budget.max(VENDOR_TOOL_STALL) }
 }
 
 /// How long a CLI may be silent, with no Bhippi tool running, before the chat says it is still thinking.
@@ -176,12 +186,24 @@ fn toml_string(text: &str) -> String {
 /// A turn cut off when the app closed carries on in the same Claude Code session (`--resume`),
 /// with everything it read, ran and wrote still in its memory. Only an id shaped like one.
 fn resume_flag_args(spec: &ProviderSpec, req: &CompletionRequest) -> Vec<OsString> {
+    let flag = match spec.id {
+        "claude" => "--resume",
+        // Antigravity's print mode carries on a conversation by its id (the `init` event's).
+        "antigravity" => "--conversation",
+        _ => return Vec::new(),
+    };
     match req.resume.as_deref() {
-        Some(id) if spec.id == "claude" && !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
-            vec![OsString::from("--resume"), OsString::from(id)]
+        Some(id) if !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
+            vec![OsString::from(flag), OsString::from(id)]
         }
         _ => Vec::new(),
     }
+}
+
+/// Whether a CLI can carry on a conversation it started, given only the new message: the text
+/// protocol then sends each round's results alone instead of the whole prompt again.
+pub fn resumes_conversations(id: &str) -> bool {
+    id == "antigravity"
 }
 
 /// Claude Code's own tools, all taken away from a sealed turn.
@@ -640,6 +662,8 @@ impl Provider for CliProvider {
             // Whether a "still thinking" step is showing: a reasoning model can say nothing for
             // minutes, and a chat that looks frozen is a chat the user stops.
             let mut waiting = false;
+            // The vendor's own tool steps that started and have not ended: silence then means work.
+            let mut vendor_tools: HashSet<String> = HashSet::new();
 
             loop {
                 let remaining = hard_timeout.saturating_sub(started.elapsed());
@@ -667,10 +691,11 @@ impl Provider for CliProvider {
                             waiting = true;
                             let _ignored = tx.send(Ok(still_thinking(false))).await;
                         }
-                        if is_hung(last_line.elapsed(), tools_idle_for, in_flight, idle_budget) {
+                        let budget = silence_budget(idle_budget, vendor_tools.len());
+                        if is_hung(last_line.elapsed(), tools_idle_for, in_flight, budget) {
                             failure = Some(format!(
                                 "timed out after {}s with no output",
-                                idle_budget.as_secs()
+                                budget.as_secs()
                             ));
                             break;
                         }
@@ -693,6 +718,13 @@ impl Provider for CliProvider {
                 for event in reader.push_line(&line) {
                     if hide_step(&event, server_name.as_deref(), &mut hidden) {
                         continue;
+                    }
+                    if let TranscriptEvent::Tool { id, done, .. } = &event {
+                        if *done {
+                            vendor_tools.remove(id);
+                        } else {
+                            vendor_tools.insert(id.clone());
+                        }
                     }
                     if let Some(reason) = forward(&tx, event).await {
                         failure = Some(reason);
@@ -1079,6 +1111,29 @@ mod tests {
         assert!(!is_hung(long, Some(short), 0, budget), "a tool call just finished");
         assert!(!is_hung(short, Some(long), 0, budget), "it spoke recently");
         assert!(!is_hung(short, None, 0, budget));
+    }
+
+    /// Antigravity researching in its own browser, or running a command, is silent while it works.
+    #[test]
+    fn a_running_vendor_tool_earns_a_longer_silence() {
+        let budget = Duration::from_secs(480);
+        assert_eq!(super::silence_budget(budget, 0), budget);
+        assert_eq!(super::silence_budget(budget, 1), super::VENDOR_TOOL_STALL);
+        assert!(!is_hung(Duration::from_secs(600), None, 0, super::silence_budget(budget, 1)));
+        assert!(is_hung(Duration::from_secs(16 * 60), None, 0, super::silence_budget(budget, 1)));
+    }
+
+    /// The text protocol carries an Antigravity conversation on by its id; others start afresh.
+    #[test]
+    fn antigravity_resumes_its_conversation_by_id() {
+        let agy = spec("antigravity").expect("antigravity");
+        let mut request = CompletionRequest::new("", vec![Message::user("results".to_owned())]);
+        request.resume = Some("b4b4ed29-6c54-40ba-924e-13cc04536761".to_owned());
+        let argv: Vec<String> = super::resume_flag_args(agy, &request).iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        assert_eq!(argv, ["--conversation", "b4b4ed29-6c54-40ba-924e-13cc04536761"]);
+        request.resume = Some("bad id; rm".to_owned());
+        assert!(super::resume_flag_args(agy, &request).is_empty());
+        assert!(super::resumes_conversations("antigravity") && !super::resumes_conversations("grok"));
     }
 
     #[test]

@@ -50,7 +50,9 @@ export function nextAutoStep(end: TurnEnd, chain: AutoChain): AutoKind | null {
   const worked = end.runs.some((run) => run.status === 'done');
   const edited = end.runs.some((run) => run.status === 'done' && run.changedProject);
   if (end.faultKind) {
-    return TRANSIENT_FAULTS.has(end.faultKind) && chain.retries < MAX_AUTO_RETRIES ? 'retry' : null;
+    // An automatic round that failed again without getting anything through is not tried a third time.
+    const progressed = chain.count === 0 || worked;
+    return TRANSIENT_FAULTS.has(end.faultKind) && chain.retries < MAX_AUTO_RETRIES && progressed ? 'retry' : null;
   }
   if (end.cutShort) return worked ? 'cut-short' : null;
   const status = end.workflow;
@@ -84,6 +86,18 @@ export function autoLead(kind: AutoKind, end: Pick<TurnEnd, 'faultKind' | 'cutSh
     case 'gather':
       return '[Automatic gather round: the last turn ended with shots still pending.]';
   }
+}
+
+/**
+ * What stopped the job, in a line: the last call of the turn that failed, with its error. A carry-on
+ * names it so the model fixes that one thing instead of redoing the phase; the warn line shows it to
+ * the person. Null when nothing failed.
+ */
+export function lastBlocker(runs: readonly { name: string; status: string; summary?: string }[]): string | null {
+  const failed = [...runs].reverse().find((run) => run.status === 'failed' && run.summary);
+  if (!failed?.summary) return null;
+  const said = failed.summary.replace(/\s+/g, ' ').trim();
+  return `${failed.name}: ${said.length > 400 ? `${said.slice(0, 400)}…` : said}`;
 }
 
 /** Whether a message is one the chat sent by itself (it never resets the chain or counts as the request). */

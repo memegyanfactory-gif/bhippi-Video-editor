@@ -916,6 +916,11 @@ fn value_summary(value: &Value) -> String {
 /// The conversation id a vendor announces when it starts: Claude Code's `system`/`init` and
 /// Gemini's `init` carry `session_id`, Codex's `thread.started` carries `thread_id`.
 fn event_session(event: &Value) -> Option<String> {
+    // Antigravity: `{event:init, conversation_id}`, with no `type`.
+    if event.get("event").and_then(Value::as_str) == Some("init") {
+        let id = event.get("conversation_id")?.as_str()?.trim();
+        return (!id.is_empty()).then(|| id.to_owned());
+    }
     let kind = event.get("type").and_then(Value::as_str)?;
     let id = match kind {
         "system" if event.get("subtype").and_then(Value::as_str) == Some("init") => event.get("session_id"),
@@ -1393,6 +1398,14 @@ mod tests {
             })
         );
         assert_eq!(answer.failure, None);
+    }
+
+    /// Its `init` names the conversation, so the next round can carry it on with `--conversation`.
+    #[test]
+    fn antigravity_init_names_its_conversation() {
+        let mut reader = Reader::new(Transcript::JsonLines);
+        let events = reader.push_line(r#"{"event":"init","conversation_id":"c1","init":{"permission_mode":"request-review"}}"#);
+        assert!(events.iter().any(|event| matches!(event, TranscriptEvent::Session(id) if id == "c1")), "{events:?}");
     }
 
     #[test]
