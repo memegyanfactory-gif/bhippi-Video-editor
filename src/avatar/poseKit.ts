@@ -8,7 +8,9 @@ export type AnimName =
   | 'research' | 'cut' | 'carry' | 'place' | 'kick' | 'polish' | 'mix' | 'direct' | 'draw' | 'think' | 'talk' | 'ask' | 'push' | 'tweak'
   | 'dangle' | 'slap' | 'celebrate' | 'sleep' | 'wave' | 'poked'
   // A character's signature move (a web, a batarang, a smash…), flying between panels, and swinging on a line.
-  | 'power' | 'fly' | 'swing';
+  | 'power' | 'fly' | 'swing'
+  // The big show-off each character is known for (heroPoses.ts SIGNATURE), and a small idle habit.
+  | 'signature' | 'fidget';
 
 export type AnimOptions = {
   /** Extra headwear for the council seat at work. */

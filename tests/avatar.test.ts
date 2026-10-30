@@ -6,7 +6,7 @@ import type { AvatarEvent } from '../src/avatar/bus';
 import { ChatMirror, TURN_STALE_MS, WRITING_MS } from '../src/avatar/mirror';
 import { ANIMS, poseAt, type AnimName } from '../src/avatar/poses';
 import { ART_H, ART_W, CHARACTERS, FEET_Y, HAIR_TOP, REST, renderPose, type Pose } from '../src/avatar/sprite';
-import { FIRE_AT, HERO_STRIKE, HERO_TRAVEL } from '../src/avatar/heroPoses';
+import { FIRE_AT, HERO_STRIKE, HERO_TRAVEL, SIGNATURE } from '../src/avatar/heroPoses';
 import type { HeroId } from '../src/avatar/heroes';
 import { newClip, newProject, tracksOf } from '../src/lib/timeline';
 import type { Clip, Project } from '../src/lib/types';
@@ -274,6 +274,24 @@ describe('the heroes', () => {
     }
     expect(looks.size).toBe(11);
   });
+
+  it('gives every hero its own signature move, drawn on the ground line all the way through', () => {
+    const heroes = CHARACTERS.filter(({ id }) => id in HERO_STRIKE).map(({ id }) => id as HeroId);
+    expect(new Set(heroes.map((id) => SIGNATURE[id].name)).size).toBe(heroes.length);
+    for (const id of heroes) {
+      const { s } = SIGNATURE[id];
+      const frames = new Set<string>();
+      for (let t = 0; t <= s + 0.2; t += 0.2) {
+        const frame = renderPose(poseAt('signature', t, { character: id }));
+        frames.add(frame.join());
+        expect(rows(frame).some(Boolean), `${id} at ${t.toFixed(1)}s`).toBe(true);
+        expect(rows(frame).slice(FEET_Y + 12).some(Boolean), `${id} at ${t.toFixed(1)}s`).toBe(false);
+      }
+      // A move, not a held pose.
+      expect(frames.size, id).toBeGreaterThan(2);
+      expect(renderPose(poseAt('signature', 1, { character: id })).join(), `${id} looks like its strike`).not.toBe(renderPose(poseAt('power', 1, { character: id })).join());
+    }
+  }, 20_000);
 
   it('keeps the jester laughing in every animation but sleep', () => {
     for (const name of ['idle', 'walk', 'talk', 'think', 'celebrate'] as AnimName[]) {

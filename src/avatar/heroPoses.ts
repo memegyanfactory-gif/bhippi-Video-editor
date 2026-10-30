@@ -296,6 +296,152 @@ export const HERO_ANIMS: Partial<Record<Character, Own>> = {
   },
 };
 
+// ── signature moves ─────────────────────────────────────────────────────────
+//
+// The one thing each hero is known for, played in full when a turn finishes, when the user
+// double-clicks it, and now and then when it is idle. The pose is here; the engine lifts, turns
+// and fades the body and fires the effects on the same clock (engine.ts `signature`).
+
+/** Each hero's big move: what it is called, and how long it takes in seconds. */
+export const SIGNATURE: Record<HeroId, { name: string; s: number }> = {
+  spider: { name: 'Web-zip and a hero landing', s: 2.6 },
+  bat: { name: 'Smoke bomb vanish', s: 2.6 },
+  jester: { name: 'Fan of cards', s: 2.3 },
+  butler: { name: 'Tea is served', s: 2.6 },
+  ironclad: { name: 'Boot-jet launch and chest beam', s: 3.1 },
+  brute: { name: 'Leap and SMASH', s: 2.8 },
+  synth: { name: 'Phase shift and mind-gem rings', s: 2.6 },
+  archer: { name: 'Arrow rain', s: 2.4 },
+  patriot: { name: 'Ricochet shield', s: 2.8 },
+  panther: { name: 'Kinetic pulse', s: 2.4 },
+  chakra: { name: 'Whirlwind rise', s: 2.6 },
+};
+
+/** The three-point landing: knee down, one fist on the ground, the other arm swept back. */
+const heroLanding = (o: AnimOptions, over: Partial<Pose> = {}) =>
+  make({ y: 3, headY: 2, lean: 1, armR: [3, 9], armL: [-9, -1], legL: [-4, 0], legR: [4, 0], eyes: 'focus', mouth: 'flat', ...over }, o);
+
+const SIGNATURES: Record<HeroId, AnimFn> = {
+  // Crouch, thwip a line straight up, zip up it, backflip off the top, dive, and land in a three-point crouch.
+  spider: (t, o) => {
+    if (t < 0.3) return make({ y: 2, armR: [2, -14], armL: [-4, 4], legL: [-2, 0], legR: [2, 0], eyes: 'focus', look: 1, props: [glow('R', 0.6, '#cfe4ff')] }, o);
+    if (t < 0.8) return make({ armR: [3, -14], armL: [-2, -4], legL: [-1, 4], legR: [1, 3], eyes: 'wide', mouth: 'open', sway: -0.6 }, o);
+    if (t < 1.1) return make({ y: -2, armL: [-4, 2], armR: [4, 2], legL: [-1, 5], legR: [1, 5], eyes: 'squeeze', mouth: 'open' }, o);
+    if (t < 1.45) return make({ legL: [-1, 3], legR: [1, 2], armL: [-5, -6], armR: [5, -6], eyes: 'wide', mouth: 'open', sway: 1 }, o);
+    if (t < 2.3) return heroLanding(o, t < 2 ? { eyes: 'down' } : { headY: 0, look: 1 });
+    if (t < 2.6) return make({ y: 1, armL: [-4, 3], armR: [9, -3], finger: 'R', legL: [-2, 0], legR: [2, 0], eyes: 'wink', look: 1 }, o);
+    return make({ y: 1, armL: [-4, 3], armR: [4, 3], legL: [-2, 0], legR: [2, 0], eyes: 'happy' }, o);
+  },
+  // Cape wrapped, a pellet thrown down, gone in the smoke — and back somewhere else, cape spread.
+  bat: (t, o) => {
+    if (t < 0.3) return make({ lean: -1, armL: [9, 3], armR: [4, -6], cape: 1, eyes: 'focus', mouth: 'flat' }, o);
+    if (t < 1.4) return make({ y: 1, armL: [9, 3], armR: [6, 6], cape: 2, eyes: 'focus', mouth: 'flat' }, o);
+    if (t < 2) return make({ y: 1, armL: [-10, -4], armR: [10, -4], legL: [-2, 0], legR: [2, 0], cape: 2, eyes: 'angry', mouth: 'flat', look: 1 }, o);
+    return make({ armL: [9, 3], armR: [-9, 4], cape: 1, eyes: 'focus', mouth: 'flat', look: 1 }, o);
+  },
+  // Five cards fanned out of one hand and flicked one after another, then a bow with jazz hands.
+  jester: (t, o) => {
+    if (t < 0.4) return make({ lean: -1, armR: [-3, -7], armL: [-5, -2], eyes: 'wide', props: [{ kind: 'card', flip: 0 }] }, o);
+    if (t < 1) return make({ lean: 2, armR: [10, [-6, -3, 0, 3][cyc(t, 8, 4)]], armL: [-5, -2], eyes: 'wide', look: 1, props: [{ kind: 'card', flip: cyc(t, 8, 2) }] }, o);
+    if (t < 1.7) return make({ y: 1, headY: 2, lean: 1, armL: [-8, -6], armR: [8, -6], eyes: 'squeeze' }, o);
+    return make({ armL: [-7, -8], armR: [7, -8], eyes: 'happy' }, o);
+  },
+  // A deep bow, the tray raised with the tea steaming, then the monocle catches the light.
+  butler: (t, o) => {
+    if (t < 0.6) return make({ headY: 3, y: 2, lean: 1, armL: [3, 1], armR: [-1, 7], armRBack: true, eyes: 'happy', mouth: 'smile', props: [{ kind: 'tray', steam: 0 }] }, o);
+    if (t < 1.8) return make({ armL: [6, -6], armR: [-1, 7], armRBack: true, eyes: 'happy', mouth: 'smile', look: 1, props: [{ kind: 'tray', steam: cyc(t, 3, 2) + 1 }] }, o);
+    if (t < 2.6) return make({ armL: [3, 1], armR: [2, -6], finger: 'R', eyes: 'wink', mouth: 'grin', props: [{ kind: 'tray', steam: 1 }] }, o);
+    return make({ armL: [3, 1], armR: [-1, 7], armRBack: true, eyes: 'happy', mouth: 'smile', props: [{ kind: 'tray', steam: 1 }] }, o);
+  },
+  // Crouch, boot jets light, launch, hover on the jets, the chest beam, back down into the superhero landing.
+  ironclad: (t, o) => {
+    const jets = glow('both', 0.6 + cyc(t, 12, 2) * 0.3, '#7df3ff');
+    if (t < 0.35) return make({ y: 2, armL: [-6, 4], armR: [6, 4], legL: [-2, 0], legR: [2, 0], eyes: 'focus', mouth: 'flat', props: [glow('both', 0.3, '#7df3ff')] }, o);
+    if (t < 1.3) return make({ armL: [-6, 5], armR: [6, 5], legL: [-1, 2 + cyc(t, 8, 2)], legR: [1, 2], eyes: 'focus', mouth: 'flat', props: [jets] }, o);
+    if (t < 1.95) return make({ lean: 1, armL: [-8, 3], armR: [8, 3], legL: [-1, 3], legR: [1, 2], eyes: 'angry', mouth: 'flat', look: 1, props: [jets] }, o);
+    if (t < 2.75) return make({ armL: [-6, 5], armR: [6, 5], legL: [-1, 2], legR: [1, 2 + cyc(t, 8, 2)], eyes: 'focus', mouth: 'flat', props: [jets] }, o);
+    if (t < 3.1) return heroLanding(o, { armL: [-6, 0] });
+    return make({ armR: [4, -3], thumb: 'R', armL: [-4, 2], eyes: 'wink', mouth: 'grin', headX: 1 }, o);
+  },
+  // Chest pounding and a roar, a deep crouch, a leap with both fists overhead, then the slam.
+  brute: (t, o) => {
+    if (t < 0.6) {
+      const k = cyc(t, 10, 2);
+      return make({ y: k, headY: -1, armL: k ? [3, -2] : [-2, 5], armR: k ? [-3, 5] : [2, -2], eyes: 'angry', mouth: 'shout', legL: [-2, 0], legR: [2, 0] }, o);
+    }
+    if (t < 0.8) return make({ y: 3, armL: [-6, 6], armR: [6, 6], legL: [-3, 0], legR: [3, 0], eyes: 'angry', mouth: 'flat' }, o);
+    if (t < 1.6) return make({ legL: [-2, 3], legR: [2, 3], armL: [-3, -13], armR: [3, -13], eyes: 'angry', mouth: 'shout' }, o);
+    if (t < 2.3) return make({ y: 3, lean: 1, armL: [-2, 10], armR: [2, 10], legL: [-3, 0], legR: [3, 0], eyes: 'angry', mouth: 'shout' }, o);
+    if (t < 2.8) return make({ y: -1, armL: [-6, -10], armR: [6, -10], legL: [-2, 0], legR: [2, 0], eyes: 'squeeze', mouth: 'shout' }, o);
+    return make({ armL: [-5, 8], armR: [5, 8], eyes: 'wink', mouth: 'grin' }, o);
+  },
+  // Rises, turns intangible and drifts, then rings pour out of the gem on the brow.
+  synth: (t, o) => {
+    if (t < 0.4) return make({ y: -4, armL: [-3, 6], armR: [3, 6], legL: [0, 3], legR: [0, 3], eyes: 'open', mouth: 'flat', cape: 1 }, o);
+    if (t < 1.5) return make({ y: -5, armL: [-8, -2], armR: [8, -2], legL: [0, 4], legR: [0, 4], eyes: 'focus', mouth: 'flat', cape: 2 }, o);
+    if (t < 2.2) return make({ y: -5, headX: 1, armL: [-5, 3], armR: [5, 3], legL: [0, 4], legR: [0, 4], eyes: 'wide', mouth: 'flat', cape: 2, look: 1 }, o);
+    return make({ y: -3, armL: [-3, 6], armR: [3, 6], legL: [0, 3], legR: [0, 3], eyes: 'happy', mouth: 'smile', cape: 1 }, o);
+  },
+  // Three arrows loosed high, one after another, to rain down across the timeline.
+  archer: (t, o) => {
+    if (t < 1.1) {
+      const draw = Math.min(1, (t % 0.3) / 0.22);
+      return make({ lean: -1, armR: [9, -8], armL: [Math.round(3 + draw * 4), -7], look: 1, eyes: 'focus', mouth: 'flat', legL: [-2, 0], legR: [2, 0], props: [{ kind: 'bow', draw }] }, o);
+    }
+    if (t < 1.9) return make({ armR: [3, -5], finger: 'R', armL: [-3, 6], look: 1, eyes: 'focus', mouth: 'smile', props: [{ kind: 'bow', draw: 0 }] }, o);
+    return make({ armR: [4, 3], armL: [-3, 6], eyes: 'wink', mouth: 'grin', headX: 1, props: [{ kind: 'bow', draw: 0 }] }, o);
+  },
+  // The shield thrown, ringing off panel after panel, caught on the way back, raised high.
+  patriot: (t, o) => {
+    const shield: Prop = { kind: 'shield' };
+    if (t < 0.35) return make({ lean: -1, armL: [-6, -5], armR: [3, 3], eyes: 'angry', mouth: 'flat', look: 1, props: [shield] }, o);
+    if (t < 2.1) return make({ lean: t < 0.5 ? 2 : 0, armL: t < 0.5 ? [11, -3] : [5, 1], armR: [3, 3], eyes: 'focus', mouth: 'flat', look: 1 }, o);
+    if (t < 2.35) return make({ y: 1, lean: -1, armL: [8, -2], armR: [3, 3], eyes: 'focus', mouth: 'flat', props: [shield] }, o);
+    return make({ armL: [3, -9], armR: [2, 6], eyes: 'happy', mouth: 'grin', props: [shield] }, o);
+  },
+  // A crouch soaking up energy, then both fists into the ground and a violet ring tears outwards.
+  panther: (t, o) => {
+    const charge = glow('both', Math.min(2.2, 0.3 + t * 2.2), '#b57bff');
+    if (t < 0.9) return make({ y: 2, armL: [-6, 2], armR: [6, 2], legL: [-2, 0], legR: [2, 0], eyes: 'angry', mouth: 'flat', props: [charge, { kind: 'claws', out: 1 }] }, o);
+    if (t < 1.7) return make({ y: 3, lean: 1, armL: [-3, 9], armR: [3, 9], legL: [-3, 0], legR: [3, 0], eyes: 'angry', mouth: 'flat', props: [glow('both', t < 1.2 ? 2.2 : 0.8, '#b57bff'), { kind: 'claws', out: 2 }] }, o);
+    return make({ armL: [9, -1], armR: [-9, 0], headY: 1, eyes: 'focus', mouth: 'flat' }, o);
+  },
+  // Spins into a tornado that lifts him off the panel, then lands and bows.
+  chakra: (t, o) => {
+    if (t < 0.4) return make({ y: -3, armL: [-9, 0], armR: [9, 0], legL: [0, 4], legR: [0, 4], eyes: 'focus', mouth: 'open', props: [{ kind: 'whirl', phase: t }] }, o);
+    if (t < 2) return make({ y: -3, armL: [-6, -11], armR: [6, -11], legL: [0, 5], legR: [0, 5], eyes: 'squeeze', mouth: 'laugh', props: [{ kind: 'whirl', phase: t }] }, o);
+    return make({ armL: [8, -2], armR: [-8, -2], headY: 1, eyes: 'happy', mouth: 'smile' }, o);
+  },
+};
+
+/** Little habits a hero falls into while it waits (the engine moves the body for them). */
+const FIDGETS: Partial<Record<HeroId, AnimFn>> = {
+  // Hanging upside down from a web line (the engine flips it): one hand waves.
+  spider: (t, o) => make({ armL: [-3, -11], armR: cyc(t, 4, 2) ? [5, -12] : [7, -10], legL: [-1, 0], legR: [1, 0], eyes: 'happy', mouth: 'smile' }, o),
+  // A short hover on the boot jets, arms out to steady.
+  ironclad: (t, o) => make({ armL: [-7, 4], armR: [7, 4], legL: [-1, 2], legR: [1, 2 + cyc(t, 6, 2)], eyes: 'open', mouth: 'flat', props: [glow('both', 0.4 + cyc(t, 12, 2) * 0.2, '#7df3ff')] }, o),
+  // Beats his chest.
+  brute: (t, o) => {
+    const k = cyc(t, 8, 2);
+    return make({ y: k, headY: -1, armL: k ? [3, -2] : [-2, 5], armR: k ? [-3, 5] : [2, -2], eyes: 'angry', mouth: t > 0.9 ? 'shout' : 'flat', legL: [-2, 0], legR: [2, 0] }, o);
+  },
+};
+
+/** How a hero comes down at the end of a trip or a fall. */
+const LANDINGS: Partial<Record<HeroId, AnimFn>> = {
+  spider: (t, o) => (t < 0.34 ? heroLanding(o) : make({ y: 1, armL: [-4, 3], armR: [4, 3], legL: [-2, 0], legR: [2, 0], eyes: 'focus', look: 1 }, o)),
+  ironclad: (t, o) => (t < 0.34 ? heroLanding(o, { armL: [-6, 0] }) : make({ y: 1, armL: [-4, 2], armR: [4, 2], eyes: 'focus', mouth: 'flat' }, o)),
+  brute: (t, o) => (t < 0.3 ? make({ y: 3, lean: 1, armL: [-2, 10], armR: [2, 10], legL: [-3, 0], legR: [3, 0], eyes: 'angry', mouth: 'shout' }, o) : make({ y: 1, armL: [-5, 8], armR: [5, 8], eyes: 'angry', mouth: 'flat' }, o)),
+  panther: (t, o) => (t < 0.3 ? make({ y: 3, lean: 2, armL: [-3, 8], armR: [6, 6], legL: [-3, 0], legR: [3, 0], eyes: 'angry', mouth: 'flat', props: [{ kind: 'claws', out: 1 }] }, o) : make({ y: 1, armL: [-4, 4], armR: [4, 4], eyes: 'focus', mouth: 'flat' }, o)),
+};
+
+for (const id of Object.keys(SIGNATURES) as HeroId[]) {
+  const own = (HERO_ANIMS[id] ??= {});
+  own.signature = SIGNATURES[id];
+  own.fidget = FIDGETS[id] ?? own.idle;
+  if (LANDINGS[id]) own.land = LANDINGS[id];
+}
+
 /** Anims during which a hero keeps what it carries (a shield, a bow, a tray) in its hands. */
 const CARRIES = new Set<AnimName>(['idle', 'walk', 'run', 'talk', 'ask', 'think', 'push', 'wave']);
 

@@ -30,6 +30,7 @@ const MOVES: Move[] = [
   { anim: 'dangle', label: 'Picked up', when: 'Grab Heli with the mouse: AHAHAHA — it wriggles to get loose until you let go, then lands where you drop it.' },
   { anim: 'slap', label: 'No no no', when: 'Touch a clip, a layer or a setting while the AI is working and Heli slaps your cursor away: no no no.' },
   { anim: 'power', label: 'Power move', when: 'Its signature move — heroes cut, delete and push your cursor away with it (a web, a batarang, a blast, a shield…), swing or fly between panels, and show it off when idle.' },
+  { anim: 'signature', label: 'Signature', when: 'Its big move — Webb zips up a web and drops into a hero landing, Brutus leaps and SMASHES, Ferrox launches on his boot jets and fires the chest beam, and every hero has its own. Played when a turn finishes, now and then when idle, and whenever you double-click it.' },
   { anim: 'celebrate', label: 'Done', when: 'A fist pump and a thumbs-up when the turn finishes.' },
   { anim: 'sleep', label: 'Nap', when: 'Nods off after a minute with nothing to do; wakes when you send a message.' },
 ];

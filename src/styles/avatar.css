@@ -1,8 +1,9 @@
-/* The pixel avatar (src/avatar). One fixed layer over the workspace, under dialogs and menus;
-   only the character itself takes the mouse. Everything is drawn crisp: pixel art is scaled with
-   nearest-neighbour sampling and moved in whole pixels. */
+/* The pixel avatar (src/avatar). One fixed layer over the whole workspace — panels, dialogs, the
+   corner badges and Bhippi's notifications (.toasts, 250000) included — under only the splash and
+   the top-most confirm dialogs. Only the character itself takes the mouse. Everything is drawn crisp:
+   pixel art is scaled with nearest-neighbour sampling and moved in whole pixels. */
 
-.avatar-layer { position: fixed; inset: 0; z-index: 850; pointer-events: none; overflow: hidden; contain: layout style; }
+.avatar-layer { position: fixed; inset: 0; z-index: 260000; pointer-events: none; overflow: hidden; contain: layout style; }
 .avatar-layer canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
 .avatar-fx { position: absolute; inset: 0; width: 100vw; height: 100vh; }
 .avatar-body { position: absolute; left: 0; top: 0; will-change: transform; }
@@ -88,3 +89,8 @@
 
 /* A hero's blow landing on a panel: a quick flash round it. */
 [data-panel][data-avatar-hit] { outline: 2px solid rgba(255, 255, 255, 0.55); outline-offset: -2px; transition: outline-color 0.4s; }
+
+/* A smash or a landing big enough to shake the panels (engine.ts quake). */
+[data-avatar-quake] [data-panel] { animation: avatar-quake 80ms steps(2) infinite; }
+@keyframes avatar-quake { 0% { translate: 2px -1px; } 50% { translate: -2px 1px; } 100% { translate: 0 0; } }
+@media (prefers-reduced-motion: reduce) { [data-avatar-quake] [data-panel] { animation: none; } }

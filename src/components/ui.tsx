@@ -1,5 +1,5 @@
 // Small shared building blocks: modal, toasts, number field, color swatches.
-import { CheckCircle2, Info, TriangleAlert, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Info, TriangleAlert, X } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -32,19 +32,39 @@ type ToastInput = Omit<Toast, 'id'> & { timeout?: number };
 const ToastContext = createContext<(toast: ToastInput) => void>(() => undefined);
 export const useToast = () => useContext(ToastContext);
 
+/** More notifications than this at once fold into one stack (the newest on top); a click opens them all. */
+const STACK_AFTER = 3;
+/** The most kept at once; the oldest go first. */
+const KEEP = 30;
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [open, setOpen] = useState(false);
   const next = useRef(1);
   /** Each toast's dismissal timer, so a repeat can push its own back instead of adding a row. */
   const timers = useRef(new Map<number, number>());
   const showing = useRef(new Map<string, number>());
+  /** While the stack is open nothing times out under the reader; it waits until they close it. */
+  const reading = useRef(false);
+  reading.current = open;
 
-  const dismiss = useCallback((id: number) => {
+  const forget = (id: number) => {
     const timer = timers.current.get(id);
     if (timer !== undefined) window.clearTimeout(timer);
     timers.current.delete(id);
     for (const [key, value] of showing.current) if (value === id) showing.current.delete(key);
+  };
+
+  const dismiss = useCallback((id: number) => {
+    forget(id);
     setToasts((items) => items.filter((toast) => toast.id !== id));
+  }, []);
+
+  const clearAll = useCallback(() => {
+    for (const id of [...timers.current.keys()]) forget(id);
+    showing.current.clear();
+    setToasts([]);
+    setOpen(false);
   }, []);
 
   const push = useCallback(
@@ -56,7 +76,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       const arm = (id: number) => {
         const previous = timers.current.get(id);
         if (previous !== undefined) window.clearTimeout(previous);
-        timers.current.set(id, window.setTimeout(() => dismiss(id), ms));
+        const expire = () => {
+          if (reading.current) timers.current.set(id, window.setTimeout(expire, 1500));
+          else dismiss(id);
+        };
+        timers.current.set(id, window.setTimeout(expire, ms));
       };
       const already = showing.current.get(key);
       if (already !== undefined && !toast.actions) {
@@ -65,35 +89,74 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       }
       const id = next.current++;
       showing.current.set(key, id);
-      setToasts((items) => [...items.slice(-3), { ...toast, id }]);
+      setToasts((items) => {
+        const kept = [...items, { ...toast, id }];
+        for (const old of kept.slice(0, Math.max(0, kept.length - KEEP))) forget(old.id);
+        return kept.slice(-KEEP);
+      });
       arm(id);
     },
     [dismiss],
   );
+
+  const stacked = toasts.length > STACK_AFTER;
+  // Down to a few again: the stack folds away and they show as plain rows.
+  useEffect(() => { if (!stacked) setOpen(false); }, [stacked]);
+
+  const row = (toast: Toast) => {
+    const Icon = toast.tone === 'success' ? CheckCircle2 : toast.tone === 'error' ? TriangleAlert : Info;
+    return (
+      <div key={toast.id} className={`toast tone-${toast.tone}`}>
+        <Icon size={16} className="toast-icon" />
+        <div className="toast-text">
+          <strong>{toast.title}</strong>
+          {toast.body && <span>{toast.body}</span>}
+          {toast.actions && (
+            <div className="toast-actions">
+              {toast.actions.map((action) => (
+                <button key={action.label} type="button" className="btn btn-small" onClick={() => { action.run(); dismiss(toast.id); }}>{action.label}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button type="button" className="icon-btn small" onClick={() => dismiss(toast.id)} aria-label="Dismiss"><X size={13} /></button>
+      </div>
+    );
+  };
+
+  const newest = toasts[toasts.length - 1];
+  const errors = toasts.filter((toast) => toast.tone === 'error').length;
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="toasts" aria-live="polite">
-        {toasts.map((toast) => {
-          const Icon = toast.tone === 'success' ? CheckCircle2 : toast.tone === 'error' ? TriangleAlert : Info;
-          return (
-            <div key={toast.id} className={`toast tone-${toast.tone}`}>
-              <Icon size={16} className="toast-icon" />
-              <div className="toast-text">
-                <strong>{toast.title}</strong>
-                {toast.body && <span>{toast.body}</span>}
-                {toast.actions && (
-                  <div className="toast-actions">
-                    {toast.actions.map((action) => (
-                      <button key={action.label} type="button" className="btn btn-small" onClick={() => { action.run(); dismiss(toast.id); }}>{action.label}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button type="button" className="icon-btn small" onClick={() => dismiss(toast.id)} aria-label="Dismiss"><X size={13} /></button>
+      <div className={`toasts${stacked ? (open ? ' open' : ' stacked') : ''}`} aria-live="polite">
+        {!stacked && toasts.map(row)}
+        {stacked && open && (
+          <>
+            <div className="toast-list-head">
+              <strong>Notifications</strong>
+              <span className="toast-count">{toasts.length}</span>
+              <button type="button" className="btn btn-small" onClick={() => setOpen(false)}><ChevronDown size={13} /> Show less</button>
+              <button type="button" className="btn btn-small" onClick={clearAll}>Clear all</button>
             </div>
-          );
-        })}
+            <div className="toast-list">{toasts.map(row)}</div>
+          </>
+        )}
+        {stacked && !open && newest && (
+          // The newest on top of the pile, the rest peeking out under it; a click anywhere but its buttons opens them all.
+          <div
+            className="toast-stack" role="button" tabIndex={0} aria-expanded={false} title="Show all notifications"
+            onClick={(event) => { if (!(event.target as HTMLElement).closest('button')) setOpen(true); }}
+            onKeyDown={(event) => { if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) { event.preventDefault(); setOpen(true); } }}
+          >
+            <div className="toast-stack-pill">
+              <ChevronUp size={12} /> {toasts.length - 1} more{errors ? ` · ${errors} error${errors === 1 ? '' : 's'}` : ''}
+            </div>
+            {row(newest)}
+            <div className="toast-stack-layer one" aria-hidden="true" />
+            <div className="toast-stack-layer two" aria-hidden="true" />
+          </div>
+        )}
       </div>
     </ToastContext.Provider>
   );

@@ -8,8 +8,17 @@ import type { Strike } from './heroPoses';
 
 type Vec = { x: number; y: number };
 
-export type FxKind = Strike | 'shock' | 'rope-web' | 'rope-grapple';
-export type Projectile = { kind: FxKind; from: Vec; to: Vec; t0: number; dur: number; facing: 1 | -1 };
+export type FxKind = Strike | 'shock' | 'rope-web' | 'rope-grapple'
+  // The signature moves: the chest beam, a smash cracking the ground, a ring of energy, a shield
+  // ringing round a path of panels, an arrow lobbed high.
+  | 'unibeam' | 'cracks' | 'pulse' | 'ricochet' | 'lob';
+export type Projectile = {
+  kind: FxKind; from: Vec; to: Vec; t0: number; dur: number; facing: 1 | -1;
+  /** A ring's colour (pulse), and how much bigger than usual it is drawn (shock, pulse, cracks). */
+  color?: string; size?: number;
+  /** The points a ricochet goes through between `from` and `to`. */
+  path?: Vec[];
+};
 
 /** How long each kind lasts on screen, in ms (the engine lands the blow at `LANDS` of that). */
 export const FX_MS: Record<Strike, number> = {
@@ -169,10 +178,88 @@ export function drawProjectile(ctx: CanvasRenderingContext2D, p: Projectile, now
       }
       return true;
     }
+    case 'unibeam': {
+      // A wide white-hot beam from the chest, flaring at both ends, flickering as it goes out.
+      if (u > 0.85 || blink(0.7)) return true;
+      const reach = lerp(p.from, p.to, clamp01(u / 0.15));
+      const wide = Math.floor(u * 40) % 2 ? 5 : 4;
+      line({ x: p.from.x, y: p.from.y - S * 2 }, { x: reach.x, y: reach.y - S * 2 }, '#7df3ff', wide);
+      line(p.from, reach, '#ffffff', 2);
+      px(p.from.x - 3 * S, p.from.y - 3 * S, '#ffffff', 6);
+      if (u > 0.15) {
+        px(p.to.x - 4 * S, p.to.y - 4 * S, '#7df3ff', 8);
+        px(p.to.x - 2 * S, p.to.y - 2 * S, '#ffffff', 4);
+      }
+      return true;
+    }
+    case 'cracks': {
+      // Jagged cracks running out along the ground from a slam, then blinking away.
+      if (blink(0.75)) return true;
+      const grow = clamp01(u / 0.25) * (p.size ?? 1);
+      for (const dir of [-1, 1]) {
+        for (let branch = 0; branch < 3; branch++) {
+          let x = p.to.x;
+          let y = p.to.y - 1;
+          const steps = Math.round((8 + branch * 5) * grow);
+          for (let i = 0; i < steps; i++) {
+            x += dir * S * 1.5;
+            y += ((i * 7 + branch * 3) % 5 === 0 ? -1 : (i + branch) % 4 === 0 ? 1 : 0) * S + (branch - 1) * S * 0.25;
+            px(x, y, i % 3 ? '#2a1a26' : '#5a4636');
+          }
+        }
+      }
+      return true;
+    }
+    case 'pulse': {
+      // A round ring of energy swelling out from the source and fading.
+      if (blink(0.65)) return true;
+      const r = (8 + u * 120) * (p.size ?? 1);
+      const color = p.color ?? '#b57bff';
+      for (let k = 0; k < 48; k++) {
+        const ang = (k / 48) * Math.PI * 2;
+        px(p.to.x + Math.cos(ang) * r, p.to.y + Math.sin(ang) * r * 0.75, k % 2 ? '#ffffff' : color, u < 0.3 ? 2 : 1);
+      }
+      return true;
+    }
+    case 'ricochet': {
+      // The shield from point to point (each a panel it rings off), and home to the hand.
+      const stops = [p.from, ...(p.path ?? []), p.to];
+      const legs = stops.length - 1;
+      const at = Math.min(legs - 1e-6, u * legs);
+      const leg = Math.floor(at);
+      const pos = lerp(stops[leg], stops[leg + 1], at - leg);
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const r = Math.hypot(dx, dy);
+          if (r > 4.2) continue;
+          px(pos.x + dx * S, pos.y + dy * S, r <= 1.6 ? '#2c4fa0' : r <= 2.6 ? '#ffffff' : r <= 3.4 ? '#c8222e' : '#ffffff');
+        }
+      }
+      // A streak behind it.
+      const back = lerp(stops[leg], stops[leg + 1], Math.max(0, at - leg - 0.12));
+      line(back, pos, '#9cc4ee');
+      return true;
+    }
+    case 'lob': {
+      // An arrow lobbed high: up, over, and down onto its mark, nose following the curve.
+      if (u > 0.82) return true;
+      const v = clamp01(u / 0.7);
+      const peak = Math.min(p.from.y, p.to.y) - 160;
+      const at = (w: number): Vec => ({ x: p.from.x + (p.to.x - p.from.x) * w, y: (1 - w) ** 2 * p.from.y + 2 * (1 - w) * w * peak + w * w * p.to.y });
+      const head = at(v);
+      const tail = at(Math.max(0, v - 0.05));
+      const d = Math.hypot(head.x - tail.x, head.y - tail.y) || 1;
+      const end = { x: head.x - ((head.x - tail.x) / d) * S * 7, y: head.y - ((head.y - tail.y) / d) * S * 7 };
+      line(end, head, '#cdd5e5');
+      px(head.x, head.y, '#ffffff', 2);
+      px(end.x - S, end.y - S, '#ff7a45');
+      px(end.x + S, end.y + S, '#ff7a45');
+      return true;
+    }
     case 'shock': {
       // The ring of a smash, spreading along the ground and thinning out.
       if (blink(0.6)) return true;
-      const r = u * 110;
+      const r = u * 110 * (p.size ?? 1);
       for (let k = 0; k < 40; k++) {
         const ang = (k / 40) * Math.PI * 2;
         px(p.to.x + Math.cos(ang) * r, p.to.y - 3 + Math.sin(ang) * r * 0.22, k % 2 ? '#fff1c2' : '#ffc23d', 1);

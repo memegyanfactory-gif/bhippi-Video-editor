@@ -261,6 +261,14 @@ export const ANIMS: Record<AnimName, AnimFn> = {
   power: (t, o) => make({ y: t < 0.3 ? -cyc(t, 12, 2) * 2 : 0, armR: [5, -9], armL: [-3, 5], eyes: 'wink', mouth: 'grin', headX: 1 }, o),
   fly: (_t, o) => make({ legL: [-1, 3], legR: [1, 3], armL: [-4, -7], armR: [4, -7], eyes: 'wide', mouth: 'open', look: 1, sway: 0.4 }, o),
   swing: (_t, o) => make({ legL: [-1, 3], legR: [1, 3], armL: [-4, -7], armR: [4, -7], eyes: 'wide', mouth: 'open', look: 1, sway: 0.4 }, o),
+  // A backflip (the engine lifts and turns it) and a ta-da.
+  signature: (t, o) => {
+    if (t < 0.25) return make({ y: 2, armL: [-5, 5], armR: [5, 5], legL: [-2, 0], legR: [2, 0], eyes: 'focus', mouth: 'flat' }, o);
+    if (t < 0.9) return make({ y: -2, armL: [-4, 2], armR: [4, 2], legL: [-1, 5], legR: [1, 5], eyes: 'squeeze', mouth: 'open', sway: 1 }, o);
+    if (t < 1.1) return make({ y: 2, armL: [-6, 0], armR: [6, 0], legL: [-2, 0], legR: [2, 0], eyes: 'wide', mouth: 'o' }, o);
+    return make({ y: t < 1.6 ? -cyc(t, 8, 2) : 0, armL: [-7, -9], armR: [7, -9], eyes: 'happy', mouth: 'laugh' }, o);
+  },
+  fidget: (t, o) => ANIMS.idle(t, o),
 };
 
 // ── the cat ────────────────────────────────────────────────────────────────
@@ -452,6 +460,13 @@ const CAT_ANIMS: Record<AnimName, AnimFn> = {
   power: (t, o) => kitty({ y: -cyc(t, 8, 3) * 2, eyes: 'angry', mouth: 'open', look: 1 }, { body: 'leap', tail: { a: 25, curl: 0.3 }, claws: true }, o),
   fly: (_t, o) => kitty({ eyes: 'wide', mouth: 'o' }, { body: 'leap', tail: { a: 25, curl: 0.3 } }, o),
   swing: (_t, o) => kitty({ eyes: 'wide', mouth: 'o' }, { body: 'leap', tail: { a: 25, curl: 0.3 } }, o),
+  // The big pounce: a wiggle of the hips, the leap, then a proud sit.
+  signature: (t, o) => {
+    if (t < 0.5) return kitty({ y: 1, eyes: 'angry', mouth: 'cat', look: 1 }, { body: 'loaf', tail: { a: 40 + cyc(t, 10, 2) * 12, curl: 0.2 }, earsBack: true }, o);
+    if (t < 1.1) return kitty({ eyes: 'angry', mouth: 'open', look: 1 }, { body: 'leap', tail: { a: 25, curl: 0.3 }, claws: true }, o);
+    return kitty({ eyes: 'happy', mouth: 'cat' }, { body: 'sit', tail: tailUp(t) }, o);
+  },
+  fidget: (t, o) => CAT_ANIMS.idle(t, o),
 };
 
 /** The pose of `anim` at `t` seconds, stepped to the pixel frame rate. */

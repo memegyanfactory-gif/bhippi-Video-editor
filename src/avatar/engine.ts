@@ -20,7 +20,7 @@ import { GLYPH_H, drawText, textWidth, wrap } from './pixelFont';
 import { CAT_NAP, FPS, KENNEL, poseAt, type AnimName, type AnimOptions } from './poses';
 import { ART_H, ART_W, CHARACTERS, CAT_TOP, CX, FEET_Y, HAIR_TOP, HEAD_Y, TORSO_Y, handPoint, paint, type Character, type Gear } from './sprite';
 import { isHero } from './heroes';
-import { HERO_LINES, HERO_STRIKE, HERO_TRAVEL, type Strike } from './heroPoses';
+import { HERO_LINES, HERO_STRIKE, HERO_TRAVEL, SIGNATURE, type Strike } from './heroPoses';
 import { FX_MS, LANDS, drawProjectile, type Projectile } from './fx';
 import { releaseOf, startSwing, stepSwing, swingDegrees, swingStretch, type Swing } from './swing';
 
@@ -59,11 +59,20 @@ type Spot = { x: number; y: number; sit?: boolean; slideTo?: number };
 /** Timeline edits the chat just made. */
 type EditKind = 'cut' | 'add' | 'delete' | 'push' | 'tweak';
 /** How a turn closed, and what the user does to the character. */
-type ReactionKind = EditKind | 'celebrate' | 'failed' | 'wave' | 'slap' | 'dizzy' | 'poked' | 'power';
+type ReactionKind = EditKind | 'celebrate' | 'failed' | 'wave' | 'slap' | 'dizzy' | 'poked' | 'power' | 'signature' | 'fidget';
 type JobKind = ActivityKind | ReactionKind;
 
 /** Live jobs done where the character stands; the rest go to their place first. */
-const IN_PLACE = new Set<JobKind>(['think', 'talk', 'celebrate', 'failed', 'wave', 'dizzy', 'poked', 'power']);
+const IN_PLACE = new Set<JobKind>(['think', 'talk', 'celebrate', 'failed', 'wave', 'dizzy', 'poked', 'power', 'signature', 'fidget']);
+/** Moves that lift, turn or fade the whole body (engine `stunt`); always played at full length. */
+const STUNTS = new Set<JobKind>(['signature', 'fidget']);
+/** How long each hero's idle habit lasts (heroPoses.ts FIDGETS); the rest have none. */
+const FIDGET_MS: Partial<Record<Character, number>> = { spider: 2400, ironclad: 2200, brute: 1400 };
+/** Heroes that come down from a trip in their own landing pose (heroPoses.ts LANDINGS). */
+const LANDERS = new Set<Character>(['spider', 'ironclad', 'brute', 'panther']);
+const ramp = (t: number, from: number, to: number) => clamp((t - from) / (to - from), 0, 1);
+const easeOut = (u: number) => 1 - (1 - u) ** 2;
+const easeIn = (u: number) => u * u;
 /** The strike moves, which for a hero are done with its own power. */
 const SPIN = new Set<AnimName>(['power', 'cut', 'kick', 'slap']);
 const EDITS = new Set<JobKind>(['cut', 'add', 'delete', 'push', 'tweak']);
@@ -100,7 +109,7 @@ type Job = {
 type Particle = {
   x: number; y: number; vx: number; vy: number; g: number;
   age: number; life: number; color: string;
-  kind: 'px' | 'plus' | 'star' | 'text' | 'marks' | 'bulb';
+  kind: 'px' | 'plus' | 'star' | 'text' | 'marks' | 'bulb' | 'puff';
   text?: string; size?: number; dir?: number;
 };
 
@@ -108,7 +117,7 @@ const GEAR: Record<CouncilRole, Gear> = { researcher: 'glasses', audio: 'headpho
 const JOB_ANIM: Record<JobKind, AnimName> = {
   research: 'research', mix: 'mix', direct: 'direct', draw: 'draw', polish: 'polish', think: 'think', talk: 'talk', ask: 'ask', tinker: 'tweak',
   cut: 'cut', add: 'place', delete: 'kick', push: 'push', tweak: 'tweak', celebrate: 'celebrate', failed: 'dizzy', wave: 'wave', slap: 'slap',
-  dizzy: 'dizzy', poked: 'poked', power: 'power',
+  dizzy: 'dizzy', poked: 'poked', power: 'power', signature: 'signature', fidget: 'fidget',
 };
 
 /** The arrow cursor, in pixels: X outline, W fill. */
@@ -182,7 +191,14 @@ export class AvatarEngine {
   /** Things a hero has thrown, fired or spun out, drawn on the effects canvas until they are over. */
   private projectiles: Projectile[] = [];
   /** The line a swinging or grappling hero hangs from: drawn from its hand to the anchor. */
-  private rope: { kind: 'rope-web' | 'rope-grapple'; anchor: Vec } | null = null;
+  private rope: { kind: 'rope-web' | 'rope-grapple'; anchor: Vec; from?: Vec; stunt?: boolean } | null = null;
+  /** A stunt's hold on the body: screen pixels above its feet, and how solid it is (0 is gone in smoke). */
+  private lift = 0;
+  private fade = 1;
+  /** A hero holds its landing pose until then, at the end of a trip. */
+  private landUntil = 0;
+  /** The last plain click on the character: a second one soon after asks for its signature move. */
+  private lastClick = 0;
   /** When a hero next shows off its power on a panel (idle flourish). */
   private nextFlourish = performance.now() + 15_000;
   private nextHa = 0;
@@ -233,7 +249,8 @@ export class AvatarEngine {
 
     let greeted = false;
     try { greeted = sessionStorage.getItem('bhippi-avatar-greeted') === '1'; sessionStorage.setItem('bhippi-avatar-greeted', '1'); } catch { /* private mode */ }
-    if (!greeted) this.react(this.makeJob('wave', { line: `Hi! I'm ${this.name}`, minMs: 1600 }));
+    // Heroes make an entrance with their signature move; everyone else waves.
+    if (!greeted) this.react(isHero(character) ? this.signatureJob({ line: `Hi! I'm ${this.name}` }) : this.makeJob('wave', { line: `Hi! I'm ${this.name}`, minMs: 1600 }));
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -247,7 +264,14 @@ export class AvatarEngine {
     const cat = this.character === 'cat';
     const half = cat ? 20 : this.character === 'brute' ? 17 : 14;
     Object.assign(this.hitbox.style, { left: `${(CX - half) * S}px`, top: `${(this.top + 3) * S}px`, width: `${half * 2 * S + (cat ? 2 : 0)}px`, height: `${(FEET_Y - this.top - 3) * S}px` });
-    this.hitbox.title = `${this.name} — drag me, poke me, right-click for options`;
+    const move = isHero(this.character) ? SIGNATURE[this.character].name.toLowerCase() : 'a trick';
+    this.hitbox.title = `${this.name} — drag me, poke me, double-click for ${move}, right-click for options`;
+  }
+
+  /** The character's big move (heroPoses.ts SIGNATURE), played in full. */
+  private signatureJob(over: Partial<Job> = {}): Job {
+    const c = this.character;
+    return this.makeJob('signature', { minMs: isHero(c) ? SIGNATURE[c].s * 1000 : c === 'cat' ? 1600 : 1900, ...over });
   }
 
   private get name() {
@@ -265,6 +289,7 @@ export class AvatarEngine {
     this.character = character;
     this.fitHitbox();
     this.lastKey = '';
+    this.dropStunt();
     this.rope = null;
     this.projectiles = [];
   }
@@ -317,6 +342,7 @@ export class AvatarEngine {
       // A hop in the air lands; a walk or a run stops on the spot.
       this.legs = [];
       if (this.travel && !this.travel.arc) this.travel = null;
+      this.dropStunt();
       this.tag = null;
       this.sitting = false;
       this.parked = true;
@@ -325,8 +351,12 @@ export class AvatarEngine {
       else this.say(this.line('stopped'), 1600);
       return;
     }
-    // Finished: the last edits it made play out first, then the thumbs-up.
-    this.react(this.makeJob('celebrate', { line: plugin ? pick(LINES.pluginDone) : this.line('done'), minMs: 2300 }));
+    // Finished: the last edits it made play out first, then the thumbs-up. A hero wins with its signature move first.
+    const line = plugin ? pick(LINES.pluginDone) : this.line('done');
+    if (isHero(this.character)) {
+      this.react(this.signatureJob({ line }));
+      this.react(this.makeJob('celebrate', { minMs: 1400 }));
+    } else this.react(this.makeJob('celebrate', { line, minMs: 2300 }));
   }
 
   private fromDiff(diff: ClipDiff, ghosts: Ghost[], now: number) {
@@ -404,6 +434,7 @@ export class AvatarEngine {
       current.created = performance.now();
       this.queue.unshift(current);
     }
+    if (current && STUNTS.has(current.kind)) this.dropStunt();
     this.travel = null;
     this.legs = [];
     this.job = next;
@@ -670,10 +701,57 @@ export class AvatarEngine {
 
   /** The exhaust of a flying hero: jets, golden sparks, a rush of wind. */
   private trail() {
+    // The armour flies on its boot jets and steers with its palms.
+    if (this.character === 'ironclad') {
+      this.jets(0.6, true);
+      return;
+    }
     if (Math.random() > 0.8) return;
     const [x, y] = this.artToScreen([CX - 2, FEET_Y - 3]);
-    const colours = this.character === 'ironclad' ? ['#7df3ff', '#ffffff', '#ffb52e'] : this.character === 'synth' ? ['#ffe040', '#fff0a0'] : ['#ffffff', '#9cc4ee'];
+    const colours = this.character === 'synth' ? ['#ffe040', '#fff0a0'] : ['#ffffff', '#9cc4ee'];
     this.emit({ kind: 'px', x: x + (Math.random() - 0.5) * 8, y: y + Math.random() * 6, vx: -this.facing * (60 + Math.random() * 60), vy: 20 + Math.random() * 40, color: pick(colours), life: 0.35 });
+  }
+
+  /** Boot jets: flame out of both soles (back along the flight when `flying`), the odd puff of smoke, and the palms glowing. */
+  private jets(strength: number, flying = false) {
+    for (const side of [-1, 1]) {
+      const [x, y] = this.artToScreen([CX + side * 2, FEET_Y - 1]);
+      const back = flying ? -this.facing * (90 + Math.random() * 80) : (Math.random() - 0.5) * 30;
+      this.emit({ kind: 'px', x: x + (Math.random() - 0.5) * 4, y: y + Math.random() * 4, vx: back, vy: (flying ? 60 : 160) * strength + Math.random() * 80, color: pick(['#ffffff', '#fff1a8', '#ffb52e', '#ff7a45', '#7df3ff']), life: 0.18 + Math.random() * 0.14, size: Math.random() < 0.3 ? 2 : 1 });
+    }
+    if (Math.random() < 0.18) {
+      const [x, y] = this.artToScreen([CX, FEET_Y + 2]);
+      this.emit({ kind: 'puff', x, y, vx: flying ? -this.facing * 40 : (Math.random() - 0.5) * 30, vy: flying ? 10 : 30, g: -40, color: pick(['#8a8f9c', '#6b7080', '#a4a9b5']), life: 0.7, size: 2 });
+    }
+    if (Math.random() < 0.3) {
+      const hand = this.handScreen(Math.random() < 0.5 ? 'l' : 'r', performance.now());
+      this.emit({ kind: 'px', x: hand.x, y: hand.y + 2, vx: (Math.random() - 0.5) * 20, vy: 70, color: '#7df3ff', life: 0.15 });
+    }
+  }
+
+  /** Smoke rolling out from a point (the vigilante's pellet). */
+  private smoke(x: number, y: number, n: number) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const speed = 30 + Math.random() * 70;
+      this.emit({ kind: 'puff', x: x + Math.cos(a) * 8, y: y + Math.sin(a) * 6, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed * 0.5 - 20, g: -30, color: pick(['#3a3d4a', '#4c5060', '#5f6475', '#2a2c36']), life: 0.9 + Math.random() * 0.5, size: 3 + Math.round(Math.random() * 2) });
+    }
+  }
+
+  /** A big hit shakes every panel for a moment (avatar.css). */
+  private quake(ms: number) {
+    const root = document.documentElement;
+    root.dataset.avatarQuake = '1';
+    this.later(() => delete root.dataset.avatarQuake, ms);
+  }
+
+  /** Undo a stunt's hold on the body: back on its feet, solid, upright, off any line it was hanging from. */
+  private dropStunt() {
+    if (this.lift > 0 && this.mode === 'free') this.dust(this.pos.x, this.pos.y, 4);
+    this.lift = 0;
+    this.fade = 1;
+    this.angle = ((((this.angle + 180) % 360) + 360) % 360) - 180;
+    if (this.rope?.stunt) this.rope = null;
   }
 
   /** The leaper's landing: dust, a ring along the ground, clips knocked about. */
@@ -730,9 +808,21 @@ export class AvatarEngine {
           if (tr.arc) this.dust(this.pos.x, this.pos.y, 4);
           if (tr.arc && this.character === 'brute' && tr.dur > 400) this.slam();
           this.startLeg(now);
+          // The end of a real trip: a hero comes down in its own landing (the web-slinger's three-point crouch).
+          const flew = tr.anim === 'fly' || tr.anim === 'swing' || (tr.arc && tr.anim === 'jump');
+          if (!this.travel && flew && tr.dur > 300 && LANDERS.has(this.character)) {
+            this.landUntil = now + 380;
+            this.setAnim('land', now);
+            this.dust(this.pos.x, this.pos.y, 8);
+            if (this.character === 'ironclad') for (let i = 0; i < 6; i++) this.jets(1);
+          }
         }
         return;
       }
+    }
+    if (now < this.landUntil) {
+      this.setAnim('land', now);
+      return;
     }
     // What it is doing gives way the moment the chat does something else, or an edit it just made wants showing.
     const current = this.job;
@@ -759,20 +849,27 @@ export class AvatarEngine {
       }
       if (!job.started) this.beginJob(job, now);
       this.performJob(job, now, dt);
-      // A live job lasts as long as the chat does that; a reaction, its own length.
-      if (!job.live && now - job.started >= (job.fast ? job.minMs * 0.6 : job.minMs)) this.endJob(job, now);
+      // A live job lasts as long as the chat does that; a reaction, its own length (a stunt always all of it).
+      if (!job.live && now - job.started >= (job.fast && !STUNTS.has(job.kind) ? job.minMs * 0.6 : job.minMs)) this.endJob(job, now);
       return;
     }
-    // Idle heroes now and then show off their power on one of the panels.
-    if (isHero(this.character) && !this.parked && now > this.nextFlourish && now - this.lastActive > 5000 && now - this.lastActive < 55_000) {
-      this.nextFlourish = now + 20_000 + Math.random() * 25_000;
-      const panels = [...document.querySelectorAll<HTMLElement>('[data-panel]')].map((el) => el.getBoundingClientRect()).filter((r) => r.width > 120 && r.height > 80);
-      const r = panels.length ? pick(panels) : null;
-      const point = r ? { x: r.left + r.width * (0.3 + Math.random() * 0.4), y: r.top + r.height * 0.4 } : { x: this.pos.x + 200 * this.facing, y: this.pos.y - 60 };
-      this.react(this.makeJob('power', { point, minMs: 1800 }));
+    // Left idle, a character now and then shows off: its signature move, a little habit, or (a hero) its power on a panel.
+    const home = this.home();
+    const atHome = !home || Math.hypot(home.x - this.pos.x, home.y - this.pos.y) <= 6;
+    if (!this.parked && atHome && now > this.nextFlourish && now - this.lastActive > 4000 && now - this.lastActive < 58_000) {
+      this.nextFlourish = now + 14_000 + Math.random() * 14_000;
+      const roll = Math.random();
+      const fidget = FIDGET_MS[this.character];
+      if (fidget && roll < 0.4) this.react(this.makeJob('fidget', { minMs: fidget }));
+      else if (!isHero(this.character) || roll < 0.75) this.react(this.signatureJob());
+      else {
+        const panels = [...document.querySelectorAll<HTMLElement>('[data-panel]')].map((el) => el.getBoundingClientRect()).filter((r) => r.width > 120 && r.height > 80);
+        const r = panels.length ? pick(panels) : null;
+        const point = r ? { x: r.left + r.width * (0.3 + Math.random() * 0.4), y: r.top + r.height * 0.4 } : { x: this.pos.x + 200 * this.facing, y: this.pos.y - 60 };
+        this.react(this.makeJob('power', { point, minMs: 1800 }));
+      }
     }
     // Nothing to do: go home (unless it stopped where the chat stopped), then idle, and sleep when left alone.
-    const home = this.home();
     if (!this.parked && home && Math.hypot(home.x - this.pos.x, home.y - this.pos.y) > 6 && now - this.lastActive > 700) {
       this.goTo(home, now, null);
       return;
@@ -838,6 +935,10 @@ export class AvatarEngine {
     const strike = isHero(this.character) ? HERO_STRIKE[this.character] : null;
     if (strike === 'whirl' && SPIN.has(job.anim)) every(0.07, () => this.emit({ kind: 'px', x: this.pos.x + (Math.random() - 0.5) * 40, y: this.pos.y - Math.random() * 50, vx: (Math.random() - 0.5) * 120, vy: -20, color: pick(['#ffffff', '#9cc4ee']), life: 0.4 }));
     switch (job.kind) {
+      case 'signature':
+      case 'fidget':
+        this.stunt(job.kind, t, once, every, hand);
+        break;
       case 'power':
         once('fire', 0.3, () => {
           if (strike) this.fire(strike, job.point ?? { x: this.pos.x + 200 * this.facing, y: this.pos.y - 60 });
@@ -972,7 +1073,275 @@ export class AvatarEngine {
     }
   }
 
+  /**
+   * A signature move or an idle habit, on the same clock as its pose (heroPoses.ts SIGNATURES and
+   * FIDGETS): this lifts, turns and fades the body, and fires what the move throws, when it throws it.
+   */
+  private stunt(kind: 'signature' | 'fidget', t: number, once: (key: string, at: number, fn: () => void) => void, every: (period: number, fn: () => void) => void, hand: (which: 'l' | 'r') => [number, number]) {
+    const f = this.facing;
+    const { x, y } = this.pos;
+    /** How high it can go without leaving the window. */
+    const room = (most: number) => clamp(y - 150, 30, most);
+    const text = (word: string, color: string, dx = -16, dy = -110) => this.emit({ kind: 'text', text: word, x: x + dx, y: y + dy, vx: 0, vy: -36, color, life: 0.95 });
+    const impact = (size: number, word: string, color: string) => {
+      const now = performance.now();
+      const at = { x, y };
+      this.lift = 0;
+      this.projectiles.push({ kind: 'shock', from: at, to: at, t0: now, dur: 620, facing: f, size });
+      this.projectiles.push({ kind: 'cracks', from: at, to: at, t0: now, dur: 900, facing: f, size });
+      this.dust(x, y, Math.round(10 * size));
+      this.rumble(x, 300 * size);
+      this.quake(Math.round(260 * size));
+      this.hitPanel({ x, y: y + 6 });
+      text(word, color, -22, -40);
+    };
+    const c = this.character;
+    if (kind === 'fidget') {
+      switch (c) {
+        case 'spider': {
+          // Up a web line and hanging upside down, swaying, then back down the right way up.
+          const high = room(56);
+          const up = easeOut(ramp(t, 0, 0.3));
+          const down = easeIn(ramp(t, 2, 2.4));
+          this.lift = high * (up - down);
+          this.angle = f * (180 * up + 180 * down) + (t > 0.3 && t < 2 ? Math.sin(t * 3) * 8 : 0);
+          once('thwip', 0, () => this.emit({ kind: 'text', text: 'THWIP', x: x - 14, y: y - 230, vx: 0, vy: -20, color: '#eaf3ff', life: 0.7 }));
+          if (t < 2.2) {
+            const d = (FEET_Y - COM_Y) * S;
+            const com = { x, y: y - this.lift - d };
+            const a = (this.angle * Math.PI) / 180;
+            const feet = { x: com.x - d * Math.sin(a), y: com.y + d * Math.cos(a) };
+            this.rope = { kind: 'rope-web', anchor: { x, y: Math.max(6, y - high - 2 * d - 120) }, from: feet, stunt: true };
+          } else if (this.rope?.stunt) this.rope = null;
+          break;
+        }
+        case 'ironclad': {
+          this.lift = room(22) * (easeOut(ramp(t, 0, 0.3)) - easeIn(ramp(t, 1.9, 2.2))) + (t > 0.3 && t < 1.9 ? Math.sin(t * 6) * 3 : 0);
+          if (t < 2.2) this.jets(0.8);
+          break;
+        }
+        case 'brute':
+          every(0.25, () => this.burst(x + f * 6, y - 70, '#a8e060', 3));
+          once('grr', 0.9, () => { text('GRR!', '#a8e060'); this.rumble(x, 140); });
+          break;
+        default: break;
+      }
+      return;
+    }
+    if (!isHero(c)) {
+      // Everyone else: the cat pounces forward, the rest do a backflip and a ta-da.
+      if (c === 'cat') {
+        const u = ramp(t, 0.5, 1.1);
+        this.lift = 40 * 4 * u * (1 - u);
+        if (u > 0 && u < 1) this.pos.x = clamp(x + f * 120 * 0.016, 24, window.innerWidth - 24);
+        once('land', 1.1, () => this.dust(this.pos.x, this.pos.y, 6));
+        return;
+      }
+      const u = ramp(t, 0.25, 0.9);
+      this.lift = room(60) * 4 * u * (1 - u);
+      this.angle = -f * 360 * easeOut(u) % 360;
+      once('land', 0.9, () => { this.angle = 0; this.dust(x, y, 6); });
+      once('tada', 1.1, () => { this.emit({ kind: 'star', x: x - 20, y: y - 120, vx: -10, vy: -20, color: '#ffe066', life: 0.9 }); this.emit({ kind: 'star', x: x + 20, y: y - 120, vx: 10, vy: -20, color: '#ffe066', life: 0.9 }); this.sparkle(x, y - 90); });
+      if (c === 'genie') every(0.08, () => this.sparkle(x + (Math.random() - 0.5) * 50, y - 40 - Math.random() * 60));
+      return;
+    }
+    switch (c) {
+      case 'spider': {
+        const high = room(140);
+        if (t < 0.3) this.lift = 0;
+        else if (t < 0.8) this.lift = high * easeOut(ramp(t, 0.3, 0.8));
+        else if (t < 1.1) this.lift = high + 14 * Math.sin(ramp(t, 0.8, 1.1) * Math.PI);
+        else this.lift = high * (1 - easeIn(ramp(t, 1.1, 1.45)));
+        // The backflip off the top of the line.
+        this.angle = t > 0.8 && t < 1.1 ? -f * 360 * easeOut(ramp(t, 0.8, 1.1)) % 360 : 0;
+        once('thwip', 0.28, () => {
+          const anchor = { x: x + 6 * f, y: Math.max(6, y - high - 150) };
+          this.rope = { kind: 'rope-web', anchor, stunt: true };
+          this.burst(anchor.x, anchor.y, '#ffffff', 8);
+          this.emit({ kind: 'text', text: 'THWIP!', x: anchor.x - 16, y: anchor.y + 10, vx: 0, vy: -20, color: '#eaf3ff', life: 0.8 });
+        });
+        once('let-go', 0.85, () => { if (this.rope?.stunt) this.rope = null; });
+        once('land', 1.45, () => impact(0.9, 'THOOM!', '#ff5a5a'));
+        once('pose', 1.7, () => this.say(pick(['Hero landing!', 'Nailed the landing!', 'Ta-da!']), 1300));
+        break;
+      }
+      case 'brute': {
+        const high = room(160);
+        if (t < 0.8) this.lift = 0;
+        else if (t < 1.3) this.lift = high * easeOut(ramp(t, 0.8, 1.3));
+        else this.lift = high * (1 - easeIn(ramp(t, 1.3, 1.6)));
+        if (t < 0.6) every(0.1, () => this.burst(x + f * 6, y - 70, '#a8e060', 2));
+        once('roar', 0.05, () => { text('RAAAGH!', '#a8e060'); this.rumble(x, 160); });
+        once('crouch', 0.8, () => this.dust(x, y, 10));
+        once('slam', 1.6, () => {
+          impact(1.8, 'SMASH!!', '#ffc23d');
+          this.say('BRUTUS SMASH!', 1800, 'shout');
+          for (let i = 0; i < 3; i++) this.burst(x + (i - 1) * 40, y, '#d9d4cc', 6);
+        });
+        once('roar2', 2.3, () => text('ROAR!', '#a8e060'));
+        break;
+      }
+      case 'ironclad': {
+        const high = room(110);
+        if (t < 0.35) this.lift = 0;
+        else if (t < 1) this.lift = high * easeOut(ramp(t, 0.35, 1));
+        else if (t < 2.2) this.lift = high + Math.sin((t - 1) * 5) * 4;
+        else this.lift = high * (1 - easeIn(ramp(t, 2.2, 2.75)));
+        if (t > 0.2 && t < 2.75) this.jets(t < 0.5 ? 1.4 : 0.9);
+        once('launch', 0.35, () => {
+          this.projectiles.push({ kind: 'shock', from: this.pos, to: { ...this.pos }, t0: performance.now(), dur: 520, facing: f, size: 0.7 });
+          this.dust(x, y, 14);
+          text('FWOOSH!', '#ffb52e', -22, -40);
+        });
+        once('beam', 1.35, () => {
+          const [cx, cy] = this.artToScreen([CX + 1, TORSO_Y + 3]);
+          const to = { x: clamp(cx + f * 320, 10, window.innerWidth - 10), y: cy };
+          this.projectiles.push({ kind: 'unibeam', from: { x: cx, y: cy }, to, t0: performance.now(), dur: 650, facing: f });
+          this.later(() => {
+            this.burst(to.x, to.y, '#7df3ff', 12);
+            this.burst(to.x, to.y, '#ffffff', 6);
+            this.emit({ kind: 'text', text: 'ZZZARK!', x: to.x - 20, y: to.y - 26, vx: 0, vy: -40, color: '#7df3ff', life: 0.9 });
+            this.hitPanel(to);
+          }, 100);
+        });
+        once('land', 2.75, () => { impact(0.7, 'CLANK!', '#ffb52e'); for (let i = 0; i < 6; i++) this.jets(1.2); });
+        break;
+      }
+      case 'bat': {
+        this.fade = t > 0.42 && t < 1.4 ? 0 : 1;
+        once('pellet', 0.3, () => { this.smoke(x, y - 30, 26); text('FSSSH', '#8792a8', -16, -60); });
+        once('move', 0.9, () => {
+          // Reappears a good way along, on the side the timeline has more room, turned back towards where it was.
+          const tl = this.panel('timeline');
+          const dir = tl ? (x - tl.left < tl.right - x ? 1 : -1) : -f;
+          const lo = tl ? tl.left + 40 : 40;
+          const hi = tl ? tl.right - 40 : window.innerWidth - 40;
+          this.pos.x = clamp(x + dir * 180, lo, hi);
+          this.facing = dir > 0 ? -1 : 1;
+          this.homeOverride = { ...this.pos };
+        });
+        once('back', 1.38, () => { this.smoke(x, y - 30, 16); this.say(pick(['Behind you.', 'Looking for me?', 'Boo.']), 1500); });
+        break;
+      }
+      case 'jester':
+        for (let i = 0; i < 5; i++) {
+          once(`card${i}`, 0.45 + i * 0.11, () => {
+            const [hx, hy] = hand('r');
+            const a = ((-55 + i * 20) * Math.PI) / 180;
+            const to = { x: hx + f * Math.cos(a) * 230, y: hy + Math.sin(a) * 230 };
+            this.projectiles.push({ kind: 'card', from: { x: hx, y: hy }, to, t0: performance.now(), dur: 420, facing: f });
+            this.later(() => {
+              for (const color of ['#7ee06a', '#b57bff', '#ffd35a', '#ff5a5a']) this.burst(to.x, to.y, color, 3);
+              if (i === 4) { this.emit({ kind: 'text', text: 'HA HA!', x: to.x - 18, y: to.y - 20, vx: 0, vy: -40, color: '#7ee06a', life: 0.9 }); this.hitPanel(to); }
+            }, 300);
+          });
+        }
+        once('bow', 1, () => { for (let i = 0; i < 18; i++) this.emit({ kind: 'px', x: x + (Math.random() - 0.5) * 60, y: y - 110, vx: (Math.random() - 0.5) * 140, vy: -50 - Math.random() * 80, g: 380, color: pick(['#7ee06a', '#b57bff', '#ffd35a', '#ff5a5a']), life: 1.2 }); });
+        break;
+      case 'butler': {
+        if (t > 0.6 && t < 1.8) every(0.14, () => { const [hx, hy] = hand('l'); this.emit({ kind: 'puff', x: hx + f * 4, y: hy - 16, vx: (Math.random() - 0.5) * 12, vy: -28, g: -10, color: '#f2f4f8', life: 0.9, size: 1 }); });
+        once('tea', 0.7, () => this.say(pick(['Tea is served.', 'Earl Grey, hot.', 'Your tea, sir.']), 1600));
+        once('glint', 2, () => {
+          const [ex, ey] = this.artToScreen([CX + 4, HEAD_Y - 2]);
+          this.emit({ kind: 'star', x: ex, y: ey, vx: 0, vy: 0, color: '#ffffff', life: 0.5 });
+          this.sparkle(ex, ey);
+        });
+        break;
+      }
+      case 'synth': {
+        const high = room(30);
+        this.lift = high * (easeOut(ramp(t, 0, 0.4)) - easeIn(ramp(t, 2.2, 2.6))) + (t > 0.4 && t < 2.2 ? Math.sin(t * 4) * 2 : 0);
+        this.fade = t > 0.4 && t < 1.5 ? (Math.floor(t * 16) % 2 ? 0.25 : 0.5) : 1;
+        if (t > 0.5 && t < 1.4) this.pos.x = clamp(this.pos.x + f * 1.1, 24, window.innerWidth - 24);
+        for (let i = 0; i < 3; i++) {
+          once(`ring${i}`, 1.55 + i * 0.2, () => {
+            const [gx, gy] = this.artToScreen([CX + 1, HEAD_Y - 6]);
+            this.projectiles.push({ kind: 'pulse', from: { x: gx, y: gy }, to: { x: gx, y: gy }, t0: performance.now(), dur: 700, facing: f, color: '#ffe040', size: 0.8 });
+          });
+        }
+        once('beam', 1.6, () => {
+          const [gx, gy] = this.artToScreen([CX + 1, HEAD_Y - 6]);
+          const to = { x: clamp(gx + f * 240, 10, window.innerWidth - 10), y: gy + 30 };
+          this.fire('beam', to);
+        });
+        break;
+      }
+      case 'archer': {
+        const scroll = rectOf('.tl-scroll');
+        for (let i = 0; i < 3; i++) {
+          once(`arrow${i}`, 0.3 + i * 0.3, () => {
+            const [hx, hy] = hand('r');
+            const to = { x: clamp(x + f * (150 + i * 80), 20, window.innerWidth - 20), y: scroll ? clamp(scroll.top + 50 + i * 16, scroll.top + 30, scroll.bottom - 10) : y };
+            this.projectiles.push({ kind: 'lob', from: { x: hx, y: hy }, to, t0: performance.now(), dur: 1100, facing: f });
+            this.later(() => {
+              if (i < 2) return this.land('arrow', to);
+              // The last one is a trick arrow.
+              this.burst(to.x, to.y, '#ff7a45', 14);
+              this.burst(to.x, to.y, '#ffffff', 8);
+              this.emit({ kind: 'text', text: 'BOOM!', x: to.x - 14, y: to.y - 24, vx: 0, vy: -40, color: '#ff7a45', life: 0.9 });
+              this.rumble(to.x, 160);
+              this.hitPanel(to);
+            }, 770);
+          });
+        }
+        once('watch', 1.3, () => this.say(pick(['Three for three.', 'Never miss.', 'Bullseye x3.']), 1400));
+        break;
+      }
+      case 'patriot': {
+        once('throw', 0.35, () => {
+          const [hx, hy] = hand('l');
+          const from = { x: hx, y: hy };
+          const panels = [...document.querySelectorAll<HTMLElement>('[data-panel]')].map((el) => el.getBoundingClientRect()).filter((r) => r.width > 120 && r.height > 80 && r.bottom > 0 && r.top < window.innerHeight);
+          let stops = panels.sort(() => Math.random() - 0.5).slice(0, 3).map((r) => ({ x: r.left + r.width * (0.25 + Math.random() * 0.5), y: r.top + Math.min(40, r.height * 0.3) }));
+          if (stops.length < 2) stops = [{ x: hx + f * 240, y: hy - 120 }, { x: hx + f * 100, y: hy - 220 }];
+          const dur = 1700;
+          this.projectiles.push({ kind: 'ricochet', from, to: from, path: stops, t0: performance.now(), dur, facing: f });
+          stops.forEach((stop, i) => this.later(() => {
+            this.burst(stop.x, stop.y, '#ffffff', 8);
+            this.burst(stop.x, stop.y, '#c8222e', 4);
+            this.emit({ kind: 'text', text: 'CLANG!', x: stop.x - 16, y: stop.y - 22, vx: 0, vy: -40, color: '#c8222e', life: 0.8 });
+            this.hitPanel(stop);
+          }, ((i + 1) / (stops.length + 1)) * dur));
+        });
+        once('catch', 2.1, () => { const [hx, hy] = hand('l'); this.burst(hx, hy, '#ffffff', 6); this.say(pick(['Got it!', 'Always comes back.', 'Shield up!']), 1300); });
+        break;
+      }
+      case 'panther': {
+        if (t < 0.9) every(0.04, () => {
+          const a = Math.random() * Math.PI * 2;
+          const r = 50 + Math.random() * 30;
+          this.emit({ kind: 'px', x: x + Math.cos(a) * r, y: y - 40 + Math.sin(a) * r, vx: -Math.cos(a) * r * 1.6, vy: -Math.sin(a) * r * 1.6, color: pick(['#b57bff', '#e2c8ff', '#ffffff']), life: 0.5 });
+        });
+        once('slam', 1, () => {
+          impact(1, 'KRA-KOOM!', '#b57bff');
+          this.projectiles.push({ kind: 'pulse', from: this.pos, to: { x, y: y - 30 }, t0: performance.now(), dur: 750, facing: f, color: '#b57bff', size: 1.4 });
+        });
+        once('ring', 1.18, () => this.projectiles.push({ kind: 'pulse', from: this.pos, to: { x, y: y - 30 }, t0: performance.now(), dur: 650, facing: f, color: '#e2c8ff', size: 0.9 }));
+        break;
+      }
+      case 'chakra': {
+        const high = room(90);
+        if (t < 0.3) this.lift = 0;
+        else if (t < 1.2) this.lift = high * easeOut(ramp(t, 0.3, 1.2));
+        else if (t < 1.8) this.lift = high + Math.sin(t * 6) * 3;
+        else this.lift = high * (1 - easeIn(ramp(t, 1.8, 2)));
+        once('wind', 0.25, () => this.projectiles.push({ kind: 'whirl', from: { x, y }, to: { x, y }, t0: performance.now(), dur: 1700, facing: f }));
+        if (t < 2) every(0.05, () => {
+          const a = t * 14 + Math.random();
+          this.emit({ kind: 'px', x: x + Math.cos(a) * 34, y: y - this.lift - 20 - Math.random() * 80, vx: -Math.sin(a) * 90, vy: -30, color: pick(['#ffffff', '#9cc4ee', '#ffd23d']), life: 0.4 });
+        });
+        once('land', 2, () => {
+          this.dust(x, y, 10);
+          for (const color of ['#ffd23d', '#ffffff']) this.burst(x, y - 50, color, 10);
+          text('JAI HO!', '#ffd23d');
+        });
+        break;
+      }
+    }
+  }
+
   private endJob(job: Job, now: number) {
+    if (STUNTS.has(job.kind)) this.dropStunt();
     this.release(job);
     this.job = null;
     this.tag = null;
@@ -1011,7 +1380,16 @@ export class AvatarEngine {
     event.preventDefault();
     event.stopPropagation();
     this.hitbox.setPointerCapture(event.pointerId);
-    const midAir = this.mode === 'falling';
+    // Caught in the middle of a stunt: it is taken from where it is in the air, and the move is over.
+    const midAir = this.mode === 'falling' || this.lift > 0;
+    if (this.lift > 0) {
+      this.pos.y -= this.lift;
+      // Let go from here, it falls only as far as it was lifted.
+      this.fallFrom = this.pos.y;
+      this.vel = { x: 0, y: 0 };
+    }
+    this.lift = 0;
+    if (this.job && STUNTS.has(this.job.kind)) this.endJob(this.job, performance.now());
     this.mode = 'held';
     this.travel = null;
     this.legs = [];
@@ -1056,6 +1434,14 @@ export class AvatarEngine {
       this.angle = 0;
       this.angleVel = 0;
       this.pos = held.origin;
+      // A double-click: its signature move, instead of a second giggle.
+      if (now - this.lastClick < 420) {
+        this.lastClick = 0;
+        if (this.job?.kind === 'poked') this.job = null;
+        this.interrupt(this.signatureJob());
+        return;
+      }
+      this.lastClick = now;
       this.interrupt(this.makeJob('poked', { line: this.line('poked'), minMs: 700 }));
       return;
     }
@@ -1230,7 +1616,7 @@ export class AvatarEngine {
 
   private artToScreen([ax, ay]: [number, number]): [number, number] {
     const flipped = this.facing < 0 ? CX - (ax - CX) : ax;
-    return [this.pos.x + (flipped - CX) * S, this.pos.y + (ay - FEET_Y) * S];
+    return [this.pos.x + (flipped - CX) * S, this.pos.y - this.lift + (ay - FEET_Y) * S];
   }
 
   private emit(p: Omit<Particle, 'age' | 'g'> & { g?: number }) {
@@ -1422,7 +1808,8 @@ export class AvatarEngine {
       paint(this.spriteCtx, poseAt(this.anim, t, { ...this.opts, character: this.character }));
     }
     const left = Math.round(this.pos.x - CX * S);
-    const top = Math.round(this.pos.y - FEET_Y * S);
+    const top = Math.round(this.pos.y - this.lift - FEET_Y * S);
+    this.put(this.body, 'opacity', this.fade === 1 ? '' : this.fade.toFixed(2));
     const swing = this.mode === 'held' ? this.swing : null;
     const origin = swing ? this.gripLocal(swing) : COM_LOCAL;
     this.put(this.body, 'transformOrigin', `${origin.x.toFixed(1)}px ${origin.y.toFixed(1)}px`);
@@ -1438,23 +1825,24 @@ export class AvatarEngine {
     this.put(this.body, 'transform', `translate3d(${left}px, ${top}px, 0) ${turn}`);
     // The golden hero's whirlwind: the sprite turns like a top (its width swings through zero and flips).
     let flip: number = this.facing;
-    if (this.character === 'chakra' && SPIN.has(this.anim)) {
+    if (this.character === 'chakra' && (SPIN.has(this.anim) || (this.anim === 'signature' && t < 2))) {
       const c = Math.cos(t * 16);
       flip *= Math.sign(c || 1) * Math.max(0.12, Math.abs(c));
     }
     this.put(this.sprite, 'transform', flip === 1 ? '' : flip === -1 ? 'scaleX(-1)' : `scaleX(${flip.toFixed(2)})`);
     // The shadow stays on the surface under a hop, and fades the higher it goes.
     const groundY = this.travel ? this.travel.from.y + (this.travel.to.y - this.travel.from.y) * clamp((now - this.travel.t0) / this.travel.dur, 0, 1) : this.pos.y;
-    const lift = Math.max(0, groundY - this.pos.y);
+    const lift = Math.max(0, groundY - this.pos.y) + this.lift;
     this.put(this.shadow, 'display', this.mode === 'free' && !this.sitting && this.anim !== 'research' && this.anim !== 'sleep' ? '' : 'none');
     this.put(this.shadow, 'transform', `translate3d(${Math.round(this.pos.x - 14 * S)}px, ${Math.round(groundY - 3 * S)}px, 0)`);
-    this.put(this.shadow, 'opacity', String(clamp(0.45 - lift / 200, 0.1, 0.45)));
+    this.put(this.shadow, 'opacity', String(clamp(0.45 - lift / 200, 0.1, 0.45) * this.fade));
+    const feet = this.pos.y - this.lift;
 
     if (this.tag && this.mode === 'free') {
       this.drawTag();
       this.put(this.tagEl, 'display', '');
       const w = this.tagEl.width * S;
-      this.put(this.tagEl, 'transform', `translate3d(${Math.round(this.pos.x - w / 2)}px, ${Math.round(this.pos.y - (FEET_Y - this.top + 3) * S - this.tagEl.height * S)}px, 0)`);
+      this.put(this.tagEl, 'transform', `translate3d(${Math.round(this.pos.x - w / 2)}px, ${Math.round(feet - (FEET_Y - this.top + 3) * S - this.tagEl.height * S)}px, 0)`);
     } else {
       this.put(this.tagEl, 'display', 'none');
       delete this.tagEl.dataset.role;
@@ -1467,7 +1855,7 @@ export class AvatarEngine {
       this.put(this.bubbleEl, 'display', '');
       const bw = this.bubbleEl.width * S;
       const bh = this.bubbleEl.height * S;
-      const headTop = this.pos.y - (FEET_Y - this.top - 2) * S - (this.tag ? 22 : 0);
+      const headTop = feet - (FEET_Y - this.top - 2) * S - (this.tag ? 22 : 0);
       const x = flip ? this.pos.x - 10 - bw : this.pos.x + 10;
       this.put(this.bubbleEl, 'transform', `translate3d(${Math.round(clamp(x, 4, window.innerWidth - bw - 4))}px, ${Math.round(Math.max(4, headTop - bh))}px, 0)`);
     } else this.put(this.bubbleEl, 'display', 'none');
@@ -1477,7 +1865,7 @@ export class AvatarEngine {
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
       this.fxDirty = this.particles.length > 0 || this.projectiles.length > 0 || !!this.rope;
       // Webs and grapples hang from the hand; whatever a hero threw flies until it is over.
-      if (this.rope) drawProjectile(ctx, { kind: this.rope.kind, from: this.handScreen('r', now), to: this.rope.anchor, t0: now, dur: 1000, facing: this.facing }, now, S);
+      if (this.rope) drawProjectile(ctx, { kind: this.rope.kind, from: this.rope.from ?? this.handScreen('r', now), to: this.rope.anchor, t0: now, dur: 1000, facing: this.facing }, now, S);
       if (this.projectiles.length) this.projectiles = this.projectiles.filter((p) => drawProjectile(ctx, p, now, S));
       for (const p of this.particles) {
         // Pixel-game fade: blink out over the last third instead of going transparent.
@@ -1487,6 +1875,11 @@ export class AvatarEngine {
         ctx.fillStyle = p.color;
         const dot = (dx: number, dy: number) => ctx.fillRect(x + dx * S, y + dy * S, S * (p.size ?? 1), S * (p.size ?? 1));
         if (p.kind === 'px') dot(0, 0);
+        else if (p.kind === 'puff') {
+          // A round puff of smoke or steam that swells as it goes.
+          const r = Math.max(1, Math.round((p.size ?? 2) * (0.6 + (p.age / p.life) * 0.9)));
+          for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r + 1) ctx.fillRect(x + dx * S, y + dy * S, S, S);
+        }
         else if (p.kind === 'plus') { dot(0, 0); dot(1, 0); dot(-1, 0); dot(0, 1); dot(0, -1); }
         else if (p.kind === 'star') { dot(0, 0); dot(1, 0); dot(-1, 0); dot(0, 1); dot(0, -1); dot(2, 0); dot(-2, 0); dot(0, 2); dot(0, -2); }
         else if (p.kind === 'marks') {
